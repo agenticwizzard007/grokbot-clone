@@ -1,3 +1,4 @@
+import { isEffort } from './types.js';
 import { db, now } from './db.js';
 import { env } from './env.js';
 import { hub } from './lib/hub.js';
@@ -43,7 +44,7 @@ export function createBot(userId: string, b: CreateBotInput): Bot {
   const id = newId('bot');
   const shape = AVATAR_SHAPES.includes(b.avatarShape as AvatarShape) ? b.avatarShape : hashPick(id, AVATAR_SHAPES.slice(0, 13));
   const color = AVATAR_COLORS.includes(b.avatarColor as AvatarColor) ? b.avatarColor : hashPick(id, AVATAR_COLORS.filter((c) => c !== 'black'));
-  const effort = ['low', 'medium', 'high', 'xhigh'].includes(String(b.effort)) ? b.effort : 'medium';
+  const effort = isEffort(b.effort) ? b.effort : 'medium';
   const model = typeof b.model === 'string' ? b.model.trim().slice(0, 120) || null : null;
   try {
     db.transaction(() => {

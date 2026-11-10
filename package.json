@@ -2,7 +2,10 @@
   "name": "swarm",
   "private": true,
   "description": "Swarm by Swarms.so: AI teammates with computer use, connected apps, memory, and voice.",
-  "workspaces": ["server", "web"],
+  "workspaces": [
+    "server",
+    "web"
+  ],
   "scripts": {
     "dev": "npm run dev -w server & npm run dev -w web",
     "build": "npm run build -w web && npm run build -w server",
@@ -16,7 +19,10 @@
     "test:messaging": "node --import tsx --test --test-concurrency=1 tests/messaging.test.mts",
     "test:composio": "node --import tsx --test tests/composio.test.mts",
     "test:usage": "node --import tsx --test --test-concurrency=1 tests/usage.test.mts",
-    "test:bots": "node --import tsx --test tests/bot-creation.test.mts && node tests/bot-creation-chat.mjs"
+    "test:bots": "node --import tsx --test tests/bot-creation.test.mts && node tests/bot-creation-chat.mjs",
+    "test:models": "node --import tsx --test --test-concurrency=1 tests/models.test.mts"
   },
-  "engines": { "node": ">=22" }
+  "engines": {
+    "node": ">=22"
+  }
 }

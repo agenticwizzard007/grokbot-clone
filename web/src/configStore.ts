@@ -5,7 +5,7 @@ import { enterChatPane, useStore } from './store';
 /** UI state for bot settings, app settings, the Tasks view and the theme. Kept apart from store.ts on purpose. */
 
 export type Theme = 'system' | 'light' | 'dark';
-export type BotSettingsTab = 'general' | 'skills' | 'memories' | 'routines';
+export type BotSettingsTab = 'general' | 'skills' | 'memories' | 'routines' | 'analytics';
 export type AppSection = 'general' | 'keys' | 'usage' | 'computer' | 'messaging' | 'permissions' | 'apps' | 'mcp' | 'account';
 
 interface ConfigUI {

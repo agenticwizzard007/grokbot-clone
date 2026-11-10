@@ -83,7 +83,7 @@ export const manifestSchema = z.object({
   format: z.literal('swarm.bot-setup'), version: z.union([z.literal(1), z.literal(2)]), brief: briefSchema,
   bot: z.object({
     name: z.string().trim().min(1).max(60), label: z.string().max(40), description: z.string().max(300), instructions: z.string().max(8000),
-    avatarShape: z.string(), avatarColor: z.string(), mode: z.enum(['personal', 'teammate']), effort: z.enum(['low', 'medium', 'high', 'xhigh']),
+    avatarShape: z.string(), avatarColor: z.string(), mode: z.enum(['personal', 'teammate']), effort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode']),
     model: z.string().max(120).nullable(), voice: z.string().max(40), voiceSpeed: z.number().min(0.7).max(1.5), voiceLanguage: z.string().max(40),
   }),
   source: z.object({ creatorBotId: z.string().optional(), creatorName: z.string().optional(), generation: z.number().optional(), messages: z.array(z.object({ seq: z.number(), text: z.string() })).max(30), interviewMessages: z.array(z.object({ generation: z.number(), seq: z.number(), text: z.string() })).optional() }),

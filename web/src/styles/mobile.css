@@ -199,3 +199,9 @@
   /* Settings tab bar: "‹ Bots" leaves room for more sections */
   .app-settings__back-prefix { display: none; }
 }
+
+@media (max-width: 760px) {
+  /* Bot settings: six effort levels as a 3×2 grid rather than a wrapped pill */
+  .cfg-seg[aria-label='Thinking effort'] { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-radius: 12px; align-self: stretch; }
+  .cfg-seg[aria-label='Thinking effort'] button { display: inline-flex; align-items: center; justify-content: center; border-radius: 9px; height: 32px; }
+}

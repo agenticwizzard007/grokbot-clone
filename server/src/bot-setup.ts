@@ -38,7 +38,7 @@ export const creationSchema = briefSchema.extend({
   source_message_seqs: z.array(z.number().int().positive()).min(1).max(30).describe('Relevant user message numbers from the creation context in your system prompt. Include the brief and any corrections; omit unrelated messages.'),
   handoff_message: z.string().trim().max(8000).optional(),
   mode: z.enum(['personal', 'teammate']).optional(),
-  effort: z.enum(['low', 'medium', 'high', 'xhigh']).optional(),
+  effort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode']).optional(),
   avatar_shape: z.string().optional(),
   avatar_color: z.string().optional(),
 });

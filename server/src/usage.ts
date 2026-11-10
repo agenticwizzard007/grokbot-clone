@@ -71,6 +71,7 @@ const countSearchItems = (output: unknown) => (Array.isArray(output) ? output.fi
 /** Price per million tokens for a model, from OpenRouter's catalog (exact id, or "vendor/<model>"). */
 async function priceFor(model: string): Promise<{ input: number; output: number } | null> {
   const list = await openrouterModels().catch(() => []);
+  model = model.replace(/:nitro$/, '');
   const m = list.find((x) => x.id === model) ?? list.find((x) => x.id.endsWith(`/${model}`));
   return m?.price ?? null;
 }

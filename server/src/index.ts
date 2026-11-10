@@ -18,6 +18,7 @@ import { enqueue } from './agent/loop.js';
 import { desSelfTest } from './lib/des.js';
 import { configApi } from './routes-config.js';
 import { usageApi } from './routes-usage.js';
+import { modelsApi } from './routes-models.js';
 import { withUsage } from './usage.js';
 import { startVmMeter } from './usage-vm.js';
 import { userFromCookieHeader } from './lib/auth.js';
@@ -53,6 +54,7 @@ app.route('/api/rooms', roomsApi);
 app.route('/api', api);
 app.route('/api', configApi);
 app.route('/api/usage', usageApi);
+app.route('/api', modelsApi);
 app.route('/api/mcp/servers', mcpApi);
 
 // Serve the built web app in production.

@@ -45,7 +45,7 @@ const inHours = (t: number) => {
 };
 
 /** Clean axis ticks from 0 up past `max` (1 / 2 / 2.5 / 5 × 10^n steps, at most 5 ticks). */
-function niceTicks(max: number): number[] {
+export function niceTicks(max: number): number[] {
   if (!(max > 0)) return [0];
   const p = 10 ** Math.floor(Math.log10(max / 4));
   const step = [1, 2, 2.5, 5, 10].map((m) => m * p).find((s) => s * 4 >= max) ?? 10 * p;
