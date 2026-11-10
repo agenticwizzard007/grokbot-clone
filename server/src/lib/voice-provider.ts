@@ -9,6 +9,7 @@ export function voiceProvider() {
     key: platform ? env.voiceKey : env.directKey,
     baseUrl,
     provider: platform ? 'xai' : 'direct',
+    clientSecretProtocol: platform ? 'xai-client-secret' : 'direct-client-secret',
     model,
     // xAI selects its realtime model at the endpoint; legacy compatible servers accept a model query.
     websocketUrl: `${baseUrl.replace(/^http/i, 'ws')}/realtime${platform ? '' : `?model=${encodeURIComponent(model)}`}`,

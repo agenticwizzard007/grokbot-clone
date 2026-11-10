@@ -130,7 +130,8 @@ class VoiceCall {
   }
 
   private connect(sess: VoiceSession) {
-    const ws = new WebSocket(sess.websocketUrl, [`direct-client-secret.${sess.clientSecret}`]);
+    const protocol = sess.clientSecretProtocol ?? 'direct-client-secret';
+    const ws = new WebSocket(sess.websocketUrl, [`${protocol}.${sess.clientSecret}`]);
     this.ws = ws;
     this.connectTimer = setTimeout(() => { if (!this.ready) this.end('Couldn’t connect the call'); }, 15000);
     ws.onopen = () => this.send({ type: 'session.update', session: sess.session });

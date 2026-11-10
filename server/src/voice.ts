@@ -286,6 +286,7 @@ voiceApi.post('/session', async (c) => {
   return c.json({
     callId,
     clientSecret: secret.value,
+    clientSecretProtocol: provider.clientSecretProtocol,
     expiresAt: secret.expires_at,
     model: provider.model,
     websocketUrl: provider.websocketUrl,

@@ -116,6 +116,7 @@ test('existing and newly created accounts inherit voice, with only an ephemeral 
     assert.equal(response.status, 200); assert.equal(response.headers.get('cache-control'), 'no-store');
     const body = await response.json();
     assert.equal(body.clientSecret, 'ephemeral-test-credential');
+    assert.equal(body.clientSecretProtocol, 'xai-client-secret');
     assert.equal(body.websocketUrl, `${base.replace('http', 'ws')}/xai/realtime`);
     assert.ok(!JSON.stringify(body).includes(key));
     assert.ok(body.instructions.includes(bot.name));

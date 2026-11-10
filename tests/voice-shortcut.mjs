@@ -47,7 +47,7 @@ try {
       else if (path === '/api/events') return route.fulfill({ contentType: 'text/event-stream', body: 'data: {"type":"hello"}\n\n' });
       else if (path === '/api/voice/session') {
         sessions.push(route.request().postDataJSON());
-        body = { callId: `call-${sessions.length}`, clientSecret: 'test-only', websocketUrl: 'wss://voice.example.test/realtime', sampleRate: 24000, session: {}, tools: [] };
+        body = { callId: `call-${sessions.length}`, clientSecret: 'test-only', clientSecretProtocol: 'xai-client-secret', websocketUrl: 'wss://voice.example.test/realtime', sampleRate: 24000, session: {}, tools: [] };
       } else if (path === '/api/voice/end') { ended.push(route.request().postDataJSON()); body = { ok: true }; }
       await route.fulfill({ json: body });
     });
@@ -60,6 +60,17 @@ try {
     });
     const request = (id = randomUUID()) => page.evaluate(id => window.swarmStartMainVoice(id), id);
     await page.goto(`${origin}/#settings/account`);
+    // Install after Playwright's WebSocket routing shim so this records the app's handshake arguments.
+    await page.evaluate(() => {
+      const OriginalWebSocket = window.WebSocket;
+      window.__voiceProtocols = [];
+      window.WebSocket = class extends OriginalWebSocket {
+        constructor(url, protocols) {
+          super(url, protocols);
+          if (String(url).includes('/realtime')) window.__voiceProtocols.push(protocols);
+        }
+      };
+    });
     if (native) await page.waitForFunction(() => typeof window.swarmStartMainVoice === 'function');
     return { page, request, errors, sessions, ended, frames, releaseBots };
   }
@@ -74,6 +85,7 @@ try {
   assert.equal(await f.request(id), 'started');
   await f.page.locator('.vcall.is-live').waitFor();
   assert.equal(f.sessions[0].botId, 'main', 'always calls the primary agent, not the selected/first bot');
+  assert.deepEqual(await f.page.evaluate(() => window.__voiceProtocols[0]), ['xai-client-secret.test-only'], 'uses the provider-specific ephemeral authentication protocol');
   assert.equal(await f.page.locator('.app-settings').count(), 0, 'voice opens the chat through settings');
   assert.equal(await f.page.locator('.chat__pill-name').textContent(), 'Main agent');
   await f.page.waitForFunction(() => document.querySelector('.vcall.is-live') !== null);
