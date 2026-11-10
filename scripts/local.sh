@@ -68,7 +68,8 @@ start() {
     if curl -sf "$URL/api/health" >/dev/null; then
       echo "Something else is already serving $URL. Stop it first (or set PORT)."; exit 1
     fi
-    (cd server && nohup node --env-file=../.env dist/index.js >> "$LOGFILE" 2>&1 & echo $! > "$PIDFILE")
+    # cd first, then background only node, so $! is the server's own pid
+    (cd server || exit 1; nohup node --env-file=../.env dist/index.js >> "$LOGFILE" 2>&1 & echo $! > "$PIDFILE")
     for _ in $(seq 1 40); do curl -sf "$URL/api/health" >/dev/null && break; running || break; sleep 0.5; done
   fi
   if ! running || ! curl -sf "$URL/api/health" >/dev/null; then
