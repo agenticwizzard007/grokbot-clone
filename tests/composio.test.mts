@@ -248,6 +248,61 @@ test('a new project never reuses cached or saved sessions from the previous key'
   assert.equal(use.mock.callCount(), 0);
 });
 
+test('prompt connection caching shares requests, isolates users and invalidates on connection changes', async () => {
+  const { client } = freshClient();
+  let active = 'gmail';
+  const list = mock.method(client.connectedAccounts, 'list', async ({ userIds }: any) => ({
+    items: [{ id: userIds[0], toolkit: { slug: userIds[0] === 'owner' ? active : 'slack' }, status: 'ACTIVE' }], nextCursor: null,
+  }));
+  const [a, b] = await Promise.all([connectedToolkits('owner', true), connectedToolkits('owner', true)]);
+  assert.equal(list.mock.callCount(), 1);
+  a.clear();
+  assert.deepEqual([...b], ['gmail']);
+  assert.deepEqual([...await connectedToolkits('other', true)], ['slack']);
+  active = 'calendar';
+  assert.deepEqual([...await connectedToolkits('owner', true)], ['gmail']);
+  // Management/authorization reads must not use the prompt's cached view.
+  assert.deepEqual([...await connectedToolkits('owner')], ['calendar']);
+  invalidateComposioSession('owner');
+  assert.deepEqual([...await connectedToolkits('owner', true)], ['calendar']);
+});
+
+test('prompt connection cache expires and failed reads can retry', async () => {
+  const { client } = freshClient();
+  let fail = true;
+  const list = mock.method(client.connectedAccounts, 'list', async () => {
+    if (fail) throw new Error('offline');
+    return { items: [], nextCursor: null };
+  });
+  await assert.rejects(connectedToolkits('owner', true), /offline/);
+  fail = false;
+  await connectedToolkits('owner', true);
+  const future = Date.now() + 31_000;
+  const clock = mock.method(Date, 'now', () => future);
+  try { await connectedToolkits('owner', true); } finally { clock.mock.restore(); }
+  assert.equal(list.mock.callCount(), 3);
+});
+
+test('tool definitions are shared per session and refetched after invalidation or failures', async () => {
+  const { composioTools } = await import('../server/src/composio.js');
+  const { client } = freshClient();
+  let calls = 0, fail = true;
+  mock.method(client, 'create', async (userId: string) => ({
+    sessionId: `tool-cache-${userId}`,
+    tools: async () => { calls++; if (fail) throw new Error('offline'); return [{ name: userId }]; },
+  }));
+  assert.deepEqual(await composioTools('owner'), []);
+  fail = false;
+  const [a, b] = await Promise.all([composioTools('owner'), composioTools('owner')]);
+  assert.deepEqual(a, [{ name: 'owner' }]);
+  assert.deepEqual(a, b);
+  assert.equal(calls, 2);
+  assert.deepEqual(await composioTools('other'), [{ name: 'other' }]);
+  invalidateComposioSession('owner');
+  await composioTools('owner');
+  assert.equal(calls, 4);
+});
+
 test('legacy saved sessions without a project fingerprint are replaced', async () => {
   const { client } = freshClient();
   db.prepare('INSERT OR REPLACE INTO composio_sessions(user_id,session_id) VALUES (?,?)').run('other', 'legacy');

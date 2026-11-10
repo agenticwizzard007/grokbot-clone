@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type RFBType from '@novnc/novnc';
 import { BotAvatarFor } from '../avatar/BotAvatar';
 import { api } from '../lib/api';
+import { usePageVisible } from '../lib/usePageVisible';
 import { botVars } from '../lib/colors';
 import { useSelectedBot, useStore } from '../store';
 import { computerStatusText } from './DetailsPanel';
@@ -21,8 +22,34 @@ export function ComputerViewer() {
   const [mode, setMode] = useState<Mode>('watch');
   const [conn, setConn] = useState<Conn>('connecting');
   const [attempt, setAttempt] = useState(0);
+  const [wakeError, setWakeError] = useState<string | null>(null);
+  const [waking, setWaking] = useState(false);
+  const wakeRequested = useRef<string | null>(null);
+  const wakeInFlight = useRef(false);
+  const mounted = useRef(false);
+  const visible = usePageVisible();
   const running = computer?.status === 'running';
   const close = () => set({ viewerOpen: false });
+
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+
+  const wake = useCallback(() => {
+    if (!bot || wakeInFlight.current) return;
+    wakeRequested.current = bot.id;
+    wakeInFlight.current = true;
+    setWaking(true);
+    setWakeError(null);
+    api.ensureComputer().then(({ computer }) => { if (mounted.current) set({ computer }); })
+      .catch(e => { if (mounted.current) setWakeError(e.message); })
+      .finally(() => { wakeInFlight.current = false; if (mounted.current) setWaking(false); });
+  }, [bot?.id, set]);
+
+  useEffect(() => {
+    if (!visible) { wakeRequested.current = null; return; }
+    if (!bot || computer?.provider === 'local' || !computer || !['suspended', 'stopped', 'absent'].includes(computer.status) || wakeRequested.current === bot.id) return;
+    // Opening the computer is an explicit request to use it; overlap wake-up with viewer loading.
+    wake();
+  }, [visible, bot?.id, computer?.provider, computer?.status, wake]);
 
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
@@ -35,7 +62,7 @@ export function ComputerViewer() {
   }, [mode]);
 
   useEffect(() => {
-    if (!bot || !running || !screenRef.current) return;
+    if (!visible || !bot || !running || !screenRef.current) return;
     let disposed = false;
     let rfb: RFBType | null = null;
     setConn('connecting');
@@ -54,17 +81,17 @@ export function ComputerViewer() {
       rfb.addEventListener('disconnect', (e) => { if (!disposed) setConn((e as CustomEvent<{ clean: boolean }>).detail?.clean ? 'disconnected' : 'error'); });
       rfb.addEventListener('securityfailure', () => { if (!disposed) setConn('error'); });
       rfbRef.current = rfb;
-    })().catch(() => setConn('error'));
+    })().catch(() => { if (!disposed) setConn('error'); });
     return () => {
       disposed = true;
       try { rfb?.disconnect(); } catch { /* already closed */ }
       rfbRef.current = null;
       if (screenRef.current) screenRef.current.innerHTML = '';
     };
-  }, [bot?.id, running, mode, attempt]);
+  }, [visible, bot?.id, running, mode, attempt]);
 
   if (!bot) return null;
-  const busy = computer?.status === 'starting' || computer?.status === 'resuming' || computer?.status === 'creating';
+  const busy = waking || computer?.status === 'starting' || computer?.status === 'resuming' || computer?.status === 'creating';
 
   return (
     <div className="viewer" role="dialog" aria-modal="true" aria-label={`${bot.name}'s computer`} style={botVars(bot.avatarColor)}>
@@ -103,11 +130,11 @@ export function ComputerViewer() {
               </>
             ) : (
               <>
-                <span>{busy ? computerStatusText(computer) : 'The computer is asleep.'}</span>
-                {!busy && <button type="button" className="btn btn--light" onClick={() => api.ensureComputer().catch(() => {})}>Wake computer</button>}
+                <span>{waking ? 'Waking up…' : busy ? computerStatusText(computer) : 'The computer is asleep.'}</span>
+                {!busy && <button type="button" className="btn btn--light" onClick={wake}>Wake computer</button>}
               </>
             )}
-            {computer?.error && <span className="viewer__err">{computer.error}</span>}
+            {(wakeError || computer?.error) && <span className="viewer__err">{wakeError || computer?.error}</span>}
           </div>
         )}
       </div>

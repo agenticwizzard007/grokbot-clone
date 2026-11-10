@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Bot, ComputerState, Routine } from '@shared/types';
 import { BotAvatarFor } from '../avatar/BotAvatar';
 import { api, openPopup } from '../lib/api';
+import { usePageVisible } from '../lib/usePageVisible';
 import { botVars } from '../lib/colors';
 import { displayName, useSelectedBot, useStore } from '../store';
 import { Icon } from './Icon';
@@ -56,20 +57,22 @@ function RoutineRow({ r }: { r: Routine }) {
 
 function ComputerCard({ bot }: { bot: Bot }) {
   const computer = useStore((s) => s.computer);
+  const viewerOpen = useStore((s) => s.viewerOpen);
   const set = useStore((s) => s.set);
   const [shot, setShot] = useState<string | null>(null);
+  const visible = usePageVisible();
   const running = computer?.status === 'running';
 
-  // Refresh the thumbnail every ~4s while visible and awake. 204 = no screen yet.
+  // One preview when shown or after closing the viewer. Never poll a VM just for a thumbnail.
   useEffect(() => {
     setShot(null);
-    if (!running) return;
+    if (!running || viewerOpen || !visible) return;
     let alive = true;
     let url: string | null = null;
+    const ctrl = new AbortController();
     const load = async () => {
-      if (document.visibilityState !== 'visible') return;
       try {
-        const res = await fetch(`/api/bots/${bot.id}/screenshot`, { credentials: 'include', cache: 'no-store' });
+        const res = await fetch(`/api/bots/${bot.id}/screenshot`, { credentials: 'include', cache: 'no-store', signal: ctrl.signal });
         if (!alive) return;
         if (res.status === 204) { setShot(null); return; }
         if (res.status === 200) {
@@ -83,9 +86,8 @@ function ComputerCard({ bot }: { bot: Bot }) {
       } catch { /* keep last frame */ }
     };
     load();
-    const t = setInterval(load, 4000);
-    return () => { alive = false; clearInterval(t); if (url) URL.revokeObjectURL(url); };
-  }, [bot.id, running]);
+    return () => { alive = false; ctrl.abort(); if (url) URL.revokeObjectURL(url); };
+  }, [bot.id, running, viewerOpen, visible]);
 
   const busy = computer?.status === 'starting' || computer?.status === 'resuming' || computer?.status === 'creating';
   return (

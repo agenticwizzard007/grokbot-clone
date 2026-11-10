@@ -105,7 +105,10 @@ api.get('/events', (c) => {
     await stream.writeSSE({ data: JSON.stringify({ type: 'hello', serverTime: now() }) });
     while (!stream.aborted) {
       if (!queue.length) {
-        await Promise.race([new Promise<void>((r) => (wake = r)), new Promise((r) => setTimeout(r, 20_000))]);
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, 20_000);
+          wake = () => { clearTimeout(timer); resolve(); };
+        });
         wake = null;
         if (!queue.length) { await stream.writeSSE({ data: JSON.stringify({ type: 'ping' }) }); continue; }
       }

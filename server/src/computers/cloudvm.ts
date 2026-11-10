@@ -153,6 +153,23 @@ export function ensureVm(userId: string): Promise<VmRow> {
 export async function suspendVm(userId: string, reason = 'manual') {
   const vm = vmFor(userId);
   if (!vm?.ext_id || !['running', 'starting', 'resuming'].includes(vm.status)) return;
+  // On an outdated image: stop and move it to the current image instead of pausing it, so its next
+  // wake is one fresh boot (a few seconds longer) with the new image; later wakes are quick again.
+  if (vm.image && vm.image !== env.vmImage) {
+    console.log(`[cloudvm] stopping VM for user=${userId} to update its image (${vm.image} → ${env.vmImage}; ${reason})`);
+    setStatus(vm.vm_id, 'suspending');
+    try {
+      await driver.stop(vm.ext_id);
+      dropCompanion(userId, 'computer updating');
+      await driver.setImage(vm.ext_id, env.vmImage);
+      db.prepare('UPDATE vms SET image=? WHERE vm_id=?').run(env.vmImage, vm.vm_id);
+      setStatus(vm.vm_id, 'stopped');
+    } catch (e: any) {
+      setStatus(vm.vm_id, 'running', { error: String(e?.message ?? e) });
+      throw e;
+    }
+    return;
+  }
   console.log(`[cloudvm] suspending VM for user=${userId} (${reason})`);
   setStatus(vm.vm_id, 'suspending');
   try {
@@ -208,7 +225,7 @@ export async function resizeVm(userId: string) {
 
 const PROMPT =
   "You have your own computer in the cloud: a Linux desktop screen that only you use, with Google Chrome (your own logged-in profile) and a bash shell. Your teammates (the user's other Bots) each have their own screen on the same machine. " +
-  "Do all web work with the browser_* tools, which drive your Chrome through Playwright: browser_navigate to open a page, browser_snapshot to read it (every element has a ref, e.g. e12), then browser_click, browser_type, browser_fill_form, browser_select_option and browser_press_key on those refs; browser_tabs for tabs, browser_wait_for to wait for text, browser_file_upload for files on your computer, browser_take_screenshot to see the page. Actions that change the page (navigate, click, type, …) already return the updated page snapshot, so you rarely need to call browser_snapshot yourself. " +
+  "Do all web work with the browser_* tools, which drive your Chrome through Playwright: browser_navigate to open a page, browser_snapshot to read it (every element has a ref, e.g. e12), then browser_click, browser_type, browser_fill_form, browser_select_option and browser_press_key on those refs; browser_tabs for tabs, browser_wait_for to wait for text, browser_file_upload for files on your computer, browser_take_screenshot to see the page. browser_navigate and the other actions (click, type, …) return the loaded page with its elements: work from that result. Don't call browser_wait_for, browser_snapshot or browser_navigate again unless the returned page is clearly still loading or is the wrong page. Keep tasks to as few steps as possible. " +
   "Use the computer_* tools only for things outside the browser (other apps, system dialogs) or to look at your whole screen, and shell for commands and files (your folder is your shell's starting folder; files there persist). " +
   "If a page shows a CAPTCHA or a 'verify you are human' check, don't try to solve it: ask the user to solve it on your screen (they can open it from your chat), then continue. Save finished deliverables (reports, notes, data) with save_file so they appear in the user's Library.";
 

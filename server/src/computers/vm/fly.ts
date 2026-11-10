@@ -110,6 +110,13 @@ export const flyDriver: VmDriver = {
     return ms.filter((m) => m.config?.metadata?.swarm_vm && m.state !== 'destroyed').map(info);
   },
 
+  async setImage(id, image) {
+    const m = await api('GET', `/machines/${id}`);
+    if (m.config?.image === image) return;
+    if (m.state === 'suspended') { await api('POST', `/machines/${id}/stop`, {}); await api('GET', `/machines/${id}/wait?state=stopped&instance_id=${m.instance_id}&timeout=60`).catch(() => {}); }
+    await api('POST', `/machines/${id}`, { config: { ...m.config, image }, skip_launch: true });
+  },
+
   async resize(id, memoryMb, cpus) {
     const m = await api('GET', `/machines/${id}`);
     // The Machines API replaces the whole config. Stop a suspended machine first, and keep it down

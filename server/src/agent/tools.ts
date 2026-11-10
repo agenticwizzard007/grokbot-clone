@@ -4,6 +4,7 @@ import { checkRoutineCreate } from '../routine-limits.js';
 import { newId } from '../lib/ids.js';
 import { hub } from '../lib/hub.js';
 import { computers } from '../computers/index.js';
+import type { BotScreen } from '../computers/types.js';
 import { appendRow, getBotRow, listRoutines, toRoutine, describeCron } from '../store.js';
 import { APPS_OFF, executeComposio, innerToolSlugs, isReadOnlySlug, toolkitInfo } from '../composio.js';
 import { env } from '../env.js';
@@ -48,9 +49,13 @@ interface ToolDef {
 
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', properties, required, additionalProperties: false });
 
-async function shot(ctx: ToolCtx, caption: string): Promise<ToolResult> {
-  const screen = await computers.screen(ctx.userId, ctx.botId);
-  await new Promise((r) => setTimeout(r, 700));
+const configuredSettle = Number(process.env.COMPUTER_SETTLE_MS ?? 150);
+const settleMs = Number.isFinite(configuredSettle) ? Math.max(0, Math.min(2000, configuredSettle)) : 150;
+
+async function shot(ctx: ToolCtx, caption: string, actedScreen?: BotScreen): Promise<ToolResult> {
+  // Reuse the screen lease after an action. A read-only screenshot needs no delay.
+  const screen = actedScreen ?? await computers.screen(ctx.userId, ctx.botId);
+  if (actedScreen && settleMs) await new Promise((r) => setTimeout(r, settleMs));
   const s = await screen.screenshot();
   return {
     output: [
@@ -93,8 +98,9 @@ export const TOOLS: ToolDef[] = [
     activity: 'on_its_computer',
     label: 'Clicking on screen',
     impl: async (a, ctx) => {
-      await (await onScreen(ctx)).click({ x: a.x, y: a.y, button: a.button ?? 'left', double: !!a.double });
-      return shot(ctx, `Clicked (${a.x}, ${a.y}).`);
+      const screen = await onScreen(ctx);
+      await screen.click({ x: a.x, y: a.y, button: a.button ?? 'left', double: !!a.double });
+      return shot(ctx, `Clicked (${a.x}, ${a.y}).`, screen);
     },
   },
   {
@@ -105,8 +111,9 @@ export const TOOLS: ToolDef[] = [
     label: 'Typing',
     impl: async (a, ctx) => {
       const text = String(a.text);
-      await (await onScreen(ctx)).type(text);
-      return shot(ctx, `Typed ${text.length} characters.`);
+      const screen = await onScreen(ctx);
+      await screen.type(text);
+      return shot(ctx, `Typed ${text.length} characters.`, screen);
     },
   },
   {
@@ -117,8 +124,9 @@ export const TOOLS: ToolDef[] = [
     label: 'Pressing keys',
     impl: async (a, ctx) => {
       const keys = String(a.keys).split('+').map((k) => (k.length === 1 ? k.toLowerCase() : k)).join('+');
-      const note = await (await onScreen(ctx)).key(keys);
-      return shot(ctx, note ? `Pressed ${keys}. ${note}` : `Pressed ${keys}.`);
+      const screen = await onScreen(ctx);
+      const note = await screen.key(keys);
+      return shot(ctx, note ? `Pressed ${keys}. ${note}` : `Pressed ${keys}.`, screen);
     },
   },
   {
@@ -128,8 +136,9 @@ export const TOOLS: ToolDef[] = [
     activity: 'on_its_computer',
     label: 'Scrolling',
     impl: async (a, ctx) => {
-      await (await onScreen(ctx)).scroll({ x: a.x, y: a.y, direction: a.direction, amount: a.amount ?? 3 });
-      return shot(ctx, `Scrolled ${a.direction}.`);
+      const screen = await onScreen(ctx);
+      await screen.scroll({ x: a.x, y: a.y, direction: a.direction, amount: a.amount ?? 3 });
+      return shot(ctx, `Scrolled ${a.direction}.`, screen);
     },
   },
   {
@@ -139,8 +148,9 @@ export const TOOLS: ToolDef[] = [
     activity: 'on_its_computer',
     label: 'Dragging',
     impl: async (a, ctx) => {
-      await (await onScreen(ctx)).drag(a);
-      return shot(ctx, 'Dragged.');
+      const screen = await onScreen(ctx);
+      await screen.drag(a);
+      return shot(ctx, 'Dragged.', screen);
     },
   },
   {
@@ -150,8 +160,9 @@ export const TOOLS: ToolDef[] = [
     activity: 'browsing_web',
     label: 'Browsing a site',
     impl: async (a, ctx) => {
-      await (await onScreen(ctx)).openUrl(String(a.url));
-      return shot(ctx, `Opened ${a.url}.`);
+      const screen = await onScreen(ctx);
+      await screen.openUrl(String(a.url));
+      return shot(ctx, `Opened ${a.url}.`, screen);
     },
   },
   {

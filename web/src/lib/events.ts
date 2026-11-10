@@ -40,6 +40,23 @@ export function startEvents(): () => void {
       }
     };
   };
+  const resume = () => {
+    if (stopped || document.visibilityState === 'hidden') return;
+    clearTimeout(timer);
+    es?.close();
+    resync();
+    const state = useStore.getState();
+    state.set({ connectionsVersion: state.connectionsVersion + 1 });
+    open();
+  };
+  document.addEventListener('visibilitychange', resume);
+  window.addEventListener('online', resume);
+  window.addEventListener('swarm:resume', resume);
   open();
-  return () => { stopped = true; clearTimeout(timer); es?.close(); };
+  return () => {
+    stopped = true; clearTimeout(timer); es?.close();
+    document.removeEventListener('visibilitychange', resume);
+    window.removeEventListener('online', resume);
+    window.removeEventListener('swarm:resume', resume);
+  };
 }

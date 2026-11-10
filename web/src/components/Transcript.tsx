@@ -136,7 +136,7 @@ function SystemRow({ row }: { row: Row }) {
 
 interface Props { bot: Bot; rows: Row[]; live: LiveState | undefined; loaded: boolean }
 
-export function Transcript({ bot, rows, live, loaded }: Props) {
+export const Transcript = memo(function Transcript({ bot, rows, live, loaded }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const [showJump, setShowJump] = useState(false);
@@ -152,7 +152,7 @@ export function Transcript({ bot, rows, live, loaded }: Props) {
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
-  });
+  }, [rows, live, loaded, bot.id]);
   // Jump to bottom when switching bots.
   useLayoutEffect(() => {
     stick.current = true;
@@ -206,7 +206,7 @@ export function Transcript({ bot, rows, live, loaded }: Props) {
       )}
     </div>
   );
-}
+});
 
 function EmptyChat({ bot }: { bot: Bot }) {
   return (
