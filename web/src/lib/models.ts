@@ -89,4 +89,4 @@ export function effectiveEffort(effort: Effort, m: PickerModel | undefined): Eff
 export const fallbackShort = (id: string) => id.split('/').pop() ?? id;
 
 /** Authors whose icon the server can fetch from OpenRouter; others get a monogram. */
-export const ICON_AUTHORS = new Set(['anthropic', 'openai', 'google', 'meta', 'meta-llama', 'mistralai', 'deepseek', 'qwen', 'moonshotai', 'cohere']);
+export const ICON_AUTHORS = new Set(['openai', 'google', 'meta', 'meta-llama', 'mistralai', 'deepseek', 'qwen', 'moonshotai', 'cohere']);

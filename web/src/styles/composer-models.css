@@ -132,3 +132,18 @@ button.mm-item:hover, .mm-item.is-open { background: var(--color-bg-hover); }
   .model-pill { padding: 0 6px; }
   .composer__glow { inset: 8px 8px -4px; }
 }
+
+/* ---------- Claude's mascot (Claude models' icon): blinks; hops and patters on hover ---------- */
+.provider-icon.is-claude { display: inline-flex; align-items: center; justify-content: center; border-radius: 0; }
+.claude-mascot { display: block; overflow: visible; }
+.claude-mascot__eye { animation: claude-blink 5.2s infinite; }
+@keyframes claude-blink { 0%, 93%, 100% { transform: scaleY(1); } 95%, 97% { transform: scaleY(0.15); } }
+.claude-mascot__eye { transform-box: fill-box; transform-origin: center; }
+.model-pill:hover .claude-mascot, .mm-row:hover .claude-mascot, .model-pill[aria-expanded='true'] .claude-mascot { animation: claude-hop 0.9s var(--ease-out) infinite; }
+.model-pill:hover .claude-mascot__legs-a, .mm-row:hover .claude-mascot__legs-a { animation: claude-patter 0.36s steps(1) infinite; }
+.model-pill:hover .claude-mascot__legs-b, .mm-row:hover .claude-mascot__legs-b { animation: claude-patter 0.36s steps(1) infinite reverse; }
+@keyframes claude-hop { 0%, 60%, 100% { transform: translateY(0); } 25% { transform: translateY(-1.5px); } }
+@keyframes claude-patter { 0% { transform: translateY(0); } 50% { transform: translateY(-1px); } }
+@media (prefers-reduced-motion: reduce) {
+  .claude-mascot, .claude-mascot__eye, .claude-mascot__legs-a, .claude-mascot__legs-b { animation: none !important; }
+}

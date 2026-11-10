@@ -4,6 +4,7 @@ import type { Bot, Effort } from '@shared/types';
 import { configApi } from '../lib/configApi';
 import { EFFORT_DESC, EFFORT_LABEL, ICON_AUTHORS, effectiveEffort, effortsFor, fallbackShort, useModels, type PickerModel } from '../lib/models';
 import { useStore } from '../store';
+import { ClaudeMascot } from './ClaudeMascot';
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 const MOD = IS_MAC ? '⌘' : 'Ctrl+';
@@ -11,6 +12,8 @@ const MOD = IS_MAC ? '⌘' : 'Ctrl+';
 /** OpenRouter's icon for the model's maker (served via our server), or a monogram. */
 export function ProviderIcon({ author, size = 16 }: { author: string; size?: number }) {
   const [failed, setFailed] = useState(false);
+  // Claude models: Claude's own mascot, never the Anthropic logo.
+  if (author === 'anthropic') return <span className="provider-icon is-claude" style={{ width: size, height: size }}><ClaudeMascot size={size} /></span>;
   if (ICON_AUTHORS.has(author) && !failed) {
     return <img className="provider-icon" src={`/api/models/icon/${encodeURIComponent(author)}`} width={size} height={size} alt="" onError={() => setFailed(true)} />;
   }
