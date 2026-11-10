@@ -57,7 +57,8 @@ export function Sidebar() {
   const inTasks = useConfigUI((s) => s.view === 'tasks');
   const selectedBotId = inTasks ? null : storeSelectedBotId; // nothing highlighted while the Tasks view is open
   const user = useStore((s) => s.user);
-  const collapsed = useStore((s) => s.sidebarCollapsed);
+  // Phones show the full list as the home screen, never the collapsed rail.
+  const collapsed = useStore((s) => s.sidebarCollapsed && !s.mobile);
   const set = useStore((s) => s.set);
   const storeSelectBot = useStore((s) => s.selectBot);
   // Picking a bot (even the one already selected) leaves the Tasks view.

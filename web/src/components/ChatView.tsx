@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
+import { ChevronLeft } from 'lucide-react';
 import { BotAvatarFor } from '../avatar/BotAvatar';
 import { api } from '../lib/api';
 import { botVars } from '../lib/colors';
-import { displayName, sortedRows, useSelectedBot, useStore } from '../store';
+import { backToList, displayName, sortedRows, useSelectedBot, useStore } from '../store';
 import { useConfigUI } from '../configStore';
 import { Composer } from './Composer';
 import { Icon } from './Icon';
@@ -15,6 +16,9 @@ export function ChatView() {
   const transcript = useStore((s) => (bot ? s.transcripts[bot.id] : undefined));
   const live = useStore((s) => (bot ? s.live[bot.id] : undefined));
   const detailsOpen = useStore((s) => s.detailsOpen);
+  const mobile = useStore((s) => s.mobile);
+  // Unread messages from the other Bots, shown on the phone's back button.
+  const otherUnread = useStore((s) => s.bots.reduce((n, b) => n + (b.id !== s.selectedBotId ? b.unread || 0 : 0), 0));
   const set = useStore((s) => s.set);
   const [menu, setMenu] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -36,6 +40,12 @@ export function ChatView() {
       <VoiceCallBar />
       <Composer bot={bot} running={!!live?.isRunning} />
       <header className="chat__header">
+        {mobile && (
+          <button type="button" className="chat__back icon-btn" onClick={backToList} aria-label={otherUnread ? `All Bots, ${otherUnread} unread` : 'All Bots'}>
+            <ChevronLeft size={22} strokeWidth={1.75} aria-hidden />
+            {otherUnread > 0 && <span className="chat__back-badge" aria-hidden>{otherUnread > 99 ? '99+' : otherUnread}</span>}
+          </button>
+        )}
         <span className="chat__pill-anchor">
           <button type="button" className="chat__pill" onClick={() => setMenu(!menu)} aria-haspopup="menu" aria-expanded={menu}>
             <BotAvatarFor bot={bot} size={24} />

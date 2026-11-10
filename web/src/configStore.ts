@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { ServerEvent } from '@shared/types';
-import { useStore } from './store';
+import { enterChatPane, useStore } from './store';
 
 /** UI state for bot settings, app settings, the Tasks view and the theme. Kept apart from store.ts on purpose. */
 
@@ -58,10 +58,13 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
   closeBotSettings: () => set({ botSettings: null }),
   openAppSettings: (section = 'general') => set({ appSettings: section }),
   closeAppSettings: () => {
-    if (linkedSection()) history.replaceState(null, '', window.location.pathname + window.location.search);
+    if (linkedSection()) history.replaceState(history.state, '', window.location.pathname + window.location.search);
     set({ appSettings: null });
   },
-  setView: (view) => set({ view }),
+  setView: (view) => {
+    if (view === 'tasks') enterChatPane(); // phones: Tasks replaces the list, like a chat
+    set({ view });
+  },
   setTheme: (theme) => {
     try { localStorage.setItem(LS_THEME, theme); } catch { /* ignore */ }
     applyTheme(theme);

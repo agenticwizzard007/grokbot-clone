@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { startEvents } from './lib/events';
-import { useStore } from './store';
+import { PHONE_QUERY, useStore } from './store';
 import { ChatView } from './components/ChatView';
 import { ComputerViewer } from './components/ComputerViewer';
 import { DetailsPanel } from './components/DetailsPanel';
@@ -22,6 +22,23 @@ function Shell() {
   const collapsed = useStore((s) => s.sidebarCollapsed);
   const hasBot = useStore((s) => !!s.selectedBotId);
   const view = useConfigUI((s) => s.view);
+  const mobile = useStore((s) => s.mobile);
+  const pane = useStore((s) => s.mobilePane);
+
+  // Phone layout: follow the breakpoint, and let the system back gesture leave a chat for the list.
+  useEffect(() => {
+    const mq = window.matchMedia(PHONE_QUERY);
+    const onChange = () => useStore.getState().set({ mobile: mq.matches, ...(mq.matches ? {} : { mobilePane: 'list' as const }) });
+    const onPop = () => {
+      const st = useStore.getState();
+      if (!st.mobile || st.mobilePane !== 'chat') return;
+      st.set({ mobilePane: 'list', detailsOpen: false });
+      useConfigUI.getState().setView('chat');
+    };
+    mq.addEventListener('change', onChange);
+    window.addEventListener('popstate', onPop);
+    return () => { mq.removeEventListener('change', onChange); window.removeEventListener('popstate', onPop); };
+  }, []);
 
   useEffect(() => {
     const st = useStore.getState();
@@ -56,10 +73,16 @@ function Shell() {
   }, []);
 
   return (
-    <div className={`app${collapsed ? ' is-sidebar-collapsed' : ''}${detailsOpen && hasBot && view === 'chat' ? ' has-details' : ''}`}>
+    <div className={`app${collapsed && !mobile ? ' is-sidebar-collapsed' : ''}${detailsOpen && hasBot && view === 'chat' ? ' has-details' : ''}${mobile ? ` is-mobile pane-${view === 'tasks' ? 'chat' : pane}` : ''}`}>
       <Sidebar />
       {view === 'tasks' ? <TasksView /> : <ChatView />}
-      {detailsOpen && hasBot && view === 'chat' && <DetailsPanel />}
+      {detailsOpen && hasBot && view === 'chat' && (!mobile || pane === 'chat') && (
+        <>
+          {/* Tablets: the panel slides over the chat; tapping the dimmed chat closes it. Hidden on other widths (mobile.css). */}
+          {!mobile && <div className="details-scrim" aria-hidden onClick={() => useStore.getState().set({ detailsOpen: false })} />}
+          <DetailsPanel />
+        </>
+      )}
       {modal === 'create' && <CreateBotModal />}
       {modal === 'group' && <CreateGroupModal />}
       {modal === 'search' && <SearchModal />}

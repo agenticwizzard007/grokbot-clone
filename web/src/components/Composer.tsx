@@ -11,6 +11,10 @@ const MAX_H = 200;
 const drafts = new Map<string, string>();
 
 export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
+  // Phones: the short name keeps the placeholder on one line.
+  const mobile = useStore((s) => s.mobile);
+  // Phones hide the chat while the Bot list is showing; the box can only be measured once it's on screen.
+  const onScreen = useStore((s) => !s.mobile || s.mobilePane === 'chat');
   const [text, setText] = useState(() => drafts.get(bot.id) ?? '');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -19,17 +23,20 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   const setModal = useStore((s) => s.setModal);
 
   // Per-bot drafts.
-  useEffect(() => { setText(drafts.get(bot.id) ?? ''); setError(null); ref.current?.focus(); }, [bot.id]);
+  // Phones don't take focus on open: it would raise the keyboard over the conversation.
+  useEffect(() => { setText(drafts.get(bot.id) ?? ''); setError(null); if (!useStore.getState().mobile) ref.current?.focus(); }, [bot.id]);
   useEffect(() => { drafts.set(bot.id, text); }, [bot.id, text]);
 
   // Auto-grow.
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
+    // Hidden (display: none) measures 0; leave the natural one-line height until it's shown.
+    if (!el.offsetParent) { el.style.height = ''; return; }
     el.style.height = '0px';
     el.style.height = `${Math.min(el.scrollHeight, MAX_H)}px`;
     el.style.overflowY = el.scrollHeight > MAX_H ? 'auto' : 'hidden';
-  }, [text]);
+  }, [text, onScreen, mobile]);
 
   // ⌘I focuses the prompt.
   useEffect(() => {
@@ -102,7 +109,7 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
             className="composer__input"
             rows={1}
             value={text}
-            placeholder={`Message ${displayName(bot)}`}
+            placeholder={`Message ${mobile ? bot.name : displayName(bot)}`}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); }

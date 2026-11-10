@@ -25,12 +25,16 @@ interface State {
 
   detailsOpen: boolean;
   sidebarCollapsed: boolean;
+  /** Phone layout (narrow screens): one pane at a time, the Bot list or a chat. */
+  mobile: boolean;
+  mobilePane: 'list' | 'chat';
   modal: ModalKind;
   viewerOpen: boolean;
 
   checkAuth(): Promise<void>;
   loadBots(): Promise<void>;
-  selectBot(id: string): void;
+  /** Select a Bot. `open: false` selects without navigating (phones stay on the list). */
+  selectBot(id: string, opts?: { open?: boolean }): void;
   loadRows(id: string): Promise<void>;
   loadRoutines(id: string): Promise<void>;
   loadComputer(): Promise<void>;
@@ -42,6 +46,14 @@ interface State {
 
 const LS_SELECTED = 'swarm.selectedBot';
 const LS_DETAILS = 'swarm.detailsOpen';
+
+/** Same breakpoints as styles/mobile.css. */
+export const PHONE_QUERY = '(max-width: 760px)';
+/** Phones and tablets: the details panel covers the chat instead of taking a column. */
+const OVERLAY_QUERY = '(max-width: 1100px)';
+const matches = (q: string) => typeof window !== 'undefined' && window.matchMedia?.(q).matches === true;
+const IS_PHONE = () => matches(PHONE_QUERY);
+const DETAILS_OVERLAY = () => matches(OVERLAY_QUERY);
 const LS_SIDEBAR = 'swarm.sidebarCollapsed';
 const lsGet = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } };
@@ -59,8 +71,11 @@ export const useStore = create<State>((set, get) => ({
   computer: null,
   connectionsVersion: 0,
   sseConnected: false,
-  detailsOpen: lsGet(LS_DETAILS) !== '0',
+  // Where the details panel covers the chat (phones, tablets) it starts closed, whatever the desktop preference.
+  detailsOpen: !DETAILS_OVERLAY() && lsGet(LS_DETAILS) !== '0',
   sidebarCollapsed: lsGet(LS_SIDEBAR) === '1',
+  mobile: IS_PHONE(),
+  mobilePane: 'list',
   modal: null,
   viewerOpen: false,
 
@@ -81,11 +96,12 @@ export const useStore = create<State>((set, get) => ({
     const selectedBotId = sel && bots.some((b) => b.id === sel) ? sel : (bots.find((b) => b.isPrimary) ?? bots[0])?.id ?? null;
     set({ bots, live: liveMap });
     if (selectedBotId !== get().selectedBotId || !get().transcripts[selectedBotId ?? '']) {
-      if (selectedBotId) get().selectBot(selectedBotId);
+      if (selectedBotId) get().selectBot(selectedBotId, { open: false });
     }
   },
 
-  selectBot(id) {
+  selectBot(id, opts = {}) {
+    if (opts.open !== false) enterChatPane();
     set({ selectedBotId: id });
     lsSet(LS_SELECTED, id);
     const t = get().transcripts[id];
@@ -181,11 +197,27 @@ export const useStore = create<State>((set, get) => ({
   setModal(modal) { set({ modal }); },
 
   set(p) {
-    if (p.detailsOpen !== undefined) lsSet(LS_DETAILS, p.detailsOpen ? '1' : '0');
+    // The phone/tablet details overlay is transient; don't let it change the desktop preference.
+    if (p.detailsOpen !== undefined && !DETAILS_OVERLAY()) lsSet(LS_DETAILS, p.detailsOpen ? '1' : '0');
     if (p.sidebarCollapsed !== undefined) lsSet(LS_SIDEBAR, p.sidebarCollapsed ? '1' : '0');
     set(p);
   },
 }));
+
+/** Phones: opening a chat (or Tasks) is a navigation, so the system back gesture returns to the list. */
+export function enterChatPane() {
+  const st = useStore.getState();
+  if (!st.mobile || st.mobilePane === 'chat') return;
+  history.pushState({ swarmPane: 'chat' }, '');
+  st.set({ mobilePane: 'chat' });
+}
+
+/** Phones: leave a chat (or Tasks) for the Bot list, as the system back gesture would. */
+export function backToList() {
+  const st = useStore.getState();
+  if (history.state?.swarmPane === 'chat') history.back();
+  else st.set({ mobilePane: 'list', detailsOpen: false });
+}
 
 /** Rows for a bot, ordered by seq. */
 export function sortedRows(t: Transcript | undefined): Row[] {

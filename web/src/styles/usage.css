@@ -125,3 +125,15 @@
 .usage-vm-now__size, .usage-vm-now__rate { color: var(--color-text-secondary); }
 .usage-vm-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-text-tertiary); }
 .usage-vm-dot.is-running { background: #0ca30c; }
+
+/* Touch: a finger dragged sideways along the chart scrubs the days; vertical drags still scroll the page. */
+.usage-chart__plot { touch-action: pan-y; }
+/* The last date sits flush with the plot's right edge: as a flex item it overflows leftwards, never off the card. */
+.usage-chart__xaxis span.is-last { display: flex; justify-content: flex-end; }
+
+/* Narrow (phones): the headline cost spans the row; the other figures pair up two by two. */
+@container (max-width: 460px) {
+  .usage-tiles:not(.usage-tiles--compact) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .usage-tiles:not(.usage-tiles--compact) > .usage-tile:first-child { grid-column: 1 / -1; }
+  .usage-tiles:not(.usage-tiles--compact) > .usage-tile:first-child .usage-tile__value { font-size: 28px; line-height: 34px; }
+}

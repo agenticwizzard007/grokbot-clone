@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { configApi, type ProviderUsage, type UsageRange, type UsageReport, type UsageRow } from '../../lib/configApi';
 import '../../styles/usage.css';
 
@@ -132,8 +132,22 @@ function DailyChart({ days, metric, withComputer }: { days: UsageReport['days'];
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  // About one date label per 56px, so labels never collide however narrow the chart gets.
+  // About one date label per 56px, so labels never collide however narrow the chart gets. The last day is
+  // always labelled, right-aligned to the plot's edge, so no other label may start within ~96px of that edge.
   const labelEvery = Math.max(1, Math.ceil(days.length / Math.max(1, Math.floor(width / 56))));
+  const clearOfLast = Math.ceil(96 / Math.max(1, width / Math.max(1, days.length)));
+  // Pointer → column, from the x position: works for a mouse, a tap, and a finger dragged along the chart.
+  const pick = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    if (r.width > 0) setHover(Math.min(days.length - 1, Math.max(0, Math.floor(((e.clientX - r.left) / r.width) * days.length))));
+  };
+  // A tapped tooltip stays until the next tap elsewhere (lifting a finger also "leaves" the chart).
+  useEffect(() => {
+    if (hover === null) return;
+    const away = (e: PointerEvent) => { if (!plot.current?.contains(e.target as Node)) setHover(null); };
+    document.addEventListener('pointerdown', away);
+    return () => document.removeEventListener('pointerdown', away);
+  }, [hover]);
   const h = hover !== null ? days[hover] : null;
   const at = hover !== null ? (hover + 0.5) / days.length : 0;
   const tipShift = at < 0.2 ? '0%' : at > 0.8 ? '-100%' : '-50%';
@@ -153,7 +167,7 @@ function DailyChart({ days, metric, withComputer }: { days: UsageReport['days'];
         <div className="usage-chart__axis" aria-hidden>
           {[...ticks].reverse().map((t) => <span key={t}>{fmt(t)}</span>)}
         </div>
-        <div ref={plot} className="usage-chart__plot" role="group" aria-label={title} onPointerLeave={() => setHover(null)}>
+        <div ref={plot} className="usage-chart__plot" role="group" aria-label={title} onPointerDown={pick} onPointerMove={pick} onPointerLeave={(e) => { if (e.pointerType === 'mouse') setHover(null); }}>
           {ticks.map((t) => <div key={t} className="usage-chart__grid" style={{ bottom: `${(t / top) * 100}%` }} aria-hidden />)}
           <div className="usage-chart__cols">
             {days.map((d, i) => {
@@ -166,7 +180,6 @@ function DailyChart({ days, metric, withComputer }: { days: UsageReport['days'];
                   tabIndex={0}
                   role="img"
                   aria-label={`${dayLabel(d.day)}: ${stacked ? `${fmtUsd(total)} (AI ${fmtUsd(d.costUsd)}, computer ${fmtUsd(d.computerUsd)})` : fmt(total)}, ${compact(d.tokens)} tokens, ${plural(d.requests, 'request')}`}
-                  onPointerEnter={() => setHover(i)}
                   onFocus={() => setHover(i)}
                   onBlur={() => setHover(null)}
                 >
@@ -193,7 +206,7 @@ function DailyChart({ days, metric, withComputer }: { days: UsageReport['days'];
         </div>
       </div>
       <div className="usage-chart__xaxis" aria-hidden>
-        {days.map((d, i) => <span key={d.day} className={i === days.length - 1 ? 'is-last' : ''}>{(i % labelEvery === 0 && days.length - 1 - i >= labelEvery) || i === days.length - 1 ? dayLabel(d.day) : ''}</span>)}
+        {days.map((d, i) => <span key={d.day} className={i === days.length - 1 ? 'is-last' : ''}>{(i % labelEvery === 0 && days.length - i >= clearOfLast) || i === days.length - 1 ? dayLabel(d.day) : ''}</span>)}
       </div>
       <details className="usage-table">
         <summary>Show as a table</summary>
