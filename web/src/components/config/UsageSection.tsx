@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { Download } from 'lucide-react';
+import { useStore } from '../../store';
 import { configApi, type ProviderUsage, type UsageRange, type UsageReport, type UsageRow } from '../../lib/configApi';
 import '../../styles/usage.css';
 
@@ -35,6 +37,7 @@ export function compact(v: number): string {
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${compact(n)} ${n === 1 ? one : many}`;
+const dayLong = (day: string) => new Date(`${day}T00:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
 const dayLabel = (day: string) => new Date(`${day}T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 const inHours = (t: number) => {
   const h = Math.max(0, Math.round((t - Date.now()) / 3_600_000));
@@ -51,11 +54,44 @@ function niceTicks(max: number): number[] {
 
 // ---------- pieces ----------
 
-function PageHead() {
+/** Title, with whose usage (owners) beside it. Phones swap the description for the dates covered. */
+function PageHead({ span, scope }: { span: string | null; scope?: ReactNode }) {
   return (
-    <div className="app-settings__head">
-      <h1>Usage</h1>
-      <p>What your Bots’ AI use costs: tokens, requests and dollars, as each provider reports them per request.</p>
+    <div className="app-settings__head usage-head">
+      <div className="usage-head__text">
+        <h1>Usage</h1>
+        <p className="usage-head__desc">What your Bots’ AI use costs: tokens, requests and dollars, as each provider reports them per request.</p>
+        {span && <p className="usage-head__span">{span}</p>}
+      </div>
+      {scope}
+    </div>
+  );
+}
+
+/** The headline: what the period cost, and how it splits between AI and the computer. */
+function Hero({ ai, computer, days, sub }: { ai: number; computer: number | null; days: number; sub?: string }) {
+  const total = ai + (computer ?? 0);
+  const parts = computer != null && total > 0 ? [['ai', ai], ['vm', computer]].filter(([, v]) => (v as number) > 0) as [string, number][] : [];
+  return (
+    <div className="usage-hero">
+      <div className="usage-hero__label">{computer != null ? 'Total cost' : 'Cost'}</div>
+      <div className="usage-hero__row">
+        <span className="usage-hero__value">{fmtUsd(total)}</span>
+        {days > 1 && total > 0 && <span className="usage-hero__rate">{fmtUsd(total / days)} a day</span>}
+      </div>
+      {computer != null ? (
+        <>
+          {parts.length > 0 && (
+            <div className="usage-split" role="img" aria-label={`AI ${fmtUsd(ai)}, computer ${fmtUsd(computer)} estimated`}>
+              {parts.map(([k, v]) => <i key={k} className={`usage-split__part usage-key--${k}`} style={{ flexGrow: v }} />)}
+            </div>
+          )}
+          <div className="usage-split__legend">
+            <span><i className="usage-key usage-key--ai" aria-hidden />AI <b>{fmtUsd(ai)}</b></span>
+            <span><i className="usage-key usage-key--vm" aria-hidden />Computer <b>{fmtUsd(computer)}</b> est.</span>
+          </div>
+        </>
+      ) : sub && <div className="usage-hero__sub">{sub}</div>}
     </div>
   );
 }
@@ -152,6 +188,9 @@ function DailyChart({ days, metric, withComputer }: { days: UsageReport['days'];
   const at = hover !== null ? (hover + 0.5) / days.length : 0;
   const tipShift = at < 0.2 ? '0%' : at > 0.8 ? '-100%' : '-50%';
   const title = metric === 'cost' ? 'Daily cost' : 'Daily tokens';
+  const peak = days.reduce((a, d) => (value(d) > value(a) ? d : a), days[0]);
+  const detail = (d: UsageReport['days'][number]) =>
+    [stacked ? `AI ${fmtUsd(d.costUsd)} · computer ${fmtUsd(d.computerUsd)}` : metric === 'cost' ? `${compact(d.tokens)} tokens` : fmtUsd(d.costUsd), plural(d.requests, 'request')].join(' · ');
   return (
     <div className="usage-card">
       <div className="usage-card__head">
@@ -163,11 +202,16 @@ function DailyChart({ days, metric, withComputer }: { days: UsageReport['days'];
           </div>
         )}
       </div>
+      {/* Phones: a fixed readout instead of a tooltip under the finger. */}
+      <div className="usage-readout" aria-live="polite">
+        <div className="usage-readout__title">{h ? `${dayLong(h.day)} · ${fmt(value(h))}` : value(peak) > 0 ? `Peak ${fmt(value(peak))} on ${dayLabel(peak.day)}` : 'Nothing yet this period'}</div>
+        <div className="usage-readout__detail">{h ? detail(h) : 'Tap a bar to see that day'}</div>
+      </div>
       <div className="usage-chart">
         <div className="usage-chart__axis" aria-hidden>
           {[...ticks].reverse().map((t) => <span key={t}>{fmt(t)}</span>)}
         </div>
-        <div ref={plot} className="usage-chart__plot" role="group" aria-label={title} onPointerDown={pick} onPointerMove={pick} onPointerLeave={(e) => { if (e.pointerType === 'mouse') setHover(null); }}>
+        <div ref={plot} className={`usage-chart__plot${hover !== null ? ' has-hover' : ''}`} role="group" aria-label={title} onPointerDown={pick} onPointerMove={pick} onPointerLeave={(e) => { if (e.pointerType === 'mouse') setHover(null); }}>
           {ticks.map((t) => <div key={t} className="usage-chart__grid" style={{ bottom: `${(t / top) * 100}%` }} aria-hidden />)}
           <div className="usage-chart__cols">
             {days.map((d, i) => {
@@ -230,17 +274,19 @@ function ComputerCard({ data }: { data: UsageReport }) {
   const n = c.now;
   const isOrgo = (n?.provider ?? data.computerProvider) === 'orgo';
   const stateLabel = n ? ({ running: 'Running', asleep: 'Asleep', archived: 'Archived (disk kept)' } as const)[n.state] : null;
-  const size = n?.cpus ? `${n.cpus} vCPU · ${n.memoryMb ? `${(n.memoryMb / 1024).toFixed(2).replace(/\.?0+$/, '')} GB RAM` : ''}${n.diskGb ? ` · ${n.diskGb} GB disk` : ''}` : '';
+  const size = n?.cpus ? `${n.cpus} vCPU${n.memoryMb ? ` · ${(n.memoryMb / 1024).toFixed(2).replace(/\.?0+$/, '')} GB memory` : ''}${n.diskGb ? ` · ${n.diskGb} GB disk` : ''}` : '';
   return (
     <section className="cfg-section">
       <div className="cfg-section__label">Computer</div>
       <div className="usage-card">
         {n && (
           <div className="usage-vm-now">
-            <span className={`usage-vm-dot is-${n.state}`} aria-hidden />
-            <span className="usage-vm-now__state">{stateLabel}</span>
-            {size && <span className="usage-vm-now__size">{size}</span>}
-            <span className="usage-vm-now__rate">≈ ${n.perHourUsd.toFixed(n.perHourUsd < 0.1 ? 4 : 2)} an hour {n.state === 'running' ? 'while running' : 'in this state'}</span>
+            <div className="usage-vm-now__line">
+              <span className={`usage-vm-dot is-${n.state}`} aria-hidden />
+              <span className="usage-vm-now__state">{n.state === 'archived' ? stateLabel : `${stateLabel} now`}</span>
+              <span className="usage-vm-now__rate">· about ${n.perHourUsd.toFixed(n.perHourUsd < 0.1 ? 3 : 2)} an hour</span>
+            </div>
+            {size && <div className="usage-vm-now__size">{size}</div>}
           </div>
         )}
         <div className="usage-tiles usage-tiles--compact">
@@ -248,11 +294,12 @@ function ComputerCard({ data }: { data: UsageReport }) {
           <Tile label="Asleep" value={hours(c.asleepHours + c.archivedHours)} />
           <Tile label="Estimated cost" value={fmtUsd(c.costUsd)} />
         </div>
-        <div className="usage-card__note">
-          {isOrgo
+        <details className="usage-explain">
+          <summary>How it’s estimated</summary>
+          <p className="usage-card__note">{isOrgo
             ? `Estimated at Orgo's pay-as-you-go rates: ${fmtUsd(r.orgo.runningHour)} an hour running, ${fmtUsd(r.orgo.stoppedHour)} stopped. Your Orgo plan may include this time.`
-            : `Estimated from Fly.io's published prices: ${fmtUsd(r.fly.cpuMonth)} per shared vCPU and ${fmtUsd(r.fly.ramGbMonth)} per extra GB of RAM a month while running, ${fmtUsd(r.fly.volumeGbMonth)} per GB of disk a month always, and only the root disk while asleep. Fly bills by the second and doesn't report each VM's cost back, so Swarm adds it up every minute.`}
-        </div>
+            : `Estimated from Fly.io's published prices: ${fmtUsd(r.fly.cpuMonth)} per shared vCPU and ${fmtUsd(r.fly.ramGbMonth)} per extra GB of RAM a month while running, ${fmtUsd(r.fly.volumeGbMonth)} per GB of disk a month always, and only the root disk while asleep. Fly bills by the second and doesn't report each VM's cost back, so Swarm adds it up every minute.`}</p>
+        </details>
       </div>
     </section>
   );
@@ -280,6 +327,9 @@ function RankedList({ title, rows, byCost }: { title: string; rows: UsageRow[]; 
   const v = (r: UsageRow) => (byCost ? rowCost(r) : r.tokens);
   const sorted = [...rows].sort((a, b) => v(b) - v(a) || b.requests - a.requests);
   const max = Math.max(...sorted.map(v), 0) || 1;
+  const sum = sorted.reduce((n, r) => n + v(r), 0);
+  const of = !byCost ? 'of tokens' : rows.some((r) => r.computerUsd) ? 'of total' : 'of AI';
+  const share = (r: UsageRow) => (v(r) <= 0 || sum <= 0 ? '' : v(r) / sum < 0.005 ? `<1% ${of}` : `${Math.round((v(r) / sum) * 100)}% ${of}`);
   const shown = all ? sorted : sorted.slice(0, 8);
   return (
     <div className="usage-card">
@@ -287,12 +337,11 @@ function RankedList({ title, rows, byCost }: { title: string; rows: UsageRow[]; 
       <ul className="usage-ranked">
         {shown.map((r) => (
           <li key={r.key || r.label} className="usage-ranked__row" tabIndex={0} aria-label={`${r.label}: ${rowFigure(r, true)}, ${rowSub(r)}`}>
-            <div className="usage-ranked__name">
-              <span className="usage-ranked__label">{r.label}</span>
-              <span className="usage-ranked__sub">{rowSub(r)}</span>
-            </div>
-            <div className="usage-ranked__bar">{v(r) > 0 && <div style={{ width: `${(v(r) / max) * 100}%` }} />}</div>
-            <div className="usage-ranked__figure">{rowFigure(r, byCost)}</div>
+            <span className="usage-ranked__label">{r.label}</span>
+            <span className="usage-ranked__figure">{rowFigure(r, byCost)}</span>
+            <div className="usage-ranked__bar" aria-hidden>{v(r) > 0 && <div style={{ width: `${(v(r) / max) * 100}%` }} />}</div>
+            <span className="usage-ranked__sub">{rowSub(r)}</span>
+            <span className="usage-ranked__share">{share(r)}</span>
           </li>
         ))}
       </ul>
@@ -369,14 +418,21 @@ export function UsageSection() {
     return parts.join(' · ') || 'As reported by the provider';
   }, [t]);
   const limit = data?.limits.dailyMessages;
+  // Phones: "Month" keeps all four periods on one full-width row.
+  const phone = useStore((s) => s.mobile);
+  const ranges = phone ? RANGES.map((r) => (r.value === 'month' ? { ...r, label: 'Month' } : r)) : RANGES;
+  const days = data?.days ?? [];
+  const span = days.length ? `${days.length > 1 ? `${dayLabel(days[0].day)} – ${dayLabel(days[days.length - 1].day)} · UTC days` : `${dayLabel(days[0].day)} · UTC`}` : null;
+  const csv = `/api/usage/export.csv?range=${range}&scope=${scope}`;
+  const voiceCalls = data?.byModel.filter((r) => r.minutes > 0).reduce((n, r) => n + r.requests, 0) ?? 0;
+  const provenance = `AI costs are what ${data?.provider === 'openrouter' ? 'OpenRouter' : 'the provider'} reports for each request.${hasComputer ? (data?.computer.now?.provider ?? data?.computerProvider) === 'orgo' ? ' Computer time is estimated from Orgo’s rates.' : ' Computer time is estimated from Fly.io’s published prices.' : ''}`;
 
   return (
-    <>
-      <PageHead />
+    <div className="usage-page">
+      <PageHead span={span} scope={canSeeAll ? <Seg label="Whose usage" value={scope} options={[{ value: 'me', label: 'Me' }, { value: 'all', label: 'Everyone' }]} onChange={setScope} /> : undefined} />
       <div className="usage-filters">
-        <Seg label="Period" value={range} options={RANGES} onChange={setRange} />
-        {canSeeAll && <Seg label="Whose usage" value={scope} options={[{ value: 'me', label: 'Me' }, { value: 'all', label: 'Everyone' }]} onChange={setScope} />}
-        <a className="cfg-btn cfg-btn--secondary usage-filters__csv" href={`/api/usage/export.csv?range=${range}&scope=${scope}`} download>Download CSV</a>
+        <Seg label="Period" value={range} options={ranges} onChange={setRange} />
+        <a className="cfg-btn cfg-btn--secondary usage-filters__csv" href={csv} download>Download CSV</a>
       </div>
 
       {error && <div className="cfg-error">{error}</div>}
@@ -394,13 +450,11 @@ export function UsageSection() {
             </section>
           )}
 
+          <Hero ai={t.costUsd} computer={hasComputer ? vm!.costUsd : null} days={days.length} sub={subCost} />
           <div className="usage-tiles">
-            {hasComputer
-              ? <Tile label="Total cost" value={fmtUsd(t.costUsd + vm!.costUsd)} sub={`AI ${fmtUsd(t.costUsd)} · computer ${fmtUsd(vm!.costUsd)} est.`} />
-              : <Tile label="Cost" value={fmtUsd(t.costUsd)} sub={subCost} />}
             <Tile label="Tokens" value={compact(t.inputTokens + t.outputTokens)} sub={`${compact(t.inputTokens)} in · ${compact(t.outputTokens)} out${t.cachedTokens ? ` · ${compact(t.cachedTokens)} cached` : ''}`} />
             <Tile label="AI requests" value={compact(t.requests)} sub={t.toolCalls ? plural(t.toolCalls, 'web search', 'web searches') : undefined} />
-            {t.voiceMinutes > 0 && <Tile label="Voice" value={`${compact(Math.round(t.voiceMinutes))} min`} />}
+            {t.voiceMinutes > 0 && <Tile label="Voice" value={`${compact(Math.round(t.voiceMinutes))} min`} sub={voiceCalls ? plural(voiceCalls, 'call') : undefined} />}
             {hasComputer && <Tile label="Computer" value={hours(vm!.runningHours)} sub={`running · ${hours(vm!.asleepHours + vm!.archivedHours)} asleep`} />}
           </div>
 
@@ -420,6 +474,14 @@ export function UsageSection() {
       )}
 
       {canSeeAll && provider && <ProviderCard data={provider} />}
-    </>
+
+      {/* Phones: export sits at the end, with where the numbers come from. */}
+      {data && (
+        <div className="usage-foot">
+          <a className="usage-foot__csv" href={csv} download><Download size={16} strokeWidth={1.75} aria-hidden />Export CSV</a>
+          <p className="usage-foot__note">{provenance}</p>
+        </div>
+      )}
+    </div>
   );
 }

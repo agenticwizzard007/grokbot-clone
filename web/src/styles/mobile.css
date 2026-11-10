@@ -194,3 +194,8 @@
   .app.is-mobile .pinned__tile { width: auto; max-width: 70vw; padding: 8px 14px 6px; }
   .app.is-mobile .pinned__label { width: auto; font-size: 13px; }
 }
+
+@media (max-width: 760px) {
+  /* Settings tab bar: "‹ Bots" leaves room for more sections */
+  .app-settings__back-prefix { display: none; }
+}

@@ -42,7 +42,7 @@ export function AppSettings() {
   return createPortal(
     <div className="app-settings" role="dialog" aria-modal="true" aria-label="Settings">
       <aside className="app-settings__nav">
-        <button type="button" className="app-settings__back" onClick={close}><Glyph name="arrow_left" size={14} /> Back to Bots</button>
+        <button type="button" className="app-settings__back" onClick={close} aria-label="Back to Bots"><Glyph name="arrow_left" size={14} /> <span className="app-settings__back-prefix">Back to </span>Bots</button>
         <div className="app-settings__heading">Settings</div>
         {SECTIONS.map((s) => (
           <button key={s.id} type="button" className={`cfg-nav__item${section === s.id ? ' is-active' : ''}`} onClick={() => open(s.id)} aria-current={section === s.id || undefined}>
