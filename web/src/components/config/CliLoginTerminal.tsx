@@ -5,6 +5,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { X } from 'lucide-react';
 import { cliApi, type CliProvider, type LoginSession } from '../../lib/cliApi';
 import { ApiError } from '../../lib/api';
+import { SwarmMark } from '../SwarmMark';
 import '@xterm/xterm/css/xterm.css';
 
 const OFFICIAL_DOMAINS = ['openai.com', 'chatgpt.com', 'claude.ai', 'claude.com', 'anthropic.com'];
@@ -20,6 +21,24 @@ const active = (state: LoginSession['state']) => state === 'running' || state ==
 const LABELS: Record<LoginSession['state'], string> = {
   running: 'Running', verifying: 'Verifying', connected: 'Connected', failed: 'Failed', cancelled: 'Cancelled',
 };
+
+function terminalTheme(element: HTMLElement) {
+  const style = getComputedStyle(element);
+  const color = (name: string) => style.getPropertyValue(name).trim();
+  return {
+    background: color('--subscription-terminal-bg'), foreground: color('--color-text-primary'),
+    cursor: color('--subscription-accent'), cursorAccent: color('--subscription-terminal-bg'),
+    selectionBackground: color('--subscription-selection'),
+    black: color('--color-text-primary'), brightBlack: color('--color-text-secondary'),
+    red: color('--color-danger-text'), brightRed: color('--color-danger-text'),
+    green: color('--color-success-text'), brightGreen: color('--color-success-text'),
+    yellow: color('--color-warn-text'), brightYellow: color('--color-warn-text'),
+    blue: color('--subscription-accent'), brightBlue: color('--subscription-accent'),
+    magenta: color('--color-bot-purple'), brightMagenta: color('--color-bot-purple'),
+    cyan: color('--color-bot-teal'), brightCyan: color('--color-bot-teal'),
+    white: color('--color-text-secondary'), brightWhite: color('--color-text-primary'),
+  };
+}
 
 export function CliLoginTerminal({ provider, onConnected, onClose, onStateChange }: {
   provider: CliProvider;
@@ -47,9 +66,10 @@ export function CliLoginTerminal({ provider, onConnected, onClose, onStateChange
     let connectedNotified = false;
     const controller = new AbortController();
     const terminal = new Terminal({
-      cursorBlink: true, fontSize: 12, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+      cursorBlink: !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+      fontSize: 13, lineHeight: 1.5, fontFamily: getComputedStyle(container.current).getPropertyValue('--font-mono-stack').trim(),
       rows: 20, cols: 80, scrollback: 2000, screenReaderMode: true, disableStdin: true,
-      theme: { background: '#131517', foreground: '#eceef0', cursor: '#eceef0', selectionBackground: '#ffffff35' },
+      theme: terminalTheme(container.current), minimumContrastRatio: 4.5,
       linkHandler: { activate: (_event, uri) => { if (officialUrl(uri)) window.open(uri, '_blank', 'noopener,noreferrer'); } },
     });
     const fit = new FitAddon();
@@ -124,6 +144,11 @@ export function CliLoginTerminal({ provider, onConnected, onClose, onStateChange
     });
     const observer = new ResizeObserver(() => { if (!disposed && container.current?.clientWidth) fitTerminal(); });
     observer.observe(container.current);
+    // Repaint the same terminal when appearance changes; never restart the login.
+    const appearance = new MutationObserver(() => {
+      if (!disposed && container.current) terminal.options.theme = terminalTheme(container.current);
+    });
+    appearance.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
     const apply = async (next: LoginSession) => {
       if (disposed || failed) return;
@@ -177,7 +202,7 @@ export function CliLoginTerminal({ provider, onConnected, onClose, onStateChange
       disposed = true;
       clearTimeout(start); clearTimeout(timer); clearTimeout(resizeTimer);
       controller.abort();
-      observer.disconnect(); input.dispose(); resize.dispose(); links.dispose();
+      observer.disconnect(); appearance.disconnect(); input.dispose(); resize.dispose(); links.dispose();
       if (session) cancel(session.id);
       terminal.dispose();
     };
@@ -185,11 +210,11 @@ export function CliLoginTerminal({ provider, onConnected, onClose, onStateChange
 
   const running = state === 'starting' || active(state);
   return (
-    <section className="cli-login-terminal" aria-label={`${name} login terminal`}>
+    <section className="cli-login-terminal" data-state={state} aria-label={`${name} login terminal`}>
       <div className="cli-login-terminal__header">
-        <span className={running ? 'cfg-spinner' : 'cli-login-terminal__dot'} aria-hidden />
-        <span>{state === 'starting' ? 'Starting' : LABELS[state]} {name} login</span>
-        <span className="cli-login-terminal__host">Swarm server</span>
+        <SwarmMark size={24} />
+        <span className="cli-login-terminal__title">{name} login</span>
+        <span className="cli-login-terminal__state" role="status">{running && <span className="cfg-spinner" aria-hidden />}{state === 'starting' ? 'Starting' : LABELS[state]}</span>
         <button type="button" className="cfg-icon-btn" aria-label={running ? 'Cancel login and close terminal' : 'Close login terminal'} title={running ? 'Cancel login' : 'Close terminal'} onClick={onClose}><X size={16} aria-hidden /></button>
       </div>
       <div className="cli-login-terminal__screen" ref={container} onKeyDown={(event) => event.stopPropagation()} />

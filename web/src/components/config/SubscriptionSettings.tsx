@@ -3,6 +3,8 @@ import { Check, ChevronDown, Copy, ExternalLink, KeyRound, RefreshCw, Sparkles, 
 import { cliApi, type CliProvider, type CliProviderStatus, type CliStatus } from '../../lib/cliApi';
 import { refreshModels } from './ModelPicker';
 import { CliLoginTerminal } from './CliLoginTerminal';
+import { SwarmMark } from '../SwarmMark';
+import '@fontsource-variable/instrument-sans/wght.css';
 import '../../styles/subscriptions.css';
 
 const PROVIDERS: { id: CliProvider; name: string; plan: string; install: string; login: string; docs: string }[] = [
@@ -190,8 +192,9 @@ export function SubscriptionSettings() {
   return (
     <div className="subscription-settings">
       <div className="app-settings__head">
+        <div className="subscription-settings__brand"><SwarmMark /><span>Your Swarm</span></div>
         <h1>Subscriptions</h1>
-        <p>Sign in on the Swarm server in your private account profile. All your Bots share this login across desktop, phone, iMessage and WhatsApp.</p>
+        <p>Connect ChatGPT or Claude once. Bring your plan to every Bot, on every device.</p>
       </div>
 
       <div className="subscription-settings__tabs" role="tablist" aria-label="CLI provider">
@@ -213,13 +216,16 @@ export function SubscriptionSettings() {
         <div className="subscription-settings__methods">
           <button type="button" className={`subscription-settings__method${authMethod === 'cli' ? ' is-selected' : ''}`} aria-pressed={authMethod === 'cli'} disabled={disabled} onClick={() => setAuthMethod('cli')}>
             {authMethod === 'cli' && <Check className="subscription-settings__method-check" size={16} aria-hidden />}
-            <Terminal size={24} strokeWidth={1.5} aria-hidden /><span>CLI authentication</span><small>Use your subscription</small>
+            <span className="subscription-settings__method-icon"><Terminal size={22} strokeWidth={1.5} aria-hidden /></span>
+            <span className="subscription-settings__method-copy"><span>CLI authentication</span><small>Use your subscription</small></span>
           </button>
           <button type="button" className={`subscription-settings__method${authMethod === 'api' ? ' is-selected' : ''}`} aria-label="Use API providers" aria-pressed={authMethod === 'api'} disabled={disabled} onClick={() => void select(null)}>
             {authMethod === 'api' && <Check className="subscription-settings__method-check" size={16} aria-hidden />}
-            <KeyRound size={24} strokeWidth={1.5} aria-hidden /><span>API providers</span><small>Switch explicitly to API billing</small>
+            <span className="subscription-settings__method-icon"><KeyRound size={22} strokeWidth={1.5} aria-hidden /></span>
+            <span className="subscription-settings__method-copy"><span>API providers</span><small>Pay per use</small></span>
           </button>
         </div>
+        <div className="subscription-settings__connection">
         <div className="subscription-settings__status-row">
           <span className="subscription-settings__status" role="status"><span className={`subscription-settings__status-dot${serverReady ? ' is-connected' : ''}`} aria-hidden />{busy === 'load' ? 'Checking status…' : runtime === 'bridge' ? 'Computer bridge active' : serverReady ? 'Connected' : stale ? 'Status unverified' : 'Login required'}</span>
           <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy || loginRunning} onClick={() => void refresh()}><RefreshCw size={14} aria-hidden />{busy === 'refresh' ? 'Refreshing…' : 'Refresh status'}</button>
@@ -234,8 +240,8 @@ export function SubscriptionSettings() {
         {(error || readError) && <div className="cfg-error" role="alert">{error || readError}</div>}
         {authMethod === 'cli' && <div className="subscription-settings__login-row">
           <div>
-            <div className="cfg-row__title">One login for all your Bots</div>
-            <p>{runtime === 'bridge' ? 'Choose Use server login to move authentication from your computer to your private Swarm server profile.' : 'The official CLI runs on the Swarm server. Complete its sign-in here; no local terminal or bridge is required.'}</p>
+            <div className="cfg-row__title">One login. Every Bot.</div>
+            <p>{runtime === 'bridge' ? 'Use server login to keep your Bots connected when your computer is off.' : 'Sign in below. Your connection stays on Swarm, even when you close the app.'}</p>
           </div>
           <div className="subscription-settings__actions">
             {serverReady && selected !== providerTab && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={disabled} onClick={() => void select(providerTab)}>Use {providerTab === 'claude' ? 'Claude' : 'ChatGPT'}</button>}
@@ -247,7 +253,8 @@ export function SubscriptionSettings() {
         {runtime === 'server' && confirmRevoke && <p>Disconnecting deletes saved CLI credentials and stops jobs for this account. Your selected provider stays selected and blocked until you log in again or explicitly choose API providers.</p>}
         {status?.serverLoginAvailable === false && <p>Server login is currently unavailable. Try Login for the server’s instructions, or use the computer bridge under Advanced.</p>}
         {health?.error && <div className="cfg-error">{health.error}</div>}
-        <a href={provider.docs} target="_blank" rel="noreferrer">Official authentication docs <ExternalLink size={12} aria-hidden /></a>
+        <a className="subscription-settings__docs" href={provider.docs} target="_blank" rel="noreferrer">Official authentication docs <ExternalLink size={12} aria-hidden /></a>
+        </div>
       </section>
 
       {loginProvider && <CliLoginTerminal key={loginAttempt} provider={loginProvider} onClose={closeLogin} onStateChange={(next) => {
@@ -343,9 +350,9 @@ export function SubscriptionSettings() {
         </div>
       </details>
 
-      <section className="cfg-section" aria-labelledby="subscription-limits-title">
+      <section className="cfg-section subscription-settings__coverage" aria-labelledby="subscription-limits-title">
         <h2 className="cfg-section__label" id="subscription-limits-title">Usage and coverage</h2>
-        <p>All your Bots share your eligible subscription’s usage and rate limits across devices and messaging channels. Provider extra usage settings also apply and may result in additional charges. Check your provider account for plan eligibility, usage and billing.</p>
+        <p>All your Bots share your plan across desktop, phone and linked iMessage or WhatsApp. Your provider’s usage limits and extra usage charges still apply.</p>
         <p>Your subscription covers model usage. Platform-provided voice and external services are separate and have their own billing.</p>
       </section>
     </div>
