@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
+import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { db, now } from './db.js';
 import { env } from './env.js';
 import { newId } from './lib/ids.js';
@@ -8,7 +9,7 @@ import { createSession, destroySession, requireUser, userFromCookieHeader, type 
 import { allLive, appendRow, clearConversation, emitBot, getBot, getBotRow, getRow, listBots, listRoutines, listRows, listTasks, toRoutine, updateRow } from './store.js';
 import { enqueue, interrupt, resolveApproval, runInBotQueue } from './agent/loop.js';
 import { computers } from './computers/index.js';
-import { catalog, connectedToolkits, deleteConnection, disconnect, googleProfile, invalidateComposioSession, startConnect, startGoogleLogin, toolkitInfo } from './composio.js';
+import { catalog, connectedToolkits, deleteConnection, disconnect, GoogleLoginError, googleProfile, invalidateComposioSession, startConnect, startGoogleLogin, toolkitInfo } from './composio.js';
 import { runRoutine, scheduleRoutine, unscheduleRoutine } from './routines.js';
 import { deleteEventTrigger } from './triggers.js';
 import { dispatchRoomMessage } from './agent/rooms.js';
@@ -26,6 +27,10 @@ const findOrCreateUser = (email: string, name?: string, preferId?: string) => cr
 
 // ---------- auth ----------
 
+const GOOGLE_ATTEMPT_COOKIE = 'google_signin_attempt';
+const GOOGLE_ATTEMPT_TTL = 15 * 60_000;
+const googleResult = (code: string) => `${env.appUrl}/?login=${encodeURIComponent(code)}`;
+
 api.get('/auth/me', (c) => {
   const user = userFromCookieHeader(c.req.header('cookie'));
   return c.json({ user, devLogin: env.devLogin, googleLogin: env.composioEnabled });
@@ -35,27 +40,38 @@ api.get('/auth/google/start', async (c) => {
   const attemptId = newId('login');
   const provisional = newId('usr');
   const cb = `${env.serverUrl}/api/auth/google/callback?attempt=${attemptId}`;
-  const { redirectUrl, connectedAccountId } = await startGoogleLogin(provisional, cb);
-  db.prepare('INSERT INTO login_attempts(id,provisional_user_id,connected_account_id,created_at) VALUES (?,?,?,?)').run(attemptId, provisional, connectedAccountId ?? null, now());
-  return c.redirect(redirectUrl);
+  try {
+    const { redirectUrl, connectedAccountId } = await startGoogleLogin(provisional, cb);
+    db.prepare('DELETE FROM login_attempts WHERE created_at<?').run(now() - GOOGLE_ATTEMPT_TTL);
+    db.prepare('INSERT INTO login_attempts(id,provisional_user_id,connected_account_id,created_at) VALUES (?,?,?,?)').run(attemptId, provisional, connectedAccountId, now());
+    setCookie(c, GOOGLE_ATTEMPT_COOKIE, attemptId, { httpOnly: true, sameSite: 'Lax', secure: new URL(env.serverUrl).protocol === 'https:', path: '/api/auth/google', maxAge: GOOGLE_ATTEMPT_TTL / 1000 });
+    return c.redirect(redirectUrl);
+  } catch {
+    console.warn('[auth] could not start Google sign-in');
+    return c.redirect(googleResult('google_unavailable'));
+  }
 });
 
 api.get('/auth/google/callback', async (c) => {
   const attempt = db.prepare('SELECT * FROM login_attempts WHERE id=?').get(c.req.query('attempt') ?? '') as any;
-  const caId = c.req.query('connected_account_id') ?? attempt?.connected_account_id;
-  if (!attempt || c.req.query('status') === 'failed' || !caId) return c.redirect(`${env.appUrl}/?login=failed`);
-  if (attempt.connected_account_id && caId !== attempt.connected_account_id) return c.redirect(`${env.appUrl}/?login=failed`);
+  if (!attempt || getCookie(c, GOOGLE_ATTEMPT_COOKIE) !== attempt.id) return c.redirect(googleResult('google_session'));
+  deleteCookie(c, GOOGLE_ATTEMPT_COOKIE, { path: '/api/auth/google' });
   db.prepare('DELETE FROM login_attempts WHERE id=?').run(attempt.id);
+  if (now() - attempt.created_at > GOOGLE_ATTEMPT_TTL) return c.redirect(googleResult('expired'));
+  const caId = attempt.connected_account_id;
+  if (!caId || (c.req.query('connected_account_id') && c.req.query('connected_account_id') !== caId)) return c.redirect(googleResult('google_session'));
   try {
-    const profile = await googleProfile(caId);
+    const profile = await googleProfile(caId, attempt.provisional_user_id);
+    if (c.req.query('status') === 'failed' || c.req.query('error')) return c.redirect(googleResult('google_denied'));
     const { id, isNew } = findOrCreateUser(profile.email, profile.name, attempt.provisional_user_id);
     // Existing user: the Gmail connection made for sign-in belongs to a throwaway id; remove it.
     if (!isNew && id !== attempt.provisional_user_id) await deleteConnection(caId);
     createSession(c, id);
     return c.redirect(`${env.appUrl}/`);
   } catch (e: any) {
-    console.error('[auth] google callback', e);
-    return c.redirect(`${env.appUrl}/?login=failed`);
+    const code = e instanceof GoogleLoginError ? e.code : 'google_unavailable';
+    console.warn('[auth] Google sign-in did not finish:', code);
+    return c.redirect(googleResult(code));
   }
 });
 
@@ -380,7 +396,12 @@ api.get('/apps', async (c) => {
   if (category) items = items.filter((t) => t.categories.some((x) => x.toLowerCase() === category.toLowerCase()));
   const categories = [...new Set(all.flatMap((t) => t.categories))].sort();
   const connectedApps = all.filter((t) => connected.has(t.slug)).map((t) => ({ ...t, connected: true }));
-  return c.json({ apps: items.slice(0, Number(c.req.query('limit') ?? 120)), connected: [...connected], connectedApps, categories, total: items.length });
+  const pageNumber = (value: string | undefined, fallback: number) => value !== undefined && /^\d+$/.test(value) && Number.isSafeInteger(Number(value)) ? Number(value) : fallback;
+  const offset = pageNumber(c.req.query('offset'), 0);
+  const limit = Math.max(1, Math.min(200, pageNumber(c.req.query('limit'), 60)));
+  const apps = items.slice(offset, offset + limit);
+  const nextOffset = offset + apps.length < items.length ? offset + apps.length : null;
+  return c.json({ apps, connected: [...connected], connectedApps, categories, total: items.length, nextOffset });
 });
 
 api.post('/apps/:slug/connect', async (c) => {

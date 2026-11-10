@@ -3,6 +3,8 @@ node_modules
 **/dist
 data
 .context
+.codex
+.composio
 .env
 .env.*
 !.env.example

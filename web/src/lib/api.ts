@@ -20,7 +20,7 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
   return res.json() as Promise<T>;
 }
 
-export interface AppsResponse { apps: Toolkit[]; connected: string[]; categories: string[]; total: number; notConfigured?: boolean }
+export interface AppsResponse { apps: Toolkit[]; connected: string[]; connectedApps?: Toolkit[]; categories: string[]; total: number; nextOffset?: number | null; notConfigured?: boolean }
 
 export interface RoomMember { id: string; name: string; label: string; avatarShape: string; avatarColor: string }
 
@@ -47,7 +47,7 @@ export const api = {
   computer: () => req<{ computer: ComputerState }>('GET', '/computer'),
   ensureComputer: () => req<{ computer: ComputerState }>('POST', '/computer/ensure'),
 
-  apps: (search = '', category = '') => req<AppsResponse>('GET', `/apps?search=${encodeURIComponent(search)}&category=${encodeURIComponent(category)}`),
+  apps: (search = '', category = '', offset = 0) => req<AppsResponse>('GET', `/apps?search=${encodeURIComponent(search)}&category=${encodeURIComponent(category)}&offset=${offset}`),
   connect: (slug: string, botId?: string, seq?: number) => req<{ redirectUrl: string }>('POST', `/apps/${slug}/connect`, { botId, seq }),
   disconnect: (slug: string) => req<{ ok: true }>('DELETE', `/apps/${slug}`),
 

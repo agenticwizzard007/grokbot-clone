@@ -64,6 +64,8 @@ export const env = {
   },
   get composioKey() { return live('COMPOSIO_API_KEY'); },
   get composioEnabled() { return !!live('COMPOSIO_API_KEY'); },
+  get composioOrgId() { return live('COMPOSIO_ORG_ID'); },
+  get composioProjectId() { return live('COMPOSIO_PROJECT_ID'); },
   /** Inkbox (inkbox.ai): the server's iMessage/SMS line. Set in Settings → Messaging, or here. */
   get inkboxAdminKey() { return live('INKBOX_ADMIN_API_KEY'); },
   get inkboxHandle() { return live('INKBOX_HANDLE') || 'swarm'; },

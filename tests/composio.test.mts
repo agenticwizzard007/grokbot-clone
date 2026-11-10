@@ -14,7 +14,8 @@ const backgroundFetch = (url: string | URL | Request) => {
 mock.method(globalThis, 'fetch', backgroundFetch);
 const { db } = await import('../server/src/db.js');
 const { setEnvOverride } = await import('../server/src/env.js');
-const { composio, sessionFor, invalidateComposioSession, connectionsDetail, connectedToolkits, disconnect, catalog, executeComposio } = await import('../server/src/composio.js');
+const { composioCredentials, composioHeaders } = await import('../server/src/composio-auth.js');
+const { composio, sessionFor, invalidateComposioSession, connectionsDetail, connectedToolkits, disconnect, catalog, executeComposio, googleProfile, GoogleLoginError } = await import('../server/src/composio.js');
 for (const id of ['owner', 'other']) {
   db.prepare('INSERT INTO users(id,email,name,created_at) VALUES (?,?,?,?)').run(id, `${id}@example.com`, id, Date.now());
   db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (?,?,?,?)').run(id, id, Date.now(), Date.now() + 3600_000);
@@ -31,6 +32,201 @@ function freshClient() {
   return { client, created };
 }
 after(() => { mock.restoreAll(); db.close(); fs.rmSync(root, { recursive: true, force: true }); });
+
+test('Google identity requires an active Gmail account and successful provider profile access', async () => {
+  const { client } = freshClient();
+  const account = mock.method(client.connectedAccounts, 'get', async () => ({ status: 'FAILED', statusReason: 'provider_error: access_denied', toolkit: { slug: 'gmail' } }));
+  const proxy = mock.method(client.tools, 'proxyExecute', async (args: any) => {
+    assert.equal(args.userId, 'provisional-user');
+    assert.equal(args.connectedAccountId, 'gmail-login');
+    return { status: 200, data: { emailAddress: 'Member@Example.com' } };
+  });
+  const rejects = (code: string) => assert.rejects(googleProfile('gmail-login', 'provisional-user'), (e: any) => e instanceof GoogleLoginError && e.code === code);
+  await rejects('google_denied');
+  account.mock.mockImplementation(async () => ({ status: 'INITIATED', toolkit: { slug: 'gmail' } }));
+  await rejects('google_pending');
+  assert.equal(proxy.mock.callCount(), 0);
+  account.mock.mockImplementation(async () => ({ status: 'ACTIVE', toolkit: { slug: 'gmail' } }));
+  assert.deepEqual(await googleProfile('gmail-login', 'provisional-user'), { email: 'member@example.com', name: undefined });
+  proxy.mock.mockImplementation(async () => ({ status: 403, data: { error: 'insufficient permissions' } }));
+  await rejects('google_permissions');
+  proxy.mock.mockImplementation(async () => ({ status: 200, data: {} }));
+  await rejects('google_unavailable');
+});
+
+test('Google signup binds the callback to its browser, creates one account and signs returning users in', async () => {
+  const { Hono } = await import('hono');
+  const { api } = await import('../server/src/routes.js');
+  const app = new Hono().route('/api', api);
+  const { client } = freshClient();
+  let callback = '', provisional = '', index = 0;
+  mock.method(client, 'create', async (userId: string) => {
+    provisional = userId;
+    return { authorize: async (_toolkit: string, { callbackUrl }: any) => { callback = callbackUrl; return { id: `google-${++index}`, redirectUrl: 'https://accounts.google.com/signin' }; } };
+  });
+  mock.method(client.connectedAccounts, 'get', async () => ({ status: 'ACTIVE', toolkit: { slug: 'gmail' } }));
+  mock.method(client.tools, 'proxyExecute', async (args: any) => { assert.equal(args.userId, provisional); return { status: 200, data: { emailAddress: 'google-user@example.com' } }; });
+  const removed: string[] = [];
+  mock.method(client.connectedAccounts, 'delete', async (id: string) => { removed.push(id); });
+  const begin = async () => {
+    const r = await app.request('/api/auth/google/start');
+    assert.equal(r.status, 302);
+    assert.equal(r.headers.get('location'), 'https://accounts.google.com/signin');
+    const cookie = r.headers.getSetCookie().find(v => v.startsWith('google_signin_attempt='))!;
+    assert.match(cookie, /HttpOnly/);
+    assert.match(cookie, /SameSite=Lax/);
+    return cookie.split(';')[0];
+  };
+  const cookie = await begin();
+  const firstProvisional = provisional;
+  const callbackPath = new URL(callback).pathname + new URL(callback).search;
+  const rejected = await app.request(callbackPath);
+  assert.equal(new URL(rejected.headers.get('location')!).searchParams.get('login'), 'google_session');
+  assert.equal(db.prepare('SELECT 1 FROM users WHERE id=?').get(firstProvisional), undefined);
+  const success = await app.request(callbackPath, { headers: { cookie } });
+  assert.equal(success.headers.get('location'), 'https://app.example.com/');
+  const signedInCookie = success.headers.getSetCookie().find(v => v.startsWith('swarm_session='))!.split(';')[0];
+  const me = await (await app.request('/api/auth/me', { headers: { cookie: signedInCookie } })).json() as any;
+  assert.equal(me.user.id, firstProvisional);
+  assert.equal(me.user.email, 'google-user@example.com');
+  const replay = await app.request(callbackPath, { headers: { cookie } });
+  assert.equal(new URL(replay.headers.get('location')!).searchParams.get('login'), 'google_session');
+  const secondCookie = await begin();
+  const returning = await app.request(new URL(callback).pathname + new URL(callback).search, { headers: { cookie: secondCookie } });
+  assert.equal(returning.headers.get('location'), 'https://app.example.com/');
+  assert.equal((db.prepare('SELECT count(*) AS n FROM users WHERE email=?').get('google-user@example.com') as any).n, 1);
+  assert.deepEqual(removed, ['google-2']);
+});
+
+test('Google callback explains denial, expires stale attempts, and rejects substituted accounts', async () => {
+  const { Hono } = await import('hono');
+  const { api } = await import('../server/src/routes.js');
+  const app = new Hono().route('/api', api);
+  const { client } = freshClient();
+  const get = mock.method(client.connectedAccounts, 'get', async () => ({ status: 'FAILED', statusReason: 'Authorization was denied at the provider (provider_error: access_denied)', toolkit: { slug: 'gmail' } }));
+  const attempt = (id: string, age = 0) => db.prepare('INSERT INTO login_attempts(id,provisional_user_id,connected_account_id,created_at) VALUES (?,?,?,?)').run(id, 'pending-google-user', 'expected-google-account', Date.now() - age);
+  const callback = (id: string, query = '') => app.request(`/api/auth/google/callback?attempt=${id}${query}`, { headers: { cookie: `google_signin_attempt=${id}` } });
+  attempt('denied');
+  const denied = await callback('denied', '&status=failed');
+  assert.equal(new URL(denied.headers.get('location')!).searchParams.get('login'), 'google_denied');
+  assert.equal(db.prepare('SELECT 1 FROM login_attempts WHERE id=?').get('denied'), undefined);
+  attempt('expired', 16 * 60_000);
+  assert.equal(new URL((await callback('expired')).headers.get('location')!).searchParams.get('login'), 'expired');
+  attempt('mismatch');
+  assert.equal(new URL((await callback('mismatch', '&connected_account_id=someone-elses-account')).headers.get('location')!).searchParams.get('login'), 'google_session');
+  assert.equal(get.mock.callCount(), 1);
+  assert.equal(db.prepare('SELECT 1 FROM users WHERE id=?').get('pending-google-user'), undefined);
+});
+
+test('Google startup errors return to sign-in instead of an internal server error page', async () => {
+  const { Hono } = await import('hono');
+  const { api } = await import('../server/src/routes.js');
+  const app = new Hono().route('/api', api);
+  const { client } = freshClient();
+  mock.method(client, 'create', async () => { throw new Error('provider unavailable'); });
+  const r = await app.request('/api/auth/google/start');
+  assert.equal(r.status, 302);
+  assert.equal(new URL(r.headers.get('location')!).searchParams.get('login'), 'google_unavailable');
+});
+
+test('platform credentials reject personal MCP keys and require explicit user-key scope', () => {
+  assert.throws(() => composioCredentials('ck_personal'), /personal Composio MCP key/);
+  assert.throws(() => composioCredentials('uak_developer'), /COMPOSIO_ORG_ID/);
+  setEnvOverride('COMPOSIO_ORG_ID', 'org-test');
+  try {
+    assert.throws(() => composioCredentials('uak_developer'), /COMPOSIO_PROJECT_ID/);
+    setEnvOverride('COMPOSIO_PROJECT_ID', 'project-test');
+    assert.deepEqual(composioHeaders('uak_developer'), { 'x-user-api-key': 'uak_developer', 'x-org-id': 'org-test', 'x-project-id': 'project-test' });
+    assert.deepEqual(composioCredentials('project-key'), { apiKey: 'project-key', userApiKey: null, orgApiKey: null });
+    assert.deepEqual(composioHeaders('project-key'), { 'x-api-key': 'project-key' });
+  } finally {
+    setEnvOverride('COMPOSIO_ORG_ID', null);
+    setEnvOverride('COMPOSIO_PROJECT_ID', null);
+  }
+});
+
+test('changing user-key project scope replaces both saved sessions and catalog requests', async () => {
+  setEnvOverride('COMPOSIO_API_KEY', 'uak_developer');
+  setEnvOverride('COMPOSIO_ORG_ID', 'org-test');
+  setEnvOverride('COMPOSIO_PROJECT_ID', 'project-one');
+  const requested: string[] = [];
+  const fetchMock = mock.method(globalThis, 'fetch', async (url: string, init: any) => {
+    if (new URL(url).hostname !== 'backend.composio.dev') return backgroundFetch(url);
+    assert.equal(init.headers['x-user-api-key'], 'uak_developer');
+    assert.equal(init.headers['x-api-key'], undefined);
+    assert.equal(init.headers['x-org-id'], 'org-test');
+    requested.push(init.headers['x-project-id']);
+    return Response.json({ items: [] });
+  });
+  try {
+    const first = composio();
+    mock.method(first, 'create', async () => ({ sessionId: 'project-one-session' }));
+    await sessionFor('owner');
+    await catalog();
+    setEnvOverride('COMPOSIO_PROJECT_ID', 'project-two');
+    const second = composio();
+    assert.notEqual(first, second);
+    mock.method(second, 'use', async () => { throw new Error('Must not reuse a session from another project'); });
+    mock.method(second, 'create', async () => ({ sessionId: 'project-two-session' }));
+    assert.equal((await sessionFor('owner')).sessionId, 'project-two-session');
+    await catalog();
+    assert.deepEqual(requested, ['project-one', 'project-two']);
+  } finally {
+    fetchMock.mock.restore();
+    setEnvOverride('COMPOSIO_API_KEY', null);
+    setEnvOverride('COMPOSIO_ORG_ID', null);
+    setEnvOverride('COMPOSIO_PROJECT_ID', null);
+  }
+});
+
+test('catalog API exposes every app across pages, preserves filters and bounds malformed pagination', async () => {
+  const { Hono } = await import('hono');
+  const { api } = await import('../server/src/routes.js');
+  const app = new Hono().route('/api', api);
+  const { client } = freshClient();
+  mock.method(client.connectedAccounts, 'list', async ({ userIds }: any) => ({ items: userIds[0] === 'owner' ? [{ id: 'last', toolkit: { slug: 'app1722' }, status: 'ACTIVE' }] : [], nextCursor: null }));
+  const items = Array.from({ length: 1723 }, (_, i) => ({ slug: `app${i}`, name: `App ${i}`, meta: { categories: [{ name: i % 2 ? 'Code' : 'Productivity' }] } }));
+  const fetchMock = mock.method(globalThis, 'fetch', async (url: string) => {
+    if (new URL(url).hostname !== 'backend.composio.dev') return backgroundFetch(url);
+    const offset = Number(new URL(url).searchParams.get('cursor') ?? 0);
+    return Response.json({ items: items.slice(offset, offset + 500), next_cursor: offset + 500 < items.length ? String(offset + 500) : null });
+  });
+  const page = async (query: string, user = 'owner') => {
+    const r = await app.request(`/api/apps?${query}`, { headers: { cookie: `swarm_session=${user}` } });
+    assert.equal(r.status, 200);
+    return await r.json() as any;
+  };
+  try {
+    const first = await page('');
+    assert.equal(first.total, 1723);
+    assert.equal(first.apps.length, 60);
+    assert.equal(first.nextOffset, 60);
+    assert.equal(first.connectedApps[0].slug, 'app1722');
+    const seen = new Set<string>();
+    let offset: number | null = 0;
+    do {
+      const r = await page(`offset=${offset}&limit=200`);
+      for (const item of r.apps) { assert.ok(!seen.has(item.slug)); seen.add(item.slug); }
+      offset = r.nextOffset;
+    } while (offset !== null);
+    assert.equal(seen.size, 1723);
+    const filtered = await page('search=App%201&category=code&limit=3&offset=3');
+    assert.equal(filtered.apps.length, 3);
+    assert.ok(filtered.apps.every((a: any) => a.name.startsWith('App 1') && a.categories.includes('Code')));
+    assert.equal(filtered.nextOffset, 6);
+    for (const bad of ['-1', 'NaN', 'Infinity', '1.5', '1e9', '9007199254740992']) {
+      const r = await page(`offset=${bad}&limit=${bad}`);
+      assert.equal(r.apps.length, 60);
+      assert.equal(r.apps[0].slug, 'app0');
+    }
+    assert.equal((await page('limit=9999')).apps.length, 200);
+    assert.equal((await page('limit=0')).apps.length, 1);
+    const end = await page('offset=9999');
+    assert.deepEqual(end.apps, []);
+    assert.equal(end.nextOffset, null);
+    assert.deepEqual((await page('', 'other')).connectedApps, []);
+  } finally { fetchMock.mock.restore(); }
+});
 
 test('one project gives each user a separate session and deduplicates concurrent first use', async () => {
   const { created } = freshClient();

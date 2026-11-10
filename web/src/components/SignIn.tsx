@@ -6,6 +6,15 @@ import '../styles/messaging.css';
 import { useStore } from '../store';
 import { TrafficLights } from './Sidebar';
 
+const GOOGLE_ERRORS: Record<string, string> = {
+  failed: 'Sign-in didn’t finish. Try again.',
+  google_denied: 'Google did not approve access. Try again and review the permissions. If Google says the app is blocked, your Google account or workspace administrator may need to allow it.',
+  google_pending: 'Google authorization was not completed. Start sign-in again and finish the Google consent screen.',
+  google_permissions: 'Google connected, but Gmail profile access was not granted. Try again and approve the requested Gmail permissions.',
+  google_unavailable: 'Google sign-in is temporarily unavailable. Please try again.',
+  google_session: 'This sign-in link no longer matches this browser. Start again here and finish in the same browser.',
+};
+
 export function SignIn() {
   const devLogin = useStore((s) => s.devLogin);
   const googleLogin = useStore((s) => s.googleLogin);
@@ -13,7 +22,7 @@ export function SignIn() {
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(() => (new URLSearchParams(location.search).get('login') === 'failed' ? 'Sign-in didn’t finish. Try again.' : null));
+  const [error, setError] = useState<string | null>(() => GOOGLE_ERRORS[new URLSearchParams(location.search).get('login') ?? ''] ?? null);
   const expired = new URLSearchParams(location.search).get('login') === 'expired';
 
   const dev = async (e: React.FormEvent) => {
@@ -40,6 +49,7 @@ export function SignIn() {
             <GoogleG /> Sign in with Google
           </a>
         )}
+        {googleLogin && <p className="signin__foot">Google sign-in uses Composio and asks for Gmail access to verify your email address.</p>}
         {devLogin && (
           <form className="signin__dev" onSubmit={dev}>
             <div className="signin__divider"><span>Dev sign-in</span></div>

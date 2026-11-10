@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { db, now } from './db.js';
 import { env, envSource, setEnvOverride } from './env.js';
+import { composioHeaders } from './composio-auth.js';
 
 /**
  * Provider keys set from the app (Settings → API keys). Stored in SQLite encrypted with a key
@@ -60,7 +61,7 @@ export function loadSettings() {
   }
 }
 
-export function saveSetting(name: SettingName, value: string, userId: string) {
+export function saveSetting(name: SettingName, value: string, userId: string | null) {
   const def = SETTINGS[name];
   db.prepare('INSERT OR REPLACE INTO server_settings(key,value,updated_by,updated_at) VALUES (?,?,?,?)').run(name, def.secret ? sealSecret(value) : value, userId, now());
   setEnvOverride(def.env, value);
@@ -117,7 +118,7 @@ export async function verifyDirectKey(key: string, model: string): Promise<{ ok:
 
 export async function verifyComposioKey(key: string): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const r = await fetch('https://backend.composio.dev/api/v3.1/toolkits?limit=1', { headers: { 'x-api-key': key }, signal: AbortSignal.timeout(15_000) });
+    const r = await fetch('https://backend.composio.dev/api/v3.1/toolkits?limit=1', { headers: composioHeaders(key), signal: AbortSignal.timeout(15_000) });
     if (r.ok) return { ok: true };
     return { ok: false, error: r.status === 401 || r.status === 403 ? 'Composio rejected this key.' : `Composio answered ${r.status}.` };
   } catch (e: any) {

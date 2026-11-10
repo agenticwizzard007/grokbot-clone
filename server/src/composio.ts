@@ -3,16 +3,18 @@ import { OpenAIResponsesProvider } from '@composio/openai';
 import { createHash } from 'node:crypto';
 import { db } from './db.js';
 import { env } from './env.js';
+import { composioCredentials, composioHeaders, composioIdentity } from './composio-auth.js';
 import type { Toolkit } from './types.js';
 
-const makeClient = (apiKey: string) => new Composio({ apiKey, provider: new OpenAIResponsesProvider() });
+const makeClient = (apiKey: string) => new Composio({ ...composioCredentials(apiKey), provider: new OpenAIResponsesProvider() });
 let current: { key: string; client: ReturnType<typeof makeClient> } | null = null;
 /** The Composio client for the current key; rebuilt (and caches dropped) when the key changes in Settings. */
 export function composio() {
   const key = env.composioKey;
   if (!key) throw new Error(APPS_OFF);
-  if (!current || current.key !== key) {
-    current = { key, client: makeClient(key) };
+  const identity = composioIdentity();
+  if (!current || current.key !== identity) {
+    current = { key: identity, client: makeClient(key) };
     sessionCache.clear();
     catalogCache = null;
   }
@@ -23,8 +25,8 @@ export function composio() {
 export const APPS_OFF = "Connected apps aren't set up on this server (it needs a COMPOSIO_API_KEY).";
 
 const REST = 'https://backend.composio.dev/api/v3.1';
-async function rest<T = any>(path: string, key: string): Promise<T> {
-  const res = await fetch(`${REST}${path}`, { headers: { 'x-api-key': key }, signal: AbortSignal.timeout(15_000) });
+async function rest<T = any>(path: string, headers: Record<string, string>): Promise<T> {
+  const res = await fetch(`${REST}${path}`, { headers, signal: AbortSignal.timeout(15_000) });
   if (!res.ok) throw new Error(`Composio returned ${res.status}. Check the server's Composio key in Settings → API keys.`);
   return res.json() as Promise<T>;
 }
@@ -37,13 +39,14 @@ let catalogCache: { at: number; items: CatalogItem[] } | null = null;
 export async function catalog(): Promise<CatalogItem[]> {
   if (!env.composioEnabled) return [];
   composio(); // Apply key changes before consulting a cache.
-  const key = env.composioKey;
+  const key = composioIdentity();
+  const headers = composioHeaders();
   if (catalogCache && Date.now() - catalogCache.at < 3600_000) return catalogCache.items;
   const items: CatalogItem[] = [];
   let cursor: string | undefined;
   const cursors = new Set<string>();
   do {
-    const r = await rest<any>(`/toolkits?sort_by=usage&limit=500${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, key);
+    const r = await rest<any>(`/toolkits?sort_by=usage&limit=500${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, headers);
     for (const t of r.items ?? []) {
       items.push({
         slug: t.slug,
@@ -77,7 +80,7 @@ export async function connectedToolkits(userId: string): Promise<Set<string>> {
 export async function connectionsDetail(userId: string) {
   if (!env.composioEnabled) return [];
   const client = composio();
-  const key = env.composioKey;
+  const key = composioIdentity();
   const items: { id: string; toolkit: string; status: string }[] = [];
   let cursor: string | undefined;
   const cursors = new Set<string>();
@@ -94,7 +97,7 @@ export async function connectionsDetail(userId: string) {
 
 export async function disconnect(userId: string, toolkit: string) {
   const client = composio();
-  const key = env.composioKey;
+  const key = composioIdentity();
   try {
     for (const c of await connectionsDetail(userId)) {
       assertCurrentKey(key);
@@ -112,7 +115,7 @@ const sessionCache = new Map<string, { at: number; promise: Promise<Session> }>(
 const SESSION_RECHECK_MS = 5 * 60_000;
 
 function assertCurrentKey(key: string) {
-  if (env.composioKey !== key) throw new Error('The Composio key changed. Please retry.');
+  if (composioIdentity() !== key) throw new Error('The Composio key changed. Please retry.');
 }
 
 /** A connection change must also drop the saved session, which may still select the old account. */
@@ -124,7 +127,7 @@ export function invalidateComposioSession(userId: string) {
 export async function sessionFor(userId: string): Promise<Session> {
   if (!env.composioEnabled) throw new Error(APPS_OFF);
   const client = composio();
-  const key = env.composioKey;
+  const key = composioIdentity();
   const cached = sessionCache.get(userId);
   if (cached && Date.now() - cached.at < SESSION_RECHECK_MS) return cached.promise;
   const fingerprint = createHash('sha256').update(key).digest('hex');
@@ -203,21 +206,35 @@ export const isReadOnlySlug = (slug: string) => READ_RE.test(slug.toUpperCase())
 
 export async function startGoogleLogin(provisionalUserId: string, callbackUrl: string) {
   if (!env.composioEnabled) throw new Error(APPS_OFF);
-  const session = await composio().create(provisionalUserId, { manageConnections: false } as any);
-  const req = await (session as any).authorize('gmail', { callbackUrl });
-  return { redirectUrl: req.redirectUrl as string, connectedAccountId: req.id as string | undefined };
+  const session = await composio().create(provisionalUserId, { manageConnections: false });
+  const req = await session.authorize('gmail', { callbackUrl });
+  if (!req.redirectUrl || !req.id) throw new Error('Google sign-in did not return a connection link.');
+  return { redirectUrl: req.redirectUrl, connectedAccountId: req.id };
 }
 
-export async function googleProfile(connectedAccountId: string): Promise<{ email: string; name?: string }> {
-  const r: any = await composio().tools.proxyExecute({
+export class GoogleLoginError extends Error {
+  constructor(public readonly code: 'google_denied' | 'google_pending' | 'google_permissions' | 'google_unavailable') {
+    super(code);
+  }
+}
+
+/** Only a confirmed Gmail authorization can establish the sign-in identity. */
+export async function googleProfile(connectedAccountId: string, userId: string): Promise<{ email: string; name?: string }> {
+  const account = await composio().connectedAccounts.get(connectedAccountId);
+  if (account.status === 'FAILED' && /access_denied/i.test(account.statusReason ?? '')) throw new GoogleLoginError('google_denied');
+  if (account.status !== 'ACTIVE' || account.toolkit.slug !== 'gmail') throw new GoogleLoginError('google_pending');
+  const r = await composio().tools.proxyExecute({
     endpoint: 'https://gmail.googleapis.com/gmail/v1/users/me/profile',
     method: 'GET',
     connectedAccountId,
-  } as any);
-  const data = r?.data ?? r;
-  const email = data?.emailAddress ?? data?.email;
-  if (!email) throw new Error(`Could not read Google profile: ${JSON.stringify(r).slice(0, 300)}`);
-  return { email, name: undefined };
+    userId,
+  });
+  if (r.status === 401 || r.status === 403) throw new GoogleLoginError('google_permissions');
+  if (r.status < 200 || r.status >= 300) throw new GoogleLoginError('google_unavailable');
+  const data = r.data as { emailAddress?: unknown } | undefined;
+  const email = data?.emailAddress;
+  if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new GoogleLoginError('google_unavailable');
+  return { email: email.trim().toLowerCase(), name: undefined };
 }
 
 export async function deleteConnection(id: string) {
