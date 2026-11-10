@@ -1,10 +1,11 @@
+import { ChevronLeft } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { Bot, Task } from '@shared/types';
 import { BotAvatarFor } from '../../avatar/BotAvatar';
 import { configApi } from '../../lib/configApi';
 import { relativeShort } from '../../lib/time';
 import { useConfigUI, useVersion } from '../../configStore';
-import { useStore } from '../../store';
+import { backToList, useStore } from '../../store';
 import { Glyph } from './glyphs';
 import './ui';
 
@@ -55,6 +56,7 @@ function sortTasks(list: Task[]) {
 /** Full Tasks view in the main column (sidebar → Tasks). */
 export function TasksView() {
   const bots = useStore((s) => s.bots);
+  const mobile = useStore((s) => s.mobile);
   const tasks = useTasks();
   const [filter, setFilter] = useState<Filter>('open');
   const byId = useMemo(() => new Map(bots.map((b) => [b.id, b])), [bots]);
@@ -64,6 +66,11 @@ export function TasksView() {
   return (
     <main className="chat tasks-view">
       <header className="tasks-view__header">
+        {mobile && (
+          <button type="button" className="chat__back icon-btn" onClick={() => { useConfigUI.getState().setView('chat'); backToList(); }} aria-label="All Bots">
+            <ChevronLeft size={22} strokeWidth={1.75} aria-hidden />
+          </button>
+        )}
         <div className="tasks-view__title">Tasks</div>
         <div className="segmented" role="tablist" aria-label="Filter tasks">
           {([['open', `In progress${counts.open ? ` ${counts.open}` : ''}`], ['done', 'Done'], ['all', 'All']] as [Filter, string][]).map(([f, label]) => (
