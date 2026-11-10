@@ -36,11 +36,13 @@ try {
   browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
   for (const scenario of [
     { provider: 'cloudvm', status: 'suspended' },
+    { provider: 'cloudvm', status: 'suspended', backgroundWake: true },
     { provider: 'orgo', status: 'stopped', intermediate: true },
     { provider: 'cloudvm', status: 'absent', fail: true },
     { provider: 'local', status: 'absent' },
     { provider: 'cloudvm', status: 'running', visibility: true },
     { provider: 'cloudvm', status: 'running', visibility: true, control: true },
+    { provider: 'cloudvm', status: 'running', preparing: true },
   ]) {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
     page.setDefaultTimeout(10000);
@@ -65,12 +67,14 @@ try {
     }, `ws://127.0.0.1:${desktop.address().port}`);
     // Complete the real RFB handshake without a VM or a frame encoder.
     let opened = 0, closed = 0;
+    const screenReady = [];
     const connect = socket => {
       opened++;
       const queue = new ByteQueue();
       socket.on('message', data => queue.push(Buffer.from(data)));
       socket.on('close', () => { closed++; queue.close(new Error('closed')); });
-      browserHandshake(queue, data => socket.send(data), serverInit(1920, 1080, 'Test desktop')).catch(() => {});
+      const ready = () => browserHandshake(queue, data => socket.send(data), serverInit(1920, 1080, 'Test desktop')).catch(() => {});
+      if (scenario.preparing) screenReady.push(ready); else ready();
     };
     desktop.on('connection', connect);
     let requests = 0, screenshots = 0;
@@ -105,7 +109,21 @@ try {
     await page.locator('.panel-row--computer').click();
     const viewer = page.getByRole('dialog', { name: "Quinn's computer" });
     await viewer.waitFor();
-    if (scenario.visibility) {
+    if (scenario.preparing) {
+      await until(() => screenReady.length === 1);
+      await viewer.getByRole('status').getByText('Agent waking up', { exact: true }).waitFor();
+      await viewer.getByText('Getting Chrome ready…', { exact: true }).waitFor();
+      assert.equal(await viewer.getByRole('button', { name: 'Take control' }).count(), 0, 'controls wait for browser readiness');
+      const orbit = viewer.locator('.viewer__wake-orbit');
+      assert.equal(await orbit.evaluate(el => getComputedStyle(el, '::before').animationName), 'viewer-wake-spin');
+      if (process.env.WAKE_SCREENSHOT) await page.screenshot({ path: process.env.WAKE_SCREENSHOT, animations: 'disabled' });
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      assert.equal(await orbit.evaluate(el => getComputedStyle(el, '::before').animationName), 'none');
+      void screenReady.shift()();
+      await viewer.locator('.viewer__overlay').waitFor({ state: 'hidden' });
+      await viewer.getByRole('button', { name: 'Take control' }).waitFor();
+      assert.equal(requests, 0, 'an awake VM only needs browser preparation');
+    } else if (scenario.visibility) {
       await until(() => opened === 1);
       await viewer.locator('.viewer__overlay').waitFor({ state: 'hidden' });
       let connectionsBeforeHide = 1;
@@ -139,11 +157,11 @@ try {
       assert.equal(requests, 0, 'local companions cannot be woken as cloud VMs');
     } else {
       await until(() => pending.length === 1);
-      await viewer.getByText('Waking up…', { exact: true }).waitFor();
+      await viewer.getByRole('status').getByText('Agent waking up', { exact: true }).waitFor();
       assert.equal(await viewer.getByRole('button', { name: 'Wake computer' }).count(), 0, 'no duplicate wake while pending');
       if (scenario.intermediate) {
         await page.evaluate(state => window.testEvents.onmessage({ data: JSON.stringify({ type: 'computer', state }) }), { ...computer, status: 'resuming' });
-        await page.locator('.viewer__status').filter({ hasText: 'Waking up…' }).waitFor();
+        await page.locator('.viewer__status').filter({ hasText: 'Agent waking up' }).waitFor();
       }
       if (scenario.fail) {
         await pending.shift()({ error: 'Temporary wake failure' }, 503);
@@ -152,7 +170,12 @@ try {
         await viewer.getByRole('button', { name: 'Wake computer' }).click();
         await until(() => pending.length === 1);
       }
-      await pending.shift()({ computer: { ...computer, status: 'running' } });
+      if (scenario.backgroundWake) {
+        await pending.shift()({ computer: { ...computer, status: 'starting' } });
+        await viewer.getByRole('status').getByText('Agent waking up', { exact: true }).waitFor();
+        assert.equal(opened, 0, 'the screen waits for the VM readiness event');
+        await page.evaluate(state => window.testEvents.onmessage({ data: JSON.stringify({ type: 'computer', state }) }), { ...computer, status: 'running' });
+      } else await pending.shift()({ computer: { ...computer, status: 'running' } });
       await page.locator('.viewer__status').filter({ hasText: 'Awake' }).waitFor();
       await viewer.getByRole('button', { name: 'Take control' }).waitFor();
       assert.equal(requests, scenario.fail ? 2 : 1);

@@ -8,6 +8,7 @@ import { useConfigUI, useVersion } from '../../configStore';
 import { backToList, useStore } from '../../store';
 import { Glyph } from './glyphs';
 import './ui';
+import '@fontsource-variable/instrument-sans/wght.css';
 import '../../styles/tasks.css';
 
 type Filter = 'all' | Task['state'];
@@ -103,7 +104,7 @@ export function TasksView() {
             <ChevronLeft size={22} strokeWidth={1.75} aria-hidden />
           </button>
         )}
-        <div><h1 id="tasks-heading">Tasks</h1><p>Your team’s work, with a clear next step.</p></div>
+        <h1 id="tasks-heading">Tasks</h1>
         <span className={`tasks-sync${connected ? ' is-connected' : ''}`}><span aria-hidden="true" />{connected ? 'Updates automatically' : 'Reconnecting…'}</span>
       </header>
       <div className="tasks-view__scroll">
