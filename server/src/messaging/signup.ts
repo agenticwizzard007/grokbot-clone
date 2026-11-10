@@ -1,7 +1,8 @@
 import { db, now } from '../db.js';
 import { env } from '../env.js';
 import { enqueue } from '../agent/loop.js';
-import { accountByPhone, createAccount, getAccount, hasOwner } from '../accounts.js';
+import { accountByPhone, createAccount, getAccount, mayCreateAccount } from '../accounts.js';
+import { adminPhones } from '../settings.js';
 import { deliver } from './bridge.js';
 import { replyWithCode } from './phone-auth.js';
 import {
@@ -216,9 +217,14 @@ export async function frontDesk(s: Sender, reply: RawReply): Promise<{ userId: s
     return { userId, continueWith: false };
   }
 
-  if (!hasOwner()) { if (onceADay(phone)) await reply("This Grokbot server isn't set up yet."); return null; }
+  if (!mayCreateAccount(phone)) { if (onceADay(phone)) await reply("This Grokbot server isn't set up yet."); return null; }
 
   const cfg = signupConfig();
+  // The owner's number (ADMIN_PHONES) always gets in, even on an invite-only or closed server.
+  if (isAdminPhone(phone)) {
+    const userId = await startAccount(s, null);
+    return { userId, continueWith: false };
+  }
   const claim = activeClaim(phone);
   // "JOIN <code>" in any case, or a bare code typed as shown (upper case, no look-alike characters).
   const typed = text.match(/^join\s+([A-Za-z0-9]{8})$/i)?.[1] ?? text.match(/^([A-HJ-NP-Z2-9]{8})$/)?.[1];
@@ -246,6 +252,8 @@ export async function frontDesk(s: Sender, reply: RawReply): Promise<{ userId: s
   else if (onceADay(phone)) await reply("You're still on the waitlist. I'll text you here when you're in.");
   return null;
 }
+
+const isAdminPhone = (phone: string) => adminPhones().includes(digits(phone));
 
 /** Create the account, link this channel, welcome them, and start onboarding with their primary Bot. */
 export async function startAccount(s: Sender, invitedBy: string | null): Promise<string> {

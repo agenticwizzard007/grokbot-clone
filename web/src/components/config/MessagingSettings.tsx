@@ -6,6 +6,7 @@ import {
   type MessagingLink,
   type MessagingOwner,
   type MessagingStatus,
+  type InkboxProfile,
   type SignupMode,
   type VoiceReplies,
   type WaitlistEntry,
@@ -383,6 +384,7 @@ function OwnerSections({ owner, status, setStatus, version }: SectionProps & { o
     <>
       <div className="msg-owner-divider"><span>Server owner</span></div>
       <InkboxSection owner={owner} status={status} setStatus={setStatus} />
+      {owner.inkbox.configured && <ContactCardSection />}
       <SignupSection owner={owner} setStatus={setStatus} />
       <InvitesSection version={version} />
       <WaitlistSection version={version} />
@@ -485,6 +487,61 @@ function InkboxSection({ owner, status, setStatus }: SectionProps & { owner: Mes
         )}
 
         <div className="cfg-key__foot">{note ? <Note note={note} /> : <a href="https://inkbox.ai" target="_blank" rel="noreferrer">Get a key at inkbox.ai</a>}</div>
+      </div>
+    </section>
+  );
+}
+
+/** The line's contact card: what people see when they connect (name, a line under Notes, and the photo). */
+function ContactCardSection() {
+  const [profile, setProfile] = useState<InkboxProfile | null>(null);
+  const [name, setName] = useState('');
+  const [about, setAbout] = useState('');
+  const [busy, setBusy] = useState<'save' | 'photo' | null>(null);
+  const [note, setNote] = useState<NoteState>(null);
+  const [v, setV] = useState(0);
+  const apply = (p: InkboxProfile) => { setProfile(p); setName(p.displayName ?? ''); setAbout(p.description ?? ''); setV((x) => x + 1); };
+  useEffect(() => { configApi.inkboxProfile().then(apply).catch((e) => setNote({ tone: 'error', text: (e as Error).message })); }, []);
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy('save'); setNote(null);
+    try { apply(await configApi.inkboxSaveProfile({ displayName: name, description: about })); setNote({ tone: 'ok', text: 'Saved. New connections get the updated card.' }); }
+    catch (err) { setNote({ tone: 'error', text: (err as Error).message }); }
+    finally { setBusy(null); }
+  };
+  const upload = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy('photo'); setNote(null);
+    try { apply(await configApi.inkboxUploadAvatar(file)); setNote({ tone: 'ok', text: 'Photo updated.' }); }
+    catch (err) { setNote({ tone: 'error', text: (err as Error).message }); }
+    finally { setBusy(null); }
+  };
+  const removePhoto = async () => {
+    try { apply(await configApi.inkboxDeleteAvatar()); } catch (err) { setNote({ tone: 'error', text: (err as Error).message }); }
+  };
+  return (
+    <section className="cfg-section">
+      <div className="cfg-section__label">Contact card</div>
+      <div className="cfg-card">
+        <div className="msg-card">
+          <div className="msg-card__photo">
+            {profile?.hasAvatar ? <img src={`/api/messaging/inkbox/avatar?v=${v}`} alt="Line photo" width={88} height={88} /> : <div className="msg-card__ph" aria-hidden>{(name || 'G').charAt(0).toUpperCase()}</div>}
+            <label className="cfg-btn cfg-btn--secondary msg-card__upload">
+              {busy === 'photo' ? 'Uploading…' : profile?.hasAvatar ? 'Change photo' : 'Add photo'}
+              <input type="file" accept="image/*" hidden disabled={!!busy} onChange={(e) => { void upload(e.target.files?.[0]); e.target.value = ''; }} />
+            </label>
+            {profile?.hasAvatar && <button type="button" className="phone-auth__link" onClick={() => void removePhoto()}>Remove</button>}
+          </div>
+          <form className="msg-card__fields" onSubmit={save}>
+            <label className="cfg-row__title" htmlFor="line-name">Name</label>
+            <input id="line-name" className="text-input" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} placeholder="Grokbot" />
+            <label className="cfg-row__title" htmlFor="line-about">Notes on the card</label>
+            <input id="line-about" className="text-input" maxLength={300} value={about} onChange={(e) => setAbout(e.target.value)} placeholder="Your team of AI Bots. Text to get things done." />
+            <div><button type="submit" className="cfg-btn cfg-btn--primary" disabled={!!busy || !profile}>{busy === 'save' ? 'Saving…' : 'Save'}</button></div>
+            <div className="cfg-field__hint">People get this card when they connect, and can save it as a contact. Inkbox crops photos to a square. Changes apply to new connections; people who saved the old card keep it.</div>
+          </form>
+        </div>
+        {note && <div className="cfg-key__foot"><Note note={note} /></div>}
       </div>
     </section>
   );

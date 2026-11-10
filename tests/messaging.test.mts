@@ -58,6 +58,7 @@ const inkbox = http.createServer((req, res) => {
     if (/^\/identities\/[^/]+\/signing-key$/.test(p)) return req.method === 'GET' ? json(200, { configured: ib.signingConfigured }) : (ib.signing++, json(201, { signing_key: 'whsec_test' }));
     if (p.startsWith('/webhooks/subscriptions')) {
       if (req.method === 'GET') return json(200, ib.subs);
+      if (req.method === 'DELETE') { ib.subs = ib.subs.filter((x) => !p.endsWith(`/${x.id}`)); return json(204, {}); }
       ib.subs.push({ id: `sub_${ib.subs.length + 1}`, ...body });
       return json(201, { id: `sub_${ib.subs.length}` });
     }
@@ -481,6 +482,20 @@ test('/delete confirm removes the account and everything in it', async () => {
   assert.equal((db.prepare('SELECT count(*) n FROM messaging_links WHERE user_id=?').get(u) as any).n, 0);
 });
 
+test('owner by phone (ADMIN_PHONES) for servers without email sign-in', async () => {
+  const { canManageServer } = await import('../server/src/settings.js');
+  const { mayCreateAccount } = await import('../server/src/accounts.js');
+  const alice = db.prepare("SELECT id, email FROM users WHERE phone='15550002222'").get() as any;
+  const ownerRow = getAccount(owner)!;
+  assert.equal(canManageServer(ownerRow), true, 'first account is the owner by default');
+  process.env.ADMIN_PHONES = '+1 555 000 2222';
+  try {
+    assert.equal(canManageServer(alice), true, 'the listed phone is the owner');
+    assert.equal(canManageServer(ownerRow), false, 'once owners are listed, only they are');
+    assert.equal(mayCreateAccount('15559998888'), true, 'a server with users accepts sign-ups (mode permitting)');
+  } finally { delete process.env.ADMIN_PHONES; }
+});
+
 test('plain-text formatting', () => {
   assert.equal(toPlainText('# Plan\n**Bold** and *it* and [site](https://x.dev)\n* item\n| a | b |\n|---|---|\n| 1 | 2 |'), 'Plan\nBold and it and site (https://x.dev)\n- item\na · b\n- 1 · 2');
 });
@@ -564,8 +579,11 @@ test('line setup resumes after a failed step and never recreates the identity', 
   const first = await setupLine(owner, { handle: 'my-line' });
   assert.equal(first.step, 'key');
   assert.match(first.error!, /boom/);
+  // A webhook left over from where the server ran before (e.g. the sandbox tunnel) is removed.
+  ib.subs.push({ id: 'sub_old', url: 'https://old-tunnel.example/api/messaging/inkbox/webhook', agent_identity_id: 'idn_new', event_types: ['imessage.received'] });
   const second = await setupLine(owner);
   assert.equal(second.step, 'done', second.error);
+  assert.equal(ib.subs.find((x) => x.id === 'sub_old'), undefined, 'stale webhook removed');
   assert.equal(ib.identities, 1);
   assert.equal(ib.keys, 1);
   assert.equal(ib.signing, 1);

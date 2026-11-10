@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { db, now } from '../db.js';
-import { accountByPhone, getAccount } from '../accounts.js';
+import { accountByPhone, getAccount, mayCreateAccount } from '../accounts.js';
+import { adminPhones } from '../settings.js';
 import { deliver, hasTextLink } from './bridge.js';
 import { signupConfig, startAccount, takeInvite } from './signup.js';
 import { digits, upsertLink, type Channel, type Transport } from './store.js';
@@ -157,11 +158,13 @@ export async function verifyPhoneLogin(id: string, code: string, opts: { inviteC
 
   if (existing) { connect(existing.id); return done(existing.id, false); }
 
-  // A new account: the server's sign-up rules apply, as for sign-up by text.
+  // A new account: the server's sign-up rules apply, as for sign-up by text. The owner's number always gets in.
+  if (!mayCreateAccount(phone)) return { ok: false, status: 403, error: "This Grokbot server isn't set up yet." };
   const cfg = signupConfig();
   let invitedBy: string | null = null;
-  if (cfg.mode === 'closed') return { ok: false, status: 403, error: "Grokbot isn't taking new members right now." };
-  if (cfg.mode === 'invite') {
+  if (adminPhones().includes(phone)) { /* owner: no invite needed */ }
+  else if (cfg.mode === 'closed') return { ok: false, status: 403, error: "Grokbot isn't taking new members right now." };
+  else if (cfg.mode === 'invite') {
     const inv = opts.inviteCode ? takeInvite(opts.inviteCode) : null;
     if (!inv) return { ok: false, status: 403, needInvite: true, error: opts.inviteCode ? "That invite code isn't valid." : 'Grokbot is invite-only. Enter your invite code.' };
     invitedBy = inv.createdBy;

@@ -9,6 +9,7 @@ import { accountByPhone, consumeLoginToken, createLoginLink, getAccount, isPlace
 import { deliver, hasTextLink } from './bridge.js';
 import { inboxStats } from './inbox.js';
 import { startPhoneLogin, verifyPhoneLogin } from './phone-auth.js';
+import * as ib from './inkbox/client.js';
 import { speechStatus, TTS_VOICES } from '../lib/speech.js';
 import { forgetLineInfo, inkboxConfigured, lineInfo, setupLine, tunnelStatus, verifyAdminKey, webhookUrl } from './inkbox/adapter.js';
 import {
@@ -217,6 +218,55 @@ messagingApi.delete('/inkbox', async (c) => {
   for (const k of Object.keys(SETTINGS).filter((k) => k.startsWith('inkbox_')) as SettingName[]) clearSetting(k);
   forgetLineInfo();
   return c.json(await status(c.get('user').id, true));
+});
+
+// ---------- owner: the line's contact card (name, description, photo) ----------
+
+messagingApi.get('/inkbox/profile', async (c) => {
+  const deny = ownerOnly(c); if (deny) return deny;
+  if (!inkboxConfigured()) return c.json({ error: 'Set up the line first.' }, 400);
+  try { return c.json(await ib.getProfile(env.inkboxAdminKey, env.inkboxHandle)); }
+  catch (e: any) { return c.json({ error: String(e?.message ?? e) }, 502); }
+});
+
+messagingApi.put('/inkbox/profile', async (c) => {
+  const deny = ownerOnly(c); if (deny) return deny;
+  if (!inkboxConfigured()) return c.json({ error: 'Set up the line first.' }, 400);
+  const b = await c.req.json<{ displayName?: string; description?: string }>().catch(() => ({} as any));
+  const name = b.displayName === undefined ? undefined : String(b.displayName).trim().slice(0, 60);
+  if (name !== undefined && !name) return c.json({ error: 'Enter a name.' }, 400);
+  const description = b.description === undefined ? undefined : String(b.description).trim().slice(0, 300) || null;
+  try {
+    await ib.updateProfile(env.inkboxAdminKey, env.inkboxHandle, { displayName: name, description });
+    return c.json(await ib.getProfile(env.inkboxAdminKey, env.inkboxHandle));
+  } catch (e: any) { return c.json({ error: String(e?.message ?? e) }, 502); }
+});
+
+/** The photo, for the settings page preview (proxied: the admin key never reaches the browser). */
+messagingApi.get('/inkbox/avatar', async (c) => {
+  const deny = ownerOnly(c); if (deny) return deny;
+  const img = inkboxConfigured() ? await ib.getAvatar(env.inkboxAdminKey, env.inkboxHandle).catch(() => null) : null;
+  return img ? c.body(img, 200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' }) : c.body(null, 404);
+});
+
+messagingApi.put('/inkbox/avatar', async (c) => {
+  const deny = ownerOnly(c); if (deny) return deny;
+  if (!inkboxConfigured()) return c.json({ error: 'Set up the line first.' }, 400);
+  const form = await c.req.formData().catch(() => null);
+  const file = form?.get('file');
+  if (!file || typeof file === 'string') return c.json({ error: 'Choose an image.' }, 400);
+  if (file.size > 10 * 1024 * 1024) return c.json({ error: 'The image is larger than 10 MB.' }, 413);
+  try {
+    await ib.uploadAvatar(env.inkboxAdminKey, env.inkboxHandle, { data: Buffer.from(await file.arrayBuffer()), filename: file.name || 'avatar.png', contentType: file.type || 'application/octet-stream' });
+    return c.json(await ib.getProfile(env.inkboxAdminKey, env.inkboxHandle));
+  } catch (e: any) { return c.json({ error: String(e?.message ?? e) }, e?.status === 415 || e?.status === 413 ? e.status : 502); }
+});
+
+messagingApi.delete('/inkbox/avatar', async (c) => {
+  const deny = ownerOnly(c); if (deny) return deny;
+  if (!inkboxConfigured()) return c.json({ error: 'Set up the line first.' }, 400);
+  try { await ib.deleteAvatar(env.inkboxAdminKey, env.inkboxHandle); return c.json(await ib.getProfile(env.inkboxAdminKey, env.inkboxHandle)); }
+  catch (e: any) { return c.json({ error: String(e?.message ?? e) }, 502); }
 });
 
 messagingApi.put('/signup', async (c) => {

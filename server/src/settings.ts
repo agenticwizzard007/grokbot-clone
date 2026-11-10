@@ -86,9 +86,18 @@ export function settingsStatus() {
 }
 
 /** Who may change server-wide keys: ADMIN_EMAILS if set, otherwise the first account on this server (its owner). */
+/** Owner phone numbers (digits), for servers where the owner signs in by phone. */
+export const adminPhones = () => (process.env.ADMIN_PHONES ?? '').split(',').map((p) => p.replace(/\D/g, '')).filter(Boolean);
+
+/** Who may change server-wide keys: ADMIN_EMAILS / ADMIN_PHONES if set, otherwise the first account on this server (its owner). */
 export function canManageServer(user: { id: string; email: string }): boolean {
   const admins = (process.env.ADMIN_EMAILS ?? '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
-  if (admins.length) return admins.includes(user.email.toLowerCase());
+  const phones = adminPhones();
+  if (admins.length || phones.length) {
+    if (admins.includes(user.email.toLowerCase())) return true;
+    const phone = (db.prepare('SELECT phone FROM users WHERE id=?').get(user.id) as { phone: string | null } | undefined)?.phone;
+    return !!phone && phones.includes(phone);
+  }
   const owner = db.prepare('SELECT id FROM users ORDER BY created_at ASC, rowid ASC LIMIT 1').get() as { id: string } | undefined;
   return owner?.id === user.id;
 }

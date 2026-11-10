@@ -65,6 +65,44 @@ const toIdentity = (r: any): Identity => ({
   phoneNumberId: r?.phone_number?.id ?? null, phone: r?.phone_number?.number ?? null, imessage: r?.imessage_enabled === true,
 });
 
+/** The name, description and photo people see on the line's contact card (sent when they connect). */
+export interface Profile { displayName: string | null; description: string | null; hasAvatar: boolean }
+
+export async function getProfile(adminKey: string, handle: string): Promise<Profile> {
+  const r = await request(adminKey, 'GET', `/identities/${encodeURIComponent(handle)}`);
+  return { displayName: r?.display_name ?? null, description: r?.description ?? null, hasAvatar: r?.has_avatar === true };
+}
+
+export async function updateProfile(adminKey: string, handle: string, p: { displayName?: string | null; description?: string | null }): Promise<void> {
+  const body: Record<string, unknown> = {};
+  if (p.displayName !== undefined) body.display_name = p.displayName;
+  if (p.description !== undefined) body.description = p.description;
+  // Dedicated lines share the name and photo only when contact sharing is on; harmless on the shared router.
+  body.contact_sharing_enabled = true;
+  await request(adminKey, 'PATCH', `/identities/${encodeURIComponent(handle)}`, body);
+}
+
+/** Upload (or replace) the contact-card photo. Inkbox trims borders and normalizes it to a 600×600 JPEG. */
+export async function uploadAvatar(adminKey: string, handle: string, f: { data: Buffer; filename: string; contentType: string }): Promise<void> {
+  const form = new FormData();
+  form.append('file', new Blob([new Uint8Array(f.data)], { type: f.contentType }), f.filename);
+  const r = await fetch(api(`/identities/${encodeURIComponent(handle)}/avatar`), { method: 'PUT', headers: { 'X-API-Key': adminKey }, body: form, signal: AbortSignal.timeout(60_000) });
+  if (!r.ok) {
+    const j: any = await r.json().catch(() => null);
+    throw new InkboxError(r.status, undefined, r.status === 415 ? "That file isn't an image Inkbox can read." : r.status === 413 ? 'The image is larger than 10 MB.' : `Photo upload failed (${r.status}): ${JSON.stringify(j?.detail ?? j).slice(0, 160)}`);
+  }
+}
+
+export async function getAvatar(adminKey: string, handle: string): Promise<Buffer | null> {
+  const r = await fetch(api(`/identities/${encodeURIComponent(handle)}/avatar`), { headers: { 'X-API-Key': adminKey }, signal: AbortSignal.timeout(20_000) });
+  return r.ok ? Buffer.from(await r.arrayBuffer()) : null;
+}
+
+export async function deleteAvatar(adminKey: string, handle: string): Promise<void> {
+  const r = await fetch(api(`/identities/${encodeURIComponent(handle)}/avatar`), { method: 'DELETE', headers: { 'X-API-Key': adminKey }, signal: AbortSignal.timeout(20_000) });
+  if (!r.ok && r.status !== 204) throw new InkboxError(r.status, undefined, `Couldn't remove the photo (${r.status}).`);
+}
+
 export async function getIdentity(adminKey: string, handle: string): Promise<Identity | null> {
   try { return toIdentity(await request(adminKey, 'GET', `/identities/${encodeURIComponent(handle)}`)); }
   catch (e) { if (e instanceof InkboxError && e.status === 404) return null; throw e; }
@@ -115,7 +153,12 @@ export async function subscribeWebhook(adminKey: string, identityId: string, url
   // The list's identity filter doesn't return identity-owned subscriptions, so list all and match here.
   const list = await request(adminKey, 'GET', '/webhooks/subscriptions').catch(() => null);
   const items: any[] = Array.isArray(list) ? list : list?.items ?? list?.subscriptions ?? [];
-  const same = items.find((s) => s?.url === url && (s?.agent_identity_id === identityId || s?.owner_identity_id === identityId));
+  const mine = items.filter((s) => s?.agent_identity_id === identityId || s?.owner_identity_id === identityId);
+  // A moved server (sandbox tunnel → public URL): drop this line's subscriptions to other URLs so texts arrive once.
+  for (const old of mine.filter((s) => s?.url !== url && s?.id)) {
+    await request(adminKey, 'DELETE', `/webhooks/subscriptions/${old.id}`).catch((e) => console.warn('[inkbox] could not remove old webhook', old.url, e?.message));
+  }
+  const same = mine.find((s) => s?.url === url);
   if (same) {
     const have: string[] = same.event_types ?? [];
     const missing = WEBHOOK_EVENTS.filter((e) => !have.includes(e));

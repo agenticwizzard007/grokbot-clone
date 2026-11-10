@@ -59,6 +59,13 @@ export function accountByPhone(phone: string): Account | null {
 /** The server has an owner (its first account). Sign-up by text waits for one, so a stranger never becomes the owner. */
 export const hasOwner = () => !!db.prepare('SELECT 1 FROM users LIMIT 1').get();
 
+/**
+ * May this number create an account? Once the server has an owner, yes (subject to the sign-up mode). On a fresh
+ * server only an owner number (ADMIN_PHONES) may, so a stranger never becomes the owner.
+ */
+export const mayCreateAccount = (phone: string) =>
+  hasOwner() || (process.env.ADMIN_PHONES ?? '').split(',').map((p) => p.replace(/\D/g, '')).includes(phone.replace(/\D/g, ''));
+
 export interface CreateAccountInput {
   email?: string;
   phone?: string;

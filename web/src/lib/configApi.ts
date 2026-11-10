@@ -71,6 +71,7 @@ export interface MessagingOwner {
   signup: { mode: SignupMode; signupsPerDay: number; dailyTurns: number; memberInvites: number };
 }
 export type VoiceReplies = 'voice-in' | 'always' | 'off';
+export interface InkboxProfile { displayName: string | null; description: string | null; hasAvatar: boolean }
 export interface PhoneStart { id: string; line: { number: string; connectCommand: string; smsLink: string } | null }
 export interface MessagingStatus {
   account: { phone: string | null; email: string | null; signupSource: 'web' | 'text' };
@@ -180,6 +181,17 @@ export const configApi = {
   claimInvite: (code: string, phone: string) => req<{ ok: true }>('POST', `/join/${encodeURIComponent(code)}/claim`, { phone }),
   textSignIn: (phone: string) => req<{ ok: true }>('POST', '/auth/text/request', { phone }),
   /** Continue with your phone number (signed out): a code reaches the phone; verifying signs in or creates the account. */
+  inkboxProfile: () => req<InkboxProfile>('GET', '/messaging/inkbox/profile'),
+  inkboxSaveProfile: (p: { displayName: string; description: string }) => req<InkboxProfile>('PUT', '/messaging/inkbox/profile', p),
+  inkboxUploadAvatar: async (file: File): Promise<InkboxProfile> => {
+    const fd = new FormData();
+    fd.append('file', file, file.name);
+    const res = await fetch('/api/messaging/inkbox/avatar', { method: 'PUT', credentials: 'include', body: fd });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((j as { error?: string }).error ?? 'Upload failed');
+    return j as InkboxProfile;
+  },
+  inkboxDeleteAvatar: () => req<InkboxProfile>('DELETE', '/messaging/inkbox/avatar'),
   phoneStart: (phone: string) => req<PhoneStart>('POST', '/auth/phone/start', { phone }),
   phoneVerify: (id: string, code: string, inviteCode?: string) => req<{ ok: true; created: boolean }>('POST', '/auth/phone/verify', { id, code, inviteCode }),
   /** Connect your phone (signed in): the same code flow, attaching the number to this account. */

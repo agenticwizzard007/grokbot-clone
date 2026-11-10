@@ -111,3 +111,11 @@
 .phone-auth__error { width: 100%; }
 .signin__or { width: 100%; margin: 16px 0 12px; }
 .msg-phone-auth { display: flex; flex-direction: column; gap: 8px; max-width: 360px; margin: 0 auto; padding: 4px 14px 16px; }
+
+/* Contact card */
+.msg-card { display: flex; gap: 20px; padding: 14px; flex-wrap: wrap; }
+.msg-card__photo { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 120px; }
+.msg-card__photo img, .msg-card__ph { width: 88px; height: 88px; border-radius: 50%; object-fit: cover; }
+.msg-card__ph { display: grid; place-items: center; background: var(--color-bg-tertiary); color: var(--color-text-secondary); font-size: 34px; font-weight: 600; }
+.msg-card__upload { cursor: pointer; }
+.msg-card__fields { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 240px; }
