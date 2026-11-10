@@ -20,12 +20,12 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
   return res.json() as Promise<T>;
 }
 
-export interface AppsResponse { apps: Toolkit[]; connected: string[]; categories: string[]; total: number }
+export interface AppsResponse { apps: Toolkit[]; connected: string[]; connectedApps?: Toolkit[]; categories: string[]; total: number; nextOffset?: number | null; notConfigured?: boolean }
 
 export interface RoomMember { id: string; name: string; label: string; avatarShape: string; avatarColor: string }
 
 export const api = {
-  me: () => req<{ user: User | null; devLogin: boolean }>('GET', '/auth/me'),
+  me: () => req<{ user: User | null; devLogin: boolean; googleLogin?: boolean }>('GET', '/auth/me'),
   devLogin: (email: string, name?: string) => req<{ ok: true }>('POST', '/auth/dev', { email, name }),
   logout: () => req<{ ok: true }>('POST', '/auth/logout'),
 
@@ -47,7 +47,7 @@ export const api = {
   computer: () => req<{ computer: ComputerState }>('GET', '/computer'),
   ensureComputer: () => req<{ computer: ComputerState }>('POST', '/computer/ensure'),
 
-  apps: (search = '', category = '') => req<AppsResponse>('GET', `/apps?search=${encodeURIComponent(search)}&category=${encodeURIComponent(category)}`),
+  apps: (search = '', category = '', offset = 0) => req<AppsResponse>('GET', `/apps?search=${encodeURIComponent(search)}&category=${encodeURIComponent(category)}&offset=${offset}`),
   connect: (slug: string, botId?: string, seq?: number) => req<{ redirectUrl: string }>('POST', `/apps/${slug}/connect`, { botId, seq }),
   disconnect: (slug: string) => req<{ ok: true }>('DELETE', `/apps/${slug}`),
 
@@ -61,5 +61,5 @@ export function openPopup(url: string) {
   const w = 520, h = 680;
   const left = window.screenX + (window.outerWidth - w) / 2;
   const top = window.screenY + (window.outerHeight - h) / 2;
-  return window.open(url, 'grokbot-connect', `width=${w},height=${h},left=${left},top=${top}`);
+  return window.open(url, 'swarm-connect', `width=${w},height=${h},left=${left},top=${top}`);
 }

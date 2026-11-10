@@ -1,4 +1,4 @@
-import OpenAI from 'openai';
+import { llmClient, modelFor, modelInfo, prepareInput, providerFields, serverTools, tagOutput } from '../lib/llm.js';
 import { db, now } from '../db.js';
 import { env } from '../env.js';
 import { newId, sha256 } from '../lib/ids.js';
@@ -9,12 +9,16 @@ import { composioTools, toolkitInfo } from '../composio.js';
 import { systemPrompt } from './prompt.js';
 import { repairHistory } from './history.js';
 import { maybeCompact, noteUsage } from './memory.js';
-import { activityFor, functionSchemas, humanizeSlug, policyFor, runComposioTool, toolMap, type ToolCtx, type ToolResult } from './tools.js';
+import { activityFor, allowedDuringSetup, functionSchemas, humanizeSlug, policyFor, runComposioTool, toolMap, type ToolCtx, type ToolResult } from './tools.js';
+import { isConfiguring } from '../bot-setup.js';
+import { mcpSchemas, runMcpTool } from '../mcp/client.js';
+import { findMcpTool } from '../mcp/store.js';
 
-const xai = new OpenAI({ apiKey: env.xaiKey, baseURL: 'https://api.x.ai/v1', timeout: 360_000 });
+const llm = () => llmClient(360_000);
 
 export type Trigger =
-  | { type: 'user'; text: string }
+  /** channel: where the user wrote it (a text channel via the messaging bridge; absent = the web app). */
+  | { type: 'user'; text: string; channel?: 'imessage' | 'sms'; images?: string[]; voice?: boolean }
   | { type: 'routine'; routineId: string; name: string; prompt: string }
   | { type: 'bot'; fromBotId: string; fromName: string; text: string; depth: number }
   | { type: 'system'; text: string }
@@ -36,6 +40,10 @@ const KEEP_IMAGES = 3;
 
 const queues = new Map<string, Promise<void>>();
 const aborts = new Map<string, AbortController>();
+const running = new Map<string, Trigger>();
+
+/** The trigger of the turn a Bot is running right now (rows it writes during the turn belong to it). */
+export const currentTrigger = (botId: string): Trigger | undefined => running.get(botId);
 
 export function enqueue(botId: string, trigger: Trigger) {
   const prev = queues.get(botId) ?? Promise.resolve();
@@ -88,7 +96,11 @@ function pruneImages(items: any[]): any[] {
 
 function triggerItem(t: Trigger): any | null {
   switch (t.type) {
-    case 'user': return { role: 'user', content: t.text };
+    case 'user': {
+      const text = t.channel ? `[via ${t.channel === 'sms' ? 'SMS' : 'iMessage'}${t.voice ? ', voice note' : ''}] ${t.text}` : t.text;
+      if (!t.images?.length) return { role: 'user', content: text };
+      return { role: 'user', content: [{ type: 'input_text', text }, ...t.images.map((url) => ({ type: 'input_image', image_url: url, detail: 'auto' }))] };
+    }
     case 'routine': return { role: 'user', content: `[Routine "${t.name}" is running now. Do this:]\n${t.prompt}` };
     case 'bot': return { role: 'user', content: `[Message from ${t.fromName}, another Bot on the team. Reply to them with send_to_bot if they asked you something.]\n${t.text}` };
     case 'system': return { role: 'user', content: `[System notice] ${t.text}` };
@@ -104,6 +116,7 @@ async function runTurn(botId: string, trigger: Trigger) {
   const userId: string = bot.user_id;
   const ctrl = new AbortController();
   aborts.set(botId, ctrl);
+  running.set(botId, trigger);
   let depth = trigger.type === 'bot' ? trigger.depth : 0;
 
   const ctx: ToolCtx = { userId, botId, enqueueBotMessage, depth };
@@ -128,10 +141,10 @@ async function runTurn(botId: string, trigger: Trigger) {
     }
 
     const tools = [
-      ...functionSchemas(),
-      ...(await composioTools(userId)),
-      { type: 'web_search' },
-      { type: 'x_search' },
+      ...functionSchemas(botId),
+      ...mcpSchemas(userId, botId),
+      ...(isConfiguring(botId) ? [] : await composioTools(userId)),
+      ...(isConfiguring(botId) ? [] : serverTools()),
     ];
 
     for (let step = 0; step < MAX_STEPS; step++) {
@@ -161,6 +174,7 @@ async function runTurn(botId: string, trigger: Trigger) {
     if (!ctrl.signal.aborted) console.error('[agent]', e);
   } finally {
     aborts.delete(botId);
+    running.delete(botId);
     const stillPending = db.prepare('SELECT 1 FROM pending_turns WHERE bot_id=?').get(botId);
     if (!stillPending) setLive(botId, { isRunning: false, activity: null, awaiting: null, startedAt: null });
     emitBot(botId);
@@ -176,6 +190,15 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
     const row = getRow(botId, c.rowSeq);
     const body = (row?.body ?? {}) as ToolCallBody;
 
+    // Enforce the interview boundary even if a model fabricates a tool call or an old
+    // pending call is resumed. Configuring an agent must not launch operational work.
+    if (!allowedDuringSetup(botId, c.name)) {
+      updateRow(botId, c.rowSeq, { ...body, status: 'denied', summary: 'Complete agent setup first' });
+      st.outputs.push({ type: 'function_call_output', call_id: c.call_id, output: 'This agent is still being configured. Ask the user about the role and save_agent_setup; operational tools become available after the user activates the specification in Configuration.' });
+      st.calls.shift();
+      continue;
+    }
+
     // Was this call just approved/denied?
     const ap = st.approvalId ? (db.prepare('SELECT * FROM approvals WHERE id=?').get(st.approvalId) as any) : null;
     let decision = policyFor(userId, c.name, args).decision;
@@ -187,9 +210,10 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
       const pol = policyFor(userId, c.name, args);
       const approvalId = newId('apr');
       const tk = pol.toolkit ? await toolkitInfo(pol.toolkit) : undefined;
+      const mcp = c.name.startsWith('mcp_') ? findMcpTool(userId, c.name, botId) : undefined;
       const card = appendRow(botId, 'card', {
         type: 'card', card: 'approval', approvalId, title: `Allow ${getBotRow(botId).name} to ${pol.title.split(': ')[1] ?? pol.title}?`,
-        detail: describeArgs(args), tool: pol.key, toolkit: pol.toolkit, toolkitName: tk?.name, logo: tk?.logo, args, status: 'pending',
+        detail: describeArgs(args), tool: pol.key, toolkit: pol.toolkit, toolkitName: mcp?.server.config.name ?? tk?.name, logo: tk?.logo, args, status: 'pending',
       });
       db.prepare('INSERT INTO approvals(id,bot_id,row_seq,call_id,tool,status,created_at) VALUES (?,?,?,?,?,?,?)').run(approvalId, botId, card.seq, c.call_id, pol.key, 'pending', now());
       updateRow(botId, c.rowSeq, { ...body, status: 'awaiting-approval' });
@@ -211,7 +235,9 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
       setLive(botId, { isRunning: true, activity: { kind: c.name === 'send_to_bot' ? 'messaging_named' : act.kind, detail, since: now() }, awaiting: null });
       try {
         const impl = toolMap.get(c.name);
-        res = impl ? await impl.impl(args, { ...ctx, depth: st.depth }) : await runComposioTool(ctx, c.name, args);
+        res = impl ? await impl.impl(args, { ...ctx, depth: st.depth })
+          : c.name.startsWith('mcp_') ? await runMcpTool(userId, botId, c.name, args)
+          : await runComposioTool(ctx, c.name, args);
         updateRow(botId, c.rowSeq, { ...body, status: 'done', summary: res.summary });
       } catch (e: any) {
         res = { output: `Tool error: ${e?.message ?? e}` };
@@ -257,29 +283,33 @@ async function callModel(ctx: ToolCtx, tools: any[], signal: AbortSignal): Promi
   // Runs inside the bot's serial queue, so compaction can't race a turn.
   const history = await maybeCompact(botId, loadHistory(botId)).catch(() => loadHistory(botId));
   // The model is only called when no approval is pending, so every orphaned call can be repaired.
-  const input = [{ role: 'system', content: await systemPrompt(userId, botId) }, ...pruneImages(repairHistory(history))];
+  const model = modelFor(bot.model);
+  const input = [{ role: 'system', content: await systemPrompt(userId, botId) }, ...prepareInput(pruneImages(repairHistory(history)), model)];
 
   const body: any = {
-    model: env.xaiModel,
+    model,
     input,
     tools,
-    reasoning: { effort: bot.effort ?? 'medium' },
     store: false,
-    include: ['reasoning.encrypted_content'],
-    prompt_cache_key: `grokbot:${botId}:${bot.generation}`,
-    safety_identifier: sha256(userId).slice(0, 32),
     stream: true,
+    ...providerFields({
+      effort: bot.effort ?? 'medium',
+      reasoning: (await modelInfo(model))?.reasoning ?? true,
+      cacheKey: `swarm:${botId}:${bot.generation}`,
+      safetyId: sha256(userId).slice(0, 32),
+    }),
   };
 
   let stream: any;
   try {
-    stream = await xai.responses.create(body, { signal });
+    stream = await llm().responses.create(body, { signal });
   } catch (e: any) {
-    // If a Composio tool schema is rejected, retry with only our own tools.
-    if (e?.status === 400 && tools.length > functionSchemas().length + 2) {
+    // If an external schema is rejected, make the degraded capability visible.
+    if (e?.status === 400 && tools.length > functionSchemas(botId).length + serverTools().length) {
       console.warn('[agent] 400 with composio tools, retrying without:', e?.message);
-      body.tools = [...functionSchemas(), { type: 'web_search' }, { type: 'x_search' }];
-      stream = await xai.responses.create(body, { signal });
+      if (tools.some(t => t.name?.startsWith('mcp_'))) appendRow(botId, 'notice', { type: 'notice', text: 'The model rejected an external tool definition. Custom MCP tools are unavailable for this response; check the server’s tool schemas or choose another model.', tone: 'warn' });
+      body.tools = [...functionSchemas(botId), ...(isConfiguring(botId) ? [] : serverTools())];
+      stream = await llm().responses.create(body, { signal });
     } else throw e;
   }
 
@@ -301,7 +331,7 @@ async function callModel(ctx: ToolCtx, tools: any[], signal: AbortSignal): Promi
         if (msgSeq === null || Date.now() - lastFlush > 120) flush(true);
         break;
       case 'response.output_item.added':
-        if (ev.item?.type === 'web_search_call') setLive(botId, { activity: { kind: 'searching_web', since: now() } });
+        if (ev.item?.type === 'web_search_call' || (ev.item?.type !== 'x_search_call' && /search/.test(String(ev.item?.type ?? '')))) setLive(botId, { activity: { kind: 'searching_web', since: now() } });
         if (ev.item?.type === 'x_search_call') setLive(botId, { activity: { kind: 'searching_web', detail: 'X', since: now() } });
         if (ev.item?.type === 'message') setLive(botId, { activity: { kind: 'working', since: now() } });
         break;
@@ -327,7 +357,7 @@ async function callModel(ctx: ToolCtx, tools: any[], signal: AbortSignal): Promi
   if (msgSeq !== null) flush(false);
   if (!final) throw new Error('model stream ended without a response');
   if (final.usage?.input_tokens) noteUsage(botId, final.usage.input_tokens, history.length);
-  return { output: final.output ?? [] };
+  return { output: tagOutput(final.output ?? [], model) };
 }
 
 // ---------- misc ----------

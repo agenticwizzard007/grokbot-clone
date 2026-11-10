@@ -7,7 +7,7 @@ import { Icon } from '../Icon';
 import { Glyph } from './glyphs';
 import { formatBytes } from './ui';
 
-/** Files the bot saved under /root/grokbot/files/<botId> on its computer. */
+/** Files the bot saved under /root/swarm/files/<botId> on its computer. */
 export function LibraryTab({ bot }: { bot: Bot }) {
   const awake = useStore((s) => s.computer?.status === 'running');
   const [path, setPath] = useState('');
@@ -92,7 +92,7 @@ export function LibraryTab({ bot }: { bot: Bot }) {
             ))
           )}
         </div>
-        {error && <div className="cfg-error cfg-error--small">{error}</div>}
+        {(error || (list?.status === 'ok' && list.error)) && <div className="cfg-error cfg-error--small">{error || list?.error}</div>}
       </section>
     </div>
   );

@@ -6,6 +6,7 @@ import { ComputerViewer } from './components/ComputerViewer';
 import { DetailsPanel } from './components/DetailsPanel';
 import { Sidebar } from './components/Sidebar';
 import { SignIn } from './components/SignIn';
+import { JoinPage } from './components/JoinPage';
 import { ConnectAppsModal } from './components/modals/ConnectAppsModal';
 import { CreateBotModal } from './components/modals/CreateBotModal';
 import { CreateGroupModal } from './components/modals/CreateGroupModal';
@@ -29,7 +30,7 @@ function Shell() {
     const stop = startEvents();
     // OAuth popups post back here; refresh connection-dependent views and the open transcript.
     const onMsg = (e: MessageEvent) => {
-      if ((e.data as { type?: string })?.type !== 'grokbot-connected') return;
+      if ((e.data as { type?: string })?.type !== 'swarm-connected') return;
       const s = useStore.getState();
       s.set({ connectionsVersion: s.connectionsVersion + 1 });
       if (s.selectedBotId) s.loadRows(s.selectedBotId).catch(() => {});
@@ -73,6 +74,9 @@ export function App() {
   const authChecked = useStore((s) => s.authChecked);
   const user = useStore((s) => s.user);
   useEffect(() => { useStore.getState().checkAuth(); }, []);
+  // Public invite page: /join/<code> works signed in or out.
+  const join = window.location.pathname.match(/^\/join\/([^/]+)/);
+  if (join) return <JoinPage code={decodeURIComponent(join[1])} />;
   if (!authChecked) return <div className="boot" />;
   return user ? <Shell /> : <SignIn />;
 }

@@ -27,6 +27,10 @@ class Hub {
   isOnline(userId: string) {
     return (this.listeners.get(userId)?.size ?? 0) > 0;
   }
+
+  broadcast(ev: ServerEvent) {
+    for (const userId of this.listeners.keys()) this.emit(userId, ev);
+  }
 }
 
 export const hub = new Hub();

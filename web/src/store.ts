@@ -9,6 +9,8 @@ interface Transcript { generation: number; bySeq: Record<number, Row>; loaded: b
 interface State {
   user: User | null;
   devLogin: boolean;
+  /** Google sign-in needs Composio on the server. */
+  googleLogin: boolean;
   authChecked: boolean;
 
   bots: Bot[];
@@ -38,15 +40,16 @@ interface State {
   set(p: Partial<State>): void;
 }
 
-const LS_SELECTED = 'grokbot.selectedBot';
-const LS_DETAILS = 'grokbot.detailsOpen';
-const LS_SIDEBAR = 'grokbot.sidebarCollapsed';
+const LS_SELECTED = 'swarm.selectedBot';
+const LS_DETAILS = 'swarm.detailsOpen';
+const LS_SIDEBAR = 'swarm.sidebarCollapsed';
 const lsGet = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } };
 
 export const useStore = create<State>((set, get) => ({
   user: null,
   devLogin: false,
+  googleLogin: true,
   authChecked: false,
   bots: [],
   live: {},
@@ -63,8 +66,8 @@ export const useStore = create<State>((set, get) => ({
 
   async checkAuth() {
     try {
-      const { user, devLogin } = await api.me();
-      set({ user, devLogin, authChecked: true });
+      const { user, devLogin, googleLogin } = await api.me();
+      set({ user, devLogin, googleLogin: googleLogin !== false, authChecked: true });
     } catch {
       set({ user: null, authChecked: true });
     }
@@ -164,8 +167,10 @@ export const useStore = create<State>((set, get) => ({
         return;
       case 'tasks':
       case 'memories':
+      case 'setup':
+      case 'messaging':
         // Picked up by configStore.ts (Tasks view, Library/Tasks tabs, bot settings).
-        window.dispatchEvent(new CustomEvent('grokbot:event', { detail: ev }));
+        window.dispatchEvent(new CustomEvent('swarm:event', { detail: ev }));
         return;
       case 'connections':
         set((st) => ({ connectionsVersion: st.connectionsVersion + 1 }));

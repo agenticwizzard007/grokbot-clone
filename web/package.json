@@ -1,5 +1,5 @@
 {
-  "name": "@grokbot/web",
+  "name": "@swarm/web",
   "private": true,
   "type": "module",
   "scripts": {

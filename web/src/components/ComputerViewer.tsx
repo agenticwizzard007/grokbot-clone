@@ -5,6 +5,7 @@ import { api } from '../lib/api';
 import { botVars } from '../lib/colors';
 import { useSelectedBot, useStore } from '../store';
 import { computerStatusText } from './DetailsPanel';
+import { useConfigUI } from '../configStore';
 import { Icon } from './Icon';
 
 type Mode = 'watch' | 'control';
@@ -95,8 +96,17 @@ export function ComputerViewer() {
         ) : (
           <div className="viewer__overlay viewer__overlay--asleep">
             <span className="viewer__sleep-face"><i /><i /></span>
-            <span>{busy ? computerStatusText(computer) : 'The computer is asleep.'}</span>
-            {!busy && <button type="button" className="btn btn--light" onClick={() => api.ensureComputer().catch(() => {})}>Wake computer</button>}
+            {computer?.provider === 'local' ? (
+              <>
+                <span>Your PC isn’t connected.</span>
+                <button type="button" className="btn btn--light" onClick={() => { close(); useConfigUI.getState().openAppSettings('computer'); }}>Connect your PC</button>
+              </>
+            ) : (
+              <>
+                <span>{busy ? computerStatusText(computer) : 'The computer is asleep.'}</span>
+                {!busy && <button type="button" className="btn btn--light" onClick={() => api.ensureComputer().catch(() => {})}>Wake computer</button>}
+              </>
+            )}
             {computer?.error && <span className="viewer__err">{computer.error}</span>}
           </div>
         )}

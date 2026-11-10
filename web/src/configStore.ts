@@ -6,7 +6,7 @@ import { useStore } from './store';
 
 export type Theme = 'system' | 'light' | 'dark';
 export type BotSettingsTab = 'general' | 'skills' | 'memories' | 'routines';
-export type AppSection = 'general' | 'computer' | 'permissions' | 'apps' | 'account';
+export type AppSection = 'general' | 'keys' | 'computer' | 'messaging' | 'permissions' | 'apps' | 'mcp' | 'account';
 
 interface ConfigUI {
   botSettings: { botId: string; tab: BotSettingsTab } | null;
@@ -24,9 +24,20 @@ interface ConfigUI {
   bump(key: string): void;
 }
 
-const LS_THEME = 'grokbot.theme';
+const LS_THEME = 'swarm.theme';
 const readTheme = (): Theme => {
   try { const t = localStorage.getItem(LS_THEME); return t === 'light' || t === 'dark' ? t : 'system'; } catch { return 'system'; }
+};
+
+/** Deep link: /#settings/<section> (e.g. #settings/messaging, or just #messaging) opens Settings there. */
+const SECTIONS_LINKABLE: AppSection[] = ['general', 'keys', 'computer', 'messaging', 'permissions', 'apps', 'mcp', 'account'];
+/** Old links that now open a different section. */
+const SECTION_ALIASES: Record<string, AppSection> = { whatsapp: 'messaging' };
+const linkedSection = (): AppSection | null => {
+  if (typeof window === 'undefined') return null;
+  const raw = window.location.hash.replace(/^#(settings\/)?/, '');
+  const h = (SECTION_ALIASES[raw] ?? raw) as AppSection;
+  return SECTIONS_LINKABLE.includes(h) ? h : null;
 };
 
 const darkQuery = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
@@ -39,14 +50,17 @@ export function applyTheme(t: Theme) {
 
 export const useConfigUI = create<ConfigUI>((set, get) => ({
   botSettings: null,
-  appSettings: null,
+  appSettings: linkedSection(),
   view: 'chat',
   theme: readTheme(),
   versions: {},
   openBotSettings: (botId, tab = 'general') => set({ botSettings: { botId, tab } }),
   closeBotSettings: () => set({ botSettings: null }),
   openAppSettings: (section = 'general') => set({ appSettings: section }),
-  closeAppSettings: () => set({ appSettings: null }),
+  closeAppSettings: () => {
+    if (linkedSection()) history.replaceState(null, '', window.location.pathname + window.location.search);
+    set({ appSettings: null });
+  },
   setView: (view) => set({ view }),
   setTheme: (theme) => {
     try { localStorage.setItem(LS_THEME, theme); } catch { /* ignore */ }
@@ -57,15 +71,21 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
 }));
 
 // Apply the saved theme as early as possible, and follow the OS while on "system".
+window.addEventListener('hashchange', () => {
+  const section = linkedSection();
+  if (section) useConfigUI.getState().openAppSettings(section);
+});
 applyTheme(readTheme());
 darkQuery?.addEventListener?.('change', () => { if (useConfigUI.getState().theme === 'system') applyTheme('system'); });
 
 // store.ts forwards events it doesn't handle itself as a DOM event.
-window.addEventListener('grokbot:event', (e) => {
+window.addEventListener('swarm:event', (e) => {
   const ev = (e as CustomEvent<ServerEvent>).detail;
   const { bump } = useConfigUI.getState();
   if (ev.type === 'tasks') { bump('tasks'); bump(`tasks:${ev.botId}`); }
   if (ev.type === 'memories') bump(`memories:${ev.botId}`);
+  if (ev.type === 'setup') bump(`setup:${ev.botId}`);
+  if (ev.type === 'messaging') bump('messaging');
 });
 
 // Picking a bot anywhere (sidebar, search) goes back to its chat.

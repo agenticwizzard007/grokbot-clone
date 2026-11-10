@@ -3,7 +3,7 @@ import { newId } from '../lib/ids.js';
 import { getLive } from '../store.js';
 
 /**
- * Subagents (Grok Bot: CheckSubagent / MessageSubagent / StopSubagent, `sand-subagent-*`).
+ * Subagents (Swarm: CheckSubagent / MessageSubagent / StopSubagent, `sand-subagent-*`).
  * A subagent is a hidden child bot: same owner and look as its parent, its own context and
  * its own computer screen, hidden from the sidebar. It receives its goal as a bot-to-bot
  * message and reports back to the parent with send_to_bot when done.

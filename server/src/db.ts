@@ -61,6 +61,14 @@ CREATE TABLE IF NOT EXISTS bots (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS bot_setups (
+  bot_id TEXT PRIMARY KEY REFERENCES bots(id) ON DELETE CASCADE,
+  brief TEXT NOT NULL,
+  source TEXT NOT NULL,
+  computer_status TEXT NOT NULL DEFAULT 'pending',
+  computer_error TEXT,
+  updated_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS rows (
   bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
   generation INTEGER NOT NULL,
@@ -132,6 +140,18 @@ CREATE TABLE IF NOT EXISTS skills (
   body TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS server_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_by TEXT,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS companion_tokens (
+  token_hash TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  last_seen_at INTEGER
+);
 CREATE TABLE IF NOT EXISTS composio_sessions (
   user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   session_id TEXT NOT NULL
@@ -143,8 +163,15 @@ function addColumn(table: string, col: string, ddl: string) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
   if (!cols.some((c) => c.name === col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`);
 }
+addColumn('composio_sessions', 'key_fingerprint', 'TEXT');
 addColumn('bots', 'voice', "TEXT NOT NULL DEFAULT 'luna'");
+addColumn('bots', 'model', 'TEXT'); // per-Bot model (OpenRouter id like "anthropic/claude-sonnet-5.5", or a direct provider model); NULL = server default
 addColumn('bots', 'voice_speed', 'REAL NOT NULL DEFAULT 1');
 addColumn('bots', 'voice_language', "TEXT NOT NULL DEFAULT 'auto'");
+// Existing agents keep working; new teammates explicitly start in interviewing state.
+addColumn('bot_setups', 'onboarding_status', "TEXT NOT NULL DEFAULT 'active'");
+addColumn('bot_setups', 'revision', 'INTEGER NOT NULL DEFAULT 1');
+addColumn('bot_setups', 'confirmed_at', 'INTEGER');
+addColumn('bot_setups', 'pending_handoff', 'TEXT');
 
 export const now = () => Date.now();

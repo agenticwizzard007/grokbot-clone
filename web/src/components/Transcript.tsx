@@ -33,7 +33,7 @@ function buildItems(rows: Row[]): Item[] {
     }
     if (b.type === 'message') {
       if (!b.text && !b.streaming) continue;
-      const side = b.role === 'user' && (!b.from || b.from.kind === 'voice') ? 'right' : 'left';
+      const side = b.role === 'user' && (!b.from || b.from.kind === 'voice' || isText(b.from.kind)) ? 'right' : 'left';
       const sender = b.from ? `${b.from.kind}:${b.from.id}` : b.role;
       const lastRow = last?.kind === 'group' ? last.rows[last.rows.length - 1] : null;
       const lastBody = lastRow?.body as MessageBody | undefined;
@@ -75,12 +75,23 @@ const Bubble = memo(function Bubble({ row, side, pos }: { row: Row; side: 'left'
   );
 });
 
+/** A small speech-bubble mark for messages that arrived by iMessage or SMS. */
+function TextMark() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden style={{ opacity: 0.56 }}>
+      <path fill="currentColor" d="M12 3C6.5 3 2 6.7 2 11.3c0 2.5 1.3 4.7 3.4 6.2-.2 1.3-.8 2.6-1.8 3.5 1.9-.1 3.7-.8 5-1.9 1.1.3 2.2.5 3.4.5 5.5 0 10-3.7 10-8.3S17.5 3 12 3z" />
+    </svg>
+  );
+}
+
+const isText = (kind: NonNullable<MessageBody['from']>['kind']) => kind === 'imessage' || kind === 'sms';
+
 function SenderLabel({ from }: { from: NonNullable<MessageBody['from']> }) {
   const bot = useStore((s) => (from.kind === 'bot' ? s.bots.find((b) => b.id === from.id) : undefined));
   return (
     <div className="sender-label">
-      {bot ? <BotAvatarFor bot={bot} size={16} /> : from.kind === 'routine' ? <Icon name="clock" size={12} opacity={0.56} /> : from.kind === 'voice' ? <Icon name="voice_a" size={12} opacity={0.56} /> : <BotAvatar shape="blob" color="gray" size={16} />}
-      <span>{from.kind === 'routine' ? `Routine · ${from.name}` : from.kind === 'voice' ? 'Asked on a voice call' : `From ${from.name}`}</span>
+      {bot ? <BotAvatarFor bot={bot} size={16} /> : from.kind === 'routine' ? <Icon name="clock" size={12} opacity={0.56} /> : from.kind === 'voice' ? <Icon name="voice_a" size={12} opacity={0.56} /> : isText(from.kind) ? <TextMark /> : <BotAvatar shape="blob" color="gray" size={16} />}
+      <span>{from.kind === 'routine' ? `Routine · ${from.name}` : from.kind === 'voice' ? 'Asked on a voice call' : from.kind === 'imessage' ? 'Sent by iMessage' : from.kind === 'sms' ? 'Sent by SMS' : `From ${from.name}`}</span>
     </div>
   );
 }

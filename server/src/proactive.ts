@@ -1,7 +1,7 @@
 import { db, now } from './db.js';
 
 /**
- * Proactive check-ins for the primary bot (Grok Bot: "checks in proactively").
+ * Proactive check-ins for the primary bot (Swarm: "checks in proactively").
  * The user (or the bot, via the set_checkins tool) picks local times; at each time the
  * primary bot gets a [check-in] turn and either sends ONE concise message or stays silent.
  */

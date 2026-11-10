@@ -1,6 +1,6 @@
-# Orgo builder's guide for Grokbot
+# Orgo builder's guide for Swarm
 
-How to build Grokbot (one persistent Orgo VM per user, one screen per Bot) on Orgo. Everything here comes from Orgo's official docs.
+How to build Swarm (one persistent Orgo VM per user, one screen per Bot) on Orgo. Everything here comes from Orgo's official docs.
 
 - **Sources:** the full docs dump `docs.orgo.ai/llms-full.txt` (24,038 lines, every page incl. the full API reference; read 2026-11-09) and the OpenAPI spec `https://docs.orgo.ai/api-reference/openapi.json` (Orgo API 2.0.0, 101 operations).
 - **Citations:** `(§Section title, L1234)` points at a section heading and line number in the dump.
@@ -9,15 +9,15 @@ How to build Grokbot (one persistent Orgo VM per user, one screen per Bot) on Or
 
 ---
 
-## 0. TL;DR: what matters for Grokbot
+## 0. TL;DR: what matters for Swarm
 
 1. **Screens fit "one screen per Bot", but cap at 4 per VM.** A Linux computer boots with one screen (`default`, X display `:99`) and can run **up to four** (§List screens, L20291; §Create a screen, L20417). Each screen is its own X server with its own pointer and window manager. Target one with `?screen=<id>` on screenshot, click, mouse-move, drag, type, key, scroll and bash. That is **at most 4 bots with their own live screen per user at once.** Bots beyond that need a screen pool (see §10).
-2. **Orgo's hosted agent (`/v1/chat/completions`) does not fit.** It takes no `screen` parameter (the spec body is only `computer_id, messages, model, stream, max_steps, thread_id`). It runs only OpenAI- and Anthropic-backed models, with no xAI or BYOK header for Grok (§Bring your own model key, L3721). **Run our own Grok loop.** Orgo is just the computer.
+2. **Orgo's hosted agent (`/v1/chat/completions`) does not fit.** It takes no `screen` parameter (the spec body is only `computer_id, messages, model, stream, max_steps, thread_id`). It runs only OpenAI- and Anthropic-backed models, with no direct provider or BYOK header for Model (§Bring your own model key, L3721). **Run our own model loop.** Orgo is just the computer.
 3. **There is no inbound networking to the VM.** "A computer has no public inbound hostname" (§OpenClaw, L3794). The only HTTP way in is Orgo's authenticated proxy to Orgo's own Desktop API. An agent host inside the VM must **dial out** to our server (WebSocket/SSE). There is no systemd either. Run services under the template's supervisord `apps.services`.
 4. **Sleep and wake:** `POST /computers/{id}/suspend` keeps memory and processes. Resume on the host takes "seconds", and a wake from storage takes "about a minute" (§Resume computer, L17049). **Hourly computers can't suspend** (`409 HOURLY_USE_STOP`, L17030), and a stop/start cold-boots and loses memory. Plan computers hold their pool RAM and vCPU even while asleep (§Account limits, L2480), so sleeping a plan computer saves no money.
 5. **Fleet ceiling: 999 computers per account.** That is 50 on a plan, then hourly from credit up to 999. Past that needs a contract, up to 9999 (§Computers per account, L2529). Per-computer control-call limit: **600/min** (§Plan rate limits, L2852). Account control calls: 6,000/min on Scale.
 6. **Viewer:** noVNC against `wss://www.orgo.ai/desktops/{id}/ws/websockify?screen=<screenId>&token=<vnc_password>`. The password is **root on the VM**, and there is **no view-only credential** (§Embed computers, L4707, L4718). For Watching vs Take control, proxy the socket through our server and filter input there **[inferred design]**.
-7. **Custom "Grokbot box" templates need the Scale plan** to publish, build or test-run (§Templates, L5814). Launching one works on any paid plan.
+7. **Custom "Swarm box" templates need the Scale plan** to publish, build or test-run (§Templates, L5814). Launching one works on any paid plan.
 
 ---
 
@@ -107,7 +107,7 @@ Limits are per account, never per key. Windows are a fixed minute, a clock hour,
 - **Computers:**
   - 50 per account on a paid plan, counting plan and hourly computers in any state (running, stopped, asleep).
   - Past 50, each new computer runs **by the hour from credit**, up to **999**. Past that is contract only, up to 9999 (L2529-2557).
-  - Copies (clone, fork, restore-as-new), GPU, macOS, images, snapshots and non-starter templates **can't** be created past the baseline (L2552). **[inferred]** This likely blocks launching a custom Grokbot template past computer #50 unless Orgo grants the account its own baseline.
+  - Copies (clone, fork, restore-as-new), GPU, macOS, images, snapshots and non-starter templates **can't** be created past the baseline (L2552). **[inferred]** This likely blocks launching a custom Swarm template past computer #50 unless Orgo grants the account its own baseline.
 - **Pools:** vCPU and RAM 2/8 GB (Starter), 8/32 GB (Growth), 36/128 GB (Scale). A computer holds its pool share until deleted, even when stopped or asleep (L2480).
   - Self-serve add-ons go up to 800 GB RAM, 200 vCPU and 4 TB disk (L2521-2525).
   - Per-computer cap on your own is XL (6 vCPU/32 GB). The hard cap is 8 vCPU/64 GB/300 GB (L2751-2752).
@@ -194,7 +194,7 @@ Body fields from the spec: `workspace_id`\*, `name`\* (≤80, unique in workspac
 
 - `PATCH /computers/{id}` takes `name`, `bot_mascot`, `ends_at` (≤720 h or `null`) or `ends_in_hours`. Renaming needs workspace **owner** (§Update computer, L14715-14741).
 - `POST /computers/{id}/extend {hours: 1-2160}` adds to an existing end, at most 90 days out. **`Idempotency-Key` required** (§Extend computer, L14938-14963).
-- **For Grokbot, never set an end on a user box.** At the end it is deleted with everything on it.
+- **For Swarm, never set an end on a user box.** At the end it is deleted with everything on it.
 
 ### Copy, move, resize, delete
 
@@ -353,7 +353,7 @@ The OpenAPI spec confirms the create body is only `width`, `height`. Screens end
 - **An `sk_` key in a browser** is rejected (`4001`). Never put API keys client-side (L4712).
 - **There is no view-only password.** `rfb.viewOnly = true` is client-side only and a visitor can flip it. Server-enforced view-only exists only for a person **signed in to Orgo** with Can chat access (L4716-4718). "An anonymous embed always has full control of the computer."
 
-**Grokbot recommendation [inferred design]:** run a **WebSocket relay on our server** at `wss://grokbot/api/computer/{botId}/stream`.
+**Swarm recommendation [inferred design]:** run a **WebSocket relay on our server** at `wss://swarm/api/computer/{botId}/stream`.
 
 1. Authenticate our user with our own session.
 2. Fetch the VNC password server-side with the account key.
@@ -406,13 +406,13 @@ X-Anthropic-Key: …     (optional; pays for claude-* and orgo-agent-opus-5.5)
 - **Rate limits:** agent runs per minute and concurrent (Scale 120/min, 50 at once).
 - **Kill switch:** an account can have the endpoint disabled (`403 model_proxy_disabled`).
 
-### Can we plug in Grok?
+### Can we plug in model?
 
-**No.** "The chat endpoint takes keys for OpenAI and Anthropic only. There is no header for Google, xAI, DeepInfra, or any other provider. For any other provider, run the agent loop yourself… Orgo bills no AI credits on that path… your prompts and the model's replies never reach Orgo" (§Bring your own model key, L3719-3723). BYOK keys still flow through Orgo's servers (L3705-3711). MCP and the CLI can't pass BYOK headers (L3715-3717).
+**No.** "The chat endpoint takes keys for OpenAI and Anthropic only. There is no header for Google, direct provider, DeepInfra, or any other provider. For any other provider, run the agent loop yourself… Orgo bills no AI credits on that path… your prompts and the model's replies never reach Orgo" (§Bring your own model key, L3719-3723). BYOK keys still flow through Orgo's servers (L3705-3711). MCP and the CLI can't pass BYOK headers (L3715-3717).
 
-**Verdict for Grokbot:** don't use `/v1/chat/completions` for bots. It has no xAI support, no screen targeting, opaque tool calls (nothing to drive our activity line or click overlay), and a concurrency cap.
+**Verdict for Swarm:** don't use `/v1/chat/completions` for bots. It has no direct provider support, no screen targeting, opaque tool calls (nothing to drive our activity line or click overlay), and a concurrency cap.
 
-**Use instead:** our own Grok loop against Orgo primitives, or xdotool/scrot inside the VM. The "run the loop yourself" pattern (§Use any model, L3273-3528):
+**Use instead:** our own model loop against Orgo primitives, or xdotool/scrot inside the VM. The "run the loop yourself" pattern (§Use any model, L3273-3528):
 
 1. Screenshot (`response_format=base64`).
 2. Send it to the model.
@@ -437,7 +437,7 @@ The OpenAI-guide keysym map (L7581-7593) is a good template for normalising mode
 | Download | `GET /files/download?id=` | Signed URL, 1 h, no auth needed to fetch |
 | Delete | `DELETE /files/delete?id=` | Copies already pushed onto computers stay |
 
-**For Grokbot:**
+**For Swarm:**
 
 - Always use `destPath` or large uploads to target one box. The plain upload leaks the file to every running computer in the workspace.
 - Use export + download for "download file from bot".
@@ -459,7 +459,7 @@ The OpenAI-guide keysym map (L7581-7593) is a good template for normalising mode
 - **Saving or deleting a vault entry doesn't change running computers** (L16210).
 - **Template-declared secrets** are injected at create into `/root/.env` under `UPPER_SNAKE` names. **This forces a cold boot instead of the warm golden-memory restore** (L6555-6559).
 
-**For Grokbot's connector tokens [inferred]:** Orgo secrets work but are coarse. Any process on the box (every bot, plus anything a bot runs) can read `/root/.orgo-secrets.env` as root.
+**For Swarm's connector tokens [inferred]:** Orgo secrets work but are coarse. Any process on the box (every bot, plus anything a bot runs) can read `/root/.orgo-secrets.env` as root.
 
 - Prefer keeping OAuth tokens on our server, with the in-VM host requesting short-lived tokens or proxying the API calls.
 - Use Orgo secrets only for per-box bootstrap values, if at all.
@@ -502,30 +502,30 @@ Schema highlights (canonical form; sugar form also accepted):
 | Curated | `GET /templates/global[/{ns}/{name}]` |
 | Test-run (auto-reaped preview; returns `template_ports`) | `POST /templates/run {ref}`, `DELETE /templates/run?id=` |
 
-**Sketch of a "Grokbot box" template [inferred, adapt]:**
+**Sketch of a "Swarm box" template [inferred, adapt]:**
 
 ```yaml
 api_version: orgo.ai/v1
-template: { name: grokbot-box, version: 1.0.0, description: Grokbot per-user box }
+template: { name: swarm-box, version: 1.0.0, description: Swarm per-user box }
 hardware: { cpu: 4, ram_gb: 16, disk_gb: 80, resolution: 1280x800x24, audio: true }
 build:
   apt: [xdotool, scrot, imagemagick, jq, ffmpeg, x11-utils, tmux]
   run:
     - curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs
     - npm i -g pnpm && npx -y playwright@1.49.1 install --with-deps chromium
-    - mkdir -p /opt/grokbot-host && touch /var/lib/orgo/events.jsonl
+    - mkdir -p /opt/swarm-host && touch /var/lib/orgo/events.jsonl
 files:
-  - { to: /opt/grokbot-host/host.tgz, from: "https://releases.grokbot.internal/host-1.0.0.tgz" }
+  - { to: /opt/swarm-host/host.tgz, from: "https://releases.swarms.so/host-1.0.0.tgz" }
 apps:
-  - name: grokbot-host
-    install: tar xzf /opt/grokbot-host/host.tgz -C /opt/grokbot-host && cd /opt/grokbot-host && pnpm i --prod
+  - name: swarm-host
+    install: tar xzf /opt/swarm-host/host.tgz -C /opt/swarm-host && cd /opt/swarm-host && pnpm i --prod
     services:
-      - name: grokbot-host
-        run: node /opt/grokbot-host/dist/main.js
+      - name: swarm-host
+        run: node /opt/swarm-host/dist/main.js
         user: root              # needs X displays, /root/.orgo-secrets.env
         restart: always
-        env: { GROKBOT_API: "https://grokbot.internal", NODE_ENV: production }
-    health: { type: http, url: http://127.0.0.1:7801/healthz, every: 15s, retries: 3, on_fail: restart_service:grokbot-host }
+        env: { SWARM_API: "https://swarm.swarms.so", NODE_ENV: production }
+    health: { type: http, url: http://127.0.0.1:7801/healthz, every: 15s, retries: 3, on_fail: restart_service:swarm-host }
 egress_policy: { mode: block, rules: [] }   # or allowlist our API + model endpoints
 ```
 
@@ -542,18 +542,18 @@ egress_policy: { mode: block, rules: [] }   # or allowlist our API + model endpo
 - **Runs on one computer.** It wakes it about 3 min before a timed run (L2103).
 - **Endpoints:** `GET/POST /workflows`, `GET/PUT(If-Match)/PATCH/DELETE /workflows/{id}`, `POST /workflows/{id}/validate`, `GET/POST /workflows/{id}/runs`, `GET …/runs/{runId}`, `POST …/stop`, `POST …/answer` (key/agent may only `stop`; go needs a person), `GET /workflows/{id}/events` (SSE, closes after 5 min, max 10 streams per credential).
 - **Permissions:** the `workflows` group, plus AI write and Control write for computer steps.
-- **Verdict:** a parallel "routines" product tied to Orgo's built-in agents and Composio-backed connectors. **Not a fit for Grokbot routines**, which should run on our own scheduler and agent **[inferred]**.
+- **Verdict:** a parallel "routines" product tied to Orgo's built-in agents and Composio-backed connectors. **Not a fit for Swarm routines**, which should run on our own scheduler and agent **[inferred]**.
 
 ### Memory (§Memory, L4558)
 
-Only a Mem0 recipe: search before a task, inject, store after. There's no Orgo memory API. Grokbot memory stays in our DB and/or the box's disk.
+Only a Mem0 recipe: search before a task, inject, store after. There's no Orgo memory API. Swarm memory stays in our DB and/or the box's disk.
 
 ### Connectors ("Connect apps to an agent", §Connectors, L1950-2013)
 
 - **Dashboard-only:** connecting Gmail, Calendar, Drive, Notion, Slack and "More apps" (via **Composio**) is a dashboard flow for Orgo's installed agents (Hermes, OpenClaw, Claude Code, Codex).
 - **Per computer:** connections belong to **one computer**, and deleting it signs them out. Anyone who can chat with that agent can use them.
 - **No public connector API** beyond the workflow tools (`orgo_connect_app` returns a link to open, L1637).
-- **For Grokbot:** build connectors ourselves (our own OAuth, or Composio directly) **[inferred]**.
+- **For Swarm:** build connectors ourselves (our own OAuth, or Composio directly) **[inferred]**.
 
 ### Identity tokens (inside-VM auth) (§Get an identity token inside a computer, L4307-4554)
 
@@ -594,7 +594,7 @@ Only a Mem0 recipe: search before a task, inject, store after. There's no Orgo m
 - **Credit:** turn on auto top-up. Hourly computers stop when credit can't pay the next minute (L2606).
 - **Create rates on Scale:** 60/min, 1,000/h, 5,000/day.
 
-### Clients/workspaces: could each Grokbot user be an Orgo client or workspace?
+### Clients/workspaces: could each Swarm user be an Orgo client or workspace?
 
 - **Workspace per user: yes, recommended [inferred].**
   - Up to 9,999 workspaces, more than the 999-computer cap.
@@ -639,7 +639,7 @@ Only a Mem0 recipe: search before a task, inject, store after. There's no Orgo m
   | 2XL | $0.368/h | $0.0205/h |
 
   A plan is cheaper above about 584 running h/month (L2464).
-- **Grokbot math [inferred]:**
+- **Swarm math [inferred]:**
   - A Large box on plan capacity is $64/user/mo, fixed whether awake or asleep.
   - Hourly at 4 h/day ≈ 120 h × $0.11 + 600 h × $0.0055 ≈ $16.5/mo. But hourly can't suspend (only stop, so a cold boot on wake) and can't be resized.
 
@@ -651,7 +651,7 @@ Only a Mem0 recipe: search before a task, inject, store after. There's no Orgo m
   - Hosted at `https://www.orgo.ai/mcp`: OAuth (PKCE, 1 h tokens, scoped to one workspace, reviewed tool subset, no VNC passwords or secrets) or `Authorization: Bearer sk_…`.
   - Local: `npx -y orgo-mcp-server` with `ORGO_API_KEY`. Options: `ORGO_READ_ONLY`, `ORGO_TAGS`, `ORGO_DEFAULT_COMPUTER_ID` (hosted: `X-Orgo-Default-Computer-Id` header or `?computer_id=`).
   - One tool per operationId (`orgo_create_computer`, …). Retries only GET/PUT/DELETE. Hosted tool calls time out at 120 s (L2836).
-  - Useful for our own dev agents, not for Grokbot runtime.
+  - Useful for our own dev agents, not for Swarm runtime.
 - **CLI** (§CLI, L912-1285):
   - Install: `curl -fsSL https://orgo.ai/install.sh | bash` or `npm i -g orgo` (v2+ is CLI only; the TS SDK is `orgo@1`).
   - `orgo login` uses a device flow. Every command takes `--json`. `orgo manifest` dumps all commands.
@@ -662,27 +662,27 @@ Only a Mem0 recipe: search before a task, inject, store after. There's no Orgo m
 
 ---
 
-## 10. Recommended architecture for Grokbot on Orgo
+## 10. Recommended architecture for Swarm on Orgo
 
 ### Mapping
 
-| Grokbot concept | Orgo mapping |
+| Swarm concept | Orgo mapping |
 |---|---|
 | **User account** | One Orgo **workspace per user**, owned by our account. Our server holds the single full-access account key. Store `workspace_id` and `computer_id` (the UUID; never cache `instance_id` or `vnc_password`) |
-| **Per-user box** | One Linux computer per user, `template_ref: default/grokbot-box@x.y.z`, size Large (`cpu:4, ram:16`). **No `ends_in_hours`.** Create with `Idempotency-Key`. Then poll `/api/desktops/{instance_id}/proxy/health` or wait for the host to dial in |
+| **Per-user box** | One Linux computer per user, `template_ref: default/swarm-box@x.y.z`, size Large (`cpu:4, ram:16`). **No `ends_in_hours`.** Create with `Idempotency-Key`. Then poll `/api/desktops/{instance_id}/proxy/health` or wait for the host to dial in |
 | **Box state machine** | `creating → running ⇄ suspending/suspended(host\|storage) → resuming → running`. Plus `frozen` via stop, and `error`/`stopped` → heal or start. Drive it from `GET /computers/{id}` (`status`, `asleep`, `suspension`). Poll `GET /computers/{id}/suspension` after `202`s |
 | **Hibernate on idle** | Our server decides: no bot task running and no viewer connected for N min → `POST /suspend` (plan computers). **Don't rely on `auto_stop_minutes`.** Its idle definition is undocumented and could suspend mid-task. Set it to `0` (already forced always-on for template launches) |
 | **Wake on presence** | When the user opens the app or a bot gets work: `POST /resume`. `200` = back in seconds (on host). `202 {waking, expected_seconds}` = about 1 min from storage. Show "Waking your computer…". Any action also wakes it, but we want explicit control. Re-fetch `GET /computers/{id}` afterwards: `instance_id` and the password may change |
 | **Per-bot screen** | `POST /computers/{id}/screens {}` → `screen-10N`. Persist `bot_id → screen_id`. Check with `GET …/screens/{screenId}` (404 = gone). Screens survive restart and start (recreated empty) and should survive suspend/resume with windows intact **[inferred]**. Max 4 per box |
 | **More than 4 bots** | Screen **pool/lease** **[inferred design]**. Bots get a screen only while they actively use a computer. Idle bots release theirs: optionally snapshot the browser state (profile dirs on disk persist), then destroy the screen. Queue or LRU-evict when all 4 are busy. Also consider a bigger box. Reserve `default` for the human "home" screen, or give it to the Main Bot |
-| **Agent loop location** | **Recommended: hybrid.** The *reasoning* (Grok calls, transcript, approvals, memory, routines) runs **server-side** in our workers, as in SPEC §Decisions 2. *Execution* goes through a **box host** daemon inside the VM. Reasons below |
-| **Box host ↔ server link** | Supervisord service from the template. It **dials out** to `wss://grokbot/api/box/connect` (no inbound to the VM exists) and reconnects with backoff. Auth options, in order of preference: (1) a per-box bootstrap token we write at provisioning via `POST /computers/{id}/bash` (e.g. to `/etc/grokbot/token`, 0600) or via an Orgo workspace secret and `secrets/sync` → `/root/.orgo-secrets.env`, rotated by us; (2) an Orgo identity token verified by our server with `GET /computers/{desktop_id}` **[inferred]**, only where eligible. **Don't** use the Orgo computer key (`orgo_api_key` template secret): it isn't held to its computer |
+| **Agent loop location** | **Recommended: hybrid.** The *reasoning* (model calls, transcript, approvals, memory, routines) runs **server-side** in our workers, as in SPEC §Decisions 2. *Execution* goes through a **box host** daemon inside the VM. Reasons below |
+| **Box host ↔ server link** | Supervisord service from the template. It **dials out** to `wss://swarm/api/box/connect` (no inbound to the VM exists) and reconnects with backoff. Auth options, in order of preference: (1) a per-box bootstrap token we write at provisioning via `POST /computers/{id}/bash` (e.g. to `/etc/swarm/token`, 0600) or via an Orgo workspace secret and `secrets/sync` → `/root/.orgo-secrets.env`, rotated by us; (2) an Orgo identity token verified by our server with `GET /computers/{desktop_id}` **[inferred]**, only where eligible. **Don't** use the Orgo computer key (`orgo_api_key` template secret): it isn't held to its computer |
 | **Computer-use tools** | Box host per bot screen: `scrot`/`import -window root` with `DISPLAY=:10N` for screenshots, `xdotool` for click, move, drag, mouse down/up, key and type, Playwright/CDP for `browser_*` tools, and shells for Shell/AwaitShell. Fallback when the host is down: Orgo REST with `?screen=` |
 | **Live viewer (Watching / Take control / I'm done)** | Our WebSocket relay to `…/ws/websockify?screen=<botScreen>&token=<pw>`. It filters RFB input in Watching mode and passes it in Take control. On take control, tell the bot loop to pause (a "user in control" flag). Handle `4008` by re-dialing upstream. Thumbnails: periodic `GET /screenshot?screen=…&response_format=binary&format=webp&scale=0.25&quality=60`, or from the host. Click overlay (`computer_actions` frames) comes from the host's action log |
 | **Terminal tab** | `wss://…/ws/terminal?token=…&session=bot-<id>` behind the same relay (it needs the password, so it must be proxied) |
 | **File transfer** | User→bot: ≤10 MB via `POST /files/upload` **with `desktopId` + `destPath`**, larger via `POST /files/uploads` → PUT → `/complete`, or a box-host pull from our object store via a signed URL. Bot→user: `POST /files/export {desktopId, path}` → signed URL (1 h), or a box-host push to our store |
 | **Secrets for connector tokens** | Keep OAuth tokens in our DB. The box host fetches short-lived access tokens per call over its authenticated link. Use Orgo secrets (`POST /api/secrets` with `workspace_id` + `POST /computers/{id}/secrets/sync`) only for box-level bootstrap or config values. They're readable by every process on the box and need a service restart or file re-read to take effect |
-| **Golden image ("Grokbot box")** | Publish and build on Scale with `POST /templates?auto_build=true`, then poll `/build`. Version every host release, or have the host self-update from our server to avoid rebuilds. Launch without template secrets to keep warm restores |
+| **Golden image ("Swarm box")** | Publish and build on Scale with `POST /templates?auto_build=true`, then poll `/build`. Version every host release, or have the host self-update from our server to avoid rebuilds. Launch without template secrets to keep warm restores |
 | **Health / repair** | Periodic `GET /computers/{id}/health` for boxes whose host is silent. `POST /heal`, then `{"action":"restart"}`. Re-create screens after an OS update or backup restore (they aren't recreated) |
 | **Fleet / capacity** | Scale plan plus capacity add-ons (e.g. 50 Large = 200 vCPU / 800 GB, the self-serve max). Computers past 50 run hourly up to 999; Enterprise beyond. Watch `GET /account/capacity` and turn on auto top-up |
 
@@ -697,7 +697,7 @@ Only a Mem0 recipe: search before a task, inject, store after. There's no Orgo m
 ### Gaps and risks
 
 1. **4-screen cap** limits how many bots can have a live screen at once. It needs the pool/lease design and RAM sizing.
-2. **No xAI on Orgo's hosted agent**, and no screen targeting there. We build the whole loop.
+2. **No direct provider on Orgo's hosted agent**, and no screen targeting there. We build the whole loop.
 3. **No inbound to the VM.** Template `ports.public` host mappings aren't returned by Get computer, so they're unusable in production. Everything goes through the box host's outbound connection.
 4. **Suspend works only for plan (non-hourly) Linux computers without GPU.** Beyond 50 computers, boxes run hourly, which means stop/start = cold boot, lost memory and empty screens. Plan pools cost the same asleep or awake, so hibernation saves little on the plan.
 5. **The custom template may be blocked past the 50-computer baseline** ("a template that is not a starter" can't be created past the baseline, L2552). We may need Orgo to grant a higher baseline (contract), or fall back to a curated/blank create plus a bootstrap script.

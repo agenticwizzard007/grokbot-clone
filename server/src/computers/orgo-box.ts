@@ -1,9 +1,9 @@
-import { db, now } from './db.js';
-import { env } from './env.js';
-import { hub } from './lib/hub.js';
-import { orgo, OrgoError } from './orgo.js';
-import { getLive } from './store.js';
-import type { ComputerState } from './types.js';
+import { db, now } from '../db.js';
+import { env } from '../env.js';
+import { hub } from '../lib/hub.js';
+import { orgo, OrgoError } from '../orgo.js';
+import { getLive } from '../store.js';
+import type { ComputerState } from '../types.js';
 
 /**
  * One Orgo Linux computer per user (the "box"). Every bot gets its own Orgo screen
@@ -13,6 +13,13 @@ import type { ComputerState } from './types.js';
 
 const MAX_SCREENS = 4;
 const inflight = new Map<string, Promise<string>>();
+const screenQueues = new Map<string, Promise<unknown>>();
+const screenReservations = new Set<string>();
+/** Protect a newly created Bot's screen while its initial setup is in progress. */
+export function reserveScreen(botId: string) {
+  screenReservations.add(botId);
+  return () => { screenReservations.delete(botId); };
+}
 
 function rowFor(userId: string) {
   let r = db.prepare('SELECT * FROM computers WHERE user_id=?').get(userId) as any;
@@ -31,7 +38,7 @@ function setStatus(userId: string, status: ComputerState['status'], extra: { org
 export function computerState(userId: string): ComputerState {
   const r = rowFor(userId);
   const screens = (db.prepare('SELECT bot_id, screen_id FROM screens WHERE user_id=?').all(userId) as any[]).map((s) => ({ botId: s.bot_id, screenId: s.screen_id }));
-  return { status: r.status, orgoId: r.orgo_id, error: r.error, screens };
+  return { status: r.status, orgoId: r.orgo_id, error: r.error, screens, provider: 'orgo' };
 }
 
 let workspaceId = env.orgoWorkspaceId;
@@ -68,8 +75,8 @@ export function ensureComputer(userId: string): Promise<string> {
         await ensureWorkspace();
         setStatus(userId, 'creating');
         const user = db.prepare('SELECT email FROM users WHERE id=?').get(userId) as any;
-        const name = `grokbot-${(user?.email ?? userId).split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').slice(0, 30)}-${userId.slice(-6)}`;
-        const c = await orgo.createComputer(name, `grokbot-box-${userId}`);
+        const name = `swarm-${(user?.email ?? userId).split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').slice(0, 30)}-${userId.slice(-6)}`;
+        const c = await orgo.createComputer(name, `swarm-box-${userId}`);
         setStatus(userId, mapStatus(c.status), { orgoId: c.id });
         await prepareBox(c.id);
         setStatus(userId, 'running', { orgoId: c.id });
@@ -128,12 +135,21 @@ async function waitRunning(id: string, timeoutMs = 240_000) {
 /** First-boot setup: a profile dir for per-bot Chrome sessions. */
 async function prepareBox(id: string) {
   try {
-    await orgo.bash(id, undefined, 'mkdir -p /root/grokbot/profiles /root/grokbot/files && (which google-chrome || which chromium || which chromium-browser || which firefox) 2>/dev/null', 60);
+    await orgo.bash(id, undefined, 'mkdir -p /root/swarm/profiles /root/swarm/files && (which google-chrome || which chromium || which chromium-browser || which firefox) 2>/dev/null', 60);
   } catch { /* non-fatal */ }
 }
 
 /** Get (or lease) this bot's screen on the box. */
-export async function screenFor(userId: string, botId: string): Promise<{ computerId: string; screenId: string }> {
+export function screenFor(userId: string, botId: string): Promise<{ computerId: string; screenId: string }> {
+  // Lease decisions must be serial per VM: parallel creations must never pick the same free screen.
+  const prior = screenQueues.get(userId) ?? Promise.resolve();
+  const job = prior.catch(() => {}).then(() => leaseScreen(userId, botId));
+  screenQueues.set(userId, job);
+  void job.finally(() => { if (screenQueues.get(userId) === job) screenQueues.delete(userId); }).catch(() => {});
+  return job;
+}
+
+async function leaseScreen(userId: string, botId: string): Promise<{ computerId: string; screenId: string }> {
   const computerId = await ensureComputer(userId);
   const mine = db.prepare('SELECT screen_id FROM screens WHERE bot_id=?').get(botId) as any;
   if (mine) {
@@ -159,10 +175,14 @@ export async function screenFor(userId: string, botId: string): Promise<{ comput
     else {
       // Evict the least-recently-used idle bot's lease (never one mid-turn), and close its browser
       // so the next bot doesn't inherit another bot's windows. Its Chrome profile stays on disk.
-      const victim = leased.find((l) => !getLive(l.bot_id).isRunning && l.screen_id !== 'default') ?? leased.find((l) => l.screen_id !== 'default') ?? leased[0];
-      db.prepare('DELETE FROM screens WHERE bot_id=?').run(victim.bot_id);
+      const victim = leased.find((l) => !getLive(l.bot_id).isRunning && !screenReservations.has(l.bot_id) && l.screen_id !== 'default');
+      if (!victim) throw new Error('All available VM screens are busy. The Bot is saved; retry computer setup when a teammate finishes.');
       screenId = victim.screen_id;
-      try { await orgo.bash(computerId, screenId!, `pkill -f "user-data-dir=/root/grokbot/profiles/${victim.bot_id}" || true`, 20); } catch { /* best effort */ }
+      // Destroy the old display (all windows), then create a clean one. Do not hand over a
+      // display after a failed best-effort cleanup, which could expose the previous browser.
+      await orgo.deleteScreen(computerId, screenId!);
+      db.prepare('DELETE FROM screens WHERE bot_id=?').run(victim.bot_id);
+      screenId = (await orgo.createScreen(computerId)).id;
     }
   }
   db.prepare('INSERT OR REPLACE INTO screens(bot_id,user_id,screen_id,last_used_at) VALUES (?,?,?,?)').run(botId, userId, screenId, now());
@@ -177,12 +197,12 @@ async function prepareScreen(computerId: string, screenId: string) {
     const display = `:${screenId.replace('screen-', '')}`;
     // xfwm4's compositor paints over the root window, so run a desktop (wallpaper) on this display.
     // xfdesktop is single-instance per D-Bus session, hence a private session per screen.
-    const pid = `/tmp/grokbot-desktop-${display.slice(1)}.pid`;
+    const pid = `/tmp/swarm-desktop-${display.slice(1)}.pid`;
     await orgo.bash(
       computerId,
       screenId,
       `export DISPLAY=${display}; if [ -f ${pid} ] && kill -0 $(cat ${pid}) 2>/dev/null; then echo running; else ` +
-        `(setsid nohup dbus-run-session -- xfdesktop --disable-wm-check >/tmp/grokbot-desktop-${display.slice(1)}.log 2>&1 < /dev/null & echo $! > ${pid}); sleep 2; echo started; fi`,
+        `(setsid nohup dbus-run-session -- xfdesktop --disable-wm-check >/tmp/swarm-desktop-${display.slice(1)}.log 2>&1 < /dev/null & echo $! > ${pid}); sleep 2; echo started; fi`,
       30,
     );
   } catch { /* cosmetic; ignore */ }

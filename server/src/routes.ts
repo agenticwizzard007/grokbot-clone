@@ -1,84 +1,78 @@
 import { Hono } from 'hono';
+import { checkRoutineCreate } from './routine-limits.js';
 import { streamSSE } from 'hono/streaming';
+import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { db, now } from './db.js';
 import { env } from './env.js';
 import { newId } from './lib/ids.js';
 import { hub } from './lib/hub.js';
 import { createSession, destroySession, requireUser, userFromCookieHeader, type AuthVars } from './lib/auth.js';
 import { allLive, appendRow, clearConversation, emitBot, getBot, getBotRow, getRow, listBots, listRoutines, listRows, listTasks, toRoutine, updateRow } from './store.js';
-import { enqueue, interrupt, resolveApproval } from './agent/loop.js';
-import { computerState, ensureComputer, refreshComputer, suspendComputer } from './computer.js';
-import { orgo } from './orgo.js';
-import { catalog, connectedToolkits, deleteConnection, disconnect, googleProfile, startConnect, startGoogleLogin, toolkitInfo } from './composio.js';
+import { enqueue, interrupt, resolveApproval, runInBotQueue } from './agent/loop.js';
+import { computers } from './computers/index.js';
+import { catalog, connectedToolkits, deleteConnection, disconnect, GoogleLoginError, googleProfile, invalidateComposioSession, startConnect, startGoogleLogin, toolkitInfo } from './composio.js';
 import { runRoutine, scheduleRoutine, unscheduleRoutine } from './routines.js';
 import { deleteEventTrigger } from './triggers.js';
 import { dispatchRoomMessage } from './agent/rooms.js';
 import { voiceApi } from './voice.js';
-import type { AvatarColor, AvatarShape, Toolkit } from './types.js';
+import { createBot } from './bots.js';
+import { activateSetup, beginSetupInterview, briefSchema, emitSetup, getSetup, removeSetupFiles, setupFiles, setupView, writeSetupFiles } from './bot-setup.js';
+import { importTeammate, provisionTeammate } from './agent/teammates.js';
+import type { Toolkit } from './types.js';
+import { verifyUserSig } from './messaging/store.js';
+import { createAccount } from './accounts.js';
 
 export const api = new Hono<AuthVars>();
 
-const SHAPES: AvatarShape[] = ['blob', 'pebble', 'bean', 'egg', 'squircle', 'tablet', 'capsule', 'cylinder', 'hex', 'gem', 'crystal', 'wedge', 'shield', 'dome', 'arch', 'cloud', 'teardrop', 'leaf', 'square', 'sparkle', 'clover', 'flower', 'heart', 'house', 'star'];
-const COLORS: AvatarColor[] = ['black', 'brown', 'red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'violet', 'magenta', 'gray'];
-
-function hashPick<T>(id: string, list: T[]): T {
-  let h = 0x811c9dc5;
-  for (const ch of id) { h ^= ch.charCodeAt(0); h = Math.imul(h, 0x01000193) >>> 0; }
-  return list[h % list.length];
-}
-
-function createBot(userId: string, b: { name: string; label?: string; description?: string; instructions?: string; avatarShape?: string; avatarColor?: string; mode?: string; isPrimary?: boolean }) {
-  const id = newId('bot');
-  const shape = SHAPES.includes(b.avatarShape as AvatarShape) ? b.avatarShape : hashPick(id, SHAPES.slice(0, 13));
-  const color = COLORS.includes(b.avatarColor as AvatarColor) ? b.avatarColor : hashPick(id, COLORS.filter((c) => c !== 'black'));
-  db.prepare(
-    'INSERT INTO bots(id,user_id,name,label,description,instructions,avatar_shape,avatar_color,mode,is_primary,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-  ).run(id, userId, b.name.trim().slice(0, 60) || 'New Bot', b.label ?? '', b.description ?? '', b.instructions ?? '', shape, color, b.mode === 'teammate' ? 'teammate' : 'personal', b.isPrimary ? 1 : 0, now(), now());
-  hub.emit(userId, { type: 'roster' });
-  return getBot(id)!;
-}
-
-function findOrCreateUser(email: string, name?: string, preferId?: string) {
-  const existing = db.prepare('SELECT * FROM users WHERE lower(email)=lower(?)').get(email) as any;
-  if (existing) return { id: existing.id as string, isNew: false };
-  const id = preferId ?? newId('usr');
-  db.prepare('INSERT INTO users(id,email,name,created_at) VALUES (?,?,?,?)').run(id, email, name ?? email.split('@')[0], now());
-  createBot(id, { name: 'Quinn', label: 'Chief of Staff', description: 'Your main point of contact. Checks in proactively and coordinates work with your other Bots.', avatarShape: 'blob', avatarColor: 'black', isPrimary: true });
-  return { id, isNew: true };
-}
+const findOrCreateUser = (email: string, name?: string, preferId?: string) => createAccount({ email, name, preferId, source: 'web' });
 
 // ---------- auth ----------
 
+const GOOGLE_ATTEMPT_COOKIE = 'google_signin_attempt';
+const GOOGLE_ATTEMPT_TTL = 15 * 60_000;
+const googleResult = (code: string) => `${env.appUrl}/?login=${encodeURIComponent(code)}`;
+
 api.get('/auth/me', (c) => {
   const user = userFromCookieHeader(c.req.header('cookie'));
-  return c.json({ user, devLogin: env.devLogin });
+  return c.json({ user, devLogin: env.devLogin, googleLogin: env.composioEnabled });
 });
 
 api.get('/auth/google/start', async (c) => {
   const attemptId = newId('login');
   const provisional = newId('usr');
   const cb = `${env.serverUrl}/api/auth/google/callback?attempt=${attemptId}`;
-  const { redirectUrl, connectedAccountId } = await startGoogleLogin(provisional, cb);
-  db.prepare('INSERT INTO login_attempts(id,provisional_user_id,connected_account_id,created_at) VALUES (?,?,?,?)').run(attemptId, provisional, connectedAccountId ?? null, now());
-  return c.redirect(redirectUrl);
+  try {
+    const { redirectUrl, connectedAccountId } = await startGoogleLogin(provisional, cb);
+    db.prepare('DELETE FROM login_attempts WHERE created_at<?').run(now() - GOOGLE_ATTEMPT_TTL);
+    db.prepare('INSERT INTO login_attempts(id,provisional_user_id,connected_account_id,created_at) VALUES (?,?,?,?)').run(attemptId, provisional, connectedAccountId, now());
+    setCookie(c, GOOGLE_ATTEMPT_COOKIE, attemptId, { httpOnly: true, sameSite: 'Lax', secure: new URL(env.serverUrl).protocol === 'https:', path: '/api/auth/google', maxAge: GOOGLE_ATTEMPT_TTL / 1000 });
+    return c.redirect(redirectUrl);
+  } catch {
+    console.warn('[auth] could not start Google sign-in');
+    return c.redirect(googleResult('google_unavailable'));
+  }
 });
 
 api.get('/auth/google/callback', async (c) => {
   const attempt = db.prepare('SELECT * FROM login_attempts WHERE id=?').get(c.req.query('attempt') ?? '') as any;
-  const caId = c.req.query('connected_account_id') ?? attempt?.connected_account_id;
-  if (!attempt || c.req.query('status') === 'failed' || !caId) return c.redirect(`${env.appUrl}/?login=failed`);
-  if (attempt.connected_account_id && caId !== attempt.connected_account_id) return c.redirect(`${env.appUrl}/?login=failed`);
+  if (!attempt || getCookie(c, GOOGLE_ATTEMPT_COOKIE) !== attempt.id) return c.redirect(googleResult('google_session'));
+  deleteCookie(c, GOOGLE_ATTEMPT_COOKIE, { path: '/api/auth/google' });
   db.prepare('DELETE FROM login_attempts WHERE id=?').run(attempt.id);
+  if (now() - attempt.created_at > GOOGLE_ATTEMPT_TTL) return c.redirect(googleResult('expired'));
+  const caId = attempt.connected_account_id;
+  if (!caId || (c.req.query('connected_account_id') && c.req.query('connected_account_id') !== caId)) return c.redirect(googleResult('google_session'));
   try {
-    const profile = await googleProfile(caId);
+    const profile = await googleProfile(caId, attempt.provisional_user_id);
+    if (c.req.query('status') === 'failed' || c.req.query('error')) return c.redirect(googleResult('google_denied'));
     const { id, isNew } = findOrCreateUser(profile.email, profile.name, attempt.provisional_user_id);
     // Existing user: the Gmail connection made for sign-in belongs to a throwaway id; remove it.
     if (!isNew && id !== attempt.provisional_user_id) await deleteConnection(caId);
     createSession(c, id);
     return c.redirect(`${env.appUrl}/`);
   } catch (e: any) {
-    console.error('[auth] google callback', e);
-    return c.redirect(`${env.appUrl}/?login=failed`);
+    const code = e instanceof GoogleLoginError ? e.code : 'google_unavailable';
+    console.warn('[auth] Google sign-in did not finish:', code);
+    return c.redirect(googleResult(code));
   }
 });
 
@@ -95,7 +89,7 @@ api.post('/auth/logout', (c) => { destroySession(c); return c.json({ ok: true })
 
 // everything below requires a session
 api.use('/*', async (c, next) => {
-  if (c.req.path.startsWith('/api/auth/') || c.req.path.startsWith('/api/apps/callback') || c.req.path === '/api/health') return next();
+  if (c.req.path.startsWith('/api/auth/') || c.req.path.startsWith('/api/apps/callback') || c.req.path.startsWith('/api/messaging/inkbox/webhook') || c.req.path.startsWith('/api/join/') || c.req.path === '/api/health') return next();
   return requireUser(c, next);
 });
 
@@ -132,16 +126,77 @@ api.get('/bots', (c) => c.json({ bots: listBots(c.get('user').id), live: allLive
 
 api.post('/bots', async (c) => {
   const body = await c.req.json();
-  return c.json({ bot: createBot(c.get('user').id, body) });
+  const brief = body.brief === undefined ? undefined : briefSchema.safeParse(body.brief);
+  if (brief && !brief.success) return c.json({ error: brief.error.message }, 400);
+  const bot = createBot(c.get('user').id, { ...body, isPrimary: false, brief: brief?.data, source: { messages: [] } });
+  beginSetupInterview(bot.id);
+  return c.json({ bot: getBot(bot.id) });
+});
+
+api.post('/bots/import', async (c) => {
+  try {
+    const { manifest, name } = await c.req.json();
+    return c.json(await importTeammate(c.get('user').id, manifest, name));
+  } catch (e: any) { return c.json({ error: String(e?.message ?? e) }, 400); }
+});
+
+api.get('/bots/:id/setup', (c) => {
+  const b = ownBot(c.get('user').id, c.req.param('id'));
+  const view = b && setupView(b.id);
+  if (!view) return c.json({ error: 'No saved setup for this Bot.' }, 404);
+  return c.json(view);
+});
+
+api.post('/bots/:id/setup/interview', async (c) => {
+  const b = ownBot(c.get('user').id, c.req.param('id'));
+  if (!b || b.kind === 'room' || b.hidden) return c.json({ error: 'not found' }, 404);
+  await runInBotQueue(b.id, async () => { beginSetupInterview(b.id); });
+  return c.json(setupView(b.id));
+});
+
+api.post('/bots/:id/setup/activate', async (c) => {
+  const b = ownBot(c.get('user').id, c.req.param('id'));
+  if (!b) return c.json({ error: 'not found' }, 404);
+  const { revision } = await c.req.json();
+  if (!Number.isInteger(revision)) return c.json({ error: 'A configuration revision is required.' }, 400);
+  try {
+    const pending = await runInBotQueue(b.id, async () => activateSetup(b.id, revision));
+    if (pending) enqueue(b.id, { type: 'system', text: `Your setup has been confirmed by the user. Now handle this initial assignment from your creation brief:\n${pending}` });
+    return c.json(setupView(b.id));
+  } catch (e: any) { return c.json({ error: String(e?.message ?? e) }, 409); }
+});
+
+api.get('/bots/:id/setup/:file', (c) => {
+  const b = ownBot(c.get('user').id, c.req.param('id'));
+  if (!b) return c.json({ error: 'not found' }, 404);
+  const name = c.req.param('file');
+  const files = setupFiles(b.id);
+  if (!Object.hasOwn(files, name)) return c.json({ error: 'not found' }, 404);
+  return c.body(files[name], 200, { 'Content-Type': 'application/octet-stream', 'Content-Disposition': `attachment; filename="${name}"`, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' });
+});
+
+api.post('/bots/:id/setup/retry', async (c) => {
+  const b = ownBot(c.get('user').id, c.req.param('id'));
+  if (!b || !getSetup(b.id)) return c.json({ error: 'not found' }, 404);
+  return c.json({ computer: await provisionTeammate(c.get('user').id, b.id) });
 });
 
 api.patch('/bots/:id', async (c) => {
   const b = ownBot(c.get('user').id, c.req.param('id'));
   if (!b) return c.json({ error: 'not found' }, 404);
   const p = await c.req.json();
-  const cols: Record<string, string> = { name: 'name', label: 'label', description: 'description', instructions: 'instructions', avatarShape: 'avatar_shape', avatarColor: 'avatar_color', mode: 'mode', effort: 'effort', pinned: 'pinned', voice: 'voice', voiceSpeed: 'voice_speed', voiceLanguage: 'voice_language' };
+  if (p.model !== undefined) {
+    if (p.model !== null && (typeof p.model !== 'string' || p.model.length > 120)) return c.json({ error: 'bad model' }, 400);
+    p.model = p.model?.trim() || null;
+  }
+  const cols: Record<string, string> = { name: 'name', label: 'label', description: 'description', instructions: 'instructions', avatarShape: 'avatar_shape', avatarColor: 'avatar_color', mode: 'mode', effort: 'effort', pinned: 'pinned', voice: 'voice', voiceSpeed: 'voice_speed', voiceLanguage: 'voice_language', model: 'model' };
   for (const [k, col] of Object.entries(cols)) {
     if (p[k] !== undefined) db.prepare(`UPDATE bots SET ${col}=?, updated_at=? WHERE id=?`).run(typeof p[k] === 'boolean' ? (p[k] ? 1 : 0) : p[k], now(), b.id);
+  }
+  if (getSetup(b.id)) {
+    db.prepare('UPDATE bot_setups SET revision=revision+1, updated_at=? WHERE bot_id=?').run(now(), b.id);
+    writeSetupFiles(b.id);
+    emitSetup(b.id);
   }
   emitBot(b.id);
   return c.json({ bot: getBot(b.id) });
@@ -151,8 +206,11 @@ api.delete('/bots/:id', (c) => {
   const b = ownBot(c.get('user').id, c.req.param('id'));
   if (!b) return c.json({ error: 'not found' }, 404);
   for (const r of listRoutines(b.id)) unscheduleRoutine(r.id);
+  // Close the Bot's browser/screen so the next Bot to get it doesn't inherit its windows.
+  void computers.resetScreen(c.get('user').id, b.id).catch(() => {});
   db.prepare('DELETE FROM screens WHERE bot_id=?').run(b.id);
   db.prepare('DELETE FROM bots WHERE id=?').run(b.id);
+  removeSetupFiles(b.id);
   hub.emit(c.get('user').id, { type: 'roster' });
   return c.json({ ok: true });
 });
@@ -252,6 +310,10 @@ api.patch('/routines/:id', async (c) => {
   const r = db.prepare('SELECT r.* FROM routines r JOIN bots b ON b.id=r.bot_id WHERE r.id=? AND b.user_id=?').get(c.req.param('id'), c.get('user').id) as any;
   if (!r) return c.json({ error: 'not found' }, 404);
   const { enabled } = await c.req.json<{ enabled: boolean }>();
+  if (enabled && !r.enabled) {
+    const limit = checkRoutineCreate(r.bot_id, r.schedule, { timezone: r.timezone, excludeRoutineId: r.id });
+    if (limit) return c.json({ error: limit }, 429);
+  }
   db.prepare('UPDATE routines SET enabled=? WHERE id=?').run(enabled ? 1 : 0, r.id);
   const next = toRoutine(db.prepare('SELECT * FROM routines WHERE id=?').get(r.id));
   enabled ? scheduleRoutine(next) : unscheduleRoutine(r.id);
@@ -262,7 +324,8 @@ api.patch('/routines/:id', async (c) => {
 api.post('/routines/:id/run', (c) => {
   const r = db.prepare('SELECT r.* FROM routines r JOIN bots b ON b.id=r.bot_id WHERE r.id=? AND b.user_id=?').get(c.req.param('id'), c.get('user').id) as any;
   if (!r) return c.json({ error: 'not found' }, 404);
-  runRoutine(r.id);
+  const run = runRoutine(r.id, 'manual');
+  if (!run.ok) return c.json({ error: `Not run: ${run.reason}.` }, 429);
   return c.json({ ok: true });
 });
 
@@ -300,30 +363,27 @@ api.delete('/memories/:id', (c) => {
 
 // ---------- computer ----------
 
-api.get('/computer', async (c) => c.json({ computer: await refreshComputer(c.get('user').id) }));
+api.get('/computer', async (c) => c.json({ computer: await computers.refresh(c.get('user').id) }));
 
 api.post('/computer/ensure', (c) => {
   const userId = c.get('user').id;
-  ensureComputer(userId).catch((e) => console.warn('[computer] ensure failed', e.message));
-  return c.json({ computer: computerState(userId) });
+  computers.ensure(userId).catch((e) => console.warn('[computer] ensure failed', e.message));
+  return c.json({ computer: computers.state(userId) });
 });
 
 api.post('/computer/suspend', async (c) => {
-  await suspendComputer(c.get('user').id);
-  return c.json({ computer: computerState(c.get('user').id) });
+  await computers.suspend(c.get('user').id);
+  return c.json({ computer: computers.state(c.get('user').id) });
 });
 
 api.get('/bots/:id/screenshot', async (c) => {
   const user = c.get('user');
   const b = ownBot(user.id, c.req.param('id'));
   if (!b) return c.json({ error: 'not found' }, 404);
-  const comp = db.prepare("SELECT orgo_id FROM computers WHERE user_id=? AND status='running'").get(user.id) as any;
-  const scr = db.prepare('SELECT screen_id FROM screens WHERE bot_id=?').get(b.id) as any;
-  if (!comp?.orgo_id || !scr) return c.body(null, 204);
   try {
-    const s = await orgo.screenshot(comp.orgo_id, scr.screen_id);
-    const b64 = s.image.replace(/^data:[^,]+,/, '');
-    return c.body(Buffer.from(b64, 'base64'), 200, { 'Content-Type': s.mime_type ?? 'image/jpeg', 'Cache-Control': 'no-store' });
+    const s = await computers.peek(user.id, b.id);
+    if (!s) return c.body(null, 204);
+    return c.body(Buffer.from(s.image, 'base64'), 200, { 'Content-Type': s.mime, 'Cache-Control': 'no-store' });
   } catch {
     return c.body(null, 204);
   }
@@ -333,15 +393,21 @@ api.get('/bots/:id/screenshot', async (c) => {
 
 api.get('/apps', async (c) => {
   const user = c.get('user');
+  if (!env.composioEnabled) return c.json({ apps: [], connected: [], connectedApps: [], categories: [], total: 0, notConfigured: true });
   const search = (c.req.query('search') ?? '').toLowerCase();
   const category = c.req.query('category') ?? '';
-  const [all, connected] = await Promise.all([catalog(), connectedToolkits(user.id).catch(() => new Set<string>())]);
+  const [all, connected] = await Promise.all([catalog(), connectedToolkits(user.id)]);
   let items: Toolkit[] = all.map((t) => ({ ...t, connected: connected.has(t.slug) }));
   if (search) items = items.filter((t) => t.name.toLowerCase().includes(search) || t.slug.includes(search) || t.description?.toLowerCase().includes(search));
   if (category) items = items.filter((t) => t.categories.some((x) => x.toLowerCase() === category.toLowerCase()));
   const categories = [...new Set(all.flatMap((t) => t.categories))].sort();
   const connectedApps = all.filter((t) => connected.has(t.slug)).map((t) => ({ ...t, connected: true }));
-  return c.json({ apps: items.slice(0, Number(c.req.query('limit') ?? 120)), connected: [...connected], connectedApps, categories, total: items.length });
+  const pageNumber = (value: string | undefined, fallback: number) => value !== undefined && /^\d+$/.test(value) && Number.isSafeInteger(Number(value)) ? Number(value) : fallback;
+  const offset = pageNumber(c.req.query('offset'), 0);
+  const limit = Math.max(1, Math.min(200, pageNumber(c.req.query('limit'), 60)));
+  const apps = items.slice(offset, offset + limit);
+  const nextOffset = offset + apps.length < items.length ? offset + apps.length : null;
+  return c.json({ apps, connected: [...connected], connectedApps, categories, total: items.length, nextOffset });
 });
 
 api.post('/apps/:slug/connect', async (c) => {
@@ -357,15 +423,19 @@ api.post('/apps/:slug/connect', async (c) => {
 });
 
 api.get('/apps/callback', async (c) => {
-  const userId = userFromCookieHeader(c.req.header('cookie'))?.id ?? '';
+  // Opened in the app (session cookie), or from a link sent by text (signed user id; the phone has no session).
+  const signed = c.req.query('u') && verifyUserSig(c.req.query('u')!, 'apps-callback', c.req.query('sig') ?? '') ? c.req.query('u')! : '';
+  const userId = userFromCookieHeader(c.req.header('cookie'))?.id ?? signed;
   const slug = c.req.query('slug') ?? '';
   const botId = c.req.query('bot');
   const seq = Number(c.req.query('seq') ?? 0);
-  const ok = c.req.query('status') !== 'failed';
+  let ok = false;
   const userExists = db.prepare('SELECT 1 FROM users WHERE id=?').get(userId);
-  if (userExists && ok) {
+  if (userExists && c.req.query('status') !== 'failed') {
     const connected = await connectedToolkits(userId).catch(() => new Set<string>());
     if (connected.has(slug)) {
+      ok = true;
+      invalidateComposioSession(userId);
       hub.emit(userId, { type: 'connections' });
       if (botId && ownBot(userId, botId)) {
         const info = await toolkitInfo(slug);
@@ -377,7 +447,8 @@ api.get('/apps/callback', async (c) => {
       }
     }
   }
-  return c.html(`<!doctype html><meta charset="utf-8"><title>Connected</title><body style="font-family:system-ui;padding:40px;text-align:center">${ok ? 'Connected. You can close this window.' : 'Connection failed.'}<script>try{window.opener&&window.opener.postMessage({type:'grokbot-connected',slug:${JSON.stringify(slug)},ok:${ok}},'*')}catch(e){};setTimeout(()=>window.close(),800)</script></body>`);
+  const message = JSON.stringify({ type: 'swarm-connected', slug, ok }).replace(/</g, '\\u003c');
+  return c.html(`<!doctype html><meta charset="utf-8"><title>${ok ? 'Connected' : 'Connection not confirmed'}</title><body style="font-family:system-ui;padding:40px;text-align:center">${ok ? 'Connected. You can close this window.' : 'Connection could not be confirmed. Return to the app and try again.'}<script>try{window.opener&&window.opener.postMessage(${message},${JSON.stringify(new URL(env.appUrl).origin)})}catch(e){};${ok ? 'setTimeout(()=>window.close(),800)' : ''}</script></body>`);
 });
 
 api.delete('/apps/:slug', async (c) => {

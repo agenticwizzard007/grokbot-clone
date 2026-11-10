@@ -3,6 +3,7 @@ import { db, now } from './db.js';
 import { appendRow } from './store.js';
 import type { Routine } from './types.js';
 import { isEventSchedule, setEventRoutineEnabled } from './triggers.js';
+import { checkRoutineRun, noteSkipped, trackRun, type RunCheck } from './routine-limits.js';
 
 const jobs = new Map<string, Cron>();
 let enqueueFn: ((botId: string, t: any) => void) | null = null;
@@ -18,7 +19,7 @@ export function scheduleRoutine(r: Pick<Routine, 'id' | 'botId' | 'name' | 'prom
   if (isEventSchedule(r.schedule)) { void setEventRoutineEnabled(r.id, true); return; }
   unscheduleRoutine(r.id);
   try {
-    const job = new Cron(r.schedule, { timezone: r.timezone || 'UTC', protect: true }, () => runRoutine(r.id));
+    const job = new Cron(r.schedule, { timezone: r.timezone || 'UTC', protect: true }, () => { runRoutine(r.id, 'schedule'); });
     jobs.set(r.id, job);
   } catch (e) {
     console.warn('[routines] bad schedule', r.id, r.schedule, (e as Error).message);
@@ -32,10 +33,15 @@ export function unscheduleRoutine(id: string) {
   jobs.delete(id);
 }
 
-export function runRoutine(id: string) {
+/** Run a routine now (on its schedule, or "run now" from the app), within the guardrails in routine-limits.ts. */
+export function runRoutine(id: string, kind: 'schedule' | 'manual' = 'manual'): RunCheck {
   const r = db.prepare('SELECT * FROM routines WHERE id=?').get(id) as any;
-  if (!r || !enqueueFn) return;
+  if (!r || !enqueueFn) return { ok: false, reason: 'routine not found' };
+  const check = checkRoutineRun(r, kind);
+  if (!check.ok) { noteSkipped(r, check.reason); return check; }
   db.prepare('UPDATE routines SET last_run_at=? WHERE id=?').run(now(), id);
   appendRow(r.bot_id, 'event', { type: 'event', event: 'routine-run', text: `Running routine: ${r.name}`, ref: id });
   enqueueFn(r.bot_id, { type: 'routine', routineId: id, name: r.name, prompt: r.prompt });
+  trackRun(id, r.bot_id);
+  return check;
 }

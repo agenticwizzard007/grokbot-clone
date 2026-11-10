@@ -1,4 +1,4 @@
-import OpenAI from 'openai';
+import { defaultModel, llmClient, llmProvider } from '../lib/llm.js';
 import { db, now } from '../db.js';
 import '../db-config.js';
 import { env } from '../env.js';
@@ -13,22 +13,24 @@ import { getBotRow, getLive } from '../store.js';
  *  (c) a bounded, relevance-ranked memory section for the system prompt.
  */
 
-const xai = new OpenAI({ apiKey: env.xaiKey, baseURL: 'https://api.x.ai/v1', timeout: 300_000 });
+const llm = () => llmClient(300_000);
+/** Low-effort reasoning for housekeeping calls, where the provider supports the parameter. */
+const lowEffort = () => (llmProvider() === 'direct' ? { reasoning: { effort: 'low' } } : {});
 
 const num = (v: string | undefined, d: number) => (v !== undefined && v !== '' && Number.isFinite(Number(v)) ? Number(v) : d);
 
 export const memoryConfig = {
-  /** Compact when the history estimate passes this many characters (~4 chars/token). GROKBOT_COMPACT_TOKENS overrides. */
-  compactChars: process.env.GROKBOT_COMPACT_TOKENS ? num(process.env.GROKBOT_COMPACT_TOKENS, 75_000) * 4 : num(process.env.GROKBOT_COMPACT_CHARS, 300_000),
+  /** Compact when the history estimate passes this many characters (~4 chars/token). SWARM_COMPACT_TOKENS overrides. */
+  compactChars: process.env.SWARM_COMPACT_TOKENS ? num(process.env.SWARM_COMPACT_TOKENS, 75_000) * 4 : num(process.env.SWARM_COMPACT_CHARS, 300_000),
   /** User turns kept verbatim after a compaction. */
-  keepTurns: num(process.env.GROKBOT_COMPACT_KEEP_TURNS, 4),
+  keepTurns: num(process.env.SWARM_COMPACT_KEEP_TURNS, 4),
   /** Minutes without a message before consolidation runs. */
-  consolidateIdleMin: num(process.env.GROKBOT_CONSOLIDATE_IDLE_MIN, 10),
-  consolidateSweepSec: num(process.env.GROKBOT_CONSOLIDATE_SWEEP_SEC, 60),
-  /** 'auto' tries xAI /responses/compact then falls back to a summary; 'summary' skips xAI compaction. */
-  compactMethod: process.env.GROKBOT_COMPACT_METHOD === 'summary' ? 'summary' : 'auto',
+  consolidateIdleMin: num(process.env.SWARM_CONSOLIDATE_IDLE_MIN, 10),
+  consolidateSweepSec: num(process.env.SWARM_CONSOLIDATE_SWEEP_SEC, 60),
+  /** 'auto' tries direct provider /responses/compact then falls back to a summary; 'summary' skips direct provider compaction. */
+  compactMethod: process.env.SWARM_COMPACT_METHOD === 'summary' ? 'summary' : 'auto',
   /** Character budget for the memory section of the system prompt. */
-  promptMemoryChars: num(process.env.GROKBOT_PROMPT_MEMORY_CHARS, 4000),
+  promptMemoryChars: num(process.env.SWARM_PROMPT_MEMORY_CHARS, 4000),
 };
 
 // ---------------------------------------------------------------------------
@@ -45,7 +47,7 @@ function imageCount(it: any): number {
 }
 
 /**
- * xAI compaction items hold a large encrypted blob that is much cheaper than its length.
+ * direct provider compaction items hold a large encrypted blob that is much cheaper than its length.
  * Measured on a real bot: a 1.61M-char blob cost ~18k input tokens (~72k chars), so ~22:1.
  */
 const COMPACTION_BLOB_RATIO = 22;
@@ -152,8 +154,8 @@ export function renderTranscript(items: any[], maxChars = 200_000): string {
   return out;
 }
 
-async function compactWithXai(old: any[]): Promise<any[]> {
-  const res: any = await xai.post('/responses/compact', { body: { model: env.xaiModel, input: old } });
+async function compactWithDirect(old: any[]): Promise<any[]> {
+  const res: any = await llm().post('/responses/compact', { body: { model: defaultModel(), input: old } });
   const out = (res?.output ?? []) as any[];
   if (!out.length || !out.some((o) => o?.type === 'compaction' || o?.encrypted_content || o?.role)) throw new Error('compact returned no items');
   return out;
@@ -161,15 +163,15 @@ async function compactWithXai(old: any[]): Promise<any[]> {
 
 async function compactWithSummary(old: any[]): Promise<any[]> {
   const transcript = renderTranscript(old);
-  const res: any = await xai.responses.create({
-    model: env.xaiModel,
+  const res: any = await llm().responses.create({
+    model: defaultModel(),
     input: [{ role: 'system', content: SUMMARY_PROMPT }, { role: 'user', content: transcript }],
     store: false,
-    reasoning: { effort: 'low' },
+    ...lowEffort(),
   } as any);
   const text = String(res.output_text ?? '').trim();
   if (!text) throw new Error('summary was empty');
-  // Earlier xAI compaction items can't be read back as text, so carry them over unchanged.
+  // Earlier direct provider compaction items can't be read back as text, so carry them over unchanged.
   const carried = old.filter((it) => it?.type === 'compaction');
   return [...carried, { role: 'user', content: `[Automatic summary of the earlier conversation, made to save space. Treat it as your own notes.]\n${text}` }];
 }
@@ -201,11 +203,12 @@ export async function maybeCompact(botId: string, items: any[], opts: { force?: 
 
   const bot = getBotRow(botId);
   const t0 = Date.now();
-  let method = 'xai-compact';
+  let method = 'direct-compact';
   let replaced: any[];
   try {
-    if (memoryConfig.compactMethod === 'summary') throw new Error('xAI compaction disabled by GROKBOT_COMPACT_METHOD=summary');
-    replaced = await compactWithXai(old);
+    if (memoryConfig.compactMethod === 'summary') throw new Error('direct provider compaction disabled by SWARM_COMPACT_METHOD=summary');
+    if (llmProvider() !== 'direct') throw new Error('compaction endpoint is direct provider-only; using a summary');
+    replaced = await compactWithDirect(old);
   } catch (e: any) {
     console.warn(`[memory] compact via /responses/compact failed for ${botId}: ${e?.message ?? e}; falling back to a summary`);
     method = 'summary';
@@ -296,14 +299,14 @@ export async function consolidateBot(botId: string, opts: { upTo?: number } = {}
   if (transcript.length > 24_000) transcript = transcript.slice(-24_000);
 
   const existing = (db.prepare('SELECT text FROM memories WHERE bot_id=? ORDER BY created_at DESC LIMIT 200').all(botId) as any[]).map((m) => m.text as string);
-  const res: any = await xai.responses.create({
-    model: env.xaiModel,
+  const res: any = await llm().responses.create({
+    model: defaultModel(),
     input: [
       { role: 'system', content: CONSOLIDATE_PROMPT },
       { role: 'user', content: `EXISTING MEMORIES:\n${existing.length ? existing.map((t) => `- ${t}`).join('\n') : '(none)'}\n\nRECENT CONVERSATION:\n${transcript}` },
     ],
     text: { format: { type: 'json_schema', name: 'memories', schema: SCHEMA, strict: true } },
-    reasoning: { effort: 'low' },
+    ...lowEffort(),
     store: false,
   } as any);
   let proposed: string[] = [];

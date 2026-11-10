@@ -1,17 +1,23 @@
 import { db, now } from '../db.js';
+import { checkRoutineCreate } from '../routine-limits.js';
 import { newId } from '../lib/ids.js';
 import { hub } from '../lib/hub.js';
-import { orgo } from '../orgo.js';
-import { screenFor } from '../computer.js';
+import { computers } from '../computers/index.js';
 import { appendRow, getBotRow, listRoutines, toRoutine, describeCron } from '../store.js';
-import { executeComposio, innerToolSlugs, isReadOnlySlug, toolkitInfo } from '../composio.js';
+import { APPS_OFF, executeComposio, innerToolSlugs, isReadOnlySlug, toolkitInfo } from '../composio.js';
+import { env } from '../env.js';
 import { scheduleRoutine, unscheduleRoutine } from '../routines.js';
 import { createEventRoutine, deleteEventTrigger, describeEvent, listTriggerTypes } from '../triggers.js';
-import { setCheckins } from '../proactive.js';
+import { getCheckins, setCheckins } from '../proactive.js';
+import { updateProfile } from '../accounts.js';
 import { createSubagent, deleteSubagent, listSubagents } from './subagents.js';
 import { createRoom, postToRoom } from './rooms.js';
 import type { ActivityKind } from '../types.js';
 import { Cron } from 'croner';
+import { creationSchema, isConfiguring, saveSetupDraft, setupDraftSchema } from '../bot-setup.js';
+import { createTeammate, replicateTeammate, retryTeammate } from './teammates.js';
+import { z } from 'zod';
+import { findMcpTool } from '../mcp/store.js';
 
 export interface ToolCtx {
   userId: string;
@@ -42,30 +48,35 @@ interface ToolDef {
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', properties, required, additionalProperties: false });
 
 async function shot(ctx: ToolCtx, caption: string): Promise<ToolResult> {
-  const { computerId, screenId } = await screenFor(ctx.userId, ctx.botId);
+  const screen = await computers.screen(ctx.userId, ctx.botId);
   await new Promise((r) => setTimeout(r, 700));
-  const s = await orgo.screenshot(computerId, screenId);
-  const mime = s.mime_type ?? 'image/png';
-  const url = s.image.startsWith('data:') ? s.image : `data:${mime};base64,${s.image}`;
+  const s = await screen.screenshot();
   return {
     output: [
       { type: 'input_text', text: `${caption} Screen is ${s.width}x${s.height}px.` },
-      { type: 'input_image', image_url: url, detail: 'high' },
+      { type: 'input_image', image_url: `data:${s.mime};base64,${s.image}`, detail: 'high' },
     ],
     summary: caption,
   };
 }
 
-async function onScreen<T>(ctx: ToolCtx, fn: (computerId: string, screenId: string) => Promise<T>) {
-  const { computerId, screenId } = await screenFor(ctx.userId, ctx.botId);
-  return fn(computerId, screenId);
-}
+const onScreen = async (ctx: ToolCtx) => computers.screen(ctx.userId, ctx.botId);
 
 function botByName(userId: string, name: string) {
   return db.prepare('SELECT * FROM bots WHERE user_id=? AND lower(name)=lower(?)').get(userId, name.trim()) as any;
 }
 
 export const TOOLS: ToolDef[] = [
+  {
+    name: 'save_agent_setup',
+    description: 'Save your own agent specification during the setup interview. Incorporate the user’s answers into the brief, working style, workflows and boundaries. Save after each substantive answer. Use stage review only when the specification is complete and open_questions is empty. The user activates it in Configuration; you cannot activate yourself.',
+    parameters: (() => { const { $schema, ...schema } = z.toJSONSchema(setupDraftSchema); return schema; })(),
+    activity: 'working', label: 'Updating agent configuration',
+    impl: async (a, ctx) => {
+      const result = saveSetupDraft(ctx.botId, ctx.userId, a);
+      return { output: JSON.stringify({ ok: true, onboarding: result.onboarding, note: a.stage === 'review' ? 'The specification is ready for the user to review and activate in Configuration.' : 'Draft saved. Ask the next focused question about unresolved details.' }), summary: a.stage === 'review' ? 'Configuration ready for review' : 'Configuration updated' };
+    },
+  },
   {
     name: 'computer_screenshot',
     description: "Take a screenshot of your own computer screen (a Linux desktop that only you use). Use this before acting on the screen.",
@@ -81,7 +92,7 @@ export const TOOLS: ToolDef[] = [
     activity: 'on_its_computer',
     label: 'Clicking on screen',
     impl: async (a, ctx) => {
-      await onScreen(ctx, (c, s) => orgo.click(c, s, { x: a.x, y: a.y, button: a.button ?? 'left', double: !!a.double }));
+      await (await onScreen(ctx)).click({ x: a.x, y: a.y, button: a.button ?? 'left', double: !!a.double });
       return shot(ctx, `Clicked (${a.x}, ${a.y}).`);
     },
   },
@@ -93,7 +104,7 @@ export const TOOLS: ToolDef[] = [
     label: 'Typing',
     impl: async (a, ctx) => {
       const text = String(a.text);
-      for (let i = 0; i < text.length; i += 1500) await onScreen(ctx, (c, s) => orgo.type(c, s, text.slice(i, i + 1500)));
+      await (await onScreen(ctx)).type(text);
       return shot(ctx, `Typed ${text.length} characters.`);
     },
   },
@@ -105,8 +116,8 @@ export const TOOLS: ToolDef[] = [
     label: 'Pressing keys',
     impl: async (a, ctx) => {
       const keys = String(a.keys).split('+').map((k) => (k.length === 1 ? k.toLowerCase() : k)).join('+');
-      await onScreen(ctx, (c, s) => orgo.key(c, s, keys));
-      return shot(ctx, `Pressed ${keys}.`);
+      const note = await (await onScreen(ctx)).key(keys);
+      return shot(ctx, note ? `Pressed ${keys}. ${note}` : `Pressed ${keys}.`);
     },
   },
   {
@@ -116,7 +127,7 @@ export const TOOLS: ToolDef[] = [
     activity: 'on_its_computer',
     label: 'Scrolling',
     impl: async (a, ctx) => {
-      await onScreen(ctx, (c, s) => orgo.scroll(c, s, { x: a.x, y: a.y, direction: a.direction, amount: a.amount ?? 3 }));
+      await (await onScreen(ctx)).scroll({ x: a.x, y: a.y, direction: a.direction, amount: a.amount ?? 3 });
       return shot(ctx, `Scrolled ${a.direction}.`);
     },
   },
@@ -127,7 +138,7 @@ export const TOOLS: ToolDef[] = [
     activity: 'on_its_computer',
     label: 'Dragging',
     impl: async (a, ctx) => {
-      await onScreen(ctx, (c, s) => orgo.drag(c, s, a));
+      await (await onScreen(ctx)).drag(a);
       return shot(ctx, 'Dragged.');
     },
   },
@@ -138,40 +149,21 @@ export const TOOLS: ToolDef[] = [
     activity: 'browsing_web',
     label: 'Browsing a site',
     impl: async (a, ctx) => {
-      const url = String(a.url).replace(/'/g, '%27');
-      await onScreen(ctx, (c, s) => {
-        const display = s === 'default' ? ':99' : `:${s.replace('screen-', '')}`;
-        const profile = `/root/grokbot/profiles/${ctx.botId}`;
-        // Reuse the bot's running Chrome if present (opens a new tab), else start one detached.
-        return orgo.bash(
-          c,
-          s,
-          `export DISPLAY=${display}; mkdir -p ${profile}; pgrep -f "user-data-dir=${profile}" >/dev/null || rm -f ${profile}/Singleton*; ` +
-            `setsid nohup google-chrome --no-sandbox --no-first-run --no-default-browser-check --disable-dev-shm-usage --password-store=basic ` +
-            `--user-data-dir=${profile} --start-maximized '${url}' >/tmp/chrome-${ctx.botId}.log 2>&1 < /dev/null & sleep 4; echo ok`,
-          40,
-        );
-      });
+      await (await onScreen(ctx)).openUrl(String(a.url));
       return shot(ctx, `Opened ${a.url}.`);
     },
   },
   {
     name: 'save_file',
-    description: "Save a deliverable (report, notes, CSV, code, markdown) to your Library so the user can open and download it. Saved under /root/grokbot/files/<your id>/ on your computer.",
+    description: "Save a deliverable (report, notes, CSV, code, markdown) to your Library so the user can open and download it. Saved under /root/swarm/files/<your id>/ on your computer.",
     parameters: obj({ filename: { type: 'string', description: 'e.g. briefing-2026-11-09.md' }, content: { type: 'string' } }, ['filename', 'content']),
     activity: 'drafting_file',
     label: 'Saving notes',
     impl: async (a, ctx) => {
-      const name = String(a.filename).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120) || 'file.txt';
-      const dir = `/root/grokbot/files/${ctx.botId}`;
-      const b64 = Buffer.from(String(a.content), 'utf8').toString('base64');
-      // Chunk the base64 so very large files don't exceed a single command's size.
-      await onScreen(ctx, async (c, s) => {
-        await orgo.bash(c, s, `mkdir -p ${dir} && : > ${dir}/${name}.b64`, 30);
-        for (let i = 0; i < b64.length; i += 60000) await orgo.bash(c, s, `printf '%s' '${b64.slice(i, i + 60000)}' >> ${dir}/${name}.b64`, 30);
-        return orgo.bash(c, s, `base64 -d ${dir}/${name}.b64 > ${dir}/${name} && rm ${dir}/${name}.b64 && wc -c ${dir}/${name}`, 30);
-      });
-      return { output: JSON.stringify({ ok: true, path: `${dir}/${name}` }), summary: `Saved ${name}` };
+      let name = String(a.filename).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
+      if (!name || /^\.+$/.test(name)) name = 'file.txt';
+      const path = await computers.files.save(ctx.userId, ctx.botId, name, String(a.content));
+      return { output: JSON.stringify({ ok: true, path }), summary: `Saved ${name}` };
     },
   },
   {
@@ -181,7 +173,9 @@ export const TOOLS: ToolDef[] = [
     activity: 'running_commands',
     label: 'Running commands',
     impl: async (a, ctx) => {
-      const r = await onScreen(ctx, (c, s) => orgo.bash(c, s, String(a.command), Math.min(Math.max(a.timeout_seconds ?? 120, 1), 290)));
+      const screen = computers.capabilities.shell ? await onScreen(ctx) : null;
+      if (!screen?.shell) return { output: 'There is no shell on this computer. Use the browser tools instead.', summary: 'No shell' };
+      const r = await screen.shell(String(a.command), Math.min(Math.max(a.timeout_seconds ?? 120, 1), 290));
       const out = (r.output ?? '').slice(-20000);
       return { output: JSON.stringify({ exit_code: r.exit_code, output: out }), summary: `exit ${r.exit_code}` };
     },
@@ -218,6 +212,8 @@ export const TOOLS: ToolDef[] = [
     label: 'Setting up a routine',
     impl: async (a, ctx) => {
       try { new Cron(a.schedule, { paused: true, timezone: a.timezone || 'UTC' }); } catch (e: any) { return { output: `Invalid schedule: ${e.message}` }; }
+      const limit = checkRoutineCreate(ctx.botId, a.schedule, { timezone: a.timezone });
+      if (limit) return { output: limit, summary: 'Routine not created' };
       const id = newId('rt');
       db.prepare('INSERT INTO routines(id,bot_id,name,prompt,schedule,timezone,enabled,created_at) VALUES (?,?,?,?,?,?,1,?)').run(id, ctx.botId, a.name, a.prompt, a.schedule, a.timezone || 'UTC', now());
       const r = toRoutine(db.prepare('SELECT * FROM routines WHERE id=?').get(id));
@@ -244,6 +240,8 @@ export const TOOLS: ToolDef[] = [
     impl: async (a, ctx) => {
       let config: Record<string, unknown> = {};
       try { config = a.config_json ? JSON.parse(a.config_json) : {}; } catch { return { output: 'config_json must be a JSON object string.' }; }
+      const limit = checkRoutineCreate(ctx.botId, null);
+      if (limit) return { output: limit, summary: 'Routine not created' };
       try {
         const r = await createEventRoutine(ctx.userId, ctx.botId, { name: a.name, prompt: a.prompt, trigger_slug: a.trigger_slug, config });
         appendRow(ctx.botId, 'event', { type: 'event', event: 'routine-created', text: `Routine created: ${a.name} · ${describeEvent(`event:${String(a.trigger_slug).toUpperCase()}`)}`, ref: r.id });
@@ -360,6 +358,26 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'create_bot',
+    description: 'Create a permanent teammate directly from the master chat. Build a focused, self-contained brief from the user’s specifications and corrections. Saves identity, AGENTS.md, context, resources, handoffs and a portable setup, then prepares its separate browser/screen. Only the current primary Bot can create teammates. Use this for durable Bots; spawn_subagent is temporary.',
+    parameters: (() => { const { $schema, ...schema } = z.toJSONSchema(creationSchema); return schema; })(),
+    activity: 'working',
+    label: 'Creating a teammate',
+    impl: createTeammate,
+  },
+  {
+    name: 'replicate_bot',
+    description: 'Create another permanent teammate from an existing Bot’s complete saved role and configuration, with a new name and fresh browser profile. Does not copy browser logins, running tasks, schedules or chat history. Primary Bot only.',
+    parameters: obj({ bot_name: { type: 'string' }, new_name: { type: 'string' } }, ['bot_name', 'new_name']),
+    activity: 'working', label: 'Replicating a teammate', impl: replicateTeammate,
+  },
+  {
+    name: 'retry_bot_setup',
+    description: 'Finish or retry a saved teammate’s computer setup after a connection or provisioning failure. Reuses the same Bot; never creates a duplicate. Primary Bot only.',
+    parameters: obj({ bot_name: { type: 'string' } }, ['bot_name']),
+    activity: 'working', label: 'Preparing a teammate’s computer', impl: retryTeammate,
+  },
+  {
     name: 'spawn_subagent',
     description: 'Start a subagent: a helper copy of you with its own context and its own computer screen, to work on one goal in parallel (e.g. research one company each). It reports back to you as a message when done. Max 4 at a time.',
     parameters: obj({ goal: { type: 'string', description: 'Self-contained task with everything the subagent needs to know' }, label: { type: 'string', description: 'Short name, e.g. "Acme research"' } }, ['goal']),
@@ -440,6 +458,23 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'update_profile',
+    description: "Save the user's name and/or IANA time zone (e.g. \"America/New_York\") to their account, and mark onboarding complete when the first-chat setup is done. Primary Bot only.",
+    parameters: obj({ name: { type: 'string' }, timezone: { type: 'string' }, onboarding_complete: { type: 'boolean' } }),
+    activity: 'remembering',
+    label: 'Updating your profile',
+    impl: async (a, ctx) => {
+      const tz = typeof a.timezone === 'string' && a.timezone.trim() ? a.timezone.trim() : undefined;
+      if (tz) {
+        try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); } catch { return { output: `"${tz}" is not a valid IANA time zone. Use a name like "Europe/London".` }; }
+        const cur = getCheckins(ctx.userId);
+        setCheckins(ctx.userId, { ...cur, timezone: tz });
+      }
+      updateProfile(ctx.userId, { name: typeof a.name === 'string' ? a.name : undefined, timezone: tz, onboarded: a.onboarding_complete === true });
+      return { output: 'Saved.', summary: a.onboarding_complete ? 'Onboarding done' : 'Profile updated' };
+    },
+  },
+  {
     name: 'ask_user',
     description: 'Ask the user a multiple-choice question when you need a decision before continuing. Ends your turn; their answer arrives as their next message.',
     parameters: obj({ question: { type: 'string' }, options: { type: 'array', items: { type: 'string' } } }, ['question', 'options']),
@@ -457,6 +492,7 @@ export const TOOLS: ToolDef[] = [
     activity: 'connecting_service',
     label: 'Using a connected app',
     impl: async (a, ctx) => {
+      if (!env.composioEnabled) return { output: `${APPS_OFF} Tell the user, and use your browser instead if that can do the job.`, summary: 'Apps not set up' };
       const info = await toolkitInfo(String(a.toolkit).toLowerCase());
       if (!info) return { output: `Unknown toolkit "${a.toolkit}". Use COMPOSIO_SEARCH_TOOLS to find the right toolkit slug.` };
       appendRow(ctx.botId, 'card', { type: 'card', card: 'connect', toolkit: info.slug, toolkitName: info.name, logo: info.logo, reason: a.reason, status: 'pending' });
@@ -467,8 +503,20 @@ export const TOOLS: ToolDef[] = [
 
 export const toolMap = new Map(TOOLS.map((t) => [t.name, t]));
 
-export function functionSchemas() {
-  return TOOLS.map((t) => ({ type: 'function', name: t.name, description: t.description, parameters: t.parameters }));
+export function allowedDuringSetup(botId: string, toolName: string) {
+  return !isConfiguring(botId) || ['ask_user', 'save_agent_setup'].includes(toolName);
+}
+
+export function functionSchemas(botId?: string) {
+  const bot = botId ? getBotRow(botId) : null;
+  const canCreate = !!bot?.is_primary && !bot.hidden && bot.kind !== 'room';
+  return TOOLS.filter((t) => (!botId || allowedDuringSetup(botId, t.name)) && (t.name !== 'save_agent_setup' || !!botId && isConfiguring(botId)))
+    .filter((t) => (!['create_bot', 'replicate_bot', 'retry_bot_setup', 'update_profile'].includes(t.name) || canCreate)).filter((t) => t.name !== 'shell' || computers.capabilities.shell).map((t) => ({
+    type: 'function',
+    name: t.name,
+    description: computers.toolDescriptions?.[t.name] ?? t.description,
+    parameters: t.parameters,
+  }));
 }
 
 // ---------- approvals policy ----------
@@ -476,6 +524,11 @@ export function functionSchemas() {
 export type Decision = 'allow' | 'ask' | 'block';
 
 export function policyFor(userId: string, toolName: string, args: any): { decision: Decision; key: string; toolkit?: string; title: string } {
+  if (toolName.startsWith('mcp_')) {
+    const match = findMcpTool(userId, toolName);
+    const policy = db.prepare('SELECT mode FROM policies WHERE user_id=? AND tool=?').get(userId, toolName) as { mode: string } | undefined;
+    return { decision: !match || policy?.mode === 'blocked' ? 'block' : policy?.mode === 'always_allow' || !match.server.config.requireApproval ? 'allow' : 'ask', key: toolName, title: match ? `MCP: use ${match.tool.name} on ${match.server.config.name}` : 'MCP: use an unavailable tool' };
+  }
   if (toolMap.has(toolName)) return { decision: 'allow', key: toolName, title: toolName };
   const slugs = innerToolSlugs(toolName, args);
   if (!slugs.length) return { decision: 'allow', key: toolName, title: toolName };
@@ -506,6 +559,7 @@ export async function runComposioTool(ctx: ToolCtx, name: string, args: any): Pr
 }
 
 export function activityFor(name: string): { kind: ActivityKind; label: string } {
+  if (name.startsWith('mcp_')) return { kind: 'connecting_service', label: 'Using a custom MCP tool' };
   const t = toolMap.get(name);
   if (t) return { kind: t.activity, label: t.label };
   if (name === 'COMPOSIO_SEARCH_TOOLS' || name === 'COMPOSIO_GET_TOOL_SCHEMAS') return { kind: 'connecting_service', label: 'Using a connected app' };

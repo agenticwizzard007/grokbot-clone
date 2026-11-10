@@ -7,6 +7,9 @@ dist/
 *.db-*
 data/
 .DS_Store
+.context/
+.codex/
+.composio/
 
 # Local-only material (not part of the open-source repo)
 design/

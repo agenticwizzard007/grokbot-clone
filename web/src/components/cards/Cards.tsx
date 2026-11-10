@@ -30,7 +30,7 @@ export function ApprovalCard({ body }: { body: Card<'approval'> }) {
   const { busy, error, run } = useBusy();
   const pending = body.status === 'pending';
   const decide = (d: 'allow' | 'always' | 'deny') => run(d, () => api.approve(body.approvalId, d));
-  const name = body.toolkit ? humanizeToolkit(body.toolkit) : prettyTool(body.tool);
+  const name = body.toolkitName ?? (body.toolkit ? humanizeToolkit(body.toolkit) : prettyTool(body.tool));
   return (
     <div className={`card approval-card${pending ? '' : ' is-resolved'}`}>
       <div className="card__head">

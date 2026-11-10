@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Toolkit } from '@shared/types';
 import { BotAvatarFor } from '../../avatar/BotAvatar';
-import { configApi, type ComputerDetails } from '../../lib/configApi';
+import { configApi, type ComputerDetails, type KeysResponse, type KeyStatus, type Pairing } from '../../lib/configApi';
+import { ModelPicker, refreshModels } from './ModelPicker';
 import { relativeShort } from '../../lib/time';
 import { useConfigUI, type AppSection, type Theme } from '../../configStore';
 import { useStore } from '../../store';
@@ -11,12 +12,17 @@ import { Icon } from '../Icon';
 import { ToolkitLogo } from '../ToolkitLogo';
 import { Glyph } from './glyphs';
 import { ConfirmButton } from './ui';
+import { McpSettings } from './McpSettings';
+import { MessagingSettings } from './MessagingSettings';
 
 const SECTIONS: { id: AppSection; label: string }[] = [
   { id: 'general', label: 'General' },
+  { id: 'keys', label: 'API keys' },
   { id: 'computer', label: 'Computer' },
+  { id: 'messaging', label: 'Messaging' },
   { id: 'permissions', label: 'Permissions' },
   { id: 'apps', label: 'Connected apps' },
+  { id: 'mcp', label: 'MCP servers' },
   { id: 'account', label: 'Account' },
 ];
 
@@ -46,9 +52,12 @@ export function AppSettings() {
         <button type="button" className="app-settings__close icon-btn" onClick={close} aria-label="Close settings" title="Close (Esc)"><Icon name="close" opacity={0.8} /></button>
         <div className="app-settings__page">
           {section === 'general' && <GeneralSection />}
+          {section === 'keys' && <KeysSection />}
           {section === 'computer' && <ComputerSection />}
+          {section === 'messaging' && <MessagingSettings />}
           {section === 'permissions' && <PermissionsSection />}
           {section === 'apps' && <AppsSection />}
+          {section === 'mcp' && <McpSettings />}
           {section === 'account' && <AccountSection />}
         </div>
       </div>
@@ -101,6 +110,139 @@ function GeneralSection() {
 
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// API keys: the server's provider keys, entered in the app and verified before saving.
+
+const sourceText = (s: KeyStatus) => (s.source === 'app' ? 'saved in the app' : s.source === 'env' ? 'from the server’s .env file' : '');
+
+function KeyCard({ name, title, what, link, status, canEdit, required, onChange }: {
+  name: 'direct' | 'composio' | 'openrouter'; title: string; what: string; link?: { href: string; label: string };
+  status: KeyStatus; canEdit: boolean; required?: boolean; onChange: (r: KeysResponse) => void;
+}) {
+  const [value, setValue] = useState('');
+  const [busy, setBusy] = useState<'save' | 'clear' | null>(null);
+  const [note, setNote] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
+  const save = async () => {
+    setBusy('save'); setNote(null);
+    try {
+      const r = await configApi.saveKey(name, value.trim());
+      setValue('');
+      setNote({ tone: 'ok', text: r.modelOk === false ? `Key works, but ${r.model.value} isn’t available on it. Pick a model above.` : 'Verified and saved. Bots use it right away.' });
+      onChange(r);
+    } catch (e) { setNote({ tone: 'error', text: (e as Error).message }); }
+    finally { setBusy(null); }
+  };
+  const clear = async () => {
+    setBusy('clear'); setNote(null);
+    try { onChange(await configApi.clearKey(name)); } catch (e) { setNote({ tone: 'error', text: (e as Error).message }); }
+    finally { setBusy(null); }
+  };
+  return (
+    <div className="cfg-card cfg-key">
+      <div className="cfg-row">
+        <span className={`computer-status-dot is-${status.set ? 'on' : 'off'}`} aria-hidden />
+        <div className="cfg-row__text">
+          <div className="cfg-row__title">{title} · {status.set ? 'Connected' : required ? 'Needed' : 'Not set'}</div>
+          <div className="cfg-row__sub">{what}{status.set ? ` Key ${status.hint}, ${sourceText(status)}.` : ''}</div>
+        </div>
+        {status.source === 'app' && canEdit && (
+          <ConfirmButton className="cfg-btn cfg-btn--secondary" confirmLabel="Remove key" onConfirm={clear}>{busy === 'clear' ? 'Removing…' : 'Remove'}</ConfirmButton>
+        )}
+      </div>
+      {canEdit ? (
+        <form className="cfg-key__form" onSubmit={(e) => {
+          e.preventDefault();
+          if (value.trim()) void save();
+          else { document.getElementById(`key-input-${name}`)?.focus(); setNote({ tone: 'error', text: 'Paste your key in the box first.' }); }
+        }}>
+          <input id={`key-input-${name}`} className="text-input cfg-key__input" type="password" autoComplete="off" spellCheck={false} placeholder={status.set ? 'Paste a new key to replace it' : 'Paste your key'} value={value} onChange={(e) => { setValue(e.target.value); if (note?.tone === 'error') setNote(null); }} aria-label={`${title} API key`} />
+          <button type="submit" className="cfg-btn cfg-btn--primary" disabled={!!busy}>{busy === 'save' ? 'Verifying…' : 'Save & verify'}</button>
+        </form>
+      ) : null}
+      <div className="cfg-key__foot">
+        {note
+          ? <span className={note.tone === 'error' ? 'cfg-key__err' : 'cfg-key__ok'} role="status">{note.text}</span>
+          : link ? <a href={link.href} target="_blank" rel="noreferrer">{link.label}</a> : 'Use any compatible provider key.'}
+      </div>
+    </div>
+  );
+}
+
+function KeysSection() {
+  const [keys, setKeys] = useState<KeysResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
+  const [pickerKey, setPickerKey] = useState(0);
+  useEffect(() => { configApi.keys().then(setKeys).catch((e) => setError((e as Error).message)); }, []);
+  // Keep fields the save response may not repeat (e.g. canEdit).
+  const changed = (r: KeysResponse) => { setKeys((k) => (k ? { ...k, ...r } : r)); refreshModels(); setPickerKey((n) => n + 1); };
+  const save = async (name: 'provider' | 'model' | 'openrouter_model', value: string) => {
+    setNote(null);
+    try { changed(await configApi.saveKey(name, value)); setNote({ tone: 'ok', text: 'Saved. Bots use it from their next message.' }); }
+    catch (e) { setNote({ tone: 'error', text: (e as Error).message }); }
+  };
+
+  if (error) return <><PageHead title="API keys" /><div className="cfg-error">{error}</div></>;
+  if (!keys) return <><PageHead title="API keys" /><div className="cfg-empty cfg-empty--flat">Loading…</div></>;
+  const running = keys.provider.value;
+  const chosen = keys.provider.chosen ?? running;
+  const keyFor = (p: 'direct' | 'openrouter') => (p === 'openrouter' ? keys.openrouter.set : keys.direct.set);
+  const nameOf = (p: 'direct' | 'openrouter') => (p === 'openrouter' ? 'OpenRouter' : 'custom provider');
+  const current = chosen === 'openrouter' ? keys.openrouterModel.value : keys.model.value;
+  // OpenRouter's catalog is public, so a model can be chosen before the key is added; direct provider needs the key.
+  const canPick = keys.canEdit && (chosen === 'openrouter' || keys.direct.set);
+  const choose = async (p: 'direct' | 'openrouter') => {
+    if (p === chosen) { if (!keyFor(p)) document.getElementById(`key-input-${p}`)?.focus(); return; }
+    await save('provider', p);
+    if (!keyFor(p)) {
+      document.getElementById(`key-input-${p}`)?.focus();
+      setNote({ tone: 'ok', text: `Paste your ${nameOf(p)} key below to finish switching.${keyFor(p === 'direct' ? 'openrouter' : 'direct') ? ` Until then Bots keep using ${nameOf(p === 'direct' ? 'openrouter' : 'direct')}.` : ''}` });
+    }
+  };
+  const status = !keyFor(chosen)
+    ? keyFor(running) && running !== chosen
+      ? `Waiting for your ${nameOf(chosen)} key. Bots use ${running === 'openrouter' ? keys.openrouterModel.value : keys.model.value} through ${nameOf(running)} until then.`
+      : `Add your ${nameOf(chosen)} key below so Bots can run.`
+    : `Bots use ${current} through ${nameOf(chosen)}.`;
+  return (
+    <>
+      <PageHead title="API keys" sub="Bring your own keys: Swarm runs on your provider accounts. Keys are checked with the provider, stored encrypted on this server, and never shown again." />
+      {!keys.canEdit && <div className="cfg-field__hint" style={{ marginBottom: 12 }}>Only the owner of this server can change its keys.</div>}
+
+      <section className="cfg-section">
+        <div className="cfg-section__label">Models</div>
+        <div className="cfg-card cfg-key">
+          <div className="cfg-key__form">
+            <div className="cfg-row__text"><div className="cfg-row__title">Run Bots on</div><div className="cfg-row__sub">OpenRouter gives one key for Claude, GPT, Gemini and hundreds more.</div></div>
+            <div className="cfg-seg" role="radiogroup" aria-label="Model provider">
+              {(['openrouter', 'direct'] as const).map((p) => (
+                <button key={p} type="button" role="radio" aria-checked={chosen === p} className={chosen === p ? 'is-active' : ''} disabled={!keys.canEdit} onClick={() => void choose(p)}>
+                  {p === 'openrouter' ? 'OpenRouter' : 'Custom provider'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="cfg-key__form">
+            <div className="cfg-row__text"><div className="cfg-row__title">Default model</div><div className="cfg-row__sub">Used by every Bot unless you pick one in its settings.</div></div>
+            <ModelPicker key={`${chosen}-${pickerKey}`} provider={chosen} label="Default model" value={current} disabled={!canPick}
+              onChange={(id) => { if (id && id !== current) void save(chosen === 'openrouter' ? 'openrouter_model' : 'model', id); }} />
+          </div>
+          <div className="cfg-key__foot">
+            {note ? <span className={note.tone === 'error' ? 'cfg-key__err' : 'cfg-key__ok'} role="status">{note.text}</span> : status}
+          </div>
+        </div>
+      </section>
+
+      <section className="cfg-section">
+        <div className="cfg-section__label">Keys</div>
+        <KeyCard name="openrouter" title="OpenRouter" what="Recommended: one key for 290+ models that can use tools, with per-token pricing." link={{ href: 'https://openrouter.ai/keys', label: 'Get a key at openrouter.ai/keys' }} status={keys.openrouter} canEdit={keys.canEdit} onChange={changed} />
+        <KeyCard name="direct" title="Custom provider" what="Direct model access through a compatible provider. Also needed for voice calls." status={keys.direct} canEdit={keys.canEdit} onChange={changed} />
+        <KeyCard name="composio" title="Composio · Connected apps" what="One project key enables connected apps for everyone on this server. Each person connects their own accounts; their connections stay private." link={{ href: 'https://platform.composio.dev', label: 'Create a Composio account or get a project key' }} status={keys.composio} canEdit={keys.canEdit} onChange={changed} />
+      </section>
+    </>
+  );
+}
+
 const screenLabel = (id: string) => (id === 'default' ? 'Main screen' : `Screen ${Number(id.replace('screen-', '')) - 98 || id}`);
 
 function ComputerSection() {
@@ -122,6 +264,8 @@ function ComputerSection() {
     finally { setBusy(null); }
   };
   const byId = new Map(bots.map((b) => [b.id, b]));
+
+  if ((computer ?? details?.computer)?.provider === 'local') return <LocalComputerSection details={details} reload={load} />;
 
   return (
     <>
@@ -174,7 +318,123 @@ function ComputerSection() {
             );
           })}
         </div>
-        <div className="cfg-field__hint">Reset closes every window on that Bot’s screen, so it starts clean next time. Up to 4 Bots can have a screen at once.</div>
+        <div className="cfg-field__hint">Reset closes every window on that Bot’s screen, so it starts clean next time. {(computer ?? details?.computer)?.provider === 'cloudvm' ? 'Every Bot has its own screen; the computer grows as you add Bots.' : 'Up to 4 Bots can have a screen at once.'}</div>
+      </section>
+    </>
+  );
+}
+
+/** Local computers: Bots use a Chrome browser on the user's own PC through the companion program. */
+function LocalComputerSection({ details, reload }: { details: ComputerDetails | null; reload: () => void }) {
+  const computer = useStore((s) => s.computer) ?? details?.computer ?? null;
+  const bots = useStore((s) => s.bots);
+  const [pairing, setPairing] = useState<Pairing | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const connected = computer?.status === 'running';
+  const paired = !!details?.pairing?.paired;
+  const here = details?.thisComputer;
+  const useHere = async () => {
+    setBusy(true); setNote(null);
+    try { await configApi.useThisComputer(); setPairing(null); reload(); }
+    catch (e) { setNote((e as Error).message); }
+    finally { setBusy(false); }
+  };
+  const byId = new Map(bots.map((b) => [b.id, b]));
+  const desktop = !!computer?.desktop;
+
+  // Once the PC connects, the one-time command has done its job.
+  useEffect(() => { if (connected) setPairing(null); }, [connected]);
+
+  const pair = async () => {
+    setBusy(true); setNote(null); setCopied(false);
+    try { setPairing(await configApi.pairPc()); reload(); }
+    catch (e) { setNote((e as Error).message); }
+    finally { setBusy(false); }
+  };
+  const copy = async () => {
+    if (!pairing) return;
+    try { await navigator.clipboard.writeText(pairing.command); setCopied(true); } catch { setNote('Couldn’t copy. Select the command and copy it yourself.'); }
+  };
+
+  return (
+    <>
+      <PageHead title="Computer" sub={desktop
+        ? 'Your Bots use your own computer: its full desktop and apps, your default browser, and a shell. They take turns, one Bot at a time.'
+        : 'Your Bots use a Chrome browser on your own PC. Each Bot gets its own browser profile there, separate from yours.'} />
+      <section className="cfg-section">
+        <div className="cfg-card">
+          <div className="cfg-row">
+            <span className={`computer-status-dot is-${connected ? 'on' : 'off'}`} aria-hidden />
+            <div className="cfg-row__text">
+              <div className="cfg-row__title">Your PC · {computerStatusText(computer)}</div>
+              <div className="cfg-row__sub">
+                {connected
+                  ? `${computer?.device?.name ?? 'PC'}${computer?.device?.platform ? ` · ${computer.device.platform}` : ''} · ${desktop ? 'Your Bots can use this desktop now.' : 'Your Bots can browse now.'}`
+                  : paired ? 'Paired, but the companion isn’t running. Start it again on your PC, or connect a new one.' : desktop ? 'Connect a PC so your Bots can use its desktop.' : 'Connect a PC so your Bots can use a browser.'}
+              </div>
+            </div>
+            {!connected && here?.available && !here.active && <button type="button" className="cfg-btn cfg-btn--primary" disabled={busy} onClick={useHere}>{busy ? 'Starting…' : 'Use this computer'}</button>}
+            {!connected && here?.active && <span className="cfg-row__sub">Starting…</span>}
+            {!connected && !here?.active && <button type="button" className={`cfg-btn ${here?.available ? 'cfg-btn--secondary' : 'cfg-btn--primary'}`} disabled={busy} onClick={pair}>{busy ? 'Preparing…' : here?.available ? 'Connect another PC' : paired ? 'New connect command' : 'Connect your PC'}</button>}
+            {connected && here?.active && (
+              <ConfirmButton className="cfg-btn cfg-btn--secondary" confirmLabel="Stop using it" onConfirm={async () => { try { await configApi.stopThisComputer(); reload(); } catch (e) { setNote((e as Error).message); } }}>
+                Stop
+              </ConfirmButton>
+            )}
+            {paired && (
+              <ConfirmButton className="cfg-btn cfg-btn--secondary" confirmLabel="Disconnect PC" onConfirm={async () => { try { await configApi.unpairPc(); setPairing(null); reload(); } catch (e) { setNote((e as Error).message); } }}>
+                Disconnect
+              </ConfirmButton>
+            )}
+          </div>
+          {pairing && !connected && (
+            <div className="cfg-pair">
+              <div className="cfg-pair__step">On your PC (needs <b>Node.js 22+</b>{desktop ? <> on macOS or Linux</> : <> and <b>Google Chrome</b></>}), run this in a terminal and keep it running:</div>
+              <div className="cfg-pair__cmd">
+                <code className="cfg-pair__code" aria-label="Connect command">{pairing.command}</code>
+                <button type="button" className="cfg-btn cfg-btn--secondary" onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
+              </div>
+              {desktop
+                ? <div className="cfg-field__hint">It contains a private token: anyone who has it can connect their PC as your Bots’ computer. On macOS, allow the terminal app in System Settings → Privacy &amp; Security → <b>Accessibility</b> and <b>Screen Recording</b>. Waiting for your PC to connect…</div>
+                : <div className="cfg-field__hint">It contains a private token: anyone who has it can connect their PC as your Bots’ browser. Add <code className="cfg-code">--headed</code> to see the browser windows on your PC. Waiting for your PC to connect…</div>}
+            </div>
+          )}
+          {note && <div className="cfg-error cfg-error--inset">{note}</div>}
+        </div>
+      </section>
+
+      <section className="cfg-section">
+        <div className="cfg-section__label">{desktop ? 'Bots using the desktop' : 'Browsers in use'}</div>
+        <div className="cfg-card">
+          {!details ? <div className="cfg-empty cfg-empty--flat">Loading…</div> : details.screens.length === 0 ? (
+            <div className="cfg-empty cfg-empty--flat">{connected ? (desktop ? 'No Bot has used the desktop yet.' : 'No Bot has opened a browser yet.') : 'None while your PC is disconnected.'}</div>
+          ) : details.screens.map((s) => {
+            const bot = byId.get(s.botId);
+            return (
+              <div key={s.botId} className="cfg-row">
+                {bot ? <BotAvatarFor bot={bot} size={28} /> : <span className="cfg-row__ph" />}
+                <div className="cfg-row__text">
+                  <div className="cfg-row__title">{bot?.name ?? 'Removed Bot'}</div>
+                  <div className="cfg-row__sub">{desktop ? 'Desktop' : 'Browser'} · used {relativeShort(s.lastUsedAt) === 'now' ? 'just now' : `${relativeShort(s.lastUsedAt)}${/^\d/.test(relativeShort(s.lastUsedAt)) ? ' ago' : ''}`}</div>
+                </div>
+                {!desktop && <ConfirmButton
+                  className="cfg-btn cfg-btn--secondary"
+                  confirmLabel="Close browser"
+                  disabled={!connected}
+                  title="Closes this Bot’s browser on your PC. Its logins are kept."
+                  onConfirm={async () => { try { await configApi.resetScreen(s.botId); setNote(null); reload(); } catch (e) { setNote((e as Error).message); } }}
+                >
+                  Close
+                </ConfirmButton>}
+              </div>
+            );
+          })}
+        </div>
+        {desktop
+          ? <div className="cfg-field__hint">Bots act as you: they can open any app, read and change your files, and run shell commands. You can watch or take over any time from a Bot’s screen. Press <b>Stop</b> (or Ctrl+C in the companion) to cut them off.</div>
+          : <div className="cfg-field__hint">Bots only get a browser on your PC: no files and no shell. Local-network addresses are blocked unless you start the companion with <code className="cfg-code">--allow-private-network</code>.</div>}
       </section>
     </>
   );
@@ -191,6 +451,8 @@ function humanizeTool(slug: string): { app: string; action: string } {
 
 function PermissionsSection() {
   const [policies, setPolicies] = useState<{ tool: string; mode: string }[] | null>(null);
+  const [mcpNames, setMcpNames] = useState<Record<string, { app: string; action: string }>>({});
+  useEffect(() => { configApi.mcpServers().then(({ servers }) => setMcpNames(Object.fromEntries(servers.flatMap(s => s.tools.map(t => [t.toolName, { app: s.name, action: t.name }]))))).catch(() => {}); }, []);
   const load = useCallback(() => { configApi.policies().then((r) => setPolicies(r.policies)).catch(() => setPolicies([])); }, []);
   useEffect(() => { load(); }, [load]);
   return (
@@ -201,12 +463,12 @@ function PermissionsSection() {
           {policies === null ? <div className="cfg-empty cfg-empty--flat">Loading…</div> : policies.length === 0 ? (
             <div className="cfg-empty cfg-empty--flat">Nothing here yet. When you choose “Always allow” on an approval, it shows up here.</div>
           ) : policies.map((p) => {
-            const h = humanizeTool(p.tool);
+            const h = mcpNames[p.tool] ?? (p.tool.startsWith('mcp_') ? { app: 'MCP server', action: 'Previous tool permission' } : humanizeTool(p.tool));
             return (
               <div key={p.tool} className="cfg-row">
                 <div className="cfg-row__text">
                   <div className="cfg-row__title">{h.app}{h.action ? ` · ${h.action}` : ''}</div>
-                  <div className="cfg-row__sub">{p.mode === 'always_allow' ? 'Always allowed' : p.mode === 'blocked' ? 'Never allowed' : 'Asks first'} · <code className="cfg-code">{p.tool}</code></div>
+                  <div className="cfg-row__sub">{p.mode === 'always_allow' ? 'Always allowed' : p.mode === 'blocked' ? 'Never allowed' : 'Asks first'}{!p.tool.startsWith('mcp_') && <> · <code className="cfg-code">{p.tool}</code></>}</div>
                 </div>
                 <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => configApi.deletePolicy(p.tool).then(load).catch(() => {})}>Ask again</button>
               </div>

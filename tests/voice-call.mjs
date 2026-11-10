@@ -1,7 +1,7 @@
 // Two-way voice call test: headless Chrome with a fake mic playing tests/ask-weather.wav.
 // Usage: node tests/voice-call.mjs <outDir> <throwawayBotId>   (changes that bot's voice settings)
 import { createRequire } from 'node:module';
-const require = createRequire('/home/t3code/.t3/projects/grokbot-clone/package.json');
+const require = createRequire(new URL('../package.json', import.meta.url));
 const { chromium } = require('playwright');
 const S = process.argv[2]; const BOT = process.argv[3]; const BASE = 'http://localhost:8787';
 const t0 = Date.now(); const log = (...a) => console.log(`[${((Date.now() - t0) / 1000).toFixed(1)}s]`, ...a);
@@ -9,12 +9,12 @@ const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome'
   '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${S}/ask-fixed.wav`, '--autoplay-policy=no-user-gesture-required'] });
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, permissions: ['microphone'] });
 await ctx.addInitScript((bot) => {
-  localStorage.setItem('grokbot.selectedBot', bot); localStorage.setItem('grokbot.detailsOpen', '1');
+  localStorage.setItem('swarm.selectedBot', bot); localStorage.setItem('swarm.detailsOpen', '1');
   window.__audio = { starts: 0, seconds: 0 };
   const orig = AudioBufferSourceNode.prototype.start;
   AudioBufferSourceNode.prototype.start = function (...a) { window.__audio.starts++; window.__audio.seconds += this.buffer?.duration ?? 0; return orig.apply(this, a); };
   const OrigWS = window.WebSocket; window.__ws = { sent: {}, recv: {} };
-  window.WebSocket = class extends OrigWS { constructor(u, p) { super(u, p); if (String(u).includes('x.ai')) { this.addEventListener('message', (m) => { try { const t = JSON.parse(m.data).type; window.__ws.recv[t] = (window.__ws.recv[t] ?? 0) + 1; if (t === 'error') (window.__ws.errors ??= []).push(m.data.slice(0, 300)); } catch {} }); const s = this.send.bind(this); this.send = (d) => { try { const t = JSON.parse(d).type; window.__ws.sent[t] = (window.__ws.sent[t] ?? 0) + 1; } catch {} return s(d); }; } } };
+  window.WebSocket = class extends OrigWS { constructor(u, p) { super(u, p); if (String(u).includes('/realtime')) { this.addEventListener('message', (m) => { try { const t = JSON.parse(m.data).type; window.__ws.recv[t] = (window.__ws.recv[t] ?? 0) + 1; if (t === 'error') (window.__ws.errors ??= []).push(m.data.slice(0, 300)); } catch {} }); const s = this.send.bind(this); this.send = (d) => { try { const t = JSON.parse(d).type; window.__ws.sent[t] = (window.__ws.sent[t] ?? 0) + 1; } catch {} return s(d); }; } } };
 }, BOT);
 const page = await ctx.newPage();
 page.on('console', (m) => { if (['error', 'warning'].includes(m.type())) log('console.' + m.type(), m.text().slice(0, 300)); });

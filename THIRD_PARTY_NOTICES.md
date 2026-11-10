@@ -1,6 +1,6 @@
 # Third-party notices
 
-grokbot-clone is MIT-licensed (see `LICENSE`). It bundles or depends on the third-party work listed below. npm dependencies not listed here are covered by their own licenses, included in their packages.
+Swarm is MIT-licensed (see `LICENSE`). It bundles or depends on the third-party work listed below. npm dependencies not listed here are covered by their own licenses, included in their packages.
 
 ## Lucide icons
 
@@ -50,6 +50,6 @@ SOFTWARE.
 
 ## Restored UI artwork
 
-The original UI artwork is restored from the project's design export: bot silhouettes and eyes (`web/artwork/` and `web/src/avatar/shapes.gen.ts`), UI icons and app tiles (`web/public/assets/`), and the favicon. Artwork originating in xAI/Cursor's Grok Bot app and third-party app logos remains the property of its respective owners; the project's MIT license does not grant rights to that artwork. Inclusion does not imply affiliation or endorsement.
+The original UI artwork is restored from the project's design export: bot silhouettes and eyes (`web/artwork/` and `web/src/avatar/shapes.gen.ts`), UI icons and app tiles (`web/public/assets/`), and the favicon. Third-party app logos remain the property of their respective owners; the project's MIT license does not grant rights to that artwork. Inclusion does not imply affiliation or endorsement.
 
 App logos supplied at runtime by Composio also remain the property of their respective owners. The Google sign-in mark is a trademark of Google LLC.

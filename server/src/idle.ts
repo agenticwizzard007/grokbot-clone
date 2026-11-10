@@ -1,21 +1,21 @@
 import { db, now as dbNow } from './db.js';
 import { getLive } from './store.js';
-import { suspendComputer } from './computer.js';
+import { suspendComputer } from './computers/orgo-box.js';
 import { isBotBusy } from './agent/loop.js';
 
 /**
  * Computer hibernation: suspend a user's Orgo box when no bot turn is running and no
- * viewer WebSocket is connected for GROKBOT_IDLE_SUSPEND_MIN minutes (default 20).
+ * viewer WebSocket is connected for SWARM_IDLE_SUSPEND_MIN minutes (default 20).
  * The next computer tool call wakes it again through ensureComputer().
  */
 
 const num = (v: string | undefined, d: number) => (v !== undefined && v !== '' && Number.isFinite(Number(v)) ? Number(v) : d);
 
 export const idleConfig = {
-  idleMin: num(process.env.GROKBOT_IDLE_SUSPEND_MIN, 20),
-  sweepSec: num(process.env.GROKBOT_IDLE_SWEEP_SEC, 60),
+  idleMin: num(process.env.SWARM_IDLE_SUSPEND_MIN, 20),
+  sweepSec: num(process.env.SWARM_IDLE_SWEEP_SEC, 60),
   /** Log decisions but never call suspend (for test servers sharing a real VM). */
-  dryRun: process.env.GROKBOT_IDLE_DRY_RUN === '1',
+  dryRun: process.env.SWARM_IDLE_DRY_RUN === '1',
 };
 
 // ---------- viewer tracking (called from vnc.ts) ----------
@@ -106,19 +106,26 @@ export function createIdleWatcher(deps: IdleDeps, opts: { idleMs: number; dryRun
 
 // ---------- production wiring ----------
 
-export function startIdleWatcher() {
+/** Which computers to watch and how to suspend them. Defaults to Orgo boxes; cloudvm.ts passes its VMs. */
+export interface IdleSource {
+  computers(): { userId: string; status: string }[];
+  suspend(userId: string): Promise<void>;
+  lastActivity?(userId: string): number;
+}
+
+export function startIdleWatcher(source?: IdleSource) {
   const watcher = createIdleWatcher(
     {
       now: dbNow,
-      computers: () => (db.prepare("SELECT user_id, status FROM computers WHERE orgo_id IS NOT NULL").all() as any[]).map((r) => ({ userId: r.user_id, status: r.status })),
+      computers: source?.computers ?? (() => (db.prepare("SELECT user_id, status FROM computers WHERE orgo_id IS NOT NULL").all() as any[]).map((r) => ({ userId: r.user_id, status: r.status }))),
       anyTurnRunning: (userId) => (db.prepare('SELECT id FROM bots WHERE user_id=?').all(userId) as any[]).some((b) => isBotBusy(b.id) || getLive(b.id).isRunning),
       viewers: viewerCount,
       lastActivity: (userId) => {
         const b = db.prepare('SELECT MAX(updated_at) t FROM bots WHERE user_id=?').get(userId) as any;
         const c = db.prepare('SELECT updated_at t FROM computers WHERE user_id=?').get(userId) as any;
-        return Math.max(b?.t ?? 0, c?.t ?? 0);
+        return Math.max(b?.t ?? 0, c?.t ?? 0, source?.lastActivity?.(userId) ?? 0);
       },
-      suspend: (userId) => suspendComputer(userId, 'idle'),
+      suspend: source?.suspend ?? ((userId) => suspendComputer(userId, 'idle')),
       log: (m) => console.log(m),
     },
     { idleMs: idleConfig.idleMin * 60_000, dryRun: idleConfig.dryRun },

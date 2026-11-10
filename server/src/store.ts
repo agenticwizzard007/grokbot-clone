@@ -28,6 +28,7 @@ export function toBot(r: any): Bot {
     kind: r.kind === 'room' ? 'room' : 'agent',
     pinned: !!r.pinned,
     effort: r.effort,
+    model: r.model ?? null,
     voice: r.voice ?? 'luna',
     voiceSpeed: r.voice_speed ?? 1,
     voiceLanguage: r.voice_language ?? 'auto',
@@ -54,6 +55,19 @@ export function emitBot(botId: string) {
 
 // ---------- rows ----------
 
+/** Server-side observers of transcript changes (e.g. the messaging bridge). Called after the SSE fan-out. */
+type RowListener = (userId: string, row: Row, isNew: boolean) => void;
+const rowListeners = new Set<RowListener>();
+export function onRowChange(fn: RowListener): () => void {
+  rowListeners.add(fn);
+  return () => rowListeners.delete(fn);
+}
+function notifyRow(userId: string, row: Row, isNew: boolean) {
+  for (const fn of rowListeners) {
+    try { fn(userId, row, isNew); } catch (e) { console.warn('[rows] listener failed', (e as Error).message); }
+  }
+}
+
 function toRow(r: any): Row {
   return { botId: r.bot_id, generation: r.generation, seq: r.seq, updatedSeq: r.updated_seq, kind: r.kind, body: JSON.parse(r.body), createdAt: r.created_at };
 }
@@ -76,6 +90,7 @@ export function appendRow(botId: string, kind: RowKind, body: RowBody): Row {
   });
   const { userId, row } = tx();
   hub.emit(userId, { type: 'rows', botId, generation: row.generation, rows: [row] });
+  notifyRow(userId, row, true);
   return row;
 }
 
@@ -92,6 +107,7 @@ export function updateRow(botId: string, seq: number, body: RowBody): Row | null
   const res = tx();
   if (!res) return null;
   hub.emit(res.userId, { type: 'rows', botId, generation: res.row.generation, rows: [res.row] });
+  notifyRow(res.userId, res.row, false);
   return res.row;
 }
 
