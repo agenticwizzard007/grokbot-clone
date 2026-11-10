@@ -11,7 +11,16 @@ primary_region = "iad"
   PORT = "8787"
   DB_PATH = "/data/swarm.db"
   FILES_DIR = "/data/files"
-  COMPUTER_PROVIDER = "local"
+  # Every user gets their own cloud VM (created at sign-up), with one screen per Bot. See README → Cloud VMs.
+  COMPUTER_PROVIDER = "cloudvm"
+  VM_DRIVER = "fly"
+  FLY_VM_APP = "swarm-team-vms"
+  VM_IMAGE = "registry.fly.io/swarm-team-vms:v1"
+  VM_REGION = "iad"
+  # Measured: ~325 MB per Bot (screen + Chrome); 2 GB + 384 MB per Bot fits ~4 Bots without a resize.
+  VM_BASE_MEMORY_MB = "2048"
+  VM_SCREEN_MEMORY_MB = "384"
+  VM_PROVISION_EXISTING = "1"
   DEV_LOGIN = "0"
   # Inkbox posts texts to the public URL (no tunnel needed on a public server).
   INKBOX_TUNNEL = "0"
