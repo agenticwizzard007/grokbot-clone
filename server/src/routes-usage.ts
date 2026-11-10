@@ -1,3 +1,6 @@
+import { llmProvider } from './lib/llm.js';
+import { personalOpenRouterKey, usesPersonalOpenRouter } from './providers/openrouter.js';
+import { selectedCli } from './cli/store.js';
 import { Hono } from 'hono';
 import { env } from './env.js';
 import { requireUser, type AuthVars } from './lib/auth.js';
@@ -31,7 +34,8 @@ usageApi.get('/', (c) => {
     ...report,
     scope,
     canSeeAll: owner,
-    provider: env.llmProvider,
+    canSeeProvider: owner || usesPersonalOpenRouter(user.id) || !!selectedCli(user.id),
+    provider: llmProvider(),
     computerProvider: env.computerProvider,
     computerRates: vmRates(),
     // Free plan (accounts that signed up by text): a daily message allowance that resets at midnight UTC.
@@ -39,29 +43,35 @@ usageApi.get('/', (c) => {
   });
 });
 
-// ---------- the provider account (owner only; cached briefly) ----------
+// ---------- personal provider usage, or shared defaults for the owner ----------
 
 let providerCache: { at: number; key: string; body: unknown } | null = null;
 
 usageApi.get('/provider', async (c) => {
-  if (!canManageServer(c.get('user'))) return c.json({ error: 'Only the owner of this server can see the provider account.' }, 403);
-  if (!env.openrouterKey) {
+  const cli = selectedCli(c.get('user').id);
+  if (cli) return c.json({ provider: `${cli}-cli`, openrouter: null, note: 'Model requests use your CLI subscription. Swarm records token counts and zero API charges; subscription fees, provider extra usage and third-party services are separate. Check your provider account for remaining allowance.' });
+  const personal = usesPersonalOpenRouter(c.get('user').id);
+  if (!personal && !canManageServer(c.get('user'))) return c.json({ error: 'Only the owner of this server can see the provider account.' }, 403);
+  let key: string;
+  try { key = personal ? personalOpenRouterKey(c.get('user').id) : env.openrouterKey; }
+  catch { return c.json({ provider: 'openrouter', openrouter: null, note: 'Reconnect your personal OpenRouter key in Settings → API keys.' }); }
+  if (!key) {
     return c.json({
-      provider: env.llmProvider,
+      provider: llmProvider(),
       openrouter: null,
       note: env.directKey
         ? "The direct provider doesn't share key usage with apps. Costs on this page are what it reported per request (or estimates), recorded by Swarm."
         : 'No model key is set yet.',
     });
   }
-  if (providerCache && providerCache.key === env.openrouterKey && Date.now() - providerCache.at < 60_000) return c.json(providerCache.body);
+  if (providerCache && providerCache.key === key && Date.now() - providerCache.at < 60_000) return c.json(providerCache.body);
   try {
-    const r = await fetch(`${env.openrouterBaseUrl}/key`, { headers: { Authorization: `Bearer ${env.openrouterKey}` }, signal: AbortSignal.timeout(15_000) });
-    if (!r.ok) return c.json({ provider: env.llmProvider, openrouter: null, note: `OpenRouter answered ${r.status}.` });
+    const r = await fetch(`${env.openrouterBaseUrl}/key`, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(15_000) });
+    if (!r.ok) return c.json({ provider: llmProvider(), openrouter: null, note: `OpenRouter answered ${r.status}.` });
     const d = ((await r.json()) as any)?.data ?? {};
     const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
     const body = {
-      provider: env.llmProvider,
+      provider: llmProvider(),
       openrouter: {
         label: typeof d.label === 'string' ? d.label : null,
         usage: { today: n(d.usage_daily), week: n(d.usage_weekly), month: n(d.usage_monthly), allTime: n(d.usage) },
@@ -76,10 +86,10 @@ usageApi.get('/provider', async (c) => {
       },
       note: 'From OpenRouter: everything this key spent, including use outside Swarm. Credits are US dollars.',
     };
-    providerCache = { at: Date.now(), key: env.openrouterKey, body };
+    providerCache = { at: Date.now(), key, body };
     return c.json(body);
   } catch (e) {
-    return c.json({ provider: env.llmProvider, openrouter: null, note: `Couldn't reach OpenRouter: ${(e as Error).message}` });
+    return c.json({ provider: llmProvider(), openrouter: null, note: "Could not reach OpenRouter. Try again shortly." });
   }
 });
 

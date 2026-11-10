@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Blocks, ChevronLeft, ChevronRight, CircleUserRound, Gauge, KeyRound, MessageCircle, Monitor, Search, Server, Settings as SettingsIcon, ShieldCheck, X, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, Blocks, ChevronLeft, ChevronRight, CircleUserRound, Gauge, KeyRound, MessageCircle, Monitor, Search, Server, Settings as SettingsIcon, ShieldCheck, Terminal, X, type LucideIcon } from 'lucide-react';
 import type { Toolkit } from '@shared/types';
 import { BotAvatarFor } from '../../avatar/BotAvatar';
 import { configApi, type ComputerDetails, type KeysResponse, type KeyStatus, type Pairing } from '../../lib/configApi';
@@ -14,6 +14,10 @@ import { ToolkitLogo } from '../ToolkitLogo';
 import { ConfirmButton, Segmented, Switch } from './ui';
 import { McpSettings } from './McpSettings';
 import { MessagingSettings } from './MessagingSettings';
+import { SubscriptionSettings } from './SubscriptionSettings';
+import { OpenRouterSettings } from './OpenRouterSettings';
+import { AppleSignIn } from '../AppleSignIn';
+import { api } from '../../lib/api';
 import { useCompactLayout } from '../../lib/useCompactLayout';
 import { isNativeApp } from '../../lib/native';
 import '../../styles/settings.css';
@@ -34,7 +38,8 @@ const NAV: { group: string; items: NavItem[] }[] = [
   { group: 'Integrations', items: [
     { id: 'apps', label: 'Connected apps', icon: Blocks, keywords: 'composio gmail google calendar slack notion integrations connect' },
     { id: 'mcp', label: 'MCP servers', icon: Server, keywords: 'mcp custom tools server url command stdio headers token' },
-    { id: 'keys', label: 'API keys', icon: KeyRound, keywords: 'openrouter model provider key composio default model' },
+    { id: 'subscriptions', label: 'Subscriptions', icon: Terminal, keywords: 'chatgpt codex claude code cli bridge connect subscription plan login auth api' },
+    { id: 'keys', label: 'API keys', icon: KeyRound, keywords: 'openrouter model provider key composio default model platform voice xai admin' },
   ] },
 ];
 const matches = (it: NavItem, q: string) => {
@@ -144,6 +149,7 @@ export function AppSettings() {
             {section === 'permissions' && <PermissionsSection />}
             {section === 'apps' && <AppsSection />}
             {section === 'mcp' && <McpSettings />}
+            {section === 'subscriptions' && <SubscriptionSettings />}
             {section === 'account' && <AccountSection />}
           </div>
         </>}
@@ -240,7 +246,7 @@ function GeneralSection() {
 const sourceText = (s: KeyStatus) => (s.source === 'app' ? 'saved in the app' : s.source === 'env' ? 'from the server’s .env file' : '');
 
 function KeyCard({ name, title, what, link, status, canEdit, required, onChange }: {
-  name: 'direct' | 'composio' | 'openrouter'; title: string; what: string; link?: { href: string; label: string };
+  name: 'voice' | 'direct' | 'composio' | 'openrouter'; title: string; what: string; link?: { href: string; label: string };
   status: KeyStatus; canEdit: boolean; required?: boolean; onChange: (r: KeysResponse) => void;
 }) {
   const [value, setValue] = useState('');
@@ -267,7 +273,7 @@ function KeyCard({ name, title, what, link, status, canEdit, required, onChange 
         <span className={`computer-status-dot is-${status.set ? 'on' : 'off'}`} aria-hidden />
         <div className="cfg-row__text">
           <div className="cfg-row__title">{title} · {status.set ? 'Connected' : required ? 'Needed' : 'Not set'}</div>
-          <div className="cfg-row__sub">{what}{status.set ? ` Key ${status.hint}, ${sourceText(status)}.` : ''}</div>
+          <div className="cfg-row__sub">{what}{status.set && canEdit ? ` ${status.hint ? `Key ${status.hint}, ` : 'Key '}${sourceText(status)}.` : ''}</div>
         </div>
         {status.source === 'app' && canEdit && (
           <ConfirmButton className="cfg-btn cfg-btn--secondary" confirmLabel="Remove key" onConfirm={clear}>{busy === 'clear' ? 'Removing…' : 'Remove'}</ConfirmButton>
@@ -286,13 +292,22 @@ function KeyCard({ name, title, what, link, status, canEdit, required, onChange 
       <div className="cfg-key__foot">
         {note
           ? <span className={note.tone === 'error' ? 'cfg-key__err' : 'cfg-key__ok'} role="status">{note.text}</span>
-          : link ? <a href={link.href} target="_blank" rel="noreferrer">{link.label}</a> : 'Use any compatible provider key.'}
+          : name === 'voice' && !canEdit ? 'Managed by your platform admin. No personal voice key is needed.'
+            : link ? <a href={link.href} target="_blank" rel="noreferrer">{link.label}</a> : 'Use any compatible provider key.'}
       </div>
     </div>
   );
 }
 
 function KeysSection() {
+  return <>
+    <PageHead title="API keys" sub="Manage model connections and shared platform services." />
+    <OpenRouterSettings />
+    <ServerKeysSection />
+  </>;
+}
+
+function ServerKeysSection() {
   const [keys, setKeys] = useState<KeysResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
@@ -306,8 +321,8 @@ function KeysSection() {
     catch (e) { setNote({ tone: 'error', text: (e as Error).message }); }
   };
 
-  if (error) return <><PageHead title="API keys" /><div className="cfg-error">{error}</div></>;
-  if (!keys) return <><PageHead title="API keys" /><div className="cfg-empty cfg-empty--flat">Loading…</div></>;
+  if (error) return <div className="cfg-error">Could not load server defaults: {error}</div>;
+  if (!keys) return <div className="cfg-empty cfg-empty--flat">Loading server defaults…</div>;
   const running = keys.provider.value;
   const chosen = keys.provider.chosen ?? running;
   const keyFor = (p: 'direct' | 'openrouter') => (p === 'openrouter' ? keys.openrouter.set : keys.direct.set);
@@ -330,8 +345,13 @@ function KeysSection() {
     : `Bots use ${current} through ${nameOf(chosen)}.`;
   return (
     <>
-      <PageHead title="API keys" sub="Bring your own keys: Swarm runs on your provider accounts. Keys are checked with the provider, stored encrypted on this server, and never shown again." />
-      {!keys.canEdit && <div className="cfg-field__hint" style={{ marginBottom: 12 }}>Only the owner of this server can change its keys.</div>}
+      <section className="cfg-section">
+        <h2 className="cfg-section__label">Platform voice</h2>
+        <KeyCard name="voice" title="xAI · Platform voice" what="One platform key enables live calls, dictation and spoken replies for all existing and new accounts on iOS, macOS and web. Works with any text-model connection. Voice usage is billed to the platform’s xAI account."
+          link={{ href: 'https://console.x.ai', label: 'Get a voice-enabled API key at console.x.ai' }} status={keys.voice} canEdit={keys.canEdit} onChange={changed} />
+      </section>
+      <h2 className="cfg-section__label">Server defaults</h2>
+      <p className="cfg-field__hint">These shared keys apply when you choose server defaults. Your personal OpenRouter connection or selected subscription takes priority. Only the server owner can change shared keys.</p>
 
       <section className="cfg-section">
         <h2 className="cfg-section__label">Models</h2>
@@ -360,7 +380,7 @@ function KeysSection() {
       <section className="cfg-section">
         <h2 className="cfg-section__label">Keys</h2>
         <KeyCard name="openrouter" title="OpenRouter" what="Recommended: one key for 290+ models that can use tools, with per-token pricing." link={{ href: 'https://openrouter.ai/keys', label: 'Get a key at openrouter.ai/keys' }} status={keys.openrouter} canEdit={keys.canEdit} onChange={changed} />
-        <KeyCard name="direct" title="Custom provider" what="Direct model access through a compatible provider. Also needed for voice calls." status={keys.direct} canEdit={keys.canEdit} onChange={changed} />
+        <KeyCard name="direct" title="Custom provider" what="Direct model access through a compatible provider." status={keys.direct} canEdit={keys.canEdit} onChange={changed} />
         <KeyCard name="composio" title="Composio · Connected apps" what="One project key enables connected apps for everyone on this server. Each person connects their own accounts; their connections stay private." link={{ href: 'https://platform.composio.dev', label: 'Create a Composio account or get a project key' }} status={keys.composio} canEdit={keys.canEdit} onChange={changed} />
       </section>
     </>
@@ -631,7 +651,7 @@ function AppsSection() {
           </div>
           {apps?.map((a) => (
             <div key={a.slug} className="cfg-row">
-              <ToolkitLogo name={a.name} logo={a.logo} size={28} radius={7} />
+              <ToolkitLogo slug={a.slug} name={a.name} logo={a.logo} size={28} />
               <div className="cfg-row__text">
                 <div className="cfg-row__title">{a.name}</div>
                 {a.description && <div className="cfg-row__sub">{a.description}</div>}
@@ -649,6 +669,9 @@ function AppsSection() {
 
 function AccountSection() {
   const user = useStore((s) => s.user);
+  const appleLogin = useStore((s) => s.appleLogin);
+  const appleLinked = useStore((s) => s.appleLinked);
+  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const initials = (user?.name ?? user?.email ?? '?').trim().split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
   return (
@@ -661,12 +684,34 @@ function AccountSection() {
             <span className="account__initials">{initials}</span>
             <div className="cfg-row__text">
               <div className="cfg-row__title">{user?.name}</div>
-              <div className="cfg-row__sub">{user?.email}</div>
+              <div className="cfg-row__sub">{user?.email.endsWith('@openrouter.invalid') ? 'Signed up with OpenRouter' : user?.email}</div>
             </div>
             <button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={async () => { setBusy(true); await configApi.logout().catch(() => {}); location.reload(); }}>
               {busy ? 'Signing out…' : 'Sign out'}
             </button>
           </div>
+        </div>
+      </section>
+      {(appleLogin || appleLinked) && (
+        <section className="cfg-section">
+          <h2 className="cfg-section__label">Sign-in methods</h2>
+          <div className="cfg-card">
+            <SettingRow title="Sign in with Apple" sub={appleLinked ? 'Connected. Use it to sign in to this account on your iPhone, iPad, Mac or the web.' : 'Connect Apple to sign in to this same account on your iPhone, iPad, Mac or the web.'} wrap={!appleLinked}>
+              {appleLinked ? <span className="cfg-chip">Connected</span> : <AppleSignIn link />}
+            </SettingRow>
+          </div>
+        </section>
+      )}
+      <section className="cfg-section">
+        <h2 className="cfg-section__label">Delete account</h2>
+        <div className="cfg-card">
+          <SettingRow title="Delete your account" sub="Permanently deletes your account, Bots and conversations. Apple sign-in access is revoked too.">
+            <ConfirmButton confirmLabel="Permanently delete my account" onConfirm={async () => {
+              setError(null);
+              try { await api.deleteAccount(); location.href = '/'; } catch (err) { setError((err as Error).message); }
+            }}>Delete account…</ConfirmButton>
+          </SettingRow>
+          {error && <div className="cfg-error cfg-error--inset" role="alert">{error}</div>}
         </div>
       </section>
     </>

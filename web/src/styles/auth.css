@@ -1,0 +1,20 @@
+/* Shared sign-in controls, matched to the Sign in · Web & Mobile Paper page. */
+.auth-button {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; min-height: 48px; height: 48px; flex-shrink: 0;
+  padding: 0 16px; border: 0; border-radius: var(--radius-full);
+  background: var(--color-primary); color: var(--color-on-primary);
+  font-family: var(--font-stack); font-size: 15px; font-weight: 500;
+  line-height: 20px; letter-spacing: 0.14px; text-decoration: none;
+  transition: background-color 120ms var(--ease-out), opacity 120ms;
+}
+.auth-button:hover:not(:disabled) { background: var(--color-bg-primary-hover); }
+.auth-button:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 3px; }
+.auth-button:disabled { opacity: 0.55; cursor: wait; }
+.auth-button__icon, .auth-button::after { width: 20px; height: 20px; flex: 0 0 20px; }
+.auth-button__icon { display: flex; align-items: center; justify-content: center; }
+.auth-button__icon > svg { display: block; width: 20px; height: 20px; flex-shrink: 0; }
+/* Balance the icon so every label stays centered, including busy states. */
+.auth-button::after { content: ''; }
+.auth-button__label { flex: 1; min-width: 0; text-align: center; }
+.auth-button .auth-button__google-mark { background: #FFFFFF; border-radius: 50%; padding: 1px; }

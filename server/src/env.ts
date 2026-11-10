@@ -46,6 +46,9 @@ export const env = {
   get directModel() { return live('DIRECT_MODEL') || 'openai/gpt-4.1'; },
   /** Base URL of the direct provider API (override to use any compatible provider or a local mock). */
   directBaseUrl: process.env.DIRECT_BASE_URL || 'https://api.openai.com/v1',
+  /** Platform voice is shared by every account, independently of its text-model provider. */
+  get voiceKey() { return live('XAI_API_KEY'); },
+  voiceBaseUrl: (process.env.XAI_BASE_URL || 'https://api.x.ai/v1').replace(/\/$/, ''),
   /** Composio powers connected apps and Google sign-in; without it those are off and everything else works. */
   /** OpenRouter: one key for Claude, GPT, Gemini and hundreds more (Responses API). */
   get openrouterKey() { return live('OPENROUTER_API_KEY'); },

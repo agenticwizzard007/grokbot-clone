@@ -38,7 +38,7 @@ const setV = (p: Partial<VoiceState>) => useVoice.setState(p);
 
 let current: VoiceCall | null = null;
 
-/** Start a call with a bot. Must be called from a user gesture (click) so audio can start. */
+/** Start from a user gesture, or the foreground native shortcut with WebKit audio playback enabled. */
 export function startCall(botId: string) {
   if (current && !current.ended) {
     if (current.botId === botId) return;
@@ -106,7 +106,20 @@ class VoiceCall {
     if (this.ended) { stream.getTracks().forEach((t) => t.stop()); return; }
     try {
       this.mic = new MicCapture(this.ctx, stream, (pcm) => this.sendAudio(pcm));
+      // A native shortcut can arrive before the first web gesture. Once microphone
+      // permission is granted, resume audio before connecting a silent call.
+      if (this.ctx.state !== 'running') {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            this.ctx.resume(),
+            new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('Tap the voice button in your chat to enable audio.')), 4000); }),
+          ]);
+        } finally { clearTimeout(timer); }
+      }
+      if (this.ended) return;
       await this.mic.start();
+      if (this.ended) { this.mic.stop(); return; }
       this.sess = await voiceApi.session(this.botId);
       if (this.ended) { void voiceApi.end(this.botId, this.sess.callId, [], 'Cancelled'); return; }
       setV({ callId: this.sess.callId });
@@ -117,7 +130,8 @@ class VoiceCall {
   }
 
   private connect(sess: VoiceSession) {
-    const ws = new WebSocket(sess.websocketUrl, [`direct-client-secret.${sess.clientSecret}`]);
+    const protocol = sess.clientSecretProtocol ?? 'direct-client-secret';
+    const ws = new WebSocket(sess.websocketUrl, [`${protocol}.${sess.clientSecret}`]);
     this.ws = ws;
     this.connectTimer = setTimeout(() => { if (!this.ready) this.end('Couldn’t connect the call'); }, 15000);
     ws.onopen = () => this.send({ type: 'session.update', session: sess.session });

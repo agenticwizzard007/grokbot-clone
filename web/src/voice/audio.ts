@@ -1,4 +1,5 @@
 // Browser audio for voice calls: mic capture → PCM16 @ 24 kHz (AudioWorklet), and a gapless PCM16 player.
+import { isNativeApp } from '../lib/native';
 
 export const RATE = 24000;
 
@@ -58,7 +59,9 @@ export function createAudioContext(): AudioContext {
 
 export function micErrorMessage(e: unknown): string {
   const name = (e as { name?: string })?.name;
-  if (name === 'NotAllowedError' || name === 'SecurityError') return 'Microphone access was blocked. Allow it in your browser’s site settings.';
+  if (name === 'NotAllowedError' || name === 'SecurityError') return isNativeApp
+    ? 'Microphone access was blocked. Allow microphone access for Swarm in Settings, then try again.'
+    : 'Microphone access was blocked. Allow it in your browser’s site settings.';
   if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'No microphone found.';
   if (name === 'NotReadableError') return 'Your microphone is in use by another app.';
   if (!navigator.mediaDevices?.getUserMedia) return 'This browser can’t use the microphone here (it needs HTTPS or localhost).';

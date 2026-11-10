@@ -26,8 +26,9 @@ ip6tables -A OUTPUT -d fdaa::/16 -j REJECT 2>/dev/null || true
 # Keep the companion running. Each start fetches the version the server currently serves
 # (runtime updates without rebuilding this image), falling back to the copy in the image.
 while true; do
-  if curl -fsSL --max-time 20 "$SERVER/api/companion/script" -o /tmp/companion.mjs.new && node --check /tmp/companion.mjs.new; then
-    install -o swarm -m 644 /tmp/companion.mjs.new /var/lib/swarm/companion.mjs
+  # Keep the .mjs suffix so Node can validate the downloaded ES module before installing it.
+  if curl -fsSL --max-time 20 "$SERVER/api/companion/script" -o /tmp/companion.new.mjs && node --check /tmp/companion.new.mjs; then
+    install -o swarm -m 644 /tmp/companion.new.mjs /var/lib/swarm/companion.mjs
   fi
   JS=/var/lib/swarm/companion.mjs; [ -f "$JS" ] || JS=/opt/swarm/companion.mjs
   runuser -u swarm -- node "$JS" --server "$SERVER" --token-file "$TOKEN" --multi --run-as agent --agent-home /home/agent --data-dir /var/lib/swarm/data

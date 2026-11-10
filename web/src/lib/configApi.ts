@@ -42,6 +42,7 @@ export interface Pairing { token: string; server: string; command: string }
 export interface KeyStatus { set: boolean; source: 'app' | 'env' | null; hint: string | null }
 export interface KeysResponse {
   canEdit: boolean;
+  voice: KeyStatus;
   direct: KeyStatus;
   composio: KeyStatus;
   openrouter: KeyStatus;
@@ -53,7 +54,7 @@ export interface KeysResponse {
 }
 
 export interface ModelInfo { id: string; name: string; vision: boolean; reasoning: boolean; context: number; price: { input: number; output: number } | null }
-export type SettingKey = 'direct' | 'composio' | 'model' | 'openrouter' | 'openrouter_model' | 'provider';
+export type SettingKey = 'voice' | 'direct' | 'composio' | 'model' | 'openrouter' | 'openrouter_model' | 'provider';
 
 export type MessagingChannel = 'imessage' | 'sms' | 'whatsapp';
 export interface MessagingLink {
@@ -82,7 +83,7 @@ export interface MessagingStatus {
   links: MessagingLink[];
   prefs: { forward: 'all' | 'engaged'; activeBot: { id: string; name: string } | null; voiceReplies: VoiceReplies; ttsVoice: string | null };
   /** Who transcribes voice notes and speaks voice replies on this server (null = not available). */
-  speech: { transcription: 'openrouter' | 'direct' | null; speech: 'openrouter' | 'direct' | null; voices: string[] };
+  speech: { transcription: 'xai' | 'openrouter' | 'direct' | null; speech: 'xai' | 'openrouter' | 'direct' | null; voices: string[] };
   /** null = texting isn't set up on this server. */
   line: MessagingLine | null;
   invites: { allowance: number };
@@ -112,6 +113,7 @@ export interface UsageReport {
   range: { key: UsageRange; from: number; to: number };
   scope: 'me' | 'all';
   canSeeAll: boolean;
+  canSeeProvider?: boolean;
   provider: string;
   totals: { costUsd: number; estimatedUsd: number; unpricedRequests: number; unpricedVoice: number; inputTokens: number; cachedTokens: number; outputTokens: number; reasoningTokens: number; requests: number; toolCalls: number; voiceMinutes: number };
   days: { day: string; costUsd: number; computerUsd: number; tokens: number; requests: number }[];
@@ -185,7 +187,7 @@ export const configApi = {
   keys: () => req<KeysResponse>('GET', '/settings/keys'),
   saveKey: (name: SettingKey, value: string) => req<KeysResponse>('PUT', `/settings/keys/${name}`, { value }),
   clearKey: (name: SettingKey) => req<KeysResponse>('DELETE', `/settings/keys/${name}`),
-  models: (provider?: 'direct' | 'openrouter') => req<{ provider: 'direct' | 'openrouter'; models: ModelInfo[]; error?: string }>('GET', `/settings/models${provider ? `?provider=${provider}` : ''}`),
+  models: (provider?: 'direct' | 'openrouter') => req<{ provider: 'direct' | 'openrouter' | 'codex-cli' | 'claude-cli'; models: ModelInfo[]; error?: string }>('GET', `/settings/models${provider ? `?provider=${provider}` : ''}`),
   unpairPc: () => req<{ ok: true; revoked: number }>('DELETE', '/computer/pair'),
 
   policies: () => req<{ policies: { tool: string; mode: string }[] }>('GET', '/policies'),

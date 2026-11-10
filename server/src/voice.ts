@@ -3,11 +3,14 @@
 // This module mints the ephemeral secret, builds the voice agent's prompt and tools, serves the relay
 // tools, records call start/end rows, and proxies TTS (voice preview) and STT (composer dictation).
 import { Hono } from 'hono';
-import { SpeechUnavailable, synthesize, transcribe, TTS_VOICES } from './lib/speech.js';
+import { usesPersonalOpenRouter } from './providers/openrouter.js';
+import { selectedCli } from './cli/store.js';
+import { SUBSCRIPTION_VOICE_UNAVAILABLE, SpeechUnavailable, synthesize, transcribe, TTS_VOICES } from './lib/speech.js';
 import { defaultModel, llmClient, llmProvider } from './lib/llm.js';
 import { recordModelUsage, recordUnits } from './usage.js';
 import { db, now } from './db.js';
 import { env } from './env.js';
+import { mintVoiceSecret, voiceProvider } from './lib/voice-provider.js';
 import { newId } from './lib/ids.js';
 import type { AuthVars } from './lib/auth.js';
 import { appendRow, emitBot, getBotRow, getLive, listRoutines, listTasks, updateRow } from './store.js';
@@ -16,12 +19,12 @@ import { computerState } from './computers/index.js';
 import type { ActivityKind, EventBody, MessageBody, RowBody, VoiceCallRecord, VoiceOption } from './types.js';
 
 export const voiceApi = new Hono<AuthVars>();
+voiceApi.use('*', async (c, next) => {
+  if (!env.voiceKey && c.req.method === 'POST' && /\/(session|preview|stt)$/.test(c.req.path) && selectedCli(c.get('user').id)) return c.json({ error: SUBSCRIPTION_VOICE_UNAVAILABLE }, 409);
+  await next();
+});
 
-const DIRECT = env.directBaseUrl; // the base URL is fixed per run; keys are read per request
-const VOICE_MODEL = process.env.DIRECT_VOICE_MODEL ?? 'voice-realtime-latest';
 const SAMPLE_RATE = 24000;
-const directHeaders = () => ({ Authorization: `Bearer ${env.directKey}` });
-const realtimeUrl = (baseUrl: string, model: string) => `${baseUrl.replace(/^http/i, 'ws').replace(/\/$/, '')}/realtime?model=${encodeURIComponent(model)}`;
 
 // ---------- voices / languages ----------
 
@@ -44,9 +47,11 @@ export const SPEEDS = [0.7, 0.85, 1, 1.15, 1.3, 1.5];
 
 let voiceCache: { at: number; voices: VoiceOption[] } | null = null;
 async function listVoices(): Promise<VoiceOption[]> {
+  const provider = voiceProvider();
+  if (!provider.key) return FALLBACK_VOICES;
   if (voiceCache && Date.now() - voiceCache.at < 3600_000) return voiceCache.voices;
   try {
-    const r = await fetch(`${DIRECT}/tts/voices`, { headers: directHeaders(), signal: AbortSignal.timeout(8000) });
+    const r = await fetch(`${provider.baseUrl}/tts/voices`, { headers: { Authorization: `Bearer ${provider.key}` }, redirect: 'error', signal: AbortSignal.timeout(8000) });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const j = (await r.json()) as { voices?: { voice_id: string; name?: string; gender?: string }[] };
     const voices = (j.voices ?? []).map((v) => ({ id: v.voice_id, name: v.name ?? v.voice_id, gender: v.gender }));
@@ -224,7 +229,7 @@ ${recent || '(no messages yet)'}`;
 
 // ---------- calls ----------
 
-interface ActiveCall { id: string; botId: string; userId: string; startedAt: number; startSeq: number; tasks: string[] }
+interface ActiveCall { id: string; botId: string; userId: string; startedAt: number; startSeq: number; tasks: string[]; provider: string; model: string }
 const calls = new Map<string, ActiveCall>();
 
 function callEvent(text: string, call: VoiceCallRecord): EventBody {
@@ -239,26 +244,24 @@ const fmtDuration = (ms: number) => {
 voiceApi.get('/options', async (c) => c.json({ voices: await listVoices(), languages: LANGUAGES, speeds: SPEEDS }));
 
 voiceApi.post('/session', async (c) => {
+  c.header('Cache-Control', 'no-store');
   const user = c.get('user');
   const { botId } = await c.req.json<{ botId: string }>().catch(() => ({ botId: '' }));
   const bot = ownBot(user.id, botId);
   if (!bot) return c.json({ error: 'not found' }, 404);
-  // Realtime voice runs on the direct provider (OpenRouter has no realtime voice).
-  if (!env.directKey) return c.json({ error: 'Voice calls need a direct provider key. Add one in Settings → API keys.' }, 400);
+  // Platform voice is independent of personal OpenRouter and CLI text-model choices.
+  if (!env.voiceKey && usesPersonalOpenRouter(user.id)) return c.json({ error: 'Platform voice is not configured yet. Ask your platform admin to enable it.' }, 503);
+  const provider = voiceProvider();
+  if (!provider.key) return c.json({ error: 'Platform voice is not configured yet. Ask your platform admin to enable it.' }, 503);
   const s = settingsOf(bot);
 
-  const r = await fetch(`${DIRECT}/realtime/client_secrets`, {
-    method: 'POST',
-    headers: { ...directHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ expires_after: { seconds: 300 } }),
-    signal: AbortSignal.timeout(15_000),
-  }).catch((e) => ({ ok: false, status: 0, text: async () => String(e?.message ?? e) }) as any);
-  if (!r.ok) {
-    const detail = await r.text().catch(() => '');
-    console.warn('[voice] client secret mint failed', r.status, detail.slice(0, 300));
-    return c.json({ error: 'Could not start a voice session' }, 502);
+  let secret: { value: string; expires_at: number };
+  try {
+    secret = await mintVoiceSecret(provider.key, provider.baseUrl);
+  } catch {
+    console.warn('[voice] client secret mint failed');
+    return c.json({ error: 'Could not start a voice session. Try again or contact your platform admin.' }, 502);
   }
-  const secret = (await r.json()) as { value: string; expires_at: number };
 
   const instructions = voiceInstructions(user.id, bot, s.language);
   const session: Record<string, unknown> = {
@@ -277,15 +280,16 @@ voiceApi.post('/session', async (c) => {
 
   const callId = newId('call');
   const startRow = appendRow(bot.id, 'event', callEvent(`Voice call with ${bot.name} started`, { id: callId, phase: 'started' }));
-  calls.set(callId, { id: callId, botId: bot.id, userId: user.id, startedAt: now(), startSeq: startRow.seq, tasks: [] });
+  calls.set(callId, { id: callId, botId: bot.id, userId: user.id, startedAt: now(), startSeq: startRow.seq, tasks: [], provider: provider.provider, model: provider.model });
   emitBot(bot.id);
 
   return c.json({
     callId,
     clientSecret: secret.value,
+    clientSecretProtocol: provider.clientSecretProtocol,
     expiresAt: secret.expires_at,
-    model: VOICE_MODEL,
-    websocketUrl: realtimeUrl(DIRECT, VOICE_MODEL),
+    model: provider.model,
+    websocketUrl: provider.websocketUrl,
     sampleRate: SAMPLE_RATE,
     instructions,
     voice: s.voice,
@@ -400,7 +404,7 @@ voiceApi.post('/end', async (c) => {
 
   // Summarise in the background and rewrite the row.
   // Usage: realtime voice minutes (billed by the provider per minute; the browser talks to it directly).
-  recordUnits({ userId: user.id, botId: bot.id, kind: 'voice', model: VOICE_MODEL, provider: 'direct', units: Math.round((durationMs / 60_000) * 100) / 100, unit: 'minutes' });
+  recordUnits({ userId: user.id, botId: bot.id, kind: 'voice', model: call.model, provider: call.provider, units: Math.round((durationMs / 60_000) * 100) / 100, unit: 'minutes' });
   summarizeCall(bot.id, bot.name, lines, call.tasks)
     .then((summary) => { if (summary) updateRow(bot.id, row.seq, callEvent(`${base}. ${summary}`, { ...record, summary })); })
     .catch((e) => console.warn('[voice] call summary failed:', e?.message));
@@ -427,8 +431,9 @@ voiceApi.post('/preview', async (c) => {
   const language = p.language && langName(p.language) ? p.language : s.language;
   const text = String(p.text || `Hi, I'm ${bot?.name ?? 'your Bot'}. This is how I'll sound when we talk.`).slice(0, 400);
   const codec = p.codec === 'pcm' ? 'pcm' : 'mp3';
-  // OpenRouter voices (text-message voice replies), or any preview when there's no direct provider key.
-  if (env.openrouterKey && (TTS_VOICES.includes(voice) || !env.directKey)) {
+  // Shared voice always wins; fallback behavior is only for servers without platform voice.
+  const provider = voiceProvider();
+  if (!env.voiceKey && (env.openrouterKey || usesPersonalOpenRouter(user.id)) && (TTS_VOICES.includes(voice) || !env.directKey)) {
     try {
       const a = await synthesize(text, voice, codec);
       return c.body(a.data, 200, { 'Content-Type': codec === 'pcm' ? `audio/pcm;rate=${SAMPLE_RATE}` : 'audio/mpeg', 'Cache-Control': 'no-store' });
@@ -437,16 +442,19 @@ voiceApi.post('/preview', async (c) => {
       return c.json({ error: 'Preview unavailable' }, 502);
     }
   }
-  const r = await fetch(`${DIRECT}/tts`, {
+  if (!provider.key) return c.json({ error: 'Platform voice is not configured yet. Ask your platform admin to enable it.' }, 503);
+  const r = await fetch(`${provider.baseUrl}/tts`, {
     method: 'POST',
-    headers: { ...directHeaders(), 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${provider.key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, voice_id: voice, language, speed: clampSpeed(p.speed ?? s.speed), output_format: { codec, sample_rate: SAMPLE_RATE } }),
     signal: AbortSignal.timeout(30_000),
+    redirect: 'error',
   }).catch(() => null);
   if (!r?.ok) {
-    console.warn('[voice] tts failed', r?.status, (await r?.text().catch(() => ''))?.slice(0, 200));
+    console.warn('[voice] tts failed', r?.status);
     return c.json({ error: 'Preview unavailable' }, 502);
   }
+  recordUnits({ userId: user.id, botId: bot?.id, kind: 'speech', provider: provider.provider, model: `${provider.provider}-tts`, units: text.length, unit: 'characters' });
   return c.body(Buffer.from(await r.arrayBuffer()), 200, {
     'Content-Type': codec === 'pcm' ? `audio/pcm;rate=${SAMPLE_RATE}` : 'audio/mpeg',
     'Cache-Control': 'no-store',

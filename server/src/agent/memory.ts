@@ -1,3 +1,4 @@
+import { withUsage } from '../usage-context.js';
 import { defaultModel, llmClient, llmProvider } from '../lib/llm.js';
 import { recordModelUsage } from '../usage.js';
 import { db, now } from '../db.js';
@@ -279,7 +280,11 @@ const SCHEMA = {
 export interface ConsolidateResult { added: string[]; skipped: number; considered: number }
 
 /** Extract durable facts from messages newer than the bot's last consolidation. */
-export async function consolidateBot(botId: string, opts: { upTo?: number } = {}): Promise<ConsolidateResult> {
+export function consolidateBot(botId: string, opts: { upTo?: number } = {}): Promise<ConsolidateResult> {
+  return withUsage({ botId, kind: 'memory' }, () => consolidateBotInContext(botId, opts));
+}
+
+async function consolidateBotInContext(botId: string, opts: { upTo?: number }): Promise<ConsolidateResult> {
   const bot = getBotRow(botId);
   if (!bot) return { added: [], skipped: 0, considered: 0 };
   const job = db.prepare('SELECT last_consolidated_at FROM memory_jobs WHERE bot_id=?').get(botId) as any;

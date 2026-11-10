@@ -6,7 +6,7 @@ import { useStore } from './store';
 
 export type Theme = 'system' | 'light' | 'dark';
 export type BotSettingsTab = 'general' | 'skills' | 'memories' | 'routines';
-export type AppSection = 'general' | 'keys' | 'usage' | 'computer' | 'messaging' | 'permissions' | 'apps' | 'mcp' | 'account';
+export type AppSection = 'general' | 'keys' | 'usage' | 'computer' | 'messaging' | 'permissions' | 'apps' | 'mcp' | 'account' | 'subscriptions';
 
 interface ConfigUI {
   botSettings: { botId: string; tab: BotSettingsTab } | null;
@@ -32,7 +32,7 @@ const readTheme = (): Theme => {
 };
 
 /** Deep link: /#settings/<section> (e.g. #settings/messaging, or just #messaging) opens Settings there. */
-const SECTIONS_LINKABLE: AppSection[] = ['general', 'keys', 'computer', 'messaging', 'permissions', 'apps', 'mcp', 'account'];
+const SECTIONS_LINKABLE: AppSection[] = ['general', 'keys', 'computer', 'messaging', 'permissions', 'apps', 'mcp', 'account', 'subscriptions'];
 /** Old links that now open a different section. */
 const SECTION_ALIASES: Record<string, AppSection> = { whatsapp: 'messaging' };
 const linkedSection = (): AppSection | null => {

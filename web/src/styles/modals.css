@@ -63,15 +63,13 @@
 .apps-modal__connected { display: flex; align-items: center; gap: 8px; padding: 4px 8px 4px 4px; border-radius: 8px; font-size: 12px; line-height: 16px; color: var(--color-text-secondary); }
 .apps-modal__connected:hover, .apps-modal__connected.is-active { background: var(--color-bg-hover); }
 .apps-modal__connected-logos { display: flex; align-items: center; padding-left: 3px; }
-.apps-modal__connected-logos img { width: 14px; height: 14px; margin-left: -3px; border-radius: 3px; background: #FFFFFF; box-shadow: 0 0 0 1px #FFFFFF; object-fit: contain; }
+.apps-modal__connected-logos .toolkit-logo { margin-left: -3px; box-shadow: 0 0 0 1px #FFFFFF; }
 .apps-modal__controls { display: flex; flex-direction: column; gap: 12px; padding-top: 18px; padding-bottom: 8px; }
 .apps-modal__searchrow { display: flex; align-items: center; gap: 8px; }
-.pill-input { display: flex; align-items: center; gap: 6px; flex: 1 1 0; height: 32px; padding: 0 8px 0 12px; border-radius: var(--radius-full); background: var(--color-bg-elevated); border: 0.5px solid var(--color-border-tertiary); cursor: text; }
+.pill-input { display: flex; align-items: center; gap: 6px; flex: 1 1 0; min-width: 0; height: 32px; padding: 0 8px 0 12px; border-radius: var(--radius-full); background: var(--color-bg-elevated); border: 0.5px solid var(--color-border-tertiary); cursor: text; }
 .pill-input:focus-within { border-color: var(--color-border-focus); box-shadow: 0 0 0 3px #1E86FC22; }
 .pill-input input { flex: 1 1 0; min-width: 0; border: 0; outline: none; background: transparent; font-size: 14px; line-height: 20px; letter-spacing: 0.14px; }
 .pill-input input::placeholder { color: var(--color-text-tertiary); }
-.pill-chip { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px 0 6px; border-radius: var(--radius-full); background: var(--color-bg-elevated); border: 0.5px solid var(--color-border-tertiary); font-size: 13px; line-height: 18px; letter-spacing: 0.195px; color: var(--color-ink); white-space: nowrap; }
-.pill-chip:disabled { cursor: default; }
 .cat-pills { display: flex; flex-wrap: wrap; gap: 8px; }
 .cat-pill-anchor { position: relative; display: inline-flex; }
 .cat-pill { display: inline-flex; align-items: center; gap: 2px; height: 28px; padding: 0 10px; border-radius: var(--radius-full); background: var(--color-bg-tertiary); font-size: 13px; line-height: 18px; letter-spacing: 0.195px; color: var(--color-ink); white-space: nowrap; }
@@ -123,19 +121,25 @@
 .menu__header { padding: 6px 10px 4px; font-size: 12px; line-height: 16px; color: var(--color-text-tertiary); }
 
 /* ---------- sign-in ---------- */
-.signin { position: relative; display: flex; align-items: center; justify-content: center; height: 100%; background: var(--color-bg-sidebar); }
+.signin { position: relative; display: flex; flex-direction: column; align-items: center; height: 100%; overflow-y: auto; padding: max(32px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(32px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); background: var(--color-bg-sidebar); }
 .signin__chrome { position: absolute; inset: 0 auto auto 0; }
-.signin__card { display: flex; flex-direction: column; align-items: center; width: 360px; max-width: calc(100% - 32px); padding: 40px 32px 28px; background: var(--color-bg-elevated); border: 0.5px solid var(--color-border-secondary); border-radius: 24px; box-shadow: var(--shadow-modal); }
-.signin__hero { margin-bottom: 20px; animation: bob 2.4s ease-in-out infinite; }
+.signin__card { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; width: 384px; max-width: 100%; margin: auto 0; padding: 32px 24px; background: var(--color-bg-elevated); border: 1px solid var(--color-border-tertiary); border-radius: var(--radius-card); box-shadow: #1C1C1C1A 0 16px 32px -12px; }
+.signin__header { display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%; padding-bottom: 24px; }
+.signin__hero { display: flex; width: 64px; height: 64px; }
+.signin__intro { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; }
 .signin__title { margin: 0; font-size: 22px; font-weight: 600; line-height: 28px; letter-spacing: -0.2px; }
-.signin__sub { margin: 6px 0 24px; text-align: center; font-size: 14px; line-height: 20px; color: var(--color-text-secondary); }
-.signin__google { width: 100%; gap: 10px; }
-.signin__google svg { background: #FFFFFF; border-radius: 50%; padding: 1px; width: 18px; height: 18px; }
-.signin__dev { display: flex; flex-direction: column; gap: 8px; width: 100%; margin-top: 20px; }
-.signin__divider { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; font-size: 12px; line-height: 16px; color: var(--color-text-tertiary); }
-.signin__divider::before, .signin__divider::after { content: ''; flex: 1; height: 0.5px; background: var(--color-border-secondary); }
+.signin__sub { margin: 0; text-align: center; font-size: 14px; line-height: 20px; color: var(--color-text-secondary); }
+.signin__providers { display: flex; flex-direction: column; gap: 12px; width: 100%; }
+.signin__apple { max-width: 360px; }
+.signin__dev { display: flex; flex-direction: column; gap: 12px; width: 100%; margin-top: 24px; }
+.signin__divider { display: flex; align-items: center; gap: 12px; width: 100%; font-size: 12px; line-height: 16px; color: var(--color-text-secondary); }
+.signin__divider::before, .signin__divider::after { content: ''; flex: 1; height: 1px; background: var(--color-border-tertiary); }
+.signin__or { padding: 16px 0; }
 .signin__error { padding: 12px 0 0; text-align: center; }
-.signin__foot { margin: 24px 0 0; font-size: 12px; line-height: 16px; color: var(--color-text-quaternary); }
+.signin__disclosure, .signin__foot { width: 100%; margin: 0; font-size: 12px; line-height: 18px; color: var(--color-text-secondary); text-align: center; }
+.signin__disclosure { margin-top: 16px; }
+.signin__foot { margin-top: 24px; }
+:root[data-theme='dark'] .signin__card { box-shadow: none; }
 
 /* new group chat */
 .group-pick { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow: auto; margin-top: 6px; }

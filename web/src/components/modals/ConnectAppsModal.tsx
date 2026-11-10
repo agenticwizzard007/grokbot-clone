@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Toolkit } from '@shared/types';
-import { BotAvatarFor } from '../../avatar/BotAvatar';
 import { APP_CATEGORIES, isPopularApp } from '@shared/app-catalog';
 import { api, openPopup, type AppsResponse } from '../../lib/api';
 import { useStore } from '../../store';
@@ -43,7 +42,7 @@ function AppRow({ app, onChanged }: { app: Toolkit; onChanged: () => void }) {
 
   return (
     <div className="app-row" title={app.description}>
-      <ToolkitLogo name={app.name} logo={app.logo} />
+      <ToolkitLogo slug={app.slug} name={app.name} logo={app.logo} />
       <span className="app-row__text">
         <span className="app-row__name">{app.name}</span>
         {error ? <span className="app-row__error">{error}</span> : app.description && <span className="app-row__desc">{app.description}</span>}
@@ -87,7 +86,6 @@ function Section({ title, apps, onViewAll, onChanged }: { title: string; apps: T
 export function ConnectAppsModal() {
   const setModal = useStore((s) => s.setModal);
   const connectionsVersion = useStore((s) => s.connectionsVersion);
-  const primary = useStore((s) => s.bots.find((b) => b.isPrimary));
   const close = useCallback(() => setModal(null), [setModal]);
   const [view, setView] = useState<View>({ kind: 'all' });
   const [search, setSearch] = useState('');
@@ -203,7 +201,7 @@ export function ConnectAppsModal() {
           <button type="button" className={`apps-modal__connected${view.kind === 'connected' ? ' is-active' : ''}`} onClick={() => setView(view.kind === 'connected' ? { kind: 'all' } : { kind: 'connected' })}>
             {connectedApps.length > 0 && (
               <span className="apps-modal__connected-logos">
-                {connectedApps.slice(0, 4).map((a) => a.logo ? <img key={a.slug} src={a.logo} alt="" /> : null)}
+                {connectedApps.slice(0, 4).map((a) => <ToolkitLogo key={a.slug} slug={a.slug} name={a.name} logo={a.logo} size={14} variant="mark" />)}
               </span>
             )}
             <span>{connectedCount} connected</span>
@@ -216,11 +214,6 @@ export function ConnectAppsModal() {
               <Icon name="search" size={14} opacity={0.56} />
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search apps and skills" aria-label="Search apps" />
             </label>
-            <button type="button" className="pill-chip" title="Bot templates are coming soon" disabled>
-              {primary && <BotAvatarFor bot={primary} size={22} />}
-              <span>Bot templates</span>
-              <Icon name="share" size={12} opacity={0.56} />
-            </button>
           </div>
           <div className="cat-pills">
             <button type="button" className={`cat-pill${view.kind === 'all' ? ' is-active' : ''}`} onClick={() => setView({ kind: 'all' })}>All</button>

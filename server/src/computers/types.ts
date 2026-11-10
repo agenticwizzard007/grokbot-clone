@@ -24,12 +24,16 @@ export interface BotScreen {
   shell?(command: string, timeoutSec: number): Promise<{ exit_code: number; output: string }>;
   /** Present only with Playwright browser tools (capabilities.browser): run one on the Bot's own Chrome. */
   browser?(tool: string, args: Record<string, unknown>): Promise<BrowserResult>;
+  /** With browser tools: the CAPTCHA/human check on the Bot's current page, or null. */
+  captcha?(): Promise<{ kind: string; url: string; title?: string } | null>;
 }
 
 /** An MCP tool result from Playwright: text (snapshots, logs) and images (screenshots). */
 export interface BrowserResult {
   content: ({ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string })[];
   isError: boolean;
+  /** Set when the page now shows a CAPTCHA or human check (see agent/captcha.ts). */
+  captcha?: { kind: string; url: string; title?: string } | null;
 }
 
 export interface LibraryListing { status: 'ok' | 'asleep' | 'error'; path: string; files: LibraryFile[]; error?: string }

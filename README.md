@@ -4,7 +4,7 @@
 
 <p align="center">
   Swarm by Swarms.so: AI teammates with computer use, connected apps, memory, and voice.<br>
-  Built with the public model API, Orgo, and Composio.
+  Built with official model CLIs and APIs, Orgo, and Composio.
 </p>
 
 <p align="center">
@@ -19,7 +19,7 @@
 
 Give a Bot a job, connect the apps it needs, and follow its work in chat. Each Bot has a name, a look, its own memory, and a desktop you can watch or take over. Bots can work together, run recurring tasks, and talk with you over voice.
 
-Swarm is the main product from Swarms.so: a runtime for always-on AI teammates you can run and modify yourself. You bring your own API keys; conversations, settings, and agent state live in a local SQLite database.
+Swarm is the main product from Swarms.so: a runtime for always-on AI teammates you can run and modify yourself. Connect your own ChatGPT or Claude subscription through its official CLI, or bring your own API keys; conversations, settings, and agent state live in a local SQLite database.
 
 ## What you can do
 
@@ -64,6 +64,10 @@ Custom connections are managed by the server owner, and are scoped to that accou
 
 This integration supports MCP **tools**, including text, structured results and images. Interactive OAuth login, MCP resources and prompt templates are not yet supported; use provider-issued tokens or headers for authenticated remote servers. A successful test of a server with zero tools is shown explicitly. Tests: `npm run build && npm run test:mcp`.
 
+## CLI subscriptions
+
+**Settings → Subscriptions** connects your ChatGPT plan through Codex or your Claude plan through Claude Code, including Max. Click **Login** to sign in through an embedded terminal. Each account has a private server CLI profile shared by all its Bots across desktop, phone, and linked messaging channels. Chat, tasks, routines, tools and memory use that CLI; no model API key is required. If authentication fails or the plan reaches its limit, requests stop without an API fallback. Voice and third-party services are separate. An optional computer bridge is available under Advanced. See [setup, deployment isolation, limits and troubleshooting](docs/cli-subscriptions.md).
+
 ## Quick start
 
 ### 1. Get the project
@@ -77,16 +81,17 @@ npm ci
 cp .env.example .env
 ```
 
-### 2. Configure your keys
+### 2. Configure model access
 
-Generate `SESSION_SECRET` (below). Provider keys can go in `.env`, or you can paste them into the running app under **Settings → API keys**: they are checked with the provider before saving, stored encrypted with `SESSION_SECRET`, take effect without a restart, and override `.env`. Only the server's owner (the first account, or `ADMIN_EMAILS`) can change them.
+Generate `SESSION_SECRET` (below). For subscription access, start the app without model keys and open **Settings → Subscriptions** to log in to Codex or Claude Code; see the [subscription setup guide](docs/cli-subscriptions.md). Hosted terminals require Python 3; Docker includes it. For API access, provider keys can go in `.env`, or you can paste them into the running app under **Settings → API keys**: they are checked with the provider before saving, stored encrypted with `SESSION_SECRET`, take effect without a restart, and override `.env`. Only the server's owner (the first account, or `ADMIN_EMAILS`) can change them.
 
 Values for `.env`:
 
 | Variable | Purpose |
 | --- | --- |
 | `OPENROUTER_API_KEY` | Models from OpenRouter: Claude, GPT, Gemini and more with one key (recommended) |
-| `DIRECT_API_KEY` | Compatible direct provider; also needed for voice calls |
+| `DIRECT_API_KEY` | Compatible text-model provider |
+| `XAI_API_KEY` | Platform voice: shared live calls, dictation and spoken replies for every account. Admin setup: [platform voice](docs/platform-voice.md) |
 | `COMPOSIO_API_KEY` | Optional: app connections, tool catalog, and Google sign-in (without it, use the dev email sign-in) |
 | `SESSION_SECRET` | Secret used to sign sessions |
 | `COMPUTER_PROVIDER` | `desktop` (your PC's full desktop and a shell), `local` (a private browser on your PC) or `orgo` (cloud VMs) |
@@ -98,7 +103,7 @@ Generate a session secret with:
 openssl rand -hex 32
 ```
 
-Paste the result into `SESSION_SECRET`. You need at least one model key: OpenRouter or a compatible direct provider. With an OpenRouter key, Bots run on OpenRouter by default (`openai/gpt-4.1` unless you pick another model); choose the provider and default model in **Settings → API keys**, and give any Bot its own model in its settings. Models that can't see images get a warning, since browser work relies on screenshots. Voice calls use the configured direct provider realtime API.
+Paste the result into `SESSION_SECRET`. Choose a CLI subscription connection, or add an OpenRouter or compatible direct provider model key. With an OpenRouter key, Bots run on OpenRouter by default (`openai/gpt-4.1` unless you pick another model); choose the provider and default model in **Settings → API keys**, and give any Bot its own model in its settings. Models that can't see images get a warning, since browser work relies on screenshots. Voice calls use the configured direct provider realtime API.
 
 **Composio for all users:** Create an account at [platform.composio.dev](https://platform.composio.dev), complete verification, and create a project API key. As the Swarm server owner, save it once under **Settings → API keys → Composio**. The server verifies and encrypts the key; connected-app views refresh for everyone without a restart. Each person then uses **Connect Apps** to authorize their own Gmail, Slack, or other accounts. Connections and tool sessions use that person's Swarm user ID; the project key does not share the owner's connected accounts with other people.
 
@@ -159,6 +164,11 @@ docker build -t registry.fly.io/$FLY_VM_APP:v1 -f infra/vm-image/Dockerfile .
 docker push registry.fly.io/$FLY_VM_APP:v1   # then VM_IMAGE=registry.fly.io/$FLY_VM_APP:v1
 ```
 
+**CAPTCHAs and human checks.** Bots never solve or get around CAPTCHAs. After every page-changing browser action, the companion checks the page for a *visible* challenge: reCAPTCHA, hCaptcha, Cloudflare Turnstile and its "Just a moment" page, Arkose, DataDome, PerimeterX, and "unusual traffic" or "verify you are human" pages. Invisible badges are ignored.
+1. If the check clears by itself within `CAPTCHA_AUTOPASS_SEC` (8), the Bot carries on.
+2. Otherwise the Bot posts "🧩 … please solve it on my screen" with a link (`/?screen=<botId>`) that opens its live screen in Take control. In the app the Bot shows as waiting on the user; over iMessage the message is forwarded as usual.
+3. When the challenge is gone, the Bot continues on the same page. If nobody solves it within `CAPTCHA_WAIT_MIN` (10), the Bot stops that step and tells the user why.
+
 Don't run the image with `--network host`: its firewall rules are meant for the VM's own network.
 
 #### Full desktop (`COMPUTER_PROVIDER=desktop`)
@@ -198,7 +208,7 @@ The API serves the built app at **[localhost:8787](http://localhost:8787)**. Set
 | --- | --- |
 | Web app | React, TypeScript, Vite, and Zustand |
 | Server | Node.js, Hono, SQLite, and Server-Sent Events |
-| Agent runtime | Model Responses API with streaming, tools, memory, and approval handling |
+| Agent runtime | Subscription CLIs or model Responses APIs, with tools, memory, and approval handling |
 | Computers | Pluggable providers: your PC's full desktop (CoreGraphics on macOS, xdotool on Linux) or a browser on your PC (Chrome DevTools protocol), both through the companion, or Orgo VMs with per-Bot desktops; noVNC viewer through the server |
 | Connected apps | Composio catalog, sessions, authentication, tools, and triggers |
 | Voice | realtime sessions with a relay into the text agent's task loop |
@@ -206,6 +216,16 @@ The API serves the built app at **[localhost:8787](http://localhost:8787)**. Set
 The server owns the agent loop. It builds context, streams a model response, executes tools, pauses for approvals when required, and continues until the task is done. Voice hands work to that same loop.
 
 For the details, read the [architecture guide](docs/ARCHITECTURE.md), [Orgo integration guide](docs/orgo-builder-guide.md), and [Model and Composio integration guide](docs/model-and-composio.md).
+
+## Sign in with Apple
+
+Apple, Google, and phone sign-in work across the web and Apple apps. Apple uses the system authorization sheet on iPhone, iPad, and Mac, with support for Hide My Email and linking to an existing account. See the [Apple sign-in setup](docs/apple-sign-in.md) for the required Apple Developer identifiers, key, server secrets, and verification steps.
+
+## iOS and macOS apps
+
+Swarm includes a shared native SwiftUI app for **iPhone, iPad, and Mac**, connecting to the same hosted server as the web app. It adds native server settings, browser-based Google sign-in, microphone permissions, download handling, and connection recovery; the shared interface adapts to phone screens.
+
+On a Mac with Xcode, run `npm run apple:open`, then choose **Swarm-iOS** or **Swarm-macOS**. See the [Apple app guide](docs/apple-apps.md) for server setup, testing, signing, and distribution. The server and web changes must be deployed together for native Google sign-in and the phone layout.
 
 ## Development
 

@@ -3,6 +3,7 @@ import type { VoiceOption } from '@shared/types';
 export interface VoiceSession {
   callId: string;
   clientSecret: string;
+  clientSecretProtocol?: 'xai-client-secret' | 'direct-client-secret';
   expiresAt: number;
   model: string;
   websocketUrl: string;

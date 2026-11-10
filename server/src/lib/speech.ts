@@ -5,12 +5,17 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { env } from '../env.js';
+import { voiceProvider } from './voice-provider.js';
+import { selectedCli } from '../cli/store.js';
+import { currentUserId } from '../usage-context.js';
 import { recordModelUsage, recordUnits } from '../usage.js';
+import { openrouterConnection, personalOpenRouterKey, usesPersonalOpenRouter } from '../providers/openrouter.js';
 
 /**
  * Speech for Bots: transcription (voice notes, dictation) and text-to-speech (voice replies, previews).
  *
- * OpenRouter first, when its key is set: POST /audio/transcriptions and /audio/speech, so one key covers models,
+ * Platform voice first, for every account, including CLI and personal OpenRouter users.
+ * Without it, OpenRouter first: POST /audio/transcriptions and /audio/speech, so one key covers models,
  * hearing and speaking. A direct provider's /stt and /tts are the fallback when only a direct provider key is set.
  * Live voice calls are separate: they need direct provider's realtime API (voice.ts).
  */
@@ -29,9 +34,15 @@ export interface Audio { data: Buffer; mime: string }
 
 export class SpeechUnavailable extends Error {}
 
+export const SUBSCRIPTION_VOICE_UNAVAILABLE = 'Platform voice is not configured yet. Ask your platform admin to enable it. Voice is billed separately from CLI subscriptions.';
+const subscriptionMode = () => !!selectedCli(currentUserId());
+const openrouterKey = () => usesPersonalOpenRouter(currentUserId()) ? personalOpenRouterKey(currentUserId()!) : env.openrouterKey;
+
 export function speechStatus() {
-  const or = !!env.openrouterKey;
-  const direct = !!env.directKey;
+  if (env.voiceKey) return { transcription: 'xai', speech: 'xai', sttModel: 'xai-stt', ttsModel: 'xai-tts' } as const;
+  const personal = openrouterConnection(currentUserId());
+  const or = !subscriptionMode() && (personal?.enabled ? !!personal.encrypted_key : !!env.openrouterKey);
+  const direct = !subscriptionMode() && !personal?.enabled && !!env.directKey;
   return {
     transcription: or ? 'openrouter' : direct ? 'direct' : null,
     speech: or ? 'openrouter' : direct ? 'direct' : null,
@@ -88,7 +99,7 @@ async function openrouterTranscribe(a: Audio, language?: string): Promise<string
   const ready = formatFor(a.mime) ? a : await toMp3(a);
   const r = await fetch(`${env.openrouterBaseUrl}/audio/transcriptions`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${env.openrouterKey}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${openrouterKey()}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: STT_MODEL(), input_audio: { data: ready.data.toString('base64'), format: formatFor(ready.mime) }, ...(language ? { language } : {}) }),
     signal: AbortSignal.timeout(90_000),
   });
@@ -100,21 +111,26 @@ async function openrouterTranscribe(a: Audio, language?: string): Promise<string
 }
 
 async function directTranscribe(a: Audio, language?: string): Promise<string> {
+  const provider = voiceProvider();
+  const model = provider.provider === 'xai' ? 'xai-stt' : DIRECT_STT_MODEL();
   const form = new FormData();
-  form.append('model', DIRECT_STT_MODEL());
+  if (provider.provider !== 'xai') form.append('model', model);
   if (language && /^[a-z]{2}$/.test(language)) form.append('language', language);
   const ext = formatFor(a.mime) ?? (baseMime(a.mime).includes('caf') ? 'caf' : 'audio');
   form.append('file', new Blob([new Uint8Array(a.data)], { type: baseMime(a.mime) }), `voice.${ext}`); // must be last
-  const r = await fetch(`${env.directBaseUrl}/stt`, { method: 'POST', headers: { Authorization: `Bearer ${env.directKey}` }, body: form, signal: AbortSignal.timeout(60_000) });
-  if (!r.ok) throw new Error(`direct provider transcription failed (${r.status}): ${(await r.text().catch(() => '')).slice(0, 200)}`);
+  const r = await fetch(`${provider.baseUrl}/stt`, { method: 'POST', headers: { Authorization: `Bearer ${provider.key}` }, body: form, redirect: 'error', signal: AbortSignal.timeout(60_000) });
+  if (!r.ok) throw new Error(`Voice transcription failed (${r.status}).`);
   const j = (await r.json()) as { text?: string; usage?: unknown };
-  if (j.usage) void recordModelUsage({ kind: 'transcription', model: DIRECT_STT_MODEL(), provider: 'direct', response: j });
-  else recordUnits({ kind: 'transcription', model: DIRECT_STT_MODEL(), provider: 'direct', units: 1, unit: 'recordings' });
+  if (j.usage) void recordModelUsage({ kind: 'transcription', model, provider: provider.provider, response: j });
+  else recordUnits({ kind: 'transcription', model, provider: provider.provider, units: 1, unit: 'recordings' });
   return String(j.text ?? '').trim();
 }
 
 /** Transcribe a recording. Throws SpeechUnavailable when no provider is set up; tries the other provider on failure. */
 export async function transcribe(a: Audio, opts: { language?: string } = {}): Promise<string> {
+  if (env.voiceKey) return directTranscribe(a, opts.language);
+  if (subscriptionMode()) throw new SpeechUnavailable(SUBSCRIPTION_VOICE_UNAVAILABLE);
+  if (usesPersonalOpenRouter(currentUserId())) return openrouterTranscribe(a, opts.language);
   const order = [env.openrouterKey ? 'openrouter' : null, env.directKey ? 'direct' : null].filter(Boolean) as ('openrouter' | 'direct')[];
   if (!order.length) throw new SpeechUnavailable('Voice notes need an OpenRouter or direct provider key on this server.');
   let last: unknown;
@@ -130,7 +146,7 @@ export async function transcribe(a: Audio, opts: { language?: string } = {}): Pr
 async function openrouterSpeak(text: string, voice: string, format: 'mp3' | 'pcm'): Promise<Audio> {
   const r = await fetch(`${env.openrouterBaseUrl}/audio/speech`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${env.openrouterKey}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${openrouterKey()}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: TTS_MODEL(), input: text, voice: TTS_VOICES.includes(voice) ? voice : DEFAULT_TTS_VOICE, response_format: format }),
     signal: AbortSignal.timeout(90_000),
   });
@@ -142,19 +158,24 @@ async function openrouterSpeak(text: string, voice: string, format: 'mp3' | 'pcm
 }
 
 async function directSpeak(text: string, voice: string, format: 'mp3' | 'pcm'): Promise<Audio> {
-  const r = await fetch(`${env.directBaseUrl}/tts`, {
+  const provider = voiceProvider();
+  const r = await fetch(`${provider.baseUrl}/tts`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${env.directKey}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${provider.key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, voice_id: voice, output_format: { codec: format, sample_rate: 24000 } }),
     signal: AbortSignal.timeout(60_000),
+    redirect: 'error',
   });
-  if (!r.ok) throw new Error(`direct provider speech failed (${r.status}): ${(await r.text().catch(() => '')).slice(0, 200)}`);
-  recordUnits({ kind: 'speech', model: 'direct-tts', provider: 'direct', units: text.length, unit: 'characters' });
+  if (!r.ok) throw new Error(`Voice speech failed (${r.status}).`);
+  recordUnits({ kind: 'speech', model: `${provider.provider}-tts`, provider: provider.provider, units: text.length, unit: 'characters' });
   return { data: Buffer.from(await r.arrayBuffer()), mime: format === 'pcm' ? 'audio/pcm;rate=24000' : 'audio/mpeg' };
 }
 
 /** Speak text. `voice` is an OpenRouter TTS voice (or a direct provider voice id when only direct provider is set up). */
 export async function synthesize(text: string, voice: string, format: 'mp3' | 'pcm' = 'mp3'): Promise<Audio> {
+  if (env.voiceKey) return directSpeak(text, voice, format);
+  if (subscriptionMode()) throw new SpeechUnavailable(SUBSCRIPTION_VOICE_UNAVAILABLE);
+  if (usesPersonalOpenRouter(currentUserId())) return openrouterSpeak(text, voice, format);
   if (env.openrouterKey) return openrouterSpeak(text, voice, format);
   if (env.directKey) return directSpeak(text, voice, format);
   throw new SpeechUnavailable('Voice replies need an OpenRouter or direct provider key on this server.');

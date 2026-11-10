@@ -19,7 +19,8 @@ export function ComputerViewer() {
   const set = useStore((s) => s.set);
   const screenRef = useRef<HTMLDivElement>(null);
   const rfbRef = useRef<RFBType | null>(null);
-  const [mode, setMode] = useState<Mode>('watch');
+  const [mode, setMode] = useState<Mode>(() => (useStore.getState().viewerControl ? 'control' : 'watch'));
+  useEffect(() => { if (useStore.getState().viewerControl) useStore.setState({ viewerControl: false }); }, []);
   const [conn, setConn] = useState<Conn>('connecting');
   const [attempt, setAttempt] = useState(0);
   const [wakeError, setWakeError] = useState<string | null>(null);

@@ -59,6 +59,9 @@ export function enqueue(botId: string, trigger: Trigger) {
   next.finally(() => { if (queues.get(botId) === next) queues.delete(botId); });
 }
 
+/** The running turn's abort signal (aborted when the user stops the Bot). */
+export const turnSignal = (botId: string): AbortSignal | undefined => aborts.get(botId)?.signal;
+
 export function interrupt(botId: string) {
   aborts.get(botId)?.abort();
 }
@@ -66,7 +69,7 @@ export function interrupt(botId: string) {
 /** Run a job in the bot's serial queue, after any running turn (e.g. a manual compaction). */
 export function runInBotQueue<T>(botId: string, job: () => Promise<T>): Promise<T> {
   const prev = queues.get(botId) ?? Promise.resolve();
-  const result = prev.then(job);
+  const result = prev.then(() => withUsage({ botId }, job));
   const next = result.then(() => {}, () => {});
   queues.set(botId, next);
   next.finally(() => { if (queues.get(botId) === next) queues.delete(botId); });

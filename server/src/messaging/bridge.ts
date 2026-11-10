@@ -1,3 +1,4 @@
+import { withUsage } from '../usage-context.js';
 import { db, now } from '../db.js';
 import { env } from '../env.js';
 import { hub } from '../lib/hub.js';
@@ -336,7 +337,7 @@ async function voiceReply(userId: string, botId: string, md: string, channel: Ch
   try {
     // The user's chosen voice, else the Bot's own voice (the one it uses on live calls).
     const voice = getPrefs(userId).ttsVoice ?? getBotRow(botId)?.voice ?? DEFAULT_TTS_VOICE;
-    const a = await synthesize(say, voice, 'mp3');
+    const a = await withUsage({ userId, botId }, () => synthesize(say, voice, 'mp3'));
     await deliver(userId, { text: '', audio: { data: a.data, mime: a.mime, filename: 'voice.mp3' } }, { botId, kind: 'reply', channel });
   } catch (e) {
     console.warn('[messaging] voice reply failed:', (e as Error).message);
@@ -437,7 +438,7 @@ export async function handleInbound(inb: Inbound): Promise<void> {
       const media = await inb.audio();
       console.log(`[messaging] voice note ${media.mime} ${media.data.length} bytes`);
       let heard: string;
-      try { heard = await transcribe(media); }
+      try { heard = await withUsage({ userId: inb.userId, botId: null }, () => transcribe(media)); }
       catch (e) {
         console.warn('[messaging] transcription failed', (e as Error).message, media.mime);
         if (e instanceof SpeechUnavailable) return void reply(`🎙️ ${e.message} Type your message instead.`);

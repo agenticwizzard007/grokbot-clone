@@ -5,6 +5,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Server } from 'node:http';
 import { env } from './env.js';
+import { cliApi } from './cli/routes.js';
+import { attachCliSocket } from './cli/bridge.js';
 import { api } from './routes.js';
 import { attachComputerSockets, computers } from './computers/index.js';
 import { initRoutines } from './routines.js';
@@ -48,6 +50,12 @@ app.get('/api/companion/script', (c) => {
   if ((computers.kind !== 'local' && computers.kind !== 'cloudvm') || !fs.existsSync(companionScript)) return c.json({ error: 'not available' }, 404);
   return c.body(fs.readFileSync(companionScript, 'utf8'), 200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
 });
+const cliScript = new URL('../../companion/cli-bridge.mjs', import.meta.url);
+app.get('/api/cli/script', (c) => {
+  if (!fs.existsSync(cliScript)) return c.json({ error: 'CLI bridge script not installed.' }, 404);
+  return c.body(fs.readFileSync(cliScript, 'utf8'), 200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
+});
+app.route('/api/cli', cliApi);
 // Messaging (iMessage/SMS/WhatsApp via Inkbox). Public routes first: the Inkbox webhook (verified by signature), the invite
 // join page and sign-in by text. They are registered before the session check.
 app.route('/api/messaging/inkbox/webhook', inkboxWebhook);
@@ -75,6 +83,7 @@ if (fs.existsSync(webDist)) {
 
 const server = serve({ fetch: app.fetch, port: env.port }, (info) => console.log(`[swarm] server on http://localhost:${info.port} (models: ${env.llmProvider} ${defaultModel()}, computers: ${computers.kind})`));
 attachComputerSockets(server as unknown as Server);
+attachCliSocket(server as unknown as Server);
 // Warm optional model metadata without delaying the HTTP listener.
 if (env.llmProvider === 'openrouter') void openrouterModels().catch(() => {});
 // SWARM_NO_SCHEDULER=1 for extra dev/test servers sharing a database copy, so routines and triggers don't fire twice.

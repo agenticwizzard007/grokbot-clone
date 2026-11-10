@@ -1,0 +1,175 @@
+/* Paper: Swarm — Mobile / Brand · Logos & motion (p-G-0).
+   Apply the current identity only while this settings page is open. */
+:where(.app-settings:has(.subscription-settings), .subscription-settings) {
+  --color-swarms-paper: #FBFAF7;
+  --color-swarms-ink: #18202A;
+  --color-swarms-night: #17222F;
+  --color-swarms-slate: #525B5E;
+  --color-swarms-mono: #14171B;
+  --color-swarms-mist: #EDEFFA;
+  --color-swarms-indigo: #3043AB;
+  --font-swarms: 'Instrument Sans Variable', 'Instrument Sans', sans-serif;
+  --font-stack: var(--font-swarms);
+  --color-bg-pane: var(--color-swarms-paper);
+  --color-bg-sidebar: var(--color-swarms-paper);
+  --color-bg-elevated: #FFFFFF;
+  --color-text-primary: var(--color-swarms-ink);
+  --color-text-secondary: var(--color-swarms-slate);
+  --color-text-tertiary: #687073;
+  --color-border-secondary: #18202A1F;
+  --color-border-tertiary: #18202A14;
+  --color-border-focus: var(--color-swarms-indigo);
+  --color-bg-active: var(--color-swarms-mist);
+  --subscription-accent: var(--color-swarms-indigo);
+  --subscription-accent-bg: var(--color-swarms-mist);
+  --subscription-selection: #3043AB24;
+  --subscription-terminal-bg: var(--color-swarms-paper);
+  font-family: var(--font-swarms);
+  font-weight: 550;
+  letter-spacing: 0;
+  color: var(--color-text-primary);
+}
+:root[data-theme='dark'] :where(.app-settings:has(.subscription-settings), .subscription-settings) {
+  --color-bg-pane: var(--color-swarms-mono);
+  --color-bg-sidebar: var(--color-swarms-mono);
+  --color-bg-elevated: var(--color-swarms-night);
+  --color-text-primary: #FFFFFF;
+  --color-text-secondary: #CAD1D8;
+  --color-text-tertiary: #A7B2BC;
+  --color-border-secondary: #FFFFFF24;
+  --color-border-tertiary: #FFFFFF17;
+  --color-border-focus: var(--color-swarms-mist);
+  --color-bg-active: #3043AB33;
+  --subscription-accent: var(--color-swarms-mist);
+  --subscription-accent-bg: #3043AB33;
+  --subscription-selection: #EDEFFA30;
+  --subscription-terminal-bg: var(--color-swarms-night);
+}
+.app-settings:has(.subscription-settings) .settings-nav__item.is-active,
+.app-settings:has(.subscription-settings) .settings-nav__item.is-active .settings-nav__icon { color: var(--subscription-accent); }
+.app-settings:has(.subscription-settings) .settings-nav__title { font-weight: 550; }
+.subscription-settings { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+.app-settings .subscription-settings .app-settings__head h1 { font-weight: 550; letter-spacing: -0.035em; }
+.app-settings .subscription-settings .app-settings__head p { max-width: 480px; font-size: 15px; line-height: 22px; }
+.subscription-settings__brand { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; font-size: 13px; line-height: 18px; color: var(--color-text-secondary); }
+.subscription-settings .swarm-mark { display: block; flex: none; color: var(--subscription-accent); }
+.subscription-settings p { margin: 0; font-size: 13px; line-height: 20px; color: var(--color-text-secondary); overflow-wrap: anywhere; }
+.app-settings .subscription-settings .cfg-section__label,
+.app-settings .subscription-settings .cfg-row__title { font-weight: 550; }
+.app-settings .subscription-settings .cfg-card { min-width: 0; background: var(--color-bg-elevated); border-radius: 12px; }
+.subscription-settings .cfg-row { flex-wrap: wrap; }
+.subscription-settings .cfg-row__sub { overflow-wrap: anywhere; }
+.subscription-settings__actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.subscription-settings .cfg-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; height: auto; padding: 8px 14px; border-radius: 999px; font-size: 13px; line-height: 18px; font-weight: 550; transition: background-color 120ms var(--ease-out), color 120ms var(--ease-out); }
+.subscription-settings .cfg-btn--primary { background: var(--color-swarms-indigo); color: #FFFFFF; border-color: transparent; }
+.subscription-settings .cfg-btn--primary:hover:not(:disabled) { background: #26368D; }
+.subscription-settings .cfg-btn--primary:disabled { background: var(--subscription-accent-bg); color: var(--subscription-accent); opacity: 0.8; }
+.subscription-settings .cfg-btn--secondary { background: transparent; color: var(--color-text-secondary); box-shadow: inset 0 0 0 1px var(--color-border-secondary); }
+.subscription-settings .cfg-btn--secondary:hover:not(:disabled) { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.subscription-settings .cfg-btn--secondary:disabled { opacity: 0.65; }
+.subscription-settings__inset { padding: 0 var(--settings-inset, 20px) 16px; }
+.subscription-settings__pair,
+.subscription-settings__revoke,
+.subscription-settings__provider-body { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 16px var(--settings-inset, 20px); border-top: 1px solid var(--color-border-tertiary); }
+.subscription-settings__pair { background: var(--color-bg-subtle); }
+.subscription-settings__health { font-size: 13px; line-height: 18px; font-weight: 550; color: var(--color-text-secondary); }
+.subscription-settings__command-label { font-size: 12px; line-height: 16px; color: var(--color-text-secondary); }
+.subscription-settings pre { margin: 0; min-width: 0; padding: 12px; border-radius: 8px; background: var(--color-bg-tertiary); white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/19px var(--font-mono-stack); color: var(--color-text-primary); user-select: text; }
+.subscription-settings pre code { font: inherit; }
+.subscription-settings p code { font-family: var(--font-mono-stack); font-size: 12px; overflow-wrap: anywhere; }
+.subscription-settings a { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; font-size: 12px; line-height: 18px; color: var(--color-text-secondary); text-decoration: none; }
+.subscription-settings a:hover { color: var(--subscription-accent); text-decoration: underline; text-underline-offset: 3px; }
+.subscription-settings a:focus-visible,
+.subscription-settings pre:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 3px; }
+
+/* Provider choice and the account's saved connection. */
+.subscription-settings__tabs { display: flex; gap: 24px; border-bottom: 1px solid var(--color-border-secondary); }
+.subscription-settings__tabs > button { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 4px 2px 12px; border-bottom: 2px solid transparent; color: var(--color-text-secondary); font-size: 15px; font-weight: 550; transition: color 120ms var(--ease-out), border-color 120ms var(--ease-out); }
+.subscription-settings__tabs > button[aria-selected='true'] { color: var(--subscription-accent); border-bottom-color: var(--subscription-accent); }
+.subscription-settings__tabs > button:hover:not(:disabled) { color: var(--subscription-accent); }
+.subscription-settings__tabs > button:disabled:not([aria-selected='true']) { opacity: 0.65; }
+.subscription-settings__methods { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.subscription-settings__method { position: relative; display: flex; align-items: center; gap: 12px; min-height: 88px; min-width: 0; padding: 16px 32px 16px 16px; border: 1px solid var(--color-border-secondary); border-radius: 12px; background: var(--color-bg-elevated); color: var(--color-text-primary); transition: border-color 120ms var(--ease-out), background-color 120ms var(--ease-out); }
+.subscription-settings__method.is-selected { border-color: var(--subscription-accent); background: var(--subscription-accent-bg); }
+.subscription-settings__method:hover:not(:disabled) { border-color: var(--subscription-accent); }
+.subscription-settings__method-icon { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex: none; color: var(--color-text-secondary); }
+.subscription-settings__method.is-selected .subscription-settings__method-icon { color: var(--subscription-accent); }
+.subscription-settings__method-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 14px; line-height: 20px; font-weight: 550; }
+.subscription-settings__method small { font-size: 12px; line-height: 18px; color: var(--color-text-secondary); }
+.subscription-settings__method-check { position: absolute; top: 12px; right: 12px; color: var(--subscription-accent); }
+.subscription-settings__connection { display: flex; flex-direction: column; min-width: 0; margin-top: 4px; padding: 0 20px 16px; border: 1px solid var(--color-border-secondary); border-radius: 12px; background: var(--color-bg-elevated); }
+.subscription-settings__status-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--color-border-tertiary); }
+.subscription-settings__status { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; line-height: 18px; color: var(--color-text-primary); }
+.subscription-settings__status-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--color-text-tertiary); }
+.subscription-settings__status-dot.is-connected { background: var(--color-success); box-shadow: 0 0 0 3px var(--color-success-bg); }
+.subscription-settings__details { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 24px; margin: 0; padding: 20px 0; font-size: 14px; line-height: 20px; }
+.subscription-settings__details > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.subscription-settings__details dt { color: var(--color-text-secondary); font-size: 12px; line-height: 18px; }
+.subscription-settings__details dd { margin: 0; overflow-wrap: anywhere; color: var(--color-text-primary); }
+.subscription-settings .subscription-settings__blocked { color: var(--color-danger-text); }
+.subscription-settings__connection > .cfg-error,
+.subscription-settings__connection > p { margin-bottom: 12px; }
+.subscription-settings__login-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 0 14px; border-top: 1px solid var(--color-border-tertiary); }
+.subscription-settings__login-row > div:first-child { flex: 1 1 280px; }
+.subscription-settings .subscription-settings__login-row .cfg-btn--primary { min-height: 44px; padding: 10px 18px; font-size: 14px; }
+.subscription-settings__login-row p { max-width: 400px; margin-top: 4px; }
+.subscription-settings .subscription-settings__docs { font-size: 12px; }
+.subscription-settings__advanced { padding: 16px 0; border-top: 1px solid var(--color-border-tertiary); border-bottom: 1px solid var(--color-border-tertiary); }
+.subscription-settings__advanced > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 28px; cursor: pointer; list-style: none; color: var(--color-text-secondary); font-size: 13px; line-height: 20px; }
+.subscription-settings__advanced > summary:hover { color: var(--color-text-primary); }
+.subscription-settings__advanced > summary::-webkit-details-marker { display: none; }
+.subscription-settings__advanced[open] > summary svg { transform: rotate(180deg); }
+.subscription-settings__advanced-content { display: flex; flex-direction: column; gap: 24px; padding-top: 24px; }
+.subscription-settings__coverage { gap: 8px !important; }
+.subscription-settings__coverage p { max-width: 640px; }
+.subscription-settings__method:focus-visible,
+.subscription-settings__tabs > button:focus-visible,
+.subscription-settings__advanced > summary:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 4px; }
+
+/* A live terminal in the same Paper / Night palette as the surrounding interface. */
+.subscription-settings .cli-login-terminal { min-width: 0; border: 1px solid var(--color-border-secondary); border-radius: 12px; overflow: hidden; background: var(--subscription-terminal-bg); }
+.subscription-settings .cli-login-terminal__header { display: flex; align-items: center; gap: 10px; min-height: 60px; padding: 12px 16px; border-bottom: 1px solid var(--color-border-tertiary); background: var(--color-bg-elevated); color: var(--color-text-primary); font-size: 14px; line-height: 20px; }
+.subscription-settings .cli-login-terminal__title { font-weight: 550; }
+.subscription-settings .cli-login-terminal__state { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; padding: 4px 9px; border-radius: 999px; background: var(--subscription-accent-bg); color: var(--subscription-accent); font-size: 11px; line-height: 16px; white-space: nowrap; }
+.subscription-settings .cli-login-terminal__state .cfg-spinner { width: 10px; height: 10px; border-color: var(--color-border-secondary); border-top-color: currentColor; }
+.subscription-settings .cli-login-terminal[data-state='failed'] .cli-login-terminal__state { background: var(--color-danger-bg); color: var(--color-danger-text); }
+.subscription-settings .cli-login-terminal[data-state='connected'] .cli-login-terminal__state { background: var(--color-success-bg); color: var(--color-success-text); }
+.subscription-settings .cli-login-terminal__header > .cfg-icon-btn { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 32px; height: 32px; margin-left: 2px; border-radius: 999px; color: var(--color-text-secondary); }
+.subscription-settings .cli-login-terminal__header > .cfg-icon-btn:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.subscription-settings .cli-login-terminal__screen { min-width: 0; height: 300px; padding: 16px; overflow: hidden; }
+.subscription-settings .cli-login-terminal__screen .xterm { height: 100%; }
+.subscription-settings .cli-login-terminal__screen .xterm-viewport { scrollbar-width: thin; }
+.subscription-settings .cli-login-terminal__footer { padding: 14px 16px; border-top: 1px solid var(--color-border-tertiary); color: var(--color-text-secondary); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
+.subscription-settings .cli-login-terminal__error { color: var(--color-danger-text); }
+.subscription-settings .cli-login-terminal button:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
+@media (max-width: 760px) {
+  .subscription-settings { gap: 24px; }
+  .subscription-settings__brand { margin-bottom: 16px; }
+  .subscription-settings__tabs { gap: 24px; }
+  .subscription-settings__methods { gap: 10px; }
+  .subscription-settings__method { align-items: flex-start; flex-direction: column; gap: 10px; padding: 14px; min-height: 128px; }
+  .subscription-settings__method-copy { font-size: 13px; line-height: 18px; }
+  .subscription-settings__method-icon { width: 24px; height: 24px; }
+  .subscription-settings__method-check { top: 14px; right: 14px; }
+  .subscription-settings__connection { padding: 0 16px 16px; }
+  .subscription-settings__details { grid-template-columns: 1fr; gap: 14px; padding: 18px 0; }
+  .subscription-settings__details > div { display: grid; grid-template-columns: 88px minmax(0, 1fr); align-items: baseline; gap: 12px; }
+  .subscription-settings__details dd { font-size: 13px; line-height: 19px; }
+  .subscription-settings .cfg-btn { min-height: 40px; white-space: normal; text-align: center; }
+  .subscription-settings__login-row { gap: 14px; }
+  .subscription-settings__login-row > .subscription-settings__actions { width: 100%; }
+  .subscription-settings__login-row > .subscription-settings__actions > .cfg-btn--primary { flex: 1; }
+  .subscription-settings__actions > .cfg-field__hint { flex-basis: 100%; }
+  .subscription-settings__advanced > summary { min-height: 44px; }
+  .subscription-settings .cli-login-terminal__header { gap: 8px; padding: 10px 12px; }
+  .subscription-settings .cli-login-terminal__header > .cfg-icon-btn { width: 44px; height: 44px; margin-left: 0; }
+  .subscription-settings .cli-login-terminal__title { font-size: 13px; }
+  .subscription-settings .cli-login-terminal__state { padding: 3px 7px; }
+  .subscription-settings .cli-login-terminal__screen { height: 300px; padding: 14px 12px; }
+  .subscription-settings .cli-login-terminal__footer { padding: 12px; }
+}
+@media (max-width: 360px) {
+  .subscription-settings .cli-login-terminal__header { flex-wrap: wrap; }
+  .subscription-settings .cli-login-terminal__header > .cfg-icon-btn { margin-left: auto; }
+  .subscription-settings .cli-login-terminal__state { order: 1; margin-left: 32px; }
+}

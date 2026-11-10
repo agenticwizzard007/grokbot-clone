@@ -1,26 +1,37 @@
 import OpenAI from 'openai';
 import { env } from '../env.js';
+import { currentUserId } from '../usage-context.js';
+import { selectedCli } from '../cli/store.js';
+import { cliResponsesClient } from '../cli/responses.js';
+import { openrouterConnection, personalOpenRouterKey, usesPersonalOpenRouter } from '../providers/openrouter.js';
 
 /**
- * The model provider for Bots: OpenRouter (any model, one key) or a compatible direct provider. Both speak the
- * Responses API; this module hides the differences (client, model ids, request shape, history).
+ * Per-account subscription CLI connections override the server's API provider.
+ * The adapter presents the Responses interface to chat and background jobs alike.
  */
 
-export type LlmProvider = 'direct' | 'openrouter';
-export const NO_LLM_KEY = 'No AI model key yet. Add an OpenRouter or direct provider key in Settings → API keys.';
+export type LlmProvider = 'direct' | 'openrouter' | 'codex-cli' | 'claude-cli';
+export const NO_LLM_KEY = 'Connect a subscription in Settings → Subscriptions, or add a model key in Settings → API keys.';
 
 const clients = new Map<string, { sig: string; client: OpenAI }>();
 
-export const llmProvider = (): LlmProvider => env.llmProvider;
+export const llmProvider = (): LlmProvider => {
+  const cli = selectedCli(currentUserId());
+  return cli ? `${cli}-cli` : usesPersonalOpenRouter(currentUserId()) ? 'openrouter' : env.llmProvider;
+};
 
 /** A Responses API client for the active provider (rebuilt when keys change in Settings). */
-export function llmClient(timeout: number): OpenAI {
+export function llmClient(timeout: number): OpenAI | ReturnType<typeof cliResponsesClient> {
+  const userId = currentUserId();
+  const cli = selectedCli(userId);
+  if (cli && userId) return cliResponsesClient(userId, cli, timeout);
   const p = llmProvider();
-  const apiKey = p === 'openrouter' ? env.openrouterKey : env.directKey;
+  const personal = userId && usesPersonalOpenRouter(userId);
+  const apiKey = personal ? personalOpenRouterKey(userId!) : p === 'openrouter' ? env.openrouterKey : env.directKey;
   if (!apiKey) throw new Error(NO_LLM_KEY);
   const baseURL = p === 'openrouter' ? env.openrouterBaseUrl : env.directBaseUrl;
   const sig = `${p}|${apiKey}|${baseURL}`;
-  const slot = `${p}:${timeout}`;
+  const slot = `${personal ? userId : 'server'}:${p}:${timeout}`;
   let c = clients.get(slot);
   if (!c || c.sig !== sig) {
     c = {
@@ -33,21 +44,28 @@ export function llmClient(timeout: number): OpenAI {
         defaultHeaders: p === 'openrouter' ? { 'HTTP-Referer': env.appUrl, 'X-Title': 'Swarm' } : undefined,
       }),
     };
+    // Bound retained clients/credentials in servers with many users.
+    if (clients.size >= 200) clients.delete(clients.keys().next().value!);
     clients.set(slot, c);
   }
   return c.client;
 }
 
-export const defaultModel = () => (llmProvider() === 'openrouter' ? env.openrouterModel : env.directModel);
+export const defaultModel = () => {
+  const cli = selectedCli(currentUserId());
+  const personal = openrouterConnection(currentUserId());
+  return cli ? `${cli}/default` : personal?.enabled ? personal.model || env.openrouterModel : llmProvider() === 'openrouter' ? env.openrouterModel : env.directModel;
+};
 
 /** A Bot's own model if it suits the active provider (OpenRouter ids look like "vendor/model"), else the default. */
 export function modelFor(botModel?: string | null): string {
-  if (!botModel) return defaultModel();
+  if (selectedCli(currentUserId()) || !botModel || /^(codex|claude)\/default$/.test(botModel)) return defaultModel();
   return (llmProvider() === 'openrouter') === botModel.includes('/') ? botModel : defaultModel();
 }
 
 /** Server-side tools the provider runs itself. */
 export function serverTools(): any[] {
+  if (selectedCli(currentUserId())) return [];
   return llmProvider() === 'openrouter' ? [{ type: 'openrouter:web_search' }] : [{ type: 'web_search' }, { type: 'x_search' }];
 }
 
@@ -81,6 +99,7 @@ export const tagOutput = (items: any[], model: string) => items.map((it) => (it 
 
 /** Request fields that differ by provider. */
 export function providerFields(opts: { effort: string; reasoning: boolean; cacheKey: string; safetyId: string }): Record<string, unknown> {
+  if (selectedCli(currentUserId())) return {};
   if (llmProvider() === 'direct') {
     return {
       reasoning: { effort: opts.effort },

@@ -111,18 +111,22 @@
 .msg-voice__err { color: var(--color-danger-text); }
 
 /* Continue with phone number */
-.phone-auth { display: flex; flex-direction: column; gap: 10px; width: 100%; }
-.phone-auth__input { height: 44px; font-size: 16px; text-align: center; }
-.phone-auth__code { letter-spacing: 6px; font-family: var(--font-mono-stack); font-size: 20px; }
+.phone-auth { display: flex; flex-direction: column; gap: 12px; width: 100%; }
+.phone-auth__field { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.phone-auth__label { font-size: 13px; line-height: 18px; font-weight: 500; }
+.phone-auth .phone-auth__input { height: 48px; padding: 0 16px; border: 1px solid var(--color-border-tertiary); border-radius: var(--radius-md); font-size: 16px; line-height: 20px; letter-spacing: 0.14px; text-align: left; }
+.phone-auth .phone-auth__input::placeholder { color: var(--color-text-secondary); }
+.phone-auth .phone-auth__input:focus { border-color: var(--color-border-focus); }
+.phone-auth .phone-auth__input[aria-invalid='true'] { border-color: var(--color-danger); }
+.phone-auth .phone-auth__code { letter-spacing: 6px; font-family: var(--font-mono-stack); font-size: 20px; text-align: center; }
 .phone-auth__btn { height: 44px; font-size: 15px; width: 100%; justify-content: center; }
 .phone-auth__btn--whatsapp { gap: 8px; }
 .phone-auth__title { font-size: 14px; font-weight: 500; text-align: center; color: var(--color-text-primary); }
-.phone-auth__hint, .phone-auth__small { font-size: 12px; line-height: 17px; text-align: center; color: var(--color-text-tertiary); }
+.phone-auth__hint, .phone-auth__small { font-size: 12px; line-height: 18px; text-align: center; color: var(--color-text-secondary); }
 .phone-auth__small code { font-family: var(--font-mono-stack); color: var(--color-text-secondary); white-space: nowrap; }
 .phone-auth__help { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; padding: 12px; border-radius: 12px; background: var(--color-bg-tertiary); font-size: 13px; line-height: 18px; color: var(--color-text-secondary); text-align: center; }
 .phone-auth__link { align-self: center; font-size: 13px; color: var(--color-text-secondary); text-decoration: underline; text-underline-offset: 2px; }
 .phone-auth__error { width: 100%; }
-.signin__or { width: 100%; margin: 16px 0 12px; }
 .msg-phone-auth { display: flex; flex-direction: column; gap: 8px; max-width: 360px; margin: 0 auto; padding: 4px 14px 16px; }
 
 /* Contact card */

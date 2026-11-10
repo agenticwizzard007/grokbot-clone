@@ -1,3 +1,5 @@
+import { selectedCli } from './cli/store.js';
+import { verifyVoiceKey } from './settings.js';
 import { Hono } from 'hono';
 import { db, now } from './db.js';
 import './db-config.js';
@@ -12,7 +14,7 @@ import { getConnInfo } from '@hono/node-server/conninfo';
 import { createPairing, localFilePath, pairingInfo, revokePairings } from './computers/local.js';
 import { startThisComputer, stopThisComputer, thisComputerAvailable, thisComputerUser } from './computers/this-computer.js';
 import { canManageServer, clearSetting, saveSetting, SETTINGS, settingsStatus, verifyComposioKey, verifyOpenRouterKey, verifyDirectKey, type SettingName } from './settings.js';
-import { openrouterModels } from './lib/llm.js';
+import { defaultModel, llmProvider, openrouterModels } from './lib/llm.js';
 import { hub } from './lib/hub.js';
 import { refreshTriggerSubscription } from './triggers.js';
 import { runInBotQueue } from './agent/loop.js';
@@ -290,6 +292,12 @@ configApi.put('/settings/keys/:name', async (c) => {
   const v = String(value ?? '').trim();
   if (!v) return c.json({ error: 'Enter a value first.' }, 400);
   if (v.length > 400 || /\s/.test(v)) return c.json({ error: "That doesn't look like a key." }, 400);
+  if (name === 'voice') {
+    const r = await verifyVoiceKey(v);
+    if (!r.ok) return c.json({ error: r.error }, 400);
+    saveSetting('voice', v, user.id);
+    return c.json({ ok: true, canEdit: true, ...settingsStatus() });
+  }
   if (name === 'direct') {
     const r = await verifyDirectKey(v, env.directModel);
     if (!r.ok) return c.json({ error: r.error }, 400);
@@ -346,9 +354,11 @@ configApi.delete('/settings/keys/:name', (c) => {
 
 /** Models for the model pickers: OpenRouter's tool-capable catalog, or the models the direct provider key can use. */
 configApi.get('/settings/models', async (c) => {
-  const provider = c.req.query('provider') === 'direct' || c.req.query('provider') === 'openrouter' ? c.req.query('provider') : env.llmProvider;
+  const cli = selectedCli(c.get('user').id);
+  if (cli && !c.req.query('provider')) return c.json({ provider: `${cli}-cli`, models: [{ id: `${cli}/default`, name: cli === 'codex' ? 'ChatGPT · Codex default' : 'Claude · CLI default', vision: true, reasoning: true, context: 0, price: null }] });
+  const provider = c.req.query('provider') === 'direct' || c.req.query('provider') === 'openrouter' ? c.req.query('provider') : llmProvider();
   if (provider === 'openrouter') {
-    try { return c.json({ provider, models: await openrouterModels() }); }
+    try { return c.json({ provider, defaultModel: defaultModel(), models: await openrouterModels() }); }
     catch (e: any) { return c.json({ provider, models: [], error: String(e?.message ?? e) }); }
   }
   if (!env.directKey) return c.json({ provider, models: [] });

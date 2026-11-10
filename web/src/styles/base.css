@@ -87,8 +87,9 @@ a { color: inherit; }
   position: relative; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; overflow: hidden;
   background: #FFFFFF; box-shadow: #1C1C1C14 0 0 0 0.5px inset;
 }
-.toolkit-logo img { object-fit: contain; }
-.toolkit-logo__letter { font-weight: 600; color: var(--color-text-secondary); line-height: 1; }
+.toolkit-logo img { display: block; object-fit: contain; }
+.toolkit-logo--mark { box-shadow: none; }
+.toolkit-logo__letter { font-weight: 600; color: #626262; line-height: 1; }
 
 .menu {
   position: absolute; z-index: 50; min-width: 200px; padding: 4px; border-radius: 12px;

@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { db, now } from './db.js';
 import { env, envSource, setEnvOverride } from './env.js';
 import { composioHeaders } from './composio-auth.js';
+import { mintVoiceSecret } from './lib/voice-provider.js';
 
 /**
  * Provider keys set from the app (Settings → API keys). Stored in SQLite encrypted with a key
@@ -9,6 +10,7 @@ import { composioHeaders } from './composio-auth.js';
  */
 
 export const SETTINGS = {
+  voice: { env: 'XAI_API_KEY', secret: true },
   direct: { env: 'DIRECT_API_KEY', secret: true },
   composio: { env: 'COMPOSIO_API_KEY', secret: true },
   model: { env: 'DIRECT_MODEL', secret: false },
@@ -76,6 +78,7 @@ const hint = (v: string) => (v.length > 8 ? `…${v.slice(-4)}` : 'set');
 
 export function settingsStatus() {
   return {
+    voice: { set: !!env.voiceKey, source: envSource('XAI_API_KEY'), hint: null },
     direct: { set: !!env.directKey, source: envSource('DIRECT_API_KEY'), hint: env.directKey ? hint(env.directKey) : null },
     composio: { set: !!env.composioKey, source: envSource('COMPOSIO_API_KEY'), hint: env.composioKey ? hint(env.composioKey) : null },
     openrouter: { set: !!env.openrouterKey, source: envSource('OPENROUTER_API_KEY'), hint: env.openrouterKey ? hint(env.openrouterKey) : null },
@@ -103,6 +106,15 @@ export function canManageServer(user: { id: string; email: string }): boolean {
 }
 
 // ---------- validation: call the provider with the key before saving it ----------
+
+export async function verifyVoiceKey(key: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await mintVoiceSecret(key, env.voiceBaseUrl);
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'Could not verify xAI voice access. Check the key’s realtime permissions, account credits and provider availability.' };
+  }
+}
 
 export async function verifyDirectKey(key: string, model: string): Promise<{ ok: true; models: string[]; modelOk: boolean } | { ok: false; error: string }> {
   try {
