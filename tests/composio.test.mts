@@ -228,6 +228,51 @@ test('catalog API exposes every app across pages, preserves filters and bounds m
   } finally { fetchMock.mock.restore(); }
 });
 
+test('popular connections precede pagination and grouped filters include everyday apps', async () => {
+  const { Hono } = await import('hono');
+  const { api } = await import('../server/src/routes.js');
+  const { APP_CATEGORIES } = await import('../server/src/app-catalog.js');
+  const app = new Hono().route('/api', api);
+  const { client } = freshClient();
+  mock.method(client.connectedAccounts, 'list', async () => ({ items: [{ id: 'gmail-account', toolkit: { slug: 'gmail' }, status: 'ACTIVE' }], nextCursor: null }));
+  const popular = APP_CATEGORIES.flatMap(group => group.slugs);
+  assert.equal(popular.length, 40);
+  assert.equal(new Set(popular).size, 40);
+  const categories: Record<string, string> = { gmail: 'email', slack: 'team chat', googlecalendar: 'scheduling & booking', googledrive: 'file management & storage' };
+  const items = [
+    ...Array.from({ length: 80 }, (_, i) => ({ slug: `other${i}`, name: `Other ${i}`, meta: { categories: [{ name: 'email' }] } })),
+    ...[...popular].reverse().map(slug => ({ slug, name: slug, meta: { categories: [{ name: categories[slug] ?? 'other' }] } })),
+  ];
+  const fetchMock = mock.method(globalThis, 'fetch', async (url: string) => {
+    if (new URL(url).hostname !== 'backend.composio.dev') return backgroundFetch(url);
+    return Response.json({ items });
+  });
+  const page = async (query = '') => {
+    const response = await app.request(`/api/apps?${query}`, { headers: { cookie: 'swarm_session=owner' } });
+    assert.equal(response.status, 200);
+    return await response.json() as any;
+  };
+  try {
+    const first = await page();
+    assert.deepEqual(first.apps.slice(0, 40).map((item: any) => item.slug), popular);
+    assert.equal(first.apps[0].connected, true);
+    assert.deepEqual(first.connectedApps.map((item: any) => item.slug), ['gmail']);
+    assert.equal(first.total, 120);
+    assert.equal(first.nextOffset, 60);
+    const second = await page('offset=60');
+    assert.deepEqual([...first.apps, ...second.apps].slice(40).map((item: any) => item.slug), Array.from({ length: 80 }, (_, i) => `other${i}`));
+    assert.equal(second.nextOffset, null);
+    const communication = await page('category=communication');
+    assert.ok(communication.apps.some((item: any) => item.slug === 'gmail'));
+    assert.ok(communication.apps.some((item: any) => item.slug === 'slack'));
+    assert.ok(communication.apps.some((item: any) => item.slug === 'other0'), 'category browsing includes non-featured apps');
+    assert.ok(!communication.apps.some((item: any) => item.slug === 'googlecalendar'));
+    const productivity = await page('category=productivity&search=google');
+    assert.deepEqual(productivity.apps.map((item: any) => item.slug), ['googlecalendar', 'googledrive', 'googledocs', 'googlesheets']);
+    assert.deepEqual((await page('category=team%20chat')).apps.map((item: any) => item.slug), ['slack'], 'provider categories remain available');
+  } finally { fetchMock.mock.restore(); }
+});
+
 test('one project gives each user a separate session and deduplicates concurrent first use', async () => {
   const { created } = freshClient();
   const [one, same, other] = await Promise.all([sessionFor('owner'), sessionFor('owner'), sessionFor('other')]);

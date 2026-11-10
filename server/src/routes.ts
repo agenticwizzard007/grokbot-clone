@@ -19,6 +19,7 @@ import { createBot } from './bots.js';
 import { activateSetup, beginSetupInterview, briefSchema, emitSetup, getSetup, removeSetupFiles, setupFiles, setupView, writeSetupFiles } from './bot-setup.js';
 import { importTeammate, provisionTeammate } from './agent/teammates.js';
 import type { Toolkit } from './types.js';
+import { compareAppPriority, matchesAppCategory } from './app-catalog.js';
 import { verifyUserSig } from './messaging/store.js';
 import { createAccount } from './accounts.js';
 
@@ -399,7 +400,8 @@ api.get('/apps', async (c) => {
   const [all, connected] = await Promise.all([catalog(), connectedToolkits(user.id)]);
   let items: Toolkit[] = all.map((t) => ({ ...t, connected: connected.has(t.slug) }));
   if (search) items = items.filter((t) => t.name.toLowerCase().includes(search) || t.slug.includes(search) || t.description?.toLowerCase().includes(search));
-  if (category) items = items.filter((t) => t.categories.some((x) => x.toLowerCase() === category.toLowerCase()));
+  if (category) items = items.filter((t) => matchesAppCategory(t, category));
+  items.sort(compareAppPriority);
   const categories = [...new Set(all.flatMap((t) => t.categories))].sort();
   const connectedApps = all.filter((t) => connected.has(t.slug)).map((t) => ({ ...t, connected: true }));
   const pageNumber = (value: string | undefined, fallback: number) => value !== undefined && /^\d+$/.test(value) && Number.isSafeInteger(Number(value)) ? Number(value) : fallback;
