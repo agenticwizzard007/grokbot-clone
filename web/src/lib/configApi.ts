@@ -105,7 +105,7 @@ async function inkboxSetup(p: { handle?: string; withPhone?: boolean; rotateSign
   throw new ApiError(res.status, body?.error ?? res.statusText);
 }
 
-export type BotPatch = Partial<Pick<Bot, 'name' | 'label' | 'description' | 'instructions' | 'avatarShape' | 'avatarColor' | 'effort' | 'mode' | 'model'>>;
+export type BotPatch = Partial<Pick<Bot, 'name' | 'label' | 'description' | 'instructions' | 'avatarShape' | 'avatarColor' | 'effort' | 'mode' | 'model' | 'fast'>>;
 
 export type UsageRange = 'today' | '7d' | '30d' | 'month';
 export interface UsageRow { key: string; label: string; costUsd: number; tokens: number; requests: number; unpriced: number; minutes: number; recordings: number; characters: number; computerUsd?: number; computerHours?: number }
@@ -155,6 +155,7 @@ export const configApi = {
   activateSetup: (botId: string, revision: number) => req<AgentSetupView>('POST', `/bots/${botId}/setup/activate`, { revision }),
   settings: (botId: string) => req<BotSettingsBundle>('GET', `/bots/${botId}/settings`),
   updateBot: (botId: string, p: BotPatch) => req<{ bot: Bot }>('PATCH', `/bots/${botId}`, p),
+  botAnalytics: (botId: string, range: '7d' | '30d' | '90d') => req<BotAnalytics>('GET', `/bots/${botId}/analytics?range=${range}`),
   deleteBot: (botId: string) => req<{ ok: true }>('DELETE', `/bots/${botId}`),
   makePrimary: (botId: string) => req<{ ok: true }>('POST', `/bots/${botId}/primary`),
   fresh: (botId: string) => req<{ ok: true }>('POST', `/bots/${botId}/fresh`),
@@ -243,3 +244,11 @@ export const configApi = {
   phoneAttachStart: (phone: string) => req<PhoneStart>('POST', '/messaging/phone/start', { phone }),
   phoneAttachVerify: (id: string, code: string) => req<MessagingStatus>('POST', '/messaging/phone/verify', { id, code }),
 };
+
+export interface BotAnalytics {
+  range: '7d' | '30d' | '90d';
+  days: { day: string; messages: number; minutesSaved: number }[];
+  totals: { messages: number; minutesSaved: number };
+  breakdown: { key: string; label: string; minutes: number }[];
+  rates: { pageRead: number; webSearch: number; appAction: number; command: number; computerStep: number; organise: number; wordsPerMinute: number };
+}

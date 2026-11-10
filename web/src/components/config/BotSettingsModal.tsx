@@ -8,6 +8,7 @@ import { useConfigUI, useVersion, type BotSettingsTab } from '../../configStore'
 import { useStore } from '../../store';
 import { Icon } from '../Icon';
 import { Modal } from '../modals/Modal';
+import { BotAnalyticsTab } from './BotAnalyticsTab';
 import { Glyph } from './glyphs';
 import { ConfirmButton, Field, Segmented, Switch, nextRunLabel, shortDate } from './ui';
 
@@ -15,14 +16,20 @@ const EFFORTS: { value: Bot['effort']; label: string }[] = [
   { value: 'low', label: 'Low' },
   { value: 'medium', label: 'Medium' },
   { value: 'high', label: 'High' },
-  { value: 'xhigh', label: 'Max' },
+  { value: 'xhigh', label: 'Extra high' },
+  { value: 'max', label: 'Max' },
+  { value: 'ultracode', label: 'Ultracode' },
 ];
 
 const EFFORT_HINT: Record<Bot['effort'], string> = {
+  none: 'Answers straight away, without thinking first.',
+  minimal: 'Barely stops to think. Quickest answers.',
   low: 'Fastest replies. Good for quick lookups and chit-chat.',
   medium: 'A good balance for most work.',
   high: 'Thinks longer before acting. Better for tricky, multi-step work.',
-  xhigh: 'Thinks the longest. Slowest, for the hardest problems.',
+  xhigh: 'Thinks for a long time. For the hardest problems.',
+  max: 'The deepest thinking this model offers. Slowest.',
+  ultracode: 'Max effort, a 2.5× longer step budget, and an instruction to plan and verify every step. For big, careful jobs.',
 };
 
 export function BotSettingsModal() {
@@ -53,6 +60,7 @@ export function BotSettingsModal() {
     { id: 'skills', label: 'Skills', count: data?.skills.length },
     { id: 'memories', label: 'Memories', count: data?.memories.length },
     { id: 'routines', label: 'Routines', count: (routines ?? data?.routines)?.length },
+    { id: 'analytics', label: 'Analytics' },
   ];
 
   return (
@@ -79,6 +87,7 @@ export function BotSettingsModal() {
           {target.tab === 'skills' && <SkillsTab bot={bot} skills={data?.skills} onChange={reload} />}
           {target.tab === 'memories' && <MemoriesTab bot={bot} data={data} onChange={reload} />}
           {target.tab === 'routines' && <RoutinesTab bot={bot} routines={routines ?? data?.routines} />}
+          {target.tab === 'analytics' && <BotAnalyticsTab bot={bot} />}
         </div>
       </div>
     </Modal>

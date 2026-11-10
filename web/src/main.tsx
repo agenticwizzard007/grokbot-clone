@@ -10,7 +10,8 @@ import './styles/details.css';
 import './styles/modals.css';
 import './styles/viewer.css';
 import './styles/voice.css';
-import './styles/mobile.css';
+import './styles/composer-models.css';
+import './styles/mobile.css'; // last: phone and tablet overrides
 import './lib/native';
 
 createRoot(document.getElementById('root')!).render(

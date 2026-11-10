@@ -1,14 +1,12 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { startEvents } from './lib/events';
-import { useStore } from './store';
+import { PHONE_QUERY, useStore } from './store';
 import { ChatView } from './components/ChatView';
 import { DetailsPanel } from './components/DetailsPanel';
 import { Sidebar } from './components/Sidebar';
 import { SignIn } from './components/SignIn';
 import { TasksView } from './components/config/TasksView';
 import { useConfigUI } from './configStore';
-import { Icon } from './components/Icon';
-import { useCompactLayout } from './lib/useCompactLayout';
 import { installVoiceShortcut } from './voice/shortcut';
 
 const ComputerViewer = lazy(() => import('./components/ComputerViewer').then(m => ({ default: m.ComputerViewer })));
@@ -26,16 +24,29 @@ function Shell() {
   const collapsed = useStore((s) => s.sidebarCollapsed);
   const hasBot = useStore((s) => !!s.selectedBotId);
   const view = useConfigUI((s) => s.view);
-  const compact = useCompactLayout();
-  const mobileSidebarOpen = useStore((s) => s.mobileSidebarOpen);
+  const mobile = useStore((s) => s.mobile);
+  const pane = useStore((s) => s.mobilePane);
+  // Settings dialogs load lazily; only mount them while one is open.
   const settingsOpen = useConfigUI((s) => !!s.appSettings || !!s.botSettings);
 
+  // Phone layout: follow the breakpoint, and let the system back gesture leave a chat for the list.
   useEffect(() => {
-    if (modal || settingsOpen) useStore.getState().set({ mobileSidebarOpen: false });
-  }, [modal, settingsOpen]);
+    const mq = window.matchMedia(PHONE_QUERY);
+    const onChange = () => useStore.getState().set({ mobile: mq.matches, ...(mq.matches ? {} : { mobilePane: 'list' as const }) });
+    const onPop = () => {
+      const st = useStore.getState();
+      if (!st.mobile || st.mobilePane !== 'chat') return;
+      st.set({ mobilePane: 'list', detailsOpen: false });
+      useConfigUI.getState().setView('chat');
+    };
+    mq.addEventListener('change', onChange);
+    window.addEventListener('popstate', onPop);
+    return () => { mq.removeEventListener('change', onChange); window.removeEventListener('popstate', onPop); };
+  }, []);
+  // Leaving phone width closes nothing; reaching it closes the details column (it becomes a sheet).
   useEffect(() => {
-    if (compact) useStore.getState().set({ detailsOpen: false });
-  }, [compact]);
+    if (mobile) useStore.getState().set({ detailsOpen: false });
+  }, [mobile]);
 
   useEffect(() => {
     const st = useStore.getState();
@@ -61,7 +72,7 @@ function Shell() {
       const st = useStore.getState();
       const key = e.key.toLowerCase();
       if (key === 'k') { e.preventDefault(); st.setModal(st.modal === 'search' ? null : 'search'); }
-      else if (key === 'b') { e.preventDefault(); st.set(window.matchMedia('(max-width: 760px)').matches ? { mobileSidebarOpen: !st.mobileSidebarOpen } : { sidebarCollapsed: !st.sidebarCollapsed }); }
+      else if (key === 'b') { e.preventDefault(); if (!st.mobile) st.set({ sidebarCollapsed: !st.sidebarCollapsed }); }
       else if (e.shiftKey && (key === ',' || key === '<')) { e.preventDefault(); st.set({ detailsOpen: !st.detailsOpen }); }
       else if (key === ',') { e.preventDefault(); useConfigUI.getState().openAppSettings(); }
     };
@@ -70,12 +81,16 @@ function Shell() {
   }, []);
 
   return (
-    <div className={`app${collapsed ? ' is-sidebar-collapsed' : ''}${detailsOpen && hasBot && view === 'chat' ? ' has-details' : ''}`}>
-      {compact && <button className="mobile-nav-toggle icon-btn" type="button" aria-label="Open bots" aria-expanded={mobileSidebarOpen} onClick={() => useStore.getState().set({ mobileSidebarOpen: true })}><Icon name="sidebar" /></button>}
-      {compact && mobileSidebarOpen && <button type="button" className="mobile-nav-scrim" aria-label="Close bots" tabIndex={-1} onClick={() => useStore.getState().set({ mobileSidebarOpen: false })} />}
-      {(!compact || mobileSidebarOpen) && <Sidebar />}
+    <div className={`app${collapsed && !mobile ? ' is-sidebar-collapsed' : ''}${detailsOpen && hasBot && view === 'chat' ? ' has-details' : ''}${mobile ? ` is-mobile pane-${view === 'tasks' ? 'chat' : pane}` : ''}`}>
+      <Sidebar />
       {view === 'tasks' ? <TasksView /> : <ChatView />}
-      {detailsOpen && hasBot && view === 'chat' && <DetailsPanel />}
+      {detailsOpen && hasBot && view === 'chat' && (!mobile || pane === 'chat') && (
+        <>
+          {/* Tablets: the panel slides over the chat; tapping the dimmed chat closes it. Hidden on other widths (mobile.css). */}
+          {!mobile && <div className="details-scrim" aria-hidden onClick={() => useStore.getState().set({ detailsOpen: false })} />}
+          <DetailsPanel />
+        </>
+      )}
       <Suspense fallback={<div className="toast" role="status">Loading…</div>}>
       {modal === 'create' && <CreateBotModal />}
       {modal === 'group' && <CreateGroupModal />}

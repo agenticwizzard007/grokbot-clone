@@ -4,6 +4,8 @@ import { api } from '../lib/api';
 import { displayName, useStore } from '../store';
 import { Icon } from './Icon';
 import { Menu } from './Menu';
+import { ComposerModelMenu, cycleEffort, toggleFast } from './ComposerModelMenu';
+import { useModels } from '../lib/models';
 import { endCall, isCallActive, startCall, useVoice } from '../voice/call';
 import { useDictation } from '../voice/dictation';
 
@@ -11,6 +13,10 @@ const MAX_H = 200;
 const drafts = new Map<string, string>();
 
 export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
+  // Phones: the short name keeps the placeholder on one line.
+  const mobile = useStore((s) => s.mobile);
+  // Phones hide the chat while the Bot list is showing; the box can only be measured once it's on screen.
+  const onScreen = useStore((s) => !s.mobile || s.mobilePane === 'chat');
   const [text, setText] = useState(() => drafts.get(bot.id) ?? '');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -19,17 +25,42 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   const setModal = useStore((s) => s.setModal);
 
   // Per-bot drafts.
-  useEffect(() => { setText(drafts.get(bot.id) ?? ''); setError(null); ref.current?.focus(); }, [bot.id]);
+  // Phones don't take focus on open: it would raise the keyboard over the conversation.
+  useEffect(() => { setText(drafts.get(bot.id) ?? ''); setError(null); if (!useStore.getState().mobile) ref.current?.focus(); }, [bot.id]);
   useEffect(() => { drafts.set(bot.id, text); }, [bot.id, text]);
 
   // Auto-grow.
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
+    // Hidden (display: none) measures 0; leave the natural one-line height until it's shown.
+    if (!el.offsetParent) { el.style.height = ''; return; }
     el.style.height = '0px';
     el.style.height = `${Math.min(el.scrollHeight, MAX_H)}px`;
     el.style.overflowY = el.scrollHeight > MAX_H ? 'auto' : 'hidden';
-  }, [text]);
+  }, [text, onScreen, mobile]);
+
+  // Ultracode: a one-off flare when it's switched on.
+  const ultra = bot.effort === 'ultracode';
+  const [flare, setFlare] = useState(false);
+  const wasUltra = useRef(ultra);
+  useEffect(() => {
+    if (ultra && !wasUltra.current) { setFlare(true); const t = setTimeout(() => setFlare(false), 1400); wasUltra.current = ultra; return () => clearTimeout(t); }
+    wasUltra.current = ultra;
+  }, [ultra]);
+
+  // ⌘⇧/ cycles the effort, ⌘⇧F toggles Fast (while the composer has focus).
+  const area = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || !area.current?.contains(document.activeElement)) return;
+      const m = bot.model ? useModels.getState().byId.get(bot.model) : undefined;
+      if (e.code === 'Slash') { e.preventDefault(); cycleEffort(bot, m); }
+      else if (e.code === 'KeyF' && useModels.getState().canFast) { e.preventDefault(); toggleFast(bot); }
+    };
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  }, [bot]);
 
   // ⌘I focuses the prompt.
   useEffect(() => {
@@ -75,12 +106,27 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   const inCall = useVoice((s) => isCallActive(s) && s.botId === bot.id);
 
   const hasText = text.trim().length > 0;
-  const multiline = text.includes('\n') || (ref.current?.scrollHeight ?? 0) > 30;
+  const multiline = text.includes('\n') || (ref.current?.scrollHeight ?? 0) > 44;
 
   return (
-    <div className="composer-area">
+    <div className="composer-area" ref={area}>
       {error && <div className="composer__error">{error} <button type="button" className="link-btn" onClick={() => setError(null)}>Dismiss</button></div>}
-      <div className={`composer${multiline ? ' is-multiline' : ''}`}>
+      <div className={`composer-shell${flare ? ' is-flaring' : ''}`}>
+      {ultra && <span className="composer__glow" aria-hidden />}
+      <div className={`composer${multiline ? ' is-multiline' : ''}${ultra ? ' is-ultracode' : ''}`}>
+        <textarea
+          ref={ref}
+          className="composer__input"
+          rows={1}
+          value={text}
+          placeholder={`Message ${mobile ? bot.name : displayName(bot)}`}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); }
+          }}
+          aria-label={`Message ${bot.name}`}
+        />
+        <div className="composer__bar">
         <div className="composer__left">
           <span className="composer__plus-anchor">
             <button type="button" className="composer__btn" onClick={() => setMenu(!menu)} aria-label="More actions" aria-expanded={menu}>
@@ -97,18 +143,7 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
               />
             )}
           </span>
-          <textarea
-            ref={ref}
-            className="composer__input"
-            rows={1}
-            value={text}
-            placeholder={`Message ${displayName(bot)}`}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); }
-            }}
-            aria-label={`Message ${bot.name}`}
-          />
+          <ComposerModelMenu bot={bot} />
         </div>
         <div className="composer__right">
           <button
@@ -146,6 +181,8 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
             </button>
           )}
         </div>
+        </div>
+      </div>
       </div>
     </div>
   );

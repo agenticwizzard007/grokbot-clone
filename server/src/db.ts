@@ -168,6 +168,8 @@ addColumn('bots', 'voice', "TEXT NOT NULL DEFAULT 'luna'");
 addColumn('bots', 'model', 'TEXT'); // per-Bot model (OpenRouter id like "anthropic/claude-sonnet-5.5", or a direct provider model); NULL = server default
 addColumn('bots', 'voice_speed', 'REAL NOT NULL DEFAULT 1');
 addColumn('bots', 'voice_language', "TEXT NOT NULL DEFAULT 'auto'");
+addColumn('bots', 'fast', 'INTEGER NOT NULL DEFAULT 0'); // OpenRouter :nitro routing
+addColumn('users', 'favorite_models', 'TEXT'); // JSON array of model ids, in the user's order
 // Existing agents keep working; new teammates explicitly start in interviewing state.
 addColumn('bot_setups', 'onboarding_status', "TEXT NOT NULL DEFAULT 'active'");
 addColumn('bot_setups', 'revision', 'INTEGER NOT NULL DEFAULT 1');
