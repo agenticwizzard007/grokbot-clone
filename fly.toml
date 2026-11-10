@@ -17,9 +17,9 @@ primary_region = "iad"
   FLY_VM_APP = "swarm-team-vms"
   VM_IMAGE = "registry.fly.io/swarm-team-vms:v4-latency-bootstrap"
   VM_REGION = "iad"
-  # Measured: ~325 MB per Bot (screen + Chrome); 2 GB + 384 MB per Bot fits ~4 Bots without a resize.
+  # Per Bot: its screen, Chrome and its Playwright process (~400 MB measured); 2 GB + 512 MB per Bot.
   VM_BASE_MEMORY_MB = "2048"
-  VM_SCREEN_MEMORY_MB = "384"
+  VM_SCREEN_MEMORY_MB = "512"
   VM_PROVISION_EXISTING = "1"
   # Keep active sessions warm for 15 minutes to avoid repeated wake-ups (more uptime than 5 min).
   # A VM sleeps after its last task (waking takes ~2 s), sleeps right after
