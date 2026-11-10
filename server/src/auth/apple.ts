@@ -5,7 +5,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { createAccount } from '../accounts.js';
 import { db, now } from '../db.js';
 import { env } from '../env.js';
-import { createSession, userFromCookieHeader } from '../lib/auth.js';
+import { createSession, sessionToken, userFromCookieHeader } from '../lib/auth.js';
 import { appleAvailability, appleConfiguration, AppleError, exchangeAppleCode, saveAppleRefreshToken, type AppleClient } from './apple-provider.js';
 
 const COOKIE = 'swarm_apple_attempt';
@@ -33,7 +33,7 @@ function start(c: Context, client: AppleClient, challenge: string | null, linkin
   db.prepare('DELETE FROM apple_login_attempts WHERE expires_at<=?').run(now());
   const count = db.prepare('SELECT count(*) AS n FROM apple_login_attempts').get() as { n: number };
   if (count.n >= 2000) throw new AppleError('apple_busy');
-  const attempt: Attempt = { id: random(), client, client_id: appleConfiguration().clients[client], nonce: random(), challenge, link_user_id: linking ? user!.id : null, link_session: linking ? getCookie(c, 'swarm_session')! : null, expires_at: now() + TTL };
+  const attempt: Attempt = { id: random(), client, client_id: appleConfiguration().clients[client], nonce: random(), challenge, link_user_id: linking ? user!.id : null, link_session: linking ? sessionToken(c)! : null, expires_at: now() + TTL };
   db.prepare('INSERT INTO apple_login_attempts(id,client,client_id,nonce,challenge,link_user_id,link_session,expires_at) VALUES (@id,@client,@client_id,@nonce,@challenge,@link_user_id,@link_session,@expires_at)').run(attempt);
   return attempt;
 }

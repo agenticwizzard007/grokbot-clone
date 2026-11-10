@@ -3,7 +3,7 @@ import { Hono, type Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { db, now } from './db.js';
 import { env } from './env.js';
-import { createSession, userFromCookieHeader } from './lib/auth.js';
+import { createSession, sessionToken, userFromCookieHeader } from './lib/auth.js';
 import { bodyLimit } from 'hono/body-limit';
 
 // The system browser and WKWebView have separate cookie jars. Only a short-lived,
@@ -107,7 +107,7 @@ nativeAuth.post('/openrouter/prepare', async (c) => {
   if ((db.prepare('SELECT count(*) AS n FROM native_login_attempts').get() as { n: number }).n >= 2000) return c.json({ error: 'Please try again shortly.' }, 429);
   const ticket = random();
   db.prepare('INSERT INTO native_login_attempts(id,challenge,state,expires_at,link_user_id,link_session,ticket_hash) VALUES (?,?,?,?,?,?,?)')
-    .run(random(), body.challenge, body.state, now() + TTL, user.id, getCookie(c, 'swarm_session')!, hash(ticket));
+    .run(random(), body.challenge, body.state, now() + TTL, user.id, sessionToken(c)!, hash(ticket));
   return c.json({ ticket });
 });
 

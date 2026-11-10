@@ -1,4 +1,10 @@
+import fs from 'node:fs';
 import path from 'node:path';
+
+// Installs from before the Swarm rename may still set GROKBOT_* variables; read them as SWARM_*.
+for (const [name, value] of Object.entries(process.env)) {
+  if (name.startsWith('GROKBOT_') && value !== undefined) process.env[`SWARM_${name.slice(8)}`] ??= value;
+}
 
 function req(name: string): string {
   const v = process.env[name];
@@ -34,7 +40,10 @@ const inkboxHandle = () => {
   return !h || h === 'swarm-team' ? 'swarm' : h;
 };
 
-const dbPath = process.env.DB_PATH ?? new URL('../../data/swarm.db', import.meta.url).pathname;
+/** `current`, unless only `legacy` exists (an install from before the Swarm rename). */
+export const preferExisting = (current: string, legacy: string) => (!fs.existsSync(current) && fs.existsSync(legacy) ? legacy : current);
+const dataFile = (name: string) => new URL(`../../data/${name}`, import.meta.url).pathname;
+const dbPath = process.env.DB_PATH ?? preferExisting(dataFile('swarm.db'), dataFile('grokbot.db'));
 
 export const env = {
   port: Number(process.env.PORT ?? 8787),

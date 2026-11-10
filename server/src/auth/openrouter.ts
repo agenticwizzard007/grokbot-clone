@@ -4,7 +4,7 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { db, now } from '../db.js';
 import { env } from '../env.js';
 import { createAccount } from '../accounts.js';
-import { createSession, userFromCookieHeader, userFromToken } from '../lib/auth.js';
+import { createSession, sessionToken, userFromCookieHeader, userFromToken } from '../lib/auth.js';
 import { sealSecret, unsealSecret } from '../settings.js';
 import { finishNativeLogin, nativeLink } from '../native-auth.js';
 import { exchangeOpenRouterCode, OpenRouterError, saveOpenRouterKey } from '../providers/openrouter.js';
@@ -45,7 +45,7 @@ openrouterAuth.get('/start', (c) => {
   const prior = getCookie(c, COOKIE);
   if (prior) db.prepare('DELETE FROM openrouter_login_attempts WHERE id=?').run(prior);
   db.prepare('INSERT INTO openrouter_login_attempts(id,verifier,link_user_id,link_session,expires_at) VALUES (?,?,?,?,?)')
-    .run(id, sealSecret(verifier), linkUser?.id ?? null, linkUser ? native?.session ?? getCookie(c, 'swarm_session')! : null, now() + TTL);
+    .run(id, sealSecret(verifier), linkUser?.id ?? null, linkUser ? native?.session ?? sessionToken(c)! : null, now() + TTL);
   setCookie(c, COOKIE, id, { httpOnly: true, secure: new URL(env.serverUrl).protocol === 'https:', sameSite: 'Lax', path: PATH, maxAge: TTL / 1000 });
   const url = new URL('https://openrouter.ai/auth');
   url.search = new URLSearchParams({ callback_url: `${env.serverUrl.replace(/\/$/, '')}${PATH}/callback`, state: id, code_challenge: hash(verifier), code_challenge_method: 'S256', key_label: 'Swarm' }).toString();
@@ -63,7 +63,7 @@ openrouterAuth.get('/callback', async (c) => {
   if (!attempt) return failure(c, 'openrouter_session');
   const linking = !!attempt.link_user_id;
   if (denied) return failure(c, 'openrouter_denied', linking);
-  const validSession = () => !linking || ((nativeLink(c)?.session ?? getCookie(c, 'swarm_session')) === attempt.link_session && userFromToken(attempt.link_session!)?.id === attempt.link_user_id);
+  const validSession = () => !linking || ((nativeLink(c)?.session ?? sessionToken(c)) === attempt.link_session && userFromToken(attempt.link_session!)?.id === attempt.link_user_id);
   if (!validSession()) return failure(c, 'openrouter_link_signin', linking);
   const code = c.req.query('code');
   const verifier = unsealSecret(attempt.verifier);

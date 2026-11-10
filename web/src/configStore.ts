@@ -1,3 +1,4 @@
+import './lib/legacy-storage'; // before reading saved preferences
 import { create } from 'zustand';
 import type { ServerEvent } from '@shared/types';
 import { enterChatPane, useStore } from './store';
