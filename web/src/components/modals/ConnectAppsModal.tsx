@@ -7,6 +7,7 @@ import { Icon } from '../Icon';
 import { Menu } from '../Menu';
 import { ToolkitLogo } from '../ToolkitLogo';
 import { Modal } from './Modal';
+import { useConfigUI } from '../../configStore';
 
 /** Design pill → backend (Composio) category. */
 const PILLS: { label: string; category: string }[] = [
@@ -170,6 +171,7 @@ export function ConnectAppsModal() {
       <div className="apps-modal__head">
         <div className="apps-modal__titlerow">
           <span className="apps-modal__title">Connect Apps</span>
+          <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => { close(); useConfigUI.getState().openAppSettings('mcp'); }}>Custom MCP</button>
           <button type="button" className={`apps-modal__connected${view.kind === 'connected' ? ' is-active' : ''}`} onClick={() => setView(view.kind === 'connected' ? { kind: 'all' } : { kind: 'connected' })}>
             {connectedApps.length > 0 && (
               <span className="apps-modal__connected-logos">

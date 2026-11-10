@@ -6,6 +6,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { db, now } from '../db.js';
 import { env } from '../env.js';
 import { hub } from '../lib/hub.js';
+import { getLive } from '../store.js';
 import { sha256, token as randomToken } from '../lib/ids.js';
 import type { ComputerState, LibraryFile } from '../types.js';
 import { ByteQueue, browserHandshake, jpegSize, jpegUpdate, msgLength, RFB_DESKTOP_SIZE, RFB_TIGHT, serverInit } from './rfb.js';
@@ -16,6 +17,10 @@ import { ComputerError, type BotScreen, type ComputerProvider, type Shot } from 
  * program (companion/grokbot-companion.mjs). The companion connects *out* to this server
  * over a WebSocket and authenticates with a pairing token, so the PC needs no open ports.
  * Each Bot gets its own Chrome profile on the PC. There is no desktop and no shell.
+ *
+ * Full-desktop mode (COMPUTER_PROVIDER=desktop, companion started with --desktop): Bots instead use
+ * the PC's real screen, mouse and keyboard, its default browser, and a shell. There is one desktop,
+ * so one Bot at a time acts on it (see takeDesktop); the others wait their turn.
  *
  * Wire protocol (JSON text frames):
  *   companion -> server  {type:'hello', token, name, platform, version, headless, width, height}
@@ -28,6 +33,8 @@ import { ComputerError, type BotScreen, type ComputerProvider, type Shot } from 
  */
 
 const OFFLINE = "Your PC isn't connected. Open Settings → Computer, then run the connect command on your PC.";
+/** Bots use the PC's full desktop and a shell (COMPUTER_PROVIDER=desktop). */
+const DESKTOP = env.localDesktop;
 const PROTOCOL_VERSION = 1;
 
 interface Frame { data: Buffer; width: number; height: number }
@@ -36,7 +43,7 @@ interface Companion {
   ws: WebSocket;
   userId: string;
   tokenHash: string;
-  device: { name: string; platform: string; version: string; headless: boolean };
+  device: { name: string; platform: string; version: string; headless: boolean; desktop: boolean };
   width: number;
   height: number;
   nextId: number;
@@ -61,6 +68,7 @@ function state(userId: string): ComputerState {
     screens: c ? [...c.browsers.keys()].map((botId) => ({ botId, screenId: 'browser' })) : [],
     provider: 'local',
     device: c ? { name: c.device.name, platform: c.device.platform } : null,
+    desktop: DESKTOP,
   };
 }
 
@@ -151,6 +159,7 @@ function onCompanion(ws: WebSocket) {
       const row = db.prepare('SELECT user_id FROM companion_tokens WHERE token_hash=?').get(hash) as any;
       if (!row) return ws.close(4401, 'invalid token');
       clearTimeout(helloTimer);
+      if (DESKTOP && msg.desktop !== true) return ws.close(4403, 'This Grokbot gives Bots your full desktop. Update the companion and start it with --desktop.');
       db.prepare('UPDATE companion_tokens SET last_seen_at=? WHERE token_hash=?').run(now(), hash);
       // One PC per user: a new connection replaces the old one.
       const old = companions.get(row.user_id);
@@ -164,6 +173,7 @@ function onCompanion(ws: WebSocket) {
           platform: String(msg.platform ?? '').slice(0, 40),
           version: String(msg.version ?? '').slice(0, 20),
           headless: msg.headless !== false,
+          desktop: msg.desktop === true,
         },
         width: Number(msg.width) || 1280,
         height: Number(msg.height) || 800,
@@ -174,7 +184,7 @@ function onCompanion(ws: WebSocket) {
         onClose: new Set(),
       };
       companions.set(row.user_id, comp);
-      ws.send(JSON.stringify({ type: 'welcome', protocol: PROTOCOL_VERSION }));
+      ws.send(JSON.stringify({ type: 'welcome', protocol: PROTOCOL_VERSION, mode: DESKTOP ? 'desktop' : 'browser' }));
       console.log(`[local] PC connected user=${row.user_id} name="${comp.device.name}" platform=${comp.device.platform} headless=${comp.device.headless}`);
       emitState(row.user_id);
       return;
@@ -335,7 +345,7 @@ async function viewer(client: WebSocket, userId: string, botId: string, mode: 'w
     fresh = true;
     fbW = size.width;
     fbH = size.height;
-    await browserHandshake(fromClient, send, serverInit(fbW, fbH, `${comp.device.name} browser`));
+    await browserHandshake(fromClient, send, serverInit(fbW, fbH, `${comp.device.name} ${DESKTOP ? 'desktop' : 'browser'}`));
     ready = true;
     handle(fromClient.takeAll());
     let subs = comp.viewers.get(botId);
@@ -371,12 +381,59 @@ const toShot = (r: { data: string; width?: number; height?: number }): Shot => {
   return { image: r.data, mime: 'image/jpeg', width: size?.width ?? r.width ?? 1280, height: size?.height ?? r.height ?? 800 };
 };
 
+// ---------- full desktop: one screen for every Bot, so one Bot at a time ----------
+
+/** How long a Bot keeps the desktop after its last action while its turn is still running. */
+const HOLD_MS = 60_000;
+const WAIT_MS = 120_000;
+const holders = new Map<string, { botId: string; until: number }>();
+
+const botName = (botId: string) => (db.prepare('SELECT name FROM bots WHERE id=?').get(botId) as { name: string } | undefined)?.name ?? 'Another Bot';
+
+/** Wait until no other Bot is using the desktop, then hold it. */
+async function takeDesktop(userId: string, botId: string) {
+  const deadline = Date.now() + WAIT_MS;
+  for (;;) {
+    const h = holders.get(userId);
+    if (!h || h.botId === botId || h.until < Date.now() || !getLive(h.botId).isRunning) {
+      holders.set(userId, { botId, until: Date.now() + HOLD_MS });
+      return;
+    }
+    if (Date.now() > deadline) throw new ComputerError(`${botName(h.botId)} is using the desktop right now. Try again in a minute; the shell still works meanwhile.`, 409);
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+}
+
+const osName = (platform: string) => (platform.startsWith('darwin') ? 'macOS' : platform.startsWith('linux') ? 'Linux' : platform.startsWith('win') ? 'Windows' : 'unknown');
+
+const DESKTOP_PROMPT =
+  "You can use the user's own computer: its full desktop (every app, with the user's own logins), mouse, keyboard, and a shell running as the user. Other Bots share this desktop, so you may briefly wait for your turn. If a task needs the web, use open_browser: it opens the page in the user's default browser and brings it to the front. Use the shell for files, scripts and command-line work, and the computer_* tools for apps. Save finished deliverables with save_file so they appear in the user's Library. Always take a screenshot before clicking, and check the screenshot after each action. This is the user's real computer: don't close their windows or unsaved work, don't delete or overwrite their files, and don't send messages, buy things or change settings unless they asked you to.";
+
+const DESKTOP_TOOLS: Partial<Record<string, string>> = {
+  computer_screenshot: "Take a screenshot of the user's desktop. Use this before acting on the screen.",
+  computer_click: 'Click at pixel coordinates in the latest screenshot of the desktop. Returns a fresh screenshot.',
+  computer_type: 'Type text into whatever has keyboard focus on the desktop. A newline presses Enter. Returns a fresh screenshot.',
+  computer_key:
+    'Press a key or key combination on the desktop, using X11 keysym names joined by "+", e.g. "Return", "Tab", "Escape", "BackSpace", "Page_Down", "ctrl+c". Use "cmd" for the Command key on macOS (e.g. "cmd+space" opens Spotlight, "cmd+tab" switches apps, "cmd+l" focuses the browser address bar).',
+  computer_scroll: 'Scroll the mouse wheel at a position on the desktop.',
+  computer_drag: 'Drag with the left mouse button from one point to another on the desktop.',
+  open_browser: "Open a web page (http/https) in the user's default browser, which comes to the front. Use this whenever a task needs a website. Returns a screenshot.",
+  shell: "Run a shell command on the user's computer as the user (their login shell, starting in their home folder). Use for files, scripts, CLIs and quick data work. Output is truncated to 20k characters.",
+  save_file: 'Save a deliverable (report, notes, CSV, code, markdown) to your Library so the user can open and download it.',
+};
+
 export const localProvider: ComputerProvider = {
   kind: 'local',
-  capabilities: { shell: false },
-  promptLine:
-    "You have your own web browser: a Chrome browser on the user's own PC that only you use, with its own profile, so logins persist. You have no desktop apps and no shell. Use open_browser to go to a URL (there is no address bar), and the computer_* tools to see and use the page. Save finished deliverables (reports, notes, data) with save_file so they appear in the user's Library. Always take a screenshot before clicking, and check the screenshot after each action. Don't sign in to accounts or enter personal details unless the user asked you to.",
-  toolDescriptions: {
+  capabilities: { shell: DESKTOP },
+  promptFor: (userId) => {
+    if (!DESKTOP) return localProvider.promptLine;
+    const c = companions.get(userId);
+    return c ? `${DESKTOP_PROMPT} The computer runs ${osName(c.device.platform)}.` : DESKTOP_PROMPT;
+  },
+  promptLine: DESKTOP
+    ? DESKTOP_PROMPT
+    : "You have your own web browser: a Chrome browser on the user's own PC that only you use, with its own profile, so logins persist. You have no desktop apps and no shell. Use open_browser to go to a URL (there is no address bar), and the computer_* tools to see and use the page. Save finished deliverables (reports, notes, data) with save_file so they appear in the user's Library. Always take a screenshot before clicking, and check the screenshot after each action. Don't sign in to accounts or enter personal details unless the user asked you to.",
+  toolDescriptions: DESKTOP ? DESKTOP_TOOLS : {
     computer_screenshot: 'Take a screenshot of your browser (the current tab). Use this before acting on the page.',
     computer_click: 'Click at pixel coordinates in your browser tab. Returns a fresh screenshot.',
     computer_type: 'Type text into the focused element in your browser tab. A newline presses Enter. Returns a fresh screenshot.',
@@ -396,6 +453,7 @@ export const localProvider: ComputerProvider = {
   async screen(userId, botId) {
     need(userId);
     const rpc = async (method: string, params: Record<string, unknown> = {}, timeoutMs?: number) => {
+      if (DESKTOP && method !== 'shell') await takeDesktop(userId, botId);
       const r = await call(userId, method, { botId, ...params }, timeoutMs);
       touch(userId, botId);
       return r;
@@ -409,6 +467,7 @@ export const localProvider: ComputerProvider = {
       scroll: async (a) => { await rpc('scroll', a); },
       openUrl: async (url) => { await rpc('open', { url }, 60_000); },
     };
+    if (DESKTOP) screen.shell = async (command, timeoutSec) => rpc('shell', { command, timeout: timeoutSec }, (timeoutSec + 15) * 1000);
     return screen;
   },
 
@@ -420,6 +479,12 @@ export const localProvider: ComputerProvider = {
 
   async resetScreen(userId, botId) {
     const c = need(userId);
+    if (DESKTOP) {
+      // The desktop is the user's own: never close their windows. Just forget this Bot's turn.
+      if (holders.get(userId)?.botId === botId) holders.delete(userId);
+      if (c.browsers.has(botId)) { await call(userId, 'close', { botId }, 20_000).catch(() => {}); c.browsers.delete(botId); emitState(userId); }
+      return { ok: true, note: 'This is your own desktop, so nothing was closed.' };
+    }
     if (!c.browsers.has(botId)) return { ok: true, note: 'no browser open' };
     await call(userId, 'close', { botId }, 20_000);
     c.browsers.delete(botId);

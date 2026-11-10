@@ -36,6 +36,8 @@ export interface ComputerProvider {
   capabilities: { shell: boolean };
   /** System-prompt line describing the Bot's computer. */
   promptLine: string;
+  /** A user-specific prompt line (e.g. naming the connected PC's operating system); falls back to promptLine. */
+  promptFor?(userId: string): string;
   /** Provider-specific tool descriptions, by tool name. */
   toolDescriptions?: Partial<Record<string, string>>;
 

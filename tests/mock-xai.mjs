@@ -92,6 +92,23 @@ const server = http.createServer((req, res) => {
     // OpenRouter: key check, model catalog (tool-capable models plus a :batch variant that should be filtered out)
     if (req.method === 'GET' && req.url.startsWith('/api/v1/key')) return auth === 'Bearer invalid-key' ? json(401, { error: { message: 'User not found.', code: 401 } }) : json(200, { data: { label: 'mock-key', usage: 0, limit: null } });
     if (req.method === 'GET' && req.url.startsWith('/api/v1/models')) return json(200, { data: [...OPENROUTER_MODELS, { ...OPENROUTER_MODELS[0], id: 'x-ai/grok-4.7:batch' }] });
+    // OpenRouter speech: transcription returns a fixed transcript; speech returns a few bytes of "mp3". Both are recorded.
+    if (req.method === 'POST' && req.url.startsWith('/api/v1/audio/transcriptions')) {
+      let b = {}; try { b = JSON.parse(raw); } catch { /* multipart */ }
+      recent.push({ at: Date.now(), audio: 'stt', model: b.model, format: b.input_audio?.format, bytes: Buffer.from(b.input_audio?.data ?? '', 'base64').length, body: { input: [] } });
+      if (recent.length > 40) recent.shift();
+      return json(200, { text: 'mock: say Heard your voice note' });
+    }
+    if (req.method === 'POST' && req.url.startsWith('/api/v1/audio/speech')) {
+      let b = {}; try { b = JSON.parse(raw); } catch { /* empty */ }
+      recent.push({ at: Date.now(), audio: 'tts', model: b.model, voice: b.voice, input: b.input, format: b.response_format, body: { input: [] } });
+      if (recent.length > 40) recent.shift();
+      if (/FAILTTS/.test(String(b.input))) return json(500, { error: { message: 'speech is down' } });
+      res.writeHead(200, { 'content-type': 'audio/mpeg' });
+      return res.end(Buffer.from('ID3-mock-audio'));
+    }
+    // Speech-to-text (voice notes, dictation): a fixed transcript.
+    if (req.method === 'POST' && req.url.startsWith('/v1/stt')) return json(200, { text: 'mock: say Heard your voice note' });
     if (req.method === 'POST' && req.url.startsWith('/api/v1/responses')) req.url = '/v1/responses';
     if (req.method !== 'POST' || !req.url.startsWith('/v1/responses') || req.url.includes('compact')) {
       res.writeHead(404, { 'content-type': 'application/json' });

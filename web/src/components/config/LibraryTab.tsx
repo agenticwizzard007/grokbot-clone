@@ -92,7 +92,7 @@ export function LibraryTab({ bot }: { bot: Bot }) {
             ))
           )}
         </div>
-        {error && <div className="cfg-error cfg-error--small">{error}</div>}
+        {(error || (list?.status === 'ok' && list.error)) && <div className="cfg-error cfg-error--small">{error || list?.error}</div>}
       </section>
     </div>
   );

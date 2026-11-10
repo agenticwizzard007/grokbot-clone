@@ -6,7 +6,8 @@
 #   ./scripts/local.sh status     is it running?
 #   ./scripts/local.sh logs       follow the server log
 #
-# First run creates .env with a fresh SESSION_SECRET and COMPUTER_PROVIDER=local.
+# First run creates .env with a fresh SESSION_SECRET and COMPUTER_PROVIDER=desktop (Bots use this
+# computer's full desktop and a shell; set COMPUTER_PROVIDER=local for a private browser only).
 # Add API keys in the app (Settings → API keys), then Settings → Computer → Use this computer.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -36,7 +37,9 @@ OPENROUTER_MODEL=x-ai/grok-4.7
 XAI_API_KEY=
 XAI_MODEL=grok-4.7
 COMPOSIO_API_KEY=
-COMPUTER_PROVIDER=local
+# desktop: Bots use this computer's full desktop, default browser and a shell.
+# local: Bots get a private Chrome browser only.
+COMPUTER_PROVIDER=desktop
 PORT=$PORT
 APP_URL=$URL
 SERVER_URL=$URL
@@ -62,6 +65,10 @@ start() {
   ensure_env
   install_and_build
   mkdir -p "$(dirname "$LOGFILE")"
+  if running && [ server/dist/index.js -nt "$PIDFILE" ]; then
+    echo "Updated build found; restarting Grokbot to load it…"
+    stop
+  fi
   if running; then
     echo "Already running (pid $(cat "$PIDFILE"))."
   else
@@ -81,6 +88,10 @@ start() {
   echo "  1. Sign in with any email (local dev sign-in)."
   echo "  2. Settings → API keys: paste your OpenRouter key (or xAI), then pick a model."
   echo "  3. Settings → Computer → Use this computer."
+  if [ "$(envval COMPUTER_PROVIDER)" = "desktop" ] && [ "$(uname)" = "Darwin" ]; then
+    echo "     Bots get this Mac's full desktop. Allow your terminal app in System Settings →"
+    echo "     Privacy & Security → Accessibility and Screen Recording."
+  fi
   echo "Stop it with ./scripts/local.sh stop · logs: ./scripts/local.sh logs"
   if [ "$(uname)" = "Darwin" ] && [ -z "${NO_OPEN:-}" ]; then open "$URL"; fi
 }

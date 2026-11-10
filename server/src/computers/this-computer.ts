@@ -26,7 +26,8 @@ function launch(userId: string, token: string) {
   owner = userId;
   stopping = false;
   const args = [SCRIPT, '--server', `http://127.0.0.1:${env.port}`, '--token', token, '--parent-pid', String(process.pid)];
-  if (process.env.COMPANION_HEADED === '1') args.push('--headed');
+  if (env.localDesktop) args.push('--desktop');
+  else if (process.env.COMPANION_HEADED === '1') args.push('--headed');
   child = spawn(process.execPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
   const tag = (d: Buffer) => String(d).trim().split('\n').forEach((l) => console.log(`[this-computer] ${l}`));
   child.stdout?.on('data', tag);

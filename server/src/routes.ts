@@ -6,7 +6,7 @@ import { newId } from './lib/ids.js';
 import { hub } from './lib/hub.js';
 import { createSession, destroySession, requireUser, userFromCookieHeader, type AuthVars } from './lib/auth.js';
 import { allLive, appendRow, clearConversation, emitBot, getBot, getBotRow, getRow, listBots, listRoutines, listRows, listTasks, toRoutine, updateRow } from './store.js';
-import { enqueue, interrupt, resolveApproval } from './agent/loop.js';
+import { enqueue, interrupt, resolveApproval, runInBotQueue } from './agent/loop.js';
 import { computers } from './computers/index.js';
 import { catalog, connectedToolkits, deleteConnection, disconnect, googleProfile, startConnect, startGoogleLogin, toolkitInfo } from './composio.js';
 import { runRoutine, scheduleRoutine, unscheduleRoutine } from './routines.js';
@@ -14,18 +14,15 @@ import { deleteEventTrigger } from './triggers.js';
 import { dispatchRoomMessage } from './agent/rooms.js';
 import { voiceApi } from './voice.js';
 import { createBot } from './bots.js';
+import { activateSetup, beginSetupInterview, briefSchema, emitSetup, getSetup, removeSetupFiles, setupFiles, setupView, writeSetupFiles } from './bot-setup.js';
+import { importTeammate, provisionTeammate } from './agent/teammates.js';
 import type { Toolkit } from './types.js';
+import { verifyUserSig } from './messaging/store.js';
+import { createAccount } from './accounts.js';
 
 export const api = new Hono<AuthVars>();
 
-function findOrCreateUser(email: string, name?: string, preferId?: string) {
-  const existing = db.prepare('SELECT * FROM users WHERE lower(email)=lower(?)').get(email) as any;
-  if (existing) return { id: existing.id as string, isNew: false };
-  const id = preferId ?? newId('usr');
-  db.prepare('INSERT INTO users(id,email,name,created_at) VALUES (?,?,?,?)').run(id, email, name ?? email.split('@')[0], now());
-  createBot(id, { name: 'Quinn', label: 'Chief of Staff', description: 'Your main point of contact. Checks in proactively and coordinates work with your other Bots.', avatarShape: 'blob', avatarColor: 'black', isPrimary: true });
-  return { id, isNew: true };
-}
+const findOrCreateUser = (email: string, name?: string, preferId?: string) => createAccount({ email, name, preferId, source: 'web' });
 
 // ---------- auth ----------
 
@@ -75,7 +72,7 @@ api.post('/auth/logout', (c) => { destroySession(c); return c.json({ ok: true })
 
 // everything below requires a session
 api.use('/*', async (c, next) => {
-  if (c.req.path.startsWith('/api/auth/') || c.req.path.startsWith('/api/apps/callback') || c.req.path === '/api/health') return next();
+  if (c.req.path.startsWith('/api/auth/') || c.req.path.startsWith('/api/apps/callback') || c.req.path.startsWith('/api/messaging/inkbox/webhook') || c.req.path.startsWith('/api/join/') || c.req.path === '/api/health') return next();
   return requireUser(c, next);
 });
 
@@ -112,7 +109,59 @@ api.get('/bots', (c) => c.json({ bots: listBots(c.get('user').id), live: allLive
 
 api.post('/bots', async (c) => {
   const body = await c.req.json();
-  return c.json({ bot: createBot(c.get('user').id, body) });
+  const brief = body.brief === undefined ? undefined : briefSchema.safeParse(body.brief);
+  if (brief && !brief.success) return c.json({ error: brief.error.message }, 400);
+  const bot = createBot(c.get('user').id, { ...body, isPrimary: false, brief: brief?.data, source: { messages: [] } });
+  beginSetupInterview(bot.id);
+  return c.json({ bot: getBot(bot.id) });
+});
+
+api.post('/bots/import', async (c) => {
+  try {
+    const { manifest, name } = await c.req.json();
+    return c.json(await importTeammate(c.get('user').id, manifest, name));
+  } catch (e: any) { return c.json({ error: String(e?.message ?? e) }, 400); }
+});
+
+api.get('/bots/:id/setup', (c) => {
+  const b = ownBot(c.get('user').id, c.req.param('id'));
+  const view = b && setupView(b.id);
+  if (!view) return c.json({ error: 'No saved setup for this Bot.' }, 404);
+  return c.json(view);
+});
+
+api.post('/bots/:id/setup/interview', async (c) => {
+  const b = ownBot(c.get('user').id, c.req.param('id'));
+  if (!b || b.kind === 'room' || b.hidden) return c.json({ error: 'not found' }, 404);
+  await runInBotQueue(b.id, async () => { beginSetupInterview(b.id); });
+  return c.json(setupView(b.id));
+});
+
+api.post('/bots/:id/setup/activate', async (c) => {
+  const b = ownBot(c.get('user').id, c.req.param('id'));
+  if (!b) return c.json({ error: 'not found' }, 404);
+  const { revision } = await c.req.json();
+  if (!Number.isInteger(revision)) return c.json({ error: 'A configuration revision is required.' }, 400);
+  try {
+    const pending = await runInBotQueue(b.id, async () => activateSetup(b.id, revision));
+    if (pending) enqueue(b.id, { type: 'system', text: `Your setup has been confirmed by the user. Now handle this initial assignment from your creation brief:\n${pending}` });
+    return c.json(setupView(b.id));
+  } catch (e: any) { return c.json({ error: String(e?.message ?? e) }, 409); }
+});
+
+api.get('/bots/:id/setup/:file', (c) => {
+  const b = ownBot(c.get('user').id, c.req.param('id'));
+  if (!b) return c.json({ error: 'not found' }, 404);
+  const name = c.req.param('file');
+  const files = setupFiles(b.id);
+  if (!Object.hasOwn(files, name)) return c.json({ error: 'not found' }, 404);
+  return c.body(files[name], 200, { 'Content-Type': 'application/octet-stream', 'Content-Disposition': `attachment; filename="${name}"`, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' });
+});
+
+api.post('/bots/:id/setup/retry', async (c) => {
+  const b = ownBot(c.get('user').id, c.req.param('id'));
+  if (!b || !getSetup(b.id)) return c.json({ error: 'not found' }, 404);
+  return c.json({ computer: await provisionTeammate(c.get('user').id, b.id) });
 });
 
 api.patch('/bots/:id', async (c) => {
@@ -127,6 +176,11 @@ api.patch('/bots/:id', async (c) => {
   for (const [k, col] of Object.entries(cols)) {
     if (p[k] !== undefined) db.prepare(`UPDATE bots SET ${col}=?, updated_at=? WHERE id=?`).run(typeof p[k] === 'boolean' ? (p[k] ? 1 : 0) : p[k], now(), b.id);
   }
+  if (getSetup(b.id)) {
+    db.prepare('UPDATE bot_setups SET revision=revision+1, updated_at=? WHERE bot_id=?').run(now(), b.id);
+    writeSetupFiles(b.id);
+    emitSetup(b.id);
+  }
   emitBot(b.id);
   return c.json({ bot: getBot(b.id) });
 });
@@ -139,6 +193,7 @@ api.delete('/bots/:id', (c) => {
   void computers.resetScreen(c.get('user').id, b.id).catch(() => {});
   db.prepare('DELETE FROM screens WHERE bot_id=?').run(b.id);
   db.prepare('DELETE FROM bots WHERE id=?').run(b.id);
+  removeSetupFiles(b.id);
   hub.emit(c.get('user').id, { type: 'roster' });
   return c.json({ ok: true });
 });
@@ -341,7 +396,9 @@ api.post('/apps/:slug/connect', async (c) => {
 });
 
 api.get('/apps/callback', async (c) => {
-  const userId = userFromCookieHeader(c.req.header('cookie'))?.id ?? '';
+  // Opened in the app (session cookie), or from a link sent by text (signed user id; the phone has no session).
+  const signed = c.req.query('u') && verifyUserSig(c.req.query('u')!, 'apps-callback', c.req.query('sig') ?? '') ? c.req.query('u')! : '';
+  const userId = userFromCookieHeader(c.req.header('cookie'))?.id ?? signed;
   const slug = c.req.query('slug') ?? '';
   const botId = c.req.query('bot');
   const seq = Number(c.req.query('seq') ?? 0);

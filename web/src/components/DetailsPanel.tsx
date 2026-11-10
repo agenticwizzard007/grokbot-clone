@@ -12,6 +12,7 @@ import { useConfigUI } from '../configStore';
 import { Glyph } from './config/glyphs';
 import { LibraryTab } from './config/LibraryTab';
 import { BotTasks } from './config/TasksView';
+import { AgentConfiguration } from './config/AgentConfiguration';
 
 export function computerStatusText(c: ComputerState | null): string {
   if (c?.provider === 'local') return c.status === 'running' ? 'Connected' : 'Not connected';
@@ -123,7 +124,7 @@ export function DetailsPanel() {
   const bot = useSelectedBot();
   const routines = useStore((s) => (bot ? s.routines[bot.id] : undefined));
   const set = useStore((s) => s.set);
-  const [tab, setTab] = useState<'activity' | 'tasks' | 'library'>('activity');
+  const [tab, setTab] = useState<'activity' | 'tasks' | 'library' | 'configuration'>('activity');
   const [hideSuggested, setHideSuggested] = useState(() => { try { return localStorage.getItem('grokbot.hideSuggested') === '1'; } catch { return false; } });
   if (!bot) return null;
 
@@ -152,6 +153,7 @@ export function DetailsPanel() {
             <button type="button" className={tab === 'activity' ? 'is-active' : ''} onClick={() => setTab('activity')}>Activity</button>
             <button type="button" className={tab === 'tasks' ? 'is-active' : ''} onClick={() => setTab('tasks')}>Tasks</button>
             <button type="button" className={tab === 'library' ? 'is-active' : ''} onClick={() => setTab('library')}>Library</button>
+            {bot.kind !== 'room' && <button type="button" className={tab === 'configuration' ? 'is-active' : ''} onClick={() => setTab('configuration')}>Configuration</button>}
           </div>
         </div>
         {tab === 'activity' ? (
@@ -201,7 +203,7 @@ export function DetailsPanel() {
               </>
             )}
           </div>
-        ) : tab === 'tasks' ? <BotTasks bot={bot} /> : <LibraryTab bot={bot} />}
+        ) : tab === 'tasks' ? <BotTasks bot={bot} /> : tab === 'configuration' && bot.kind !== 'room' ? <AgentConfiguration key={bot.id} bot={bot} /> : <LibraryTab bot={bot} />}
       </div>
     </aside>
   );

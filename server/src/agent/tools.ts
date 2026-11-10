@@ -7,12 +7,16 @@ import { APPS_OFF, executeComposio, innerToolSlugs, isReadOnlySlug, toolkitInfo 
 import { env } from '../env.js';
 import { scheduleRoutine, unscheduleRoutine } from '../routines.js';
 import { createEventRoutine, deleteEventTrigger, describeEvent, listTriggerTypes } from '../triggers.js';
-import { setCheckins } from '../proactive.js';
+import { getCheckins, setCheckins } from '../proactive.js';
+import { updateProfile } from '../accounts.js';
 import { createSubagent, deleteSubagent, listSubagents } from './subagents.js';
 import { createRoom, postToRoom } from './rooms.js';
 import type { ActivityKind } from '../types.js';
 import { Cron } from 'croner';
-import { createBot, visibleAgentByName } from '../bots.js';
+import { creationSchema, isConfiguring, saveSetupDraft, setupDraftSchema } from '../bot-setup.js';
+import { createTeammate, replicateTeammate, retryTeammate } from './teammates.js';
+import { z } from 'zod';
+import { findMcpTool } from '../mcp/store.js';
 
 export interface ToolCtx {
   userId: string;
@@ -61,27 +65,17 @@ function botByName(userId: string, name: string) {
   return db.prepare('SELECT * FROM bots WHERE user_id=? AND lower(name)=lower(?)').get(userId, name.trim()) as any;
 }
 
-function cleanList(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.map((v) => String(v ?? '').trim()).filter(Boolean).slice(0, 12)
-    : [];
-}
-
-function botInstructions(a: any) {
-  const shared = cleanList(a.shared_resources);
-  const handoffs = cleanList(a.handoff_notes);
-  return [
-    `Identity: ${String(a.name).trim()}${a.label ? ` (${String(a.label).trim()})` : ''}.`,
-    `Purpose: ${String(a.purpose).trim()}`,
-    shared.length ? `Shared resources and context:\n${shared.map((r) => `- ${r}`).join('\n')}` : '',
-    handoffs.length ? `Handoffs and coordination:\n${handoffs.map((h) => `- ${h}`).join('\n')}` : '',
-    a.instructions ? `Standing instructions:\n${String(a.instructions).trim()}` : '',
-    'You have your own durable chat context, memory, tasks, Library, browser profile, and screen. Your screen runs on the same user VM as the other Bots, but it is separate from their screens.',
-    'Coordinate with Quinn or other Bots using send_to_bot when a handoff is useful, and use post_to_group inside shared group chats.',
-  ].filter(Boolean).join('\n\n').slice(0, 8000);
-}
-
 export const TOOLS: ToolDef[] = [
+  {
+    name: 'save_agent_setup',
+    description: 'Save your own agent specification during the setup interview. Incorporate the user’s answers into the brief, working style, workflows and boundaries. Save after each substantive answer. Use stage review only when the specification is complete and open_questions is empty. The user activates it in Configuration; you cannot activate yourself.',
+    parameters: (() => { const { $schema, ...schema } = z.toJSONSchema(setupDraftSchema); return schema; })(),
+    activity: 'working', label: 'Updating agent configuration',
+    impl: async (a, ctx) => {
+      const result = saveSetupDraft(ctx.botId, ctx.userId, a);
+      return { output: JSON.stringify({ ok: true, onboarding: result.onboarding, note: a.stage === 'review' ? 'The specification is ready for the user to review and activate in Configuration.' : 'Draft saved. Ask the next focused question about unresolved details.' }), summary: a.stage === 'review' ? 'Configuration ready for review' : 'Configuration updated' };
+    },
+  },
   {
     name: 'computer_screenshot',
     description: "Take a screenshot of your own computer screen (a Linux desktop that only you use). Use this before acting on the screen.",
@@ -360,54 +354,23 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'create_bot',
-    description:
-      'Create a durable, visible Bot on the user\'s team when the user asks for a new teammate or specialized assistant. ' +
-      'Only the primary Bot should use this. The new Bot gets its own identity, instructions, chat context, Library, tasks, memory, browser profile, and screen on the shared VM.',
-    parameters: obj({
-      name: { type: 'string', description: 'Short unique Bot name, e.g. "Nia"' },
-      label: { type: 'string', description: 'Short role shown next to the name, e.g. "LinkedIn Research"' },
-      purpose: { type: 'string', description: 'The job this Bot is responsible for.' },
-      instructions: { type: 'string', description: 'Standing instructions, limits, tone, and workflow for this Bot.' },
-      shared_resources: { type: 'array', items: { type: 'string' }, description: 'Resources or context shared with this Bot, such as connected apps, files, accounts, or owner preferences.' },
-      handoff_notes: { type: 'array', items: { type: 'string' }, description: 'How this Bot should accept work from or hand work back to Quinn/other Bots.' },
-      handoff_message: { type: 'string', description: 'Optional initial message to send to the new Bot after creation.' },
-      mode: { type: 'string', enum: ['personal', 'teammate'] },
-      effort: { type: 'string', enum: ['low', 'medium', 'high', 'xhigh'] },
-      avatar_shape: { type: 'string' },
-      avatar_color: { type: 'string' },
-    }, ['name', 'purpose']),
+    description: 'Create a permanent teammate directly from the master chat. Build a focused, self-contained brief from the user’s specifications and corrections. Saves identity, AGENTS.md, context, resources, handoffs and a portable setup, then prepares its separate browser/screen. Only the current primary Bot can create teammates. Use this for durable Bots; spawn_subagent is temporary.',
+    parameters: (() => { const { $schema, ...schema } = z.toJSONSchema(creationSchema); return schema; })(),
     activity: 'working',
-    label: 'Creating a Bot',
-    impl: async (a, ctx) => {
-      const actor = getBotRow(ctx.botId);
-      if (!actor?.is_primary) return { output: 'Only the primary Bot can create durable team Bots. Ask Quinn to create it, or create it from the sidebar.' };
-      const name = String(a.name ?? '').replace(/\s+/g, ' ').trim();
-      const purpose = String(a.purpose ?? '').trim();
-      if (!name || !purpose) return { output: 'A new Bot needs a name and purpose.' };
-      if (visibleAgentByName(ctx.userId, name)) return { output: `A Bot named "${name}" already exists. Use send_to_bot to hand work to it, or choose a different name.` };
-      const bot = createBot(ctx.userId, {
-        name,
-        label: a.label,
-        description: purpose,
-        instructions: botInstructions({ ...a, name, purpose }),
-        avatarShape: a.avatar_shape,
-        avatarColor: a.avatar_color,
-        mode: a.mode,
-        effort: a.effort,
-      });
-      appendRow(bot.id, 'event', { type: 'event', event: 'bot-message', text: `${actor.name} created this Bot: ${purpose}` });
-      const handoff = String(a.handoff_message ?? '').trim();
-      if (handoff && ctx.depth < 3) ctx.enqueueBotMessage(ctx.botId, bot.id, handoff, ctx.depth + 1);
-      return {
-        output: JSON.stringify({
-          ok: true,
-          bot: { id: bot.id, name: bot.name, label: bot.label, purpose: bot.description },
-          screen: 'The Bot will receive a separate browser profile and screen on the shared VM the first time it uses computer tools.',
-          handoff_sent: !!handoff && ctx.depth < 3,
-        }),
-        summary: `Created ${bot.name}`,
-      };
-    },
+    label: 'Creating a teammate',
+    impl: createTeammate,
+  },
+  {
+    name: 'replicate_bot',
+    description: 'Create another permanent teammate from an existing Bot’s complete saved role and configuration, with a new name and fresh browser profile. Does not copy browser logins, running tasks, schedules or chat history. Primary Bot only.',
+    parameters: obj({ bot_name: { type: 'string' }, new_name: { type: 'string' } }, ['bot_name', 'new_name']),
+    activity: 'working', label: 'Replicating a teammate', impl: replicateTeammate,
+  },
+  {
+    name: 'retry_bot_setup',
+    description: 'Finish or retry a saved teammate’s computer setup after a connection or provisioning failure. Reuses the same Bot; never creates a duplicate. Primary Bot only.',
+    parameters: obj({ bot_name: { type: 'string' } }, ['bot_name']),
+    activity: 'working', label: 'Preparing a teammate’s computer', impl: retryTeammate,
   },
   {
     name: 'spawn_subagent',
@@ -490,6 +453,23 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'update_profile',
+    description: "Save the user's name and/or IANA time zone (e.g. \"America/New_York\") to their account, and mark onboarding complete when the first-chat setup is done. Primary Bot only.",
+    parameters: obj({ name: { type: 'string' }, timezone: { type: 'string' }, onboarding_complete: { type: 'boolean' } }),
+    activity: 'remembering',
+    label: 'Updating your profile',
+    impl: async (a, ctx) => {
+      const tz = typeof a.timezone === 'string' && a.timezone.trim() ? a.timezone.trim() : undefined;
+      if (tz) {
+        try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); } catch { return { output: `"${tz}" is not a valid IANA time zone. Use a name like "Europe/London".` }; }
+        const cur = getCheckins(ctx.userId);
+        setCheckins(ctx.userId, { ...cur, timezone: tz });
+      }
+      updateProfile(ctx.userId, { name: typeof a.name === 'string' ? a.name : undefined, timezone: tz, onboarded: a.onboarding_complete === true });
+      return { output: 'Saved.', summary: a.onboarding_complete ? 'Onboarding done' : 'Profile updated' };
+    },
+  },
+  {
     name: 'ask_user',
     description: 'Ask the user a multiple-choice question when you need a decision before continuing. Ends your turn; their answer arrives as their next message.',
     parameters: obj({ question: { type: 'string' }, options: { type: 'array', items: { type: 'string' } } }, ['question', 'options']),
@@ -518,8 +498,15 @@ export const TOOLS: ToolDef[] = [
 
 export const toolMap = new Map(TOOLS.map((t) => [t.name, t]));
 
-export function functionSchemas() {
-  return TOOLS.filter((t) => t.name !== 'shell' || computers.capabilities.shell).map((t) => ({
+export function allowedDuringSetup(botId: string, toolName: string) {
+  return !isConfiguring(botId) || ['ask_user', 'save_agent_setup'].includes(toolName);
+}
+
+export function functionSchemas(botId?: string) {
+  const bot = botId ? getBotRow(botId) : null;
+  const canCreate = !!bot?.is_primary && !bot.hidden && bot.kind !== 'room';
+  return TOOLS.filter((t) => (!botId || allowedDuringSetup(botId, t.name)) && (t.name !== 'save_agent_setup' || !!botId && isConfiguring(botId)))
+    .filter((t) => (!['create_bot', 'replicate_bot', 'retry_bot_setup', 'update_profile'].includes(t.name) || canCreate)).filter((t) => t.name !== 'shell' || computers.capabilities.shell).map((t) => ({
     type: 'function',
     name: t.name,
     description: computers.toolDescriptions?.[t.name] ?? t.description,
@@ -532,6 +519,11 @@ export function functionSchemas() {
 export type Decision = 'allow' | 'ask' | 'block';
 
 export function policyFor(userId: string, toolName: string, args: any): { decision: Decision; key: string; toolkit?: string; title: string } {
+  if (toolName.startsWith('mcp_')) {
+    const match = findMcpTool(userId, toolName);
+    const policy = db.prepare('SELECT mode FROM policies WHERE user_id=? AND tool=?').get(userId, toolName) as { mode: string } | undefined;
+    return { decision: !match || policy?.mode === 'blocked' ? 'block' : policy?.mode === 'always_allow' || !match.server.config.requireApproval ? 'allow' : 'ask', key: toolName, title: match ? `MCP: use ${match.tool.name} on ${match.server.config.name}` : 'MCP: use an unavailable tool' };
+  }
   if (toolMap.has(toolName)) return { decision: 'allow', key: toolName, title: toolName };
   const slugs = innerToolSlugs(toolName, args);
   if (!slugs.length) return { decision: 'allow', key: toolName, title: toolName };
@@ -562,6 +554,7 @@ export async function runComposioTool(ctx: ToolCtx, name: string, args: any): Pr
 }
 
 export function activityFor(name: string): { kind: ActivityKind; label: string } {
+  if (name.startsWith('mcp_')) return { kind: 'connecting_service', label: 'Using a custom MCP tool' };
   const t = toolMap.get(name);
   if (t) return { kind: t.activity, label: t.label };
   if (name === 'COMPOSIO_SEARCH_TOOLS' || name === 'COMPOSIO_GET_TOOL_SCHEMAS') return { kind: 'connecting_service', label: 'Using a connected app' };

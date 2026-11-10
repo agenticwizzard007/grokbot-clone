@@ -13,6 +13,13 @@ import type { ComputerState } from '../types.js';
 
 const MAX_SCREENS = 4;
 const inflight = new Map<string, Promise<string>>();
+const screenQueues = new Map<string, Promise<unknown>>();
+const screenReservations = new Set<string>();
+/** Protect a newly created Bot's screen while its initial setup is in progress. */
+export function reserveScreen(botId: string) {
+  screenReservations.add(botId);
+  return () => { screenReservations.delete(botId); };
+}
 
 function rowFor(userId: string) {
   let r = db.prepare('SELECT * FROM computers WHERE user_id=?').get(userId) as any;
@@ -133,7 +140,16 @@ async function prepareBox(id: string) {
 }
 
 /** Get (or lease) this bot's screen on the box. */
-export async function screenFor(userId: string, botId: string): Promise<{ computerId: string; screenId: string }> {
+export function screenFor(userId: string, botId: string): Promise<{ computerId: string; screenId: string }> {
+  // Lease decisions must be serial per VM: parallel creations must never pick the same free screen.
+  const prior = screenQueues.get(userId) ?? Promise.resolve();
+  const job = prior.catch(() => {}).then(() => leaseScreen(userId, botId));
+  screenQueues.set(userId, job);
+  void job.finally(() => { if (screenQueues.get(userId) === job) screenQueues.delete(userId); }).catch(() => {});
+  return job;
+}
+
+async function leaseScreen(userId: string, botId: string): Promise<{ computerId: string; screenId: string }> {
   const computerId = await ensureComputer(userId);
   const mine = db.prepare('SELECT screen_id FROM screens WHERE bot_id=?').get(botId) as any;
   if (mine) {
@@ -159,10 +175,14 @@ export async function screenFor(userId: string, botId: string): Promise<{ comput
     else {
       // Evict the least-recently-used idle bot's lease (never one mid-turn), and close its browser
       // so the next bot doesn't inherit another bot's windows. Its Chrome profile stays on disk.
-      const victim = leased.find((l) => !getLive(l.bot_id).isRunning && l.screen_id !== 'default') ?? leased.find((l) => l.screen_id !== 'default') ?? leased[0];
-      db.prepare('DELETE FROM screens WHERE bot_id=?').run(victim.bot_id);
+      const victim = leased.find((l) => !getLive(l.bot_id).isRunning && !screenReservations.has(l.bot_id) && l.screen_id !== 'default');
+      if (!victim) throw new Error('All available VM screens are busy. The Bot is saved; retry computer setup when a teammate finishes.');
       screenId = victim.screen_id;
-      try { await orgo.bash(computerId, screenId!, `pkill -f "user-data-dir=/root/grokbot/profiles/${victim.bot_id}" || true`, 20); } catch { /* best effort */ }
+      // Destroy the old display (all windows), then create a clean one. Do not hand over a
+      // display after a failed best-effort cleanup, which could expose the previous browser.
+      await orgo.deleteScreen(computerId, screenId!);
+      db.prepare('DELETE FROM screens WHERE bot_id=?').run(victim.bot_id);
+      screenId = (await orgo.createScreen(computerId)).id;
     }
   }
   db.prepare('INSERT OR REPLACE INTO screens(bot_id,user_id,screen_id,last_used_at) VALUES (?,?,?,?)').run(botId, userId, screenId, now());

@@ -14,6 +14,17 @@ export const SETTINGS = {
   openrouter: { env: 'OPENROUTER_API_KEY', secret: true },
   openrouter_model: { env: 'OPENROUTER_MODEL', secret: false },
   provider: { env: 'LLM_PROVIDER', secret: false },
+  inkbox_admin_key: { env: 'INKBOX_ADMIN_API_KEY', secret: true },
+  inkbox_handle: { env: 'INKBOX_HANDLE', secret: false },
+  inkbox_identity_id: { env: 'INKBOX_IDENTITY_ID', secret: false },
+  inkbox_identity_key: { env: 'INKBOX_API_KEY', secret: true },
+  inkbox_signing_key: { env: 'INKBOX_SIGNING_KEY', secret: true },
+  inkbox_phone_number_id: { env: 'INKBOX_PHONE_NUMBER_ID', secret: false },
+  inkbox_subscription_id: { env: 'INKBOX_SUBSCRIPTION_ID', secret: false },
+  messaging_signup_mode: { env: 'MESSAGING_SIGNUP_MODE', secret: false },
+  messaging_signups_per_day: { env: 'MESSAGING_SIGNUPS_PER_DAY', secret: false },
+  messaging_daily_messages: { env: 'MESSAGING_DAILY_MESSAGES', secret: false },
+  messaging_member_invites: { env: 'MESSAGING_MEMBER_INVITES', secret: false },
 } as const;
 export type SettingName = keyof typeof SETTINGS;
 

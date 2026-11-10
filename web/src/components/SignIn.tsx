@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { BotAvatar } from '../avatar/BotAvatar';
 import { api } from '../lib/api';
+import { PhoneAuth } from './PhoneAuth';
+import '../styles/messaging.css';
 import { useStore } from '../store';
 import { TrafficLights } from './Sidebar';
 
@@ -12,6 +14,7 @@ export function SignIn() {
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(() => (new URLSearchParams(location.search).get('login') === 'failed' ? 'Sign-in didn’t finish. Try again.' : null));
+  const expired = new URLSearchParams(location.search).get('login') === 'expired';
 
   const dev = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,6 +32,9 @@ export function SignIn() {
         </div>
         <h1 className="signin__title">Grokbot</h1>
         <p className="signin__sub">AI teammates with their own computers. Hand them a task and they get it done.</p>
+        {expired && <div className="signin__notice" role="status">That sign-in link has expired or was already used.</div>}
+        <PhoneAuth mode="signin" />
+        {googleLogin && <div className="signin__divider signin__or"><span>or</span></div>}
         {googleLogin && (
           <a className="btn btn--primary signin__google" href="/api/auth/google/start">
             <GoogleG /> Sign in with Google

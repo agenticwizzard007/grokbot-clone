@@ -3,6 +3,7 @@
 // This module mints the ephemeral secret, builds the voice agent's prompt and tools, serves the relay
 // tools, records call start/end rows, and proxies TTS (voice preview) and STT (composer dictation).
 import { Hono } from 'hono';
+import { SpeechUnavailable, synthesize, transcribe, TTS_VOICES } from './lib/speech.js';
 import { defaultModel, llmClient, llmProvider } from './lib/llm.js';
 import { db, now } from './db.js';
 import { env } from './env.js';
@@ -17,7 +18,6 @@ export const voiceApi = new Hono<AuthVars>();
 
 const XAI = env.xaiBaseUrl; // the base URL is fixed per run; keys are read per request
 const VOICE_MODEL = process.env.XAI_VOICE_MODEL ?? 'grok-voice-latest';
-const STT_MODEL = process.env.XAI_STT_MODEL ?? 'grok-voice-transcribe-2.0';
 const SAMPLE_RATE = 24000;
 const xaiHeaders = () => ({ Authorization: `Bearer ${env.xaiKey}` });
 
@@ -122,7 +122,7 @@ function activitySnapshot(botId: string) {
   if (tasks.length) lines.push(`Open tasks:\n${tasks.map((t) => `- ${t.title} [${t.state === 'needs_input' ? 'needs input' : 'in progress'}]${t.note ? `: ${clip(t.note, 120)}` : ''}`).join('\n')}`);
   if (pending.length) lines.push(`Waiting on the user in chat:\n${pending.map((b: any) => `- ${b.card === 'approval' ? b.title : b.card === 'question' ? b.question : b.card === 'connect' ? `Connect ${b.toolkitName}` : 'A draft to review'}`).join('\n')}`);
   const comp = computerState(getBotRow(botId).user_id);
-  if (comp.provider === 'local') lines.push(`Browser on the user's PC: ${comp.status === 'running' ? 'connected' : 'not connected'}.`);
+  if (comp.provider === 'local') lines.push(`${comp.desktop ? "The user's PC (full desktop)" : "Browser on the user's PC"}: ${comp.status === 'running' ? 'connected' : 'not connected'}.`);
   else lines.push(`Computer: ${comp.status === 'running' ? 'awake' : comp.status === 'absent' ? 'not set up yet' : comp.status}.`);
   return lines.join('\n');
 }
@@ -422,6 +422,16 @@ voiceApi.post('/preview', async (c) => {
   const language = p.language && langName(p.language) ? p.language : s.language;
   const text = String(p.text || `Hi, I'm ${bot?.name ?? 'your Bot'}. This is how I'll sound when we talk.`).slice(0, 400);
   const codec = p.codec === 'pcm' ? 'pcm' : 'mp3';
+  // OpenRouter voices (text-message voice replies), or any preview when there's no xAI key.
+  if (env.openrouterKey && (TTS_VOICES.includes(voice) || !env.xaiKey)) {
+    try {
+      const a = await synthesize(text, voice, codec);
+      return c.body(a.data, 200, { 'Content-Type': codec === 'pcm' ? `audio/pcm;rate=${SAMPLE_RATE}` : 'audio/mpeg', 'Cache-Control': 'no-store' });
+    } catch (e) {
+      console.warn('[voice] tts failed', (e as Error).message);
+      return c.json({ error: 'Preview unavailable' }, 502);
+    }
+  }
   const r = await fetch(`${XAI}/tts`, {
     method: 'POST',
     headers: { ...xaiHeaders(), 'Content-Type': 'application/json' },
@@ -444,16 +454,12 @@ voiceApi.post('/stt', async (c) => {
   if (!file || typeof file === 'string') return c.json({ error: 'file required' }, 400);
   if (file.size > 25 * 1024 * 1024) return c.json({ error: 'recording too long' }, 413);
   if (file.size < 200) return c.json({ text: '' });
-  const out = new FormData();
-  out.append('model', STT_MODEL);
   const lang = String(form?.get('language') ?? '');
-  if (lang && lang !== 'auto' && /^[a-z]{2}$/.test(lang)) out.append('language', lang);
-  out.append('file', file, file.name || 'dictation.webm'); // must be last
-  const r = await fetch(`${XAI}/stt`, { method: 'POST', headers: xaiHeaders(), body: out, signal: AbortSignal.timeout(60_000) }).catch(() => null);
-  if (!r?.ok) {
-    console.warn('[voice] stt failed', r?.status, (await r?.text().catch(() => ''))?.slice(0, 200));
-    return c.json({ error: 'Transcription failed' }, 502);
+  try {
+    const text = await transcribe({ data: Buffer.from(await file.arrayBuffer()), mime: file.type || 'audio/webm' }, { language: lang && lang !== 'auto' ? lang : undefined });
+    return c.json({ text });
+  } catch (e) {
+    console.warn('[voice] stt failed', (e as Error).message);
+    return c.json({ error: e instanceof SpeechUnavailable ? e.message : 'Transcription failed' }, 502);
   }
-  const j = (await r.json()) as { text?: string };
-  return c.json({ text: (j.text ?? '').trim() });
 });

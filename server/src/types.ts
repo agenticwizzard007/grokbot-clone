@@ -10,6 +10,40 @@ export type AvatarColor =
 
 export interface User { id: string; email: string; name: string; avatarUrl: string | null }
 
+export interface McpServerView {
+  id: string; name: string; transport: 'http' | 'sse' | 'stdio';
+  url: string; command: string; args: string[]; cwd: string;
+  enabled: boolean; botIds: string[] | null; requireApproval: boolean;
+  hasBearerToken: boolean; headerNames: string[]; envNames: string[];
+  checkedAt: number | null; error: string | null;
+  tools: { name: string; description: string; toolName: string }[];
+}
+export type McpServerInput = Pick<McpServerView, 'name' | 'transport' | 'url' | 'command' | 'args' | 'cwd' | 'enabled' | 'botIds' | 'requireApproval'> & {
+  bearerToken?: string; headers?: Record<string, string>; env?: Record<string, string>;
+};
+
+export interface AgentBrief {
+  purpose: string;
+  responsibilities: string[];
+  out_of_scope: string[];
+  success_criteria: string[];
+  context_summary: string;
+  shared_resources: string[];
+  handoff_notes: string[];
+  communication_style: string;
+  working_principles: string[];
+  action_boundaries: string;
+  workflows: { name: string; trigger: string; steps: string[]; output: string }[];
+  open_questions: string[];
+}
+
+export interface AgentSetupView {
+  manifest: { format: string; version: number; brief: AgentBrief; bot: { name: string; label: string; instructions: string } };
+  computer: { status: 'pending' | 'ready'; error: string | null };
+  onboarding: { status: 'interviewing' | 'review' | 'active'; revision: number; confirmedAt: number | null; missing: string[] };
+  files: Record<string, string>;
+}
+
 export interface Bot {
   id: string;
   name: string;
@@ -62,8 +96,8 @@ export interface MessageBody {
   role: 'user' | 'assistant';
   text: string;
   streaming?: boolean;
-  /** Set when a message came from another bot, a routine or a voice call rather than the user typing. */
-  from?: { kind: 'bot' | 'routine' | 'voice'; id: string; name: string };
+  /** Set when a message came from another bot, a routine, a voice call or a text message (iMessage/SMS) rather than the user typing in the app. */
+  from?: { kind: 'bot' | 'routine' | 'voice' | 'imessage' | 'sms'; id: string; name: string };
   citations?: { url: string; title?: string }[];
 }
 
@@ -179,6 +213,8 @@ export interface ComputerState {
   provider?: 'orgo' | 'local';
   /** For 'local': the connected PC. */
   device?: { name: string; platform: string } | null;
+  /** For 'local': Bots use the PC's full desktop and a shell, not a private browser. */
+  desktop?: boolean;
 }
 
 export interface Toolkit {
@@ -198,5 +234,7 @@ export type ServerEvent =
   | { type: 'routines'; botId: string }
   | { type: 'tasks'; botId: string }
   | { type: 'memories'; botId: string }
+  | { type: 'setup'; botId: string }
   | { type: 'connections' }
+  | { type: 'messaging' }
   | { type: 'ping' };

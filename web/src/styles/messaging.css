@@ -1,0 +1,113 @@
+/* Settings → Messaging (iMessage & SMS), the /join/:code page, and sign-in by text. */
+
+.msg-inline-code, .msg-commands code {
+  font-family: var(--font-mono-stack); font-size: 12px; padding: 1px 5px; border-radius: 5px;
+  background: var(--color-bg-tertiary); color: var(--color-text-primary); white-space: nowrap;
+}
+.msg-mono { font-family: var(--font-mono-stack); font-weight: 400; font-size: 12px; }
+.msg-input { flex: 1; min-width: 0; }
+.msg-select { flex: 0 1 240px; width: auto; min-width: 160px; height: 32px; padding: 4px 8px; }
+.msg-pad-top { padding-top: 12px; }
+
+/* connect your phone */
+.msg-connect { display: flex; gap: 20px; align-items: flex-start; padding: 14px; border-top: 0.5px solid var(--color-border-tertiary); }
+.msg-qr { display: block; flex-shrink: 0; border-radius: 10px; background: #FFFFFF; padding: 6px; box-shadow: var(--color-border-secondary) 0 0 0 0.5px; }
+.msg-steps { margin: 0; padding: 0 0 0 20px; display: flex; flex-direction: column; gap: 16px; font-size: 13px; line-height: 20px; color: var(--color-text-primary); }
+.msg-steps li { padding-left: 2px; }
+.msg-steps li > div + div { margin-top: 6px; }
+.msg-steps__actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.msg-steps a.cfg-btn { text-decoration: none; }
+
+/* commands */
+.msg-commands { margin: 0; padding: 4px 6px; }
+.msg-commands__row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; padding: 8px 6px; font-size: 13px; line-height: 20px; }
+.msg-commands__row + .msg-commands__row { box-shadow: var(--color-border-tertiary) 0 -0.5px 0; }
+.msg-commands dt { color: var(--color-text-primary); }
+.msg-commands dd { margin: 0; color: var(--color-text-tertiary); }
+.msg-commands code + code { margin-left: 4px; }
+
+/* owner */
+.msg-owner-divider { display: flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 500; letter-spacing: 0.3px; text-transform: uppercase; color: var(--color-text-quaternary); }
+.msg-owner-divider::before, .msg-owner-divider::after { content: ''; flex: 1; height: 0.5px; background: var(--color-border-secondary); }
+.msg-facts { display: flex; flex-direction: column; gap: 6px; padding: 4px 14px 14px; }
+.msg-facts__row { display: flex; gap: 12px; font-size: 13px; line-height: 20px; }
+.msg-facts__k { flex: 0 0 130px; color: var(--color-text-tertiary); }
+.msg-facts__v { flex: 1; min-width: 0; color: var(--color-text-primary); overflow-wrap: anywhere; }
+.msg-setup { display: flex; flex-direction: column; gap: 14px; padding: 12px 14px 14px; border-top: 0.5px solid var(--color-border-tertiary); }
+.msg-switch-row { display: flex; align-items: center; gap: 12px; }
+.msg-error-action { margin-top: 8px; }
+.msg-warn { padding: 8px 10px; border-radius: 8px; background: var(--color-warn-bg); color: var(--color-warn-text); font-size: 12px; line-height: 17px; }
+
+.msg-nums { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 0 14px 14px; align-items: start; }
+.msg-nums__save { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
+
+.msg-invite-form { display: grid; grid-template-columns: 90px 130px minmax(0, 1fr) auto; gap: 10px; align-items: end; padding: 12px 14px 14px; }
+.msg-invite { box-shadow: var(--color-border-tertiary) 0 -0.5px 0; }
+.msg-invite__qr { padding: 0 14px 14px; }
+
+.msg-table-wrap { overflow-x: auto; }
+.msg-table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 18px; }
+.msg-table th { padding: 8px 8px; text-align: left; font-size: 11px; font-weight: 500; letter-spacing: 0.3px; text-transform: uppercase; color: var(--color-text-tertiary); }
+.msg-table td { padding: 8px 8px; vertical-align: middle; border-top: 0.5px solid var(--color-border-tertiary); color: var(--color-text-primary); }
+.msg-table__name { font-weight: 500; }
+.msg-table__sub { font-size: 12px; color: var(--color-text-tertiary); white-space: nowrap; }
+.msg-table__msg { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-secondary); }
+.msg-table__when { white-space: nowrap; color: var(--color-text-tertiary); }
+.msg-table__actions { white-space: nowrap; text-align: right; }
+.msg-table__actions .cfg-btn { height: 26px; padding: 0 10px; font-size: 12px; }
+.msg-table__actions .cfg-btn + .cfg-btn { margin-left: 4px; }
+
+@media (max-width: 640px) {
+  .msg-connect { flex-direction: column; align-items: center; }
+  .msg-nums, .msg-invite-form { grid-template-columns: minmax(0, 1fr); }
+  .msg-commands__row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}
+
+/* ---------- /join/:code ---------- */
+.join { min-height: 100%; display: flex; align-items: center; justify-content: center; padding: 24px 16px; background: var(--color-bg-sidebar); overflow-y: auto; }
+.join__card { display: flex; flex-direction: column; align-items: center; width: 400px; max-width: 100%; padding: 36px 28px 28px; background: var(--color-bg-elevated); border: 0.5px solid var(--color-border-secondary); border-radius: var(--radius-card); box-shadow: var(--shadow-modal); text-align: center; }
+.join__hero { margin-bottom: 18px; animation: bob 2.4s ease-in-out infinite; }
+.join__title { margin: 0; font-size: 24px; font-weight: 600; line-height: 30px; letter-spacing: -0.3px; color: var(--color-text-primary); }
+.join__by { margin: 4px 0 0; font-size: 14px; line-height: 20px; color: var(--color-text-secondary); }
+.join__pitch { margin: 12px 0 24px; font-size: 15px; line-height: 22px; color: var(--color-text-secondary); }
+.join__form { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+.join__form .text-input { height: 44px; font-size: 16px; text-align: center; }
+.join__form .btn { height: 44px; font-size: 15px; }
+.join__hint { margin-top: 10px; font-size: 12px; line-height: 17px; color: var(--color-text-tertiary); }
+.btn.join__text-btn { width: 100%; height: 52px; font-size: 17px; font-weight: 600; text-decoration: none; }
+.join__qr { margin: 20px 0 6px; }
+.join__qr-label { font-size: 12px; line-height: 16px; color: var(--color-text-tertiary); }
+.join__steps { margin: 18px 0 0; font-size: 14px; line-height: 20px; color: var(--color-text-secondary); }
+.join__number { margin-top: 6px; font-size: 13px; color: var(--color-text-tertiary); }
+.join__number code { font-family: var(--font-mono-stack); color: var(--color-text-primary); white-space: nowrap; }
+.join__error { margin-top: 12px; width: 100%; }
+.join__foot { margin: 24px 0 0; font-size: 12px; line-height: 16px; color: var(--color-text-quaternary); }
+.join__foot a { color: var(--color-text-tertiary); }
+@media (hover: none) and (pointer: coarse) { .join__qr, .join__qr-label { display: none; } }
+
+/* ---------- sign-in by text ---------- */
+.signin__text { display: flex; flex-direction: column; gap: 8px; width: 100%; margin-top: 20px; }
+.signin__text-toggle { margin-top: 18px; font-size: 13px; line-height: 18px; color: var(--color-text-secondary); text-decoration: underline; text-underline-offset: 2px; }
+.signin__text-toggle:hover { color: var(--color-text-primary); }
+.signin__ok { padding: 10px 12px; border-radius: 10px; background: var(--color-success-bg); color: var(--color-success-text); font-size: 13px; line-height: 18px; text-align: center; }
+.signin__notice { width: 100%; margin-bottom: 16px; padding: 10px 12px; border-radius: 10px; background: var(--color-warn-bg); color: var(--color-warn-text); font-size: 13px; line-height: 18px; text-align: center; }
+
+/* Reply by voice */
+.msg-voice { flex-wrap: wrap; align-items: flex-start; }
+.msg-voice__controls { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.msg-voice__pick { display: flex; gap: 8px; align-items: center; }
+.msg-voice__err { color: var(--color-danger-text); }
+
+/* Continue with phone number */
+.phone-auth { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+.phone-auth__input { height: 44px; font-size: 16px; text-align: center; }
+.phone-auth__code { letter-spacing: 6px; font-family: var(--font-mono-stack); font-size: 20px; }
+.phone-auth__btn { height: 44px; font-size: 15px; width: 100%; justify-content: center; }
+.phone-auth__title { font-size: 14px; font-weight: 500; text-align: center; color: var(--color-text-primary); }
+.phone-auth__hint, .phone-auth__small { font-size: 12px; line-height: 17px; text-align: center; color: var(--color-text-tertiary); }
+.phone-auth__small code { font-family: var(--font-mono-stack); color: var(--color-text-secondary); white-space: nowrap; }
+.phone-auth__help { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; padding: 12px; border-radius: 12px; background: var(--color-bg-tertiary); font-size: 13px; line-height: 18px; color: var(--color-text-secondary); text-align: center; }
+.phone-auth__link { align-self: center; font-size: 13px; color: var(--color-text-secondary); text-decoration: underline; text-underline-offset: 2px; }
+.phone-auth__error { width: 100%; }
+.signin__or { width: 100%; margin: 16px 0 12px; }
+.msg-phone-auth { display: flex; flex-direction: column; gap: 8px; max-width: 360px; margin: 0 auto; padding: 4px 14px 16px; }

@@ -3,6 +3,7 @@ import { hub } from './lib/hub.js';
 import { newId } from './lib/ids.js';
 import { getBot } from './store.js';
 import type { AvatarColor, AvatarShape, Bot } from './types.js';
+import { saveSetup, removeSetupFiles, type BotBrief, type SetupSource } from './bot-setup.js';
 
 export const AVATAR_SHAPES: AvatarShape[] = [
   'blob', 'pebble', 'bean', 'egg', 'squircle', 'tablet', 'capsule', 'cylinder', 'hex',
@@ -23,6 +24,8 @@ export interface CreateBotInput {
   isPrimary?: boolean;
   effort?: string;
   model?: string | null;
+  brief?: BotBrief;
+  source?: SetupSource;
 }
 
 function hashPick<T>(id: string, list: T[]): T {
@@ -41,25 +44,37 @@ export function createBot(userId: string, b: CreateBotInput): Bot {
   const color = AVATAR_COLORS.includes(b.avatarColor as AvatarColor) ? b.avatarColor : hashPick(id, AVATAR_COLORS.filter((c) => c !== 'black'));
   const effort = ['low', 'medium', 'high', 'xhigh'].includes(String(b.effort)) ? b.effort : 'medium';
   const model = typeof b.model === 'string' ? b.model.trim().slice(0, 120) || null : null;
-  db.prepare(
-    `INSERT INTO bots(id,user_id,name,label,description,instructions,avatar_shape,avatar_color,mode,is_primary,effort,model,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    id,
-    userId,
-    clean(b.name, 60) || 'New Bot',
-    clean(b.label, 40),
-    clean(b.description, 300),
-    String(b.instructions ?? '').trim().slice(0, 8000),
-    shape,
-    color,
-    b.mode === 'teammate' ? 'teammate' : 'personal',
-    b.isPrimary ? 1 : 0,
-    effort,
-    model,
-    now(),
-    now(),
-  );
+  try {
+    db.transaction(() => {
+      db.prepare(
+        `INSERT INTO bots(id,user_id,name,label,description,instructions,avatar_shape,avatar_color,mode,is_primary,effort,model,created_at,updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ).run(
+        id,
+        userId,
+        clean(b.name, 60) || 'New Bot',
+        clean(b.label, 40),
+        clean(b.description, 300),
+        String(b.instructions ?? '').trim().slice(0, 8000),
+        shape,
+        color,
+        b.mode === 'teammate' ? 'teammate' : 'personal',
+        b.isPrimary ? 1 : 0,
+        effort,
+        model,
+        now(),
+        now(),
+      );
+      const purpose = b.brief?.purpose || String(b.description || b.label || 'Help the user with their assigned work.');
+      saveSetup(id, b.brief ?? {
+        purpose, responsibilities: [purpose], out_of_scope: [], success_criteria: ['Complete the user’s assigned work and report results and blockers.'],
+        context_summary: String(b.instructions || purpose), shared_resources: [], handoff_notes: [],
+      }, b.source ?? { messages: [] }, b.isPrimary ? 'active' : 'interviewing');
+    })();
+  } catch (e) {
+    removeSetupFiles(id);
+    throw e;
+  }
   hub.emit(userId, { type: 'roster' });
   return getBot(id)!;
 }

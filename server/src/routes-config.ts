@@ -18,6 +18,7 @@ import { consolidateBot, historySize, maybeCompact, memoryConfig } from './agent
 import { idleConfig, viewerCount } from './idle.js';
 import { loadHistory } from './store.js';
 import type { Memory, Skill } from './types.js';
+import { getSetup, setupFiles } from './bot-setup.js';
 
 /**
  * Bot settings, skills, library, computer controls and memory maintenance.
@@ -150,9 +151,19 @@ configApi.get('/bots/:id/files', async (c) => {
   if (!b) return c.json({ error: 'not found' }, 404);
   const rel = safeRel(c.req.query('path'));
   if (rel === null) return c.json({ error: 'bad path' }, 400);
+  const setup = getSetup(b.id);
+  const files = setup ? setupFiles(b.id) : {};
+  if (setup && rel === 'Setup') return c.json({ status: 'ok', path: rel, files: Object.entries(files).map(([name, text]) => ({ name, size: Buffer.byteLength(text), modifiedAt: Math.max(setup.updatedAt, b.updated_at), isDir: false })) });
+  const setupFolder = { name: 'Setup', size: 0, modifiedAt: Math.max(setup?.updatedAt ?? 0, b.updated_at), isDir: true };
   try {
-    return c.json(await computers.files.list(user.id, b.id, rel, c.req.query('wake') === '1'));
+    const listing = await computers.files.list(user.id, b.id, rel, c.req.query('wake') === '1');
+    if (setup && !rel) {
+      // The setup remains accessible even when the remote computer is unavailable.
+      return c.json({ ...listing, status: 'ok', error: listing.error ?? (listing.status === 'asleep' ? 'Computer is asleep; showing saved setup only.' : undefined), files: [setupFolder, ...listing.files.filter((f) => f.name !== 'Setup' && !Object.hasOwn(files, f.name))] });
+    }
+    return c.json(listing);
   } catch (e: any) {
+    if (setup && !rel) return c.json({ status: 'ok', path: rel, files: [setupFolder], error: String(e?.message ?? e).slice(0, 300) });
     return c.json({ status: 'error', path: rel, files: [], error: String(e?.message ?? e).slice(0, 300) });
   }
 });
@@ -164,6 +175,9 @@ configApi.post('/bots/:id/files/download', async (c) => {
   const { path: p } = await c.req.json<{ path: string }>().catch(() => ({ path: '' }));
   const rel = safeRel(p);
   if (!rel) return c.json({ error: 'bad path' }, 400);
+  if (rel.startsWith('Setup/') && Object.hasOwn(setupFiles(b.id), rel.slice(6))) {
+    return c.json({ url: `/api/bots/${b.id}/setup/${encodeURIComponent(rel.slice(6))}` });
+  }
   try {
     return c.json({ url: await computers.files.download(user.id, b.id, rel) });
   } catch (e: any) {
@@ -249,7 +263,7 @@ configApi.post('/computer/pair', (c) => {
   return c.json({
     token,
     server,
-    command: `curl -fsSL ${server}/api/companion/script -o grokbot-companion.mjs && node grokbot-companion.mjs --server ${server} --token ${token}`,
+    command: `curl -fsSL ${server}/api/companion/script -o grokbot-companion.mjs && node grokbot-companion.mjs --server ${server} --token ${token}${env.localDesktop ? ' --desktop' : ''}`,
   });
 });
 
@@ -269,6 +283,7 @@ configApi.put('/settings/keys/:name', async (c) => {
   if (!canManageServer(user)) return c.json({ error: 'Only the owner of this server can change its keys.' }, 403);
   const name = c.req.param('name') as SettingName;
   if (!(name in SETTINGS)) return c.json({ error: 'unknown setting' }, 404);
+  if (name.startsWith('inkbox_') || name.startsWith('messaging_')) return c.json({ error: 'Set these in Settings → Messaging.' }, 400);
   const { value } = await c.req.json<{ value?: string }>().catch(() => ({ value: '' }));
   const v = String(value ?? '').trim();
   if (!v) return c.json({ error: 'Enter a value first.' }, 400);

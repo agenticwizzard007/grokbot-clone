@@ -117,9 +117,13 @@ export const orgoProvider: ComputerProvider = {
       const b64 = Buffer.from(content, 'utf8').toString('base64');
       const { computerId: c, screenId: s } = await screenFor(userId, botId);
       // Chunk the base64 so very large files don't exceed a single command's size.
-      await orgo.bash(c, s, `mkdir -p ${dir} && : > ${dir}/${name}.b64`, 30);
-      for (let i = 0; i < b64.length; i += 60000) await orgo.bash(c, s, `printf '%s' '${b64.slice(i, i + 60000)}' >> ${dir}/${name}.b64`, 30);
-      await orgo.bash(c, s, `base64 -d ${dir}/${name}.b64 > ${dir}/${name} && rm ${dir}/${name}.b64 && wc -c ${dir}/${name}`, 30);
+      const run = async (command: string) => {
+        const result = await orgo.bash(c, s, command, 30);
+        if (result.exit_code !== 0) throw new ComputerError(`Could not save ${name}: ${(result.output ?? '').slice(0, 300)}`);
+      };
+      await run(`mkdir -p ${dir} && : > ${dir}/${name}.b64`);
+      for (let i = 0; i < b64.length; i += 60000) await run(`printf '%s' '${b64.slice(i, i + 60000)}' >> ${dir}/${name}.b64`);
+      await run(`base64 -d ${dir}/${name}.b64 > ${dir}/${name} && rm ${dir}/${name}.b64 && wc -c ${dir}/${name}`);
       return `${dir}/${name}`;
     },
     async list(userId, botId, rel, wake) {

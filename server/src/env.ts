@@ -6,9 +6,14 @@ function req(name: string): string {
   return v;
 }
 
-/** Where Bots' computers come from: 'orgo' (cloud VMs) or 'local' (a browser on your own PC via the companion). */
-const computerProvider = (process.env.COMPUTER_PROVIDER || (process.env.ORGO_API_KEY ? 'orgo' : 'local')).toLowerCase();
-if (computerProvider !== 'orgo' && computerProvider !== 'local') throw new Error(`COMPUTER_PROVIDER must be "orgo" or "local", got "${computerProvider}"`);
+/**
+ * Where Bots' computers come from: 'orgo' (cloud VMs), 'local' (a browser on your own PC via the
+ * companion), or 'desktop' (your own PC's full desktop and a shell, via the companion).
+ */
+const computerSetting = (process.env.COMPUTER_PROVIDER || (process.env.ORGO_API_KEY ? 'orgo' : 'local')).toLowerCase();
+if (!['orgo', 'local', 'desktop'].includes(computerSetting)) throw new Error(`COMPUTER_PROVIDER must be "orgo", "local" or "desktop", got "${computerSetting}"`);
+/** 'desktop' is the local provider (the companion) in full-desktop mode. */
+const computerProvider = computerSetting === 'orgo' ? 'orgo' : 'local';
 
 /**
  * Provider keys can also be set in the app (Settings → API keys; see settings.ts). Values saved
@@ -56,7 +61,23 @@ export const env = {
   },
   get composioKey() { return live('COMPOSIO_API_KEY'); },
   get composioEnabled() { return !!live('COMPOSIO_API_KEY'); },
+  /** Inkbox (inkbox.ai): the server's iMessage/SMS line. Set in Settings → Messaging, or here. */
+  get inkboxAdminKey() { return live('INKBOX_ADMIN_API_KEY'); },
+  get inkboxHandle() { return live('INKBOX_HANDLE') || 'grokbot'; },
+  get inkboxIdentityId() { return live('INKBOX_IDENTITY_ID'); },
+  get inkboxIdentityKey() { return live('INKBOX_API_KEY'); },
+  get inkboxSigningKey() { return live('INKBOX_SIGNING_KEY'); },
+  get inkboxPhoneNumberId() { return live('INKBOX_PHONE_NUMBER_ID'); },
+  /** Inkbox API origin (override for a mock in tests). */
+  inkboxBaseUrl: (process.env.INKBOX_BASE_URL || 'https://inkbox.ai').replace(/\/$/, ''),
+  /** Sign-up by text: 'invite' (invites + waitlist), 'open' or 'closed'; and its limits. */
+  get messagingSignupMode() { return live('MESSAGING_SIGNUP_MODE') || 'invite'; },
+  get messagingSignupsPerDay() { return live('MESSAGING_SIGNUPS_PER_DAY'); },
+  get messagingDailyTurns() { return live('MESSAGING_DAILY_MESSAGES'); },
+  get messagingMemberInvites() { return live('MESSAGING_MEMBER_INVITES'); },
   computerProvider: computerProvider as 'orgo' | 'local',
+  /** Local computers give Bots the whole desktop (screen, mouse, keyboard, shell), not just a browser. */
+  localDesktop: computerSetting === 'desktop',
   orgoKey: computerProvider === 'orgo' ? req('ORGO_API_KEY') : (process.env.ORGO_API_KEY ?? ''),
   /** Orgo workspace that holds every user's box. */
   orgoWorkspaceId: process.env.ORGO_WORKSPACE_ID ?? '',

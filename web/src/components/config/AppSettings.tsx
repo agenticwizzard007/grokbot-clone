@@ -12,13 +12,17 @@ import { Icon } from '../Icon';
 import { ToolkitLogo } from '../ToolkitLogo';
 import { Glyph } from './glyphs';
 import { ConfirmButton } from './ui';
+import { McpSettings } from './McpSettings';
+import { MessagingSettings } from './MessagingSettings';
 
 const SECTIONS: { id: AppSection; label: string }[] = [
   { id: 'general', label: 'General' },
   { id: 'keys', label: 'API keys' },
   { id: 'computer', label: 'Computer' },
+  { id: 'messaging', label: 'Messaging' },
   { id: 'permissions', label: 'Permissions' },
   { id: 'apps', label: 'Connected apps' },
+  { id: 'mcp', label: 'MCP servers' },
   { id: 'account', label: 'Account' },
 ];
 
@@ -50,8 +54,10 @@ export function AppSettings() {
           {section === 'general' && <GeneralSection />}
           {section === 'keys' && <KeysSection />}
           {section === 'computer' && <ComputerSection />}
+          {section === 'messaging' && <MessagingSettings />}
           {section === 'permissions' && <PermissionsSection />}
           {section === 'apps' && <AppsSection />}
+          {section === 'mcp' && <McpSettings />}
           {section === 'account' && <AccountSection />}
         </div>
       </div>
@@ -334,6 +340,7 @@ function LocalComputerSection({ details, reload }: { details: ComputerDetails | 
     finally { setBusy(false); }
   };
   const byId = new Map(bots.map((b) => [b.id, b]));
+  const desktop = !!computer?.desktop;
 
   // Once the PC connects, the one-time command has done its job.
   useEffect(() => { if (connected) setPairing(null); }, [connected]);
@@ -351,7 +358,9 @@ function LocalComputerSection({ details, reload }: { details: ComputerDetails | 
 
   return (
     <>
-      <PageHead title="Computer" sub="Your Bots use a Chrome browser on your own PC. Each Bot gets its own browser profile there, separate from yours." />
+      <PageHead title="Computer" sub={desktop
+        ? 'Your Bots use your own computer: its full desktop and apps, your default browser, and a shell. They take turns, one Bot at a time.'
+        : 'Your Bots use a Chrome browser on your own PC. Each Bot gets its own browser profile there, separate from yours.'} />
       <section className="cfg-section">
         <div className="cfg-card">
           <div className="cfg-row">
@@ -360,8 +369,8 @@ function LocalComputerSection({ details, reload }: { details: ComputerDetails | 
               <div className="cfg-row__title">Your PC · {computerStatusText(computer)}</div>
               <div className="cfg-row__sub">
                 {connected
-                  ? `${computer?.device?.name ?? 'PC'}${computer?.device?.platform ? ` · ${computer.device.platform}` : ''} · Your Bots can browse now.`
-                  : paired ? 'Paired, but the companion isn’t running. Start it again on your PC, or connect a new one.' : 'Connect a PC so your Bots can use a browser.'}
+                  ? `${computer?.device?.name ?? 'PC'}${computer?.device?.platform ? ` · ${computer.device.platform}` : ''} · ${desktop ? 'Your Bots can use this desktop now.' : 'Your Bots can browse now.'}`
+                  : paired ? 'Paired, but the companion isn’t running. Start it again on your PC, or connect a new one.' : desktop ? 'Connect a PC so your Bots can use its desktop.' : 'Connect a PC so your Bots can use a browser.'}
               </div>
             </div>
             {!connected && here?.available && !here.active && <button type="button" className="cfg-btn cfg-btn--primary" disabled={busy} onClick={useHere}>{busy ? 'Starting…' : 'Use this computer'}</button>}
@@ -380,12 +389,14 @@ function LocalComputerSection({ details, reload }: { details: ComputerDetails | 
           </div>
           {pairing && !connected && (
             <div className="cfg-pair">
-              <div className="cfg-pair__step">On your PC (needs <b>Node.js 22+</b> and <b>Google Chrome</b>), run this in a terminal and keep it running:</div>
+              <div className="cfg-pair__step">On your PC (needs <b>Node.js 22+</b>{desktop ? <> on macOS or Linux</> : <> and <b>Google Chrome</b></>}), run this in a terminal and keep it running:</div>
               <div className="cfg-pair__cmd">
                 <code className="cfg-pair__code" aria-label="Connect command">{pairing.command}</code>
                 <button type="button" className="cfg-btn cfg-btn--secondary" onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
               </div>
-              <div className="cfg-field__hint">It contains a private token: anyone who has it can connect their PC as your Bots’ browser. Add <code className="cfg-code">--headed</code> to see the browser windows on your PC. Waiting for your PC to connect…</div>
+              {desktop
+                ? <div className="cfg-field__hint">It contains a private token: anyone who has it can connect their PC as your Bots’ computer. On macOS, allow the terminal app in System Settings → Privacy &amp; Security → <b>Accessibility</b> and <b>Screen Recording</b>. Waiting for your PC to connect…</div>
+                : <div className="cfg-field__hint">It contains a private token: anyone who has it can connect their PC as your Bots’ browser. Add <code className="cfg-code">--headed</code> to see the browser windows on your PC. Waiting for your PC to connect…</div>}
             </div>
           )}
           {note && <div className="cfg-error cfg-error--inset">{note}</div>}
@@ -393,10 +404,10 @@ function LocalComputerSection({ details, reload }: { details: ComputerDetails | 
       </section>
 
       <section className="cfg-section">
-        <div className="cfg-section__label">Browsers in use</div>
+        <div className="cfg-section__label">{desktop ? 'Bots using the desktop' : 'Browsers in use'}</div>
         <div className="cfg-card">
           {!details ? <div className="cfg-empty cfg-empty--flat">Loading…</div> : details.screens.length === 0 ? (
-            <div className="cfg-empty cfg-empty--flat">{connected ? 'No Bot has opened a browser yet.' : 'None while your PC is disconnected.'}</div>
+            <div className="cfg-empty cfg-empty--flat">{connected ? (desktop ? 'No Bot has used the desktop yet.' : 'No Bot has opened a browser yet.') : 'None while your PC is disconnected.'}</div>
           ) : details.screens.map((s) => {
             const bot = byId.get(s.botId);
             return (
@@ -404,9 +415,9 @@ function LocalComputerSection({ details, reload }: { details: ComputerDetails | 
                 {bot ? <BotAvatarFor bot={bot} size={28} /> : <span className="cfg-row__ph" />}
                 <div className="cfg-row__text">
                   <div className="cfg-row__title">{bot?.name ?? 'Removed Bot'}</div>
-                  <div className="cfg-row__sub">Browser · used {relativeShort(s.lastUsedAt) === 'now' ? 'just now' : `${relativeShort(s.lastUsedAt)}${/^\d/.test(relativeShort(s.lastUsedAt)) ? ' ago' : ''}`}</div>
+                  <div className="cfg-row__sub">{desktop ? 'Desktop' : 'Browser'} · used {relativeShort(s.lastUsedAt) === 'now' ? 'just now' : `${relativeShort(s.lastUsedAt)}${/^\d/.test(relativeShort(s.lastUsedAt)) ? ' ago' : ''}`}</div>
                 </div>
-                <ConfirmButton
+                {!desktop && <ConfirmButton
                   className="cfg-btn cfg-btn--secondary"
                   confirmLabel="Close browser"
                   disabled={!connected}
@@ -414,12 +425,14 @@ function LocalComputerSection({ details, reload }: { details: ComputerDetails | 
                   onConfirm={async () => { try { await configApi.resetScreen(s.botId); setNote(null); reload(); } catch (e) { setNote((e as Error).message); } }}
                 >
                   Close
-                </ConfirmButton>
+                </ConfirmButton>}
               </div>
             );
           })}
         </div>
-        <div className="cfg-field__hint">Bots only get a browser on your PC: no files and no shell. Local-network addresses are blocked unless you start the companion with <code className="cfg-code">--allow-private-network</code>.</div>
+        {desktop
+          ? <div className="cfg-field__hint">Bots act as you: they can open any app, read and change your files, and run shell commands. You can watch or take over any time from a Bot’s screen. Press <b>Stop</b> (or Ctrl+C in the companion) to cut them off.</div>
+          : <div className="cfg-field__hint">Bots only get a browser on your PC: no files and no shell. Local-network addresses are blocked unless you start the companion with <code className="cfg-code">--allow-private-network</code>.</div>}
       </section>
     </>
   );
@@ -436,6 +449,8 @@ function humanizeTool(slug: string): { app: string; action: string } {
 
 function PermissionsSection() {
   const [policies, setPolicies] = useState<{ tool: string; mode: string }[] | null>(null);
+  const [mcpNames, setMcpNames] = useState<Record<string, { app: string; action: string }>>({});
+  useEffect(() => { configApi.mcpServers().then(({ servers }) => setMcpNames(Object.fromEntries(servers.flatMap(s => s.tools.map(t => [t.toolName, { app: s.name, action: t.name }]))))).catch(() => {}); }, []);
   const load = useCallback(() => { configApi.policies().then((r) => setPolicies(r.policies)).catch(() => setPolicies([])); }, []);
   useEffect(() => { load(); }, [load]);
   return (
@@ -446,12 +461,12 @@ function PermissionsSection() {
           {policies === null ? <div className="cfg-empty cfg-empty--flat">Loading…</div> : policies.length === 0 ? (
             <div className="cfg-empty cfg-empty--flat">Nothing here yet. When you choose “Always allow” on an approval, it shows up here.</div>
           ) : policies.map((p) => {
-            const h = humanizeTool(p.tool);
+            const h = mcpNames[p.tool] ?? (p.tool.startsWith('mcp_') ? { app: 'MCP server', action: 'Previous tool permission' } : humanizeTool(p.tool));
             return (
               <div key={p.tool} className="cfg-row">
                 <div className="cfg-row__text">
                   <div className="cfg-row__title">{h.app}{h.action ? ` · ${h.action}` : ''}</div>
-                  <div className="cfg-row__sub">{p.mode === 'always_allow' ? 'Always allowed' : p.mode === 'blocked' ? 'Never allowed' : 'Asks first'} · <code className="cfg-code">{p.tool}</code></div>
+                  <div className="cfg-row__sub">{p.mode === 'always_allow' ? 'Always allowed' : p.mode === 'blocked' ? 'Never allowed' : 'Asks first'}{!p.tool.startsWith('mcp_') && <> · <code className="cfg-code">{p.tool}</code></>}</div>
                 </div>
                 <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => configApi.deletePolicy(p.tool).then(load).catch(() => {})}>Ask again</button>
               </div>

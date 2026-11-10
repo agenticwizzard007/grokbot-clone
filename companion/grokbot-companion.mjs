@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Grokbot companion: lets your Bots use a Chrome browser on this PC.
+// Grokbot companion: lets your Bots use a Chrome browser on this PC, or (with --desktop) the
+// whole computer: its screen, mouse, keyboard, apps and a shell.
 //
 //   node grokbot-companion.mjs --server https://your-grokbot.example --token gbc_...
 //
@@ -12,7 +13,14 @@
 //   ~/.grokbot-companion). Your everyday Chrome profile is never touched.
 // - Drives Chrome through the DevTools protocol over a private pipe (no debugging port).
 //
-// Guard rails (enforced here, on your PC):
+// Full desktop (--desktop): Bots see this computer's real screen and use its mouse and keyboard,
+// open websites in your default browser, and run commands in a shell as you. All Bots share the
+// one desktop; the server lets one Bot at a time act on it. Supported on macOS and Linux (X11).
+// - macOS: give the app that runs this (Terminal, iTerm, Conductor…) Accessibility and Screen
+//   Recording permission in System Settings → Privacy & Security.
+// - Linux: needs an X11 session with xdotool and ImageMagick (import) or ffmpeg installed.
+//
+// Guard rails in browser mode (the default; enforced here, on your PC):
 // - Bots get a browser only: no shell, no files from this PC.
 // - Only http(s) pages; local-network and localhost addresses are blocked unless you pass
 //   --allow-private-network.
@@ -21,6 +29,13 @@
 // Options:
 //   --server URL              Grokbot server URL (or GROKBOT_SERVER)
 //   --token TOKEN             pairing token (or GROKBOT_TOKEN)
+//   --desktop                 give Bots this computer's full desktop and a shell (see above)
+//   --max-width N             full desktop: screenshot width sent to Bots (default 1280)
+//   --multi                   cloud VM mode (Linux): every Bot gets its own virtual screen, Chrome
+//                             profile and shell folder on this machine (needs Xvfb, xdotool, ImageMagick)
+//   --run-as USER             --multi: run Bots' shells and browsers as this unprivileged user
+//   --agent-home DIR          --multi: home of the Bots' files and profiles (default /home/USER)
+//   --token-file FILE         read the pairing token from a file instead of --token
 //   --headed                  show the Chrome windows instead of running headless
 //   --chrome PATH             Chrome/Chromium executable (or CHROME_PATH)
 //   --data-dir DIR            where Bot profiles live (default ~/.grokbot-companion)
@@ -28,14 +43,14 @@
 //   --no-sandbox              pass --no-sandbox to Chrome (only for containers/root)
 //   --idle-minutes N          close a Bot's browser after N idle minutes (default 30)
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import dns from 'node:dns/promises';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 
-const VERSION = '1.0.0';
+const VERSION = '1.2.0';
 const W = 1280;
 const H = 800;
 
@@ -52,7 +67,10 @@ if (flag('help') || flag('h')) {
   process.exit(0);
 }
 const SERVER = (opt('server', process.env.GROKBOT_SERVER) ?? '').replace(/\/+$/, '');
-const TOKEN = opt('token', process.env.GROKBOT_TOKEN);
+const TOKEN_FILE = opt('token-file', process.env.GROKBOT_TOKEN_FILE);
+const TOKEN = opt('token', process.env.GROKBOT_TOKEN) ?? (TOKEN_FILE && fs.existsSync(TOKEN_FILE) ? fs.readFileSync(TOKEN_FILE, 'utf8').trim() : undefined);
+const DESKTOP = flag('desktop');
+const MULTI = flag('multi');
 const HEADED = flag('headed');
 const DATA_DIR = path.resolve(opt('data-dir', path.join(os.homedir(), '.grokbot-companion')));
 const ALLOW_PRIVATE = flag('allow-private-network');
@@ -92,7 +110,7 @@ function findChrome() {
   }
   return found;
 }
-const CHROME = findChrome();
+const CHROME = DESKTOP && !MULTI ? null : findChrome();
 
 // ---------- URL guard ----------
 
@@ -552,13 +570,534 @@ class BotBrowser {
   }
 }
 
+// ---------- full desktop (--desktop) ----------
+
+const MAX_SHOT_W = Math.max(640, Number(opt('max-width', '1280')) || 1280);
+const FRAME_MS = 500; // live view: at most ~2 frames a second
+
+/** Run a program; resolves with stdout (Buffer), rejects with its stderr. */
+function exec(cmd, args, { input, timeoutMs = 30_000, env } = {}) {
+  return new Promise((resolve, reject) => {
+    const p = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'], ...(env ? { env } : {}) });
+    const out = [];
+    let err = '';
+    const t = setTimeout(() => { p.kill('SIGKILL'); reject(new Error(`${path.basename(cmd)} timed out`)); }, timeoutMs);
+    p.stdout.on('data', (d) => out.push(d));
+    p.stderr.on('data', (d) => { err = (err + d).slice(-2000); });
+    p.on('error', (e) => { clearTimeout(t); reject(e.code === 'ENOENT' ? new Error(`${cmd} isn't installed on this computer.`) : e); });
+    p.on('close', (code) => {
+      clearTimeout(t);
+      const stdout = Buffer.concat(out);
+      if (code === 0) resolve(stdout);
+      else reject(new Error((err.trim() || stdout.toString().trim() || `${path.basename(cmd)} exited with code ${code}`).slice(0, 500)));
+    });
+    p.stdin.on('error', () => {});
+    p.stdin.end(input ?? undefined);
+  });
+}
+
+function jpegSize(b) {
+  if (b.length < 4 || b[0] !== 0xff || b[1] !== 0xd8) return null;
+  let i = 2;
+  while (i + 9 < b.length) {
+    if (b[i] !== 0xff) { i++; continue; }
+    const marker = b[i + 1];
+    if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { i += 2; continue; }
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) return { height: b.readUInt16BE(i + 5), width: b.readUInt16BE(i + 7) };
+    i += 2 + b.readUInt16BE(i + 2);
+  }
+  return null;
+}
+
+// Keys for the desktop, as canonical X11 keysym names (or single characters).
+const KEY_CANON = {
+  return: 'Return', enter: 'Return', kp_enter: 'Return', tab: 'Tab', escape: 'Escape', esc: 'Escape', backspace: 'BackSpace',
+  delete: 'Delete', del: 'Delete', insert: 'Insert', home: 'Home', end: 'End', page_up: 'Page_Up', pageup: 'Page_Up', prior: 'Page_Up',
+  page_down: 'Page_Down', pagedown: 'Page_Down', next: 'Page_Down', left: 'Left', arrowleft: 'Left', up: 'Up', arrowup: 'Up',
+  right: 'Right', arrowright: 'Right', down: 'Down', arrowdown: 'Down', space: 'space',
+  ...Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`f${i + 1}`, `F${i + 1}`])),
+};
+const CHAR_NAMES = Object.fromEntries(Object.entries(PUNCT_NAMES).map(([name, ch]) => [ch, name]));
+
+/** "ctrl+shift+t" -> { mods: ['ctrl','shift'], name: 't' }; a bare modifier ("cmd") -> { mods: ['meta'], name: null }. */
+function parseCombo(keys) {
+  const parts = String(keys).split('+').map((p) => p.trim()).filter(Boolean);
+  if (String(keys).trim().endsWith('++') || String(keys).trim() === '+') parts.push('+');
+  if (!parts.length) throw new Error('No key given.');
+  const mods = parts.slice(0, -1).map((m) => {
+    const k = MOD_ALIASES[m.toLowerCase()];
+    if (!k) throw new Error(`Unknown modifier "${m}".`);
+    return k;
+  });
+  const main = parts.at(-1);
+  const lower = main.toLowerCase();
+  const name = KEY_CANON[lower] ?? PUNCT_NAMES[lower] ?? ([...main].length === 1 ? main : null);
+  if (name) return { mods: [...new Set(mods)], name };
+  if (MOD_ALIASES[lower]) return { mods: [...new Set([...mods, MOD_ALIASES[lower]])], name: null };
+  throw new Error(`Unknown key "${main}". Use X11 names like Return, Tab, Escape, BackSpace, Page_Down, F5, or single characters.`);
+}
+
+// --- macOS: screencapture + sips for pictures, CoreGraphics events (through JXA) for input ---
+
+const MAC_KEYS = { Return: 36, Tab: 48, space: 49, BackSpace: 51, Escape: 53, Delete: 117, Insert: 114, Home: 115, End: 119, Page_Up: 116, Page_Down: 121, Left: 123, Right: 124, Down: 125, Up: 126, F1: 122, F2: 120, F3: 99, F4: 118, F5: 96, F6: 97, F7: 98, F8: 100, F9: 101, F10: 109, F11: 103, F12: 111 };
+const MAC_CHARS = { a: 0, s: 1, d: 2, f: 3, h: 4, g: 5, z: 6, x: 7, c: 8, v: 9, b: 11, q: 12, w: 13, e: 14, r: 15, y: 16, t: 17, 1: 18, 2: 19, 3: 20, 4: 21, 6: 22, 5: 23, '=': 24, 9: 25, 7: 26, '-': 27, 8: 28, 0: 29, ']': 30, o: 31, u: 32, '[': 33, i: 34, p: 35, l: 37, j: 38, "'": 39, k: 40, ';': 41, '\\': 42, ',': 43, '/': 44, n: 45, m: 46, '.': 47, '`': 50, ' ': 49 };
+const MAC_SHIFTED = { '!': '1', '@': '2', '#': '3', $: '4', '%': '5', '^': '6', '&': '7', '*': '8', '(': '9', ')': '0', _: '-', '+': '=', '{': '[', '}': ']', '|': '\\', ':': ';', '"': "'", '<': ',', '>': '.', '?': '/', '~': '`' };
+const MAC_MODS = { shift: { code: 56, flag: 0x20000 }, ctrl: { code: 59, flag: 0x40000 }, alt: { code: 58, flag: 0x80000 }, meta: { code: 55, flag: 0x100000 } };
+
+/** A key name or character -> { code, shift } (US layout), or null. */
+function macKey(name) {
+  if (MAC_KEYS[name] !== undefined) return { code: MAC_KEYS[name], shift: false };
+  if (MAC_CHARS[name] !== undefined) return { code: MAC_CHARS[name], shift: false };
+  if (/^[A-Z]$/.test(name)) return { code: MAC_CHARS[name.toLowerCase()], shift: true };
+  if (MAC_SHIFTED[name]) return { code: MAC_CHARS[MAC_SHIFTED[name]], shift: true };
+  return null;
+}
+
+// One osascript run executes a batch of input events, so a click or a burst of viewer input is one process.
+const JXA_INPUT = `ObjC.import('CoreGraphics'); ObjC.import('ApplicationServices');
+function run(argv) {
+  if (!$.AXIsProcessTrusted()) return 'NO_ACCESSIBILITY';
+  var acts = JSON.parse(argv[0]);
+  for (var i = 0; i < acts.length; i++) {
+    var a = acts[i], e = null;
+    if (a.t === 'm') { e = $.CGEventCreateMouseEvent(null, a.type, { x: a.x, y: a.y }, a.b || 0); if (a.c) $.CGEventSetIntegerValueField(e, 1, a.c); if (a.flags) $.CGEventSetFlags(e, a.flags); }
+    else if (a.t === 'k') { e = $.CGEventCreateKeyboardEvent(null, a.code, a.down); $.CGEventSetFlags(e, a.flags || 0); }
+    else if (a.t === 's') { try { e = $.CGEventCreateScrollWheelEvent2(null, 1, 2, a.dy, 0, 0); } catch (err) { e = $.CGEventCreateScrollWheelEvent(null, 1, 1, a.dy); } }
+    else if (a.t === 'text') Application('System Events').keystroke(a.text);
+    else if (a.t === 'wait') delay(a.s);
+    if (e) { $.CGEventPost(0, e); delay(0.008); }
+  }
+  return 'ok';
+}`;
+
+const MAC_NO_AX = "macOS hasn't given this app Accessibility permission, so Bots can't click or type. Open System Settings → Privacy & Security → Accessibility, turn on the app that runs Grokbot (Terminal, iTerm, Conductor…), then try again.";
+const MAC_NO_SCREEN = "macOS blocked the screenshot. Open System Settings → Privacy & Security → Screen & System Audio Recording, turn on the app that runs Grokbot (Terminal, iTerm, Conductor…), then restart Grokbot.";
+let shotSeq = 0;
+
+const macBackend = {
+  name: 'macOS',
+  async size() {
+    const out = await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', "ObjC.import('AppKit'); var f = $.NSScreen.screens.objectAtIndex(0).frame; JSON.stringify({ w: f.size.width, h: f.size.height })"]);
+    return JSON.parse(out.toString());
+  },
+  async capture(width, quality) {
+    const tmp = path.join(os.tmpdir(), `grokbot-shot-${process.pid}-${++shotSeq}`);
+    try {
+      await exec('/usr/sbin/screencapture', ['-x', '-m', '-t', 'jpg', `${tmp}.jpg`], { timeoutMs: 20_000 }).catch((e) => { throw new Error(`${MAC_NO_SCREEN} (${e.message})`); });
+      if (!fs.existsSync(`${tmp}.jpg`)) throw new Error(MAC_NO_SCREEN);
+      await exec('/usr/bin/sips', ['-s', 'format', 'jpeg', '-s', 'formatOptions', String(quality), '--resampleWidth', String(width), `${tmp}.jpg`, '--out', `${tmp}-s.jpg`], { timeoutMs: 20_000 });
+      return fs.readFileSync(`${tmp}-s.jpg`);
+    } finally {
+      fs.rmSync(`${tmp}.jpg`, { force: true });
+      fs.rmSync(`${tmp}-s.jpg`, { force: true });
+    }
+  },
+  /** Run a batch of portable input ops. `state.flags` holds modifiers held down from the live viewer. */
+  async run(ops, state) {
+    const acts = [];
+    const BTN = { left: 0, right: 1, middle: 2 };
+    const DOWN = [1, 3, 25], UP = [2, 4, 26], DRAG = [6, 7, 27];
+    for (const o of ops) {
+      if (o.op === 'move') acts.push({ t: 'm', type: o.drag ? DRAG[BTN[o.drag] ?? 0] : 5, x: o.x, y: o.y, b: BTN[o.drag] ?? 0, flags: state.flags });
+      else if (o.op === 'down' || o.op === 'up') acts.push({ t: 'm', type: (o.op === 'down' ? DOWN : UP)[BTN[o.button] ?? 0], x: o.x, y: o.y, b: BTN[o.button] ?? 0, c: o.count ?? 1, flags: state.flags });
+      else if (o.op === 'scroll') {
+        acts.push({ t: 'm', type: 5, x: o.x, y: o.y, b: 0 });
+        acts.push({ t: 's', dy: -o.notches * 4 });
+      } else if (o.op === 'combo') {
+        const k = o.name === null ? null : macKey(o.name);
+        if (o.name !== null && !k) throw new Error(`The key "${o.name}" isn't available on macOS.`);
+        let flags = state.flags;
+        const mods = [...o.mods, ...(k?.shift && !o.mods.includes('shift') ? ['shift'] : [])];
+        for (const m of mods) { flags |= MAC_MODS[m].flag; acts.push({ t: 'k', code: MAC_MODS[m].code, down: true, flags }); }
+        if (k) { acts.push({ t: 'k', code: k.code, down: true, flags }); acts.push({ t: 'k', code: k.code, down: false, flags }); }
+        for (const m of [...mods].reverse()) { flags &= ~MAC_MODS[m].flag; acts.push({ t: 'k', code: MAC_MODS[m].code, down: false, flags: flags | state.flags }); }
+      } else if (o.op === 'keysym') {
+        const def = keyBySym(o.keysym);
+        if (!def) continue;
+        if (def.mod) {
+          state.flags = o.down ? state.flags | MAC_MODS[def.mod].flag : state.flags & ~MAC_MODS[def.mod].flag;
+          acts.push({ t: 'k', code: MAC_MODS[def.mod].code, down: o.down, flags: state.flags });
+          continue;
+        }
+        const name = def.key === 'Enter' ? 'Return' : def.key === 'Backspace' ? 'BackSpace' : def.key === 'Escape' ? 'Escape' : def.key.startsWith('Arrow') ? def.key.slice(5) : def.key === 'PageUp' ? 'Page_Up' : def.key === 'PageDown' ? 'Page_Down' : def.key === ' ' ? 'space' : def.key;
+        const k = macKey(name);
+        if (k) acts.push({ t: 'k', code: k.code, down: o.down, flags: state.flags | (k.shift ? MAC_MODS.shift.flag : 0) });
+        else if (o.down && def.text) acts.push({ t: 'text', text: def.text });
+      } else if (o.op === 'text') acts.push({ t: 'text', text: o.text });
+      else if (o.op === 'wait') acts.push({ t: 'wait', s: o.ms / 1000 });
+    }
+    if (!acts.length) return;
+    const out = (await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', JXA_INPUT, JSON.stringify(acts)], { timeoutMs: 60_000 })).toString().trim();
+    if (out === 'NO_ACCESSIBILITY') throw new Error(MAC_NO_AX);
+  },
+  /** Type text: keystrokes for plain ASCII, the clipboard (restored afterwards) for anything else. */
+  async type(text, state) {
+    if (/^[\x20-\x7e\t]*$/.test(text)) return this.run([{ op: 'text', text }], state);
+    const old = await exec('/usr/bin/pbpaste', []).catch(() => null);
+    await exec('/usr/bin/pbcopy', [], { input: text });
+    await this.run([{ op: 'combo', mods: ['meta'], name: 'v' }, { op: 'wait', ms: 300 }], state);
+    if (old !== null) await exec('/usr/bin/pbcopy', [], { input: old }).catch(() => {});
+  },
+  async open(url) { await exec('/usr/bin/open', [url]); },
+  async checkPermissions() {
+    const out = await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', "ObjC.import('ApplicationServices'); var ok = $.AXIsProcessTrusted(); if (!ok) { try { $.AXIsProcessTrustedWithOptions($({ AXTrustedCheckOptionPrompt: true })); } catch (e) {} } String(ok)"]).catch(() => Buffer.from('unknown'));
+    if (out.toString().trim() === 'false') log(`WARNING: ${MAC_NO_AX}`);
+  },
+};
+
+// --- Linux (X11): xdotool for input, ImageMagick's import (or ffmpeg) for pictures ---
+
+const XBUTTON = { left: 1, middle: 2, right: 3 };
+const xName = (name) => (name.length === 1 && CHAR_NAMES[name] ? CHAR_NAMES[name] : name === ' ' ? 'space' : name);
+const XMOD = { ctrl: 'ctrl', alt: 'alt', shift: 'shift', meta: 'super' };
+// xdotool reads text in the current locale; without a UTF-8 one, accented letters and emoji fail.
+const UTF8_ENV = /utf-?8/i.test(process.env.LC_ALL || process.env.LC_CTYPE || process.env.LANG || '') ? process.env : { ...process.env, LC_ALL: 'C.UTF-8' };
+
+/**
+ * An X11 display driven with xdotool. `display` picks the screen (":10"); `open` overrides how a
+ * URL is opened (the default browser via xdg-open, or a Bot's own Chrome in --multi mode).
+ */
+function makeLinuxBackend({ display = process.env.DISPLAY, open } = {}) {
+  const xenv = { ...process.env, DISPLAY: display };
+  const tenv = { ...UTF8_ENV, DISPLAY: display };
+  const x = (args, o = {}) => exec('xdotool', args, { env: xenv, ...o });
+  return {
+    name: 'Linux',
+    display,
+    async size() {
+      const [w, h] = (await x(['getdisplaygeometry'])).toString().trim().split(/\s+/).map(Number);
+      return { w, h };
+    },
+    async capture(width, quality) {
+      try {
+        return await exec('import', ['-silent', '-window', 'root', '-resize', `${width}x`, '-quality', String(quality), 'jpg:-'], { timeoutMs: 20_000, env: xenv });
+      } catch (e) {
+        if (!/isn't installed/.test(e.message)) throw e;
+        return exec('ffmpeg', ['-loglevel', 'error', '-f', 'x11grab', '-i', display, '-frames:v', '1', '-vf', `scale=${width}:-2`, '-q:v', '5', '-f', 'image2', '-c:v', 'mjpeg', '-'], { timeoutMs: 20_000, env: xenv })
+          .catch((e2) => { throw new Error(/isn't installed/.test(e2.message) ? 'Screenshots need ImageMagick (import) or ffmpeg on this computer.' : e2.message); });
+      }
+    },
+    async run(ops) {
+      const args = [];
+      for (const o of ops) {
+        if (o.op === 'move') args.push('mousemove', String(o.x), String(o.y));
+        else if (o.op === 'down') args.push('mousemove', String(o.x), String(o.y), 'mousedown', String(XBUTTON[o.button] ?? 1));
+        else if (o.op === 'up') args.push('mousemove', String(o.x), String(o.y), 'mouseup', String(XBUTTON[o.button] ?? 1));
+        else if (o.op === 'scroll') args.push('mousemove', String(o.x), String(o.y), 'click', '--repeat', String(Math.abs(o.notches)), '--delay', '30', o.notches > 0 ? '5' : '4');
+        else if (o.op === 'combo') args.push('key', '--clearmodifiers', [...o.mods.map((m) => XMOD[m]), ...(o.name === null ? [] : [xName(o.name)])].join('+'));
+        else if (o.op === 'keysym') args.push(o.down ? 'keydown' : 'keyup', `0x${(o.keysym >>> 0).toString(16)}`);
+        else if (o.op === 'wait') args.push('sleep', String(o.ms / 1000));
+        else if (o.op === 'text') { if (args.length) { await x(args.splice(0)); } await exec('xdotool', ['type', '--delay', '12', '--', o.text], { timeoutMs: 120_000, env: tenv }); }
+      }
+      if (args.length) await x(args, { timeoutMs: 60_000 });
+    },
+    async type(text) { return this.run([{ op: 'text', text }]); },
+    async open(url) {
+      if (open) return open(url);
+      const p = spawn('xdg-open', [url], { stdio: 'ignore', detached: true, env: xenv });
+      p.on('error', () => {});
+      p.unref();
+    },
+    async checkPermissions() {},
+  };
+}
+const linuxBackend = makeLinuxBackend();
+
+/** This computer's desktop, shared by every Bot. */
+class Desktop {
+  /** shell: { cwd, env, user } for shell commands (defaults: home folder, this process's user). */
+  constructor(backend, shell = {}) {
+    this.b = backend;
+    this.shellOpts = shell;
+    this.logical = { w: 1280, h: 800 };
+    this.img = null; // size of the last picture sent (Bots' coordinates are in it)
+    this.state = { flags: 0 }; // modifiers held from the live viewer (macOS)
+    this.queue = Promise.resolve();
+    this.viewers = new Set(); // botIds watching
+    this.casting = false;
+    this.pendingInput = [];
+    this.draining = false;
+    this.used = new Map(); // botId -> last used
+  }
+
+  async init() {
+    this.logical = await this.b.size();
+    await this.b.checkPermissions();
+  }
+
+  get shotWidth() { return Math.min(MAX_SHOT_W, Math.round(this.logical.w)); }
+
+  /** A point in the picture the Bot saw -> screen coordinates. */
+  pt(x, y) {
+    const iw = this.img?.width ?? this.shotWidth;
+    const ih = this.img?.height ?? Math.round((this.logical.h * iw) / this.logical.w);
+    const cx = Math.max(0, Math.min(Number(x) || 0, iw - 1));
+    const cy = Math.max(0, Math.min(Number(y) || 0, ih - 1));
+    return { x: Math.round((cx * this.logical.w) / iw), y: Math.round((cy * this.logical.h) / ih) };
+  }
+
+  /** Serialize actions so two never interleave (e.g. a Bot's drag and viewer input). */
+  serial(fn) {
+    const p = this.queue.then(fn, fn);
+    this.queue = p.catch(() => {});
+    return p;
+  }
+
+  run(ops) { return this.serial(() => this.b.run(ops, this.state)); }
+
+  async picture(quality) {
+    const data = await this.b.capture(this.shotWidth, quality);
+    const size = jpegSize(data) ?? { width: this.shotWidth, height: Math.round((this.logical.h * this.shotWidth) / this.logical.w) };
+    return { data, ...size };
+  }
+
+  async screenshot() {
+    this.logical = await this.b.size().catch(() => this.logical);
+    const p = await this.picture(70);
+    this.img = { width: p.width, height: p.height };
+    return { data: p.data.toString('base64'), width: p.width, height: p.height };
+  }
+
+  async open(raw) {
+    let u;
+    try { u = new URL(raw); } catch { try { u = new URL(`https://${raw}`); } catch { throw new Error(`Not a valid URL: ${raw}`); } }
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error(`Only http(s) pages can be opened (not ${u.protocol}). Use the shell for other things.`);
+    await this.serial(() => this.b.open(u.href));
+    await sleep(2500); // let the browser come to the front and load
+    return { url: u.href };
+  }
+
+  click({ x, y, button = 'left', double = false }) {
+    const p = this.pt(x, y);
+    const ops = [{ op: 'move', ...p }];
+    for (let n = 1; n <= (double ? 2 : 1); n++) ops.push({ op: 'down', ...p, button, count: n }, { op: 'up', ...p, button, count: n });
+    return this.run(ops);
+  }
+
+  drag({ start_x, start_y, end_x, end_y }) {
+    const a = this.pt(start_x, start_y);
+    const b = this.pt(end_x, end_y);
+    const ops = [{ op: 'move', ...a }, { op: 'down', ...a, button: 'left' }];
+    for (let i = 1; i <= 10; i++) ops.push({ op: 'move', x: Math.round(a.x + ((b.x - a.x) * i) / 10), y: Math.round(a.y + ((b.y - a.y) * i) / 10), drag: 'left' }, { op: 'wait', ms: 15 });
+    ops.push({ op: 'up', ...b, button: 'left' });
+    return this.run(ops);
+  }
+
+  scroll({ x, y, direction, amount = 3 }) {
+    const n = Math.max(1, Math.min(Number(amount) || 3, 30));
+    return this.run([{ op: 'scroll', ...this.pt(x, y), notches: direction === 'up' ? -n : n }]);
+  }
+
+  async type(text) {
+    const parts = String(text).split('\n');
+    await this.serial(async () => {
+      for (let i = 0; i < parts.length; i++) {
+        if (parts[i]) await this.b.type(parts[i], this.state);
+        if (i < parts.length - 1) await this.b.run([{ op: 'combo', mods: [], name: 'Return' }], this.state);
+      }
+    });
+  }
+
+  async key(keys) {
+    const c = parseCombo(keys);
+    await this.run([{ op: 'combo', mods: c.mods, name: c.name }]);
+    return {};
+  }
+
+  /** Live viewer input: queued, and sent in batches (moves collapsed) so it keeps up. */
+  input(p) {
+    this.pendingInput.push(p);
+    if (!this.draining) void this.drain();
+  }
+
+  async drain() {
+    this.draining = true;
+    try {
+      while (this.pendingInput.length) {
+        const batch = this.pendingInput.splice(0);
+        const ops = [];
+        for (const [i, e] of batch.entries()) {
+          if (e.kind === 'mouse') {
+            const pt = this.pt(e.x, e.y);
+            if (e.type === 'mouseMoved') {
+              if (batch[i + 1]?.kind === 'mouse' && batch[i + 1].type === 'mouseMoved') continue; // only the latest move matters
+              const held = e.buttons & 1 ? 'left' : e.buttons & 2 ? 'right' : e.buttons & 4 ? 'middle' : null;
+              ops.push({ op: 'move', ...pt, ...(held ? { drag: held } : {}) });
+            } else ops.push({ op: e.type === 'mousePressed' ? 'down' : 'up', ...pt, button: e.button, count: e.clickCount ?? 1 });
+          } else if (e.kind === 'wheel') ops.push({ op: 'scroll', ...this.pt(e.x, e.y), notches: e.deltaY > 0 ? 1 : -1 });
+          else if (e.kind === 'key') ops.push({ op: 'keysym', keysym: e.keysym >>> 0, down: !!e.down });
+        }
+        await this.run(ops).catch((err) => log(`Viewer input failed: ${err.message}`));
+      }
+    } finally {
+      this.draining = false;
+    }
+  }
+
+  async shell(command, timeoutSec = 120) {
+    const { cwd = os.homedir(), env = process.env, user } = this.shellOpts;
+    const sh = user ? '/bin/bash' : process.env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash');
+    // --run-as: the Bot's shell runs as a separate, unprivileged user (it can't read the companion's token).
+    const [cmd, args] = user ? ['sudo', ['-n', '-u', user, '-H', '--', 'env', `DISPLAY=${env.DISPLAY ?? ''}`, sh, '-lc', `cd ${JSON.stringify(cwd)} 2>/dev/null; ${command}`]] : [sh, ['-lc', command]];
+    return new Promise((resolve) => {
+      const p = spawn(cmd, args, { cwd: user ? '/' : cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+      let out = '';
+      const add = (d) => { out = (out + d).slice(-40_000); };
+      p.stdout.on('data', add);
+      p.stderr.on('data', add);
+      let timedOut = false;
+      const t = setTimeout(() => { timedOut = true; try { process.kill(-p.pid, 'SIGKILL'); } catch { p.kill('SIGKILL'); } }, Math.max(1, timeoutSec) * 1000);
+      p.on('error', (e) => { clearTimeout(t); resolve({ exit_code: 127, output: e.message }); });
+      p.on('close', (code) => { clearTimeout(t); resolve({ exit_code: timedOut ? 124 : code ?? 1, output: timedOut ? `${out}\n[stopped after ${timeoutSec}s]` : out }); });
+    });
+  }
+
+  startScreencast(botId) {
+    this.viewers.add(botId);
+    if (!this.casting) void this.cast();
+  }
+
+  stopScreencast(botId) { this.viewers.delete(botId); }
+
+  async cast() {
+    this.casting = true;
+    let failing = false;
+    try {
+      while (this.viewers.size) {
+        const t0 = Date.now();
+        try {
+          const p = await this.picture(55);
+          const data = p.data.toString('base64');
+          for (const botId of this.viewers) send({ event: 'frame', botId, data });
+          failing = false;
+        } catch (e) {
+          if (!failing) log(`Live view: ${e.message}`);
+          failing = true;
+          await sleep(2000);
+        }
+        await sleep(Math.max(100, FRAME_MS - (Date.now() - t0)));
+      }
+    } finally {
+      this.casting = false;
+    }
+  }
+}
+
+let desktop = null;
+if (DESKTOP) {
+  if (process.platform === 'darwin') desktop = new Desktop(macBackend);
+  else if (process.platform === 'linux') {
+    if (!process.env.DISPLAY) {
+      console.error(process.env.WAYLAND_DISPLAY ? 'Full-desktop mode needs an X11 session (Wayland isn\'t supported yet). Log in with "Xorg"/"X11" and try again.' : 'Full-desktop mode needs a graphical session: DISPLAY is not set.');
+      process.exit(2);
+    }
+    desktop = new Desktop(linuxBackend);
+  } else {
+    console.error('Full-desktop mode (--desktop) supports macOS and Linux (X11). On this computer, run the companion without --desktop to give Bots a browser.');
+    process.exit(2);
+  }
+  try { await desktop.init(); } catch (e) {
+    console.error(`Could not use this computer's desktop: ${e.message}`);
+    process.exit(2);
+  }
+}
+
+// ---------- one screen per Bot (--multi: a user's cloud VM) ----------
+
+const SCREEN_W = 1280;
+const SCREEN_H = 800;
+const RUN_AS = opt('run-as', '');
+const AGENT_HOME = path.resolve(opt('agent-home', RUN_AS ? `/home/${RUN_AS}` : DATA_DIR));
+/** A command as the Bots' user (--run-as), so their shells and browsers can't read this process's token. */
+const asAgent = (cmd, args) => (RUN_AS ? ['sudo', ['-n', '-u', RUN_AS, '-H', '--', cmd, ...args]] : [cmd, args]);
+const have = (cmd) => { try { return (spawnSync('sh', ['-c', `command -v ${cmd}`]).status ?? 1) === 0; } catch { return false; } };
+
+/** Bot id -> its screen: an X display with its own desktop, Chrome profile and shell folder. */
+const screens = new Map();
+const usedDisplays = new Set();
+
+function freeDisplay() {
+  for (let n = 10; n < 300; n++) {
+    if (!usedDisplays.has(n) && !fs.existsSync(`/tmp/.X11-unix/X${n}`) && !fs.existsSync(`/tmp/.X${n}-lock`)) return n;
+  }
+  throw new Error('No free display number.');
+}
+
+async function createScreen(botId) {
+  const n = freeDisplay();
+  usedDisplays.add(n);
+  const display = `:${n}`;
+  const env = { ...process.env, DISPLAY: display };
+  const procs = [];
+  const start = (cmd, args, e = env) => { const p = spawn(cmd, args, { env: e, stdio: 'ignore' }); p.on('error', () => {}); procs.push(p); return p; };
+  try {
+    // -ac: the Bots' user (a different Unix user) may draw on this display; -nolisten tcp keeps it local.
+    start('Xvfb', [display, '-screen', '0', `${SCREEN_W}x${SCREEN_H}x24`, '-nolisten', 'tcp', '-ac']);
+    for (let i = 0; i < 50 && !fs.existsSync(`/tmp/.X11-unix/X${n}`); i++) await sleep(100);
+    if (!fs.existsSync(`/tmp/.X11-unix/X${n}`)) throw new Error('The virtual screen (Xvfb) did not start.');
+    if (have('xfwm4')) start('xfwm4', ['--compositor=off']);
+    if (have('xfdesktop')) start('dbus-run-session', ['--', 'xfdesktop', '--disable-wm-check']);
+    const botDir = path.join(AGENT_HOME, 'bots', botId);
+    const profile = path.join(AGENT_HOME, 'profiles', botId);
+    const [mc, ma] = asAgent('mkdir', ['-p', botDir, profile]);
+    await exec(mc, ma);
+    const openUrl = async (url) => {
+      // A second launch with the same profile hands the URL to the running Chrome (a new tab).
+      const [c, a] = asAgent('env', [`DISPLAY=${display}`, CHROME, `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--password-store=basic',
+        '--disable-features=Translate,MediaRouter', '--hide-crash-restore-bubble', '--window-position=0,0', `--window-size=${SCREEN_W},${SCREEN_H}`, '--start-maximized',
+        ...(NO_SANDBOX ? ['--no-sandbox'] : []), url]);
+      const p = spawn(c, a, { env, stdio: 'ignore' });
+      p.on('error', () => {});
+    };
+    const d = new Desktop(makeLinuxBackend({ display, open: openUrl }), { cwd: botDir, env, user: RUN_AS || undefined });
+    await d.init();
+    log(`Screen ${display} ready for Bot ${botId}`);
+    return { botId, n, display, profile, procs, desktop: d };
+  } catch (e) {
+    for (const p of procs.reverse()) { try { p.kill('SIGKILL'); } catch { /* gone */ } }
+    usedDisplays.delete(n);
+    throw e;
+  }
+}
+
+function screenFor(botId) {
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(String(botId))) throw new Error('bad bot id');
+  let p = screens.get(botId);
+  if (!p) {
+    p = createScreen(botId);
+    screens.set(botId, p);
+    p.then(() => reportBrowsers(), () => { if (screens.get(botId) === p) screens.delete(botId); });
+  }
+  return p;
+}
+
+async function closeScreen(botId) {
+  const p = screens.get(botId);
+  if (!p) return;
+  screens.delete(botId);
+  reportBrowsers();
+  const s = await p.catch(() => null);
+  if (!s) return;
+  s.desktop.viewers.clear();
+  const [kc, ka] = asAgent('pkill', ['-f', `--user-data-dir=${s.profile}`]);
+  await exec(kc, ka).catch(() => {});
+  for (const proc of s.procs.reverse()) { try { proc.kill('SIGTERM'); } catch { /* gone */ } }
+  usedDisplays.delete(s.n);
+  log(`Closed screen ${s.display} of Bot ${botId} (its browser profile is kept)`);
+}
+
+if (MULTI && process.platform !== 'linux') {
+  console.error('--multi runs on Linux (a cloud VM with Xvfb).');
+  process.exit(2);
+}
+
 // ---------- browsers by Bot ----------
 
 const browsers = new Map(); // botId -> Promise<BotBrowser>
 let socket = null;
 
 const send = (msg) => { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg)); };
-const reportBrowsers = () => send({ event: 'browsers', bots: [...browsers.keys()] });
+const reportBrowsers = () => send({ event: 'browsers', bots: MULTI ? [...screens.keys()] : desktop ? [...desktop.used.keys()] : [...browsers.keys()] });
 
 function browserFor(botId) {
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(String(botId))) throw new Error('bad bot id');
@@ -596,7 +1135,59 @@ const METHODS = {
   'screencast.stop': async (b) => b.stopScreencast(),
 };
 
+// Full desktop: every Bot shares this computer's screen.
+const DESKTOP_METHODS = {
+  screenshot: (d) => d.screenshot(),
+  open: (d, p) => d.open(String(p.url ?? '')),
+  click: (d, p) => d.click(p),
+  drag: (d, p) => d.drag(p),
+  type: (d, p) => d.type(String(p.text ?? '')),
+  key: (d, p) => d.key(String(p.keys ?? '')),
+  scroll: (d, p) => d.scroll(p),
+  shell: (d, p) => d.shell(String(p.command ?? ''), Number(p.timeout) || 120),
+  'screencast.start': (d, p) => d.startScreencast(p.botId),
+  'screencast.stop': (d, p) => d.stopScreencast(p.botId),
+};
+
+async function handleDesktop(msg) {
+  const { id, method, params = {} } = msg;
+  try {
+    let result;
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(String(params.botId))) throw new Error('bad bot id');
+    if (MULTI) {
+      // Each Bot has its own screen; nothing is shared between Bots but the shell's machine.
+      if (method === 'input') { const sp = screens.get(params.botId); if (sp) (await sp).desktop.input(params); return; }
+      if (method === 'close') result = await closeScreen(params.botId);
+      else if (method === 'screencast.stop' && !screens.has(params.botId)) result = {};
+      else if (DESKTOP_METHODS[method]) {
+        const d = (await screenFor(params.botId)).desktop;
+        result = await DESKTOP_METHODS[method](d, params);
+        if (!['screenshot', 'screencast.start', 'screencast.stop'].includes(method)) log(`${params.botId} ${method}${method === 'open' ? ` ${params.url}` : method === 'key' ? ` ${params.keys}` : method === 'shell' ? ` ${String(params.command).slice(0, 80)}` : ''}`);
+      } else throw new Error(`Unknown method ${method}`);
+      if (id !== undefined) send({ id, result: result ?? {} });
+      return;
+    }
+    if (method === 'input') return desktop.input(params);
+    if (method === 'close') {
+      desktop.stopScreencast(params.botId);
+      if (desktop.used.delete(params.botId)) reportBrowsers();
+    } else if (DESKTOP_METHODS[method]) {
+      if (!params.peek && !method.startsWith('screencast.')) {
+        const first = !desktop.used.has(params.botId);
+        desktop.used.set(params.botId, Date.now());
+        if (first) reportBrowsers();
+      }
+      result = await DESKTOP_METHODS[method](desktop, params);
+      if (!['screenshot', 'screencast.start', 'screencast.stop'].includes(method)) log(`${params.botId} ${method}${method === 'open' ? ` ${params.url}` : method === 'key' ? ` ${params.keys}` : method === 'shell' ? ` ${String(params.command).slice(0, 80)}` : ''}`);
+    } else throw new Error(`Unknown method ${method}`);
+    if (id !== undefined) send({ id, result: result ?? {} });
+  } catch (e) {
+    if (id !== undefined) send({ id, error: String(e?.message ?? e) });
+  }
+}
+
 async function handle(msg) {
+  if (desktop || MULTI) return handleDesktop(msg);
   const { id, method, params = {} } = msg;
   try {
     let result;
@@ -615,6 +1206,13 @@ async function handle(msg) {
 
 // Close browsers nobody has used for a while (keeps this PC light).
 setInterval(async () => {
+  if (MULTI) return; // screens stay until the server closes them; the whole VM sleeps when idle
+  if (desktop) {
+    const before = desktop.used.size;
+    for (const [botId, t] of desktop.used) if (!desktop.viewers.has(botId) && Date.now() - t > IDLE_MS) desktop.used.delete(botId);
+    if (desktop.used.size !== before) reportBrowsers();
+    return;
+  }
   for (const [botId, p] of browsers) {
     const b = await p.catch(() => null);
     if (b && !b.screencasting && Date.now() - b.lastUsed > IDLE_MS) { log(`Closing idle browser for Bot ${botId}`); await closeBrowser(botId); }
@@ -630,14 +1228,26 @@ function connect() {
   const ws = new WebSocket(wsUrl);
   socket = ws;
   ws.onopen = () => {
-    ws.send(JSON.stringify({ type: 'hello', token: TOKEN, version: VERSION, name: os.hostname(), platform: `${process.platform}-${process.arch}`, headless: !HEADED, width: W, height: H }));
+    ws.send(JSON.stringify({ type: 'hello', token: TOKEN, version: VERSION, name: os.hostname(), platform: `${process.platform}-${process.arch}`, headless: DESKTOP || MULTI ? false : !HEADED, desktop: DESKTOP && !MULTI, mode: MULTI ? 'multi' : DESKTOP ? 'desktop' : 'browser', width: MULTI ? SCREEN_W : desktop?.shotWidth ?? W, height: MULTI ? SCREEN_H : desktop ? Math.round((desktop.logical.h * desktop.shotWidth) / desktop.logical.w) : H }));
   };
   ws.onmessage = (ev) => {
     let msg;
     try { msg = JSON.parse(typeof ev.data === 'string' ? ev.data : Buffer.from(ev.data).toString()); } catch { return; }
     if (msg.type === 'welcome') {
       backoff = 1000;
-      log(`Connected to ${SERVER}. Your Bots can now use a browser on this PC${HEADED ? '' : ' (headless; watch it from Grokbot)'}. Press Ctrl+C to stop.`);
+      if (MULTI && msg.mode !== 'multi') {
+        console.error('This Grokbot server is not set up for cloud VMs (COMPUTER_PROVIDER=cloudvm); --multi is refused.');
+        shutdown(1);
+        return;
+      }
+      if (MULTI) log(`Connected to ${SERVER}. Cloud VM ready: one screen per Bot.`);
+      else if (DESKTOP && msg.mode !== 'desktop') {
+        console.error('This Grokbot server gives Bots a browser only (COMPUTER_PROVIDER=local). Start the companion without --desktop, or set COMPUTER_PROVIDER=desktop on the server.');
+        shutdown(1);
+        return;
+      }
+      else if (DESKTOP) log(`Connected to ${SERVER}. Your Bots can now use this computer's desktop (${desktop.b.name}, ${desktop.logical.w}x${desktop.logical.h}) and a shell. Press Ctrl+C to stop.`);
+      else log(`Connected to ${SERVER}. Your Bots can now use a browser on this PC${HEADED ? '' : ' (headless; watch it from Grokbot)'}. Press Ctrl+C to stop.`);
       reportBrowsers();
       return;
     }
@@ -646,15 +1256,27 @@ function connect() {
   ws.onclose = (ev) => {
     if (socket === ws) socket = null;
     if (ev.code === 4401) { console.error('Grokbot rejected the pairing token. Get a new command from Settings → Computer → Connect your PC.'); shutdown(1); return; }
+    if (ev.code === 4403) { console.error(ev.reason || 'Grokbot refused this companion.'); shutdown(1); return; }
     if (ev.code === 4409) { console.error('Another companion connected with this account, so this one is stopping.'); shutdown(1); return; }
     log(`Disconnected (${ev.code}${ev.reason ? ` ${ev.reason}` : ''}). Reconnecting in ${Math.round(backoff / 1000)}s…`);
     setTimeout(connect, backoff);
-    backoff = Math.min(backoff * 2, 30_000);
+    backoff = Math.min(backoff * 2, MULTI ? 2_000 : 30_000);
   };
   ws.onerror = () => { /* onclose follows */ };
 }
 
+// A cloud VM that was suspended wakes with a dead connection: notice the clock jump and reconnect now.
+if (MULTI) {
+  let tick = Date.now();
+  setInterval(() => {
+    const t = Date.now();
+    if (t - tick > 5_000 && socket) { log('Woke up after a pause; reconnecting.'); try { socket.close(); } catch { /* */ } }
+    tick = t;
+  }, 1_000).unref();
+}
+
 async function shutdown(code = 0) {
+  for (const botId of [...screens.keys()]) await closeScreen(botId).catch(() => {});
   for (const botId of [...browsers.keys()]) await closeBrowser(botId).catch(() => {});
   try { socket?.close(); } catch { /* */ }
   process.exit(code);
@@ -668,5 +1290,7 @@ if (PARENT_PID) {
   }, 3000).unref();
 }
 
-log(`Grokbot companion ${VERSION} · Chrome: ${CHROME} · profiles: ${path.join(DATA_DIR, 'profiles')}${ALLOW_PRIVATE ? ' · local network ALLOWED' : ''}`);
+if (MULTI) log(`Grokbot companion ${VERSION} · CLOUD VM: one screen per Bot${RUN_AS ? ` · Bots run as ${RUN_AS}` : ''} · files in ${AGENT_HOME}`);
+else if (DESKTOP) log(`Grokbot companion ${VERSION} · FULL DESKTOP: Bots can see this screen, use the mouse and keyboard, and run shell commands as ${os.userInfo().username}`);
+else log(`Grokbot companion ${VERSION} · Chrome: ${CHROME} · profiles: ${path.join(DATA_DIR, 'profiles')}${ALLOW_PRIVATE ? ' · local network ALLOWED' : ''}`);
 connect();
