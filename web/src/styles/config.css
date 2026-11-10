@@ -14,6 +14,8 @@
 .cfg-btn--primary:hover:not(:disabled) { background: var(--color-bg-primary-hover); }
 .cfg-btn--secondary { background: var(--color-bg-tertiary); color: var(--color-text-primary); box-shadow: var(--color-border-secondary) 0 0 0 0.5px inset; }
 .cfg-btn--secondary:hover:not(:disabled) { background: var(--color-bg-secondary-hover); }
+.cfg-btn--whatsapp { background: #25D366; color: #FFFFFF; font-weight: 500; text-decoration: none; box-shadow: rgba(0, 0, 0, 0.08) 0 0 0 0.5px inset; }
+.cfg-btn--whatsapp:hover:not(:disabled) { background: #1fb85a; }
 .cfg-btn--ghost-danger { color: var(--color-danger-text); box-shadow: var(--color-border-secondary) 0 0 0 0.5px inset; }
 .cfg-btn--ghost-danger:hover:not(:disabled) { background: var(--color-danger-bg); }
 .cfg-btn--danger { background: var(--color-danger); color: #FFFFFF; font-weight: 500; }
