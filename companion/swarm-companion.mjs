@@ -1139,15 +1139,22 @@ async function createScreen(botId) {
       if (ids.length) await exec('xdotool', ['windowactivate', ids.at(-1)], { env }).catch(() => {});
     })().finally(() => { chromeStarting = null; });
     let mcp = null;
+    let mcpStarting = null;
+    // One Playwright per Bot, even when the warm-up and the first task ask at the same moment.
+    const getMcp = async () => {
+      if (mcp && !mcp.dead) return mcp;
+      return (mcpStarting ??= (async () => {
+        const out = path.join(DATA_DIR, 'playwright', botId);
+        fs.mkdirSync(out, { recursive: true });
+        mcp = await new McpProcess(PLAYWRIGHT_MCP, ['--cdp-endpoint', `http://127.0.0.1:${cdpPort}`, '--output-dir', out, '--image-responses', 'allow'], out).init();
+        return mcp;
+      })().finally(() => { mcpStarting = null; }));
+    };
     const browser = async (tool, args = {}) => {
       if (!BROWSER_TOOLS.has(tool)) throw new Error(`Unknown browser tool ${tool}.`);
       if (!PLAYWRIGHT_MCP) throw new Error('The browser tools are not installed on this computer yet (it updates on its next restart). For now, use open_browser and the computer_* tools.');
       await ensureChrome();
-      if (!mcp || mcp.dead) {
-        const out = path.join(DATA_DIR, 'playwright', botId);
-        fs.mkdirSync(out, { recursive: true });
-        mcp = await new McpProcess(PLAYWRIGHT_MCP, ['--cdp-endpoint', `http://127.0.0.1:${cdpPort}`, '--output-dir', out, '--image-responses', 'allow'], out).init();
-      }
+      const mcp = await getMcp();
       const r = await mcp.request('tools/call', { name: tool, arguments: args }, 150_000);
       let content = r?.content ?? [];
       // After an action that changes the page, return the updated page too, so the Bot doesn't need
