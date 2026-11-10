@@ -19,7 +19,8 @@
     "test:messaging": "node --import tsx --test --test-concurrency=1 tests/messaging.test.mts",
     "test:composio": "node --import tsx --test tests/composio.test.mts",
     "test:usage": "node --import tsx --test --test-concurrency=1 tests/usage.test.mts",
-    "test:bots": "node --import tsx --test tests/bot-creation.test.mts && node tests/bot-creation-chat.mjs"
+    "test:bots": "node --import tsx --test tests/bot-creation.test.mts && node tests/bot-creation-chat.mjs",
+    "test:performance": "npm run build && node --import tsx --test tests/latency.test.mts tests/vm-image.test.mts && node tests/vm-performance.mjs && node tests/viewer-wake.mjs"
   },
   "engines": {
     "node": ">=22"

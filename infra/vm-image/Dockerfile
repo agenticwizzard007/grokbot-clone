@@ -10,7 +10,7 @@ FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 LC_ALL=C.UTF-8
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl gnupg sudo procps iptables tini \
-      xvfb xfwm4 xfdesktop4 dbus-x11 xdotool imagemagick \
+      xvfb xfwm4 xfdesktop4 dbus-x11 xdotool imagemagick ffmpeg \
       fonts-liberation fonts-noto-color-emoji fonts-noto-cjk \
       git jq unzip python3 \
   && curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google.gpg \

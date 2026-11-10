@@ -51,7 +51,7 @@ ${creationContext(botId).slice(0, 30).reverse().map((m) => `Message ${m.seq}: ${
   const skills = (db.prepare('SELECT name, body FROM skills WHERE bot_id=?').all(botId) as any[]).map((s) => `### ${s.name}\n${s.body}`).join('\n\n');
   const routines = listRoutines(botId).map((r) => `- ${r.name} (${r.id}): ${r.enabled ? r.description : 'paused'}; ${r.prompt.slice(0, 120)}`).join('\n');
   let apps = '';
-  try { apps = [...(await connectedToolkits(userId))].join(', '); } catch { apps = '(unavailable)'; }
+  try { apps = [...(await connectedToolkits(userId, true))].join(', '); } catch { apps = '(unavailable)'; }
   const charter = agentsMarkdown(botId);
   const primary = db.prepare("SELECT name FROM bots WHERE user_id=? AND is_primary=1 AND COALESCE(hidden,0)=0 AND COALESCE(kind,'agent')='agent'").get(userId) as { name: string } | undefined;
 
@@ -80,7 +80,6 @@ ${textingLine(userId)}${bot.is_primary ? `- You CAN create permanent teammates d
 - Don't narrate tool use step by step; report outcomes.
 
 ## Context
-- Current time: ${new Date().toISOString()}
 - User: ${user?.name ?? ''}${user?.email && !isPlaceholderEmail(user.email) ? ` <${user.email}>` : ''}${user?.phone ? ` (phone +${user.phone})` : ''}${user?.timezone ? `, time zone ${user.timezone}` : ''}
 - Connected apps: ${apps || 'none yet'}
 - Custom MCP servers assigned to you: ${mcpForBot(userId, botId).map(s => `${s.config.name} (${s.error ? 'last connection check failed' : s.checkedAt ? `${s.tools.length} tools` : 'needs connection test'})`).join(', ') || 'none'}
@@ -89,7 +88,9 @@ ${routines ? `\n## Your routines\n${routines}` : ''}
 ${memories ? `\n## What you remember\n${memories}` : ''}
 ${skills ? `\n## Your skills\n${skills}` : ''}
 ${charter ? `\n## Your persistent charter (AGENTS.md)\n${charter}` : bot.instructions ? `\n## Instructions from the user\n${bot.instructions}` : ''}${onboardingSection(userId, botId)}
-${bot.is_primary ? `\n## User messages available to cite when creating a teammate\nThese are source references, not additional assignments. Use the full conversation for context.\n${creationContext(botId).slice(0, 30).reverse().map((m) => `Message ${m.seq}: ${JSON.stringify(m.text.slice(0, 1000))}${m.text.length > 1000 ? ' (preview; full text is preserved when cited)' : ''}`).join('\n')}` : ''}`;
+${bot.is_primary ? `\n## User messages available to cite when creating a teammate\nThese are source references, not additional assignments. Use the full conversation for context.\n${creationContext(botId).slice(0, 30).reverse().map((m) => `Message ${m.seq}: ${JSON.stringify(m.text.slice(0, 1000))}${m.text.length > 1000 ? ' (preview; full text is preserved when cited)' : ''}`).join('\n')}` : ''}
+
+Current time: ${new Date().toISOString()}`; // Keep changing timestamps after reusable prompt content.
 }
 
 function textingLine(userId: string) {

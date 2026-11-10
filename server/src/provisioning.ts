@@ -66,7 +66,13 @@ async function run(job: Job) {
     await ensureVm(job.user_id);
     // Give every Bot its screen now, so the first task doesn't wait for one.
     const bots = db.prepare("SELECT id FROM bots WHERE user_id=? AND COALESCE(hidden,0)=0 AND COALESCE(kind,'agent')<>'room'").all(job.user_id) as { id: string }[];
-    for (const b of bots) await (await localProvider.screen(job.user_id, b.id)).screenshot();
+    for (const b of bots) {
+      const screen = await localProvider.screen(job.user_id, b.id);
+      await screen.screenshot();
+      // Start the Bot's Chrome and Playwright now, before the VM sleeps: waking restores them ready,
+      // so the user's first web task doesn't wait ~15 s for a cold browser start.
+      await screen.browser?.('browser_tabs', { action: 'list' }).catch((e) => console.warn(`[provision] browser warm-up for ${b.id}: ${e?.message ?? e}`));
+    }
     console.log(`[provision] user=${job.user_id} is ready: VM up, ${bots.length} screen(s)`);
     if (SLEEP_AFTER_SETUP && !(await anyBotBusy(job.user_id))) await suspendVm(job.user_id, 'set up; sleeping until needed');
   } else if (job.kind === 'destroy') {

@@ -107,11 +107,33 @@ export interface ModelInfo {
 }
 
 let catalog: { at: number; models: ModelInfo[] } | null = null;
+let catalogPending: Promise<ModelInfo[]> | null = null;
+let catalogRetryAt = 0;
 
 /** OpenRouter models that can call tools (the agent needs them). Public endpoint, cached for an hour. */
 export async function openrouterModels(): Promise<ModelInfo[]> {
   if (catalog && Date.now() - catalog.at < 3600_000) return catalog.models;
-  const r = await fetch(`${env.openrouterBaseUrl}/models`, { signal: AbortSignal.timeout(20_000) });
+  // Share refreshes across Bots and usage accounting. A stale catalog remains useful
+  // during an outage; don't put the same slow request in front of every model step.
+  if (Date.now() < catalogRetryAt) {
+    if (catalog) return catalog.models;
+    throw new Error('OpenRouter model catalog temporarily unavailable');
+  }
+  if (!catalogPending) {
+    catalogPending = fetchModels().catch((e) => {
+      catalogRetryAt = Date.now() + 30_000;
+      throw e;
+    }).finally(() => { catalogPending = null; });
+  }
+  if (catalog) {
+    void catalogPending.catch(() => {});
+    return catalog.models;
+  }
+  return catalogPending;
+}
+
+async function fetchModels(): Promise<ModelInfo[]> {
+  const r = await fetch(`${env.openrouterBaseUrl}/models`, { signal: AbortSignal.timeout(5_000) });
   if (!r.ok) throw new Error(`OpenRouter models: ${r.status}`);
   const data = ((await r.json()) as any).data ?? [];
   const models: ModelInfo[] = data

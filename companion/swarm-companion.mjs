@@ -42,6 +42,11 @@
 //   --allow-private-network   let Bots open localhost / LAN addresses
 //   --no-sandbox              pass --no-sandbox to Chrome (only for containers/root)
 //   --idle-minutes N          close a Bot's browser after N idle minutes (default 30)
+//   --viewer-fps N            Linux desktop watching rate, 1–60 (default 20)
+//   --control-fps N           Linux desktop taking-control rate, 1–60 (default 20)
+//   --viewer-width N          live view width, independent of agent screenshots (default 1920)
+//   --screen-width N          cloud desktop width (default 1920)
+//   --screen-height N         cloud desktop height (default 1080)
 
 import { spawn, spawnSync } from 'node:child_process';
 import dns from 'node:dns/promises';
@@ -50,7 +55,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 
-const VERSION = '1.3.0';
+const VERSION = '1.5.2';
 const W = 1280;
 const H = 800;
 
@@ -555,6 +560,7 @@ class BotBrowser {
 
   async startScreencast() {
     this.screencasting = true;
+    // Chrome emits changed frames; skipping every Nth can suppress the only update after a click.
     if (this.active) await this.cdp.send('Page.startScreencast', { format: 'jpeg', quality: 70, maxWidth: W, maxHeight: H, everyNthFrame: 1 }, this.active.sessionId);
   }
 
@@ -573,7 +579,65 @@ class BotBrowser {
 // ---------- full desktop (--desktop) ----------
 
 const MAX_SHOT_W = Math.max(640, Number(opt('max-width', '1280')) || 1280);
-const FRAME_MS = 500; // live view: at most ~2 frames a second
+const bounded = (value, fallback, min, max) => Number.isFinite(Number(value)) ? Math.max(min, Math.min(max, Math.round(Number(value)))) : fallback;
+const VIEWER_FPS = bounded(opt('viewer-fps', process.env.SWARM_VIEWER_FPS ?? '20'), 20, 1, 60);
+const CONTROL_FPS = bounded(opt('control-fps', process.env.SWARM_CONTROL_FPS ?? '20'), 20, 1, 60);
+const VIEWER_BUDGET_FPS = bounded(process.env.SWARM_VIEWER_BUDGET_FPS ?? '20', 20, 1, 120);
+const VIEWER_WIDTH = bounded(opt('viewer-width', process.env.SWARM_VIEWER_WIDTH ?? '1920'), 1920, 640, 3840);
+const watchedDesktops = new Set();
+
+// Share one VM-wide capture budget across watched displays; viewers of the same display share its encoder.
+function balanceDesktopStreams() {
+  const total = [...watchedDesktops].reduce((n, d) => n + d.requestedFps, 0);
+  const weight = [...watchedDesktops].reduce((n, d) => n + d.streamWeight, 0);
+  for (const d of watchedDesktops) d.setStreamFps(total <= VIEWER_BUDGET_FPS ? d.requestedFps : Math.min(d.requestedFps, VIEWER_BUDGET_FPS * d.streamWeight / weight));
+}
+
+/** One encoder per watched display. Its stdout is a bounded sequence of complete JPEGs. */
+function streamDesktop(display, size, fps, onFrame) {
+  const encoder = spawn(process.env.SWARM_FFMPEG ?? 'ffmpeg', [
+    '-hide_banner', '-loglevel', 'error', '-filter_threads', '1', '-f', 'x11grab', '-draw_mouse', '1',
+    '-framerate', String(fps), '-video_size', `${size.w}x${size.h}`, '-i', display,
+    '-an', '-vf', `scale=${Math.min(VIEWER_WIDTH, size.w)}:-2`,
+    '-c:v', 'mjpeg', '-q:v', '5', '-threads', '1', '-f', 'image2pipe', 'pipe:1',
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+  // Yield CPU to Chrome and agent tools under contention; spare CPU can still make the viewer smooth.
+  if (encoder.pid) { try { os.setPriority(encoder.pid, 10); } catch { /* best effort on restricted hosts */ } }
+  let buffer = Buffer.alloc(0), stderr = '', stopped = false, settled = false;
+  let watchdog;
+  let finish;
+  const done = new Promise((resolve, reject) => {
+    finish = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(watchdog);
+      encoder.kill('SIGKILL');
+      if (error && !stopped) reject(error); else resolve();
+    };
+  });
+  const arm = () => { clearTimeout(watchdog); watchdog = setTimeout(() => finish(new Error('Desktop encoder stopped producing frames')), Math.max(5000, 3000 / fps)); };
+  arm();
+  encoder.on('error', finish);
+  encoder.on('close', () => finish(new Error(`Desktop encoder exited: ${stderr.trim().slice(-300)}`)));
+  encoder.stderr.on('data', (data) => { stderr = (stderr + data).slice(-1000); });
+  encoder.stdout.on('data', (data) => {
+    if (settled) return;
+    let from = Math.max(0, buffer.length - 1); // markers can cross chunk boundaries
+    buffer = Buffer.concat([buffer, data]);
+    if (buffer.length > 16 * 1024 * 1024) return finish(new Error('Desktop encoder frame exceeded limit'));
+    for (;;) {
+      const end = buffer.indexOf(Buffer.from([0xff, 0xd9]), from);
+      if (end < 0) break;
+      const frame = buffer.subarray(0, end + 2);
+      buffer = buffer.subarray(end + 2);
+      from = 0;
+      if (frame[0] !== 0xff || frame[1] !== 0xd8) return finish(new Error('Invalid desktop encoder frame'));
+      arm();
+      onFrame(frame);
+    }
+  });
+  return { done, stop: () => { stopped = true; finish(); } };
+}
 
 /** Run a program; resolves with stdout (Buffer), rejects with its stderr. */
 function exec(cmd, args, { input, timeoutMs = 30_000, env } = {}) {
@@ -764,6 +828,7 @@ function makeLinuxBackend({ display = process.env.DISPLAY, open } = {}) {
   return {
     name: 'Linux',
     display,
+    stream: (size, fps, onFrame) => streamDesktop(display, size, fps, onFrame),
     async size() {
       const [w, h] = (await x(['getdisplaygeometry'])).toString().trim().split(/\s+/).map(Number);
       return { w, h };
@@ -813,8 +878,11 @@ class Desktop {
     this.img = null; // size of the last picture sent (Bots' coordinates are in it)
     this.state = { flags: 0 }; // modifiers held from the live viewer (macOS)
     this.queue = Promise.resolve();
-    this.viewers = new Set(); // botIds watching
+    this.viewers = new Map(); // botId -> aggregate viewer mode
+    this.streamFps = 0;
     this.casting = false;
+    this.castGeneration = 0;
+    this.stopStream = null;
     this.pendingInput = [];
     this.draining = false;
     this.used = new Map(); // botId -> last used
@@ -828,9 +896,9 @@ class Desktop {
   get shotWidth() { return Math.min(MAX_SHOT_W, Math.round(this.logical.w)); }
 
   /** A point in the picture the Bot saw -> screen coordinates. */
-  pt(x, y) {
-    const iw = this.img?.width ?? this.shotWidth;
-    const ih = this.img?.height ?? Math.round((this.logical.h * iw) / this.logical.w);
+  pt(x, y, picture = this.img) {
+    const iw = picture?.width || this.shotWidth;
+    const ih = picture?.height || Math.round((this.logical.h * iw) / this.logical.w);
     const cx = Math.max(0, Math.min(Number(x) || 0, iw - 1));
     const cy = Math.max(0, Math.min(Number(y) || 0, ih - 1));
     return { x: Math.round((cx * this.logical.w) / iw), y: Math.round((cy * this.logical.h) / ih) };
@@ -863,7 +931,8 @@ class Desktop {
     try { u = new URL(raw); } catch { try { u = new URL(`https://${raw}`); } catch { throw new Error(`Not a valid URL: ${raw}`); } }
     if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error(`Only http(s) pages can be opened (not ${u.protocol}). Use the shell for other things.`);
     await this.serial(() => this.b.open(u.href));
-    await sleep(2500); // let the browser come to the front and load
+    // Cloud screens use Playwright navigation, which already waits for the page.
+    if (!MULTI || !PLAYWRIGHT_MCP) await sleep(2500);
     return { url: u.href };
   }
 
@@ -918,13 +987,13 @@ class Desktop {
         const ops = [];
         for (const [i, e] of batch.entries()) {
           if (e.kind === 'mouse') {
-            const pt = this.pt(e.x, e.y);
+            const pt = this.pt(e.x, e.y, e.width && e.height ? { width: e.width, height: e.height } : this.img);
             if (e.type === 'mouseMoved') {
               if (batch[i + 1]?.kind === 'mouse' && batch[i + 1].type === 'mouseMoved') continue; // only the latest move matters
               const held = e.buttons & 1 ? 'left' : e.buttons & 2 ? 'right' : e.buttons & 4 ? 'middle' : null;
               ops.push({ op: 'move', ...pt, ...(held ? { drag: held } : {}) });
             } else ops.push({ op: e.type === 'mousePressed' ? 'down' : 'up', ...pt, button: e.button, count: e.clickCount ?? 1 });
-          } else if (e.kind === 'wheel') ops.push({ op: 'scroll', ...this.pt(e.x, e.y), notches: e.deltaY > 0 ? 1 : -1 });
+          } else if (e.kind === 'wheel') ops.push({ op: 'scroll', ...this.pt(e.x, e.y, e.width && e.height ? { width: e.width, height: e.height } : this.img), notches: e.deltaY > 0 ? 1 : -1 });
           else if (e.kind === 'key') ops.push({ op: 'keysym', keysym: e.keysym >>> 0, down: !!e.down });
         }
         await this.run(ops).catch((err) => log(`Viewer input failed: ${err.message}`));
@@ -952,33 +1021,67 @@ class Desktop {
     });
   }
 
-  startScreencast(botId) {
-    this.viewers.add(botId);
-    if (!this.casting) void this.cast();
+  get requestedFps() { return [...this.viewers.values()].includes('control') ? CONTROL_FPS : VIEWER_FPS; }
+  get streamWeight() { return [...this.viewers.values()].includes('control') ? 3 : 1; }
+
+  startScreencast(botId, mode = 'watch') {
+    this.viewers.set(botId, mode);
+    watchedDesktops.add(this);
+    balanceDesktopStreams();
   }
 
-  stopScreencast(botId) { this.viewers.delete(botId); }
+  stopScreencast(botId) {
+    this.viewers.delete(botId);
+    if (!this.viewers.size) {
+      watchedDesktops.delete(this);
+      this.setStreamFps(0);
+    }
+    balanceDesktopStreams();
+  }
 
-  async cast() {
+  stopScreencasts() { for (const id of this.viewers.keys()) this.stopScreencast(id); }
+
+  setStreamFps(fps) {
+    if (fps === this.streamFps && (this.casting || !fps)) return;
+    this.streamFps = fps;
+    this.castGeneration++;
+    this.stopStream?.();
+    this.stopStream = null;
+    this.casting = false;
+    if (fps) void this.cast(fps);
+  }
+
+  async cast(fps) {
     this.casting = true;
+    const generation = ++this.castGeneration;
+    const active = () => generation === this.castGeneration && this.viewers.size > 0;
+    const publish = (data) => { if (active()) for (const botId of this.viewers.keys()) send({ event: 'frame', botId, data }); };
     let failing = false;
     try {
-      while (this.viewers.size) {
+      if (this.b.stream) {
+        try {
+          const stream = this.b.stream(this.logical, fps, publish);
+          this.stopStream = stream.stop;
+          await stream.done;
+        } catch (e) { if (active()) log(`Live view using screenshot fallback: ${e.message}`); }
+        if (generation === this.castGeneration) this.stopStream = null;
+      }
+      while (active()) {
         const t0 = Date.now();
         try {
           const p = await this.picture(55);
-          const data = p.data.toString('base64');
-          for (const botId of this.viewers) send({ event: 'frame', botId, data });
+          publish(p.data);
           failing = false;
         } catch (e) {
           if (!failing) log(`Live view: ${e.message}`);
           failing = true;
           await sleep(2000);
         }
-        await sleep(Math.max(100, FRAME_MS - (Date.now() - t0)));
+        // Fallback starts a screenshot process each time, so cap it independently at 8 fps.
+        await sleep(Math.max(16, 1000 / Math.min(fps, 8) - (Date.now() - t0)));
       }
     } finally {
-      this.casting = false;
+      if (generation === this.castGeneration) this.casting = false;
     }
   }
 }
@@ -1084,8 +1187,8 @@ const PAGE_CHANGING = new Set(['browser_navigate', 'browser_navigate_back', 'bro
 
 // ---------- one screen per Bot (--multi: a user's cloud VM) ----------
 
-const SCREEN_W = 1280;
-const SCREEN_H = 800;
+const SCREEN_W = bounded(opt('screen-width', process.env.SWARM_SCREEN_WIDTH ?? '1920'), 1920, 800, 3840);
+const SCREEN_H = bounded(opt('screen-height', process.env.SWARM_SCREEN_HEIGHT ?? '1080'), 1080, 600, 2160);
 const RUN_AS = opt('run-as', '');
 const AGENT_HOME = path.resolve(opt('agent-home', RUN_AS ? `/home/${RUN_AS}` : DATA_DIR));
 /** A command as the Bots' user (--run-as), so their shells and browsers can't read this process's token. */
@@ -1139,25 +1242,49 @@ async function createScreen(botId) {
       if (ids.length) await exec('xdotool', ['windowactivate', ids.at(-1)], { env }).catch(() => {});
     })().finally(() => { chromeStarting = null; });
     let mcp = null;
-    const browser = async (tool, args = {}) => {
-      if (!BROWSER_TOOLS.has(tool)) throw new Error(`Unknown browser tool ${tool}.`);
-      if (!PLAYWRIGHT_MCP) throw new Error('Playwright is not installed on this computer.');
-      await ensureChrome();
-      if (!mcp || mcp.dead) {
+    let mcpStarting = null;
+    // One Playwright per Bot, even when the warm-up and the first task ask at the same moment.
+    const getMcp = async () => {
+      if (mcp && !mcp.dead) return mcp;
+      return (mcpStarting ??= (async () => {
         const out = path.join(DATA_DIR, 'playwright', botId);
         fs.mkdirSync(out, { recursive: true });
-        mcp = await new McpProcess(PLAYWRIGHT_MCP, ['--cdp-endpoint', `http://127.0.0.1:${cdpPort}`, '--output-dir', out, '--image-responses', 'allow'], out).init();
-      }
+        mcp = await new McpProcess(PLAYWRIGHT_MCP, ['--cdp-endpoint', `http://127.0.0.1:${cdpPort}`, '--output-dir', out, '--image-responses', 'allow',
+          '--timeout-settle', String(bounded(process.env.SWARM_BROWSER_SETTLE_MS ?? '150', 150, 0, 2000))], out).init();
+        return mcp;
+      })().finally(() => { mcpStarting = null; }));
+    };
+    const browser = async (tool, args = {}) => {
+      if (!BROWSER_TOOLS.has(tool)) throw new Error(`Unknown browser tool ${tool}.`);
+      if (!PLAYWRIGHT_MCP) throw new Error('The browser tools are not installed on this computer yet (it updates on its next restart). For now, use open_browser and the computer_* tools.');
+      await ensureChrome();
+      const mcp = await getMcp();
       const r = await mcp.request('tools/call', { name: tool, arguments: args }, 150_000);
       let content = r?.content ?? [];
       // After an action that changes the page, return the updated page too, so the Bot doesn't need
       // another round trip to read it (Playwright saves that snapshot to a file the Bot can't open).
       const mentionsSnapshot = content.some((c) => c.type === 'text' && /- \[Snapshot\]\(/.test(c.text));
       if (!r?.isError && PAGE_CHANGING.has(tool) && mentionsSnapshot) {
-        const snap = await mcp.request('tools/call', { name: 'browser_snapshot', arguments: {} }, 60_000).catch(() => null);
-        const text = (snap?.content ?? []).filter((c) => c.type === 'text').map((c) => c.text).join('\n');
-        content = content.map((c) => (c.type === 'text' ? { ...c, text: c.text.replace(/\n?### Page[\s\S]*$/, '').replace(/- \[Snapshot\]\([^)]*\)\n?/g, '') } : c));
-        if (text) content.push({ type: 'text', text: `\n${text}` });
+        // The action already took a snapshot. Read that exact file rather than making
+        // Playwright observe the page a second time. Only its own output directory is readable.
+        const out = path.join(DATA_DIR, 'playwright', botId);
+        let text = '';
+        try {
+          const link = content.filter(c => c.type === 'text').map(c => c.text).join('\n').match(/^- \[Snapshot\]\(([^)]+)\)/m)?.[1];
+          if (link) {
+            const file = fs.realpathSync(path.resolve(out, link));
+            const root = fs.realpathSync(out) + path.sep;
+            if (file.startsWith(root) && fs.statSync(file).size <= 2 * 1024 * 1024) text = `### Snapshot\n\`\`\`yaml\n${fs.readFileSync(file, 'utf8')}\n\`\`\``;
+          }
+        } catch { /* a different MCP version may not expose a readable file */ }
+        if (!text) {
+          const snap = await mcp.request('tools/call', { name: 'browser_snapshot', arguments: {} }, 60_000).catch(() => null);
+          text = (snap?.content ?? []).filter((c) => c.type === 'text').map((c) => c.text).join('\n');
+        }
+        if (text) {
+          content = content.map((c) => (c.type === 'text' ? { ...c, text: c.text.replace(/- \[Snapshot\]\([^)]*\)\n?/g, '') } : c));
+          content.push({ type: 'text', text });
+        } else content.push({ type: 'text', text: 'The page snapshot could not be read. Call browser_snapshot before choosing element targets.' });
       } else {
         content = content.map((c) => (c.type === 'text' ? { ...c, text: c.text.replace(/- \[Snapshot\]\([^)]*\)/g, '- Call browser_snapshot to read the page.') } : c));
       }
@@ -1167,7 +1294,13 @@ async function createScreen(botId) {
     };
     // Warm start: Chrome and Playwright come up in the background, so the first browser action is quick.
     const warm = () => { if (PLAYWRIGHT_MCP) browser('browser_tabs', { action: 'list' }).catch((e) => log(`Browser warm-up for ${botId}: ${e.message}`)); };
-    const openUrl = async (url) => { await browser('browser_navigate', { url }); };
+    const openUrl = async (url) => {
+      if (PLAYWRIGHT_MCP) return void (await browser('browser_navigate', { url }));
+      // An older VM image without Playwright: open the page in the Bot's Chrome directly.
+      await ensureChrome();
+      const [c, a] = asAgent('env', [`DISPLAY=${display}`, CHROME, `--user-data-dir=${profile}`, `--remote-debugging-port=${cdpPort}`, ...(NO_SANDBOX ? ['--no-sandbox'] : []), url]);
+      spawn(c, a, { env, stdio: 'ignore' }).on('error', () => {});
+    };
     const d = new Desktop(makeLinuxBackend({ display, open: openUrl }), { cwd: botDir, env, user: RUN_AS || undefined });
     await d.init();
     log(`Screen ${display} ready for Bot ${botId}${PLAYWRIGHT_MCP ? '' : ' (Playwright not found: browser tools unavailable)'}`);
@@ -1197,7 +1330,7 @@ async function closeScreen(botId) {
   reportBrowsers();
   const s = await p.catch(() => null);
   if (!s) return;
-  s.desktop.viewers.clear();
+  s.desktop.stopScreencasts();
   s.closeBrowser?.();
   const [kc, ka] = asAgent('pkill', ['-f', `--user-data-dir=${s.profile}`]);
   await exec(kc, ka).catch(() => {});
@@ -1215,8 +1348,24 @@ if (MULTI && process.platform !== 'linux') {
 
 const browsers = new Map(); // botId -> Promise<BotBrowser>
 let socket = null;
+let binaryFrames = false;
 
-const send = (msg) => { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg)); };
+const send = (msg) => {
+  if (socket?.readyState !== WebSocket.OPEN) return;
+  // Drop obsolete video under congestion so it cannot queue seconds of stale frames
+  // in front of action replies. RPC responses and input acknowledgements are never dropped.
+  if (msg.event === 'frame') {
+    if (socket.bufferedAmount > 256 * 1024) return;
+    if (binaryFrames) {
+      const bot = Buffer.from(msg.botId);
+      const header = Buffer.from([0x53, 0x57, 0x46, 0x31, bot.length]); // SWF1 + one-byte Bot ID length
+      socket.send(Buffer.concat([header, bot, Buffer.isBuffer(msg.data) ? msg.data : Buffer.from(msg.data, 'base64')]));
+      return;
+    }
+    if (Buffer.isBuffer(msg.data)) msg = { ...msg, data: msg.data.toString('base64') };
+  }
+  socket.send(JSON.stringify(msg));
+};
 const reportBrowsers = () => send({ event: 'browsers', bots: MULTI ? [...screens.keys()] : desktop ? [...desktop.used.keys()] : [...browsers.keys()] });
 
 function browserFor(botId) {
@@ -1265,7 +1414,7 @@ const DESKTOP_METHODS = {
   key: (d, p) => d.key(String(p.keys ?? '')),
   scroll: (d, p) => d.scroll(p),
   shell: (d, p) => d.shell(String(p.command ?? ''), Number(p.timeout) || 120),
-  'screencast.start': (d, p) => d.startScreencast(p.botId),
+  'screencast.start': (d, p) => d.startScreencast(p.botId, p.mode),
   'screencast.stop': (d, p) => d.stopScreencast(p.botId),
 };
 
@@ -1359,6 +1508,7 @@ function connect() {
     let msg;
     try { msg = JSON.parse(typeof ev.data === 'string' ? ev.data : Buffer.from(ev.data).toString()); } catch { return; }
     if (msg.type === 'welcome') {
+      binaryFrames = msg.binaryFrames === true;
       backoff = 1000;
       if (MULTI && msg.mode !== 'multi') {
         console.error('This Swarm server is not set up for cloud VMs (COMPUTER_PROVIDER=cloudvm); --multi is refused.');
@@ -1379,7 +1529,13 @@ function connect() {
     if (msg.method) void handle(msg);
   };
   ws.onclose = (ev) => {
-    if (socket === ws) socket = null;
+    if (socket === ws) {
+      socket = null;
+      binaryFrames = false;
+      desktop?.stopScreencasts();
+      for (const pending of screens.values()) void pending.then(s => s.desktop.stopScreencasts(), () => {});
+      for (const pending of browsers.values()) void pending.then(b => b.stopScreencast(), () => {}).catch(() => {});
+    }
     if (ev.code === 4401) { console.error('Swarm rejected the pairing token. Get a new command from Settings → Computer → Connect your PC.'); shutdown(1); return; }
     if (ev.code === 4403) { console.error(ev.reason || 'Swarm refused this companion.'); shutdown(1); return; }
     if (ev.code === 4409) { console.error('Another companion connected with this account, so this one is stopping.'); shutdown(1); return; }
