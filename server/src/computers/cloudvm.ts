@@ -36,9 +36,11 @@ CREATE TABLE IF NOT EXISTS vms (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );`);
+// The VM's disk (Bots' files, browser profiles): kept when a long-idle VM is archived.
+try { db.exec('ALTER TABLE vms ADD COLUMN volume_id TEXT'); } catch { /* exists */ }
 
 export interface VmRow {
-  vm_id: string; user_id: string | null; driver: string; ext_id: string | null; status: string; error: string | null;
+  vm_id: string; user_id: string | null; driver: string; ext_id: string | null; volume_id: string | null; status: string; error: string | null;
   image: string | null; memory_mb: number | null; cpus: number | null; created_at: number; updated_at: number;
 }
 
@@ -65,12 +67,14 @@ function setStatus(vmId: string, status: string, extra: { error?: string | null;
 const STATUS: Record<string, ComputerState['status']> = {
   creating: 'creating', starting: 'starting', resuming: 'resuming', running: 'running', suspending: 'suspending',
   suspended: 'suspended', stopped: 'stopped', error: 'error',
+  // Archived: the VM was deleted after a long sleep; its disk is kept and a new VM boots on it when needed.
+  archived: 'suspended',
 };
 
 function state(userId: string): ComputerState {
   const vm = vmFor(userId);
   const connected = companionConnected(userId);
-  const asleep = vm && ['suspending', 'suspended', 'stopped'].includes(vm.status);
+  const asleep = vm && ['suspending', 'suspended', 'stopped', 'archived'].includes(vm.status);
   const status: ComputerState['status'] = !vm ? 'absent' : connected && !asleep ? 'running' : STATUS[vm.status] ?? 'starting';
   return {
     status,
@@ -108,11 +112,13 @@ export function ensureVm(userId: string): Promise<VmRow> {
         if (adopted) setStatus(vm.vm_id, 'starting', { ext_id: adopted.id });
         else {
           const size = sizeFor(userId);
+          const restoring = vm.status === 'archived' && vm.volume_id;
+          if (restoring) setStatus(vm.vm_id, 'starting');
           revokeVmTokens(vm.vm_id);
           const token = createPairing(userId, vm.vm_id);
-          console.log(`[cloudvm] creating VM for user=${userId} (${size.memoryMb} MB, ${size.cpus} vCPU, ${driver.name})`);
-          const created = await driver.create({ vmId: vm.vm_id, userId, token, serverUrl: env.serverUrl, image: env.vmImage, region: env.vmRegion || undefined, volumeGb: env.vmVolumeGb, ...size });
-          db.prepare('UPDATE vms SET memory_mb=?, cpus=? WHERE vm_id=?').run(size.memoryMb, size.cpus, vm.vm_id);
+          console.log(`[cloudvm] ${restoring ? 'restoring archived' : 'creating'} VM for user=${userId} (${size.memoryMb} MB, ${size.cpus} vCPU, ${driver.name})`);
+          const created = await driver.create({ vmId: vm.vm_id, userId, token, serverUrl: env.serverUrl, image: env.vmImage, region: env.vmRegion || undefined, volumeGb: env.vmVolumeGb, volumeId: vm.volume_id ?? undefined, ...size });
+          db.prepare('UPDATE vms SET memory_mb=?, cpus=?, image=?, volume_id=COALESCE(?, volume_id) WHERE vm_id=?').run(size.memoryMb, size.cpus, env.vmImage, created.volumeId ?? null, vm.vm_id);
           setStatus(vm.vm_id, 'starting', { ext_id: created.id });
         }
         vm = vmFor(userId)!;
@@ -166,10 +172,24 @@ export async function destroyVm(vmId: string) {
   if (!vm) return;
   console.log(`[cloudvm] destroying VM ${vm.ext_id ?? '(not created)'} (user=${vm.user_id ?? 'none'})`);
   if (vm.ext_id) await driver.destroy(vm.ext_id);
+  else if (vm.volume_id) await driver.destroyVolume(vm.volume_id); // archived: only the disk is left
   revokeVmTokens(vmId);
   if (vm.user_id) dropCompanion(vm.user_id, 'computer deleted');
   db.prepare('DELETE FROM vms WHERE vm_id=?').run(vmId);
   if (vm.user_id) hub.emit(vm.user_id, { type: 'computer', state: state(vm.user_id) });
+}
+
+/**
+ * Archive a long-sleeping VM: delete the VM itself (no more charges for it) but keep its disk.
+ * The next computer task boots a fresh VM, from the current image, on the same disk.
+ */
+export async function archiveVm(userId: string) {
+  const vm = vmFor(userId);
+  if (!vm?.ext_id || !['suspended', 'stopped'].includes(vm.status)) return;
+  console.log(`[cloudvm] archiving VM ${vm.ext_id} for user=${userId} (asleep since ${new Date(vm.updated_at).toISOString()}); keeping its disk`);
+  const { volumeId } = await driver.archive(vm.ext_id);
+  revokeVmTokens(vm.vm_id);
+  db.prepare("UPDATE vms SET ext_id=NULL, volume_id=COALESCE(?, volume_id), status='archived', updated_at=? WHERE vm_id=?").run(volumeId ?? null, now(), vm.vm_id);
 }
 
 /** Grow (or shrink) the VM to fit the user's Bots: one screen each. Called while the VM sleeps; applies at its next boot. */

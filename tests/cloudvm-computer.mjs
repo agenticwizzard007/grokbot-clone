@@ -93,18 +93,19 @@ const step = async (name, fn) => {
 const stamp = Date.now().toString(36);
 let A, B, second;
 
-await step('sign-up creates the user\'s VM automatically, with a screen for its Bot', async () => {
+const setUp = (u) => waitFor('VM set up', () => sql.prepare("SELECT 1 FROM provision_jobs WHERE user_id=? AND kind='create' AND status='done'").get(u.userId), 90000);
+
+await step('sign-up creates the user\'s VM automatically, sets up its Bot\'s screen, then puts it to sleep', async () => {
   const t0 = Date.now();
   A = await signUp(`vm-a-${stamp}@example.com`);
-  await waitFor('VM running with a screen', async () => { const c = await computer(A); return c.status === 'running' && c.screens.some((s) => s.botId === A.primary.id); }, 90000);
-  console.log(`     ready ${Math.round((Date.now() - t0) / 100) / 10}s after sign-up`);
-  const jobs = sql.prepare("SELECT kind, status FROM provision_jobs WHERE user_id=?").all(A.userId);
-  if (!jobs.some((j) => j.kind === 'create' && j.status === 'done')) throw new Error(JSON.stringify(jobs));
+  await setUp(A);
+  console.log(`     set up ${Math.round((Date.now() - t0) / 100) / 10}s after sign-up`);
+  await waitFor('asleep after setup', async () => (await computer(A)).status === 'suspended', 20000);
 });
 
 await step('a second user gets their own, separate VM', async () => {
   B = await signUp(`vm-b-${stamp}@example.com`);
-  await waitFor('B running', async () => (await computer(B)).status === 'running', 90000);
+  await setUp(B);
   const mine = vmRows().filter((v) => v.user_id === A.userId || v.user_id === B.userId);
   if (mine.length !== 2 || new Set(mine.map((v) => v.ext_id)).size !== 2) throw new Error(JSON.stringify(mine));
 });
@@ -188,10 +189,28 @@ await step('viewer shows a Bot\'s screen (noVNC)', async () => {
   await browser.close();
 });
 
-await step('deleting an account deletes its VM (cleanup loop)', async () => {
+await step('a long-idle VM is archived (VM deleted, disk kept) and restored on the next task, files intact', async () => {
+  const w = await chat(A, A.primary.id, script(call('shell', { command: 'echo kept-across-archive > note.txt && cat note.txt' }), 'say {last}'));
+  noErrors(w);
+  const disk = vmRows().find((v) => v.user_id === A.userId).volume_id;
+  await A.api('/api/computer/suspend', { method: 'POST' });
+  // The server under test archives after VM_ARCHIVE_AFTER_HOURS (set tiny for this test).
+  await waitFor('archived', () => { const v = vmRows().find((r) => r.user_id === A.userId); return v.status === 'archived' && !v.ext_id; }, 90000);
+  const vm = JSON.parse(fs.readFileSync(path.join(VM_DIR, disk, 'vm.json'), 'utf8'));
+  if (!vm.archived || vm.pid) throw new Error('the VM process is still running');
+  const t0 = Date.now();
+  const r = await chat(A, A.primary.id, script(call('shell', { command: 'cat note.txt' }), 'say {last}'));
+  noErrors(r);
+  console.log(`     restored and answered in ${Math.round((Date.now() - t0) / 100) / 10}s`);
+  if (!r.reply.includes('kept-across-archive')) throw new Error(r.reply);
+  const after = vmRows().find((v) => v.user_id === A.userId);
+  if (after.volume_id !== disk || after.status !== 'running') throw new Error(JSON.stringify(after));
+});
+
+await step('deleting an account deletes its VM and disk (cleanup loop)', async () => {
   const vm = vmRows().find((v) => v.user_id === B.userId);
   sql.prepare('DELETE FROM users WHERE id=?').run(B.userId); // what account deletion does; the VM row is detached
-  await waitFor('B\'s VM destroyed', () => !vmRows().some((v) => v.vm_id === vm.vm_id) && !fs.existsSync(path.join(VM_DIR, vm.ext_id)), 90000);
+  await waitFor('B\'s VM destroyed', () => !vmRows().some((v) => v.vm_id === vm.vm_id) && !fs.existsSync(path.join(VM_DIR, vm.volume_id ?? vm.ext_id)), 90000);
 });
 
 site.close();

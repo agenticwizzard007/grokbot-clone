@@ -20,6 +20,8 @@ export interface VmSpec {
   cpus: number;
   region?: string;
   volumeGb: number;
+  /** Reuse this disk (a returning user whose VM was archived) instead of creating one. */
+  volumeId?: string;
 }
 
 export interface VmInfo {
@@ -33,8 +35,8 @@ export interface VmInfo {
 
 export interface VmDriver {
   name: 'fly' | 'fake';
-  /** Create the VM (with its persistent disk for the Bots' files and browser profiles) and boot it. */
-  create(spec: VmSpec): Promise<{ id: string }>;
+  /** Create the VM (with its persistent disk for the Bots' files and browser profiles, or spec.volumeId) and boot it. */
+  create(spec: VmSpec): Promise<{ id: string; volumeId?: string }>;
   /** Boot a stopped VM, or resume a suspended one. */
   start(id: string): Promise<void>;
   /** Freeze the VM (memory kept); start() resumes it. */
@@ -42,6 +44,10 @@ export interface VmDriver {
   stop(id: string): Promise<void>;
   /** Delete the VM and its disk. Succeeds if it's already gone. */
   destroy(id: string): Promise<void>;
+  /** Delete the VM but keep its disk (long-idle users cost only the disk); returns the disk to reuse later. */
+  archive(id: string): Promise<{ volumeId?: string }>;
+  /** Delete a kept disk (an archived user's account was deleted). */
+  destroyVolume(volumeId: string): Promise<void>;
   /** The VM's state, or null if it no longer exists. */
   get(id: string): Promise<VmInfo | null>;
   /** Every VM this server created (for cleaning up orphans). */

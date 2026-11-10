@@ -48,7 +48,9 @@ export const flyDriver: VmDriver = {
 
   async create(spec: VmSpec) {
     const region = spec.region || undefined;
-    const volume = await api<{ id: string; region: string }>('POST', '/volumes', { name: 'agent_home', size_gb: spec.volumeGb, region, encrypted: true });
+    // A returning user's kept disk is reused (their Bots' logins and files); otherwise a new one.
+    const kept = spec.volumeId ? await api<{ id: string; region: string; state: string }>('GET', `/volumes/${spec.volumeId}`).catch(() => null) : null;
+    const volume = kept && kept.state !== 'destroyed' ? kept : await api<{ id: string; region: string }>('POST', '/volumes', { name: 'agent_home', size_gb: spec.volumeGb, region, encrypted: true });
     try {
       const m = await api<{ id: string }>('POST', '/machines', {
         name: `sw-${spec.vmId.replace(/[^a-zA-Z0-9-]/g, '').toLowerCase()}`,
@@ -63,11 +65,23 @@ export const flyDriver: VmDriver = {
           restart: { policy: 'on-failure', max_retries: 5 },
         },
       });
-      return { id: m.id };
+      return { id: m.id, volumeId: volume.id };
     } catch (e) {
-      await api('DELETE', `/volumes/${volume.id}`).catch(() => {});
+      if (volume !== kept) await api('DELETE', `/volumes/${volume.id}`).catch(() => {});
       throw e;
     }
+  },
+
+  async archive(id) {
+    let m: any;
+    try { m = await api('GET', `/machines/${id}`); } catch (e) { if (gone(e)) return {}; throw e; }
+    const volumeId = m?.config?.mounts?.[0]?.volume as string | undefined;
+    await api('DELETE', `/machines/${id}?force=true`).catch((e) => { if (!gone(e)) throw e; });
+    return { volumeId };
+  },
+
+  async destroyVolume(volumeId) {
+    await api('DELETE', `/volumes/${volumeId}`).catch((e) => { if (!gone(e)) throw e; });
   },
 
   async start(id) {

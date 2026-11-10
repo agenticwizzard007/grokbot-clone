@@ -19,7 +19,7 @@ import type { VmDriver, VmInfo, VmSpec, VmState } from './driver.js';
 const ROOT = path.resolve(process.env.FAKE_VM_DIR ?? path.join(path.dirname(env.filesDir), 'fake-vms'));
 const COMPANION = new URL('../../../../companion/swarm-companion.mjs', import.meta.url).pathname;
 
-interface FakeVm { id: string; vmId: string; userId: string; image: string; memoryMb: number; pid: number | null; destroyed?: boolean }
+interface FakeVm { id: string; vmId: string; userId: string; image: string; memoryMb: number; pid: number | null; destroyed?: boolean; archived?: boolean }
 
 const dir = (id: string) => path.join(ROOT, id);
 const read = (id: string): FakeVm | null => {
@@ -61,6 +61,15 @@ export const fakeDriver: VmDriver = {
   name: 'fake',
 
   async create(spec: VmSpec) {
+    // A kept disk (archived VM) is this fake's whole directory: boot it again.
+    const kept = spec.volumeId ? read(spec.volumeId) : null;
+    if (kept) {
+      fs.writeFileSync(path.join(dir(kept.id), 'token'), spec.token, { mode: 0o600 });
+      fs.writeFileSync(path.join(dir(kept.id), 'server'), spec.serverUrl);
+      Object.assign(kept, { archived: false, vmId: spec.vmId, userId: spec.userId, image: spec.image, memoryMb: spec.memoryMb });
+      boot(kept);
+      return { id: kept.id, volumeId: kept.id };
+    }
     const id = `fake-${crypto.randomBytes(6).toString('hex')}`;
     fs.mkdirSync(path.join(dir(id), 'home'), { recursive: true });
     fs.writeFileSync(path.join(dir(id), 'token'), spec.token, { mode: 0o600 });
@@ -68,7 +77,22 @@ export const fakeDriver: VmDriver = {
     const vm: FakeVm = { id, vmId: spec.vmId, userId: spec.userId, image: spec.image, memoryMb: spec.memoryMb, pid: null };
     write(vm);
     boot(vm);
-    return { id };
+    return { id, volumeId: id };
+  },
+
+  async archive(id) {
+    const vm = read(id);
+    if (!vm) return {};
+    signal(vm, 'SIGCONT');
+    signal(vm, 'SIGKILL');
+    vm.archived = true;
+    vm.pid = null;
+    write(vm);
+    return { volumeId: id };
+  },
+
+  async destroyVolume(volumeId) {
+    fs.rmSync(dir(volumeId), { recursive: true, force: true });
   },
 
   async start(id) {
@@ -103,7 +127,7 @@ export const fakeDriver: VmDriver = {
 
   async get(id): Promise<VmInfo | null> {
     const vm = read(id);
-    if (!vm || vm.destroyed) return null;
+    if (!vm || vm.destroyed || vm.archived) return null;
     const s = procState(vm.pid);
     const state: VmState = s === 'running' ? 'started' : s === 'stopped' ? 'suspended' : 'stopped';
     return { id, state, vmId: vm.vmId, userId: vm.userId, image: vm.image, memoryMb: vm.memoryMb };

@@ -1,5 +1,5 @@
 import { db, now } from './db.js';
-import { destroyVm, driver, ensureVm, resizeVm, vmFor } from './computers/cloudvm.js';
+import { archiveVm, destroyVm, driver, ensureVm, resizeVm, suspendVm, vmFor } from './computers/cloudvm.js';
 import { getLive } from './store.js';
 import { localProvider } from './computers/local.js';
 import { newId } from './lib/ids.js';
@@ -29,7 +29,13 @@ CREATE TABLE IF NOT EXISTS provision_jobs (
 );
 CREATE INDEX IF NOT EXISTS provision_jobs_due ON provision_jobs(status, next_at);`);
 
-type Kind = 'create' | 'destroy' | 'resize';
+type Kind = 'create' | 'destroy' | 'resize' | 'archive';
+
+/** Put a new VM to sleep as soon as it's set up (waking takes ~2 s), instead of after the idle timeout. */
+const SLEEP_AFTER_SETUP = process.env.VM_SLEEP_AFTER_SETUP !== '0';
+/** Archive VMs asleep this long: delete the VM, keep the disk (0 = never). Default 7 days. */
+const ARCHIVE_AFTER_MS = Number(process.env.VM_ARCHIVE_AFTER_HOURS ?? 168) * 3600_000;
+const ARCHIVE_SWEEP_MS = Number(process.env.VM_ARCHIVE_SWEEP_SEC ?? 3600) * 1000;
 interface Job { id: string; kind: Kind; user_id: string | null; vm_id: string | null; status: string; attempts: number }
 
 const MAX_ATTEMPTS = 8;
@@ -62,10 +68,14 @@ async function run(job: Job) {
     const bots = db.prepare("SELECT id FROM bots WHERE user_id=? AND COALESCE(hidden,0)=0 AND COALESCE(kind,'agent')<>'room'").all(job.user_id) as { id: string }[];
     for (const b of bots) await (await localProvider.screen(job.user_id, b.id)).screenshot();
     console.log(`[provision] user=${job.user_id} is ready: VM up, ${bots.length} screen(s)`);
+    if (SLEEP_AFTER_SETUP && !(await anyBotBusy(job.user_id))) await suspendVm(job.user_id, 'set up; sleeping until needed');
   } else if (job.kind === 'destroy') {
     if (job.vm_id) await destroyVm(job.vm_id);
+  } else if (job.kind === 'archive') {
+    if (job.user_id) await archiveVm(job.user_id);
   } else if (job.kind === 'resize') {
     if (!job.user_id || !vmFor(job.user_id)) return;
+    if (!vmFor(job.user_id)!.ext_id) return; // archived: the new size applies when its VM is recreated
     // Resizing restarts a running VM (every screen and open tab would be lost), so it waits until the
     // VM is asleep; the new size applies at its next boot. The new Bot's screen works meanwhile.
     const vm = vmFor(job.user_id)!;
@@ -108,6 +118,20 @@ function tick() {
   }
 }
 
+async function anyBotBusy(userId: string) {
+  const { isBotBusy } = await import('./agent/loop.js');
+  const bots = db.prepare('SELECT id FROM bots WHERE user_id=?').all(userId) as { id: string }[];
+  return bots.some((b) => isBotBusy(b.id) || getLive(b.id).isRunning);
+}
+
+/** Queue archiving for VMs that have been asleep longer than VM_ARCHIVE_AFTER_HOURS. */
+export function sweepLongSleepers() {
+  if (!ARCHIVE_AFTER_MS) return 0;
+  const due = db.prepare("SELECT user_id FROM vms WHERE user_id IS NOT NULL AND ext_id IS NOT NULL AND status IN ('suspended','stopped') AND updated_at < ?").all(now() - ARCHIVE_AFTER_MS) as { user_id: string }[];
+  for (const v of due) enqueueVmJob('archive', { userId: v.user_id });
+  return due.length;
+}
+
 let started = false;
 const kick = () => { if (started) setImmediate(tick); };
 
@@ -137,6 +161,10 @@ export function startProvisioning() {
     if (missing.length) console.log(`[provision] queued VMs for ${missing.length} existing account(s)`);
   }
   setInterval(tick, 2_000).unref();
+  if (ARCHIVE_AFTER_MS) {
+    setInterval(() => { const n = sweepLongSleepers(); if (n) console.log(`[provision] archiving ${n} long-idle VM(s)`); }, ARCHIVE_SWEEP_MS).unref();
+    console.log(`[provision] VMs asleep over ${Math.round((ARCHIVE_AFTER_MS / 3600_000) * 10) / 10} h are archived (VM deleted, disk kept)`);
+  }
   const every = Number(process.env.VM_RECONCILE_MIN ?? 10) * 60_000;
   setInterval(() => { reconcile().catch((e) => console.warn('[provision] reconcile failed', e?.message ?? e)); }, every).unref();
   setTimeout(() => { reconcile().catch((e) => console.warn('[provision] reconcile failed', e?.message ?? e)); }, 30_000).unref();
