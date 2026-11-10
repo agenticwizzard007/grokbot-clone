@@ -1,4 +1,4 @@
-import OpenAI from 'openai';
+import { xaiClient } from '../lib/xai.js';
 import { db, now } from '../db.js';
 import { env } from '../env.js';
 import { newId, sha256 } from '../lib/ids.js';
@@ -11,7 +11,7 @@ import { repairHistory } from './history.js';
 import { maybeCompact, noteUsage } from './memory.js';
 import { activityFor, functionSchemas, humanizeSlug, policyFor, runComposioTool, toolMap, type ToolCtx, type ToolResult } from './tools.js';
 
-const xai = new OpenAI({ apiKey: env.xaiKey, baseURL: env.xaiBaseUrl, timeout: 360_000 });
+const xai = () => xaiClient(360_000);
 
 export type Trigger =
   | { type: 'user'; text: string }
@@ -273,13 +273,13 @@ async function callModel(ctx: ToolCtx, tools: any[], signal: AbortSignal): Promi
 
   let stream: any;
   try {
-    stream = await xai.responses.create(body, { signal });
+    stream = await xai().responses.create(body, { signal });
   } catch (e: any) {
     // If a Composio tool schema is rejected, retry with only our own tools.
     if (e?.status === 400 && tools.length > functionSchemas().length + 2) {
       console.warn('[agent] 400 with composio tools, retrying without:', e?.message);
       body.tools = [...functionSchemas(), { type: 'web_search' }, { type: 'x_search' }];
-      stream = await xai.responses.create(body, { signal });
+      stream = await xai().responses.create(body, { signal });
     } else throw e;
   }
 

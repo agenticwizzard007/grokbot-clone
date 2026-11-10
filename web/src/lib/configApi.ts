@@ -36,6 +36,9 @@ export interface ComputerDetails {
 
 export interface Pairing { token: string; server: string; command: string }
 
+export interface KeyStatus { set: boolean; source: 'app' | 'env' | null; hint: string | null }
+export interface KeysResponse { canEdit: boolean; xai: KeyStatus; composio: KeyStatus; model: { value: string; source: 'app' | 'env' | null }; models?: string[]; modelOk?: boolean }
+
 export type BotPatch = Partial<Pick<Bot, 'name' | 'label' | 'description' | 'instructions' | 'avatarShape' | 'avatarColor' | 'effort' | 'mode'>>;
 
 export const configApi = {
@@ -66,6 +69,10 @@ export const configApi = {
   sleep: () => req<{ computer: ComputerState }>('POST', '/computer/suspend'),
   resetScreen: (botId: string) => req<{ ok: true }>('POST', `/bots/${botId}/screen/reset`),
   pairPc: () => req<Pairing>('POST', '/computer/pair'),
+  keys: () => req<KeysResponse>('GET', '/settings/keys'),
+  saveKey: (name: 'xai' | 'composio' | 'model', value: string) => req<KeysResponse>('PUT', `/settings/keys/${name}`, { value }),
+  clearKey: (name: 'xai' | 'composio' | 'model') => req<KeysResponse>('DELETE', `/settings/keys/${name}`),
+  models: () => req<{ models: string[]; error?: string }>('GET', '/settings/models'),
   unpairPc: () => req<{ ok: true; revoked: number }>('DELETE', '/computer/pair'),
 
   policies: () => req<{ policies: { tool: string; mode: string }[] }>('GET', '/policies'),

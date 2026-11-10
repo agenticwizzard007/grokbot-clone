@@ -10,6 +10,18 @@ function req(name: string): string {
 const computerProvider = (process.env.COMPUTER_PROVIDER || (process.env.ORGO_API_KEY ? 'orgo' : 'local')).toLowerCase();
 if (computerProvider !== 'orgo' && computerProvider !== 'local') throw new Error(`COMPUTER_PROVIDER must be "orgo" or "local", got "${computerProvider}"`);
 
+/**
+ * Provider keys can also be set in the app (Settings → API keys; see settings.ts). Values saved
+ * there override .env and take effect immediately, so the getters below read them live.
+ */
+const overrides = new Map<string, string>();
+export function setEnvOverride(name: string, value: string | null) {
+  if (value) overrides.set(name, value);
+  else overrides.delete(name);
+}
+export const envSource = (name: string): 'app' | 'env' | null => (overrides.has(name) ? 'app' : process.env[name] ? 'env' : null);
+const live = (name: string) => overrides.get(name) ?? process.env[name] ?? '';
+
 const dbPath = process.env.DB_PATH ?? new URL('../../data/grokbot.db', import.meta.url).pathname;
 
 export const env = {
@@ -17,13 +29,14 @@ export const env = {
   appUrl: process.env.APP_URL ?? 'http://localhost:5173',
   /** Public URL of this server, used for OAuth callbacks. */
   serverUrl: process.env.SERVER_URL ?? `http://localhost:${process.env.PORT ?? 8787}`,
-  xaiKey: req('XAI_API_KEY'),
-  xaiModel: process.env.XAI_MODEL ?? 'grok-4.7',
+  /** Without a key the server still runs; Bots explain that a key is needed. */
+  get xaiKey() { return live('XAI_API_KEY'); },
+  get xaiModel() { return live('XAI_MODEL') || 'grok-4.7'; },
   /** Base URL of the xAI API (override to use a compatible proxy or a local mock). */
   xaiBaseUrl: process.env.XAI_BASE_URL || 'https://api.x.ai/v1',
   /** Composio powers connected apps and Google sign-in; without it those are off and everything else works. */
-  composioKey: process.env.COMPOSIO_API_KEY ?? '',
-  composioEnabled: !!process.env.COMPOSIO_API_KEY,
+  get composioKey() { return live('COMPOSIO_API_KEY'); },
+  get composioEnabled() { return !!live('COMPOSIO_API_KEY'); },
   computerProvider: computerProvider as 'orgo' | 'local',
   orgoKey: computerProvider === 'orgo' ? req('ORGO_API_KEY') : (process.env.ORGO_API_KEY ?? ''),
   /** Orgo workspace that holds every user's box. */

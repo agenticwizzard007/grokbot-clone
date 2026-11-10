@@ -66,6 +66,13 @@ const server = http.createServer((req, res) => {
   let raw = '';
   req.on('data', (d) => { raw += d; });
   req.on('end', () => {
+    // Key check for Settings → API keys: the key "invalid-key" is rejected, anything else is accepted.
+    if (req.method === 'GET' && req.url.startsWith('/v1/models')) {
+      const bad = (req.headers.authorization ?? '') === 'Bearer invalid-key';
+      res.writeHead(bad ? 401 : 200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(bad ? { error: 'Incorrect API key provided' } : { object: 'list', data: [{ id: 'grok-4.7', object: 'model' }, { id: 'grok-4.7-fast', object: 'model' }] }));
+      return;
+    }
     if (req.method !== 'POST' || !req.url.startsWith('/v1/responses') || req.url.includes('compact')) {
       res.writeHead(404, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: { message: 'not mocked' } }));

@@ -9,6 +9,7 @@ import path from 'node:path';
 import { env } from './env.js';
 import { computers, ComputerError } from './computers/index.js';
 import { createPairing, localFilePath, pairingInfo, revokePairings } from './computers/local.js';
+import { canManageServer, clearSetting, saveSetting, SETTINGS, settingsStatus, verifyComposioKey, verifyXaiKey, type SettingName } from './settings.js';
 import { runInBotQueue } from './agent/loop.js';
 import { consolidateBot, historySize, maybeCompact, memoryConfig } from './agent/memory.js';
 import { idleConfig, viewerCount } from './idle.js';
@@ -21,7 +22,7 @@ import type { Memory, Skill } from './types.js';
  */
 export const configApi = new Hono<AuthVars>();
 
-for (const p of ['/bots/*', '/skills/*', '/computer/*']) configApi.use(p, requireUser);
+for (const p of ['/bots/*', '/skills/*', '/computer/*', '/settings/*']) configApi.use(p, requireUser);
 
 const ownBot = (userId: string, id: string) => {
   const b = getBotRow(id);
@@ -226,4 +227,53 @@ configApi.post('/computer/pair', (c) => {
 configApi.delete('/computer/pair', (c) => {
   if (computers.kind !== 'local') return c.json({ error: 'not available' }, 400);
   return c.json({ ok: true, revoked: revokePairings(c.get('user').id) });
+});
+
+// ---------- API keys (Settings → API keys): owner only, verified with the provider before saving ----------
+
+configApi.get('/settings/keys', (c) => c.json({ canEdit: canManageServer(c.get('user')), ...settingsStatus() }));
+
+configApi.put('/settings/keys/:name', async (c) => {
+  const user = c.get('user');
+  if (!canManageServer(user)) return c.json({ error: 'Only the owner of this server can change its keys.' }, 403);
+  const name = c.req.param('name') as SettingName;
+  if (!(name in SETTINGS)) return c.json({ error: 'unknown setting' }, 404);
+  const { value } = await c.req.json<{ value?: string }>().catch(() => ({ value: '' }));
+  const v = String(value ?? '').trim();
+  if (!v) return c.json({ error: 'Enter a value first.' }, 400);
+  if (v.length > 400 || /\s/.test(v)) return c.json({ error: "That doesn't look like a key." }, 400);
+  if (name === 'xai') {
+    const r = await verifyXaiKey(v, env.xaiModel);
+    if (!r.ok) return c.json({ error: r.error }, 400);
+    saveSetting('xai', v, user.id);
+    return c.json({ ok: true, models: r.models, modelOk: r.modelOk, ...settingsStatus() });
+  }
+  if (name === 'composio') {
+    const r = await verifyComposioKey(v);
+    if (!r.ok) return c.json({ error: r.error }, 400);
+    saveSetting('composio', v, user.id);
+    return c.json({ ok: true, ...settingsStatus() });
+  }
+  // model: check it against the models the current key can use
+  if (env.xaiKey) {
+    const r = await verifyXaiKey(env.xaiKey, v);
+    if (r.ok && !r.modelOk) return c.json({ error: `${v} isn't available on your xAI key. Available: ${r.models.slice(0, 12).join(', ')}` }, 400);
+  }
+  saveSetting('model', v, user.id);
+  return c.json({ ok: true, ...settingsStatus() });
+});
+
+configApi.delete('/settings/keys/:name', (c) => {
+  if (!canManageServer(c.get('user'))) return c.json({ error: 'Only the owner of this server can change its keys.' }, 403);
+  const name = c.req.param('name') as SettingName;
+  if (!(name in SETTINGS)) return c.json({ error: 'unknown setting' }, 404);
+  clearSetting(name);
+  return c.json({ ok: true, ...settingsStatus() });
+});
+
+/** Models the current xAI key can use (for the model picker). */
+configApi.get('/settings/models', async (c) => {
+  if (!env.xaiKey) return c.json({ models: [] });
+  const r = await verifyXaiKey(env.xaiKey, env.xaiModel);
+  return c.json(r.ok ? { models: r.models } : { models: [], error: r.error });
 });

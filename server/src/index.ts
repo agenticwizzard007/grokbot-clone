@@ -17,14 +17,16 @@ import { roomsApi } from './routes-rooms.js';
 import { enqueue } from './agent/loop.js';
 import { desSelfTest } from './lib/des.js';
 import { configApi } from './routes-config.js';
+import { loadSettings } from './settings.js';
 import { startMemoryConsolidation } from './agent/memory.js';
 
 if (!desSelfTest()) throw new Error('DES self-test failed');
+loadSettings();
 initSubagents();
 initRooms();
 
 const app = new Hono();
-app.get('/api/health', (c) => c.json({ ok: true, model: env.xaiModel, computers: computers.kind, apps: env.composioEnabled }));
+app.get('/api/health', (c) => c.json({ ok: true, model: env.xaiModel, computers: computers.kind, xai: !!env.xaiKey, apps: env.composioEnabled }));
 // The companion program for local computers (public: it holds no secrets; the pairing token does).
 const companionScript = new URL('../../companion/grokbot-companion.mjs', import.meta.url);
 app.get('/api/companion/script', (c) => {

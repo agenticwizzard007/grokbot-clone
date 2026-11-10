@@ -34,7 +34,7 @@ async function ensureSubscribed() {
   if (subscribed) return;
   subscribed = true;
   try {
-    await composio.triggers.subscribe(
+    await composio().triggers.subscribe(
       (data: any) => onTrigger(data),
       undefined,
       (err) => console.warn('[triggers] subscription error', JSON.stringify(err).slice(0, 300)),
@@ -64,7 +64,7 @@ function onTrigger(data: any) {
 }
 
 export async function listTriggerTypes(toolkit: string) {
-  const r: any = await composio.triggers.listTypes({ toolkits: [toolkit] } as any);
+  const r: any = await composio().triggers.listTypes({ toolkits: [toolkit] } as any);
   const items: any[] = r?.items ?? r ?? [];
   return items.slice(0, 40).map((t) => ({
     slug: t.slug,
@@ -78,7 +78,7 @@ export async function createEventRoutine(userId: string, botId: string, a: { nam
   migrate();
   if (!env.composioEnabled) throw new Error(APPS_OFF);
   const slug = a.trigger_slug.toUpperCase();
-  const res: any = await composio.triggers.create(userId, slug, { triggerConfig: a.config ?? {} } as any);
+  const res: any = await composio().triggers.create(userId, slug, { triggerConfig: a.config ?? {} } as any);
   const triggerId = res?.triggerId ?? res?.trigger_id ?? res?.id;
   if (!triggerId) throw new Error(`Composio did not return a trigger id: ${JSON.stringify(res).slice(0, 200)}`);
   const id = `rt_${Math.random().toString(36).slice(2, 12)}`;
@@ -93,8 +93,8 @@ export async function setEventRoutineEnabled(routineId: string, enabled: boolean
   const r = db.prepare('SELECT trigger_id FROM routines WHERE id=?').get(routineId) as any;
   if (!r?.trigger_id) return;
   try {
-    if (enabled) { await composio.triggers.enable(r.trigger_id); await ensureSubscribed(); }
-    else await composio.triggers.disable(r.trigger_id);
+    if (enabled) { await composio().triggers.enable(r.trigger_id); await ensureSubscribed(); }
+    else await composio().triggers.disable(r.trigger_id);
   } catch (e) {
     console.warn('[triggers] toggle failed', routineId, (e as Error).message);
   }
@@ -111,5 +111,5 @@ export function describeEvent(schedule: string) {
 export async function deleteEventTrigger(routineId: string) {
   const r = db.prepare('SELECT trigger_id FROM routines WHERE id=?').get(routineId) as any;
   if (!r?.trigger_id) return;
-  try { await composio.triggers.delete(r.trigger_id); } catch (e) { console.warn('[triggers] delete failed', routineId, (e as Error).message); }
+  try { await composio().triggers.delete(r.trigger_id); } catch (e) { console.warn('[triggers] delete failed', routineId, (e as Error).message); }
 }

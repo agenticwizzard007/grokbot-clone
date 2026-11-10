@@ -1,4 +1,4 @@
-import OpenAI from 'openai';
+import { xaiClient } from '../lib/xai.js';
 import { db, now } from '../db.js';
 import '../db-config.js';
 import { env } from '../env.js';
@@ -13,7 +13,7 @@ import { getBotRow, getLive } from '../store.js';
  *  (c) a bounded, relevance-ranked memory section for the system prompt.
  */
 
-const xai = new OpenAI({ apiKey: env.xaiKey, baseURL: env.xaiBaseUrl, timeout: 300_000 });
+const xai = () => xaiClient(300_000);
 
 const num = (v: string | undefined, d: number) => (v !== undefined && v !== '' && Number.isFinite(Number(v)) ? Number(v) : d);
 
@@ -153,7 +153,7 @@ export function renderTranscript(items: any[], maxChars = 200_000): string {
 }
 
 async function compactWithXai(old: any[]): Promise<any[]> {
-  const res: any = await xai.post('/responses/compact', { body: { model: env.xaiModel, input: old } });
+  const res: any = await xai().post('/responses/compact', { body: { model: env.xaiModel, input: old } });
   const out = (res?.output ?? []) as any[];
   if (!out.length || !out.some((o) => o?.type === 'compaction' || o?.encrypted_content || o?.role)) throw new Error('compact returned no items');
   return out;
@@ -161,7 +161,7 @@ async function compactWithXai(old: any[]): Promise<any[]> {
 
 async function compactWithSummary(old: any[]): Promise<any[]> {
   const transcript = renderTranscript(old);
-  const res: any = await xai.responses.create({
+  const res: any = await xai().responses.create({
     model: env.xaiModel,
     input: [{ role: 'system', content: SUMMARY_PROMPT }, { role: 'user', content: transcript }],
     store: false,
@@ -296,7 +296,7 @@ export async function consolidateBot(botId: string, opts: { upTo?: number } = {}
   if (transcript.length > 24_000) transcript = transcript.slice(-24_000);
 
   const existing = (db.prepare('SELECT text FROM memories WHERE bot_id=? ORDER BY created_at DESC LIMIT 200').all(botId) as any[]).map((m) => m.text as string);
-  const res: any = await xai.responses.create({
+  const res: any = await xai().responses.create({
     model: env.xaiModel,
     input: [
       { role: 'system', content: CONSOLIDATE_PROMPT },

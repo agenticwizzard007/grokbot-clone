@@ -51,11 +51,13 @@ cp .env.example .env
 
 ### 2. Configure your keys
 
-Fill in these values in `.env`:
+Generate `SESSION_SECRET` (below). Provider keys can go in `.env`, or you can paste them into the running app under **Settings → API keys**: they are checked with the provider before saving, stored encrypted with `SESSION_SECRET`, take effect without a restart, and override `.env`. Only the server's owner (the first account, or `ADMIN_EMAILS`) can change them.
+
+Values for `.env`:
 
 | Variable | Purpose |
 | --- | --- |
-| `XAI_API_KEY` | Grok text and voice API access |
+| `XAI_API_KEY` | Grok text and voice API access (or set it in the app) |
 | `COMPOSIO_API_KEY` | Optional: app connections, tool catalog, and Google sign-in (without it, use the dev email sign-in) |
 | `SESSION_SECRET` | Secret used to sign sessions |
 | `COMPUTER_PROVIDER` | `local` (a browser on your PC) or `orgo` (cloud VMs) |

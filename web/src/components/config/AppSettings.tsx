@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Toolkit } from '@shared/types';
 import { BotAvatarFor } from '../../avatar/BotAvatar';
-import { configApi, type ComputerDetails, type Pairing } from '../../lib/configApi';
+import { configApi, type ComputerDetails, type KeysResponse, type KeyStatus, type Pairing } from '../../lib/configApi';
 import { relativeShort } from '../../lib/time';
 import { useConfigUI, type AppSection, type Theme } from '../../configStore';
 import { useStore } from '../../store';
@@ -14,6 +14,7 @@ import { ConfirmButton } from './ui';
 
 const SECTIONS: { id: AppSection; label: string }[] = [
   { id: 'general', label: 'General' },
+  { id: 'keys', label: 'API keys' },
   { id: 'computer', label: 'Computer' },
   { id: 'permissions', label: 'Permissions' },
   { id: 'apps', label: 'Connected apps' },
@@ -46,6 +47,7 @@ export function AppSettings() {
         <button type="button" className="app-settings__close icon-btn" onClick={close} aria-label="Close settings" title="Close (Esc)"><Icon name="close" opacity={0.8} /></button>
         <div className="app-settings__page">
           {section === 'general' && <GeneralSection />}
+          {section === 'keys' && <KeysSection />}
           {section === 'computer' && <ComputerSection />}
           {section === 'permissions' && <PermissionsSection />}
           {section === 'apps' && <AppsSection />}
@@ -100,6 +102,102 @@ function GeneralSection() {
 }
 
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// API keys: the server's provider keys, entered in the app and verified before saving.
+
+const sourceText = (s: KeyStatus) => (s.source === 'app' ? 'saved in the app' : s.source === 'env' ? 'from the server’s .env file' : '');
+
+function KeyCard({ name, title, what, link, status, canEdit, required, onChange }: {
+  name: 'xai' | 'composio'; title: string; what: string; link: { href: string; label: string };
+  status: KeyStatus; canEdit: boolean; required?: boolean; onChange: (r: KeysResponse) => void;
+}) {
+  const [value, setValue] = useState('');
+  const [busy, setBusy] = useState<'save' | 'clear' | null>(null);
+  const [note, setNote] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
+  const save = async () => {
+    setBusy('save'); setNote(null);
+    try {
+      const r = await configApi.saveKey(name, value.trim());
+      setValue('');
+      setNote({ tone: 'ok', text: r.modelOk === false ? `Key works, but ${r.model.value} isn’t available on it. Pick a model below.` : 'Verified and saved. Bots use it right away.' });
+      onChange(r);
+    } catch (e) { setNote({ tone: 'error', text: (e as Error).message }); }
+    finally { setBusy(null); }
+  };
+  const clear = async () => {
+    setBusy('clear'); setNote(null);
+    try { onChange(await configApi.clearKey(name)); } catch (e) { setNote({ tone: 'error', text: (e as Error).message }); }
+    finally { setBusy(null); }
+  };
+  return (
+    <div className="cfg-card cfg-key">
+      <div className="cfg-row">
+        <span className={`computer-status-dot is-${status.set ? 'on' : 'off'}`} aria-hidden />
+        <div className="cfg-row__text">
+          <div className="cfg-row__title">{title} · {status.set ? 'Connected' : required ? 'Needed' : 'Not set'}</div>
+          <div className="cfg-row__sub">{what}{status.set ? ` Key ${status.hint}, ${sourceText(status)}.` : ''}</div>
+        </div>
+        {status.source === 'app' && canEdit && (
+          <ConfirmButton className="cfg-btn cfg-btn--secondary" confirmLabel="Remove key" onConfirm={clear}>{busy === 'clear' ? 'Removing…' : 'Remove'}</ConfirmButton>
+        )}
+      </div>
+      {canEdit ? (
+        <form className="cfg-key__form" onSubmit={(e) => { e.preventDefault(); if (value.trim()) void save(); }}>
+          <input className="text-input cfg-key__input" type="password" autoComplete="off" spellCheck={false} placeholder={status.set ? 'Paste a new key to replace it' : 'Paste your key'} value={value} onChange={(e) => setValue(e.target.value)} aria-label={`${title} API key`} />
+          <button type="submit" className="cfg-btn cfg-btn--primary" disabled={!value.trim() || !!busy}>{busy === 'save' ? 'Verifying…' : 'Save & verify'}</button>
+        </form>
+      ) : null}
+      <div className="cfg-key__foot">
+        {note ? <span className={note.tone === 'error' ? 'cfg-key__err' : 'cfg-key__ok'} role="status">{note.text}</span> : <a href={link.href} target="_blank" rel="noreferrer">{link.label}</a>}
+      </div>
+    </div>
+  );
+}
+
+function KeysSection() {
+  const [keys, setKeys] = useState<KeysResponse | null>(null);
+  const [models, setModels] = useState<string[]>([]);
+  const [model, setModel] = useState('');
+  const [modelNote, setModelNote] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const loadModels = useCallback(() => { configApi.models().then((r) => setModels(r.models)).catch(() => {}); }, []);
+  useEffect(() => {
+    configApi.keys().then((k) => { setKeys(k); setModel(k.model.value); if (k.xai.set) loadModels(); }).catch((e) => setError((e as Error).message));
+  }, [loadModels]);
+  const changed = (r: KeysResponse) => { setKeys(r); setModel(r.model.value); if (r.models) setModels(r.models); else if (r.xai.set) loadModels(); else setModels([]); };
+  const saveModel = async () => {
+    setModelNote(null);
+    try { changed(await configApi.saveKey('model', model.trim())); setModelNote({ tone: 'ok', text: 'Saved.' }); }
+    catch (e) { setModelNote({ tone: 'error', text: (e as Error).message }); }
+  };
+
+  if (error) return <><PageHead title="API keys" /><div className="cfg-error">{error}</div></>;
+  if (!keys) return <><PageHead title="API keys" /><div className="cfg-empty cfg-empty--flat">Loading…</div></>;
+  return (
+    <>
+      <PageHead title="API keys" sub="Grokbot runs on your own provider accounts. Keys are checked with the provider, stored encrypted on this server, and never shown again." />
+      {!keys.canEdit && <div className="cfg-field__hint" style={{ marginBottom: 12 }}>Only the owner of this server can change its keys.</div>}
+      <section className="cfg-section">
+        <KeyCard name="xai" title="xAI · Grok" required what="Powers every Bot: thinking, web search, and voice." link={{ href: 'https://console.x.ai', label: 'Get a key at console.x.ai' }} status={keys.xai} canEdit={keys.canEdit} onChange={changed} />
+        {keys.xai.set && (
+          <div className="cfg-card cfg-key">
+            <form className="cfg-key__form" onSubmit={(e) => { e.preventDefault(); if (model.trim() && model.trim() !== keys.model.value) void saveModel(); }}>
+              <div className="cfg-row__text"><div className="cfg-row__title">Model</div><div className="cfg-row__sub">Which Grok model your Bots use.</div></div>
+              <input className="text-input cfg-key__input cfg-key__model" list="grokbot-models" value={model} disabled={!keys.canEdit} onChange={(e) => setModel(e.target.value)} aria-label="Model" />
+              <datalist id="grokbot-models">{models.map((m) => <option key={m} value={m} />)}</datalist>
+              {keys.canEdit && <button type="submit" className="cfg-btn cfg-btn--secondary" disabled={!model.trim() || model.trim() === keys.model.value}>Save</button>}
+            </form>
+            {modelNote && <div className="cfg-key__foot"><span className={modelNote.tone === 'error' ? 'cfg-key__err' : 'cfg-key__ok'}>{modelNote.text}</span></div>}
+          </div>
+        )}
+      </section>
+      <section className="cfg-section">
+        <KeyCard name="composio" title="Composio · Connected apps" what="Optional: lets Bots use Gmail, Slack, Notion, GitHub and 1,000+ apps, and enables Sign in with Google." link={{ href: 'https://platform.composio.dev', label: 'Get a key at platform.composio.dev' }} status={keys.composio} canEdit={keys.canEdit} onChange={changed} />
+      </section>
+    </>
+  );
+}
 
 const screenLabel = (id: string) => (id === 'default' ? 'Main screen' : `Screen ${Number(id.replace('screen-', '')) - 98 || id}`);
 
