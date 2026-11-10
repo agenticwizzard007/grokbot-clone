@@ -32,6 +32,7 @@ Swarm is the main product from Swarms.so: a runtime for always-on AI teammates y
 - **Keep context.** Bots retain durable memories, recall earlier facts, and compact long conversations.
 - **Run it by text.** Sign up by texting a number with an invite, then talk to every Bot from one iMessage or SMS thread: @mention a Bot, get results and routine updates, approve actions, answer questions, connect apps, and send voice notes or photos. See the [messaging guide](docs/messaging.md).
 - **Talk it through.** Realtime voice calls hand tasks to the same Bot runtime. Voice selection, speed, previews, and push-to-talk dictation are included.
+- **Watch what AI use costs.** Settings → Usage shows every account its own tokens, requests and dollars by day, Bot, model and activity, with the exact cost each provider reports per request (OpenRouter `usage.cost`, xAI `cost_in_usd_ticks`; other providers are estimated from OpenRouter's price list and labelled). Text sign-ups see their daily message allowance. The server's owner, who brings the keys, can switch to everyone and sees the OpenRouter account's own daily, weekly and monthly spend and limits. CSV export included.
 
 Bots' computers come from a pluggable provider (`COMPUTER_PROVIDER`):
 

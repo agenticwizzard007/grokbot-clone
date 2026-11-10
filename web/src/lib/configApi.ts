@@ -102,6 +102,42 @@ async function inkboxSetup(p: { handle?: string; withPhone?: boolean; rotateSign
 
 export type BotPatch = Partial<Pick<Bot, 'name' | 'label' | 'description' | 'instructions' | 'avatarShape' | 'avatarColor' | 'effort' | 'mode' | 'model'>>;
 
+export type UsageRange = 'today' | '7d' | '30d' | 'month';
+export interface UsageRow { key: string; label: string; costUsd: number; tokens: number; requests: number; unpriced: number; minutes: number; recordings: number; characters: number; computerUsd?: number; computerHours?: number }
+export interface UsageReport {
+  range: { key: UsageRange; from: number; to: number };
+  scope: 'me' | 'all';
+  canSeeAll: boolean;
+  provider: string;
+  totals: { costUsd: number; estimatedUsd: number; unpricedRequests: number; unpricedVoice: number; inputTokens: number; cachedTokens: number; outputTokens: number; reasoningTokens: number; requests: number; toolCalls: number; voiceMinutes: number };
+  days: { day: string; costUsd: number; computerUsd: number; tokens: number; requests: number }[];
+  computer: {
+    costUsd: number; runningHours: number; asleepHours: number; archivedHours: number;
+    now: { provider: string; state: 'running' | 'asleep' | 'archived'; cpus: number | null; memoryMb: number | null; diskGb: number | null; perHourUsd: number } | null;
+  };
+  computerProvider: string;
+  computerRates: { hoursPerMonth: number; fly: { cpuMonth: number; ramGbMonth: number; rootfsGbMonth: number; rootfsGb: number; volumeGbMonth: number }; orgo: { runningHour: number; stoppedHour: number } };
+  byBot: UsageRow[];
+  byModel: UsageRow[];
+  byKind: UsageRow[];
+  byUser?: UsageRow[];
+  limits: { dailyMessages: { used: number; limit: number; resetsAt: number } | null };
+}
+export interface ProviderUsage {
+  provider: string;
+  openrouter: {
+    label: string | null;
+    usage: { today: number | null; week: number | null; month: number | null; allTime: number | null };
+    byokUsage: { today: number | null; month: number | null };
+    limit: number | null;
+    limitRemaining: number | null;
+    limitReset: string | null;
+    budgets: { scope: string; limitUsd: number | null; spendUsd: number | null; remainingUsd: number | null; resetInterval: string | null; resetsAt: string | null }[];
+    freeTier: boolean;
+  } | null;
+  note: string;
+}
+
 export const configApi = {
   mcpServers: () => req<{ servers: McpServerView[]; canManage: boolean }>('GET', '/mcp/servers'),
   createMcpServer: (input: McpServerInput) => req<{ server: McpServerView }>('POST', '/mcp/servers', input),
@@ -138,6 +174,8 @@ export const configApi = {
   sleep: () => req<{ computer: ComputerState }>('POST', '/computer/suspend'),
   resetScreen: (botId: string) => req<{ ok: true }>('POST', `/bots/${botId}/screen/reset`),
   pairPc: () => req<Pairing>('POST', '/computer/pair'),
+  usage: (range: UsageRange, scope: 'me' | 'all') => req<UsageReport>('GET', `/usage?range=${range}&scope=${scope}`),
+  usageProvider: () => req<ProviderUsage>('GET', '/usage/provider'),
   useThisComputer: () => req<{ ok: true }>('POST', '/computer/this-computer'),
   stopThisComputer: () => req<{ ok: true }>('DELETE', '/computer/this-computer'),
   keys: () => req<KeysResponse>('GET', '/settings/keys'),
