@@ -12,6 +12,16 @@ import { Icon } from './Icon';
 type Mode = 'watch' | 'control';
 type Conn = 'connecting' | 'connected' | 'disconnected' | 'error';
 
+function WakeProgress({ detail, local = false }: { detail: string; local?: boolean }) {
+  return (
+    <div className="viewer__wake" role="status" aria-live="polite">
+      <span className="viewer__wake-orbit" aria-hidden="true"><span className="viewer__wake-face"><i /><i /></span></span>
+      <span className="viewer__wake-title">{local ? 'Connecting to your computer' : 'Agent waking up'}</span>
+      <span className="viewer__wake-detail">{detail}</span>
+    </div>
+  );
+}
+
 /** Fullscreen computer stage: noVNC over our relay. Watch mode is view-only; Take control reconnects with mode=control. */
 export function ComputerViewer() {
   const bot = useSelectedBot();
@@ -93,15 +103,16 @@ export function ComputerViewer() {
 
   if (!bot) return null;
   const busy = waking || computer?.status === 'starting' || computer?.status === 'resuming' || computer?.status === 'creating';
+  const preparing = busy || (running && conn === 'connecting');
 
   return (
-    <div className="viewer" role="dialog" aria-modal="true" aria-label={`${bot.name}'s computer`} style={botVars(bot.avatarColor)}>
+    <div className={`viewer${preparing ? ' is-loading' : ''}`} role="dialog" aria-modal="true" aria-label={`${bot.name}'s computer`} style={botVars(bot.avatarColor)}>
       <div className="viewer__scrim" onClick={mode === 'watch' ? close : undefined} />
       <div className="viewer__top">
         <div className="viewer__title">
           <BotAvatarFor bot={bot} size={24} />
           <span>{bot.name}'s computer</span>
-          <span className="viewer__status">{computerStatusText(computer)}</span>
+          <span className="viewer__status">{preparing && computer?.provider !== 'local' ? 'Agent waking up' : computerStatusText(computer)}</span>
         </div>
         <button type="button" className="viewer__close" onClick={close} aria-label="Close computer"><Icon name="close" color="#FFFFFF" /></button>
       </div>
@@ -112,7 +123,7 @@ export function ComputerViewer() {
             <div ref={screenRef} className={`viewer__screen${mode === 'control' ? ' is-control' : ''}`} />
             {conn !== 'connected' && (
               <div className="viewer__overlay">
-                {conn === 'connecting' ? 'Connecting to the screen…' : (
+                {conn === 'connecting' ? <WakeProgress local={computer?.provider === 'local'} detail={computer?.provider === 'cloudvm' ? 'Getting Chrome ready…' : 'Connecting to the screen…'} /> : (
                   <>
                     <span>{conn === 'error' ? 'Couldn’t reach the screen.' : 'Disconnected.'}</span>
                     <button type="button" className="btn btn--light" onClick={() => setAttempt((n) => n + 1)}>Reconnect</button>
@@ -123,7 +134,7 @@ export function ComputerViewer() {
           </>
         ) : (
           <div className="viewer__overlay viewer__overlay--asleep">
-            <span className="viewer__sleep-face"><i /><i /></span>
+            {!busy && <span className="viewer__sleep-face" aria-hidden="true"><i /><i /></span>}
             {computer?.provider === 'local' ? (
               <>
                 <span>Your PC isn’t connected.</span>
@@ -131,7 +142,7 @@ export function ComputerViewer() {
               </>
             ) : (
               <>
-                <span>{waking ? 'Waking up…' : busy ? computerStatusText(computer) : 'The computer is asleep.'}</span>
+                {busy ? <WakeProgress detail={computer?.status === 'creating' ? 'Setting up your computer…' : 'Starting your computer…'} /> : <span>The computer is asleep.</span>}
                 {!busy && <button type="button" className="btn btn--light" onClick={wake}>Wake computer</button>}
               </>
             )}
@@ -140,7 +151,7 @@ export function ComputerViewer() {
         )}
       </div>
 
-      {running && (
+      {running && conn === 'connected' && (
         <div className={`viewer__bar${mode === 'control' ? ' is-control' : ''}`}>
           {mode === 'watch' ? (
             <>
