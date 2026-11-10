@@ -11,7 +11,7 @@ import { inkboxConfigured, isConnectedToLine, textNewlyConnected } from './inkbo
  * "Continue with your phone number" in the browser, and "Connect your phone" for signed-in users.
  *
  * The line can only text people who have texted it first (Inkbox), so a code reaches the phone one of two ways:
- * - the number is already connected: Grokbot texts the code right away;
+ * - the number is already connected: Swarm texts the code right away;
  * - it isn't: the person texts the line (the page opens Messages for them) and the line replies with the code.
  * Typing the code back in the same browser proves the person holds the phone. It signs them in (creating the account
  * if needed, under the server's sign-up rules) or attaches the number to the signed-in account, and connects it.
@@ -55,7 +55,7 @@ const pendingFor = (phone: string) =>
   db.prepare('SELECT * FROM phone_logins WHERE phone=? AND used_at IS NULL AND expires_at>? ORDER BY created_at DESC LIMIT 1').get(phone, now()) as any;
 
 /**
- * Start: make a code for this number. If the number already reaches Grokbot, text it now.
+ * Start: make a code for this number. If the number already reaches Swarm, text it now.
  * Answers the same either way, so nobody learns whether a number has an account.
  */
 export async function startPhoneLogin(phone: string, opts: { ip: string; attachTo?: string }): Promise<{ ok: true; id: string } | { ok: false; status: number; error: string }> {
@@ -100,7 +100,7 @@ function watchForConnect(id: string, phone: string, code: string, attach: boolea
 const pendingCodes = new Map<string, string>();
 
 const codeText = (code: string, attach: boolean) =>
-  `🔑 Your Grokbot ${attach ? 'code to connect this number' : 'sign-in code'} is ${code}. It expires in 10 minutes. Didn't ask for it? Ignore this.`;
+  `🔑 Your Swarm ${attach ? 'code to connect this number' : 'sign-in code'} is ${code}. It expires in 10 minutes. Didn't ask for it? Ignore this.`;
 
 /**
  * The front desk calls this for a text from a number with no link yet: if that number has a pending phone login,
@@ -147,7 +147,7 @@ export async function verifyPhoneLogin(id: string, code: string, opts: { inviteC
   };
 
   if (opts.attachTo) {
-    if (existing && existing.id !== opts.attachTo) return { ok: false, status: 409, error: 'This number already has its own Grokbot account. Sign in with it instead.' };
+    if (existing && existing.id !== opts.attachTo) return { ok: false, status: 409, error: 'This number already has its own Swarm account. Sign in with it instead.' };
     const me = getAccount(opts.attachTo);
     if (!me) return { ok: false, status: 404, error: 'Account not found.' };
     if (!me.phone) db.prepare('UPDATE users SET phone=? WHERE id=?').run(phone, opts.attachTo);
@@ -159,14 +159,14 @@ export async function verifyPhoneLogin(id: string, code: string, opts: { inviteC
   if (existing) { connect(existing.id); return done(existing.id, false); }
 
   // A new account: the server's sign-up rules apply, as for sign-up by text. The owner's number always gets in.
-  if (!mayCreateAccount(phone)) return { ok: false, status: 403, error: "This Grokbot server isn't set up yet." };
+  if (!mayCreateAccount(phone)) return { ok: false, status: 403, error: "This Swarm server isn't set up yet." };
   const cfg = signupConfig();
   let invitedBy: string | null = null;
   if (adminPhones().includes(phone)) { /* owner: no invite needed */ }
-  else if (cfg.mode === 'closed') return { ok: false, status: 403, error: "Grokbot isn't taking new members right now." };
+  else if (cfg.mode === 'closed') return { ok: false, status: 403, error: "Swarm isn't taking new members right now." };
   else if (cfg.mode === 'invite') {
     const inv = opts.inviteCode ? takeInvite(opts.inviteCode) : null;
-    if (!inv) return { ok: false, status: 403, needInvite: true, error: opts.inviteCode ? "That invite code isn't valid." : 'Grokbot is invite-only. Enter your invite code.' };
+    if (!inv) return { ok: false, status: 403, needInvite: true, error: opts.inviteCode ? "That invite code isn't valid." : 'Swarm is invite-only. Enter your invite code.' };
     invitedBy = inv.createdBy;
   }
   if (!row.chat_ref) return { ok: false, status: 400, error: 'Text the line first, then try again.' };

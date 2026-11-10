@@ -37,8 +37,8 @@ const STATES: Record<string, VmState> = {
 const info = (m: any): VmInfo => ({
   id: m.id,
   state: STATES[m.state] ?? 'unknown',
-  vmId: m.config?.metadata?.grokbot_vm,
-  userId: m.config?.metadata?.grokbot_user,
+  vmId: m.config?.metadata?.swarm_vm,
+  userId: m.config?.metadata?.swarm_user,
   image: m.config?.image,
   memoryMb: m.config?.guest?.memory_mb,
 });
@@ -51,15 +51,15 @@ export const flyDriver: VmDriver = {
     const volume = await api<{ id: string; region: string }>('POST', '/volumes', { name: 'agent_home', size_gb: spec.volumeGb, region, encrypted: true });
     try {
       const m = await api<{ id: string }>('POST', '/machines', {
-        name: `gb-${spec.vmId.replace(/[^a-zA-Z0-9-]/g, '').toLowerCase()}`,
+        name: `sw-${spec.vmId.replace(/[^a-zA-Z0-9-]/g, '').toLowerCase()}`,
         region: volume.region,
         config: {
           image: spec.image,
           guest: { cpu_kind: 'shared', cpus: spec.cpus, memory_mb: spec.memoryMb },
-          env: { GROKBOT_SERVER: spec.serverUrl },
-          files: [{ guest_path: '/run/grokbot/token', raw_value: Buffer.from(spec.token).toString('base64') }],
+          env: { SWARM_SERVER: spec.serverUrl },
+          files: [{ guest_path: '/run/swarm/token', raw_value: Buffer.from(spec.token).toString('base64') }],
           mounts: [{ volume: volume.id, path: '/home/agent' }],
-          metadata: { grokbot_vm: spec.vmId, grokbot_user: spec.userId },
+          metadata: { swarm_vm: spec.vmId, swarm_user: spec.userId },
           restart: { policy: 'on-failure', max_retries: 5 },
         },
       });
@@ -93,12 +93,14 @@ export const flyDriver: VmDriver = {
 
   async list() {
     const ms = await api<any[]>('GET', '/machines');
-    return ms.filter((m) => m.config?.metadata?.grokbot_vm && m.state !== 'destroyed').map(info);
+    return ms.filter((m) => m.config?.metadata?.swarm_vm && m.state !== 'destroyed').map(info);
   },
 
   async resize(id, memoryMb, cpus) {
     const m = await api('GET', `/machines/${id}`);
-    // The Machines API replaces the whole config; a running machine restarts with the new size.
-    await api('POST', `/machines/${id}`, { config: { ...m.config, guest: { ...m.config.guest, cpus, memory_mb: memoryMb } } });
+    // The Machines API replaces the whole config. Stop a suspended machine first, and keep it down
+    // (skip_launch): it boots with the new size the next time it's needed.
+    if (m.state === 'suspended') { await api('POST', `/machines/${id}/stop`, {}); await api('GET', `/machines/${id}/wait?state=stopped&instance_id=${m.instance_id}&timeout=60`).catch(() => {}); }
+    await api('POST', `/machines/${id}`, { config: { ...m.config, guest: { ...m.config.guest, cpus, memory_mb: memoryMb } }, skip_launch: true });
   },
 };

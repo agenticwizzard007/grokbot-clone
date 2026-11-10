@@ -1,6 +1,6 @@
 # Messaging: run your Bots by text
 
-People can sign up for Grokbot by texting a number, and run their whole team from one iMessage or SMS thread. It's the same account as the web app. Day to day, people use it by text, and the web app is there when they want it (`/web` texts a one-time sign-in link).
+People can sign up for Swarm by texting a number, and run their whole team from one iMessage or SMS thread. It's the same account as the web app. Day to day, people use it by text, and the web app is there when they want it (`/web` texts a one-time sign-in link).
 
 The line is a server-wide [Inkbox](https://inkbox.ai) identity: Inkbox runs real iMessage lines behind an API, and falls back to SMS for people without iMessage. One line serves everyone; the server tells people apart by phone number.
 
@@ -8,8 +8,8 @@ The line is a server-wide [Inkbox](https://inkbox.ai) identity: Inkbox runs real
 
 1. Set `SERVER_URL` to this server's public HTTPS address (or a tunnel). Inkbox posts incoming texts to `<SERVER_URL>/api/messaging/inkbox/webhook`.
 2. In **Settings → Messaging**, paste your Inkbox admin key (org key from the Inkbox console). It's checked with Inkbox and stored encrypted.
-3. Select **Set up line**. Grokbot does the following, saving each step so a failure resumes where it stopped:
-   - creates the identity (handle `grokbot` unless you choose another; optionally with a local number for SMS),
+3. Select **Set up line**. Swarm does the following, saving each step so a failure resumes where it stopped:
+   - creates the identity (handle `swarm` unless you choose another; optionally with a local number for SMS),
    - mints a key scoped to that identity (the server sends with it; the admin key is only for setup),
    - creates the webhook signing key,
    - subscribes the webhook to `imessage.received`, `imessage.reaction_received` and `text.received`.
@@ -26,10 +26,10 @@ The settings can also come from `.env` (see `.env.example`).
 
 ## Joining
 
-- **Invite link** (`/join/<code>`): the person enters their number and taps **Text Grokbot**. Messages opens with `connect @<handle>` addressed to Inkbox's router number. The account is created when that text arrives; texting from the number is the proof that they own it, so no code is needed. The page answers the same whether or not a number already has an account.
+- **Invite link** (`/join/<code>`): the person enters their number and taps **Text Swarm**. Messages opens with `connect @<handle>` addressed to Inkbox's router number. The account is created when that text arrives; texting from the number is the proof that they own it, so no code is needed. The page answers the same whether or not a number already has an account.
 - **Invite code in the chat**: `JOIN ABCD2345` (or the bare code as shown).
 - **Waitlist**: anyone else who texts gets one reply and waits for the owner's approval. Approval creates the account and texts them in the same thread.
-- **Continue with phone number** (the sign-in screen): enter your number, then the 6-digit code that's texted to you. If the number already reaches Grokbot, the code arrives right away. If it doesn't yet, tap **Open Messages** to send the prefilled `connect @<handle>`. The server watches Inkbox's list of connected numbers and texts the code as soon as yours appears; failing that, texting anything to the line gets the code back. The right code signs you in, or creates the account (under the sign-up mode above) and connects the number. Add an email later in Settings → Messaging. Codes last 10 minutes, work once, and lock after 5 wrong tries.
+- **Continue with phone number** (the sign-in screen): enter your number, then the 6-digit code that's texted to you. If the number already reaches Swarm, the code arrives right away. If it doesn't yet, tap **Open Messages** to send the prefilled `connect @<handle>`. The server watches Inkbox's list of connected numbers and texts the code as soon as yours appears; failing that, texting anything to the line gets the code back. The right code signs you in, or creates the account (under the sign-up mode above) and connects the number. Add an email later in Settings → Messaging. Codes last 10 minutes, work once, and lock after 5 wrong tries.
 - **Connect your phone** (signed in, Settings → Messaging): the same code flow attaches the number to your account. A number that already has its own account is refused.
 - **Web account → phone** (alternative): Settings → Messaging → **Connect your phone** shows a link code. Text the connect command, then `LINK <code>`.
 
@@ -46,7 +46,7 @@ New accounts get a short welcome. Then Quinn, their primary Bot, runs a brief on
 | A bare `yes` / `no` | Counts only when exactly one approval is open and it was the last thing sent (or with "approve"/"deny"). "Sure" to some other question never approves anything |
 | A number or an option | Answers the latest question; free text answers it too when it's from the active Bot |
 | `skip` | Skips a pending app connection |
-| Voice note / photo | Transcribed with xAI speech-to-text / shown to the Bot |
+| Voice note / photo | Transcribed with speech-to-text / shown to the Bot |
 | `/bots` `/status` `/tasks` | Team, live activity, open approvals and tasks |
 | `/use Name` · `/stop [Name]` · `/new [Name]` | Switch the active Bot · stop work · fresh conversation |
 | `/apps` · `/connect gmail` | Connected apps · a connect link that works from the phone |
@@ -61,14 +61,14 @@ New accounts get a short welcome. Then Quinn, their primary Bot, runs a brief on
 
 ## Voice
 
-- **Voice notes in.** Voice notes are transcribed and handled like a typed message, and the Bot is told it was spoken. Transcription uses OpenRouter (`OPENROUTER_STT_MODEL`, default `openai/gpt-4o-mini-transcribe`), falling back to xAI. iMessage voice notes come in Apple's CAF format, which is converted to MP3 first with the bundled ffmpeg (`ffmpeg-static`).
+- **Voice notes in.** Voice notes are transcribed and handled like a typed message, and the Bot is told it was spoken. Transcription uses OpenRouter (`OPENROUTER_STT_MODEL`, default `openai/gpt-4o-mini-transcribe`), falling back to the custom provider. iMessage voice notes come in Apple's CAF format, which is converted to MP3 first with the bundled ffmpeg (`ffmpeg-static`).
 - **Voice replies out.** Each user picks **Reply by voice** in Settings → Messaging, or by text with `/voice`:
   - **When I send a voice note** (default): voice in, voice out; text in, text out.
   - **Always.**
   - **Off.**
 
-  The reply text always arrives too; the voice note follows it as an audio attachment, on iMessage only. Speech uses OpenRouter's Grok voices (`OPENROUTER_TTS_MODEL`, default `x-ai/grok-voice-tts-1.0`), so by default each Bot speaks in its own voice, the one it uses on live calls. A user can pick one voice for all Bots (`/voice name eve`, `/voice name bot` to go back). Links aren't read aloud ("I've sent the link in my text"), and long replies are cut at a sentence with "The details are in my text." If speech fails, the text still arrives.
-- **Live calls** in the web app (realtime, interruptible, Grok voices) use xAI's realtime API and need a real xAI key. OpenRouter has no realtime API.
+  The reply text always arrives too; the voice note follows it as an audio attachment, on iMessage only. Speech uses OpenRouter's provider voices (`OPENROUTER_TTS_MODEL`, default `openai/gpt-4o-mini-tts`), so by default each Bot speaks in its own voice, the one it uses on live calls. A user can pick one voice for all Bots (`/voice name eve`, `/voice name bot` to go back). Links aren't read aloud ("I've sent the link in my text"), and long replies are cut at a sentence with "The details are in my text." If speech fails, the text still arrives.
+- **Live calls** in the web app (realtime, interruptible, provider voices) use the configured realtime API and need a compatible direct provider key. OpenRouter has no realtime API.
 
 ## What reaches your phone
 
@@ -102,8 +102,6 @@ Messages go to the channel you last wrote from. Text is plain (Markdown is strip
 | `server/src/messaging/store.ts` | Links (one per channel), preferences, message log, codes, invites, waitlist, sign-in tokens |
 | `server/src/accounts.ts` | Accounts with or without email, sign-in links, deletion |
 | `web/src/components/config/MessagingSettings.tsx`, `web/src/components/JoinPage.tsx` | Settings → Messaging and the join page |
-
-Parts are adapted from [open-instinct](https://github.com/mariagorskikh/open-instinct) (MIT); see `THIRD_PARTY_NOTICES.md`.
 
 ## Tests
 

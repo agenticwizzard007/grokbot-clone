@@ -1,8 +1,8 @@
 // End-to-end test for local computers: Bots using a Chrome browser on "your PC" via the companion.
 //
 // Prerequisites (see .env.example):
-//   COMPUTER_PROVIDER=local, DEV_LOGIN=1, and XAI_BASE_URL pointing at tests/mock-xai.mjs
-//   node tests/mock-xai.mjs &            # scripted stand-in for the model
+//   COMPUTER_PROVIDER=local, DEV_LOGIN=1, and DIRECT_BASE_URL pointing at tests/mock-provider.mjs
+//   node tests/mock-provider.mjs &            # scripted stand-in for the model
 //   npm run dev -w server & npm run dev -w web &
 // Then: node tests/local-computer.mjs [apiBase=http://localhost:8787] [uiBase=http://localhost:5173]
 // (Set COMPANION_NO_SANDBOX=1 where Chrome's sandbox is unavailable, e.g. in containers.)
@@ -43,7 +43,7 @@ const site = http.createServer((req, res) => {
   if (u.pathname === '/tab2') return html(page('Tab 2', `<button class="a" style="top:200px" onclick="log('tab2=click')">Tab 2 button</button>`, "log('tab2=loaded')"));
   if (u.pathname === '/long') return html(page('Long', '<div style="height:6000px;background:linear-gradient(#fff,#99f)">Long page</div>', "let t;addEventListener('scroll',()=>{clearTimeout(t);t=setTimeout(()=>log('scroll='+Math.round(scrollY)),150)})"));
   if (u.pathname === '/page1' || u.pathname === '/page2') return html(page(u.pathname.slice(1), `<h1>${u.pathname}</h1>`, `addEventListener('pageshow',()=>log('show=${u.pathname.slice(1)}'))`));
-  if (u.pathname === '/download') { events.push({ download: 'requested' }); res.writeHead(200, { 'content-type': 'text/plain', 'content-disposition': 'attachment; filename="grokbot-test-download.txt"' }); res.end('should not be saved'); return; }
+  if (u.pathname === '/download') { events.push({ download: 'requested' }); res.writeHead(200, { 'content-type': 'text/plain', 'content-disposition': 'attachment; filename="swarm-test-download.txt"' }); res.end('should not be saved'); return; }
   res.writeHead(404); res.end('nope');
 });
 await new Promise((r) => site.listen(8791, '127.0.0.1', r));
@@ -58,10 +58,10 @@ const waitEvent = async (pred, ms = 15000) => {
 const health = await (await fetch(`${API}/api/health`)).json();
 if (health.computers !== 'local') throw new Error(`server must run with COMPUTER_PROVIDER=local (health: ${JSON.stringify(health)})`);
 const login = await fetch(`${API}/api/auth/dev`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: process.env.E2E_EMAIL ?? 'local-e2e@example.com', name: 'Local E2E' }) });
-const cookie = (login.headers.get('set-cookie') ?? '').match(/grokbot_session=([^;]+)/)?.[1];
+const cookie = (login.headers.get('set-cookie') ?? '').match(/swarm_session=([^;]+)/)?.[1];
 if (!cookie) throw new Error('dev login failed');
 const api = async (p, init = {}) => {
-  const r = await fetch(`${API}${p}`, { ...init, headers: { 'content-type': 'application/json', cookie: `grokbot_session=${cookie}`, ...(init.headers ?? {}) } });
+  const r = await fetch(`${API}${p}`, { ...init, headers: { 'content-type': 'application/json', cookie: `swarm_session=${cookie}`, ...(init.headers ?? {}) } });
   const ct = r.headers.get('content-type') ?? '';
   return { status: r.status, body: ct.includes('json') ? await r.json() : await r.arrayBuffer() };
 };
@@ -94,9 +94,9 @@ const companionLog = [];
 async function startCompanion(extra = []) {
   const { body } = await api('/api/computer/pair', { method: 'POST' });
   if (!body.token) throw new Error('pairing failed: ' + JSON.stringify(body));
-  const file = path.join(os.tmpdir(), 'grokbot-companion-e2e.mjs');
+  const file = path.join(os.tmpdir(), 'swarm-companion-e2e.mjs');
   fs.writeFileSync(file, Buffer.from((await (await fetch(`${API}/api/companion/script`)).arrayBuffer())));
-  companion = spawn(process.execPath, [file, '--server', API, '--token', body.token, '--data-dir', path.join(os.tmpdir(), 'grokbot-companion-e2e'), ...extra], { stdio: ['ignore', 'pipe', 'pipe'] });
+  companion = spawn(process.execPath, [file, '--server', API, '--token', body.token, '--data-dir', path.join(os.tmpdir(), 'swarm-companion-e2e'), ...extra], { stdio: ['ignore', 'pipe', 'pipe'] });
   companion.stdout.on('data', (d) => companionLog.push(...String(d).trim().split('\n')));
   companion.stderr.on('data', (d) => companionLog.push(...String(d).trim().split('\n')));
   const t0 = Date.now();
@@ -130,9 +130,9 @@ await step('pair + connect a PC (companion)', async () => {
 });
 
 await step('bot opens a page, clicks, types, presses Enter (form submits)', async () => {
-  const r = await chat(script(call('open_browser', { url: `${SITE}/form` }), call('computer_click', { x: 250, y: 120 }), call('computer_type', { text: 'hello grokbot\n' }), 'say done {last}'));
+  const r = await chat(script(call('open_browser', { url: `${SITE}/form` }), call('computer_click', { x: 250, y: 120 }), call('computer_type', { text: 'hello swarm\n' }), 'say done {last}'));
   noErrors(r);
-  await waitEvent((e) => e.submitted === 'hello grokbot');
+  await waitEvent((e) => e.submitted === 'hello swarm');
 });
 
 await step('screenshot returns a 1280x800 image', async () => {
@@ -184,11 +184,11 @@ await step('alt+Left goes back', async () => {
 await step('guard rails: file:// blocked, downloads denied, no shell tool', async () => {
   const r = await chat(script(call('open_browser', { url: 'file:///etc/passwd' }), 'say {last}'));
   if (!/Only http\(s\) pages/.test(r.reply)) throw new Error(`file:// was not blocked: ${r.reply}`);
-  const before = fs.existsSync(path.join(os.homedir(), 'Downloads', 'grokbot-test-download.txt'));
+  const before = fs.existsSync(path.join(os.homedir(), 'Downloads', 'swarm-test-download.txt'));
   const d = await chat(script(call('open_browser', { url: `${SITE}/form` }), call('computer_click', { x: 200, y: 420 }), 'say ok'));
   noErrors(d);
   await sleep(1500);
-  if (!before && fs.existsSync(path.join(os.homedir(), 'Downloads', 'grokbot-test-download.txt'))) throw new Error('a download was saved');
+  if (!before && fs.existsSync(path.join(os.homedir(), 'Downloads', 'swarm-test-download.txt'))) throw new Error('a download was saved');
   const s = await chat(script(call('shell', { command: 'id' }), 'say {last}'));
   if (!/no shell/i.test(s.reply)) throw new Error(`shell was not refused: ${s.reply}`);
 });
@@ -217,7 +217,7 @@ await step('thumbnail endpoint serves the browser', async () => {
 const chromeExe = process.env.CHROME_PATH ?? (fs.existsSync('/usr/bin/google-chrome') ? '/usr/bin/google-chrome' : undefined);
 browser = await chromium.launch(chromeExe ? { executablePath: chromeExe, args: ['--no-sandbox'] } : { channel: 'chrome' });
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-await ctx.addCookies([{ name: 'grokbot_session', value: cookie, domain: new URL(UI).hostname, path: '/' }]);
+await ctx.addCookies([{ name: 'swarm_session', value: cookie, domain: new URL(UI).hostname, path: '/' }]);
 ui = await ctx.newPage();
 const consoleErrors = [];
 ui.on('pageerror', (e) => consoleErrors.push(e.message));
@@ -291,7 +291,7 @@ await step('PC disconnects: UI says so, tools explain how to reconnect', async (
   await ui.locator('button.cfg-btn', { hasText: /New connect command|Connect your PC|Connect another PC/ }).click();
   await ui.getByLabel('Connect command').waitFor({ timeout: 10000 });
   const cmd = await ui.getByLabel('Connect command').innerText();
-  if (!/grokbot-companion\.mjs --server .* --token gbc_/.test(cmd)) throw new Error(cmd);
+  if (!/swarm-companion\.mjs --server .* --token swc_/.test(cmd)) throw new Error(cmd);
   await ui.screenshot({ path: path.join(OUT, 'settings-connect-command.png') });
   const r = await chat(script(call('open_browser', { url: `${SITE}/form` }), 'say {last}'));
   if (!/isn't connected/.test(r.reply)) throw new Error(r.reply);
@@ -301,7 +301,7 @@ await step('revoked token is rejected', async () => {
   await api('/api/computer/pair', { method: 'DELETE' });
   const ws = new WebSocket(`${API.replace(/^http/, 'ws')}/api/companion`);
   const code = await new Promise((resolve) => {
-    ws.onopen = () => ws.send(JSON.stringify({ type: 'hello', token: 'gbc_not-a-real-token' }));
+    ws.onopen = () => ws.send(JSON.stringify({ type: 'hello', token: 'swc_not-a-real-token' }));
     ws.onclose = (e) => resolve(e.code);
   });
   if (code !== 4401) throw new Error(`expected 4401, got ${code}`);

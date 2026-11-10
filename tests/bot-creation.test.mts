@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test, after } from 'node:test';
 
-const root = fs.mkdtempSync(path.join(os.tmpdir(), 'grokbot-creation-'));
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-creation-'));
 Object.assign(process.env, { DB_PATH: path.join(root, 'test.db'), FILES_DIR: path.join(root, 'files'), SESSION_SECRET: 'test-only-secret', COMPUTER_PROVIDER: 'local', COMPOSIO_API_KEY: '' });
 const { db } = await import('../server/src/db.js');
 await import('../server/src/db-config.js');
@@ -152,7 +152,7 @@ test('replication/import reproduce the brief and settings with a distinct identi
 });
 
 test('authenticated Library/API serve setup while offline and reject another owner', async () => {
-  const request = (url: string, init: any = {}) => app.request(url, { ...init, headers: { cookie: `grokbot_session=${cookie}`, 'content-type': 'application/json', ...init.headers } });
+  const request = (url: string, init: any = {}) => app.request(url, { ...init, headers: { cookie: `swarm_session=${cookie}`, 'content-type': 'application/json', ...init.headers } });
   const listing = await request(`/api/bots/${teammate.id}/files?path=Setup`);
   assert.equal(listing.status, 200);
   assert.equal((await listing.json()).files.length, 8);

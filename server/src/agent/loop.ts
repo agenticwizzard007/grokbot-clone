@@ -295,7 +295,7 @@ async function callModel(ctx: ToolCtx, tools: any[], signal: AbortSignal): Promi
     ...providerFields({
       effort: bot.effort ?? 'medium',
       reasoning: (await modelInfo(model))?.reasoning ?? true,
-      cacheKey: `grokbot:${botId}:${bot.generation}`,
+      cacheKey: `swarm:${botId}:${bot.generation}`,
       safetyId: sha256(userId).slice(0, 32),
     }),
   };

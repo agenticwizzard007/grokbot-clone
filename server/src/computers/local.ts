@@ -17,7 +17,7 @@ import { ComputerError, type BotScreen, type ComputerProvider, type Shot } from 
 
 /**
  * Local computers: a Chrome browser on the user's own PC, driven through the companion
- * program (companion/grokbot-companion.mjs). The companion connects *out* to this server
+ * program (companion/swarm-companion.mjs). The companion connects *out* to this server
  * over a WebSocket and authenticates with a pairing token, so the PC needs no open ports.
  * Each Bot gets its own Chrome profile on the PC. There is no desktop and no shell.
  *
@@ -145,7 +145,7 @@ function touch(userId: string, botId: string) {
 
 /** Create a pairing token for the user's PC. Only its hash is stored. */
 export function createPairing(userId: string, vmId: string | null = null): string {
-  const t = `gbc_${randomToken()}`;
+  const t = `swc_${randomToken()}`;
   db.prepare('INSERT INTO companion_tokens(token_hash,user_id,created_at,vm_id) VALUES (?,?,?,?)').run(sha256(t), userId, now(), vmId);
   return t;
 }
@@ -198,9 +198,9 @@ function onCompanion(ws: WebSocket) {
       const row = db.prepare('SELECT user_id FROM companion_tokens WHERE token_hash=?').get(hash) as any;
       if (!row) return ws.close(4401, 'invalid token');
       clearTimeout(helloTimer);
-      if (MULTI && msg.mode !== 'multi') return ws.close(4403, 'This Grokbot runs Bots on cloud VMs; only the VM companion (--multi) can connect.');
-      if (!MULTI && msg.mode === 'multi') return ws.close(4403, 'This Grokbot does not use cloud VMs; start the companion without --multi.');
-      if (DESKTOP && msg.desktop !== true) return ws.close(4403, 'This Grokbot gives Bots your full desktop. Update the companion and start it with --desktop.');
+      if (MULTI && msg.mode !== 'multi') return ws.close(4403, 'This Swarm runs Bots on cloud VMs; only the VM companion (--multi) can connect.');
+      if (!MULTI && msg.mode === 'multi') return ws.close(4403, 'This Swarm does not use cloud VMs; start the companion without --multi.');
+      if (DESKTOP && msg.desktop !== true) return ws.close(4403, 'This Swarm gives Bots your full desktop. Update the companion and start it with --desktop.');
       db.prepare('UPDATE companion_tokens SET last_seen_at=? WHERE token_hash=?').run(now(), hash);
       // One PC per user: a new connection replaces the old one.
       const old = companions.get(row.user_id);

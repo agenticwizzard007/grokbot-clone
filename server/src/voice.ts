@@ -1,5 +1,5 @@
-// Voice calls, the way Grok Bot does them: a second, lightweight voice agent runs in the browser against
-// the xAI realtime API, speaks as the bot, and relays real work to the bot's main text agent loop.
+// Voice calls, the way Swarm does them: a second, lightweight voice agent runs in the browser against
+// the direct provider realtime API, speaks as the bot, and relays real work to the bot's main text agent loop.
 // This module mints the ephemeral secret, builds the voice agent's prompt and tools, serves the relay
 // tools, records call start/end rows, and proxies TTS (voice preview) and STT (composer dictation).
 import { Hono } from 'hono';
@@ -16,10 +16,11 @@ import type { ActivityKind, EventBody, MessageBody, RowBody, VoiceCallRecord, Vo
 
 export const voiceApi = new Hono<AuthVars>();
 
-const XAI = env.xaiBaseUrl; // the base URL is fixed per run; keys are read per request
-const VOICE_MODEL = process.env.XAI_VOICE_MODEL ?? 'grok-voice-latest';
+const DIRECT = env.directBaseUrl; // the base URL is fixed per run; keys are read per request
+const VOICE_MODEL = process.env.DIRECT_VOICE_MODEL ?? 'voice-realtime-latest';
 const SAMPLE_RATE = 24000;
-const xaiHeaders = () => ({ Authorization: `Bearer ${env.xaiKey}` });
+const directHeaders = () => ({ Authorization: `Bearer ${env.directKey}` });
+const realtimeUrl = (baseUrl: string, model: string) => `${baseUrl.replace(/^http/i, 'ws').replace(/\/$/, '')}/realtime?model=${encodeURIComponent(model)}`;
 
 // ---------- voices / languages ----------
 
@@ -44,7 +45,7 @@ let voiceCache: { at: number; voices: VoiceOption[] } | null = null;
 async function listVoices(): Promise<VoiceOption[]> {
   if (voiceCache && Date.now() - voiceCache.at < 3600_000) return voiceCache.voices;
   try {
-    const r = await fetch(`${XAI}/tts/voices`, { headers: xaiHeaders(), signal: AbortSignal.timeout(8000) });
+    const r = await fetch(`${DIRECT}/tts/voices`, { headers: directHeaders(), signal: AbortSignal.timeout(8000) });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const j = (await r.json()) as { voices?: { voice_id: string; name?: string; gender?: string }[] };
     const voices = (j.voices ?? []).map((v) => ({ id: v.voice_id, name: v.name ?? v.voice_id, gender: v.gender }));
@@ -174,7 +175,7 @@ function voiceInstructions(userId: string, bot: any, language: string): string {
   const lang = language !== 'auto' ? langName(language) : null;
 
   return `# Who you are
-You are ${bot.name}, on a live voice call with ${firstName}, the person you work for. You are an AI Bot on their Grokbot team${bot.label ? `, and your job is: ${bot.label}` : ''}.${bot.description ? ` ${bot.description}` : ''}${bot.is_primary ? ` You are ${firstName}'s primary Bot and main point of contact.` : ''}
+You are ${bot.name}, on a live voice call with ${firstName}, the person you work for. You are an AI Bot on their Swarm team${bot.label ? `, and your job is: ${bot.label}` : ''}.${bot.description ? ` ${bot.description}` : ''}${bot.is_primary ? ` You are ${firstName}'s primary Bot and main point of contact.` : ''}
 You are the same ${bot.name} they text with: the same memory, the same computer, the same connected apps. This call is just another way to talk to you.
 
 # How to get things done
@@ -241,13 +242,13 @@ voiceApi.post('/session', async (c) => {
   const { botId } = await c.req.json<{ botId: string }>().catch(() => ({ botId: '' }));
   const bot = ownBot(user.id, botId);
   if (!bot) return c.json({ error: 'not found' }, 404);
-  // Realtime voice runs on xAI directly (OpenRouter has no realtime voice).
-  if (!env.xaiKey) return c.json({ error: 'Voice calls need an xAI key. Add one in Settings → API keys.' }, 400);
+  // Realtime voice runs on the direct provider (OpenRouter has no realtime voice).
+  if (!env.directKey) return c.json({ error: 'Voice calls need a direct provider key. Add one in Settings → API keys.' }, 400);
   const s = settingsOf(bot);
 
-  const r = await fetch(`${XAI}/realtime/client_secrets`, {
+  const r = await fetch(`${DIRECT}/realtime/client_secrets`, {
     method: 'POST',
-    headers: { ...xaiHeaders(), 'Content-Type': 'application/json' },
+    headers: { ...directHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({ expires_after: { seconds: 300 } }),
     signal: AbortSignal.timeout(15_000),
   }).catch((e) => ({ ok: false, status: 0, text: async () => String(e?.message ?? e) }) as any);
@@ -267,7 +268,7 @@ voiceApi.post('/session', async (c) => {
     audio: {
       input: {
         format: { type: 'audio/pcm', rate: SAMPLE_RATE },
-        transcription: { model: 'grok-transcribe', ...(s.language !== 'auto' ? { language_hint: s.language } : {}) },
+        transcription: { model: 'audio-transcribe', ...(s.language !== 'auto' ? { language_hint: s.language } : {}) },
       },
       output: { format: { type: 'audio/pcm', rate: SAMPLE_RATE }, speed: s.speed },
     },
@@ -283,7 +284,7 @@ voiceApi.post('/session', async (c) => {
     clientSecret: secret.value,
     expiresAt: secret.expires_at,
     model: VOICE_MODEL,
-    websocketUrl: `wss://api.x.ai/v1/realtime?model=${encodeURIComponent(VOICE_MODEL)}`,
+    websocketUrl: realtimeUrl(DIRECT, VOICE_MODEL),
     sampleRate: SAMPLE_RATE,
     instructions,
     voice: s.voice,
@@ -365,7 +366,7 @@ async function summarizeCall(botName: string, transcript: { role: string; text: 
   const lines = transcript.map((t) => `${t.role === 'user' ? 'User' : botName}: ${t.text}`).join('\n').slice(-12_000);
   const res: any = await llm().responses.create({
     model: defaultModel(),
-    ...(llmProvider() === 'xai' ? { reasoning: { effort: 'low' } } : {}),
+    ...(llmProvider() === 'direct' ? { reasoning: { effort: 'low' } } : {}),
     store: false,
     input: [
       { role: 'system', content: `Summarise this voice call between the user and ${botName} in one short sentence (max 25 words), past tense, third person ("Talked about…", "Asked ${botName} to…"). No preamble.` },
@@ -422,8 +423,8 @@ voiceApi.post('/preview', async (c) => {
   const language = p.language && langName(p.language) ? p.language : s.language;
   const text = String(p.text || `Hi, I'm ${bot?.name ?? 'your Bot'}. This is how I'll sound when we talk.`).slice(0, 400);
   const codec = p.codec === 'pcm' ? 'pcm' : 'mp3';
-  // OpenRouter voices (text-message voice replies), or any preview when there's no xAI key.
-  if (env.openrouterKey && (TTS_VOICES.includes(voice) || !env.xaiKey)) {
+  // OpenRouter voices (text-message voice replies), or any preview when there's no direct provider key.
+  if (env.openrouterKey && (TTS_VOICES.includes(voice) || !env.directKey)) {
     try {
       const a = await synthesize(text, voice, codec);
       return c.body(a.data, 200, { 'Content-Type': codec === 'pcm' ? `audio/pcm;rate=${SAMPLE_RATE}` : 'audio/mpeg', 'Cache-Control': 'no-store' });
@@ -432,9 +433,9 @@ voiceApi.post('/preview', async (c) => {
       return c.json({ error: 'Preview unavailable' }, 502);
     }
   }
-  const r = await fetch(`${XAI}/tts`, {
+  const r = await fetch(`${DIRECT}/tts`, {
     method: 'POST',
-    headers: { ...xaiHeaders(), 'Content-Type': 'application/json' },
+    headers: { ...directHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, voice_id: voice, language, speed: clampSpeed(p.speed ?? s.speed), output_format: { codec, sample_rate: SAMPLE_RATE } }),
     signal: AbortSignal.timeout(30_000),
   }).catch(() => null);

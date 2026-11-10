@@ -30,9 +30,9 @@ initSubagents();
 initRooms();
 
 const app = new Hono();
-app.get('/api/health', (c) => c.json({ ok: true, provider: env.llmProvider, model: defaultModel(), computers: computers.kind, desktop: env.localDesktop, xai: !!env.xaiKey, openrouter: !!env.openrouterKey, apps: env.composioEnabled, features: { botCreation: true, botSetupVersion: 2, guidedSetup: true, messaging: true } }));
+app.get('/api/health', (c) => c.json({ ok: true, provider: env.llmProvider, model: defaultModel(), computers: computers.kind, desktop: env.localDesktop, direct: !!env.directKey, openrouter: !!env.openrouterKey, apps: env.composioEnabled, features: { botCreation: true, botSetupVersion: 2, guidedSetup: true, messaging: true } }));
 // The companion program for local computers (public: it holds no secrets; the pairing token does).
-const companionScript = new URL('../../companion/grokbot-companion.mjs', import.meta.url);
+const companionScript = new URL('../../companion/swarm-companion.mjs', import.meta.url);
 app.get('/api/companion/script', (c) => {
   if ((computers.kind !== 'local' && computers.kind !== 'cloudvm') || !fs.existsSync(companionScript)) return c.json({ error: 'not available' }, 404);
   return c.body(fs.readFileSync(companionScript, 'utf8'), 200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -55,16 +55,16 @@ if (fs.existsSync(webDist)) {
   app.get('*', (c) => c.html(fs.readFileSync(path.join(webDist, 'index.html'), 'utf8')));
 }
 
-const server = serve({ fetch: app.fetch, port: env.port }, (info) => console.log(`[grokbot] server on http://localhost:${info.port} (models: ${env.llmProvider} ${defaultModel()}, computers: ${computers.kind})`));
+const server = serve({ fetch: app.fetch, port: env.port }, (info) => console.log(`[swarm] server on http://localhost:${info.port} (models: ${env.llmProvider} ${defaultModel()}, computers: ${computers.kind})`));
 attachComputerSockets(server as unknown as Server);
-// GROKBOT_NO_SCHEDULER=1 for extra dev/test servers sharing a database copy, so routines and triggers don't fire twice.
-if (process.env.GROKBOT_NO_SCHEDULER !== '1') {
+// SWARM_NO_SCHEDULER=1 for extra dev/test servers sharing a database copy, so routines and triggers don't fire twice.
+if (process.env.SWARM_NO_SCHEDULER !== '1') {
   initRoutines(enqueue);
   void initTriggers(enqueue);
   initProactive(enqueue);
-} else console.log('[grokbot] scheduler disabled (GROKBOT_NO_SCHEDULER=1)');
+} else console.log('[swarm] scheduler disabled (SWARM_NO_SCHEDULER=1)');
 // Extra servers sharing a database don't process the messaging inbox, so events aren't handled twice.
-initMessaging({ process: process.env.GROKBOT_NO_SCHEDULER !== '1' });
+initMessaging({ process: process.env.SWARM_NO_SCHEDULER !== '1' });
 computers.start?.();
 if (computers.kind === 'local') resumeThisComputer();
 startMemoryConsolidation();

@@ -30,7 +30,7 @@ export function SignIn() {
         <div className="signin__hero">
           <BotAvatar shape="blob" color="black" size={84} />
         </div>
-        <h1 className="signin__title">Grokbot</h1>
+        <h1 className="signin__title">Swarm</h1>
         <p className="signin__sub">AI teammates with their own computers. Hand them a task and they get it done.</p>
         {expired && <div className="signin__notice" role="status">That sign-in link has expired or was already used.</div>}
         <PhoneAuth mode="signin" />
@@ -49,7 +49,7 @@ export function SignIn() {
           </form>
         )}
         {error && <div className="card__error signin__error">{error}</div>}
-        <p className="signin__foot">Open source. Not affiliated with xAI.</p>
+        <p className="signin__foot">Built by Swarms.so.</p>
       </div>
     </div>
   );

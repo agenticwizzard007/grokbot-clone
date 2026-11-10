@@ -310,7 +310,7 @@ export function lastUserChannel(botId: string): Channel | 'web' | null {
 
 // ---------- signed callback params (app connections opened from a phone, without a browser session) ----------
 
-const sigKey = crypto.createHash('sha256').update(`grokbot-messaging:${env.sessionSecret}`).digest();
+const sigKey = crypto.createHash('sha256').update(`swarm-messaging:${env.sessionSecret}`).digest();
 export const signUser = (userId: string, scope: string) => crypto.createHmac('sha256', sigKey).update(`${scope}:${userId}`).digest('base64url').slice(0, 32);
 export function verifyUserSig(userId: string, scope: string, sig: string) {
   const want = Buffer.from(signUser(userId, scope));

@@ -1,5 +1,5 @@
 {
-  "name": "@grokbot/server",
+  "name": "@swarm/server",
   "private": true,
   "type": "module",
   "scripts": {

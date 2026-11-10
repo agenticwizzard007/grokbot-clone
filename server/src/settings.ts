@@ -8,9 +8,9 @@ import { env, envSource, setEnvOverride } from './env.js';
  */
 
 export const SETTINGS = {
-  xai: { env: 'XAI_API_KEY', secret: true },
+  direct: { env: 'DIRECT_API_KEY', secret: true },
   composio: { env: 'COMPOSIO_API_KEY', secret: true },
-  model: { env: 'XAI_MODEL', secret: false },
+  model: { env: 'DIRECT_MODEL', secret: false },
   openrouter: { env: 'OPENROUTER_API_KEY', secret: true },
   openrouter_model: { env: 'OPENROUTER_MODEL', secret: false },
   provider: { env: 'LLM_PROVIDER', secret: false },
@@ -28,7 +28,7 @@ export const SETTINGS = {
 } as const;
 export type SettingName = keyof typeof SETTINGS;
 
-const cryptoKey = crypto.createHash('sha256').update(`grokbot-settings:${env.sessionSecret}`).digest();
+const cryptoKey = crypto.createHash('sha256').update(`swarm-settings:${env.sessionSecret}`).digest();
 
 export function sealSecret(plain: string): string {
   const iv = crypto.randomBytes(12);
@@ -75,10 +75,10 @@ const hint = (v: string) => (v.length > 8 ? `…${v.slice(-4)}` : 'set');
 
 export function settingsStatus() {
   return {
-    xai: { set: !!env.xaiKey, source: envSource('XAI_API_KEY'), hint: env.xaiKey ? hint(env.xaiKey) : null },
+    direct: { set: !!env.directKey, source: envSource('DIRECT_API_KEY'), hint: env.directKey ? hint(env.directKey) : null },
     composio: { set: !!env.composioKey, source: envSource('COMPOSIO_API_KEY'), hint: env.composioKey ? hint(env.composioKey) : null },
     openrouter: { set: !!env.openrouterKey, source: envSource('OPENROUTER_API_KEY'), hint: env.openrouterKey ? hint(env.openrouterKey) : null },
-    model: { value: env.xaiModel, source: envSource('XAI_MODEL') },
+    model: { value: env.directModel, source: envSource('DIRECT_MODEL') },
     openrouterModel: { value: env.openrouterModel, source: envSource('OPENROUTER_MODEL') },
     /** Which service runs the Bots' models, and whether it was chosen explicitly. */
     provider: { value: env.llmProvider, chosen: env.llmProviderChoice, source: envSource('LLM_PROVIDER') },
@@ -103,15 +103,15 @@ export function canManageServer(user: { id: string; email: string }): boolean {
 
 // ---------- validation: call the provider with the key before saving it ----------
 
-export async function verifyXaiKey(key: string, model: string): Promise<{ ok: true; models: string[]; modelOk: boolean } | { ok: false; error: string }> {
+export async function verifyDirectKey(key: string, model: string): Promise<{ ok: true; models: string[]; modelOk: boolean } | { ok: false; error: string }> {
   try {
-    const r = await fetch(`${env.xaiBaseUrl}/models`, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(15_000) });
+    const r = await fetch(`${env.directBaseUrl}/models`, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(15_000) });
     const body: any = await r.json().catch(() => ({}));
-    if (!r.ok) return { ok: false, error: r.status === 400 || r.status === 401 || r.status === 403 ? 'xAI rejected this key.' : `xAI answered ${r.status}: ${String(body?.error?.message ?? body?.error ?? '').slice(0, 200)}` };
+    if (!r.ok) return { ok: false, error: r.status === 400 || r.status === 401 || r.status === 403 ? 'direct provider rejected this key.' : `direct provider answered ${r.status}: ${String(body?.error?.message ?? body?.error ?? '').slice(0, 200)}` };
     const models: string[] = (body?.data ?? body?.models ?? []).map((m: any) => String(m.id ?? m)).filter(Boolean).sort();
     return { ok: true, models, modelOk: !models.length || models.includes(model) };
   } catch (e: any) {
-    return { ok: false, error: `Couldn't reach xAI: ${e?.message ?? e}` };
+    return { ok: false, error: `Couldn't reach direct provider: ${e?.message ?? e}` };
   }
 }
 

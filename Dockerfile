@@ -1,6 +1,6 @@
-# Grokbot: the web app and API server in one container.
-# Build:  docker build -t grokbot .
-# Run:    docker run -p 8787:8787 -v grokbot-data:/data -e SESSION_SECRET=... grokbot
+# Swarm: the web app and API server in one container.
+# Build:  docker build -t swarm .
+# Run:    docker run -p 8787:8787 -v swarm-data:/data -e SESSION_SECRET=... swarm
 
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
@@ -20,7 +20,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production \
     PORT=8787 \
-    DB_PATH=/data/grokbot.db \
+    DB_PATH=/data/swarm.db \
     FILES_DIR=/data/files
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./

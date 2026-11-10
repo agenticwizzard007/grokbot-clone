@@ -174,20 +174,20 @@ export interface SetupState { step: 'identity' | 'key' | 'signing' | 'webhook' |
 export async function setupLine(userId: string, opts: { handle?: string; withPhone?: boolean; rotateSigningKey?: boolean } = {}): Promise<SetupState> {
   const admin = env.inkboxAdminKey;
   if (!admin) throw new Error('Add your Inkbox admin key first.');
-  const wanted = (opts.handle || env.inkboxHandle).toLowerCase().replace(/^@/, '').replace(/[^a-z0-9-]/g, '').slice(0, 40) || 'grokbot';
+  const wanted = (opts.handle || env.inkboxHandle).toLowerCase().replace(/^@/, '').replace(/[^a-z0-9-]/g, '').slice(0, 40) || 'swarm';
   let handle = env.inkboxIdentityId ? env.inkboxHandle : wanted;
   let identityId = env.inkboxIdentityId || null;
   const state = (step: SetupState['step'], error?: string): SetupState => ({ step, handle, identityId, error });
   try {
     if (!identityId) {
-      const ident = await ib.createIdentity(admin, wanted, 'Grokbot', !!opts.withPhone);
+      const ident = await ib.createIdentity(admin, wanted, 'Swarm', !!opts.withPhone);
       handle = ident.handle;
       identityId = ident.id;
       saveSetting('inkbox_handle', handle, userId);
       saveSetting('inkbox_identity_id', identityId, userId);
       if (ident.phoneNumberId) saveSetting('inkbox_phone_number_id', ident.phoneNumberId, userId);
     }
-    if (!env.inkboxIdentityKey) saveSetting('inkbox_identity_key', await ib.mintIdentityKey(admin, identityId, `grokbot-server-${handle}`), userId);
+    if (!env.inkboxIdentityKey) saveSetting('inkbox_identity_key', await ib.mintIdentityKey(admin, identityId, `swarm-server-${handle}`), userId);
     if (!env.inkboxSigningKey || opts.rotateSigningKey) {
       if (!opts.rotateSigningKey && (await ib.signingKeyConfigured(admin, handle))) {
         return state('signing', 'This line already has a webhook signing key that this server doesn\'t have. Paste it into INKBOX_SIGNING_KEY, or choose "Replace signing key" (other receivers of this line will stop accepting its webhooks).');

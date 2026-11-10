@@ -30,7 +30,7 @@ export function setEnvOverride(name: string, value: string | null) {
 export const envSource = (name: string): 'app' | 'env' | null => (overrides.has(name) ? 'app' : process.env[name] ? 'env' : null);
 const live = (name: string) => overrides.get(name) ?? process.env[name] ?? '';
 
-const dbPath = process.env.DB_PATH ?? new URL('../../data/grokbot.db', import.meta.url).pathname;
+const dbPath = process.env.DB_PATH ?? new URL('../../data/swarm.db', import.meta.url).pathname;
 
 export const env = {
   port: Number(process.env.PORT ?? 8787),
@@ -38,35 +38,35 @@ export const env = {
   /** Public URL of this server, used for OAuth callbacks. */
   serverUrl: process.env.SERVER_URL ?? `http://localhost:${process.env.PORT ?? 8787}`,
   /** Without a key the server still runs; Bots explain that a key is needed. */
-  get xaiKey() { return live('XAI_API_KEY'); },
-  get xaiModel() { return live('XAI_MODEL') || 'grok-4.7'; },
-  /** Base URL of the xAI API (override to use a compatible proxy or a local mock). */
-  xaiBaseUrl: process.env.XAI_BASE_URL || 'https://api.x.ai/v1',
+  get directKey() { return live('DIRECT_API_KEY'); },
+  get directModel() { return live('DIRECT_MODEL') || 'openai/gpt-4.1'; },
+  /** Base URL of the direct provider API (override to use any compatible provider or a local mock). */
+  directBaseUrl: process.env.DIRECT_BASE_URL || 'https://api.openai.com/v1',
   /** Composio powers connected apps and Google sign-in; without it those are off and everything else works. */
-  /** OpenRouter: one key for Grok, Claude, GPT, Gemini and hundreds more (Responses API). */
+  /** OpenRouter: one key for Claude, GPT, Gemini and hundreds more (Responses API). */
   get openrouterKey() { return live('OPENROUTER_API_KEY'); },
-  get openrouterModel() { return live('OPENROUTER_MODEL') || 'x-ai/grok-4.7'; },
+  get openrouterModel() { return live('OPENROUTER_MODEL') || 'openai/gpt-4.1'; },
   openrouterBaseUrl: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
-  /** Which service runs the Bots' models: LLM_PROVIDER if set, else OpenRouter when it has a key, else xAI. */
+  /** Which service runs the Bots' models: LLM_PROVIDER if set, else OpenRouter when it has a key, else direct provider. */
   /** The chosen provider, unless only the other one has a key (so Bots keep working while you add one). */
-  get llmProvider(): 'xai' | 'openrouter' {
+  get llmProvider(): 'direct' | 'openrouter' {
     const p = live('LLM_PROVIDER');
     const or = !!live('OPENROUTER_API_KEY');
-    const xai = !!live('XAI_API_KEY');
-    if (p === 'openrouter') return or || !xai ? 'openrouter' : 'xai';
-    if (p === 'xai') return xai || !or ? 'xai' : 'openrouter';
-    return or ? 'openrouter' : 'xai';
+    const direct = !!live('DIRECT_API_KEY');
+    if (p === 'openrouter') return or || !direct ? 'openrouter' : 'direct';
+    if (p === 'direct') return direct || !or ? 'direct' : 'openrouter';
+    return or ? 'openrouter' : 'direct';
   },
   /** The provider picked in Settings (or LLM_PROVIDER), even before its key is added. */
-  get llmProviderChoice(): 'xai' | 'openrouter' | null {
+  get llmProviderChoice(): 'direct' | 'openrouter' | null {
     const p = live('LLM_PROVIDER');
-    return p === 'xai' || p === 'openrouter' ? p : null;
+    return p === 'direct' || p === 'openrouter' ? p : null;
   },
   get composioKey() { return live('COMPOSIO_API_KEY'); },
   get composioEnabled() { return !!live('COMPOSIO_API_KEY'); },
   /** Inkbox (inkbox.ai): the server's iMessage/SMS line. Set in Settings → Messaging, or here. */
   get inkboxAdminKey() { return live('INKBOX_ADMIN_API_KEY'); },
-  get inkboxHandle() { return live('INKBOX_HANDLE') || 'grokbot'; },
+  get inkboxHandle() { return live('INKBOX_HANDLE') || 'swarm'; },
   get inkboxIdentityId() { return live('INKBOX_IDENTITY_ID'); },
   get inkboxIdentityKey() { return live('INKBOX_API_KEY'); },
   get inkboxSigningKey() { return live('INKBOX_SIGNING_KEY'); },
@@ -82,7 +82,7 @@ export const env = {
   /** cloudvm: which VM provider API creates the VMs ('fly' = Fly.io Machines; 'fake' = local processes, for dev and tests). */
   vmDriver: vmDriver as 'fly' | 'fake',
   /** cloudvm: the VM image (OS, desktop, Chrome, supervisor); the companion itself is fetched from this server at boot. */
-  vmImage: process.env.VM_IMAGE ?? 'registry.fly.io/grokbot-vm:latest',
+  vmImage: process.env.VM_IMAGE ?? 'registry.fly.io/swarm-vm:latest',
   vmRegion: process.env.VM_REGION ?? '',
   /** cloudvm: memory for the base system plus each Bot screen (MB), and vCPUs. */
   vmBaseMemoryMb: Number(process.env.VM_BASE_MEMORY_MB ?? 2048),

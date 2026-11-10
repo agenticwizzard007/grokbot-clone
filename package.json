@@ -1,18 +1,19 @@
 {
-  "name": "grokbot",
+  "name": "swarm",
   "private": true,
-  "description": "Grokbot: internal reverse-engineering clone of xAI Grok Bot. Internal research use only; do not distribute.",
+  "description": "Swarm by Swarms.so: AI teammates with computer use, connected apps, memory, and voice.",
   "workspaces": ["server", "web"],
   "scripts": {
     "dev": "npm run dev -w server & npm run dev -w web",
     "build": "npm run build -w web && npm run build -w server",
     "start": "npm run start -w server",
     "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
-    "companion": "node companion/grokbot-companion.mjs",
-    "mock:xai": "node tests/mock-xai.mjs",
+    "companion": "node companion/swarm-companion.mjs",
+    "mock:provider": "node tests/mock-provider.mjs",
     "test:local": "node tests/local-computer.mjs",
     "test:mcp": "node --import tsx --test tests/mcp.test.mts && node tests/mcp-chat.mjs",
     "test:messaging": "node --import tsx --test --test-concurrency=1 tests/messaging.test.mts",
+    "test:composio": "node --import tsx --test tests/composio.test.mts",
     "test:bots": "node --import tsx --test tests/bot-creation.test.mts && node tests/bot-creation-chat.mjs"
   },
   "engines": { "node": ">=22" }

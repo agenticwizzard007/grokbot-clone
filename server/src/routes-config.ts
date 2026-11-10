@@ -11,8 +11,10 @@ import { computers, ComputerError } from './computers/index.js';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { createPairing, localFilePath, pairingInfo, revokePairings } from './computers/local.js';
 import { startThisComputer, stopThisComputer, thisComputerAvailable, thisComputerUser } from './computers/this-computer.js';
-import { canManageServer, clearSetting, saveSetting, SETTINGS, settingsStatus, verifyComposioKey, verifyOpenRouterKey, verifyXaiKey, type SettingName } from './settings.js';
+import { canManageServer, clearSetting, saveSetting, SETTINGS, settingsStatus, verifyComposioKey, verifyOpenRouterKey, verifyDirectKey, type SettingName } from './settings.js';
 import { openrouterModels } from './lib/llm.js';
+import { hub } from './lib/hub.js';
+import { refreshTriggerSubscription } from './triggers.js';
 import { runInBotQueue } from './agent/loop.js';
 import { consolidateBot, historySize, maybeCompact, memoryConfig } from './agent/memory.js';
 import { idleConfig, viewerCount } from './idle.js';
@@ -228,7 +230,7 @@ function fromThisMachine(c: any): boolean {
 /** Local computers: use the computer the server runs on (the server starts the companion itself). */
 configApi.post('/computer/this-computer', (c) => {
   if (computers.kind !== 'local') return c.json({ error: 'This server uses cloud computers.' }, 400);
-  if (!thisComputerAvailable() || !fromThisMachine(c)) return c.json({ error: 'Only available when you open Grokbot on the computer it runs on.' }, 403);
+  if (!thisComputerAvailable() || !fromThisMachine(c)) return c.json({ error: 'Only available when you open Swarm on the computer it runs on.' }, 403);
   const user = c.get('user');
   // Behind a reverse proxy on the same host every request looks local, so also require the server's owner.
   if (!canManageServer(user)) return c.json({ error: 'Only the owner of this server can use the computer it runs on.' }, 403);
@@ -263,7 +265,7 @@ configApi.post('/computer/pair', (c) => {
   return c.json({
     token,
     server,
-    command: `curl -fsSL ${server}/api/companion/script -o grokbot-companion.mjs && node grokbot-companion.mjs --server ${server} --token ${token}${env.localDesktop ? ' --desktop' : ''}`,
+    command: `curl -fsSL ${server}/api/companion/script -o swarm-companion.mjs && node swarm-companion.mjs --server ${server} --token ${token}${env.localDesktop ? ' --desktop' : ''}`,
   });
 });
 
@@ -288,16 +290,18 @@ configApi.put('/settings/keys/:name', async (c) => {
   const v = String(value ?? '').trim();
   if (!v) return c.json({ error: 'Enter a value first.' }, 400);
   if (v.length > 400 || /\s/.test(v)) return c.json({ error: "That doesn't look like a key." }, 400);
-  if (name === 'xai') {
-    const r = await verifyXaiKey(v, env.xaiModel);
+  if (name === 'direct') {
+    const r = await verifyDirectKey(v, env.directModel);
     if (!r.ok) return c.json({ error: r.error }, 400);
-    saveSetting('xai', v, user.id);
+    saveSetting('direct', v, user.id);
     return c.json({ ok: true, canEdit: true, models: r.models, modelOk: r.modelOk, ...settingsStatus() });
   }
   if (name === 'composio') {
     const r = await verifyComposioKey(v);
     if (!r.ok) return c.json({ error: r.error }, 400);
     saveSetting('composio', v, user.id);
+    void refreshTriggerSubscription().catch((e) => console.warn('[triggers] could not apply Composio key change', e.message));
+    hub.broadcast({ type: 'connections' });
     return c.json({ ok: true, canEdit: true, ...settingsStatus() });
   }
   if (name === 'openrouter') {
@@ -307,7 +311,7 @@ configApi.put('/settings/keys/:name', async (c) => {
     return c.json({ ok: true, canEdit: true, ...settingsStatus() });
   }
   if (name === 'provider') {
-    if (v !== 'xai' && v !== 'openrouter') return c.json({ error: 'Choose openrouter or xai.' }, 400);
+    if (v !== 'direct' && v !== 'openrouter') return c.json({ error: 'Choose openrouter or direct.' }, 400);
     // Allowed before the key exists (bring your own key next); until then the other provider keeps running.
     saveSetting('provider', v, user.id);
     return c.json({ ok: true, canEdit: true, ...settingsStatus() });
@@ -320,9 +324,9 @@ configApi.put('/settings/keys/:name', async (c) => {
     return c.json({ ok: true, canEdit: true, ...settingsStatus() });
   }
   // model: check it against the models the current key can use
-  if (env.xaiKey) {
-    const r = await verifyXaiKey(env.xaiKey, v);
-    if (r.ok && !r.modelOk) return c.json({ error: `${v} isn't available on your xAI key. Available: ${r.models.slice(0, 12).join(', ')}` }, 400);
+  if (env.directKey) {
+    const r = await verifyDirectKey(env.directKey, v);
+    if (r.ok && !r.modelOk) return c.json({ error: `${v} isn't available on your direct provider key. Available: ${r.models.slice(0, 12).join(', ')}` }, 400);
   }
   saveSetting('model', v, user.id);
   return c.json({ ok: true, canEdit: true, ...settingsStatus() });
@@ -333,17 +337,21 @@ configApi.delete('/settings/keys/:name', (c) => {
   const name = c.req.param('name') as SettingName;
   if (!(name in SETTINGS)) return c.json({ error: 'unknown setting' }, 404);
   clearSetting(name);
+  if (name === 'composio') {
+    void refreshTriggerSubscription().catch((e) => console.warn('[triggers] could not apply Composio key change', e.message));
+    hub.broadcast({ type: 'connections' });
+  }
   return c.json({ ok: true, canEdit: true, ...settingsStatus() });
 });
 
-/** Models for the model pickers: OpenRouter's tool-capable catalog, or the models the xAI key can use. */
+/** Models for the model pickers: OpenRouter's tool-capable catalog, or the models the direct provider key can use. */
 configApi.get('/settings/models', async (c) => {
-  const provider = c.req.query('provider') === 'xai' || c.req.query('provider') === 'openrouter' ? c.req.query('provider') : env.llmProvider;
+  const provider = c.req.query('provider') === 'direct' || c.req.query('provider') === 'openrouter' ? c.req.query('provider') : env.llmProvider;
   if (provider === 'openrouter') {
     try { return c.json({ provider, models: await openrouterModels() }); }
     catch (e: any) { return c.json({ provider, models: [], error: String(e?.message ?? e) }); }
   }
-  if (!env.xaiKey) return c.json({ provider, models: [] });
-  const r = await verifyXaiKey(env.xaiKey, env.xaiModel);
+  if (!env.directKey) return c.json({ provider, models: [] });
+  const r = await verifyDirectKey(env.directKey, env.directModel);
   return c.json(r.ok ? { provider, models: r.models.map((id) => ({ id, name: id, vision: true, reasoning: true, context: 0, price: null })) } : { provider, models: [], error: r.error });
 });

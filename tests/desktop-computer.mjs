@@ -3,9 +3,9 @@
 //
 // Prerequisites: Linux with an X display (e.g. `Xvfb :99 -screen 0 1440x900x24`), xdotool,
 // ImageMagick (import), and Google Chrome. Start the mock model and a server on that display:
-//   node tests/mock-xai.mjs &
+//   node tests/mock-provider.mjs &
 //   DISPLAY=:99 BROWSER=<script that opens Chrome full screen> COMPUTER_PROVIDER=desktop \
-//     XAI_API_KEY=mock XAI_BASE_URL=http://localhost:8790/v1 DEV_LOGIN=1 node server/dist/index.js
+//     DIRECT_API_KEY=mock DIRECT_BASE_URL=http://localhost:8790/v1 DEV_LOGIN=1 node server/dist/index.js
 // Then: DB_PATH=<the server's database> node tests/desktop-computer.mjs [apiBase=http://localhost:8787]
 //
 // BROWSER is what xdg-open uses as the default browser. The clicks below assume the page fills a
@@ -53,10 +53,10 @@ const waitEvent = async (pred, ms = 20000) => {
 const health = await (await fetch(`${API}/api/health`)).json();
 if (health.computers !== 'local' || !health.desktop) throw new Error(`server must run with COMPUTER_PROVIDER=desktop (health: ${JSON.stringify(health)})`);
 const login = await fetch(`${API}/api/auth/dev`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: process.env.E2E_EMAIL ?? 'desktop-e2e@example.com', name: 'Desktop E2E' }) });
-const cookie = (login.headers.get('set-cookie') ?? '').match(/grokbot_session=([^;]+)/)?.[1];
+const cookie = (login.headers.get('set-cookie') ?? '').match(/swarm_session=([^;]+)/)?.[1];
 if (!cookie) throw new Error('dev login failed');
 const api = async (p, init = {}) => {
-  const r = await fetch(`${API}${p}`, { ...init, headers: { 'content-type': 'application/json', cookie: `grokbot_session=${cookie}`, ...(init.headers ?? {}) } });
+  const r = await fetch(`${API}${p}`, { ...init, headers: { 'content-type': 'application/json', cookie: `swarm_session=${cookie}`, ...(init.headers ?? {}) } });
   const ct = r.headers.get('content-type') ?? '';
   return { status: r.status, body: ct.includes('json') ? await r.json() : await r.arrayBuffer() };
 };
@@ -207,7 +207,7 @@ await step('a second Bot waits while another is using the desktop', async () => 
 const chromeExe = process.env.CHROME_PATH ?? (fs.existsSync('/usr/bin/google-chrome') ? '/usr/bin/google-chrome' : undefined);
 browser = await chromium.launch(chromeExe ? { executablePath: chromeExe, args: ['--no-sandbox'] } : { channel: 'chrome' });
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-await ctx.addCookies([{ name: 'grokbot_session', value: cookie, domain: new URL(UI).hostname, path: '/' }]);
+await ctx.addCookies([{ name: 'swarm_session', value: cookie, domain: new URL(UI).hostname, path: '/' }]);
 ui = await ctx.newPage();
 const consoleErrors = [];
 ui.on('pageerror', (e) => consoleErrors.push(e.message));
@@ -261,10 +261,10 @@ await step('settings: Computer describes the full desktop', async () => {
 
 await step('a browser-only companion is refused by a desktop server', async () => {
   const { body } = await api('/api/computer/pair', { method: 'POST' });
-  const file = path.join(os.tmpdir(), 'grokbot-companion-desktop-e2e.mjs');
+  const file = path.join(os.tmpdir(), 'swarm-companion-desktop-e2e.mjs');
   fs.writeFileSync(file, Buffer.from((await (await fetch(`${API}/api/companion/script`)).arrayBuffer())));
-  if (!/node grokbot-companion\.mjs .* --desktop$/.test(body.command)) throw new Error(`connect command lacks --desktop: ${body.command}`);
-  const p = spawn(process.execPath, [file, '--server', API, '--token', body.token, '--no-sandbox', '--data-dir', path.join(os.tmpdir(), 'grokbot-companion-desktop-e2e')], { stdio: ['ignore', 'pipe', 'pipe'] });
+  if (!/node swarm-companion\.mjs .* --desktop$/.test(body.command)) throw new Error(`connect command lacks --desktop: ${body.command}`);
+  const p = spawn(process.execPath, [file, '--server', API, '--token', body.token, '--no-sandbox', '--data-dir', path.join(os.tmpdir(), 'swarm-companion-desktop-e2e')], { stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   p.stdout.on('data', (d) => { out += d; });
   p.stderr.on('data', (d) => { out += d; });

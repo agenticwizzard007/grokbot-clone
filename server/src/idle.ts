@@ -5,17 +5,17 @@ import { isBotBusy } from './agent/loop.js';
 
 /**
  * Computer hibernation: suspend a user's Orgo box when no bot turn is running and no
- * viewer WebSocket is connected for GROKBOT_IDLE_SUSPEND_MIN minutes (default 20).
+ * viewer WebSocket is connected for SWARM_IDLE_SUSPEND_MIN minutes (default 20).
  * The next computer tool call wakes it again through ensureComputer().
  */
 
 const num = (v: string | undefined, d: number) => (v !== undefined && v !== '' && Number.isFinite(Number(v)) ? Number(v) : d);
 
 export const idleConfig = {
-  idleMin: num(process.env.GROKBOT_IDLE_SUSPEND_MIN, 20),
-  sweepSec: num(process.env.GROKBOT_IDLE_SWEEP_SEC, 60),
+  idleMin: num(process.env.SWARM_IDLE_SUSPEND_MIN, 20),
+  sweepSec: num(process.env.SWARM_IDLE_SWEEP_SEC, 60),
   /** Log decisions but never call suspend (for test servers sharing a real VM). */
-  dryRun: process.env.GROKBOT_IDLE_DRY_RUN === '1',
+  dryRun: process.env.SWARM_IDLE_DRY_RUN === '1',
 };
 
 // ---------- viewer tracking (called from vnc.ts) ----------

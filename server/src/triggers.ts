@@ -12,6 +12,8 @@ import { appendRow } from './store.js';
 
 let enqueueFn: ((botId: string, t: any) => void) | null = null;
 let subscribed = false;
+let subscriptionClient: ReturnType<typeof composio> | null = null;
+let subscriptionChange: Promise<void> = Promise.resolve();
 
 export const isEventSchedule = (schedule: string) => schedule.startsWith('event:');
 
@@ -33,17 +35,35 @@ export async function initTriggers(enqueue: (botId: string, t: any) => void) {
 async function ensureSubscribed() {
   if (subscribed) return;
   subscribed = true;
+  const client = composio();
+  subscriptionClient = client;
   try {
-    await composio().triggers.subscribe(
-      (data: any) => onTrigger(data),
+    await client.triggers.subscribe(
+      (data: any) => { if (subscriptionClient === client) onTrigger(data); },
       undefined,
       (err) => console.warn('[triggers] subscription error', JSON.stringify(err).slice(0, 300)),
     );
     console.log('[triggers] realtime subscription active');
   } catch (e) {
-    subscribed = false;
+    if (subscriptionClient === client) { subscribed = false; subscriptionClient = null; }
     console.warn('[triggers] subscribe failed', (e as Error).message);
   }
+}
+
+/** Live key changes must reconnect event delivery to the current project too. */
+export function refreshTriggerSubscription(): Promise<void> {
+  subscriptionChange = subscriptionChange.catch(() => {}).then(async () => {
+    const next = env.composioEnabled ? composio() : null;
+    if (subscriptionClient === next && subscribed) return;
+    const previous = subscriptionClient;
+    subscriptionClient = null;
+    subscribed = false;
+    await previous?.triggers.unsubscribe();
+    if (!enqueueFn || !next) return;
+    const active = db.prepare("SELECT 1 FROM routines WHERE schedule LIKE 'event:%' AND enabled=1 LIMIT 1").get();
+    if (active) await ensureSubscribed();
+  });
+  return subscriptionChange;
 }
 
 function onTrigger(data: any) {

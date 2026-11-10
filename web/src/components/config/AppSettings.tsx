@@ -116,7 +116,7 @@ function GeneralSection() {
 const sourceText = (s: KeyStatus) => (s.source === 'app' ? 'saved in the app' : s.source === 'env' ? 'from the server’s .env file' : '');
 
 function KeyCard({ name, title, what, link, status, canEdit, required, onChange }: {
-  name: 'xai' | 'composio' | 'openrouter'; title: string; what: string; link: { href: string; label: string };
+  name: 'direct' | 'composio' | 'openrouter'; title: string; what: string; link?: { href: string; label: string };
   status: KeyStatus; canEdit: boolean; required?: boolean; onChange: (r: KeysResponse) => void;
 }) {
   const [value, setValue] = useState('');
@@ -160,7 +160,9 @@ function KeyCard({ name, title, what, link, status, canEdit, required, onChange 
         </form>
       ) : null}
       <div className="cfg-key__foot">
-        {note ? <span className={note.tone === 'error' ? 'cfg-key__err' : 'cfg-key__ok'} role="status">{note.text}</span> : <a href={link.href} target="_blank" rel="noreferrer">{link.label}</a>}
+        {note
+          ? <span className={note.tone === 'error' ? 'cfg-key__err' : 'cfg-key__ok'} role="status">{note.text}</span>
+          : link ? <a href={link.href} target="_blank" rel="noreferrer">{link.label}</a> : 'Use any compatible provider key.'}
       </div>
     </div>
   );
@@ -184,17 +186,17 @@ function KeysSection() {
   if (!keys) return <><PageHead title="API keys" /><div className="cfg-empty cfg-empty--flat">Loading…</div></>;
   const running = keys.provider.value;
   const chosen = keys.provider.chosen ?? running;
-  const keyFor = (p: 'xai' | 'openrouter') => (p === 'openrouter' ? keys.openrouter.set : keys.xai.set);
-  const nameOf = (p: 'xai' | 'openrouter') => (p === 'openrouter' ? 'OpenRouter' : 'xAI');
+  const keyFor = (p: 'direct' | 'openrouter') => (p === 'openrouter' ? keys.openrouter.set : keys.direct.set);
+  const nameOf = (p: 'direct' | 'openrouter') => (p === 'openrouter' ? 'OpenRouter' : 'custom provider');
   const current = chosen === 'openrouter' ? keys.openrouterModel.value : keys.model.value;
-  // OpenRouter's catalog is public, so a model can be chosen before the key is added; xAI needs the key.
-  const canPick = keys.canEdit && (chosen === 'openrouter' || keys.xai.set);
-  const choose = async (p: 'xai' | 'openrouter') => {
+  // OpenRouter's catalog is public, so a model can be chosen before the key is added; direct provider needs the key.
+  const canPick = keys.canEdit && (chosen === 'openrouter' || keys.direct.set);
+  const choose = async (p: 'direct' | 'openrouter') => {
     if (p === chosen) { if (!keyFor(p)) document.getElementById(`key-input-${p}`)?.focus(); return; }
     await save('provider', p);
     if (!keyFor(p)) {
       document.getElementById(`key-input-${p}`)?.focus();
-      setNote({ tone: 'ok', text: `Paste your ${nameOf(p)} key below to finish switching.${keyFor(p === 'xai' ? 'openrouter' : 'xai') ? ` Until then Bots keep using ${nameOf(p === 'xai' ? 'openrouter' : 'xai')}.` : ''}` });
+      setNote({ tone: 'ok', text: `Paste your ${nameOf(p)} key below to finish switching.${keyFor(p === 'direct' ? 'openrouter' : 'direct') ? ` Until then Bots keep using ${nameOf(p === 'direct' ? 'openrouter' : 'direct')}.` : ''}` });
     }
   };
   const status = !keyFor(chosen)
@@ -204,18 +206,18 @@ function KeysSection() {
     : `Bots use ${current} through ${nameOf(chosen)}.`;
   return (
     <>
-      <PageHead title="API keys" sub="Bring your own keys: Grokbot runs on your provider accounts. Keys are checked with the provider, stored encrypted on this server, and never shown again." />
+      <PageHead title="API keys" sub="Bring your own keys: Swarm runs on your provider accounts. Keys are checked with the provider, stored encrypted on this server, and never shown again." />
       {!keys.canEdit && <div className="cfg-field__hint" style={{ marginBottom: 12 }}>Only the owner of this server can change its keys.</div>}
 
       <section className="cfg-section">
         <div className="cfg-section__label">Models</div>
         <div className="cfg-card cfg-key">
           <div className="cfg-key__form">
-            <div className="cfg-row__text"><div className="cfg-row__title">Run Bots on</div><div className="cfg-row__sub">OpenRouter gives one key for Grok, Claude, GPT, Gemini and hundreds more.</div></div>
+            <div className="cfg-row__text"><div className="cfg-row__title">Run Bots on</div><div className="cfg-row__sub">OpenRouter gives one key for Claude, GPT, Gemini and hundreds more.</div></div>
             <div className="cfg-seg" role="radiogroup" aria-label="Model provider">
-              {(['openrouter', 'xai'] as const).map((p) => (
+              {(['openrouter', 'direct'] as const).map((p) => (
                 <button key={p} type="button" role="radio" aria-checked={chosen === p} className={chosen === p ? 'is-active' : ''} disabled={!keys.canEdit} onClick={() => void choose(p)}>
-                  {p === 'openrouter' ? 'OpenRouter' : 'xAI direct'}
+                  {p === 'openrouter' ? 'OpenRouter' : 'Custom provider'}
                 </button>
               ))}
             </div>
@@ -234,8 +236,8 @@ function KeysSection() {
       <section className="cfg-section">
         <div className="cfg-section__label">Keys</div>
         <KeyCard name="openrouter" title="OpenRouter" what="Recommended: one key for 290+ models that can use tools, with per-token pricing." link={{ href: 'https://openrouter.ai/keys', label: 'Get a key at openrouter.ai/keys' }} status={keys.openrouter} canEdit={keys.canEdit} onChange={changed} />
-        <KeyCard name="xai" title="xAI · Grok direct" what="Grok straight from xAI. Also needed for voice calls." link={{ href: 'https://console.x.ai', label: 'Get a key at console.x.ai' }} status={keys.xai} canEdit={keys.canEdit} onChange={changed} />
-        <KeyCard name="composio" title="Composio · Connected apps" what="Optional: lets Bots use Gmail, Slack, Notion, GitHub and 1,000+ apps, and enables Sign in with Google." link={{ href: 'https://platform.composio.dev', label: 'Get a key at platform.composio.dev' }} status={keys.composio} canEdit={keys.canEdit} onChange={changed} />
+        <KeyCard name="direct" title="Custom provider" what="Direct model access through a compatible provider. Also needed for voice calls." status={keys.direct} canEdit={keys.canEdit} onChange={changed} />
+        <KeyCard name="composio" title="Composio · Connected apps" what="One project key enables connected apps for everyone on this server. Each person connects their own accounts; their connections stay private." link={{ href: 'https://platform.composio.dev', label: 'Create a Composio account or get a project key' }} status={keys.composio} canEdit={keys.canEdit} onChange={changed} />
       </section>
     </>
   );

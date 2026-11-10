@@ -106,7 +106,7 @@ export function setEmail(userId: string, email: string): { ok: true } | { ok: fa
   const e = email.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) || isPlaceholderEmail(e)) return { ok: false, error: 'Enter a valid email address.' };
   const other = db.prepare('SELECT id FROM users WHERE lower(email)=? AND id<>?').get(e, userId);
-  if (other) return { ok: false, error: 'That email has its own Grokbot account. Sign in there and link your phone with a link code instead.' };
+  if (other) return { ok: false, error: 'That email has its own Swarm account. Sign in there and link your phone with a link code instead.' };
   db.prepare('UPDATE users SET email=? WHERE id=?').run(e, userId);
   return { ok: true };
 }

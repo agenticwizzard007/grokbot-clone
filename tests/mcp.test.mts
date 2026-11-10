@@ -6,9 +6,9 @@ import path from 'node:path';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-const root=fs.mkdtempSync(path.join(os.tmpdir(),'grokbot-mcp-'));
+const root=fs.mkdtempSync(path.join(os.tmpdir(),'swarm-mcp-'));
 process.env.APP_URL = 'https://preview.example.com';
-Object.assign(process.env,{ DB_PATH:path.join(root,'test.db'),FILES_DIR:path.join(root,'files'),SESSION_SECRET:'mcp-isolated-tests',COMPUTER_PROVIDER:'local',COMPOSIO_API_KEY:'',ADMIN_EMAILS:'',XAI_API_KEY:'parent-secret-not-for-children' });
+Object.assign(process.env,{ DB_PATH:path.join(root,'test.db'),FILES_DIR:path.join(root,'files'),SESSION_SECRET:'mcp-isolated-tests',COMPUTER_PROVIDER:'local',COMPOSIO_API_KEY:'',ADMIN_EMAILS:'',DIRECT_API_KEY:'parent-secret-not-for-children' });
 const { db }=await import('../server/src/db.js');
 await import('../server/src/db-config.js');
 const { initSubagents }=await import('../server/src/agent/subagents.js'); initSubagents();
@@ -32,12 +32,12 @@ const port=(listener.address() as net.AddressInfo).port; await new Promise<void>
 const fixture=spawn(process.execPath,['tests/fixtures/mcp-server.mjs',String(port)],{stdio:'ignore'});
 const base=`http://127.0.0.1:${port}`;
 for(let n=0;n<100;n++){try{if((await fetch(base+'/health')).ok)break;}catch{} await new Promise(r=>setTimeout(r,50));}
-const req=(route='',method='GET',body?:unknown,user='owner')=>app.request('/api/mcp/servers'+route,{method,headers:{cookie:'grokbot_session='+user,'content-type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
+const req=(route='',method='GET',body?:unknown,user='owner')=>app.request('/api/mcp/servers'+route,{method,headers:{cookie:'swarm_session='+user,'content-type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
 const remote=(transport='http')=>({name:'Fixture',transport,url:base+(transport==='sse'?'/sse':'/mcp'),bearerToken:'secret-fixture-token',headers:{'X-Fixture':'header-secret'},botIds:[chief.id]});
 after(async()=>{await closeMcpSessions();fixture.kill();await once(fixture,'exit');db.close();fs.rmSync(root,{recursive:true,force:true});});
 
 test('owner-only mutation, authentication, validation and tenant isolation',async()=>{
- const originRequest = (origin: string) => app.request('/api/mcp/servers', { method: 'POST', headers: { cookie: 'grokbot_session=owner', 'content-type': 'application/json', origin }, body: JSON.stringify(remote()) });
+ const originRequest = (origin: string) => app.request('/api/mcp/servers', { method: 'POST', headers: { cookie: 'swarm_session=owner', 'content-type': 'application/json', origin }, body: JSON.stringify(remote()) });
  assert.equal((await originRequest('https://preview.example.com')).status, 201);
  assert.equal((await originRequest('https://untrusted.example.com')).status, 403);
  assert.equal((await req('','GET',undefined,'invalid')).status,401);

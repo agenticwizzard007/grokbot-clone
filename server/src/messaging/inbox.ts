@@ -1,7 +1,7 @@
 import { db, now } from '../db.js';
 
 /**
- * Durable inbox for webhook events (pattern from open-instinct's gateway, MIT). An event is saved before the webhook
+ * Durable inbox for webhook events. An event is saved before the webhook
  * is acknowledged, deduplicated by its id, handled in the background in arrival order, retried with backoff on
  * failure (3 attempts), and replayed at boot if the server stopped mid-way. Deliveries are at least once; the id
  * makes them effectively once.

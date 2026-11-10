@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="assets/readme-banner.svg" alt="Grokbot Clone — Your team. Their own computers." width="100%">
+  <img src="assets/readme-banner.svg" alt="Swarm — Your team. Their own computers." width="100%">
 </p>
 
 <p align="center">
-  A self-hosted Grok Bot clone with computer use, connected apps, memory, and voice.<br>
-  Built with the public Grok API, Orgo, and Composio.
+  Swarm by Swarms.so: AI teammates with computer use, connected apps, memory, and voice.<br>
+  Built with the public model API, Orgo, and Composio.
 </p>
 
 <p align="center">
@@ -12,14 +12,14 @@
   <a href="#what-you-can-do">Features</a> ·
   <a href="docs/ARCHITECTURE.md">Architecture</a> ·
   <a href="#development">Development</a> ·
-  <a href="https://github.com/nickvasilescu/grokbot-clone/issues">Issues</a>
+  <a href="https://swarms.so">Swarms.so</a>
 </p>
 
 ---
 
 Give a Bot a job, connect the apps it needs, and follow its work in chat. Each Bot has a name, a look, its own memory, and a desktop you can watch or take over. Bots can work together, run recurring tasks, and talk with you over voice.
 
-Grokbot Clone recreates the Grok Bot experience with a runtime you can run and modify yourself. You bring your own API keys; conversations, settings, and agent state live in a local SQLite database.
+Swarm is the main product from Swarms.so: a runtime for always-on AI teammates you can run and modify yourself. You bring your own API keys; conversations, settings, and agent state live in a local SQLite database.
 
 ## What you can do
 
@@ -45,7 +45,7 @@ Open **Settings → MCP servers → Add MCP server**. Enter a name and either a 
 
 Choose all your agents (including future agents) or selected agents. Active agents receive the tools on their next turn; onboarding agents remain limited to setup tools. Tools ask for approval by default, with the same Allow/Always allow/Don't allow controls as connected apps. Disabling, removing, or changing a connection blocks old tool calls, including pending approvals; changing an endpoint or credentials invalidates previous approvals. Settings → Permissions lets you revoke permanent tool permissions.
 
-Custom connections are managed by the server owner, and are scoped to that account. Local commands run on the machine hosting Grokbot, independently of the browser/VM provider. Commands receive only a small standard environment plus explicitly configured variables, not the app's API keys. Connection secrets are stored in the app's local SQLite database and omitted from settings responses and model tool schemas. They are not encrypted at rest; protect database files and backups like the app's saved API keys. Per-agent MCP sessions close after five idle minutes or when the connection is changed/removed.
+Custom connections are managed by the server owner, and are scoped to that account. Local commands run on the machine hosting Swarm, independently of the browser/VM provider. Commands receive only a small standard environment plus explicitly configured variables, not the app's API keys. Connection secrets are stored in the app's local SQLite database and omitted from settings responses and model tool schemas. They are not encrypted at rest; protect database files and backups like the app's saved API keys. Per-agent MCP sessions close after five idle minutes or when the connection is changed/removed.
 
 This integration supports MCP **tools**, including text, structured results and images. Interactive OAuth login, MCP resources and prompt templates are not yet supported; use provider-issued tokens or headers for authenticated remote servers. A successful test of a server with zero tools is shown explicitly. Tests: `npm run build && npm run test:mcp`.
 
@@ -56,8 +56,8 @@ This integration supports MCP **tools**, including text, structured results and 
 Install **Node.js 22.22 or newer**, then:
 
 ```bash
-git clone https://github.com/nickvasilescu/grokbot-clone.git
-cd grokbot-clone
+git clone https://github.com/swarms-so/swarm.git
+cd swarm
 npm ci
 cp .env.example .env
 ```
@@ -70,8 +70,8 @@ Values for `.env`:
 
 | Variable | Purpose |
 | --- | --- |
-| `OPENROUTER_API_KEY` | Models from OpenRouter: Grok, Claude, GPT, Gemini and more with one key (recommended) |
-| `XAI_API_KEY` | Grok directly from xAI; also needed for voice calls |
+| `OPENROUTER_API_KEY` | Models from OpenRouter: Claude, GPT, Gemini and more with one key (recommended) |
+| `DIRECT_API_KEY` | Compatible direct provider; also needed for voice calls |
 | `COMPOSIO_API_KEY` | Optional: app connections, tool catalog, and Google sign-in (without it, use the dev email sign-in) |
 | `SESSION_SECRET` | Secret used to sign sessions |
 | `COMPUTER_PROVIDER` | `desktop` (your PC's full desktop and a shell), `local` (a private browser on your PC) or `orgo` (cloud VMs) |
@@ -83,7 +83,11 @@ Generate a session secret with:
 openssl rand -hex 32
 ```
 
-Paste the result into `SESSION_SECRET`. You need at least one model key: OpenRouter or xAI. With an OpenRouter key, Bots run on OpenRouter by default (`x-ai/grok-4.7` unless you pick another model); choose the provider and default model in **Settings → API keys**, and give any Bot its own model in its settings. Models that can't see images get a warning, since browser work relies on screenshots. Voice calls always use xAI's realtime API.
+Paste the result into `SESSION_SECRET`. You need at least one model key: OpenRouter or a compatible direct provider. With an OpenRouter key, Bots run on OpenRouter by default (`openai/gpt-4.1` unless you pick another model); choose the provider and default model in **Settings → API keys**, and give any Bot its own model in its settings. Models that can't see images get a warning, since browser work relies on screenshots. Voice calls use the configured direct provider realtime API.
+
+**Composio for all users:** Create an account at [platform.composio.dev](https://platform.composio.dev), complete verification, and create a project API key. As the Swarm server owner, save it once under **Settings → API keys → Composio**. The server verifies and encrypts the key; connected-app views refresh for everyone without a restart. Each person then uses **Connect Apps** to authorize their own Gmail, Slack, or other accounts. Connections and tool sessions use that person's Swarm user ID; the project key does not share the owner's connected accounts with other people.
+
+Set `APP_URL` and `SERVER_URL` to the browser-accessible app and API URLs before connecting apps, so OAuth can return to the server. Managed OAuth is available only for supported toolkits; other apps need a custom auth configuration in the Composio project or the user's app credentials. Moving to a different Composio project requires users to reconnect their apps and recreate event routines there. Run `npm run test:composio` for isolated multi-user integration checks; a real project key and user authorization are still required to verify live OAuth and tool execution.
 
 ### 3. Start the app
 
@@ -107,14 +111,14 @@ With `COMPUTER_PROVIDER=desktop` or `local`, connect your PC before giving Bots 
 
 ### 4. Connect your PC (local computers)
 
-In Grokbot, open **Settings → Computer → Connect your PC** and run the command it shows on the PC whose browser your Bots should use. It needs **Node.js 22+** and **Google Chrome**, and looks like:
+In Swarm, open **Settings → Computer → Connect your PC** and run the command it shows on the PC whose browser your Bots should use. It needs **Node.js 22+** and **Google Chrome**, and looks like:
 
 ```bash
-curl -fsSL http://localhost:8787/api/companion/script -o grokbot-companion.mjs \
-  && node grokbot-companion.mjs --server http://localhost:8787 --token gbc_...
+curl -fsSL http://localhost:8787/api/companion/script -o swarm-companion.mjs \
+  && node swarm-companion.mjs --server http://localhost:8787 --token swc_...
 ```
 
-Keep it running while your Bots work. The companion connects out to the server, so the PC needs no open ports, and it starts a separate Chrome for each Bot with its own profile under `~/.grokbot-companion`; your everyday Chrome profile is never touched. Chrome runs headless (watch it from the Bot's computer panel in Grokbot) unless you add `--headed`.
+Keep it running while your Bots work. The companion connects out to the server, so the PC needs no open ports, and it starts a separate Chrome for each Bot with its own profile under `~/.swarm-companion`; your everyday Chrome profile is never touched. Chrome runs headless (watch it from the Bot's computer panel in Swarm) unless you add `--headed`.
 
 Guard rails, enforced on your PC: Bots get a browser only (no shell, no files from your PC), only `http(s)` pages, no downloads or file uploads, and local-network addresses such as `localhost` or `192.168.x.x` are blocked unless you add `--allow-private-network`. The token in the command is a secret: anyone who has it can connect their PC as your Bots' browser. **Disconnect** in the same settings page revokes it.
 
@@ -127,7 +131,7 @@ Every user gets exactly one cloud VM, created automatically when they sign up, w
 - **Automatic setup.** Sign-up queues a job that creates the VM (with a persistent disk), waits for it to come online and opens a screen for each Bot. Jobs are retried with backoff and survive restarts. Adding a Bot grows the VM to fit its screen (waiting until no Bot is mid-task). Deleting an account deletes its VM, and a cleanup loop removes any VM no account owns.
 - **One VM per user.** The `vms` table allows one VM per user, VMs carry their owner in the provider's metadata, and each VM's token is bound to that VM.
 - **Inside the VM** (`infra/vm-image`): the companion runs with `--multi`. Each Bot has its own virtual screen (Xvfb + XFCE), its own Chrome profile and its own folder. Bots' shells and browsers run as the `agent` user, which can't read the VM's token. The cloud metadata service and the provider's private network are blocked.
-- **Sleep and wake.** VMs are suspended after `GROKBOT_IDLE_SUSPEND_MIN` idle minutes (no turns, nobody watching) and resume on the next task in a few seconds.
+- **Sleep and wake.** VMs are suspended after `SWARM_IDLE_SUSPEND_MIN` idle minutes (no turns, nobody watching) and resume on the next task in a few seconds.
 - **Updates.** The OS, desktop and Chrome come from the image (`VM_IMAGE`). The companion is downloaded from this server whenever a VM boots, so runtime updates need no image rebuild.
 - **Providers.** `VM_DRIVER=fly` uses Fly.io Machines (Firecracker); set `FLY_API_TOKEN`, `FLY_VM_APP` and `VM_IMAGE`. `VM_DRIVER=fake` runs each "VM" as a local process group, for development and `tests/cloudvm-computer.mjs`.
 
@@ -152,7 +156,7 @@ With `desktop`, **Settings → Computer → Use this computer** (or the connect 
 
 Requirements:
 
-- **macOS:** allow the app that runs Grokbot (Terminal, iTerm, Conductor…) in System Settings → Privacy & Security → **Accessibility** (to click and type) and **Screen & System Audio Recording** (to see the screen). macOS asks once to let it control **System Events**, which is used for typing. Restart Grokbot after granting.
+- **macOS:** allow the app that runs Swarm (Terminal, iTerm, Conductor…) in System Settings → Privacy & Security → **Accessibility** (to click and type) and **Screen & System Audio Recording** (to see the screen). macOS asks once to let it control **System Events**, which is used for typing. Restart Swarm after granting.
 - **Linux:** an X11 session (Wayland isn't supported yet) with `xdotool` and ImageMagick (`import`) or `ffmpeg`.
 - Windows isn't supported in desktop mode yet. Use `local` there.
 
@@ -160,7 +164,7 @@ Bots act as you in this mode. They can read and change your files, use your sign
 
 ### 5. Run it by text (optional)
 
-The server owner adds an [Inkbox](https://inkbox.ai) key in **Settings → Messaging** and selects **Set up line**; Inkbox needs to reach `SERVER_URL` over HTTPS. Then share an invite link (`/join/<code>`): people enter their number, tap **Text Grokbot**, and their account is created when the text arrives. Existing web users connect their phone with a link code. Details in the [messaging guide](docs/messaging.md).
+The server owner adds an [Inkbox](https://inkbox.ai) key in **Settings → Messaging** and selects **Set up line**; Inkbox needs to reach `SERVER_URL` over HTTPS. Then share an invite link (`/join/<code>`): people enter their number, tap **Text Swarm**, and their account is created when the text arrives. Existing web users connect their phone with a link code. Details in the [messaging guide](docs/messaging.md).
 
 ### Run a built version
 
@@ -177,14 +181,14 @@ The API serves the built app at **[localhost:8787](http://localhost:8787)**. Set
 | --- | --- |
 | Web app | React, TypeScript, Vite, and Zustand |
 | Server | Node.js, Hono, SQLite, and Server-Sent Events |
-| Agent runtime | Grok Responses API with streaming, tools, memory, and approval handling |
+| Agent runtime | Model Responses API with streaming, tools, memory, and approval handling |
 | Computers | Pluggable providers: your PC's full desktop (CoreGraphics on macOS, xdotool on Linux) or a browser on your PC (Chrome DevTools protocol), both through the companion, or Orgo VMs with per-Bot desktops; noVNC viewer through the server |
 | Connected apps | Composio catalog, sessions, authentication, tools, and triggers |
-| Voice | Grok realtime sessions with a relay into the text agent's task loop |
+| Voice | realtime sessions with a relay into the text agent's task loop |
 
 The server owns the agent loop. It builds context, streams a model response, executes tools, pauses for approvals when required, and continues until the task is done. Voice hands work to that same loop.
 
-For the details, read the [architecture guide](docs/ARCHITECTURE.md), [Orgo integration guide](docs/orgo-builder-guide.md), and [Grok and Composio integration guide](docs/xai-and-composio.md).
+For the details, read the [architecture guide](docs/ARCHITECTURE.md), [Orgo integration guide](docs/orgo-builder-guide.md), and [Model and Composio integration guide](docs/model-and-composio.md).
 
 ## Development
 
@@ -216,18 +220,18 @@ node tests/e2e.mjs http://localhost:8787
 
 The suite creates a temporary Bot and exercises chat, computer tools, the live viewer, search, app connections, voice sessions, groups, and settings. Set `E2E_EMAIL` to choose the test account. It calls real providers and requires Google Chrome at `/usr/bin/google-chrome`.
 
-#### Local computers, without an xAI key
+#### Local computers, without a direct provider key
 
-`tests/mock-xai.mjs` stands in for the Grok API so you can test the computer flow end to end. Start it, point the server at it, and run the local-computer suite:
+`tests/mock-provider.mjs` stands in for the model API so you can test the computer flow end to end. Start it, point the server at it, and run the local-computer suite:
 
 ```bash
-npm run mock:xai &                         # listens on :8790
-# in .env: COMPUTER_PROVIDER=local, XAI_BASE_URL=http://localhost:8790/v1, DEV_LOGIN=1
+npm run mock:provider &                         # listens on :8790
+# in .env: COMPUTER_PROVIDER=local, DIRECT_BASE_URL=http://localhost:8790/v1, DEV_LOGIN=1
 npm run dev -w server & npm run dev -w web &
 npm run test:local                         # node tests/local-computer.mjs
 ```
 
-The suite serves a small test website, pairs a fresh companion, and checks real effects on that site: Bots opening pages, clicking, typing, keys, scrolling, new tabs, dialogs, history, the guard rails, Library files, and the live viewer including **Take control**. With the mock running you can also try it by hand: a chat message containing a URL makes the Bot open it, and a message like `mock: open_browser {"url":"https://example.com"} | computer_screenshot {} | say Done` runs those steps. Remove `XAI_BASE_URL` to use the real Grok API.
+The suite serves a small test website, pairs a fresh companion, and checks real effects on that site: Bots opening pages, clicking, typing, keys, scrolling, new tabs, dialogs, history, the guard rails, Library files, and the live viewer including **Take control**. With the mock running you can also try it by hand: a chat message containing a URL makes the Bot open it, and a message like `mock: open_browser {"url":"https://example.com"} | computer_screenshot {} | say Done` runs those steps. Remove `DIRECT_BASE_URL` to use the real model API.
 
 `tests/desktop-computer.mjs` does the same for `COMPUTER_PROVIDER=desktop` on a Linux X display (for example Xvfb with `xdotool` and ImageMagick). It drives the real desktop through **Use this computer**, opens pages in the default browser, and checks clicks, keys, scrolling, the shell, turn-taking between two Bots, the live viewer and **Take control**. See the comments at the top of the file for the setup.
 
@@ -251,7 +255,7 @@ For the Mac/local launcher, run `./scripts/local.sh` after updating: it rebuilds
 
 ### Contributing
 
-Bug reports, improvements, and pull requests are welcome. For a bug, include the steps to reproduce, expected behavior, Node version, and relevant logs with secrets removed. For larger changes, open an [issue](https://github.com/nickvasilescu/grokbot-clone/issues) first to discuss the approach.
+Bug reports, improvements, and pull requests are welcome. For a bug, include the steps to reproduce, expected behavior, Node version, and relevant logs with secrets removed. For larger changes, open an issue first to discuss the approach.
 
 Keep changes focused, run the typecheck and build, and describe how you verified the affected flow. Never commit API keys, `.env` files, databases, or screenshots containing personal information.
 
@@ -267,4 +271,4 @@ Configuration options for idle suspension, memory consolidation, and history com
 
 Project code is available under the [MIT license](LICENSE). Third-party artwork and trademarks retain their owners' rights; see [third-party notices](THIRD_PARTY_NOTICES.md).
 
-Inspired by Grok Bot. Built with [Grok](https://x.ai), [Orgo](https://orgo.ai), and [Composio](https://composio.dev). This is an independent project, unaffiliated with xAI or Cursor/Anysphere.
+Built by Swarms.so with [Orgo](https://orgo.ai) and [Composio](https://composio.dev).

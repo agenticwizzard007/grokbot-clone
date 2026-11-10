@@ -1,6 +1,6 @@
-# Grokbot cloud VM image: one per user, one screen per Bot (see server/src/computers/cloudvm.ts).
+# Swarm cloud VM image: one per user, one screen per Bot (see server/src/computers/cloudvm.ts).
 # Holds the operating system, the desktop pieces and Chrome. The companion (the runtime that drives
-# the screens) is downloaded from the Grokbot server at every boot, so it updates without a rebuild;
+# the screens) is downloaded from the Swarm server at every boot, so it updates without a rebuild;
 # the copy baked in here is only a fallback.
 #
 #   docker build -t registry.fly.io/<FLY_VM_APP>:<version> -f infra/vm-image/Dockerfile .
@@ -19,14 +19,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && apt-get update && apt-get install -y --no-install-recommends google-chrome-stable nodejs \
   && rm -rf /var/lib/apt/lists/*
 
-# Two users: 'grokbot' runs the companion and alone can read the VM's token;
+# Two users: 'swarm' runs the companion and alone can read the VM's token;
 # 'agent' runs the Bots' shells and browsers (their files live on the volume at /home/agent).
-RUN useradd --system --create-home --home-dir /var/lib/grokbot grokbot \
+RUN useradd --system --create-home --home-dir /var/lib/swarm swarm \
  && useradd --create-home --home-dir /home/agent --shell /bin/bash agent \
- && echo 'grokbot ALL=(agent) NOPASSWD: ALL' > /etc/sudoers.d/grokbot && chmod 440 /etc/sudoers.d/grokbot
+ && echo 'swarm ALL=(agent) NOPASSWD: ALL' > /etc/sudoers.d/swarm && chmod 440 /etc/sudoers.d/swarm
 
-COPY companion/grokbot-companion.mjs /opt/grokbot/companion.mjs
-COPY infra/vm-image/entrypoint.sh /opt/grokbot/entrypoint.sh
-RUN chmod 755 /opt/grokbot/entrypoint.sh
+COPY companion/swarm-companion.mjs /opt/swarm/companion.mjs
+COPY infra/vm-image/entrypoint.sh /opt/swarm/entrypoint.sh
+RUN chmod 755 /opt/swarm/entrypoint.sh
 
-ENTRYPOINT ["/usr/bin/tini", "--", "/opt/grokbot/entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/opt/swarm/entrypoint.sh"]

@@ -55,7 +55,7 @@ ${creationContext(botId).slice(0, 30).reverse().map((m) => `Message ${m.seq}: ${
   const charter = agentsMarkdown(botId);
   const primary = db.prepare("SELECT name FROM bots WHERE user_id=? AND is_primary=1 AND COALESCE(hidden,0)=0 AND COALESCE(kind,'agent')='agent'").get(userId) as { name: string } | undefined;
 
-  return `You are ${bot.name}, a Bot on ${user?.name ?? 'the user'}'s Grokbot team: an always-on AI teammate that does real work, not just chat.
+  return `You are ${bot.name}, a Bot on ${user?.name ?? 'the user'}'s Swarm team: an always-on AI teammate that does real work, not just chat.
 ${bot.label ? `Your job: ${bot.label}.` : ''}${bot.description ? `\nAbout you: ${bot.description}` : ''}${bot.is_primary ? "\nYou are the user's primary Bot: their main point of contact. You check in proactively and coordinate work with the other Bots." : ''}
 ${bot.mode === 'teammate' ? 'You are a team Bot shared with teammates.' : 'You are a personal assistant; what you learn stays private to this user.'}
 
@@ -97,7 +97,7 @@ function textingLine(userId: string) {
   return `- The user also reaches the team by text message. Messages marked [via iMessage] or [via SMS] came from their phone. In a text thread: keep replies short, like a capable friend texting; one idea per message; no Markdown, headings, tables or bold; plain line breaks for lists; ask one question at a time. If a task will take more than a few seconds, first send one short acknowledgement, then do the work, then send the result (a summary, with details on request). Messages marked "voice note" were spoken: your reply may be read aloud as a voice note too, so write it to sound natural when spoken (short sentences, no lists of links; say you've sent a link instead of reading it). Every message you write is sent as a text, so never repeat yourself: if you already wrote your reply before calling a tool (for example to save a memory), end the turn after the tool without writing it again. Your approvals, ask_user questions and app-connection links reach them by text automatically, and your finished replies are sent to them. Don't send them to the web app for things they can do by text: they can switch Bots (/use Name), message any Bot (@Name), activate a new Bot after its setup interview (/activate Name), and get a sign-in link (/web).\n`;
 }
 
-/** First conversation with a new text-first user (adapted from open-instinct's onboarding skill, MIT). */
+/** First conversation with a new text-first user. */
 export function onboardingSection(userId: string, botId: string): string {
   const u = db.prepare('SELECT onboarded_at, signup_source FROM users WHERE id=?').get(userId) as any;
   const bot = getBotRow(botId);

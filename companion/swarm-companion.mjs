@@ -1,16 +1,16 @@
 #!/usr/bin/env node
-// Grokbot companion: lets your Bots use a Chrome browser on this PC, or (with --desktop) the
+// Swarm companion: lets your Bots use a Chrome browser on this PC, or (with --desktop) the
 // whole computer: its screen, mouse, keyboard, apps and a shell.
 //
-//   node grokbot-companion.mjs --server https://your-grokbot.example --token gbc_...
+//   node swarm-companion.mjs --server https://swarm.swarms.so --token swc_...
 //
-// Get the token (and the full command) from Grokbot: Settings → Computer → Connect your PC.
+// Get the token (and the full command) from Swarm: Settings → Computer → Connect your PC.
 // Requires Node.js 22+ and Google Chrome (or Chromium). No other dependencies.
 //
 // What it does:
-// - Connects out to your Grokbot server (no open ports on this PC) and waits for work.
+// - Connects out to your Swarm server (no open ports on this PC) and waits for work.
 // - Starts a separate Chrome per Bot, each with its own profile under --data-dir (default
-//   ~/.grokbot-companion). Your everyday Chrome profile is never touched.
+//   ~/.swarm-companion). Your everyday Chrome profile is never touched.
 // - Drives Chrome through the DevTools protocol over a private pipe (no debugging port).
 //
 // Full desktop (--desktop): Bots see this computer's real screen and use its mouse and keyboard,
@@ -27,8 +27,8 @@
 // - Downloads are blocked and file-upload dialogs never open.
 //
 // Options:
-//   --server URL              Grokbot server URL (or GROKBOT_SERVER)
-//   --token TOKEN             pairing token (or GROKBOT_TOKEN)
+//   --server URL              Swarm server URL (or SWARM_SERVER)
+//   --token TOKEN             pairing token (or SWARM_TOKEN)
 //   --desktop                 give Bots this computer's full desktop and a shell (see above)
 //   --max-width N             full desktop: screenshot width sent to Bots (default 1280)
 //   --multi                   cloud VM mode (Linux): every Bot gets its own virtual screen, Chrome
@@ -38,7 +38,7 @@
 //   --token-file FILE         read the pairing token from a file instead of --token
 //   --headed                  show the Chrome windows instead of running headless
 //   --chrome PATH             Chrome/Chromium executable (or CHROME_PATH)
-//   --data-dir DIR            where Bot profiles live (default ~/.grokbot-companion)
+//   --data-dir DIR            where Bot profiles live (default ~/.swarm-companion)
 //   --allow-private-network   let Bots open localhost / LAN addresses
 //   --no-sandbox              pass --no-sandbox to Chrome (only for containers/root)
 //   --idle-minutes N          close a Bot's browser after N idle minutes (default 30)
@@ -66,21 +66,21 @@ if (flag('help') || flag('h')) {
   console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').filter((l) => l.startsWith('//')).map((l) => l.slice(3)).join('\n'));
   process.exit(0);
 }
-const SERVER = (opt('server', process.env.GROKBOT_SERVER) ?? '').replace(/\/+$/, '');
-const TOKEN_FILE = opt('token-file', process.env.GROKBOT_TOKEN_FILE);
-const TOKEN = opt('token', process.env.GROKBOT_TOKEN) ?? (TOKEN_FILE && fs.existsSync(TOKEN_FILE) ? fs.readFileSync(TOKEN_FILE, 'utf8').trim() : undefined);
+const SERVER = (opt('server', process.env.SWARM_SERVER) ?? '').replace(/\/+$/, '');
+const TOKEN_FILE = opt('token-file', process.env.SWARM_TOKEN_FILE);
+const TOKEN = opt('token', process.env.SWARM_TOKEN) ?? (TOKEN_FILE && fs.existsSync(TOKEN_FILE) ? fs.readFileSync(TOKEN_FILE, 'utf8').trim() : undefined);
 const DESKTOP = flag('desktop');
 const MULTI = flag('multi');
 const HEADED = flag('headed');
-const DATA_DIR = path.resolve(opt('data-dir', path.join(os.homedir(), '.grokbot-companion')));
+const DATA_DIR = path.resolve(opt('data-dir', path.join(os.homedir(), '.swarm-companion')));
 const ALLOW_PRIVATE = flag('allow-private-network');
 const NO_SANDBOX = flag('no-sandbox');
 const IDLE_MS = Number(opt('idle-minutes', '30')) * 60_000;
-/** Set when Grokbot's server started this companion ("Use this computer"): exit when that server is gone. */
+/** Set when Swarm's server started this companion ("Use this computer"): exit when that server is gone. */
 const PARENT_PID = Number(opt('parent-pid', '0')) || 0;
 
 if (!SERVER || !TOKEN) {
-  console.error('Usage: node grokbot-companion.mjs --server <grokbot url> --token <pairing token>\nGet both from Grokbot: Settings → Computer → Connect your PC.');
+  console.error('Usage: node swarm-companion.mjs --server <swarm url> --token <pairing token>\nGet both from Swarm: Settings → Computer → Connect your PC.');
   process.exit(2);
 }
 if (typeof WebSocket !== 'function') {
@@ -529,7 +529,7 @@ class BotBrowser {
     return {};
   }
 
-  // Live viewer input (someone took control in Grokbot).
+  // Live viewer input (someone took control in Swarm).
   async input(p) {
     if (p.kind === 'mouse') {
       await this.mouse(p.type, p.x, p.y, { button: p.button ?? 'none', buttons: p.buttons ?? 0, clickCount: p.clickCount ?? (p.type === 'mouseMoved' ? 0 : 1) });
@@ -670,8 +670,8 @@ function run(argv) {
   return 'ok';
 }`;
 
-const MAC_NO_AX = "macOS hasn't given this app Accessibility permission, so Bots can't click or type. Open System Settings → Privacy & Security → Accessibility, turn on the app that runs Grokbot (Terminal, iTerm, Conductor…), then try again.";
-const MAC_NO_SCREEN = "macOS blocked the screenshot. Open System Settings → Privacy & Security → Screen & System Audio Recording, turn on the app that runs Grokbot (Terminal, iTerm, Conductor…), then restart Grokbot.";
+const MAC_NO_AX = "macOS hasn't given this app Accessibility permission, so Bots can't click or type. Open System Settings → Privacy & Security → Accessibility, turn on the app that runs Swarm (Terminal, iTerm, Conductor…), then try again.";
+const MAC_NO_SCREEN = "macOS blocked the screenshot. Open System Settings → Privacy & Security → Screen & System Audio Recording, turn on the app that runs Swarm (Terminal, iTerm, Conductor…), then restart Swarm.";
 let shotSeq = 0;
 
 const macBackend = {
@@ -681,7 +681,7 @@ const macBackend = {
     return JSON.parse(out.toString());
   },
   async capture(width, quality) {
-    const tmp = path.join(os.tmpdir(), `grokbot-shot-${process.pid}-${++shotSeq}`);
+    const tmp = path.join(os.tmpdir(), `swarm-shot-${process.pid}-${++shotSeq}`);
     try {
       await exec('/usr/sbin/screencapture', ['-x', '-m', '-t', 'jpg', `${tmp}.jpg`], { timeoutMs: 20_000 }).catch((e) => { throw new Error(`${MAC_NO_SCREEN} (${e.message})`); });
       if (!fs.existsSync(`${tmp}.jpg`)) throw new Error(MAC_NO_SCREEN);
@@ -1225,7 +1225,7 @@ setInterval(async () => {
   }
 }, 60_000).unref();
 
-// ---------- connection to Grokbot ----------
+// ---------- connection to Swarm ----------
 
 const wsUrl = `${SERVER.replace(/^http/, 'ws')}/api/companion`;
 let backoff = 1000;
@@ -1242,18 +1242,18 @@ function connect() {
     if (msg.type === 'welcome') {
       backoff = 1000;
       if (MULTI && msg.mode !== 'multi') {
-        console.error('This Grokbot server is not set up for cloud VMs (COMPUTER_PROVIDER=cloudvm); --multi is refused.');
+        console.error('This Swarm server is not set up for cloud VMs (COMPUTER_PROVIDER=cloudvm); --multi is refused.');
         shutdown(1);
         return;
       }
       if (MULTI) log(`Connected to ${SERVER}. Cloud VM ready: one screen per Bot.`);
       else if (DESKTOP && msg.mode !== 'desktop') {
-        console.error('This Grokbot server gives Bots a browser only (COMPUTER_PROVIDER=local). Start the companion without --desktop, or set COMPUTER_PROVIDER=desktop on the server.');
+        console.error('This Swarm server gives Bots a browser only (COMPUTER_PROVIDER=local). Start the companion without --desktop, or set COMPUTER_PROVIDER=desktop on the server.');
         shutdown(1);
         return;
       }
       else if (DESKTOP) log(`Connected to ${SERVER}. Your Bots can now use this computer's desktop (${desktop.b.name}, ${desktop.logical.w}x${desktop.logical.h}) and a shell. Press Ctrl+C to stop.`);
-      else log(`Connected to ${SERVER}. Your Bots can now use a browser on this PC${HEADED ? '' : ' (headless; watch it from Grokbot)'}. Press Ctrl+C to stop.`);
+      else log(`Connected to ${SERVER}. Your Bots can now use a browser on this PC${HEADED ? '' : ' (headless; watch it from Swarm)'}. Press Ctrl+C to stop.`);
       reportBrowsers();
       return;
     }
@@ -1261,8 +1261,8 @@ function connect() {
   };
   ws.onclose = (ev) => {
     if (socket === ws) socket = null;
-    if (ev.code === 4401) { console.error('Grokbot rejected the pairing token. Get a new command from Settings → Computer → Connect your PC.'); shutdown(1); return; }
-    if (ev.code === 4403) { console.error(ev.reason || 'Grokbot refused this companion.'); shutdown(1); return; }
+    if (ev.code === 4401) { console.error('Swarm rejected the pairing token. Get a new command from Settings → Computer → Connect your PC.'); shutdown(1); return; }
+    if (ev.code === 4403) { console.error(ev.reason || 'Swarm refused this companion.'); shutdown(1); return; }
     if (ev.code === 4409) { console.error('Another companion connected with this account, so this one is stopping.'); shutdown(1); return; }
     log(`Disconnected (${ev.code}${ev.reason ? ` ${ev.reason}` : ''}). Reconnecting in ${Math.round(backoff / 1000)}s…`);
     setTimeout(connect, backoff);
@@ -1292,11 +1292,11 @@ process.on('SIGTERM', () => void shutdown(0));
 
 if (PARENT_PID) {
   setInterval(() => {
-    try { process.kill(PARENT_PID, 0); } catch { log('Grokbot server stopped; stopping too.'); void shutdown(0); }
+    try { process.kill(PARENT_PID, 0); } catch { log('Swarm server stopped; stopping too.'); void shutdown(0); }
   }, 3000).unref();
 }
 
-if (MULTI) log(`Grokbot companion ${VERSION} · CLOUD VM: one screen per Bot${RUN_AS ? ` · Bots run as ${RUN_AS}` : ''} · files in ${AGENT_HOME}`);
-else if (DESKTOP) log(`Grokbot companion ${VERSION} · FULL DESKTOP: Bots can see this screen, use the mouse and keyboard, and run shell commands as ${os.userInfo().username}`);
-else log(`Grokbot companion ${VERSION} · Chrome: ${CHROME} · profiles: ${path.join(DATA_DIR, 'profiles')}${ALLOW_PRIVATE ? ' · local network ALLOWED' : ''}`);
+if (MULTI) log(`Swarm companion ${VERSION} · CLOUD VM: one screen per Bot${RUN_AS ? ` · Bots run as ${RUN_AS}` : ''} · files in ${AGENT_HOME}`);
+else if (DESKTOP) log(`Swarm companion ${VERSION} · FULL DESKTOP: Bots can see this screen, use the mouse and keyboard, and run shell commands as ${os.userInfo().username}`);
+else log(`Swarm companion ${VERSION} · Chrome: ${CHROME} · profiles: ${path.join(DATA_DIR, 'profiles')}${ALLOW_PRIVATE ? ' · local network ALLOWED' : ''}`);
 connect();

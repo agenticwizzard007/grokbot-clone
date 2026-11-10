@@ -119,7 +119,7 @@ export function ensureVm(userId: string): Promise<VmRow> {
       } else {
         const info = await driver.get(vm.ext_id);
         if (!info) {
-          // Deleted outside Grokbot: forget it and start over with a fresh VM.
+          // Deleted outside Swarm: forget it and start over with a fresh VM.
           console.warn(`[cloudvm] VM ${vm.ext_id} for user=${userId} is gone; recreating`);
           db.prepare('UPDATE vms SET ext_id=NULL WHERE vm_id=?').run(vm.vm_id);
           inflight.delete(userId);
@@ -172,7 +172,7 @@ export async function destroyVm(vmId: string) {
   if (vm.user_id) hub.emit(vm.user_id, { type: 'computer', state: state(vm.user_id) });
 }
 
-/** Grow (or shrink) the VM to fit the user's Bots: one screen each. Restarts the VM if it's running. */
+/** Grow (or shrink) the VM to fit the user's Bots: one screen each. Called while the VM sleeps; applies at its next boot. */
 export async function resizeVm(userId: string) {
   const vm = vmFor(userId);
   if (!vm?.ext_id) return;
@@ -180,7 +180,8 @@ export async function resizeVm(userId: string) {
   if (size.memoryMb === vm.memory_mb && size.cpus === vm.cpus) return;
   console.log(`[cloudvm] resizing VM for user=${userId}: ${vm.memory_mb} → ${size.memoryMb} MB, ${size.cpus} vCPU`);
   await driver.resize(vm.ext_id, size.memoryMb, size.cpus);
-  db.prepare('UPDATE vms SET memory_mb=?, cpus=?, updated_at=? WHERE vm_id=?').run(size.memoryMb, size.cpus, now(), vm.vm_id);
+  // A resized VM boots fresh next time (its suspended memory is discarded).
+  db.prepare("UPDATE vms SET memory_mb=?, cpus=?, status='stopped', updated_at=? WHERE vm_id=?").run(size.memoryMb, size.cpus, now(), vm.vm_id);
 }
 
 // ---------- the provider ----------

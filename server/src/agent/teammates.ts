@@ -80,7 +80,7 @@ export async function createTeammate(raw: unknown, ctx: ToolCtx): Promise<ToolRe
 }
 
 export const manifestSchema = z.object({
-  format: z.literal('grokbot.bot-setup'), version: z.union([z.literal(1), z.literal(2)]), brief: briefSchema,
+  format: z.literal('swarm.bot-setup'), version: z.union([z.literal(1), z.literal(2)]), brief: briefSchema,
   bot: z.object({
     name: z.string().trim().min(1).max(60), label: z.string().max(40), description: z.string().max(300), instructions: z.string().max(8000),
     avatarShape: z.string(), avatarColor: z.string(), mode: z.enum(['personal', 'teammate']), effort: z.enum(['low', 'medium', 'high', 'xhigh']),

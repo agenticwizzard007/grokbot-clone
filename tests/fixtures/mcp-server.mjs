@@ -8,7 +8,7 @@ import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprot
 function server() {
   const s = new Server({ name: 'fixture', version: '1' }, { capabilities: { tools: {} } });
   s.setRequestHandler(ListToolsRequestSchema, async req => req.params?.cursor ? { tools: [{ name: 'fail', description: 'Returns a tool error.', inputSchema: { type: 'object', properties: {} } }] } : { tools: [{ name: 'echo', description: 'Echoes the supplied message.', inputSchema: { type: 'object', properties: { message: { type: 'string' } }, required: ['message'] } }], nextCursor: 'page2' });
-  s.setRequestHandler(CallToolRequestSchema, async req => req.params.name === 'fail' ? { isError: true, content: [{ type: 'text', text: 'Fixture failure secret-fixture-token' }] } : { content: [{ type: 'text', text: `MCP says: ${req.params.arguments?.message}; env=${process.env.MCP_FIXTURE_VALUE ?? 'none'}; inherited=${!!process.env.XAI_API_KEY}` }] });
+  s.setRequestHandler(CallToolRequestSchema, async req => req.params.name === 'fail' ? { isError: true, content: [{ type: 'text', text: 'Fixture failure secret-fixture-token' }] } : { content: [{ type: 'text', text: `MCP says: ${req.params.arguments?.message}; env=${process.env.MCP_FIXTURE_VALUE ?? 'none'}; inherited=${!!process.env.DIRECT_API_KEY}` }] });
   return s;
 }
 if (process.argv[2] === 'stdio') await server().connect(new StdioServerTransport());

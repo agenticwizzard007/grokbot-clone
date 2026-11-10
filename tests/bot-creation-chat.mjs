@@ -7,7 +7,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
-const root = fs.mkdtempSync(path.join(os.tmpdir(), 'grokbot-chat-'));
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-chat-'));
 const children = [];
 const logs = [];
 let browser;
@@ -18,16 +18,16 @@ const base = `http://127.0.0.1:${apiPort}`; const mock = `http://127.0.0.1:${moc
 function start(args, env = {}) { const p = spawn(process.execPath, args, { env: { ...process.env, ...env }, stdio: ['ignore','pipe','pipe'] }); children.push(p); p.stdout.on('data', (d) => logs.push(String(d))); p.stderr.on('data', (d) => logs.push(String(d))); return p; }
 async function until(fn, timeout = 30000) { const end = Date.now()+timeout; while (Date.now()<end) { const value = await fn().catch(() => null); if (value) return value; await sleep(150); } throw new Error('Timed out'); }
 try {
-  start(['tests/mock-xai.mjs', String(mockPort)]);
+  start(['tests/mock-provider.mjs', String(mockPort)]);
   await until(async () => (await fetch(`${mock}/v1/models`)).ok);
-  start(['--import', 'tsx', 'server/src/index.ts'], { DB_PATH: path.join(root, 'app.db'), FILES_DIR: path.join(root, 'files'), SESSION_SECRET: 'isolated-test-only', COMPUTER_PROVIDER: 'local', DEV_LOGIN: '1', PORT: String(apiPort), APP_URL: base, SERVER_URL: base, XAI_API_KEY: 'mock-key', XAI_BASE_URL: `${mock}/v1`, OPENROUTER_API_KEY: '', COMPOSIO_API_KEY: '', LLM_PROVIDER: 'xai', GROKBOT_NO_SCHEDULER: '1', MEMORY_CONSOLIDATE_IDLE_MINUTES: '0' });
+  start(['--import', 'tsx', 'server/src/index.ts'], { DB_PATH: path.join(root, 'app.db'), FILES_DIR: path.join(root, 'files'), SESSION_SECRET: 'isolated-test-only', COMPUTER_PROVIDER: 'local', DEV_LOGIN: '1', PORT: String(apiPort), APP_URL: base, SERVER_URL: base, DIRECT_API_KEY: 'mock-key', DIRECT_BASE_URL: `${mock}/v1`, OPENROUTER_API_KEY: '', COMPOSIO_API_KEY: '', LLM_PROVIDER: 'direct', SWARM_NO_SCHEDULER: '1', MEMORY_CONSOLIDATE_IDLE_MINUTES: '0' });
   await until(async () => (await fetch(`${base}/api/health`)).ok);
   const login = await fetch(`${base}/api/auth/dev`, { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({email:'isolated@example.com'}) });
   const cookie = login.headers.get('set-cookie').split(';')[0];
   async function api(url, method='GET', body) { const r = await fetch(`${base}/api${url}`, { method, headers:{cookie,'content-type':'application/json'}, body: body === undefined ? undefined : JSON.stringify(body) }); const text = await r.text(); assert.ok(r.ok, `${method} ${url}: ${r.status} ${text}`); return JSON.parse(text); }
   const primary = (await api('/bots')).bots.find((b) => b.isPrimary);
   const pair = await api('/computer/pair','POST');
-  start(['companion/grokbot-companion.mjs', '--server', base, '--token', pair.token, '--data-dir', path.join(root, 'companion')], { COMPANION_NO_SANDBOX: '1' });
+  start(['companion/swarm-companion.mjs', '--server', base, '--token', pair.token, '--data-dir', path.join(root, 'companion')], { COMPANION_NO_SANDBOX: '1' });
   await until(async () => (await api('/computer')).computer.status === 'running');
   async function chat(id,text) { const {row}=await api(`/bots/${id}/messages`,'POST',{text}); return await until(async () => { const {rows}=await api(`/bots/${id}/rows`); const newer=rows.filter((r)=>r.seq>row.seq); const notice=newer.find((r)=>r.kind==='notice'); if(notice) throw new Error(notice.body.text); const done=newer.find((r)=>r.kind==='message'&&r.body.role==='assistant'&&!r.body.streaming); return done && {row, rows:newer,reply:done.body.text}; },60000); }
   const brief = await chat(primary.id, 'Create a LinkedIn research teammate who owns three sourced leads per week for Acme, never sends outreach, and reports to Quinn.\nmock: say I cannot create teammates from this chat.');
@@ -51,7 +51,7 @@ try {
   // Exercise the real side panel, document reader and revision-specific activation.
   browser = await chromium.launch({executablePath:process.env.CHROME_PATH || '/usr/bin/google-chrome', args:['--no-sandbox']});
   const context = await browser.newContext({viewport:{width:1440,height:1000}});
-  await context.addCookies([{name:'grokbot_session',value:cookie.slice(cookie.indexOf('=')+1),url:base}]);
+  await context.addCookies([{name:'swarm_session',value:cookie.slice(cookie.indexOf('=')+1),url:base}]);
   const page = await context.newPage(); await page.goto(base);
   await page.locator('.bot-row').filter({hasText:'Nia · LinkedIn Research'}).click();
   // Opening the chat pill reveals the details panel if it is closed.

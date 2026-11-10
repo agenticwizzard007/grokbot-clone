@@ -1,4 +1,4 @@
-// Grokbot end-to-end smoke test (real backend, real Grok 4.7, real Orgo computer).
+// Swarm end-to-end smoke test (real backend, real model provider, real Orgo computer).
 // Usage: node tests/e2e.mjs [baseUrl]   (default http://localhost:8787)
 // Creates a throwaway "QA" bot on the dev account, exercises the core flows, then deletes it.
 import { chromium } from 'playwright';
@@ -23,14 +23,14 @@ const step = async (name, fn) => {
 };
 
 const login = await fetch(`${BASE}/api/auth/dev`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: process.env.E2E_EMAIL ?? 'dev@example.com', name: 'Dev' }) });
-const cookie = (login.headers.get('set-cookie') ?? '').match(/grokbot_session=([^;]+)/)?.[1];
+const cookie = (login.headers.get('set-cookie') ?? '').match(/swarm_session=([^;]+)/)?.[1];
 if (!cookie) throw new Error('dev login failed: ' + login.status);
-const api = (p, init = {}) => fetch(`${BASE}${p}`, { ...init, headers: { 'content-type': 'application/json', cookie: `grokbot_session=${cookie}`, ...(init.headers ?? {}) } });
+const api = (p, init = {}) => fetch(`${BASE}${p}`, { ...init, headers: { 'content-type': 'application/json', cookie: `swarm_session=${cookie}`, ...(init.headers ?? {}) } });
 
 const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
 const ctx = await browser.newContext({ viewport: { width: 1512, height: 864 } });
 const host = new URL(BASE).hostname;
-await ctx.addCookies([{ name: 'grokbot_session', value: cookie, domain: host, path: '/' }]);
+await ctx.addCookies([{ name: 'swarm_session', value: cookie, domain: host, path: '/' }]);
 const page = await ctx.newPage();
 const consoleErrors = [];
 page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
@@ -68,15 +68,15 @@ const waitReply = async (re, timeout) => {
   );
 };
 
-await step('chat reply streams (grok-4.7)', async () => {
+await step('chat reply streams (openai/gpt-4.1)', async () => {
   await send('What is 17 times 3? Reply with only the number immediately followed by -e2e (no spaces).');
   await waitReply(/\b51-e2e/, 90000);
   await shot('03-chat');
 });
 
 await step('bot uses its own computer (shell on its screen)', async () => {
-  await send('Use your shell tool to run `echo grokbot-$((40+2))-e2e` and reply with only the output.');
-  await waitReply(/grokbot-42-e2e/, 240000);
+  await send('Use your shell tool to run `echo swarm-$((40+2))-e2e` and reply with only the output.');
+  await waitReply(/swarm-42-e2e/, 240000);
   const comp = await (await api('/api/computer')).json();
   if (!comp.computer.screens.some((s) => s.botId === botId)) throw new Error('no screen leased for QA bot');
   await shot('04-computer-tool');
@@ -119,7 +119,7 @@ await step('voice: session secret + realtime greeting audio', async () => {
   if (!sess.clientSecret) throw new Error('no client secret: ' + JSON.stringify(sess).slice(0, 200));
   const { default: WebSocket } = await import('ws');
   const audioChunks = await new Promise((resolve, reject) => {
-    const ws = new WebSocket(sess.websocketUrl, [`xai-client-secret.${sess.clientSecret}`]);
+    const ws = new WebSocket(sess.websocketUrl, [`direct-client-secret.${sess.clientSecret}`]);
     let n = 0;
     const t = setTimeout(() => { ws.close(); n ? resolve(n) : reject(new Error('no audio within 25s')); }, 25000);
     ws.on('open', () => {

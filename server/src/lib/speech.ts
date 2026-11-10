@@ -10,16 +10,16 @@ import { env } from '../env.js';
  * Speech for Bots: transcription (voice notes, dictation) and text-to-speech (voice replies, previews).
  *
  * OpenRouter first, when its key is set: POST /audio/transcriptions and /audio/speech, so one key covers models,
- * hearing and speaking. xAI's /stt and /tts are the fallback (and are used when only an xAI key is set).
- * Live voice calls are separate: they need xAI's realtime API (voice.ts).
+ * hearing and speaking. A direct provider's /stt and /tts are the fallback when only a direct provider key is set.
+ * Live voice calls are separate: they need direct provider's realtime API (voice.ts).
  */
 
 export const STT_MODEL = () => process.env.OPENROUTER_STT_MODEL || 'openai/gpt-4o-mini-transcribe';
-/** Grok's own voices through OpenRouter, so a Bot sounds the same in texts as on a live call. */
-export const TTS_MODEL = () => process.env.OPENROUTER_TTS_MODEL || 'x-ai/grok-voice-tts-1.0';
-const XAI_STT_MODEL = () => process.env.XAI_STT_MODEL ?? 'grok-voice-transcribe-2.0';
+/** model's own voices through OpenRouter, so a Bot sounds the same in texts as on a live call. */
+export const TTS_MODEL = () => process.env.OPENROUTER_TTS_MODEL || 'openai/gpt-4o-mini-tts';
+const DIRECT_STT_MODEL = () => process.env.DIRECT_STT_MODEL ?? 'audio-transcribe-latest';
 
-/** Grok voices (the same ids Bots use for live calls; see voice.ts). */
+/** provider voices (the same ids Bots use for live calls; see voice.ts). */
 export const TTS_VOICES = ['altair', 'ara', 'atlas', 'aurora', 'carina', 'castor', 'celeste', 'cosmo', 'eve', 'helios', 'helix', 'iris', 'kepler', 'leo',
   'liora', 'lumen', 'luna', 'lux', 'naksh', 'orion', 'perseus', 'rex', 'rigel', 'sal', 'sirius', 'ursa', 'zagan', 'zenith'];
 export const DEFAULT_TTS_VOICE = 'luna';
@@ -30,11 +30,11 @@ export class SpeechUnavailable extends Error {}
 
 export function speechStatus() {
   const or = !!env.openrouterKey;
-  const xai = !!env.xaiKey;
+  const direct = !!env.directKey;
   return {
-    transcription: or ? 'openrouter' : xai ? 'xai' : null,
-    speech: or ? 'openrouter' : xai ? 'xai' : null,
-    sttModel: or ? STT_MODEL() : xai ? XAI_STT_MODEL() : null,
+    transcription: or ? 'openrouter' : direct ? 'direct' : null,
+    speech: or ? 'openrouter' : direct ? 'direct' : null,
+    sttModel: or ? STT_MODEL() : direct ? DIRECT_STT_MODEL() : null,
     ttsModel: or ? TTS_MODEL() : null,
   } as const;
 }
@@ -66,7 +66,7 @@ function ffmpeg(): string | null {
 export async function toMp3(a: Audio): Promise<Audio> {
   const bin = ffmpeg();
   if (!bin) throw new SpeechUnavailable(`can't read ${baseMime(a.mime)} audio (no ffmpeg on this server)`);
-  const tmp = path.join(os.tmpdir(), `grokbot-audio-${crypto.randomBytes(6).toString('hex')}`);
+  const tmp = path.join(os.tmpdir(), `swarm-audio-${crypto.randomBytes(6).toString('hex')}`);
   fs.writeFileSync(tmp, a.data, { mode: 0o600 });
   try {
     const out = await new Promise<Buffer>((resolve, reject) => {
@@ -95,24 +95,24 @@ async function openrouterTranscribe(a: Audio, language?: string): Promise<string
   return String(((await r.json()) as { text?: string }).text ?? '').trim();
 }
 
-async function xaiTranscribe(a: Audio, language?: string): Promise<string> {
+async function directTranscribe(a: Audio, language?: string): Promise<string> {
   const form = new FormData();
-  form.append('model', XAI_STT_MODEL());
+  form.append('model', DIRECT_STT_MODEL());
   if (language && /^[a-z]{2}$/.test(language)) form.append('language', language);
   const ext = formatFor(a.mime) ?? (baseMime(a.mime).includes('caf') ? 'caf' : 'audio');
   form.append('file', new Blob([new Uint8Array(a.data)], { type: baseMime(a.mime) }), `voice.${ext}`); // must be last
-  const r = await fetch(`${env.xaiBaseUrl}/stt`, { method: 'POST', headers: { Authorization: `Bearer ${env.xaiKey}` }, body: form, signal: AbortSignal.timeout(60_000) });
-  if (!r.ok) throw new Error(`xAI transcription failed (${r.status}): ${(await r.text().catch(() => '')).slice(0, 200)}`);
+  const r = await fetch(`${env.directBaseUrl}/stt`, { method: 'POST', headers: { Authorization: `Bearer ${env.directKey}` }, body: form, signal: AbortSignal.timeout(60_000) });
+  if (!r.ok) throw new Error(`direct provider transcription failed (${r.status}): ${(await r.text().catch(() => '')).slice(0, 200)}`);
   return String(((await r.json()) as { text?: string }).text ?? '').trim();
 }
 
 /** Transcribe a recording. Throws SpeechUnavailable when no provider is set up; tries the other provider on failure. */
 export async function transcribe(a: Audio, opts: { language?: string } = {}): Promise<string> {
-  const order = [env.openrouterKey ? 'openrouter' : null, env.xaiKey ? 'xai' : null].filter(Boolean) as ('openrouter' | 'xai')[];
-  if (!order.length) throw new SpeechUnavailable('Voice notes need an OpenRouter or xAI key on this server.');
+  const order = [env.openrouterKey ? 'openrouter' : null, env.directKey ? 'direct' : null].filter(Boolean) as ('openrouter' | 'direct')[];
+  if (!order.length) throw new SpeechUnavailable('Voice notes need an OpenRouter or direct provider key on this server.');
   let last: unknown;
   for (const p of order) {
-    try { return p === 'openrouter' ? await openrouterTranscribe(a, opts.language) : await xaiTranscribe(a, opts.language); }
+    try { return p === 'openrouter' ? await openrouterTranscribe(a, opts.language) : await directTranscribe(a, opts.language); }
     catch (e) { last = e; console.warn(`[speech] ${p} transcription failed: ${(e as Error).message}`); }
   }
   throw last;
@@ -133,20 +133,20 @@ async function openrouterSpeak(text: string, voice: string, format: 'mp3' | 'pcm
   return { data, mime: format === 'pcm' ? 'audio/pcm;rate=24000' : 'audio/mpeg' };
 }
 
-async function xaiSpeak(text: string, voice: string, format: 'mp3' | 'pcm'): Promise<Audio> {
-  const r = await fetch(`${env.xaiBaseUrl}/tts`, {
+async function directSpeak(text: string, voice: string, format: 'mp3' | 'pcm'): Promise<Audio> {
+  const r = await fetch(`${env.directBaseUrl}/tts`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${env.xaiKey}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${env.directKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, voice_id: voice, output_format: { codec: format, sample_rate: 24000 } }),
     signal: AbortSignal.timeout(60_000),
   });
-  if (!r.ok) throw new Error(`xAI speech failed (${r.status}): ${(await r.text().catch(() => '')).slice(0, 200)}`);
+  if (!r.ok) throw new Error(`direct provider speech failed (${r.status}): ${(await r.text().catch(() => '')).slice(0, 200)}`);
   return { data: Buffer.from(await r.arrayBuffer()), mime: format === 'pcm' ? 'audio/pcm;rate=24000' : 'audio/mpeg' };
 }
 
-/** Speak text. `voice` is an OpenRouter TTS voice (or an xAI voice id when only xAI is set up). */
+/** Speak text. `voice` is an OpenRouter TTS voice (or a direct provider voice id when only direct provider is set up). */
 export async function synthesize(text: string, voice: string, format: 'mp3' | 'pcm' = 'mp3'): Promise<Audio> {
   if (env.openrouterKey) return openrouterSpeak(text, voice, format);
-  if (env.xaiKey) return xaiSpeak(text, voice, format);
-  throw new SpeechUnavailable('Voice replies need an OpenRouter or xAI key on this server.');
+  if (env.directKey) return directSpeak(text, voice, format);
+  throw new SpeechUnavailable('Voice replies need an OpenRouter or direct provider key on this server.');
 }

@@ -61,5 +61,5 @@ export function openPopup(url: string) {
   const w = 520, h = 680;
   const left = window.screenX + (window.outerWidth - w) / 2;
   const top = window.screenY + (window.outerHeight - h) / 2;
-  return window.open(url, 'grokbot-connect', `width=${w},height=${h},left=${left},top=${top}`);
+  return window.open(url, 'swarm-connect', `width=${w},height=${h},left=${left},top=${top}`);
 }

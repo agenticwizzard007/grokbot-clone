@@ -6,7 +6,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
-const root=fs.mkdtempSync(path.join(os.tmpdir(),'grokbot-mcp-chat-'));
+const root=fs.mkdtempSync(path.join(os.tmpdir(),'swarm-mcp-chat-'));
 const children=[], logs=[];let browser;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function port(){const s=net.createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const p=s.address().port;await new Promise(r=>s.close(r));return p;}
@@ -15,15 +15,15 @@ async function until(fn){for(let i=0;i<200;i++){const v=await fn();if(v)return v
 const apiPort=await port(), mockPort=await port(), mcpPort=await port();
 const base=`http://127.0.0.1:${apiPort}`;
 try{
- start(['tests/mock-xai.mjs',String(mockPort)]);start(['tests/fixtures/mcp-server.mjs',String(mcpPort)]);
- start(['--import','tsx','server/src/index.ts'],{DB_PATH:path.join(root,'app.db'),FILES_DIR:path.join(root,'files'),SESSION_SECRET:'mcp-test',COMPUTER_PROVIDER:'local',DEV_LOGIN:'1',PORT:String(apiPort),APP_URL:base,SERVER_URL:base,XAI_API_KEY:'mock-key',XAI_BASE_URL:`http://127.0.0.1:${mockPort}/v1`,OPENROUTER_API_KEY:'',COMPOSIO_API_KEY:'',LLM_PROVIDER:'xai',GROKBOT_NO_SCHEDULER:'1',WHATSAPP_DISABLED:'1',MEMORY_CONSOLIDATE_IDLE_MINUTES:'0',ADMIN_EMAILS:''});
+ start(['tests/mock-provider.mjs',String(mockPort)]);start(['tests/fixtures/mcp-server.mjs',String(mcpPort)]);
+ start(['--import','tsx','server/src/index.ts'],{DB_PATH:path.join(root,'app.db'),FILES_DIR:path.join(root,'files'),SESSION_SECRET:'mcp-test',COMPUTER_PROVIDER:'local',DEV_LOGIN:'1',PORT:String(apiPort),APP_URL:base,SERVER_URL:base,DIRECT_API_KEY:'mock-key',DIRECT_BASE_URL:`http://127.0.0.1:${mockPort}/v1`,OPENROUTER_API_KEY:'',COMPOSIO_API_KEY:'',LLM_PROVIDER:'direct',SWARM_NO_SCHEDULER:'1',WHATSAPP_DISABLED:'1',MEMORY_CONSOLIDATE_IDLE_MINUTES:'0',ADMIN_EMAILS:''});
  await until(()=>fetch(base+'/api/health').then(r=>r.ok).catch(()=>false));
  const login=await fetch(base+'/api/auth/dev',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:'mcp-test@example.com'})});
  const cookie=login.headers.get('set-cookie').split(';')[0];
  async function api(url,method='GET',body){const r=await fetch(base+'/api'+url,{method,headers:{cookie,'content-type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});const text=await r.text();assert.ok(r.ok,`${method} ${url}: ${r.status} ${text}`);return JSON.parse(text);}
  const chief=(await api('/bots')).bots.find(b=>b.isPrimary);
  browser=await chromium.launch({executablePath:process.env.CHROME_PATH||'/usr/bin/google-chrome',args:['--no-sandbox']});
- const ctx=await browser.newContext({viewport:{width:1440,height:1000}});await ctx.addCookies([{name:'grokbot_session',value:cookie.slice(cookie.indexOf('=')+1),url:base}]);
+ const ctx=await browser.newContext({viewport:{width:1440,height:1000}});await ctx.addCookies([{name:'swarm_session',value:cookie.slice(cookie.indexOf('=')+1),url:base}]);
  const page=await ctx.newPage();const errors=[];page.on('pageerror',e=>errors.push(String(e)));
  await page.goto(base+'/#settings/mcp');
  await page.getByRole('button',{name:'Add MCP server',exact:true}).click();

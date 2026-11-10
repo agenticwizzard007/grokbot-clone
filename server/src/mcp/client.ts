@@ -40,7 +40,7 @@ async function connect(s: McpServer): Promise<Client> {
     : c.transport === 'sse'
       ? new SSEClientTransport(new URL(c.url), { requestInit, fetch: remoteFetch, eventSourceInit: { fetch: (url, init) => remoteFetch(url, { ...init, headers }) } })
       : new StreamableHTTPClientTransport(new URL(c.url), { requestInit, fetch: remoteFetch });
-  const client = new Client({ name: 'grokbot', version: '1.0.0' }, { capabilities: {} });
+  const client = new Client({ name: 'swarm', version: '1.0.0' }, { capabilities: {} });
   // Limit the handshake as well as the JSON-RPC request (a hung HTTP endpoint can
   // otherwise block transport.start before the SDK's request timeout begins).
   let timer: ReturnType<typeof setTimeout> | undefined;

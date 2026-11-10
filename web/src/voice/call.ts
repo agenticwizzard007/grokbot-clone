@@ -1,4 +1,4 @@
-// The in-browser voice agent. Grok Bot runs calls as a second, lightweight agent against the xAI realtime
+// The in-browser voice agent. Swarm runs calls as a second, lightweight agent against the direct provider realtime
 // API that speaks as the bot and relays real work to the bot's main text agent (send_task). Results come
 // back through the normal transcript stream and are injected into the call as [work_landed] notes.
 import { create } from 'zustand';
@@ -117,7 +117,7 @@ class VoiceCall {
   }
 
   private connect(sess: VoiceSession) {
-    const ws = new WebSocket(sess.websocketUrl, [`xai-client-secret.${sess.clientSecret}`]);
+    const ws = new WebSocket(sess.websocketUrl, [`direct-client-secret.${sess.clientSecret}`]);
     this.ws = ws;
     this.connectTimer = setTimeout(() => { if (!this.ready) this.end('Couldn’t connect the call'); }, 15000);
     ws.onopen = () => this.send({ type: 'session.update', session: sess.session });
@@ -186,7 +186,7 @@ class VoiceCall {
         }
         return;
       }
-      // xAI sends the cumulative transcript in `.updated`; OpenAI sends `.delta` increments.
+      // direct provider sends the cumulative transcript in `.updated`; OpenAI sends `.delta` increments.
       case 'conversation.item.input_audio_transcription.updated':
         this.caption(ev.item_id, 'user', ev.transcript ?? '', false, 'set');
         return;
@@ -301,7 +301,7 @@ class VoiceCall {
     this.inflight.clear();
     const outputs = await Promise.all(batch.map(([, b]) => b.promise));
     if (this.ended) return;
-    // Every output first, then a single response.create (xAI parallel-call rule).
+    // Every output first, then a single response.create (direct provider parallel-call rule).
     batch.forEach(([callId], i) => this.send({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: callId, output: outputs[i] } }));
     if (batch.some(([, b]) => b.name === 'end_the_call')) {
       await this.player.whenIdle(8000);

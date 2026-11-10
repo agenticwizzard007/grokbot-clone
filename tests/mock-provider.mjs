@@ -1,6 +1,6 @@
-// A stand-in for the xAI and OpenRouter Responses APIs, for testing Grokbot without real keys.
-// Usage: node tests/mock-xai.mjs [port]   (default 8790), then start the server with
-//   XAI_BASE_URL=http://localhost:8790/v1  and/or  OPENROUTER_BASE_URL=http://localhost:8790/api/v1
+// A stand-in for the direct provider and OpenRouter Responses APIs, for testing Swarm without real keys.
+// Usage: node tests/mock-provider.mjs [port]   (default 8790), then start the server with
+//   DIRECT_BASE_URL=http://localhost:8790/v1  and/or  OPENROUTER_BASE_URL=http://localhost:8790/api/v1
 // GET /_requests returns the last requests the model endpoints received (for tests).
 //
 // The "model" follows a script written in the chat message:
@@ -13,7 +13,7 @@ import http from 'node:http';
 const PORT = Number(process.argv[2] ?? 8790);
 const recent = [];
 const OPENROUTER_MODELS = [
-  { id: 'x-ai/grok-4.7', name: 'xAI: Grok 4.7', vision: true, reasoning: true, prompt: '0.000003', completion: '0.000015' },
+  { id: 'openai/gpt-4.1', name: 'Mock Direct: GPT 4.1', vision: true, reasoning: true, prompt: '0.000003', completion: '0.000015' },
   { id: 'anthropic/claude-sonnet-5.5', name: 'Anthropic: Claude Sonnet 5.5', vision: true, reasoning: true, prompt: '0.000003', completion: '0.000015' },
   { id: 'google/gemini-3.8-flash', name: 'Google: Gemini 3.8 Flash', vision: true, reasoning: false, prompt: '0.0000003', completion: '0.0000025' },
   { id: 'deepseek/deepseek-v4', name: 'DeepSeek: V4', vision: false, reasoning: true, prompt: '0.0000005', completion: '0.000002' },
@@ -83,7 +83,7 @@ const server = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url.startsWith('/v1/models')) {
       const bad = (req.headers.authorization ?? '') === 'Bearer invalid-key';
       res.writeHead(bad ? 401 : 200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify(bad ? { error: 'Incorrect API key provided' } : { object: 'list', data: [{ id: 'grok-4.7', object: 'model' }, { id: 'grok-4.7-fast', object: 'model' }] }));
+      res.end(JSON.stringify(bad ? { error: 'Incorrect API key provided' } : { object: 'list', data: [{ id: 'openai/gpt-4.1', object: 'model' }, { id: 'openai/gpt-4.1-fast', object: 'model' }] }));
       return;
     }
     const json = (code, body) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
@@ -91,7 +91,7 @@ const server = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/_requests') return json(200, recent);
     // OpenRouter: key check, model catalog (tool-capable models plus a :batch variant that should be filtered out)
     if (req.method === 'GET' && req.url.startsWith('/api/v1/key')) return auth === 'Bearer invalid-key' ? json(401, { error: { message: 'User not found.', code: 401 } }) : json(200, { data: { label: 'mock-key', usage: 0, limit: null } });
-    if (req.method === 'GET' && req.url.startsWith('/api/v1/models')) return json(200, { data: [...OPENROUTER_MODELS, { ...OPENROUTER_MODELS[0], id: 'x-ai/grok-4.7:batch' }] });
+    if (req.method === 'GET' && req.url.startsWith('/api/v1/models')) return json(200, { data: [...OPENROUTER_MODELS, { ...OPENROUTER_MODELS[0], id: 'openai/gpt-4.1:batch' }] });
     // OpenRouter speech: transcription returns a fixed transcript; speech returns a few bytes of "mp3". Both are recorded.
     if (req.method === 'POST' && req.url.startsWith('/api/v1/audio/transcriptions')) {
       let b = {}; try { b = JSON.parse(raw); } catch { /* multipart */ }
@@ -121,7 +121,7 @@ const server = http.createServer((req, res) => {
     if (recent.length > 20) recent.shift();
     const r = respond(body);
     const response = { id: id('resp'), object: 'response', created_at: Math.floor(Date.now() / 1000), model: body.model, status: 'completed', output: [r.item], usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 } };
-    console.log(`[mock-xai] ${r.kind === 'call' ? `call ${r.item.name} ${r.item.arguments}` : `say ${r.item.content[0].text.slice(0, 80)}`}`);
+    console.log(`[mock-provider] ${r.kind === 'call' ? `call ${r.item.name} ${r.item.arguments}` : `say ${r.item.content[0].text.slice(0, 80)}`}`);
     if (!body.stream) {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify(response));
@@ -141,4 +141,4 @@ const server = http.createServer((req, res) => {
     res.end();
   });
 });
-server.listen(PORT, () => console.log(`[mock-xai] listening on http://localhost:${PORT}/v1`));
+server.listen(PORT, () => console.log(`[mock-provider] listening on http://localhost:${PORT}/v1`));

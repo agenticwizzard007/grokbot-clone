@@ -334,10 +334,10 @@ async function cardMessage(userId: string, bot: any, row: Row, b: CardBody, toke
     let url = '';
     try { url = await connectLink(userId, b.toolkit, row.botId, row.seq); } catch (e) { console.warn('[messaging] connect link failed', (e as Error).message); }
     return {
-      text: `🔌 **${bot.name}** needs **${b.toolkitName}** connected: ${b.reason}\n${url ? `Connect it here: ${url}` : 'Open Grokbot to connect it.'}\n\n_Reply **skip** to continue without it._`,
+      text: `🔌 **${bot.name}** needs **${b.toolkitName}** connected: ${b.reason}\n${url ? `Connect it here: ${url}` : 'Open Swarm to connect it.'}\n\n_Reply **skip** to continue without it._`,
     };
   }
-  return { text: `${bot.name} sent something to review in Grokbot.` };
+  return { text: `${bot.name} sent something to review in Swarm.` };
 }
 
 /** A Composio connect link that works from the phone: the callback is signed instead of relying on a browser session. */
@@ -526,7 +526,7 @@ function answerQuestion(userId: string, botId: string, seq: number, answer: stri
 // ---------- commands ----------
 
 function helpText(link: Link) {
-  return `**Grokbot on ${CHANNEL_NAMES[link.channel]}**
+  return `**Swarm on ${CHANNEL_NAMES[link.channel]}**
 Just type to talk to your active Bot. Start with **@Name** to talk to another Bot, or reply to a Bot's message to answer it.
 
 /bots: your team and what each Bot is doing
@@ -691,7 +691,7 @@ async function command(link: Link, inb: Inbound, raw: string) {
 
     case 'web': case 'login': {
       const url = createLoginLink(userId);
-      return void reply(`🔑 Open your Grokbot in a browser (works once, for 10 minutes):\n${url}`);
+      return void reply(`🔑 Open your Swarm in a browser (works once, for 10 minutes):\n${url}`);
     }
 
     case 'me': case 'profile': case 'usage': {
@@ -708,13 +708,13 @@ async function command(link: Link, inb: Inbound, raw: string) {
       }
       const token = createPairing(userId);
       const server = env.serverUrl.replace(/\/+$/, '');
-      return void reply(`💻 To let your Bots use a browser on your PC, run this on it (needs Node.js 22+ and Chrome) and keep it running:\n\ncurl -fsSL ${server}/api/companion/script -o grokbot-companion.mjs && node grokbot-companion.mjs --server ${server} --token ${token}${env.localDesktop ? ' --desktop' : ''}\n\nThe token is private: anyone with it can connect their PC as your Bots' computer.`);
+      return void reply(`💻 To let your Bots use a browser on your PC, run this on it (needs Node.js 22+ and Chrome) and keep it running:\n\ncurl -fsSL ${server}/api/companion/script -o swarm-companion.mjs && node swarm-companion.mjs --server ${server} --token ${token}${env.localDesktop ? ' --desktop' : ''}\n\nThe token is private: anyone with it can connect their PC as your Bots' computer.`);
     }
 
     case 'delete': {
       if (arg.toLowerCase() !== 'confirm') {
         deleteRequests.set(userId, now());
-        return void reply('⚠️ This deletes your Grokbot account: every Bot, conversation, memory and connection. Send **/delete confirm** within 5 minutes to go ahead.');
+        return void reply('⚠️ This deletes your Swarm account: every Bot, conversation, memory and connection. Send **/delete confirm** within 5 minutes to go ahead.');
       }
       const asked = deleteRequests.get(userId);
       if (!asked || now() - asked > 5 * 60_000) return void reply('Send /delete first, then /delete confirm.');

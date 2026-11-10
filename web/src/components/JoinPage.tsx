@@ -36,13 +36,13 @@ export function JoinPage({ code }: { code: string }) {
       <>
         <h1 className="join__title">This invite can’t be used</h1>
         <p className="join__pitch">{info.reason ?? 'This invite has expired or has been used up.'}</p>
-        <a className="btn btn--secondary" href="/">Go to Grokbot</a>
+        <a className="btn btn--secondary" href="/">Go to Swarm</a>
       </>
     );
   } else if (!claimed) {
     body = (
       <>
-        <h1 className="join__title">You’re invited to Grokbot</h1>
+        <h1 className="join__title">You’re invited to Swarm</h1>
         {info.inviter && <p className="join__by">by {info.inviter}</p>}
         <p className="join__pitch">Your own team of AI Bots you run by text.</p>
         <form className="join__form" onSubmit={claim}>
@@ -58,7 +58,7 @@ export function JoinPage({ code }: { code: string }) {
       <>
         <h1 className="join__title">One last step</h1>
         <p className="join__pitch">Send the message as is. Your account is created when it arrives.</p>
-        <a className="btn btn--primary join__text-btn" href={info.line.smsLink}>Text Grokbot</a>
+        <a className="btn btn--primary join__text-btn" href={info.line.smsLink}>Text Swarm</a>
         <img className="msg-qr join__qr" src={info.line.qr} alt={`QR code to text ${info.line.number}`} width={180} height={180} />
         <div className="join__qr-label">On a computer? Scan with your phone’s camera.</div>
         <div className="join__number">Or text <code>{info.line.connectCommand}</code> to <code>{info.line.number}</code></div>

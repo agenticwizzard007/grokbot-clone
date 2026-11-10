@@ -9,7 +9,7 @@ import { ComputerError, type BotScreen, type ComputerProvider, type Shot } from 
 
 /** Orgo cloud VMs: one Linux box per user, one X screen per Bot (see orgo-box.ts). */
 
-const LIB_ROOT = '/root/grokbot/files';
+const LIB_ROOT = '/root/swarm/files';
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
 function toShot(s: { image: string; mime_type?: string; width: number; height: number }): Shot {
@@ -65,7 +65,7 @@ export const orgoProvider: ComputerProvider = {
       openUrl: async (rawUrl) => {
         const url = rawUrl.replace(/'/g, '%27');
         const display = s === 'default' ? ':99' : `:${s.replace('screen-', '')}`;
-        const profile = `/root/grokbot/profiles/${botId}`;
+        const profile = `/root/swarm/profiles/${botId}`;
         // Reuse the bot's running Chrome if present (opens a new tab), else start one detached.
         await orgo.bash(
           c,
@@ -96,7 +96,7 @@ export const orgoProvider: ComputerProvider = {
     if (!lease) return { ok: true, note: 'no screen yet' };
     const comp = db.prepare("SELECT orgo_id FROM computers WHERE user_id=? AND status='running'").get(userId) as any;
     if (!comp?.orgo_id) throw new ComputerError('Wake the computer first', 409);
-    const profile = `/root/grokbot/profiles/${botId}`;
+    const profile = `/root/swarm/profiles/${botId}`;
     await orgo.bash(comp.orgo_id, undefined, `pkill -f ${shq(`user-data-dir=${profile}`)}; rm -f ${shq(profile)}/Singleton*; echo ok`, 30).catch(() => null);
     if (lease.screen_id !== 'default') {
       await orgo.deleteScreen(comp.orgo_id, lease.screen_id).catch((e) => console.warn('[computer] delete screen', e?.message));

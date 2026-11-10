@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run Grokbot on this computer (macOS or Linux).
+# Run Swarm on this computer (macOS or Linux).
 #
 #   ./scripts/local.sh            install if needed, build, start, and open the app
 #   ./scripts/local.sh stop       stop the server (and the companion it started)
@@ -12,7 +12,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$PWD"
-PIDFILE="$ROOT/data/grokbot.pid"
+PIDFILE="$ROOT/data/swarm.pid"
 LOGFILE="$ROOT/data/logs/server.log"
 
 envval() { [ -f .env ] && grep -E "^$1=" .env | tail -1 | cut -d= -f2- | sed 's/[[:space:]]*#.*$//; s/[[:space:]]*$//' || true; }
@@ -33,9 +33,9 @@ ensure_env() {
   cat > .env <<EOF
 # Created by scripts/local.sh. Add API keys in the app: Settings → API keys.
 OPENROUTER_API_KEY=
-OPENROUTER_MODEL=x-ai/grok-4.7
-XAI_API_KEY=
-XAI_MODEL=grok-4.7
+OPENROUTER_MODEL=openai/gpt-4.1
+DIRECT_API_KEY=
+DIRECT_MODEL=openai/gpt-4.1
 COMPOSIO_API_KEY=
 # desktop: Bots use this computer's full desktop, default browser and a shell.
 # local: Bots get a private Chrome browser only.
@@ -66,7 +66,7 @@ start() {
   install_and_build
   mkdir -p "$(dirname "$LOGFILE")"
   if running && [ server/dist/index.js -nt "$PIDFILE" ]; then
-    echo "Updated build found; restarting Grokbot to load it…"
+    echo "Updated build found; restarting Swarm to load it…"
     stop
   fi
   if running; then
@@ -84,9 +84,9 @@ start() {
     echo "The server didn't start. Last log lines:"; tail -20 "$LOGFILE"; exit 1
   fi
   echo
-  echo "Grokbot is running at $URL"
+  echo "Swarm is running at $URL"
   echo "  1. Sign in with any email (local dev sign-in)."
-  echo "  2. Settings → API keys: paste your OpenRouter key (or xAI), then pick a model."
+  echo "  2. Settings → API keys: paste your OpenRouter key (or direct provider), then pick a model."
   echo "  3. Settings → Computer → Use this computer."
   if [ "$(envval COMPUTER_PROVIDER)" = "desktop" ] && [ "$(uname)" = "Darwin" ]; then
     echo "     Bots get this Mac's full desktop. Allow your terminal app in System Settings →"

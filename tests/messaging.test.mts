@@ -10,10 +10,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, test } from 'node:test';
 
-const root = fs.mkdtempSync(path.join(os.tmpdir(), 'grokbot-messaging-'));
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-messaging-'));
 const free = () => new Promise<number>((r) => { const s = http.createServer().listen(0, () => { const p = (s.address() as any).port; s.close(() => r(p)); }); });
 const mockPort = await free();
-const mock = spawn(process.execPath, [path.join(import.meta.dirname, 'mock-xai.mjs'), String(mockPort)], { stdio: 'ignore' });
+const mock = spawn(process.execPath, [path.join(import.meta.dirname, 'mock-provider.mjs'), String(mockPort)], { stdio: 'ignore' });
 for (let i = 0; i < 50; i++) { if (await fetch(`http://localhost:${mockPort}/_requests`).then(() => true, () => false)) break; await new Promise((r) => setTimeout(r, 100)); }
 
 // A real iMessage-style voice note (Opus in a CAF container), made with the bundled ffmpeg.
@@ -70,9 +70,9 @@ await new Promise<void>((r) => inkbox.listen(ibPort, r));
 
 Object.assign(process.env, {
   DB_PATH: path.join(root, 'test.db'), FILES_DIR: path.join(root, 'files'), SESSION_SECRET: 'test-only-secret', COMPUTER_PROVIDER: 'local', COMPOSIO_API_KEY: '',
-  OPENROUTER_API_KEY: 'test', OPENROUTER_BASE_URL: `http://localhost:${mockPort}/api/v1`, XAI_API_KEY: 'test', XAI_BASE_URL: `http://localhost:${mockPort}/v1`, LLM_PROVIDER: 'openrouter',
-  INKBOX_BASE_URL: `http://localhost:${ibPort}`, INKBOX_ADMIN_API_KEY: 'admin', INKBOX_API_KEY: 'idkey', INKBOX_SIGNING_KEY: 'whsec_test', INKBOX_IDENTITY_ID: 'idn_1', INKBOX_HANDLE: 'grokbot',
-  SERVER_URL: 'https://grokbot.test', APP_URL: 'https://grokbot.test', INKBOX_TUNNEL: '0',
+  OPENROUTER_API_KEY: 'test', OPENROUTER_BASE_URL: `http://localhost:${mockPort}/api/v1`, DIRECT_API_KEY: 'test', DIRECT_BASE_URL: `http://localhost:${mockPort}/v1`, LLM_PROVIDER: 'openrouter',
+  INKBOX_BASE_URL: `http://localhost:${ibPort}`, INKBOX_ADMIN_API_KEY: 'admin', INKBOX_API_KEY: 'idkey', INKBOX_SIGNING_KEY: 'whsec_test', INKBOX_IDENTITY_ID: 'idn_1', INKBOX_HANDLE: 'swarm',
+  SERVER_URL: 'https://swarm.swarms.so', APP_URL: 'https://swarm.swarms.so', INKBOX_TUNNEL: '0',
 });
 
 const { db } = await import('../server/src/db.js');
@@ -124,7 +124,7 @@ async function waitFor<T>(fn: () => T | undefined | null | false, ms = 8000): Pr
 const sentTo = (phone: string, re: RegExp) => waitFor(() => ib.sent.find((m) => m.conversation_id === conv(phone) && re.test(m.text)));
 const usersCount = () => (db.prepare('SELECT count(*) n FROM users').get() as any).n;
 const OWNER = '15550000001';
-const cookieFor = (userId: string) => { const t = `sess_${userId}`; db.prepare('INSERT OR IGNORE INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (?,?,?,?)').run(t, userId, Date.now(), Date.now() + 600_000); return `grokbot_session=${t}`; };
+const cookieFor = (userId: string) => { const t = `sess_${userId}`; db.prepare('INSERT OR IGNORE INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (?,?,?,?)').run(t, userId, Date.now(), Date.now() + 600_000); return `swarm_session=${t}`; };
 
 // ---------- tests ----------
 
@@ -148,14 +148,14 @@ let owner: string;
 test('unknown numbers join the waitlist once (invite mode)', async () => {
   owner = createAccount({ email: 'owner@example.com', name: 'Owner', source: 'web' }).id;
   ib.sent.length = 0;
-  await text('15550001111', 'hey is this grokbot?');
+  await text('15550001111', 'hey is this swarm?');
   await sentTo('15550001111', /waitlist/);
   await text('15550001111', 'hello?');
   await new Promise((r) => setTimeout(r, 100));
   assert.equal(ib.sent.filter((m) => m.conversation_id === conv('15550001111')).length, 1, 'no second reply the same day');
   const w = signup.listWaitlist().find((x) => x.phone === '15550001111')!;
   assert.equal(w.status, 'pending');
-  assert.equal(w.firstMessage, 'hey is this grokbot?');
+  assert.equal(w.firstMessage, 'hey is this swarm?');
 });
 
 let alice: string;
@@ -164,18 +164,18 @@ test('join page claim → first text creates the account, welcomes, and onboardi
   const info = await (await app.request(`/api/join/${inv.code}`)).json() as any;
   assert.equal(info.valid, true);
   assert.equal(info.inviter, 'Owner');
-  assert.match(info.line.smsLink, /^sms:\+14155550199\?&body=connect%20%40grokbot$/);
+  assert.match(info.line.smsLink, /^sms:\+14155550199\?&body=connect%20%40swarm$/);
   const claim = await app.request(`/api/join/${inv.code}/claim`, { method: 'POST', body: JSON.stringify({ phone: '+1 (555) 000-2222' }), headers: { 'content-type': 'application/json' } });
   assert.equal(claim.status, 200);
 
-  await text('15550002222', 'connect @grokbot');
+  await text('15550002222', 'connect @swarm');
   const acct = await waitFor(() => db.prepare("SELECT * FROM users WHERE phone='15550002222'").get() as any);
   alice = acct.id;
   assert.equal(acct.signup_source, 'text');
   assert.equal(acct.invited_by, owner);
   assert.equal(acct.email, 'tel+15550002222@phone.invalid');
   assert.equal(store.getLink(alice, 'imessage')!.chatRef, conv('15550002222'));
-  await sentTo('15550002222', /^Hi! 👋 I'm Quinn, your Grokbot/);
+  await sentTo('15550002222', /^Hi! 👋 I'm Quinn, your Swarm/);
   // The [onboarding] turn ran and its reply came back by text.
   const onboarding = await sentTo('15550002222', /onboarding\] A new user just joined/);
   assert.ok(!/\*\*/.test(onboarding.text), 'plain text, no Markdown');
@@ -200,7 +200,7 @@ test('JOIN <code> typed in the chat; used-up and unknown codes are refused', asy
 test('owner approves a waitlisted number: account created and welcomed where they wrote', async () => {
   const r = await signup.approveWaitlist('15550001111', owner);
   assert.ok(r.ok);
-  await sentTo('15550001111', /I'm Quinn, your Grokbot/);
+  await sentTo('15550001111', /I'm Quinn, your Swarm/);
   assert.equal(signup.listWaitlist().find((x) => x.phone === '15550001111')!.status, 'approved');
 });
 
@@ -271,7 +271,7 @@ test('voice notes: CAF converted and transcribed by OpenRouter; the reply comes 
   assert.equal(ib.uploads[0].type, 'audio/mpeg');
   const tts = (await mockReqs()).filter((r) => r.audio === 'tts').at(-1);
   assert.equal(tts.voice, 'luna', "the Bot's own voice");
-  assert.equal(tts.model, 'x-ai/grok-voice-tts-1.0');
+  assert.equal(tts.model, 'openai/gpt-4o-mini-tts');
   assert.match(tts.input, /Heard your voice note/);
   // The model saw it was a voice note.
   assert.ok((await mockReqs()).some((r) => JSON.stringify(r.body.input).includes('[via iMessage, voice note]')));
@@ -417,11 +417,11 @@ test('/web sign-in link works once and expires; sign-in by text answers the same
   const phone = '15550002222';
   ib.sent.length = 0;
   await text(phone, '/web');
-  const msg = await sentTo(phone, /Open your Grokbot in a browser/);
-  const link = msg.text.match(/https:\/\/grokbot\.test(\/api\/auth\/text\?t=\S+)/)![1];
+  const msg = await sentTo(phone, /Open your Swarm in a browser/);
+  const link = msg.text.match(/https:\/\/swarm\.swarms\.so(\/api\/auth\/text\?t=\S+)/)![1];
   const first = await app.request(link);
   assert.equal(first.status, 302);
-  assert.match(first.headers.get('set-cookie') ?? '', /grokbot_session=/);
+  assert.match(first.headers.get('set-cookie') ?? '', /swarm_session=/);
   const again = await app.request(link);
   assert.match(again.headers.get('location') ?? '', /login=expired/);
 
@@ -430,7 +430,7 @@ test('/web sign-in link works once and expires; sign-in by text answers the same
   const known = await (await req('+1 555 000 2222')).json();
   const unknown = await (await req('+1 555 000 9999')).json();
   assert.deepEqual(known, unknown);
-  await sentTo(phone, /Sign in to Grokbot/);
+  await sentTo(phone, /Sign in to Swarm/);
   assert.equal(ib.sent.length, 1);
 });
 
@@ -459,7 +459,7 @@ test('update_profile closes onboarding; /invite; /me; daily cap', async () => {
   ib.sent.length = 0;
   await text(phone, '/invite');
   const inv = await sentTo(phone, /Your invite link \(5 left\)/);
-  assert.match(inv.text, /https:\/\/grokbot\.test\/join\/[A-Z0-9]{8}/);
+  assert.match(inv.text, /https:\/\/swarm\.swarms\.so\/join\/[A-Z0-9]{8}/);
   await text(phone, '/me');
   await sentTo(phone, /Alice\nPhone: \+15550002222/);
 
@@ -475,7 +475,7 @@ test('/delete confirm removes the account and everything in it', async () => {
   await text(phone, '/delete confirm');
   await sentTo(phone, /Send \/delete first/);
   await text(phone, '/delete');
-  await sentTo(phone, /This deletes your Grokbot account/);
+  await sentTo(phone, /This deletes your Swarm account/);
   await text(phone, '/delete confirm');
   await waitFor(() => !db.prepare('SELECT 1 FROM users WHERE id=?').get(u));
   assert.equal((db.prepare('SELECT count(*) n FROM bots WHERE user_id=?').get(u) as any).n, 0);
@@ -509,10 +509,10 @@ test('phone sign-up: a new number gets its code by replying to the line, then th
   const phone = '15550008888';
   const start = await (await post('/api/auth/phone/start', { phone: '+1 555 000 8888' })).json() as any;
   assert.ok(start.id);
-  assert.equal(start.line.connectCommand, 'connect @grokbot');
+  assert.equal(start.line.connectCommand, 'connect @swarm');
   // Not connected yet: nothing is texted until they write.
   await text(phone, 'hi');
-  const msg = await sentTo(phone, /Grokbot sign-in code is \d{6}/);
+  const msg = await sentTo(phone, /Swarm sign-in code is \d{6}/);
   assert.equal(db.prepare('SELECT 1 FROM users WHERE phone=?').get(phone), undefined, 'texting for a code creates nothing yet');
   assert.equal(signup.listWaitlist().find((w) => w.phone === phone), undefined, 'and does not join the waitlist');
 
@@ -524,11 +524,11 @@ test('phone sign-up: a new number gets its code by replying to the line, then th
   const ok = await post('/api/auth/phone/verify', { id: start.id, code: codeIn(msg.text), inviteCode: inv.code });
   assert.equal(ok.status, 200);
   assert.equal(((await ok.json()) as any).created, true);
-  assert.match(ok.headers.get('set-cookie') ?? '', /grokbot_session=/);
+  assert.match(ok.headers.get('set-cookie') ?? '', /swarm_session=/);
   const u = db.prepare('SELECT * FROM users WHERE phone=?').get(phone) as any;
   assert.equal(u.signup_source, 'text');
   assert.equal(store.getLink(u.id, 'imessage')!.chatRef, conv(phone), 'the number is connected');
-  await sentTo(phone, /I'm Quinn, your Grokbot/);
+  await sentTo(phone, /I'm Quinn, your Swarm/);
   assert.equal((await post('/api/auth/phone/verify', { id: start.id, code: codeIn(msg.text) })).status, 410, 'a code works once');
 });
 
@@ -554,7 +554,7 @@ test('connect a phone to a signed-in account; a number with its own account is r
   assert.equal(no.status, 409);
 
   const start = await (await post('/api/messaging/phone/start', { phone: '+15550009999' }, cookie)).json() as any;
-  await text('15550009999', 'connect @grokbot');
+  await text('15550009999', 'connect @swarm');
   const msg = await sentTo('15550009999', /code to connect this number is \d{6}/);
   const ok = await post('/api/messaging/phone/verify', { id: start.id, code: codeIn(msg.text) }, cookie);
   assert.equal(ok.status, 200);
@@ -568,7 +568,7 @@ test('the code goes out as soon as Inkbox shows the number connected', async () 
   ib.sent.length = 0;
   const start = await (await post('/api/auth/phone/start', { phone: `+${phone}` })).json() as any;
   assert.ok(start.id);
-  ib.assignments.push(phone); // they texted "connect @grokbot"
+  ib.assignments.push(phone); // they texted "connect @swarm"
   const msg = await waitFor(() => ib.sent.find((m) => m.to === `+${phone}` && /sign-in code is \d{6}/.test(m.text)), 12_000);
   assert.ok(msg);
 });
@@ -588,7 +588,7 @@ test('line setup resumes after a failed step and never recreates the identity', 
   assert.equal(ib.keys, 1);
   assert.equal(ib.signing, 1);
   assert.equal(ib.subs.length, 1);
-  assert.equal(ib.subs[0].url, 'https://grokbot.test/api/messaging/inkbox/webhook');
+  assert.equal(ib.subs[0].url, 'https://swarm.swarms.so/api/messaging/inkbox/webhook');
   assert.deepEqual(ib.subs[0].event_types, ['imessage.received', 'imessage.reaction_received', 'text.received']);
   // A signing key exists on Inkbox that this server doesn't hold: never replace it silently.
   clearSetting('inkbox_signing_key');

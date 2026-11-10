@@ -60,7 +60,7 @@ export interface Bot {
   effort: 'low' | 'medium' | 'high' | 'xhigh';
   /** This Bot's model, or null for the server default (Settings → API keys). */
   model: string | null;
-  /** Voice chat settings: xAI voice id, speed multiplier (0.7–1.5), BCP-47 language or 'auto'. */
+  /** Voice chat settings: direct provider voice id, speed multiplier (0.7–1.5), BCP-47 language or 'auto'. */
   voice: string;
   voiceSpeed: number;
   voiceLanguage: string;

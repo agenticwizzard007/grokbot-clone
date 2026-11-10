@@ -4,7 +4,7 @@ import { db, now } from '../db.js';
 import { token } from './ids.js';
 import type { User } from '../types.js';
 
-const COOKIE = 'grokbot_session';
+const COOKIE = 'swarm_session';
 const TTL_MS = 30 * 24 * 3600 * 1000;
 
 export type AuthVars = { Variables: { user: User } };

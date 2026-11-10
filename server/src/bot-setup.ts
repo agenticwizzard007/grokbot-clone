@@ -121,7 +121,7 @@ export function setupManifest(botId: string) {
   const b = getBotRow(botId);
   const s = getSetup(botId);
   if (!b || !s) return null;
-  return { format: 'grokbot.bot-setup', version: 2, brief: s.brief, source: s.source,
+  return { format: 'swarm.bot-setup', version: 2, brief: s.brief, source: s.source,
     bot: { name: b.name, label: b.label, description: b.description, instructions: b.instructions,
       avatarShape: b.avatar_shape, avatarColor: b.avatar_color, mode: b.mode, effort: b.effort, model: b.model ?? null,
       voice: b.voice, voiceSpeed: b.voice_speed, voiceLanguage: b.voice_language } };

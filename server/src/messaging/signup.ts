@@ -209,7 +209,7 @@ export async function frontDesk(s: Sender, reply: RawReply): Promise<{ userId: s
   const link = text.match(/^link\s+([A-Za-z0-9]{6,12})$/i)?.[1];
   if (link) {
     const userId = redeemLinkCode(link);
-    if (!userId) { await reply('That link code is invalid or expired. Get a new one in Grokbot → Settings → Messaging.'); return null; }
+    if (!userId) { await reply('That link code is invalid or expired. Get a new one in Swarm → Settings → Messaging.'); return null; }
     const owner = getAccount(userId);
     if (owner && !owner.phone) db.prepare('UPDATE users SET phone=? WHERE id=?').run(phone, userId);
     upsertLink(userId, s.channel, s.transport, { status: 'connected', phone, chatRef: s.chatRef ?? null, name: s.name ?? null, error: null, lastInboundAt: now() });
@@ -217,7 +217,7 @@ export async function frontDesk(s: Sender, reply: RawReply): Promise<{ userId: s
     return { userId, continueWith: false };
   }
 
-  if (!mayCreateAccount(phone)) { if (onceADay(phone)) await reply("This Grokbot server isn't set up yet."); return null; }
+  if (!mayCreateAccount(phone)) { if (onceADay(phone)) await reply("This Swarm server isn't set up yet."); return null; }
 
   const cfg = signupConfig();
   // The owner's number (ADMIN_PHONES) always gets in, even on an invite-only or closed server.
@@ -235,7 +235,7 @@ export async function frontDesk(s: Sender, reply: RawReply): Promise<{ userId: s
   if (invite || cfg.mode === 'open') {
     if (signupsToday() >= cfg.signupsPerDay) {
       addToWaitlist(s);
-      await reply("Grokbot is at capacity for today, so you're on the waitlist. I'll text you here when you're in.");
+      await reply("Swarm is at capacity for today, so you're on the waitlist. I'll text you here when you're in.");
       return null;
     }
     if (invite) db.prepare('UPDATE messaging_invites SET uses=uses+1 WHERE code=?').run(invite.code);
@@ -244,11 +244,11 @@ export async function frontDesk(s: Sender, reply: RawReply): Promise<{ userId: s
     return { userId, continueWith: false };
   }
 
-  if (cfg.mode === 'closed') { if (onceADay(phone)) await reply("Grokbot isn't taking new members right now."); return null; }
+  if (cfg.mode === 'closed') { if (onceADay(phone)) await reply("Swarm isn't taking new members right now."); return null; }
 
   const state = addToWaitlist(s);
   if (state === 'added') nagged.set(phone, now());
-  if (state === 'added') await reply("Thanks for texting Grokbot! 👋 It's invite-only for now, so you're on the waitlist. I'll text you here as soon as you're in. Have an invite code? Reply with it.");
+  if (state === 'added') await reply("Thanks for texting Swarm! 👋 It's invite-only for now, so you're on the waitlist. I'll text you here as soon as you're in. Have an invite code? Reply with it.");
   else if (onceADay(phone)) await reply("You're still on the waitlist. I'll text you here when you're in.");
   return null;
 }
@@ -262,7 +262,7 @@ export async function startAccount(s: Sender, invitedBy: string | null): Promise
   const primary = db.prepare('SELECT id, name FROM bots WHERE user_id=? AND is_primary=1').get(userId) as { id: string; name: string };
   const first = s.name?.split(/\s+/)[0];
   await deliver(userId, {
-    text: `Hi${first ? ` ${first}` : ''}! 👋 I'm ${primary.name}, your Grokbot. I can get things done on the web, handle email and calendar once you connect them, and bring in teammate Bots for bigger jobs. Let's get you set up; it takes a minute.`,
+    text: `Hi${first ? ` ${first}` : ''}! 👋 I'm ${primary.name}, your Swarm. I can get things done on the web, handle email and calendar once you connect them, and bring in teammate Bots for bigger jobs. Let's get you set up; it takes a minute.`,
   }, { kind: 'system', channel: s.channel });
   const inviter = invitedBy ? getAccount(invitedBy)?.name : null;
   enqueue(primary.id, {

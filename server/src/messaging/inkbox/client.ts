@@ -2,8 +2,8 @@ import crypto from 'node:crypto';
 import { env } from '../../env.js';
 
 /**
- * Inkbox REST client (inkbox.ai): plain fetch with `X-API-Key`. Paths follow @inkbox/sdk 0.7 and open-instinct's
- * packages/inkbox (MIT). Two kinds of key: the org admin key (create identities, keys, signing keys, webhooks) and
+ * Inkbox REST client (inkbox.ai): plain fetch with `X-API-Key`. Paths follow @inkbox/sdk 0.7.
+ * Two kinds of key: the org admin key (create identities, keys, signing keys, webhooks) and
  * an identity-scoped key (send and receive on that one identity). The server sends with the scoped key.
  */
 

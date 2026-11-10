@@ -3,11 +3,14 @@
 // process groups running the companion in --multi mode), so it needs Linux with Xvfb, xdotool,
 // ImageMagick and Chrome, plus an existing Unix user for the Bots' shells (FAKE_VM_RUN_AS).
 //
-//   node tests/mock-xai.mjs &
+//   node tests/mock-provider.mjs &
 //   COMPUTER_PROVIDER=cloudvm VM_DRIVER=fake FAKE_VM_RUN_AS=agent FAKE_VM_NO_SANDBOX=1 FAKE_VM_DIR=/tmp/vms \
-//     VM_RECONCILE_MIN=0.1 XAI_API_KEY=mock XAI_BASE_URL=http://localhost:8790/v1 DEV_LOGIN=1 \
+//     VM_RECONCILE_MIN=0.1 DIRECT_API_KEY=mock DIRECT_BASE_URL=http://localhost:8790/v1 DEV_LOGIN=1 \
 //     DB_PATH=/tmp/cloudvm.db node server/dist/index.js
 //   DB_PATH=/tmp/cloudvm.db FAKE_VM_DIR=/tmp/vms node tests/cloudvm-computer.mjs [apiBase=http://localhost:8787]
+//
+// Don't set SWARM_NO_SCHEDULER=1 on that server: it also stops the provisioning worker, so
+// sign-ups never get their VM and most steps fail.
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -48,10 +51,10 @@ if (health.computers !== 'cloudvm') throw new Error(`server must run with COMPUT
 
 async function signUp(email) {
   const r = await fetch(`${API}/api/auth/dev`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, name: email.split('@')[0] }) });
-  const cookie = (r.headers.get('set-cookie') ?? '').match(/grokbot_session=([^;]+)/)?.[1];
+  const cookie = (r.headers.get('set-cookie') ?? '').match(/swarm_session=([^;]+)/)?.[1];
   if (!cookie) throw new Error('sign-up failed');
   const api = async (p, init = {}) => {
-    const res = await fetch(`${API}${p}`, { ...init, headers: { 'content-type': 'application/json', cookie: `grokbot_session=${cookie}`, ...(init.headers ?? {}) } });
+    const res = await fetch(`${API}${p}`, { ...init, headers: { 'content-type': 'application/json', cookie: `swarm_session=${cookie}`, ...(init.headers ?? {}) } });
     const ct = res.headers.get('content-type') ?? '';
     return { status: res.status, body: ct.includes('json') ? await res.json() : await res.arrayBuffer() };
   };
@@ -148,7 +151,7 @@ await step('each Bot\'s shell runs as the Bots\' user, in its own folder', async
 
 await step('another user can\'t watch this user\'s Bot screens', async () => {
   const code = await new Promise((resolve) => {
-    const ws = new WebSocket(`${API.replace(/^http/, 'ws')}/api/bots/${A.primary.id}/screen`, { headers: { cookie: `grokbot_session=${B.cookie}` } });
+    const ws = new WebSocket(`${API.replace(/^http/, 'ws')}/api/bots/${A.primary.id}/screen`, { headers: { cookie: `swarm_session=${B.cookie}` } });
     ws.onopen = () => { ws.close(); resolve('open'); };
     ws.onerror = () => resolve('refused');
   });
@@ -169,7 +172,7 @@ await step('suspend, then the next task resumes the VM on its own', async () => 
 await step('viewer shows a Bot\'s screen (noVNC)', async () => {
   const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-  await ctx.addCookies([{ name: 'grokbot_session', value: A.cookie, domain: new URL(API).hostname, path: '/' }]);
+  await ctx.addCookies([{ name: 'swarm_session', value: A.cookie, domain: new URL(API).hostname, path: '/' }]);
   const ui = await ctx.newPage();
   await ui.goto(API);
   await ui.getByText("Bot's computer").first().click({ timeout: 20000 });

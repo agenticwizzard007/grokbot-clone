@@ -7,7 +7,7 @@ const prettyNumber = (n: string) => n.replace(/^\+1(\d{3})(\d{3})(\d{4})$/, '+1 
 
 /**
  * Continue with your phone number. A 6-digit code reaches the phone: texted right away when the number already
- * reaches Grokbot, otherwise after the person texts the line (one tap opens Messages with the connect text).
+ * reaches Swarm, otherwise after the person texts the line (one tap opens Messages with the connect text).
  * mode 'signin': verifying signs in, or creates the account. mode 'attach': connects the number to this account.
  */
 export function PhoneAuth({ mode, onAttached }: { mode: 'signin' | 'attach'; onAttached?: (s: MessagingStatus) => void }) {
@@ -70,7 +70,7 @@ export function PhoneAuth({ mode, onAttached }: { mode: 'signin' | 'attach'; onA
       {error && <div className="card__error phone-auth__error">{error}</div>}
       {start.line && (
         <div className="phone-auth__help">
-          <div><b>No text yet?</b> Your number isn't connected to Grokbot. Tap below to send the prefilled message, and we'll text your code right back.</div>
+          <div><b>No text yet?</b> Your number isn't connected to Swarm. Tap below to send the prefilled message, and we'll text your code right back.</div>
           <a className="btn btn--secondary phone-auth__btn" href={start.line.smsLink}>Open Messages</a>
           <div className="phone-auth__small">Or text <code>{start.line.connectCommand}</code> to <code>{prettyNumber(start.line.number)}</code>. If the code doesn't come in a few seconds, send “hi” in that thread.</div>
         </div>

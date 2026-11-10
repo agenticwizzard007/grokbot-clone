@@ -8,7 +8,7 @@ import { createSession, destroySession, requireUser, userFromCookieHeader, type 
 import { allLive, appendRow, clearConversation, emitBot, getBot, getBotRow, getRow, listBots, listRoutines, listRows, listTasks, toRoutine, updateRow } from './store.js';
 import { enqueue, interrupt, resolveApproval, runInBotQueue } from './agent/loop.js';
 import { computers } from './computers/index.js';
-import { catalog, connectedToolkits, deleteConnection, disconnect, googleProfile, startConnect, startGoogleLogin, toolkitInfo } from './composio.js';
+import { catalog, connectedToolkits, deleteConnection, disconnect, googleProfile, invalidateComposioSession, startConnect, startGoogleLogin, toolkitInfo } from './composio.js';
 import { runRoutine, scheduleRoutine, unscheduleRoutine } from './routines.js';
 import { deleteEventTrigger } from './triggers.js';
 import { dispatchRoomMessage } from './agent/rooms.js';
@@ -374,7 +374,7 @@ api.get('/apps', async (c) => {
   if (!env.composioEnabled) return c.json({ apps: [], connected: [], connectedApps: [], categories: [], total: 0, notConfigured: true });
   const search = (c.req.query('search') ?? '').toLowerCase();
   const category = c.req.query('category') ?? '';
-  const [all, connected] = await Promise.all([catalog(), connectedToolkits(user.id).catch(() => new Set<string>())]);
+  const [all, connected] = await Promise.all([catalog(), connectedToolkits(user.id)]);
   let items: Toolkit[] = all.map((t) => ({ ...t, connected: connected.has(t.slug) }));
   if (search) items = items.filter((t) => t.name.toLowerCase().includes(search) || t.slug.includes(search) || t.description?.toLowerCase().includes(search));
   if (category) items = items.filter((t) => t.categories.some((x) => x.toLowerCase() === category.toLowerCase()));
@@ -402,11 +402,13 @@ api.get('/apps/callback', async (c) => {
   const slug = c.req.query('slug') ?? '';
   const botId = c.req.query('bot');
   const seq = Number(c.req.query('seq') ?? 0);
-  const ok = c.req.query('status') !== 'failed';
+  let ok = false;
   const userExists = db.prepare('SELECT 1 FROM users WHERE id=?').get(userId);
-  if (userExists && ok) {
+  if (userExists && c.req.query('status') !== 'failed') {
     const connected = await connectedToolkits(userId).catch(() => new Set<string>());
     if (connected.has(slug)) {
+      ok = true;
+      invalidateComposioSession(userId);
       hub.emit(userId, { type: 'connections' });
       if (botId && ownBot(userId, botId)) {
         const info = await toolkitInfo(slug);
@@ -418,7 +420,8 @@ api.get('/apps/callback', async (c) => {
       }
     }
   }
-  return c.html(`<!doctype html><meta charset="utf-8"><title>Connected</title><body style="font-family:system-ui;padding:40px;text-align:center">${ok ? 'Connected. You can close this window.' : 'Connection failed.'}<script>try{window.opener&&window.opener.postMessage({type:'grokbot-connected',slug:${JSON.stringify(slug)},ok:${ok}},'*')}catch(e){};setTimeout(()=>window.close(),800)</script></body>`);
+  const message = JSON.stringify({ type: 'swarm-connected', slug, ok }).replace(/</g, '\\u003c');
+  return c.html(`<!doctype html><meta charset="utf-8"><title>${ok ? 'Connected' : 'Connection not confirmed'}</title><body style="font-family:system-ui;padding:40px;text-align:center">${ok ? 'Connected. You can close this window.' : 'Connection could not be confirmed. Return to the app and try again.'}<script>try{window.opener&&window.opener.postMessage(${message},${JSON.stringify(new URL(env.appUrl).origin)})}catch(e){};${ok ? 'setTimeout(()=>window.close(),800)' : ''}</script></body>`);
 });
 
 api.delete('/apps/:slug', async (c) => {

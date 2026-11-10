@@ -75,8 +75,8 @@ export function ensureComputer(userId: string): Promise<string> {
         await ensureWorkspace();
         setStatus(userId, 'creating');
         const user = db.prepare('SELECT email FROM users WHERE id=?').get(userId) as any;
-        const name = `grokbot-${(user?.email ?? userId).split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').slice(0, 30)}-${userId.slice(-6)}`;
-        const c = await orgo.createComputer(name, `grokbot-box-${userId}`);
+        const name = `swarm-${(user?.email ?? userId).split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').slice(0, 30)}-${userId.slice(-6)}`;
+        const c = await orgo.createComputer(name, `swarm-box-${userId}`);
         setStatus(userId, mapStatus(c.status), { orgoId: c.id });
         await prepareBox(c.id);
         setStatus(userId, 'running', { orgoId: c.id });
@@ -135,7 +135,7 @@ async function waitRunning(id: string, timeoutMs = 240_000) {
 /** First-boot setup: a profile dir for per-bot Chrome sessions. */
 async function prepareBox(id: string) {
   try {
-    await orgo.bash(id, undefined, 'mkdir -p /root/grokbot/profiles /root/grokbot/files && (which google-chrome || which chromium || which chromium-browser || which firefox) 2>/dev/null', 60);
+    await orgo.bash(id, undefined, 'mkdir -p /root/swarm/profiles /root/swarm/files && (which google-chrome || which chromium || which chromium-browser || which firefox) 2>/dev/null', 60);
   } catch { /* non-fatal */ }
 }
 
@@ -197,12 +197,12 @@ async function prepareScreen(computerId: string, screenId: string) {
     const display = `:${screenId.replace('screen-', '')}`;
     // xfwm4's compositor paints over the root window, so run a desktop (wallpaper) on this display.
     // xfdesktop is single-instance per D-Bus session, hence a private session per screen.
-    const pid = `/tmp/grokbot-desktop-${display.slice(1)}.pid`;
+    const pid = `/tmp/swarm-desktop-${display.slice(1)}.pid`;
     await orgo.bash(
       computerId,
       screenId,
       `export DISPLAY=${display}; if [ -f ${pid} ] && kill -0 $(cat ${pid}) 2>/dev/null; then echo running; else ` +
-        `(setsid nohup dbus-run-session -- xfdesktop --disable-wm-check >/tmp/grokbot-desktop-${display.slice(1)}.log 2>&1 < /dev/null & echo $! > ${pid}); sleep 2; echo started; fi`,
+        `(setsid nohup dbus-run-session -- xfdesktop --disable-wm-check >/tmp/swarm-desktop-${display.slice(1)}.log 2>&1 < /dev/null & echo $! > ${pid}); sleep 2; echo started; fi`,
       30,
     );
   } catch { /* cosmetic; ignore */ }

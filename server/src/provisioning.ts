@@ -66,10 +66,10 @@ async function run(job: Job) {
     if (job.vm_id) await destroyVm(job.vm_id);
   } else if (job.kind === 'resize') {
     if (!job.user_id || !vmFor(job.user_id)) return;
-    // Resizing restarts the VM: wait until none of the user's Bots is mid-task.
-    const bots = db.prepare('SELECT id FROM bots WHERE user_id=?').all(job.user_id) as { id: string }[];
-    const { isBotBusy } = await import('./agent/loop.js');
-    if (bots.some((b) => isBotBusy(b.id) || getLive(b.id).isRunning)) throw new Defer('Bots are working; resizing when they finish');
+    // Resizing restarts a running VM (every screen and open tab would be lost), so it waits until the
+    // VM is asleep; the new size applies at its next boot. The new Bot's screen works meanwhile.
+    const vm = vmFor(job.user_id)!;
+    if (!['suspended', 'stopped'].includes(vm.status)) throw new Defer('the computer is in use; resizing when it sleeps');
     await resizeVm(job.user_id);
   }
 }
@@ -125,9 +125,9 @@ export async function reconcile() {
   for (const row of known.values()) if (!row.user_id) enqueueVmJob('destroy', { vmId: row.vm_id });
 }
 
-/** Start the job worker and the reconcile loop (once per server; skipped with GROKBOT_NO_SCHEDULER=1). */
+/** Start the job worker and the reconcile loop (once per server; skipped with SWARM_NO_SCHEDULER=1). */
 export function startProvisioning() {
-  if (started || process.env.GROKBOT_NO_SCHEDULER === '1') return;
+  if (started || process.env.SWARM_NO_SCHEDULER === '1') return;
   started = true;
   // Jobs that were mid-flight when the server stopped run again (each step is idempotent).
   db.prepare("UPDATE provision_jobs SET status='pending', next_at=? WHERE status='running'").run(now());

@@ -1,7 +1,7 @@
 /**
  * Repair a Responses API history before sending it to the model.
  * If a turn was cut off mid-tool (server restart, interrupt, crash), the stored history can
- * contain function_call items with no matching function_call_output, which xAI rejects.
+ * contain function_call items with no matching function_call_output, which direct provider rejects.
  * We add a synthetic output right after each orphaned call so the conversation stays valid.
  * Calls listed in `pendingCallIds` (waiting on a user approval) are left untouched only if
  * they are at the very end of the history; anywhere else they are repaired too.

@@ -1,6 +1,6 @@
-# Grokbot on Fly.io: one always-on machine (routines, check-ins and texts need a running server)
+# Swarm on Fly.io: one always-on machine (routines, check-ins and texts need a running server)
 # with a volume for the SQLite database, files and Bot setups.
-app = "grokbot-team"
+app = "swarm-team"
 primary_region = "iad"
 
 [build]
@@ -9,7 +9,7 @@ primary_region = "iad"
 [env]
   NODE_ENV = "production"
   PORT = "8787"
-  DB_PATH = "/data/grokbot.db"
+  DB_PATH = "/data/swarm.db"
   FILES_DIR = "/data/files"
   COMPUTER_PROVIDER = "local"
   DEV_LOGIN = "0"
@@ -17,7 +17,7 @@ primary_region = "iad"
   INKBOX_TUNNEL = "0"
 
 [[mounts]]
-  source = "grokbot_data"
+  source = "swarm_data"
   destination = "/data"
 
 [http_service]

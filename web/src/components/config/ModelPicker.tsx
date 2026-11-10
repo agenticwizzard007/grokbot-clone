@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { configApi, type ModelInfo } from '../../lib/configApi';
 
-type Provider = 'xai' | 'openrouter';
+type Provider = 'direct' | 'openrouter';
 /** Models per provider (or the active one), fetched once per page load (and again after `refreshModels`). */
 const cache = new Map<string, Promise<{ models: ModelInfo[]; error?: string }>>();
 export const refreshModels = () => { cache.clear(); };

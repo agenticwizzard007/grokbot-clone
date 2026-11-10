@@ -2,12 +2,12 @@ import OpenAI from 'openai';
 import { env } from '../env.js';
 
 /**
- * The model provider for Bots: OpenRouter (any model, one key) or xAI directly. Both speak the
+ * The model provider for Bots: OpenRouter (any model, one key) or a compatible direct provider. Both speak the
  * Responses API; this module hides the differences (client, model ids, request shape, history).
  */
 
-export type LlmProvider = 'xai' | 'openrouter';
-export const NO_LLM_KEY = 'No AI model key yet. Add an OpenRouter or xAI key in Settings → API keys.';
+export type LlmProvider = 'direct' | 'openrouter';
+export const NO_LLM_KEY = 'No AI model key yet. Add an OpenRouter or direct provider key in Settings → API keys.';
 
 const clients = new Map<string, { sig: string; client: OpenAI }>();
 
@@ -16,9 +16,9 @@ export const llmProvider = (): LlmProvider => env.llmProvider;
 /** A Responses API client for the active provider (rebuilt when keys change in Settings). */
 export function llmClient(timeout: number): OpenAI {
   const p = llmProvider();
-  const apiKey = p === 'openrouter' ? env.openrouterKey : env.xaiKey;
+  const apiKey = p === 'openrouter' ? env.openrouterKey : env.directKey;
   if (!apiKey) throw new Error(NO_LLM_KEY);
-  const baseURL = p === 'openrouter' ? env.openrouterBaseUrl : env.xaiBaseUrl;
+  const baseURL = p === 'openrouter' ? env.openrouterBaseUrl : env.directBaseUrl;
   const sig = `${p}|${apiKey}|${baseURL}`;
   const slot = `${p}:${timeout}`;
   let c = clients.get(slot);
@@ -30,7 +30,7 @@ export function llmClient(timeout: number): OpenAI {
         baseURL,
         timeout,
         // OpenRouter app attribution (optional headers).
-        defaultHeaders: p === 'openrouter' ? { 'HTTP-Referer': env.appUrl, 'X-Title': 'Grokbot' } : undefined,
+        defaultHeaders: p === 'openrouter' ? { 'HTTP-Referer': env.appUrl, 'X-Title': 'Swarm' } : undefined,
       }),
     };
     clients.set(slot, c);
@@ -38,7 +38,7 @@ export function llmClient(timeout: number): OpenAI {
   return c.client;
 }
 
-export const defaultModel = () => (llmProvider() === 'openrouter' ? env.openrouterModel : env.xaiModel);
+export const defaultModel = () => (llmProvider() === 'openrouter' ? env.openrouterModel : env.directModel);
 
 /** A Bot's own model if it suits the active provider (OpenRouter ids look like "vendor/model"), else the default. */
 export function modelFor(botModel?: string | null): string {
@@ -61,11 +61,11 @@ const PORTABLE = new Set(['message', 'function_call', 'function_call_output']);
 /**
  * Input items for a request: drops reasoning/compaction/server-search items made by a different model
  * (another model can't read them, and they would fail the request) and removes our tags.
- * Untagged items predate tagging and came from xAI.
+ * Untagged items predate tagging and came from direct provider.
  */
 export function prepareInput(items: any[], model: string): any[] {
   const tag = modelTag(model);
-  const legacy = `xai:${env.xaiModel}`;
+  const legacy = `direct:${env.directModel}`;
   const out: any[] = [];
   for (const it of items) {
     if (!it || typeof it !== 'object') { out.push(it); continue; }
@@ -81,7 +81,7 @@ export const tagOutput = (items: any[], model: string) => items.map((it) => (it 
 
 /** Request fields that differ by provider. */
 export function providerFields(opts: { effort: string; reasoning: boolean; cacheKey: string; safetyId: string }): Record<string, unknown> {
-  if (llmProvider() === 'xai') {
+  if (llmProvider() === 'direct') {
     return {
       reasoning: { effort: opts.effort },
       include: ['reasoning.encrypted_content'],

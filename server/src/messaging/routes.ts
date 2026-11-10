@@ -55,7 +55,7 @@ messagingPublic.post('/auth/text/request', async (c) => {
   signinHits.set(key, [...hits, Date.now()]);
   const acct = accountByPhone(p);
   if (acct && hasTextLink(acct.id)) {
-    await deliver(acct.id, { text: `🔑 Sign in to Grokbot (works once, for 10 minutes):\n${createLoginLink(acct.id)}\n\nDidn't ask for this? Ignore it.` }, { kind: 'system' });
+    await deliver(acct.id, { text: `🔑 Sign in to Swarm (works once, for 10 minutes):\n${createLoginLink(acct.id)}\n\nDidn't ask for this? Ignore it.` }, { kind: 'system' });
   }
   return c.json({ ok: true });
 });
@@ -172,7 +172,7 @@ messagingApi.delete('/links/:channel', async (c) => {
 messagingApi.post('/test', async (c) => {
   const userId = c.get('user').id;
   if (!hasTextLink(userId)) return c.json({ error: 'No phone is connected yet.' }, 400);
-  await deliver(userId, { text: '👋 Test from Grokbot: texting works. Send /help to see what you can do here.' }, { kind: 'system' });
+  await deliver(userId, { text: '👋 Test from Swarm: texting works. Send /help to see what you can do here.' }, { kind: 'system' });
   return c.json({ ok: true });
 });
 

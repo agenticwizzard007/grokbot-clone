@@ -17,7 +17,7 @@ import type { VmDriver, VmInfo, VmSpec, VmState } from './driver.js';
  */
 
 const ROOT = path.resolve(process.env.FAKE_VM_DIR ?? path.join(path.dirname(env.filesDir), 'fake-vms'));
-const COMPANION = new URL('../../../../companion/grokbot-companion.mjs', import.meta.url).pathname;
+const COMPANION = new URL('../../../../companion/swarm-companion.mjs', import.meta.url).pathname;
 
 interface FakeVm { id: string; vmId: string; userId: string; image: string; memoryMb: number; pid: number | null; destroyed?: boolean }
 

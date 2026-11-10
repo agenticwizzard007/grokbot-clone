@@ -131,7 +131,7 @@ export function ConnectAppsModal() {
 
   // Refresh after the OAuth popup reports back.
   useEffect(() => {
-    const onMsg = (e: MessageEvent) => { if ((e.data as { type?: string })?.type === 'grokbot-connected') refresh(); };
+    const onMsg = (e: MessageEvent) => { if ((e.data as { type?: string })?.type === 'swarm-connected') refresh(); };
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);
   }, [refresh]);
@@ -144,7 +144,7 @@ export function ConnectAppsModal() {
 
   let body: React.ReactNode;
   if (error) body = <div className="apps-empty">Couldn’t load apps. {error}</div>;
-  else if (data?.notConfigured) body = <div className="apps-empty">Connected apps aren’t set up on this server. Add a <code>COMPOSIO_API_KEY</code> to its <code>.env</code> and restart it to connect Gmail, Slack, Notion and 1,000+ more.</div>;
+  else if (data?.notConfigured) body = <div className="apps-empty">The server owner needs to add a Composio project key in <button type="button" className="link-btn" onClick={() => { close(); useConfigUI.getState().openAppSettings('keys'); }}>Settings → API keys</button>. This enables connected apps for everyone. Then connect your own accounts here.</div>;
   else if (!data && loading) body = <div className="apps-empty">Loading apps…</div>;
   else if (view.kind === 'connected') body = connectedApps.length ? <Section title="Connected" apps={connectedApps} onChanged={refresh} /> : <div className="apps-empty">No apps connected yet.</div>;
   else if (searching || view.kind === 'category') {

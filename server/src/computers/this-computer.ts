@@ -6,12 +6,12 @@ import { createPairing } from './local.js';
 import { sealSecret, unsealSecret } from '../settings.js';
 
 /**
- * "Use this computer": when Grokbot runs on the user's own Mac/PC, the server starts the companion
+ * "Use this computer": when Swarm runs on the user's own Mac/PC, the server starts the companion
  * itself (as a child process) instead of asking the user to run a command. Only offered to requests
  * from this machine (loopback). Remembered across restarts.
  */
 
-const SCRIPT = new URL('../../../companion/grokbot-companion.mjs', import.meta.url).pathname;
+const SCRIPT = new URL('../../../companion/swarm-companion.mjs', import.meta.url).pathname;
 const SETTING = 'this_computer';
 
 let child: ChildProcess | null = null;

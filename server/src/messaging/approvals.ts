@@ -1,7 +1,7 @@
 import { randomCode, type Link, type LoggedMsg } from './store.js';
 
 /**
- * Answering approvals by text. Adapted from open-instinct's packages/core/src/approvals.ts (MIT).
+ * Answering approvals by text.
  *
  * Each approval message carries a short token ("yes K7P2"). A reply that names the token always counts.
  * A bare "yes" or "no" counts only when it can't be about anything else: exactly one approval is open, the reply is a

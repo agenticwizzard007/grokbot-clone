@@ -283,7 +283,7 @@ function VoiceRepliesRow({ status, patch }: { status: MessagingStatus; patch: (p
       <div className="cfg-row__text">
         <div className="cfg-row__title">Reply by voice</div>
         <div className="cfg-row__sub">
-          {available ? `Bots also answer with a voice note on iMessage (speech by ${status.speech.speech === 'openrouter' ? 'OpenRouter' : 'xAI'}). Text it /voice to change this from your phone.` : 'Needs an OpenRouter or xAI key on this server.'}
+          {available ? `Bots also answer with a voice note on iMessage (speech by ${status.speech.speech === 'openrouter' ? 'OpenRouter' : 'custom provider'}). Text it /voice to change this from your phone.` : 'Needs an OpenRouter or custom provider key on this server.'}
           {err && <span className="msg-voice__err"> {err}</span>}
         </div>
       </div>
@@ -322,7 +322,7 @@ function InviteFriendsSection({ allowance }: { allowance: number }) {
       <div className="cfg-card cfg-key">
         <div className="cfg-row">
           <div className="cfg-row__text">
-            <div className="cfg-row__title">Share Grokbot</div>
+            <div className="cfg-row__title">Share Swarm</div>
             <div className="cfg-row__sub">{allowance > 0 ? `Friends get their own Bots by text. You can invite ${allowance} ${allowance === 1 ? 'person' : 'people'}.` : 'Invites are turned off on this server.'}</div>
           </div>
           {allowance > 0 && !invite && <button type="button" className="cfg-btn cfg-btn--primary" disabled={busy} onClick={() => void get()}>{busy ? 'Getting…' : 'Get my invite link'}</button>}
@@ -534,7 +534,7 @@ function ContactCardSection() {
           </div>
           <form className="msg-card__fields" onSubmit={save}>
             <label className="cfg-row__title" htmlFor="line-name">Name</label>
-            <input id="line-name" className="text-input" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} placeholder="Grokbot" />
+            <input id="line-name" className="text-input" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} placeholder="Swarm" />
             <label className="cfg-row__title" htmlFor="line-about">Notes on the card</label>
             <input id="line-about" className="text-input" maxLength={300} value={about} onChange={(e) => setAbout(e.target.value)} placeholder="Your team of AI Bots. Text to get things done." />
             <div><button type="submit" className="cfg-btn cfg-btn--primary" disabled={!!busy || !profile}>{busy === 'save' ? 'Saving…' : 'Save'}</button></div>
