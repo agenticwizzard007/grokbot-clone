@@ -19,7 +19,7 @@ const llm = () => llmClient(360_000);
 
 export type Trigger =
   /** channel: where the user wrote it (a text channel via the messaging bridge; absent = the web app). */
-  | { type: 'user'; text: string; channel?: 'imessage' | 'sms'; images?: string[]; voice?: boolean }
+  | { type: 'user'; text: string; channel?: 'imessage' | 'sms' | 'whatsapp'; images?: string[]; voice?: boolean; quote?: string }
   | { type: 'routine'; routineId: string; name: string; prompt: string }
   | { type: 'bot'; fromBotId: string; fromName: string; text: string; depth: number }
   | { type: 'system'; text: string }
@@ -99,7 +99,8 @@ function pruneImages(items: any[]): any[] {
 function triggerItem(t: Trigger): any | null {
   switch (t.type) {
     case 'user': {
-      const text = t.channel ? `[via ${t.channel === 'sms' ? 'SMS' : 'iMessage'}${t.voice ? ', voice note' : ''}] ${t.text}` : t.text;
+      const label = t.channel === 'sms' ? 'SMS' : t.channel === 'whatsapp' ? 'WhatsApp' : 'iMessage';
+      const text = t.channel ? `[via ${label}${t.voice ? ', voice note' : ''}] ${t.text}` : t.text;
       if (!t.images?.length) return { role: 'user', content: text };
       return { role: 'user', content: [{ type: 'input_text', text }, ...t.images.map((url) => ({ type: 'input_image', image_url: url, detail: 'auto' }))] };
     }

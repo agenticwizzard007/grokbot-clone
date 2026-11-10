@@ -35,8 +35,8 @@ export function PhoneAuth({ mode, onAttached }: { mode: 'signin' | 'attach'; onA
     setBusy(true); setError(null);
     try {
       if (mode === 'signin') {
-        await configApi.phoneVerify(start.id, code, needInvite ? invite.trim() : undefined);
-        window.location.href = '/';
+        const result = await configApi.phoneVerify(start.id, code, needInvite ? invite.trim() : undefined);
+        window.location.href = result.created ? '/#settings/messaging' : '/';
         return;
       }
       onAttached?.(await configApi.phoneAttachVerify(start.id, code));
@@ -71,8 +71,9 @@ export function PhoneAuth({ mode, onAttached }: { mode: 'signin' | 'attach'; onA
       {start.line && (
         <div className="phone-auth__help">
           <div><b>No text yet?</b> Say Hi Swarm and we'll text your code right back.</div>
-          <a className="btn btn--secondary phone-auth__btn" href={start.line.smsLink}>Say Hi Swarm</a>
-          <div className="phone-auth__small">Messages will fill in the connection text for you. If it doesn't, text <code>{start.line.connectCommand}</code> to <code>{prettyNumber(start.line.number)}</code>, then send “hi” if the code doesn't arrive.</div>
+          {start.line.whatsapp?.messageLink && <a className="btn btn--secondary phone-auth__btn" href={start.line.whatsapp.messageLink}>Open WhatsApp</a>}
+          <a className="btn btn--secondary phone-auth__btn" href={start.line.smsLink}>Open Messages</a>
+          <div className="phone-auth__small">WhatsApp or Messages will fill in the connection text for you. If Messages doesn't, text <code>{start.line.connectCommand}</code> to <code>{prettyNumber(start.line.number)}</code>, then send “hi” if the code doesn't arrive.</div>
         </div>
       )}
       <button type="button" className="phone-auth__link" onClick={() => { setStart(null); setError(null); setNeedInvite(false); }}>Use a different number</button>

@@ -34,6 +34,10 @@ const events = [];
 const site = http.createServer((req, res) => {
   const u = new URL(req.url, SITE);
   if (u.pathname === '/submitted') events.push(u.searchParams.get('q'));
+  if (u.pathname === '/form') {
+    res.writeHead(200, { 'content-type': 'text/html' });
+    return res.end('<!doctype html><title>Form</title><body style="font:20px sans-serif"><h1>Search</h1><form action="/submitted"><label>Query <input name="q" type="text"></label> <button>Go</button></form></body>');
+  }
   res.writeHead(200, { 'content-type': 'text/html' });
   res.end(`<!doctype html><title>${u.pathname}</title><body style="font:24px sans-serif"><h1>${u.pathname} ${u.search.replace(/[<>&]/g, '')}</h1></body>`);
 });
@@ -142,6 +146,20 @@ await step('both Bots work at the same time, each in its own Chrome', async () =
   fs.writeFileSync(path.join(OUT, 'screen-quinn.jpg'), Buffer.from(shot1.body));
   fs.writeFileSync(path.join(OUT, 'screen-desk2.jpg'), Buffer.from(shot2.body));
   if (Buffer.compare(Buffer.from(shot1.body), Buffer.from(shot2.body)) === 0) throw new Error('the two Bots see the same screen');
+});
+
+await step('Playwright browser tools: navigate, read the page, type into an element by its ref, submit', async () => {
+  // navigate returns the page itself (no separate browser_snapshot round trip)
+  const r1 = await chat(A, second, script(call('browser_navigate', { url: `${SITE}/form` }), 'say {last}'));
+  noErrors(r1);
+  const ref = r1.reply.match(/textbox[^\n]*\[ref=([\w]+)\]/)?.[1];
+  if (!ref) throw new Error(`no textbox ref in the navigate result: ${r1.reply}`);
+  const r2 = await chat(A, second, script(call('browser_type', { element: 'search box', target: ref, text: 'typed by playwright', submit: true }), 'say {last}'));
+  noErrors(r2);
+  await waitFor('Playwright submission', () => events.includes('typed by playwright'), 20000);
+  if (!/submitted/i.test(r2.reply)) throw new Error(`page after submit: ${r2.reply}`);
+  const shot = await chat(A, second, script(call('browser_take_screenshot', {}), 'say done'));
+  noErrors(shot);
 });
 
 await step('each Bot\'s shell runs as the Bots\' user, in its own folder', async () => {

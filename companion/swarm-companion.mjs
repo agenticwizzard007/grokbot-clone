@@ -50,7 +50,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 
-const VERSION = '1.2.0';
+const VERSION = '1.3.0';
 const W = 1280;
 const H = 800;
 
@@ -1002,6 +1002,86 @@ if (DESKTOP) {
   }
 }
 
+// ---------- Playwright: browser tools on each Bot's own Chrome (--multi) ----------
+//
+// Every browser action on a cloud VM goes through Playwright MCP (@playwright/mcp), attached over the
+// Chrome DevTools protocol to the Bot's visible, logged-in Chrome on its own screen. One MCP process
+// per Bot; it runs as this companion's user and reaches Chrome on a port only this machine can use.
+
+/** The tools Bots may call (server/src/computers/browser-tools.ts lists the same ones). */
+const BROWSER_TOOLS = new Set([
+  'browser_navigate', 'browser_navigate_back', 'browser_snapshot', 'browser_click', 'browser_type', 'browser_fill_form',
+  'browser_select_option', 'browser_press_key', 'browser_hover', 'browser_drag', 'browser_file_upload', 'browser_handle_dialog',
+  'browser_tabs', 'browser_wait_for', 'browser_take_screenshot', 'browser_find', 'browser_evaluate', 'browser_console_messages',
+]);
+
+function findPlaywrightMcp() {
+  const here = path.dirname(new URL(import.meta.url).pathname);
+  const candidates = [
+    opt('playwright-mcp', process.env.PLAYWRIGHT_MCP_CLI),
+    path.join(here, 'node_modules/@playwright/mcp/cli.js'),
+    path.join(here, '../node_modules/@playwright/mcp/cli.js'),
+    '/usr/lib/node_modules/@playwright/mcp/cli.js',
+    '/usr/local/lib/node_modules/@playwright/mcp/cli.js',
+  ].filter(Boolean);
+  return candidates.find((c) => fs.existsSync(c)) ?? null;
+}
+
+/** A minimal MCP client over stdio (newline-delimited JSON-RPC). */
+class McpProcess {
+  constructor(cli, args, cwd) {
+    this.proc = spawn(process.execPath, [cli, ...args], { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+    this.pending = new Map();
+    this.nextId = 0;
+    this.dead = false;
+    let buf = '';
+    let err = '';
+    this.proc.stdout.on('data', (d) => {
+      buf += d;
+      for (let i; (i = buf.indexOf('\n')) >= 0;) {
+        const line = buf.slice(0, i);
+        buf = buf.slice(i + 1);
+        if (!line.trim()) continue;
+        let m;
+        try { m = JSON.parse(line); } catch { continue; }
+        const p = this.pending.get(m.id);
+        if (!p) continue;
+        this.pending.delete(m.id);
+        clearTimeout(p.timer);
+        if (m.error) p.reject(new Error(m.error.message ?? JSON.stringify(m.error))); else p.resolve(m.result);
+      }
+    });
+    this.proc.stderr.on('data', (d) => { err = (err + d).slice(-2000); });
+    this.proc.on('exit', () => {
+      this.dead = true;
+      for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(new Error(`Playwright stopped${err ? `: ${err.trim().split('\n').pop()}` : ''}`)); }
+      this.pending.clear();
+    });
+    this.proc.stdin.on('error', () => {});
+  }
+  request(method, params, timeoutMs = 120_000) {
+    if (this.dead) return Promise.reject(new Error('Playwright stopped'));
+    const id = ++this.nextId;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`Playwright timed out (${method})`)); }, timeoutMs);
+      this.pending.set(id, { resolve, reject, timer });
+      this.proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
+    });
+  }
+  async init() {
+    await this.request('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'swarm-companion', version: VERSION } }, 30_000);
+    this.proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
+    return this;
+  }
+  close() { try { this.proc.kill(); } catch { /* gone */ } }
+}
+
+const PLAYWRIGHT_MCP = MULTI ? findPlaywrightMcp() : null;
+
+/** Tools after which the page usually changed: their results include the updated page snapshot. */
+const PAGE_CHANGING = new Set(['browser_navigate', 'browser_navigate_back', 'browser_click', 'browser_type', 'browser_fill_form', 'browser_select_option',
+  'browser_press_key', 'browser_drag', 'browser_file_upload', 'browser_handle_dialog', 'browser_tabs', 'browser_wait_for']);
+
 // ---------- one screen per Bot (--multi: a user's cloud VM) ----------
 
 const SCREEN_W = 1280;
@@ -1041,24 +1121,57 @@ async function createScreen(botId) {
     const profile = path.join(AGENT_HOME, 'profiles', botId);
     const [mc, ma] = asAgent('mkdir', ['-p', botDir, profile]);
     await exec(mc, ma);
-    const openUrl = async (url) => {
-      // A second launch with the same profile hands the URL to the running Chrome (a new tab).
-      const [c, a] = asAgent('env', [`DISPLAY=${display}`, CHROME, `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--password-store=basic',
-        '--disable-features=Translate,MediaRouter', '--hide-crash-restore-bubble', '--window-position=0,0', `--window-size=${SCREEN_W},${SCREEN_H}`, '--start-maximized',
-        ...(NO_SANDBOX ? ['--no-sandbox'] : []), url]);
+    // Chrome's DevTools port for Playwright: on loopback only, one per screen.
+    const cdpPort = 9200 + n;
+    const cdpUp = () => fetch(`http://127.0.0.1:${cdpPort}/json/version`, { signal: AbortSignal.timeout(1500) }).then((r) => r.ok, () => false);
+    let chromeStarting = null;
+    const ensureChrome = () => chromeStarting ??= (async () => {
+      if (await cdpUp()) return;
+      const [c, a] = asAgent('env', [`DISPLAY=${display}`, CHROME, `--user-data-dir=${profile}`, `--remote-debugging-port=${cdpPort}`, '--remote-debugging-address=127.0.0.1',
+        '--no-first-run', '--no-default-browser-check', '--password-store=basic', '--disable-features=Translate,MediaRouter', '--hide-crash-restore-bubble',
+        '--window-position=0,0', `--window-size=${SCREEN_W},${SCREEN_H}`, '--start-maximized', ...(NO_SANDBOX ? ['--no-sandbox'] : []), 'about:blank']);
       const p = spawn(c, a, { env, stdio: 'ignore' });
       p.on('error', () => {});
-      // Give Chrome the keyboard: a window manager on a virtual screen doesn't always focus new windows.
-      for (let i = 0; i < 40; i++) {
-        await sleep(250);
-        const ids = (await exec('xdotool', ['search', '--onlyvisible', '--class', '[Cc]hrome'], { env }).catch(() => Buffer.from(''))).toString().trim().split('\n').filter(Boolean);
-        if (ids.length) { await exec('xdotool', ['windowactivate', ids.at(-1)], { env }).catch(() => {}); break; }
+      for (let i = 0; i < 80 && !(await cdpUp()); i++) await sleep(250);
+      if (!(await cdpUp())) throw new Error('Chrome did not start.');
+      // Give Chrome the keyboard too: a window manager on a virtual screen doesn't always focus new windows.
+      const ids = (await exec('xdotool', ['search', '--onlyvisible', '--class', '[Cc]hrome'], { env }).catch(() => Buffer.from(''))).toString().trim().split('\n').filter(Boolean);
+      if (ids.length) await exec('xdotool', ['windowactivate', ids.at(-1)], { env }).catch(() => {});
+    })().finally(() => { chromeStarting = null; });
+    let mcp = null;
+    const browser = async (tool, args = {}) => {
+      if (!BROWSER_TOOLS.has(tool)) throw new Error(`Unknown browser tool ${tool}.`);
+      if (!PLAYWRIGHT_MCP) throw new Error('Playwright is not installed on this computer.');
+      await ensureChrome();
+      if (!mcp || mcp.dead) {
+        const out = path.join(DATA_DIR, 'playwright', botId);
+        fs.mkdirSync(out, { recursive: true });
+        mcp = await new McpProcess(PLAYWRIGHT_MCP, ['--cdp-endpoint', `http://127.0.0.1:${cdpPort}`, '--output-dir', out, '--image-responses', 'allow'], out).init();
       }
+      const r = await mcp.request('tools/call', { name: tool, arguments: args }, 150_000);
+      let content = r?.content ?? [];
+      // After an action that changes the page, return the updated page too, so the Bot doesn't need
+      // another round trip to read it (Playwright saves that snapshot to a file the Bot can't open).
+      const mentionsSnapshot = content.some((c) => c.type === 'text' && /- \[Snapshot\]\(/.test(c.text));
+      if (!r?.isError && PAGE_CHANGING.has(tool) && mentionsSnapshot) {
+        const snap = await mcp.request('tools/call', { name: 'browser_snapshot', arguments: {} }, 60_000).catch(() => null);
+        const text = (snap?.content ?? []).filter((c) => c.type === 'text').map((c) => c.text).join('\n');
+        content = content.map((c) => (c.type === 'text' ? { ...c, text: c.text.replace(/\n?### Page[\s\S]*$/, '').replace(/- \[Snapshot\]\([^)]*\)\n?/g, '') } : c));
+        if (text) content.push({ type: 'text', text: `\n${text}` });
+      } else {
+        content = content.map((c) => (c.type === 'text' ? { ...c, text: c.text.replace(/- \[Snapshot\]\([^)]*\)/g, '- Call browser_snapshot to read the page.') } : c));
+      }
+      // The generated Playwright code is noise for the Bot (and costs tokens): keep the result and the page.
+      content = content.map((c) => (c.type === 'text' ? { ...c, text: c.text.replace(/### Ran Playwright code\n```js\n[\s\S]*?\n```\n?/g, '').trim() } : c)).filter((c) => c.type !== 'text' || c.text);
+      return { content, isError: !!r?.isError };
     };
+    // Warm start: Chrome and Playwright come up in the background, so the first browser action is quick.
+    const warm = () => { if (PLAYWRIGHT_MCP) browser('browser_tabs', { action: 'list' }).catch((e) => log(`Browser warm-up for ${botId}: ${e.message}`)); };
+    const openUrl = async (url) => { await browser('browser_navigate', { url }); };
     const d = new Desktop(makeLinuxBackend({ display, open: openUrl }), { cwd: botDir, env, user: RUN_AS || undefined });
     await d.init();
-    log(`Screen ${display} ready for Bot ${botId}`);
-    return { botId, n, display, profile, procs, desktop: d };
+    log(`Screen ${display} ready for Bot ${botId}${PLAYWRIGHT_MCP ? '' : ' (Playwright not found: browser tools unavailable)'}`);
+    return { botId, n, display, profile, procs, desktop: d, browser, warm, closeBrowser: () => mcp?.close() };
   } catch (e) {
     for (const p of procs.reverse()) { try { p.kill('SIGKILL'); } catch { /* gone */ } }
     usedDisplays.delete(n);
@@ -1072,7 +1185,7 @@ function screenFor(botId) {
   if (!p) {
     p = createScreen(botId);
     screens.set(botId, p);
-    p.then(() => reportBrowsers(), () => { if (screens.get(botId) === p) screens.delete(botId); });
+    p.then((s) => { reportBrowsers(); s.warm?.(); }, () => { if (screens.get(botId) === p) screens.delete(botId); });
   }
   return p;
 }
@@ -1085,6 +1198,7 @@ async function closeScreen(botId) {
   const s = await p.catch(() => null);
   if (!s) return;
   s.desktop.viewers.clear();
+  s.closeBrowser?.();
   const [kc, ka] = asAgent('pkill', ['-f', `--user-data-dir=${s.profile}`]);
   await exec(kc, ka).catch(() => {});
   for (const proc of s.procs.reverse()) { try { proc.kill('SIGTERM'); } catch { /* gone */ } }
@@ -1164,6 +1278,11 @@ async function handleDesktop(msg) {
       // Each Bot has its own screen; nothing is shared between Bots but the shell's machine.
       if (method === 'input') { const sp = screens.get(params.botId); if (sp) (await sp).desktop.input(params); return; }
       if (method === 'close') result = await closeScreen(params.botId);
+      else if (method === 'browser') {
+        const tool = String(params.tool ?? '');
+        result = await (await screenFor(params.botId)).browser(tool, params.args && typeof params.args === 'object' ? params.args : {});
+        log(`${params.botId} ${tool}${tool === 'browser_navigate' ? ` ${params.args?.url}` : ''}`);
+      }
       else if (method === 'screencast.stop' && !screens.has(params.botId)) result = {};
       else if (DESKTOP_METHODS[method]) {
         const d = (await screenFor(params.botId)).desktop;

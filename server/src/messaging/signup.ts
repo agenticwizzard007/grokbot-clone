@@ -39,7 +39,7 @@ const startOfDayUtc = () => { const d = new Date(); d.setUTCHours(0, 0, 0, 0); r
 export function dailyUsage(userId: string): { used: number; limit: number; over: boolean } {
   const acct = getAccount(userId);
   const used = (db.prepare(`SELECT COUNT(*) n FROM rows r JOIN bots b ON b.id=r.bot_id WHERE b.user_id=? AND r.kind='message' AND r.created_at>=?
-    AND json_extract(r.body,'$.role')='user' AND (json_extract(r.body,'$.from.kind') IS NULL OR json_extract(r.body,'$.from.kind') IN ('imessage','sms','voice'))`)
+    AND json_extract(r.body,'$.role')='user' AND (json_extract(r.body,'$.from.kind') IS NULL OR json_extract(r.body,'$.from.kind') IN ('imessage','sms','whatsapp','voice'))`)
     .get(userId, startOfDayUtc()) as any).n as number;
   const limit = acct?.signupSource === 'text' ? signupConfig().dailyTurns : 0;
   return { used, limit, over: limit > 0 && used >= limit };
@@ -259,7 +259,7 @@ export const isAdminPhone = (phone: string) => adminPhones().includes(digits(pho
 /** The first text a new member gets (sent before the account exists when they've only just connected). */
 export const welcomeText = (botName = 'Quinn', name?: string | null) => {
   const first = name?.split(/\s+/)[0];
-  return `Hi${first ? ` ${first}` : ''}! 👋 I'm ${botName}, your Swarm. I can get things done on the web, handle email and calendar once you connect them, and bring in teammate Bots for bigger jobs. Let's get you set up; it takes a minute.`;
+  return `Hi${first ? ` ${first}` : ''}! 👋 I'm ${botName}, your Swarm. I can get things done on the web, handle email and calendar once you connect them, and bring in teammate Bots for bigger jobs. Once you're in the app, save the Google/Gmail address you'll use for desktop sign-in, then connect Gmail if you want me to help with mail. Let's get you set up; it takes a minute.`;
 };
 
 export async function startAccount(s: Sender, invitedBy: string | null, opts: { welcomeSent?: boolean } = {}): Promise<string> {
@@ -273,7 +273,7 @@ export async function startAccount(s: Sender, invitedBy: string | null, opts: { 
     text: `[onboarding] A new user just joined by ${CHANNEL_NAMES[s.channel]}${inviter ? `, invited by ${inviter}` : ''}. ` +
       `Their ${CHANNEL_NAMES[s.channel]} name: ${s.name ?? 'unknown'}. Their number starts with +${s.phone.slice(0, Math.max(1, s.phone.length - 7))}. ` +
       `${s.text ? `Their first message was: ${JSON.stringify(s.text.slice(0, 300))}. ` : ''}` +
-      'The welcome text was already sent. Start onboarding now, following the Onboarding section of your instructions: ask the first question in one short text.',
+      'The welcome text was already sent. Start onboarding now, following the Onboarding section of your instructions: ask the first question in one short text. Before onboarding feels complete, remind them to save the Google/Gmail address they will use for desktop sign-in and connect Gmail if they want help with email.',
   });
   return userId;
 }

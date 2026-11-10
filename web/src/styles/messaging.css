@@ -1,4 +1,4 @@
-/* Settings → Messaging (iMessage & SMS), the /join/:code page, and sign-in by text. */
+/* Settings → Messaging, the /join/:code page, and sign-in by text. */
 
 .msg-inline-code, .msg-commands code {
   font-family: var(--font-mono-stack); font-size: 12px; padding: 1px 5px; border-radius: 5px;
@@ -37,6 +37,8 @@
 .msg-switch-row { display: flex; align-items: center; gap: 12px; }
 .msg-error-action { margin-top: 8px; }
 .msg-warn { padding: 8px 10px; border-radius: 8px; background: var(--color-warn-bg); color: var(--color-warn-text); font-size: 12px; line-height: 17px; }
+.msg-whatsapp-test { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+.msg-whatsapp-test__links { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 220px; flex: 1; }
 
 .msg-nums { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 0 14px 14px; align-items: start; }
 .msg-nums__save { grid-column: 1 / -1; display: flex; justify-content: flex-end; }

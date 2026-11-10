@@ -75,7 +75,7 @@ const Bubble = memo(function Bubble({ row, side, pos }: { row: Row; side: 'left'
   );
 });
 
-/** A small speech-bubble mark for messages that arrived by iMessage or SMS. */
+/** A small speech-bubble mark for messages that arrived by text. */
 function TextMark() {
   return (
     <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden style={{ opacity: 0.56 }}>
@@ -84,14 +84,14 @@ function TextMark() {
   );
 }
 
-const isText = (kind: NonNullable<MessageBody['from']>['kind']) => kind === 'imessage' || kind === 'sms';
+const isText = (kind: NonNullable<MessageBody['from']>['kind']) => kind === 'imessage' || kind === 'sms' || kind === 'whatsapp';
 
 function SenderLabel({ from }: { from: NonNullable<MessageBody['from']> }) {
   const bot = useStore((s) => (from.kind === 'bot' ? s.bots.find((b) => b.id === from.id) : undefined));
   return (
     <div className="sender-label">
       {bot ? <BotAvatarFor bot={bot} size={16} /> : from.kind === 'routine' ? <Icon name="clock" size={12} opacity={0.56} /> : from.kind === 'voice' ? <Icon name="voice_a" size={12} opacity={0.56} /> : isText(from.kind) ? <TextMark /> : <BotAvatar shape="blob" color="gray" size={16} />}
-      <span>{from.kind === 'routine' ? `Routine · ${from.name}` : from.kind === 'voice' ? 'Asked on a voice call' : from.kind === 'imessage' ? 'Sent by iMessage' : from.kind === 'sms' ? 'Sent by SMS' : `From ${from.name}`}</span>
+      <span>{from.kind === 'routine' ? `Routine · ${from.name}` : from.kind === 'voice' ? 'Asked on a voice call' : from.kind === 'imessage' ? 'Sent by iMessage' : from.kind === 'sms' ? 'Sent by SMS' : from.kind === 'whatsapp' ? 'Sent by WhatsApp' : `From ${from.name}`}</span>
     </div>
   );
 }

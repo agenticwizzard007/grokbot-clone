@@ -55,7 +55,7 @@ export interface KeysResponse {
 export interface ModelInfo { id: string; name: string; vision: boolean; reasoning: boolean; context: number; price: { input: number; output: number } | null }
 export type SettingKey = 'direct' | 'composio' | 'model' | 'openrouter' | 'openrouter_model' | 'provider';
 
-export type MessagingChannel = 'imessage' | 'sms';
+export type MessagingChannel = 'imessage' | 'sms' | 'whatsapp';
 export interface MessagingLink {
   channel: MessagingChannel;
   channelName: string;
@@ -64,15 +64,19 @@ export interface MessagingLink {
   lastInboundAt: number | null;
   error: string | null;
 }
-export interface MessagingLine { number: string; connectCommand: string; smsLink: string }
+export interface MessagingWhatsAppStart { number: string | null; messageText: string; messageLink: string; qr: string }
+export interface MessagingLine { number: string; connectCommand: string; smsLink: string; whatsapp?: MessagingWhatsAppStart | null }
 export type SignupMode = 'invite' | 'open' | 'closed';
+export interface InkboxWhatsAppStatus { enabled: boolean; number: string | null; status: string }
+export interface InkboxWhatsAppOnboarding { agentIdentityId: string; number: string | null; messageText: string; messageLink: string | null; messageQrPngDataUrl: string | null; ready: boolean }
+export interface InkboxWhatsAppInfo { status: InkboxWhatsAppStatus | null; onboarding: InkboxWhatsAppOnboarding | null }
 export interface MessagingOwner {
-  inkbox: { adminKeySet: boolean; configured: boolean; handle: string; identityId: string | null; sms: boolean; webhookUrl: string; inbox: { status: string; n: number }[] };
+  inkbox: { adminKeySet: boolean; configured: boolean; handle: string; identityId: string | null; sms: boolean; whatsapp: InkboxWhatsAppStatus | null; webhookUrl: string; inbox: { status: string; n: number }[] };
   signup: { mode: SignupMode; signupsPerDay: number; dailyTurns: number; memberInvites: number };
 }
 export type VoiceReplies = 'voice-in' | 'always' | 'off';
 export interface InkboxProfile { displayName: string | null; description: string | null; hasAvatar: boolean }
-export interface PhoneStart { id: string; line: { number: string; connectCommand: string; smsLink: string } | null }
+export interface PhoneStart { id: string; line: MessagingLine | null }
 export interface MessagingStatus {
   account: { phone: string | null; email: string | null; signupSource: 'web' | 'text' };
   links: MessagingLink[];
@@ -85,7 +89,7 @@ export interface MessagingStatus {
   /** Present only for the server owner. */
   owner?: MessagingOwner;
 }
-export interface MessagingCode { code: string; expiresAt: number; number: string; connectCommand: string; smsLink: string; qr: string }
+export interface MessagingCode { code: string; expiresAt: number; number: string; connectCommand: string; smsLink: string; qr: string; whatsapp?: MessagingWhatsAppStart | null }
 export interface InkboxSetupResult { step: 'identity' | 'key' | 'signing' | 'webhook' | 'done'; handle: string; identityId: string | null; error?: string }
 export interface MessagingInvite { code: string; createdBy: string | null; createdByName: string | null; maxUses: number; uses: number; expiresAt: number | null; note: string | null; revoked: boolean; createdAt: number; url: string; qr?: string }
 export interface WaitlistEntry { phone: string; channel: MessagingChannel | string; name: string | null; firstMessage: string | null; status: 'pending' | 'approved' | 'declined' | 'deleted'; createdAt: number; decidedAt: number | null }
@@ -206,6 +210,7 @@ export const configApi = {
   inkboxSaveKey: (adminKey: string) => req<MessagingStatus>('PUT', '/messaging/inkbox', { adminKey }),
   inkboxSetup,
   inkboxForget: () => req<MessagingStatus>('DELETE', '/messaging/inkbox'),
+  inkboxWhatsApp: () => req<InkboxWhatsAppInfo>('GET', '/messaging/inkbox/whatsapp'),
   messagingSignup: (p: Partial<MessagingOwner['signup']>) => req<MessagingStatus>('PUT', '/messaging/signup', p),
   invites: () => req<{ invites: MessagingInvite[] }>('GET', '/messaging/invites'),
   createInvite: (p: { maxUses?: number; expiresInDays?: number | null; note?: string }) => req<{ invite: MessagingInvite & { qr: string } }>('POST', '/messaging/invites', p),

@@ -1,8 +1,8 @@
 # Messaging: run your Bots by text
 
-People can sign up for Swarm by texting a number, and run their whole team from one iMessage or SMS thread. It's the same account as the web app. Day to day, people use it by text, and the web app is there when they want it (`/web` texts a one-time sign-in link).
+People can sign up for Swarm by texting a number, and run their whole team from one iMessage, SMS, or WhatsApp thread. It's the same account as the web app. Day to day, people use it by text, and the web app is there when they want it (`/web` texts a one-time sign-in link).
 
-The line is a server-wide [Inkbox](https://inkbox.ai) identity: Inkbox runs real iMessage lines behind an API, and falls back to SMS for people without iMessage. One line serves everyone; the server tells people apart by phone number.
+The line is a server-wide [Inkbox](https://inkbox.ai) identity: Inkbox runs real iMessage, SMS, and dedicated WhatsApp channels behind an API. One line serves everyone; the server tells people apart by phone number.
 
 ## Setting up the line (server owner)
 
@@ -12,7 +12,9 @@ The line is a server-wide [Inkbox](https://inkbox.ai) identity: Inkbox runs real
    - creates the identity (handle `swarm` unless you choose another; optionally with a local number for SMS),
    - mints a key scoped to that identity (the server sends with it; the admin key is only for setup),
    - creates the webhook signing key,
-   - subscribes the webhook to `imessage.received`, `imessage.reaction_received` and `text.received`.
+   - subscribes the webhook to `imessage.received`, `imessage.reaction_received`, `text.received`, `whatsapp.received`, and `whatsapp.reaction_received`.
+
+   Dedicated WhatsApp must be approved and enabled on the Inkbox identity. WhatsApp can send text, quoted replies, media and reactions; it does not expose typing indicators. Once enabled, Settings → Messaging shows a WhatsApp test card with the Inkbox onboarding link and QR code.
 
    If the identity already has a signing key this server doesn't hold, setup stops rather than replacing it, because other receivers would break. Choose **Replace signing key** if that's intended.
 4. Choose who can join under **Sign-up by text**:
@@ -32,10 +34,10 @@ The settings can also come from `.env` (see `.env.example`).
 
 If Inkbox doesn't let the line text first, nothing is created, and the person's next text goes through the steps below as before. Only connections from the last 20 minutes are greeted, so a restart doesn't message old connections again.
 
-- **Invite link** (`/join/<code>`): the person enters their number and taps **Text Swarm**. Messages opens with `connect @<handle>` addressed to Inkbox's router number. The account is created when that text arrives; texting from the number is the proof that they own it, so no code is needed. The page answers the same whether or not a number already has an account.
+- **Invite link** (`/join/<code>`): the person enters their number and taps **Open WhatsApp** when Dedicated WhatsApp is ready, otherwise **Text Swarm**. WhatsApp opens with the Inkbox onboarding message; Messages opens with `connect @<handle>` addressed to Inkbox's router number. The account is created when that text arrives; texting from the number is the proof that they own it, so no code is needed. The page answers the same whether or not a number already has an account.
 - **Invite code in the chat**: `JOIN ABCD2345` (or the bare code as shown).
 - **Waitlist**: anyone else who texts gets one reply and waits for the owner's approval. Approval creates the account and texts them in the same thread.
-- **Continue with phone number** (the sign-in screen): enter your number, then the 6-digit code that's texted to you. If the number already reaches Swarm, the code arrives right away. If it doesn't yet, tap **Open Messages** to send the prefilled `connect @<handle>`. The server watches Inkbox's list of connected numbers and texts the code as soon as yours appears; failing that, texting anything to the line gets the code back. The right code signs you in, or creates the account (under the sign-up mode above) and connects the number. Add an email later in Settings → Messaging. Codes last 10 minutes, work once, and lock after 5 wrong tries.
+- **Continue with phone number** (the sign-in screen): enter your number, then the 6-digit code that's texted to you. If the number already reaches Swarm, the code arrives right away. If it doesn't yet, tap **Open WhatsApp** or **Open Messages** to send the prefilled message. The server watches Inkbox's list of connected iMessage numbers and texts the code as soon as yours appears; failing that, texting anything over iMessage or WhatsApp gets the code back. The right code signs you in, or creates the account (under the sign-up mode above) and connects the number. Add an email later in Settings → Messaging. Codes last 10 minutes, work once, and lock after 5 wrong tries.
 - **Connect your phone** (signed in, Settings → Messaging): the same code flow attaches the number to your account. A number that already has its own account is refused.
 - **Web account → phone** (alternative): Settings → Messaging → **Connect your phone** shows a link code. Text the connect command, then `LINK <code>`.
 
@@ -86,7 +88,7 @@ The bridge (`server/src/messaging/bridge.ts`) watches the transcript and sends:
 - Errors in turns you started by text.
 - Replies to messages you typed in the web app stay there while it's open, and come by text when it isn't.
 
-Messages go to the channel you last wrote from. Text is plain (Markdown is stripped) and split at 1,500 characters. Messages go out once and in order. If the line isn't ready, they wait in a queue.
+Messages go to the channel you last wrote from. Text is plain (Markdown is stripped) and split at 1,500 characters for iMessage, 1,200 for SMS and 4,000 for WhatsApp. Messages go out once and in order. If the line isn't ready, they wait in a queue.
 
 ## Reliability and security
 

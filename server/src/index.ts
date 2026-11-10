@@ -43,7 +43,7 @@ app.get('/api/companion/script', (c) => {
   if ((computers.kind !== 'local' && computers.kind !== 'cloudvm') || !fs.existsSync(companionScript)) return c.json({ error: 'not available' }, 404);
   return c.body(fs.readFileSync(companionScript, 'utf8'), 200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
 });
-// Messaging (iMessage/SMS via Inkbox). Public routes first: the Inkbox webhook (verified by signature), the invite
+// Messaging (iMessage/SMS/WhatsApp via Inkbox). Public routes first: the Inkbox webhook (verified by signature), the invite
 // join page and sign-in by text. They are registered before the session check.
 app.route('/api/messaging/inkbox/webhook', inkboxWebhook);
 app.route('/api', messagingPublic);

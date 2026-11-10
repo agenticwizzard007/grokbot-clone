@@ -25,13 +25,31 @@ const clientIp = (c: any) => {
 
 export const messagingPublic = new Hono();
 
+async function publicWhatsApp() {
+  if (!inkboxConfigured()) return null;
+  const onboarding = await ib.getWhatsAppOnboarding(env.inkboxIdentityKey, env.inkboxIdentityId).catch(() => null);
+  if (!onboarding?.ready || !onboarding.messageLink) return null;
+  return {
+    number: onboarding.number,
+    messageText: onboarding.messageText,
+    messageLink: onboarding.messageLink,
+    qr: onboarding.messageQrPngDataUrl ?? await QRCode.toDataURL(onboarding.messageLink, { margin: 1, width: 220 }),
+  };
+}
+
+async function publicLine() {
+  const line = await lineInfo().catch(() => null);
+  if (!line) return null;
+  return { number: line.number, connectCommand: line.connectCommand, smsLink: line.smsLink, whatsapp: await publicWhatsApp() };
+}
+
 messagingPublic.get('/join/:code', async (c) => {
   const info = inviteInfo(c.req.param('code'));
-  const line = info.valid ? await lineInfo().catch(() => null) : null;
+  const line = info.valid ? await publicLine() : null;
   return c.json({
     valid: info.valid && !!line,
     inviter: info.inviter,
-    line: line && { number: line.number, connectCommand: line.connectCommand, smsLink: line.smsLink, qr: await QRCode.toDataURL(line.smsLink, { margin: 1, width: 220 }) },
+    line: line && { ...line, qr: await QRCode.toDataURL(line.smsLink, { margin: 1, width: 220 }) },
     reason: !info.valid ? 'This invite has expired or has been used up.' : !line ? "Texting isn't set up on this server yet." : null,
   });
 });
@@ -68,8 +86,7 @@ messagingPublic.post('/auth/phone/start', async (c) => {
   const { phone } = await c.req.json<{ phone?: string }>().catch(() => ({} as { phone?: string }));
   const r = await startPhoneLogin(String(phone ?? ''), { ip: clientIp(c) });
   if (!r.ok) return c.json({ error: r.error }, r.status as 400);
-  const line = await lineInfo().catch(() => null);
-  return c.json({ id: r.id, line: line && { number: line.number, connectCommand: line.connectCommand, smsLink: line.smsLink } });
+  return c.json({ id: r.id, line: await publicLine() });
 });
 
 messagingPublic.post('/auth/phone/verify', async (c) => {
@@ -96,20 +113,21 @@ async function status(userId: string, owner: boolean) {
   const prefs = getPrefs(userId);
   const active = prefs.activeBotId ? getBot(prefs.activeBotId) : null;
   const acct = getAccount(userId);
-  const line = await lineInfo().catch(() => null);
+  const line = await publicLine();
   const cfg = signupConfig();
+  const whatsapp = owner && env.inkboxAdminKey && env.inkboxHandle ? await ib.getWhatsAppStatus(env.inkboxAdminKey, env.inkboxHandle).catch(() => null) : null;
   return {
     account: { phone: acct?.phone ?? null, email: acct && !isPlaceholderEmail(acct.email) ? acct.email : null, signupSource: acct?.signupSource ?? 'web' },
     links: listUserLinks(userId).map((l) => ({ channel: l.channel, channelName: CHANNEL_NAMES[l.channel], status: l.status, phone: l.phone, lastInboundAt: l.lastInboundAt, error: l.error })),
     prefs: { forward: prefs.forward, activeBot: active ? { id: active.id, name: active.name } : null, voiceReplies: prefs.voiceReplies, ttsVoice: prefs.ttsVoice },
     speech: { ...speechStatus(), voices: TTS_VOICES },
-    line: line ? { number: line.number, connectCommand: line.connectCommand, smsLink: line.smsLink } : null,
+    line,
     invites: { allowance: cfg.memberInvites },
     ...(owner ? {
       owner: {
         inkbox: {
           adminKeySet: !!env.inkboxAdminKey, configured: inkboxConfigured(), handle: env.inkboxHandle, identityId: env.inkboxIdentityId || null,
-          sms: !!env.inkboxPhoneNumberId, webhookUrl: webhookUrl(), tunnel: tunnelStatus(), inbox: inboxStats(),
+          sms: !!env.inkboxPhoneNumberId, whatsapp, webhookUrl: webhookUrl(), tunnel: tunnelStatus(), inbox: inboxStats(),
         },
         signup: cfg,
       },
@@ -140,10 +158,10 @@ messagingApi.patch('/prefs', async (c) => {
 
 /** A one-time code to connect this account from a phone: text the connect command, then "LINK <code>". */
 messagingApi.post('/code', async (c) => {
-  const line = await lineInfo().catch(() => null);
+  const line = await publicLine();
   if (!line) return c.json({ error: "Texting isn't set up on this server yet." }, 400);
   const { code, expiresAt } = newLinkCode(c.get('user').id);
-  return c.json({ code, expiresAt, number: line.number, connectCommand: line.connectCommand, smsLink: line.smsLink, qr: await QRCode.toDataURL(line.smsLink, { margin: 1, width: 200 }) });
+  return c.json({ code, expiresAt, ...line, qr: await QRCode.toDataURL(line.smsLink, { margin: 1, width: 200 }) });
 });
 
 /** Connect your phone (signed in): the same code flow, attaching the number to this account. */
@@ -151,8 +169,7 @@ messagingApi.post('/phone/start', async (c) => {
   const { phone } = await c.req.json<{ phone?: string }>().catch(() => ({} as { phone?: string }));
   const r = await startPhoneLogin(String(phone ?? ''), { ip: clientIp(c), attachTo: c.get('user').id });
   if (!r.ok) return c.json({ error: r.error }, r.status as 400);
-  const line = await lineInfo().catch(() => null);
-  return c.json({ id: r.id, line: line && { number: line.number, connectCommand: line.connectCommand, smsLink: line.smsLink } });
+  return c.json({ id: r.id, line: await publicLine() });
 });
 
 messagingApi.post('/phone/verify', async (c) => {
@@ -218,6 +235,18 @@ messagingApi.delete('/inkbox', async (c) => {
   for (const k of Object.keys(SETTINGS).filter((k) => k.startsWith('inkbox_')) as SettingName[]) clearSetting(k);
   forgetLineInfo();
   return c.json(await status(c.get('user').id, true));
+});
+
+messagingApi.get('/inkbox/whatsapp', async (c) => {
+  const deny = ownerOnly(c); if (deny) return deny;
+  if (!inkboxConfigured()) return c.json({ error: 'Set up the line first.' }, 400);
+  const status = await ib.getWhatsAppStatus(env.inkboxAdminKey, env.inkboxHandle).catch(() => null);
+  const onboarding = await ib.getWhatsAppOnboarding(env.inkboxIdentityKey, env.inkboxIdentityId).catch((e) => {
+    if (status?.enabled === false || !status) return null;
+    throw e;
+  });
+  const qr = onboarding?.messageLink && !onboarding.messageQrPngDataUrl ? await QRCode.toDataURL(onboarding.messageLink, { margin: 1, width: 220 }) : null;
+  return c.json({ status, onboarding: onboarding ? { ...onboarding, messageQrPngDataUrl: onboarding.messageQrPngDataUrl ?? qr } : null });
 });
 
 // ---------- owner: the line's contact card (name, description, photo) ----------

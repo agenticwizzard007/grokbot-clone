@@ -10,14 +10,15 @@ import * as ib from './client.js';
 import { startTunnel, tunnelEnabled, tunnelStatus, tunnelWebhookUrl } from './tunnel.js';
 
 /**
- * Inkbox adapter: the server's iMessage/SMS line. One Inkbox identity (the "front desk") serves every user; people
+ * Inkbox adapter: the server's iMessage/SMS/WhatsApp line. One Inkbox identity (the "front desk") serves every user; people
  * reach it by texting the shared router number "connect @<handle>" (the join page pre-fills this), and are told apart
  * by phone number. iMessage falls back to SMS for people without iMessage. With a local number on the identity,
- * plain SMS to that number works too.
+ * plain SMS to that number works too. Dedicated WhatsApp uses the same Inkbox identity and webhook.
  */
 
 export const IMESSAGE_MAX = 1500;
 export const SMS_MAX = 1200;
+export const WHATSAPP_MAX = 4000;
 
 export const inkboxConfigured = () => !!(env.inkboxIdentityKey && env.inkboxSigningKey && env.inkboxIdentityId);
 const sentAsCarrierSms = (sent: Awaited<ReturnType<typeof ib.sendIMessage>>) => sent.wasDowngraded === true || String(sent.service ?? '').toLowerCase() === 'sms';
@@ -26,9 +27,12 @@ export const inkboxAdapter: ChannelAdapter = {
   transport: 'inkbox',
   ready: (link) => inkboxConfigured() && link.status === 'connected' && (!!link.chatRef || !!link.phone),
   format: (md) => toPlainText(md),
-  maxChars: (link) => (link.channel === 'sms' ? SMS_MAX : IMESSAGE_MAX),
+  maxChars: (link) => link.channel === 'whatsapp' ? WHATSAPP_MAX : link.channel === 'sms' ? SMS_MAX : IMESSAGE_MAX,
   async send(link: Link, msg) {
     const key = env.inkboxIdentityKey;
+    if (link.channel === 'whatsapp') {
+      return (await ib.sendWhatsApp(key, { conversationId: link.chatRef ?? undefined, to: link.chatRef ? undefined : `+${link.phone}`, text: msg.text, replyToMessageId: msg.quote })).id;
+    }
     if (link.channel === 'sms' && env.inkboxPhoneNumberId) {
       return (await ib.sendSms(key, env.inkboxPhoneNumberId, { conversationId: link.chatRef ?? undefined, to: link.chatRef ? undefined : `+${link.phone}`, text: msg.text })).id;
     }
@@ -98,13 +102,43 @@ export function parseEvent(p: any): Parsed | null {
     if (!phone) return null;
     return { channel: 'sms', phone, conversationId: str(m.conversation_id), messageId: str(m.id) ?? `${phone}:${p.timestamp}`, text: str(m.text) ?? str(m.content) ?? str(m.body) ?? '', media: media(m.media), name: nameFor(phone) };
   }
+  if (type === 'whatsapp.received') {
+    const m = dict(data.message);
+    if (!m || m.is_group === true) return null;
+    const phone = digits(str(m.remote_number) ?? str(m.sender_number));
+    if (!phone || !str(m.id)) return null;
+    return { channel: 'whatsapp', phone, conversationId: str(m.conversation_id), messageId: m.id, text: str(m.content) ?? str(m.text) ?? '', replyTo: str(m.reply_to_message_id), media: media(m.media), name: nameFor(phone) };
+  }
+  if (type === 'whatsapp.reaction_received') {
+    const r = dict(data.reaction);
+    if (!r) return null;
+    const phone = digits(str(r.remote_number));
+    if (!phone) return null;
+    return { channel: 'whatsapp', phone, conversationId: str(r.conversation_id), messageId: str(r.id) ?? `${r.target_message_id}:${r.reaction}`, text: '', media: [], reaction: { targetId: String(r.target_message_id ?? ''), kind: String(r.reaction ?? '') } };
+  }
   return null;
+}
+
+async function acknowledgeIncoming(e: Parsed) {
+  if (e.reaction) return;
+  if (e.channel === 'imessage' && e.conversationId) {
+    await ib.markRead(env.inkboxIdentityKey, e.conversationId).catch(() => {});
+    await ib.typing(env.inkboxIdentityKey, e.conversationId).catch(() => {});
+  }
+  if (e.channel === 'whatsapp' && e.conversationId) await ib.markWhatsAppRead(env.inkboxIdentityKey, e.conversationId, e.messageId).catch(() => {});
+  const react = e.channel === 'whatsapp' ? ib.sendWhatsAppReaction : e.channel === 'imessage' ? ib.sendIMessageReaction : null;
+  if (react) {
+    await react(env.inkboxIdentityKey, e.messageId, 'eyes').catch((err) => {
+      console.warn(`[inkbox] could not react to inbound ${e.channel} message:`, err?.code ?? '', err?.message ?? err);
+    });
+  }
 }
 
 /** Handle one saved event (called from the durable inbox). */
 async function onEvent(p: any) {
   const e = parseEvent(p);
   if (!e) return;
+  await acknowledgeIncoming(e);
   const link = hostLinkByPhone('inkbox', e.channel, e.phone);
   let userId = link?.userId ?? null;
   if (!userId) {
@@ -127,8 +161,10 @@ async function onEvent(p: any) {
 
 /** Reply to someone without an account (no link exists yet). They just wrote, so the conversation is open. */
 async function rawReply(e: Parsed, text: string) {
-  for (const part of chunk(toPlainText(text), IMESSAGE_MAX)) {
-    if (e.channel === 'sms' && env.inkboxPhoneNumberId) await ib.sendSms(env.inkboxIdentityKey, env.inkboxPhoneNumberId, { conversationId: e.conversationId, to: e.conversationId ? undefined : `+${e.phone}`, text: part });
+  const max = e.channel === 'whatsapp' ? WHATSAPP_MAX : e.channel === 'sms' ? SMS_MAX : IMESSAGE_MAX;
+  for (const part of chunk(toPlainText(text), max)) {
+    if (e.channel === 'whatsapp') await ib.sendWhatsApp(env.inkboxIdentityKey, { conversationId: e.conversationId, to: e.conversationId ? undefined : `+${e.phone}`, text: part });
+    else if (e.channel === 'sms' && env.inkboxPhoneNumberId) await ib.sendSms(env.inkboxIdentityKey, env.inkboxPhoneNumberId, { conversationId: e.conversationId, to: e.conversationId ? undefined : `+${e.phone}`, text: part });
     else await ib.sendIMessage(env.inkboxIdentityKey, { conversationId: e.conversationId, to: e.conversationId ? undefined : `+${e.phone}`, text: part });
   }
 }
@@ -145,7 +181,7 @@ inkboxWebhook.post('/', async (c) => {
   let body: any;
   try { body = JSON.parse(raw); } catch { return c.text('bad json', 400); }
   const type = String(body?.event_type ?? '');
-  if (!/^(imessage\.received|imessage\.reaction_received|text\.received)$/.test(type)) return c.body(null, 204);
+  if (!/^(imessage\.received|imessage\.reaction_received|text\.received|whatsapp\.received|whatsapp\.reaction_received)$/.test(type)) return c.body(null, 204);
   const id = String(body?.id ?? c.req.header('x-inkbox-request-id') ?? '');
   if (!id) return c.text('missing id', 400);
   accept('inkbox', id, body);
