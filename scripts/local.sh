@@ -65,10 +65,14 @@ start() {
   if running; then
     echo "Already running (pid $(cat "$PIDFILE"))."
   else
+    if curl -sf "$URL/api/health" >/dev/null; then
+      echo "Something else is already serving $URL. Stop it first (or set PORT)."; exit 1
+    fi
     (cd server && nohup node --env-file=../.env dist/index.js >> "$LOGFILE" 2>&1 & echo $! > "$PIDFILE")
-    for _ in $(seq 1 40); do curl -sf "$URL/api/health" >/dev/null && break; sleep 0.5; done
+    for _ in $(seq 1 40); do curl -sf "$URL/api/health" >/dev/null && break; running || break; sleep 0.5; done
   fi
-  if ! curl -sf "$URL/api/health" >/dev/null; then
+  if ! running || ! curl -sf "$URL/api/health" >/dev/null; then
+    rm -f "$PIDFILE"
     echo "The server didn't start. Last log lines:"; tail -20 "$LOGFILE"; exit 1
   fi
   echo
@@ -81,7 +85,14 @@ start() {
 }
 
 stop() {
-  if running; then kill "$(cat "$PIDFILE")"; rm -f "$PIDFILE"; echo "Stopped."; else echo "Not running."; fi
+  if ! running; then rm -f "$PIDFILE"; echo "Not running."; return; fi
+  local pid; pid="$(cat "$PIDFILE")"
+  kill "$pid"
+  # Wait for a clean exit (it stops the companion it started), then insist.
+  for _ in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
+  kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null || true
+  rm -f "$PIDFILE"
+  echo "Stopped."
 }
 
 case "${1:-start}" in
