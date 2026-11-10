@@ -8,7 +8,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { env } from './env.js';
 import { computers, ComputerError } from './computers/index.js';
+import { getConnInfo } from '@hono/node-server/conninfo';
 import { createPairing, localFilePath, pairingInfo, revokePairings } from './computers/local.js';
+import { startThisComputer, stopThisComputer, thisComputerAvailable, thisComputerUser } from './computers/this-computer.js';
 import { canManageServer, clearSetting, saveSetting, SETTINGS, settingsStatus, verifyComposioKey, verifyXaiKey, type SettingName } from './settings.js';
 import { runInBotQueue } from './agent/loop.js';
 import { consolidateBot, historySize, maybeCompact, memoryConfig } from './agent/memory.js';
@@ -196,7 +198,34 @@ configApi.get('/computer/details', (c) => {
     screens: computers.screens(userId),
     hibernation: { idleMinutes: idleConfig.idleMin, viewers: viewerCount(userId), dryRun: idleConfig.dryRun },
     pairing: computers.kind === 'local' ? pairingInfo(userId) : null,
+    thisComputer: computers.kind === 'local' ? { available: thisComputerAvailable() && fromThisMachine(c) && canManageServer(c.get('user')), active: thisComputerUser() === userId } : null,
   });
+});
+
+/** True when the request comes from the machine the server runs on (so "this computer" means the user's own). */
+function fromThisMachine(c: any): boolean {
+  try {
+    const addr = getConnInfo(c).remote.address ?? '';
+    return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
+  } catch { return false; }
+}
+
+/** Local computers: use the computer the server runs on (the server starts the companion itself). */
+configApi.post('/computer/this-computer', (c) => {
+  if (computers.kind !== 'local') return c.json({ error: 'This server uses cloud computers.' }, 400);
+  if (!thisComputerAvailable() || !fromThisMachine(c)) return c.json({ error: 'Only available when you open Grokbot on the computer it runs on.' }, 403);
+  const user = c.get('user');
+  // Behind a reverse proxy on the same host every request looks local, so also require the server's owner.
+  if (!canManageServer(user)) return c.json({ error: 'Only the owner of this server can use the computer it runs on.' }, 403);
+  if (thisComputerUser() && thisComputerUser() !== user.id) return c.json({ error: 'Another account is already using this computer.' }, 409);
+  startThisComputer(user.id);
+  return c.json({ ok: true });
+});
+
+configApi.delete('/computer/this-computer', (c) => {
+  if (thisComputerUser() !== c.get('user').id) return c.json({ error: 'Not in use by your account.' }, 409);
+  stopThisComputer();
+  return c.json({ ok: true });
 });
 
 /** Give a bot a clean screen: close its windows (or its browser) so it starts clean next time. */
@@ -226,6 +255,7 @@ configApi.post('/computer/pair', (c) => {
 /** Local computers: forget every paired PC and disconnect the current one. */
 configApi.delete('/computer/pair', (c) => {
   if (computers.kind !== 'local') return c.json({ error: 'not available' }, 400);
+  if (thisComputerUser() === c.get('user').id) stopThisComputer();
   return c.json({ ok: true, revoked: revokePairings(c.get('user').id) });
 });
 

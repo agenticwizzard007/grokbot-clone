@@ -16,14 +16,14 @@ export type SettingName = keyof typeof SETTINGS;
 
 const cryptoKey = crypto.createHash('sha256').update(`grokbot-settings:${env.sessionSecret}`).digest();
 
-function seal(plain: string): string {
+export function sealSecret(plain: string): string {
   const iv = crypto.randomBytes(12);
   const c = crypto.createCipheriv('aes-256-gcm', cryptoKey, iv);
   const body = Buffer.concat([c.update(plain, 'utf8'), c.final()]);
   return `v1:${Buffer.concat([iv, c.getAuthTag(), body]).toString('base64')}`;
 }
 
-function unseal(stored: string): string | null {
+export function unsealSecret(stored: string): string | null {
   if (!stored.startsWith('v1:')) return null;
   try {
     const raw = Buffer.from(stored.slice(3), 'base64');
@@ -40,7 +40,7 @@ export function loadSettings() {
   for (const row of db.prepare('SELECT key, value FROM server_settings').all() as { key: string; value: string }[]) {
     const def = (SETTINGS as Record<string, { env: string; secret: boolean }>)[row.key];
     if (!def) continue;
-    const v = def.secret ? unseal(row.value) : row.value;
+    const v = def.secret ? unsealSecret(row.value) : row.value;
     if (v === null) { console.warn(`[settings] could not decrypt ${row.key} (SESSION_SECRET changed?); re-enter it in Settings → API keys`); continue; }
     setEnvOverride(def.env, v);
   }
@@ -48,7 +48,7 @@ export function loadSettings() {
 
 export function saveSetting(name: SettingName, value: string, userId: string) {
   const def = SETTINGS[name];
-  db.prepare('INSERT OR REPLACE INTO server_settings(key,value,updated_by,updated_at) VALUES (?,?,?,?)').run(name, def.secret ? seal(value) : value, userId, now());
+  db.prepare('INSERT OR REPLACE INTO server_settings(key,value,updated_by,updated_at) VALUES (?,?,?,?)').run(name, def.secret ? sealSecret(value) : value, userId, now());
   setEnvOverride(def.env, value);
 }
 

@@ -32,6 +32,8 @@ export interface ComputerDetails {
   hibernation: { idleMinutes: number; viewers: number; dryRun: boolean };
   /** Local computers only: whether a PC has been paired. */
   pairing: { paired: boolean; lastSeenAt: number | null } | null;
+  /** Local computers: whether "Use this computer" is offered (you're on the machine the server runs on) and active. */
+  thisComputer: { available: boolean; active: boolean } | null;
 }
 
 export interface Pairing { token: string; server: string; command: string }
@@ -69,6 +71,8 @@ export const configApi = {
   sleep: () => req<{ computer: ComputerState }>('POST', '/computer/suspend'),
   resetScreen: (botId: string) => req<{ ok: true }>('POST', `/bots/${botId}/screen/reset`),
   pairPc: () => req<Pairing>('POST', '/computer/pair'),
+  useThisComputer: () => req<{ ok: true }>('POST', '/computer/this-computer'),
+  stopThisComputer: () => req<{ ok: true }>('DELETE', '/computer/this-computer'),
   keys: () => req<KeysResponse>('GET', '/settings/keys'),
   saveKey: (name: 'xai' | 'composio' | 'model', value: string) => req<KeysResponse>('PUT', `/settings/keys/${name}`, { value }),
   clearKey: (name: 'xai' | 'composio' | 'model') => req<KeysResponse>('DELETE', `/settings/keys/${name}`),

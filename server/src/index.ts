@@ -18,6 +18,7 @@ import { enqueue } from './agent/loop.js';
 import { desSelfTest } from './lib/des.js';
 import { configApi } from './routes-config.js';
 import { loadSettings } from './settings.js';
+import { resumeThisComputer } from './computers/this-computer.js';
 import { startMemoryConsolidation } from './agent/memory.js';
 
 if (!desSelfTest()) throw new Error('DES self-test failed');
@@ -54,4 +55,5 @@ if (process.env.GROKBOT_NO_SCHEDULER !== '1') {
 initProactive(enqueue);
 } else console.log('[grokbot] scheduler disabled (GROKBOT_NO_SCHEDULER=1)');
 computers.start?.();
+if (computers.kind === 'local') resumeThisComputer();
 startMemoryConsolidation();

@@ -290,6 +290,13 @@ function LocalComputerSection({ details, reload }: { details: ComputerDetails | 
   const [note, setNote] = useState<string | null>(null);
   const connected = computer?.status === 'running';
   const paired = !!details?.pairing?.paired;
+  const here = details?.thisComputer;
+  const useHere = async () => {
+    setBusy(true); setNote(null);
+    try { await configApi.useThisComputer(); setPairing(null); reload(); }
+    catch (e) { setNote((e as Error).message); }
+    finally { setBusy(false); }
+  };
   const byId = new Map(bots.map((b) => [b.id, b]));
 
   // Once the PC connects, the one-time command has done its job.
@@ -321,7 +328,14 @@ function LocalComputerSection({ details, reload }: { details: ComputerDetails | 
                   : paired ? 'Paired, but the companion isn’t running. Start it again on your PC, or connect a new one.' : 'Connect a PC so your Bots can use a browser.'}
               </div>
             </div>
-            {!connected && <button type="button" className="cfg-btn cfg-btn--primary" disabled={busy} onClick={pair}>{busy ? 'Preparing…' : paired ? 'New connect command' : 'Connect your PC'}</button>}
+            {!connected && here?.available && !here.active && <button type="button" className="cfg-btn cfg-btn--primary" disabled={busy} onClick={useHere}>{busy ? 'Starting…' : 'Use this computer'}</button>}
+            {!connected && here?.active && <span className="cfg-row__sub">Starting…</span>}
+            {!connected && !here?.active && <button type="button" className={`cfg-btn ${here?.available ? 'cfg-btn--secondary' : 'cfg-btn--primary'}`} disabled={busy} onClick={pair}>{busy ? 'Preparing…' : here?.available ? 'Connect another PC' : paired ? 'New connect command' : 'Connect your PC'}</button>}
+            {connected && here?.active && (
+              <ConfirmButton className="cfg-btn cfg-btn--secondary" confirmLabel="Stop using it" onConfirm={async () => { try { await configApi.stopThisComputer(); reload(); } catch (e) { setNote((e as Error).message); } }}>
+                Stop
+              </ConfirmButton>
+            )}
             {paired && (
               <ConfirmButton className="cfg-btn cfg-btn--secondary" confirmLabel="Disconnect PC" onConfirm={async () => { try { await configApi.unpairPc(); setPairing(null); reload(); } catch (e) { setNote((e as Error).message); } }}>
                 Disconnect
