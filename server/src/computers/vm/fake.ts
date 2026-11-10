@@ -140,6 +140,13 @@ export const fakeDriver: VmDriver = {
     return out;
   },
 
+  async setImage(id, image) {
+    const vm = read(id);
+    if (!vm) return;
+    vm.image = image;
+    write(vm);
+  },
+
   async resize(id, memoryMb) {
     const vm = read(id);
     if (!vm) return;

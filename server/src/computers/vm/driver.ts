@@ -54,4 +54,6 @@ export interface VmDriver {
   list(): Promise<VmInfo[]>;
   /** Change memory/CPUs (applied on the next boot; a running VM restarts). */
   resize(id: string, memoryMb: number, cpus: number): Promise<void>;
+  /** Move a stopped VM to another image (applied on its next boot; its disk is kept). */
+  setImage(id: string, image: string): Promise<void>;
 }
