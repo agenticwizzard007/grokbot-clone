@@ -58,7 +58,7 @@ const inkbox = http.createServer((req, res) => {
     if (/^\/identities\/[^/]+\/signing-key$/.test(p)) return req.method === 'GET' ? json(200, { configured: ib.signingConfigured }) : (ib.signing++, json(201, { signing_key: 'whsec_test' }));
     if (p.startsWith('/webhooks/subscriptions')) {
       if (req.method === 'GET') return json(200, ib.subs);
-      if (req.method === 'DELETE') { ib.subs = ib.subs.filter((x) => !p.endsWith(`/${x.id}`)); return json(204, {}); }
+      if (req.method === 'DELETE') { const path = p.split('?')[0]; ib.subs = ib.subs.filter((x) => !path.endsWith(`/${x.id}`)); return json(204, {}); }
       ib.subs.push({ id: `sub_${ib.subs.length + 1}`, ...body });
       return json(201, { id: `sub_${ib.subs.length}` });
     }

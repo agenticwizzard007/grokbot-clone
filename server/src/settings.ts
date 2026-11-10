@@ -85,7 +85,6 @@ export function settingsStatus() {
   };
 }
 
-/** Who may change server-wide keys: ADMIN_EMAILS if set, otherwise the first account on this server (its owner). */
 /** Owner phone numbers (digits), for servers where the owner signs in by phone. */
 export const adminPhones = () => (process.env.ADMIN_PHONES ?? '').split(',').map((p) => p.replace(/\D/g, '')).filter(Boolean);
 

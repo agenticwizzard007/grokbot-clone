@@ -156,13 +156,14 @@ export async function subscribeWebhook(adminKey: string, identityId: string, url
   const mine = items.filter((s) => s?.agent_identity_id === identityId || s?.owner_identity_id === identityId);
   // A moved server (sandbox tunnel → public URL): drop this line's subscriptions to other URLs so texts arrive once.
   for (const old of mine.filter((s) => s?.url !== url && s?.id)) {
-    await request(adminKey, 'DELETE', `/webhooks/subscriptions/${old.id}`).catch((e) => console.warn('[inkbox] could not remove old webhook', old.url, e?.message));
+    // Subscriptions covering several event families need scope=identity to change or delete.
+    await request(adminKey, 'DELETE', `/webhooks/subscriptions/${old.id}?scope=identity`).catch((e) => console.warn('[inkbox] could not remove old webhook', old.url, e?.message));
   }
   const same = mine.find((s) => s?.url === url);
   if (same) {
     const have: string[] = same.event_types ?? [];
     const missing = WEBHOOK_EVENTS.filter((e) => !have.includes(e));
-    if (missing.length) await request(adminKey, 'PATCH', `/webhooks/subscriptions/${same.id}`, { event_types: [...have, ...missing] });
+    if (missing.length) await request(adminKey, 'PATCH', `/webhooks/subscriptions/${same.id}?scope=identity`, { event_types: [...have, ...missing] });
     return String(same.id);
   }
   const r = await request(adminKey, 'POST', '/webhooks/subscriptions', { url, event_types: WEBHOOK_EVENTS, agent_identity_id: identityId });
