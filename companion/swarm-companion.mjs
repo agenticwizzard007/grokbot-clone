@@ -1141,7 +1141,7 @@ async function createScreen(botId) {
     let mcp = null;
     const browser = async (tool, args = {}) => {
       if (!BROWSER_TOOLS.has(tool)) throw new Error(`Unknown browser tool ${tool}.`);
-      if (!PLAYWRIGHT_MCP) throw new Error('Playwright is not installed on this computer.');
+      if (!PLAYWRIGHT_MCP) throw new Error('The browser tools are not installed on this computer yet (it updates on its next restart). For now, use open_browser and the computer_* tools.');
       await ensureChrome();
       if (!mcp || mcp.dead) {
         const out = path.join(DATA_DIR, 'playwright', botId);
@@ -1167,7 +1167,13 @@ async function createScreen(botId) {
     };
     // Warm start: Chrome and Playwright come up in the background, so the first browser action is quick.
     const warm = () => { if (PLAYWRIGHT_MCP) browser('browser_tabs', { action: 'list' }).catch((e) => log(`Browser warm-up for ${botId}: ${e.message}`)); };
-    const openUrl = async (url) => { await browser('browser_navigate', { url }); };
+    const openUrl = async (url) => {
+      if (PLAYWRIGHT_MCP) return void (await browser('browser_navigate', { url }));
+      // An older VM image without Playwright: open the page in the Bot's Chrome directly.
+      await ensureChrome();
+      const [c, a] = asAgent('env', [`DISPLAY=${display}`, CHROME, `--user-data-dir=${profile}`, `--remote-debugging-port=${cdpPort}`, ...(NO_SANDBOX ? ['--no-sandbox'] : []), url]);
+      spawn(c, a, { env, stdio: 'ignore' }).on('error', () => {});
+    };
     const d = new Desktop(makeLinuxBackend({ display, open: openUrl }), { cwd: botDir, env, user: RUN_AS || undefined });
     await d.init();
     log(`Screen ${display} ready for Bot ${botId}${PLAYWRIGHT_MCP ? '' : ' (Playwright not found: browser tools unavailable)'}`);

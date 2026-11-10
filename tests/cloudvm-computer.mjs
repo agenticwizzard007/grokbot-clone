@@ -18,7 +18,8 @@ import Database from 'better-sqlite3';
 import { chromium } from 'playwright';
 
 const API = process.argv[2] ?? 'http://localhost:8787';
-const SITE = 'http://127.0.0.1:8793';
+const SITE_PORT = Number(process.env.TEST_SITE_PORT ?? 8793);
+const SITE = `http://127.0.0.1:${SITE_PORT}`;
 const OUT = path.resolve(new URL('.', import.meta.url).pathname, 'out', 'cloudvm-computer');
 fs.mkdirSync(OUT, { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -41,7 +42,7 @@ const site = http.createServer((req, res) => {
   res.writeHead(200, { 'content-type': 'text/html' });
   res.end(`<!doctype html><title>${u.pathname}</title><body style="font:24px sans-serif"><h1>${u.pathname} ${u.search.replace(/[<>&]/g, '')}</h1></body>`);
 });
-await new Promise((r) => site.listen(8793, '127.0.0.1', r));
+await new Promise((r) => site.listen(SITE_PORT, '127.0.0.1', r));
 const waitFor = async (what, pred, ms = 30000) => {
   const t0 = Date.now();
   while (Date.now() - t0 < ms) { const v = await pred(); if (v) return v; await sleep(300); }
@@ -137,7 +138,7 @@ await step('a new Bot gets its own screen on the same VM', async () => {
 });
 
 await step('both Bots work at the same time, each in its own Chrome', async () => {
-  const drive = (botId, q) => chat(A, botId, script(call('open_browser', { url: `${SITE}/start-${q}` }), call('computer_key', { keys: 'ctrl+l' }), call('computer_type', { text: `127.0.0.1:8793/submitted?q=${q}\n` }), 'say done'));
+  const drive = (botId, q) => chat(A, botId, script(call('open_browser', { url: `${SITE}/start-${q}` }), call('computer_key', { keys: 'ctrl+l' }), call('computer_type', { text: `127.0.0.1:${SITE_PORT}/submitted?q=${q}\n` }), 'say done'));
   const [r1, r2] = await Promise.all([drive(A.primary.id, 'quinn'), drive(second, 'desk2')]);
   noErrors(r1); noErrors(r2);
   await waitFor('both submissions', () => events.includes('quinn') && events.includes('desk2'), 20000);

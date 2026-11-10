@@ -153,6 +153,23 @@ export function ensureVm(userId: string): Promise<VmRow> {
 export async function suspendVm(userId: string, reason = 'manual') {
   const vm = vmFor(userId);
   if (!vm?.ext_id || !['running', 'starting', 'resuming'].includes(vm.status)) return;
+  // On an outdated image: stop and move it to the current image instead of pausing it, so its next
+  // wake is one fresh boot (a few seconds longer) with the new image; later wakes are quick again.
+  if (vm.image && vm.image !== env.vmImage) {
+    console.log(`[cloudvm] stopping VM for user=${userId} to update its image (${vm.image} → ${env.vmImage}; ${reason})`);
+    setStatus(vm.vm_id, 'suspending');
+    try {
+      await driver.stop(vm.ext_id);
+      dropCompanion(userId, 'computer updating');
+      await driver.setImage(vm.ext_id, env.vmImage);
+      db.prepare('UPDATE vms SET image=? WHERE vm_id=?').run(env.vmImage, vm.vm_id);
+      setStatus(vm.vm_id, 'stopped');
+    } catch (e: any) {
+      setStatus(vm.vm_id, 'running', { error: String(e?.message ?? e) });
+      throw e;
+    }
+    return;
+  }
   console.log(`[cloudvm] suspending VM for user=${userId} (${reason})`);
   setStatus(vm.vm_id, 'suspending');
   try {
