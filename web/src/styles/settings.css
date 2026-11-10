@@ -1,0 +1,237 @@
+/* ---------- Settings: desktop, phone and the Apple apps ----------
+   Design: Paper › "Swarm — Mobile" › "Settings · Redesign".
+   A grey nav with grouped, icon-led sections; a 720px column of bordered cards whose rows put
+   the label and description on the left and the control on the right. Phones get a section
+   list that drills into each page. Every colour comes from tokens.css, so dark mode follows. */
+
+.app-settings {
+  --settings-inset: 20px;
+  --settings-hover: #1C1C1C0A;
+  background: var(--color-bg-pane);
+}
+:root[data-theme='dark'] .app-settings { --settings-hover: #F5F5F50A; }
+.app-settings button, .app-settings summary { -webkit-tap-highlight-color: transparent; }
+
+/* ---------- nav ---------- */
+.app-settings .app-settings__nav {
+  width: 280px; padding: 0; gap: 0; overflow-y: auto; scrollbar-width: thin;
+  background: var(--color-bg-sidebar); border-right: 1px solid var(--color-border-tertiary);
+}
+.settings-nav { display: flex; flex-direction: column; padding: 14px 12px 28px; }
+.settings-nav__back, .settings-page-back {
+  display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; height: 32px; padding: 0 10px;
+  border-radius: var(--radius-full); font-size: 13px; line-height: 18px; color: var(--color-text-secondary);
+  transition: background-color 120ms var(--ease-out), color 120ms var(--ease-out);
+}
+.settings-nav__back:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.settings-nav__back:focus-visible, .settings-page-back:focus-visible { outline: 0; box-shadow: inset 0 0 0 2px var(--color-border-focus); }
+.settings-page-back { display: none; }
+.settings-nav__title { margin: 0; padding: 14px 10px 12px; font-size: 20px; font-weight: 600; line-height: 28px; letter-spacing: -0.02em; color: var(--color-text-primary); }
+
+.settings-search {
+  display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; flex-shrink: 0; cursor: text;
+  border-radius: var(--radius-full); background: var(--color-bg-tertiary); color: var(--color-text-tertiary);
+  transition: background-color 120ms var(--ease-out), box-shadow 120ms var(--ease-out);
+}
+.settings-search:focus-within { background: var(--color-bg-pane); box-shadow: inset 0 0 0 1px var(--color-border-focus), 0 0 0 3px #1E86FC29; }
+.settings-search input {
+  flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: 0; background: transparent;
+  font: inherit; font-size: 14px; line-height: 20px; color: var(--color-text-primary); -webkit-appearance: none; appearance: none;
+}
+.settings-search input::placeholder { color: var(--color-text-tertiary); }
+.settings-search input::-webkit-search-decoration { -webkit-appearance: none; }
+
+.settings-nav__group { display: flex; flex-direction: column; }
+.settings-nav__label { padding: 20px 10px 6px; font-size: 13px; font-weight: 500; line-height: 18px; color: var(--color-text-tertiary); }
+.settings-nav__items { display: flex; flex-direction: column; gap: 2px; }
+.app-settings .settings-nav__item {
+  position: relative; justify-content: flex-start; gap: 12px; width: 100%; height: 34px; min-height: 0; padding: 0 10px;
+  border-radius: 10px; font-size: 14px; font-weight: 400; line-height: 20px; letter-spacing: 0; white-space: nowrap;
+  color: var(--color-text-primary); transition: background-color 120ms var(--ease-out);
+}
+.settings-nav__icon { flex: none; color: var(--color-text-secondary); transition: color 120ms var(--ease-out), transform 120ms var(--ease-out); }
+.settings-nav__text { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+.settings-nav__value, .settings-nav__chev { display: none; }
+@media (hover: hover) {
+  .app-settings .settings-nav__item:hover { background: var(--settings-hover); }
+  .app-settings .settings-nav__item:hover .settings-nav__icon { color: var(--color-text-primary); }
+}
+.app-settings .settings-nav__item.is-active { background: var(--color-bg-active); font-weight: 500; }
+.app-settings .settings-nav__item.is-active .settings-nav__icon { color: var(--color-text-primary); }
+.app-settings .settings-nav__item:active .settings-nav__icon { transform: scale(0.92); }
+.app-settings .settings-nav__item:focus-visible { outline: 0; box-shadow: inset 0 0 0 2px var(--color-border-focus); }
+.settings-nav__empty { padding: 20px 10px; font-size: 13px; line-height: 18px; color: var(--color-text-tertiary); }
+
+/* ---------- page ---------- */
+.app-settings .app-settings__main { background: var(--color-bg-pane); scrollbar-width: thin; }
+.app-settings .app-settings__close { top: 14px; right: 16px; z-index: 2; color: var(--color-text-secondary); }
+.app-settings .app-settings__page { gap: 36px; max-width: 784px; padding: 56px 32px 80px; animation: settings-in 180ms var(--ease-out); }
+@keyframes settings-in { from { opacity: 0; transform: translateY(4px); } }
+@media (prefers-reduced-motion: reduce) { .app-settings .app-settings__page { animation: none; } }
+.app-settings .app-settings__head h1 { font-size: 28px; font-weight: 600; line-height: 34px; letter-spacing: -0.02em; }
+.app-settings .app-settings__head p { max-width: 600px; margin-top: 6px; font-size: 14px; line-height: 20px; color: var(--color-text-secondary); }
+.app-settings__head--action { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
+
+.app-settings .cfg-section { gap: 12px; }
+.app-settings .cfg-section__label { margin: 0; font-size: 15px; font-weight: 500; line-height: 20px; letter-spacing: 0; text-transform: none; color: var(--color-text-primary); }
+.app-settings .cfg-section > p { margin: 0; font-size: 13px; line-height: 18px; color: var(--color-text-secondary); }
+.app-settings .cfg-card { padding: 0; border: 1px solid var(--color-border-secondary); border-radius: 16px; background: var(--color-bg-pane); }
+.app-settings .cfg-field__hint { font-size: 13px; line-height: 18px; letter-spacing: 0; color: var(--color-text-tertiary); }
+.app-settings .cfg-empty { font-size: 13px; line-height: 18px; border-radius: 16px; }
+.app-settings .cfg-card > .cfg-empty { border: 0; padding: 22px var(--settings-inset); }
+.app-settings .cfg-error--inset { margin: 0 var(--settings-inset) 16px; }
+
+/* Rows: title + description, then the control. Hairlines between rows stop at the card's padding. */
+.app-settings .cfg-row { position: relative; flex-wrap: wrap; gap: 12px 16px; min-height: 64px; padding: 14px var(--settings-inset); border-radius: 0; }
+/* The text keeps at least 220px; buttons that don't fit beside it drop to their own line instead of squeezing it. */
+.app-settings :is(.cfg-row, .cfg-key__form) > .cfg-row__text { flex: 1 1 220px; }
+.app-settings .cfg-row + .cfg-row { box-shadow: none; }
+.app-settings :is(.cfg-row, .settings-field, .mcp-advanced) + :is(.cfg-row, .settings-field, .mcp-advanced)::before {
+  content: ''; position: absolute; top: 0; left: var(--settings-inset); right: var(--settings-inset); height: 1px; background: var(--color-border-tertiary);
+}
+.app-settings .cfg-row__text { gap: 2px; margin-right: 8px; }
+.app-settings .cfg-row__title { font-size: 14px; line-height: 20px; white-space: normal; overflow-wrap: anywhere; }
+.app-settings .cfg-row__sub { font-size: 13px; line-height: 18px; letter-spacing: 0; color: var(--color-text-secondary); }
+.app-settings .cfg-row__sub.is-error { color: var(--color-danger-text); }
+/* A row's buttons travel together: right-aligned beside the text, or on their own line when they don't fit. */
+.settings-row__actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin-left: auto; }
+/* Status dots and avatars share one 28px lane, so titles line up across rows. */
+.app-settings .cfg-row > .computer-status-dot { margin: 0 9px; }
+.computer-status-dot.is-error { background: var(--color-danger); box-shadow: 0 0 0 4px var(--color-danger-bg); }
+.settings-shortcuts .cfg-row { min-height: 48px; padding-top: 12px; padding-bottom: 12px; }
+.settings-keys { display: inline-flex; gap: 4px; flex-shrink: 0; }
+.settings-keys kbd {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 6px;
+  border-radius: 6px; background: var(--color-bg-tertiary); box-shadow: inset 0 0 0 0.5px var(--color-border-secondary);
+  font: 500 12px/16px var(--font-stack); color: var(--color-text-secondary);
+}
+
+/* Controls */
+.app-settings .cfg-seg { flex-wrap: nowrap; flex-shrink: 0; align-self: center; }
+.app-settings .cfg-seg button { display: inline-flex; align-items: center; justify-content: center; height: 28px; white-space: nowrap; }
+.app-settings .toggle:focus-visible, .app-settings .cfg-btn:focus-visible, .app-settings .cfg-seg button:focus-visible { outline: 0; box-shadow: 0 0 0 2px var(--color-bg-pane), 0 0 0 4px var(--color-border-focus); }
+.app-settings .toggle.is-on { background: var(--color-primary); }
+.app-settings .toggle.is-on .toggle__knob { background: var(--color-on-primary); }
+.app-settings .toggle:disabled { opacity: 0.45; }
+.app-settings .text-input { height: 36px; padding: 8px 12px; border: 1px solid var(--color-border-secondary); border-radius: 10px; font-size: 14px; line-height: 20px; letter-spacing: 0; color: var(--color-text-primary); }
+.app-settings textarea.text-input { height: auto; min-height: 76px; resize: vertical; font-family: var(--font-mono-stack); font-size: 13px; }
+.app-settings select.text-input { padding-right: 34px; -webkit-appearance: none; appearance: none; cursor: pointer;
+  background: var(--color-bg-pane) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 10px center; }
+.app-settings .text-input:focus { border-color: var(--color-border-focus); box-shadow: 0 0 0 3px #1E86FC29; }
+
+/* API keys and other forms that live inside a card */
+.app-settings .cfg-key { margin-bottom: 0; }
+.app-settings .cfg-key__form { gap: 12px; padding: 0 var(--settings-inset) 16px; }
+.app-settings .cfg-key .cfg-key__form:first-child { padding-top: 16px; }
+.app-settings .cfg-key .cfg-key__form + .cfg-key__form { padding-top: 16px; border-top: 1px solid var(--color-border-tertiary); margin: 0 var(--settings-inset); padding-left: 0; padding-right: 0; }
+.app-settings .cfg-key__foot { padding: 0 var(--settings-inset) 16px; font-size: 13px; line-height: 18px; }
+.app-settings .cfg-key__ok { color: var(--color-success-text); }
+.app-settings .cfg-key__err { color: var(--color-danger-text); }
+.app-settings .cfg-pair { padding: 14px var(--settings-inset) 16px; border-top-color: var(--color-border-tertiary); }
+
+/* ---------- MCP servers ---------- */
+.app-settings .mcp-editor { display: flex; flex-direction: column; gap: 0; padding: 0; }
+.app-settings .mcp-fields { display: flex; flex-direction: column; gap: 0; min-width: 0; margin: 0; padding: 0; border: 0; }
+.settings-field { position: relative; display: flex; align-items: flex-start; gap: 24px; padding: 16px var(--settings-inset); }
+.settings-field__text { display: flex; flex-direction: column; gap: 2px; width: 240px; flex-shrink: 0; padding-top: 8px; }
+.settings-field__label { font-size: 14px; font-weight: 500; line-height: 20px; color: var(--color-text-primary); }
+.settings-field__hint { font-size: 13px; line-height: 18px; color: var(--color-text-secondary); }
+.settings-field__hint .mcp-check { margin-top: 6px; }
+.settings-field__control { display: flex; flex-direction: column; gap: 10px; flex: 1 1 0; min-width: 0; }
+.app-settings .mcp-bots { display: flex; flex-direction: column; gap: 8px; max-height: 220px; overflow: auto; padding: 10px 12px; border-radius: 10px; background: var(--color-bg-subtle); box-shadow: inset 0 0 0 1px var(--color-border-tertiary); }
+.app-settings .mcp-check { font-size: 14px; line-height: 20px; color: var(--color-text-primary); }
+.app-settings .mcp-check input { width: 16px; height: 16px; accent-color: var(--color-primary); }
+.app-settings .mcp-advanced { position: relative; }
+.app-settings .mcp-advanced > summary { list-style: none; cursor: pointer; font-size: inherit; color: inherit; transition: background-color 120ms var(--ease-out); }
+.app-settings .mcp-advanced > summary::-webkit-details-marker { display: none; }
+@media (hover: hover) { .app-settings .mcp-advanced > summary:hover { background: var(--settings-hover); } }
+.app-settings .mcp-advanced > summary:focus-visible { outline: 0; box-shadow: inset 0 0 0 2px var(--color-border-focus); }
+.mcp-advanced__chev { flex: none; color: var(--color-text-tertiary); transition: transform 160ms var(--ease-out); }
+.app-settings .mcp-advanced[open] .mcp-advanced__chev { transform: rotate(90deg); }
+.app-settings .mcp-advanced[open] > * + * { margin-top: 0; }
+.mcp-advanced__body .settings-field::before { content: ''; position: absolute; top: 0; left: var(--settings-inset); right: var(--settings-inset); height: 1px; background: var(--color-border-tertiary); }
+.app-settings .mcp-actions { display: flex; align-items: center; gap: 8px; margin: 0 var(--settings-inset); padding: 16px 0; border-top: 1px solid var(--color-border-tertiary); }
+.mcp-actions__spacer { flex: 1; }
+.app-settings .mcp-server { align-items: flex-start; }
+.app-settings .mcp-server > .computer-status-dot { margin-top: 5px; }
+.mcp-server__actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.app-settings .mcp-tools { margin-top: 6px; }
+.app-settings .mcp-tools summary { width: fit-content; cursor: pointer; font-size: 13px; line-height: 18px; color: var(--color-text-secondary); }
+.app-settings .mcp-tools summary:hover { color: var(--color-text-primary); }
+.app-settings .mcp-tools > div { margin-top: 10px; font-size: 13px; line-height: 18px; overflow-wrap: anywhere; color: var(--color-text-primary); }
+.app-settings .mcp-tools p { margin: 2px 0 0; color: var(--color-text-secondary); }
+
+/* ---------- medium windows (and the Mac app at its default 1200px) ---------- */
+@media (max-width: 1200px) {
+  .app-settings .app-settings__nav { width: 248px; }
+  .app-settings .app-settings__page { padding: 48px 32px 72px; }
+}
+@media (max-width: 960px) {
+  .settings-field { flex-direction: column; gap: 8px; }
+  .settings-field__text { width: auto; padding-top: 0; }
+  .settings-field__control { align-self: stretch; }
+}
+
+/* ---------- phones and the iPhone app: a section list that drills in ---------- */
+@media (max-width: 760px) {
+  .app-settings { --settings-inset: 16px; }
+  .app-settings.is-list .app-settings__main { background: var(--color-bg-sidebar); }
+  .settings-nav { padding: 0 0 max(32px, env(safe-area-inset-bottom)); }
+  .settings-nav__back, .settings-page-back { display: inline-flex; gap: 2px; height: 44px; padding: 0 12px 0 8px; border-radius: 0; font-size: 17px; line-height: 22px; color: var(--color-text-primary); }
+  .settings-nav__back:hover { background: none; }
+  .settings-page-back { position: sticky; top: 0; z-index: 3; width: 100%; background: color-mix(in srgb, var(--color-bg-pane) 92%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+  .settings-nav__title { padding: 4px 16px 14px; font-size: 30px; line-height: 36px; }
+  .settings-search { height: 40px; margin: 0 16px; border-radius: 12px; }
+  .settings-search input { font-size: 16px; }
+  .settings-nav__label { padding: 22px 32px 8px; }
+  .settings-nav__items { gap: 0; margin: 0 16px; overflow: hidden; border-radius: 14px; background: var(--color-bg-pane); border: 1px solid var(--color-border-tertiary); }
+  .app-settings .settings-nav__item { gap: 0; height: 50px; min-height: 50px; padding: 0 14px 0 0; border-radius: 0; font-size: 16px; line-height: 22px; }
+  .app-settings .settings-nav__item + .settings-nav__item::before { content: ''; position: absolute; top: 0; left: 48px; right: 0; height: 1px; background: var(--color-border-tertiary); }
+  .settings-nav__icon { box-sizing: content-box; padding: 0 14px; }
+  .settings-nav__value { display: block; margin-right: 6px; font-size: 15px; line-height: 20px; color: var(--color-text-tertiary); }
+  .settings-nav__chev { display: block; flex: none; color: var(--color-text-quaternary); transition: transform 120ms var(--ease-out); }
+  .app-settings .settings-nav__item:active { background: var(--color-bg-hover); }
+  .app-settings .settings-nav__item:active .settings-nav__chev { transform: translateX(2px); }
+  .settings-nav__empty { padding: 24px 32px; font-size: 15px; }
+
+  .app-settings .app-settings__page { gap: 28px; max-width: none; padding: 4px 16px max(40px, env(safe-area-inset-bottom)); }
+  .app-settings .app-settings__head h1 { font-size: 30px; line-height: 36px; }
+  .app-settings .app-settings__head p { font-size: 15px; line-height: 21px; }
+  .app-settings__head--action { flex-direction: column; align-items: stretch; }
+  .app-settings__head--action > .cfg-btn { align-self: flex-start; }
+  .app-settings .cfg-section__label { padding: 0 4px; }
+  .app-settings .cfg-row { padding: 14px var(--settings-inset); }
+  .app-settings :is(.cfg-row, .cfg-key__form) > .cfg-row__text { flex-basis: 180px; }
+  /* Two or more buttons go under the text on phones, lined up with it (past the 28px status lane). */
+  .app-settings .cfg-row > .settings-row__actions:has(> :nth-child(2)) { flex-basis: 100%; justify-content: flex-start; }
+  .app-settings .cfg-row > .computer-status-dot ~ .settings-row__actions:has(> :nth-child(2)) { padding-left: 44px; }
+  .app-settings .cfg-key__form { flex-wrap: wrap; row-gap: 12px; }
+  .app-settings .cfg-key__form > .cfg-seg { flex: 1 1 auto; }
+  .app-settings .cfg-key__form > .cfg-seg button { flex: 1; }
+  .app-settings .cfg-key__form > .model-picker { flex: 1 1 100%; }
+  .app-settings .cfg-row__title { font-size: 15px; }
+  .settings-row--wrap { flex-wrap: wrap; }
+  .settings-row--wrap > .cfg-row__text { flex-basis: 100%; margin-right: 0; }
+  .settings-row--wrap > .cfg-seg { flex: 1 1 auto; }
+  .settings-row--wrap > .cfg-seg button { flex: 1; }
+  .app-settings .cfg-seg button { height: 32px; font-size: 15px; }
+  .app-settings .cfg-btn { height: 36px; padding: 0 14px; font-size: 14px; }
+  .app-settings .toggle { width: 51px; height: 31px; }
+  .app-settings .toggle__knob { width: 27px; height: 27px; }
+  .app-settings .toggle.is-on .toggle__knob { transform: translateX(20px); }
+  .app-settings .text-input { height: 44px; border-radius: 12px; font-size: 16px; }
+  .app-settings textarea.text-input { height: auto; font-size: 15px; }
+  .settings-field { padding: 14px var(--settings-inset); }
+  .settings-field__label { font-size: 15px; }
+  .app-settings .mcp-server { flex-wrap: wrap; }
+  .app-settings .mcp-server > .cfg-row__text { flex-basis: calc(100% - 60px); }
+  .mcp-server__actions { width: 100%; padding-left: 44px; }
+  .app-settings .mcp-actions { flex-wrap: wrap; }
+  .app-settings .mcp-actions .cfg-btn--primary { order: -1; flex-basis: 100%; height: 44px; font-size: 16px; }
+  .app-settings .mcp-actions .cfg-btn--secondary { flex: 1; height: 44px; font-size: 16px; }
+  .mcp-actions__spacer { display: none; }
+}
+
+/* ---------- native Apple apps ---------- */
+:root[data-native='true'] .settings-nav, :root[data-native='true'] .settings-page-back { -webkit-user-select: none; user-select: none; }
+:root[data-native='true'] .app-settings .settings-nav__item { cursor: default; }

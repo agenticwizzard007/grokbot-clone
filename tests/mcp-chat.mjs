@@ -34,15 +34,15 @@ try{
  await page.getByLabel('Custom headers (JSON, optional)').fill('{"X-Fixture":"header-secret"}');
  await page.getByRole('button',{name:'Save & test connection'}).click();
  const card=page.getByRole('region',{name:'Research MCP',exact:true});
- await card.getByText('Connection verified · 2 tools',{exact:true}).waitFor();
+ await card.getByText(/^Remote HTTP · All my Bots · 2 tools · Verified /).waitFor();
  await card.getByText('Available tools (2)',{exact:true}).click();await card.getByText('Echoes the supplied message.',{exact:true}).waitFor();
  await card.getByRole('button',{name:'Edit',exact:true}).click();
- await page.getByLabel('Agent access').selectOption('selected');
- await page.getByRole('group',{name:'Agents with access'}).getByRole('checkbox',{name:/Quinn/}).check();
+ await page.getByLabel('Bot access').selectOption('selected');
+ await page.getByRole('group',{name:'Bots with access'}).getByRole('checkbox',{name:/Quinn/}).check();
  await page.getByRole('button',{name:'Save & test connection'}).click();
- await card.getByText('Remote HTTP · 1 selected agent',{exact:true}).waitFor();
+ await card.getByText(/^Remote HTTP · 1 selected Bot · 2 tools · Verified /).waitFor();
  let server=(await api('/mcp/servers')).servers[0];assert.equal(server.hasBearerToken,true);
- await page.reload();await card.getByText('Connection verified · 2 tools',{exact:true}).waitFor();
+ await page.reload();await card.getByText(/^Remote HTTP · 1 selected Bot · 2 tools · Verified /).waitFor();
  assert.ok(!await page.getByText('header-secret',{exact:true}).count());
  fs.mkdirSync('.context/shots',{recursive:true});await page.screenshot({path:'.context/shots/custom-mcp.png',animations:'disabled'});
  const tool=server.tools.find(t=>t.name==='echo').toolName;
@@ -64,6 +64,6 @@ try{
  const {bot:draft}=await api('/bots','POST',{name:'Draft'});await api('/mcp/servers/'+server.id,'PATCH',{enabled:true,botIds:null});
  const draftMessage=(await api(`/bots/${draft.id}/messages`,'POST',{text:`mock: ${tool} {"message":"not activated"} | say Done`})).row;
  await until(async()=>{const rows=(await api(`/bots/${draft.id}/rows`)).rows;return rows.some(r=>r.seq>draftMessage.seq&&r.body.name===tool&&r.body.status==='denied');});
- await page.goto(base+'/#settings/mcp');await card.getByRole('button',{name:'Remove',exact:true}).click();await card.getByRole('button',{name:'Remove server',exact:true}).click();await until(async()=>(await api('/mcp/servers')).servers.length===0);
+ await page.goto(base+'/#settings/mcp');await card.getByRole('button',{name:'Edit',exact:true}).click();const editor=page.getByRole('form',{name:'Edit MCP server'});await editor.getByRole('button',{name:'Remove…',exact:true}).click();await editor.getByRole('button',{name:'Remove server',exact:true}).click();await until(async()=>(await api('/mcp/servers')).servers.length===0);
  assert.deepEqual(errors,[]);console.log('PASS MCP browser: create, authenticated test, edit, reload, discovery, agent call, approval, immediate revocation, setup boundary and removal.');
 }catch(e){console.error(logs.join('').slice(-10000));throw e;}finally{await browser?.close();for(const c of children)c.kill();await sleep(500);fs.rmSync(root,{recursive:true,force:true});}

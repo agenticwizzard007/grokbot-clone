@@ -11,6 +11,8 @@ export type AppSection = 'general' | 'keys' | 'usage' | 'computer' | 'messaging'
 interface ConfigUI {
   botSettings: { botId: string; tab: BotSettingsTab } | null;
   appSettings: AppSection | null;
+  /** Settings was opened without a section (e.g. ⌘, or the account menu), so phones start on the section list. */
+  appSettingsHome: boolean;
   view: 'chat' | 'tasks';
   theme: Theme;
   /** Bumped by server events (tasks, memories) so open views refetch. Keys: 'tasks', 'memories:<botId>'. */
@@ -51,15 +53,16 @@ export function applyTheme(t: Theme) {
 export const useConfigUI = create<ConfigUI>((set, get) => ({
   botSettings: null,
   appSettings: linkedSection(),
+  appSettingsHome: false,
   view: 'chat',
   theme: readTheme(),
   versions: {},
   openBotSettings: (botId, tab = 'general') => set({ botSettings: { botId, tab } }),
   closeBotSettings: () => set({ botSettings: null }),
-  openAppSettings: (section = 'general') => set({ appSettings: section }),
+  openAppSettings: (section) => set({ appSettings: section ?? 'general', appSettingsHome: !section }),
   closeAppSettings: () => {
     if (linkedSection()) history.replaceState(null, '', window.location.pathname + window.location.search);
-    set({ appSettings: null });
+    set({ appSettings: null, appSettingsHome: false });
   },
   setView: (view) => set({ view }),
   setTheme: (theme) => {
