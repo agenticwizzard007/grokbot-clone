@@ -1,4 +1,5 @@
 import type { Bot, ComputerState, LiveState, Routine, Row, Toolkit, User } from '@shared/types';
+import { isNativeApp } from './native';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -25,9 +26,10 @@ export interface AppsResponse { apps: Toolkit[]; connected: string[]; connectedA
 export interface RoomMember { id: string; name: string; label: string; avatarShape: string; avatarColor: string }
 
 export const api = {
-  me: () => req<{ user: User | null; devLogin: boolean; googleLogin?: boolean }>('GET', '/auth/me'),
+  me: () => req<{ user: User | null; devLogin: boolean; googleLogin?: boolean; appleLogin?: boolean; appleLinked?: boolean }>('GET', '/auth/me'),
   devLogin: (email: string, name?: string) => req<{ ok: true }>('POST', '/auth/dev', { email, name }),
   logout: () => req<{ ok: true }>('POST', '/auth/logout'),
+  deleteAccount: () => req<{ ok: true }>('DELETE', '/account', { confirmation: 'DELETE' }),
 
   bots: () => req<{ bots: Bot[]; live: LiveState[] }>('GET', '/bots'),
   createBot: (b: Pick<Bot, 'name' | 'avatarShape' | 'avatarColor' | 'mode'>) => req<{ bot: Bot }>('POST', '/bots', b),
@@ -58,6 +60,9 @@ export const api = {
 
 /** Open a Composio redirect in a centered popup. */
 export function openPopup(url: string) {
+  // WKWebView opens the final URL in the system browser. An empty popup cannot
+  // provide a WindowProxy for the later async redirect.
+  if (isNativeApp) return null;
   const w = 520, h = 680;
   const left = window.screenX + (window.outerWidth - w) / 2;
   const top = window.screenY + (window.outerHeight - h) / 2;

@@ -207,6 +207,16 @@ The server owns the agent loop. It builds context, streams a model response, exe
 
 For the details, read the [architecture guide](docs/ARCHITECTURE.md), [Orgo integration guide](docs/orgo-builder-guide.md), and [Model and Composio integration guide](docs/model-and-composio.md).
 
+## Sign in with Apple
+
+Apple, Google, and phone sign-in work across the web and Apple apps. Apple uses the system authorization sheet on iPhone, iPad, and Mac, with support for Hide My Email and linking to an existing account. See the [Apple sign-in setup](docs/apple-sign-in.md) for the required Apple Developer identifiers, key, server secrets, and verification steps.
+
+## iOS and macOS apps
+
+Swarm includes a shared native SwiftUI app for **iPhone, iPad, and Mac**, connecting to the same hosted server as the web app. It adds native server settings, browser-based Google sign-in, microphone permissions, download handling, and connection recovery; the shared interface adapts to phone screens.
+
+On a Mac with Xcode, run `npm run apple:open`, then choose **Swarm-iOS** or **Swarm-macOS**. See the [Apple app guide](docs/apple-apps.md) for server setup, testing, signing, and distribution. The server and web changes must be deployed together for native Google sign-in and the phone layout.
+
 ## Development
 
 ```bash

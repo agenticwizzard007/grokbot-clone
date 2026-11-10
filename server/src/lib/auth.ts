@@ -3,6 +3,7 @@ import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { db, now } from '../db.js';
 import { token } from './ids.js';
 import type { User } from '../types.js';
+import { env } from '../env.js';
 
 const COOKIE = 'swarm_session';
 const TTL_MS = 30 * 24 * 3600 * 1000;
@@ -12,7 +13,7 @@ export type AuthVars = { Variables: { user: User } };
 export function createSession(c: Context, userId: string) {
   const t = token();
   db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (?,?,?,?)').run(t, userId, now(), now() + TTL_MS);
-  setCookie(c, COOKIE, t, { httpOnly: true, sameSite: 'Lax', path: '/', maxAge: TTL_MS / 1000 });
+  setCookie(c, COOKIE, t, { httpOnly: true, secure: new URL(env.serverUrl).protocol === 'https:', sameSite: 'Lax', path: '/', maxAge: TTL_MS / 1000 });
 }
 
 export function destroySession(c: Context) {

@@ -15,6 +15,8 @@ import { Glyph } from './glyphs';
 import { ConfirmButton } from './ui';
 import { McpSettings } from './McpSettings';
 import { MessagingSettings } from './MessagingSettings';
+import { AppleSignIn } from '../AppleSignIn';
+import { api } from '../../lib/api';
 
 const SECTIONS: { id: AppSection; label: string }[] = [
   { id: 'general', label: 'General' },
@@ -504,7 +506,7 @@ function AppsSection() {
           </div>
           {apps?.map((a) => (
             <div key={a.slug} className="cfg-row">
-              <ToolkitLogo name={a.name} logo={a.logo} size={28} radius={7} />
+              <ToolkitLogo slug={a.slug} name={a.name} logo={a.logo} size={28} />
               <div className="cfg-row__text">
                 <div className="cfg-row__title">{a.name}</div>
                 {a.description && <div className="cfg-row__sub">{a.description}</div>}
@@ -522,6 +524,9 @@ function AppsSection() {
 
 function AccountSection() {
   const user = useStore((s) => s.user);
+  const appleLogin = useStore((s) => s.appleLogin);
+  const appleLinked = useStore((s) => s.appleLinked);
+  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const initials = (user?.name ?? user?.email ?? '?').trim().split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
   return (
@@ -540,6 +545,22 @@ function AccountSection() {
             </button>
           </div>
         </div>
+      </section>
+      {(appleLogin || appleLinked) && <section className="cfg-section">
+        <div className="cfg-section__label">Sign in with Apple</div>
+        {appleLinked ? <p>Apple is connected to this account.</p> : <>
+          <p>Connect Apple to sign in to this same account on your iPhone, iPad, Mac, or the web.</p>
+          <AppleSignIn link />
+        </>}
+      </section>}
+      <section className="cfg-section">
+        <div className="cfg-section__label">Delete account</div>
+        <p>Permanently delete your account, bots, and conversations. Apple sign-in access will also be revoked.</p>
+        <ConfirmButton confirmLabel="Permanently delete my account" onConfirm={async () => {
+          setError(null);
+          try { await api.deleteAccount(); location.href = '/'; } catch (err) { setError((err as Error).message); }
+        }}>Delete account…</ConfirmButton>
+        {error && <div className="cfg-error" role="alert">{error}</div>}
       </section>
     </>
   );

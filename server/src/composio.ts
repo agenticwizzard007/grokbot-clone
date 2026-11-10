@@ -16,6 +16,7 @@ export function composio() {
   if (!current || current.key !== identity) {
     current = { key: identity, client: makeClient(key) };
     sessionCache.clear();
+    promptConnections.clear();
     catalogCache = null;
   }
   return current.client;
@@ -73,7 +74,21 @@ export async function toolkitInfo(slug: string): Promise<CatalogItem | undefined
 
 // ---------- per-user connections ----------
 
-export async function connectedToolkits(userId: string): Promise<Set<string>> {
+const promptConnections = new Map<string, { expires: number; promise: Promise<Set<string>> }>();
+
+/** Only prompt context may use a short cache; connection management always reads the provider. */
+export async function connectedToolkits(userId: string, cached = false): Promise<Set<string>> {
+  if (cached && env.composioEnabled) {
+    composio(); // Invalidate across credential/project changes before reading.
+    let entry = promptConnections.get(userId);
+    if (!entry || Date.now() >= entry.expires) {
+      entry = { expires: Date.now() + 30_000, promise: connectedToolkits(userId) };
+      promptConnections.set(userId, entry);
+      const currentEntry = entry;
+      entry.promise.catch(() => { if (promptConnections.get(userId) === currentEntry) promptConnections.delete(userId); });
+    }
+    return new Set(await entry.promise);
+  }
   return new Set((await connectionsDetail(userId)).filter((c) => c.status === 'ACTIVE').map((c) => c.toolkit));
 }
 
@@ -121,6 +136,7 @@ function assertCurrentKey(key: string) {
 /** A connection change must also drop the saved session, which may still select the old account. */
 export function invalidateComposioSession(userId: string) {
   sessionCache.delete(userId);
+  promptConnections.delete(userId);
   db.prepare('DELETE FROM composio_sessions WHERE user_id=?').run(userId);
 }
 
@@ -165,12 +181,18 @@ export async function startConnect(userId: string, toolkit: string, callbackUrl:
 }
 
 /** OpenAI-Responses-format function tools for this user's Composio session (meta tools). */
+const sessionTools = new WeakMap<Session, Promise<any[]>>();
 export async function composioTools(userId: string): Promise<any[]> {
   if (!env.composioEnabled) return [];
   try {
     const session = await sessionFor(userId);
-    const tools = await session.tools();
-    return Array.isArray(tools) ? tools : [];
+    let pending = sessionTools.get(session);
+    if (!pending) {
+      pending = session.tools().then((tools) => Array.isArray(tools) ? tools : []);
+      sessionTools.set(session, pending);
+      pending.catch(() => { if (sessionTools.get(session) === pending) sessionTools.delete(session); });
+    }
+    return await pending;
   } catch (e) {
     console.warn('[composio] tools unavailable', (e as Error).message);
     return [];

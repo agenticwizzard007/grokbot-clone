@@ -5,24 +5,35 @@ import { PhoneAuth } from './PhoneAuth';
 import '../styles/messaging.css';
 import { useStore } from '../store';
 import { TrafficLights } from './Sidebar';
+import { AppleSignIn } from './AppleSignIn';
 
-const GOOGLE_ERRORS: Record<string, string> = {
+const AUTH_ERRORS: Record<string, string> = {
   failed: 'Sign-in didn’t finish. Try again.',
   google_denied: 'Google did not approve access. Try again and review the permissions. If Google says the app is blocked, your Google account or workspace administrator may need to allow it.',
   google_pending: 'Google authorization was not completed. Start sign-in again and finish the Google consent screen.',
   google_permissions: 'Google connected, but Gmail profile access was not granted. Try again and approve the requested Gmail permissions.',
   google_unavailable: 'Google sign-in is temporarily unavailable. Please try again.',
   google_session: 'This sign-in link no longer matches this browser. Start again here and finish in the same browser.',
+  apple_denied: 'Apple sign-in was cancelled. You can try again or choose another sign-in option.',
+  apple_session: 'Apple sign-in expired or no longer matches this browser. Please start again.',
+  apple_invalid: 'Apple sign-in could not be verified. Please try again.',
+  apple_unavailable: 'Apple sign-in is not configured on this server yet. Choose Google or phone sign-in.',
+  apple_busy: 'Apple sign-in is busy. Please try again shortly.',
+  apple_email_required: 'Apple did not provide a verified email. Review Swarm’s access in your Apple Account and try again.',
+  apple_link_required: 'You already have a Swarm account with this email. Sign in with Google or phone, then connect Apple in Settings → Account.',
+  apple_link_signin: 'Sign in to your existing Swarm account before connecting Apple.',
+  apple_already_linked: 'This Apple Account is already connected to a different Swarm account, or this Swarm account already has Apple connected.',
 };
 
 export function SignIn() {
   const devLogin = useStore((s) => s.devLogin);
   const googleLogin = useStore((s) => s.googleLogin);
+  const appleLogin = useStore((s) => s.appleLogin);
   const checkAuth = useStore((s) => s.checkAuth);
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(() => GOOGLE_ERRORS[new URLSearchParams(location.search).get('login') ?? ''] ?? null);
+  const [error, setError] = useState<string | null>(() => AUTH_ERRORS[new URLSearchParams(location.search).get('login') ?? ''] ?? null);
   const expired = new URLSearchParams(location.search).get('login') === 'expired';
 
   const dev = async (e: React.FormEvent) => {
@@ -43,7 +54,8 @@ export function SignIn() {
         <p className="signin__sub">AI teammates with their own computers. Hand them a task and they get it done.</p>
         {expired && <div className="signin__notice" role="status">That sign-in link has expired or was already used.</div>}
         <PhoneAuth mode="signin" />
-        {googleLogin && <div className="signin__divider signin__or"><span>or</span></div>}
+        {(googleLogin || appleLogin) && <div className="signin__divider signin__or"><span>or</span></div>}
+        {appleLogin && <AppleSignIn />}
         {googleLogin && (
           <a className="btn btn--primary signin__google" href="/api/auth/google/start">
             <GoogleG /> Sign in with Google

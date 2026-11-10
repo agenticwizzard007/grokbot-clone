@@ -248,6 +248,61 @@ test('a new project never reuses cached or saved sessions from the previous key'
   assert.equal(use.mock.callCount(), 0);
 });
 
+test('prompt connection caching shares requests, isolates users and invalidates on connection changes', async () => {
+  const { client } = freshClient();
+  let active = 'gmail';
+  const list = mock.method(client.connectedAccounts, 'list', async ({ userIds }: any) => ({
+    items: [{ id: userIds[0], toolkit: { slug: userIds[0] === 'owner' ? active : 'slack' }, status: 'ACTIVE' }], nextCursor: null,
+  }));
+  const [a, b] = await Promise.all([connectedToolkits('owner', true), connectedToolkits('owner', true)]);
+  assert.equal(list.mock.callCount(), 1);
+  a.clear();
+  assert.deepEqual([...b], ['gmail']);
+  assert.deepEqual([...await connectedToolkits('other', true)], ['slack']);
+  active = 'calendar';
+  assert.deepEqual([...await connectedToolkits('owner', true)], ['gmail']);
+  // Management/authorization reads must not use the prompt's cached view.
+  assert.deepEqual([...await connectedToolkits('owner')], ['calendar']);
+  invalidateComposioSession('owner');
+  assert.deepEqual([...await connectedToolkits('owner', true)], ['calendar']);
+});
+
+test('prompt connection cache expires and failed reads can retry', async () => {
+  const { client } = freshClient();
+  let fail = true;
+  const list = mock.method(client.connectedAccounts, 'list', async () => {
+    if (fail) throw new Error('offline');
+    return { items: [], nextCursor: null };
+  });
+  await assert.rejects(connectedToolkits('owner', true), /offline/);
+  fail = false;
+  await connectedToolkits('owner', true);
+  const future = Date.now() + 31_000;
+  const clock = mock.method(Date, 'now', () => future);
+  try { await connectedToolkits('owner', true); } finally { clock.mock.restore(); }
+  assert.equal(list.mock.callCount(), 3);
+});
+
+test('tool definitions are shared per session and refetched after invalidation or failures', async () => {
+  const { composioTools } = await import('../server/src/composio.js');
+  const { client } = freshClient();
+  let calls = 0, fail = true;
+  mock.method(client, 'create', async (userId: string) => ({
+    sessionId: `tool-cache-${userId}`,
+    tools: async () => { calls++; if (fail) throw new Error('offline'); return [{ name: userId }]; },
+  }));
+  assert.deepEqual(await composioTools('owner'), []);
+  fail = false;
+  const [a, b] = await Promise.all([composioTools('owner'), composioTools('owner')]);
+  assert.deepEqual(a, [{ name: 'owner' }]);
+  assert.deepEqual(a, b);
+  assert.equal(calls, 2);
+  assert.deepEqual(await composioTools('other'), [{ name: 'other' }]);
+  invalidateComposioSession('owner');
+  await composioTools('owner');
+  assert.equal(calls, 4);
+});
+
 test('legacy saved sessions without a project fingerprint are replaced', async () => {
   const { client } = freshClient();
   db.prepare('INSERT OR REPLACE INTO composio_sessions(user_id,session_id) VALUES (?,?)').run('other', 'legacy');
@@ -424,4 +479,68 @@ test('key changes move event subscriptions to the new client and stop old delive
   assert.equal(nextStop.mock.callCount(), 1);
   nextDelivery({ id: 'event-trigger', payload: {} });
   assert.equal(delivered.length, 2);
+});
+
+test('native Google sign-in integrates the verified browser callback with the PKCE exchange', async () => {
+  const { createHash, randomBytes } = await import('node:crypto');
+  const { Hono } = await import('hono');
+  const { api } = await import('../server/src/routes.js');
+  const app = new Hono().route('/api', api);
+  const { client } = freshClient();
+  let callback = '';
+  mock.method(client, 'create', async () => ({ authorize: async (_toolkit: string, options: any) => {
+    callback = options.callbackUrl;
+    return { id: 'native-google', redirectUrl: 'https://accounts.google.com/signin' };
+  } }));
+  mock.method(client.connectedAccounts, 'get', async () => ({ status: 'ACTIVE', toolkit: { slug: 'gmail' } }));
+  mock.method(client.tools, 'proxyExecute', async () => ({ status: 200, data: { emailAddress: 'native@example.com' } }));
+  const verifier = randomBytes(32).toString('base64url');
+  const state = randomBytes(32).toString('base64url');
+  const challenge = createHash('sha256').update(verifier).digest('base64url');
+  const start = await app.request(`/api/auth/native/start?challenge=${challenge}&state=${state}`);
+  const nativeCookie = start.headers.getSetCookie()[0].split(';')[0];
+  const google = await app.request('/api/auth/google/start', { headers: { cookie: nativeCookie } });
+  const googleCookie = google.headers.getSetCookie().find(v => v.startsWith('google_signin_attempt='))!.split(';')[0];
+  const destination = new URL(callback);
+  const verified = await app.request(destination.pathname + destination.search, { headers: { cookie: `${nativeCookie}; ${googleCookie}` } });
+  const deepLink = new URL(verified.headers.get('location')!);
+  assert.equal(deepLink.protocol, 'so.swarms.app:');
+  assert.equal(deepLink.searchParams.get('state'), state);
+  const exchange = await app.request('/api/auth/native/exchange', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: deepLink.searchParams.get('code'), verifier }) });
+  assert.equal(exchange.status, 200);
+  const cookie = exchange.headers.getSetCookie().find(v => v.startsWith('swarm_session='))!.split(';')[0];
+  const me = await (await app.request('/api/auth/me', { headers: { cookie } })).json() as any;
+  assert.equal(me.user.email, 'native@example.com');
+});
+
+test('native app connection callbacks retain the initiating account across browser cookie jars and reject tampering', async () => {
+  const { Hono } = await import('hono');
+  const { api } = await import('../server/src/routes.js');
+  const app = new Hono().route('/api', api);
+  const { client } = freshClient();
+  let callback = '';
+  mock.method(client, 'create', async () => ({ sessionId: 'native-connection-session', authorize: async (_slug: string, options: any) => {
+    callback = options.callbackUrl;
+    return { id: 'native-gmail', redirectUrl: 'https://connect.example.com/authorize' };
+  } }));
+  const checked: string[] = [];
+  mock.method(client.connectedAccounts, 'list', async ({ userIds }: any) => {
+    checked.push(userIds[0]);
+    return { items: userIds[0] === 'owner' ? [{ id: 'native-gmail', toolkit: { slug: 'gmail' }, status: 'ACTIVE' }] : [], nextCursor: null };
+  });
+  const start = await app.request('/api/apps/gmail/connect', { method: 'POST', headers: { cookie: 'swarm_session=owner', 'content-type': 'application/json', 'user-agent': 'SwarmNative/1.0' }, body: '{}' });
+  assert.equal(start.status, 200);
+  const target = new URL(callback);
+  assert.equal(target.searchParams.get('native'), '1');
+  assert.equal(target.searchParams.get('u'), 'owner');
+  const visit = (url: URL) => app.request(url.pathname + url.search, { headers: { cookie: 'swarm_session=other' } });
+  assert.match(await (await visit(target)).text(), /App connected/);
+  assert.equal(checked.at(-1), 'owner', 'the browser account cannot replace the signed initiating account');
+  const previous = checked.length;
+  for (const [key, value] of [['u', 'other'], ['slug', 'slack'], ['bot', 'another-bot'], ['seq', '10'], ['expires', '1'], ['sig', 'wrong']]) {
+    const changed = new URL(target);
+    changed.searchParams.set(key, value);
+    assert.match(await (await visit(changed)).text(), /Connection not confirmed/);
+  }
+  assert.equal(checked.length, previous, 'invalid callbacks do not query or modify connections');
 });

@@ -25,3 +25,20 @@ export function repairHistory(items: any[], pendingCallIds: Set<string> = new Se
   }
   return out;
 }
+
+/** Keep one copy of identical browser snapshots. Unique observations and stored history stay intact. */
+export function deduplicateBrowserSnapshots(items: any[]): any[] {
+  const browserCalls = new Set(items.filter(it => it?.type === 'function_call' && /^browser_/.test(it.name ?? '')).map(it => it.call_id));
+  const snapshots = new Map<string, string>();
+  const out = [...items];
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    if (it?.type !== 'function_call_output' || !browserCalls.has(it.call_id) || typeof it.output !== 'string') continue;
+    const snapshot = it.output.match(/(?:^|\n)### Snapshot\n```(?:yaml)?\n[\s\S]*?\n```/)?.[0];
+    if (!snapshot) continue;
+    const newer = snapshots.get(snapshot);
+    if (newer) out[i] = { ...it, output: it.output.replace(snapshot, `\n[Identical page snapshot omitted; its full contents are in browser result ${newer}.]`) };
+    else snapshots.set(snapshot, it.call_id);
+  }
+  return out;
+}

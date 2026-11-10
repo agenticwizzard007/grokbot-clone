@@ -14,6 +14,7 @@ import { sha256, token as randomToken } from '../lib/ids.js';
 import type { ComputerState, LibraryFile } from '../types.js';
 import { ByteQueue, browserHandshake, jpegSize, jpegUpdate, msgLength, RFB_DESKTOP_SIZE, RFB_TIGHT, serverInit } from './rfb.js';
 import { ComputerError, type BotScreen, type ComputerProvider, type Shot } from './types.js';
+import { decodeCompanionFrame } from './frames.js';
 
 /**
  * Local computers: a Chrome browser on the user's own PC, driven through the companion
@@ -66,6 +67,7 @@ interface Companion {
 }
 
 const companions = new Map<string, Companion>();
+const companionWaiters = new Map<string, Set<() => void>>();
 
 const safeBotId = (id: string) => /^[A-Za-z0-9_-]{1,64}$/.test(id);
 
@@ -92,12 +94,19 @@ export const companionConnected = (userId: string) => companions.has(userId);
 
 /** Wait until the user's companion connects (a cloud VM finishing boot or resume). */
 export async function waitForCompanion(userId: string, timeoutMs: number): Promise<boolean> {
-  const t0 = Date.now();
-  while (Date.now() - t0 < timeoutMs) {
-    if (companions.has(userId)) return true;
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  return companions.has(userId);
+  if (companions.has(userId)) return true;
+  return new Promise((resolve) => {
+    let waiters = companionWaiters.get(userId);
+    if (!waiters) companionWaiters.set(userId, (waiters = new Set()));
+    const finish = () => {
+      clearTimeout(timer);
+      waiters.delete(finish);
+      if (!waiters.size) companionWaiters.delete(userId);
+      resolve(companions.has(userId));
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    waiters.add(finish);
+  });
 }
 
 /** Disconnect a user's companion now (its VM was frozen or deleted, so it can't answer a close handshake). */
@@ -188,8 +197,20 @@ function onCompanion(ws: WebSocket) {
   }, 25_000);
   ws.on('pong', () => { alive = true; });
 
-  ws.on('message', (raw) => {
+  const frame = (botId: string, data: Buffer) => {
+    const subs = comp?.viewers.get(botId);
+    if (!comp || !subs?.size) return;
+    const size = jpegSize(data) ?? { width: comp.width, height: comp.height };
+    for (const fn of subs) fn({ data, ...size });
+  };
+  ws.on('message', (raw, isBinary) => {
     alive = true;
+    if (isBinary) {
+      if (!comp) return ws.close(4400, 'expected hello');
+      const decoded = decodeCompanionFrame(Buffer.isBuffer(raw) ? raw : Array.isArray(raw) ? Buffer.concat(raw) : Buffer.from(raw));
+      if (decoded) frame(decoded.botId, decoded.jpeg);
+      return;
+    }
     let msg: any;
     try { msg = JSON.parse(raw.toString()); } catch { return; }
     if (!comp) {
@@ -225,7 +246,8 @@ function onCompanion(ws: WebSocket) {
         onClose: new Set(),
       };
       companions.set(row.user_id, comp);
-      ws.send(JSON.stringify({ type: 'welcome', protocol: PROTOCOL_VERSION, mode: MULTI ? 'multi' : DESKTOP ? 'desktop' : 'browser' }));
+      for (const finish of companionWaiters.get(row.user_id) ?? []) finish();
+      ws.send(JSON.stringify({ type: 'welcome', protocol: PROTOCOL_VERSION, binaryFrames: true, mode: MULTI ? 'multi' : DESKTOP ? 'desktop' : 'browser' }));
       console.log(`[local] PC connected user=${row.user_id} name="${comp.device.name}" platform=${comp.device.platform} headless=${comp.device.headless}`);
       emitState(row.user_id);
       return;
@@ -238,11 +260,7 @@ function onCompanion(ws: WebSocket) {
       if (msg.error) p.reject(new ComputerError(String(msg.error).slice(0, 500), 502));
       else p.resolve(msg.result ?? {});
     } else if (msg.event === 'frame' && typeof msg.botId === 'string' && typeof msg.data === 'string') {
-      const subs = comp.viewers.get(msg.botId);
-      if (!subs?.size) return;
-      const data = Buffer.from(msg.data, 'base64');
-      const size = jpegSize(data) ?? { width: comp.width, height: comp.height };
-      for (const fn of subs) fn({ data, ...size });
+      frame(msg.botId, Buffer.from(msg.data, 'base64'));
     } else if (msg.event === 'browsers' && Array.isArray(msg.bots)) {
       const open = new Set(msg.bots.filter((b: unknown) => typeof b === 'string'));
       for (const b of [...comp.browsers.keys()]) if (!open.has(b)) comp.browsers.delete(b);
@@ -288,16 +306,18 @@ async function viewer(client: WebSocket, userId: string, botId: string, mode: 'w
   let lastMove = 0;
 
   const send = (b: Buffer) => { if (client.readyState === WebSocket.OPEN) client.send(b); };
-  const input = (params: Record<string, unknown>) => { touch(userId, botId); notify(userId, 'input', { botId, ...params }); };
+  const input = (params: Record<string, unknown>) => { touch(userId, botId); notify(userId, 'input', { botId, ...params, width: fbW, height: fbH }); };
 
+  let sendingFrame = false;
   const flush = () => {
-    if (!wantUpdate || !fresh || !latest || !tight) return;
+    if (!wantUpdate || !fresh || !latest || !tight || sendingFrame || client.readyState !== WebSocket.OPEN) return;
     const f = latest;
     const resize = (f.width !== fbW || f.height !== fbH) && resizable;
     if (resize) { fbW = f.width; fbH = f.height; }
     wantUpdate = false;
     fresh = false;
-    send(jpegUpdate(f.data, f.width, f.height, resize));
+    sendingFrame = true;
+    client.send(jpegUpdate(f.data, f.width, f.height, resize), () => { sendingFrame = false; flush(); });
   };
   const onFrame = (f: Frame) => { latest = f; fresh = true; flush(); };
 

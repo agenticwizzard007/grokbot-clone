@@ -113,6 +113,9 @@ export function setEmail(userId: string, email: string): { ok: true } | { ok: fa
 
 /** Delete an account and everything in it. Bots, rows, links and sessions go with the user (foreign keys cascade). */
 export async function deleteAccount(userId: string) {
+  // Preserve the account and encrypted credentials on failure so revocation can be retried.
+  const { revokeAppleAccess } = await import('./auth/apple-provider.js');
+  await revokeAppleAccess(userId);
   const bots = db.prepare('SELECT id FROM bots WHERE user_id=?').all(userId) as { id: string }[];
   for (const b of bots) {
     interrupt(b.id);

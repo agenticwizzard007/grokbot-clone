@@ -11,6 +11,8 @@ interface State {
   devLogin: boolean;
   /** Google sign-in needs Composio on the server. */
   googleLogin: boolean;
+  appleLogin: boolean;
+  appleLinked: boolean;
   authChecked: boolean;
 
   bots: Bot[];
@@ -25,6 +27,7 @@ interface State {
 
   detailsOpen: boolean;
   sidebarCollapsed: boolean;
+  mobileSidebarOpen: boolean;
   modal: ModalKind;
   viewerOpen: boolean;
 
@@ -50,6 +53,8 @@ export const useStore = create<State>((set, get) => ({
   user: null,
   devLogin: false,
   googleLogin: true,
+  appleLogin: false,
+  appleLinked: false,
   authChecked: false,
   bots: [],
   live: {},
@@ -59,15 +64,16 @@ export const useStore = create<State>((set, get) => ({
   computer: null,
   connectionsVersion: 0,
   sseConnected: false,
-  detailsOpen: lsGet(LS_DETAILS) !== '0',
+  detailsOpen: !window.matchMedia('(max-width: 1100px)').matches && lsGet(LS_DETAILS) !== '0',
   sidebarCollapsed: lsGet(LS_SIDEBAR) === '1',
+  mobileSidebarOpen: false,
   modal: null,
   viewerOpen: false,
 
   async checkAuth() {
     try {
-      const { user, devLogin, googleLogin } = await api.me();
-      set({ user, devLogin, googleLogin: googleLogin !== false, authChecked: true });
+      const { user, devLogin, googleLogin, appleLogin, appleLinked } = await api.me();
+      set({ user, devLogin, googleLogin: googleLogin !== false, appleLogin: !!appleLogin, appleLinked: !!appleLinked, authChecked: true });
     } catch {
       set({ user: null, authChecked: true });
     }

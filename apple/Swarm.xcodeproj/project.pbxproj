@@ -1,0 +1,611 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		021CF09B72D9FCECDADF43AD /* NativePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C5E22C3FAB43C810CFD467F /* NativePolicyTests.swift */; };
+		15E8DF962FE6007B1E9F4DE3 /* SignInAttempt.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F3AAEA9C99649B483F6CB2 /* SignInAttempt.swift */; };
+		22BABADCF8348475614A708B /* SwarmApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8727D5DEE07585958E02F4C3 /* SwarmApp.swift */; };
+		37D025E9AD9E81071717ECF6 /* ServerAddress.swift in Sources */ = {isa = PBXBuildFile; fileRef = B99DAAFC4229215C47379899 /* ServerAddress.swift */; };
+		4466E89EA3BCEF39F792DCD4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 69CC32614EC30D470A2EF27A /* Assets.xcassets */; };
+		467DE7BF5A070F32D07120A2 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DC347F48E500BC45A83C157 /* AppModel.swift */; };
+		4F7C2F04469DE50C9252FDB8 /* SignInAttempt.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F3AAEA9C99649B483F6CB2 /* SignInAttempt.swift */; };
+		5329DFF982255DBA428428B8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 69CC32614EC30D470A2EF27A /* Assets.xcassets */; };
+		6F97D0FF2CEF06423A3316BB /* ServerAddress.swift in Sources */ = {isa = PBXBuildFile; fileRef = B99DAAFC4229215C47379899 /* ServerAddress.swift */; };
+		777D62F8E06606768202D83D /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 9D16FCC75A1B4D9F39DC9088 /* PrivacyInfo.xcprivacy */; };
+		8588C39E304087DE5C156710 /* NativePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C5E22C3FAB43C810CFD467F /* NativePolicyTests.swift */; };
+		8B39E95E8B305CADE9076082 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 9D16FCC75A1B4D9F39DC9088 /* PrivacyInfo.xcprivacy */; };
+		8CCA3824924EEAB8FEA5AC7F /* SwarmApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8727D5DEE07585958E02F4C3 /* SwarmApp.swift */; };
+		98C667B20A6457FB9C3B685E /* ServerAddress.swift in Sources */ = {isa = PBXBuildFile; fileRef = B99DAAFC4229215C47379899 /* ServerAddress.swift */; };
+		9B537ECB7DB735A961C107BD /* SignInAttempt.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F3AAEA9C99649B483F6CB2 /* SignInAttempt.swift */; };
+		D4511DCED054A049D040871A /* ServerAddress.swift in Sources */ = {isa = PBXBuildFile; fileRef = B99DAAFC4229215C47379899 /* ServerAddress.swift */; };
+		D590DB9BA85EBBFFA0D872FA /* AppleAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = E228259B68A8DFAAE8596305 /* AppleAuthorization.swift */; };
+		E18EB05DAE525F0C5DFEDA57 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DC347F48E500BC45A83C157 /* AppModel.swift */; };
+		E9ACDB36470BE0913C4E0C0E /* SignInAttempt.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F3AAEA9C99649B483F6CB2 /* SignInAttempt.swift */; };
+		F289F9D127F60B32B7DAD566 /* AppleAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = E228259B68A8DFAAE8596305 /* AppleAuthorization.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0DC347F48E500BC45A83C157 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		69CC32614EC30D470A2EF27A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		739D1A045B521FCDECC410EE /* Swarm-iOSTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = "Swarm-iOSTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		7C5E22C3FAB43C810CFD467F /* NativePolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePolicyTests.swift; sourceTree = "<group>"; };
+		8727D5DEE07585958E02F4C3 /* SwarmApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwarmApp.swift; sourceTree = "<group>"; };
+		94298A8FB6DD64E488727291 /* Swarm-macOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Swarm-macOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		9D16FCC75A1B4D9F39DC9088 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		A78B2990484FA86CF8328F6C /* Swarm-macOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Swarm-macOSTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		B99DAAFC4229215C47379899 /* ServerAddress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerAddress.swift; sourceTree = "<group>"; };
+		C3F5AA7A49B7B9EA42E8797E /* Swarm-iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "Swarm-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		C9F3AAEA9C99649B483F6CB2 /* SignInAttempt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInAttempt.swift; sourceTree = "<group>"; };
+		E228259B68A8DFAAE8596305 /* AppleAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleAuthorization.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		07334496602D567C0739BAE2 = {
+			isa = PBXGroup;
+			children = (
+				C8082786ADDA0918410E6AA7 /* Swarm */,
+				F020CD1F349D66BC7811AE28 /* SwarmTests */,
+				A27379B83AED2E292B3F6AF7 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A27379B83AED2E292B3F6AF7 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				C3F5AA7A49B7B9EA42E8797E /* Swarm-iOS.app */,
+				739D1A045B521FCDECC410EE /* Swarm-iOSTests.xctest */,
+				94298A8FB6DD64E488727291 /* Swarm-macOS.app */,
+				A78B2990484FA86CF8328F6C /* Swarm-macOSTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		C8082786ADDA0918410E6AA7 /* Swarm */ = {
+			isa = PBXGroup;
+			children = (
+				E228259B68A8DFAAE8596305 /* AppleAuthorization.swift */,
+				0DC347F48E500BC45A83C157 /* AppModel.swift */,
+				69CC32614EC30D470A2EF27A /* Assets.xcassets */,
+				9D16FCC75A1B4D9F39DC9088 /* PrivacyInfo.xcprivacy */,
+				B99DAAFC4229215C47379899 /* ServerAddress.swift */,
+				C9F3AAEA9C99649B483F6CB2 /* SignInAttempt.swift */,
+				8727D5DEE07585958E02F4C3 /* SwarmApp.swift */,
+			);
+			path = Swarm;
+			sourceTree = "<group>";
+		};
+		F020CD1F349D66BC7811AE28 /* SwarmTests */ = {
+			isa = PBXGroup;
+			children = (
+				7C5E22C3FAB43C810CFD467F /* NativePolicyTests.swift */,
+			);
+			path = SwarmTests;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		50D23194FE84EDC89704A1C7 /* Swarm-macOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6CCB8179BFA1D93973550A32 /* Build configuration list for PBXNativeTarget "Swarm-macOS" */;
+			buildPhases = (
+				FE627E89B7B4A3C2E5BB2A08 /* Sources */,
+				46DF858FAB83B85A2D43B08C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Swarm-macOS";
+			packageProductDependencies = (
+			);
+			productName = "Swarm-macOS";
+			productReference = 94298A8FB6DD64E488727291 /* Swarm-macOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+		691C419938FF1E31BB4C448C /* Swarm-iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C41386615D57602B9B5E6609 /* Build configuration list for PBXNativeTarget "Swarm-iOS" */;
+			buildPhases = (
+				13671E3CF81FF4C6C5104FB2 /* Sources */,
+				9A2196FAD332D6B331018108 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Swarm-iOS";
+			packageProductDependencies = (
+			);
+			productName = "Swarm-iOS";
+			productReference = C3F5AA7A49B7B9EA42E8797E /* Swarm-iOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+		E929936010E625AB9592EC4B /* Swarm-iOSTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 18E6E3AD24474E88017112E6 /* Build configuration list for PBXNativeTarget "Swarm-iOSTests" */;
+			buildPhases = (
+				CA366B1DDCC13406E6BE23F4 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Swarm-iOSTests";
+			packageProductDependencies = (
+			);
+			productName = "Swarm-iOSTests";
+			productReference = 739D1A045B521FCDECC410EE /* Swarm-iOSTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		E9BD29012BBE37FAD029B9B6 /* Swarm-macOSTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B3B289B8A6A1928D6F49A22A /* Build configuration list for PBXNativeTarget "Swarm-macOSTests" */;
+			buildPhases = (
+				711489E160FE45A9FD3D366A /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Swarm-macOSTests";
+			packageProductDependencies = (
+			);
+			productName = "Swarm-macOSTests";
+			productReference = A78B2990484FA86CF8328F6C /* Swarm-macOSTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		D383FB72C760420F207CCB1D /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					50D23194FE84EDC89704A1C7 = {
+						DevelopmentTeam = A77YW376ZH;
+						ProvisioningStyle = Automatic;
+					};
+					691C419938FF1E31BB4C448C = {
+						DevelopmentTeam = A77YW376ZH;
+						ProvisioningStyle = Automatic;
+					};
+					E929936010E625AB9592EC4B = {
+						DevelopmentTeam = A77YW376ZH;
+						ProvisioningStyle = Automatic;
+					};
+					E9BD29012BBE37FAD029B9B6 = {
+						DevelopmentTeam = A77YW376ZH;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = BEA11E39D788188EC1FA55F6 /* Build configuration list for PBXProject "Swarm" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 07334496602D567C0739BAE2;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = A27379B83AED2E292B3F6AF7 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				691C419938FF1E31BB4C448C /* Swarm-iOS */,
+				50D23194FE84EDC89704A1C7 /* Swarm-macOS */,
+				E929936010E625AB9592EC4B /* Swarm-iOSTests */,
+				E9BD29012BBE37FAD029B9B6 /* Swarm-macOSTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		46DF858FAB83B85A2D43B08C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4466E89EA3BCEF39F792DCD4 /* Assets.xcassets in Resources */,
+				8B39E95E8B305CADE9076082 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9A2196FAD332D6B331018108 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5329DFF982255DBA428428B8 /* Assets.xcassets in Resources */,
+				777D62F8E06606768202D83D /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		13671E3CF81FF4C6C5104FB2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				467DE7BF5A070F32D07120A2 /* AppModel.swift in Sources */,
+				D590DB9BA85EBBFFA0D872FA /* AppleAuthorization.swift in Sources */,
+				37D025E9AD9E81071717ECF6 /* ServerAddress.swift in Sources */,
+				9B537ECB7DB735A961C107BD /* SignInAttempt.swift in Sources */,
+				22BABADCF8348475614A708B /* SwarmApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		711489E160FE45A9FD3D366A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8588C39E304087DE5C156710 /* NativePolicyTests.swift in Sources */,
+				D4511DCED054A049D040871A /* ServerAddress.swift in Sources */,
+				4F7C2F04469DE50C9252FDB8 /* SignInAttempt.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CA366B1DDCC13406E6BE23F4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				021CF09B72D9FCECDADF43AD /* NativePolicyTests.swift in Sources */,
+				6F97D0FF2CEF06423A3316BB /* ServerAddress.swift in Sources */,
+				15E8DF962FE6007B1E9F4DE3 /* SignInAttempt.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FE627E89B7B4A3C2E5BB2A08 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E18EB05DAE525F0C5DFEDA57 /* AppModel.swift in Sources */,
+				F289F9D127F60B32B7DAD566 /* AppleAuthorization.swift in Sources */,
+				98C667B20A6457FB9C3B685E /* ServerAddress.swift in Sources */,
+				E9ACDB36470BE0913C4E0C0E /* SignInAttempt.swift in Sources */,
+				8CCA3824924EEAB8FEA5AC7F /* SwarmApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		11B0AC0FE321296493DB72DF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "so.swarms.Swarm-macOSTests";
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		1B6BFFF2012CEA6F2E2929A3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "so.swarms.Swarm-iOSTests";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		3AFA42268A8B77914EEF1A6C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = A77YW376ZH;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		3C214E4417EF6E69BB967080 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Configuration/iOS.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = "Configuration/iOS-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = so.swarms.app;
+				PRODUCT_NAME = Swarm;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		42E47C1A489DB10779F8B086 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Configuration/Swarm.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = "Configuration/macOS-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = so.swarms.app.macos;
+				PRODUCT_NAME = Swarm;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		5F96D9238FA6C62AF980368A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "so.swarms.Swarm-iOSTests";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		885C22A949D7CBDCB232948B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "so.swarms.Swarm-macOSTests";
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		99DD0CFAF0955F9CEB0AF98F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = A77YW376ZH;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		9C72C2041AAAB41474D9BDA7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Configuration/Swarm.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = "Configuration/macOS-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = so.swarms.app.macos;
+				PRODUCT_NAME = Swarm;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		DE6D783DC7FA89EB0A1A05D3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Configuration/iOS.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = "Configuration/iOS-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = so.swarms.app;
+				PRODUCT_NAME = Swarm;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		18E6E3AD24474E88017112E6 /* Build configuration list for PBXNativeTarget "Swarm-iOSTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5F96D9238FA6C62AF980368A /* Debug */,
+				1B6BFFF2012CEA6F2E2929A3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		6CCB8179BFA1D93973550A32 /* Build configuration list for PBXNativeTarget "Swarm-macOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				42E47C1A489DB10779F8B086 /* Debug */,
+				9C72C2041AAAB41474D9BDA7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B3B289B8A6A1928D6F49A22A /* Build configuration list for PBXNativeTarget "Swarm-macOSTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				11B0AC0FE321296493DB72DF /* Debug */,
+				885C22A949D7CBDCB232948B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		BEA11E39D788188EC1FA55F6 /* Build configuration list for PBXProject "Swarm" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3AFA42268A8B77914EEF1A6C /* Debug */,
+				99DD0CFAF0955F9CEB0AF98F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C41386615D57602B9B5E6609 /* Build configuration list for PBXNativeTarget "Swarm-iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DE6D783DC7FA89EB0A1A05D3 /* Debug */,
+				3C214E4417EF6E69BB967080 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = D383FB72C760420F207CCB1D /* Project object */;
+}

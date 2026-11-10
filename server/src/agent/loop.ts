@@ -8,12 +8,13 @@ import { appendHistory, appendRow, emitBot, getBotRow, getRow, loadHistory, setL
 import type { MessageBody, ToolCallBody } from '../types.js';
 import { composioTools, toolkitInfo } from '../composio.js';
 import { systemPrompt } from './prompt.js';
-import { repairHistory } from './history.js';
+import { deduplicateBrowserSnapshots, repairHistory } from './history.js';
 import { maybeCompact, noteUsage } from './memory.js';
 import { activityFor, allowedDuringSetup, functionSchemas, humanizeSlug, policyFor, runComposioTool, toolMap, type ToolCtx, type ToolResult } from './tools.js';
 import { isConfiguring } from '../bot-setup.js';
 import { mcpSchemas, runMcpTool } from '../mcp/client.js';
 import { findMcpTool } from '../mcp/store.js';
+import { latency } from '../lib/latency.js';
 
 const llm = () => llmClient(360_000);
 
@@ -47,9 +48,13 @@ const running = new Map<string, Trigger>();
 export const currentTrigger = (botId: string): Trigger | undefined => running.get(botId);
 
 export function enqueue(botId: string, trigger: Trigger) {
+  const queuedAt = performance.now();
   const prev = queues.get(botId) ?? Promise.resolve();
   // Usage attribution: every model call in this turn (including compaction) is billed to this Bot and its owner.
-  const next = prev.then(() => withUsage({ botId, kind: 'chat' }, () => runTurn(botId, trigger))).catch((e) => console.error('[agent] turn failed', botId, e));
+  const next = prev.then(() => {
+    latency('queue', queuedAt, { botId });
+    return withUsage({ botId, kind: 'chat' }, () => runTurn(botId, trigger));
+  }).catch((e) => console.error('[agent] turn failed', botId, e));
   queues.set(botId, next);
   next.finally(() => { if (queues.get(botId) === next) queues.delete(botId); });
 }
@@ -114,6 +119,7 @@ function triggerItem(t: Trigger): any | null {
 // ---------- the turn ----------
 
 async function runTurn(botId: string, trigger: Trigger) {
+  const turnStart = performance.now();
   const bot = getBotRow(botId);
   if (!bot) return;
   const userId: string = bot.user_id;
@@ -143,12 +149,17 @@ async function runTurn(botId: string, trigger: Trigger) {
       if (item) appendHistory(botId, [item]);
     }
 
-    const tools = [
-      ...functionSchemas(botId),
-      ...mcpSchemas(userId, botId),
-      ...(isConfiguring(botId) ? [] : await composioTools(userId)),
-      ...(isConfiguring(botId) ? [] : serverTools()),
-    ];
+    const toolsStart = performance.now();
+    const tools = (async () => {
+      const schemas = [
+        ...functionSchemas(botId),
+        ...mcpSchemas(userId, botId),
+        ...(isConfiguring(botId) ? [] : await composioTools(userId)),
+        ...(isConfiguring(botId) ? [] : serverTools()),
+      ];
+      latency('tools_prepare', toolsStart, { botId });
+      return schemas;
+    })();
 
     for (let step = 0; step < MAX_STEPS; step++) {
       if (ctrl.signal.aborted) throw new Error('interrupted');
@@ -176,6 +187,7 @@ async function runTurn(botId: string, trigger: Trigger) {
     appendRow(botId, 'notice', { type: 'notice', text: msg, tone: ctrl.signal.aborted ? 'info' : 'error' });
     if (!ctrl.signal.aborted) console.error('[agent]', e);
   } finally {
+    latency('turn', turnStart, { botId });
     aborts.delete(botId);
     running.delete(botId);
     const stillPending = db.prepare('SELECT 1 FROM pending_turns WHERE bot_id=?').get(botId);
@@ -236,6 +248,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
       const pol = policyFor(userId, c.name, args);
       const detail = c.name === 'send_to_bot' ? String(args.bot_name ?? '') : !toolMap.has(c.name) && pol.toolkit ? (await toolkitInfo(pol.toolkit))?.name ?? pol.toolkit : undefined;
       setLive(botId, { isRunning: true, activity: { kind: c.name === 'send_to_bot' ? 'messaging_named' : act.kind, detail, since: now() }, awaiting: null });
+      const toolStart = performance.now();
       try {
         const impl = toolMap.get(c.name);
         res = impl ? await impl.impl(args, { ...ctx, depth: st.depth })
@@ -245,6 +258,8 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
       } catch (e: any) {
         res = { output: `Tool error: ${e?.message ?? e}` };
         updateRow(botId, c.rowSeq, { ...body, status: 'error', summary: String(e?.message ?? e).slice(0, 200) });
+      } finally {
+        latency('tool', toolStart, { botId, tool: c.name });
       }
     }
     const out: any = { type: 'function_call_output', call_id: c.call_id, output: res.output };
@@ -280,14 +295,20 @@ async function finishPending(ctx: ToolCtx, st: PendingState, _reason: string) {
 
 // ---------- model call with streaming into a message row ----------
 
-async function callModel(ctx: ToolCtx, tools: any[], signal: AbortSignal): Promise<{ output: any[] }> {
+async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: AbortSignal): Promise<{ output: any[] }> {
   const { botId, userId } = ctx;
   const bot = getBotRow(botId);
-  // Runs inside the bot's serial queue, so compaction can't race a turn.
-  const history = await maybeCompact(botId, loadHistory(botId)).catch(() => loadHistory(botId));
-  // The model is only called when no approval is pending, so every orphaned call can be repaired.
+  const prepareStart = performance.now();
   const model = modelFor(bot.model);
-  const input = [{ role: 'system', content: await systemPrompt(userId, botId) }, ...prepareInput(pruneImages(repairHistory(history)), model)];
+  // Runs inside the bot's serial queue, so compaction can't race a turn.
+  const [history, prompt, info, tools] = await Promise.all([
+    maybeCompact(botId, loadHistory(botId)).catch(() => loadHistory(botId)),
+    systemPrompt(userId, botId),
+    modelInfo(model),
+    toolsPromise,
+  ]);
+  // The model is only called when no approval is pending, so every orphaned call can be repaired.
+  const input = [{ role: 'system', content: prompt }, ...prepareInput(pruneImages(deduplicateBrowserSnapshots(repairHistory(history))), model)];
 
   const body: any = {
     model,
@@ -297,12 +318,15 @@ async function callModel(ctx: ToolCtx, tools: any[], signal: AbortSignal): Promi
     stream: true,
     ...providerFields({
       effort: bot.effort ?? 'medium',
-      reasoning: (await modelInfo(model))?.reasoning ?? true,
+      reasoning: info?.reasoning ?? true,
       cacheKey: `swarm:${botId}:${bot.generation}`,
       safetyId: sha256(userId).slice(0, 32),
     }),
   };
+  latency('model_prepare', prepareStart, { botId, model });
 
+  const modelStart = performance.now();
+  let receivedText = false;
   let stream: any;
   try {
     stream = await llm().responses.create(body, { signal });
@@ -330,6 +354,7 @@ async function callModel(ctx: ToolCtx, tools: any[], signal: AbortSignal): Promi
   for await (const ev of stream as AsyncIterable<any>) {
     switch (ev.type) {
       case 'response.output_text.delta':
+        if (!receivedText) { latency('model_first_text', modelStart, { botId, model }); receivedText = true; }
         text += ev.delta;
         if (msgSeq === null || Date.now() - lastFlush > 120) flush(true);
         break;
@@ -359,6 +384,7 @@ async function callModel(ctx: ToolCtx, tools: any[], signal: AbortSignal): Promi
   }
   if (msgSeq !== null) flush(false);
   if (!final) throw new Error('model stream ended without a response');
+  latency('model_complete', modelStart, { botId, model });
   if (final.usage?.input_tokens) noteUsage(botId, final.usage.input_tokens, history.length);
   void recordModelUsage({ userId, botId, kind: 'chat', model, response: final });
   return { output: tagOutput(final.output ?? [], model) };

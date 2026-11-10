@@ -22,7 +22,7 @@ import { withUsage } from './usage.js';
 import { startVmMeter } from './usage-vm.js';
 import { userFromCookieHeader } from './lib/auth.js';
 import { loadSettings } from './settings.js';
-import { defaultModel } from './lib/llm.js';
+import { defaultModel, openrouterModels } from './lib/llm.js';
 import { mcpApi } from './mcp/routes.js';
 import { resumeThisComputer } from './computers/this-computer.js';
 import { startMemoryConsolidation } from './agent/memory.js';
@@ -34,6 +34,11 @@ initSubagents();
 initRooms();
 
 const app = new Hono();
+app.use('/api/*', async (c, next) => {
+  const start = performance.now();
+  await next();
+  if (c.req.path !== '/api/events') c.header('Server-Timing', `app;dur=${(performance.now() - start).toFixed(1)}`);
+});
 // Usage attribution: model calls made while handling a signed-in request are billed to that account.
 app.use('/api/*', (c, next) => withUsage({ resolveUser: () => userFromCookieHeader(c.req.header('cookie'))?.id }, () => next()));
 app.get('/api/health', (c) => c.json({ ok: true, provider: env.llmProvider, model: defaultModel(), computers: computers.kind, desktop: env.localDesktop, direct: !!env.directKey, openrouter: !!env.openrouterKey, apps: env.composioEnabled, features: { botCreation: true, botSetupVersion: 2, guidedSetup: true, messaging: true } }));
@@ -58,12 +63,20 @@ app.route('/api/mcp/servers', mcpApi);
 // Serve the built web app in production.
 const webDist = path.resolve(new URL('.', import.meta.url).pathname, '../../web/dist');
 if (fs.existsSync(webDist)) {
+  app.use('/assets/*', async (c, next) => {
+    await next();
+    // Only Vite's fingerprinted bundles are immutable (not icons with stable names).
+    const type = c.res.headers.get('Content-Type') ?? '';
+    if (c.res.status === 200 && /javascript|text\/css/.test(type) && /-[\w-]{8,}\.(js|css)$/.test(c.req.path)) c.header('Cache-Control', 'public, max-age=31536000, immutable');
+  });
   app.use('/*', serveStatic({ root: path.relative(process.cwd(), webDist) }));
   app.get('*', (c) => c.html(fs.readFileSync(path.join(webDist, 'index.html'), 'utf8')));
 }
 
 const server = serve({ fetch: app.fetch, port: env.port }, (info) => console.log(`[swarm] server on http://localhost:${info.port} (models: ${env.llmProvider} ${defaultModel()}, computers: ${computers.kind})`));
 attachComputerSockets(server as unknown as Server);
+// Warm optional model metadata without delaying the HTTP listener.
+if (env.llmProvider === 'openrouter') void openrouterModels().catch(() => {});
 // SWARM_NO_SCHEDULER=1 for extra dev/test servers sharing a database copy, so routines and triggers don't fire twice.
 if (process.env.SWARM_NO_SCHEDULER !== '1') {
   initRoutines(enqueue);

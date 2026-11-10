@@ -21,10 +21,11 @@ primary_region = "iad"
   VM_BASE_MEMORY_MB = "2048"
   VM_SCREEN_MEMORY_MB = "384"
   VM_PROVISION_EXISTING = "1"
-  # Cost: a VM sleeps 5 idle minutes after its last task (waking takes ~2 s), sleeps right after
+  # Keep active sessions warm for 15 minutes to avoid repeated wake-ups (more uptime than 5 min).
+  # A VM sleeps after its last task (waking takes ~2 s), sleeps right after
   # it's set up, uses a 3 GB disk, and is archived after 7 days asleep (VM deleted, disk kept;
   # the next task boots a fresh VM on the same disk in ~25 s).
-  SWARM_IDLE_SUSPEND_MIN = "5"
+  SWARM_IDLE_SUSPEND_MIN = "15"
   VM_VOLUME_GB = "3"
   VM_ARCHIVE_AFTER_HOURS = "168"
   DEV_LOGIN = "0"

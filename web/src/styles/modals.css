@@ -63,7 +63,7 @@
 .apps-modal__connected { display: flex; align-items: center; gap: 8px; padding: 4px 8px 4px 4px; border-radius: 8px; font-size: 12px; line-height: 16px; color: var(--color-text-secondary); }
 .apps-modal__connected:hover, .apps-modal__connected.is-active { background: var(--color-bg-hover); }
 .apps-modal__connected-logos { display: flex; align-items: center; padding-left: 3px; }
-.apps-modal__connected-logos img { width: 14px; height: 14px; margin-left: -3px; border-radius: 3px; background: #FFFFFF; box-shadow: 0 0 0 1px #FFFFFF; object-fit: contain; }
+.apps-modal__connected-logos .toolkit-logo { margin-left: -3px; box-shadow: 0 0 0 1px #FFFFFF; }
 .apps-modal__controls { display: flex; flex-direction: column; gap: 12px; padding-top: 18px; padding-bottom: 8px; }
 .apps-modal__searchrow { display: flex; align-items: center; gap: 8px; }
 .pill-input { display: flex; align-items: center; gap: 6px; flex: 1 1 0; height: 32px; padding: 0 8px 0 12px; border-radius: var(--radius-full); background: var(--color-bg-elevated); border: 0.5px solid var(--color-border-tertiary); cursor: text; }
@@ -123,3 +123,8 @@
 .group-pick__opt:hover { background: var(--color-bg-hover); }
 .group-pick__opt.is-active { background: var(--color-bg-active, var(--color-bg-hover)); }
 .group-pick__name { flex: 1; font-size: 13px; line-height: 18px; color: var(--color-ink); }
+
+/* Apple's mark and title remain white on black in both app themes. */
+.signin__apple { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; width: 100%; max-width: 360px; padding: 10px 16px; margin-bottom: 12px; border: 1px solid #fff; border-radius: 999px; background: #000; color: #fff; font-size: 17px; font-weight: 500; line-height: 22px; text-decoration: none; }
+.signin__apple:hover { background: #222; }
+.signin__google { min-height: 44px; }

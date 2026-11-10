@@ -19,7 +19,14 @@
     "test:messaging": "node --import tsx --test --test-concurrency=1 tests/messaging.test.mts",
     "test:composio": "node --import tsx --test tests/composio.test.mts",
     "test:usage": "node --import tsx --test --test-concurrency=1 tests/usage.test.mts",
-    "test:bots": "node --import tsx --test tests/bot-creation.test.mts && node tests/bot-creation-chat.mjs"
+    "test:bots": "node --import tsx --test tests/bot-creation.test.mts && node tests/bot-creation-chat.mjs",
+    "apple:open": "bash scripts/apple.sh open",
+    "apple:macos": "bash scripts/apple.sh macos",
+    "apple:ios": "bash scripts/apple.sh ios",
+    "apple:test": "bash scripts/apple.sh test",
+    "test:native-auth": "node --import tsx --test tests/native-auth.test.mts",
+    "test:mobile": "node tests/mobile-layout.mjs",
+    "test:apple-auth": "node --import tsx --test tests/apple-auth.test.mts"
   },
   "engines": {
     "node": ">=22"

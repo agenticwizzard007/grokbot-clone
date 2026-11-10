@@ -21,8 +21,20 @@ export function ComputerViewer() {
   const [mode, setMode] = useState<Mode>('watch');
   const [conn, setConn] = useState<Conn>('connecting');
   const [attempt, setAttempt] = useState(0);
+  const [wakeError, setWakeError] = useState<string | null>(null);
+  const wakeRequested = useRef<string | null>(null);
   const running = computer?.status === 'running';
   const close = () => set({ viewerOpen: false });
+
+  useEffect(() => {
+    if (!bot || computer?.provider === 'local' || !computer || !['suspended', 'stopped', 'absent'].includes(computer.status) || wakeRequested.current === bot.id) return;
+    wakeRequested.current = bot.id;
+    let alive = true;
+    setWakeError(null);
+    // Opening the computer is an explicit request to use it; overlap wake-up with viewer loading.
+    api.ensureComputer().then(({ computer }) => { if (alive) set({ computer }); }).catch(e => { if (alive) setWakeError(e.message); });
+    return () => { alive = false; };
+  }, [bot?.id, computer?.provider, computer?.status, set]);
 
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
@@ -107,7 +119,7 @@ export function ComputerViewer() {
                 {!busy && <button type="button" className="btn btn--light" onClick={() => api.ensureComputer().catch(() => {})}>Wake computer</button>}
               </>
             )}
-            {computer?.error && <span className="viewer__err">{computer.error}</span>}
+            {(wakeError || computer?.error) && <span className="viewer__err">{wakeError || computer?.error}</span>}
           </div>
         )}
       </div>

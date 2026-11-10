@@ -56,6 +56,7 @@ function RoutineRow({ r }: { r: Routine }) {
 
 function ComputerCard({ bot }: { bot: Bot }) {
   const computer = useStore((s) => s.computer);
+  const viewerOpen = useStore((s) => s.viewerOpen);
   const set = useStore((s) => s.set);
   const [shot, setShot] = useState<string | null>(null);
   const running = computer?.status === 'running';
@@ -63,13 +64,15 @@ function ComputerCard({ bot }: { bot: Bot }) {
   // Refresh the thumbnail every ~4s while visible and awake. 204 = no screen yet.
   useEffect(() => {
     setShot(null);
-    if (!running) return;
+    if (!running || viewerOpen) return;
     let alive = true;
     let url: string | null = null;
+    let timer: ReturnType<typeof setTimeout>;
+    const ctrl = new AbortController();
     const load = async () => {
-      if (document.visibilityState !== 'visible') return;
       try {
-        const res = await fetch(`/api/bots/${bot.id}/screenshot`, { credentials: 'include', cache: 'no-store' });
+        if (document.visibilityState !== 'visible') return;
+        const res = await fetch(`/api/bots/${bot.id}/screenshot`, { credentials: 'include', cache: 'no-store', signal: ctrl.signal });
         if (!alive) return;
         if (res.status === 204) { setShot(null); return; }
         if (res.status === 200) {
@@ -81,11 +84,11 @@ function ComputerCard({ bot }: { bot: Bot }) {
           url = next;
         }
       } catch { /* keep last frame */ }
+      finally { if (alive) timer = setTimeout(load, 4000); }
     };
     load();
-    const t = setInterval(load, 4000);
-    return () => { alive = false; clearInterval(t); if (url) URL.revokeObjectURL(url); };
-  }, [bot.id, running]);
+    return () => { alive = false; ctrl.abort(); clearTimeout(timer); if (url) URL.revokeObjectURL(url); };
+  }, [bot.id, running, viewerOpen]);
 
   const busy = computer?.status === 'starting' || computer?.status === 'resuming' || computer?.status === 'creating';
   return (
@@ -130,7 +133,7 @@ export function DetailsPanel() {
 
   const addSlack = async () => {
     const popup = openPopup('about:blank');
-    try { const { redirectUrl } = await api.connect('slack'); if (popup) popup.location.href = redirectUrl; } catch { popup?.close(); }
+    try { const { redirectUrl } = await api.connect('slack'); if (popup) popup.location.href = redirectUrl; else window.open(redirectUrl, '_blank'); } catch { popup?.close(); }
   };
 
   return (
@@ -183,7 +186,7 @@ export function DetailsPanel() {
                 </div>
                 <div className="panel-card">
                   <button type="button" className="panel-row panel-row--link" onClick={addSlack}>
-                    <span className="panel-row__glyph"><ToolkitLogo name="Slack" logo="/assets/icons/slack.svg" size={16} radius={4} /></span>
+                    <span className="panel-row__glyph"><ToolkitLogo slug="slack" name="Slack" size={16} variant="mark" /></span>
                     <span className="panel-row__title" style={{ flex: 1 }}>Add to Slack</span>
                     <Icon name="chev_right" size={12} opacity={0.56} />
                   </button>
