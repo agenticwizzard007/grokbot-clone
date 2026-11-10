@@ -11,9 +11,12 @@ interface State {
   devLogin: boolean;
   /** Google sign-in needs Composio on the server. */
   googleLogin: boolean;
+  appleLogin: boolean;
+  appleLinked: boolean;
   authChecked: boolean;
 
   bots: Bot[];
+  botsLoaded: boolean;
   live: Record<string, LiveState>;
   selectedBotId: string | null;
   transcripts: Record<string, Transcript>;
@@ -25,6 +28,7 @@ interface State {
 
   detailsOpen: boolean;
   sidebarCollapsed: boolean;
+  mobileSidebarOpen: boolean;
   modal: ModalKind;
   viewerOpen: boolean;
 
@@ -50,8 +54,11 @@ export const useStore = create<State>((set, get) => ({
   user: null,
   devLogin: false,
   googleLogin: true,
+  appleLogin: false,
+  appleLinked: false,
   authChecked: false,
   bots: [],
+  botsLoaded: false,
   live: {},
   selectedBotId: lsGet(LS_SELECTED),
   transcripts: {},
@@ -59,15 +66,16 @@ export const useStore = create<State>((set, get) => ({
   computer: null,
   connectionsVersion: 0,
   sseConnected: false,
-  detailsOpen: lsGet(LS_DETAILS) !== '0',
+  detailsOpen: !window.matchMedia('(max-width: 1100px)').matches && lsGet(LS_DETAILS) !== '0',
   sidebarCollapsed: lsGet(LS_SIDEBAR) === '1',
+  mobileSidebarOpen: false,
   modal: null,
   viewerOpen: false,
 
   async checkAuth() {
     try {
-      const { user, devLogin, googleLogin } = await api.me();
-      set({ user, devLogin, googleLogin: googleLogin !== false, authChecked: true });
+      const { user, devLogin, googleLogin, appleLogin, appleLinked } = await api.me();
+      set({ user, devLogin, googleLogin: googleLogin !== false, appleLogin: !!appleLogin, appleLinked: !!appleLinked, authChecked: true });
     } catch {
       set({ user: null, authChecked: true });
     }
@@ -79,7 +87,7 @@ export const useStore = create<State>((set, get) => ({
     for (const l of live) liveMap[l.botId] = l;
     const sel = get().selectedBotId;
     const selectedBotId = sel && bots.some((b) => b.id === sel) ? sel : (bots.find((b) => b.isPrimary) ?? bots[0])?.id ?? null;
-    set({ bots, live: liveMap });
+    set({ bots, botsLoaded: true, live: liveMap });
     if (selectedBotId !== get().selectedBotId || !get().transcripts[selectedBotId ?? '']) {
       if (selectedBotId) get().selectBot(selectedBotId);
     }

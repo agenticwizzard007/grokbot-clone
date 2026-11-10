@@ -27,3 +27,7 @@ Use `DIRECT_BASE_URL=http://localhost:8790/v1` with `tests/mock-provider.mjs` fo
 - Keep OpenRouter as the first setup path in the UI because it gives Swarm the broadest model catalog with minimal configuration.
 - Keep the direct provider path generic. It should work with compatible providers and local mocks without naming a vendor in product copy.
 - Use Composio only for external app actions. Model requests stay in `server/src/lib/llm.ts`; app tool discovery and execution stay in `server/src/composio.ts`.
+
+## Personal OpenRouter accounts
+
+Users can sign in/sign up with OpenRouter or connect a personal API key in Settings → API keys. Personal keys are encrypted and scoped to each account; selected CLI subscriptions retain precedence until the user explicitly switches. See [OpenRouter sign-in and keys](openrouter-sign-in.md) for setup, billing behavior, and verification.

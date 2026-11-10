@@ -1,4 +1,5 @@
-import { AsyncLocalStorage } from 'node:async_hooks';
+import { attribution } from './usage-context.js';
+export { withUsage } from './usage-context.js';
 import { db, now } from './db.js';
 import { llmProvider, openrouterModels } from './lib/llm.js';
 import { computerByDay, computerByUser, computerCsvRows, computerTotals, type ComputerTotals } from './usage-vm.js';
@@ -40,27 +41,6 @@ CREATE INDEX IF NOT EXISTS usage_user_time ON usage_events(user_id, created_at);
 CREATE INDEX IF NOT EXISTS usage_time ON usage_events(created_at);
 `);
 
-// ---------- ambient attribution ----------
-
-interface UsageCtx { userId?: string | null; botId?: string | null; kind?: UsageKind; resolveUser?: () => string | null | undefined }
-const als = new AsyncLocalStorage<UsageCtx>();
-
-/** Run `fn` with usage attribution (merged over any outer context). */
-export function withUsage<T>(ctx: UsageCtx, fn: () => T): T {
-  return als.run({ ...(als.getStore() ?? {}), ...ctx }, fn);
-}
-
-function attribution(explicit: { userId?: string | null; botId?: string | null; kind?: UsageKind }) {
-  const store = als.getStore() ?? {};
-  let userId = explicit.userId ?? store.userId ?? null;
-  if (!userId && store.resolveUser) {
-    try { userId = store.resolveUser() ?? null; } catch { userId = null; }
-  }
-  const botId = explicit.botId ?? store.botId ?? null;
-  if (!userId && botId) userId = (db.prepare('SELECT user_id FROM bots WHERE id=?').get(botId) as { user_id: string } | undefined)?.user_id ?? null;
-  return { userId, botId, kind: explicit.kind ?? store.kind ?? 'other' };
-}
-
 // ---------- recording ----------
 
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : Number(v) || 0);
@@ -98,15 +78,16 @@ export async function recordModelUsage(opts: RecordOpts & { response: any }): Pr
     const reasoning = num(u.output_tokens_details?.reasoning_tokens ?? u.completion_tokens_details?.reasoning_tokens);
     const tools = num(u.num_server_side_tools_used) || countSearchItems(opts.response?.output);
     let cost: number | null = null;
-    let source: 'provider' | 'estimate' | null = null;
-    if (typeof u.cost === 'number' && Number.isFinite(u.cost)) { cost = u.cost; source = 'provider'; }
+    let source: 'provider' | 'estimate' | 'subscription' | null = null;
+    if (opts.response?.billing === 'subscription') { cost = 0; source = 'subscription'; }
+    else if (typeof u.cost === 'number' && Number.isFinite(u.cost)) { cost = u.cost; source = 'provider'; }
     else if (u.cost_in_usd_ticks != null && Number.isFinite(Number(u.cost_in_usd_ticks))) { cost = Number(u.cost_in_usd_ticks) / 1e10; source = 'provider'; }
     else {
       const p = await priceFor(opts.model);
       if (p && (input || output)) { cost = (input * p.input + output * p.output) / 1e6; source = 'estimate'; }
     }
     insert({
-      userId: who.userId, botId: who.botId, kind: who.kind, provider: opts.provider ?? llmProvider(), model: opts.model,
+      userId: who.userId, botId: who.botId, kind: who.kind, provider: opts.provider ?? opts.response?.provider ?? llmProvider(), model: opts.model,
       input, cached, output, reasoning, tools, units: null, unit: null, cost, source,
       byok: typeof u.is_byok === 'boolean' ? (u.is_byok ? 1 : 0) : null, requestId: typeof opts.response?.id === 'string' ? opts.response.id : null,
     });

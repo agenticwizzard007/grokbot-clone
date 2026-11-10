@@ -340,7 +340,8 @@ export function UsageSection() {
   }, [range, scope]);
 
   const canSeeAll = !!data?.canSeeAll;
-  useEffect(() => { if (canSeeAll && !provider) configApi.usageProvider().then(setProvider).catch(() => {}); }, [canSeeAll, provider]);
+  const canSeeProvider = data?.canSeeProvider ?? canSeeAll;
+  useEffect(() => { if (canSeeProvider && !provider) configApi.usageProvider().then(setProvider).catch(() => {}); }, [canSeeProvider, provider]);
 
   const t = data?.totals;
   const vm = data?.computer;
@@ -406,7 +407,7 @@ export function UsageSection() {
         </div>
       )}
 
-      {canSeeAll && provider && <ProviderCard data={provider} />}
+      {canSeeProvider && provider && <ProviderCard data={provider} />}
     </>
   );
 }

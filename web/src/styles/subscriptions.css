@@ -1,0 +1,84 @@
+/* Scoped to Settings → Subscriptions; shared controls keep the existing settings theme. */
+.subscription-settings { display: flex; flex-direction: column; gap: 32px; min-width: 0; }
+.subscription-settings .cfg-card { min-width: 0; }
+.subscription-settings .cfg-row { flex-wrap: wrap; }
+.subscription-settings p { margin: 0; font-size: 13px; line-height: 19px; color: var(--color-text-secondary); }
+.subscription-settings__actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.subscription-settings__inset { padding: 0 var(--settings-inset, 20px) 16px; }
+.subscription-settings__mode.is-blocked { border-color: var(--color-danger); }
+.subscription-settings__mode.is-blocked .cfg-row__title { color: var(--color-danger-text); }
+.subscription-settings__pair,
+.subscription-settings__revoke,
+.subscription-settings__provider-body { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 16px var(--settings-inset, 20px); border-top: 1px solid var(--color-border-tertiary); }
+.subscription-settings__pair { background: var(--color-bg-tertiary); }
+.subscription-settings__health { font-size: 13px; line-height: 18px; font-weight: 500; color: var(--color-text-secondary); }
+.subscription-settings__command-label { font-size: 12px; line-height: 16px; color: var(--color-text-secondary); }
+.subscription-settings pre { margin: 0; min-width: 0; padding: 12px; border-radius: 10px; background: var(--color-bg-tertiary); white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/19px var(--font-mono-stack); color: var(--color-text-primary); user-select: text; }
+.subscription-settings pre code { font: inherit; }
+.subscription-settings p code { font-family: var(--font-mono-stack); font-size: 12px; overflow-wrap: anywhere; }
+.subscription-settings a { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: var(--color-text-secondary); text-decoration: underline; text-underline-offset: 3px; }
+.subscription-settings a:hover { color: var(--color-text-primary); }
+.subscription-settings a:focus-visible,
+.subscription-settings pre:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 3px; }
+.subscription-settings .cfg-row__sub,
+.subscription-settings p { overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .subscription-settings { gap: 28px; }
+  .subscription-settings .cfg-btn { min-height: 36px; height: auto; padding-top: 8px; padding-bottom: 8px; white-space: normal; text-align: center; }
+  .subscription-settings__actions > .cfg-field__hint { flex-basis: 100%; }
+}
+
+/* Hosted CLI authentication and the interactive login terminal. */
+.subscription-settings__tabs { display: flex; gap: 24px; border-bottom: 1px solid var(--color-border-secondary); }
+.subscription-settings__tabs > button { display: inline-flex; align-items: center; gap: 8px; padding: 0 0 14px; border-bottom: 2px solid transparent; color: var(--color-text-tertiary); font-size: 15px; }
+.subscription-settings__tabs > button[aria-selected='true'] { color: var(--color-text-primary); border-bottom-color: var(--color-text-primary); }
+.subscription-settings__tabs > button:disabled { opacity: 0.5; }
+.subscription-settings__methods { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.subscription-settings__method { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; min-height: 120px; min-width: 0; padding: 18px 12px; border: 1px solid var(--color-border-secondary); border-radius: 14px; font-size: 14px; color: var(--color-text-secondary); }
+.subscription-settings__method.is-selected { border-color: transparent; background: var(--color-bg-tertiary); color: var(--color-text-primary); }
+.subscription-settings__method small { font-size: 12px; line-height: 17px; color: var(--color-text-tertiary); }
+.subscription-settings__method:disabled { opacity: 0.6; }
+.subscription-settings__method-check { position: absolute; top: 12px; right: 12px; }
+.subscription-settings__status-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
+.subscription-settings__status { display: inline-flex; align-items: center; gap: 9px; font-size: 14px; color: var(--color-text-primary); }
+.subscription-settings__status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-text-quaternary); }
+.subscription-settings__status-dot.is-connected { background: var(--color-success); }
+.subscription-settings__details { display: flex; flex-direction: column; margin: 0; border: 1px solid var(--color-border-secondary); border-radius: 12px; overflow: hidden; font-size: 13px; line-height: 19px; }
+.subscription-settings__details > div { display: grid; grid-template-columns: 140px minmax(0, 1fr); min-width: 0; }
+.subscription-settings__details > div + div { border-top: 1px solid var(--color-border-tertiary); }
+.subscription-settings__details dt { padding: 12px 16px; color: var(--color-text-tertiary); }
+.subscription-settings__details dd { margin: 0; padding: 12px 16px; border-left: 1px solid var(--color-border-tertiary); overflow-wrap: anywhere; color: var(--color-text-primary); }
+.subscription-settings .subscription-settings__blocked { color: var(--color-danger-text); }
+.subscription-settings__login-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; padding-top: 6px; }
+.subscription-settings__login-row > div:first-child { flex: 1 1 300px; }
+.subscription-settings__login-row p { margin-top: 4px; }
+.subscription-settings__advanced { border-top: 1px solid var(--color-border-tertiary); padding-top: 20px; }
+.subscription-settings__advanced > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; color: var(--color-text-secondary); font-size: 13px; line-height: 20px; }
+.subscription-settings__advanced > summary::-webkit-details-marker { display: none; }
+.subscription-settings__advanced[open] > summary svg { transform: rotate(180deg); }
+.subscription-settings__advanced-content { display: flex; flex-direction: column; gap: 24px; padding-top: 24px; }
+.subscription-settings__method:focus-visible,
+.subscription-settings__tabs > button:focus-visible,
+.subscription-settings__advanced > summary:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 4px; }
+.subscription-settings .cli-login-terminal { min-width: 0; border: 1px solid var(--color-border-secondary); border-radius: 14px; overflow: hidden; background: #131517; }
+.subscription-settings .cli-login-terminal__header { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid #ffffff20; color: #e0e3e6; font-size: 12px; line-height: 18px; }
+.subscription-settings .cli-login-terminal__header > .cfg-spinner { flex: none; border-color: #ffffff30; border-top-color: #e0e3e6; }
+.subscription-settings .cli-login-terminal__header > .cfg-icon-btn { color: #e0e3e6; margin-left: auto; }
+.subscription-settings .cli-login-terminal__header > .cfg-icon-btn:hover { background: #ffffff15; }
+.subscription-settings .cli-login-terminal__dot { width: 7px; height: 7px; border-radius: 50%; background: #8faaa0; flex: none; }
+.subscription-settings .cli-login-terminal__host { margin-left: auto; color: #9ca2a9; font-size: 11px; }
+.subscription-settings .cli-login-terminal__screen { min-width: 0; height: 360px; padding: 14px 12px; overflow: hidden; }
+.subscription-settings .cli-login-terminal__screen .xterm { height: 100%; }
+.subscription-settings .cli-login-terminal__screen .xterm-viewport { scrollbar-width: thin; }
+.subscription-settings .cli-login-terminal__footer { padding: 12px 14px; border-top: 1px solid #ffffff20; color: #aeb5bd; font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
+.subscription-settings .cli-login-terminal__error { color: #ffabae; }
+.subscription-settings .cli-login-terminal button:focus-visible { outline: 2px solid #8cb7ff; outline-offset: 2px; }
+@media (max-width: 760px) {
+  .subscription-settings__tabs { gap: 20px; }
+  .subscription-settings__methods { gap: 10px; }
+  .subscription-settings__method { min-height: 120px; padding: 18px 8px; }
+  .subscription-settings__details > div { grid-template-columns: 100px minmax(0, 1fr); }
+  .subscription-settings__details dt, .subscription-settings__details dd { padding: 10px 12px; }
+  .subscription-settings .cli-login-terminal__screen { height: 340px; padding: 12px 8px; }
+  .subscription-settings .cli-login-terminal__host { display: none; }
+}

@@ -28,7 +28,7 @@ db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_phone ON users(phone) WHERE pho
 
 export const PLACEHOLDER_DOMAIN = 'phone.invalid';
 export const placeholderEmail = (phone: string) => `tel+${phone.replace(/\D/g, '')}@${PLACEHOLDER_DOMAIN}`;
-export const isPlaceholderEmail = (email: string) => email.toLowerCase().endsWith(`@${PLACEHOLDER_DOMAIN}`);
+export const isPlaceholderEmail = (email: string) => [PLACEHOLDER_DOMAIN, 'openrouter.invalid'].some(domain => email.toLowerCase().endsWith(`@${domain}`));
 
 export interface Account {
   id: string;
@@ -113,23 +113,34 @@ export function setEmail(userId: string, email: string): { ok: true } | { ok: fa
 
 /** Delete an account and everything in it. Bots, rows, links and sessions go with the user (foreign keys cascade). */
 export async function deleteAccount(userId: string) {
-  const bots = db.prepare('SELECT id FROM bots WHERE user_id=?').all(userId) as { id: string }[];
-  for (const b of bots) {
-    interrupt(b.id);
-    for (const r of db.prepare('SELECT id FROM routines WHERE bot_id=?').all(b.id) as { id: string }[]) unscheduleRoutine(r.id);
-    await computers.resetScreen(userId, b.id).catch(() => {});
-    removeSetupFiles(b.id);
-  }
-  // Cloud VMs: the account's VM and disk are deleted too (a background job, retried until done).
-  if (env.computerProvider === 'cloudvm') enqueueAccountDeletion(userId);
-  db.transaction(() => {
-    db.prepare('DELETE FROM screens WHERE user_id=?').run(userId);
-    for (const t of ['proactivity', 'messaging_claims']) {
-      try { db.prepare(`DELETE FROM ${t} WHERE ${t === 'messaging_claims' ? 'phone=(SELECT phone FROM users WHERE id=?)' : 'user_id=?'}`).run(userId); } catch { /* table absent */ }
+  // Preserve the account and encrypted credentials on failure so revocation can be retried.
+  const { revokeAppleAccess } = await import('./auth/apple-provider.js');
+  await revokeAppleAccess(userId);
+  const [{ cancelUserLogins }, { deleteHostedProfile }, { disconnectCli }, { withCliMutation }] = await Promise.all([
+    import('./cli/login.js'), import('./cli/hosted.js'), import('./cli/bridge.js'), import('./cli/lock.js'),
+  ]);
+  return withCliMutation(userId, async () => {
+    await cancelUserLogins(userId);
+    disconnectCli(userId);
+    const bots = db.prepare('SELECT id FROM bots WHERE user_id=?').all(userId) as { id: string }[];
+    for (const b of bots) {
+      interrupt(b.id);
+      for (const r of db.prepare('SELECT id FROM routines WHERE bot_id=?').all(b.id) as { id: string }[]) unscheduleRoutine(r.id);
+      await computers.resetScreen(userId, b.id).catch(() => {});
+      removeSetupFiles(b.id);
     }
-    db.prepare('UPDATE messaging_waitlist SET user_id=NULL, status=\'deleted\' WHERE user_id=?').run(userId);
-    db.prepare('DELETE FROM users WHERE id=?').run(userId);
-  })();
+    // Cloud VMs: the account's VM and disk are deleted too (a background job, retried until done).
+    await deleteHostedProfile(userId);
+    if (env.computerProvider === 'cloudvm') enqueueAccountDeletion(userId);
+    db.transaction(() => {
+      db.prepare('DELETE FROM screens WHERE user_id=?').run(userId);
+      for (const t of ['proactivity', 'messaging_claims']) {
+        try { db.prepare(`DELETE FROM ${t} WHERE ${t === 'messaging_claims' ? 'phone=(SELECT phone FROM users WHERE id=?)' : 'user_id=?'}`).run(userId); } catch { /* table absent */ }
+      }
+      db.prepare('UPDATE messaging_waitlist SET user_id=NULL, status=\'deleted\' WHERE user_id=?').run(userId);
+      db.prepare('DELETE FROM users WHERE id=?').run(userId);
+    })();
+  });
 }
 
 // ---------- one-time sign-in links (sent by text) ----------

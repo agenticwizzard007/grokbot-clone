@@ -7,6 +7,9 @@ import { Sidebar } from './components/Sidebar';
 import { SignIn } from './components/SignIn';
 import { TasksView } from './components/config/TasksView';
 import { useConfigUI } from './configStore';
+import { Icon } from './components/Icon';
+import { useCompactLayout } from './lib/useCompactLayout';
+import { installVoiceShortcut } from './voice/shortcut';
 
 const ComputerViewer = lazy(() => import('./components/ComputerViewer').then(m => ({ default: m.ComputerViewer })));
 const JoinPage = lazy(() => import('./components/JoinPage').then(m => ({ default: m.JoinPage })));
@@ -23,7 +26,16 @@ function Shell() {
   const collapsed = useStore((s) => s.sidebarCollapsed);
   const hasBot = useStore((s) => !!s.selectedBotId);
   const view = useConfigUI((s) => s.view);
+  const compact = useCompactLayout();
+  const mobileSidebarOpen = useStore((s) => s.mobileSidebarOpen);
   const settingsOpen = useConfigUI((s) => !!s.appSettings || !!s.botSettings);
+
+  useEffect(() => {
+    if (modal || settingsOpen) useStore.getState().set({ mobileSidebarOpen: false });
+  }, [modal, settingsOpen]);
+  useEffect(() => {
+    if (compact) useStore.getState().set({ detailsOpen: false });
+  }, [compact]);
 
   useEffect(() => {
     const st = useStore.getState();
@@ -49,7 +61,7 @@ function Shell() {
       const st = useStore.getState();
       const key = e.key.toLowerCase();
       if (key === 'k') { e.preventDefault(); st.setModal(st.modal === 'search' ? null : 'search'); }
-      else if (key === 'b') { e.preventDefault(); st.set({ sidebarCollapsed: !st.sidebarCollapsed }); }
+      else if (key === 'b') { e.preventDefault(); st.set(window.matchMedia('(max-width: 760px)').matches ? { mobileSidebarOpen: !st.mobileSidebarOpen } : { sidebarCollapsed: !st.sidebarCollapsed }); }
       else if (e.shiftKey && (key === ',' || key === '<')) { e.preventDefault(); st.set({ detailsOpen: !st.detailsOpen }); }
       else if (key === ',') { e.preventDefault(); useConfigUI.getState().openAppSettings(); }
     };
@@ -59,7 +71,9 @@ function Shell() {
 
   return (
     <div className={`app${collapsed ? ' is-sidebar-collapsed' : ''}${detailsOpen && hasBot && view === 'chat' ? ' has-details' : ''}`}>
-      <Sidebar />
+      {compact && <button className="mobile-nav-toggle icon-btn" type="button" aria-label="Open bots" aria-expanded={mobileSidebarOpen} onClick={() => useStore.getState().set({ mobileSidebarOpen: true })}><Icon name="sidebar" /></button>}
+      {compact && mobileSidebarOpen && <button type="button" className="mobile-nav-scrim" aria-label="Close bots" tabIndex={-1} onClick={() => useStore.getState().set({ mobileSidebarOpen: false })} />}
+      {(!compact || mobileSidebarOpen) && <Sidebar />}
       {view === 'tasks' ? <TasksView /> : <ChatView />}
       {detailsOpen && hasBot && view === 'chat' && <DetailsPanel />}
       <Suspense fallback={<div className="toast" role="status">Loading…</div>}>
@@ -77,6 +91,7 @@ function Shell() {
 export function App() {
   const authChecked = useStore((s) => s.authChecked);
   const user = useStore((s) => s.user);
+  useEffect(installVoiceShortcut, []);
   useEffect(() => { useStore.getState().checkAuth(); }, []);
   // Public invite page: /join/<code> works signed in or out.
   const join = window.location.pathname.match(/^\/join\/([^/]+)/);

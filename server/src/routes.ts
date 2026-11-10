@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { checkRoutineCreate } from './routine-limits.js';
 import { streamSSE } from 'hono/streaming';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
@@ -19,8 +19,14 @@ import { createBot } from './bots.js';
 import { activateSetup, beginSetupInterview, briefSchema, emitSetup, getSetup, removeSetupFiles, setupFiles, setupView, writeSetupFiles } from './bot-setup.js';
 import { importTeammate, provisionTeammate } from './agent/teammates.js';
 import type { Toolkit } from './types.js';
-import { verifyUserSig } from './messaging/store.js';
-import { createAccount } from './accounts.js';
+import { compareAppPriority, matchesAppCategory } from './app-catalog.js';
+import { signUser, verifyUserSig } from './messaging/store.js';
+import { createAccount, deleteAccount } from './accounts.js';
+import { finishNativeLogin, nativeAuth } from './native-auth.js';
+import { appleAuth } from './auth/apple.js';
+import { appleAvailableForAgent } from './auth/apple-provider.js';
+import { openrouterAuth } from './auth/openrouter.js';
+import { providerApi } from './providers/routes.js';
 
 export const api = new Hono<AuthVars>();
 
@@ -31,10 +37,17 @@ const findOrCreateUser = (email: string, name?: string, preferId?: string) => cr
 const GOOGLE_ATTEMPT_COOKIE = 'google_signin_attempt';
 const GOOGLE_ATTEMPT_TTL = 15 * 60_000;
 const googleResult = (code: string) => `${env.appUrl}/?login=${encodeURIComponent(code)}`;
+const googleFailure = (c: Context, code: string) => c.redirect(finishNativeLogin(c, undefined, code) ?? googleResult(code));
+
+api.route('/auth/native', nativeAuth);
+api.route('/auth/apple', appleAuth);
+api.route('/auth/openrouter', openrouterAuth);
+api.route('/providers', providerApi);
 
 api.get('/auth/me', (c) => {
   const user = userFromCookieHeader(c.req.header('cookie'));
-  return c.json({ user, devLogin: env.devLogin, googleLogin: env.composioEnabled });
+  const appleLinked = !!user && !!db.prepare('SELECT 1 FROM apple_identities WHERE user_id=?').get(user.id);
+  return c.json({ user, devLogin: env.devLogin, googleLogin: env.composioEnabled, appleLogin: appleAvailableForAgent(c.req.header('user-agent')), appleLinked });
 });
 
 api.get('/auth/google/start', async (c) => {
@@ -49,30 +62,30 @@ api.get('/auth/google/start', async (c) => {
     return c.redirect(redirectUrl);
   } catch {
     console.warn('[auth] could not start Google sign-in');
-    return c.redirect(googleResult('google_unavailable'));
+    return googleFailure(c, 'google_unavailable');
   }
 });
 
 api.get('/auth/google/callback', async (c) => {
   const attempt = db.prepare('SELECT * FROM login_attempts WHERE id=?').get(c.req.query('attempt') ?? '') as any;
-  if (!attempt || getCookie(c, GOOGLE_ATTEMPT_COOKIE) !== attempt.id) return c.redirect(googleResult('google_session'));
+  if (!attempt || getCookie(c, GOOGLE_ATTEMPT_COOKIE) !== attempt.id) return googleFailure(c, 'google_session');
   deleteCookie(c, GOOGLE_ATTEMPT_COOKIE, { path: '/api/auth/google' });
   db.prepare('DELETE FROM login_attempts WHERE id=?').run(attempt.id);
-  if (now() - attempt.created_at > GOOGLE_ATTEMPT_TTL) return c.redirect(googleResult('expired'));
+  if (now() - attempt.created_at > GOOGLE_ATTEMPT_TTL) return googleFailure(c, 'expired');
   const caId = attempt.connected_account_id;
-  if (!caId || (c.req.query('connected_account_id') && c.req.query('connected_account_id') !== caId)) return c.redirect(googleResult('google_session'));
+  if (!caId || (c.req.query('connected_account_id') && c.req.query('connected_account_id') !== caId)) return googleFailure(c, 'google_session');
   try {
     const profile = await googleProfile(caId, attempt.provisional_user_id);
-    if (c.req.query('status') === 'failed' || c.req.query('error')) return c.redirect(googleResult('google_denied'));
+    if (c.req.query('status') === 'failed' || c.req.query('error')) return googleFailure(c, 'google_denied');
     const { id, isNew } = findOrCreateUser(profile.email, profile.name, attempt.provisional_user_id);
     // Existing user: the Gmail connection made for sign-in belongs to a throwaway id; remove it.
     if (!isNew && id !== attempt.provisional_user_id) await deleteConnection(caId);
     createSession(c, id);
-    return c.redirect(`${env.appUrl}/`);
+    return c.redirect(finishNativeLogin(c, id) ?? `${env.appUrl}/`);
   } catch (e: any) {
     const code = e instanceof GoogleLoginError ? e.code : 'google_unavailable';
     console.warn('[auth] Google sign-in did not finish:', code);
-    return c.redirect(googleResult(code));
+    return googleFailure(c, code);
   }
 });
 
@@ -94,6 +107,20 @@ api.use('/*', async (c, next) => {
 });
 
 // ---------- events (SSE) ----------
+
+api.delete('/account', async (c) => {
+  const origin = c.req.header('origin');
+  if (origin && ![new URL(env.appUrl).origin, new URL(env.serverUrl).origin].includes(origin)) return c.json({ error: 'Invalid request origin.' }, 403);
+  const body = await c.req.json().catch(() => null);
+  if (body?.confirmation !== 'DELETE') return c.json({ error: 'Confirm account deletion first.' }, 400);
+  try {
+    await deleteAccount(c.get('user').id);
+    destroySession(c);
+    return c.json({ ok: true });
+  } catch {
+    return c.json({ error: 'Could not finish account deletion. If you use Apple sign-in, Apple access must be revoked first. Please try again.' }, 502);
+  }
+});
 
 api.get('/events', (c) => {
   const user = c.get('user');
@@ -402,7 +429,8 @@ api.get('/apps', async (c) => {
   const [all, connected] = await Promise.all([catalog(), connectedToolkits(user.id)]);
   let items: Toolkit[] = all.map((t) => ({ ...t, connected: connected.has(t.slug) }));
   if (search) items = items.filter((t) => t.name.toLowerCase().includes(search) || t.slug.includes(search) || t.description?.toLowerCase().includes(search));
-  if (category) items = items.filter((t) => t.categories.some((x) => x.toLowerCase() === category.toLowerCase()));
+  if (category) items = items.filter((t) => matchesAppCategory(t, category));
+  items.sort(compareAppPriority);
   const categories = [...new Set(all.flatMap((t) => t.categories))].sort();
   const connectedApps = all.filter((t) => connected.has(t.slug)).map((t) => ({ ...t, connected: true }));
   const pageNumber = (value: string | undefined, fallback: number) => value !== undefined && /^\d+$/.test(value) && Number.isSafeInteger(Number(value)) ? Number(value) : fallback;
@@ -421,14 +449,26 @@ api.post('/apps/:slug/connect', async (c) => {
   cb.searchParams.set('slug', slug);
   if (botId) cb.searchParams.set('bot', botId);
   if (seq) cb.searchParams.set('seq', String(seq));
+  // Native apps authorize in the system browser, which has a separate cookie jar.
+  // Bind the callback to this account and exact operation for fifteen minutes.
+  if (c.req.header('user-agent')?.includes('SwarmNative/')) {
+    const expires = String(now() + 15 * 60_000);
+    cb.searchParams.set('native', '1');
+    cb.searchParams.set('u', user.id);
+    cb.searchParams.set('expires', expires);
+    cb.searchParams.set('sig', signUser(user.id, `native-apps:${slug}:${cb.searchParams.get('bot') ?? ''}:${cb.searchParams.get('seq') ?? ''}:${expires}`));
+  }
   const r = await startConnect(user.id, slug, cb.toString());
   return c.json(r);
 });
 
 api.get('/apps/callback', async (c) => {
   // Opened in the app (session cookie), or from a link sent by text (signed user id; the phone has no session).
-  const signed = c.req.query('u') && verifyUserSig(c.req.query('u')!, 'apps-callback', c.req.query('sig') ?? '') ? c.req.query('u')! : '';
-  const userId = userFromCookieHeader(c.req.header('cookie'))?.id ?? signed;
+  const native = c.req.query('native') === '1';
+  const expires = c.req.query('expires') ?? '';
+  const nativeScope = `native-apps:${c.req.query('slug') ?? ''}:${c.req.query('bot') ?? ''}:${c.req.query('seq') ?? ''}:${expires}`;
+  const signed = c.req.query('u') && (!native || (Number(expires) > now() && Number(expires) <= now() + 15 * 60_000)) && verifyUserSig(c.req.query('u')!, native ? nativeScope : 'apps-callback', c.req.query('sig') ?? '') ? c.req.query('u')! : '';
+  const userId = native ? signed : userFromCookieHeader(c.req.header('cookie'))?.id ?? signed;
   const slug = c.req.query('slug') ?? '';
   const botId = c.req.query('bot');
   const seq = Number(c.req.query('seq') ?? 0);
@@ -451,6 +491,11 @@ api.get('/apps/callback', async (c) => {
     }
   }
   const message = JSON.stringify({ type: 'swarm-connected', slug, ok }).replace(/</g, '\\u003c');
+  if (native) {
+    c.header('Cache-Control', 'no-store');
+    c.header('Referrer-Policy', 'no-referrer');
+    return c.html(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Swarm</title><body style="font-family:system-ui;padding:40px;text-align:center"><h1>${ok ? 'App connected' : 'Connection not confirmed'}</h1><p>${ok ? 'Return to Swarm to continue.' : 'Return to Swarm and try connecting again.'}</p><a href="so.swarms.app://connected">Return to Swarm</a></body>`);
+  }
   return c.html(`<!doctype html><meta charset="utf-8"><title>${ok ? 'Connected' : 'Connection not confirmed'}</title><body style="font-family:system-ui;padding:40px;text-align:center">${ok ? 'Connected. You can close this window.' : 'Connection could not be confirmed. Return to the app and try again.'}<script>try{window.opener&&window.opener.postMessage(${message},${JSON.stringify(new URL(env.appUrl).origin)})}catch(e){};${ok ? 'setTimeout(()=>window.close(),800)' : ''}</script></body>`);
 });
 

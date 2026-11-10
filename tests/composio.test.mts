@@ -228,6 +228,51 @@ test('catalog API exposes every app across pages, preserves filters and bounds m
   } finally { fetchMock.mock.restore(); }
 });
 
+test('popular connections precede pagination and grouped filters include everyday apps', async () => {
+  const { Hono } = await import('hono');
+  const { api } = await import('../server/src/routes.js');
+  const { APP_CATEGORIES } = await import('../server/src/app-catalog.js');
+  const app = new Hono().route('/api', api);
+  const { client } = freshClient();
+  mock.method(client.connectedAccounts, 'list', async () => ({ items: [{ id: 'gmail-account', toolkit: { slug: 'gmail' }, status: 'ACTIVE' }], nextCursor: null }));
+  const popular = APP_CATEGORIES.flatMap(group => group.slugs);
+  assert.equal(popular.length, 40);
+  assert.equal(new Set(popular).size, 40);
+  const categories: Record<string, string> = { gmail: 'email', slack: 'team chat', googlecalendar: 'scheduling & booking', googledrive: 'file management & storage' };
+  const items = [
+    ...Array.from({ length: 80 }, (_, i) => ({ slug: `other${i}`, name: `Other ${i}`, meta: { categories: [{ name: 'email' }] } })),
+    ...[...popular].reverse().map(slug => ({ slug, name: slug, meta: { categories: [{ name: categories[slug] ?? 'other' }] } })),
+  ];
+  const fetchMock = mock.method(globalThis, 'fetch', async (url: string) => {
+    if (new URL(url).hostname !== 'backend.composio.dev') return backgroundFetch(url);
+    return Response.json({ items });
+  });
+  const page = async (query = '') => {
+    const response = await app.request(`/api/apps?${query}`, { headers: { cookie: 'swarm_session=owner' } });
+    assert.equal(response.status, 200);
+    return await response.json() as any;
+  };
+  try {
+    const first = await page();
+    assert.deepEqual(first.apps.slice(0, 40).map((item: any) => item.slug), popular);
+    assert.equal(first.apps[0].connected, true);
+    assert.deepEqual(first.connectedApps.map((item: any) => item.slug), ['gmail']);
+    assert.equal(first.total, 120);
+    assert.equal(first.nextOffset, 60);
+    const second = await page('offset=60');
+    assert.deepEqual([...first.apps, ...second.apps].slice(40).map((item: any) => item.slug), Array.from({ length: 80 }, (_, i) => `other${i}`));
+    assert.equal(second.nextOffset, null);
+    const communication = await page('category=communication');
+    assert.ok(communication.apps.some((item: any) => item.slug === 'gmail'));
+    assert.ok(communication.apps.some((item: any) => item.slug === 'slack'));
+    assert.ok(communication.apps.some((item: any) => item.slug === 'other0'), 'category browsing includes non-featured apps');
+    assert.ok(!communication.apps.some((item: any) => item.slug === 'googlecalendar'));
+    const productivity = await page('category=productivity&search=google');
+    assert.deepEqual(productivity.apps.map((item: any) => item.slug), ['googlecalendar', 'googledrive', 'googledocs', 'googlesheets']);
+    assert.deepEqual((await page('category=team%20chat')).apps.map((item: any) => item.slug), ['slack'], 'provider categories remain available');
+  } finally { fetchMock.mock.restore(); }
+});
+
 test('one project gives each user a separate session and deduplicates concurrent first use', async () => {
   const { created } = freshClient();
   const [one, same, other] = await Promise.all([sessionFor('owner'), sessionFor('owner'), sessionFor('other')]);
@@ -479,4 +524,68 @@ test('key changes move event subscriptions to the new client and stop old delive
   assert.equal(nextStop.mock.callCount(), 1);
   nextDelivery({ id: 'event-trigger', payload: {} });
   assert.equal(delivered.length, 2);
+});
+
+test('native Google sign-in integrates the verified browser callback with the PKCE exchange', async () => {
+  const { createHash, randomBytes } = await import('node:crypto');
+  const { Hono } = await import('hono');
+  const { api } = await import('../server/src/routes.js');
+  const app = new Hono().route('/api', api);
+  const { client } = freshClient();
+  let callback = '';
+  mock.method(client, 'create', async () => ({ authorize: async (_toolkit: string, options: any) => {
+    callback = options.callbackUrl;
+    return { id: 'native-google', redirectUrl: 'https://accounts.google.com/signin' };
+  } }));
+  mock.method(client.connectedAccounts, 'get', async () => ({ status: 'ACTIVE', toolkit: { slug: 'gmail' } }));
+  mock.method(client.tools, 'proxyExecute', async () => ({ status: 200, data: { emailAddress: 'native@example.com' } }));
+  const verifier = randomBytes(32).toString('base64url');
+  const state = randomBytes(32).toString('base64url');
+  const challenge = createHash('sha256').update(verifier).digest('base64url');
+  const start = await app.request(`/api/auth/native/start?challenge=${challenge}&state=${state}`);
+  const nativeCookie = start.headers.getSetCookie()[0].split(';')[0];
+  const google = await app.request('/api/auth/google/start', { headers: { cookie: nativeCookie } });
+  const googleCookie = google.headers.getSetCookie().find(v => v.startsWith('google_signin_attempt='))!.split(';')[0];
+  const destination = new URL(callback);
+  const verified = await app.request(destination.pathname + destination.search, { headers: { cookie: `${nativeCookie}; ${googleCookie}` } });
+  const deepLink = new URL(verified.headers.get('location')!);
+  assert.equal(deepLink.protocol, 'so.swarms.app:');
+  assert.equal(deepLink.searchParams.get('state'), state);
+  const exchange = await app.request('/api/auth/native/exchange', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: deepLink.searchParams.get('code'), verifier }) });
+  assert.equal(exchange.status, 200);
+  const cookie = exchange.headers.getSetCookie().find(v => v.startsWith('swarm_session='))!.split(';')[0];
+  const me = await (await app.request('/api/auth/me', { headers: { cookie } })).json() as any;
+  assert.equal(me.user.email, 'native@example.com');
+});
+
+test('native app connection callbacks retain the initiating account across browser cookie jars and reject tampering', async () => {
+  const { Hono } = await import('hono');
+  const { api } = await import('../server/src/routes.js');
+  const app = new Hono().route('/api', api);
+  const { client } = freshClient();
+  let callback = '';
+  mock.method(client, 'create', async () => ({ sessionId: 'native-connection-session', authorize: async (_slug: string, options: any) => {
+    callback = options.callbackUrl;
+    return { id: 'native-gmail', redirectUrl: 'https://connect.example.com/authorize' };
+  } }));
+  const checked: string[] = [];
+  mock.method(client.connectedAccounts, 'list', async ({ userIds }: any) => {
+    checked.push(userIds[0]);
+    return { items: userIds[0] === 'owner' ? [{ id: 'native-gmail', toolkit: { slug: 'gmail' }, status: 'ACTIVE' }] : [], nextCursor: null };
+  });
+  const start = await app.request('/api/apps/gmail/connect', { method: 'POST', headers: { cookie: 'swarm_session=owner', 'content-type': 'application/json', 'user-agent': 'SwarmNative/1.0' }, body: '{}' });
+  assert.equal(start.status, 200);
+  const target = new URL(callback);
+  assert.equal(target.searchParams.get('native'), '1');
+  assert.equal(target.searchParams.get('u'), 'owner');
+  const visit = (url: URL) => app.request(url.pathname + url.search, { headers: { cookie: 'swarm_session=other' } });
+  assert.match(await (await visit(target)).text(), /App connected/);
+  assert.equal(checked.at(-1), 'owner', 'the browser account cannot replace the signed initiating account');
+  const previous = checked.length;
+  for (const [key, value] of [['u', 'other'], ['slug', 'slack'], ['bot', 'another-bot'], ['seq', '10'], ['expires', '1'], ['sig', 'wrong']]) {
+    const changed = new URL(target);
+    changed.searchParams.set(key, value);
+    assert.match(await (await visit(changed)).text(), /Connection not confirmed/);
+  }
+  assert.equal(checked.length, previous, 'invalid callbacks do not query or modify connections');
 });

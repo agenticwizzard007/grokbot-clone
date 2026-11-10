@@ -364,7 +364,7 @@ function VoiceRepliesRow({ status, patch }: { status: MessagingStatus; patch: (p
       <div className="cfg-row__text">
         <div className="cfg-row__title">Reply by voice</div>
         <div className="cfg-row__sub">
-          {available ? `Bots also answer with a voice note on iMessage (speech by ${status.speech.speech === 'openrouter' ? 'OpenRouter' : 'custom provider'}). Text it /voice to change this from your phone.` : 'Needs an OpenRouter or custom provider key on this server.'}
+          {available ? `Bots also answer with a voice note on iMessage (speech by ${status.speech.speech === 'xai' ? 'platform voice' : status.speech.speech === 'openrouter' ? 'OpenRouter' : 'custom provider'}). Text it /voice to change this from your phone.` : 'Ask your platform admin to enable voice on this server.'}
           {err && <span className="msg-voice__err"> {err}</span>}
         </div>
       </div>

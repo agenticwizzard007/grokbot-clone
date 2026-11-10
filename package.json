@@ -19,8 +19,20 @@
     "test:messaging": "node --import tsx --test --test-concurrency=1 tests/messaging.test.mts",
     "test:composio": "node --import tsx --test tests/composio.test.mts",
     "test:usage": "node --import tsx --test --test-concurrency=1 tests/usage.test.mts",
+    "test:performance": "npm run build && node --import tsx --test tests/latency.test.mts tests/vm-image.test.mts && node tests/vm-performance.mjs && node tests/viewer-wake.mjs",
     "test:bots": "node --import tsx --test tests/bot-creation.test.mts && node tests/bot-creation-chat.mjs",
-    "test:performance": "npm run build && node --import tsx --test tests/latency.test.mts tests/vm-image.test.mts && node tests/vm-performance.mjs && node tests/viewer-wake.mjs"
+    "apple:open": "bash scripts/apple.sh open",
+    "apple:macos": "bash scripts/apple.sh macos",
+    "apple:ios": "bash scripts/apple.sh ios",
+    "apple:test": "bash scripts/apple.sh test",
+    "test:openrouter": "node --import tsx --test tests/openrouter.test.mts && npm run build -w web && node tests/openrouter-ui.mjs",
+    "test:native-auth": "node --import tsx --test tests/native-auth.test.mts",
+    "test:voice-shortcut": "node tests/voice-shortcut.mjs",
+    "test:mobile": "node tests/mobile-layout.mjs",
+    "test:apple-auth": "node --import tsx --test tests/apple-auth.test.mts",
+    "test:tasks": "node tests/tasks-layout.mjs",
+    "test:cli": "node --import tsx --test --test-concurrency=1 tests/cli-runner.test.mts tests/cli-login-runner.test.mts tests/cli-login.test.mts tests/cli-subscription.test.mts && node tests/cli-chat.mjs",
+    "cli:bridge": "node companion/cli-bridge.mjs"
   },
   "engines": {
     "node": ">=22"

@@ -132,7 +132,7 @@ export function DetailsPanel() {
 
   const addSlack = async () => {
     const popup = openPopup('about:blank');
-    try { const { redirectUrl } = await api.connect('slack'); if (popup) popup.location.href = redirectUrl; } catch { popup?.close(); }
+    try { const { redirectUrl } = await api.connect('slack'); if (popup) popup.location.href = redirectUrl; else window.open(redirectUrl, '_blank'); } catch { popup?.close(); }
   };
 
   return (
@@ -185,7 +185,7 @@ export function DetailsPanel() {
                 </div>
                 <div className="panel-card">
                   <button type="button" className="panel-row panel-row--link" onClick={addSlack}>
-                    <span className="panel-row__glyph"><ToolkitLogo name="Slack" logo="/assets/icons/slack.svg" size={16} radius={4} /></span>
+                    <span className="panel-row__glyph"><ToolkitLogo slug="slack" name="Slack" size={16} variant="mark" /></span>
                     <span className="panel-row__title" style={{ flex: 1 }}>Add to Slack</span>
                     <Icon name="chev_right" size={12} opacity={0.56} />
                   </button>

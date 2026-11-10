@@ -34,7 +34,7 @@ export function ApprovalCard({ body }: { body: Card<'approval'> }) {
   return (
     <div className={`card approval-card${pending ? '' : ' is-resolved'}`}>
       <div className="card__head">
-        <ToolkitLogo name={name} logo={body.toolkit ? `https://logos.composio.dev/api/${body.toolkit.toLowerCase()}` : undefined} size={44} />
+        <ToolkitLogo slug={body.toolkit} name={name} size={44} />
         <div className="card__titles">
           <div className="card__title">{body.title}</div>
           <div className="card__sub">{name}</div>
@@ -123,7 +123,7 @@ export function ConnectCard({ row, body }: { row: Row; body: Card<'connect'> }) 
   return (
     <div className={`card connect-card${pending ? '' : ' is-resolved'}`}>
       <div className="card__head">
-        <ToolkitLogo name={body.toolkitName} logo={body.logo} size={44} />
+        <ToolkitLogo slug={body.toolkit} name={body.toolkitName} logo={body.logo} size={44} />
         <div className="card__titles">
           <div className="card__title">Connect {body.toolkitName}</div>
           <div className="card__sub">{body.reason}</div>

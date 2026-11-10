@@ -1,0 +1,42 @@
+name: Apple apps
+on:
+  pull_request:
+    paths: ['apple/**', 'web/**', 'server/src/auth/**', 'server/src/accounts.ts', 'server/src/native-auth.ts', 'server/src/routes.ts', 'server/src/lib/auth.ts', 'tests/apple-auth.test.mts', 'tests/native-auth.test.mts', 'tests/composio.test.mts', 'tests/mobile-layout.mjs', 'tests/voice-shortcut.mjs', 'package*.json', 'scripts/apple.sh', '.github/workflows/apple.yml']
+  push:
+    branches: [main]
+    paths: ['apple/**', 'web/**', 'server/src/auth/**', 'server/src/accounts.ts', 'server/src/native-auth.ts', 'server/src/routes.ts', 'server/src/lib/auth.ts', 'tests/apple-auth.test.mts', 'tests/native-auth.test.mts', 'tests/composio.test.mts', 'tests/mobile-layout.mjs', 'tests/voice-shortcut.mjs', 'package*.json', 'scripts/apple.sh', '.github/workflows/apple.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  shared-app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck && npm run build
+      - run: npm run test:apple-auth && npm run test:native-auth && npm run test:composio
+      - run: npm run test:mobile
+      - run: npm run test:voice-shortcut
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Build iOS simulator app
+        run: bash scripts/apple.sh ios
+      - name: Build macOS app
+        run: bash scripts/apple.sh macos
+      - name: Test native URL and authentication policies
+        run: bash scripts/apple.sh test
+      - name: Preserve app bundle permissions in archive
+        run: tar -czf apple/build/Swarm-development-apps.tgz -C apple/build/Build/Products Debug/Swarm.app Debug-iphonesimulator/Swarm.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Swarm-development-apps
+          path: apple/build/Swarm-development-apps.tgz

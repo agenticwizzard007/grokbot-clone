@@ -1,7 +1,9 @@
 import { useState } from 'react';
+import { Smartphone } from 'lucide-react';
 import { ApiError } from '../lib/api';
 import { configApi, type MessagingStatus, type PhoneStart } from '../lib/configApi';
 import { WhatsAppIcon } from './WhatsAppIcon';
+import { AuthButton } from './AuthButton';
 import '../styles/messaging.css';
 
 const prettyNumber = (n: string) => n.replace(/^\+1(\d{3})(\d{3})(\d{4})$/, '+1 ($1) $2-$3');
@@ -52,10 +54,13 @@ export function PhoneAuth({ mode, onAttached }: { mode: 'signin' | 'attach'; onA
   if (!start) {
     return (
       <form className="phone-auth" onSubmit={begin}>
-        <input className="text-input phone-auth__input" type="tel" inputMode="tel" autoComplete="tel" placeholder="Phone number, like +1 415 555 0123" value={phone} onChange={(e) => { setPhone(e.target.value); setError(null); }} aria-label="Phone number" />
-        <button type="submit" className="btn btn--primary phone-auth__btn" disabled={busy}>{busy ? 'One moment…' : mode === 'signin' ? 'Continue with phone' : 'Send me a code'}</button>
-        {error && <div className="card__error phone-auth__error">{error}</div>}
-        {mode === 'signin' && <div className="phone-auth__hint">New here? This creates your account. You can add an email later.</div>}
+        <label className="phone-auth__field">
+          <span className="phone-auth__label">Phone number</span>
+          <input className="text-input phone-auth__input" type="tel" inputMode="tel" autoComplete="tel" placeholder="+1 415 555 0123" value={phone} onChange={(e) => { setPhone(e.target.value); setError(null); }} aria-invalid={!!error} />
+        </label>
+        <AuthButton type="submit" disabled={busy} aria-busy={busy} icon={<Smartphone size={20} strokeWidth={1.75} />}>{busy ? 'One moment…' : mode === 'signin' ? 'Continue with phone' : 'Send me a code'}</AuthButton>
+        {error && <div className="card__error phone-auth__error" role="alert">{error}</div>}
+        {mode === 'signin' && <div className="phone-auth__hint">New here? We’ll create your account.</div>}
       </form>
     );
   }
@@ -67,8 +72,8 @@ export function PhoneAuth({ mode, onAttached }: { mode: 'signin' | 'attach'; onA
       {needInvite && (
         <input className="text-input phone-auth__input" placeholder="Invite code" value={invite} onChange={(e) => { setInvite(e.target.value.toUpperCase()); setError(null); }} aria-label="Invite code" />
       )}
-      <button type="submit" className="btn btn--primary phone-auth__btn" disabled={busy}>{busy ? 'Checking…' : mode === 'signin' ? 'Continue' : 'Connect this number'}</button>
-      {error && <div className="card__error phone-auth__error">{error}</div>}
+      <AuthButton type="submit" disabled={busy} aria-busy={busy} icon={<Smartphone size={20} strokeWidth={1.75} />}>{busy ? 'Checking…' : mode === 'signin' ? 'Continue' : 'Connect this number'}</AuthButton>
+      {error && <div className="card__error phone-auth__error" role="alert">{error}</div>}
       {start.line && (
         <div className="phone-auth__help">
           <div><b>No text yet?</b> Say Hi Swarm and we'll text your code right back.</div>

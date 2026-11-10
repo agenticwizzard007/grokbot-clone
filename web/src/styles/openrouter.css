@@ -1,0 +1,12 @@
+.openrouter-settings__body { display: grid; gap: 14px; padding: 4px 20px 20px; }
+.openrouter-settings__body > .auth-button { max-width: 340px; }
+.openrouter-settings__body p { margin: 0; }
+.openrouter-settings__key { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.openrouter-settings__key label { grid-column: 1 / -1; font-size: 13px; }
+.openrouter-settings__model { display: grid; gap: 8px; font-size: 13px; }
+.openrouter-settings__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.openrouter-settings__body > a:not(.auth-button) { font-size: 12px; }
+@media (max-width: 480px) {
+  .openrouter-settings__body { padding-inline: 16px; }
+  .openrouter-settings__key { grid-template-columns: minmax(0, 1fr); }
+}

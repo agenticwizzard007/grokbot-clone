@@ -18,3 +18,8 @@ docs/INTERNAL-*.md
 docs/SPEC.md
 web/screenshots/
 tests/out/
+
+# Apple build products and per-user Xcode state.
+apple/build*/
+xcuserdata/
+*.xcuserstate

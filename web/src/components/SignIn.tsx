@@ -5,24 +5,39 @@ import { PhoneAuth } from './PhoneAuth';
 import '../styles/messaging.css';
 import { useStore } from '../store';
 import { TrafficLights } from './Sidebar';
+import { AppleSignIn } from './AppleSignIn';
+import { AuthLink } from './AuthButton';
+import { OpenRouterSignIn } from './OpenRouterSignIn';
+import { OPENROUTER_ERRORS } from '../lib/openrouterApi';
 
-const GOOGLE_ERRORS: Record<string, string> = {
+const AUTH_ERRORS: Record<string, string> = {
+  ...OPENROUTER_ERRORS,
   failed: 'Sign-in didn’t finish. Try again.',
   google_denied: 'Google did not approve access. Try again and review the permissions. If Google says the app is blocked, your Google account or workspace administrator may need to allow it.',
   google_pending: 'Google authorization was not completed. Start sign-in again and finish the Google consent screen.',
   google_permissions: 'Google connected, but Gmail profile access was not granted. Try again and approve the requested Gmail permissions.',
   google_unavailable: 'Google sign-in is temporarily unavailable. Please try again.',
   google_session: 'This sign-in link no longer matches this browser. Start again here and finish in the same browser.',
+  apple_denied: 'Apple sign-in was cancelled. You can try again or choose another sign-in option.',
+  apple_session: 'Apple sign-in expired or no longer matches this browser. Please start again.',
+  apple_invalid: 'Apple sign-in could not be verified. Please try again.',
+  apple_unavailable: 'Apple sign-in is not configured on this server yet. Choose Google or phone sign-in.',
+  apple_busy: 'Apple sign-in is busy. Please try again shortly.',
+  apple_email_required: 'Apple did not provide a verified email. Review Swarm’s access in your Apple Account and try again.',
+  apple_link_required: 'You already have a Swarm account with this email. Sign in with Google or phone, then connect Apple in Settings → Account.',
+  apple_link_signin: 'Sign in to your existing Swarm account before connecting Apple.',
+  apple_already_linked: 'This Apple Account is already connected to a different Swarm account, or this Swarm account already has Apple connected.',
 };
 
 export function SignIn() {
   const devLogin = useStore((s) => s.devLogin);
   const googleLogin = useStore((s) => s.googleLogin);
+  const appleLogin = useStore((s) => s.appleLogin);
   const checkAuth = useStore((s) => s.checkAuth);
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(() => GOOGLE_ERRORS[new URLSearchParams(location.search).get('login') ?? ''] ?? null);
+  const [error, setError] = useState<string | null>(() => AUTH_ERRORS[new URLSearchParams(location.search).get('login') ?? ''] ?? null);
   const expired = new URLSearchParams(location.search).get('login') === 'expired';
 
   const dev = async (e: React.FormEvent) => {
@@ -36,20 +51,25 @@ export function SignIn() {
     <div className="signin">
       <div className="signin__chrome"><TrafficLights /></div>
       <div className="signin__card">
-        <div className="signin__hero">
-          <BotAvatar shape="blob" color="black" size={84} />
-        </div>
-        <h1 className="signin__title">Swarm</h1>
-        <p className="signin__sub">AI teammates with their own computers. Hand them a task and they get it done.</p>
+        <header className="signin__header">
+          <div className="signin__hero"><BotAvatar shape="blob" color="black" size={64} title="Swarm" /></div>
+          <div className="signin__intro">
+            <h1 className="signin__title">Swarm</h1>
+            <p className="signin__sub">AI teammates with their own computers. Hand them a task and they get it done.</p>
+          </div>
+        </header>
         {expired && <div className="signin__notice" role="status">That sign-in link has expired or was already used.</div>}
         <PhoneAuth mode="signin" />
-        {googleLogin && <div className="signin__divider signin__or"><span>or</span></div>}
-        {googleLogin && (
-          <a className="btn btn--primary signin__google" href="/api/auth/google/start">
-            <GoogleG /> Sign in with Google
-          </a>
-        )}
-        {googleLogin && <p className="signin__foot">Google sign-in uses Composio and asks for Gmail access to verify your email address.</p>}
+        <>
+            <div className="signin__divider signin__or"><span>or</span></div>
+            <div className="signin__providers">
+              <OpenRouterSignIn />
+              {appleLogin && <AppleSignIn />}
+              {googleLogin && <AuthLink className="signin__google" href="/api/auth/google/start" icon={<GoogleG />}>Sign in with Google</AuthLink>}
+            </div>
+        </>
+        <p className="signin__disclosure">Sign in or create an account with OpenRouter and use your own model credits. Already use Swarm? Sign in your usual way, then connect OpenRouter in Settings.</p>
+        {googleLogin && <p className="signin__disclosure">Google sign-in uses Composio and requests Gmail access to verify your email address.</p>}
         {devLogin && (
           <form className="signin__dev" onSubmit={dev}>
             <div className="signin__divider"><span>Dev sign-in</span></div>
@@ -67,7 +87,7 @@ export function SignIn() {
 
 function GoogleG() {
   return (
-    <svg width="16" height="16" viewBox="0 0 48 48" aria-hidden>
+    <svg className="auth-button__google-mark" width="20" height="20" viewBox="0 0 48 48" aria-hidden>
       <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.1 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z" />
       <path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.1 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
       <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2c-2 1.5-4.5 2.4-7.2 2.4-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z" />

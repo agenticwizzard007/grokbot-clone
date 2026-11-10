@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Toolkit } from '@shared/types';
-import { BotAvatarFor } from '../../avatar/BotAvatar';
+import { APP_CATEGORIES, isPopularApp } from '@shared/app-catalog';
 import { api, openPopup, type AppsResponse } from '../../lib/api';
 import { useStore } from '../../store';
 import { Icon } from '../Icon';
@@ -9,16 +9,10 @@ import { ToolkitLogo } from '../ToolkitLogo';
 import { Modal } from './Modal';
 import { useConfigUI } from '../../configStore';
 
-/** Design pill → backend (Composio) category. */
-const PILLS: { label: string; category: string }[] = [
-  { label: 'Password Managers', category: 'security & identity tools' },
-  { label: 'Productivity', category: 'productivity' },
-  { label: 'Communication', category: 'communication' },
-  { label: 'Design', category: 'images & design' },
-  { label: 'Code', category: 'developer tools' },
-];
+const PILLS = APP_CATEGORIES.filter((group) => ['communication', 'productivity', 'project management', 'developer tools', 'images & design'].includes(group.id))
+  .map((group) => ({ label: group.shortLabel, category: group.id }));
 const titleCase = (s: string) => s.replace(/\b\w/g, (c) => c.toUpperCase()).replace(/\bAi\b/g, 'AI').replace(/\bCrm\b/g, 'CRM').replace(/\bSeo\b/g, 'SEO').replace(/\bIt\b/g, 'IT').replace(/\bHr\b/g, 'HR').replace(/\bSms\b/g, 'SMS').replace(/\bUrl\b/g, 'URL').replace(/\bOcr\b/g, 'OCR');
-const pillLabel = (cat: string) => PILLS.find((p) => p.category === cat)?.label ?? titleCase(cat);
+const pillLabel = (cat: string) => APP_CATEGORIES.find((group) => group.id === cat)?.label ?? titleCase(cat);
 
 type View = { kind: 'all' } | { kind: 'category'; category: string } | { kind: 'connected' };
 
@@ -48,7 +42,7 @@ function AppRow({ app, onChanged }: { app: Toolkit; onChanged: () => void }) {
 
   return (
     <div className="app-row" title={app.description}>
-      <ToolkitLogo name={app.name} logo={app.logo} />
+      <ToolkitLogo slug={app.slug} name={app.name} logo={app.logo} />
       <span className="app-row__text">
         <span className="app-row__name">{app.name}</span>
         {error ? <span className="app-row__error">{error}</span> : app.description && <span className="app-row__desc">{app.description}</span>}
@@ -81,7 +75,7 @@ function Section({ title, apps, onViewAll, onChanged }: { title: string; apps: T
   return (
     <section className="apps-section">
       <div className="apps-section__head">
-        <span className="apps-section__title">{title}</span>
+        <h3 className="apps-section__title">{title}</h3>
         {onViewAll && <button type="button" className="link-btn link-btn--small" onClick={onViewAll}>View all</button>}
       </div>
       <Grid apps={apps} onChanged={onChanged} />
@@ -92,7 +86,6 @@ function Section({ title, apps, onViewAll, onChanged }: { title: string; apps: T
 export function ConnectAppsModal() {
   const setModal = useStore((s) => s.setModal);
   const connectionsVersion = useStore((s) => s.connectionsVersion);
-  const primary = useStore((s) => s.bots.find((b) => b.isPrimary));
   const close = useCallback(() => setModal(null), [setModal]);
   const [view, setView] = useState<View>({ kind: 'all' });
   const [search, setSearch] = useState('');
@@ -103,12 +96,14 @@ export function ConnectAppsModal() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
   const queryVersion = useRef(0);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [more, setMore] = useState(false);
   const [bump, setBump] = useState(0);
   const refresh = useCallback(() => setBump((n) => n + 1), []);
 
   useEffect(() => { const t = setTimeout(() => setDebounced(search.trim()), 200); return () => clearTimeout(t); }, [search]);
+  useEffect(() => { bodyRef.current?.scrollTo({ top: 0 }); }, [debounced, view]);
 
   useEffect(() => {
     let alive = true;
@@ -158,7 +153,12 @@ export function ConnectAppsModal() {
 
   const apps = data?.apps ?? [];
   const searching = debounced.length > 0;
-  const moreCategories = useMemo(() => (data?.categories ?? []).filter((c) => !PILLS.some((p) => p.category === c)), [data?.categories]);
+  const moreCategories = useMemo(() => [...new Set([...APP_CATEGORIES.map((group) => group.id), ...(data?.categories ?? [])])]
+    .filter((c) => !PILLS.some((p) => p.category === c)), [data?.categories]);
+  const popularGroups = APP_CATEGORIES.map((group) => ({ ...group, apps: apps.filter((app) => group.slugs.includes(app.slug)) }))
+    .filter((group) => group.apps.length > 0);
+  const popularCount = popularGroups.reduce((count, group) => count + group.apps.length, 0);
+  const otherApps = apps.filter((app) => !isPopularApp(app.slug));
   const activeCategory = view.kind === 'category' ? view.category : null;
   const moreActive = activeCategory !== null && !PILLS.some((p) => p.category === activeCategory);
 
@@ -174,7 +174,18 @@ export function ConnectAppsModal() {
   } else {
     body = (
       <>
-        <Section title={`All apps (${data?.total ?? 0})`} apps={apps} onChanged={refresh} />
+        {popularCount > 0 && (
+          <section className="apps-popular" aria-labelledby="popular-apps-title">
+            <div className="apps-popular__head">
+              <h2 id="popular-apps-title" className="apps-popular__title">Popular apps <span className="apps-popular__count">{popularCount}</span></h2>
+              <p className="apps-popular__description">Everyday essentials, grouped by what you do.</p>
+            </div>
+            {popularGroups.map((group) => (
+              <Section key={group.id} title={group.label} apps={group.apps} onViewAll={() => setView({ kind: 'category', category: group.id })} onChanged={refresh} />
+            ))}
+          </section>
+        )}
+        <Section title={`${popularCount ? 'More' : 'All'} apps (${(data?.total ?? 0) - popularCount})`} apps={otherApps} onChanged={refresh} />
       </>
     );
   }
@@ -187,11 +198,10 @@ export function ConnectAppsModal() {
       <div className="apps-modal__head">
         <div className="apps-modal__titlerow">
           <span className="apps-modal__title">Connect Apps</span>
-          <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => { close(); useConfigUI.getState().openAppSettings('mcp'); }}>Custom MCP</button>
           <button type="button" className={`apps-modal__connected${view.kind === 'connected' ? ' is-active' : ''}`} onClick={() => setView(view.kind === 'connected' ? { kind: 'all' } : { kind: 'connected' })}>
             {connectedApps.length > 0 && (
               <span className="apps-modal__connected-logos">
-                {connectedApps.slice(0, 4).map((a) => a.logo ? <img key={a.slug} src={a.logo} alt="" /> : null)}
+                {connectedApps.slice(0, 4).map((a) => <ToolkitLogo key={a.slug} slug={a.slug} name={a.name} logo={a.logo} size={14} variant="mark" />)}
               </span>
             )}
             <span>{connectedCount} connected</span>
@@ -204,11 +214,6 @@ export function ConnectAppsModal() {
               <Icon name="search" size={14} opacity={0.56} />
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search apps and skills" aria-label="Search apps" />
             </label>
-            <button type="button" className="pill-chip" title="Bot templates are coming soon" disabled>
-              {primary && <BotAvatarFor bot={primary} size={22} />}
-              <span>Bot templates</span>
-              <Icon name="share" size={12} opacity={0.56} />
-            </button>
           </div>
           <div className="cat-pills">
             <button type="button" className={`cat-pill${view.kind === 'all' ? ' is-active' : ''}`} onClick={() => setView({ kind: 'all' })}>All</button>
@@ -221,13 +226,14 @@ export function ConnectAppsModal() {
                 <Icon name="chev_down" size={10} opacity={0.66} />
               </button>
               {more && (
-                <Menu onClose={() => setMore(false)} items={moreCategories.map((c) => ({ label: titleCase(c), onSelect: () => setView({ kind: 'category', category: c }) }))} />
+                <Menu onClose={() => setMore(false)} items={moreCategories.map((c) => ({ label: pillLabel(c), onSelect: () => setView({ kind: 'category', category: c }) }))} />
               )}
             </span>
+            <button type="button" className="cat-pill" onClick={() => { close(); useConfigUI.getState().openAppSettings('mcp'); }}>Custom MCP</button>
           </div>
         </div>
       </div>
-      <div className={`apps-modal__body${loading ? ' is-loading' : ''}`}>
+      <div ref={bodyRef} className={`apps-modal__body${loading ? ' is-loading' : ''}`}>
         {body}
         {!error && !data?.notConfigured && view.kind !== 'connected' && data && (
           <div className="apps-pagination">

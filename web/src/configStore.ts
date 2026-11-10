@@ -6,11 +6,13 @@ import { useStore } from './store';
 
 export type Theme = 'system' | 'light' | 'dark';
 export type BotSettingsTab = 'general' | 'skills' | 'memories' | 'routines';
-export type AppSection = 'general' | 'keys' | 'usage' | 'computer' | 'messaging' | 'permissions' | 'apps' | 'mcp' | 'account';
+export type AppSection = 'general' | 'keys' | 'usage' | 'computer' | 'messaging' | 'permissions' | 'apps' | 'mcp' | 'account' | 'subscriptions';
 
 interface ConfigUI {
   botSettings: { botId: string; tab: BotSettingsTab } | null;
   appSettings: AppSection | null;
+  /** Settings was opened without a section (e.g. ⌘, or the account menu), so phones start on the section list. */
+  appSettingsHome: boolean;
   view: 'chat' | 'tasks';
   theme: Theme;
   /** Bumped by server events (tasks, memories) so open views refetch. Keys: 'tasks', 'memories:<botId>'. */
@@ -30,7 +32,7 @@ const readTheme = (): Theme => {
 };
 
 /** Deep link: /#settings/<section> (e.g. #settings/messaging, or just #messaging) opens Settings there. */
-const SECTIONS_LINKABLE: AppSection[] = ['general', 'keys', 'computer', 'messaging', 'permissions', 'apps', 'mcp', 'account'];
+const SECTIONS_LINKABLE: AppSection[] = ['general', 'keys', 'computer', 'messaging', 'permissions', 'apps', 'mcp', 'account', 'subscriptions'];
 /** Old links that now open a different section. */
 const SECTION_ALIASES: Record<string, AppSection> = { whatsapp: 'messaging' };
 const linkedSection = (): AppSection | null => {
@@ -51,15 +53,16 @@ export function applyTheme(t: Theme) {
 export const useConfigUI = create<ConfigUI>((set, get) => ({
   botSettings: null,
   appSettings: linkedSection(),
+  appSettingsHome: false,
   view: 'chat',
   theme: readTheme(),
   versions: {},
   openBotSettings: (botId, tab = 'general') => set({ botSettings: { botId, tab } }),
   closeBotSettings: () => set({ botSettings: null }),
-  openAppSettings: (section = 'general') => set({ appSettings: section }),
+  openAppSettings: (section) => set({ appSettings: section ?? 'general', appSettingsHome: !section }),
   closeAppSettings: () => {
     if (linkedSection()) history.replaceState(null, '', window.location.pathname + window.location.search);
-    set({ appSettings: null });
+    set({ appSettings: null, appSettingsHome: false });
   },
   setView: (view) => set({ view }),
   setTheme: (theme) => {
