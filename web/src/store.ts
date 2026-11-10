@@ -31,6 +31,8 @@ interface State {
   mobileSidebarOpen: boolean;
   modal: ModalKind;
   viewerOpen: boolean;
+  /** Open the viewer straight in Take control (a "solve this on my screen" link: /?screen=<botId>). */
+  viewerControl: boolean;
 
   checkAuth(): Promise<void>;
   loadBots(): Promise<void>;
@@ -71,6 +73,7 @@ export const useStore = create<State>((set, get) => ({
   mobileSidebarOpen: false,
   modal: null,
   viewerOpen: false,
+  viewerControl: false,
 
   async checkAuth() {
     try {
@@ -88,6 +91,14 @@ export const useStore = create<State>((set, get) => ({
     const sel = get().selectedBotId;
     const selectedBotId = sel && bots.some((b) => b.id === sel) ? sel : (bots.find((b) => b.isPrimary) ?? bots[0])?.id ?? null;
     set({ bots, botsLoaded: true, live: liveMap });
+    // A link from a Bot ("solve this on my screen"): open that Bot's screen, ready to take control.
+    const linked = new URLSearchParams(location.search).get('screen');
+    if (linked && bots.some((b) => b.id === linked)) {
+      history.replaceState(null, '', location.pathname);
+      get().selectBot(linked);
+      set({ viewerOpen: true, viewerControl: true });
+      return;
+    }
     if (selectedBotId !== get().selectedBotId || !get().transcripts[selectedBotId ?? '']) {
       if (selectedBotId) get().selectBot(selectedBotId);
     }

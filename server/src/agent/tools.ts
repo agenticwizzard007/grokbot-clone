@@ -1,5 +1,6 @@
 import { db, now } from '../db.js';
 import { BROWSER_TOOLS } from '../computers/browser-tools.js';
+import { captchaOutcome, handOffCaptcha } from './captcha.js';
 import { checkRoutineCreate } from '../routine-limits.js';
 import { newId } from '../lib/ids.js';
 import { hub } from '../lib/hub.js';
@@ -526,7 +527,15 @@ export const TOOLS: ToolDef[] = [
       impl: async (a, ctx) => {
         const screen = await onScreen(ctx);
         if (!screen.browser) return { output: 'Browser tools are not available on this computer.', summary: 'No browser' };
-        const r = await screen.browser(b.name, a ?? {});
+        let r = await screen.browser(b.name, a ?? {});
+        // A CAPTCHA or human check: never solved by the Bot. Hand the page to the user, wait, then continue.
+        if (r.captcha && screen.captcha) {
+          const { turnSignal } = await import('./loop.js');
+          const outcome = await handOffCaptcha(ctx.botId, screen, r.captcha, turnSignal(ctx.botId));
+          const page = outcome.solved ? await screen.browser('browser_snapshot', {}).catch(() => null) : null;
+          const pageText = page ? page.content.filter((c) => c.type === 'text').map((c) => (c as { text: string }).text).join('\n') : '';
+          r = { content: [{ type: 'text', text: captchaOutcome(r.captcha, outcome, pageText) }], isError: false };
+        }
         let text = r.content.filter((c) => c.type === 'text').map((c) => (c as { text: string }).text).join('\n');
         if (text.length > 40000) text = text.slice(0, 40000) + '\n…(truncated; use browser_find or a smaller snapshot depth)';
         const images = r.content.filter((c) => c.type === 'image') as { data: string; mimeType: string }[];

@@ -538,6 +538,7 @@ export const localProvider: ComputerProvider = {
       openUrl: async (url) => { await rpc('open', { url }, 60_000); },
     };
     if (MULTI) screen.browser = async (tool, args) => rpc('browser', { tool, args }, 160_000);
+    if (MULTI) screen.captcha = async () => ((await call(userId, 'captcha', { botId }, 30_000)) as any)?.captcha ?? null;
     if (DESKTOP || MULTI) screen.shell = async (command, timeoutSec) => rpc('shell', { command, timeout: timeoutSec }, (timeoutSec + 15) * 1000);
     return screen;
   },

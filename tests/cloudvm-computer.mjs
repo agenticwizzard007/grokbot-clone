@@ -32,9 +32,24 @@ sql.pragma('foreign_keys = ON');
 // ---------- test website ----------
 
 const events = [];
+let captchaSolved = false;
 const site = http.createServer((req, res) => {
   const u = new URL(req.url, SITE);
   if (u.pathname === '/submitted') events.push(u.searchParams.get('q'));
+  // CAPTCHA pages: a visible reCAPTCHA-style widget (cleared when the "person" solves it), one that's never
+  // solved, and an invisible badge that must not interrupt anything.
+  if (u.pathname.startsWith('/recaptcha/api2/anchor')) { res.writeHead(200, { 'content-type': 'text/html' }); return res.end('<div style="font:14px sans-serif">☐ I\'m not a robot</div>'); }
+  if (u.pathname === '/solve-captcha') { captchaSolved = true; res.writeHead(200); return res.end('ok'); }
+  if (u.pathname === '/captcha-state') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ solved: captchaSolved })); }
+  if (u.pathname === '/captcha' || u.pathname === '/captcha-unsolved') {
+    const poll = u.pathname === '/captcha' ? "setInterval(async()=>{const s=await (await fetch('/captcha-state')).json(); if(s.solved){document.getElementById('cap')?.remove(); document.getElementById('msg').textContent='Verified: welcome in';}},400)" : '';
+    res.writeHead(200, { 'content-type': 'text/html' });
+    return res.end(`<!doctype html><title>Checkout</title><h1>Checkout</h1><p id="msg">Please verify you are not a robot.</p><iframe id="cap" title="reCAPTCHA" src="/recaptcha/api2/anchor?k=test" width="304" height="78"></iframe><script>${poll}</script>`);
+  }
+  if (u.pathname === '/invisible-captcha') {
+    res.writeHead(200, { 'content-type': 'text/html' });
+    return res.end('<!doctype html><title>Shop</title><h1>Shop</h1><p>Welcome to the shop.</p><iframe title="reCAPTCHA" src="/recaptcha/api2/anchor?k=test&size=invisible" width="256" height="60" style="position:fixed;bottom:0;right:0"></iframe>');
+  }
   if (u.pathname === '/form') {
     res.writeHead(200, { 'content-type': 'text/html' });
     return res.end('<!doctype html><title>Form</title><body style="font:20px sans-serif"><h1>Search</h1><form action="/submitted"><label>Query <input name="q" type="text"></label> <button>Go</button></form></body>');
@@ -74,7 +89,8 @@ async function chat(u, botId, text, ms = 120000) {
   const t0 = Date.now();
   while (Date.now() - t0 < ms) {
     const rows = (await u.api(`/api/bots/${botId}/rows`)).body.rows.filter((r) => r.seq > after);
-    const done = rows.find((r) => (r.kind === 'message' && r.body.role === 'assistant' && !r.body.streaming) || r.kind === 'notice');
+    // The Bot's answer: not a CAPTCHA handoff notice (🧩), which it posts while it waits for the person.
+    const done = rows.find((r) => (r.kind === 'message' && r.body.role === 'assistant' && !r.body.streaming && !/^🧩/.test(r.body.text ?? '')) || r.kind === 'notice');
     if (done) return { reply: done.body.text, tools: rows.filter((r) => r.kind === 'tool-call').map((r) => r.body), ms: Date.now() - t0 };
     await sleep(300);
   }
@@ -163,6 +179,37 @@ await step('Playwright browser tools: navigate, read the page, type into an elem
   noErrors(shot);
 });
 
+const rowsOf = async (u, botId) => (await u.api(`/api/bots/${botId}/rows`)).body.rows;
+
+await step('an invisible CAPTCHA badge doesn\'t interrupt the Bot', async () => {
+  const before = (await rowsOf(A, second)).length;
+  const r = await chat(A, second, script(call('browser_navigate', { url: `${SITE}/invisible-captcha` }), 'say {last}'));
+  noErrors(r);
+  if (!/Welcome to the shop/.test(r.reply)) throw new Error(r.reply);
+  if ((await rowsOf(A, second)).slice(before).some((x) => x.kind === 'message' && /🧩/.test(x.body.text ?? ''))) throw new Error('handed off an invisible badge');
+});
+
+await step('a CAPTCHA is detected, handed to the user with a link to the Bot\'s screen, and the Bot continues once it\'s solved', async () => {
+  captchaSolved = false;
+  const t0 = Date.now();
+  const pending = chat(A, second, script(call('browser_navigate', { url: `${SITE}/captcha` }), 'say {last}'));
+  const ask = await waitFor('the handoff message', async () => (await rowsOf(A, second)).find((x) => x.kind === 'message' && /🧩/.test(x.body.text ?? '') && x.body.text.includes(`/?screen=${second}`)), 40000);
+  console.log(`     handoff after ${((Date.now() - t0) / 1000).toFixed(1)}s: ${ask.body.text.split('\n')[0].slice(0, 110)}`);
+  const live = (await A.api('/api/bots')).body.live?.find?.((l) => l.botId === second);
+  if (live && !live.awaiting) throw new Error('Bot not shown as waiting for the user');
+  await fetch(`${SITE}/solve-captcha`); // the person solves it on the Bot's screen
+  const r = await pending;
+  noErrors(r);
+  if (!/the user solved it/.test(r.reply)) throw new Error(r.reply);
+  console.log(`     continued ${((Date.now() - t0) / 1000).toFixed(1)}s after the task started`);
+});
+
+await step('an unsolved CAPTCHA: the Bot is told to stop and explain (never to get around it)', async () => {
+  const r = await chat(A, second, script(call('browser_navigate', { url: `${SITE}/captcha-unsolved` }), 'say {last}'), 120000);
+  noErrors(r);
+  if (!/still waiting for a person/.test(r.reply) || !/Don't try to solve or get around it/.test(r.reply)) throw new Error(r.reply);
+});
+
 await step('each Bot\'s shell runs as the Bots\' user, in its own folder', async () => {
   const r = await chat(A, second, script(call('shell', { command: 'whoami; pwd; echo $DISPLAY' }), 'say {last}'));
   noErrors(r);
@@ -205,6 +252,19 @@ await step('viewer shows a Bot\'s screen (noVNC)', async () => {
     return painted > 50;
   }, null, { timeout: 30000 });
   await ui.screenshot({ path: path.join(OUT, 'viewer.png') });
+  await browser.close();
+});
+
+await step('the "solve it on my screen" link opens the Bot\'s screen in Take control', async () => {
+  const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await ctx.addCookies([{ name: 'swarm_session', value: A.cookie, domain: new URL(API).hostname, path: '/' }]);
+  const ui = await ctx.newPage();
+  await ui.goto(`${API}/?screen=${second}`);
+  await ui.getByRole('button', { name: "I'm done" }).waitFor({ timeout: 30000 }); // in control mode
+  await ui.locator('.viewer__screen.is-control canvas').first().waitFor({ timeout: 30000 });
+  if (new URL(ui.url()).search) throw new Error('link parameter left in the address bar');
+  await ui.screenshot({ path: path.join(OUT, 'captcha-link-control.png') });
   await browser.close();
 });
 

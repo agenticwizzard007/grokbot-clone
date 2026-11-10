@@ -1181,6 +1181,31 @@ class McpProcess {
 
 const PLAYWRIGHT_MCP = MULTI ? findPlaywrightMcp() : null;
 
+/**
+ * Is a person being asked to prove they're human on this page? Runs in the page (via Playwright).
+ * Only visible challenges count: invisible reCAPTCHA/hCaptcha badges and hidden widgets don't block anything.
+ * Bots never try to solve these; the server hands the page to the user (see server/src/agent/captcha.ts).
+ */
+const CAPTCHA_DETECTOR = `() => {
+  const visible = (el) => { if (!el) return false; const r = el.getBoundingClientRect(); const cs = getComputedStyle(el);
+    return r.width >= 40 && r.height >= 40 && cs.visibility !== 'hidden' && cs.display !== 'none' && Number(cs.opacity) > 0.05 && r.bottom > 0 && r.right > 0; };
+  const frames = [...document.querySelectorAll('iframe')].filter((f) => visible(f) && !/[?&]size=invisible/.test(f.src || ''));
+  const frameIs = (re) => frames.some((f) => re.test((f.src || '') + ' ' + (f.title || '')));
+  const any = (sel) => [...document.querySelectorAll(sel)].some(visible);
+  const title = document.title || '';
+  const text = (document.body ? document.body.innerText : '').slice(0, 5000);
+  let kind = null;
+  // hCaptcha first: its frames can carry a "recaptchacompat" flag.
+  if (frameIs(/hcaptcha\\.com|hCaptcha/i)) kind = 'hCaptcha';
+  else if (frameIs(/recaptcha\\/(api2|enterprise)\\/(anchor|bframe)/i) || frames.some((f) => /^recaptcha$/i.test(f.title || ''))) kind = 'reCAPTCHA';
+  else if (frameIs(/challenges\\.cloudflare\\.com|Cloudflare security challenge/i) || any('.cf-turnstile') || /^just a moment/i.test(title) || document.querySelector('#challenge-form, #challenge-running, #cf-challenge-running')) kind = 'Cloudflare check';
+  else if (frameIs(/arkoselabs|funcaptcha/i)) kind = 'Arkose (FunCaptcha)';
+  else if (frameIs(/captcha-delivery\\.com/i)) kind = 'DataDome check';
+  else if (any('#px-captcha')) kind = 'PerimeterX check';
+  else if (/our systems have detected unusual traffic|verify (that )?you are (a )?human|are you a robot\\?|press (&|and) hold to confirm/i.test(text)) kind = 'human check';
+  return { kind, url: location.href, title };
+}`;
+
 /** Tools after which the page usually changed: their results include the updated page snapshot. */
 const PAGE_CHANGING = new Set(['browser_navigate', 'browser_navigate_back', 'browser_click', 'browser_type', 'browser_fill_form', 'browser_select_option',
   'browser_press_key', 'browser_drag', 'browser_file_upload', 'browser_handle_dialog', 'browser_tabs', 'browser_wait_for']);
@@ -1288,9 +1313,20 @@ async function createScreen(botId) {
       } else {
         content = content.map((c) => (c.type === 'text' ? { ...c, text: c.text.replace(/- \[Snapshot\]\([^)]*\)/g, '- Call browser_snapshot to read the page.') } : c));
       }
+      const captcha = !r?.isError && (PAGE_CHANGING.has(tool) || tool === 'browser_snapshot') ? await detectCaptcha().catch(() => null) : null;
       // The generated Playwright code is noise for the Bot (and costs tokens): keep the result and the page.
       content = content.map((c) => (c.type === 'text' ? { ...c, text: c.text.replace(/### Ran Playwright code\n```js\n[\s\S]*?\n```\n?/g, '').trim() } : c)).filter((c) => c.type !== 'text' || c.text);
-      return { content, isError: !!r?.isError };
+      return { content, isError: !!r?.isError, captcha };
+    };
+    /** The CAPTCHA (kind, url, title) on the Bot's current page, or null. */
+    const detectCaptcha = async () => {
+      if (!PLAYWRIGHT_MCP) return null;
+      await ensureChrome();
+      const res = await (await getMcp()).request('tools/call', { name: 'browser_evaluate', arguments: { function: CAPTCHA_DETECTOR } }, 20_000);
+      const text = (res?.content ?? []).filter((c) => c.type === 'text').map((c) => c.text).join('\n');
+      const json = text.match(/### Result\n([\s\S]*?)(?:\n### |$)/)?.[1];
+      const found = json ? JSON.parse(json) : null;
+      return found?.kind ? found : null;
     };
     // Warm start: Chrome and Playwright come up in the background, so the first browser action is quick.
     const warm = () => { if (PLAYWRIGHT_MCP) browser('browser_tabs', { action: 'list' }).catch((e) => log(`Browser warm-up for ${botId}: ${e.message}`)); };
@@ -1304,7 +1340,7 @@ async function createScreen(botId) {
     const d = new Desktop(makeLinuxBackend({ display, open: openUrl }), { cwd: botDir, env, user: RUN_AS || undefined });
     await d.init();
     log(`Screen ${display} ready for Bot ${botId}${PLAYWRIGHT_MCP ? '' : ' (Playwright not found: browser tools unavailable)'}`);
-    return { botId, n, display, profile, procs, desktop: d, browser, warm, closeBrowser: () => mcp?.close() };
+    return { botId, n, display, profile, procs, desktop: d, browser, detectCaptcha, warm, closeBrowser: () => mcp?.close() };
   } catch (e) {
     for (const p of procs.reverse()) { try { p.kill('SIGKILL'); } catch { /* gone */ } }
     usedDisplays.delete(n);
@@ -1427,6 +1463,7 @@ async function handleDesktop(msg) {
       // Each Bot has its own screen; nothing is shared between Bots but the shell's machine.
       if (method === 'input') { const sp = screens.get(params.botId); if (sp) (await sp).desktop.input(params); return; }
       if (method === 'close') result = await closeScreen(params.botId);
+      else if (method === 'captcha') result = { captcha: await (await screenFor(params.botId)).detectCaptcha() };
       else if (method === 'browser') {
         const tool = String(params.tool ?? '');
         result = await (await screenFor(params.botId)).browser(tool, params.args && typeof params.args === 'object' ? params.args : {});

@@ -164,6 +164,11 @@ docker build -t registry.fly.io/$FLY_VM_APP:v1 -f infra/vm-image/Dockerfile .
 docker push registry.fly.io/$FLY_VM_APP:v1   # then VM_IMAGE=registry.fly.io/$FLY_VM_APP:v1
 ```
 
+**CAPTCHAs and human checks.** Bots never solve or get around CAPTCHAs. After every page-changing browser action, the companion checks the page for a *visible* challenge: reCAPTCHA, hCaptcha, Cloudflare Turnstile and its "Just a moment" page, Arkose, DataDome, PerimeterX, and "unusual traffic" or "verify you are human" pages. Invisible badges are ignored.
+1. If the check clears by itself within `CAPTCHA_AUTOPASS_SEC` (8), the Bot carries on.
+2. Otherwise the Bot posts "🧩 … please solve it on my screen" with a link (`/?screen=<botId>`) that opens its live screen in Take control. In the app the Bot shows as waiting on the user; over iMessage the message is forwarded as usual.
+3. When the challenge is gone, the Bot continues on the same page. If nobody solves it within `CAPTCHA_WAIT_MIN` (10), the Bot stops that step and tells the user why.
+
 Don't run the image with `--network host`: its firewall rules are meant for the VM's own network.
 
 #### Full desktop (`COMPUTER_PROVIDER=desktop`)

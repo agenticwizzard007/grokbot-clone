@@ -59,6 +59,9 @@ export function enqueue(botId: string, trigger: Trigger) {
   next.finally(() => { if (queues.get(botId) === next) queues.delete(botId); });
 }
 
+/** The running turn's abort signal (aborted when the user stops the Bot). */
+export const turnSignal = (botId: string): AbortSignal | undefined => aborts.get(botId)?.signal;
+
 export function interrupt(botId: string) {
   aborts.get(botId)?.abort();
 }
