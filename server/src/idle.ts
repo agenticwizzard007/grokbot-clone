@@ -1,6 +1,6 @@
 import { db, now as dbNow } from './db.js';
 import { getLive } from './store.js';
-import { suspendComputer } from './computer.js';
+import { suspendComputer } from './computers/orgo-box.js';
 import { isBotBusy } from './agent/loop.js';
 
 /**

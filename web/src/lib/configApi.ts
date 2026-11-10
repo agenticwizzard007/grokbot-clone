@@ -30,7 +30,11 @@ export interface ComputerDetails {
   computer: ComputerState;
   screens: { botId: string; screenId: string; lastUsedAt: number }[];
   hibernation: { idleMinutes: number; viewers: number; dryRun: boolean };
+  /** Local computers only: whether a PC has been paired. */
+  pairing: { paired: boolean; lastSeenAt: number | null } | null;
 }
+
+export interface Pairing { token: string; server: string; command: string }
 
 export type BotPatch = Partial<Pick<Bot, 'name' | 'label' | 'description' | 'instructions' | 'avatarShape' | 'avatarColor' | 'effort' | 'mode'>>;
 
@@ -61,6 +65,8 @@ export const configApi = {
   wake: () => req<{ computer: ComputerState }>('POST', '/computer/ensure'),
   sleep: () => req<{ computer: ComputerState }>('POST', '/computer/suspend'),
   resetScreen: (botId: string) => req<{ ok: true }>('POST', `/bots/${botId}/screen/reset`),
+  pairPc: () => req<Pairing>('POST', '/computer/pair'),
+  unpairPc: () => req<{ ok: true; revoked: number }>('DELETE', '/computer/pair'),
 
   policies: () => req<{ policies: { tool: string; mode: string }[] }>('GET', '/policies'),
   deletePolicy: (tool: string) => req<{ ok: true }>('DELETE', `/policies/${encodeURIComponent(tool)}`),

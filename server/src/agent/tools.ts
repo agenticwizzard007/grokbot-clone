@@ -1,10 +1,10 @@
 import { db, now } from '../db.js';
 import { newId } from '../lib/ids.js';
 import { hub } from '../lib/hub.js';
-import { orgo } from '../orgo.js';
-import { screenFor } from '../computer.js';
+import { computers } from '../computers/index.js';
 import { appendRow, getBotRow, listRoutines, toRoutine, describeCron } from '../store.js';
-import { executeComposio, innerToolSlugs, isReadOnlySlug, toolkitInfo } from '../composio.js';
+import { APPS_OFF, executeComposio, innerToolSlugs, isReadOnlySlug, toolkitInfo } from '../composio.js';
+import { env } from '../env.js';
 import { scheduleRoutine, unscheduleRoutine } from '../routines.js';
 import { createEventRoutine, deleteEventTrigger, describeEvent, listTriggerTypes } from '../triggers.js';
 import { setCheckins } from '../proactive.js';
@@ -42,24 +42,19 @@ interface ToolDef {
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', properties, required, additionalProperties: false });
 
 async function shot(ctx: ToolCtx, caption: string): Promise<ToolResult> {
-  const { computerId, screenId } = await screenFor(ctx.userId, ctx.botId);
+  const screen = await computers.screen(ctx.userId, ctx.botId);
   await new Promise((r) => setTimeout(r, 700));
-  const s = await orgo.screenshot(computerId, screenId);
-  const mime = s.mime_type ?? 'image/png';
-  const url = s.image.startsWith('data:') ? s.image : `data:${mime};base64,${s.image}`;
+  const s = await screen.screenshot();
   return {
     output: [
       { type: 'input_text', text: `${caption} Screen is ${s.width}x${s.height}px.` },
-      { type: 'input_image', image_url: url, detail: 'high' },
+      { type: 'input_image', image_url: `data:${s.mime};base64,${s.image}`, detail: 'high' },
     ],
     summary: caption,
   };
 }
 
-async function onScreen<T>(ctx: ToolCtx, fn: (computerId: string, screenId: string) => Promise<T>) {
-  const { computerId, screenId } = await screenFor(ctx.userId, ctx.botId);
-  return fn(computerId, screenId);
-}
+const onScreen = async (ctx: ToolCtx) => computers.screen(ctx.userId, ctx.botId);
 
 function botByName(userId: string, name: string) {
   return db.prepare('SELECT * FROM bots WHERE user_id=? AND lower(name)=lower(?)').get(userId, name.trim()) as any;
@@ -81,7 +76,7 @@ export const TOOLS: ToolDef[] = [
     activity: 'on_its_computer',
     label: 'Clicking on screen',
     impl: async (a, ctx) => {
-      await onScreen(ctx, (c, s) => orgo.click(c, s, { x: a.x, y: a.y, button: a.button ?? 'left', double: !!a.double }));
+      await (await onScreen(ctx)).click({ x: a.x, y: a.y, button: a.button ?? 'left', double: !!a.double });
       return shot(ctx, `Clicked (${a.x}, ${a.y}).`);
     },
   },
@@ -93,7 +88,7 @@ export const TOOLS: ToolDef[] = [
     label: 'Typing',
     impl: async (a, ctx) => {
       const text = String(a.text);
-      for (let i = 0; i < text.length; i += 1500) await onScreen(ctx, (c, s) => orgo.type(c, s, text.slice(i, i + 1500)));
+      await (await onScreen(ctx)).type(text);
       return shot(ctx, `Typed ${text.length} characters.`);
     },
   },
@@ -105,8 +100,8 @@ export const TOOLS: ToolDef[] = [
     label: 'Pressing keys',
     impl: async (a, ctx) => {
       const keys = String(a.keys).split('+').map((k) => (k.length === 1 ? k.toLowerCase() : k)).join('+');
-      await onScreen(ctx, (c, s) => orgo.key(c, s, keys));
-      return shot(ctx, `Pressed ${keys}.`);
+      const note = await (await onScreen(ctx)).key(keys);
+      return shot(ctx, note ? `Pressed ${keys}. ${note}` : `Pressed ${keys}.`);
     },
   },
   {
@@ -116,7 +111,7 @@ export const TOOLS: ToolDef[] = [
     activity: 'on_its_computer',
     label: 'Scrolling',
     impl: async (a, ctx) => {
-      await onScreen(ctx, (c, s) => orgo.scroll(c, s, { x: a.x, y: a.y, direction: a.direction, amount: a.amount ?? 3 }));
+      await (await onScreen(ctx)).scroll({ x: a.x, y: a.y, direction: a.direction, amount: a.amount ?? 3 });
       return shot(ctx, `Scrolled ${a.direction}.`);
     },
   },
@@ -127,7 +122,7 @@ export const TOOLS: ToolDef[] = [
     activity: 'on_its_computer',
     label: 'Dragging',
     impl: async (a, ctx) => {
-      await onScreen(ctx, (c, s) => orgo.drag(c, s, a));
+      await (await onScreen(ctx)).drag(a);
       return shot(ctx, 'Dragged.');
     },
   },
@@ -138,20 +133,7 @@ export const TOOLS: ToolDef[] = [
     activity: 'browsing_web',
     label: 'Browsing a site',
     impl: async (a, ctx) => {
-      const url = String(a.url).replace(/'/g, '%27');
-      await onScreen(ctx, (c, s) => {
-        const display = s === 'default' ? ':99' : `:${s.replace('screen-', '')}`;
-        const profile = `/root/grokbot/profiles/${ctx.botId}`;
-        // Reuse the bot's running Chrome if present (opens a new tab), else start one detached.
-        return orgo.bash(
-          c,
-          s,
-          `export DISPLAY=${display}; mkdir -p ${profile}; pgrep -f "user-data-dir=${profile}" >/dev/null || rm -f ${profile}/Singleton*; ` +
-            `setsid nohup google-chrome --no-sandbox --no-first-run --no-default-browser-check --disable-dev-shm-usage --password-store=basic ` +
-            `--user-data-dir=${profile} --start-maximized '${url}' >/tmp/chrome-${ctx.botId}.log 2>&1 < /dev/null & sleep 4; echo ok`,
-          40,
-        );
-      });
+      await (await onScreen(ctx)).openUrl(String(a.url));
       return shot(ctx, `Opened ${a.url}.`);
     },
   },
@@ -162,16 +144,10 @@ export const TOOLS: ToolDef[] = [
     activity: 'drafting_file',
     label: 'Saving notes',
     impl: async (a, ctx) => {
-      const name = String(a.filename).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120) || 'file.txt';
-      const dir = `/root/grokbot/files/${ctx.botId}`;
-      const b64 = Buffer.from(String(a.content), 'utf8').toString('base64');
-      // Chunk the base64 so very large files don't exceed a single command's size.
-      await onScreen(ctx, async (c, s) => {
-        await orgo.bash(c, s, `mkdir -p ${dir} && : > ${dir}/${name}.b64`, 30);
-        for (let i = 0; i < b64.length; i += 60000) await orgo.bash(c, s, `printf '%s' '${b64.slice(i, i + 60000)}' >> ${dir}/${name}.b64`, 30);
-        return orgo.bash(c, s, `base64 -d ${dir}/${name}.b64 > ${dir}/${name} && rm ${dir}/${name}.b64 && wc -c ${dir}/${name}`, 30);
-      });
-      return { output: JSON.stringify({ ok: true, path: `${dir}/${name}` }), summary: `Saved ${name}` };
+      let name = String(a.filename).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
+      if (!name || /^\.+$/.test(name)) name = 'file.txt';
+      const path = await computers.files.save(ctx.userId, ctx.botId, name, String(a.content));
+      return { output: JSON.stringify({ ok: true, path }), summary: `Saved ${name}` };
     },
   },
   {
@@ -181,7 +157,9 @@ export const TOOLS: ToolDef[] = [
     activity: 'running_commands',
     label: 'Running commands',
     impl: async (a, ctx) => {
-      const r = await onScreen(ctx, (c, s) => orgo.bash(c, s, String(a.command), Math.min(Math.max(a.timeout_seconds ?? 120, 1), 290)));
+      const screen = computers.capabilities.shell ? await onScreen(ctx) : null;
+      if (!screen?.shell) return { output: 'There is no shell on this computer. Use the browser tools instead.', summary: 'No shell' };
+      const r = await screen.shell(String(a.command), Math.min(Math.max(a.timeout_seconds ?? 120, 1), 290));
       const out = (r.output ?? '').slice(-20000);
       return { output: JSON.stringify({ exit_code: r.exit_code, output: out }), summary: `exit ${r.exit_code}` };
     },
@@ -457,6 +435,7 @@ export const TOOLS: ToolDef[] = [
     activity: 'connecting_service',
     label: 'Using a connected app',
     impl: async (a, ctx) => {
+      if (!env.composioEnabled) return { output: `${APPS_OFF} Tell the user, and use your browser instead if that can do the job.`, summary: 'Apps not set up' };
       const info = await toolkitInfo(String(a.toolkit).toLowerCase());
       if (!info) return { output: `Unknown toolkit "${a.toolkit}". Use COMPOSIO_SEARCH_TOOLS to find the right toolkit slug.` };
       appendRow(ctx.botId, 'card', { type: 'card', card: 'connect', toolkit: info.slug, toolkitName: info.name, logo: info.logo, reason: a.reason, status: 'pending' });
@@ -468,7 +447,12 @@ export const TOOLS: ToolDef[] = [
 export const toolMap = new Map(TOOLS.map((t) => [t.name, t]));
 
 export function functionSchemas() {
-  return TOOLS.map((t) => ({ type: 'function', name: t.name, description: t.description, parameters: t.parameters }));
+  return TOOLS.filter((t) => t.name !== 'shell' || computers.capabilities.shell).map((t) => ({
+    type: 'function',
+    name: t.name,
+    description: computers.toolDescriptions?.[t.name] ?? t.description,
+    parameters: t.parameters,
+  }));
 }
 
 // ---------- approvals policy ----------

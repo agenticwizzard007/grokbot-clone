@@ -13,7 +13,7 @@ import { getBotRow, getLive } from '../store.js';
  *  (c) a bounded, relevance-ranked memory section for the system prompt.
  */
 
-const xai = new OpenAI({ apiKey: env.xaiKey, baseURL: 'https://api.x.ai/v1', timeout: 300_000 });
+const xai = new OpenAI({ apiKey: env.xaiKey, baseURL: env.xaiBaseUrl, timeout: 300_000 });
 
 const num = (v: string | undefined, d: number) => (v !== undefined && v !== '' && Number.isFinite(Number(v)) ? Number(v) : d);
 

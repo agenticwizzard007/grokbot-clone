@@ -7,8 +7,7 @@ import { hub } from './lib/hub.js';
 import { createSession, destroySession, requireUser, userFromCookieHeader, type AuthVars } from './lib/auth.js';
 import { allLive, appendRow, clearConversation, emitBot, getBot, getBotRow, getRow, listBots, listRoutines, listRows, listTasks, toRoutine, updateRow } from './store.js';
 import { enqueue, interrupt, resolveApproval } from './agent/loop.js';
-import { computerState, ensureComputer, refreshComputer, suspendComputer } from './computer.js';
-import { orgo } from './orgo.js';
+import { computers } from './computers/index.js';
 import { catalog, connectedToolkits, deleteConnection, disconnect, googleProfile, startConnect, startGoogleLogin, toolkitInfo } from './composio.js';
 import { runRoutine, scheduleRoutine, unscheduleRoutine } from './routines.js';
 import { deleteEventTrigger } from './triggers.js';
@@ -51,7 +50,7 @@ function findOrCreateUser(email: string, name?: string, preferId?: string) {
 
 api.get('/auth/me', (c) => {
   const user = userFromCookieHeader(c.req.header('cookie'));
-  return c.json({ user, devLogin: env.devLogin });
+  return c.json({ user, devLogin: env.devLogin, googleLogin: env.composioEnabled });
 });
 
 api.get('/auth/google/start', async (c) => {
@@ -151,6 +150,8 @@ api.delete('/bots/:id', (c) => {
   const b = ownBot(c.get('user').id, c.req.param('id'));
   if (!b) return c.json({ error: 'not found' }, 404);
   for (const r of listRoutines(b.id)) unscheduleRoutine(r.id);
+  // Close the Bot's browser/screen so the next Bot to get it doesn't inherit its windows.
+  void computers.resetScreen(c.get('user').id, b.id).catch(() => {});
   db.prepare('DELETE FROM screens WHERE bot_id=?').run(b.id);
   db.prepare('DELETE FROM bots WHERE id=?').run(b.id);
   hub.emit(c.get('user').id, { type: 'roster' });
@@ -300,30 +301,27 @@ api.delete('/memories/:id', (c) => {
 
 // ---------- computer ----------
 
-api.get('/computer', async (c) => c.json({ computer: await refreshComputer(c.get('user').id) }));
+api.get('/computer', async (c) => c.json({ computer: await computers.refresh(c.get('user').id) }));
 
 api.post('/computer/ensure', (c) => {
   const userId = c.get('user').id;
-  ensureComputer(userId).catch((e) => console.warn('[computer] ensure failed', e.message));
-  return c.json({ computer: computerState(userId) });
+  computers.ensure(userId).catch((e) => console.warn('[computer] ensure failed', e.message));
+  return c.json({ computer: computers.state(userId) });
 });
 
 api.post('/computer/suspend', async (c) => {
-  await suspendComputer(c.get('user').id);
-  return c.json({ computer: computerState(c.get('user').id) });
+  await computers.suspend(c.get('user').id);
+  return c.json({ computer: computers.state(c.get('user').id) });
 });
 
 api.get('/bots/:id/screenshot', async (c) => {
   const user = c.get('user');
   const b = ownBot(user.id, c.req.param('id'));
   if (!b) return c.json({ error: 'not found' }, 404);
-  const comp = db.prepare("SELECT orgo_id FROM computers WHERE user_id=? AND status='running'").get(user.id) as any;
-  const scr = db.prepare('SELECT screen_id FROM screens WHERE bot_id=?').get(b.id) as any;
-  if (!comp?.orgo_id || !scr) return c.body(null, 204);
   try {
-    const s = await orgo.screenshot(comp.orgo_id, scr.screen_id);
-    const b64 = s.image.replace(/^data:[^,]+,/, '');
-    return c.body(Buffer.from(b64, 'base64'), 200, { 'Content-Type': s.mime_type ?? 'image/jpeg', 'Cache-Control': 'no-store' });
+    const s = await computers.peek(user.id, b.id);
+    if (!s) return c.body(null, 204);
+    return c.body(Buffer.from(s.image, 'base64'), 200, { 'Content-Type': s.mime, 'Cache-Control': 'no-store' });
   } catch {
     return c.body(null, 204);
   }
@@ -333,6 +331,7 @@ api.get('/bots/:id/screenshot', async (c) => {
 
 api.get('/apps', async (c) => {
   const user = c.get('user');
+  if (!env.composioEnabled) return c.json({ apps: [], connected: [], connectedApps: [], categories: [], total: 0, notConfigured: true });
   const search = (c.req.query('search') ?? '').toLowerCase();
   const category = c.req.query('category') ?? '';
   const [all, connected] = await Promise.all([catalog(), connectedToolkits(user.id).catch(() => new Set<string>())]);

@@ -10,12 +10,12 @@ import { newId } from './lib/ids.js';
 import type { AuthVars } from './lib/auth.js';
 import { appendRow, emitBot, getBotRow, getLive, listRoutines, listTasks, updateRow } from './store.js';
 import { enqueue } from './agent/loop.js';
-import { computerState } from './computer.js';
+import { computerState } from './computers/index.js';
 import type { ActivityKind, EventBody, MessageBody, RowBody, VoiceCallRecord, VoiceOption } from './types.js';
 
 export const voiceApi = new Hono<AuthVars>();
 
-const XAI = 'https://api.x.ai/v1';
+const XAI = env.xaiBaseUrl;
 const VOICE_MODEL = process.env.XAI_VOICE_MODEL ?? 'grok-voice-latest';
 const STT_MODEL = process.env.XAI_STT_MODEL ?? 'grok-voice-transcribe-2.0';
 const SAMPLE_RATE = 24000;
@@ -122,7 +122,8 @@ function activitySnapshot(botId: string) {
   if (tasks.length) lines.push(`Open tasks:\n${tasks.map((t) => `- ${t.title} [${t.state === 'needs_input' ? 'needs input' : 'in progress'}]${t.note ? `: ${clip(t.note, 120)}` : ''}`).join('\n')}`);
   if (pending.length) lines.push(`Waiting on the user in chat:\n${pending.map((b: any) => `- ${b.card === 'approval' ? b.title : b.card === 'question' ? b.question : b.card === 'connect' ? `Connect ${b.toolkitName}` : 'A draft to review'}`).join('\n')}`);
   const comp = computerState(getBotRow(botId).user_id);
-  lines.push(`Computer: ${comp.status === 'running' ? 'awake' : comp.status === 'absent' ? 'not set up yet' : comp.status}.`);
+  if (comp.provider === 'local') lines.push(`Browser on the user's PC: ${comp.status === 'running' ? 'connected' : 'not connected'}.`);
+  else lines.push(`Computer: ${comp.status === 'running' ? 'awake' : comp.status === 'absent' ? 'not set up yet' : comp.status}.`);
   return lines.join('\n');
 }
 

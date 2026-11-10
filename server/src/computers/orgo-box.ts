@@ -1,9 +1,9 @@
-import { db, now } from './db.js';
-import { env } from './env.js';
-import { hub } from './lib/hub.js';
-import { orgo, OrgoError } from './orgo.js';
-import { getLive } from './store.js';
-import type { ComputerState } from './types.js';
+import { db, now } from '../db.js';
+import { env } from '../env.js';
+import { hub } from '../lib/hub.js';
+import { orgo, OrgoError } from '../orgo.js';
+import { getLive } from '../store.js';
+import type { ComputerState } from '../types.js';
 
 /**
  * One Orgo Linux computer per user (the "box"). Every bot gets its own Orgo screen
@@ -31,7 +31,7 @@ function setStatus(userId: string, status: ComputerState['status'], extra: { org
 export function computerState(userId: string): ComputerState {
   const r = rowFor(userId);
   const screens = (db.prepare('SELECT bot_id, screen_id FROM screens WHERE user_id=?').all(userId) as any[]).map((s) => ({ botId: s.bot_id, screenId: s.screen_id }));
-  return { status: r.status, orgoId: r.orgo_id, error: r.error, screens };
+  return { status: r.status, orgoId: r.orgo_id, error: r.error, screens, provider: 'orgo' };
 }
 
 let workspaceId = env.orgoWorkspaceId;

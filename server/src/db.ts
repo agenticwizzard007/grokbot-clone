@@ -132,6 +132,12 @@ CREATE TABLE IF NOT EXISTS skills (
   body TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS companion_tokens (
+  token_hash TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  last_seen_at INTEGER
+);
 CREATE TABLE IF NOT EXISTS composio_sessions (
   user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   session_id TEXT NOT NULL

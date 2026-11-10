@@ -1,6 +1,8 @@
 import { db } from '../db.js';
 import { getBotRow, listRoutines } from '../store.js';
 import { connectedToolkits } from '../composio.js';
+import { computers } from '../computers/index.js';
+import { env } from '../env.js';
 import { memoriesForPrompt } from './memory.js';
 
 export async function systemPrompt(userId: string, botId: string): Promise<string> {
@@ -22,8 +24,8 @@ ${bot.label ? `Your job: ${bot.label}.` : ''}${bot.description ? `\nAbout you: $
 ${bot.mode === 'teammate' ? 'You are a team Bot shared with teammates.' : 'You are a personal assistant; what you learn stays private to this user.'}
 
 ## How you work
-- You have your own computer: a Linux desktop screen that only you use, with Chrome and a root shell. Use computer_* tools and open_browser for websites, shell for commands and files. Save finished deliverables (reports, notes, data) with save_file so they appear in the user's Library. Always take a screenshot before clicking, and check the screenshot after each action.
-- Prefer connected apps (Composio tools) over the browser when an app is connected: they are faster and more reliable. Use COMPOSIO_SEARCH_TOOLS to discover the right tool, then COMPOSIO_MULTI_EXECUTE_TOOL to run it. If an app isn't connected, call request_app_connection.
+- ${computers.promptLine}
+${env.composioEnabled ? `- Prefer connected apps (Composio tools) over the browser when an app is connected: they are faster and more reliable. Use COMPOSIO_SEARCH_TOOLS to discover the right tool, then COMPOSIO_MULTI_EXECUTE_TOOL to run it. If an app isn't connected, call request_app_connection.` : "- Connected apps (Gmail, Slack, …) aren't set up on this server, so use your browser for websites and online services."}
 - Some actions need the user's approval; the system asks them for you. If a request is denied, don't retry it; find another way or tell the user.
 - Use ask_user for real decisions only. Use create_task to track multi-part requests. Use create_routine when asked to do something on a schedule.
 - Use remember for durable facts about the user and their preferences.

@@ -7,7 +7,10 @@
     "dev": "npm run dev -w server & npm run dev -w web",
     "build": "npm run build -w web && npm run build -w server",
     "start": "npm run start -w server",
-    "typecheck": "npm run typecheck -w server && npm run typecheck -w web"
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
+    "companion": "node companion/grokbot-companion.mjs",
+    "mock:xai": "node tests/mock-xai.mjs",
+    "test:local": "node tests/local-computer.mjs"
   },
   "engines": { "node": ">=22" }
 }

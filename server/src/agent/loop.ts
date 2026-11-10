@@ -11,7 +11,7 @@ import { repairHistory } from './history.js';
 import { maybeCompact, noteUsage } from './memory.js';
 import { activityFor, functionSchemas, humanizeSlug, policyFor, runComposioTool, toolMap, type ToolCtx, type ToolResult } from './tools.js';
 
-const xai = new OpenAI({ apiKey: env.xaiKey, baseURL: 'https://api.x.ai/v1', timeout: 360_000 });
+const xai = new OpenAI({ apiKey: env.xaiKey, baseURL: env.xaiBaseUrl, timeout: 360_000 });
 
 export type Trigger =
   | { type: 'user'; text: string }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Toolkit } from '@shared/types';
 import { BotAvatarFor } from '../../avatar/BotAvatar';
-import { configApi, type ComputerDetails } from '../../lib/configApi';
+import { configApi, type ComputerDetails, type Pairing } from '../../lib/configApi';
 import { relativeShort } from '../../lib/time';
 import { useConfigUI, type AppSection, type Theme } from '../../configStore';
 import { useStore } from '../../store';
@@ -123,6 +123,8 @@ function ComputerSection() {
   };
   const byId = new Map(bots.map((b) => [b.id, b]));
 
+  if ((computer ?? details?.computer)?.provider === 'local') return <LocalComputerSection details={details} reload={load} />;
+
   return (
     <>
       <PageHead title="Computer" sub="Your Bots share one cloud computer. Each Bot works on its own screen." />
@@ -175,6 +177,101 @@ function ComputerSection() {
           })}
         </div>
         <div className="cfg-field__hint">Reset closes every window on that Bot’s screen, so it starts clean next time. Up to 4 Bots can have a screen at once.</div>
+      </section>
+    </>
+  );
+}
+
+/** Local computers: Bots use a Chrome browser on the user's own PC through the companion program. */
+function LocalComputerSection({ details, reload }: { details: ComputerDetails | null; reload: () => void }) {
+  const computer = useStore((s) => s.computer) ?? details?.computer ?? null;
+  const bots = useStore((s) => s.bots);
+  const [pairing, setPairing] = useState<Pairing | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const connected = computer?.status === 'running';
+  const paired = !!details?.pairing?.paired;
+  const byId = new Map(bots.map((b) => [b.id, b]));
+
+  // Once the PC connects, the one-time command has done its job.
+  useEffect(() => { if (connected) setPairing(null); }, [connected]);
+
+  const pair = async () => {
+    setBusy(true); setNote(null); setCopied(false);
+    try { setPairing(await configApi.pairPc()); reload(); }
+    catch (e) { setNote((e as Error).message); }
+    finally { setBusy(false); }
+  };
+  const copy = async () => {
+    if (!pairing) return;
+    try { await navigator.clipboard.writeText(pairing.command); setCopied(true); } catch { setNote('Couldn’t copy. Select the command and copy it yourself.'); }
+  };
+
+  return (
+    <>
+      <PageHead title="Computer" sub="Your Bots use a Chrome browser on your own PC. Each Bot gets its own browser profile there, separate from yours." />
+      <section className="cfg-section">
+        <div className="cfg-card">
+          <div className="cfg-row">
+            <span className={`computer-status-dot is-${connected ? 'on' : 'off'}`} aria-hidden />
+            <div className="cfg-row__text">
+              <div className="cfg-row__title">Your PC · {computerStatusText(computer)}</div>
+              <div className="cfg-row__sub">
+                {connected
+                  ? `${computer?.device?.name ?? 'PC'}${computer?.device?.platform ? ` · ${computer.device.platform}` : ''} · Your Bots can browse now.`
+                  : paired ? 'Paired, but the companion isn’t running. Start it again on your PC, or connect a new one.' : 'Connect a PC so your Bots can use a browser.'}
+              </div>
+            </div>
+            {!connected && <button type="button" className="cfg-btn cfg-btn--primary" disabled={busy} onClick={pair}>{busy ? 'Preparing…' : paired ? 'New connect command' : 'Connect your PC'}</button>}
+            {paired && (
+              <ConfirmButton className="cfg-btn cfg-btn--secondary" confirmLabel="Disconnect PC" onConfirm={async () => { try { await configApi.unpairPc(); setPairing(null); reload(); } catch (e) { setNote((e as Error).message); } }}>
+                Disconnect
+              </ConfirmButton>
+            )}
+          </div>
+          {pairing && !connected && (
+            <div className="cfg-pair">
+              <div className="cfg-pair__step">On your PC (needs <b>Node.js 22+</b> and <b>Google Chrome</b>), run this in a terminal and keep it running:</div>
+              <div className="cfg-pair__cmd">
+                <code className="cfg-pair__code" aria-label="Connect command">{pairing.command}</code>
+                <button type="button" className="cfg-btn cfg-btn--secondary" onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
+              </div>
+              <div className="cfg-field__hint">It contains a private token: anyone who has it can connect their PC as your Bots’ browser. Add <code className="cfg-code">--headed</code> to see the browser windows on your PC. Waiting for your PC to connect…</div>
+            </div>
+          )}
+          {note && <div className="cfg-error cfg-error--inset">{note}</div>}
+        </div>
+      </section>
+
+      <section className="cfg-section">
+        <div className="cfg-section__label">Browsers in use</div>
+        <div className="cfg-card">
+          {!details ? <div className="cfg-empty cfg-empty--flat">Loading…</div> : details.screens.length === 0 ? (
+            <div className="cfg-empty cfg-empty--flat">{connected ? 'No Bot has opened a browser yet.' : 'None while your PC is disconnected.'}</div>
+          ) : details.screens.map((s) => {
+            const bot = byId.get(s.botId);
+            return (
+              <div key={s.botId} className="cfg-row">
+                {bot ? <BotAvatarFor bot={bot} size={28} /> : <span className="cfg-row__ph" />}
+                <div className="cfg-row__text">
+                  <div className="cfg-row__title">{bot?.name ?? 'Removed Bot'}</div>
+                  <div className="cfg-row__sub">Browser · used {relativeShort(s.lastUsedAt) === 'now' ? 'just now' : `${relativeShort(s.lastUsedAt)}${/^\d/.test(relativeShort(s.lastUsedAt)) ? ' ago' : ''}`}</div>
+                </div>
+                <ConfirmButton
+                  className="cfg-btn cfg-btn--secondary"
+                  confirmLabel="Close browser"
+                  disabled={!connected}
+                  title="Closes this Bot’s browser on your PC. Its logins are kept."
+                  onConfirm={async () => { try { await configApi.resetScreen(s.botId); setNote(null); reload(); } catch (e) { setNote((e as Error).message); } }}
+                >
+                  Close
+                </ConfirmButton>
+              </div>
+            );
+          })}
+        </div>
+        <div className="cfg-field__hint">Bots only get a browser on your PC: no files and no shell. Local-network addresses are blocked unless you start the companion with <code className="cfg-code">--allow-private-network</code>.</div>
       </section>
     </>
   );

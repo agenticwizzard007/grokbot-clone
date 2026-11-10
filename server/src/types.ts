@@ -173,6 +173,10 @@ export interface ComputerState {
   orgoId: string | null;
   error: string | null;
   screens: { botId: string; screenId: string }[];
+  /** Which kind of computer this is: an Orgo cloud VM, or a browser on the user's own PC. */
+  provider?: 'orgo' | 'local';
+  /** For 'local': the connected PC. */
+  device?: { name: string; platform: string } | null;
 }
 
 export interface Toolkit {

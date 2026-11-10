@@ -1,5 +1,6 @@
 import { db, now } from './db.js';
-import { composio } from './composio.js';
+import { APPS_OFF, composio } from './composio.js';
+import { env } from './env.js';
 import { appendRow } from './store.js';
 
 /**
@@ -23,6 +24,7 @@ function migrate() {
 export async function initTriggers(enqueue: (botId: string, t: any) => void) {
   migrate();
   enqueueFn = enqueue;
+  if (!env.composioEnabled) { console.log('[triggers] off: no COMPOSIO_API_KEY'); return; }
   const count = (db.prepare("SELECT COUNT(*) n FROM routines WHERE schedule LIKE 'event:%'").get() as any).n;
   if (count > 0) await ensureSubscribed();
   console.log(`[triggers] ${count} event routine(s)`);
@@ -74,6 +76,7 @@ export async function listTriggerTypes(toolkit: string) {
 
 export async function createEventRoutine(userId: string, botId: string, a: { name: string; prompt: string; trigger_slug: string; config?: Record<string, unknown> }) {
   migrate();
+  if (!env.composioEnabled) throw new Error(APPS_OFF);
   const slug = a.trigger_slug.toUpperCase();
   const res: any = await composio.triggers.create(userId, slug, { triggerConfig: a.config ?? {} } as any);
   const triggerId = res?.triggerId ?? res?.trigger_id ?? res?.id;

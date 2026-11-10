@@ -24,14 +24,17 @@ Grokbot Clone recreates the Grok Bot experience with a runtime you can run and m
 ## What you can do
 
 - **Give every Bot a role.** Set its instructions, appearance, thinking effort, skills, and memories. Make one your primary point of contact.
-- **Put it to work on a computer.** Bots browse websites, run shell commands, and use a full Linux desktop through Orgo. Watch live, take control, and find saved work in the Library.
+- **Put it to work on a computer.** Bots browse websites in a Chrome browser on your own PC, or use a full Linux desktop with a shell through Orgo. Watch live, take control, and find saved work in the Library.
 - **Connect your apps.** Google sign-in and app connections run through Composio. Read actions run automatically; Composio write actions pause for approval, with an option to remember your choice.
 - **Build a team.** Bots delegate work, start subagents, and join group chats with @mentions.
 - **Keep work moving.** Schedule routines, react to app events, and let your primary Bot check in proactively.
 - **Keep context.** Bots retain durable memories, recall earlier facts, and compact long conversations.
 - **Talk it through.** Realtime voice calls hand tasks to the same Bot runtime. Voice selection, speed, previews, and push-to-talk dictation are included.
 
-Each user's Bots share one Orgo VM, with up to four separate Bot desktops active at once. Idle computers can sleep and wake when needed.
+Bots' computers come from a pluggable provider (`COMPUTER_PROVIDER`):
+
+- **`local`**: a Chrome browser on your own PC, through a small companion program. Each Bot gets its own browser profile. Browser only: no desktop apps and no shell.
+- **`orgo`**: each user's Bots share one Orgo cloud VM, with up to four separate Bot desktops active at once. Idle computers can sleep and wake when needed.
 
 ## Quick start
 
@@ -53,10 +56,10 @@ Fill in these values in `.env`:
 | Variable | Purpose |
 | --- | --- |
 | `XAI_API_KEY` | Grok text and voice API access |
-| `COMPOSIO_API_KEY` | App connections, tool catalog, and Google sign-in |
-| `ORGO_API_KEY` | Cloud computer access |
-| `ORGO_WORKSPACE_ID` | Workspace in which to create computers |
+| `COMPOSIO_API_KEY` | Optional: app connections, tool catalog, and Google sign-in (without it, use the dev email sign-in) |
 | `SESSION_SECRET` | Secret used to sign sessions |
+| `COMPUTER_PROVIDER` | `local` (a browser on your PC) or `orgo` (cloud VMs) |
+| `ORGO_API_KEY`, `ORGO_WORKSPACE_ID` | Only for `COMPUTER_PROVIDER=orgo` |
 
 Generate a session secret with:
 
@@ -84,7 +87,22 @@ Open **[localhost:5173](http://localhost:5173)**. The frontend proxies API reque
 
 Use **Sign in with Google**, or use the local email form with `DEV_LOGIN=1` (enabled in `.env.example`). Your account starts with a primary Bot. Create another Bot, give it a role, and send it a task.
 
-The first computer task provisions an Orgo VM. Model calls, app actions, and computers use your provider accounts and may incur charges.
+With `COMPUTER_PROVIDER=local`, connect your PC before giving Bots browser work (see below). With `orgo`, the first computer task provisions an Orgo VM. Model calls, app actions, and computers use your provider accounts and may incur charges.
+
+### 4. Connect your PC (local computers)
+
+In Grokbot, open **Settings → Computer → Connect your PC** and run the command it shows on the PC whose browser your Bots should use. It needs **Node.js 22+** and **Google Chrome**, and looks like:
+
+```bash
+curl -fsSL http://localhost:8787/api/companion/script -o grokbot-companion.mjs \
+  && node grokbot-companion.mjs --server http://localhost:8787 --token gbc_...
+```
+
+Keep it running while your Bots work. The companion connects out to the server, so the PC needs no open ports, and it starts a separate Chrome for each Bot with its own profile under `~/.grokbot-companion`; your everyday Chrome profile is never touched. Chrome runs headless (watch it from the Bot's computer panel in Grokbot) unless you add `--headed`.
+
+Guard rails, enforced on your PC: Bots get a browser only (no shell, no files from your PC), only `http(s)` pages, no downloads or file uploads, and local-network addresses such as `localhost` or `192.168.x.x` are blocked unless you add `--allow-private-network`. The token in the command is a secret: anyone who has it can connect their PC as your Bots' browser. **Disconnect** in the same settings page revokes it.
+
+From a clone of this repository you can also run `npm run companion -- --server <url> --token <token>`.
 
 ### Run a built version
 
@@ -102,7 +120,7 @@ The API serves the built app at **[localhost:8787](http://localhost:8787)**. Set
 | Web app | React, TypeScript, Vite, and Zustand |
 | Server | Node.js, Hono, SQLite, and Server-Sent Events |
 | Agent runtime | Grok Responses API with streaming, tools, memory, and approval handling |
-| Computers | Orgo VM lifecycle and per-Bot desktops; noVNC viewer through a server-side relay |
+| Computers | Pluggable providers: a browser on your PC through the companion (Chrome DevTools protocol), or Orgo VMs with per-Bot desktops; noVNC viewer through the server |
 | Connected apps | Composio catalog, sessions, authentication, tools, and triggers |
 | Voice | Grok realtime sessions with a relay into the text agent's task loop |
 
@@ -138,6 +156,19 @@ node tests/e2e.mjs http://localhost:8787
 
 The suite creates a temporary Bot and exercises chat, computer tools, the live viewer, search, app connections, voice sessions, groups, and settings. Set `E2E_EMAIL` to choose the test account. It calls real providers and requires Google Chrome at `/usr/bin/google-chrome`.
 
+#### Local computers, without an xAI key
+
+`tests/mock-xai.mjs` stands in for the Grok API so you can test the computer flow end to end. Start it, point the server at it, and run the local-computer suite:
+
+```bash
+npm run mock:xai &                         # listens on :8790
+# in .env: COMPUTER_PROVIDER=local, XAI_BASE_URL=http://localhost:8790/v1, DEV_LOGIN=1
+npm run dev -w server & npm run dev -w web &
+npm run test:local                         # node tests/local-computer.mjs
+```
+
+The suite serves a small test website, pairs a fresh companion, and checks real effects on that site: Bots opening pages, clicking, typing, keys, scrolling, new tabs, dialogs, history, the guard rails, Library files, and the live viewer including **Take control**. With the mock running you can also try it by hand: a chat message containing a URL makes the Bot open it, and a message like `mock: open_browser {"url":"https://example.com"} | computer_screenshot {} | say Done` runs those steps. Remove `XAI_BASE_URL` to use the real Grok API.
+
 The separate `tests/voice-call.mjs` script is a development harness for two-way audio. It currently contains machine-specific paths and needs adapting before use on another system.
 
 ### Contributing
@@ -150,7 +181,7 @@ Keep changes focused, run the typecheck and build, and describe how you verified
 
 This is an experimental project. The core workflows are implemented, but it has not undergone a security audit. Bots within an account share a VM; Composio write approvals do not cover every possible action a Bot can take through its browser or shell.
 
-Planned work includes a faster executor inside each VM, file-based skills and task recording, a local-computer companion, and meeting support.
+Planned work includes more computer providers (for example Docker containers or Firecracker microVMs on your own servers), a faster executor inside each VM, file-based skills and task recording, and meeting support.
 
 Configuration options for idle suspension, memory consolidation, and history compaction are described in the [architecture guide](docs/ARCHITECTURE.md). Start with [`.env.example`](.env.example) for connection settings.
 

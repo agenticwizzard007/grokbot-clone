@@ -14,6 +14,7 @@ import { LibraryTab } from './config/LibraryTab';
 import { BotTasks } from './config/TasksView';
 
 export function computerStatusText(c: ComputerState | null): string {
+  if (c?.provider === 'local') return c.status === 'running' ? 'Connected' : 'Not connected';
   switch (c?.status) {
     case 'running': return 'Awake';
     case 'starting': case 'resuming': return 'Waking up…';
@@ -105,11 +106,15 @@ function ComputerCard({ bot }: { bot: Bot }) {
           )}
         </span>
       </div>
-      {!running && !busy && (
+      {!running && !busy && (computer?.provider === 'local' ? (
+        <button type="button" className="panel-row panel-row--action" onClick={() => useConfigUI.getState().openAppSettings('computer')}>
+          <Icon name="monitor" size={14} opacity={0.56} /> Connect your PC
+        </button>
+      ) : (
         <button type="button" className="panel-row panel-row--action" onClick={() => api.ensureComputer().catch(() => {})}>
           <Icon name="monitor" size={14} opacity={0.56} /> Wake computer
         </button>
-      )}
+      ))}
     </div>
   );
 }
