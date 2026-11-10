@@ -66,7 +66,7 @@
 .apps-modal__connected-logos .toolkit-logo { margin-left: -3px; box-shadow: 0 0 0 1px #FFFFFF; }
 .apps-modal__controls { display: flex; flex-direction: column; gap: 12px; padding-top: 18px; padding-bottom: 8px; }
 .apps-modal__searchrow { display: flex; align-items: center; gap: 8px; }
-.pill-input { display: flex; align-items: center; gap: 6px; flex: 1 1 0; height: 32px; padding: 0 8px 0 12px; border-radius: var(--radius-full); background: var(--color-bg-elevated); border: 0.5px solid var(--color-border-tertiary); cursor: text; }
+.pill-input { display: flex; align-items: center; gap: 6px; flex: 1 1 0; min-width: 0; height: 32px; padding: 0 8px 0 12px; border-radius: var(--radius-full); background: var(--color-bg-elevated); border: 0.5px solid var(--color-border-tertiary); cursor: text; }
 .pill-input:focus-within { border-color: var(--color-border-focus); box-shadow: 0 0 0 3px #1E86FC22; }
 .pill-input input { flex: 1 1 0; min-width: 0; border: 0; outline: none; background: transparent; font-size: 14px; line-height: 20px; letter-spacing: 0.14px; }
 .pill-input input::placeholder { color: var(--color-text-tertiary); }

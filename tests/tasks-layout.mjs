@@ -86,6 +86,7 @@ try {
     assert.equal(await page.locator('.task-card').count(), 3);
     assert.equal(await page.locator('.task-filter.is-needs_input').getAttribute('aria-pressed'), 'true');
     await checkFits();
+    if (process.env.TASKS_DEBUG && width === 390) console.log(await page.locator('.task-filter, .task-card__title').evaluateAll(es => es.map(e => ({ text: e.textContent, color: getComputedStyle(e).color, background: getComputedStyle(e).backgroundColor, opacity: getComputedStyle(e).opacity }))));
     if (width === 390) await page.screenshot({ path: new URL('mobile-pending.png', screenshotDir).pathname });
     await page.getByRole('combobox', { name: 'Filter tasks by bot' }).selectOption('bot-1');
     assert.equal(await page.locator('.task-card').count(), 1, 'bot and state filters combine');
