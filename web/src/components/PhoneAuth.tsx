@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ApiError } from '../lib/api';
 import { configApi, type MessagingStatus, type PhoneStart } from '../lib/configApi';
+import { WhatsAppIcon } from './WhatsAppIcon';
 import '../styles/messaging.css';
 
 const prettyNumber = (n: string) => n.replace(/^\+1(\d{3})(\d{3})(\d{4})$/, '+1 ($1) $2-$3');
@@ -71,7 +72,7 @@ export function PhoneAuth({ mode, onAttached }: { mode: 'signin' | 'attach'; onA
       {start.line && (
         <div className="phone-auth__help">
           <div><b>No text yet?</b> Say Hi Swarm and we'll text your code right back.</div>
-          {start.line.whatsapp?.messageLink && <a className="btn btn--secondary phone-auth__btn" href={start.line.whatsapp.messageLink}>Open WhatsApp</a>}
+          {start.line.whatsapp?.messageLink && <a className="btn btn--secondary phone-auth__btn phone-auth__btn--whatsapp" href={start.line.whatsapp.messageLink}><WhatsAppIcon /> Open WhatsApp</a>}
           <a className="btn btn--secondary phone-auth__btn" href={start.line.smsLink}>Open Messages</a>
           <div className="phone-auth__small">WhatsApp or Messages will fill in the connection text for you. If Messages doesn't, text <code>{start.line.connectCommand}</code> to <code>{prettyNumber(start.line.number)}</code>, then send “hi” if the code doesn't arrive.</div>
         </div>

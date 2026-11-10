@@ -17,6 +17,12 @@
 .msg-steps li > div + div { margin-top: 6px; }
 .msg-steps__actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .msg-steps a.cfg-btn { text-decoration: none; }
+.wa-icon { flex-shrink: 0; }
+.msg-wa-tile { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; background: rgba(37, 211, 102, 0.12); box-shadow: rgba(37, 211, 102, 0.28) 0 0 0 0.5px inset; flex-shrink: 0; }
+.msg-wa-tile--large { width: 38px; height: 38px; border-radius: 12px; }
+.msg-whatsapp-row { background: rgba(37, 211, 102, 0.07); box-shadow: rgba(37, 211, 102, 0.22) 0 0 0 0.5px inset; }
+.msg-whatsapp-cta { display: flex; align-items: center; gap: 12px; margin: 8px 10px 10px; padding: 12px; border-radius: 10px; background: rgba(37, 211, 102, 0.08); box-shadow: rgba(37, 211, 102, 0.24) 0 0 0 0.5px inset; }
+.msg-whatsapp-cta__text { display: flex; flex-direction: column; gap: 1px; flex: 1 1 0; min-width: 0; }
 
 /* commands */
 .msg-commands { margin: 0; padding: 4px 6px; }
@@ -61,6 +67,8 @@
 
 @media (max-width: 640px) {
   .msg-connect { flex-direction: column; align-items: center; }
+  .msg-whatsapp-cta { flex-direction: column; align-items: stretch; text-align: center; }
+  .msg-whatsapp-cta .msg-wa-tile { align-self: center; }
   .msg-nums, .msg-invite-form { grid-template-columns: minmax(0, 1fr); }
   .msg-commands__row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
 }
@@ -77,6 +85,8 @@
 .join__form .btn { height: 44px; font-size: 15px; }
 .join__hint { margin-top: 10px; font-size: 12px; line-height: 17px; color: var(--color-text-tertiary); }
 .btn.join__text-btn { width: 100%; height: 52px; font-size: 17px; font-weight: 600; text-decoration: none; }
+.btn.join__text-btn--whatsapp { gap: 8px; background: #25D366; color: #FFFFFF; }
+.btn.join__text-btn--whatsapp:hover { background: #1fb85a; }
 .join__qr { margin: 20px 0 6px; }
 .join__qr-label { font-size: 12px; line-height: 16px; color: var(--color-text-tertiary); }
 .join__steps { margin: 18px 0 0; font-size: 14px; line-height: 20px; color: var(--color-text-secondary); }
@@ -105,6 +115,7 @@
 .phone-auth__input { height: 44px; font-size: 16px; text-align: center; }
 .phone-auth__code { letter-spacing: 6px; font-family: var(--font-mono-stack); font-size: 20px; }
 .phone-auth__btn { height: 44px; font-size: 15px; width: 100%; justify-content: center; }
+.phone-auth__btn--whatsapp { gap: 8px; }
 .phone-auth__title { font-size: 14px; font-weight: 500; text-align: center; color: var(--color-text-primary); }
 .phone-auth__hint, .phone-auth__small { font-size: 12px; line-height: 17px; text-align: center; color: var(--color-text-tertiary); }
 .phone-auth__small code { font-family: var(--font-mono-stack); color: var(--color-text-secondary); white-space: nowrap; }

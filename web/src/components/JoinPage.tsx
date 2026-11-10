@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { BotAvatar } from '../avatar/BotAvatar';
 import { configApi, type JoinInfo } from '../lib/configApi';
+import { WhatsAppIcon } from './WhatsAppIcon';
 import '../styles/messaging.css';
 
 /** Public /join/:code page: claim an invite with your phone number, then text the line to create your account. */
@@ -60,7 +61,7 @@ export function JoinPage({ code }: { code: string }) {
         <p className="join__pitch">Tap below and send the message as is. Quinn, your first Bot, texts you back within a few seconds.</p>
         {info.line.whatsapp?.messageLink ? (
           <>
-            <a className="btn btn--primary join__text-btn" href={info.line.whatsapp.messageLink}>Open WhatsApp</a>
+            <a className="btn btn--primary join__text-btn join__text-btn--whatsapp" href={info.line.whatsapp.messageLink}><WhatsAppIcon size={20} /> Open WhatsApp</a>
             <img className="msg-qr join__qr" src={info.line.whatsapp.qr} alt="QR code to message Swarm on WhatsApp" width={180} height={180} />
           </>
         ) : (

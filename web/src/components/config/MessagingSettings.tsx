@@ -15,6 +15,7 @@ import {
 import { api, openPopup } from '../../lib/api';
 import { relativeShort } from '../../lib/time';
 import { PhoneAuth } from '../PhoneAuth';
+import { WhatsAppIcon } from '../WhatsAppIcon';
 import { useVersion } from '../../configStore';
 import { useStore } from '../../store';
 import { ConfirmButton, Segmented, Switch, shortDate } from './ui';
@@ -94,12 +95,42 @@ export function MessagingSettings() {
 
 type SectionProps = { status: MessagingStatus; setStatus: (s: MessagingStatus) => void };
 
+function LinkCodePanel({ code }: { code: MessagingCode }) {
+  const qr = code.whatsapp?.qr ?? code.qr;
+  const qrAlt = code.whatsapp?.qr ? 'QR code to message Swarm on WhatsApp' : `QR code to text ${code.number}`;
+  const whatsappLink = code.whatsapp?.number
+    ? `https://wa.me/${code.whatsapp.number.replace(/\D/g, '')}?text=${encodeURIComponent(code.connectCommand)}`
+    : code.whatsapp?.messageLink;
+  return (
+    <div className="msg-connect">
+      <img className="msg-qr" src={qr} alt={qrAlt} width={148} height={148} />
+      <ol className="msg-steps">
+        <li>
+          <div>Send <code className="msg-inline-code">{code.connectCommand}</code> to <b>{code.number}</b>.</div>
+          <div className="msg-steps__actions">
+            {whatsappLink && <a className="cfg-btn cfg-btn--whatsapp" href={whatsappLink}><WhatsAppIcon /> Connect WhatsApp</a>}
+            <a className="cfg-btn cfg-btn--secondary" href={code.smsLink}>Open Messages</a>
+            <CopyButton text={code.number} label="Copy number" />
+          </div>
+          <div className="cfg-field__hint">On a computer? Scan the code with your phone’s camera, then send the link code below.</div>
+        </li>
+        <li>
+          <div>Then send <code className="msg-inline-code">LINK {code.code}</code></div>
+          <div className="cfg-field__hint">The code works for 15 minutes. This page updates once your phone is connected.</div>
+        </li>
+      </ol>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Your phone
 
 function PhoneSection({ status, setStatus, code, setCode }: SectionProps & { code: MessagingCode | null; setCode: (c: MessagingCode | null) => void }) {
   const [busy, setBusy] = useState<'code' | 'test' | null>(null);
   const [note, setNote] = useState<NoteState>(null);
+  const hasWhatsApp = status.links.some((l) => l.channel === 'whatsapp');
+  const canConnectWhatsApp = !!status.line?.whatsapp?.messageLink;
 
   const connect = async () => {
     setBusy('code'); setNote(null);
@@ -132,7 +163,20 @@ function PhoneSection({ status, setStatus, code, setCode }: SectionProps & { cod
               <ConfirmButton className="cfg-btn cfg-btn--secondary" confirmLabel="Disconnect" onConfirm={() => unlink(l)}>Disconnect</ConfirmButton>
             </div>
           ))}
+          {canConnectWhatsApp && !hasWhatsApp && (
+            <div className="cfg-row msg-whatsapp-row">
+              <span className="msg-wa-tile"><WhatsAppIcon size={18} /></span>
+              <div className="cfg-row__text">
+                <div className="cfg-row__title">Connect WhatsApp</div>
+                <div className="cfg-row__sub">Add WhatsApp to this account so your Bots can reply there too.</div>
+              </div>
+              <button type="button" className="cfg-btn cfg-btn--whatsapp" disabled={!!busy} onClick={() => void connect()}>
+                <WhatsAppIcon /> {busy === 'code' ? 'Getting code...' : code ? 'Show code' : 'Connect WhatsApp'}
+              </button>
+            </div>
+          )}
           {status.links.some((l) => l.error) && <div className="cfg-error cfg-error--inset">{status.links.find((l) => l.error)!.error}</div>}
+          {code && <LinkCodePanel code={code} />}
           {note && <div className="cfg-key__foot"><Note note={note} /></div>}
         </div>
       ) : status.line ? (
@@ -144,32 +188,25 @@ function PhoneSection({ status, setStatus, code, setCode }: SectionProps & { cod
               <div className="cfg-row__sub">Enter your number to text your Bots at {status.line.number}. We'll text you a code.</div>
             </div>
           </div>
+          {canConnectWhatsApp && (
+            <div className="msg-whatsapp-cta">
+              <span className="msg-wa-tile msg-wa-tile--large"><WhatsAppIcon size={22} /></span>
+              <div className="msg-whatsapp-cta__text">
+                <div className="cfg-row__title">Connect WhatsApp</div>
+                <div className="cfg-row__sub">Fastest path: open WhatsApp, send “Say Hi Swarm”, then send the link code shown here.</div>
+              </div>
+              <button type="button" className="cfg-btn cfg-btn--whatsapp" disabled={!!busy} onClick={() => void connect()}>
+                <WhatsAppIcon /> {busy === 'code' ? 'Getting code...' : code ? 'Refresh code' : 'Connect WhatsApp'}
+              </button>
+            </div>
+          )}
           <div className="msg-phone-auth">
             <PhoneAuth mode="attach" onAttached={(s) => { setStatus(s); setCode(null); }} />
             <button type="button" className="phone-auth__link" disabled={!!busy} onClick={() => void connect()}>
               {busy === 'code' ? 'Getting a code…' : code ? 'New link code' : 'Or use a link code instead'}
             </button>
           </div>
-          {code && (
-            <div className="msg-connect">
-              <img className="msg-qr" src={code.qr} alt={`QR code to text ${code.number}`} width={148} height={148} />
-              <ol className="msg-steps">
-                <li>
-                  <div>Text <code className="msg-inline-code">{code.connectCommand}</code> to <b>{code.number}</b>.</div>
-                  <div className="msg-steps__actions">
-                    {code.whatsapp?.messageLink && <a className="cfg-btn cfg-btn--secondary" href={code.whatsapp.messageLink}>Open WhatsApp</a>}
-                    <a className="cfg-btn cfg-btn--secondary" href={code.smsLink}>Open Messages</a>
-                    <CopyButton text={code.number} label="Copy number" />
-                  </div>
-                  <div className="cfg-field__hint">On a computer? Scan the code with your phone’s camera, then send the link code below.</div>
-                </li>
-                <li>
-                  <div>Then send <code className="msg-inline-code">LINK {code.code}</code></div>
-                  <div className="cfg-field__hint">The code works for 15 minutes. This page updates once your phone is connected.</div>
-                </li>
-              </ol>
-            </div>
-          )}
+          {code && <LinkCodePanel code={code} />}
           {note && <div className="cfg-key__foot"><Note note={note} /></div>}
         </div>
       ) : (
@@ -578,7 +615,7 @@ function WhatsAppSection({ owner }: { owner: MessagingOwner }) {
             <div className="msg-whatsapp-test">
               {onb.messageQrPngDataUrl && <img className="msg-qr" src={onb.messageQrPngDataUrl} alt="WhatsApp QR code for Swarm" width={148} height={148} />}
               <div className="msg-whatsapp-test__links">
-                <a className="cfg-btn cfg-btn--primary" href={onb.messageLink!} target="_blank" rel="noreferrer">Open WhatsApp</a>
+                <a className="cfg-btn cfg-btn--whatsapp" href={onb.messageLink!} target="_blank" rel="noreferrer"><WhatsAppIcon /> Open WhatsApp</a>
                 <CopyButton text={onb.messageLink!} label="Copy link" />
                 {onb.messageText && <div className="cfg-field__hint">Prefilled message: <code className="msg-inline-code">{onb.messageText}</code></div>}
               </div>
