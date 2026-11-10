@@ -70,9 +70,9 @@ export function PhoneAuth({ mode, onAttached }: { mode: 'signin' | 'attach'; onA
       {error && <div className="card__error phone-auth__error">{error}</div>}
       {start.line && (
         <div className="phone-auth__help">
-          <div><b>No text yet?</b> Your number isn't connected to Swarm. Tap below to send the prefilled message, and we'll text your code right back.</div>
-          <a className="btn btn--secondary phone-auth__btn" href={start.line.smsLink}>Open Messages</a>
-          <div className="phone-auth__small">Or text <code>{start.line.connectCommand}</code> to <code>{prettyNumber(start.line.number)}</code>. If the code doesn't come in a few seconds, send “hi” in that thread.</div>
+          <div><b>No text yet?</b> Say Hi Swarm and we'll text your code right back.</div>
+          <a className="btn btn--secondary phone-auth__btn" href={start.line.smsLink}>Say Hi Swarm</a>
+          <div className="phone-auth__small">Messages will fill in the connection text for you. If it doesn't, text <code>{start.line.connectCommand}</code> to <code>{prettyNumber(start.line.number)}</code>, then send “hi” if the code doesn't arrive.</div>
         </div>
       )}
       <button type="button" className="phone-auth__link" onClick={() => { setStart(null); setError(null); setNeedInvite(false); }}>Use a different number</button>

@@ -20,6 +20,7 @@ export const IMESSAGE_MAX = 1500;
 export const SMS_MAX = 1200;
 
 export const inkboxConfigured = () => !!(env.inkboxIdentityKey && env.inkboxSigningKey && env.inkboxIdentityId);
+const sentAsCarrierSms = (sent: Awaited<ReturnType<typeof ib.sendIMessage>>) => sent.wasDowngraded === true || String(sent.service ?? '').toLowerCase() === 'sms';
 
 export const inkboxAdapter: ChannelAdapter = {
   transport: 'inkbox',
@@ -31,14 +32,18 @@ export const inkboxAdapter: ChannelAdapter = {
     if (link.channel === 'sms' && env.inkboxPhoneNumberId) {
       return (await ib.sendSms(key, env.inkboxPhoneNumberId, { conversationId: link.chatRef ?? undefined, to: link.chatRef ? undefined : `+${link.phone}`, text: msg.text })).id;
     }
-    return (await ib.sendIMessage(key, { conversationId: link.chatRef ?? undefined, to: link.chatRef ? undefined : `+${link.phone}`, text: msg.text, replyToMessageId: msg.quote })).id;
+    const sent = await ib.sendIMessage(key, { conversationId: link.chatRef ?? undefined, to: link.chatRef ? undefined : `+${link.phone}`, text: msg.text, replyToMessageId: msg.quote });
+    if (link.channel === 'imessage' && sentAsCarrierSms(sent)) throw new Error('Inkbox downgraded this iMessage to carrier SMS.');
+    return sent.id;
   },
   // Voice notes: iMessage only (SMS gets the text). Arrives as an audio attachment that plays in the thread.
   canSendAudio: (link) => link.channel === 'imessage' && (!!link.chatRef || !!link.phone),
   async sendAudio(link: Link, audio) {
     const key = env.inkboxIdentityKey;
     const url = await ib.uploadMedia(key, { data: audio.data, filename: audio.filename, contentType: audio.mime });
-    return (await ib.sendIMessage(key, { conversationId: link.chatRef ?? undefined, to: link.chatRef ? undefined : `+${link.phone}`, mediaUrls: [url] })).id;
+    const sent = await ib.sendIMessage(key, { conversationId: link.chatRef ?? undefined, to: link.chatRef ? undefined : `+${link.phone}`, mediaUrls: [url] });
+    if (sentAsCarrierSms(sent)) throw new Error('Inkbox downgraded this iMessage to carrier SMS.');
+    return sent.id;
   },
   async typing(link, inb) {
     const conv = inb.chatRef ?? link.chatRef;
@@ -218,8 +223,8 @@ export async function isConnectedToLine(phone: string): Promise<boolean> {
 /** Text a number that just connected (no conversation id yet). Returns false if Inkbox won't allow it yet. */
 export async function textNewlyConnected(phone: string, text: string): Promise<boolean> {
   try {
-    await ib.sendIMessage(env.inkboxIdentityKey, { to: `+${digits(phone)}`, text: toPlainText(text) });
-    return true;
+    const sent = await ib.sendIMessage(env.inkboxIdentityKey, { to: `+${digits(phone)}`, text: toPlainText(text) });
+    return !sentAsCarrierSms(sent);
   } catch (e: any) {
     console.warn('[inkbox] first text to a newly connected number failed:', e?.code ?? '', e?.message ?? e);
     return false;

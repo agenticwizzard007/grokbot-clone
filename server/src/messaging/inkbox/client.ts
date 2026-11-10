@@ -172,8 +172,8 @@ export async function subscribeWebhook(adminKey: string, identityId: string, url
 
 // ---------- sending (identity key) ----------
 
-/** Send an iMessage into a conversation (or to a number). Inkbox falls back to SMS when the recipient has no iMessage. */
-export async function sendIMessage(key: string, p: { conversationId?: string; to?: string; text?: string; replyToMessageId?: string; mediaUrls?: string[] }): Promise<{ id: string | null }> {
+/** Send an iMessage into a conversation (or to a number). Inkbox may report if it downgraded to SMS. */
+export async function sendIMessage(key: string, p: { conversationId?: string; to?: string; text?: string; replyToMessageId?: string; mediaUrls?: string[] }): Promise<{ id: string | null; service: string | null; wasDowngraded: boolean | null }> {
   const body: Record<string, unknown> = {};
   if (p.text) body.text = p.text;
   if (p.mediaUrls?.length) body.media_urls = p.mediaUrls.slice(0, 1);
@@ -181,7 +181,8 @@ export async function sendIMessage(key: string, p: { conversationId?: string; to
   else if (p.to) body.to = p.to;
   if (p.replyToMessageId && p.conversationId) { body.reply_to_message_id = p.replyToMessageId; body.plain_reply_fallback = true; }
   const r = await send(key, '/imessage/messages', body);
-  return { id: r?.message?.id ?? r?.id ?? null };
+  const m = r?.message ?? r;
+  return { id: m?.id ?? null, service: m?.service ?? null, wasDowngraded: m?.was_downgraded ?? null };
 }
 
 export async function sendSms(key: string, phoneNumberId: string, p: { conversationId?: string; to?: string; text: string }): Promise<{ id: string | null }> {

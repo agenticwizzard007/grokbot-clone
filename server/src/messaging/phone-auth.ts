@@ -2,17 +2,17 @@ import crypto from 'node:crypto';
 import { db, now } from '../db.js';
 import { accountByPhone, getAccount, mayCreateAccount } from '../accounts.js';
 import { adminPhones } from '../settings.js';
-import { deliver, hasTextLink } from './bridge.js';
+import { deliver } from './bridge.js';
 import { signupConfig, startAccount, takeInvite } from './signup.js';
-import { digits, upsertLink, type Channel, type Transport } from './store.js';
+import { digits, getLink, isLive, upsertLink, type Channel, type Transport } from './store.js';
 import { inkboxConfigured, isConnectedToLine, textNewlyConnected } from './inkbox/adapter.js';
 
 /**
  * "Continue with your phone number" in the browser, and "Connect your phone" for signed-in users.
  *
  * The line can only text people who have texted it first (Inkbox), so a code reaches the phone one of two ways:
- * - the number is already connected: Swarm texts the code right away;
- * - it isn't: the person texts the line (the page opens Messages for them) and the line replies with the code.
+ * - the number is already connected over iMessage: Swarm texts the code right away;
+ * - it isn't: the person connects or messages the iMessage line and the line replies with the code.
  * Typing the code back in the same browser proves the person holds the phone. It signs them in (creating the account
  * if needed, under the server's sign-up rules) or attaches the number to the signed-in account, and connects it.
  */
@@ -69,7 +69,7 @@ export async function startPhoneLogin(phone: string, opts: { ip: string; attachT
   db.prepare('INSERT INTO phone_logins(id,phone,code_hash,attach_user_id,created_at,expires_at) VALUES (?,?,?,?,?,?)').run(id, p, hash(id, code), opts.attachTo ?? null, now(), now() + TTL);
   pendingCodes.set(id, code);
   const acct = accountByPhone(p);
-  if (acct && hasTextLink(acct.id)) await deliver(acct.id, { text: codeText(code, !!opts.attachTo) }, { kind: 'system' });
+  if (acct && isLive(getLink(acct.id, 'imessage'))) await deliver(acct.id, { text: codeText(code, !!opts.attachTo) }, { kind: 'system', channel: 'imessage' });
   else watchForConnect(id, p, code, !!opts.attachTo);
   return { ok: true, id };
 }
@@ -77,7 +77,7 @@ export async function startPhoneLogin(phone: string, opts: { ip: string; attachT
 /**
  * A number that isn't connected yet: the page opens Messages with "connect @handle". Inkbox sends no event for that,
  * so poll its list of connected numbers and text the code as soon as this one shows up. If Inkbox won't allow a first
- * text, the code still goes out when they send anything (replyWithCode).
+ * iMessage, the code still goes out when they send anything over iMessage (replyWithCode).
  */
 function watchForConnect(id: string, phone: string, code: string, attach: boolean) {
   if (!inkboxConfigured()) return;
@@ -109,6 +109,7 @@ const codeText = (code: string, attach: boolean) =>
 export async function replyWithCode(s: { phone: string; channel: Channel; transport: Transport; chatRef?: string | null; name?: string | null }, reply: (text: string) => Promise<void>): Promise<boolean> {
   const row = pendingFor(digits(s.phone));
   if (!row) return false;
+  if (s.channel !== 'imessage') return true;
   const code = pendingCodes.get(row.id);
   if (!code) return false; // server restarted since the code was made: they can ask for a new one
   db.prepare('UPDATE phone_logins SET channel=?, transport=?, chat_ref=?, name=? WHERE id=?').run(s.channel, s.transport, s.chatRef ?? null, s.name ?? null, row.id);
@@ -152,7 +153,7 @@ export async function verifyPhoneLogin(id: string, code: string, opts: { inviteC
     if (!me) return { ok: false, status: 404, error: 'Account not found.' };
     if (!me.phone) db.prepare('UPDATE users SET phone=? WHERE id=?').run(phone, opts.attachTo);
     connect(opts.attachTo);
-    if (row.chat_ref) void deliver(opts.attachTo, { text: '✅ **Connected.** This number now reaches your Bots. Type a message to talk to your primary Bot, or send /help.' }, { kind: 'system' });
+    if (row.chat_ref) void deliver(opts.attachTo, { text: '✅ **Connected.** This number now reaches your Bots. Type a message to talk to your primary Bot, or send /help.' }, { kind: 'system', channel: 'imessage' });
     return done(opts.attachTo, false);
   }
 

@@ -25,7 +25,17 @@ execFileSync(ffmpegBin, ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-
 const cafAudio = fs.readFileSync(cafPath);
 
 // ---------- fake Inkbox ----------
-const ib = { assignments: [] as string[], sent: [] as any[], uploads: [] as { type: string; bytes: number }[], identities: 0, keys: 0, signing: 0, subs: [] as any[], failKeyOnce: false, signingConfigured: false };
+const ib = {
+  assignments: [] as string[],
+  sent: [] as any[],
+  uploads: [] as { type: string; bytes: number }[],
+  identities: 0,
+  keys: 0,
+  signing: 0,
+  subs: [] as any[],
+  failKeyOnce: false,
+  signingConfigured: false,
+};
 const inkbox = http.createServer((req, res) => {
   let raw = '';
   const chunks: Buffer[] = [];
@@ -48,6 +58,11 @@ const inkbox = http.createServer((req, res) => {
       if (key !== 'idkey') return json(401, { detail: 'bad key' });
       ib.sent.push(body);
       return json(200, { message: { id: `im_out_${ib.sent.length}`, conversation_id: body.conversation_id } });
+    }
+    if (/^\/phone\/numbers\/[^/]+\/texts$/.test(p) && req.method === 'POST') {
+      if (key !== 'idkey') return json(401, { detail: 'bad key' });
+      ib.sent.push({ ...body, sms: true });
+      return json(200, { text_message: { id: `sms_out_${ib.sent.length}`, conversation_id: body.conversation_id } });
     }
     if ((p === '/imessage/typing' || p === '/imessage/mark-read') && req.method === 'POST') return json(200, { ok: true });
     if (key !== 'admin') return json(401, { detail: 'bad admin key' });
@@ -117,6 +132,11 @@ function imessage(phone: string, text: string, extra: Record<string, unknown> = 
   return { id: `evt_${id}`, event_type: 'imessage.received', timestamp: new Date().toISOString(), data: { message: { id, conversation_id: conv(phone), remote_number: `+${phone}`, content: text, is_group: false, ...extra } } };
 }
 const text = async (phone: string, t: string, extra: Record<string, unknown> = {}) => { const ev = imessage(phone, t, extra); const r = await hook(ev); assert.equal(r.status, 204); await inbox.settle(); return ev; };
+function smsMessage(phone: string, text: string, extra: Record<string, unknown> = {}) {
+  const id = `sms_in_${++evN}`;
+  return { id: `evt_${id}`, event_type: 'text.received', timestamp: new Date().toISOString(), data: { text_message: { id, conversation_id: conv(phone), sender_phone_number: `+${phone}`, text, ...extra } } };
+}
+const carrierText = async (phone: string, t: string, extra: Record<string, unknown> = {}) => { const ev = smsMessage(phone, t, extra); const r = await hook(ev); assert.equal(r.status, 204); await inbox.settle(); return ev; };
 async function waitFor<T>(fn: () => T | undefined | null | false, ms = 8000): Promise<T> {
   const end = Date.now() + ms;
   for (;;) { const v = fn(); if (v) return v; if (Date.now() > end) throw new Error('timed out'); await new Promise((r) => setTimeout(r, 40)); }
@@ -505,12 +525,12 @@ test('plain-text formatting', () => {
 const post = (path: string, body: unknown, cookie?: string) => app.request(path, { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json', 'x-forwarded-for': `10.0.0.${++evN % 250}`, ...(cookie ? { cookie } : {}) } });
 const codeIn = (t: string) => t.match(/is (\d{6})\./)![1];
 
-test('phone sign-up: a new number gets its code by replying to the line, then the account is created and connected', async () => {
+test('phone sign-up: a new number gets its code by replying to the iMessage line, then the account is created and connected', async () => {
   const phone = '15550008888';
   const start = await (await post('/api/auth/phone/start', { phone: '+1 555 000 8888' })).json() as any;
   assert.ok(start.id);
   assert.equal(start.line.connectCommand, 'connect @swarm');
-  // Not connected yet: nothing is texted until they write.
+  // Not connected yet: nothing is texted until they write over iMessage.
   await text(phone, 'hi');
   const msg = await sentTo(phone, /Swarm sign-in code is \d{6}/);
   assert.equal(db.prepare('SELECT 1 FROM users WHERE phone=?').get(phone), undefined, 'texting for a code creates nothing yet');
@@ -532,7 +552,26 @@ test('phone sign-up: a new number gets its code by replying to the line, then th
   assert.equal((await post('/api/auth/phone/verify', { id: start.id, code: codeIn(msg.text) })).status, 410, 'a code works once');
 });
 
-test('phone sign-in: a connected number gets its code texted right away', async () => {
+test('phone verification does not send codes through carrier SMS', async () => {
+  const phone = '15550008889';
+  ib.sent.length = 0;
+  saveSetting('inkbox_phone_number_id', 'pn_test', owner);
+  try {
+    const start = await (await post('/api/auth/phone/start', { phone: `+${phone}` })).json() as any;
+    assert.ok(start.id);
+    assert.equal(start.line.connectCommand, 'connect @swarm');
+    assert.equal(ib.sent.find((m) => m.sms && /sign-in code/.test(m.text ?? '')), undefined);
+    await carrierText(phone, 'hi');
+    await new Promise((r) => setTimeout(r, 100));
+    assert.equal(ib.sent.find((m) => /sign-in code is \d{6}/.test(m.text ?? '')), undefined);
+    assert.equal(db.prepare('SELECT 1 FROM users WHERE phone=?').get(phone), undefined);
+    assert.equal((await post('/api/auth/phone/verify', { id: start.id, code: '000000' })).status, 400);
+  } finally {
+    clearSetting('inkbox_phone_number_id');
+  }
+});
+
+test('phone sign-in: a connected iMessage number gets its code texted right away', async () => {
   ib.sent.length = 0;
   const start = await (await post('/api/auth/phone/start', { phone: '+15550002222' })).json() as any;
   const msg = await sentTo('15550002222', /sign-in code is \d{6}/);
@@ -563,7 +602,7 @@ test('connect a phone to a signed-in account; a number with its own account is r
   await sentTo('15550009999', /Connected/);
 });
 
-test('the code goes out as soon as Inkbox shows the number connected', async () => {
+test('the code goes out as soon as Inkbox shows the number connected over iMessage', async () => {
   const phone = '15550007070';
   ib.sent.length = 0;
   const start = await (await post('/api/auth/phone/start', { phone: `+${phone}` })).json() as any;
