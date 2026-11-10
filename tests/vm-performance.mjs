@@ -104,6 +104,13 @@ async function sampleFrames(botId = 'performance-bot') {
 try {
   await Promise.all([new Promise(r => site.listen(0, '127.0.0.1', r)), new Promise(r => server.once('listening', r))]);
   await launch(process.env.SWARM_FFMPEG ?? require('ffmpeg-static'), true);
+  // This is the viewer's readiness call: it must launch visible Chrome and attach Playwright
+  // before any navigation task, without starting a continuous video stream.
+  await browser('browser_tabs', { action: 'list' });
+  const chrome = await rpc('shell', { command: "xdotool search --onlyvisible --class '[Cc]hrome'", timeout: 10 });
+  assert.equal(chrome.exit_code, 0, 'opening the viewer must find a visible Chrome window');
+  assert.match(await browser('browser_evaluate', { function: '() => document.readyState' }), /complete/);
+  assert.equal(encoders().length, 0, 'browser readiness does not start a video encoder');
   const page = await browser('browser_navigate', { url: `http://127.0.0.1:${site.address().port}` });
   assert.match(page, /### Snapshot/);
   assert.match(page, /First/);
@@ -159,6 +166,8 @@ try {
   await browser('browser_fill_form', { fields: [{ name: 'First', target: 'input[name=first]', type: 'textbox', value: 'Still working' }] });
   assert.equal(encoders().length, 0, 'agent continues working without a viewer or encoder');
   assert.equal(frames.length, stoppedFrames);
+  await browser('browser_tabs', { action: 'list' });
+  assert.match(await browser('browser_evaluate', { function: '() => document.querySelector("[name=first]").value' }), /Still working/, 'reopening the viewer preserves the current tab and unsaved form');
   await rpc('screencast.start', { mode: 'control' });
   await rpc('screencast.start', { botId: 'budget-bot' });
   await until(() => encoders().length === 2);

@@ -13,7 +13,7 @@ const idle = () => import('../idle.js');
 import { sha256, token as randomToken } from '../lib/ids.js';
 import type { ComputerState, LibraryFile } from '../types.js';
 import { ByteQueue, browserHandshake, jpegSize, jpegUpdate, msgLength, RFB_DESKTOP_SIZE, RFB_TIGHT, serverInit } from './rfb.js';
-import { ComputerError, type BotScreen, type ComputerProvider, type Shot } from './types.js';
+import { ComputerError, type BotScreen, type BrowserResult, type ComputerProvider, type Shot } from './types.js';
 import { decodeCompanionFrame } from './frames.js';
 
 /**
@@ -403,8 +403,16 @@ async function viewer(client: WebSocket, userId: string, botId: string, mode: 'w
   client.on('close', cleanup);
 
   try {
+    // A connected VM can still have a cold desktop. Attach Playwright to its visible Chrome
+    // before exposing the screen; listing tabs preserves the user's current page and form state.
+    if (MULTI) {
+      const browser = await call<BrowserResult>(userId, 'browser', { botId, tool: 'browser_tabs', args: { action: 'list' } }, 90_000);
+      if (browser.isError) throw new ComputerError('Chrome could not get ready. Reconnect to try again.');
+    }
+    if (closed) return;
     // Open (or reuse) the Bot's browser and grab a first frame before the client asks for one.
     const first = await call<{ data: string }>(userId, 'screenshot', { botId }, 45_000);
+    if (closed) return;
     touch(userId, botId);
     const data = Buffer.from(first.data, 'base64');
     const size = jpegSize(data) ?? { width: comp.width, height: comp.height };
