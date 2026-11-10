@@ -70,7 +70,7 @@ export function settingsStatus() {
     model: { value: env.xaiModel, source: envSource('XAI_MODEL') },
     openrouterModel: { value: env.openrouterModel, source: envSource('OPENROUTER_MODEL') },
     /** Which service runs the Bots' models, and whether it was chosen explicitly. */
-    provider: { value: env.llmProvider, source: envSource('LLM_PROVIDER') },
+    provider: { value: env.llmProvider, chosen: env.llmProviderChoice, source: envSource('LLM_PROVIDER') },
   };
 }
 

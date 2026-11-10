@@ -288,7 +288,7 @@ await step('close a bot browser from settings', async () => {
 await step('PC disconnects: UI says so, tools explain how to reconnect', async () => {
   await stopCompanion();
   await ui.getByText(/Your PC · Not connected/).waitFor({ timeout: 10000 });
-  await ui.locator('button.cfg-btn', { hasText: /New connect command|Connect your PC/ }).click();
+  await ui.locator('button.cfg-btn', { hasText: /New connect command|Connect your PC|Connect another PC/ }).click();
   await ui.getByLabel('Connect command').waitFor({ timeout: 10000 });
   const cmd = await ui.getByLabel('Connect command').innerText();
   if (!/grokbot-companion\.mjs --server .* --token gbc_/.test(cmd)) throw new Error(cmd);

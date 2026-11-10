@@ -144,9 +144,13 @@ function KeyCard({ name, title, what, link, status, canEdit, required, onChange 
         )}
       </div>
       {canEdit ? (
-        <form className="cfg-key__form" onSubmit={(e) => { e.preventDefault(); if (value.trim()) void save(); }}>
-          <input className="text-input cfg-key__input" type="password" autoComplete="off" spellCheck={false} placeholder={status.set ? 'Paste a new key to replace it' : 'Paste your key'} value={value} onChange={(e) => setValue(e.target.value)} aria-label={`${title} API key`} />
-          <button type="submit" className="cfg-btn cfg-btn--primary" disabled={!value.trim() || !!busy}>{busy === 'save' ? 'Verifying…' : 'Save & verify'}</button>
+        <form className="cfg-key__form" onSubmit={(e) => {
+          e.preventDefault();
+          if (value.trim()) void save();
+          else { document.getElementById(`key-input-${name}`)?.focus(); setNote({ tone: 'error', text: 'Paste your key in the box first.' }); }
+        }}>
+          <input id={`key-input-${name}`} className="text-input cfg-key__input" type="password" autoComplete="off" spellCheck={false} placeholder={status.set ? 'Paste a new key to replace it' : 'Paste your key'} value={value} onChange={(e) => { setValue(e.target.value); if (note?.tone === 'error') setNote(null); }} aria-label={`${title} API key`} />
+          <button type="submit" className="cfg-btn cfg-btn--primary" disabled={!!busy}>{busy === 'save' ? 'Verifying…' : 'Save & verify'}</button>
         </form>
       ) : null}
       <div className="cfg-key__foot">
@@ -162,7 +166,8 @@ function KeysSection() {
   const [note, setNote] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
   const [pickerKey, setPickerKey] = useState(0);
   useEffect(() => { configApi.keys().then(setKeys).catch((e) => setError((e as Error).message)); }, []);
-  const changed = (r: KeysResponse) => { setKeys(r); refreshModels(); setPickerKey((n) => n + 1); };
+  // Keep fields the save response may not repeat (e.g. canEdit).
+  const changed = (r: KeysResponse) => { setKeys((k) => (k ? { ...k, ...r } : r)); refreshModels(); setPickerKey((n) => n + 1); };
   const save = async (name: 'provider' | 'model' | 'openrouter_model', value: string) => {
     setNote(null);
     try { changed(await configApi.saveKey(name, value)); setNote({ tone: 'ok', text: 'Saved. Bots use it from their next message.' }); }
@@ -171,12 +176,29 @@ function KeysSection() {
 
   if (error) return <><PageHead title="API keys" /><div className="cfg-error">{error}</div></>;
   if (!keys) return <><PageHead title="API keys" /><div className="cfg-empty cfg-empty--flat">Loading…</div></>;
-  const provider = keys.provider.value;
-  const hasModels = provider === 'openrouter' ? keys.openrouter.set : keys.xai.set;
-  const current = provider === 'openrouter' ? keys.openrouterModel.value : keys.model.value;
+  const running = keys.provider.value;
+  const chosen = keys.provider.chosen ?? running;
+  const keyFor = (p: 'xai' | 'openrouter') => (p === 'openrouter' ? keys.openrouter.set : keys.xai.set);
+  const nameOf = (p: 'xai' | 'openrouter') => (p === 'openrouter' ? 'OpenRouter' : 'xAI');
+  const current = chosen === 'openrouter' ? keys.openrouterModel.value : keys.model.value;
+  // OpenRouter's catalog is public, so a model can be chosen before the key is added; xAI needs the key.
+  const canPick = keys.canEdit && (chosen === 'openrouter' || keys.xai.set);
+  const choose = async (p: 'xai' | 'openrouter') => {
+    if (p === chosen) { if (!keyFor(p)) document.getElementById(`key-input-${p}`)?.focus(); return; }
+    await save('provider', p);
+    if (!keyFor(p)) {
+      document.getElementById(`key-input-${p}`)?.focus();
+      setNote({ tone: 'ok', text: `Paste your ${nameOf(p)} key below to finish switching.${keyFor(p === 'xai' ? 'openrouter' : 'xai') ? ` Until then Bots keep using ${nameOf(p === 'xai' ? 'openrouter' : 'xai')}.` : ''}` });
+    }
+  };
+  const status = !keyFor(chosen)
+    ? keyFor(running) && running !== chosen
+      ? `Waiting for your ${nameOf(chosen)} key. Bots use ${running === 'openrouter' ? keys.openrouterModel.value : keys.model.value} through ${nameOf(running)} until then.`
+      : `Add your ${nameOf(chosen)} key below so Bots can run.`
+    : `Bots use ${current} through ${nameOf(chosen)}.`;
   return (
     <>
-      <PageHead title="API keys" sub="Grokbot runs on your own provider accounts. Keys are checked with the provider, stored encrypted on this server, and never shown again." />
+      <PageHead title="API keys" sub="Bring your own keys: Grokbot runs on your provider accounts. Keys are checked with the provider, stored encrypted on this server, and never shown again." />
       {!keys.canEdit && <div className="cfg-field__hint" style={{ marginBottom: 12 }}>Only the owner of this server can change its keys.</div>}
 
       <section className="cfg-section">
@@ -185,26 +207,20 @@ function KeysSection() {
           <div className="cfg-key__form">
             <div className="cfg-row__text"><div className="cfg-row__title">Run Bots on</div><div className="cfg-row__sub">OpenRouter gives one key for Grok, Claude, GPT, Gemini and hundreds more.</div></div>
             <div className="cfg-seg" role="radiogroup" aria-label="Model provider">
-              {(['openrouter', 'xai'] as const).map((p) => {
-                const ok = p === 'openrouter' ? keys.openrouter.set : keys.xai.set;
-                return (
-                  <button key={p} type="button" role="radio" aria-checked={provider === p} className={provider === p ? 'is-active' : ''}
-                    disabled={!keys.canEdit || (!ok && provider !== p)} title={ok ? '' : `Add ${p === 'openrouter' ? 'an OpenRouter' : 'an xAI'} key below first`}
-                    onClick={() => { if (provider !== p) void save('provider', p); }}>
-                    {p === 'openrouter' ? 'OpenRouter' : 'xAI direct'}
-                  </button>
-                );
-              })}
+              {(['openrouter', 'xai'] as const).map((p) => (
+                <button key={p} type="button" role="radio" aria-checked={chosen === p} className={chosen === p ? 'is-active' : ''} disabled={!keys.canEdit} onClick={() => void choose(p)}>
+                  {p === 'openrouter' ? 'OpenRouter' : 'xAI direct'}
+                </button>
+              ))}
             </div>
           </div>
           <div className="cfg-key__form">
             <div className="cfg-row__text"><div className="cfg-row__title">Default model</div><div className="cfg-row__sub">Used by every Bot unless you pick one in its settings.</div></div>
-            <ModelPicker key={`${provider}-${pickerKey}`} label="Default model" value={current} disabled={!keys.canEdit || !hasModels}
-              onChange={(id) => { if (id && id !== current) void save(provider === 'openrouter' ? 'openrouter_model' : 'model', id); }} />
+            <ModelPicker key={`${chosen}-${pickerKey}`} provider={chosen} label="Default model" value={current} disabled={!canPick}
+              onChange={(id) => { if (id && id !== current) void save(chosen === 'openrouter' ? 'openrouter_model' : 'model', id); }} />
           </div>
           <div className="cfg-key__foot">
-            {note ? <span className={note.tone === 'error' ? 'cfg-key__err' : 'cfg-key__ok'} role="status">{note.text}</span>
-              : hasModels ? `Bots use ${current} through ${provider === 'openrouter' ? 'OpenRouter' : 'xAI'}.` : `Add ${provider === 'openrouter' ? 'an OpenRouter' : 'an OpenRouter or xAI'} key below to choose a model.`}
+            {note ? <span className={note.tone === 'error' ? 'cfg-key__err' : 'cfg-key__ok'} role="status">{note.text}</span> : status}
           </div>
         </div>
       </section>

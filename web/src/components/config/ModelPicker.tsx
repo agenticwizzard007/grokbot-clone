@@ -1,10 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { configApi, type ModelInfo } from '../../lib/configApi';
 
-/** Models for the active provider, fetched once per page load (and again after `refreshModels`). */
-let cache: Promise<{ provider: 'xai' | 'openrouter'; models: ModelInfo[]; error?: string }> | null = null;
-export const refreshModels = () => { cache = null; };
-const loadModels = () => (cache ??= configApi.models().catch((e) => ({ provider: 'xai' as const, models: [], error: (e as Error).message })));
+type Provider = 'xai' | 'openrouter';
+/** Models per provider (or the active one), fetched once per page load (and again after `refreshModels`). */
+const cache = new Map<string, Promise<{ models: ModelInfo[]; error?: string }>>();
+export const refreshModels = () => { cache.clear(); };
+const loadModels = (provider?: Provider) => {
+  const k = provider ?? 'active';
+  if (!cache.has(k)) cache.set(k, configApi.models(provider).catch((e) => ({ models: [], error: (e as Error).message })));
+  return cache.get(k)!;
+};
 
 const price = (m: ModelInfo) => {
   if (!m.price) return '';
@@ -16,19 +21,21 @@ const price = (m: ModelInfo) => {
  * Searchable model picker. `value` null means "use the default" (when `defaultLabel` is given).
  * Models that can't see images get a warning: Bots need screenshots for browser work.
  */
-export function ModelPicker({ value, onChange, defaultLabel, disabled, label = 'Model' }: {
+export function ModelPicker({ value, onChange, defaultLabel, disabled, label = 'Model', provider }: {
   value: string | null;
   onChange: (id: string | null) => void;
   defaultLabel?: string;
   disabled?: boolean;
   label?: string;
+  /** List this provider's models instead of the active provider's. */
+  provider?: Provider;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [data, setData] = useState<{ models: ModelInfo[]; error?: string } | null>(null);
   const box = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { let alive = true; loadModels().then((d) => { if (alive) setData(d); }); return () => { alive = false; }; }, []);
+  useEffect(() => { let alive = true; setData(null); loadModels(provider).then((d) => { if (alive) setData(d); }); return () => { alive = false; }; }, [provider]);
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };

@@ -40,10 +40,19 @@ export const env = {
   get openrouterModel() { return live('OPENROUTER_MODEL') || 'x-ai/grok-4.7'; },
   openrouterBaseUrl: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
   /** Which service runs the Bots' models: LLM_PROVIDER if set, else OpenRouter when it has a key, else xAI. */
+  /** The chosen provider, unless only the other one has a key (so Bots keep working while you add one). */
   get llmProvider(): 'xai' | 'openrouter' {
     const p = live('LLM_PROVIDER');
-    if (p === 'xai' || p === 'openrouter') return p;
-    return live('OPENROUTER_API_KEY') ? 'openrouter' : 'xai';
+    const or = !!live('OPENROUTER_API_KEY');
+    const xai = !!live('XAI_API_KEY');
+    if (p === 'openrouter') return or || !xai ? 'openrouter' : 'xai';
+    if (p === 'xai') return xai || !or ? 'xai' : 'openrouter';
+    return or ? 'openrouter' : 'xai';
+  },
+  /** The provider picked in Settings (or LLM_PROVIDER), even before its key is added. */
+  get llmProviderChoice(): 'xai' | 'openrouter' | null {
+    const p = live('LLM_PROVIDER');
+    return p === 'xai' || p === 'openrouter' ? p : null;
   },
   get composioKey() { return live('COMPOSIO_API_KEY'); },
   get composioEnabled() { return !!live('COMPOSIO_API_KEY'); },

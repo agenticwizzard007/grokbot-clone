@@ -277,33 +277,32 @@ configApi.put('/settings/keys/:name', async (c) => {
     const r = await verifyXaiKey(v, env.xaiModel);
     if (!r.ok) return c.json({ error: r.error }, 400);
     saveSetting('xai', v, user.id);
-    return c.json({ ok: true, models: r.models, modelOk: r.modelOk, ...settingsStatus() });
+    return c.json({ ok: true, canEdit: true, models: r.models, modelOk: r.modelOk, ...settingsStatus() });
   }
   if (name === 'composio') {
     const r = await verifyComposioKey(v);
     if (!r.ok) return c.json({ error: r.error }, 400);
     saveSetting('composio', v, user.id);
-    return c.json({ ok: true, ...settingsStatus() });
+    return c.json({ ok: true, canEdit: true, ...settingsStatus() });
   }
   if (name === 'openrouter') {
     const r = await verifyOpenRouterKey(v);
     if (!r.ok) return c.json({ error: r.error }, 400);
     saveSetting('openrouter', v, user.id);
-    return c.json({ ok: true, ...settingsStatus() });
+    return c.json({ ok: true, canEdit: true, ...settingsStatus() });
   }
   if (name === 'provider') {
     if (v !== 'xai' && v !== 'openrouter') return c.json({ error: 'Choose openrouter or xai.' }, 400);
-    if (v === 'openrouter' && !env.openrouterKey) return c.json({ error: 'Add an OpenRouter key first.' }, 400);
-    if (v === 'xai' && !env.xaiKey) return c.json({ error: 'Add an xAI key first.' }, 400);
+    // Allowed before the key exists (bring your own key next); until then the other provider keeps running.
     saveSetting('provider', v, user.id);
-    return c.json({ ok: true, ...settingsStatus() });
+    return c.json({ ok: true, canEdit: true, ...settingsStatus() });
   }
   if (name === 'openrouter_model') {
     const list = await openrouterModels().catch(() => null);
     const m = list?.find((x) => x.id === v);
     if (list && !m) return c.json({ error: `${v} isn't an OpenRouter model that can use tools.` }, 400);
     saveSetting('openrouter_model', v, user.id);
-    return c.json({ ok: true, ...settingsStatus() });
+    return c.json({ ok: true, canEdit: true, ...settingsStatus() });
   }
   // model: check it against the models the current key can use
   if (env.xaiKey) {
@@ -311,7 +310,7 @@ configApi.put('/settings/keys/:name', async (c) => {
     if (r.ok && !r.modelOk) return c.json({ error: `${v} isn't available on your xAI key. Available: ${r.models.slice(0, 12).join(', ')}` }, 400);
   }
   saveSetting('model', v, user.id);
-  return c.json({ ok: true, ...settingsStatus() });
+  return c.json({ ok: true, canEdit: true, ...settingsStatus() });
 });
 
 configApi.delete('/settings/keys/:name', (c) => {
@@ -319,7 +318,7 @@ configApi.delete('/settings/keys/:name', (c) => {
   const name = c.req.param('name') as SettingName;
   if (!(name in SETTINGS)) return c.json({ error: 'unknown setting' }, 404);
   clearSetting(name);
-  return c.json({ ok: true, ...settingsStatus() });
+  return c.json({ ok: true, canEdit: true, ...settingsStatus() });
 });
 
 /** Models for the model pickers: OpenRouter's tool-capable catalog, or the models the xAI key can use. */

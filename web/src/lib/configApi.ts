@@ -46,7 +46,7 @@ export interface KeysResponse {
   openrouter: KeyStatus;
   model: { value: string; source: 'app' | 'env' | null };
   openrouterModel: { value: string; source: 'app' | 'env' | null };
-  provider: { value: 'xai' | 'openrouter'; source: 'app' | 'env' | null };
+  provider: { value: 'xai' | 'openrouter'; chosen: 'xai' | 'openrouter' | null; source: 'app' | 'env' | null };
   models?: string[];
   modelOk?: boolean;
 }
@@ -89,7 +89,7 @@ export const configApi = {
   keys: () => req<KeysResponse>('GET', '/settings/keys'),
   saveKey: (name: SettingKey, value: string) => req<KeysResponse>('PUT', `/settings/keys/${name}`, { value }),
   clearKey: (name: SettingKey) => req<KeysResponse>('DELETE', `/settings/keys/${name}`),
-  models: () => req<{ provider: 'xai' | 'openrouter'; models: ModelInfo[]; error?: string }>('GET', '/settings/models'),
+  models: (provider?: 'xai' | 'openrouter') => req<{ provider: 'xai' | 'openrouter'; models: ModelInfo[]; error?: string }>('GET', `/settings/models${provider ? `?provider=${provider}` : ''}`),
   unpairPc: () => req<{ ok: true; revoked: number }>('DELETE', '/computer/pair'),
 
   policies: () => req<{ policies: { tool: string; mode: string }[] }>('GET', '/policies'),

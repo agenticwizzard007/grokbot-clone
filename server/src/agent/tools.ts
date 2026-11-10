@@ -12,6 +12,7 @@ import { createSubagent, deleteSubagent, listSubagents } from './subagents.js';
 import { createRoom, postToRoom } from './rooms.js';
 import type { ActivityKind } from '../types.js';
 import { Cron } from 'croner';
+import { createBot, visibleAgentByName } from '../bots.js';
 
 export interface ToolCtx {
   userId: string;
@@ -58,6 +59,26 @@ const onScreen = async (ctx: ToolCtx) => computers.screen(ctx.userId, ctx.botId)
 
 function botByName(userId: string, name: string) {
   return db.prepare('SELECT * FROM bots WHERE user_id=? AND lower(name)=lower(?)').get(userId, name.trim()) as any;
+}
+
+function cleanList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.map((v) => String(v ?? '').trim()).filter(Boolean).slice(0, 12)
+    : [];
+}
+
+function botInstructions(a: any) {
+  const shared = cleanList(a.shared_resources);
+  const handoffs = cleanList(a.handoff_notes);
+  return [
+    `Identity: ${String(a.name).trim()}${a.label ? ` (${String(a.label).trim()})` : ''}.`,
+    `Purpose: ${String(a.purpose).trim()}`,
+    shared.length ? `Shared resources and context:\n${shared.map((r) => `- ${r}`).join('\n')}` : '',
+    handoffs.length ? `Handoffs and coordination:\n${handoffs.map((h) => `- ${h}`).join('\n')}` : '',
+    a.instructions ? `Standing instructions:\n${String(a.instructions).trim()}` : '',
+    'You have your own durable chat context, memory, tasks, Library, browser profile, and screen. Your screen runs on the same user VM as the other Bots, but it is separate from their screens.',
+    'Coordinate with Quinn or other Bots using send_to_bot when a handoff is useful, and use post_to_group inside shared group chats.',
+  ].filter(Boolean).join('\n\n').slice(0, 8000);
 }
 
 export const TOOLS: ToolDef[] = [
@@ -335,6 +356,57 @@ export const TOOLS: ToolDef[] = [
       if (ctx.depth >= 3) return { output: 'Too many hops between bots; answer the user directly instead.' };
       ctx.enqueueBotMessage(ctx.botId, target.id, String(a.message), ctx.depth + 1);
       return { output: `Sent to ${target.name}. Their reply will come back to you as a message.`, summary: `Messaged ${target.name}` };
+    },
+  },
+  {
+    name: 'create_bot',
+    description:
+      'Create a durable, visible Bot on the user\'s team when the user asks for a new teammate or specialized assistant. ' +
+      'Only the primary Bot should use this. The new Bot gets its own identity, instructions, chat context, Library, tasks, memory, browser profile, and screen on the shared VM.',
+    parameters: obj({
+      name: { type: 'string', description: 'Short unique Bot name, e.g. "Nia"' },
+      label: { type: 'string', description: 'Short role shown next to the name, e.g. "LinkedIn Research"' },
+      purpose: { type: 'string', description: 'The job this Bot is responsible for.' },
+      instructions: { type: 'string', description: 'Standing instructions, limits, tone, and workflow for this Bot.' },
+      shared_resources: { type: 'array', items: { type: 'string' }, description: 'Resources or context shared with this Bot, such as connected apps, files, accounts, or owner preferences.' },
+      handoff_notes: { type: 'array', items: { type: 'string' }, description: 'How this Bot should accept work from or hand work back to Quinn/other Bots.' },
+      handoff_message: { type: 'string', description: 'Optional initial message to send to the new Bot after creation.' },
+      mode: { type: 'string', enum: ['personal', 'teammate'] },
+      effort: { type: 'string', enum: ['low', 'medium', 'high', 'xhigh'] },
+      avatar_shape: { type: 'string' },
+      avatar_color: { type: 'string' },
+    }, ['name', 'purpose']),
+    activity: 'working',
+    label: 'Creating a Bot',
+    impl: async (a, ctx) => {
+      const actor = getBotRow(ctx.botId);
+      if (!actor?.is_primary) return { output: 'Only the primary Bot can create durable team Bots. Ask Quinn to create it, or create it from the sidebar.' };
+      const name = String(a.name ?? '').replace(/\s+/g, ' ').trim();
+      const purpose = String(a.purpose ?? '').trim();
+      if (!name || !purpose) return { output: 'A new Bot needs a name and purpose.' };
+      if (visibleAgentByName(ctx.userId, name)) return { output: `A Bot named "${name}" already exists. Use send_to_bot to hand work to it, or choose a different name.` };
+      const bot = createBot(ctx.userId, {
+        name,
+        label: a.label,
+        description: purpose,
+        instructions: botInstructions({ ...a, name, purpose }),
+        avatarShape: a.avatar_shape,
+        avatarColor: a.avatar_color,
+        mode: a.mode,
+        effort: a.effort,
+      });
+      appendRow(bot.id, 'event', { type: 'event', event: 'bot-message', text: `${actor.name} created this Bot: ${purpose}` });
+      const handoff = String(a.handoff_message ?? '').trim();
+      if (handoff && ctx.depth < 3) ctx.enqueueBotMessage(ctx.botId, bot.id, handoff, ctx.depth + 1);
+      return {
+        output: JSON.stringify({
+          ok: true,
+          bot: { id: bot.id, name: bot.name, label: bot.label, purpose: bot.description },
+          screen: 'The Bot will receive a separate browser profile and screen on the shared VM the first time it uses computer tools.',
+          handoff_sent: !!handoff && ctx.depth < 3,
+        }),
+        summary: `Created ${bot.name}`,
+      };
     },
   },
   {

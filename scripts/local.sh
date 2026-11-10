@@ -79,7 +79,7 @@ start() {
   echo
   echo "Grokbot is running at $URL"
   echo "  1. Sign in with any email (local dev sign-in)."
-  echo "  2. Settings → API keys: paste your xAI key (and Composio, optional)."
+  echo "  2. Settings → API keys: paste your OpenRouter key (or xAI), then pick a model."
   echo "  3. Settings → Computer → Use this computer."
   echo "Stop it with ./scripts/local.sh stop · logs: ./scripts/local.sh logs"
   if [ "$(uname)" = "Darwin" ] && [ -z "${NO_OPEN:-}" ]; then open "$URL"; fi
