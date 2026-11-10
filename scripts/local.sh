@@ -13,6 +13,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$PWD"
 PIDFILE="$ROOT/data/swarm.pid"
+# A server started before the Swarm rename recorded its pid in data/grokbot.pid.
+if [ -f "$ROOT/data/grokbot.pid" ] && [ ! -f "$PIDFILE" ]; then mv "$ROOT/data/grokbot.pid" "$PIDFILE"; fi
 LOGFILE="$ROOT/data/logs/server.log"
 
 envval() { [ -f .env ] && grep -E "^$1=" .env | tail -1 | cut -d= -f2- | sed 's/[[:space:]]*#.*$//; s/[[:space:]]*$//' || true; }

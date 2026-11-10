@@ -1,3 +1,4 @@
+import './lib/legacy-storage'; // before reading saved preferences
 import { create } from 'zustand';
 import type { Bot, ComputerState, LiveState, Routine, Row, ServerEvent, User } from '@shared/types';
 import { api } from './lib/api';

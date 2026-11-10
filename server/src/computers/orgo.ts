@@ -10,6 +10,8 @@ import { ComputerError, type BotScreen, type ComputerProvider, type Shot } from 
 /** Orgo cloud VMs: one Linux box per user, one X screen per Bot (see orgo-box.ts). */
 
 const LIB_ROOT = '/root/swarm/files';
+/** Boxes set up before the Swarm rename keep Bots' profiles and files in /root/grokbot; move them once. */
+const ADOPT_LEGACY = 'if [ -d /root/grokbot ] && [ ! -e /root/swarm ]; then mv /root/grokbot /root/swarm; fi; ';
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
 function toShot(s: { image: string; mime_type?: string; width: number; height: number }): Shot {
@@ -70,7 +72,7 @@ export const orgoProvider: ComputerProvider = {
         await orgo.bash(
           c,
           s,
-          `export DISPLAY=${display}; mkdir -p ${profile}; pgrep -f "user-data-dir=${profile}" >/dev/null || rm -f ${profile}/Singleton*; ` +
+          `${ADOPT_LEGACY}export DISPLAY=${display}; mkdir -p ${profile}; pgrep -f "user-data-dir=${profile}" >/dev/null || rm -f ${profile}/Singleton*; ` +
             `setsid nohup google-chrome --no-sandbox --no-first-run --no-default-browser-check --disable-dev-shm-usage --password-store=basic ` +
             `--user-data-dir=${profile} --start-maximized '${url}' >/tmp/chrome-${botId}.log 2>&1 < /dev/null & sleep 4; echo ok`,
           40,
@@ -130,7 +132,7 @@ export const orgoProvider: ComputerProvider = {
       const box = await boxFor(userId, botId, wake);
       if (!box) return { status: 'asleep', path: rel, files: [] };
       const dir = `${LIB_ROOT}/${botId}${rel ? `/${rel}` : ''}`;
-      const r = await orgo.bash(box.computerId, box.screenId, `mkdir -p ${shq(`${LIB_ROOT}/${botId}`)} && ls -la --time-style=+%s ${shq(dir)} 2>&1`, 30);
+      const r = await orgo.bash(box.computerId, box.screenId, `${ADOPT_LEGACY}mkdir -p ${shq(`${LIB_ROOT}/${botId}`)} && ls -la --time-style=+%s ${shq(dir)} 2>&1`, 30);
       if (r.exit_code !== 0) return { status: 'error', path: rel, files: [], error: (r.output ?? '').slice(0, 300) };
       return { status: 'ok', path: rel, files: parseLs(r.output ?? '') };
     },
