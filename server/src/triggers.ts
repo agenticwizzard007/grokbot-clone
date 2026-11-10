@@ -1,4 +1,5 @@
 import { db, now } from './db.js';
+import { checkRoutineRun, noteSkipped, trackRun } from './routine-limits.js';
 import { APPS_OFF, composio } from './composio.js';
 import { env } from './env.js';
 import { appendRow } from './store.js';
@@ -71,6 +72,8 @@ function onTrigger(data: any) {
   if (!ids.length) return;
   const rows = db.prepare(`SELECT * FROM routines WHERE trigger_id IN (${ids.map(() => '?').join(',')}) AND enabled=1`).all(...ids) as any[];
   for (const r of rows) {
+    const check = checkRoutineRun(r, 'event');
+    if (!check.ok) { noteSkipped(r, check.reason); continue; }
     const payload = JSON.stringify(data.payload ?? data.originalPayload ?? {}, null, 1).slice(0, 8000);
     db.prepare('UPDATE routines SET last_run_at=? WHERE id=?').run(now(), r.id);
     appendRow(r.bot_id, 'event', { type: 'event', event: 'routine-run', text: `Routine triggered: ${r.name}`, ref: r.id });
@@ -80,6 +83,7 @@ function onTrigger(data: any) {
       name: r.name,
       prompt: `${r.prompt}\n\n[Event: ${data.triggerSlug ?? r.schedule.slice(6)}]\n${payload}`,
     });
+    trackRun(r.id, r.bot_id);
   }
 }
 

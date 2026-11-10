@@ -39,6 +39,20 @@ Bots' computers come from a pluggable provider (`COMPUTER_PROVIDER`):
 - **`local`**: a Chrome browser on your own PC, through a small companion program. Each Bot gets its own browser profile. Browser only: no desktop apps and no shell.
 - **`orgo`**: each user's Bots share one Orgo cloud VM, with up to four separate Bot desktops active at once. Idle computers can sleep and wake when needed.
 
+## Routines and limits
+
+Bots run **timed routines** (a cron schedule, e.g. weekdays at 8:00) and **event routines** (a connected app's event, e.g. a new email). Each run is a full Bot turn, so it costs a model call, plus computer time if the Bot uses its computer. Guardrails keep that bounded. Each is an environment setting, and 0 turns it off:
+
+| Limit | Default | Setting |
+|---|---|---|
+| Timed routines run at most every | 15 minutes, checked when created and again at run time | `ROUTINE_MIN_INTERVAL_MIN` |
+| Active routines per Bot / per account | 10 / 25 | `ROUTINE_MAX_PER_BOT`, `ROUTINE_MAX_PER_USER` |
+| Routine runs per account in any 24 hours (all kinds) | 100 | `ROUTINE_MAX_RUNS_PER_DAY` |
+| Event bursts combined into one run per | 60 seconds | `ROUTINE_EVENT_MIN_GAP_SEC` |
+| Routines paused after the user is silent for | 30 days (they resume when the user is back) | `ROUTINE_PAUSE_IF_USER_IDLE_DAYS` |
+
+A run is also skipped while the same routine's previous run is still going. When a run is skipped, the Bot's chat says why (once a day per routine). For anything that needs a quick reaction, use an event routine instead of a frequent schedule: it runs only when something happens.
+
 ## Custom MCP servers
 
 Open **Settings → MCP servers → Add MCP server**. Enter a name and either a **Streamable HTTP** URL, a legacy **SSE** URL, or a **local stdio command** with one argument per line. Expand authentication for a bearer token/custom headers, or environment settings for local process variables and a working directory. **Save & test connection** performs the MCP handshake and lists all advertised tools. Use **Test connection** again after the server changes its tools.

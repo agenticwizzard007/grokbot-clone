@@ -414,6 +414,9 @@ test('key changes move event subscriptions to the new client and stop old delive
   assert.equal(nextStart.mock.callCount(), 1);
   oldDelivery({ id: 'event-trigger', payload: {} });
   assert.equal(delivered.length, 1);
+  // Event bursts within a minute are combined into one run (routine-limits.ts): let a minute pass.
+  db.prepare('UPDATE routines SET last_run_at=? WHERE id=?').run(Date.now() - 61_000, 'event-routine');
+  await new Promise((r) => setTimeout(r, 20));
   nextDelivery({ id: 'event-trigger', payload: {} });
   assert.equal(delivered.length, 2);
   setEnvOverride('COMPOSIO_API_KEY', null);

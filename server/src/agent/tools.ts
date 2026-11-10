@@ -1,4 +1,5 @@
 import { db, now } from '../db.js';
+import { checkRoutineCreate } from '../routine-limits.js';
 import { newId } from '../lib/ids.js';
 import { hub } from '../lib/hub.js';
 import { computers } from '../computers/index.js';
@@ -211,6 +212,8 @@ export const TOOLS: ToolDef[] = [
     label: 'Setting up a routine',
     impl: async (a, ctx) => {
       try { new Cron(a.schedule, { paused: true, timezone: a.timezone || 'UTC' }); } catch (e: any) { return { output: `Invalid schedule: ${e.message}` }; }
+      const limit = checkRoutineCreate(ctx.botId, a.schedule, { timezone: a.timezone });
+      if (limit) return { output: limit, summary: 'Routine not created' };
       const id = newId('rt');
       db.prepare('INSERT INTO routines(id,bot_id,name,prompt,schedule,timezone,enabled,created_at) VALUES (?,?,?,?,?,?,1,?)').run(id, ctx.botId, a.name, a.prompt, a.schedule, a.timezone || 'UTC', now());
       const r = toRoutine(db.prepare('SELECT * FROM routines WHERE id=?').get(id));
@@ -237,6 +240,8 @@ export const TOOLS: ToolDef[] = [
     impl: async (a, ctx) => {
       let config: Record<string, unknown> = {};
       try { config = a.config_json ? JSON.parse(a.config_json) : {}; } catch { return { output: 'config_json must be a JSON object string.' }; }
+      const limit = checkRoutineCreate(ctx.botId, null);
+      if (limit) return { output: limit, summary: 'Routine not created' };
       try {
         const r = await createEventRoutine(ctx.userId, ctx.botId, { name: a.name, prompt: a.prompt, trigger_slug: a.trigger_slug, config });
         appendRow(ctx.botId, 'event', { type: 'event', event: 'routine-created', text: `Routine created: ${a.name} · ${describeEvent(`event:${String(a.trigger_slug).toUpperCase()}`)}`, ref: r.id });

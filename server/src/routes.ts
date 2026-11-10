@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { checkRoutineCreate } from './routine-limits.js';
 import { streamSSE } from 'hono/streaming';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { db, now } from './db.js';
@@ -309,6 +310,10 @@ api.patch('/routines/:id', async (c) => {
   const r = db.prepare('SELECT r.* FROM routines r JOIN bots b ON b.id=r.bot_id WHERE r.id=? AND b.user_id=?').get(c.req.param('id'), c.get('user').id) as any;
   if (!r) return c.json({ error: 'not found' }, 404);
   const { enabled } = await c.req.json<{ enabled: boolean }>();
+  if (enabled && !r.enabled) {
+    const limit = checkRoutineCreate(r.bot_id, r.schedule, { timezone: r.timezone, excludeRoutineId: r.id });
+    if (limit) return c.json({ error: limit }, 429);
+  }
   db.prepare('UPDATE routines SET enabled=? WHERE id=?').run(enabled ? 1 : 0, r.id);
   const next = toRoutine(db.prepare('SELECT * FROM routines WHERE id=?').get(r.id));
   enabled ? scheduleRoutine(next) : unscheduleRoutine(r.id);
@@ -319,7 +324,8 @@ api.patch('/routines/:id', async (c) => {
 api.post('/routines/:id/run', (c) => {
   const r = db.prepare('SELECT r.* FROM routines r JOIN bots b ON b.id=r.bot_id WHERE r.id=? AND b.user_id=?').get(c.req.param('id'), c.get('user').id) as any;
   if (!r) return c.json({ error: 'not found' }, 404);
-  runRoutine(r.id);
+  const run = runRoutine(r.id, 'manual');
+  if (!run.ok) return c.json({ error: `Not run: ${run.reason}.` }, 429);
   return c.json({ ok: true });
 });
 
