@@ -60,7 +60,8 @@ try {
       await route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
     });
     const openTasks = async () => {
-      if (width <= 760) await page.getByRole('button', { name: 'Open bots', exact: true }).click();
+      // Phones: the Bot list is the home screen; from a chat or Tasks, back returns to it.
+      if (width <= 760 && !(await page.locator('.sidebar').isVisible())) await page.getByRole('button', { name: /^All Bots/ }).first().click();
       await page.locator('.sidebar').getByRole('button', { name: 'Tasks', exact: true }).click();
     };
     const checkFits = async () => {
@@ -72,7 +73,7 @@ try {
     };
     const changed = () => page.evaluate(() => window.dispatchEvent(new CustomEvent('swarm:event', { detail: { type: 'tasks', botId: 'bot-1' } })));
     await page.goto(origin);
-    await page.locator('.composer__input').waitFor();
+    await page.locator(width <= 760 ? '.sidebar' : '.composer__input').waitFor();
     await openTasks();
     await page.getByText('3 tasks need your input', { exact: true }).waitFor();
     assert.equal(await page.locator('.task-card').count(), 9);

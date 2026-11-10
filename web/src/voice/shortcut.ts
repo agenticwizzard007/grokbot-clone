@@ -29,7 +29,7 @@ export function installVoiceShortcut() {
       config.closeAppSettings();
       config.closeBotSettings();
       config.setView('chat');
-      state.set({ modal: null, viewerOpen: false, mobileSidebarOpen: false, detailsOpen: false });
+      state.set({ modal: null, viewerOpen: false, detailsOpen: false });
       state.selectBot(main.id);
       const call = useVoice.getState();
       if (isCallActive(call) && call.botId === main.id && call.muted) toggleMute();

@@ -1,5 +1,5 @@
 import { recordModelUsage, withUsage } from '../usage.js';
-import { llmClient, modelFor, modelInfo, prepareInput, providerFields, serverTools, tagOutput } from '../lib/llm.js';
+import { llmClient, modelFor, withFast, modelInfo, prepareInput, providerFields, serverTools, tagOutput } from '../lib/llm.js';
 import { db, now } from '../db.js';
 import { env } from '../env.js';
 import { newId, sha256 } from '../lib/ids.js';
@@ -36,6 +36,7 @@ interface PendingState {
 }
 
 const MAX_STEPS = 60;
+const ULTRACODE_STEPS = 150;
 const KEEP_IMAGES = 3;
 
 // ---------- per-bot serial queue ----------
@@ -164,7 +165,9 @@ async function runTurn(botId: string, trigger: Trigger) {
       return schemas;
     })();
 
-    for (let step = 0; step < MAX_STEPS; step++) {
+    // Ultracode: a longer budget for long, careful runs.
+    const maxSteps = getBotRow(botId)?.effort === 'ultracode' ? ULTRACODE_STEPS : MAX_STEPS;
+    for (let step = 0; step < maxSteps; step++) {
       if (ctrl.signal.aborted) throw new Error('interrupted');
       const result = await callModel(ctx, tools, ctrl.signal);
       appendHistory(botId, result.output);
@@ -314,7 +317,7 @@ async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: Abo
   const input = [{ role: 'system', content: prompt }, ...prepareInput(pruneImages(deduplicateBrowserSnapshots(repairHistory(history))), model)];
 
   const body: any = {
-    model,
+    model: withFast(model, !!bot.fast),
     input,
     tools,
     store: false,
@@ -322,6 +325,7 @@ async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: Abo
     ...providerFields({
       effort: bot.effort ?? 'medium',
       reasoning: info?.reasoning ?? true,
+      efforts: info ? info.efforts : undefined,
       cacheKey: `swarm:${botId}:${bot.generation}`,
       safetyId: sha256(userId).slice(0, 32),
     }),

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Check, CircleCheck, CircleHelp, Clock3, ListTodo, RefreshCw } from 'lucide-react';
+import { ArrowRight, Check, ChevronLeft, CircleCheck, CircleHelp, Clock3, ListTodo, RefreshCw } from 'lucide-react';
 import type { Bot, Task } from '@shared/types';
 import { BotAvatarFor } from '../../avatar/BotAvatar';
 import { configApi } from '../../lib/configApi';
 import { relativeShort } from '../../lib/time';
 import { useConfigUI, useVersion } from '../../configStore';
-import { useStore } from '../../store';
+import { backToList, useStore } from '../../store';
 import { Glyph } from './glyphs';
 import './ui';
 import '../../styles/tasks.css';
@@ -84,6 +84,7 @@ function TaskError({ retry, stale }: { retry: () => void; stale: boolean }) {
 export function TasksView() {
   const bots = useStore((s) => s.bots);
   const connected = useStore((s) => s.sseConnected);
+  const mobile = useStore((s) => s.mobile);
   const { tasks, error, retry } = useTasks();
   const [filter, setFilter] = useState<Filter>('all');
   const [botFilter, setBotFilter] = useState('all');
@@ -97,6 +98,11 @@ export function TasksView() {
   return (
     <main className="chat tasks-view" aria-labelledby="tasks-heading">
       <header className="tasks-view__header">
+        {mobile && (
+          <button type="button" className="chat__back icon-btn" onClick={() => { useConfigUI.getState().setView('chat'); backToList(); }} aria-label="All Bots">
+            <ChevronLeft size={22} strokeWidth={1.75} aria-hidden />
+          </button>
+        )}
         <div><h1 id="tasks-heading">Tasks</h1><p>Your team’s work, with a clear next step.</p></div>
         <span className={`tasks-sync${connected ? ' is-connected' : ''}`}><span aria-hidden="true" />{connected ? 'Updates automatically' : 'Reconnecting…'}</span>
       </header>
@@ -147,7 +153,7 @@ export function TasksIsland() {
   const { tasks } = useTasks();
   const waiting = tasks?.filter((t) => t.state === 'needs_input').length ?? 0;
   return (
-    <button type="button" className={`sidebar-island${view === 'tasks' ? ' is-active' : ''}`} onClick={() => { useConfigUI.getState().setView(view === 'tasks' ? 'chat' : 'tasks'); useStore.getState().set({ mobileSidebarOpen: false }); }} title={waiting ? `${waiting} pending tasks need your input` : 'Tasks'} aria-label="Tasks" aria-pressed={view === 'tasks'}>
+    <button type="button" className={`sidebar-island${view === 'tasks' ? ' is-active' : ''}`} onClick={() => { useConfigUI.getState().setView(view === 'tasks' ? 'chat' : 'tasks'); }} title={waiting ? `${waiting} pending tasks need your input` : 'Tasks'} aria-label="Tasks" aria-pressed={view === 'tasks'}>
       <span className="sidebar-island__icon"><Glyph name="tasks" size={18} /></span><span className="sidebar-island__label">Tasks</span>
       {waiting > 0 && <span className="sidebar-island__count" aria-label={`${waiting} waiting on you`}>{waiting}</span>}
     </button>

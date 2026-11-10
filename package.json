@@ -32,7 +32,8 @@
     "test:apple-auth": "node --import tsx --test tests/apple-auth.test.mts",
     "test:tasks": "node tests/tasks-layout.mjs",
     "test:cli": "node --import tsx --test --test-concurrency=1 tests/cli-runner.test.mts tests/cli-login-runner.test.mts tests/cli-login.test.mts tests/cli-subscription.test.mts && node tests/cli-chat.mjs",
-    "cli:bridge": "node companion/cli-bridge.mjs"
+    "cli:bridge": "node companion/cli-bridge.mjs",
+    "test:models": "node --import tsx --test --test-concurrency=1 tests/models.test.mts"
   },
   "engines": {
     "node": ">=22"

@@ -12,9 +12,12 @@ import http from 'node:http';
 
 const PORT = Number(process.argv[2] ?? 8790);
 const recent = [];
+// `efforts` mirrors OpenRouter's per-model reasoning object (supported_efforts / default_effort).
+const ANTHROPIC_EFFORTS = { mandatory: true, supported_efforts: ['max', 'xhigh', 'high', 'medium', 'low'], default_effort: 'high' };
 const OPENROUTER_MODELS = [
-  { id: 'openai/gpt-4.1', name: 'Mock Direct: GPT 4.1', vision: true, reasoning: true, prompt: '0.000003', completion: '0.000015' },
-  { id: 'anthropic/claude-sonnet-5.5', name: 'Anthropic: Claude Sonnet 5.5', vision: true, reasoning: true, prompt: '0.000003', completion: '0.000015' },
+  { id: 'openai/gpt-4.1', name: 'Mock Direct: GPT 4.1', vision: true, reasoning: true, prompt: '0.000003', completion: '0.000015', efforts: { mandatory: false, default_enabled: true, supported_efforts: ['xhigh', 'high', 'medium', 'low', 'none'], default_effort: 'medium' } },
+  { id: 'anthropic/claude-sonnet-5.5', name: 'Anthropic: Claude Sonnet 5.5', vision: true, reasoning: true, prompt: '0.000003', completion: '0.000015', efforts: ANTHROPIC_EFFORTS },
+  { id: 'anthropic/claude-opus-5.5', name: 'Anthropic: Claude Opus 5.5', vision: true, reasoning: true, prompt: '0.000005', completion: '0.000025', efforts: ANTHROPIC_EFFORTS },
   { id: 'google/gemini-3.8-flash', name: 'Google: Gemini 3.8 Flash', vision: true, reasoning: false, prompt: '0.0000003', completion: '0.0000025' },
   { id: 'deepseek/deepseek-v4', name: 'DeepSeek: V4', vision: false, reasoning: true, prompt: '0.0000005', completion: '0.000002' },
 ].map((m) => ({
@@ -22,6 +25,7 @@ const OPENROUTER_MODELS = [
   architecture: { input_modalities: m.vision ? ['text', 'image'] : ['text'], output_modalities: ['text'] },
   supported_parameters: ['tools', 'tool_choice', ...(m.reasoning ? ['reasoning'] : [])],
   pricing: { prompt: m.prompt, completion: m.completion },
+  ...(m.efforts ? { reasoning: m.efforts } : {}),
 }));
 let n = 0;
 const id = (p) => `${p}_mock${++n}`;
@@ -78,7 +82,7 @@ function respond(body) {
 const server = http.createServer((req, res) => {
   let raw = '';
   req.on('data', (d) => { raw += d; });
-  req.on('end', () => {
+  req.on('end', async () => {
     // Key check for Settings → API keys: the key "invalid-key" is rejected, anything else is accepted.
     if (req.method === 'GET' && req.url.startsWith('/v1/models')) {
       const bad = (req.headers.authorization ?? '') === 'Bearer invalid-key';
@@ -119,6 +123,10 @@ const server = http.createServer((req, res) => {
     try { body = JSON.parse(raw); } catch { /* empty */ }
     recent.push({ at: Date.now(), auth: auth.slice(0, 20), referer: req.headers['http-referer'] ?? null, title: req.headers['x-title'] ?? null, body });
     if (recent.length > 20) recent.shift();
+    // "mock-delay:N" anywhere in the user's message holds each model reply for N ms (max 20 s), to see live UI.
+    const lastUser = [...(Array.isArray(body.input) ? body.input : [])].reverse().find((it) => it.role === 'user');
+    const delay = Math.min(20000, Number(JSON.stringify(lastUser?.content ?? '').match(/mock-delay:(\d+)/)?.[1] ?? 0));
+    if (delay) await new Promise((r) => setTimeout(r, delay));
     const r = respond(body);
     const response = { id: id('resp'), object: 'response', created_at: Math.floor(Date.now() / 1000), model: body.model, status: 'completed', output: [r.item], usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120, ...(req.viaOpenRouter ? { cost: 0.00042, is_byok: false } : {}) } };
     console.log(`[mock-provider] ${r.kind === 'call' ? `call ${r.item.name} ${r.item.arguments}` : `say ${r.item.content[0].text.slice(0, 80)}`}`);

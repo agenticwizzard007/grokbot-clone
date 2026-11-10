@@ -51,6 +51,13 @@ try {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
     });
     await page.goto(origin);
+    // Phones open on the Bot list (the home screen); a chat replaces it.
+    if (width < 761) {
+      await page.locator('.sidebar').waitFor();
+      assert.equal(await page.locator('.chat').isVisible(), false, 'phones start on the Bot list');
+      await page.screenshot({ path: `.context/apple/iphone-list-${width}.png` });
+      await page.locator('.pinned__tile').click();
+    }
     await page.locator('.composer__input').waitFor();
     await page.getByText('Help me plan the week with my team.').waitFor();
     const checkWidth = async (selector) => {
@@ -62,24 +69,23 @@ try {
     await checkWidth('.composer');
     assert.equal(await page.locator('.traffic-lights:visible').count(), 0, 'native apps use real window chrome');
     if (width < 761) {
-      assert.equal(await page.locator('.sidebar').count(), 0);
+      assert.equal(await page.locator('.sidebar').isVisible(), false, 'a chat replaces the list');
       await page.screenshot({ path: `.context/apple/iphone-${width}.png` });
-      await page.getByRole('button', { name: 'Open bots', exact: true }).click();
-      await page.getByRole('dialog', { name: 'Your bots' }).waitFor();
+      const toList = async () => { await page.getByRole('button', { name: /^All Bots/ }).first().click(); await page.locator('.sidebar').waitFor(); };
+      await toList();
       await page.getByRole('button', { name: 'Tasks', exact: true }).click();
-      assert.equal(await page.locator('.sidebar').count(), 0);
+      assert.equal(await page.locator('.sidebar').isVisible(), false);
       await page.getByText('No tasks yet', { exact: true }).waitFor();
-      await page.getByRole('button', { name: 'Open bots', exact: true }).click();
+      await toList();
       await page.locator('.pinned__tile').click();
       await page.getByRole('button', { name: 'Show details', exact: true }).click();
       await checkWidth('.details');
       await page.getByRole('button', { name: 'Close details', exact: true }).click();
-      await page.getByRole('button', { name: 'Open bots', exact: true }).click();
+      await toList();
       await page.getByRole('button', { name: 'New Bot', exact: true }).click();
       await page.getByRole('dialog', { name: 'Create New Bot' }).waitFor();
       await checkWidth('.create-modal');
       await page.keyboard.press('Escape');
-      await page.getByRole('button', { name: 'Open bots', exact: true }).click();
       await page.locator('.account__btn').click();
       await page.getByRole('menuitem', { name: /Settings/ }).click();
       await checkWidth('.app-settings');
@@ -94,6 +100,12 @@ try {
       assert.ok(await page.locator('.app-settings__main').evaluate((el) => el.scrollWidth <= el.clientWidth + 1), 'settings section fits horizontally');
       await page.getByRole('button', { name: 'Settings', exact: true }).click();
       await page.getByRole('button', { name: 'Back to Bots' }).click();
+      // The system back gesture also leaves a chat for the list.
+      await page.locator('.pinned__tile').click();
+      await page.locator('.composer__input').waitFor();
+      await page.goBack();
+      await page.locator('.sidebar').waitFor();
+      await page.locator('.pinned__tile').click();
     } else {
       await page.screenshot({ path: `.context/apple/desktop-${width}.png` });
     }

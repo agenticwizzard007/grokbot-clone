@@ -63,6 +63,12 @@ export function modelFor(botModel?: string | null): string {
   return (llmProvider() === 'openrouter') === botModel.includes('/') ? botModel : defaultModel();
 }
 
+/** OpenRouter's fastest-provider routing: the ":nitro" variant (throughput-sorted, priority tiers eligible). */
+export function withFast(model: string, fast: boolean): string {
+  if (!fast || llmProvider() !== 'openrouter' || model.includes(':')) return model;
+  return `${model}:nitro`;
+}
+
 /** Server-side tools the provider runs itself. */
 export function serverTools(): any[] {
   if (selectedCli(currentUserId())) return [];
@@ -97,19 +103,42 @@ export function prepareInput(items: any[], model: string): any[] {
 
 export const tagOutput = (items: any[], model: string) => items.map((it) => (it && typeof it === 'object' ? { ...it, _m: modelTag(model) } : it));
 
+const EFFORT_ORDER = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+
+/**
+ * The effort to send for a model: Ultracode asks for the model's top level; anything else snaps to the
+ * nearest level the model accepts (ties go lower). `undefined` = don't send an effort.
+ */
+export function effortFor(effort: string, supported: string[] | null | undefined): string | undefined {
+  const want = effort === 'ultracode' ? 'max' : effort;
+  if (supported === null) return want; // the model accepts every gateway level
+  if (!supported?.length) return undefined; // no effort selection for this model
+  if (supported.includes(want)) return want;
+  const at = EFFORT_ORDER.indexOf(want as (typeof EFFORT_ORDER)[number]);
+  const ranked = supported
+    .map((s) => ({ s, i: EFFORT_ORDER.indexOf(s as (typeof EFFORT_ORDER)[number]) }))
+    .filter((x) => x.i >= 0 && (effort !== 'ultracode' || x.s !== 'none'))
+    .sort((a, b) => (effort === 'ultracode' ? b.i - a.i : Math.abs(a.i - at) - Math.abs(b.i - at) || a.i - b.i));
+  return ranked[0]?.s;
+}
+
 /** Request fields that differ by provider. */
-export function providerFields(opts: { effort: string; reasoning: boolean; cacheKey: string; safetyId: string }): Record<string, unknown> {
+export function providerFields(opts: { effort: string; reasoning: boolean; efforts?: string[] | null; cacheKey: string; safetyId: string }): Record<string, unknown> {
   if (selectedCli(currentUserId())) return {};
   if (llmProvider() === 'direct') {
+    // A compatible direct provider takes low | medium | high | xhigh.
+    const direct = opts.effort === 'none' || opts.effort === 'minimal' ? 'low' : opts.effort === 'max' || opts.effort === 'ultracode' ? 'xhigh' : opts.effort;
     return {
-      reasoning: { effort: opts.effort },
+      reasoning: { effort: direct },
       include: ['reasoning.encrypted_content'],
       prompt_cache_key: opts.cacheKey,
       safety_identifier: opts.safetyId,
     };
   }
-  // OpenRouter: stateless (store must be false), reasoning effort minimal|low|medium|high, only for models that reason.
-  return opts.reasoning ? { reasoning: { effort: opts.effort === 'xhigh' ? 'high' : opts.effort } } : {};
+  // OpenRouter: stateless (store must be false); effort only for models that reason, snapped to what the model accepts.
+  if (!opts.reasoning) return {};
+  const effort = effortFor(opts.effort, opts.efforts === undefined ? ['low', 'medium', 'high'] : opts.efforts);
+  return effort ? { reasoning: { effort } } : {};
 }
 
 // ---------- OpenRouter model catalog ----------
@@ -117,6 +146,11 @@ export function providerFields(opts: { effort: string; reasoning: boolean; cache
 export interface ModelInfo {
   id: string;
   name: string;
+  /** The model's maker, from the id ("anthropic" in "anthropic/claude-opus-5.5"). */
+  author: string;
+  /** Effort levels the model accepts: null = all of them, [] = no effort selection. */
+  efforts: string[] | null;
+  defaultEffort: string | null;
   /** Can see images (needed for screenshots / browser work). */
   vision: boolean;
   reasoning: boolean;
@@ -160,6 +194,9 @@ async function fetchModels(): Promise<ModelInfo[]> {
     .map((m: any) => ({
       id: m.id,
       name: m.name ?? m.id,
+      author: String(m.id).split('/')[0].replace(/^~/, ''),
+      efforts: m.reasoning ? (m.reasoning.supported_efforts === null ? null : Array.isArray(m.reasoning.supported_efforts) ? m.reasoning.supported_efforts.map(String) : []) : [],
+      defaultEffort: m.reasoning?.default_effort ? String(m.reasoning.default_effort) : null,
       vision: (m.architecture?.input_modalities ?? []).includes('image'),
       reasoning: (m.supported_parameters ?? []).includes('reasoning'),
       context: m.context_length ?? 0,
@@ -172,5 +209,6 @@ async function fetchModels(): Promise<ModelInfo[]> {
 
 export async function modelInfo(id: string): Promise<ModelInfo | undefined> {
   if (llmProvider() !== 'openrouter') return undefined;
-  return (await openrouterModels().catch(() => [] as ModelInfo[])).find((m) => m.id === id);
+  const base = id.replace(/:nitro$/, '');
+  return (await openrouterModels().catch(() => [] as ModelInfo[])).find((m) => m.id === base);
 }

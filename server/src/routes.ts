@@ -1,3 +1,4 @@
+import { isEffort } from './types.js';
 import { Hono, type Context } from 'hono';
 import { checkRoutineCreate } from './routine-limits.js';
 import { streamSSE } from 'hono/streaming';
@@ -219,7 +220,9 @@ api.patch('/bots/:id', async (c) => {
     if (p.model !== null && (typeof p.model !== 'string' || p.model.length > 120)) return c.json({ error: 'bad model' }, 400);
     p.model = p.model?.trim() || null;
   }
-  const cols: Record<string, string> = { name: 'name', label: 'label', description: 'description', instructions: 'instructions', avatarShape: 'avatar_shape', avatarColor: 'avatar_color', mode: 'mode', effort: 'effort', pinned: 'pinned', voice: 'voice', voiceSpeed: 'voice_speed', voiceLanguage: 'voice_language', model: 'model' };
+  if (p.effort !== undefined && !isEffort(p.effort)) return c.json({ error: 'bad effort' }, 400);
+  if (p.fast !== undefined && typeof p.fast !== 'boolean') return c.json({ error: 'bad fast' }, 400);
+  const cols: Record<string, string> = { name: 'name', label: 'label', description: 'description', instructions: 'instructions', avatarShape: 'avatar_shape', avatarColor: 'avatar_color', mode: 'mode', effort: 'effort', pinned: 'pinned', voice: 'voice', voiceSpeed: 'voice_speed', voiceLanguage: 'voice_language', model: 'model', fast: 'fast' };
   for (const [k, col] of Object.entries(cols)) {
     if (p[k] !== undefined) db.prepare(`UPDATE bots SET ${col}=?, updated_at=? WHERE id=?`).run(typeof p[k] === 'boolean' ? (p[k] ? 1 : 0) : p[k], now(), b.id);
   }

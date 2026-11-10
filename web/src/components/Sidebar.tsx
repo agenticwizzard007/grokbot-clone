@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useState } from 'react';
 import { Blocks, Gauge, KeyRound, LogOut, Monitor, Settings } from 'lucide-react';
 import { useConfigUI } from '../configStore';
 import { TasksIsland } from './config/TasksView';
@@ -8,7 +8,6 @@ import { displayName, useStore } from '../store';
 import { api } from '../lib/api';
 import { Icon } from './Icon';
 import { Menu } from './Menu';
-import { useCompactLayout } from '../lib/useCompactLayout';
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
@@ -58,43 +57,25 @@ export function Sidebar() {
   const inTasks = useConfigUI((s) => s.view === 'tasks');
   const selectedBotId = inTasks ? null : storeSelectedBotId; // nothing highlighted while the Tasks view is open
   const user = useStore((s) => s.user);
-  const compact = useCompactLayout();
-  const savedCollapsed = useStore((s) => s.sidebarCollapsed);
-  const collapsed = !compact && savedCollapsed;
-  const sidebarRef = useRef<HTMLElement>(null);
+  // Phones show the full list as the home screen, never the collapsed rail.
+  const collapsed = useStore((s) => s.sidebarCollapsed && !s.mobile);
   const set = useStore((s) => s.set);
   const storeSelectBot = useStore((s) => s.selectBot);
   // Picking a bot (even the one already selected) leaves the Tasks view.
-  const selectBot = useCallback((id: string) => { useConfigUI.getState().setView('chat'); storeSelectBot(id); set({ mobileSidebarOpen: false }); }, [storeSelectBot, set]);
+  const selectBot = useCallback((id: string) => { useConfigUI.getState().setView('chat'); storeSelectBot(id); }, [storeSelectBot]);
   const setModal = useStore((s) => s.setModal);
   const [accountMenu, setAccountMenu] = useState(false);
   const logout = async () => { await api.logout().catch(() => {}); location.reload(); };
-
-  useEffect(() => {
-    if (!compact) return;
-    const previous = document.activeElement as HTMLElement | null;
-    sidebarRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
-    const key = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { event.preventDefault(); set({ mobileSidebarOpen: false }); }
-      if (event.key !== 'Tab') return;
-      const buttons = [...(sidebarRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input') ?? [])].filter((el) => el.offsetParent !== null);
-      const first = buttons[0], last = buttons.at(-1);
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
-    };
-    window.addEventListener('keydown', key);
-    return () => { window.removeEventListener('keydown', key); previous?.focus(); };
-  }, [compact, set]);
 
   const primary = bots.find((b) => b.isPrimary);
   const others = bots.filter((b) => !b.isPrimary).sort((a, b) => b.lastActivityAt - a.lastActivityAt);
 
   return (
-    <aside ref={sidebarRef} className={`sidebar${collapsed ? ' is-collapsed' : ''}`} role={compact ? 'dialog' : undefined} aria-modal={compact || undefined} aria-label="Your bots">
+    <aside className={`sidebar${collapsed ? ' is-collapsed' : ''}`} aria-label="Your bots">
       <div className="sidebar__titlebar">
         <TrafficLights />
         <div className="sidebar__controls">
-          <button type="button" className="icon-btn icon-btn--plain" onClick={() => set(compact ? { mobileSidebarOpen: false } : { sidebarCollapsed: !collapsed })} aria-label={compact ? 'Close bots' : collapsed ? 'Expand sidebar' : 'Collapse sidebar'} title="Toggle sidebar (⌘B)">
+          <button type="button" className="icon-btn icon-btn--plain" onClick={() => set({ sidebarCollapsed: !collapsed })} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} title="Toggle sidebar (⌘B)">
             <Icon name="sidebar" opacity={0.66} />
           </button>
           {!collapsed && (

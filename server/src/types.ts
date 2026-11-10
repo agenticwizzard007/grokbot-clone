@@ -57,7 +57,9 @@ export interface Bot {
   /** 'room' = group chat (members answer instead of the bot itself). */
   kind?: 'agent' | 'room';
   pinned: boolean;
-  effort: 'low' | 'medium' | 'high' | 'xhigh';
+  effort: Effort;
+  /** OpenRouter only: route to the fastest providers (the model's ":nitro" variant). */
+  fast: boolean;
   /** This Bot's model, or null for the server default (Settings → API keys). */
   model: string | null;
   /** Voice chat settings: direct provider voice id, speed multiplier (0.7–1.5), BCP-47 language or 'auto'. */
@@ -238,3 +240,12 @@ export type ServerEvent =
   | { type: 'connections' }
   | { type: 'messaging' }
   | { type: 'ping' };
+
+/**
+ * How hard the model thinks. The OpenRouter levels, plus 'ultracode': the model's highest level,
+ * a longer step budget and an instruction to plan and verify. Each model accepts a subset; the
+ * server snaps to the nearest one the model supports.
+ */
+export type Effort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultracode';
+export const EFFORTS: readonly Effort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'];
+export const isEffort = (v: unknown): v is Effort => typeof v === 'string' && (EFFORTS as readonly string[]).includes(v);
