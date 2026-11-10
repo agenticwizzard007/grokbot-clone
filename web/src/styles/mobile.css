@@ -133,9 +133,9 @@
 @keyframes sheet-up { from { transform: translateY(16px); opacity: 0; } to { transform: none; opacity: 1; } }
 
 /* ---------- touch screens: nothing may hide behind hover ---------- */
+/* (A connected app's pill needs no hover hint: the first tap turns it into "Disconnect?".) */
 @media (hover: none) {
   .app-row__desc { max-height: 16px; opacity: 1; }
-  .app-row__connected:not(.is-static) .app-row__disconnect-label { display: inline; }
 }
 
 @media (prefers-reduced-motion: reduce) {
