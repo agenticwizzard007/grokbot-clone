@@ -1,4 +1,5 @@
 import { defaultModel, llmClient, llmProvider } from '../lib/llm.js';
+import { recordModelUsage } from '../usage.js';
 import { db, now } from '../db.js';
 import '../db-config.js';
 import { env } from '../env.js';
@@ -154,14 +155,15 @@ export function renderTranscript(items: any[], maxChars = 200_000): string {
   return out;
 }
 
-async function compactWithDirect(old: any[]): Promise<any[]> {
+async function compactWithDirect(botId: string, old: any[]): Promise<any[]> {
   const res: any = await llm().post('/responses/compact', { body: { model: defaultModel(), input: old } });
+  void recordModelUsage({ botId, kind: 'compaction', model: defaultModel(), response: res });
   const out = (res?.output ?? []) as any[];
   if (!out.length || !out.some((o) => o?.type === 'compaction' || o?.encrypted_content || o?.role)) throw new Error('compact returned no items');
   return out;
 }
 
-async function compactWithSummary(old: any[]): Promise<any[]> {
+async function compactWithSummary(botId: string, old: any[]): Promise<any[]> {
   const transcript = renderTranscript(old);
   const res: any = await llm().responses.create({
     model: defaultModel(),
@@ -169,6 +171,7 @@ async function compactWithSummary(old: any[]): Promise<any[]> {
     store: false,
     ...lowEffort(),
   } as any);
+  void recordModelUsage({ botId, kind: 'compaction', model: defaultModel(), response: res });
   const text = String(res.output_text ?? '').trim();
   if (!text) throw new Error('summary was empty');
   // Earlier direct provider compaction items can't be read back as text, so carry them over unchanged.
@@ -208,12 +211,12 @@ export async function maybeCompact(botId: string, items: any[], opts: { force?: 
   try {
     if (memoryConfig.compactMethod === 'summary') throw new Error('direct provider compaction disabled by SWARM_COMPACT_METHOD=summary');
     if (llmProvider() !== 'direct') throw new Error('compaction endpoint is direct provider-only; using a summary');
-    replaced = await compactWithDirect(old);
+    replaced = await compactWithDirect(botId, old);
   } catch (e: any) {
     console.warn(`[memory] compact via /responses/compact failed for ${botId}: ${e?.message ?? e}; falling back to a summary`);
     method = 'summary';
     try {
-      replaced = await compactWithSummary(old);
+      replaced = await compactWithSummary(botId, old);
     } catch (e2: any) {
       console.error(`[memory] summary fallback failed for ${botId}: ${e2?.message ?? e2}`);
       compactCooldown.set(botId, now() + 10 * 60_000);
@@ -309,6 +312,7 @@ export async function consolidateBot(botId: string, opts: { upTo?: number } = {}
     ...lowEffort(),
     store: false,
   } as any);
+  void recordModelUsage({ botId, kind: 'memory', model: defaultModel(), response: res });
   let proposed: string[] = [];
   try { proposed = (JSON.parse(String(res.output_text ?? '{}')).memories ?? []).map((m: any) => String(m.text ?? '').trim()).filter(Boolean); } catch { /* bad json → nothing */ }
 

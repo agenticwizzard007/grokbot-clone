@@ -15,6 +15,7 @@
     "test:onboarding": "node --import tsx --test --test-concurrency=1 tests/onboarding.test.mts",
     "test:messaging": "node --import tsx --test --test-concurrency=1 tests/messaging.test.mts",
     "test:composio": "node --import tsx --test tests/composio.test.mts",
+    "test:usage": "node --import tsx --test --test-concurrency=1 tests/usage.test.mts",
     "test:bots": "node --import tsx --test tests/bot-creation.test.mts && node tests/bot-creation-chat.mjs"
   },
   "engines": { "node": ">=22" }

@@ -5,6 +5,7 @@
 import { Hono } from 'hono';
 import { SpeechUnavailable, synthesize, transcribe, TTS_VOICES } from './lib/speech.js';
 import { defaultModel, llmClient, llmProvider } from './lib/llm.js';
+import { recordModelUsage, recordUnits } from './usage.js';
 import { db, now } from './db.js';
 import { env } from './env.js';
 import { newId } from './lib/ids.js';
@@ -361,7 +362,7 @@ voiceApi.post('/tool', async (c) => {
 
 const llm = () => llmClient(45_000);
 
-async function summarizeCall(botName: string, transcript: { role: string; text: string }[], tasks: string[]): Promise<string | null> {
+async function summarizeCall(botId: string, botName: string, transcript: { role: string; text: string }[], tasks: string[]): Promise<string | null> {
   if (!transcript.length && !tasks.length) return null;
   const lines = transcript.map((t) => `${t.role === 'user' ? 'User' : botName}: ${t.text}`).join('\n').slice(-12_000);
   const res: any = await llm().responses.create({
@@ -373,6 +374,7 @@ async function summarizeCall(botName: string, transcript: { role: string; text: 
       { role: 'user', content: `${lines || '(no transcript)'}${tasks.length ? `\n\nWork handed off during the call:\n${tasks.map((t) => `- ${t}`).join('\n')}` : ''}` },
     ],
   } as any);
+  void recordModelUsage({ botId, kind: 'voice_summary', model: defaultModel(), response: res });
   const text = String(res.output_text ?? '').trim();
   return text ? clip(text.replace(/\s+/g, ' '), 240) : null;
 }
@@ -397,7 +399,9 @@ voiceApi.post('/end', async (c) => {
   emitBot(bot.id);
 
   // Summarise in the background and rewrite the row.
-  summarizeCall(bot.name, lines, call.tasks)
+  // Usage: realtime voice minutes (billed by the provider per minute; the browser talks to it directly).
+  recordUnits({ userId: user.id, botId: bot.id, kind: 'voice', model: VOICE_MODEL, provider: 'direct', units: Math.round((durationMs / 60_000) * 100) / 100, unit: 'minutes' });
+  summarizeCall(bot.id, bot.name, lines, call.tasks)
     .then((summary) => { if (summary) updateRow(bot.id, row.seq, callEvent(`${base}. ${summary}`, { ...record, summary })); })
     .catch((e) => console.warn('[voice] call summary failed:', e?.message));
   return c.json({ ok: true, seq: row.seq });

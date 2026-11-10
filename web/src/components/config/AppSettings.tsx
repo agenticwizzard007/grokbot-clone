@@ -4,6 +4,7 @@ import type { Toolkit } from '@shared/types';
 import { BotAvatarFor } from '../../avatar/BotAvatar';
 import { configApi, type ComputerDetails, type KeysResponse, type KeyStatus, type Pairing } from '../../lib/configApi';
 import { ModelPicker, refreshModels } from './ModelPicker';
+import { UsageSection } from './UsageSection';
 import { relativeShort } from '../../lib/time';
 import { useConfigUI, type AppSection, type Theme } from '../../configStore';
 import { useStore } from '../../store';
@@ -18,6 +19,7 @@ import { MessagingSettings } from './MessagingSettings';
 const SECTIONS: { id: AppSection; label: string }[] = [
   { id: 'general', label: 'General' },
   { id: 'keys', label: 'API keys' },
+  { id: 'usage', label: 'Usage' },
   { id: 'computer', label: 'Computer' },
   { id: 'messaging', label: 'Messaging' },
   { id: 'permissions', label: 'Permissions' },
@@ -53,6 +55,7 @@ export function AppSettings() {
         <div className="app-settings__page">
           {section === 'general' && <GeneralSection />}
           {section === 'keys' && <KeysSection />}
+          {section === 'usage' && <UsageSection />}
           {section === 'computer' && <ComputerSection />}
           {section === 'messaging' && <MessagingSettings />}
           {section === 'permissions' && <PermissionsSection />}

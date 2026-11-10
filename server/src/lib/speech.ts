@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { env } from '../env.js';
+import { recordModelUsage, recordUnits } from '../usage.js';
 
 /**
  * Speech for Bots: transcription (voice notes, dictation) and text-to-speech (voice replies, previews).
@@ -92,7 +93,10 @@ async function openrouterTranscribe(a: Audio, language?: string): Promise<string
     signal: AbortSignal.timeout(90_000),
   });
   if (!r.ok) throw new Error(`OpenRouter transcription failed (${r.status}): ${(await r.text().catch(() => '')).slice(0, 200)}`);
-  return String(((await r.json()) as { text?: string }).text ?? '').trim();
+  const j = (await r.json()) as { text?: string; usage?: unknown };
+  if (j.usage) void recordModelUsage({ kind: 'transcription', model: STT_MODEL(), provider: 'openrouter', response: j });
+  else recordUnits({ kind: 'transcription', model: STT_MODEL(), provider: 'openrouter', units: 1, unit: 'recordings' });
+  return String(j.text ?? '').trim();
 }
 
 async function directTranscribe(a: Audio, language?: string): Promise<string> {
@@ -103,7 +107,10 @@ async function directTranscribe(a: Audio, language?: string): Promise<string> {
   form.append('file', new Blob([new Uint8Array(a.data)], { type: baseMime(a.mime) }), `voice.${ext}`); // must be last
   const r = await fetch(`${env.directBaseUrl}/stt`, { method: 'POST', headers: { Authorization: `Bearer ${env.directKey}` }, body: form, signal: AbortSignal.timeout(60_000) });
   if (!r.ok) throw new Error(`direct provider transcription failed (${r.status}): ${(await r.text().catch(() => '')).slice(0, 200)}`);
-  return String(((await r.json()) as { text?: string }).text ?? '').trim();
+  const j = (await r.json()) as { text?: string; usage?: unknown };
+  if (j.usage) void recordModelUsage({ kind: 'transcription', model: DIRECT_STT_MODEL(), provider: 'direct', response: j });
+  else recordUnits({ kind: 'transcription', model: DIRECT_STT_MODEL(), provider: 'direct', units: 1, unit: 'recordings' });
+  return String(j.text ?? '').trim();
 }
 
 /** Transcribe a recording. Throws SpeechUnavailable when no provider is set up; tries the other provider on failure. */
@@ -130,6 +137,7 @@ async function openrouterSpeak(text: string, voice: string, format: 'mp3' | 'pcm
   if (!r.ok) throw new Error(`OpenRouter speech failed (${r.status}): ${(await r.text().catch(() => '')).slice(0, 200)}`);
   const data = Buffer.from(await r.arrayBuffer());
   if (!data.length) throw new Error('OpenRouter speech returned no audio');
+  recordUnits({ kind: 'speech', model: TTS_MODEL(), provider: 'openrouter', units: text.length, unit: 'characters' });
   return { data, mime: format === 'pcm' ? 'audio/pcm;rate=24000' : 'audio/mpeg' };
 }
 
@@ -141,6 +149,7 @@ async function directSpeak(text: string, voice: string, format: 'mp3' | 'pcm'): 
     signal: AbortSignal.timeout(60_000),
   });
   if (!r.ok) throw new Error(`direct provider speech failed (${r.status}): ${(await r.text().catch(() => '')).slice(0, 200)}`);
+  recordUnits({ kind: 'speech', model: 'direct-tts', provider: 'direct', units: text.length, unit: 'characters' });
   return { data: Buffer.from(await r.arrayBuffer()), mime: format === 'pcm' ? 'audio/pcm;rate=24000' : 'audio/mpeg' };
 }
 

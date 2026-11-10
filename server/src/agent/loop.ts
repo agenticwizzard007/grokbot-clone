@@ -1,3 +1,4 @@
+import { recordModelUsage, withUsage } from '../usage.js';
 import { llmClient, modelFor, modelInfo, prepareInput, providerFields, serverTools, tagOutput } from '../lib/llm.js';
 import { db, now } from '../db.js';
 import { env } from '../env.js';
@@ -47,7 +48,8 @@ export const currentTrigger = (botId: string): Trigger | undefined => running.ge
 
 export function enqueue(botId: string, trigger: Trigger) {
   const prev = queues.get(botId) ?? Promise.resolve();
-  const next = prev.then(() => runTurn(botId, trigger)).catch((e) => console.error('[agent] turn failed', botId, e));
+  // Usage attribution: every model call in this turn (including compaction) is billed to this Bot and its owner.
+  const next = prev.then(() => withUsage({ botId, kind: 'chat' }, () => runTurn(botId, trigger))).catch((e) => console.error('[agent] turn failed', botId, e));
   queues.set(botId, next);
   next.finally(() => { if (queues.get(botId) === next) queues.delete(botId); });
 }
@@ -357,6 +359,7 @@ async function callModel(ctx: ToolCtx, tools: any[], signal: AbortSignal): Promi
   if (msgSeq !== null) flush(false);
   if (!final) throw new Error('model stream ended without a response');
   if (final.usage?.input_tokens) noteUsage(botId, final.usage.input_tokens, history.length);
+  void recordModelUsage({ userId, botId, kind: 'chat', model, response: final });
   return { output: tagOutput(final.output ?? [], model) };
 }
 

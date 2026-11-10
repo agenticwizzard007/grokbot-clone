@@ -90,7 +90,7 @@ const server = http.createServer((req, res) => {
     const auth = req.headers.authorization ?? '';
     if (req.method === 'GET' && req.url === '/_requests') return json(200, recent);
     // OpenRouter: key check, model catalog (tool-capable models plus a :batch variant that should be filtered out)
-    if (req.method === 'GET' && req.url.startsWith('/api/v1/key')) return auth === 'Bearer invalid-key' ? json(401, { error: { message: 'User not found.', code: 401 } }) : json(200, { data: { label: 'mock-key', usage: 0, limit: null } });
+    if (req.method === 'GET' && req.url.startsWith('/api/v1/key')) return auth === 'Bearer invalid-key' ? json(401, { error: { message: 'User not found.', code: 401 } }) : json(200, { data: { label: 'mock-key', usage: 12.5, usage_daily: 0.25, usage_weekly: 1.75, usage_monthly: 6.4, byok_usage: 0, byok_usage_daily: 0, byok_usage_monthly: 0, limit: 20, limit_remaining: 7.5, limit_reset: 'monthly', is_free_tier: false, budgets: [] } });
     if (req.method === 'GET' && req.url.startsWith('/api/v1/models')) return json(200, { data: [...OPENROUTER_MODELS, { ...OPENROUTER_MODELS[0], id: 'openai/gpt-4.1:batch' }] });
     // OpenRouter speech: transcription returns a fixed transcript; speech returns a few bytes of "mp3". Both are recorded.
     if (req.method === 'POST' && req.url.startsWith('/api/v1/audio/transcriptions')) {
@@ -109,7 +109,7 @@ const server = http.createServer((req, res) => {
     }
     // Speech-to-text (voice notes, dictation): a fixed transcript.
     if (req.method === 'POST' && req.url.startsWith('/v1/stt')) return json(200, { text: 'mock: say Heard your voice note' });
-    if (req.method === 'POST' && req.url.startsWith('/api/v1/responses')) req.url = '/v1/responses';
+    if (req.method === 'POST' && req.url.startsWith('/api/v1/responses')) { req.url = '/v1/responses'; req.viaOpenRouter = true; }
     if (req.method !== 'POST' || !req.url.startsWith('/v1/responses') || req.url.includes('compact')) {
       res.writeHead(404, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: { message: 'not mocked' } }));
@@ -120,7 +120,7 @@ const server = http.createServer((req, res) => {
     recent.push({ at: Date.now(), auth: auth.slice(0, 20), referer: req.headers['http-referer'] ?? null, title: req.headers['x-title'] ?? null, body });
     if (recent.length > 20) recent.shift();
     const r = respond(body);
-    const response = { id: id('resp'), object: 'response', created_at: Math.floor(Date.now() / 1000), model: body.model, status: 'completed', output: [r.item], usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 } };
+    const response = { id: id('resp'), object: 'response', created_at: Math.floor(Date.now() / 1000), model: body.model, status: 'completed', output: [r.item], usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120, ...(req.viaOpenRouter ? { cost: 0.00042, is_byok: false } : {}) } };
     console.log(`[mock-provider] ${r.kind === 'call' ? `call ${r.item.name} ${r.item.arguments}` : `say ${r.item.content[0].text.slice(0, 80)}`}`);
     if (!body.stream) {
       res.writeHead(200, { 'content-type': 'application/json' });
