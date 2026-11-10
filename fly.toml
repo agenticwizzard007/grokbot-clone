@@ -15,7 +15,7 @@ primary_region = "iad"
   COMPUTER_PROVIDER = "cloudvm"
   VM_DRIVER = "fly"
   FLY_VM_APP = "swarm-team-vms"
-  VM_IMAGE = "registry.fly.io/swarm-team-vms:v1"
+  VM_IMAGE = "registry.fly.io/swarm-team-vms:v4-latency-bootstrap"
   VM_REGION = "iad"
   # Measured: ~325 MB per Bot (screen + Chrome); 2 GB + 384 MB per Bot fits ~4 Bots without a resize.
   VM_BASE_MEMORY_MB = "2048"
