@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { db, now } from './db.js';
 import { llmProvider, openrouterModels } from './lib/llm.js';
+import { computerByDay, computerByUser, computerCsvRows, computerTotals, type ComputerTotals } from './usage-vm.js';
 
 /**
  * AI usage monitor: one row per billable AI request (model calls, transcription, speech, voice
@@ -163,12 +164,14 @@ const KIND_LABEL: Record<string, string> = {
 
 interface Totals { costUsd: number; estimatedUsd: number; unpricedRequests: number; unpricedVoice: number; inputTokens: number; cachedTokens: number; outputTokens: number; reasoningTokens: number; requests: number; toolCalls: number; voiceMinutes: number }
 
-export interface UsageRow { key: string; label: string; costUsd: number; tokens: number; requests: number; unpriced: number; minutes: number; recordings: number; characters: number }
+export interface UsageRow { key: string; label: string; costUsd: number; tokens: number; requests: number; unpriced: number; minutes: number; recordings: number; characters: number; computerUsd?: number; computerHours?: number }
 
 export interface UsageReport {
   range: { key: UsageRange; from: number; to: number };
   totals: Totals;
-  days: { day: string; costUsd: number; tokens: number; requests: number }[];
+  /** costUsd is AI only; computerUsd is the estimated computer (VM) cost that day. */
+  days: { day: string; costUsd: number; computerUsd: number; tokens: number; requests: number }[];
+  computer: ComputerTotals;
   byBot: UsageRow[];
   byModel: UsageRow[];
   byKind: UsageRow[];
@@ -190,13 +193,16 @@ export function usageReport(userId: string | null, range: UsageRange): UsageRepo
     outputTokens: t.outp, reasoningTokens: t.reas, requests: t.n, toolCalls: t.tools, voiceMinutes: t.mins,
   };
 
+  const fromDay = new Date(from).toISOString().slice(0, 10);
+  const toDay = new Date(to).toISOString().slice(0, 10);
+  const vmDays = computerByDay(userId, fromDay, toDay);
   const dayRows = db.prepare(`SELECT strftime('%Y-%m-%d', created_at/1000, 'unixepoch') day, COALESCE(SUM(cost_usd),0) cost,
       COALESCE(SUM(input_tokens+output_tokens),0) tokens, COUNT(*) n FROM usage_events WHERE ${where} GROUP BY day`).all(...args) as any[];
   const byDay = new Map(dayRows.map((r) => [r.day, r]));
   const dayList = Array.from({ length: days }, (_, i) => {
     const day = new Date(from + i * 86_400_000).toISOString().slice(0, 10);
     const r = byDay.get(day);
-    return { day, costUsd: r?.cost ?? 0, tokens: r?.tokens ?? 0, requests: r?.n ?? 0 };
+    return { day, costUsd: r?.cost ?? 0, computerUsd: vmDays.get(day) ?? 0, tokens: r?.tokens ?? 0, requests: r?.n ?? 0 };
   });
 
   const group = (col: string) =>
@@ -214,14 +220,23 @@ export function usageReport(userId: string | null, range: UsageRange): UsageRepo
   const byModel = group('model').map((r) => ({ key: r.k, label: r.k, costUsd: r.cost, tokens: r.tokens, requests: r.n, ...extra(r) }));
   const byKind = group('kind').map((r) => ({ key: r.k, label: KIND_LABEL[r.k] ?? r.k, costUsd: r.cost, tokens: r.tokens, requests: r.n, ...extra(r) }));
 
-  const report: UsageReport = { range: { key: range, from, to }, totals, days: dayList, byBot, byModel, byKind };
+  const report: UsageReport = { range: { key: range, from, to }, totals, days: dayList, computer: computerTotals(userId, fromDay, toDay), byBot, byModel, byKind };
   if (!userId) {
     const users = new Map((db.prepare('SELECT id, name, email, phone FROM users').all() as any[]).map((u) => [u.id, u]));
-    report.byUser = group('user_id').map((r) => {
-      const u = r.k ? users.get(r.k) : null;
-      const label = u ? (u.name || u.email || (u.phone ? `+${u.phone}` : r.k)) : r.k ? 'Deleted account' : 'Not tied to an account';
-      return { key: r.k ?? '', label, costUsd: r.cost, tokens: r.tokens, requests: r.n, ...extra(r) };
+    const vmUsers = computerByUser(fromDay, toDay);
+    const nameOf = (id: string) => {
+      const u = id ? users.get(id) : null;
+      return u ? (u.name || u.email || (u.phone ? `+${u.phone}` : id)) : id ? 'Deleted account' : 'Not tied to an account';
+    };
+    const rows: UsageRow[] = group('user_id').map((r) => {
+      const vm = vmUsers.get(r.k ?? '');
+      return { key: r.k ?? '', label: nameOf(r.k ?? ''), costUsd: r.cost, tokens: r.tokens, requests: r.n, ...extra(r), computerUsd: vm?.costUsd ?? 0, computerHours: vm?.runningHours ?? 0 };
     });
+    // Accounts whose only cost is their computer.
+    for (const [id, vm] of vmUsers) {
+      if (!rows.some((r) => r.key === id)) rows.push({ key: id, label: nameOf(id), costUsd: 0, tokens: 0, requests: 0, unpriced: 0, minutes: 0, recordings: 0, characters: 0, computerUsd: vm.costUsd, computerHours: vm.runningHours });
+    }
+    report.byUser = rows;
   }
   return report;
 }
@@ -238,5 +253,12 @@ export function usageCsv(userId: string | null, range: UsageRange): string {
     return /[",\n]/.test(s) || /^[=+\-@]/.test(s) ? `"${s.replace(/"/g, '""').replace(/^([=+\-@])/, "'$1")}"` : s;
   };
   const lines = rows.map((r) => [new Date(r.created_at).toISOString(), r.user_id, r.bot_id, r.kind, r.provider, r.model, r.input_tokens, r.cached_tokens, r.output_tokens, r.reasoning_tokens, r.tool_calls, r.units, r.unit, r.cost_usd, r.cost_source].map(esc).join(','));
+  const fromDay = new Date(from).toISOString().slice(0, 10);
+  const toDay = new Date(to).toISOString().slice(0, 10);
+  // Computer time: one row per day, computer and state (hours, estimated cost).
+  for (const v of computerCsvRows(userId, fromDay, toDay)) {
+    const size = v.cpus ? `${v.cpus} vCPU${v.memory_mb ? ` / ${v.memory_mb} MB` : ''}${v.disk_gb ? ` / ${v.disk_gb} GB disk` : ''}` : '';
+    lines.push([`${v.day}T00:00:00.000Z`, v.user_id, '', `computer_${v.state}`, v.provider, size, 0, 0, 0, 0, 0, Math.round((v.seconds / 3600) * 1000) / 1000, 'hours', v.cost_usd, 'estimate'].map(esc).join(','));
+  }
   return [cols.join(','), ...lines].join('\n') + '\n';
 }

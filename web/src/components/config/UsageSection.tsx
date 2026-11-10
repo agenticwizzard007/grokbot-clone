@@ -110,10 +110,16 @@ function Tile({ label, value, sub }: { label: string; value: string; sub?: strin
   );
 }
 
-/** Single-series column chart, one column per UTC day; per-column tooltip on hover and focus, plus a table view. */
-function DailyChart({ days, metric }: { days: UsageReport['days']; metric: 'cost' | 'tokens' }) {
+/**
+ * Column chart, one column per UTC day. With computer costs it stacks two series (AI below, the
+ * computer above, a 2px surface gap between); otherwise a single series. Per-column tooltip on hover
+ * and focus, a legend whenever there are two series, and a table view.
+ */
+function DailyChart({ days, metric, withComputer }: { days: UsageReport['days']; metric: 'cost' | 'tokens'; withComputer: boolean }) {
   const [hover, setHover] = useState<number | null>(null);
-  const value = (d: UsageReport['days'][number]) => (metric === 'cost' ? d.costUsd : d.tokens);
+  const stacked = metric === 'cost' && withComputer;
+  const ai = (d: UsageReport['days'][number]) => (metric === 'cost' ? d.costUsd : d.tokens);
+  const value = (d: UsageReport['days'][number]) => ai(d) + (stacked ? d.computerUsd : 0);
   const fmt = (v: number) => (metric === 'cost' ? fmtUsd(v) : compact(v));
   const ticks = niceTicks(Math.max(...days.map(value), 0));
   const top = ticks[ticks.length - 1] || 1;
@@ -131,36 +137,57 @@ function DailyChart({ days, metric }: { days: UsageReport['days']; metric: 'cost
   const h = hover !== null ? days[hover] : null;
   const at = hover !== null ? (hover + 0.5) / days.length : 0;
   const tipShift = at < 0.2 ? '0%' : at > 0.8 ? '-100%' : '-50%';
+  const title = metric === 'cost' ? 'Daily cost' : 'Daily tokens';
   return (
     <div className="usage-card">
-      <div className="usage-card__title">{metric === 'cost' ? 'Daily cost' : 'Daily tokens'} <span className="usage-card__hint">UTC days</span></div>
+      <div className="usage-card__head">
+        <div className="usage-card__title">{title} <span className="usage-card__hint">UTC days</span></div>
+        {stacked && (
+          <div className="usage-legend" aria-label="Legend">
+            <span><i className="usage-key usage-key--ai" aria-hidden />AI</span>
+            <span><i className="usage-key usage-key--vm" aria-hidden />Computer (estimated)</span>
+          </div>
+        )}
+      </div>
       <div className="usage-chart">
         <div className="usage-chart__axis" aria-hidden>
           {[...ticks].reverse().map((t) => <span key={t}>{fmt(t)}</span>)}
         </div>
-        <div ref={plot} className="usage-chart__plot" role="group" aria-label={metric === 'cost' ? 'Daily cost' : 'Daily tokens'} onPointerLeave={() => setHover(null)}>
+        <div ref={plot} className="usage-chart__plot" role="group" aria-label={title} onPointerLeave={() => setHover(null)}>
           {ticks.map((t) => <div key={t} className="usage-chart__grid" style={{ bottom: `${(t / top) * 100}%` }} aria-hidden />)}
           <div className="usage-chart__cols">
-            {days.map((d, i) => (
-              <div
-                key={d.day}
-                className={`usage-chart__slot${hover === i ? ' is-hover' : ''}`}
-                tabIndex={0}
-                role="img"
-                aria-label={`${dayLabel(d.day)}: ${fmtUsd(d.costUsd)}, ${compact(d.tokens)} tokens, ${plural(d.requests, 'request')}`}
-                onPointerEnter={() => setHover(i)}
-                onFocus={() => setHover(i)}
-                onBlur={() => setHover(null)}
-              >
-                <div className="usage-chart__col" style={{ height: `${(value(d) / top) * 100}%` }} />
-              </div>
-            ))}
+            {days.map((d, i) => {
+              const total = value(d);
+              const vmShare = stacked && total > 0 ? d.computerUsd / total : 0;
+              return (
+                <div
+                  key={d.day}
+                  className={`usage-chart__slot${hover === i ? ' is-hover' : ''}`}
+                  tabIndex={0}
+                  role="img"
+                  aria-label={`${dayLabel(d.day)}: ${stacked ? `${fmtUsd(total)} (AI ${fmtUsd(d.costUsd)}, computer ${fmtUsd(d.computerUsd)})` : fmt(total)}, ${compact(d.tokens)} tokens, ${plural(d.requests, 'request')}`}
+                  onPointerEnter={() => setHover(i)}
+                  onFocus={() => setHover(i)}
+                  onBlur={() => setHover(null)}
+                >
+                  <div className="usage-chart__col" style={{ height: `${(total / top) * 100}%` }}>
+                    {vmShare > 0 && <div className="usage-chart__seg is-vm" style={{ flexGrow: vmShare }} />}
+                    {vmShare < 1 && <div className="usage-chart__seg is-ai" style={{ flexGrow: 1 - vmShare }} />}
+                  </div>
+                </div>
+              );
+            })}
           </div>
           {h && hover !== null && (
             <div className="usage-tip" style={{ left: `${at * 100}%`, transform: `translateX(${tipShift})` }} role="status">
               <div className="usage-tip__value">{fmt(value(h))}</div>
-              <div className="usage-tip__label">{dayLabel(h.day)}</div>
-              <div className="usage-tip__label">{metric === 'cost' ? `${compact(h.tokens)} tokens` : fmtUsd(h.costUsd)} · {plural(h.requests, 'request')}</div>
+              {stacked && (
+                <>
+                  <div className="usage-tip__row"><i className="usage-tip__key usage-key--ai" aria-hidden /><b>{fmtUsd(h.costUsd)}</b> AI</div>
+                  <div className="usage-tip__row"><i className="usage-tip__key usage-key--vm" aria-hidden /><b>{fmtUsd(h.computerUsd)}</b> computer (est.)</div>
+                </>
+              )}
+              <div className="usage-tip__label">{dayLabel(h.day)} · {metric === 'cost' ? `${compact(h.tokens)} tokens` : fmtUsd(h.costUsd)} · {plural(h.requests, 'request')}</div>
             </div>
           )}
         </div>
@@ -171,13 +198,50 @@ function DailyChart({ days, metric }: { days: UsageReport['days']; metric: 'cost
       <details className="usage-table">
         <summary>Show as a table</summary>
         <table>
-          <thead><tr><th>Day (UTC)</th><th>Cost</th><th>Tokens</th><th>Requests</th></tr></thead>
+          <thead><tr><th>Day (UTC)</th><th>{stacked ? 'AI cost' : 'Cost'}</th>{stacked && <th>Computer (est.)</th>}<th>Tokens</th><th>Requests</th></tr></thead>
           <tbody>
-            {days.map((d) => <tr key={d.day}><td>{dayLabel(d.day)}</td><td>{fmtUsd(d.costUsd)}</td><td>{compact(d.tokens)}</td><td>{compact(d.requests)}</td></tr>)}
+            {days.map((d) => <tr key={d.day}><td>{dayLabel(d.day)}</td><td>{fmtUsd(d.costUsd)}</td>{stacked && <td>{fmtUsd(d.computerUsd)}</td>}<td>{compact(d.tokens)}</td><td>{compact(d.requests)}</td></tr>)}
           </tbody>
         </table>
       </details>
     </div>
+  );
+}
+
+const hours = (h: number) => (h === 0 ? '0 h' : h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : `${h < 10 ? h.toFixed(1).replace(/\.0$/, '') : compact(Math.round(h))} h`);
+
+/** The account's computer: what it is now, how long it ran or slept, and the estimated cost. */
+function ComputerCard({ data }: { data: UsageReport }) {
+  const c = data.computer;
+  const r = data.computerRates;
+  const n = c.now;
+  const isOrgo = (n?.provider ?? data.computerProvider) === 'orgo';
+  const stateLabel = n ? ({ running: 'Running', asleep: 'Asleep', archived: 'Archived (disk kept)' } as const)[n.state] : null;
+  const size = n?.cpus ? `${n.cpus} vCPU · ${n.memoryMb ? `${(n.memoryMb / 1024).toFixed(2).replace(/\.?0+$/, '')} GB RAM` : ''}${n.diskGb ? ` · ${n.diskGb} GB disk` : ''}` : '';
+  return (
+    <section className="cfg-section">
+      <div className="cfg-section__label">Computer</div>
+      <div className="usage-card">
+        {n && (
+          <div className="usage-vm-now">
+            <span className={`usage-vm-dot is-${n.state}`} aria-hidden />
+            <span className="usage-vm-now__state">{stateLabel}</span>
+            {size && <span className="usage-vm-now__size">{size}</span>}
+            <span className="usage-vm-now__rate">≈ ${n.perHourUsd.toFixed(n.perHourUsd < 0.1 ? 4 : 2)} an hour {n.state === 'running' ? 'while running' : 'in this state'}</span>
+          </div>
+        )}
+        <div className="usage-tiles usage-tiles--compact">
+          <Tile label="Running" value={hours(c.runningHours)} />
+          <Tile label="Asleep" value={hours(c.asleepHours + c.archivedHours)} />
+          <Tile label="Estimated cost" value={fmtUsd(c.costUsd)} />
+        </div>
+        <div className="usage-card__note">
+          {isOrgo
+            ? `Estimated at Orgo's pay-as-you-go rates: ${fmtUsd(r.orgo.runningHour)} an hour running, ${fmtUsd(r.orgo.stoppedHour)} stopped. Your Orgo plan may include this time.`
+            : `Estimated from Fly.io's published prices: ${fmtUsd(r.fly.cpuMonth)} per shared vCPU and ${fmtUsd(r.fly.ramGbMonth)} per extra GB of RAM a month while running, ${fmtUsd(r.fly.volumeGbMonth)} per GB of disk a month always, and only the root disk while asleep. Fly bills by the second and doesn't report each VM's cost back, so Swarm adds it up every minute.`}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -189,16 +253,18 @@ function rowSub(r: UsageRow): string {
   if (r.minutes > 0) parts.push(`${compact(Math.round(r.minutes))} min`);
   if (r.recordings > 0) parts.push(plural(r.recordings, 'recording'));
   if (r.characters > 0) parts.push(`${compact(r.characters)} characters`);
-  parts.push(plural(r.requests, 'request'));
+  if (r.requests > 0 || !r.computerHours) parts.push(plural(r.requests, 'request'));
+  if (r.computerHours) parts.push(`${hours(r.computerHours)} computer`);
   return parts.join(' · ');
 }
 
-const rowFigure = (r: UsageRow, byCost: boolean) => (!byCost ? compact(r.tokens) : r.costUsd === 0 && r.unpriced === r.requests ? 'No price' : fmtUsd(r.costUsd));
+const rowCost = (r: UsageRow) => r.costUsd + (r.computerUsd ?? 0);
+const rowFigure = (r: UsageRow, byCost: boolean) => (!byCost ? compact(r.tokens) : rowCost(r) === 0 && r.unpriced === r.requests && r.requests > 0 ? 'No price' : fmtUsd(rowCost(r)));
 
 function RankedList({ title, rows, byCost }: { title: string; rows: UsageRow[]; byCost: boolean }) {
   const [all, setAll] = useState(false);
   if (!rows.length) return null;
-  const v = (r: UsageRow) => (byCost ? r.costUsd : r.tokens);
+  const v = (r: UsageRow) => (byCost ? rowCost(r) : r.tokens);
   const sorted = [...rows].sort((a, b) => v(b) - v(a) || b.requests - a.requests);
   const max = Math.max(...sorted.map(v), 0) || 1;
   const shown = all ? sorted : sorted.slice(0, 8);
@@ -277,7 +343,9 @@ export function UsageSection() {
   useEffect(() => { if (canSeeAll && !provider) configApi.usageProvider().then(setProvider).catch(() => {}); }, [canSeeAll, provider]);
 
   const t = data?.totals;
-  const byCost = !!t && t.costUsd > 0;
+  const vm = data?.computer;
+  const hasComputer = !!vm && (vm.costUsd > 0 || vm.runningHours > 0 || vm.asleepHours > 0 || vm.archivedHours > 0 || !!vm.now);
+  const byCost = !!t && (t.costUsd > 0 || (hasComputer && vm!.costUsd > 0));
   const subCost = useMemo(() => {
     if (!t) return undefined;
     const parts: string[] = [];
@@ -314,17 +382,21 @@ export function UsageSection() {
           )}
 
           <div className="usage-tiles">
-            <Tile label="Cost" value={fmtUsd(t.costUsd)} sub={subCost} />
+            {hasComputer
+              ? <Tile label="Total cost" value={fmtUsd(t.costUsd + vm!.costUsd)} sub={`AI ${fmtUsd(t.costUsd)} · computer ${fmtUsd(vm!.costUsd)} est.`} />
+              : <Tile label="Cost" value={fmtUsd(t.costUsd)} sub={subCost} />}
             <Tile label="Tokens" value={compact(t.inputTokens + t.outputTokens)} sub={`${compact(t.inputTokens)} in · ${compact(t.outputTokens)} out${t.cachedTokens ? ` · ${compact(t.cachedTokens)} cached` : ''}`} />
             <Tile label="AI requests" value={compact(t.requests)} sub={t.toolCalls ? plural(t.toolCalls, 'web search', 'web searches') : undefined} />
             {t.voiceMinutes > 0 && <Tile label="Voice" value={`${compact(Math.round(t.voiceMinutes))} min`} />}
+            {hasComputer && <Tile label="Computer" value={hours(vm!.runningHours)} sub={`running · ${hours(vm!.asleepHours + vm!.archivedHours)} asleep`} />}
           </div>
 
-          {t.requests === 0 ? (
+          {t.requests === 0 && !hasComputer ? (
             <div className="cfg-empty cfg-empty--flat">No AI usage in this period yet.</div>
           ) : (
             <>
-              {data.days.length > 1 && <DailyChart days={data.days} metric={byCost ? 'cost' : 'tokens'} />}
+              {data.days.length > 1 && <DailyChart days={data.days} metric={byCost ? 'cost' : 'tokens'} withComputer={hasComputer} />}
+              {hasComputer && scope === 'me' && <ComputerCard data={data} />}
               {data.byUser && <RankedList title="By account" rows={data.byUser} byCost={byCost} />}
               <RankedList title="By Bot" rows={data.byBot} byCost={byCost} />
               <RankedList title="By model" rows={data.byModel} byCost={byCost} />

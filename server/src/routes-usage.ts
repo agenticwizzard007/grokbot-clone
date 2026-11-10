@@ -4,6 +4,7 @@ import { requireUser, type AuthVars } from './lib/auth.js';
 import { dailyUsage } from './messaging/signup.js';
 import { canManageServer } from './settings.js';
 import { usageCsv, usageReport, type UsageRange } from './usage.js';
+import { vmRates } from './usage-vm.js';
 
 /**
  * /api/usage: the AI usage monitor. Everyone sees their own usage; the server's owner (who pays
@@ -31,6 +32,8 @@ usageApi.get('/', (c) => {
     scope,
     canSeeAll: owner,
     provider: env.llmProvider,
+    computerProvider: env.computerProvider,
+    computerRates: vmRates(),
     // Free plan (accounts that signed up by text): a daily message allowance that resets at midnight UTC.
     limits: { dailyMessages: daily.limit > 0 ? { used: daily.used, limit: daily.limit, resetsAt: nextUtcMidnight() } : null },
   });

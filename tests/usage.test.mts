@@ -182,3 +182,67 @@ test('CSV export: one row per event, and spreadsheet formulas are neutralised', 
   assert.match(lines[0], /^time_utc,account,bot,activity/);
   assert.ok(lines[1].includes(`"'=HYPERLINK(""http://evil"")"`), lines[1]);
 });
+
+// ---------- computers (VMs) ----------
+
+const vm = await import('../server/src/usage-vm.js');
+db.exec(`CREATE TABLE IF NOT EXISTS vms (vm_id TEXT PRIMARY KEY, user_id TEXT UNIQUE, driver TEXT NOT NULL, ext_id TEXT, status TEXT NOT NULL DEFAULT 'creating',
+  error TEXT, image TEXT, memory_mb INTEGER, cpus INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, volume_id TEXT)`);
+const setVm = (status: string) => db.prepare('UPDATE vms SET status=? WHERE vm_id=?').run(status, 'vm_member');
+const near = (a: number, b: number) => assert.ok(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
+// Fly iad: 2 shared vCPUs × $2.19 + (2.75 GB − 0.5 GB) × $6 + 10 GB volume × $0.15 = $19.38 a month; 730 h a month.
+const RUN_HOUR = 19.38 / 730;
+const ASLEEP_HOUR = (3 * 0.15 + 10 * 0.15) / 730; // root disk while asleep + the volume
+const ARCHIVED_HOUR = (10 * 0.15) / 730; // only the kept volume
+
+test('computers: an hour running, asleep and archived is billed at Fly rates per state', () => {
+  db.prepare('DELETE FROM vm_usage').run();
+  db.prepare('DELETE FROM vms').run();
+  db.prepare('INSERT INTO vms(vm_id,user_id,driver,status,memory_mb,cpus,volume_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)').run('vm_member', member, 'fly', 'running', 2816, 2, 'vol_1', Date.now(), Date.now());
+  vm.recordVmSeconds(3600);
+  setVm('suspended'); vm.recordVmSeconds(3600);
+  setVm('archived'); vm.recordVmSeconds(1800);
+  const c = vm.computerTotals(member, '2000-01-01', '2999-12-31');
+  near(c.runningHours, 1); near(c.asleepHours, 1); near(c.archivedHours, 0.5);
+  near(c.costUsd, RUN_HOUR + ASLEEP_HOUR + ARCHIVED_HOUR / 2);
+  assert.equal(c.now?.state, 'archived');
+  near(c.now!.perHourUsd, ARCHIVED_HOUR);
+  const r = usage.usageReport(member, 'today');
+  near(r.days.at(-1)!.computerUsd, c.costUsd);
+  near(r.computer.costUsd, c.costUsd);
+});
+
+test('computers: dev/test VMs are free, Orgo boxes use its hourly rate, rates can be overridden', () => {
+  db.prepare('DELETE FROM vm_usage').run();
+  db.prepare("UPDATE vms SET driver='fake', status='running' WHERE vm_id='vm_member'").run();
+  db.prepare("INSERT OR REPLACE INTO computers(user_id,orgo_id,status,updated_at) VALUES (?,?,?,?)").run(owner, 'orgo_1', 'running', Date.now());
+  vm.recordVmSeconds(3600);
+  near(vm.computerTotals(member, '2000-01-01', '2999-12-31').costUsd, 0);
+  near(vm.computerTotals(owner, '2000-01-01', '2999-12-31').costUsd, 0.055);
+  db.prepare("UPDATE vms SET driver='fly' WHERE vm_id='vm_member'").run();
+  process.env.VM_PRICE_RAM_GB_MONTH = '0';
+  try {
+    db.prepare('DELETE FROM vm_usage').run();
+    vm.recordVmSeconds(3600);
+    near(vm.computerTotals(member, '2000-01-01', '2999-12-31').costUsd, (2 * 2.19 + 10 * 0.15) / 730);
+  } finally { delete process.env.VM_PRICE_RAM_GB_MONTH; }
+  db.prepare('DELETE FROM computers WHERE user_id=?').run(owner);
+});
+
+test('computers: the owner sees computer cost per account (even with no AI use); CSV lists computer hours', async () => {
+  clear();
+  db.prepare('DELETE FROM vm_usage').run();
+  db.prepare("UPDATE vms SET status='running', driver='fly' WHERE vm_id='vm_member'").run();
+  vm.recordVmSeconds(7200);
+  const all = await get(owner, '/api/usage?range=today&scope=all');
+  const m = all.body.byUser.find((u: any) => u.label === 'Member');
+  assert.ok(m, 'member missing from the owner view');
+  near(m.computerUsd, 2 * RUN_HOUR);
+  near(m.computerHours, 2);
+  assert.equal(m.requests, 0);
+  const mine = await get(member, '/api/usage?range=today');
+  near(mine.body.computer.runningHours, 2);
+  assert.equal(mine.body.computer.now.state, 'running');
+  const csv = String((await get(member, '/api/usage/export.csv?range=today')).body);
+  assert.match(csv, /computer_running,cloudvm-fly,2 vCPU \/ 2816 MB \/ 10 GB disk,0,0,0,0,0,2,hours,/);
+});

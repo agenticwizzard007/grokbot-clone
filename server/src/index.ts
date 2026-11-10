@@ -19,6 +19,7 @@ import { desSelfTest } from './lib/des.js';
 import { configApi } from './routes-config.js';
 import { usageApi } from './routes-usage.js';
 import { withUsage } from './usage.js';
+import { startVmMeter } from './usage-vm.js';
 import { userFromCookieHeader } from './lib/auth.js';
 import { loadSettings } from './settings.js';
 import { defaultModel } from './lib/llm.js';
@@ -72,5 +73,6 @@ if (process.env.SWARM_NO_SCHEDULER !== '1') {
 // Extra servers sharing a database don't process the messaging inbox, so events aren't handled twice.
 initMessaging({ process: process.env.SWARM_NO_SCHEDULER !== '1' });
 computers.start?.();
+startVmMeter();
 if (computers.kind === 'local') resumeThisComputer();
 startMemoryConsolidation();
