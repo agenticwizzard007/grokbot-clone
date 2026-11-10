@@ -26,6 +26,12 @@ The settings can also come from `.env` (see `.env.example`).
 
 ## Joining
 
+**One text to join.** Inkbox handles `connect @<handle>` itself and sends no event, so the server checks Inkbox's list of connected numbers every few seconds (`server/src/messaging/connections.ts`). A newly connected number is greeted right away:
+- an invite claimed on the join page, an open server, or the owner's number: the account is created, the welcome is texted, and onboarding starts;
+- otherwise: a text explaining how to get in (invite code or waitlist).
+
+If Inkbox doesn't let the line text first, nothing is created, and the person's next text goes through the steps below as before. Only connections from the last 20 minutes are greeted, so a restart doesn't message old connections again.
+
 - **Invite link** (`/join/<code>`): the person enters their number and taps **Text Swarm**. Messages opens with `connect @<handle>` addressed to Inkbox's router number. The account is created when that text arrives; texting from the number is the proof that they own it, so no code is needed. The page answers the same whether or not a number already has an account.
 - **Invite code in the chat**: `JOIN ABCD2345` (or the bare code as shown).
 - **Waitlist**: anyone else who texts gets one reply and waits for the owner's approval. Approval creates the account and texts them in the same thread.

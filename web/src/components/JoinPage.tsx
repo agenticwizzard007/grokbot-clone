@@ -57,11 +57,12 @@ export function JoinPage({ code }: { code: string }) {
     body = (
       <>
         <h1 className="join__title">One last step</h1>
-        <p className="join__pitch">Send the message as is. Your account is created when it arrives.</p>
+        <p className="join__pitch">Tap below and send the message as is. Quinn, your first Bot, texts you back within a few seconds.</p>
         <a className="btn btn--primary join__text-btn" href={info.line.smsLink}>Text Swarm</a>
         <img className="msg-qr join__qr" src={info.line.qr} alt={`QR code to text ${info.line.number}`} width={180} height={180} />
         <div className="join__qr-label">On a computer? Scan with your phone’s camera.</div>
         <div className="join__number">Or text <code>{info.line.connectCommand}</code> to <code>{info.line.number}</code></div>
+        <div className="join__hint">No reply after a minute? Send “hi” in the same thread.</div>
       </>
     );
   }

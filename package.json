@@ -12,6 +12,7 @@
     "mock:provider": "node tests/mock-provider.mjs",
     "test:local": "node tests/local-computer.mjs",
     "test:mcp": "node --import tsx --test tests/mcp.test.mts && node tests/mcp-chat.mjs",
+    "test:onboarding": "node --import tsx --test --test-concurrency=1 tests/onboarding.test.mts",
     "test:messaging": "node --import tsx --test --test-concurrency=1 tests/messaging.test.mts",
     "test:composio": "node --import tsx --test tests/composio.test.mts",
     "test:bots": "node --import tsx --test tests/bot-creation.test.mts && node tests/bot-creation-chat.mjs"

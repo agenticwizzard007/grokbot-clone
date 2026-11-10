@@ -45,7 +45,7 @@ export function dailyUsage(userId: string): { used: number; limit: number; over:
   return { used, limit, over: limit > 0 && used >= limit };
 }
 
-const signupsToday = () => (db.prepare("SELECT COUNT(*) n FROM users WHERE signup_source='text' AND created_at>=?").get(startOfDayUtc()) as any).n as number;
+export const signupsToday = () => (db.prepare("SELECT COUNT(*) n FROM users WHERE signup_source='text' AND created_at>=?").get(startOfDayUtc()) as any).n as number;
 
 // ---------- invites ----------
 
@@ -68,7 +68,7 @@ export const listInvites = (createdBy?: string): Invite[] =>
 
 export const revokeInvite = (code: string) => db.prepare('UPDATE messaging_invites SET revoked=1 WHERE code=?').run(code.toUpperCase()).changes > 0;
 
-function usableInvite(code: string): Invite | null {
+export function usableInvite(code: string): Invite | null {
   const r = db.prepare('SELECT * FROM messaging_invites WHERE code=?').get(code.toUpperCase()) as any;
   if (!r || r.revoked || r.uses >= r.max_uses || (r.expires_at && r.expires_at < now())) return null;
   return toInvite(r);
@@ -132,7 +132,7 @@ export function claimInvite(code: string, phone: string, ip: string): { ok: true
   return { ok: true };
 }
 
-const activeClaim = (phone: string) => db.prepare('SELECT * FROM messaging_claims WHERE phone=? AND expires_at>?').get(phone, now()) as { invite_code: string } | undefined;
+export const activeClaim = (phone: string) => db.prepare('SELECT * FROM messaging_claims WHERE phone=? AND expires_at>?').get(phone, now()) as { invite_code: string } | undefined;
 
 // ---------- waitlist ----------
 
@@ -253,17 +253,20 @@ export async function frontDesk(s: Sender, reply: RawReply): Promise<{ userId: s
   return null;
 }
 
-const isAdminPhone = (phone: string) => adminPhones().includes(digits(phone));
+export const isAdminPhone = (phone: string) => adminPhones().includes(digits(phone));
 
 /** Create the account, link this channel, welcome them, and start onboarding with their primary Bot. */
-export async function startAccount(s: Sender, invitedBy: string | null): Promise<string> {
+/** The first text a new member gets (sent before the account exists when they've only just connected). */
+export const welcomeText = (botName = 'Quinn', name?: string | null) => {
+  const first = name?.split(/\s+/)[0];
+  return `Hi${first ? ` ${first}` : ''}! 👋 I'm ${botName}, your Swarm. I can get things done on the web, handle email and calendar once you connect them, and bring in teammate Bots for bigger jobs. Let's get you set up; it takes a minute.`;
+};
+
+export async function startAccount(s: Sender, invitedBy: string | null, opts: { welcomeSent?: boolean } = {}): Promise<string> {
   const { id: userId } = createAccount({ phone: s.phone, name: s.name ?? undefined, source: 'text', invitedBy });
   upsertLink(userId, s.channel, s.transport, { status: 'connected', phone: s.phone, chatRef: s.chatRef ?? null, name: s.name ?? null, error: null, lastInboundAt: now() });
   const primary = db.prepare('SELECT id, name FROM bots WHERE user_id=? AND is_primary=1').get(userId) as { id: string; name: string };
-  const first = s.name?.split(/\s+/)[0];
-  await deliver(userId, {
-    text: `Hi${first ? ` ${first}` : ''}! 👋 I'm ${primary.name}, your Swarm. I can get things done on the web, handle email and calendar once you connect them, and bring in teammate Bots for bigger jobs. Let's get you set up; it takes a minute.`,
-  }, { kind: 'system', channel: s.channel });
+  if (!opts.welcomeSent) await deliver(userId, { text: welcomeText(primary.name, s.name) }, { kind: 'system', channel: s.channel });
   const inviter = invitedBy ? getAccount(invitedBy)?.name : null;
   enqueue(primary.id, {
     type: 'system',
