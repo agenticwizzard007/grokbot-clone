@@ -70,8 +70,6 @@
 .pill-input:focus-within { border-color: var(--color-border-focus); box-shadow: 0 0 0 3px #1E86FC22; }
 .pill-input input { flex: 1 1 0; min-width: 0; border: 0; outline: none; background: transparent; font-size: 14px; line-height: 20px; letter-spacing: 0.14px; }
 .pill-input input::placeholder { color: var(--color-text-tertiary); }
-.pill-chip { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px 0 6px; border-radius: var(--radius-full); background: var(--color-bg-elevated); border: 0.5px solid var(--color-border-tertiary); font-size: 13px; line-height: 18px; letter-spacing: 0.195px; color: var(--color-ink); white-space: nowrap; }
-.pill-chip:disabled { cursor: default; }
 .cat-pills { display: flex; flex-wrap: wrap; gap: 8px; }
 .cat-pill-anchor { position: relative; display: inline-flex; }
 .cat-pill { display: inline-flex; align-items: center; gap: 2px; height: 28px; padding: 0 10px; border-radius: var(--radius-full); background: var(--color-bg-tertiary); font-size: 13px; line-height: 18px; letter-spacing: 0.195px; color: var(--color-ink); white-space: nowrap; }

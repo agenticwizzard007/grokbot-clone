@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Toolkit } from '@shared/types';
-import { BotAvatarFor } from '../../avatar/BotAvatar';
 import { api, openPopup, type AppsResponse } from '../../lib/api';
 import { useStore } from '../../store';
 import { Icon } from '../Icon';
@@ -92,7 +91,6 @@ function Section({ title, apps, onViewAll, onChanged }: { title: string; apps: T
 export function ConnectAppsModal() {
   const setModal = useStore((s) => s.setModal);
   const connectionsVersion = useStore((s) => s.connectionsVersion);
-  const primary = useStore((s) => s.bots.find((b) => b.isPrimary));
   const close = useCallback(() => setModal(null), [setModal]);
   const [view, setView] = useState<View>({ kind: 'all' });
   const [search, setSearch] = useState('');
@@ -204,11 +202,6 @@ export function ConnectAppsModal() {
               <Icon name="search" size={14} opacity={0.56} />
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search apps and skills" aria-label="Search apps" />
             </label>
-            <button type="button" className="pill-chip" title="Bot templates are coming soon" disabled>
-              {primary && <BotAvatarFor bot={primary} size={22} />}
-              <span>Bot templates</span>
-              <Icon name="share" size={12} opacity={0.56} />
-            </button>
           </div>
           <div className="cat-pills">
             <button type="button" className={`cat-pill${view.kind === 'all' ? ' is-active' : ''}`} onClick={() => setView({ kind: 'all' })}>All</button>
