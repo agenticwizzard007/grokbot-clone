@@ -25,7 +25,7 @@ export const thisComputerUser = () => owner;
 function launch(userId: string, token: string) {
   owner = userId;
   stopping = false;
-  const args = [SCRIPT, '--server', `http://127.0.0.1:${env.port}`, '--token', token];
+  const args = [SCRIPT, '--server', `http://127.0.0.1:${env.port}`, '--token', token, '--parent-pid', String(process.pid)];
   if (process.env.COMPANION_HEADED === '1') args.push('--headed');
   child = spawn(process.execPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
   const tag = (d: Buffer) => String(d).trim().split('\n').forEach((l) => console.log(`[this-computer] ${l}`));
@@ -66,4 +66,9 @@ export function resumeThisComputer() {
   launch(userId, token);
 }
 
-process.on('exit', () => { if (child) child.kill('SIGINT'); });
+// Take the companion down with the server (SIGTERM/SIGINT skip 'exit' handlers unless we handle them).
+const killChild = () => { if (child) { stopping = true; child.kill('SIGINT'); } };
+process.on('exit', killChild);
+for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) {
+  process.once(sig, () => { killChild(); process.exit(0); });
+}

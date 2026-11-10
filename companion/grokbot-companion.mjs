@@ -58,6 +58,8 @@ const DATA_DIR = path.resolve(opt('data-dir', path.join(os.homedir(), '.grokbot-
 const ALLOW_PRIVATE = flag('allow-private-network');
 const NO_SANDBOX = flag('no-sandbox');
 const IDLE_MS = Number(opt('idle-minutes', '30')) * 60_000;
+/** Set when Grokbot's server started this companion ("Use this computer"): exit when that server is gone. */
+const PARENT_PID = Number(opt('parent-pid', '0')) || 0;
 
 if (!SERVER || !TOKEN) {
   console.error('Usage: node grokbot-companion.mjs --server <grokbot url> --token <pairing token>\nGet both from Grokbot: Settings → Computer → Connect your PC.');
@@ -659,6 +661,12 @@ async function shutdown(code = 0) {
 }
 process.on('SIGINT', () => { log('Stopping…'); void shutdown(0); });
 process.on('SIGTERM', () => void shutdown(0));
+
+if (PARENT_PID) {
+  setInterval(() => {
+    try { process.kill(PARENT_PID, 0); } catch { log('Grokbot server stopped; stopping too.'); void shutdown(0); }
+  }, 3000).unref();
+}
 
 log(`Grokbot companion ${VERSION} · Chrome: ${CHROME} · profiles: ${path.join(DATA_DIR, 'profiles')}${ALLOW_PRIVATE ? ' · local network ALLOWED' : ''}`);
 connect();
