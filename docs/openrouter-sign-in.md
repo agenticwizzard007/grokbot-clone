@@ -38,6 +38,8 @@ The Mac and iOS shells open OpenRouter in the system authentication browser. A s
 
 ## Verification
 
+The sign-in UI follows [Paper’s Sign in · Web & Mobile designs](https://app.paper.design/file/01M73GPA3GPRHEBRRXNDC09HDV/p-4-0), read through Paper MCP. The header uses the exported swarms.so SVG and Instrument Sans at weight 550; provider buttons retain the shared 48px control, 20px icon slots, and 15px/20px medium labels. The dark logo changes the wordmark ink to Paper’s mist token (`#EDEFFA`). At widths up to 360px the OpenRouter label abbreviates to the provider name, retaining “Continue with OpenRouter” as its accessible name.
+
 Run `npm run test:openrouter`, `npm run test:native-auth`, `npm run test:apple-auth`, `npm run typecheck`, and `npm run build`.
 
 The OpenRouter suite uses mocked provider responses and exercises signup, repeat login, linking conflicts, state/cookie/expiry/replay protection, native handoff, encryption, validation, cross-user routing, rotation, disconnect, subscription precedence, audio routing, usage isolation, and an actual streamed agent turn with a tool call. Browser coverage is in `tests/openrouter-ui.mjs`. A real OpenRouter authorization and a signed native build should also be smoke-tested before release; automated tests do not consume real credits.

@@ -5,5 +5,5 @@ export function OpenRouterMark() {
 }
 
 export function OpenRouterSignIn({ link = false }: { link?: boolean }) {
-  return <AuthLink href={`/api/auth/openrouter/start${link ? '?intent=link' : ''}`} icon={<OpenRouterMark />}>{link ? 'Connect OpenRouter' : 'Continue with OpenRouter'}</AuthLink>;
+  return <AuthLink href={`/api/auth/openrouter/start${link ? '?intent=link' : ''}`} aria-label={link ? 'Connect OpenRouter' : 'Continue with OpenRouter'} icon={<OpenRouterMark />}><span className="openrouter-signin__prefix">{link ? 'Connect ' : 'Continue with '}</span>OpenRouter</AuthLink>;
 }
