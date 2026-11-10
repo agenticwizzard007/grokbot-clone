@@ -1,6 +1,6 @@
 # Architecture
 
-grokbot-clone is a web app (`web/`) plus a Node server (`server/`) that runs every Bot's agent loop. The model is Grok 4.7 through the xAI Responses API. Each user's Bots act on a computer from a pluggable provider (a browser on the user's own PC, or one Orgo cloud VM) and use apps connected through Composio.
+grokbot-clone is a web app (`web/`) plus a Node server (`server/`) that runs every Bot's agent loop. Models run through the Responses API on OpenRouter (any tool-capable model; `x-ai/grok-4.7` by default) or on xAI directly (`server/src/lib/llm.ts`); each Bot can have its own model. Each user's Bots act on a computer from a pluggable provider (a browser on the user's own PC, or one Orgo cloud VM) and use apps connected through Composio.
 
 ## Components
 

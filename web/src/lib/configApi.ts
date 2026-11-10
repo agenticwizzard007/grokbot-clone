@@ -39,9 +39,22 @@ export interface ComputerDetails {
 export interface Pairing { token: string; server: string; command: string }
 
 export interface KeyStatus { set: boolean; source: 'app' | 'env' | null; hint: string | null }
-export interface KeysResponse { canEdit: boolean; xai: KeyStatus; composio: KeyStatus; model: { value: string; source: 'app' | 'env' | null }; models?: string[]; modelOk?: boolean }
+export interface KeysResponse {
+  canEdit: boolean;
+  xai: KeyStatus;
+  composio: KeyStatus;
+  openrouter: KeyStatus;
+  model: { value: string; source: 'app' | 'env' | null };
+  openrouterModel: { value: string; source: 'app' | 'env' | null };
+  provider: { value: 'xai' | 'openrouter'; source: 'app' | 'env' | null };
+  models?: string[];
+  modelOk?: boolean;
+}
 
-export type BotPatch = Partial<Pick<Bot, 'name' | 'label' | 'description' | 'instructions' | 'avatarShape' | 'avatarColor' | 'effort' | 'mode'>>;
+export interface ModelInfo { id: string; name: string; vision: boolean; reasoning: boolean; context: number; price: { input: number; output: number } | null }
+export type SettingKey = 'xai' | 'composio' | 'model' | 'openrouter' | 'openrouter_model' | 'provider';
+
+export type BotPatch = Partial<Pick<Bot, 'name' | 'label' | 'description' | 'instructions' | 'avatarShape' | 'avatarColor' | 'effort' | 'mode' | 'model'>>;
 
 export const configApi = {
   settings: (botId: string) => req<BotSettingsBundle>('GET', `/bots/${botId}/settings`),
@@ -74,9 +87,9 @@ export const configApi = {
   useThisComputer: () => req<{ ok: true }>('POST', '/computer/this-computer'),
   stopThisComputer: () => req<{ ok: true }>('DELETE', '/computer/this-computer'),
   keys: () => req<KeysResponse>('GET', '/settings/keys'),
-  saveKey: (name: 'xai' | 'composio' | 'model', value: string) => req<KeysResponse>('PUT', `/settings/keys/${name}`, { value }),
-  clearKey: (name: 'xai' | 'composio' | 'model') => req<KeysResponse>('DELETE', `/settings/keys/${name}`),
-  models: () => req<{ models: string[]; error?: string }>('GET', '/settings/models'),
+  saveKey: (name: SettingKey, value: string) => req<KeysResponse>('PUT', `/settings/keys/${name}`, { value }),
+  clearKey: (name: SettingKey) => req<KeysResponse>('DELETE', `/settings/keys/${name}`),
+  models: () => req<{ provider: 'xai' | 'openrouter'; models: ModelInfo[]; error?: string }>('GET', '/settings/models'),
   unpairPc: () => req<{ ok: true; revoked: number }>('DELETE', '/computer/pair'),
 
   policies: () => req<{ policies: { tool: string; mode: string }[] }>('GET', '/policies'),

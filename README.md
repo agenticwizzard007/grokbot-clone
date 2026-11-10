@@ -57,7 +57,8 @@ Values for `.env`:
 
 | Variable | Purpose |
 | --- | --- |
-| `XAI_API_KEY` | Grok text and voice API access (or set it in the app) |
+| `OPENROUTER_API_KEY` | Models from OpenRouter: Grok, Claude, GPT, Gemini and more with one key (recommended) |
+| `XAI_API_KEY` | Grok directly from xAI; also needed for voice calls |
 | `COMPOSIO_API_KEY` | Optional: app connections, tool catalog, and Google sign-in (without it, use the dev email sign-in) |
 | `SESSION_SECRET` | Secret used to sign sessions |
 | `COMPUTER_PROVIDER` | `local` (a browser on your PC) or `orgo` (cloud VMs) |
@@ -69,7 +70,7 @@ Generate a session secret with:
 openssl rand -hex 32
 ```
 
-Paste the result into `SESSION_SECRET`. The example environment file includes the local URLs, computer size, and optional voice settings. The default text model is `grok-4.7`; change `XAI_MODEL` to use another compatible model available to your account.
+Paste the result into `SESSION_SECRET`. You need at least one model key: OpenRouter or xAI. With an OpenRouter key, Bots run on OpenRouter by default (`x-ai/grok-4.7` unless you pick another model); choose the provider and default model in **Settings → API keys**, and give any Bot its own model in its settings. Models that can't see images get a warning, since browser work relies on screenshots. Voice calls always use xAI's realtime API.
 
 ### 3. Start the app
 

@@ -31,6 +31,8 @@ ensure_env() {
   [ -f .env ] && return
   cat > .env <<EOF
 # Created by scripts/local.sh. Add API keys in the app: Settings → API keys.
+OPENROUTER_API_KEY=
+OPENROUTER_MODEL=x-ai/grok-4.7
 XAI_API_KEY=
 XAI_MODEL=grok-4.7
 COMPOSIO_API_KEY=

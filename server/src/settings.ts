@@ -11,6 +11,9 @@ export const SETTINGS = {
   xai: { env: 'XAI_API_KEY', secret: true },
   composio: { env: 'COMPOSIO_API_KEY', secret: true },
   model: { env: 'XAI_MODEL', secret: false },
+  openrouter: { env: 'OPENROUTER_API_KEY', secret: true },
+  openrouter_model: { env: 'OPENROUTER_MODEL', secret: false },
+  provider: { env: 'LLM_PROVIDER', secret: false },
 } as const;
 export type SettingName = keyof typeof SETTINGS;
 
@@ -63,7 +66,11 @@ export function settingsStatus() {
   return {
     xai: { set: !!env.xaiKey, source: envSource('XAI_API_KEY'), hint: env.xaiKey ? hint(env.xaiKey) : null },
     composio: { set: !!env.composioKey, source: envSource('COMPOSIO_API_KEY'), hint: env.composioKey ? hint(env.composioKey) : null },
+    openrouter: { set: !!env.openrouterKey, source: envSource('OPENROUTER_API_KEY'), hint: env.openrouterKey ? hint(env.openrouterKey) : null },
     model: { value: env.xaiModel, source: envSource('XAI_MODEL') },
+    openrouterModel: { value: env.openrouterModel, source: envSource('OPENROUTER_MODEL') },
+    /** Which service runs the Bots' models, and whether it was chosen explicitly. */
+    provider: { value: env.llmProvider, source: envSource('LLM_PROVIDER') },
   };
 }
 
@@ -96,5 +103,16 @@ export async function verifyComposioKey(key: string): Promise<{ ok: true } | { o
     return { ok: false, error: r.status === 401 || r.status === 403 ? 'Composio rejected this key.' : `Composio answered ${r.status}.` };
   } catch (e: any) {
     return { ok: false, error: `Couldn't reach Composio: ${e?.message ?? e}` };
+  }
+}
+
+export async function verifyOpenRouterKey(key: string): Promise<{ ok: true; label?: string } | { ok: false; error: string }> {
+  try {
+    const r = await fetch(`${env.openrouterBaseUrl}/key`, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(15_000) });
+    const body: any = await r.json().catch(() => ({}));
+    if (r.ok) return { ok: true, label: body?.data?.label };
+    return { ok: false, error: r.status === 401 || r.status === 403 ? 'OpenRouter rejected this key.' : `OpenRouter answered ${r.status}.` };
+  } catch (e: any) {
+    return { ok: false, error: `Couldn't reach OpenRouter: ${e?.message ?? e}` };
   }
 }

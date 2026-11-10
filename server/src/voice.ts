@@ -3,7 +3,7 @@
 // This module mints the ephemeral secret, builds the voice agent's prompt and tools, serves the relay
 // tools, records call start/end rows, and proxies TTS (voice preview) and STT (composer dictation).
 import { Hono } from 'hono';
-import { xaiClient } from './lib/xai.js';
+import { defaultModel, llmClient, llmProvider } from './lib/llm.js';
 import { db, now } from './db.js';
 import { env } from './env.js';
 import { newId } from './lib/ids.js';
@@ -241,6 +241,8 @@ voiceApi.post('/session', async (c) => {
   const { botId } = await c.req.json<{ botId: string }>().catch(() => ({ botId: '' }));
   const bot = ownBot(user.id, botId);
   if (!bot) return c.json({ error: 'not found' }, 404);
+  // Realtime voice runs on xAI directly (OpenRouter has no realtime voice).
+  if (!env.xaiKey) return c.json({ error: 'Voice calls need an xAI key. Add one in Settings → API keys.' }, 400);
   const s = settingsOf(bot);
 
   const r = await fetch(`${XAI}/realtime/client_secrets`, {
@@ -356,14 +358,14 @@ voiceApi.post('/tool', async (c) => {
   }
 });
 
-const xai = () => xaiClient(45_000);
+const llm = () => llmClient(45_000);
 
 async function summarizeCall(botName: string, transcript: { role: string; text: string }[], tasks: string[]): Promise<string | null> {
   if (!transcript.length && !tasks.length) return null;
   const lines = transcript.map((t) => `${t.role === 'user' ? 'User' : botName}: ${t.text}`).join('\n').slice(-12_000);
-  const res: any = await xai().responses.create({
-    model: env.xaiModel,
-    reasoning: { effort: 'low' },
+  const res: any = await llm().responses.create({
+    model: defaultModel(),
+    ...(llmProvider() === 'xai' ? { reasoning: { effort: 'low' } } : {}),
     store: false,
     input: [
       { role: 'system', content: `Summarise this voice call between the user and ${botName} in one short sentence (max 25 words), past tense, third person ("Talked about…", "Asked ${botName} to…"). No preamble.` },

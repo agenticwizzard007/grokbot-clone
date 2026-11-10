@@ -1,4 +1,4 @@
-import { xaiClient } from '../lib/xai.js';
+import { llmClient, modelFor, modelInfo, prepareInput, providerFields, serverTools, tagOutput } from '../lib/llm.js';
 import { db, now } from '../db.js';
 import { env } from '../env.js';
 import { newId, sha256 } from '../lib/ids.js';
@@ -11,7 +11,7 @@ import { repairHistory } from './history.js';
 import { maybeCompact, noteUsage } from './memory.js';
 import { activityFor, functionSchemas, humanizeSlug, policyFor, runComposioTool, toolMap, type ToolCtx, type ToolResult } from './tools.js';
 
-const xai = () => xaiClient(360_000);
+const llm = () => llmClient(360_000);
 
 export type Trigger =
   | { type: 'user'; text: string }
@@ -130,8 +130,7 @@ async function runTurn(botId: string, trigger: Trigger) {
     const tools = [
       ...functionSchemas(),
       ...(await composioTools(userId)),
-      { type: 'web_search' },
-      { type: 'x_search' },
+      ...serverTools(),
     ];
 
     for (let step = 0; step < MAX_STEPS; step++) {
@@ -257,29 +256,32 @@ async function callModel(ctx: ToolCtx, tools: any[], signal: AbortSignal): Promi
   // Runs inside the bot's serial queue, so compaction can't race a turn.
   const history = await maybeCompact(botId, loadHistory(botId)).catch(() => loadHistory(botId));
   // The model is only called when no approval is pending, so every orphaned call can be repaired.
-  const input = [{ role: 'system', content: await systemPrompt(userId, botId) }, ...pruneImages(repairHistory(history))];
+  const model = modelFor(bot.model);
+  const input = [{ role: 'system', content: await systemPrompt(userId, botId) }, ...prepareInput(pruneImages(repairHistory(history)), model)];
 
   const body: any = {
-    model: env.xaiModel,
+    model,
     input,
     tools,
-    reasoning: { effort: bot.effort ?? 'medium' },
     store: false,
-    include: ['reasoning.encrypted_content'],
-    prompt_cache_key: `grokbot:${botId}:${bot.generation}`,
-    safety_identifier: sha256(userId).slice(0, 32),
     stream: true,
+    ...providerFields({
+      effort: bot.effort ?? 'medium',
+      reasoning: (await modelInfo(model))?.reasoning ?? true,
+      cacheKey: `grokbot:${botId}:${bot.generation}`,
+      safetyId: sha256(userId).slice(0, 32),
+    }),
   };
 
   let stream: any;
   try {
-    stream = await xai().responses.create(body, { signal });
+    stream = await llm().responses.create(body, { signal });
   } catch (e: any) {
     // If a Composio tool schema is rejected, retry with only our own tools.
-    if (e?.status === 400 && tools.length > functionSchemas().length + 2) {
+    if (e?.status === 400 && tools.length > functionSchemas().length + serverTools().length) {
       console.warn('[agent] 400 with composio tools, retrying without:', e?.message);
-      body.tools = [...functionSchemas(), { type: 'web_search' }, { type: 'x_search' }];
-      stream = await xai().responses.create(body, { signal });
+      body.tools = [...functionSchemas(), ...serverTools()];
+      stream = await llm().responses.create(body, { signal });
     } else throw e;
   }
 
@@ -301,7 +303,7 @@ async function callModel(ctx: ToolCtx, tools: any[], signal: AbortSignal): Promi
         if (msgSeq === null || Date.now() - lastFlush > 120) flush(true);
         break;
       case 'response.output_item.added':
-        if (ev.item?.type === 'web_search_call') setLive(botId, { activity: { kind: 'searching_web', since: now() } });
+        if (ev.item?.type === 'web_search_call' || (ev.item?.type !== 'x_search_call' && /search/.test(String(ev.item?.type ?? '')))) setLive(botId, { activity: { kind: 'searching_web', since: now() } });
         if (ev.item?.type === 'x_search_call') setLive(botId, { activity: { kind: 'searching_web', detail: 'X', since: now() } });
         if (ev.item?.type === 'message') setLive(botId, { activity: { kind: 'working', since: now() } });
         break;
@@ -327,7 +329,7 @@ async function callModel(ctx: ToolCtx, tools: any[], signal: AbortSignal): Promi
   if (msgSeq !== null) flush(false);
   if (!final) throw new Error('model stream ended without a response');
   if (final.usage?.input_tokens) noteUsage(botId, final.usage.input_tokens, history.length);
-  return { output: final.output ?? [] };
+  return { output: tagOutput(final.output ?? [], model) };
 }
 
 // ---------- misc ----------

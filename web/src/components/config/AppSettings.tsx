@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import type { Toolkit } from '@shared/types';
 import { BotAvatarFor } from '../../avatar/BotAvatar';
 import { configApi, type ComputerDetails, type KeysResponse, type KeyStatus, type Pairing } from '../../lib/configApi';
+import { ModelPicker, refreshModels } from './ModelPicker';
 import { relativeShort } from '../../lib/time';
 import { useConfigUI, type AppSection, type Theme } from '../../configStore';
 import { useStore } from '../../store';
@@ -109,7 +110,7 @@ function GeneralSection() {
 const sourceText = (s: KeyStatus) => (s.source === 'app' ? 'saved in the app' : s.source === 'env' ? 'from the server’s .env file' : '');
 
 function KeyCard({ name, title, what, link, status, canEdit, required, onChange }: {
-  name: 'xai' | 'composio'; title: string; what: string; link: { href: string; label: string };
+  name: 'xai' | 'composio' | 'openrouter'; title: string; what: string; link: { href: string; label: string };
   status: KeyStatus; canEdit: boolean; required?: boolean; onChange: (r: KeysResponse) => void;
 }) {
   const [value, setValue] = useState('');
@@ -120,7 +121,7 @@ function KeyCard({ name, title, what, link, status, canEdit, required, onChange 
     try {
       const r = await configApi.saveKey(name, value.trim());
       setValue('');
-      setNote({ tone: 'ok', text: r.modelOk === false ? `Key works, but ${r.model.value} isn’t available on it. Pick a model below.` : 'Verified and saved. Bots use it right away.' });
+      setNote({ tone: 'ok', text: r.modelOk === false ? `Key works, but ${r.model.value} isn’t available on it. Pick a model above.` : 'Verified and saved. Bots use it right away.' });
       onChange(r);
     } catch (e) { setNote({ tone: 'error', text: (e as Error).message }); }
     finally { setBusy(null); }
@@ -157,42 +158,61 @@ function KeyCard({ name, title, what, link, status, canEdit, required, onChange 
 
 function KeysSection() {
   const [keys, setKeys] = useState<KeysResponse | null>(null);
-  const [models, setModels] = useState<string[]>([]);
-  const [model, setModel] = useState('');
-  const [modelNote, setModelNote] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const loadModels = useCallback(() => { configApi.models().then((r) => setModels(r.models)).catch(() => {}); }, []);
-  useEffect(() => {
-    configApi.keys().then((k) => { setKeys(k); setModel(k.model.value); if (k.xai.set) loadModels(); }).catch((e) => setError((e as Error).message));
-  }, [loadModels]);
-  const changed = (r: KeysResponse) => { setKeys(r); setModel(r.model.value); if (r.models) setModels(r.models); else if (r.xai.set) loadModels(); else setModels([]); };
-  const saveModel = async () => {
-    setModelNote(null);
-    try { changed(await configApi.saveKey('model', model.trim())); setModelNote({ tone: 'ok', text: 'Saved.' }); }
-    catch (e) { setModelNote({ tone: 'error', text: (e as Error).message }); }
+  const [note, setNote] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
+  const [pickerKey, setPickerKey] = useState(0);
+  useEffect(() => { configApi.keys().then(setKeys).catch((e) => setError((e as Error).message)); }, []);
+  const changed = (r: KeysResponse) => { setKeys(r); refreshModels(); setPickerKey((n) => n + 1); };
+  const save = async (name: 'provider' | 'model' | 'openrouter_model', value: string) => {
+    setNote(null);
+    try { changed(await configApi.saveKey(name, value)); setNote({ tone: 'ok', text: 'Saved. Bots use it from their next message.' }); }
+    catch (e) { setNote({ tone: 'error', text: (e as Error).message }); }
   };
 
   if (error) return <><PageHead title="API keys" /><div className="cfg-error">{error}</div></>;
   if (!keys) return <><PageHead title="API keys" /><div className="cfg-empty cfg-empty--flat">Loading…</div></>;
+  const provider = keys.provider.value;
+  const hasModels = provider === 'openrouter' ? keys.openrouter.set : keys.xai.set;
+  const current = provider === 'openrouter' ? keys.openrouterModel.value : keys.model.value;
   return (
     <>
       <PageHead title="API keys" sub="Grokbot runs on your own provider accounts. Keys are checked with the provider, stored encrypted on this server, and never shown again." />
       {!keys.canEdit && <div className="cfg-field__hint" style={{ marginBottom: 12 }}>Only the owner of this server can change its keys.</div>}
+
       <section className="cfg-section">
-        <KeyCard name="xai" title="xAI · Grok" required what="Powers every Bot: thinking, web search, and voice." link={{ href: 'https://console.x.ai', label: 'Get a key at console.x.ai' }} status={keys.xai} canEdit={keys.canEdit} onChange={changed} />
-        {keys.xai.set && (
-          <div className="cfg-card cfg-key">
-            <form className="cfg-key__form" onSubmit={(e) => { e.preventDefault(); if (model.trim() && model.trim() !== keys.model.value) void saveModel(); }}>
-              <div className="cfg-row__text"><div className="cfg-row__title">Model</div><div className="cfg-row__sub">Which Grok model your Bots use.</div></div>
-              <input className="text-input cfg-key__input cfg-key__model" list="grokbot-models" value={model} disabled={!keys.canEdit} onChange={(e) => setModel(e.target.value)} aria-label="Model" />
-              <datalist id="grokbot-models">{models.map((m) => <option key={m} value={m} />)}</datalist>
-              {keys.canEdit && <button type="submit" className="cfg-btn cfg-btn--secondary" disabled={!model.trim() || model.trim() === keys.model.value}>Save</button>}
-            </form>
-            {modelNote && <div className="cfg-key__foot"><span className={modelNote.tone === 'error' ? 'cfg-key__err' : 'cfg-key__ok'}>{modelNote.text}</span></div>}
+        <div className="cfg-section__label">Models</div>
+        <div className="cfg-card cfg-key">
+          <div className="cfg-key__form">
+            <div className="cfg-row__text"><div className="cfg-row__title">Run Bots on</div><div className="cfg-row__sub">OpenRouter gives one key for Grok, Claude, GPT, Gemini and hundreds more.</div></div>
+            <div className="cfg-seg" role="radiogroup" aria-label="Model provider">
+              {(['openrouter', 'xai'] as const).map((p) => {
+                const ok = p === 'openrouter' ? keys.openrouter.set : keys.xai.set;
+                return (
+                  <button key={p} type="button" role="radio" aria-checked={provider === p} className={provider === p ? 'is-active' : ''}
+                    disabled={!keys.canEdit || (!ok && provider !== p)} title={ok ? '' : `Add ${p === 'openrouter' ? 'an OpenRouter' : 'an xAI'} key below first`}
+                    onClick={() => { if (provider !== p) void save('provider', p); }}>
+                    {p === 'openrouter' ? 'OpenRouter' : 'xAI direct'}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        )}
+          <div className="cfg-key__form">
+            <div className="cfg-row__text"><div className="cfg-row__title">Default model</div><div className="cfg-row__sub">Used by every Bot unless you pick one in its settings.</div></div>
+            <ModelPicker key={`${provider}-${pickerKey}`} label="Default model" value={current} disabled={!keys.canEdit || !hasModels}
+              onChange={(id) => { if (id && id !== current) void save(provider === 'openrouter' ? 'openrouter_model' : 'model', id); }} />
+          </div>
+          <div className="cfg-key__foot">
+            {note ? <span className={note.tone === 'error' ? 'cfg-key__err' : 'cfg-key__ok'} role="status">{note.text}</span>
+              : hasModels ? `Bots use ${current} through ${provider === 'openrouter' ? 'OpenRouter' : 'xAI'}.` : `Add ${provider === 'openrouter' ? 'an OpenRouter' : 'an OpenRouter or xAI'} key below to choose a model.`}
+          </div>
+        </div>
       </section>
+
       <section className="cfg-section">
+        <div className="cfg-section__label">Keys</div>
+        <KeyCard name="openrouter" title="OpenRouter" what="Recommended: one key for 290+ models that can use tools, with per-token pricing." link={{ href: 'https://openrouter.ai/keys', label: 'Get a key at openrouter.ai/keys' }} status={keys.openrouter} canEdit={keys.canEdit} onChange={changed} />
+        <KeyCard name="xai" title="xAI · Grok direct" what="Grok straight from xAI. Also needed for voice calls." link={{ href: 'https://console.x.ai', label: 'Get a key at console.x.ai' }} status={keys.xai} canEdit={keys.canEdit} onChange={changed} />
         <KeyCard name="composio" title="Composio · Connected apps" what="Optional: lets Bots use Gmail, Slack, Notion, GitHub and 1,000+ apps, and enables Sign in with Google." link={{ href: 'https://platform.composio.dev', label: 'Get a key at platform.composio.dev' }} status={keys.composio} canEdit={keys.canEdit} onChange={changed} />
       </section>
     </>

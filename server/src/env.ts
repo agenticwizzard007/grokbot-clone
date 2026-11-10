@@ -35,6 +35,16 @@ export const env = {
   /** Base URL of the xAI API (override to use a compatible proxy or a local mock). */
   xaiBaseUrl: process.env.XAI_BASE_URL || 'https://api.x.ai/v1',
   /** Composio powers connected apps and Google sign-in; without it those are off and everything else works. */
+  /** OpenRouter: one key for Grok, Claude, GPT, Gemini and hundreds more (Responses API). */
+  get openrouterKey() { return live('OPENROUTER_API_KEY'); },
+  get openrouterModel() { return live('OPENROUTER_MODEL') || 'x-ai/grok-4.7'; },
+  openrouterBaseUrl: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
+  /** Which service runs the Bots' models: LLM_PROVIDER if set, else OpenRouter when it has a key, else xAI. */
+  get llmProvider(): 'xai' | 'openrouter' {
+    const p = live('LLM_PROVIDER');
+    if (p === 'xai' || p === 'openrouter') return p;
+    return live('OPENROUTER_API_KEY') ? 'openrouter' : 'xai';
+  },
   get composioKey() { return live('COMPOSIO_API_KEY'); },
   get composioEnabled() { return !!live('COMPOSIO_API_KEY'); },
   computerProvider: computerProvider as 'orgo' | 'local',

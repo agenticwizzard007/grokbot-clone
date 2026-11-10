@@ -11,7 +11,8 @@ import { computers, ComputerError } from './computers/index.js';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { createPairing, localFilePath, pairingInfo, revokePairings } from './computers/local.js';
 import { startThisComputer, stopThisComputer, thisComputerAvailable, thisComputerUser } from './computers/this-computer.js';
-import { canManageServer, clearSetting, saveSetting, SETTINGS, settingsStatus, verifyComposioKey, verifyXaiKey, type SettingName } from './settings.js';
+import { canManageServer, clearSetting, saveSetting, SETTINGS, settingsStatus, verifyComposioKey, verifyOpenRouterKey, verifyXaiKey, type SettingName } from './settings.js';
+import { openrouterModels } from './lib/llm.js';
 import { runInBotQueue } from './agent/loop.js';
 import { consolidateBot, historySize, maybeCompact, memoryConfig } from './agent/memory.js';
 import { idleConfig, viewerCount } from './idle.js';
@@ -284,6 +285,26 @@ configApi.put('/settings/keys/:name', async (c) => {
     saveSetting('composio', v, user.id);
     return c.json({ ok: true, ...settingsStatus() });
   }
+  if (name === 'openrouter') {
+    const r = await verifyOpenRouterKey(v);
+    if (!r.ok) return c.json({ error: r.error }, 400);
+    saveSetting('openrouter', v, user.id);
+    return c.json({ ok: true, ...settingsStatus() });
+  }
+  if (name === 'provider') {
+    if (v !== 'xai' && v !== 'openrouter') return c.json({ error: 'Choose openrouter or xai.' }, 400);
+    if (v === 'openrouter' && !env.openrouterKey) return c.json({ error: 'Add an OpenRouter key first.' }, 400);
+    if (v === 'xai' && !env.xaiKey) return c.json({ error: 'Add an xAI key first.' }, 400);
+    saveSetting('provider', v, user.id);
+    return c.json({ ok: true, ...settingsStatus() });
+  }
+  if (name === 'openrouter_model') {
+    const list = await openrouterModels().catch(() => null);
+    const m = list?.find((x) => x.id === v);
+    if (list && !m) return c.json({ error: `${v} isn't an OpenRouter model that can use tools.` }, 400);
+    saveSetting('openrouter_model', v, user.id);
+    return c.json({ ok: true, ...settingsStatus() });
+  }
   // model: check it against the models the current key can use
   if (env.xaiKey) {
     const r = await verifyXaiKey(env.xaiKey, v);
@@ -301,9 +322,14 @@ configApi.delete('/settings/keys/:name', (c) => {
   return c.json({ ok: true, ...settingsStatus() });
 });
 
-/** Models the current xAI key can use (for the model picker). */
+/** Models for the model pickers: OpenRouter's tool-capable catalog, or the models the xAI key can use. */
 configApi.get('/settings/models', async (c) => {
-  if (!env.xaiKey) return c.json({ models: [] });
+  const provider = c.req.query('provider') === 'xai' || c.req.query('provider') === 'openrouter' ? c.req.query('provider') : env.llmProvider;
+  if (provider === 'openrouter') {
+    try { return c.json({ provider, models: await openrouterModels() }); }
+    catch (e: any) { return c.json({ provider, models: [], error: String(e?.message ?? e) }); }
+  }
+  if (!env.xaiKey) return c.json({ provider, models: [] });
   const r = await verifyXaiKey(env.xaiKey, env.xaiModel);
-  return c.json(r.ok ? { models: r.models } : { models: [], error: r.error });
+  return c.json(r.ok ? { provider, models: r.models.map((id) => ({ id, name: id, vision: true, reasoning: true, context: 0, price: null })) } : { provider, models: [], error: r.error });
 });
