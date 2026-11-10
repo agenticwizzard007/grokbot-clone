@@ -1,0 +1,14 @@
+/* Paper: Sign in · Web & Mobile. Keep provider buttons on shared auth.css. */
+.signin {
+  font-family: 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack);
+  font-weight: 550;
+}
+.signin__brand { display: flex; width: 200px; height: 32.62px; flex-shrink: 0; }
+.signin__brand img { display: block; width: 100%; height: 100%; }
+.signin__brand .signin__brand-dark { display: none; }
+:root[data-theme='dark'] .signin__brand-light { display: none; }
+:root[data-theme='dark'] .signin__brand .signin__brand-dark { display: block; }
+/* Keep the provider name on one line on small phones; retain the full accessible name. */
+@media (max-width: 360px) {
+  .signin .openrouter-signin__prefix { display: none; }
+}

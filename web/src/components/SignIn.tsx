@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { BotAvatar } from '../avatar/BotAvatar';
+import '@fontsource-variable/instrument-sans';
+import '../styles/signin-brand.css';
 import { api } from '../lib/api';
 import { PhoneAuth } from './PhoneAuth';
 import '../styles/messaging.css';
@@ -52,9 +53,12 @@ export function SignIn() {
       <div className="signin__chrome"><TrafficLights /></div>
       <div className="signin__card">
         <header className="signin__header">
-          <div className="signin__hero"><BotAvatar shape="blob" color="black" size={64} title="Swarm" /></div>
+          <div className="signin__brand">
+            <img className="signin__brand-light" src="/assets/brand/swarms-wordmark.svg" width="200" height="32.62" alt="swarms.so" />
+            <img className="signin__brand-dark" src="/assets/brand/swarms-wordmark-dark.svg" width="200" height="32.62" alt="swarms.so" />
+          </div>
           <div className="signin__intro">
-            <h1 className="signin__title">Swarm</h1>
+            <h1 className="signin__title">Sign in</h1>
             <p className="signin__sub">AI teammates with their own computers. Hand them a task and they get it done.</p>
           </div>
         </header>
@@ -79,7 +83,7 @@ export function SignIn() {
           </form>
         )}
         {error && <div className="card__error signin__error">{error}</div>}
-        <p className="signin__foot">Built by Swarms.so.</p>
+        <p className="signin__foot">Built by swarms.so.</p>
       </div>
     </div>
   );
