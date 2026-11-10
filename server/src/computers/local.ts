@@ -7,6 +7,9 @@ import { db, now } from '../db.js';
 import { env } from '../env.js';
 import { hub } from '../lib/hub.js';
 import { getLive } from '../store.js';
+
+// Loaded lazily: idle.ts imports the agent loop, which imports the provider index (keeps the static import graph acyclic).
+const idle = () => import('../idle.js');
 import { sha256, token as randomToken } from '../lib/ids.js';
 import type { ComputerState, LibraryFile } from '../types.js';
 import { ByteQueue, browserHandshake, jpegSize, jpegUpdate, msgLength, RFB_DESKTOP_SIZE, RFB_TIGHT, serverInit } from './rfb.js';
@@ -32,9 +35,16 @@ import { ComputerError, type BotScreen, type ComputerProvider, type Shot } from 
  *   companion -> server  {event:'browsers', bots:[botId...]}            which Bots have a browser open
  */
 
-const OFFLINE = "Your PC isn't connected. Open Settings → Computer, then run the connect command on your PC.";
 /** Bots use the PC's full desktop and a shell (COMPUTER_PROVIDER=desktop). */
 const DESKTOP = env.localDesktop;
+/** Cloud VMs (COMPUTER_PROVIDER=cloudvm): the companion runs inside each user's VM with one screen per Bot (see cloudvm.ts). */
+const MULTI = env.computerProvider === 'cloudvm';
+const OFFLINE = MULTI
+  ? "Your Bots' computer isn't running yet. It starts on its own; try again in a moment."
+  : "Your PC isn't connected. Open Settings → Computer, then run the connect command on your PC.";
+
+// Tokens can be bound to one cloud VM, so a VM's token is revoked with the VM.
+try { db.exec('ALTER TABLE companion_tokens ADD COLUMN vm_id TEXT'); } catch { /* exists */ }
 const PROTOCOL_VERSION = 1;
 
 interface Frame { data: Buffer; width: number; height: number }
@@ -72,7 +82,31 @@ function state(userId: string): ComputerState {
   };
 }
 
-const emitState = (userId: string) => hub.emit(userId, { type: 'computer', state: state(userId) });
+/** The computer state the UI sees; cloudvm.ts replaces it with the VM's own state. */
+let stateOf: (userId: string) => ComputerState = state;
+export function setComputerStateSource(fn: (userId: string) => ComputerState) { stateOf = fn; }
+const emitState = (userId: string) => hub.emit(userId, { type: 'computer', state: stateOf(userId) });
+
+/** Is this user's companion (PC or cloud VM) connected right now? */
+export const companionConnected = (userId: string) => companions.has(userId);
+
+/** Wait until the user's companion connects (a cloud VM finishing boot or resume). */
+export async function waitForCompanion(userId: string, timeoutMs: number): Promise<boolean> {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    if (companions.has(userId)) return true;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return companions.has(userId);
+}
+
+/** Disconnect a user's companion now (its VM was frozen or deleted, so it can't answer a close handshake). */
+export function dropCompanion(userId: string, reason = 'computer stopped') {
+  const c = companions.get(userId);
+  if (!c) return;
+  console.log(`[local] dropping companion user=${userId}: ${reason}`);
+  c.ws.terminate();
+}
 
 function need(userId: string): Companion {
   const c = companions.get(userId);
@@ -110,10 +144,15 @@ function touch(userId: string, botId: string) {
 // ---------- pairing ----------
 
 /** Create a pairing token for the user's PC. Only its hash is stored. */
-export function createPairing(userId: string): string {
+export function createPairing(userId: string, vmId: string | null = null): string {
   const t = `gbc_${randomToken()}`;
-  db.prepare('INSERT INTO companion_tokens(token_hash,user_id,created_at) VALUES (?,?,?)').run(sha256(t), userId, now());
+  db.prepare('INSERT INTO companion_tokens(token_hash,user_id,created_at,vm_id) VALUES (?,?,?,?)').run(sha256(t), userId, now(), vmId);
   return t;
+}
+
+/** Revoke a cloud VM's tokens (the VM is being destroyed or replaced). */
+export function revokeVmTokens(vmId: string) {
+  db.prepare('DELETE FROM companion_tokens WHERE vm_id=?').run(vmId);
 }
 
 /** Revoke every pairing token for the user and disconnect their PC. */
@@ -159,6 +198,8 @@ function onCompanion(ws: WebSocket) {
       const row = db.prepare('SELECT user_id FROM companion_tokens WHERE token_hash=?').get(hash) as any;
       if (!row) return ws.close(4401, 'invalid token');
       clearTimeout(helloTimer);
+      if (MULTI && msg.mode !== 'multi') return ws.close(4403, 'This Grokbot runs Bots on cloud VMs; only the VM companion (--multi) can connect.');
+      if (!MULTI && msg.mode === 'multi') return ws.close(4403, 'This Grokbot does not use cloud VMs; start the companion without --multi.');
       if (DESKTOP && msg.desktop !== true) return ws.close(4403, 'This Grokbot gives Bots your full desktop. Update the companion and start it with --desktop.');
       db.prepare('UPDATE companion_tokens SET last_seen_at=? WHERE token_hash=?').run(now(), hash);
       // One PC per user: a new connection replaces the old one.
@@ -184,7 +225,7 @@ function onCompanion(ws: WebSocket) {
         onClose: new Set(),
       };
       companions.set(row.user_id, comp);
-      ws.send(JSON.stringify({ type: 'welcome', protocol: PROTOCOL_VERSION, mode: DESKTOP ? 'desktop' : 'browser' }));
+      ws.send(JSON.stringify({ type: 'welcome', protocol: PROTOCOL_VERSION, mode: MULTI ? 'multi' : DESKTOP ? 'desktop' : 'browser' }));
       console.log(`[local] PC connected user=${row.user_id} name="${comp.device.name}" platform=${comp.device.platform} headless=${comp.device.headless}`);
       emitState(row.user_id);
       return;
@@ -260,9 +301,11 @@ async function viewer(client: WebSocket, userId: string, botId: string, mode: 'w
   };
   const onFrame = (f: Frame) => { latest = f; fresh = true; flush(); };
 
+  let counted = false;
   const cleanup = () => {
     if (closed) return;
     closed = true;
+    if (counted) void idle().then((m) => m.viewerClosed(userId));
     fromClient.close(new Error('closed'));
     const subs = comp.viewers.get(botId);
     subs?.delete(onFrame);
@@ -345,8 +388,10 @@ async function viewer(client: WebSocket, userId: string, botId: string, mode: 'w
     fresh = true;
     fbW = size.width;
     fbH = size.height;
-    await browserHandshake(fromClient, send, serverInit(fbW, fbH, `${comp.device.name} ${DESKTOP ? 'desktop' : 'browser'}`));
+    await browserHandshake(fromClient, send, serverInit(fbW, fbH, MULTI ? 'Bot screen' : `${comp.device.name} ${DESKTOP ? 'desktop' : 'browser'}`));
     ready = true;
+    void idle().then((m) => m.viewerOpened(userId));
+    counted = true;
     handle(fromClient.takeAll());
     let subs = comp.viewers.get(botId);
     if (!subs) { subs = new Set(); comp.viewers.set(botId, subs); }
@@ -424,7 +469,7 @@ const DESKTOP_TOOLS: Partial<Record<string, string>> = {
 
 export const localProvider: ComputerProvider = {
   kind: 'local',
-  capabilities: { shell: DESKTOP },
+  capabilities: { shell: DESKTOP || MULTI },
   promptFor: (userId) => {
     if (!DESKTOP) return localProvider.promptLine;
     const c = companions.get(userId);
@@ -467,7 +512,7 @@ export const localProvider: ComputerProvider = {
       scroll: async (a) => { await rpc('scroll', a); },
       openUrl: async (url) => { await rpc('open', { url }, 60_000); },
     };
-    if (DESKTOP) screen.shell = async (command, timeoutSec) => rpc('shell', { command, timeout: timeoutSec }, (timeoutSec + 15) * 1000);
+    if (DESKTOP || MULTI) screen.shell = async (command, timeoutSec) => rpc('shell', { command, timeout: timeoutSec }, (timeoutSec + 15) * 1000);
     return screen;
   },
 

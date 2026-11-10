@@ -5,6 +5,7 @@ import { db } from '../db.js';
 import { env } from '../env.js';
 import { userFromCookieHeader } from '../lib/auth.js';
 import { attachCompanionSocket, localProvider } from './local.js';
+import { cloudvmProvider } from './cloudvm.js';
 import { orgoProvider } from './orgo.js';
 import type { ComputerProvider } from './types.js';
 
@@ -12,7 +13,7 @@ export { ComputerError } from './types.js';
 export type { BotScreen, ComputerProvider, Shot } from './types.js';
 
 /** The active computer provider, chosen with COMPUTER_PROVIDER (see env.ts). */
-export const computers: ComputerProvider = env.computerProvider === 'local' ? localProvider : orgoProvider;
+export const computers: ComputerProvider = env.computerProvider === 'local' ? localProvider : env.computerProvider === 'cloudvm' ? cloudvmProvider : orgoProvider;
 
 export const computerState = (userId: string) => computers.state(userId);
 
@@ -33,5 +34,5 @@ export function attachComputerSockets(server: Server) {
     const mode = url.searchParams.get('mode') === 'control' ? 'control' : 'watch';
     wss.handleUpgrade(req, socket, head, (client) => { void computers.viewer(client, user.id, bot.id, mode); });
   });
-  if (computers.kind === 'local') attachCompanionSocket(server);
+  if (computers.kind === 'local' || computers.kind === 'cloudvm') attachCompanionSocket(server);
 }

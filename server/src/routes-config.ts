@@ -191,7 +191,7 @@ configApi.get('/bots/:id/files/raw', (c) => {
   const b = ownBot(user.id, c.req.param('id'));
   if (!b) return c.json({ error: 'not found' }, 404);
   const rel = safeRel(c.req.query('path'));
-  if (!rel || computers.kind !== 'local') return c.json({ error: 'bad path' }, 400);
+  if (!rel || (computers.kind !== 'local' && computers.kind !== 'cloudvm')) return c.json({ error: 'bad path' }, 400);
   let file: string;
   try { file = localFilePath(b.id, rel); } catch { return c.json({ error: 'bad path' }, 400); }
   if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return c.json({ error: 'not found' }, 404);

@@ -7,13 +7,16 @@ function req(name: string): string {
 }
 
 /**
- * Where Bots' computers come from: 'orgo' (cloud VMs), 'local' (a browser on your own PC via the
- * companion), or 'desktop' (your own PC's full desktop and a shell, via the companion).
+ * Where Bots' computers come from: 'orgo' (Orgo cloud VMs), 'local' (a browser on your own PC via the
+ * companion), 'desktop' (your own PC's full desktop and a shell, via the companion), or 'cloudvm'
+ * (a VM per user, created automatically through a provider API, with one screen per Bot; see computers/cloudvm.ts).
  */
 const computerSetting = (process.env.COMPUTER_PROVIDER || (process.env.ORGO_API_KEY ? 'orgo' : 'local')).toLowerCase();
-if (!['orgo', 'local', 'desktop'].includes(computerSetting)) throw new Error(`COMPUTER_PROVIDER must be "orgo", "local" or "desktop", got "${computerSetting}"`);
+if (!['orgo', 'local', 'desktop', 'cloudvm'].includes(computerSetting)) throw new Error(`COMPUTER_PROVIDER must be "orgo", "local", "desktop" or "cloudvm", got "${computerSetting}"`);
 /** 'desktop' is the local provider (the companion) in full-desktop mode. */
-const computerProvider = computerSetting === 'orgo' ? 'orgo' : 'local';
+const computerProvider = computerSetting === 'orgo' ? 'orgo' : computerSetting === 'cloudvm' ? 'cloudvm' : 'local';
+const vmDriver = (process.env.VM_DRIVER || 'fly').toLowerCase();
+if (computerProvider === 'cloudvm' && !['fly', 'fake'].includes(vmDriver)) throw new Error(`VM_DRIVER must be "fly" or "fake", got "${vmDriver}"`);
 
 /**
  * Provider keys can also be set in the app (Settings → API keys; see settings.ts). Values saved
@@ -75,7 +78,20 @@ export const env = {
   get messagingSignupsPerDay() { return live('MESSAGING_SIGNUPS_PER_DAY'); },
   get messagingDailyTurns() { return live('MESSAGING_DAILY_MESSAGES'); },
   get messagingMemberInvites() { return live('MESSAGING_MEMBER_INVITES'); },
-  computerProvider: computerProvider as 'orgo' | 'local',
+  computerProvider: computerProvider as 'orgo' | 'local' | 'cloudvm',
+  /** cloudvm: which VM provider API creates the VMs ('fly' = Fly.io Machines; 'fake' = local processes, for dev and tests). */
+  vmDriver: vmDriver as 'fly' | 'fake',
+  /** cloudvm: the VM image (OS, desktop, Chrome, supervisor); the companion itself is fetched from this server at boot. */
+  vmImage: process.env.VM_IMAGE ?? 'registry.fly.io/grokbot-vm:latest',
+  vmRegion: process.env.VM_REGION ?? '',
+  /** cloudvm: memory for the base system plus each Bot screen (MB), and vCPUs. */
+  vmBaseMemoryMb: Number(process.env.VM_BASE_MEMORY_MB ?? 2048),
+  vmScreenMemoryMb: Number(process.env.VM_SCREEN_MEMORY_MB ?? 768),
+  vmCpus: Number(process.env.VM_CPUS ?? 2),
+  vmVolumeGb: Number(process.env.VM_VOLUME_GB ?? 10),
+  flyApiToken: process.env.FLY_API_TOKEN ?? '',
+  flyApp: process.env.FLY_VM_APP ?? '',
+  flyApiBase: (process.env.FLY_API_BASE || 'https://api.machines.dev').replace(/\/$/, ''),
   /** Local computers give Bots the whole desktop (screen, mouse, keyboard, shell), not just a browser. */
   localDesktop: computerSetting === 'desktop',
   orgoKey: computerProvider === 'orgo' ? req('ORGO_API_KEY') : (process.env.ORGO_API_KEY ?? ''),

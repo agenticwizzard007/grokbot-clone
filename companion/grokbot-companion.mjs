@@ -1048,6 +1048,12 @@ async function createScreen(botId) {
         ...(NO_SANDBOX ? ['--no-sandbox'] : []), url]);
       const p = spawn(c, a, { env, stdio: 'ignore' });
       p.on('error', () => {});
+      // Give Chrome the keyboard: a window manager on a virtual screen doesn't always focus new windows.
+      for (let i = 0; i < 40; i++) {
+        await sleep(250);
+        const ids = (await exec('xdotool', ['search', '--onlyvisible', '--class', '[Cc]hrome'], { env }).catch(() => Buffer.from(''))).toString().trim().split('\n').filter(Boolean);
+        if (ids.length) { await exec('xdotool', ['windowactivate', ids.at(-1)], { env }).catch(() => {}); break; }
+      }
     };
     const d = new Desktop(makeLinuxBackend({ display, open: openUrl }), { cwd: botDir, env, user: RUN_AS || undefined });
     await d.init();

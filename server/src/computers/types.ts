@@ -32,7 +32,7 @@ export class ComputerError extends Error {
 }
 
 export interface ComputerProvider {
-  kind: 'orgo' | 'local';
+  kind: 'orgo' | 'local' | 'cloudvm';
   capabilities: { shell: boolean };
   /** System-prompt line describing the Bot's computer. */
   promptLine: string;

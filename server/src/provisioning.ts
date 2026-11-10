@@ -1,0 +1,146 @@
+import { db, now } from './db.js';
+import { destroyVm, driver, ensureVm, resizeVm, vmFor } from './computers/cloudvm.js';
+import { getLive } from './store.js';
+import { localProvider } from './computers/local.js';
+import { newId } from './lib/ids.js';
+
+/**
+ * Automatic computer setup for cloud VMs (COMPUTER_PROVIDER=cloudvm), with no manual steps:
+ *   - a new account gets a 'create' job: its VM is created and booted, and every Bot gets its screen;
+ *   - a deleted account gets a 'destroy' job for its VM and disk;
+ *   - a new Bot gets a 'resize' job when the VM needs more memory for another screen.
+ * Jobs live in the database and are retried with backoff, so a crash or provider hiccup never
+ * loses one. A reconcile loop removes VMs the provider has that no account owns.
+ * (When we run our own Firecracker hosts, this is the part that moves into Temporal workflows.)
+ */
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS provision_jobs (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  user_id TEXT,
+  vm_id TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_at INTEGER NOT NULL,
+  error TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS provision_jobs_due ON provision_jobs(status, next_at);`);
+
+type Kind = 'create' | 'destroy' | 'resize';
+interface Job { id: string; kind: Kind; user_id: string | null; vm_id: string | null; status: string; attempts: number }
+
+const MAX_ATTEMPTS = 8;
+/** Not a failure: try again later without using up an attempt. */
+class Defer extends Error {}
+const PARALLEL = Number(process.env.VM_PROVISION_PARALLEL ?? 5);
+const running = new Set<string>();
+
+/** Queue work for a user's (or a deleted user's) VM. Duplicate pending jobs are skipped. */
+export function enqueueVmJob(kind: Kind, ref: { userId?: string; vmId?: string }) {
+  const dup = db.prepare("SELECT 1 FROM provision_jobs WHERE kind=? AND status IN ('pending','running') AND COALESCE(user_id,'')=? AND COALESCE(vm_id,'')=?")
+    .get(kind, ref.userId ?? '', ref.vmId ?? '');
+  if (dup) return;
+  db.prepare('INSERT INTO provision_jobs(id,kind,user_id,vm_id,status,next_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)')
+    .run(newId('job'), kind, ref.userId ?? null, ref.vmId ?? null, 'pending', now(), now(), now());
+  kick();
+}
+
+/** Called when an account is deleted: its VM and disk go with it. */
+export function enqueueAccountDeletion(userId: string) {
+  const vm = vmFor(userId);
+  if (vm) enqueueVmJob('destroy', { vmId: vm.vm_id });
+}
+
+async function run(job: Job) {
+  if (job.kind === 'create') {
+    if (!job.user_id || !db.prepare('SELECT 1 FROM users WHERE id=?').get(job.user_id)) return; // account gone meanwhile
+    await ensureVm(job.user_id);
+    // Give every Bot its screen now, so the first task doesn't wait for one.
+    const bots = db.prepare("SELECT id FROM bots WHERE user_id=? AND COALESCE(hidden,0)=0 AND COALESCE(kind,'agent')<>'room'").all(job.user_id) as { id: string }[];
+    for (const b of bots) await (await localProvider.screen(job.user_id, b.id)).screenshot();
+    console.log(`[provision] user=${job.user_id} is ready: VM up, ${bots.length} screen(s)`);
+  } else if (job.kind === 'destroy') {
+    if (job.vm_id) await destroyVm(job.vm_id);
+  } else if (job.kind === 'resize') {
+    if (!job.user_id || !vmFor(job.user_id)) return;
+    // Resizing restarts the VM: wait until none of the user's Bots is mid-task.
+    const bots = db.prepare('SELECT id FROM bots WHERE user_id=?').all(job.user_id) as { id: string }[];
+    const { isBotBusy } = await import('./agent/loop.js');
+    if (bots.some((b) => isBotBusy(b.id) || getLive(b.id).isRunning)) throw new Defer('Bots are working; resizing when they finish');
+    await resizeVm(job.user_id);
+  }
+}
+
+async function runJob(job: Job) {
+  running.add(job.id);
+  db.prepare("UPDATE provision_jobs SET status='running', attempts=attempts+1, updated_at=? WHERE id=?").run(now(), job.id);
+  try {
+    await run(job);
+    db.prepare("UPDATE provision_jobs SET status='done', error=NULL, updated_at=? WHERE id=?").run(now(), job.id);
+  } catch (e: any) {
+    if (e instanceof Defer) {
+      db.prepare("UPDATE provision_jobs SET status='pending', attempts=attempts-1, error=?, next_at=?, updated_at=? WHERE id=?").run(e.message, now() + 60_000, now(), job.id);
+      return;
+    }
+    const attempts = job.attempts + 1;
+    const msg = String(e?.message ?? e).slice(0, 500);
+    const failed = attempts >= MAX_ATTEMPTS;
+    const delay = Math.min(10 * 60_000, 5_000 * 2 ** attempts);
+    db.prepare('UPDATE provision_jobs SET status=?, error=?, next_at=?, updated_at=? WHERE id=?').run(failed ? 'failed' : 'pending', msg, now() + delay, now(), job.id);
+    console.warn(`[provision] ${job.kind} ${job.user_id ?? job.vm_id} attempt ${attempts} failed${failed ? ' (giving up)' : `; retrying in ${Math.round(delay / 1000)}s`}: ${msg}`);
+  } finally {
+    running.delete(job.id);
+    kick();
+  }
+}
+
+function tick() {
+  const free = PARALLEL - running.size;
+  if (free <= 0) return;
+  const due = db.prepare("SELECT * FROM provision_jobs WHERE status='pending' AND next_at<=? ORDER BY created_at LIMIT ?").all(now(), free + running.size) as Job[];
+  for (const job of due) {
+    if (running.size >= PARALLEL) break;
+    if (running.has(job.id)) continue;
+    void runJob(job);
+  }
+}
+
+let started = false;
+const kick = () => { if (started) setImmediate(tick); };
+
+/** Remove VMs that no account owns (provider side and database side). */
+export async function reconcile() {
+  const remote = await driver.list();
+  const known = new Map((db.prepare('SELECT vm_id, user_id, ext_id FROM vms').all() as { vm_id: string; user_id: string | null; ext_id: string | null }[]).map((r) => [r.vm_id, r]));
+  for (const v of remote) {
+    const row = v.vmId ? known.get(v.vmId) : undefined;
+    if (!row || row.ext_id !== v.id) {
+      console.warn(`[provision] destroying orphan VM ${v.id} (no matching account)`);
+      await driver.destroy(v.id).catch((e) => console.warn(`[provision] orphan ${v.id}: ${e?.message ?? e}`));
+    }
+  }
+  for (const row of known.values()) if (!row.user_id) enqueueVmJob('destroy', { vmId: row.vm_id });
+}
+
+/** Start the job worker and the reconcile loop (once per server; skipped with GROKBOT_NO_SCHEDULER=1). */
+export function startProvisioning() {
+  if (started || process.env.GROKBOT_NO_SCHEDULER === '1') return;
+  started = true;
+  // Jobs that were mid-flight when the server stopped run again (each step is idempotent).
+  db.prepare("UPDATE provision_jobs SET status='pending', next_at=? WHERE status='running'").run(now());
+  if (process.env.VM_PROVISION_EXISTING === '1') {
+    const missing = db.prepare('SELECT id FROM users WHERE id NOT IN (SELECT user_id FROM vms WHERE user_id IS NOT NULL)').all() as { id: string }[];
+    for (const u of missing) enqueueVmJob('create', { userId: u.id });
+    if (missing.length) console.log(`[provision] queued VMs for ${missing.length} existing account(s)`);
+  }
+  setInterval(tick, 2_000).unref();
+  const every = Number(process.env.VM_RECONCILE_MIN ?? 10) * 60_000;
+  setInterval(() => { reconcile().catch((e) => console.warn('[provision] reconcile failed', e?.message ?? e)); }, every).unref();
+  setTimeout(() => { reconcile().catch((e) => console.warn('[provision] reconcile failed', e?.message ?? e)); }, 30_000).unref();
+  tick();
+  console.log(`[provision] cloud VM setup worker started (driver ${driver.name}, ${PARALLEL} at a time)`);
+}
+

@@ -120,6 +120,26 @@ Guard rails, enforced on your PC: Bots get a browser only (no shell, no files fr
 
 From a clone of this repository you can also run `npm run companion -- --server <url> --token <token>`.
 
+#### Cloud VMs (`COMPUTER_PROVIDER=cloudvm`)
+
+Every user gets exactly one cloud VM, created automatically when they sign up, with **one screen per Bot**. There's nothing to pair or install.
+
+- **Automatic setup.** Sign-up queues a job that creates the VM (with a persistent disk), waits for it to come online and opens a screen for each Bot. Jobs are retried with backoff and survive restarts. Adding a Bot grows the VM to fit its screen (waiting until no Bot is mid-task). Deleting an account deletes its VM, and a cleanup loop removes any VM no account owns.
+- **One VM per user.** The `vms` table allows one VM per user, VMs carry their owner in the provider's metadata, and each VM's token is bound to that VM.
+- **Inside the VM** (`infra/vm-image`): the companion runs with `--multi`. Each Bot has its own virtual screen (Xvfb + XFCE), its own Chrome profile and its own folder. Bots' shells and browsers run as the `agent` user, which can't read the VM's token. The cloud metadata service and the provider's private network are blocked.
+- **Sleep and wake.** VMs are suspended after `GROKBOT_IDLE_SUSPEND_MIN` idle minutes (no turns, nobody watching) and resume on the next task in a few seconds.
+- **Updates.** The OS, desktop and Chrome come from the image (`VM_IMAGE`). The companion is downloaded from this server whenever a VM boots, so runtime updates need no image rebuild.
+- **Providers.** `VM_DRIVER=fly` uses Fly.io Machines (Firecracker); set `FLY_API_TOKEN`, `FLY_VM_APP` and `VM_IMAGE`. `VM_DRIVER=fake` runs each "VM" as a local process group, for development and `tests/cloudvm-computer.mjs`.
+
+Build and push the image:
+
+```bash
+docker build -t registry.fly.io/$FLY_VM_APP:v1 -f infra/vm-image/Dockerfile .
+docker push registry.fly.io/$FLY_VM_APP:v1   # then VM_IMAGE=registry.fly.io/$FLY_VM_APP:v1
+```
+
+Don't run the image with `--network host`: its firewall rules are meant for the VM's own network.
+
 #### Full desktop (`COMPUTER_PROVIDER=desktop`)
 
 With `desktop`, **Settings → Computer → Use this computer** (or the connect command, which then ends in `--desktop`) gives Bots the whole machine instead of a private browser:

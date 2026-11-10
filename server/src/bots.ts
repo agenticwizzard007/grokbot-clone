@@ -1,4 +1,5 @@
 import { db, now } from './db.js';
+import { env } from './env.js';
 import { hub } from './lib/hub.js';
 import { newId } from './lib/ids.js';
 import { getBot } from './store.js';
@@ -76,6 +77,8 @@ export function createBot(userId: string, b: CreateBotInput): Bot {
     throw e;
   }
   hub.emit(userId, { type: 'roster' });
+  // Cloud VMs: every Bot has its own screen, so the user's VM grows to fit (a background job; it waits until no Bot is working).
+  if (env.computerProvider === 'cloudvm' && !b.isPrimary) void import('./provisioning.js').then((m) => m.enqueueVmJob('resize', { userId })).catch(() => {});
   return getBot(id)!;
 }
 

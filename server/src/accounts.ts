@@ -7,6 +7,7 @@ import { interrupt } from './agent/loop.js';
 import { unscheduleRoutine } from './routines.js';
 import { removeSetupFiles } from './bot-setup.js';
 import { computers } from './computers/index.js';
+import { enqueueAccountDeletion, enqueueVmJob } from './provisioning.js';
 
 /**
  * Accounts. A person can sign up in the web app (Google or dev email) or by text message (phone number only), and
@@ -89,6 +90,8 @@ export function createAccount(input: CreateAccountInput): { id: string; isNew: b
   db.prepare('INSERT INTO users(id,email,name,created_at,phone,signup_source,invited_by) VALUES (?,?,?,?,?,?,?)')
     .run(id, email, name, now(), phone, input.source ?? 'web', input.invitedBy ?? null);
   createBot(id, { name: 'Quinn', label: 'Chief of Staff', description: 'Your main point of contact. Checks in proactively and coordinates work with your other Bots.', avatarShape: 'blob', avatarColor: 'black', isPrimary: true });
+  // Cloud VMs: the new account's computer is created and set up in the background, no manual steps.
+  if (env.computerProvider === 'cloudvm') enqueueVmJob('create', { userId: id });
   return { id, isNew: true };
 }
 
@@ -117,6 +120,8 @@ export async function deleteAccount(userId: string) {
     await computers.resetScreen(userId, b.id).catch(() => {});
     removeSetupFiles(b.id);
   }
+  // Cloud VMs: the account's VM and disk are deleted too (a background job, retried until done).
+  if (env.computerProvider === 'cloudvm') enqueueAccountDeletion(userId);
   db.transaction(() => {
     db.prepare('DELETE FROM screens WHERE user_id=?').run(userId);
     for (const t of ['proactivity', 'messaging_claims']) {
