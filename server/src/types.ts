@@ -96,8 +96,8 @@ export interface MessageBody {
   role: 'user' | 'assistant';
   text: string;
   streaming?: boolean;
-  /** Set when a message came from another bot, a routine, a voice call or a text message (iMessage/SMS) rather than the user typing in the app. */
-  from?: { kind: 'bot' | 'routine' | 'voice' | 'imessage' | 'sms'; id: string; name: string };
+  /** Set when a message came from another bot, a routine, a voice call or a text message rather than the user typing in the app. */
+  from?: { kind: 'bot' | 'routine' | 'voice' | 'imessage' | 'sms' | 'whatsapp'; id: string; name: string };
   citations?: { url: string; title?: string }[];
 }
 

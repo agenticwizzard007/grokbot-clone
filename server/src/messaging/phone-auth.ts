@@ -70,6 +70,7 @@ export async function startPhoneLogin(phone: string, opts: { ip: string; attachT
   pendingCodes.set(id, code);
   const acct = accountByPhone(p);
   if (acct && isLive(getLink(acct.id, 'imessage'))) await deliver(acct.id, { text: codeText(code, !!opts.attachTo) }, { kind: 'system', channel: 'imessage' });
+  else if (acct && isLive(getLink(acct.id, 'whatsapp'))) await deliver(acct.id, { text: codeText(code, !!opts.attachTo) }, { kind: 'system', channel: 'whatsapp' });
   else watchForConnect(id, p, code, !!opts.attachTo);
   return { ok: true, id };
 }
@@ -109,7 +110,7 @@ const codeText = (code: string, attach: boolean) =>
 export async function replyWithCode(s: { phone: string; channel: Channel; transport: Transport; chatRef?: string | null; name?: string | null }, reply: (text: string) => Promise<void>): Promise<boolean> {
   const row = pendingFor(digits(s.phone));
   if (!row) return false;
-  if (s.channel !== 'imessage') return true;
+  if (s.channel === 'sms') return true;
   const code = pendingCodes.get(row.id);
   if (!code) return false; // server restarted since the code was made: they can ask for a new one
   db.prepare('UPDATE phone_logins SET channel=?, transport=?, chat_ref=?, name=? WHERE id=?').run(s.channel, s.transport, s.chatRef ?? null, s.name ?? null, row.id);
@@ -153,7 +154,7 @@ export async function verifyPhoneLogin(id: string, code: string, opts: { inviteC
     if (!me) return { ok: false, status: 404, error: 'Account not found.' };
     if (!me.phone) db.prepare('UPDATE users SET phone=? WHERE id=?').run(phone, opts.attachTo);
     connect(opts.attachTo);
-    if (row.chat_ref) void deliver(opts.attachTo, { text: '✅ **Connected.** This number now reaches your Bots. Type a message to talk to your primary Bot, or send /help.' }, { kind: 'system', channel: 'imessage' });
+    if (row.chat_ref) void deliver(opts.attachTo, { text: '✅ **Connected.** This number now reaches your Bots. Type a message to talk to your primary Bot, or send /help.' }, { kind: 'system', channel: row.channel });
     return done(opts.attachTo, false);
   }
 

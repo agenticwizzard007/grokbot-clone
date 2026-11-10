@@ -6,20 +6,20 @@ import { hub } from '../lib/hub.js';
 /**
  * Messaging state: how each user reaches their Bots by text.
  *
- * A user has at most one link per channel (iMessage, SMS). Each link names the transport that carries it; today that is
- * 'inkbox': the server's iMessage/SMS line through Inkbox (inkbox.ai). A host line serves every user from one number
+ * A user has at most one link per channel (iMessage, SMS, WhatsApp). Each link names the transport that carries it; today that is
+ * 'inkbox': the server's messaging identity through Inkbox (inkbox.ai). A host line serves every user from one number
  * and tells users apart by phone number. New channels plug in as adapters (bridge.ts).
  */
 
-export type Channel = 'imessage' | 'sms';
+export type Channel = 'imessage' | 'sms' | 'whatsapp';
 export type Transport = 'inkbox';
 export type LinkStatus = 'pairing' | 'connected' | 'disconnected' | 'logged_out' | 'error';
 export type ForwardMode = 'all' | 'engaged';
 /** When Bots also answer with a voice note: 'voice-in' = when you sent one (default), 'always', or 'off'. */
 export type VoiceReplies = 'voice-in' | 'always' | 'off';
 export const VOICE_REPLIES: VoiceReplies[] = ['voice-in', 'always', 'off'];
-export const CHANNELS: Channel[] = ['imessage', 'sms'];
-export const CHANNEL_NAMES: Record<Channel, string> = { imessage: 'iMessage', sms: 'SMS' };
+export const CHANNELS: Channel[] = ['imessage', 'sms', 'whatsapp'];
+export const CHANNEL_NAMES: Record<Channel, string> = { imessage: 'iMessage', sms: 'SMS', whatsapp: 'WhatsApp' };
 export const isChannel = (v: unknown): v is Channel => CHANNELS.includes(v as Channel);
 
 db.exec(`
@@ -291,7 +291,7 @@ export function closeCard(userId: string, kind: MsgKind, ref: string) {
 export const queuedMessages = (userId: string): LoggedMsg[] =>
   (db.prepare("SELECT * FROM messaging_messages WHERE user_id=? AND status='queued' ORDER BY id ASC LIMIT 50").all(userId) as any[]).map(toMsg);
 
-const TEXT_KINDS = "('imessage','sms')";
+const TEXT_KINDS = "('imessage','sms','whatsapp')";
 
 /** Has the user messaged this Bot by text recently? Its replies then always come back by text. */
 export function engagedByText(botId: string, withinMs = 24 * 3600_000): boolean {
@@ -302,7 +302,7 @@ export function engagedByText(botId: string, withinMs = 24 * 3600_000): boolean 
 
 /** Where the user last wrote to this Bot: a text channel, 'web', or null if never. */
 export function lastUserChannel(botId: string): Channel | 'web' | null {
-  const r = db.prepare(`SELECT body FROM rows WHERE bot_id=? AND kind='message' AND json_extract(body,'$.role')='user' AND (json_extract(body,'$.from.kind') IS NULL OR json_extract(body,'$.from.kind') IN ('voice','imessage','sms')) ORDER BY created_at DESC, seq DESC LIMIT 1`).get(botId) as any;
+  const r = db.prepare(`SELECT body FROM rows WHERE bot_id=? AND kind='message' AND json_extract(body,'$.role')='user' AND (json_extract(body,'$.from.kind') IS NULL OR json_extract(body,'$.from.kind') IN ('voice','imessage','sms','whatsapp')) ORDER BY created_at DESC, seq DESC LIMIT 1`).get(botId) as any;
   if (!r) return null;
   const kind = JSON.parse(r.body).from?.kind;
   return isChannel(kind) ? kind : 'web';

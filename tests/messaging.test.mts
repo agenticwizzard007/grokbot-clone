@@ -27,6 +27,7 @@ const cafAudio = fs.readFileSync(cafPath);
 // ---------- fake Inkbox ----------
 const ib = {
   assignments: [] as string[],
+  reactions: [] as any[],
   sent: [] as any[],
   uploads: [] as { type: string; bytes: number }[],
   identities: 0,
@@ -59,15 +60,36 @@ const inkbox = http.createServer((req, res) => {
       ib.sent.push(body);
       return json(200, { message: { id: `im_out_${ib.sent.length}`, conversation_id: body.conversation_id } });
     }
+    if (p === '/whatsapp/messages' && req.method === 'POST') {
+      if (key !== 'idkey') return json(401, { detail: 'bad key' });
+      ib.sent.push({ ...body, whatsapp: true });
+      return json(200, { message: { id: `wa_out_${ib.sent.length}`, conversation_id: body.conversation_id } });
+    }
     if (/^\/phone\/numbers\/[^/]+\/texts$/.test(p) && req.method === 'POST') {
       if (key !== 'idkey') return json(401, { detail: 'bad key' });
       ib.sent.push({ ...body, sms: true });
       return json(200, { text_message: { id: `sms_out_${ib.sent.length}`, conversation_id: body.conversation_id } });
     }
+    if (p === '/imessage/reactions' && req.method === 'POST') {
+      if (key !== 'idkey') return json(401, { detail: 'bad key' });
+      ib.reactions.push(body);
+      return json(200, { id: `rxn_${ib.reactions.length}`, ...body });
+    }
+    if (p === '/whatsapp/reactions' && req.method === 'POST') {
+      if (key !== 'idkey') return json(401, { detail: 'bad key' });
+      ib.reactions.push({ ...body, whatsapp: true });
+      return json(200, { reaction: { id: `warxn_${ib.reactions.length}`, ...body } });
+    }
     if ((p === '/imessage/typing' || p === '/imessage/mark-read') && req.method === 'POST') return json(200, { ok: true });
+    if (p === '/whatsapp/mark-read' && req.method === 'POST') return json(200, { ok: true });
+    if (p.startsWith('/whatsapp/onboarding') && req.method === 'GET') {
+      if (key !== 'idkey') return json(401, { detail: 'bad key' });
+      return json(200, { agent_identity_id: 'idn_1', number: '+14155550200', message_text: 'Say Hi Swarm', message_link: 'https://wa.me/14155550200?text=Say%20Hi%20Swarm', message_qr_png_data_url: null, ready: true });
+    }
     if (key !== 'admin') return json(401, { detail: 'bad admin key' });
     if (p.startsWith('/imessage/assignments')) return json(200, ib.assignments.map((n) => ({ id: `as_${n}`, remote_number: `+${n}`, status: 'active' })));
     if (p === '/imessage/triage-number') return json(200, { number: '+14155550199', connect_command: 'connect @handle', sms_link: 'sms:+14155550199', connect_qr_png_data_url: '' });
+    if (p === '/identities/swarm/channel-status') return json(200, { whatsapp: { enabled: true, number: '+14155550200', status: 'ready' } });
     if (p === '/identities/' && req.method === 'POST') { ib.identities++; return json(201, { id: 'idn_new', agent_handle: body.agent_handle, email_address: `${body.agent_handle}@inkboxmail.com`, imessage_enabled: true }); }
     if (p === '/api-keys' && req.method === 'POST') { if (ib.failKeyOnce) { ib.failKeyOnce = false; return json(500, { detail: 'boom' }); } ib.keys++; return json(201, { api_key: 'idkey' }); }
     if (/^\/identities\/[^/]+\/signing-key$/.test(p)) return req.method === 'GET' ? json(200, { configured: ib.signingConfigured }) : (ib.signing++, json(201, { signing_key: 'whsec_test' }));
@@ -137,6 +159,11 @@ function smsMessage(phone: string, text: string, extra: Record<string, unknown> 
   return { id: `evt_${id}`, event_type: 'text.received', timestamp: new Date().toISOString(), data: { text_message: { id, conversation_id: conv(phone), sender_phone_number: `+${phone}`, text, ...extra } } };
 }
 const carrierText = async (phone: string, t: string, extra: Record<string, unknown> = {}) => { const ev = smsMessage(phone, t, extra); const r = await hook(ev); assert.equal(r.status, 204); await inbox.settle(); return ev; };
+function whatsapp(phone: string, text: string, extra: Record<string, unknown> = {}) {
+  const id = crypto.randomUUID();
+  return { id: `evt_wa_${++evN}`, event_type: 'whatsapp.received', timestamp: new Date().toISOString(), data: { message: { id, conversation_id: conv(phone), remote_number: `+${phone}`, content: text, is_group: false, media: [], ...extra } } };
+}
+const whatsappText = async (phone: string, t: string, extra: Record<string, unknown> = {}) => { const ev = whatsapp(phone, t, extra); const r = await hook(ev); assert.equal(r.status, 204); await inbox.settle(); return ev; };
 async function waitFor<T>(fn: () => T | undefined | null | false, ms = 8000): Promise<T> {
   const end = Date.now() + ms;
   for (;;) { const v = fn(); if (v) return v; if (Date.now() > end) throw new Error('timed out'); await new Promise((r) => setTimeout(r, 40)); }
@@ -185,6 +212,7 @@ test('join page claim → first text creates the account, welcomes, and onboardi
   assert.equal(info.valid, true);
   assert.equal(info.inviter, 'Owner');
   assert.match(info.line.smsLink, /^sms:\+14155550199\?&body=connect%20%40swarm$/);
+  assert.equal(info.line.whatsapp.messageLink, 'https://wa.me/14155550200?text=Say%20Hi%20Swarm');
   const claim = await app.request(`/api/join/${inv.code}/claim`, { method: 'POST', body: JSON.stringify({ phone: '+1 (555) 000-2222' }), headers: { 'content-type': 'application/json' } });
   assert.equal(claim.status, 200);
 
@@ -238,9 +266,11 @@ test('open and closed modes', async () => {
 test('texting the Bots: plain-text replies on the same conversation, @Name routing, long replies split', async () => {
   const phone = '15550002222';
   await waitFor(() => !bridge.pickLink(alice) ? null : true);
-  ib.sent.length = 0;
-  await text(phone, 'hello team');
+  ib.sent.length = 0; ib.reactions.length = 0;
+  const ev = await text(phone, 'hello team');
+  await waitFor(() => ib.reactions.find((r) => r.message_id === ev.data.message.id && r.reaction === 'eyes'));
   const r = await sentTo(phone, /Got it: "\[via iMessage\] hello team"/);
+  assert.equal(r.reply_to_message_id, ev.data.message.id, 'Bot replies quote the inbound iMessage');
   assert.ok(!/^\*\*|Quinn:/.test(r.text), 'the active Bot is not named');
   const user = listRows((db.prepare('SELECT id FROM bots WHERE user_id=? AND is_primary=1').get(alice) as any).id).find((x) => x.body.type === 'message' && (x.body as any).text === 'hello team');
   assert.deepEqual((user!.body as any).from, { kind: 'imessage', id: 'imessage', name: 'iMessage' });
@@ -451,7 +481,7 @@ test('/web sign-in link works once and expires; sign-in by text answers the same
   const unknown = await (await req('+1 555 000 9999')).json();
   assert.deepEqual(known, unknown);
   await sentTo(phone, /Sign in to Swarm/);
-  assert.equal(ib.sent.length, 1);
+  assert.equal(ib.sent.filter((m) => /Sign in to Swarm/.test(m.text ?? '')).length, 1);
 });
 
 test('LINK <code> attaches a phone to an existing web account', async () => {
@@ -552,6 +582,19 @@ test('phone sign-up: a new number gets its code by replying to the iMessage line
   assert.equal((await post('/api/auth/phone/verify', { id: start.id, code: codeIn(msg.text) })).status, 410, 'a code works once');
 });
 
+test('phone sign-up can get its code by messaging WhatsApp', async () => {
+  const phone = '15550008890';
+  ib.sent.length = 0;
+  const start = await (await post('/api/auth/phone/start', { phone: `+${phone}` })).json() as any;
+  assert.equal(start.line.whatsapp.messageLink, 'https://wa.me/14155550200?text=Say%20Hi%20Swarm');
+  await whatsappText(phone, 'Say Hi Swarm');
+  const msg = await waitFor(() => ib.sent.find((m) => m.whatsapp && m.conversation_id === conv(phone) && /sign-in code is \d{6}/.test(m.text ?? '')));
+  const inv = signup.createInvite(owner, { maxUses: 1 });
+  const ok = await post('/api/auth/phone/verify', { id: start.id, code: codeIn(msg.text), inviteCode: inv.code });
+  assert.equal(ok.status, 200);
+  assert.equal(store.getLink((db.prepare('SELECT * FROM users WHERE phone=?').get(phone) as any).id, 'whatsapp')!.chatRef, conv(phone));
+});
+
 test('phone verification does not send codes through carrier SMS', async () => {
   const phone = '15550008889';
   ib.sent.length = 0;
@@ -612,6 +655,28 @@ test('the code goes out as soon as Inkbox shows the number connected over iMessa
   assert.ok(msg);
 });
 
+test('WhatsApp through Inkbox routes replies and sends eyes reactions', async () => {
+  const phone = '15550008888';
+  store.upsertLink(alice, 'whatsapp', 'inkbox', { status: 'connected', phone, chatRef: conv(phone), lastInboundAt: Date.now() });
+  ib.sent.length = 0; ib.reactions.length = 0;
+  const ev = await whatsappText(phone, 'hello from whatsapp');
+  await waitFor(() => ib.reactions.find((r) => r.whatsapp && r.message_id === ev.data.message.id && r.reaction === 'eyes'));
+  const r = await waitFor(() => ib.sent.find((m) => m.whatsapp && m.conversation_id === conv(phone) && /Got it: "\[via WhatsApp\] hello from whatsapp"/.test(m.text ?? '')));
+  assert.equal(r.reply_to_message_id, ev.data.message.id, 'Bot replies quote the inbound WhatsApp message');
+  const user = listRows((db.prepare('SELECT id FROM bots WHERE user_id=? AND is_primary=1').get(alice) as any).id).find((x) => x.body.type === 'message' && (x.body as any).text === 'hello from whatsapp');
+  assert.deepEqual((user!.body as any).from, { kind: 'whatsapp', id: 'whatsapp', name: 'WhatsApp' });
+});
+
+test('owner can fetch WhatsApp onboarding link and QR for testing', async () => {
+  const r = await app.request('/api/messaging/inkbox/whatsapp', { headers: { cookie: cookieFor(owner) } });
+  assert.equal(r.status, 200);
+  const body = await r.json() as any;
+  assert.deepEqual(body.status, { enabled: true, number: '+14155550200', status: 'ready' });
+  assert.equal(body.onboarding.ready, true);
+  assert.equal(body.onboarding.messageLink, 'https://wa.me/14155550200?text=Say%20Hi%20Swarm');
+  assert.match(body.onboarding.messageQrPngDataUrl, /^data:image\/png;base64,/);
+});
+
 test('line setup resumes after a failed step and never recreates the identity', async () => {
   for (const k of ['INKBOX_IDENTITY_ID', 'INKBOX_API_KEY', 'INKBOX_SIGNING_KEY']) delete process.env[k];
   ib.failKeyOnce = true;
@@ -628,7 +693,7 @@ test('line setup resumes after a failed step and never recreates the identity', 
   assert.equal(ib.signing, 1);
   assert.equal(ib.subs.length, 1);
   assert.equal(ib.subs[0].url, 'https://swarm.swarms.so/api/messaging/inkbox/webhook');
-  assert.deepEqual(ib.subs[0].event_types, ['imessage.received', 'imessage.reaction_received', 'text.received']);
+  assert.deepEqual(ib.subs[0].event_types, ['imessage.received', 'imessage.reaction_received', 'text.received', 'whatsapp.received', 'whatsapp.reaction_received']);
   // A signing key exists on Inkbox that this server doesn't hold: never replace it silently.
   clearSetting('inkbox_signing_key');
   ib.signingConfigured = true;

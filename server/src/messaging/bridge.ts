@@ -2,7 +2,7 @@ import { db, now } from '../db.js';
 import { env } from '../env.js';
 import { hub } from '../lib/hub.js';
 import { appendRow, clearConversation, emitBot, getBotRow, getLive, getRow, listBots, onRowChange, updateRow } from '../store.js';
-import { currentTrigger, enqueue, interrupt, resolveApproval, runInBotQueue, type Trigger } from '../agent/loop.js';
+import { currentTrigger, enqueue, interrupt, isBotBusy, resolveApproval, runInBotQueue, type Trigger } from '../agent/loop.js';
 import { dispatchRoomMessage } from '../agent/rooms.js';
 import { activateSetup, getSetup } from '../bot-setup.js';
 import { connectedToolkits, startConnect, toolkitInfo } from '../composio.js';
@@ -32,7 +32,7 @@ import {
  * reporting back), or when the user isn't in the web app. Background messages follow the user to the channel they
  * last wrote from.
  *
- * Text is composed in Markdown; each adapter converts it to what its channel shows (plain text for iMessage/SMS).
+ * Text is composed in Markdown; each adapter converts it to what its channel shows.
  */
 
 export interface OutMessage {
@@ -99,6 +99,11 @@ function serial<T>(userId: string, job: () => Promise<T>): Promise<T> {
 export const drain = async (userId: string) => { while (chains.get(userId)) await chains.get(userId); };
 
 interface Meta { botId?: string | null; kind: MsgKind; ref?: string | null; token?: string | null; slot?: number | null; channel?: Channel | null }
+const TYPING_HEARTBEAT_MS = Math.max(5_000, Number(process.env.MESSAGING_TYPING_HEARTBEAT_MS ?? 20_000));
+const TYPING_HEARTBEAT_MAX_MS = Math.max(TYPING_HEARTBEAT_MS, Number(process.env.MESSAGING_TYPING_HEARTBEAT_MAX_MS ?? 2 * 60 * 60_000));
+const PROGRESS_FIRST_MS = Math.max(TYPING_HEARTBEAT_MS, Number(process.env.MESSAGING_PROGRESS_FIRST_MS ?? 25_000));
+const PROGRESS_EVERY_MS = Math.max(TYPING_HEARTBEAT_MS, Number(process.env.MESSAGING_PROGRESS_EVERY_MS ?? 90_000));
+const typingHeartbeats = new Map<string, NodeJS.Timeout>();
 
 /**
  * Which channel reaches this user now: the one asked for if it's linked, else the one they last wrote from,
@@ -179,6 +184,37 @@ export function flushQueue(userId: string) {
 /** Reply to the user outside any Bot (command output, errors). */
 export const say = (userId: string, text: string, quote?: string, channel?: Channel) => deliver(userId, { text, quote }, { kind: 'system', channel });
 
+function keepTypingWhileBusy(userId: string, botId: string, channel: Channel, chatRef?: string) {
+  const key = `${userId}:${botId}:${channel}`;
+  if (typingHeartbeats.has(key)) return;
+  const started = Date.now();
+  let lastProgressAt = 0;
+  let lastProgressText = '';
+  const tick = async () => {
+    const link = pickLink(userId, channel);
+    const a = link && adapterFor(link);
+    const live = getLive(botId);
+    const busy = isBotBusy(botId) || live.isRunning;
+    if (!busy || !link || !a?.typing || Date.now() - started > TYPING_HEARTBEAT_MAX_MS) {
+      const t = typingHeartbeats.get(key);
+      if (t) clearTimeout(t);
+      typingHeartbeats.delete(key);
+      return;
+    }
+    await a.typing(link, { userId, channel, waId: `typing:${botId}:${Date.now()}`, chatRef: chatRef ?? link.chatRef ?? undefined }).catch(() => {});
+    const progress = progressText(botId, live);
+    const pastFirst = Date.now() - started >= PROGRESS_FIRST_MS;
+    const due = Date.now() - lastProgressAt >= PROGRESS_EVERY_MS;
+    if (progress && pastFirst && (due || progress !== lastProgressText)) {
+      lastProgressAt = Date.now();
+      lastProgressText = progress;
+      void deliver(userId, { text: progress }, { botId, kind: 'system', channel });
+    }
+    typingHeartbeats.set(key, setTimeout(() => void tick(), TYPING_HEARTBEAT_MS).unref());
+  };
+  typingHeartbeats.set(key, setTimeout(() => void tick(), TYPING_HEARTBEAT_MS).unref());
+}
+
 // ---------- outbound: watch the transcript ----------
 
 type Origin = Channel | 'web' | 'background' | 'bot';
@@ -207,6 +243,7 @@ function onRow(userId: string, row: Row, isNew: boolean) {
   if (!bot || bot.hidden) return;
   const b = row.body;
   const away = !hub.isOnline(userId);
+  const t = currentTrigger(row.botId);
   const origin = originOf(row.botId);
   const textOrigin = isChannel(origin) ? origin : null;
   const prefs = getPrefs(userId);
@@ -227,7 +264,8 @@ function onRow(userId: string, row: Row, isNew: boolean) {
     if (!slot) return;
     const channel = textOrigin ?? (isChannel(lastCh) ? lastCh : null);
     const spoken = wantsVoice(userId, row.botId, channel);
-    void deliver(userId, { text: replyText(userId, bot, b) }, { botId: row.botId, kind: 'reply', slot, channel })
+    const quote = t?.type === 'user' && textOrigin && t.channel === textOrigin ? t.quote : undefined;
+    void deliver(userId, { text: replyText(userId, bot, b), quote }, { botId: row.botId, kind: 'reply', slot, channel })
       .then(() => (spoken ? voiceReply(userId, row.botId, b.text, channel) : undefined));
     return;
   }
@@ -434,18 +472,19 @@ export async function handleInbound(inb: Inbound): Promise<void> {
   if (!bot) return void reply('You have no Bots yet.');
   const body = m ? m.rest : text;
   if (!body && !images.length) return void reply(`What should I tell ${bot.name}?`);
-  sendToBot(inb.userId, bot.id, body || '(image)', images, inb.channel, voice);
+  sendToBot(inb.userId, bot.id, body || '(image)', images, inb.channel, voice, inb.waId, inb.chatRef);
 }
 
 const fromChannel = (channel: Channel): NonNullable<MessageBody['from']> => ({ kind: channel, id: channel, name: CHANNEL_NAMES[channel] });
 
 /** Put a text message into a Bot's chat (or a group) and start its turn. */
-export function sendToBot(userId: string, botId: string, text: string, images: string[] = [], channel: Channel = 'imessage', voice = false) {
+export function sendToBot(userId: string, botId: string, text: string, images: string[] = [], channel: Channel = 'imessage', voice = false, quote?: string, chatRef?: string) {
   const bot = getBotRow(botId);
   if (!bot || bot.user_id !== userId) return;
   appendRow(botId, 'message', { type: 'message', role: 'user', text: images.length ? `${text}${text ? '\n' : ''}📷 ${images.length} photo${images.length > 1 ? 's' : ''}` : text, from: fromChannel(channel) });
   if (bot.kind === 'room') dispatchRoomMessage(botId, text, enqueue);
-  else enqueue(botId, { type: 'user', text, channel, images, voice });
+  else enqueue(botId, { type: 'user', text, channel, images, voice, quote });
+  keepTypingWhileBusy(userId, botId, channel, chatRef);
 }
 
 /** Replies to approval/question/connect cards. Returns true if the message was consumed. */
@@ -553,6 +592,15 @@ const ACTIVITY: Record<string, string> = {
   messaging_named: 'checking with another Bot', connecting_service: 'using a connected app', waiting_for_you: 'waiting for you',
   drafting_file: 'writing a file', remembering: 'making a note',
 };
+
+function progressText(botId: string, live = getLive(botId)): string | null {
+  if (!live.isRunning) return null;
+  const bot = getBotRow(botId);
+  if (!bot) return null;
+  const activity = ACTIVITY[live.activity?.kind ?? 'working'] ?? 'working';
+  const detail = live.activity?.detail ? ` (${live.activity.detail})` : '';
+  return `${bot.name} is still working: ${activity}${detail}.`;
+}
 
 function liveLine(botId: string) {
   const l = getLive(botId);

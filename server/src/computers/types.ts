@@ -22,6 +22,14 @@ export interface BotScreen {
   openUrl(url: string): Promise<void>;
   /** Present only when the provider has a shell (capabilities.shell). */
   shell?(command: string, timeoutSec: number): Promise<{ exit_code: number; output: string }>;
+  /** Present only with Playwright browser tools (capabilities.browser): run one on the Bot's own Chrome. */
+  browser?(tool: string, args: Record<string, unknown>): Promise<BrowserResult>;
+}
+
+/** An MCP tool result from Playwright: text (snapshots, logs) and images (screenshots). */
+export interface BrowserResult {
+  content: ({ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string })[];
+  isError: boolean;
 }
 
 export interface LibraryListing { status: 'ok' | 'asleep' | 'error'; path: string; files: LibraryFile[]; error?: string }
@@ -33,7 +41,8 @@ export class ComputerError extends Error {
 
 export interface ComputerProvider {
   kind: 'orgo' | 'local' | 'cloudvm';
-  capabilities: { shell: boolean };
+  /** shell: a command line; browser: Playwright browser tools on the Bot's Chrome (see browser-tools.ts). */
+  capabilities: { shell: boolean; browser?: boolean };
   /** System-prompt line describing the Bot's computer. */
   promptLine: string;
   /** A user-specific prompt line (e.g. naming the connected PC's operating system); falls back to promptLine. */

@@ -65,6 +65,27 @@ const toIdentity = (r: any): Identity => ({
   phoneNumberId: r?.phone_number?.id ?? null, phone: r?.phone_number?.number ?? null, imessage: r?.imessage_enabled === true,
 });
 
+export interface WhatsAppStatus { enabled: boolean; number: string | null; status: string }
+export interface WhatsAppOnboarding { agentIdentityId: string; number: string | null; messageText: string; messageLink: string | null; messageQrPngDataUrl: string | null; ready: boolean }
+
+export async function getWhatsAppStatus(adminKey: string, handle: string): Promise<WhatsAppStatus | null> {
+  const r = await request(adminKey, 'GET', `/identities/${encodeURIComponent(handle)}/channel-status`);
+  const w = r?.whatsapp;
+  return w ? { enabled: w.enabled === true, number: w.number ?? null, status: String(w.status ?? '') } : null;
+}
+
+export async function getWhatsAppOnboarding(key: string, identityId: string): Promise<WhatsAppOnboarding> {
+  const r = await request(key, 'GET', `/whatsapp/onboarding?agent_identity_id=${encodeURIComponent(identityId)}`);
+  return {
+    agentIdentityId: String(r?.agent_identity_id ?? ''),
+    number: r?.number ?? null,
+    messageText: String(r?.message_text ?? ''),
+    messageLink: r?.message_link ?? null,
+    messageQrPngDataUrl: r?.message_qr_png_data_url ?? null,
+    ready: r?.ready === true,
+  };
+}
+
 /** The name, description and photo people see on the line's contact card (sent when they connect). */
 export interface Profile { displayName: string | null; description: string | null; hasAvatar: boolean }
 
@@ -147,7 +168,7 @@ export async function createSigningKey(adminKey: string, handle: string): Promis
   return String(key);
 }
 
-export const WEBHOOK_EVENTS = ['imessage.received', 'imessage.reaction_received', 'text.received'];
+export const WEBHOOK_EVENTS = ['imessage.received', 'imessage.reaction_received', 'text.received', 'whatsapp.received', 'whatsapp.reaction_received'];
 
 export async function subscribeWebhook(adminKey: string, identityId: string, url: string): Promise<string> {
   // The list's identity filter doesn't return identity-owned subscriptions, so list all and match here.
@@ -193,6 +214,27 @@ export async function sendSms(key: string, phoneNumberId: string, p: { conversat
   return { id: r?.id ?? r?.text_message?.id ?? null };
 }
 
+export async function sendWhatsApp(key: string, p: { conversationId?: string; to?: string; text?: string; replyToMessageId?: string }): Promise<{ id: string | null }> {
+  const body: Record<string, unknown> = {};
+  if (p.text) body.text = p.text;
+  if (p.conversationId) body.conversation_id = p.conversationId;
+  else if (p.to) body.to = p.to;
+  if (p.replyToMessageId && p.conversationId) body.reply_to_message_id = p.replyToMessageId;
+  const r = await send(key, '/whatsapp/messages', body);
+  const m = r?.message ?? r;
+  return { id: m?.id ?? null };
+}
+
+export async function sendIMessageReaction(key: string, messageId: string, reaction: 'love' | 'like' | 'dislike' | 'laugh' | 'emphasize' | 'question' | 'eyes' = 'eyes'): Promise<{ id: string | null }> {
+  const r = await request(key, 'POST', '/imessage/reactions', { message_id: messageId, reaction, part_index: 0 });
+  return { id: r?.id ?? r?.reaction?.id ?? null };
+}
+
+export async function sendWhatsAppReaction(key: string, messageId: string, reaction: 'love' | 'like' | 'dislike' | 'laugh' | 'emphasize' | 'question' | 'eyes' = 'eyes'): Promise<{ id: string | null }> {
+  const r = await send(key, '/whatsapp/reactions', { message_id: messageId, reaction });
+  return { id: r?.id ?? r?.reaction?.id ?? null };
+}
+
 /** Upload a file (max 10 MiB) and get a URL usable in `media_urls`. */
 export async function uploadMedia(key: string, f: { data: Buffer; filename: string; contentType: string }): Promise<string> {
   const form = new FormData();
@@ -212,6 +254,7 @@ export async function listAssignments(adminKey: string, identityId: string): Pro
 
 export const typing = (key: string, conversationId: string) => request(key, 'POST', '/imessage/typing', { conversation_id: conversationId });
 export const markRead = (key: string, conversationId: string) => request(key, 'POST', '/imessage/mark-read', { conversation_id: conversationId });
+export const markWhatsAppRead = (key: string, conversationId: string, throughMessageId: string) => request(key, 'POST', '/whatsapp/mark-read', { conversation_id: conversationId, through_message_id: throughMessageId });
 
 /** Download inbound media. Signed URLs need no credentials, so the API key is never sent to them. */
 export async function download(url: string, maxBytes = 10 * 1024 * 1024): Promise<{ data: Buffer; mime: string }> {

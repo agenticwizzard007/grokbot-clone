@@ -1,4 +1,5 @@
 import { memo, useCallback, useState } from 'react';
+import { Blocks, Gauge, KeyRound, LogOut, Monitor, Settings } from 'lucide-react';
 import { useConfigUI } from '../configStore';
 import { TasksIsland } from './config/TasksView';
 import type { Bot } from '@shared/types';
@@ -8,9 +9,12 @@ import { api } from '../lib/api';
 import { Icon } from './Icon';
 import { Menu } from './Menu';
 
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+
 function initials(name: string) {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  return ((parts[0]?.[0] ?? '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase() || '?';
+  // Letters (any script) and digits only, so names like "Alex (owner)" don't yield "A(".
+  const words = name.split(/\s+/).map((w) => w.replace(/[^\p{L}\p{N}]/gu, '')).filter(Boolean);
+  return ((words[0]?.[0] ?? '') + (words.length > 1 ? words[words.length - 1][0] : '')).toUpperCase() || '?';
 }
 
 export function TrafficLights() {
@@ -134,9 +138,12 @@ export function Sidebar() {
                 placement="above"
                 onClose={() => setAccountMenu(false)}
                 items={[
-                  { label: 'Settings', hint: '⌘,', onSelect: () => useConfigUI.getState().openAppSettings() },
-                  { label: 'Connect apps', onSelect: () => setModal('apps') },
-                  { label: 'Log out', danger: true, onSelect: logout },
+                  { label: 'Settings', icon: Settings, hint: IS_MAC ? '⌘,' : 'Ctrl+,', onSelect: () => useConfigUI.getState().openAppSettings() },
+                  { label: 'Usage', icon: Gauge, onSelect: () => useConfigUI.getState().openAppSettings('usage') },
+                  { label: 'API keys', icon: KeyRound, onSelect: () => useConfigUI.getState().openAppSettings('keys') },
+                  { label: 'Computer', icon: Monitor, onSelect: () => useConfigUI.getState().openAppSettings('computer') },
+                  { label: 'Connect apps', icon: Blocks, separatorBefore: true, onSelect: () => setModal('apps') },
+                  { label: 'Log out', icon: LogOut, danger: true, separatorBefore: true, onSelect: logout },
                 ]}
               >
                 <div className="menu__header">{user?.email}</div>

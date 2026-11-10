@@ -261,9 +261,9 @@ export function removeSetupFiles(botId: string) {
 /** Only actual user messages (typed, spoken on a call, or texted) can be cited as the creation brief. */
 export function creationContext(botId: string) {
   const b = getBotRow(botId);
-  const rows = db.prepare("SELECT seq,body FROM rows WHERE bot_id=? AND generation=? AND kind='message' AND json_extract(body,'$.role')='user' AND (json_extract(body,'$.from.kind') IS NULL OR json_extract(body,'$.from.kind') IN ('voice','imessage','sms')) ORDER BY seq DESC LIMIT 100").all(botId, b.generation) as { seq: number; body: string }[];
+  const rows = db.prepare("SELECT seq,body FROM rows WHERE bot_id=? AND generation=? AND kind='message' AND json_extract(body,'$.role')='user' AND (json_extract(body,'$.from.kind') IS NULL OR json_extract(body,'$.from.kind') IN ('voice','imessage','sms','whatsapp')) ORDER BY seq DESC LIMIT 100").all(botId, b.generation) as { seq: number; body: string }[];
   return rows.flatMap((r) => {
     const m = JSON.parse(r.body);
-    return m.role === 'user' && (!m.from || m.from.kind === 'voice' || m.from.kind === 'imessage' || m.from.kind === 'sms') ? [{ seq: r.seq, text: String(m.text) }] : [];
+    return m.role === 'user' && (!m.from || m.from.kind === 'voice' || m.from.kind === 'imessage' || m.from.kind === 'sms' || m.from.kind === 'whatsapp') ? [{ seq: r.seq, text: String(m.text) }] : [];
   });
 }

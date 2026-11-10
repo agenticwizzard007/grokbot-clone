@@ -55,7 +55,7 @@ export interface KeysResponse {
 export interface ModelInfo { id: string; name: string; vision: boolean; reasoning: boolean; context: number; price: { input: number; output: number } | null }
 export type SettingKey = 'direct' | 'composio' | 'model' | 'openrouter' | 'openrouter_model' | 'provider';
 
-export type MessagingChannel = 'imessage' | 'sms';
+export type MessagingChannel = 'imessage' | 'sms' | 'whatsapp';
 export interface MessagingLink {
   channel: MessagingChannel;
   channelName: string;
@@ -64,15 +64,19 @@ export interface MessagingLink {
   lastInboundAt: number | null;
   error: string | null;
 }
-export interface MessagingLine { number: string; connectCommand: string; smsLink: string }
+export interface MessagingWhatsAppStart { number: string | null; messageText: string; messageLink: string; qr: string }
+export interface MessagingLine { number: string; connectCommand: string; smsLink: string; whatsapp?: MessagingWhatsAppStart | null }
 export type SignupMode = 'invite' | 'open' | 'closed';
+export interface InkboxWhatsAppStatus { enabled: boolean; number: string | null; status: string }
+export interface InkboxWhatsAppOnboarding { agentIdentityId: string; number: string | null; messageText: string; messageLink: string | null; messageQrPngDataUrl: string | null; ready: boolean }
+export interface InkboxWhatsAppInfo { status: InkboxWhatsAppStatus | null; onboarding: InkboxWhatsAppOnboarding | null }
 export interface MessagingOwner {
-  inkbox: { adminKeySet: boolean; configured: boolean; handle: string; identityId: string | null; sms: boolean; webhookUrl: string; inbox: { status: string; n: number }[] };
+  inkbox: { adminKeySet: boolean; configured: boolean; handle: string; identityId: string | null; sms: boolean; whatsapp: InkboxWhatsAppStatus | null; webhookUrl: string; inbox: { status: string; n: number }[] };
   signup: { mode: SignupMode; signupsPerDay: number; dailyTurns: number; memberInvites: number };
 }
 export type VoiceReplies = 'voice-in' | 'always' | 'off';
 export interface InkboxProfile { displayName: string | null; description: string | null; hasAvatar: boolean }
-export interface PhoneStart { id: string; line: { number: string; connectCommand: string; smsLink: string } | null }
+export interface PhoneStart { id: string; line: MessagingLine | null }
 export interface MessagingStatus {
   account: { phone: string | null; email: string | null; signupSource: 'web' | 'text' };
   links: MessagingLink[];
@@ -85,7 +89,7 @@ export interface MessagingStatus {
   /** Present only for the server owner. */
   owner?: MessagingOwner;
 }
-export interface MessagingCode { code: string; expiresAt: number; number: string; connectCommand: string; smsLink: string; qr: string }
+export interface MessagingCode { code: string; expiresAt: number; number: string; connectCommand: string; smsLink: string; qr: string; whatsapp?: MessagingWhatsAppStart | null }
 export interface InkboxSetupResult { step: 'identity' | 'key' | 'signing' | 'webhook' | 'done'; handle: string; identityId: string | null; error?: string }
 export interface MessagingInvite { code: string; createdBy: string | null; createdByName: string | null; maxUses: number; uses: number; expiresAt: number | null; note: string | null; revoked: boolean; createdAt: number; url: string; qr?: string }
 export interface WaitlistEntry { phone: string; channel: MessagingChannel | string; name: string | null; firstMessage: string | null; status: 'pending' | 'approved' | 'declined' | 'deleted'; createdAt: number; decidedAt: number | null }
@@ -101,6 +105,42 @@ async function inkboxSetup(p: { handle?: string; withPhone?: boolean; rotateSign
 }
 
 export type BotPatch = Partial<Pick<Bot, 'name' | 'label' | 'description' | 'instructions' | 'avatarShape' | 'avatarColor' | 'effort' | 'mode' | 'model'>>;
+
+export type UsageRange = 'today' | '7d' | '30d' | 'month';
+export interface UsageRow { key: string; label: string; costUsd: number; tokens: number; requests: number; unpriced: number; minutes: number; recordings: number; characters: number; computerUsd?: number; computerHours?: number }
+export interface UsageReport {
+  range: { key: UsageRange; from: number; to: number };
+  scope: 'me' | 'all';
+  canSeeAll: boolean;
+  provider: string;
+  totals: { costUsd: number; estimatedUsd: number; unpricedRequests: number; unpricedVoice: number; inputTokens: number; cachedTokens: number; outputTokens: number; reasoningTokens: number; requests: number; toolCalls: number; voiceMinutes: number };
+  days: { day: string; costUsd: number; computerUsd: number; tokens: number; requests: number }[];
+  computer: {
+    costUsd: number; runningHours: number; asleepHours: number; archivedHours: number;
+    now: { provider: string; state: 'running' | 'asleep' | 'archived'; cpus: number | null; memoryMb: number | null; diskGb: number | null; perHourUsd: number } | null;
+  };
+  computerProvider: string;
+  computerRates: { hoursPerMonth: number; fly: { cpuMonth: number; ramGbMonth: number; rootfsGbMonth: number; rootfsGb: number; volumeGbMonth: number }; orgo: { runningHour: number; stoppedHour: number } };
+  byBot: UsageRow[];
+  byModel: UsageRow[];
+  byKind: UsageRow[];
+  byUser?: UsageRow[];
+  limits: { dailyMessages: { used: number; limit: number; resetsAt: number } | null };
+}
+export interface ProviderUsage {
+  provider: string;
+  openrouter: {
+    label: string | null;
+    usage: { today: number | null; week: number | null; month: number | null; allTime: number | null };
+    byokUsage: { today: number | null; month: number | null };
+    limit: number | null;
+    limitRemaining: number | null;
+    limitReset: string | null;
+    budgets: { scope: string; limitUsd: number | null; spendUsd: number | null; remainingUsd: number | null; resetInterval: string | null; resetsAt: string | null }[];
+    freeTier: boolean;
+  } | null;
+  note: string;
+}
 
 export const configApi = {
   mcpServers: () => req<{ servers: McpServerView[]; canManage: boolean }>('GET', '/mcp/servers'),
@@ -138,6 +178,8 @@ export const configApi = {
   sleep: () => req<{ computer: ComputerState }>('POST', '/computer/suspend'),
   resetScreen: (botId: string) => req<{ ok: true }>('POST', `/bots/${botId}/screen/reset`),
   pairPc: () => req<Pairing>('POST', '/computer/pair'),
+  usage: (range: UsageRange, scope: 'me' | 'all') => req<UsageReport>('GET', `/usage?range=${range}&scope=${scope}`),
+  usageProvider: () => req<ProviderUsage>('GET', '/usage/provider'),
   useThisComputer: () => req<{ ok: true }>('POST', '/computer/this-computer'),
   stopThisComputer: () => req<{ ok: true }>('DELETE', '/computer/this-computer'),
   keys: () => req<KeysResponse>('GET', '/settings/keys'),
@@ -168,6 +210,7 @@ export const configApi = {
   inkboxSaveKey: (adminKey: string) => req<MessagingStatus>('PUT', '/messaging/inkbox', { adminKey }),
   inkboxSetup,
   inkboxForget: () => req<MessagingStatus>('DELETE', '/messaging/inkbox'),
+  inkboxWhatsApp: () => req<InkboxWhatsAppInfo>('GET', '/messaging/inkbox/whatsapp'),
   messagingSignup: (p: Partial<MessagingOwner['signup']>) => req<MessagingStatus>('PUT', '/messaging/signup', p),
   invites: () => req<{ invites: MessagingInvite[] }>('GET', '/messaging/invites'),
   createInvite: (p: { maxUses?: number; expiresInDays?: number | null; note?: string }) => req<{ invite: MessagingInvite & { qr: string } }>('POST', '/messaging/invites', p),

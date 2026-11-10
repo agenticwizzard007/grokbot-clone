@@ -17,7 +17,7 @@ const mock = spawn(process.execPath, [path.join(import.meta.dirname, 'mock-provi
 for (let i = 0; i < 50; i++) { if (await fetch(`http://localhost:${mockPort}/_requests`).then(() => true, () => false)) break; await new Promise((r) => setTimeout(r, 100)); }
 
 // Fake Inkbox: connections ("assignments") with their connect time, and sends.
-const ib = { connected: new Map<string, number>(), refuseFirst: new Set<string>(), sent: [] as any[] };
+const ib = { connected: new Map<string, number>(), reactions: [] as any[], refuseFirst: new Set<string>(), sent: [] as any[] };
 const inkbox = http.createServer((req, res) => {
   let raw = '';
   req.on('data', (d) => { raw += d; });
@@ -29,6 +29,10 @@ const inkbox = http.createServer((req, res) => {
       if (body.to && ib.refuseFirst.has(String(body.to).replace(/\D/g, ''))) return json(409, { detail: { error: 'imessage_awaiting_inbound' } });
       ib.sent.push(body);
       return json(200, { message: { id: `im_out_${ib.sent.length}`, conversation_id: body.conversation_id ?? null, service: 'imessage' } });
+    }
+    if (p === '/imessage/reactions' && req.method === 'POST') {
+      ib.reactions.push(body);
+      return json(200, { id: `rxn_${ib.reactions.length}`, ...body });
     }
     if (p === '/imessage/typing' || p === '/imessage/mark-read') return json(200, {});
     if (p.startsWith('/imessage/assignments')) {
@@ -54,7 +58,7 @@ const { initRooms } = await import('../server/src/agent/rooms.js');
 initSubagents(); initRooms();
 const { createAccount } = await import('../server/src/accounts.js');
 const { registerAdapter, startBridge } = await import('../server/src/messaging/bridge.js');
-const { inkboxAdapter, inkboxWebhook } = await import('../server/src/messaging/inkbox/adapter.js');
+const { inkboxAdapter, inkboxWebhook, lineInfo } = await import('../server/src/messaging/inkbox/adapter.js');
 const inbox = await import('../server/src/messaging/inbox.js');
 const signup = await import('../server/src/messaging/signup.js');
 const { checkConnections, greetConnection } = await import('../server/src/messaging/connections.js');
@@ -83,6 +87,12 @@ const userFor = (phone: string) => db.prepare('SELECT * FROM users WHERE phone=?
 const connect = (phone: string, agoMs = 0) => ib.connected.set(phone, Date.now() - agoMs);
 
 const owner = createAccount({ email: 'owner@example.com', name: 'Owner' }).id;
+
+test('the public connect command is connect @swarm', async () => {
+  const line = await lineInfo();
+  assert.equal(line?.connectCommand, 'connect @swarm');
+  assert.match(line?.smsLink ?? '', /body=connect%20%40swarm$/);
+});
 
 test('a claimed invite: "connect" alone creates the account, welcomes them and starts onboarding', async () => {
   const inv = signup.createInvite(owner, { maxUses: 1 });

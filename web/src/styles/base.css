@@ -120,3 +120,20 @@ a { color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+
+/* Menu items with icons: hover lifts the row and the icon, press darkens a step, keyboard focus shows a ring. */
+.menu__main { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+.menu__label { overflow: hidden; text-overflow: ellipsis; }
+.menu.has-icons { min-width: 220px; }
+.menu.has-icons .menu__item { height: 32px; }
+.menu__icon { flex: none; color: var(--color-text-secondary); transition: color 100ms, transform 100ms; }
+.menu__icon--end { margin-left: auto; }
+.menu__item { transition: background-color 100ms; }
+.menu__item:hover .menu__icon, .menu__item:focus-visible .menu__icon { color: var(--color-text-primary); }
+.menu__item:active { background: var(--color-bg-secondary-active); }
+.menu__item:active .menu__icon { transform: scale(0.92); }
+.menu__item:focus-visible { outline: none; background: var(--color-bg-hover); box-shadow: inset 0 0 0 1.5px var(--color-border-secondary); }
+.menu__item.is-danger .menu__icon { color: var(--color-danger); }
+.menu__item.is-danger:hover, .menu__item.is-danger:focus-visible { background: var(--color-danger-bg); }
+.menu__sep { height: 1px; margin: 4px 6px; background: var(--color-border-tertiary); }
+.menu:focus { outline: none; }

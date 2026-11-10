@@ -1,4 +1,5 @@
 import { db, now } from '../db.js';
+import { BROWSER_TOOLS } from '../computers/browser-tools.js';
 import { checkRoutineCreate } from '../routine-limits.js';
 import { newId } from '../lib/ids.js';
 import { hub } from '../lib/hub.js';
@@ -501,6 +502,33 @@ export const TOOLS: ToolDef[] = [
   },
 ];
 
+// Playwright browser tools (cloud VMs): every web action runs on the Bot's own Chrome through Playwright MCP.
+// Registered always; offered to Bots only when the computer provider has them (functionSchemas).
+{
+  for (const b of BROWSER_TOOLS) {
+    TOOLS.push({
+      name: b.name,
+      description: b.description,
+      parameters: b.parameters,
+      activity: 'browsing_web',
+      label: 'Using the browser',
+      impl: async (a, ctx) => {
+        const screen = await onScreen(ctx);
+        if (!screen.browser) return { output: 'Browser tools are not available on this computer.', summary: 'No browser' };
+        const r = await screen.browser(b.name, a ?? {});
+        let text = r.content.filter((c) => c.type === 'text').map((c) => (c as { text: string }).text).join('\n');
+        if (text.length > 40000) text = text.slice(0, 40000) + '\n…(truncated; use browser_find or a smaller snapshot depth)';
+        const images = r.content.filter((c) => c.type === 'image') as { data: string; mimeType: string }[];
+        const output = images.length
+          ? [{ type: 'input_text', text: text || 'Screenshot:' }, ...images.map((i) => ({ type: 'input_image', image_url: `data:${i.mimeType};base64,${i.data}`, detail: 'high' }))]
+          : text || '(no output)';
+        const what = b.name === 'browser_navigate' ? `Opened ${String(a?.url ?? '')}` : b.name.replace(/^browser_/, '').replace(/_/g, ' ');
+        return { output, summary: r.isError ? `${what} failed` : what };
+      },
+    });
+  }
+}
+
 export const toolMap = new Map(TOOLS.map((t) => [t.name, t]));
 
 export function allowedDuringSetup(botId: string, toolName: string) {
@@ -511,7 +539,7 @@ export function functionSchemas(botId?: string) {
   const bot = botId ? getBotRow(botId) : null;
   const canCreate = !!bot?.is_primary && !bot.hidden && bot.kind !== 'room';
   return TOOLS.filter((t) => (!botId || allowedDuringSetup(botId, t.name)) && (t.name !== 'save_agent_setup' || !!botId && isConfiguring(botId)))
-    .filter((t) => (!['create_bot', 'replicate_bot', 'retry_bot_setup', 'update_profile'].includes(t.name) || canCreate)).filter((t) => t.name !== 'shell' || computers.capabilities.shell).map((t) => ({
+    .filter((t) => (!['create_bot', 'replicate_bot', 'retry_bot_setup', 'update_profile'].includes(t.name) || canCreate)).filter((t) => t.name !== 'shell' || computers.capabilities.shell).filter((t) => !t.name.startsWith('browser_') || computers.capabilities.browser).map((t) => ({
     type: 'function',
     name: t.name,
     description: computers.toolDescriptions?.[t.name] ?? t.description,

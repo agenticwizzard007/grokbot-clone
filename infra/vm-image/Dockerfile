@@ -19,6 +19,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && apt-get update && apt-get install -y --no-install-recommends google-chrome-stable nodejs \
   && rm -rf /var/lib/apt/lists/*
 
+# Playwright MCP: every browser action Bots take goes through Playwright, attached to their own Chrome.
+# Keep the version in step with package.json and server/src/computers/browser-tools.ts.
+RUN npm install -g --no-audit --no-fund @playwright/mcp@0.0.85
+
 # Two users: 'swarm' runs the companion and alone can read the VM's token;
 # 'agent' runs the Bots' shells and browsers (their files live on the volume at /home/agent).
 RUN useradd --system --create-home --home-dir /var/lib/swarm swarm \

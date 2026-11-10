@@ -6,11 +6,13 @@ import {
   type MessagingLink,
   type MessagingOwner,
   type MessagingStatus,
+  type InkboxWhatsAppInfo,
   type InkboxProfile,
   type SignupMode,
   type VoiceReplies,
   type WaitlistEntry,
 } from '../../lib/configApi';
+import { api, openPopup } from '../../lib/api';
 import { relativeShort } from '../../lib/time';
 import { PhoneAuth } from '../PhoneAuth';
 import { useVersion } from '../../configStore';
@@ -18,7 +20,7 @@ import { useStore } from '../../store';
 import { ConfirmButton, Segmented, Switch, shortDate } from './ui';
 import '../../styles/messaging.css';
 
-/** Settings → Messaging: run your Bots by iMessage or SMS through the server's Inkbox line. */
+/** Settings → Messaging: run your Bots by iMessage, SMS or WhatsApp through the server's Inkbox line. */
 
 const fmtPhone = (p: string | null | undefined) => (p ? (p.startsWith('+') ? p : `+${p}`) : '');
 const ago = (ts: number) => {
@@ -73,7 +75,7 @@ export function MessagingSettings() {
   }, [code, load]);
   useEffect(() => { if (status?.links.length) setCode(null); }, [status?.links.length]);
 
-  const head = <PageHead title="Messaging" sub="Run your Bots by iMessage or SMS. Text them like a friend, get their updates and approvals on your phone." />;
+  const head = <PageHead title="Messaging" sub="Run your Bots by iMessage, SMS or WhatsApp. Text them like a friend, get their updates and approvals on your phone." />;
   if (error && !status) return <>{head}<div className="cfg-error">{error}</div></>;
   if (!status) return <>{head}<div className="cfg-empty cfg-empty--flat">Loading…</div></>;
 
@@ -155,10 +157,11 @@ function PhoneSection({ status, setStatus, code, setCode }: SectionProps & { cod
                 <li>
                   <div>Text <code className="msg-inline-code">{code.connectCommand}</code> to <b>{code.number}</b>.</div>
                   <div className="msg-steps__actions">
+                    {code.whatsapp?.messageLink && <a className="cfg-btn cfg-btn--secondary" href={code.whatsapp.messageLink}>Open WhatsApp</a>}
                     <a className="cfg-btn cfg-btn--secondary" href={code.smsLink}>Open Messages</a>
                     <CopyButton text={code.number} label="Copy number" />
                   </div>
-                  <div className="cfg-field__hint">On a computer? Scan the code with your phone’s camera.</div>
+                  <div className="cfg-field__hint">On a computer? Scan the code with your phone’s camera, then send the link code below.</div>
                 </li>
                 <li>
                   <div>Then send <code className="msg-inline-code">LINK {code.code}</code></div>
@@ -184,41 +187,82 @@ function PhoneSection({ status, setStatus, code, setCode }: SectionProps & { cod
 
 function AccountSection({ status, setStatus }: SectionProps) {
   const { account } = status;
+  const googleLogin = useStore((s) => s.googleLogin);
+  const connectionsVersion = useStore((s) => s.connectionsVersion);
+  const setModal = useStore((s) => s.setModal);
   const [email, setEmail] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'email' | 'gmail' | null>(null);
+  const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
   const [note, setNote] = useState<NoteState>(null);
   const needsEmail = account.signupSource === 'text' || !account.email;
-  if (!needsEmail && !account.phone) return null;
+  useEffect(() => {
+    let alive = true;
+    setGmailConnected(null);
+    configApi.connectedApps()
+      .then((r) => {
+        if (!alive) return;
+        setGmailConnected(r.connected.includes('gmail') || !!r.connectedApps?.some((a) => a.slug === 'gmail'));
+      })
+      .catch(() => { if (alive) setGmailConnected(false); });
+    return () => { alive = false; };
+  }, [connectionsVersion]);
+
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.includes('@')) { setNote({ tone: 'error', text: 'Enter an email address.' }); return; }
-    setBusy(true); setNote(null);
-    try { setStatus(await configApi.messagingEmail(email.trim())); setEmail(''); setNote({ tone: 'ok', text: 'Saved. You can sign in on the web with this email.' }); }
+    setBusy('email'); setNote(null);
+    try { setStatus(await configApi.messagingEmail(email.trim())); setEmail(''); setNote({ tone: 'ok', text: 'Saved. Use this same email when you sign in with Google on web or desktop.' }); }
     catch (err) { setNote({ tone: 'error', text: (err as Error).message }); }
-    finally { setBusy(false); }
+    finally { setBusy(null); }
+  };
+  const connectGmail = async () => {
+    if (gmailConnected) { setModal('apps'); return; }
+    const popup = openPopup('about:blank');
+    setBusy('gmail'); setNote(null);
+    try {
+      const { redirectUrl } = await api.connect('gmail');
+      if (popup) popup.location.href = redirectUrl; else window.open(redirectUrl, '_blank');
+      setNote({ tone: 'ok', text: 'Finish the Google window. Gmail will show as connected here when it completes.' });
+    } catch (err) {
+      popup?.close();
+      setNote({ tone: 'error', text: (err as Error).message || 'Couldn’t start Gmail connection.' });
+    } finally {
+      setBusy(null);
+    }
   };
   return (
     <section className="cfg-section">
-      <div className="cfg-section__label">Account</div>
+      <div className="cfg-section__label">Account access</div>
       <div className="cfg-card cfg-key">
         <div className="cfg-row">
           <div className="cfg-row__text">
-            <div className="cfg-row__title">{account.phone ? fmtPhone(account.phone) : account.email}</div>
+            <div className="cfg-row__title">{account.email ? 'Desktop sign-in email saved' : 'Add a desktop sign-in email'}</div>
             <div className="cfg-row__sub">
-              {account.signupSource === 'text' ? 'Created by text.' : 'Created on the web.'}
-              {account.email ? ` Email: ${account.email}.` : ' No email yet.'}
+              {account.email ? `${account.email} should match the Google account you use on web or desktop.` : 'Save the Google or Gmail address you want to use when opening Swarm on desktop.'}
+              {account.phone ? ` Phone: ${fmtPhone(account.phone)}.` : ''}
             </div>
           </div>
+          <span className={`cfg-chip${account.email ? '' : ' cfg-chip--warn'}`}>{account.email ? 'Ready' : 'Recommended'}</span>
         </div>
         {needsEmail && (
           <>
             <form className="cfg-key__form" onSubmit={save}>
               <input className="text-input cfg-key__input msg-input" type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} aria-label="Email for sign-in" />
-              <button type="submit" className="cfg-btn cfg-btn--primary" disabled={busy}>{busy ? 'Saving…' : account.email ? 'Change email' : 'Add email sign-in'}</button>
+              <button type="submit" className="cfg-btn cfg-btn--primary" disabled={!!busy}>{busy === 'email' ? 'Saving…' : account.email ? 'Change email' : 'Save sign-in email'}</button>
             </form>
-            <div className="cfg-key__foot">{note ? <Note note={note} /> : 'Add an email to sign in on the web without a text link.'}</div>
           </>
         )}
+        <div className="cfg-row">
+          <div className="cfg-row__text">
+            <div className="cfg-row__title">Gmail</div>
+            <div className="cfg-row__sub">{gmailConnected ? 'Connected for Bots to read and send mail with your approval.' : 'Connect Gmail next so your Bots can help with email.'}</div>
+          </div>
+          <button type="button" className={gmailConnected ? 'cfg-btn cfg-btn--secondary' : 'cfg-btn cfg-btn--primary'} disabled={!!busy || !googleLogin || gmailConnected === null} onClick={() => void connectGmail()}>
+            {busy === 'gmail' ? 'Opening…' : gmailConnected === null ? 'Checking…' : gmailConnected ? 'Manage Gmail' : 'Connect Gmail'}
+          </button>
+        </div>
+        {!googleLogin && <div className="cfg-key__foot">Connected apps need a Composio project key from the server owner.</div>}
+        <div className="cfg-key__foot">{note ? <Note note={note} /> : account.email ? 'Gmail connection is separate from sign-in, so Bots only get app access after you connect it.' : 'Save your Google/Gmail address first, then connect Gmail so Bots can help with mail.'}</div>
       </div>
     </section>
   );
@@ -384,6 +428,7 @@ function OwnerSections({ owner, status, setStatus, version }: SectionProps & { o
     <>
       <div className="msg-owner-divider"><span>Server owner</span></div>
       <InkboxSection owner={owner} status={status} setStatus={setStatus} />
+      {owner.inkbox.configured && <WhatsAppSection owner={owner} />}
       {owner.inkbox.configured && <ContactCardSection />}
       <SignupSection owner={owner} setStatus={setStatus} />
       <InvitesSection version={version} />
@@ -429,7 +474,7 @@ function InkboxSection({ owner, status, setStatus }: SectionProps & { owner: Mes
 
   return (
     <section className="cfg-section">
-      <div className="cfg-section__label">iMessage & SMS line (Inkbox)</div>
+      <div className="cfg-section__label">Inkbox line</div>
       <div className="cfg-card cfg-key">
         <div className="cfg-row">
           <span className={`computer-status-dot is-${ink.configured ? 'on' : 'off'}`} aria-hidden />
@@ -446,6 +491,7 @@ function InkboxSection({ owner, status, setStatus }: SectionProps & { owner: Mes
             {status.line && <Fact k="Number">{status.line.number}</Fact>}
             {status.line && <Fact k="Connect command"><code className="msg-inline-code">{status.line.connectCommand}</code></Fact>}
             <Fact k="SMS">{ink.sms ? 'On' : 'Off (iMessage only)'}</Fact>
+            <Fact k="WhatsApp">{ink.whatsapp ? `${ink.whatsapp.enabled ? 'On' : 'Off'}${ink.whatsapp.status ? ` · ${ink.whatsapp.status}` : ''}` : 'Unavailable'}</Fact>
             <Fact k="Inbox">{inbox.length ? inbox.map((r) => `${r.n} ${r.status}`).join(' · ') : 'Empty'}</Fact>
           </div>
         )}
@@ -487,6 +533,62 @@ function InkboxSection({ owner, status, setStatus }: SectionProps & { owner: Mes
         )}
 
         <div className="cfg-key__foot">{note ? <Note note={note} /> : <a href="https://inkbox.ai" target="_blank" rel="noreferrer">Get a key at inkbox.ai</a>}</div>
+      </div>
+    </section>
+  );
+}
+
+function WhatsAppSection({ owner }: { owner: MessagingOwner }) {
+  const [info, setInfo] = useState<InkboxWhatsAppInfo | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<NoteState>(null);
+  const load = useCallback(async () => {
+    setBusy(true); setNote(null);
+    try { setInfo(await configApi.inkboxWhatsApp()); }
+    catch (err) { setNote({ tone: 'error', text: (err as Error).message }); }
+    finally { setBusy(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  const wa = info?.status ?? owner.inkbox.whatsapp;
+  const onb = info?.onboarding ?? null;
+  const ready = onb?.ready && !!onb.messageLink;
+
+  return (
+    <section className="cfg-section">
+      <div className="cfg-section__label">WhatsApp</div>
+      <div className="cfg-card">
+        <div className="cfg-row">
+          <span className={`computer-status-dot is-${wa?.enabled ? 'on' : 'off'}`} aria-hidden />
+          <div className="cfg-row__text">
+            <div className="cfg-row__title">WhatsApp · {wa?.enabled ? 'Ready to test' : wa ? 'Not ready yet' : 'Not enabled'}</div>
+            <div className="cfg-row__sub">Dedicated WhatsApp runs through the same Inkbox identity and webhook as iMessage.</div>
+          </div>
+          <button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => void load()}>{busy ? 'Checking...' : 'Refresh'}</button>
+        </div>
+
+        <div className="msg-facts">
+          <Fact k="Status">{wa?.status || (wa ? 'unknown' : 'Unavailable')}</Fact>
+          <Fact k="Number">{wa?.number ? fmtPhone(wa.number) : 'Not assigned'}</Fact>
+          <Fact k="Webhook">Subscribed after Set up line</Fact>
+        </div>
+
+        {ready ? (
+          <div className="cfg-pair">
+            <div className="cfg-pair__step">Scan this QR code or open the link, then send the prefilled WhatsApp message.</div>
+            <div className="msg-whatsapp-test">
+              {onb.messageQrPngDataUrl && <img className="msg-qr" src={onb.messageQrPngDataUrl} alt="WhatsApp QR code for Swarm" width={148} height={148} />}
+              <div className="msg-whatsapp-test__links">
+                <a className="cfg-btn cfg-btn--primary" href={onb.messageLink!} target="_blank" rel="noreferrer">Open WhatsApp</a>
+                <CopyButton text={onb.messageLink!} label="Copy link" />
+                {onb.messageText && <div className="cfg-field__hint">Prefilled message: <code className="msg-inline-code">{onb.messageText}</code></div>}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="msg-warn">Enable Dedicated WhatsApp for this Inkbox identity, then rerun Set up line so the webhook has the WhatsApp event subscriptions.</div>
+        )}
+
+        {note && <div className="cfg-key__foot"><Note note={note} /></div>}
       </div>
     </section>
   );

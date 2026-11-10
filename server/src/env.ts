@@ -29,6 +29,10 @@ export function setEnvOverride(name: string, value: string | null) {
 }
 export const envSource = (name: string): 'app' | 'env' | null => (overrides.has(name) ? 'app' : process.env[name] ? 'env' : null);
 const live = (name: string) => overrides.get(name) ?? process.env[name] ?? '';
+const inkboxHandle = () => {
+  const h = live('INKBOX_HANDLE').trim().toLowerCase().replace(/^@/, '').replace(/[^a-z0-9-]/g, '');
+  return !h || h === 'swarm-team' ? 'swarm' : h;
+};
 
 const dbPath = process.env.DB_PATH ?? new URL('../../data/swarm.db', import.meta.url).pathname;
 
@@ -66,9 +70,9 @@ export const env = {
   get composioEnabled() { return !!live('COMPOSIO_API_KEY'); },
   get composioOrgId() { return live('COMPOSIO_ORG_ID'); },
   get composioProjectId() { return live('COMPOSIO_PROJECT_ID'); },
-  /** Inkbox (inkbox.ai): the server's iMessage/SMS line. Set in Settings → Messaging, or here. */
+  /** Inkbox (inkbox.ai): the server's iMessage/SMS/WhatsApp line. Set in Settings → Messaging, or here. */
   get inkboxAdminKey() { return live('INKBOX_ADMIN_API_KEY'); },
-  get inkboxHandle() { return live('INKBOX_HANDLE') || 'swarm'; },
+  get inkboxHandle() { return inkboxHandle(); },
   get inkboxIdentityId() { return live('INKBOX_IDENTITY_ID'); },
   get inkboxIdentityKey() { return live('INKBOX_API_KEY'); },
   get inkboxSigningKey() { return live('INKBOX_SIGNING_KEY'); },

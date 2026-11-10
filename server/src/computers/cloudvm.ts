@@ -207,11 +207,14 @@ export async function resizeVm(userId: string) {
 // ---------- the provider ----------
 
 const PROMPT =
-  "You have your own computer in the cloud: a Linux desktop screen that only you use, with Google Chrome and a bash shell. Your teammates (the user's other Bots) each have their own screen on the same machine. Use open_browser to open a website in your Chrome (it has an address bar: ctrl+l), the computer_* tools to see and use your screen, and shell for commands and files (your folder is your shell's starting folder; files there persist). Save finished deliverables (reports, notes, data) with save_file so they appear in the user's Library. Always take a screenshot before clicking, and check the screenshot after each action.";
+  "You have your own computer in the cloud: a Linux desktop screen that only you use, with Google Chrome (your own logged-in profile) and a bash shell. Your teammates (the user's other Bots) each have their own screen on the same machine. " +
+  "Do all web work with the browser_* tools, which drive your Chrome through Playwright: browser_navigate to open a page, browser_snapshot to read it (every element has a ref, e.g. e12), then browser_click, browser_type, browser_fill_form, browser_select_option and browser_press_key on those refs; browser_tabs for tabs, browser_wait_for to wait for text, browser_file_upload for files on your computer, browser_take_screenshot to see the page. Actions that change the page (navigate, click, type, …) already return the updated page snapshot, so you rarely need to call browser_snapshot yourself. " +
+  "Use the computer_* tools only for things outside the browser (other apps, system dialogs) or to look at your whole screen, and shell for commands and files (your folder is your shell's starting folder; files there persist). " +
+  "If a page shows a CAPTCHA or a 'verify you are human' check, don't try to solve it: ask the user to solve it on your screen (they can open it from your chat), then continue. Save finished deliverables (reports, notes, data) with save_file so they appear in the user's Library.";
 
 export const cloudvmProvider: ComputerProvider = {
   kind: 'cloudvm',
-  capabilities: { shell: true },
+  capabilities: { shell: true, browser: true },
   promptLine: PROMPT,
   toolDescriptions: {
     computer_screenshot: 'Take a screenshot of your screen. Use this before acting on it.',
@@ -220,7 +223,7 @@ export const cloudvmProvider: ComputerProvider = {
     computer_key: 'Press a key or key combination on your screen, using X11 keysym names joined by "+", e.g. "Return", "Tab", "Escape", "BackSpace", "Page_Down", "ctrl+l" (Chrome address bar), "ctrl+t" (new tab), "ctrl+w" (close tab), "alt+Left" (back).',
     computer_scroll: 'Scroll the mouse wheel at a position on your screen.',
     computer_drag: 'Drag with the left mouse button from one point to another on your screen.',
-    open_browser: 'Open a web page (http/https) in your Chrome on your screen. Returns a screenshot.',
+    open_browser: 'Open a web page (http/https) in your Chrome on your screen and return a screenshot. For reading and acting on pages, prefer browser_navigate and browser_snapshot.',
     shell: "Run a bash command on your cloud computer (as the Bots' user, in your own folder). Use for files, scripts, CLIs and quick data work. Output is truncated to 20k characters.",
   },
 
