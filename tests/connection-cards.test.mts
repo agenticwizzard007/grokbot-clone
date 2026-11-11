@@ -33,7 +33,7 @@ const { appendRow, clearConversation, getRow, listRows, updateRow } = await impo
 const { setEnvOverride } = await import('../server/src/env.js');
 const { composio } = await import('../server/src/composio.js');
 const { startCardConnect, pendingConnectionCards, reconcileConnectionCards, refreshConnectionCards, ConnectionCardChanged } = await import('../server/src/agent/connection-cards.js');
-const { settleAgentJobs } = await import('../server/src/agent/loop.js');
+const { enqueue, settleAgentJobs } = await import('../server/src/agent/loop.js');
 const { llmClient } = await import('../server/src/lib/llm.js');
 const { hub } = await import('../server/src/lib/hub.js');
 const { api } = await import('../server/src/routes.js');
@@ -372,6 +372,26 @@ test('a card reconciled to connected can still receive its bound callback exactl
   assert.equal(jobs().length, 1); assert.ok(bodyAt(row.seq).answerJobId);
 });
 
+test('independent work cannot overtake a provider-confirmed connection before its callback continuation', async () => {
+  const row = card({ jobId: 'assignment-a' });
+  await postConnect(row);
+  accounts.owner = [sdkAccount(bodyAt(row.seq).connectedAccountId)];
+  await request('/api/apps/connections');
+  assert.equal(bodyAt(row.seq).status, 'pending', 'an assigned request waits for its exact continuation');
+  assert.equal(bodyAt(row.seq).answerJobId, undefined);
+  const independentId = enqueue(bot.id, { type: 'user', voiceAssignment: true, text: 'Independent work B' });
+  await settleAgentJobs();
+  assert.equal(jobs().find(job => job.id === independentId).state, 'queued');
+  assert.equal(modelCalls, 0, 'B must wait for A\'s real continuation despite provider confirmation');
+  assert.match(await (await request(authorizations[0].callback)).text(), /"ok":true/);
+  await settleAgentJobs();
+  const continuation = jobs().find(job => job.id === bodyAt(row.seq).answerJobId);
+  assert.equal(JSON.parse(continuation.trigger).parentJobId, 'assignment-a');
+  assert.equal(continuation.state, 'completed');
+  assert.equal(jobs().find(job => job.id === independentId).state, 'completed');
+  assert.equal(modelCalls, 2, 'A continues once, then queued B runs once');
+});
+
 test('an older resolved card callback retains its own assignment and answerJobId without claiming the later card', async () => {
   const older = card({ jobId: 'older-assignment' });
   await postConnect(older);
@@ -380,6 +400,10 @@ test('an older resolved card callback retains its own assignment and answerJobId
   await postConnect(later);
   accounts.owner = [sdkAccount(bodyAt(older.seq).connectedAccountId), sdkAccount(bodyAt(later.seq).connectedAccountId)];
   await request('/api/apps/connections');
+  // Legacy callbacks/rows may already have marked several cards connected.
+  // An exact callback must still select its own card rather than the newest one.
+  updateRow(bot.id, older.seq, { ...bodyAt(older.seq), status: 'connected' });
+  updateRow(bot.id, later.seq, { ...bodyAt(later.seq), status: 'connected' });
   assert.equal(bodyAt(older.seq).status, 'connected');
   assert.equal(bodyAt(later.seq).status, 'connected');
   const laterSnapshot = structuredClone(bodyAt(later.seq));

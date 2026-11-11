@@ -61,6 +61,9 @@ export function reconcileConnectionCards(userId: string, cards: PendingConnectio
     const status = account.status === 'ACTIVE' && !account.isDisabled ? 'connected'
       : ['EXPIRED', 'REVOKED', 'INACTIVE', 'FAILED'].includes(account.status) ? 'expired' : null;
     if (!status) continue;
+    // A live assignment stays blocked until its exact callback queues the
+    // continuation. Resolving it here would let independent work overtake it.
+    if (status === 'connected' && card.body.jobId && !card.body.answerJobId) continue;
     const bot = getBotRow(card.botId);
     if (!bot || bot.user_id !== userId || bot.generation !== card.generation) continue;
     const row = getRow(card.botId, card.seq);
