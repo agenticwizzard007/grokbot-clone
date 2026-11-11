@@ -30,7 +30,7 @@ const bundle = path.join(out, 'bundle');
 fs.mkdirSync(bundle);
 const sourceFiles = ['tests/container-containment.test.mts', 'server/src/runtime/container-policy.ts',
   'server/src/runtime/mcp-folders.ts', 'server/src/security/mcp-folders.ts', 'server/src/runtime/host.ts',
-  'server/src/runtime/host-preflight.ts', 'infra/tenant-host/entrypoint.sh', 'infra/tenant-host/firewall.sh',
+  'server/src/runtime/host-preflight.ts', 'server/src/runtime/application-readiness.ts', 'infra/tenant-host/entrypoint.sh', 'infra/tenant-host/firewall.sh',
   'infra/tenant-host/chromium-seccomp.json', 'package-lock.json'];
 const jobFiles = ['job.mjs', 'desktop-check.mjs', 'policy.mjs', 'reporter.mjs'];
 function copy(source, destination) {
@@ -49,7 +49,7 @@ const mcpArguments = containerArguments({ tenantId: 'usr_containment', root: '/r
   runnerImage: provenance.components.app, mcpImage: provenance.components.app, network: 'swarm-public' },
   { kind: 'mcp', id: 'mcp_containment' }, 'swarm-00000000-0000-0000-0000-000000000000');
 const hostFiles = Object.fromEntries(['runtime/host.js', 'runtime/container-policy.js', 'runtime/mcp-folders.js',
-  'runtime/host-preflight.js', 'security/mcp-folders.js'].map(file =>
+  'runtime/host-preflight.js', 'runtime/application-readiness.js', 'security/mcp-folders.js'].map(file =>
   [`/app/server/dist/${file}`, sha256(fs.readFileSync(path.join(repo, 'server/dist', file)))]));
 hostFiles['/opt/swarm/entrypoint.sh'] = sha256(fs.readFileSync(path.join(repo, 'infra/tenant-host/entrypoint.sh')));
 for (const file of ['firewall.sh', 'chromium-seccomp.json']) hostFiles[`/opt/swarm/${file}`] = sha256(fs.readFileSync(path.join(repo, 'infra/tenant-host', file)));

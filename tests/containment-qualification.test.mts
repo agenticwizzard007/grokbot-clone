@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import vm from 'node:vm';
+import ts from 'typescript';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -14,6 +16,26 @@ import { copyLoaderPackages } from '../infra/tenant-host/qualification/bundle.mj
 const image = `registry.example.invalid/qualification@sha256:${'a'.repeat(64)}`;
 const hash = 'b'.repeat(64), revision = 'c'.repeat(40);
 const source = file => fs.readFileSync(fileURLToPath(new URL(`../${file}`, import.meta.url)), 'utf8');
+
+test('preparation binds the extracted readiness source and hashes its installed implementation', () => {
+  const tree = ts.createSourceFile('prepare.mjs', source('infra/tenant-host/qualification/prepare.mjs'), ts.ScriptTarget.Latest, true);
+  const declarations = tree.statements.filter(ts.isVariableStatement).flatMap(statement => [...statement.declarationList.declarations]);
+  const code = ['sourceFiles', 'hostFiles'].map(name => {
+    const matches = declarations.filter(declaration => declaration.name.getText(tree) === name);
+    assert.equal(matches.length, 1, `Review changes to the ${name} preparation binding.`);
+    return `const ${matches[0].getText(tree)};`;
+  }).join('\n');
+  const reads: string[] = [];
+  // Execute only the real binding declarations, using synthetic compiled bytes. No preparation, host or receipt.
+  const bindings = vm.runInNewContext(`${code}\n({sourceFiles, hostFiles})`, {
+    repo: '/fixture', path, sha256,
+    fs: { readFileSync(file: string) { reads.push(file); return Buffer.from(`compiled-fixture:${file}`); } },
+  });
+  assert.ok(bindings.sourceFiles.includes('server/src/runtime/application-readiness.ts'));
+  const compiled = '/fixture/server/dist/runtime/application-readiness.js';
+  assert.ok(reads.includes(compiled));
+  assert.equal(bindings.hostFiles['/app/server/dist/runtime/application-readiness.js'], sha256(`compiled-fixture:${compiled}`));
+});
 
 test('machine has bounded lifetime, no service/volume, performance-2x iad, and an immutable image', () => {
   const machine = machineDefinition(image, hash, revision);
