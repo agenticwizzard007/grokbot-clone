@@ -129,6 +129,7 @@ await fs.writeFile('/run/swarm-host/app.env',Object.entries(appEnv).map(([k,v])=
 await exec('docker',[...basic,'--name=swarm-app','--network=swarm-app','--ip=172.30.0.2','--env-file=/run/swarm-host/app.env',
   `--mount=type=bind,src=${environmentRoot}/app,dst=/data`,`--mount=type=bind,src=${environmentRoot}/files,dst=/files`,'--mount=type=bind,src=/run/swarm,dst=/run/swarm,readonly',release.appImage]);
 await exec('docker',[...basic,'--name=swarm-desktop','--network=swarm-desktop','--ip=172.31.0.2','--tmpfs=/dev/shm:rw,nosuid,nodev,size=256m',
+  '--security-opt=seccomp=/opt/swarm/chromium-seccomp.json',
   `--mount=type=bind,src=${environmentRoot}/desktop,dst=/home/agent`,'--mount=type=bind,src=/run/swarm/desktop-token,dst=/run/desktop-token,readonly',
   release.desktopImage,'node','/opt/swarm/companion.mjs','--server','http://172.30.0.2:8787','--token-file','/run/desktop-token','--multi','--agent-home','/home/agent','--data-dir','/home/agent/.swarm']);
 async function confirmApplicationReady(){

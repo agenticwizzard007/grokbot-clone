@@ -1,0 +1,98 @@
+name: Tenant host images
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact reviewed Git commit (empty uses this workflow commit)
+        type: string
+        default: ''
+      dry_run:
+        description: Build and scan locally; no secrets, signatures, push or bootable release
+        type: boolean
+        default: true
+      registry_app:
+        description: Existing Fly registry app (required only when publishing)
+        type: string
+        default: ''
+  pull_request:
+    paths: ['infra/tenant-host/**', 'Dockerfile', 'tests/tenant-image-release.test.mjs', '.github/workflows/tenant-images.yml']
+permissions:
+  contents: read
+concurrency:
+  group: tenant-images-${{ github.ref }}-${{ inputs.dry_run || github.event_name == 'pull_request' }}
+  cancel-in-progress: false
+jobs:
+  contract:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - run: node --test tests/tenant-image-release.test.mjs
+  images:
+    if: github.event_name == 'workflow_dispatch'
+    needs: contract
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    # Configure the publishing environment for main only, with protected signing/registry secrets.
+    environment: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry_run && 'tenant-image-release' || 'tenant-image-dry-run' }}
+    outputs:
+      host_image_digest: ${{ steps.publish.outputs.host_image_digest }}
+      dry_run_image_id: ${{ steps.dry.outputs.host_image_id }}
+    env:
+      RELEASE_SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+      REGISTRY_APP: ${{ inputs.registry_app }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check source before executing repository code or loading publication secrets
+        shell: bash
+        env:
+          PUBLISH: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          [[ $RELEASE_SOURCE_SHA =~ ^[a-f0-9]{40}$ ]]
+          [[ $(git rev-parse HEAD) == "$RELEASE_SOURCE_SHA" ]]
+          if [[ $PUBLISH == true ]]; then
+            [[ $GITHUB_REF == refs/heads/main ]]
+            git merge-base --is-ancestor "$RELEASE_SOURCE_SHA" origin/main
+          fi
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Validate release contract
+        run: node --test tests/tenant-image-release.test.mjs
+      - name: Install checksum-pinned scan and signing tools
+        run: bash infra/tenant-host/install-release-tools.sh
+      - name: Dry build and scan (no credentials)
+        id: dry
+        if: inputs.dry_run
+        run: node infra/tenant-host/release-images.mjs --dry-run
+      - name: Build, scan, sign and publish reviewed digest
+        id: publish
+        if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
+        env:
+          FLY_IMAGE_PUSH_TOKEN: ${{ secrets.FLY_IMAGE_PUSH_TOKEN }}
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          TENANT_PLATFORM_PUBLIC_KEY: ${{ vars.TENANT_PLATFORM_PUBLIC_KEY }}
+        run: node infra/tenant-host/release-images.mjs --publish
+      - name: Upload scan, image and smoke evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: tenant-images-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .context/tenant-release/reports/
+            .context/tenant-release/release.json
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Remove temporary registry/signing material
+        if: always()
+        run: node -e 'const fs=require("node:fs");for(const n of fs.existsSync(".context")?fs.readdirSync(".context"):[]){if(n.startsWith("tenant-image-private-"))fs.rmSync(`.context/${n}`,{recursive:true,force:true});}'

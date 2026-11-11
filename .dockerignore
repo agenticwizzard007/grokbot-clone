@@ -4,6 +4,15 @@ node_modules
 data
 .context
 .codex
+.claude
+.aws
+.ssh
+.npmrc
+.netrc
+.mcp.json
+**/.claude
+**/.aws
+**/.ssh
 .composio
 .env
 .env.*
