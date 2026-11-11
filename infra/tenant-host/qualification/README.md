@@ -51,10 +51,10 @@ fly machine status "$machine" --app "$app"
 fly ssh sftp put --app "$app" --machine "$machine" "$run_dir/bundle.tgz" /tmp/bundle.tgz
 fly ssh sftp put --app "$app" --machine "$machine" "$run_dir/bundle.tgz.sha256" /tmp/bundle.tgz.sha256
 fly ssh console --app "$app" --machine "$machine" --user root \
-  -C "sh -ec 'cd /tmp; sha256sum -c bundle.tgz.sha256; mkdir -m 700 containment; tar -xzf bundle.tgz -C containment; nohup node /tmp/containment/job.mjs > /tmp/containment/console.log 2>&1 < /dev/null &'"
+  -C "sh -ec 'cd /tmp; sha256sum -c bundle.tgz.sha256; mkdir -m 700 containment; tar -xzf bundle.tgz -C containment; nohup setsid node /tmp/containment/job.mjs > /tmp/containment/console.log 2>&1 < /dev/null &'"
 ```
 
-The job is detached because production private-IPv6 egress rules can interrupt Fly SSH. It snapshots both firewall families, starts the controlled desktop probe behind a file barrier, installs the production firewall, then releases the probe. It restores the snapshots during cleanup (and on the watchdog exit) so diagnostics can reconnect. No broad allow rule is added during the tests. Root host firewall control is never available to inner workloads. `HOST_BASE` must include `nohup`, `iptables-save/restore`, and `ip6tables-save/restore`.
+The job runs in its own session because production private-IPv6 egress rules can interrupt Fly SSH. It snapshots both firewall families, starts the controlled desktop probe behind a file barrier, installs the production firewall, then releases the probe. It restores the snapshots during cleanup (and on the watchdog exit) so diagnostics can reconnect. No broad allow rule is added during the tests. Root host firewall control is never available to inner workloads. `HOST_BASE` must include `nohup`, `setsid`, `iptables-save/restore`, and `ip6tables-save/restore`.
 
 The job has a 12-minute watchdog, a 5-minute test-runner timeout and per-command timeouts. Machine PID 1 exits after 30 minutes even if SSH disconnects; restart policy is `no`. Start promptly, allow up to 12 minutes for completion, then inspect `/tmp/containment/results/job.json` with `fly ssh console`/SFTP. A temporarily unreachable SSH connection during the firewall phase is expected; it is not a test result. If the launch command fails, **still collect available raw results and tear down**. Do not retry a job in the same unpacked directory or with an existing daemon. Use a new Machine for a new qualification attempt.
 
@@ -100,7 +100,7 @@ At the supplied **$0.09/hour baseline**, running compute is approximately **$0.0
 
 The pinned, signed Linux **amd64** base must supply:
 
-* Node **22+**, root `/bin/sh`, `nohup`, GNU-compatible `tar`/gzip, `sha256sum`, and CA certificates. The copied loader graph supplies `tsx`, esbuild's Linux x64 binary and zod, so no npm install or live package resolution runs in the VM.
+* Node **22+**, root `/bin/sh`, `nohup`, `setsid`, GNU-compatible `tar`/gzip, `sha256sum`, and CA certificates. The copied loader graph supplies `tsx`, esbuild's Linux x64 binary and zod, so no npm install or live package resolution runs in the VM.
 * Rootful Docker Engine (`dockerd`), matching Docker CLI with **bind-recursive=disabled** support (Docker 25+), containerd/runc and Docker's init binary for `--init`. Docker 29.9.3 may embed containerd; a standalone tool is useful for version diagnostics, while the daemon must use its actual bundled runtime. No autostarted daemon, prepopulated `/var/lib/docker`, external Docker socket, or config that disables isolation. Working overlayfs/storage, iptables/ip6tables and both families' save/restore tools are required for production-like Docker bridges.
 * util-linux `mount`/`umount` with **--no-canonicalize**, root mount privileges in the VM namespace, usable `/proc/<pid>/fd` binds, and the mount visibility needed by `McpFolderLease` and nested Docker. Do not enable privileged inner containers to compensate for a failed bind.
 * On the actual Fly kernel: cgroup v2 **domain** CPU/memory/pids controllers and swap accounting; enforceable no-swap limits; seccomp filter support/default profile; namespaces, read-only mounts and capability/no-new-privileges enforcement. These are host/kernel facts, not packages that can be fixed by a passing unit test. Threaded-only cgroups or Docker warnings about ignored controls must fail.
