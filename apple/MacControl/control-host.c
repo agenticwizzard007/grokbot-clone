@@ -153,6 +153,14 @@ static void hard_cleanup(Processes *owned) {
     }
     for (size_t index = owned->count; index > 0; index--) signal_owned(owned->rows[index - 1], SIGKILL);
 }
+static int abort_startup(pid_t child, int gate) {
+    close(gate);
+    // No exec has been authorized. This is our unreaped direct child, so its PID
+    // cannot be recycled and it cannot have launched any unobserved descendants.
+    kill(child, SIGKILL);
+    while (waitpid(child, NULL, 0) < 0 && errno == EINTR) {}
+    return 126;
+}
 
 int main(int argc, char **argv) {
     if (getuid() == 0 || geteuid() != getuid() || argc < 3 || argv[1][0] != '/') {
@@ -167,31 +175,46 @@ int main(int argc, char **argv) {
     sigaction(SIGTERM, &action, NULL);
     sigaction(SIGINT, &action, NULL);
     sigaction(SIGHUP, &action, NULL);
+    // A child killed while waiting for permission must not kill the supervisor
+    // with SIGPIPE when it attempts to release the startup gate.
+    signal(SIGPIPE, SIG_IGN);
     pid_t app = getppid();
+    int gate[2];
+    if (pipe(gate) != 0) return 126;
     pid_t companion = fork();
-    if (companion < 0) return 126;
+    if (companion < 0) { close(gate[0]); close(gate[1]); return 126; }
     if (companion == 0) {
+        close(gate[1]);
+        // Stay alive before exec until the parent has recorded our identity.
+        // EOF (including supervisor death) never authorizes running the payload.
+        char approval = 0;
+        ssize_t received;
+        do { received = read(gate[0], &approval, 1); } while (received < 0 && errno == EINTR && !stopping);
+        close(gate[0]);
+        if (received != 1 || approval != 1 || stopping) _exit(126);
         signal(SIGTERM, SIG_DFL); signal(SIGINT, SIG_DFL); signal(SIGHUP, SIG_DFL);
+        signal(SIGPIPE, SIG_DFL);
         if (setpgid(0, 0) != 0 && getpgrp() != getpid()) _exit(126);
         execv(argv[1], &argv[1]);
         _exit(127);
     }
+    close(gate[0]);
     Processes owned = { 0 };
     Identity root;
-    if (!read_identity(companion, &root)) {
-        // A quick command (for example Node --version) can finish before the first
-        // process snapshot. Reap our direct child and preserve that valid exit status.
-        int early_status = 0;
-        pid_t result;
-        do { result = waitpid(companion, &early_status, WNOHANG); } while (result < 0 && errno == EINTR);
-        if (result == companion) {
-            return WIFEXITED(early_status) ? WEXITSTATUS(early_status) : 128 + WTERMSIG(early_status);
-        }
-        // A live child without a verifiable identity still fails closed. It is our
-        // unreaped direct child, so this PID cannot have been recycled.
-        kill(companion, SIGKILL); waitpid(companion, NULL, 0); return 126;
-    }
+    if (!read_identity(companion, &root)) return abort_startup(companion, gate[1]);
     append(&owned, root);
+    if (owned.count != 1 || stopping || getppid() != app) {
+        free(owned.rows);
+        return abort_startup(companion, gate[1]);
+    }
+    char approval = 1;
+    ssize_t sent;
+    do { sent = write(gate[1], &approval, 1); } while (sent < 0 && errno == EINTR && !stopping);
+    if (sent != 1) {
+        free(owned.rows);
+        return abort_startup(companion, gate[1]);
+    }
+    close(gate[1]);
     int status = 0, reaped = 0, signalled = 0;
     double deadline = 0;
     for (;;) {
