@@ -1,0 +1,23 @@
+# Swarm Composio gateway role (narrow connected-apps API for tenants: connection and tool calls, OAuth
+# callbacks and triggers). Holds the platform-owned Composio project credential; tenants never see it.
+# Deploy:  flyctl deploy -c infra/platform/fly.platform.toml -a <app> --remote-only
+# Build:   the repo Dockerfile; SWARM_ROLE selects the process (server/src/index.ts).
+app = "swarm-gateway-staging"           # production: swarm-gateway
+primary_region = "iad"
+
+[build]
+  dockerfile = "../../Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  SWARM_ROLE = "composio-gateway"
+  PORT = "8787"
+  # Owned HTTPS origins. The VM host refuses a non-https exchange endpoint (server/src/runtime/host.ts).
+  PLATFORM_URL = "https://platform-staging.example.invalid"          # set to the real owned origin
+  AWS_REGION = "us-east-1"
+
+# Secrets, names exactly as read by the code:
+#   DATABASE_URL, TENANT_KMS_KEY_ID + AWS credentials   (platform/directory.ts, envelopes.ts: encrypted event delivery)
+#   COMPOSIO_API_KEY          platform-owned PROJECT credential (never a user key)
+#   COMPOSIO_WEBHOOK_SECRET   webhook signature verification (platform/composio-gateway.ts)
+#   PLATFORM_PUBLIC_KEY       runtime identity verification, mounted as a file above
