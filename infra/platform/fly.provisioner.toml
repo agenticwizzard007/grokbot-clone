@@ -1,0 +1,41 @@
+# Swarm provisioner role (durable tenant lifecycle: create/wake/suspend/delete tenant apps, volumes and
+# machines; recovery and image replacement; backup retention). Exactly ONE machine: lifecycle leases are
+# per tenant, but the worker is not designed for horizontal duplication without measurement.
+# Deploy the exact reviewed image as ONE worker (no spare machines):
+#   flyctl deploy -c infra/platform/fly.provisioner.toml -a <app> --image registry.fly.io/<app>@sha256:<digest> --ha=false
+# Confirm a single machine with: flyctl machines list -a <app>
+# SWARM_ROLE selects the process (server/src/index.ts).
+app = "swarm-provisioner-staging"       # production: swarm-provisioner
+primary_region = "iad"
+
+[build]
+  dockerfile = "../../Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  SWARM_ROLE = "provisioner"
+  # Owned HTTPS origins. The VM host refuses a non-https exchange endpoint (server/src/runtime/host.ts).
+  PLATFORM_URL = "https://platform-staging.example.invalid"          # set to the real owned origin
+  COMPOSIO_GATEWAY_URL = "https://gateway-staging.example.invalid"   # set to the gateway's owned origin
+  # Backups: S3-compatible versioned bucket. The same AWS credential chain serves KMS and S3 in the current code.
+  BACKUP_PREFIX = "swarm-backups"
+  AWS_REGION = "us-east-1"
+  TENANT_REGION = "iad"
+  PROVISIONER_CONCURRENCY = "2"       # tenant creates in flight; Machines API ~1 request/s per action per app
+
+# Secrets, names exactly as read by the code:
+#   DATABASE_URL              Managed Postgres (platform/directory.ts)
+#   SESSION_SECRET            same value as the platform (platform/signup.ts reaches env.ts)
+#   FLY_API_TOKEN             ORG-scoped deploy token able to create apps/networks/volumes/machines (platform/fly-tenants.ts)
+#   FLY_ORG_SLUG              Fly organization slug (fly-tenants.ts)
+#   TENANT_HOST_IMAGE         digest-pinned signed host image, e.g. registry.fly.io/<repo>@sha256:... (provisioner.ts; refuses tags)
+#   TENANT_KMS_KEY_ID + AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (one principal for KMS and S3), BACKUP_BUCKET
+# The provisioner refuses to start until release_gates holds approved evidence for TENANT_HOST_IMAGE
+# (platform/release-policy.ts): record it with server/dist/platform/release-gates-cli.js.
+# No [http_service]: this is a worker. Keep it running:
+[[restart]]
+  policy = "always"
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "1gb"
