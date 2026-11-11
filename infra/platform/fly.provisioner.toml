@@ -15,8 +15,8 @@ primary_region = "iad"
   NODE_ENV = "production"
   SWARM_ROLE = "provisioner"
   # Owned HTTPS origins. The VM host refuses a non-https exchange endpoint (server/src/runtime/host.ts).
-  PLATFORM_URL = "https://platform-staging.example.invalid"          # set to the real owned origin
-  COMPOSIO_GATEWAY_URL = "https://gateway-staging.example.invalid"   # set to the gateway's owned origin
+  PLATFORM_URL = "https://swarm-platform-staging.fly.dev"
+  COMPOSIO_GATEWAY_URL = "https://swarm-gateway-staging.fly.dev"
   # Backups: S3-compatible versioned bucket. The same AWS credential chain serves KMS and S3 in the current code.
   BACKUP_PREFIX = "swarm-backups"
   AWS_REGION = "us-east-1"

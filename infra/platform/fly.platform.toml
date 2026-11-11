@@ -17,10 +17,10 @@ primary_region = "iad"
   # Owned HTTPS origin. PLATFORM_URL is used by the platform code; APP_URL and SERVER_URL feed the request boundary
   # (server/src/security/request.ts via lib/auth.ts): browser mutations from any other origin are rejected with 403.
   # All three must be the same public origin of this app.
-  PLATFORM_URL = "https://platform-staging.example.invalid"
-  APP_URL = "https://platform-staging.example.invalid"
-  SERVER_URL = "https://platform-staging.example.invalid"
-  COMPOSIO_GATEWAY_URL = "https://gateway-staging.example.invalid"   # the gateway app's owned origin
+  PLATFORM_URL = "https://swarm-platform-staging.fly.dev"
+  APP_URL = "https://swarm-platform-staging.fly.dev"
+  SERVER_URL = "https://swarm-platform-staging.fly.dev"
+  COMPOSIO_GATEWAY_URL = "https://swarm-gateway-staging.fly.dev"   # the gateway app's owned origin
   # Ed25519 platform keys are mounted as files from secrets (see [[files]]); these are the paths the code reads.
   PLATFORM_PRIVATE_KEY_FILE = "/run/swarm/platform-private.pem"
   PLATFORM_PUBLIC_KEY_FILE = "/run/swarm/platform-public.pem"
