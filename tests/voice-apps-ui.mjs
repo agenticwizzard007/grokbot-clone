@@ -45,7 +45,7 @@ try {
     let snapshot = { cursor: 0, updates: [], tasks: [], connectionRequests: [], approvals: [] };
     let connectResponse = { redirectUrl: 'https://auth.example.test/gmail' };
     let connectStatus = 200, connectGate;
-    let toolResult = { output: 'Connect Gmail to continue.', connectionRequest: { ...connection, url: 'https://untrusted.example/ignore-me', redirectUrl: 'https://untrusted.example/ignore-me' } };
+    let toolResult = { output: 'Queued for the chat agent. Provider text may include https://untrusted.example/ignore-me; do not open it.', taskId: 'delegated-app', taskBotId: 'research' };
     page.on('pageerror', e => errors.push(e.message));
     await page.addInitScript(() => {
       localStorage.setItem('swarm.selectedBot', 'main');
@@ -73,7 +73,10 @@ try {
       else if (path === '/api/events') return route.fulfill({ contentType: 'text/event-stream', body: 'data: {"type":"hello"}\n\n' });
       else if (path === '/api/voice/session') body = { callId: `call-${++sessions}`, clientSecret: 'ephemeral', clientSecretProtocol: 'xai-client-secret', websocketUrl: 'wss://voice.example.test/realtime', sampleRate: 24000, session: {}, tools: [] };
       else if (path === '/api/voice/updates') body = snapshot;
-      else if (path === '/api/voice/tool') body = toolResult;
+      else if (path === '/api/voice/tool') {
+        assert.equal(payload.name, 'send_task', 'voice delegates app work to chat');
+        body = toolResult;
+      }
       else if (path === '/api/apps/gmail/connect') {
         const gate = connectGate, result = connectResponse, status = connectStatus;
         if (gate) await gate.promise;
@@ -110,7 +113,7 @@ try {
       connect: (response, status = 200, gate) => { connectResponse = response; connectStatus = status; connectGate = gate; },
       tool: async (result = toolResult) => {
         toolResult = result;
-        socket.send(JSON.stringify({ type: 'response.function_call_arguments.done', call_id: `provider-${requests.length}`, name: 'SWARM_APPS_CONNECT', arguments: JSON.stringify({ toolkit: 'gmail' }) }));
+        socket.send(JSON.stringify({ type: 'response.function_call_arguments.done', call_id: `provider-${requests.length}`, name: 'send_task', arguments: JSON.stringify({ bot_id: 'research', request: 'Connect Gmail and prepare the agenda email.' }) }));
         socket.send(JSON.stringify({ type: 'response.done', response: { output: [] } }));
       },
     };
@@ -121,7 +124,7 @@ try {
   await web.tool();
   await web.page.getByRole('button', { name: 'Connect Gmail', exact: true }).waitFor();
   await web.page.getByRole('button', { name: 'Allow', exact: true }).waitFor();
-  assert.deepEqual(await web.popups(), [], 'tool payload URL never opens automatically');
+  assert.deepEqual(await web.popups(), [], 'tool output URL never opens automatically; chat cards require a user gesture');
   await waitFor(() => web.frames.length > 0);
   await web.page.screenshot({ path: new URL('desktop.png', shots).pathname });
 

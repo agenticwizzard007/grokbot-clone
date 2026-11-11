@@ -20,6 +20,7 @@ export interface VoiceOptions { voices: VoiceOption[]; languages: { code: string
 
 export interface VoiceConnectionRequest { botId: string; seq: number; toolkit: string; toolkitName: string }
 export interface VoiceApproval { botId: string; seq: number; body: Extract<CardBody, { card: 'approval' }> }
+export interface VoiceTranscriptEntry { id?: string; role: 'user' | 'assistant'; text: string }
 export interface VoiceToolResult {
   output: string;
   taskSeq?: number;
@@ -67,12 +68,12 @@ export const voiceApi = {
     return r.json() as Promise<VoiceOptions>;
   }).catch((e) => { optionsPromise = null; throw e; })),
   session: (botId: string) => post<VoiceSession>('/session', { botId }),
-  tool: (botId: string, callId: string, name: string, args: unknown, toolCallId?: string) => post<VoiceToolResult>('/tool', { botId, callId, name, args, toolCallId }),
+  tool: (botId: string, callId: string, name: string, args: unknown, toolCallId?: string, transcript?: VoiceTranscriptEntry[], transcriptRevision?: number) => post<VoiceToolResult>('/tool', { botId, callId, name, args, toolCallId, transcript, transcriptRevision }),
   updates: (botId: string, callId: string, after: number, signal?: AbortSignal) => post<VoiceUpdates>('/updates', { botId, callId, after }, signal),
-  end: (botId: string, callId: string, transcript: { role: 'user' | 'assistant'; text: string }[], error?: string) => post<{ ok: true }>('/end', { botId, callId, transcript, error }),
+  end: (botId: string, callId: string, transcript: VoiceTranscriptEntry[], error?: string, transcriptRevision?: number) => post<{ ok: true }>('/end', { botId, callId, transcript, error, transcriptRevision }),
   /** Best-effort end on tab close. */
-  endBeacon: (botId: string, callId: string, transcript: { role: 'user' | 'assistant'; text: string }[]) => {
-    try { navigator.sendBeacon('/api/voice/end', new Blob([JSON.stringify({ botId, callId, transcript })], { type: 'application/json' })); } catch { /* ignore */ }
+  endBeacon: (botId: string, callId: string, transcript: VoiceTranscriptEntry[], transcriptRevision?: number) => {
+    try { navigator.sendBeacon('/api/voice/end', new Blob([JSON.stringify({ botId, callId, transcript, transcriptRevision })], { type: 'application/json' })); } catch { /* ignore */ }
   },
   async preview(p: { botId: string; voice?: string; speed?: number; language?: string; text?: string }): Promise<Int16Array> {
     const res = await fetch('/api/voice/preview', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...p, codec: 'pcm' }) });

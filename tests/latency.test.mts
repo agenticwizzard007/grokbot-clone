@@ -160,7 +160,13 @@ test('app operations publish the running action before completion, queue subsequ
   process.env.COMPOSIO_API_KEY = 'latency-test-only';
   const sdk = composio();
   const accounts = mock.method(sdk.connectedAccounts, 'list', async () => ({ items: [{ id: 'account', toolkit: { slug: 'notion' }, status: 'ACTIVE' }] }));
-  const metadata = mock.method(sdk.tools, 'getRawComposioToolBySlug', async () => ({ slug: 'NOTION_FETCH_DATABASE', toolkit: { slug: 'notion' }, version: '1' }));
+  // Provider metadata decides approvals: the read is attested read-only, the page creation is a write.
+  const { resetAppDiscovery } = await import('../server/src/composio.js');
+  resetAppDiscovery();
+  const rawTool = (slug: string, tags: string[]) => ({ slug, name: slug, description: slug, toolkit: { slug: 'notion' }, version: '1', tags, inputParameters: { type: 'object', properties: {}, additionalProperties: true } });
+  const rawTools = [rawTool('NOTION_FETCH_DATABASE', ['readOnlyHint']), rawTool('NOTION_CREATE_PAGE', ['createHint'])];
+  const catalog = mock.method(sdk.tools, 'getRawComposioTools', async () => rawTools as any);
+  const metadata = mock.method(sdk.tools, 'getRawComposioToolBySlug', async (slug: string) => rawTools.find(tool => tool.slug === slug) as any);
   let release!: () => void, entered!: () => void;
   const paused = new Promise<void>(r => { release = r; });
   const started = new Promise<void>(r => { entered = r; });
@@ -201,7 +207,8 @@ test('app operations publish the running action before completion, queue subsequ
     assert.equal(execute.mock.callCount(), 1);
   } finally {
     release(); await runInBotQueue(bot.id, async () => {});
-    for (const m of [create, network, execute, metadata, accounts]) m.mock.restore();
+    for (const m of [create, network, execute, metadata, catalog, accounts]) m.mock.restore();
+    resetAppDiscovery();
     process.env.COMPOSIO_API_KEY = '';
   }
 });

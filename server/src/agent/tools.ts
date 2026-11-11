@@ -9,7 +9,7 @@ import { hub } from '../lib/hub.js';
 import { computers } from '../computers/index.js';
 import type { BotScreen } from '../computers/types.js';
 import { appendRow, getBotRow, listRoutines, toRoutine, describeCron, setLive } from '../store.js';
-import { APPS_OFF, executeComposio, innerToolSlugs, isReadOnlySlug, toolkitInfo } from '../composio.js';
+import { APPS_OFF, connectionsDetail, executeComposio, innerToolSlugs, isReadOnlySlug, toolkitInfo } from '../composio.js';
 import { env } from '../env.js';
 import { scheduleRoutine, unscheduleRoutine } from '../routines.js';
 import { createEventRoutine, deleteEventTrigger, describeEvent, listTriggerTypes } from '../triggers.js';
@@ -33,7 +33,7 @@ export interface ToolCtx {
   enqueueBotMessage: (fromBotId: string, toBotId: string, text: string, depth: number) => void;
   depth: number;
   jobId?: string;
-  /** Native callers can pin a discovered read to read-only provider metadata. */
+  /** Pin automatically allowed app reads to fresh read-only provider metadata at dispatch. */
   readOnlyApps?: boolean;
   recovery?: BrowserRecovery;
 }
@@ -657,6 +657,45 @@ export function policyFor(userId: string, toolName: string, args: any, botId?: s
     if (mode === 'needs_approval') { decision = 'ask'; key = slug; }
   }
   return { decision, key, toolkit: key.split('_')[0].toLowerCase(), title: humanizeSlug(key) };
+}
+
+export type ExecutionPolicy = ReturnType<typeof policyFor> & { readOnlyApps: boolean };
+
+/**
+ * Text execution policy: only owner-scoped, exact provider metadata can auto-allow an app read.
+ * Pass readOnlyApps through the individual call's ToolCtx, including after approval resumes.
+ * Discovery can be cached; executeComposio rechecks the read-only attestation before dispatch.
+ */
+export async function executionPolicyFor(userId: string, toolName: string, args: any, botId?: string): Promise<ExecutionPolicy> {
+  const base = policyFor(userId, toolName, args, botId);
+  if (toolName !== 'SWARM_APPS_EXECUTE') return { ...base, readOnlyApps: false };
+  const slug = typeof args?.tool_slug === 'string' ? args.tool_slug : '';
+  const savedDecision = (): Decision | undefined => {
+    const saved = db.prepare('SELECT mode FROM policies WHERE user_id=? AND tool=?').get(userId, slug) as { mode: string } | undefined;
+    return saved ? saved.mode === 'blocked' ? 'block' : saved.mode === 'always_allow' ? 'allow' : 'ask' : undefined;
+  };
+  const saved = savedDecision();
+  if (saved) return { ...base, decision: saved, readOnlyApps: false };
+  let readOnlyApps = false;
+  if (typeof args?.connectionId === 'string' && Number.isSafeInteger(args?.revision) && args.revision > 0
+    && /^[A-Z][A-Z0-9_]{2,199}$/.test(slug) && !slug.startsWith('COMPOSIO_')) {
+    try {
+      const account = (await connectionsDetail(userId)).find(c => c.id === args.connectionId && c.status === 'ACTIVE');
+      if (account && (account.revision === undefined || account.revision === args.revision)) {
+        const result = await executeComposio(userId, 'SWARM_APPS_SEARCH', {
+          toolkit: account.toolkit, query: slug, connectionId: account.id,
+        }, { readOnly: true });
+        const discovery = result.data as { connectionId?: unknown; revision?: unknown; tools?: { slug?: unknown; readOnly?: unknown }[] } | undefined;
+        const exact = Array.isArray(discovery?.tools) ? discovery.tools.filter(t => t?.slug === slug) : [];
+        readOnlyApps = result.successful !== false && !result.error
+          && discovery?.connectionId === account.id && discovery.revision === args.revision
+          && exact.length === 1 && exact[0].readOnly === true;
+      }
+    } catch { /* Unavailable or untrusted metadata never grants permission. */ }
+  }
+  // A user may change a saved policy while discovery is in flight.
+  const current = savedDecision();
+  return { ...base, decision: current ?? (readOnlyApps ? 'allow' : 'ask'), readOnlyApps: current ? false : readOnlyApps };
 }
 
 export function humanizeSlug(slug: string) {

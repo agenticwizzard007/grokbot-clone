@@ -87,6 +87,7 @@ class VoiceCall {
   /** Direct tool results stay visible until a poll requested after that result confirms the list. */
   private optimisticConnections = new Map<string, VoiceConnectionRequest>();
   private cursor = 0;
+  private transcriptRevision = 0;
   private notes: VoiceUpdate[] = [];
   private noteChars = 0;
   private omittedNotes: Partial<Record<VoiceUpdate['kind'], number>> = {};
@@ -94,7 +95,12 @@ class VoiceCall {
   private updatesTimer: ReturnType<typeof setTimeout> | null = null;
   private updatesRequest: AbortController | null = null;
   private connectTimer: ReturnType<typeof setTimeout> | null = null;
-  private onUnload = () => { if (this.sess && !this.ended) voiceApi.endBeacon(this.botId, this.sess.callId, this.transcript()); };
+  private onUnload = () => {
+    if (this.sess && !this.ended) {
+      const { transcript, transcriptRevision } = this.captureTranscript();
+      voiceApi.endBeacon(this.botId, this.sess.callId, transcript, transcriptRevision);
+    }
+  };
 
   constructor(readonly botId: string) {
     // Created synchronously inside the click so autoplay policy lets it run.
@@ -134,7 +140,7 @@ class VoiceCall {
       await this.mic.start();
       if (this.ended) { this.mic.stop(); return; }
       this.sess = await voiceApi.session(this.botId);
-      if (this.ended) { void voiceApi.end(this.botId, this.sess.callId, [], 'Cancelled'); return; }
+      if (this.ended) { void voiceApi.end(this.botId, this.sess.callId, [], 'Cancelled', ++this.transcriptRevision); return; }
       setV({ callId: this.sess.callId });
       this.connect(this.sess);
     } catch (e) {
@@ -297,8 +303,12 @@ class VoiceCall {
     setV({ captions: copy });
   }
 
-  transcript() {
-    return useVoice.getState().captions.filter((c) => c.text.trim()).map((c) => ({ role: c.role, text: c.text.trim() }));
+  private captureTranscript() {
+    const transcript = useVoice.getState().captions.filter((c) => c.final && c.text.trim()).slice(-200).map((c) => {
+      const text = c.text.trim();
+      return { id: c.id, role: c.role, text: text.length > 2000 ? `${text.slice(0, 1999)}…` : text };
+    });
+    return { transcript, transcriptRevision: ++this.transcriptRevision };
   }
 
   // ---------- relay tools ----------
@@ -306,6 +316,9 @@ class VoiceCall {
   private startTool(callId: string | undefined, name: string | undefined, rawArgs: string | undefined) {
     if (this.ended || !callId || !name || this.handledCalls.has(callId)) return;
     this.handledCalls.add(callId);
+    // Capture once for this invocation. Duplicate provider events reuse the original request,
+    // including its context; later captions belong to the next tool invocation or call end.
+    const { transcript, transcriptRevision } = this.captureTranscript();
     let args: Json = {};
     try { args = rawArgs ? JSON.parse(rawArgs) : {}; } catch { /* model sent bad JSON */ }
     let promise: Promise<string>;
@@ -319,7 +332,7 @@ class VoiceCall {
         request: String(args.request ?? name),
       } };
       if (name === 'send_task') { this.optimistic.set(callId, placeholder); this.syncWorking(); }
-      promise = voiceApi.tool(this.botId, this.sess!.callId, name, args, callId)
+      promise = voiceApi.tool(this.botId, this.sess!.callId, name, args, callId, transcript, transcriptRevision)
         .then((r) => {
           if (!this.ended) {
             if (r.connectionRequest) {
@@ -481,8 +494,8 @@ class VoiceCall {
     this.mic?.stop();
     this.player.dispose();
     void this.ctx.close().catch(() => {});
-    const transcript = this.transcript();
-    if (this.sess) void voiceApi.end(this.botId, this.sess.callId, transcript, error).catch((e) => console.warn('[voice] end failed', e));
+    const { transcript, transcriptRevision } = this.captureTranscript();
+    if (this.sess) void voiceApi.end(this.botId, this.sess.callId, transcript, error, transcriptRevision).catch((e) => console.warn('[voice] end failed', e));
     if (current === this) current = null;
     if (error) {
       setV({ status: 'error', error, speaking: false, listening: false, thinking: false, working: [], connectionRequests: [], approvals: [] });

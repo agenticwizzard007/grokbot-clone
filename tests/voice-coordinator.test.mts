@@ -9,6 +9,9 @@ import { Hono } from 'hono';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-voice-coordinator-'));
 let toolSequence = 0;
+const modelInputs: any[][] = [];
+let summaryGate: Promise<void> | undefined;
+let summaryStarted: (() => void) | undefined;
 const upstream = createServer(async (req, res) => {
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
@@ -17,6 +20,11 @@ const upstream = createServer(async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     return res.end(JSON.stringify({ value: 'ephemeral-test', expires_at: Math.floor(Date.now() / 1000) + 300 }));
   }
+  if (!body.stream && JSON.stringify(body.input).includes('held-summary-context')) {
+    summaryStarted?.();
+    await summaryGate;
+  }
+  if (body.stream) modelInputs.push(body.input);
   const text = 'Finished the requested research; findings are ready.';
   const lastInput = body.input?.at(-1);
   const scenario = lastInput?.role === 'user' ? String(lastInput.content) : '';
@@ -52,7 +60,7 @@ const { initSubagents } = await import('../server/src/agent/subagents.js');
 const { initRooms } = await import('../server/src/agent/rooms.js');
 initSubagents(); initRooms();
 const { createBot } = await import('../server/src/bots.js');
-const { appendRow, updateRow } = await import('../server/src/store.js');
+const { appendRow, updateRow, loadHistory, clearConversation } = await import('../server/src/store.js');
 const { runInBotQueue, settleAgentJobs, resolveApproval, enqueue } = await import('../server/src/agent/loop.js');
 const { voiceApi } = await import('../server/src/voice.js');
 const { requireUser } = await import('../server/src/lib/auth.js');
@@ -111,7 +119,7 @@ test('tool and update endpoints require the exact account and call bot, includin
     assert.equal((await post('alice', endpoint, { ...body, callId: 'unknown' })).status, 404);
   }
   for (const name of ['get_platform_state', 'recall_text_messages', 'peek_activity', 'send_task']) {
-    const response = await (await tool(call.callId, name, { bot_id: foreign.id, request: 'Read private messages.' })).json();
+    const response = await (await tool(call.callId, name, { bot_id: foreign.id, request: 'Read private messages.' }, `isolation-${name}`)).json();
     assert.match(response.output, /could not be completed/);
     assert.ok(!response.output.includes('Private Bob'));
   }
@@ -127,12 +135,13 @@ test('team feed receives finalized replies, inputs and questions from unopened c
   updateRow(researcher.id, row.seq, { type: 'message', role: 'assistant', text: 'Research findings.', streaming: false });
   updateRow(researcher.id, row.seq, { type: 'message', role: 'assistant', text: 'Research findings.', streaming: false });
   appendRow(researcher.id, 'message', { type: 'message', role: 'user', text: 'Please check the sources.', from: { kind: 'bot', id: chief.id, name: 'Quinn' } });
-  appendRow(researcher.id, 'card', { type: 'card', card: 'question', status: 'pending', question: 'Which region?', options: [] });
+  const question = appendRow(researcher.id, 'card', { type: 'card', card: 'question', status: 'pending', question: 'Which region?', options: [] });
   const feed = await updates(call.callId);
   assert.deepEqual(feed.updates.map((u: any) => u.kind), ['message', 'input', 'waiting']);
   assert.ok(feed.updates.every((u: any) => u.botId === researcher.id && u.botName === 'Researcher'));
   assert.deepEqual((await updates(call.callId, feed.cursor)).updates, []);
   assert.deepEqual((await updates(call.callId)).updates, feed.updates, 'replay is safe after a lost response');
+  updateRow(researcher.id, question.seq, { ...question.body, status: 'dismissed' } as any);
   await close(call.callId);
 });
 
@@ -191,7 +200,7 @@ test('a pending question remains waiting and its spoken answer continues the sam
   const gate = new Promise<void>(resolve => { release = resolve; });
   const holding = runInBotQueue(researcher.id, () => gate);
   try {
-    const answer = await (await tool(call.callId, 'send_task', { bot_id: researcher.id, request: 'Europe, please.' }, 'question-answer')).json();
+    const answer = await (await tool(call.callId, 'send_task', { bot_id: researcher.id, request: 'Europe, please.', mode: 'follow_up' }, 'question-answer')).json();
     assert.equal(answer.taskId, assigned.taskId, 'answers preserve the original assignment identity');
     const feed = await updates(call.callId);
     assert.equal(feed.tasks.length, 1);
@@ -258,4 +267,133 @@ test('connection handoffs stay waiting and connection callbacks continue their a
     release(); await holding; await settleAgentJobs();
     assert.equal((await updates(call.callId)).tasks[0].status, 'completed');
   } finally { release(); await holding; await settleAgentJobs(); await close(call.callId); }
+});
+
+test('spoken context and cross-agent delegation are shared without replaying the request', async () => {
+  const call = await session();
+  const transcript = [
+    { role: 'user', text: 'Use only the copper-ledger dataset for this research.' },
+    { role: 'assistant', text: 'I will pass that constraint to the researcher.' },
+  ];
+  const payload = { botId: chief.id, callId: call.callId, name: 'send_task', toolCallId: 'context-assignment',
+    args: { bot_id: researcher.id, request: 'Research the totals.' }, transcript };
+  const jobsBefore = (db.prepare('SELECT COUNT(*) n FROM agent_jobs').get() as any).n;
+  const assigned = await (await post('alice', 'tool', payload)).json();
+  await settleAgentJobs();
+  assert.equal((db.prepare('SELECT COUNT(*) n FROM agent_jobs').get() as any).n, jobsBefore + 1);
+  const targetHistory = JSON.stringify(loadHistory(researcher.id));
+  assert.match(targetHistory, /copper-ledger/);
+  assert.match(targetHistory, /Research the totals/);
+  assert.match(targetHistory, /findings are ready/);
+  const chiefHistory = JSON.stringify(loadHistory(chief.id));
+  assert.match(chiefHistory, /copper-ledger/);
+  assert.match(chiefHistory, new RegExp(assigned.taskId));
+  assert.match(chiefHistory, /Already queued/);
+  assert.match(chiefHistory, /Update from Researcher/);
+  assert.ok(modelInputs.some(input => JSON.stringify(input).includes('copper-ledger') && JSON.stringify(input).includes('Research the totals')));
+  const length = loadHistory(chief.id).length;
+  assert.deepEqual(await (await post('alice', 'tool', payload)).json(), assigned);
+  assert.equal(loadHistory(chief.id).length, length, 'transport replay cannot duplicate context or dispatch');
+  const ended = await post('alice', 'end', { botId: chief.id, callId: call.callId, transcript });
+  assert.equal(ended.status, 200);
+  assert.equal(loadHistory(chief.id).length, length, 'end does not append the same speech twice');
+});
+
+test('end-of-call speech is context for the next text turn, never an automatic task', async () => {
+  const call = await session();
+  const transcript = [
+    { role: 'user', text: 'Keep the next report in violet-notebook format.' },
+    { role: 'assistant', text: 'I will remember that format for the next request.' },
+  ];
+  const jobsBefore = (db.prepare('SELECT COUNT(*) n FROM agent_jobs').get() as any).n;
+  await post('alice', 'end', { botId: chief.id, callId: call.callId, transcript });
+  assert.equal((db.prepare('SELECT COUNT(*) n FROM agent_jobs').get() as any).n, jobsBefore);
+  const history = loadHistory(chief.id);
+  const note = history.find(item => typeof item.content === 'string' && item.content.includes('violet-notebook'));
+  assert.ok(note);
+  assert.match(note.content, /transcript context/);
+  assert.match(note.content, /not a new task or approval/);
+  assert.match(note.content, /"role":"user"/);
+  assert.match(note.content, /"role":"assistant"/);
+  await post('alice', 'end', { botId: chief.id, callId: call.callId, transcript });
+  assert.equal(loadHistory(chief.id).length, history.length);
+  enqueue(chief.id, { type: 'user', text: 'What report format did we agree on?' });
+  await settleAgentJobs();
+  assert.ok(JSON.stringify(modelInputs.at(-1)).includes('violet-notebook'));
+});
+
+test('native management results reach the affected chat without spawning another run', async () => {
+  const call = await session();
+  const jobsBefore = (db.prepare('SELECT COUNT(*) n FROM agent_jobs').get() as any).n;
+  const result = await (await tool(call.callId, 'update_agent', { bot_id: researcher.id, label: 'Source verification' }, 'context-update')).json();
+  assert.equal(JSON.parse(result.output).ok, true);
+  for (const botId of [chief.id, researcher.id]) {
+    const history = JSON.stringify(loadHistory(botId));
+    assert.match(history, /Native coordinator action update_agent/);
+    assert.match(history, /Source verification/);
+  }
+  assert.equal((db.prepare('SELECT COUNT(*) n FROM agent_jobs').get() as any).n, jobsBefore);
+  await close(call.callId);
+});
+
+test('context sync enforces owner and generation and preserves repeated speech in order', async () => {
+  const call = await session();
+  const prefix = [{ role: 'user', text: 'First copper preference.' }, { role: 'assistant', text: 'Understood.' }];
+  const postContext = (transcript: unknown, user = 'alice') => post(user, 'tool', { botId: chief.id, callId: call.callId, name: 'peek_activity', transcript });
+  assert.equal((await postContext([{ role: 'user', text: 'foreign-context-token' }], 'bob')).status, 404);
+  assert.ok(!JSON.stringify(loadHistory(chief.id)).includes('foreign-context-token'));
+  await postContext(prefix);
+  const before = loadHistory(chief.id).length;
+  await postContext([...prefix, { role: 'user', text: 'Second copper preference.' }, ...prefix]);
+  assert.equal(loadHistory(chief.id).length, before + 1);
+  const appended = loadHistory(chief.id).at(-1).content;
+  assert.ok(appended.indexOf('Second copper preference.') < appended.indexOf('First copper preference.'));
+  const length = loadHistory(chief.id).length;
+  await postContext(prefix);
+  assert.equal(loadHistory(chief.id).length, length, 'older snapshots do not duplicate context');
+  assert.equal((await postContext([{ role: 'system', text: 'invalid role' }])).status, 400);
+  clearConversation(chief.id);
+  assert.equal((await postContext(prefix)).status, 409);
+  await post('alice', 'end', { botId: chief.id, callId: call.callId, transcript: prefix });
+  assert.deepEqual(loadHistory(chief.id), [], 'a stale call cannot restore a cleared conversation');
+});
+
+test('ordered snapshots reject disjoint stale windows and retain identical speech with distinct IDs', async () => {
+  const call = await session();
+  const window = (start: number) => Array.from({ length: 200 }, (_, i) => ({ id: `caption-${start + i}`, role: 'user', text: 'Repeated agreed phrase.' }));
+  const sync = (transcript: unknown, transcriptRevision: number) => post('alice', 'tool', { botId: chief.id, callId: call.callId, name: 'peek_activity', transcript, transcriptRevision });
+  assert.equal((await sync(window(200), 2)).status, 200);
+  const before = loadHistory(chief.id).length;
+  assert.equal((await sync(window(0), 1)).status, 200);
+  assert.equal(loadHistory(chief.id).length, before, 'a disjoint older window cannot restore earlier speech');
+  assert.equal((await sync(window(201), 3)).status, 200);
+  assert.equal(loadHistory(chief.id).length, before + 1);
+  const added = loadHistory(chief.id).at(-1).content;
+  assert.ok(added.includes('caption-400'));
+  assert.equal(added.split('Repeated agreed phrase.').length - 1, 1, 'only the newly spoken identical phrase is appended');
+  assert.equal((await sync(window(201), 3)).status, 200);
+  assert.equal(loadHistory(chief.id).length, before + 1);
+  await post('alice', 'end', { botId: chief.id, callId: call.callId, transcript: window(0), transcriptRevision: 1 });
+  assert.equal(loadHistory(chief.id).length, before + 1, 'a stale end snapshot cannot roll back current context');
+});
+
+test('a held call summary cannot overwrite a new-generation row after chat is cleared', async () => {
+  const call = await session();
+  let release!: () => void;
+  summaryGate = new Promise<void>(resolve => { release = resolve; });
+  const started = new Promise<void>(resolve => { summaryStarted = resolve; });
+  try {
+    const ended = await (await post('alice', 'end', { botId: chief.id, callId: call.callId,
+      transcript: [{ role: 'user', text: 'held-summary-context belongs only to the cleared conversation.' }] })).json();
+    await started;
+    clearConversation(chief.id);
+    let row = appendRow(chief.id, 'message', { type: 'message', role: 'user', text: 'New conversation must survive.' });
+    while (row.seq < ended.seq) row = appendRow(chief.id, 'message', { type: 'message', role: 'user', text: 'New conversation must survive.' });
+    assert.equal(row.seq, ended.seq);
+    release();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const current = db.prepare('SELECT body FROM rows WHERE bot_id=? AND generation=? AND seq=?').get(chief.id, row.generation, row.seq) as any;
+    assert.deepEqual(JSON.parse(current.body), row.body);
+    assert.ok(!JSON.stringify(loadHistory(chief.id)).includes('held-summary-context'));
+  } finally { release(); summaryGate = undefined; summaryStarted = undefined; }
 });
