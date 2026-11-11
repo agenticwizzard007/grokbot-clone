@@ -10,7 +10,8 @@ const files = [
   'platform-messaging', 'platform-messaging-dispatch', 'platform-signup', 'platform-native-auth', 'tenant-sessions', 'tenant-desktop', 'session-notifications',
   'backup-lifecycle', 'backup-storage', 'backup-upload', 'storage-recovery', 'host-installation', 'host-checkpoint', 'environment-operations', 'legacy-database-fence', 'legacy-background', 'migration-package', 'migration-destination', 'migration-transfer', 'migration-target', 'migration-coordinator', 'migration-import', 'runtime-event-delivery',
   'google-auth', 'google-composio-auth', 'apple-auth', 'openrouter', 'native-auth', 'native-computer', 'rename-compat',
-  'mcp', 'mcp-capacity', 'mcp-folders', 'composio', 'voice-connection-state', 'connection-state-tenant', 'messaging',
+  'mcp', 'mcp-capacity', 'mcp-folders', 'composio', 'voice-connection-state', 'connection-state-tenant',
+  'expired-connections', 'connection-cards', 'voice-coordinator', 'messaging',
 ];
 const result = spawnSync(process.execPath, ['--import', 'tsx', '--test', '--test-concurrency=1', ...files.map(name => `tests/${name}.test.mts`)], { stdio: 'inherit' });
 if (result.error) console.error(result.error.message);

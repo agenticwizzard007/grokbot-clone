@@ -644,35 +644,125 @@ function PermissionsSection() {
 
 // ---------------------------------------------------------------------------
 
+type SettingsAppConnection = {
+  id: string;
+  toolkit: string;
+  status: string;
+  isDefault?: boolean;
+  isDisabled?: boolean;
+  authorizationIncomplete?: boolean;
+};
+
 function AppsSection() {
   const version = useStore((s) => s.connectionsVersion);
-  const [connections, setConnections] = useState<{id:string;toolkit:string;isDefault?:boolean}[]>([]);
+  const [connections, setConnections] = useState<SettingsAppConnection[] | null>(null);
+  const [apps, setApps] = useState<Toolkit[] | null>(null);
+  const [connectionsError, setConnectionsError] = useState('');
+  const [appsError, setAppsError] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const loadConnections = () => fetch('/api/apps/connections', {credentials:'include'}).then(async r => { const body = await r.json(); if (!r.ok) throw new Error(body.error ?? 'Could not load accounts.'); setConnections(body.connections); });
-  useEffect(() => { void loadConnections().catch(e=>setError(e.message)); }, [version]);
-  const manage = async (id:string, action:'default'|'disconnect') => {
-    setBusy(true);setError('');
-    try { const r=await fetch(`/api/apps/connections/${encodeURIComponent(id)}${action==='default'?'/default':''}`, {method:action==='default'?'POST':'DELETE',credentials:'include',headers:{'content-type':'application/json'},body:'{}'});
-      if(!r.ok) throw new Error((await r.json()).error ?? 'Could not update this account.');
-      await loadConnections();
-    } catch(e) { setError((e as Error).message); } finally { setBusy(false); }
+  const [refreshing, setRefreshing] = useState(false);
+  const connectionsRequest = useRef(0);
+  const appsRequest = useRef(0);
+  const managing = useRef(false);
+
+  const loadConnections = useCallback(async () => {
+    const request = ++connectionsRequest.current;
+    try {
+      const r = await fetch('/api/apps/connections', { credentials: 'include' });
+      const body = await r.json();
+      if (!r.ok) throw new Error(body.error ?? 'Could not load accounts.');
+      if (!Array.isArray(body.connections)) throw new Error('Could not load accounts.');
+      if (request === connectionsRequest.current) {
+        setConnections(body.connections);
+        setConnectionsError('');
+      }
+    } catch (e) {
+      if (request === connectionsRequest.current) setConnectionsError((e as Error).message);
+    }
+  }, []);
+  const loadApps = useCallback(async () => {
+    const request = ++appsRequest.current;
+    try {
+      const r = await configApi.connectedApps();
+      if (!Array.isArray(r.connectedApps)) throw new Error('Could not load connected apps.');
+      if (request === appsRequest.current) {
+        setApps(r.connectedApps);
+        setAppsError('');
+      }
+    } catch (e) {
+      if (request === appsRequest.current) setAppsError((e as Error).message);
+    }
+  }, []);
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([loadConnections(), loadApps()]);
+    setRefreshing(false);
+  }, [loadConnections, loadApps]);
+  useEffect(() => { void refresh(); }, [version, refresh]);
+
+  const manage = async (id: string, action: 'default' | 'disconnect' | 'remove-expired') => {
+    if (managing.current) return;
+    managing.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      const suffix = action === 'default' ? '/default' : action === 'remove-expired' ? '/expired' : '';
+      const r = await fetch(`/api/apps/connections/${encodeURIComponent(id)}${suffix}`, {
+        method: action === 'default' ? 'POST' : 'DELETE', credentials: 'include',
+      });
+      const body = await r.json().catch(() => null);
+      if (!r.ok || body?.ok !== true) {
+        if (action === 'remove-expired' && r.status === 409) await refresh();
+        throw new Error(body?.error ?? (action === 'remove-expired'
+          ? 'Could not remove this expired record. Refresh its status and try again.'
+          : 'Could not update this account.'));
+      }
+      if (action === 'remove-expired') {
+        setConnections(current => current?.filter(c => c.id !== id) ?? null);
+      }
+      await refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      managing.current = false;
+      setBusy(false);
+    }
   };
-  const [apps, setApps] = useState<Toolkit[] | null>(null);
-  useEffect(() => { configApi.connectedApps().then((r) => setApps(r.connectedApps ?? [])).catch(() => setApps([])); }, [version]);
+  const active = connections?.filter(c => c.status === 'ACTIVE' && !c.isDisabled) ?? [];
+  const expired = connections?.filter(c => c.status === 'EXPIRED') ?? [];
+  const other = connections?.filter(c => c.status !== 'EXPIRED' && (c.status !== 'ACTIVE' || c.isDisabled)) ?? [];
+  const accountDetails = (c: SettingsAppConnection, index: number) => (
+    <div className="cfg-row__text">
+      <div className="cfg-row__title">{apps?.find(a => a.slug === c.toolkit)?.name ?? c.toolkit} · Account {index + 1}</div>
+      <div className="cfg-row__sub" style={{ overflowWrap: 'anywhere' }}>{c.id}</div>
+      <div className="cfg-row__sub">
+        {c.status ? c.status.toLowerCase().replace(/(^|[_\s-]+)([a-z])/g, (_, separator, letter) => `${separator ? ' ' : ''}${letter.toUpperCase()}`) : 'Unknown status'}
+        {c.isDisabled ? ' · Disabled' : ''}
+        {c.status === 'ACTIVE' && !c.isDisabled && c.isDefault ? ' · Default' : ''}
+        {c.status === 'EXPIRED' && c.authorizationIncomplete ? ' · Authorization was not completed' : ''}
+      </div>
+    </div>
+  );
   const openApps = () => { useConfigUI.getState().closeAppSettings(); useStore.getState().setModal('apps'); };
   return (
     <>
       <PageHead title="Connected apps" sub="Apps your Bots can use for you, like email, calendar and docs." />
+      {(connectionsError || appsError) && <div>
+        {connectionsError && <div className="cfg-error" role="alert">Accounts could not be refreshed: {connectionsError}</div>}
+        {appsError && <div className="cfg-error" role="alert">Apps could not be refreshed: {appsError}</div>}
+        <button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy || refreshing} onClick={() => void refresh()}>Retry refresh</button>
+      </div>}
+      {error && <div className="cfg-error" role="alert">{error}</div>}
       <section className="cfg-section">
         <h2 className="cfg-section__label">Your apps</h2>
         <div className="cfg-card">
           <div className="cfg-row">
             <div className="cfg-row__text">
-              <div className="cfg-row__title">{apps === null ? 'Checking…' : apps.length ? `${apps.length} app${apps.length === 1 ? '' : 's'} connected` : 'No apps connected yet'}</div>
+              <div className="cfg-row__title">{apps === null ? (appsError ? 'Apps unavailable' : 'Checking…') : apps.length ? `${apps.length} app${apps.length === 1 ? '' : 's'} connected` : 'No apps connected yet'}</div>
               <div className="cfg-row__sub">Bots ask before doing anything that changes data in an app.</div>
             </div>
-            <button type="button" className="cfg-btn cfg-btn--primary" onClick={openApps}>{apps?.length ? 'Manage apps' : 'Connect apps'}</button>
+            <button type="button" className="cfg-btn cfg-btn--primary" onClick={openApps}>{apps === null || apps.length ? 'Manage apps' : 'Connect apps'}</button>
           </div>
           {apps?.map((a) => (
             <div key={a.slug} className="cfg-row">
@@ -686,16 +776,45 @@ function AppsSection() {
           ))}
         </div>
       </section>
-      <section className="cfg-section">
+      <section className="cfg-section" aria-label="Your connected accounts">
         <h2 className="cfg-section__label">Your connected accounts</h2>
         <p className="cfg-field__hint">Choose a default when you have several accounts for an app. Otherwise, select the account explicitly when asking a Bot to use it.</p>
-        {connections.map((c,index)=><div className="cfg-card cfg-row" key={c.id}>
-          <div className="cfg-row__text"><div className="cfg-row__title">{apps?.find(a=>a.slug===c.toolkit)?.name ?? c.toolkit} · Account {index+1}</div><div className="cfg-row__sub">{c.id}{c.isDefault?' · Default':''}</div></div>
-          <button className="cfg-btn cfg-btn--secondary" type="button" disabled={busy||c.isDefault} onClick={()=>void manage(c.id,'default')}>Use by default</button>
-          <button className="cfg-btn cfg-btn--secondary" type="button" disabled={busy} onClick={()=>void manage(c.id,'disconnect')}>Disconnect</button>
-        </div>)}
-        {error&&<div className="cfg-error" role="alert">{error}</div>}
+        <div className="cfg-card">
+          {connections === null ? <div className="cfg-empty cfg-empty--flat">{connectionsError ? 'Accounts unavailable' : 'Loading accounts…'}</div>
+            : !active.length ? <div className="cfg-empty cfg-empty--flat">No active accounts connected.</div>
+              : active.map((c, index) => <div className="cfg-row" key={c.id}>
+                {accountDetails(c, index)}
+                <div className="settings-row__actions">
+                  <button className="cfg-btn cfg-btn--secondary" type="button" disabled={busy || c.isDefault} onClick={() => void manage(c.id, 'default')}>Use by default</button>
+                  <button className="cfg-btn cfg-btn--secondary" type="button" disabled={busy} onClick={() => void manage(c.id, 'disconnect')}>Disconnect</button>
+                </div>
+              </div>)}
+        </div>
       </section>
+      {!!other.length && <section className="cfg-section" aria-label="Other connections">
+        <h2 className="cfg-section__label">Other connections</h2>
+        <p>These accounts are unavailable for Bots to use. Their current status is shown below.</p>
+        <div className="cfg-card">
+          {other.map((c, index) => <div className="cfg-row" key={c.id}>{accountDetails(c, index)}</div>)}
+        </div>
+      </section>}
+      {!!expired.length && <section className="cfg-section" aria-label="Expired connections">
+        <details className="cfg-card mcp-advanced">
+          <summary className="cfg-row">
+            <span className="cfg-row__text">
+              <span className="cfg-row__title">Expired connections ({expired.length})</span>
+              <span className="cfg-row__sub">Review and remove expired records one at a time.</span>
+            </span>
+            <ChevronRight className="mcp-advanced__chev" size={18} strokeWidth={1.75} aria-hidden />
+          </summary>
+          {expired.map((c, index) => <div className="cfg-row" key={c.id}>
+            {accountDetails(c, index)}
+            <div className="settings-row__actions">
+              <ConfirmButton disabled={busy} confirmLabel="Confirm removal" title="Remove only this expired connection record" onConfirm={() => manage(c.id, 'remove-expired')}>Remove expired record</ConfirmButton>
+            </div>
+          </div>)}
+        </details>
+      </section>}
     </>
   );
 }

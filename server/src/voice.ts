@@ -16,6 +16,7 @@ import { appendHistory, appendRow, emitBot, getBotRow, getLive, listRoutines, li
 import { enqueue } from './agent/loop.js';
 import { platformContext, platformState } from './agent/platform-state.js';
 import { connectionState, type ConnectionState } from './agent/connection-state.js';
+import { refreshConnectionCards } from './agent/connection-cards.js';
 import { voiceControlTools, runVoiceControl } from './voice-controls.js';
 import { isConfiguring } from './bot-setup.js';
 import { z } from 'zod';
@@ -264,6 +265,8 @@ interface ActiveCall {
   transcript: TranscriptLine[];
   transcriptRevision: number;
   sharedTranscripts: Map<string, TranscriptLine[]>;
+  connectionBaseline: Map<string, { generation: number; seq: number }>;
+  connectionsCheckedAt?: number;
 }
 interface TranscriptLine { id?: string; role: 'user' | 'assistant'; text: string }
 interface VoiceToolOutput { output: string; taskSeq?: number; taskBotId?: string; taskId?: string }
@@ -337,9 +340,11 @@ onRowChange((userId, row) => {
     kind = 'waiting';
     text = body.card === 'approval' ? `Approval required in chat: ${body.title}` : body.card === 'question' ? body.question : body.card === 'connect' ? `Connect ${body.toolkitName} in chat.` : 'A draft is waiting for review in chat.';
   } else if (body.type === 'card' && body.card === 'connect' && body.status === 'connected') {
-    kind = 'status'; text = `${body.toolkitName} authorization was confirmed by the app. Its chat agent resumes to verify access and continue; wait for that result instead of submitting the action again.`;
+    kind = 'status'; text = `${body.toolkitName} authorization was confirmed by the app. Its chat agent owns access verification and continuation; check the task status and wait for its result instead of submitting the action again.`;
   } else if (body.type === 'card' && body.card === 'connect' && body.status === 'skipped') {
     kind = 'status'; text = `${body.toolkitName} connection was skipped. Do not claim that it is connected.`;
+  } else if (body.type === 'card' && body.card === 'connect' && body.status === 'expired') {
+    kind = 'status'; text = `${body.toolkitName} sign-in request is no longer active. Its connection card has expired; no action was executed. The user can start a new connection from Settings.`;
   } else return;
   if (!text.trim()) return;
   for (const call of calls.values()) {
@@ -362,6 +367,13 @@ voiceApi.post('/updates', async (c) => {
   const { botId, callId, after } = parsed.data;
   const call = calls.get(callId);
   if (!call || call.userId !== c.get('user').id || call.botId !== botId || ownBot(call.userId, botId)?.generation !== call.generation) return c.json({ error: 'Call not found.' }, 404);
+  // Only exact bound attempts can be reconciled. Legacy cards must not be guessed
+  // from a service name. A provider failure leaves every card untouched.
+  if (call.connectionsCheckedAt === undefined || now() - call.connectionsCheckedAt >= 15_000) {
+    call.connectionsCheckedAt = now();
+    await refreshConnectionCards(call.userId);
+    if (calls.get(callId) !== call || ownBot(call.userId, botId)?.generation !== call.generation) return c.json({ error: 'Call not found.' }, 404);
+  }
   const tasks = call.jobs.map(task => {
     const lineage = taskLineage(call.userId, task.botId, task.id);
     const job = lineage[0];
@@ -382,9 +394,19 @@ voiceApi.post('/updates', async (c) => {
   const updates = call.updates.filter(u => u.id > after).slice(0, 20);
   if (call.updates.length && after < call.updates[0].id - 1) updates.unshift({ id: call.updates[0].id - 1, botId, botName: getBotRow(botId).name, kind: 'status', text: 'Some older team updates were missed. Use get_agent or recall_text_messages to read the latest results before reporting an outcome.' });
   c.header('Cache-Control', 'no-store');
-  const pending = db.prepare("SELECT r.bot_id,r.seq,r.body FROM rows r JOIN bots b ON b.id=r.bot_id AND b.generation=r.generation WHERE b.user_id=? AND r.kind='card' AND json_extract(r.body,'$.status')='pending' AND json_extract(r.body,'$.card') IN ('connect','approval') ORDER BY r.created_at DESC LIMIT 50").all(call.userId) as { bot_id: string; seq: number; body: string }[];
-  const actions = pending.map(row => ({ botId: row.bot_id, seq: row.seq, body: JSON.parse(row.body) }));
-  const connectionRequests = actions.filter(row => row.body.card === 'connect').map(row => ({ botId: row.botId, seq: row.seq, toolkit: row.body.toolkit, toolkitName: row.body.toolkitName }));
+  const pending = db.prepare("SELECT r.bot_id,r.generation,r.seq,r.body FROM rows r JOIN bots b ON b.id=r.bot_id AND b.generation=r.generation WHERE b.user_id=? AND r.kind='card' AND json_extract(r.body,'$.status')='pending' AND json_extract(r.body,'$.card') IN ('connect','approval') ORDER BY r.created_at DESC,r.seq DESC LIMIT 50").all(call.userId) as { bot_id: string; generation: number; seq: number; body: string }[];
+  const actions = pending.map(row => ({ botId: row.bot_id, generation: row.generation, seq: row.seq, body: JSON.parse(row.body) }));
+  const seenToolkits = new Set<string>();
+  const connectionRequests = actions.filter(row => {
+    if (row.body.card !== 'connect') return false;
+    const baseline = call.connectionBaseline.get(row.botId);
+    // A fresh call should not inherit unrelated historical Connect cards. Include
+    // blockers for agents assigned in this call, plus requests created during it.
+    const relevant = !baseline || row.generation !== baseline.generation || row.seq > baseline.seq || call.jobs.some(task => task.botId === row.botId);
+    if (!relevant || seenToolkits.has(row.body.toolkit)) return false;
+    seenToolkits.add(row.body.toolkit);
+    return true;
+  }).map(row => ({ botId: row.botId, seq: row.seq, toolkit: row.body.toolkit, toolkitName: row.body.toolkitName }));
   const approvals = actions.filter(row => row.body.card === 'approval');
   return c.json({ cursor: updates.at(-1)?.id ?? call.cursor, updates, tasks, connectionRequests, approvals });
 });
@@ -445,8 +467,10 @@ voiceApi.post('/session', async (c) => {
 
   const callId = newId('call');
   const startRow = appendRow(bot.id, 'event', callEvent(`Voice call with ${bot.name} started`, { id: callId, phase: 'started' }));
+  const connectionBaseline = new Map((db.prepare('SELECT id,generation,next_seq FROM bots WHERE user_id=?').all(user.id) as { id: string; generation: number; next_seq: number }[])
+    .map(b => [b.id, { generation: b.generation, seq: b.next_seq - 1 }]));
   calls.set(callId, { id: callId, botId: bot.id, generation: bot.generation, userId: user.id, startedAt: now(), startSeq: startRow.seq, tasks: [], provider: provider.provider, model: provider.model,
-    cursor: 0, updates: [], seenRows: new Map(), jobs: [], jobStates: new Map(), toolCalls: new Map(), transcript: [], transcriptRevision: 0, sharedTranscripts: new Map() });
+    cursor: 0, updates: [], seenRows: new Map(), jobs: [], jobStates: new Map(), toolCalls: new Map(), transcript: [], transcriptRevision: 0, sharedTranscripts: new Map(), connectionBaseline });
   emitBot(bot.id);
 
   return c.json({

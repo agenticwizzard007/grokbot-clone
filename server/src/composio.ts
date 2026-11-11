@@ -311,6 +311,89 @@ export async function manageConnection(userId: string, id: string, operation: 'd
   invalidateComposioSession(userId);
 }
 
+/** Safe for HTTP responses: provider errors and account details never escape this boundary. */
+export class ExpiredConnectionRemovalError extends Error {
+  readonly status: 409 | 503;
+  constructor(public readonly code: 'not_expired' | 'upstream_unavailable' | 'project_changed' | 'unsupported') {
+    super({
+      not_expired: 'Only expired connections can be removed. Refresh your connections and try again.',
+      upstream_unavailable: 'The connection provider is unavailable. Refresh your connections before trying again.',
+      project_changed: 'The connection provider configuration changed. Refresh your connections before trying again.',
+      unsupported: 'Expired connection removal is unavailable in this environment.',
+    }[code]);
+    this.name = 'ExpiredConnectionRemovalError';
+    this.status = code === 'not_expired' ? 409 : 503;
+  }
+}
+
+const expiredConnectionRemovals = new Map<string, Promise<{ removed: boolean }>>();
+
+/** Remove one freshly verified owned PRIVATE EXPIRED record; never disconnect a usable account. */
+export async function removeExpiredConnection(userId: string, id: string): Promise<{ removed: boolean }> {
+  assertTenant(userId);
+  // The tenant gateway only lists active registered accounts, so it cannot attest expired ownership/state.
+  if (isTenant) throw new ExpiredConnectionRemovalError('unsupported');
+  let client: ReturnType<typeof composio>, key: string;
+  try { client = composio(); key = composioIdentity(); }
+  catch { throw new ExpiredConnectionRemovalError('upstream_unavailable'); }
+
+  const assertProject = () => {
+    let unchanged = false;
+    try { unchanged = composioIdentity() === key && current?.client === client; } catch { /* invalid scope also fails closed */ }
+    if (!unchanged) throw new ExpiredConnectionRemovalError('project_changed');
+  };
+  const lock = JSON.stringify([key, userId, id]);
+  const pending = expiredConnectionRemovals.get(lock);
+  if (pending) return pending;
+
+  // Scoped lists are the SDK's ownership proof: get(id) does not return an owner.
+  const owned = async () => {
+    let cursor: string | undefined;
+    const cursors = new Set<string>();
+    do {
+      assertProject();
+      const page = await client.connectedAccounts.list({ userIds: [userId], accountType: 'PRIVATE', limit: 100, cursor }, { signal: AbortSignal.timeout(15_000) });
+      assertProject();
+      const account = page.items.find(account => account.id === id);
+      if (account) return account.experimental?.accountType && account.experimental.accountType !== 'PRIVATE' ? undefined : account;
+      cursor = page.nextCursor ?? undefined;
+      if (cursor && (cursors.has(cursor) || cursors.size >= 100)) throw new ExpiredConnectionRemovalError('upstream_unavailable');
+      if (cursor) cursors.add(cursor);
+    } while (cursor);
+  };
+  const removal = (async () => {
+    try {
+      // Recheck both ownership and state immediately before dispatch, without a prompt/session cache.
+      for (let check = 0; check < 2; check++) {
+        const account = await owned();
+        if (!account) return { removed: false };
+        if (account.status !== 'EXPIRED') throw new ExpiredConnectionRemovalError('not_expired');
+      }
+      assertProject();
+      // Core forwards this options object to @composio/client, whose DELETE otherwise retries.
+      const options = { signal: AbortSignal.timeout(15_000), maxRetries: 0 };
+      let removed = true;
+      try { await client.connectedAccounts.delete(id, options); }
+      catch (error: any) {
+        assertProject();
+        // A DELETE 404 is idempotent only after the scoped, fresh EXPIRED checks above succeeded.
+        if (error?.status !== 404) throw error;
+        removed = false;
+      }
+      assertProject();
+      invalidateComposioSession(userId);
+      return { removed };
+    } catch (error) {
+      assertProject();
+      if (error instanceof ExpiredConnectionRemovalError) throw error;
+      throw new ExpiredConnectionRemovalError('upstream_unavailable');
+    }
+  })();
+  expiredConnectionRemovals.set(lock, removal);
+  try { return await removal; }
+  finally { if (expiredConnectionRemovals.get(lock) === removal) expiredConnectionRemovals.delete(lock); }
+}
+
 // ---------- Google sign-in through a Composio-managed Gmail authorization ----------
 // Composio's Gmail authorization carries Google's openid/userinfo scopes, so the token yields Google's immutable
 // account subject (the same `sub` OIDC returns). Identity is bound to that subject, never to an email address.
