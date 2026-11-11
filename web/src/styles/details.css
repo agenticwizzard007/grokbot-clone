@@ -80,22 +80,3 @@
 .members__hint { font-size: 12px; line-height: 16px; color: var(--color-text-tertiary); padding: 6px 8px 2px; }
 
 .details__tabs .segmented { flex-wrap: wrap; justify-content: center; }
-.agent-config { font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; gap: 18px; }
-.agent-config p { margin: 0; }
-.agent-config__status { padding: 14px; border: 1px solid var(--color-border-tertiary); border-radius: 12px; background: var(--color-bg-pane); }
-.agent-config__status strong { font-size: 15px; color: var(--color-ink); }
-.agent-config__status.is-review { border-color: var(--bot-action, var(--color-primary)); }
-.agent-config__muted { font-size: 12px; color: var(--color-text-secondary); }
-.agent-config__section h3 { margin: 0; font-size: 12px; font-weight: 600; color: var(--color-text-secondary); }
-.agent-config__section { display: flex; flex-direction: column; gap: 8px; }
-.agent-config__more { padding-top: 12px; border-top: 1px solid var(--color-border-tertiary); }
-.agent-config__more > summary { color: var(--color-text-secondary); font-size: 12px; }
-.agent-config__additional { display: flex; flex-direction: column; gap: 14px; }
-.agent-config ul, .agent-config ol { padding-left: 19px; margin: 0; }
-.agent-config li + li { margin-top: 6px; }
-.agent-config__workflow, .agent-config__file { border: 1px solid var(--color-border-tertiary); border-radius: 8px; padding: 10px; background: var(--color-bg-pane); }
-.agent-config summary { cursor: pointer; font-weight: 500; color: var(--color-ink); }
-.agent-config details[open] > :not(summary) { margin-top: 10px; }
-.agent-config__file .md { font-size: 12px; }
-.agent-config__file .md h1, .agent-config__file .md h2 { font-size: 14px; }
-.agent-config__file pre { white-space: pre-wrap; font-size: 11px; max-height: 360px; overflow: auto; }

@@ -3,14 +3,19 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { test, after } from 'node:test';
+import { test, after, mock } from 'node:test';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-creation-'));
 Object.assign(process.env, { DB_PATH: path.join(root, 'test.db'), FILES_DIR: path.join(root, 'files'), SESSION_SECRET: 'test-only-secret', COMPUTER_PROVIDER: 'local', COMPOSIO_API_KEY: '' });
+const networkRequests: unknown[][] = [];
+mock.method(globalThis, 'fetch', async (...args: unknown[]) => {
+  networkRequests.push(args);
+  throw new Error('Unexpected network request in isolated creation/preview tests');
+});
 const { db } = await import('../server/src/db.js');
 await import('../server/src/db-config.js');
 const { initSubagents } = await import('../server/src/agent/subagents.js');
-const { initRooms } = await import('../server/src/agent/rooms.js');
+const { initRooms, createRoom } = await import('../server/src/agent/rooms.js');
 initSubagents(); initRooms();
 const { createBot } = await import('../server/src/bots.js');
 const { appendRow, clearConversation, getBotRow, setLive } = await import('../server/src/store.js');
@@ -22,7 +27,13 @@ const { computers } = await import('../server/src/computers/index.js');
 const { Hono } = await import('hono');
 const { api } = await import('../server/src/routes.js');
 const { configApi } = await import('../server/src/routes-config.js');
+const { withUsage } = await import('../server/src/usage-context.js');
 const app = new Hono().route('/api', api).route('/api', configApi);
+// Exercise the configuration router's own auth boundary, independently of api.
+const previewApp = new Hono().route('/api', configApi);
+const preview = (botId: string, session = cookie) => previewApp.request(`/api/bots/${botId}/instructions`, {
+  headers: session ? { cookie: `swarm_session=${session}` } : {},
+});
 for (const id of ['owner', 'other']) db.prepare('INSERT INTO users(id,email,name,created_at) VALUES (?,?,?,?)').run(id, `${id}@example.com`, id, Date.now());
 const cookie = 'test-session';
 db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (session_hash(?),?,?,?)').run(cookie, 'owner', Date.now(), Date.now()+60000);
@@ -40,7 +51,7 @@ let online = false;
 computers.screen = async (userId, botId) => { calls.push(`${userId}:${botId}`); if (!online) throw new Error('PC disconnected'); return { screenshot: async () => ({ image: '', mime: 'image/png', width: 1, height: 1 }) } as any; };
 let teammate: any;
 const decode = (r: any) => JSON.parse(r.output as string);
-after(() => { db.close(); fs.rmSync(root, { recursive: true, force: true }); });
+after(() => { mock.restoreAll(); db.close(); fs.rmSync(root, { recursive: true, force: true }); });
 
 test('primary receives creation tools and a current-capability reminder, even with old refusals', async () => {
   assert.ok(functionSchemas(master.id).some((t) => t.name === 'create_bot'));
@@ -184,4 +195,161 @@ test('parallel VM leases are distinct; a full VM never evicts active teammates',
   const lease = await screenFor('owner', fifth.id);
   assert.ok(!leases.some((s) => s.screenId === lease.screenId));
   assert.equal(db.prepare('SELECT * FROM screens WHERE bot_id=?').get(teammate.id), undefined);
+});
+
+test('instruction preview requires authentication and never reveals foreign, hidden or room prompts', async () => {
+  for (const session of ['', 'invalid-session']) {
+    const response = await preview(master.id, session);
+    assert.equal(response.status, 401);
+    assert.deepEqual(await response.json(), { error: 'unauthenticated' });
+  }
+  const otherSession = 'preview-other-session';
+  db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (session_hash(?),?,?,?)')
+    .run(otherSession, 'other', Date.now(), Date.now() + 60000);
+  const hidden = createBot('owner', { name: 'Private helper preview', instructions: 'HIDDEN_PROMPT_SECRET' });
+  db.prepare('UPDATE bots SET hidden=1 WHERE id=?').run(hidden.id);
+  const room = createRoom('owner', 'Preview room', [master.id]);
+  for (const [id, session] of [[foreign.id, cookie], [master.id, otherSession], [hidden.id, cookie], [room, cookie], ['missing-bot', cookie]]) {
+    const response = await preview(id, session);
+    assert.equal(response.status, 404);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(await response.json(), { error: 'not found' });
+  }
+});
+
+test('instruction preview returns actual setup and active prompts, with only its own memory and skills after activation', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  const bot = createBot('owner', { name: 'Preview lifecycle', instructions: 'PREVIEW_STANDING_INSTRUCTION' });
+  for (const [scope, botId] of [['ACTIVE', bot.id], ['FOREIGN', foreign.id], ['SIBLING', master.id]]) {
+    db.prepare('INSERT INTO skills(id,bot_id,name,body,created_at) VALUES (?,?,?,?,?)')
+      .run(`preview-skill-${scope}`, botId, `Preview skill ${scope}`, `PREVIEW_${scope}_SKILL_BODY`, Date.now());
+    db.prepare('INSERT INTO memories(id,bot_id,text,created_at) VALUES (?,?,?,?)')
+      .run(`preview-memory-${scope}`, botId, `PREVIEW_${scope}_MEMORY_BODY`, Date.now());
+  }
+  // Downloaded/exported files are not the runtime prompt's source of truth.
+  fs.writeFileSync(path.join(setupDirectory(bot.id), 'AGENTS.md'), 'STALE_EXPORTED_FILE_ONLY');
+  const check = async (stage: string) => {
+    const started = Date.now();
+    const response = await preview(bot.id);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    const body = await response.json();
+    assert.equal(body.stage, stage);
+    assert.equal(body.revision, getSetup(bot.id)!.onboarding.revision);
+    assert.ok(Number.isSafeInteger(body.capturedAt) && body.capturedAt >= started && body.capturedAt <= Date.now());
+    assert.equal(body.instructions, await withUsage({ userId: 'owner', botId: bot.id }, () => systemPrompt('owner', bot.id)));
+    assert.match(body.instructions, /PREVIEW_STANDING_INSTRUCTION/);
+    assert.doesNotMatch(body.instructions, /STALE_EXPORTED_FILE_ONLY/);
+    assert.doesNotMatch(body.instructions, /PREVIEW_(?:FOREIGN|SIBLING)_(?:MEMORY|SKILL)_BODY/);
+    if (stage === 'active') {
+      assert.doesNotMatch(body.instructions, /You are the setup consultant/);
+      assert.match(body.instructions, /persistent charter \(AGENTS.md\)/);
+      assert.match(body.instructions, /PREVIEW_ACTIVE_SKILL_BODY/);
+      assert.match(body.instructions, /PREVIEW_ACTIVE_MEMORY_BODY/);
+    } else {
+      assert.match(body.instructions, /You are the setup consultant/);
+      assert.match(body.instructions, new RegExp(`Current setup status: ${stage}`));
+      assert.doesNotMatch(body.instructions, /PREVIEW_ACTIVE_SKILL_BODY/);
+      assert.doesNotMatch(body.instructions, /PREVIEW_ACTIVE_MEMORY_BODY/);
+    }
+  };
+  await check('interviewing');
+  const setup = getSetup(bot.id)!;
+  const review = saveSetupDraft(bot.id, 'owner', {
+    ...setup.brief, instructions: 'PREVIEW_STANDING_INSTRUCTION', revision: setup.onboarding.revision,
+    stage: 'review', source_message_seqs: [], open_questions: [], action_boundaries: 'Summarize in chat only.',
+    workflows: [{ name: 'Summary', trigger: 'User supplies notes', steps: ['Summarize the supplied notes'], output: 'A summary in chat' }],
+  });
+  await check('review');
+  activateSetup(bot.id, review.onboarding.revision);
+  await check('active');
+});
+
+test('instruction preview reflects owner standing-instruction PATCH immediately without a stale prompt cache', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  const bot = createBot('owner', { name: 'Preview edits', isPrimary: true, instructions: 'PREVIEW_ORIGINAL_INSTRUCTION' });
+  const before = await (await preview(bot.id)).json();
+  assert.match(before.instructions, /PREVIEW_ORIGINAL_INSTRUCTION/);
+  const update = await app.request(`/api/bots/${bot.id}`, {
+    method: 'PATCH', headers: { cookie: `swarm_session=${cookie}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ instructions: 'PREVIEW_REPLACEMENT_INSTRUCTION' }),
+  });
+  assert.equal(update.status, 200);
+  const response = await preview(bot.id);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  const after = await response.json();
+  assert.equal(after.stage, 'active');
+  assert.equal(after.revision, before.revision + 1);
+  assert.match(after.instructions, /## Standing instructions\nPREVIEW_REPLACEMENT_INSTRUCTION/);
+  // Creation context is retained separately; PATCH replaces standing instructions.
+  assert.doesNotMatch(after.instructions, /## Standing instructions\nPREVIEW_ORIGINAL_INSTRUCTION/);
+  assert.equal(after.instructions, await withUsage({ userId: 'owner', botId: bot.id }, () => systemPrompt('owner', bot.id)));
+});
+
+test('instruction CAS rejects a stale tab without changing the newer text or revision and accepts a refreshed expectation', async () => {
+  const bot = createBot('owner', { name: 'Concurrent instruction edits', isPrimary: true, instructions: 'CAS_ORIGINAL_TEXT' });
+  const patch = (body: unknown) => app.request(`/api/bots/${bot.id}`, {
+    method: 'PATCH', headers: { cookie: `swarm_session=${cookie}`, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const snapshot = () => ({ bot: getBotRow(bot.id), setup: getSetup(bot.id), files: setupFiles(bot.id) });
+  const originalRevision = getSetup(bot.id)!.onboarding.revision;
+  const first = await patch({ expectedInstructions: 'CAS_ORIGINAL_TEXT', instructions: 'CAS_NEWER_TAB_TEXT' });
+  assert.equal(first.status, 200);
+  assert.equal((await first.json()).bot.instructions, 'CAS_NEWER_TAB_TEXT');
+  assert.equal(getSetup(bot.id)!.onboarding.revision, originalRevision + 1);
+  const newer = snapshot();
+  const stale = await patch({ expectedInstructions: 'CAS_ORIGINAL_TEXT', instructions: 'CAS_STALE_TAB_TEXT', label: 'Must not be applied' });
+  assert.equal(stale.status, 409);
+  assert.deepEqual(await stale.json(), { error: 'Instructions changed elsewhere. Reload the current instructions before saving.' });
+  assert.deepEqual(snapshot(), newer);
+  // Reloading the original field lets the second tab save; the exact 8000 limit is valid.
+  const replacement = 'x'.repeat(8000);
+  const refreshed = await patch({ expectedInstructions: newer.bot.instructions, instructions: replacement });
+  assert.equal(refreshed.status, 200);
+  assert.equal((await refreshed.json()).bot.instructions, replacement);
+  assert.equal(getSetup(bot.id)!.onboarding.revision, originalRevision + 2);
+  assert.equal(getSetup(bot.id)!.onboarding.status, 'active');
+  assert.ok(setupFiles(bot.id)['AGENTS.md'].includes(`## Standing instructions\n${replacement}\n`));
+});
+
+test('instruction CAS validates expected text and replacement before mutating instructions, metadata or setup revision', async () => {
+  const bot = createBot('owner', { name: 'Invalid instruction edits', isPrimary: true, instructions: 'CAS_VALID_BASE' });
+  const snapshot = () => ({ bot: getBotRow(bot.id), setup: getSetup(bot.id), files: setupFiles(bot.id) });
+  const before = snapshot();
+  const malformed = [
+    ...[null, 12, true, [], {}].map(expectedInstructions => ({ expectedInstructions, instructions: 'Must not be saved' })),
+    { expectedInstructions: 'CAS_VALID_BASE' },
+    ...[null, 12, [], 'x'.repeat(8001)].map(instructions => ({ expectedInstructions: 'CAS_VALID_BASE', instructions })),
+  ];
+  for (const body of malformed) {
+    const response = await app.request(`/api/bots/${bot.id}`, {
+      method: 'PATCH', headers: { cookie: `swarm_session=${cookie}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ ...body, label: 'Must not be applied' }),
+    });
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: 'bad instructions' });
+    assert.deepEqual(snapshot(), before);
+  }
+});
+
+test('instruction preview never invokes a model, queues work, records usage or drives a browser', async t => {
+  const { llmClient } = await import('../server/src/lib/llm.js');
+  const { setEnvOverride } = await import('../server/src/env.js');
+  setEnvOverride('DIRECT_API_KEY', 'test-preview-key-never-sent');
+  setEnvOverride('LLM_PROVIDER', 'direct');
+  t.after(() => { setEnvOverride('DIRECT_API_KEY', null); setEnvOverride('LLM_PROVIDER', null); });
+  const client = withUsage({ userId: 'owner', botId: master.id }, () => llmClient(360_000));
+  const generation = t.mock.method(client.responses, 'create', async () => { throw new Error('Preview must not generate'); });
+  const draft = createBot('owner', { name: 'Preview no execution' });
+  const snapshot = () => ['agent_jobs', 'tool_dispatches', 'rows', 'llm_items', 'usage_events'].map(table =>
+    (db.prepare(`SELECT count(*) n FROM ${table}`).get() as any).n);
+  const before = snapshot(), browserCalls = calls.length;
+  assert.equal((await preview(master.id)).status, 200);
+  assert.equal((await preview(draft.id)).status, 200);
+  assert.equal(generation.mock.callCount(), 0);
+  assert.deepEqual(snapshot(), before);
+  assert.equal(calls.length, browserCalls);
+  assert.equal(networkRequests.length, 0, 'No external request, including swallowed failures, is permitted');
 });

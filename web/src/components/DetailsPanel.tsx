@@ -128,6 +128,7 @@ export function DetailsPanel() {
   const [tab, setTab] = useState<'activity' | 'tasks' | 'library' | 'configuration'>('activity');
   const [hideSuggested, setHideSuggested] = useState(() => { try { return localStorage.getItem('swarm.hideSuggested') === '1'; } catch { return false; } });
   if (!bot) return null;
+  const isConfiguration = tab === 'configuration' && bot.kind !== 'room';
 
   const addSlack = async () => {
     const popup = openPopup('about:blank');
@@ -135,7 +136,7 @@ export function DetailsPanel() {
   };
 
   return (
-    <aside className="details" style={botVars(bot.avatarColor)} aria-label="Conversation details">
+    <aside className={`details${isConfiguration ? ' details--configuration' : ''}`} style={botVars(bot.avatarColor)} aria-label="Conversation details">
       <div className="details__top">
         <button type="button" className="icon-btn icon-btn--bordered details__gear" onClick={() => useConfigUI.getState().openBotSettings(bot.id)} aria-label="Bot settings" title="Bot settings">
           <Glyph name="gear" size={16} opacity={0.7} />
@@ -146,7 +147,7 @@ export function DetailsPanel() {
       </div>
       <div className="details__scroll">
         <div className="details__identity">
-          <BotAvatarFor bot={bot} size={64} />
+          <BotAvatarFor bot={bot} size={isConfiguration ? 40 : 64} />
           <div className="details__name" title={displayName(bot)}>{displayName(bot)}</div>
         </div>
         <div className="details__tabs">
@@ -204,7 +205,7 @@ export function DetailsPanel() {
               </>
             )}
           </div>
-        ) : tab === 'tasks' ? <BotTasks bot={bot} /> : tab === 'configuration' && bot.kind !== 'room' ? <AgentConfiguration key={bot.id} bot={bot} /> : <LibraryTab bot={bot} />}
+        ) : tab === 'tasks' ? <BotTasks bot={bot} /> : isConfiguration ? <AgentConfiguration key={bot.id} bot={bot} /> : <LibraryTab bot={bot} />}
       </div>
     </aside>
   );

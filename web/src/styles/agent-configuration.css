@@ -1,0 +1,122 @@
+/* Paper: Brand · Final guidelines / Type & voice + Settings · Components.
+   Instrument Sans 550, neutral pills, inset dividers and fixed icon lanes.
+   Keep these adaptations local to the 320px Configuration panel. */
+.details--configuration {
+  font-family: 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack);
+  font-weight: 550;
+  letter-spacing: 0;
+}
+.details--configuration .details__identity { flex-direction: row; gap: 12px; padding: 8px 20px 20px; }
+.details--configuration .details__name { width: auto; min-width: 0; padding: 0; text-align: left; font-size: 17px; font-weight: 550; line-height: 24px; letter-spacing: -0.02em; }
+.details--configuration .details__tabs { padding-bottom: 12px; }
+.details--configuration .details__tabs button { min-height: 36px; font-weight: 550; letter-spacing: 0; }
+
+.agent-config {
+  --config-inset: 16px;
+  gap: 20px;
+  padding: 8px var(--config-inset) 32px;
+  font-family: 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack);
+  font-size: 14px;
+  font-weight: 550;
+  line-height: 22px;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+.agent-config p { margin: 0; white-space: pre-wrap; }
+.agent-config :is(h3, strong, b) { font-weight: 550; }
+.agent-config__content { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+.agent-config__content[hidden] { display: none; }
+.agent-config__section, .agent-config > .agent-config__section { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.agent-config__section h3, .agent-config__file h3 { margin: 0; font-size: 15px; line-height: 20px; color: var(--color-text-primary); }
+.agent-config__row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+.agent-config__row h3 { min-width: 0; }
+.agent-config__muted { font-size: 13px; line-height: 20px; color: var(--color-text-secondary); }
+.agent-config__mission { font-size: 15px; line-height: 24px; letter-spacing: -0.008em; color: var(--color-text-primary); }
+.agent-config ul, .agent-config ol { padding-left: 20px; margin: 0; }
+.agent-config li { padding-left: 2px; }
+.agent-config li + li { margin-top: 8px; }
+.agent-config li::marker { color: var(--color-text-secondary); }
+
+/* Status words carry the meaning; color is a secondary cue. */
+.agent-config > .agent-config__status { gap: 12px; padding: 16px; border: 1px solid var(--color-border-secondary); border-radius: 16px; background: var(--color-bg-pane); }
+.agent-config__status-title { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; line-height: 18px; }
+.agent-config__status-dot { flex: none; width: 6px; height: 6px; border-radius: var(--radius-full); background: var(--color-text-secondary); }
+.is-active .agent-config__status-dot { background: var(--color-success); }
+.is-review .agent-config__status-dot { background: var(--color-warn); }
+.agent-config__revision { flex: none; font-size: 12px; line-height: 18px; color: var(--color-text-secondary); }
+.agent-config__status > p { font-size: 13px; line-height: 20px; color: var(--color-text-secondary); }
+
+/* The longest tab gets its own width; labels never break mid-word. */
+.agent-config__tabs { display: flex; gap: 2px; padding: 4px; border-radius: var(--radius-full); background: var(--color-bg-tertiary); }
+.agent-config__tabs button { flex: 1 1 0; min-width: 0; min-height: 36px; padding: 8px 6px; border-radius: var(--radius-full); font-size: 13px; line-height: 18px; white-space: nowrap; text-align: center; color: var(--color-text-secondary); }
+.agent-config__tabs button:first-child { flex: 1.8 1 0; }
+.agent-config__tabs button[aria-selected='true'] { background: var(--color-bg-pane); color: var(--color-text-primary); box-shadow: var(--shadow-card); }
+
+.agent-config .cfg-btn { min-height: 36px; height: auto; padding: 8px 12px; font-weight: 550; font-size: 13px; line-height: 20px; letter-spacing: 0; text-decoration: none; }
+.agent-config .link-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 8px; font-size: 13px; line-height: 20px; }
+.agent-config :is(button, a, summary, textarea, pre, [role='tabpanel']):focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 3px; }
+.agent-config__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.agent-config__refine { padding-top: 24px; border-top: 1px solid var(--color-border-tertiary); }
+.agent-config__refine .cfg-btn { align-self: flex-start; }
+
+.agent-config__text { padding: 16px; border: 1px solid var(--color-border-secondary); border-radius: 12px; background: var(--color-bg-pane); }
+.agent-config__editor { display: flex; flex-direction: column; gap: 12px; }
+.agent-config textarea { width: 100%; min-width: 0; min-height: 176px; height: auto; padding: 12px; border: 1px solid var(--color-border-secondary); border-radius: 12px; font-family: inherit; font-size: 14px; line-height: 22px; resize: vertical; }
+.agent-config__editor-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; font-size: 12px; line-height: 18px; color: var(--color-text-secondary); }
+.agent-config__editor .agent-config__actions .cfg-btn:first-child { flex: 1; }
+.agent-config__saved { display: flex; align-items: center; gap: 6px; font-size: 13px; line-height: 18px; color: var(--color-success-text); }
+
+/* Disclosures use one padding boundary instead of margins on every child. */
+.agent-config__workflow, .agent-config__preview { min-width: 0; border: 1px solid var(--color-border-secondary); border-radius: 16px; background: var(--color-bg-pane); }
+.agent-config summary { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 14px 16px; list-style: none; border-radius: 16px; cursor: pointer; font-size: 14px; line-height: 20px; color: var(--color-text-primary); }
+.agent-config summary::-webkit-details-marker { display: none; }
+.agent-config summary > span:not(.agent-config__summary-icon):not(.agent-config__chevron) { flex: 1; min-width: 0; }
+.agent-config__summary-icon, .agent-config__setting-icon, .agent-config__file-icon { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 28px; width: 28px; height: 28px; color: var(--color-text-secondary); }
+.agent-config__chevron { margin-left: auto; color: var(--color-text-secondary); transition: transform 120ms var(--ease-out); }
+.agent-config details[open] > summary .agent-config__chevron { transform: rotate(90deg); }
+.agent-config__disclosure-body { display: flex; flex-direction: column; align-items: stretch; gap: 16px; margin: 0 16px; padding: 16px 0; border-top: 1px solid var(--color-border-tertiary); }
+.agent-config__disclosure-body > .cfg-btn { align-self: flex-start; }
+.agent-config__layers { display: flex; flex-direction: column; gap: 16px; }
+.agent-config__layers li + li { margin-top: 0; }
+.agent-config__layers strong { display: block; font-size: 14px; line-height: 20px; }
+.agent-config__layers span { display: block; margin-top: 4px; color: var(--color-text-secondary); font-size: 13px; line-height: 20px; }
+.agent-config__prompt, .agent-config__file pre { max-height: min(440px, 55dvh); overflow: auto; margin: 0; padding: 12px; border-radius: 8px; background: var(--color-bg-subtle); white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono-stack); font-size: 12px; font-weight: 400; line-height: 20px; scrollbar-width: thin; }
+
+/* Settings and files share stable icon, text and trailing-control lanes. */
+.agent-config__settings, .agent-config__file-list { display: flex; flex-direction: column; padding: 4px; border: 1px solid var(--color-border-secondary); border-radius: 16px; background: var(--color-bg-pane); }
+.agent-config__settings button, .agent-config__file-list button { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0; min-height: 64px; padding: 12px; border-radius: 12px; text-align: left; }
+.agent-config__settings button + button::before, .agent-config__file-list button + button::before { content: ''; position: absolute; top: 0; left: 12px; right: 12px; height: 1px; background: var(--color-border-tertiary); }
+.agent-config__setting-text, .agent-config__file-label { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 2px; }
+.agent-config__setting-text strong, .agent-config__file-label strong { font-size: 14px; line-height: 20px; color: var(--color-text-primary); }
+.agent-config__setting-text > span, .agent-config__file-label > span { font-size: 12px; line-height: 18px; color: var(--color-text-secondary); }
+.agent-config__file-label strong { font-size: 13px; }
+.agent-config__file-check { display: flex; align-items: center; justify-content: center; flex: 0 0 16px; width: 16px; }
+.agent-config__file-list button[aria-pressed='true'] { background: var(--color-bg-tertiary); }
+.agent-config__file-list button[aria-pressed='true']::before, .agent-config__file-list button[aria-pressed='true'] + button::before { opacity: 0; }
+.agent-config__file { min-width: 0; padding: 16px; border: 1px solid var(--color-border-secondary); border-radius: 16px; background: var(--color-bg-pane); scroll-margin-top: 16px; }
+.agent-config__file .agent-config__back { gap: 6px; margin: -4px 0 8px -8px; }
+.agent-config__file .agent-config__row { padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--color-border-tertiary); }
+.agent-config__file .md { font-size: 13px; line-height: 22px; }
+.agent-config__file .md h1, .agent-config__file .md h2 { font-size: 17px; line-height: 24px; margin-top: 24px; font-weight: 550; }
+.agent-config__file .md h3 { font-size: 15px; line-height: 22px; margin-top: 20px; }
+.agent-config__file .md > :first-child { margin-top: 0; }
+.agent-config__file .md > :last-child { margin-bottom: 0; }
+.agent-config__file .md > * + * { margin-top: 12px; }
+
+@media (hover: hover) {
+  .agent-config__tabs button:not([aria-selected='true']):hover,
+  .agent-config summary:hover,
+  .agent-config__settings button:hover,
+  .agent-config__file-list button:not([aria-pressed='true']):hover { background: var(--color-bg-hover); }
+}
+@media (max-width: 760px), (pointer: coarse) {
+  .details--configuration .details__tabs button, .details--configuration .details__top button { min-height: 44px; }
+  .details--configuration .details__top button { min-width: 44px; }
+  .agent-config { padding-bottom: 40px; font-size: 15px; line-height: 24px; }
+  .agent-config__tabs button, .agent-config .cfg-btn, .agent-config .link-btn { min-height: 44px; }
+  .agent-config textarea { font-size: 16px; line-height: 24px; }
+  .agent-config__disclosure-body .md { font-size: 14px; line-height: 22px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-config__chevron { transition: none; }
+}

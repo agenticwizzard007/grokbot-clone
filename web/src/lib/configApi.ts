@@ -1,4 +1,4 @@
-import type { AgentSetupView, Bot, ComputerState, LibraryFile, Memory, Routine, Skill, Task, Toolkit } from '@shared/types';
+import type { AgentInstructionPreview, AgentSetupView, Bot, ComputerState, LibraryFile, Memory, Routine, Skill, Task, Toolkit } from '@shared/types';
 import { ApiError } from './api';
 import type { McpServerInput, McpServerView } from '@shared/types';
 
@@ -110,7 +110,7 @@ async function inkboxSetup(p: { handle?: string; withPhone?: boolean; rotateSign
   throw new ApiError(res.status, body?.error ?? res.statusText);
 }
 
-export type BotPatch = Partial<Pick<Bot, 'name' | 'label' | 'description' | 'instructions' | 'avatarShape' | 'avatarColor' | 'effort' | 'mode' | 'model' | 'fast'>>;
+export type BotPatch = Partial<Pick<Bot, 'name' | 'label' | 'description' | 'instructions' | 'avatarShape' | 'avatarColor' | 'effort' | 'mode' | 'model' | 'fast'>> & { expectedInstructions?: string };
 
 export type UsageRange = 'today' | '7d' | '30d' | 'month';
 export interface UsageCoverage { partialUsageRequests?: number; unavailableUsageRequests?: number; knownTokenRequests?: number; knownInputRequests?: number; knownOutputRequests?: number }
@@ -160,6 +160,7 @@ export const configApi = {
   authorizeMcpServer: (id: string) => req<{ redirectUrl: string }>('POST', `/mcp/servers/${id}/oauth`),
   deleteMcpServer: (id: string) => req<{ ok: true }>('DELETE', `/mcp/servers/${id}`),
   agentSetup: (botId: string) => req<AgentSetupView>('GET', `/bots/${botId}/setup`),
+  agentInstructions: (botId: string) => req<AgentInstructionPreview>('GET', `/bots/${botId}/instructions`),
   startSetupInterview: (botId: string) => req<AgentSetupView>('POST', `/bots/${botId}/setup/interview`),
   activateSetup: (botId: string, revision: number) => req<AgentSetupView>('POST', `/bots/${botId}/setup/activate`, { revision }),
   settings: (botId: string) => req<BotSettingsBundle>('GET', `/bots/${botId}/settings`),
