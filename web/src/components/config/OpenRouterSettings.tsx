@@ -37,8 +37,8 @@ export function OpenRouterSettings() {
         </div>
       </div>
       <div className="openrouter-settings__body">
-        <OpenRouterSignIn link />
-        <p className="cfg-field__hint">{status?.linked ? 'OpenRouter sign-in is linked to this Swarm account.' : 'Connect to authorize a key and enable OpenRouter sign-in for this account.'}</p>
+        {status && !(status.connected && status.linked) && <OpenRouterSignIn link label={status.linked ? 'Reconnect OpenRouter' : status.connected ? 'Enable OpenRouter sign-in' : undefined} />}
+        {status && <p className="cfg-field__hint">{status.linked ? 'OpenRouter sign-in is linked to this Swarm account.' : status.connected ? 'Your API key is connected. Enable OpenRouter sign-in to sign into Swarm with this account.' : 'Connect to authorize a key and enable OpenRouter sign-in for this account.'}</p>}
         <form className="openrouter-settings__key" onSubmit={e => {
           e.preventDefault();
           const value = key.trim();
@@ -46,7 +46,7 @@ export function OpenRouterSettings() {
           setKey('');
           void run(() => openrouterApi.saveKey(value), 'Key verified and saved.');
         }}>
-          <label htmlFor="personal-openrouter-key">Or paste your API key</label>
+          <label htmlFor="personal-openrouter-key">{status?.connected ? 'Replace your API key' : 'Or paste your API key'}</label>
           <input id="personal-openrouter-key" type="password" className="text-input" value={key} onChange={e => setKey(e.target.value)} autoComplete="off" spellCheck={false} placeholder="sk-or-v1-…" disabled={busy} />
           <button type="submit" className="cfg-btn cfg-btn--primary" disabled={busy || !key.trim()}>{busy ? 'Saving…' : 'Save & verify key'}</button>
         </form>

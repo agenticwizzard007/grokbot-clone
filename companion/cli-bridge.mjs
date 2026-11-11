@@ -14,6 +14,10 @@ const MAX_TIMEOUT_MS = 15 * 60_000;
 const AUTH_TIMEOUT_MS = 15_000;
 const LABEL = { codex: 'Codex', claude: 'Claude' };
 const CLAUDE_PLANS = new Set(['pro', 'max', 'ultra', 'team', 'enterprise']);
+// auth status uses machine values ("max"), while initialize can return a
+// display label ("Claude Ultra"). Accept only those same known subscription
+// tiers; the separate auth probe must still prove claude.ai subscription auth.
+const claudeCatalogPlan = value => typeof value === 'string' && CLAUDE_PLANS.has(value.trim().toLowerCase().replace(/^claude /, ''));
 const IMAGE_EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' };
 
 class RunnerError extends Error {
@@ -277,7 +281,7 @@ export async function readCatalog(params, options = {}) {
           try { windows = codexWindows(await request('account/rateLimits/read', {}, 5000)); } catch { /* Unknown is never zero usage. */ }
         } else {
           const init = await request('initialize');
-          if (!CLAUDE_PLANS.has(init?.account?.subscriptionType) || (init.account.apiProvider && init.account.apiProvider !== 'firstParty') || init.account.tokenSource === 'none') throw new RunnerError('Claude subscription authentication changed. Sign in again.', 'auth');
+          if (!claudeCatalogPlan(init?.account?.subscriptionType) || (init.account.apiProvider && init.account.apiProvider !== 'firstParty') || init.account.tokenSource === 'none') throw new RunnerError('Claude subscription authentication changed. Sign in again.', 'auth');
           if (!Array.isArray(init?.models)) throw new RunnerError('Claude returned an invalid model catalog.');
           plan = safeLabel(init.account?.subscriptionType) || null;
           models = init.models.filter(m => modelId(m.value)).map(m => ({ id: `claude/${m.value}`, name: safeLabel(m.displayName) || m.value, ...(modelId(m.resolvedModel) ? { resolvedModel: m.resolvedModel } : {}),

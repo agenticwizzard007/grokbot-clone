@@ -11,7 +11,7 @@ primary_region = "iad"
   NODE_ENV = "production"
   SWARM_ROLE = "composio-gateway"
   PORT = "8787"
-  PLATFORM_URL = "https://platform-staging.example.invalid"   # the platform app's owned origin
+  PLATFORM_URL = "https://swarm-platform-staging.fly.dev"   # the platform app's owned origin
   # Runtime identity verification uses the platform PUBLIC key only; the private signing key never reaches this role.
   PLATFORM_PUBLIC_KEY_FILE = "/run/swarm/platform-public.pem"
   AWS_REGION = "us-east-1"

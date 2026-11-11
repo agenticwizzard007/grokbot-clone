@@ -55,11 +55,9 @@ with Tigris keys would send Tigris credentials to KMS; offering Tigris requires 
 flyctl apps create swarm-platform-staging --org <staging-org>
 flyctl apps create swarm-provisioner-staging --org <staging-org>
 flyctl apps create swarm-gateway-staging --org <staging-org>
-flyctl certs add -a swarm-platform-staging platform-staging.<your-domain>
-flyctl certs add -a swarm-gateway-staging gateway-staging.<your-domain>
 ```
-Edit the manifests to those origins: `PLATFORM_URL`, `APP_URL` and `SERVER_URL` in `fly.platform.toml` (all three the
-platform origin), `COMPOSIO_GATEWAY_URL` in the platform and provisioner manifests, `PLATFORM_URL` in the gateway manifest.
+Staging uses the apps' own `https://<app>.fly.dev` origins (TLS provided by Fly), already set in the manifests; production
+replaces them with owned domains via `flyctl certs add` and the same three manifest keys.
 
 ## 4. Secrets (names as the manifests list them)
 Write each app's secrets as `NAME=VALUE` lines into a protected file (mode 0600, outside the repository) and import
@@ -152,6 +150,9 @@ The provisioner exits until step 9 records release-gate evidence for `TENANT_HOS
 ## 9. Qualification and release gates **[$ one performance-2x host for containment ≈ $0.09/hour]**
 1. Containment: run `tests/container-containment.test.mts` with `RUN_CONTAINER_TESTS=1` on a Fly performance machine
    running the host image (a Firecracker VM has its own kernel with cgroup v2 domain controllers; this sandbox did not).
+   Use the [real-Fly qualification job](../tenant-host/qualification/README.md) to render the bounded `iad`
+   performance-2x/8 GiB Machine definition, verify the pinned Alpine identity and production policy, collect image-bound
+   JSON/SHA-256 evidence, and tear down the disposable Machine. Preparation alone does not satisfy this gate.
 2. Network isolation: two tenant apps on separate custom networks; prove no cross-reach and Fly's network attestation.
 3. Signed image: cosign verify the host image digest.
 4. Provider gates: hosted login and quota evidence from the CLI owner's harness (`agenticwizzard007/cli-provider-qualification`).

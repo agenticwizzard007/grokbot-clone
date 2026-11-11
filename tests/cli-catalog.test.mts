@@ -35,7 +35,7 @@ if (args[0]==='exec') {
   const error = () => send(config.provider==='codex'?{id:r.id,error:{message:'private-sentinel'}}:{type:'control_response',response:{subtype:'error',request_id:r.request_id,error:'private-sentinel'}});
   if(config.hold) return;
   if(method==='initialized')return;
-  if(method==='initialize')reply(config.provider==='codex'?{}:{account:{subscriptionType:config.accountBad?null:'max',email:'secret@example.test'},models:[{value:config.name,displayName:'Account Claude',supportsEffort:true,supportedEffortLevels:['low','high']},{value:'default',displayName:'Account default',supportsEffort:false}]});
+  if(method==='initialize')reply(config.provider==='codex'?{}:{account:{subscriptionType:config.accountBad?null:config.accountPlan??'max',apiProvider:config.apiProvider??'firstParty',tokenSource:config.tokenSource,email:'secret@example.test'},models:[{value:config.name,displayName:'Account Claude',supportsEffort:true,supportedEffortLevels:['low','high']},{value:'default',displayName:'Account default',supportsEffort:false}]});
   if(method==='account/read')reply({account:{type:config.accountBad?'apiKey':'chatgpt',planType:'pro',email:'secret@example.test'}});
   if(method==='model/list')reply({data:[{model:r.params.cursor?'account-text':config.name,displayName:r.params.cursor?'Text model':'Account Codex',isDefault:!r.params.cursor,hidden:false,supportedReasoningEfforts:[{reasoningEffort:'low'},{reasoningEffort:'high'}],defaultReasoningEffort:'high',inputModalities:r.params.cursor?['text']:['text','image']}],nextCursor:r.params.cursor?null:'second'});
   if(config.holdUsage && ['account/rateLimits/read','get_usage'].includes(method))return;
@@ -109,6 +109,27 @@ test('runner rejects argument-injection models and invented effort modes before 
 test('Claude independently rechecks subscription identity from initialize',async t=>{
  const f=await fixture(t,'claude',{accountBad:true});
  await assert.rejects(readCatalog({provider:'claude'},f.options),/authentication changed/);
+});
+test('Claude initialize accepts native display plan labels after verified subscription auth',async t=>{
+ for(const accountPlan of ['Claude Ultra','Claude Max','Pro','Team','Enterprise']) {
+  const f=await fixture(t,'claude',{accountPlan,usageBad:true});
+  const result=await readCatalog({provider:'claude'},f.options);
+  assert.equal(result.plan,accountPlan,'preserve the provider-reported display label');
+  assert.equal(result.models[0].id,`claude/${f.name}`);
+  assert.equal(result.usage.available,false);
+  assert.ok((await f.audit()).every(a=>!a.generation));
+ }
+});
+test('Claude display labels cannot admit API, missing-token or unknown billing',async t=>{
+ for(const extra of [{accountPlan:'Claude Ultra',apiProvider:'thirdParty'},{accountPlan:'Claude Max',tokenSource:'none'},
+  ...['Claude Console','Claude Free','Max API','ultra-preview','unknown'].map(accountPlan=>({accountPlan}))]) {
+  const f=await fixture(t,'claude',extra);
+  await assert.rejects(readCatalog({provider:'claude'},f.options),/authentication changed/);
+  assert.ok((await f.audit()).every(a=>!a.generation));
+ }
+ const f=await fixture(t,'claude',{accountPlan:'Claude Ultra',authBad:true});
+ await assert.rejects(readCatalog({provider:'claude'},f.options),/subscription login/);
+ assert.equal((await f.audit()).length,1,'display plan cannot bypass the independent auth probe');
 });
 test('an unresponsive quota endpoint does not hide the discovered models',async t=>{
  const f=await fixture(t,'codex',{holdUsage:true});const start=Date.now();
