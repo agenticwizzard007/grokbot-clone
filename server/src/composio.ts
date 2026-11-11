@@ -295,3 +295,65 @@ export async function manageConnection(userId: string, id: string, operation: 'd
   await composio().connectedAccounts.delete(id);
   invalidateComposioSession(userId);
 }
+
+// ---------- Google sign-in through a Composio-managed Gmail authorization ----------
+// Composio's Gmail authorization carries Google's openid/userinfo scopes, so the token yields Google's immutable
+// account subject (the same `sub` OIDC returns). Identity is bound to that subject, never to an email address.
+
+export async function startGoogleLogin(provisionalUserId: string, callbackUrl: string) {
+  if (isTenant || !env.composioEnabled) throw new Error(APPS_OFF);
+  const session = await composio().create(provisionalUserId, { manageConnections: false });
+  const req = await session.authorize('gmail', { callbackUrl });
+  if (!req.redirectUrl || !req.id) throw new Error('Google sign-in did not return a connection link.');
+  return { redirectUrl: req.redirectUrl, connectedAccountId: req.id };
+}
+
+export class GoogleLoginError extends Error {
+  constructor(public readonly code: 'google_denied' | 'google_pending' | 'google_permissions' | 'google_unavailable') { super(code); }
+}
+
+/** Google's verified identity for this exact authorization, read through the authorizing user only. */
+export async function googleIdentityFor(connectedAccountId: string, userId: string): Promise<{ subject: string; email: string; name?: string }> {
+  if (isTenant) throw new Error(APPS_OFF);
+  const account = await composio().connectedAccounts.get(connectedAccountId) as any;
+  if (account.status === 'FAILED' && /access_denied/i.test(account.statusReason ?? '')) throw new GoogleLoginError('google_denied');
+  if (account.status !== 'ACTIVE' || account.toolkit?.slug !== 'gmail') throw new GoogleLoginError('google_pending');
+  const r = await composio().tools.proxyExecute({ endpoint: 'https://openidconnect.googleapis.com/v1/userinfo', method: 'GET', connectedAccountId, userId } as any) as any;
+  if (r.status === 401 || r.status === 403) throw new GoogleLoginError('google_permissions');
+  if (r.status < 200 || r.status >= 300) throw new GoogleLoginError('google_unavailable');
+  const d = (r.data ?? {}) as { sub?: unknown; email?: unknown; email_verified?: unknown; name?: unknown };
+  if (typeof d.sub !== 'string' || !/^[0-9]{1,255}$/.test(d.sub)) throw new GoogleLoginError('google_unavailable');
+  if (d.email_verified !== true || typeof d.email !== 'string' || d.email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)) throw new GoogleLoginError('google_permissions');
+  return { subject: d.sub, email: d.email.trim().toLowerCase(), name: typeof d.name === 'string' ? d.name.slice(0, 80) : undefined };
+}
+
+async function gmailAccountsOf(userId: string, accountType: 'PRIVATE' | 'ALL'): Promise<any[]> {
+  const items: any[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < 5; page++) {
+    const r = await composio().connectedAccounts.list({ userIds: [userId], toolkitSlugs: ['gmail'], accountType, limit: 100, ...(cursor ? { cursor } : {}) } as any) as any;
+    items.push(...(r.items ?? []));
+    cursor = r.nextCursor ?? undefined;
+    if (!cursor) break;
+  }
+  return items;
+}
+
+/** Google subjects proven by this user's own ACTIVE Gmail authorizations (adopting a pre-binding Google account). */
+export async function ownGoogleSubjects(userId: string): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (const a of await gmailAccountsOf(userId, 'PRIVATE')) {
+    if (a.status !== 'ACTIVE' || a.toolkit?.slug !== 'gmail' || a.isDisabled) continue;
+    try { out.add((await googleIdentityFor(a.id, userId)).subject); } catch { /* an unusable authorization is not proof */ }
+  }
+  return out;
+}
+
+/** Remove every authorization held by a throwaway sign-in id. Refuses real accounts. True when nothing remains. */
+export async function deleteProvisionalAuthorizations(provisionalUserId: string): Promise<boolean> {
+  if (db.prepare('SELECT 1 FROM users WHERE id=?').get(provisionalUserId)) return false;
+  try {
+    for (const a of await gmailAccountsOf(provisionalUserId, 'ALL')) await composio().connectedAccounts.delete(a.id);
+    return (await gmailAccountsOf(provisionalUserId, 'ALL')).length === 0;
+  } catch { return false; }
+}

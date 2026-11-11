@@ -18,6 +18,7 @@ import { SubscriptionSettings } from './SubscriptionSettings';
 import { OpenRouterSettings } from './OpenRouterSettings';
 import { PrivateKeysSettings } from './PrivateKeysSettings';
 import { AppleSignIn } from '../AppleSignIn';
+import { AuthLink } from '../AuthButton';
 import { api } from '../../lib/api';
 import { useCompactLayout } from '../../lib/useCompactLayout';
 import { isNativeApp } from '../../lib/native';
@@ -705,6 +706,8 @@ function AccountSection() {
   const user = useStore((s) => s.user);
   const appleLogin = useStore((s) => s.appleLogin);
   const appleLinked = useStore((s) => s.appleLinked);
+  const googleLogin = useStore((s) => s.googleLogin);
+  const googleLinked = useStore((s) => s.googleLinked);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const initials = (user?.name ?? user?.email ?? '?').trim().split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
@@ -726,13 +729,20 @@ function AccountSection() {
           </div>
         </div>
       </section>
-      {(appleLogin || appleLinked) && (
+      {(appleLogin || appleLinked || googleLogin || googleLinked) && (
         <section className="cfg-section">
           <h2 className="cfg-section__label">Sign-in methods</h2>
           <div className="cfg-card">
-            <SettingRow title="Sign in with Apple" sub={appleLinked ? 'Connected. Use it to sign in to this account on your iPhone, iPad, Mac or the web.' : 'Connect Apple to sign in to this same account on your iPhone, iPad, Mac or the web.'} wrap={!appleLinked}>
-              {appleLinked ? <span className="cfg-chip">Connected</span> : <AppleSignIn link />}
-            </SettingRow>
+            {(googleLogin || googleLinked) && (
+              <SettingRow title="Sign in with Google" sub={googleLinked ? 'Connected. Use it to sign in to this account on the web or the apps.' : 'Connect Google to sign in to this same account. Google sign-in uses Composio and requests Gmail access to verify your address.'} wrap={!googleLinked}>
+                {googleLinked ? <span className="cfg-chip">Connected</span> : <AuthLink className="signin__google" href="/api/auth/google/start?intent=link">Connect Google</AuthLink>}
+              </SettingRow>
+            )}
+            {(appleLogin || appleLinked) && (
+              <SettingRow title="Sign in with Apple" sub={appleLinked ? 'Connected. Use it to sign in to this account on your iPhone, iPad, Mac or the web.' : 'Connect Apple to sign in to this same account on your iPhone, iPad, Mac or the web.'} wrap={!appleLinked}>
+                {appleLinked ? <span className="cfg-chip">Connected</span> : <AppleSignIn link />}
+              </SettingRow>
+            )}
           </div>
         </section>
       )}
