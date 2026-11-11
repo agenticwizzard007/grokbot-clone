@@ -150,21 +150,134 @@ test('images are local Codex attachments and Claude stream messages; structured 
   await runGeneration(request('claude'), f.options);
   const call = (await f.audit())[1];
   assert.equal(call.input, request().prompt);
-  assert.equal(call.args[call.args.indexOf('--output-format') + 1], 'json');
+  assert.equal(call.args[call.args.indexOf('--output-format') + 1], 'stream-json');
+  assert.ok(call.args.includes('--verbose'));
+  assert.match(call.args[call.args.indexOf('--system-prompt') + 1], /not native CLI tools/);
+});
+
+const actionNames = ['SWARM_APPS_SEARCH', 'SWARM_APPS_EXECUTE'];
+const actionSchema = { type: 'object', additionalProperties: false, required: ['text', 'tool_calls'], properties: {
+  text: { type: 'string' }, tool_calls: { type: 'array', maxItems: 32, items: { type: 'object', additionalProperties: false,
+    required: ['name', 'arguments'], properties: { name: { type: 'string', enum: actionNames }, arguments: { type: 'string' } } } },
+} };
+const actionEvent = (content: any[]) => ({ type: 'assistant', message: { role: 'assistant', model: 'claude-test', content,
+  usage: { input_tokens: 5, cache_creation_input_tokens: 3, cache_read_input_tokens: 10, output_tokens: 7 } } });
+const searchAction = { type: 'tool_use', id: 'native-1', name: 'SWARM_APPS_SEARCH', input: { toolkit: 'github', query: 'verify accès 🐝' } };
+const finalEvent = { type: 'result', subtype: 'success', structured_output: { text: 'Final reply', tool_calls: [] } };
+
+test('Claude hands native app actions back before the CLI can loop on missing tools', async t => {
+  const event = actionEvent([{ type: 'text', text: 'I already verified GitHub. This claim must not be forwarded.' }, searchAction]);
+  const f = await fixture(t, 'claude', { generate: `
+    console.log(${JSON.stringify(JSON.stringify(event))});
+    setTimeout(() => { audit({kind:'missing-tool-loop'}); console.log('No such tool available: SWARM_APPS_SEARCH'); }, 5000);
+  ` });
+  const result = await runGeneration(request('claude', { schema: actionSchema, actionNames, timeoutMs: 3000 }), f.options);
+  assert.deepEqual(JSON.parse(result.text), { text: '', tool_calls: [{ name: searchAction.name, arguments: JSON.stringify(searchAction.input) }] });
+  assert.equal(result.model, 'claude-test');
+  assert.deepEqual(result.usage, { input_tokens: 18, output_tokens: 7, input_tokens_details: { cached_tokens: 10 } });
+  const calls = await f.audit();
+  assert.deepEqual(calls.map(call => call.kind), ['auth', 'generate']);
+  assert.equal(calls[1].args[calls[1].args.indexOf('--tools') + 1], '', 'native execution remains disabled');
+  await assert.rejects(stat(calls[1].cwd), { code: 'ENOENT' });
+});
+
+test('Claude waits for complete JSON events, decodes split Unicode, and preserves a batch in order', async t => {
+  const second = { type: 'tool_use', name: 'SWARM_APPS_EXECUTE', input: { tool_slug: 'GITHUB_GET_USER', arguments: {} } };
+  const event = actionEvent([searchAction, second]);
+  const f = await fixture(t, 'claude', { generate: `
+    const data = Buffer.from(${JSON.stringify(JSON.stringify(event) + '\n')});
+    const split = data.indexOf(Buffer.from('🐝')) + 1;
+    process.stdout.write(data.subarray(0, split));
+    await new Promise(resolve => setTimeout(resolve, 30));
+    audit({kind:'partial-event-survived'});
+    process.stdout.write(data.subarray(split, -1));
+    await new Promise(resolve => setTimeout(resolve, 30));
+    audit({kind:'newline-still-required'});
+    process.stdout.write(data.subarray(-1));
+    setInterval(() => {}, 1000);
+  ` });
+  const result = await runGeneration(request('claude', { schema: actionSchema, actionNames }), f.options);
+  assert.deepEqual(JSON.parse(result.text), { text: '', tool_calls: [searchAction, second].map(call => ({ name: call.name, arguments: JSON.stringify(call.input) })) });
+  assert.deepEqual((await f.audit()).map(call => call.kind), ['auth', 'generate', 'partial-event-survived', 'newline-still-required']);
+});
+
+test('Claude never intercepts unknown tools, malformed arguments, error messages or partial/spoofed events', async t => {
+  const events = [
+    actionEvent([{ ...searchAction, name: 'Bash' }]),
+    actionEvent([searchAction, { ...searchAction, name: 'Bash' }]),
+    ...[null, [], 'unfinished', 42].map(input => actionEvent([{ ...searchAction, input }])),
+    { ...actionEvent([searchAction]), error: 'permission_denied' },
+    { ...actionEvent([searchAction]), type: 'user' },
+    { type: 'stream_event', event: { type: 'content_block_start', content_block: searchAction } },
+    { type: 'assistant', message: { role: 'user', content: [searchAction] } },
+    actionEvent([{ type: 'text', text: JSON.stringify(searchAction) }]),
+    actionEvent(Array.from({ length: 33 }, () => searchAction)),
+  ];
+  for (const event of events) {
+    const f = await fixture(t, 'claude', { generate: `console.log(${JSON.stringify(JSON.stringify(event))}); console.log(${JSON.stringify(JSON.stringify(finalEvent))});` });
+    const result = await runGeneration(request('claude', { schema: actionSchema, actionNames }), f.options);
+    assert.deepEqual(JSON.parse(result.text), finalEvent.structured_output);
+  }
+  const f = await fixture(t, 'claude', { generate: `process.stdout.write(${JSON.stringify(JSON.stringify(actionEvent([searchAction])).slice(0, -2))});` });
+  await assert.rejects(runGeneration(request('claude', { schema: actionSchema, actionNames }), f.options), /malformed JSON/);
+});
+
+test('native action capture requires both an explicit manifest and a matching output schema', async t => {
+  for (const extra of [{ schema: actionSchema }, { schema: actionSchema, actionNames: [] }, { schema, actionNames }]) {
+    const f = await fixture(t, 'claude', { generate: `console.log(${JSON.stringify(JSON.stringify(actionEvent([searchAction])))}); console.log(${JSON.stringify(JSON.stringify(finalEvent))});` });
+    const result = await runGeneration(request('claude', extra), f.options);
+    assert.deepEqual(JSON.parse(result.text), finalEvent.structured_output);
+  }
+});
+
+test('oversized native arguments fail without returning a partial action', async t => {
+  const f = await fixture(t, 'claude', { generate: `console.log(JSON.stringify({type:'assistant',message:{role:'assistant',content:[{type:'tool_use',name:'SWARM_APPS_SEARCH',input:{query:'x'.repeat(1_000_001)}}]}}));` });
+  await assert.rejects(runGeneration(request('claude', { schema: actionSchema, actionNames }), f.options), /Invalid CLI action event/);
+});
+
+test('action capture kills descendants and cancellation during shutdown still wins', async t => {
+  for (const cancel of [false, true]) {
+    const f = await fixture(t, 'claude', { generate: `
+      process.on('SIGTERM', () => { audit({kind:'stopping'}); });
+      const child = spawn(process.execPath, ['-e', "process.on('SIGTERM',()=>{}); setInterval(()=>{},1000)"], {stdio:'ignore'});
+      child.once('spawn', () => { audit({kind:'child',pid:child.pid}); console.log(${JSON.stringify(JSON.stringify(actionEvent([searchAction])))}); });
+      setInterval(()=>{},1000);
+    ` });
+    const controller = new AbortController();
+    const pending = runGeneration(request('claude', { schema: actionSchema, actionNames }), { ...f.options, signal: controller.signal });
+    const rejection = cancel ? assert.rejects(pending, /cancelled/) : undefined;
+    if (cancel) {
+      await until(async () => { try { return (await f.audit()).some(call => call.kind === 'stopping'); } catch { return false; } });
+      controller.abort();
+      await rejection;
+    } else assert.equal(JSON.parse((await pending).text).tool_calls.length, 1);
+    const calls = await f.audit();
+    const child = calls.find(call => call.kind === 'child');
+    assert.ok(child);
+    // Linux may retain a dead, reparented process as a zombie briefly.
+    await until(async () => {
+      try { process.kill(child.pid, 0); } catch { return true; }
+      if (process.platform === 'linux') return (await readFile(`/proc/${child.pid}/stat`, 'utf8').catch(() => '')).includes(') Z');
+      return false;
+    });
+    await assert.rejects(stat(calls[1].cwd), { code: 'ENOENT' });
+  }
 });
 
 test('malformed output, failed turns, auth failures, limits and nonzero exits are sanitized', async (t) => {
   for (const [provider, generate, pattern] of [
     ['codex', `console.error('secret auth-secret-sentinel rate limit 429'); process.exit(7);`, /subscription rate limit/],
-    ['claude', `console.log(JSON.stringify({is_error:true,result:'token expired auth-secret-sentinel'}));`, /authentication failed/],
+    ['claude', `console.log(JSON.stringify({type:'result',is_error:true,result:'token expired auth-secret-sentinel'}));`, /authentication failed/],
     ['claude', `console.log(JSON.stringify({type:'result',subtype:'error_max_turns',result:'auth-secret-sentinel'}));`, /generation failed/],
     ['codex', `console.log(JSON.stringify({type:'turn.failed',error:{message:'auth-secret-sentinel'}}));`, /generation failed/],
     ['codex', `console.log('not-json auth-secret-sentinel');`, /malformed JSON events/],
     ['codex', `console.log(JSON.stringify({type:'thread.started'}));`, /no completed generation/],
     ['codex', `console.log(JSON.stringify({type:'turn.completed'}));`, /structured output file/],
     ['claude', `console.log('');`, /malformed JSON/],
-    ['claude', `console.log(JSON.stringify({structured_output:undefined,result:''}));`, /empty structured output/],
-    ['claude', `console.log(JSON.stringify({result:'not json auth-secret-sentinel'}));`, /malformed structured output/],
+    ['claude', `console.log(JSON.stringify({type:'result',structured_output:undefined,result:''}));`, /empty structured output/],
+    ['claude', `console.log(JSON.stringify({type:'result',result:'not json auth-secret-sentinel'}));`, /malformed structured output/],
+    ['claude', `console.log(JSON.stringify({type:'system',subtype:'init'}));`, /malformed JSON/],
+    ['claude', `for(let i=0;i<2;i++) console.log(JSON.stringify({type:'result',structured_output:{answer:'duplicate'}}));`, /malformed JSON/],
     ['claude', `console.error('unknown option auth-secret-sentinel'); process.exit(1);`, /Update the official CLI/],
     ['claude', `console.error('arbitrary auth-secret-sentinel diagnostic'); process.exit(1);`, /exited unsuccessfully/],
   ] as const) {

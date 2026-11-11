@@ -62,7 +62,7 @@ function killTree(child, force) {
   }
 }
 
-function execute(executable, args, { cwd, env, signal, input = '' }) {
+function execute(executable, args, { cwd, env, signal, input = '', onStdout }) {
   aborted(signal);
   return new Promise((resolveResult, reject) => {
     let child;
@@ -70,28 +70,43 @@ function execute(executable, args, { cwd, env, signal, input = '' }) {
       child = spawn(executable, args, { cwd, env, detached: process.platform !== 'win32', windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
     } catch { reject(new RunnerError('CLI executable could not be started.', 'unavailable')); return; }
     const stdout = [], stderr = [];
-    let bytes = 0, failure, killTimer, settled = false;
+    let bytes = 0, failure, killTimer, settled = false, intercepted = false;
+    const terminate = () => {
+      child.stdin.destroy();
+      killTree(child, false);
+      // Cancellation may arrive while a captured action is shutting down.
+      // Keep a single escalation timer, owned and cleared by this request.
+      if (!killTimer) killTimer = setTimeout(() => killTree(child, true), 200);
+    };
     const stop = (error) => {
       if (failure || settled) return;
       failure = error;
-      child.stdin.destroy();
-      killTree(child, false);
-      killTimer = setTimeout(() => killTree(child, true), 200);
+      terminate();
     };
     const onAbort = () => stop(signal.reason instanceof RunnerError ? signal.reason : cancelled());
     signal?.addEventListener('abort', onAbort, { once: true });
     // Covers an abort between the initial check and registering the listener.
     if (signal?.aborted) onAbort();
-    const collect = (parts) => (chunk) => {
+    const collect = (parts, inspect) => (chunk) => {
       bytes += chunk.length;
       if (bytes > MAX_BYTES) stop(new RunnerError('CLI output exceeded the 8 MB limit.', 'output_limit'));
-      else if (!failure) parts.push(chunk);
+      else if (!failure) {
+        parts.push(chunk);
+        if (inspect && !intercepted) {
+          try {
+            if (inspect(chunk) === true) {
+              intercepted = true;
+              terminate();
+            }
+          } catch { stop(new RunnerError('Invalid CLI action event.')); }
+        }
+      }
     };
-    child.stdout.on('data', collect(stdout));
+    child.stdout.on('data', collect(stdout, onStdout));
     child.stderr.on('data', collect(stderr));
     child.stdout.on('error', () => stop(new RunnerError('Could not read CLI output.')));
     child.stderr.on('error', () => stop(new RunnerError('Could not read CLI output.')));
-    child.stdin.on('error', () => stop(new RunnerError('CLI closed its prompt input unexpectedly.', 'stdin')));
+    child.stdin.on('error', () => { if (!intercepted) stop(new RunnerError('CLI closed its prompt input unexpectedly.', 'stdin')); });
     child.once('error', (error) => stop(new RunnerError(error.code === 'ENOENT' ? 'CLI executable is not installed.' : 'CLI executable could not be started.', 'unavailable')));
     // A child may exit while descendants still hold its pipes. Kill the entire group
     // on both success and failure; never let a detached descendant outlive a request.
@@ -102,7 +117,7 @@ function execute(executable, args, { cwd, env, signal, input = '' }) {
       signal?.removeEventListener('abort', onAbort);
       killTree(child, true);
       if (failure) reject(failure);
-      else resolveResult({ code, stdout: Buffer.concat(stdout).toString('utf8'), stderr: Buffer.concat(stderr).toString('utf8'), bytes });
+      else resolveResult({ code, stdout: Buffer.concat(stdout).toString('utf8'), stderr: Buffer.concat(stderr).toString('utf8'), bytes, intercepted });
     });
     if (!failure) child.stdin.end(input);
   });
@@ -306,9 +321,10 @@ function validateParams(params) {
   if (!Number.isSafeInteger(params.timeoutMs) || params.timeoutMs < 1 || params.timeoutMs > MAX_TIMEOUT_MS) throw new RunnerError('timeoutMs must be an integer from 1 to 900000.');
   if (params.model !== undefined && !modelId(params.model)) throw new RunnerError('Invalid CLI model.');
   if (params.effort !== undefined && !EFFORTS.has(params.effort)) throw new RunnerError('Invalid CLI effort.');
+  if (params.actionNames !== undefined && (!Array.isArray(params.actionNames) || params.actionNames.some(name => typeof name !== 'string' || !/^[A-Za-z0-9_-]{1,256}$/.test(name)))) throw new RunnerError('Invalid Swarm action manifest.');
   let schema;
   try { schema = JSON.stringify(params.schema); } catch { throw new RunnerError('Schema must be serializable JSON.'); }
-  let bytes = Buffer.byteLength(params.prompt) + Buffer.byteLength(schema);
+  let bytes = Buffer.byteLength(params.prompt) + Buffer.byteLength(schema) + Buffer.byteLength(JSON.stringify(params.actionNames ?? []));
   if (params.images !== undefined && (!Array.isArray(params.images) || params.images.length > 16)) throw new RunnerError('images must contain at most 16 images.');
   const images = (params.images ?? []).map((image) => {
     if (!image || !Object.hasOwn(IMAGE_EXT, image.mediaType) || typeof image.data !== 'string' || !image.data.length || image.data.length % 4 !== 0 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(image.data)) throw new RunnerError('Images require a supported mediaType and valid base64 data.');
@@ -395,31 +411,66 @@ async function generateCodex(params, options, cwd, signal) {
 }
 
 async function generateClaude(params, options, cwd, signal) {
-  // Claude requires stream-json output when accepting stream-json image input.
-  const args = ['-p', '--output-format', params.images.length ? 'stream-json' : 'json', '--json-schema', params.schema, '--tools', '',
+  // Observe complete assistant events so Swarm actions accidentally emitted as native
+  // tool_use blocks can return to the app before Claude loops on "No such tool" errors.
+  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--json-schema', params.schema, '--tools', '',
     '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--setting-sources', '', '--permission-mode', 'dontAsk',
-    '--no-session-persistence', '--disable-slash-commands', '--safe-mode', '--settings', '{"disableAllHooks":true,"forceLoginMethod":"claudeai"}'];
+    '--no-session-persistence', '--disable-slash-commands', '--safe-mode', '--settings', '{"disableAllHooks":true,"forceLoginMethod":"claudeai"}',
+    '--system-prompt', 'You are the stateless reasoning engine for Swarm. Follow the supplied conversation roles and return the requested JSON schema. Available Swarm tools are actions for the outer application, not native CLI tools. Put requested actions in tool_calls with JSON-encoded arguments, then stop so Swarm can execute them. Do not attempt native tool_use calls, use local tools, or infer that a Swarm action is unavailable from the CLI tool registry. Only supplied application tool results establish execution outcomes.'];
   if (params.model) args.push('--model', params.model);
   if (params.effort) args.push('--effort', params.effort);
   let input = params.prompt;
   if (params.images.length) {
-    args.push('--input-format', 'stream-json', '--verbose');
+    args.push('--input-format', 'stream-json');
     input = JSON.stringify({ type: 'user', message: { role: 'user', content: [
       { type: 'text', text: params.prompt },
       ...params.images.map((image) => ({ type: 'image', source: { type: 'base64', media_type: image.mediaType, data: image.data } })),
     ] } }) + '\n';
   }
-  const output = await execute(executable('claude', options), args, { cwd, env: childEnvironment(options.env), signal, input });
+  const names = JSON.parse(params.schema)?.properties?.tool_calls?.items?.properties?.name?.enum;
+  // Explicit metadata distinguishes action envelopes from arbitrary structured
+  // output schemas, which may coincidentally contain a field called tool_calls.
+  const allowed = new Set((params.actionNames ?? []).filter(name => Array.isArray(names) && names.includes(name)));
+  let actionMessage;
+  let actionText;
+  let pending = '';
+  const decoder = new StringDecoder('utf8');
+  const onStdout = chunk => {
+    if (!allowed.size) return false;
+    pending += decoder.write(chunk);
+    let end;
+    while ((end = pending.indexOf('\n')) >= 0) {
+      const line = pending.slice(0, end); pending = pending.slice(end + 1);
+      let event;
+      try { event = JSON.parse(line); } catch { continue; }
+      if (event?.type !== 'assistant' || event.error || event.message?.role !== 'assistant' || !Array.isArray(event.message.content)) continue;
+      const calls = event.message.content.filter(block => block?.type === 'tool_use');
+      if (!calls.length || calls.length > 32 || !calls.every(call => allowed.has(call.name) && call.input && typeof call.input === 'object' && !Array.isArray(call.input))) continue;
+      const tool_calls = calls.map(call => ({ name: call.name, arguments: JSON.stringify(call.input) }));
+      if (tool_calls.some(call => call.arguments.length > 1_000_000)) throw new RunnerError('CLI action arguments are too large.');
+      actionMessage = event.message;
+      // Drop native narration: an attempted action has no execution result yet.
+      actionText = JSON.stringify({ text: '', tool_calls });
+      return true;
+    }
+    return false;
+  };
+  const output = await execute(executable('claude', options), args, { cwd, env: childEnvironment(options.env), signal, input, onStdout });
   aborted(signal);
+  if (output.intercepted && actionMessage) {
+    const used = actionMessage.usage ?? {};
+    const cached = tokens(used.cache_read_input_tokens);
+    const model = typeof actionMessage.model === 'string' ? actionMessage.model : params.model;
+    return { ...(model ? { model } : {}), text: actionText,
+      usage: usage(tokens(used.input_tokens) + tokens(used.cache_creation_input_tokens) + cached, tokens(used.output_tokens), cached) };
+  }
   if (output.code !== 0) throw diagnostic('claude', output.stderr + output.stdout, 'Claude CLI exited unsuccessfully.');
   let result;
   try {
-    if (params.images.length) {
-      const events = output.stdout.split(/\r?\n/).filter((line) => line.trim()).map((line) => JSON.parse(line));
-      const results = events.filter((event) => event?.type === 'result');
-      if (results.length !== 1) throw new Error('Missing or duplicate result');
-      result = results[0];
-    } else result = JSON.parse(output.stdout);
+    const events = output.stdout.split(/\r?\n/).filter((line) => line.trim()).map((line) => JSON.parse(line));
+    const results = events.filter((event) => event?.type === 'result');
+    if (results.length !== 1) throw new Error('Missing or duplicate result');
+    result = results[0];
   }
   catch { throw diagnostic('claude', output.stderr + output.stdout, 'Claude returned malformed JSON output.'); }
   if (!result || typeof result !== 'object' || result.is_error || (typeof result.subtype === 'string' && result.subtype.startsWith('error'))) throw diagnostic('claude', output.stdout, 'Claude generation failed.');

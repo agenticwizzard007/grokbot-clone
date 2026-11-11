@@ -9,6 +9,7 @@ import path from 'node:path';
 import { after, afterEach, beforeEach, mock, test } from 'node:test';
 import { Hono } from 'hono';
 import { WebSocket } from 'ws';
+import { runGeneration } from '../companion/cli-bridge.mjs';
 
 // Configure every server module before importing it. Both API keys intentionally exist:
 // a subscription failure must still never send a request to a paid API.
@@ -421,6 +422,130 @@ test('request preparation strips model tags, attaches uploaded images and reject
   assert.ok(!prepared.prompt.includes('aGVsbG8='));
   assert.match(prepared.prompt, /Attached image 1/);
   assert.throws(() => prepareCliRequest({ input: [{ type: 'input_image', image_url: 'https://remote.example/private.png' }] }), /Remote image URLs are not supported/);
+});
+
+test('action schemas use the current function manifest and leave custom structured output unchanged', () => {
+  const tools = [{ type: 'function', name: 'SWARM_APPS_SEARCH', parameters: { type: 'object' } },
+    { type: 'function', name: 'SWARM_APPS_EXECUTE', parameters: { type: 'object' } },
+    { type: 'computer', name: 'not_a_function' }];
+  const prepared = prepareCliRequest({ ...requestBody(), tools: [...tools, tools[0]] });
+  assert.deepEqual(prepared.actionNames, ['SWARM_APPS_SEARCH', 'SWARM_APPS_EXECUTE']);
+  assert.deepEqual(prepared.schema.properties.tool_calls.items.properties.name.enum, prepared.actionNames);
+  assert.equal(prepared.schema.properties.tool_calls.maxItems, 32);
+  assert.match(prepared.prompt, /never invoke them as native CLI tool_use/);
+  assert.match(prepared.prompt, /current action list is authoritative/);
+  const empty = prepareCliRequest(requestBody());
+  assert.deepEqual(empty.actionNames, []);
+  assert.equal(empty.schema.properties.tool_calls.maxItems, 0);
+  const schema = { type: 'object', properties: { memories: { type: 'array', items: { type: 'string' } } } };
+  const custom = prepareCliRequest({ ...requestBody(), tools, text: { format: { schema } } });
+  assert.deepEqual(custom.schema, schema);
+  assert.equal(custom.actionNames, undefined);
+});
+
+// Connect the real process runner to the real WebSocket/Responses/agent loop.
+// Only the CLI executable and external app provider are fixtures.
+function nativeClaude(t: any, bridge: FakeBridge, events: any[]) {
+  const pending: Promise<void>[] = [];
+  let index = 0;
+  bridge.generate = rpc => {
+    assert.ok(index < events.length, 'no extra model retries');
+    const event = events[index++];
+    const executable = path.join(temp, `native-claude-${bridge.userId}-${index}.mjs`);
+    fs.writeFileSync(executable, `#!${process.execPath}
+      if (process.argv[2] === 'auth') console.log(JSON.stringify({loggedIn:true,authMethod:'claude.ai',subscriptionType:'max'}));
+      else {
+        for await (const chunk of process.stdin) {}
+        console.log(${JSON.stringify(JSON.stringify(event))});
+        ${event.type === 'assistant' ? 'setInterval(()=>{},1000);' : ''}
+      }
+    `, { mode: 0o700 });
+    pending.push(runGeneration(rpc.params, { claudePath: executable, env: { PATH: process.env.PATH, HOME: temp } })
+      .then(reply => bridge.respond(rpc.id, reply), error => bridge.ws.send(JSON.stringify({ id: rpc.id, error: error.message }))));
+    return HOLD;
+  };
+  t.after(() => Promise.all(pending));
+}
+const nativeAction = (name: string, input: unknown) => ({ type: 'assistant', message: { role: 'assistant', content: [
+  { type: 'text', text: 'This invented execution claim must not appear.' }, { type: 'tool_use', id: 'native-action', name, input },
+] } });
+
+test('a native Claude app write still pauses for approval before provider execution', async t => {
+  const { setEnvOverride } = await import('../server/src/env.js');
+  setEnvOverride('COMPOSIO_API_KEY', 'native-write-test');
+  t.after(() => setEnvOverride('COMPOSIO_API_KEY', ''));
+  const { composio } = await import('../server/src/composio.js');
+  t.mock.method(globalThis, 'fetch', async input => {
+    const host = new URL(String(input)).hostname;
+    if (host === 'registry.npmjs.org') return Response.json({ version: '0.28.0' });
+    if (host === 'telemetry.composio.dev') return Response.json({});
+    throw new Error('Unexpected network call before write approval');
+  });
+  const client = composio();
+  t.mock.method(client.connectedAccounts, 'list', async () => ({ items: [{ id: 'github-alice', toolkit: { slug: 'github' }, status: 'ACTIVE' }], nextCursor: null }));
+  let executed = 0;
+  t.mock.method(client.tools, 'execute', async () => { executed++; throw new Error('Unapproved write'); });
+  const bridge = await connect(alice);
+  await choose(alice, 'claude');
+  const bot = newBot(alice);
+  const args = { connectionId: 'github-alice', revision: 1, tool_slug: 'GITHUB_CREATE_ISSUE', arguments: { title: 'Review me' } };
+  nativeClaude(t, bridge, [nativeAction('SWARM_APPS_EXECUTE', args)]);
+  enqueue(bot.id, { type: 'user', text: 'Create this GitHub issue.' });
+  await runInBotQueue(bot.id, async () => {});
+  assert.equal(bridge.generations.length, 1);
+  const call: any = listRows(bot.id).find(row => row.body.type === 'tool-call')?.body;
+  assert.equal(call?.name, 'SWARM_APPS_EXECUTE');
+  assert.equal(call.status, 'awaiting-approval');
+  assert.deepEqual(call.args, args);
+  const approval = db.prepare('SELECT * FROM approvals WHERE bot_id=?').get(bot.id) as any;
+  assert.equal(approval?.status, 'pending');
+  assert.equal(executed, 0);
+  assert.doesNotMatch(JSON.stringify(listRows(bot.id)), /invented execution claim/);
+});
+
+test('a setup agent discovers and verifies GitHub through native Claude handoffs without activation', async t => {
+  const { setEnvOverride } = await import('../server/src/env.js');
+  const { beginSetupInterview, isConfiguring } = await import('../server/src/bot-setup.js');
+  setEnvOverride('COMPOSIO_API_KEY', 'native-setup-test');
+  t.after(() => setEnvOverride('COMPOSIO_API_KEY', ''));
+  t.mock.method(globalThis, 'fetch', async input => {
+    const host = new URL(String(input)).hostname;
+    if (host === 'registry.npmjs.org') return Response.json({ version: '0.28.0' });
+    if (host === 'telemetry.composio.dev') return Response.json({});
+    throw new Error('Unexpected network call during setup verification');
+  });
+  const { composio } = await import('../server/src/composio.js');
+  const client = composio(), dispatches: any[] = [];
+  const tool = { slug: 'GITHUB_GET_AUTHENTICATED_USER', name: 'Read GitHub account', description: 'Verify the connected GitHub user',
+    toolkit: { slug: 'github' }, version: '20261101_00', tags: ['readOnlyHint'], inputParameters: { type: 'object', properties: {}, additionalProperties: false } };
+  t.mock.method(client.connectedAccounts, 'list', async () => ({ items: [{ id: 'github-alice', toolkit: { slug: 'github' }, status: 'ACTIVE' }], nextCursor: null }));
+  t.mock.method(client.tools, 'getRawComposioTools', async () => [tool]);
+  t.mock.method(client.tools, 'getRawComposioToolBySlug', async () => tool);
+  t.mock.method(client.tools, 'execute', async (...args) => { dispatches.push(args); return { data: { login: 'verified-account' }, successful: true }; });
+  const bridge = await connect(alice);
+  await choose(alice, 'claude');
+  const bot = newBot(alice);
+  beginSetupInterview(bot.id);
+  db.prepare("UPDATE bot_setups SET onboarding_status='review' WHERE bot_id=?").run(bot.id);
+  nativeClaude(t, bridge, [
+    nativeAction('SWARM_APPS_SEARCH', { toolkit: 'github', query: 'verify connected user' }),
+    nativeAction('SWARM_APPS_EXECUTE', { connectionId: 'github-alice', revision: 1, tool_slug: tool.slug, arguments: {} }),
+    { type: 'result', subtype: 'success', structured_output: { text: 'Verified GitHub account: verified-account.', tool_calls: [] } },
+  ]);
+  enqueue(bot.id, { type: 'user', text: 'We connected GitHub. Verify that it works.' });
+  await runInBotQueue(bot.id, async () => {});
+  assert.equal(isConfiguring(bot.id), true);
+  assert.equal(bridge.generations.length, 3);
+  assert.match(bridge.generations[1].params.prompt, /readOnly.*true/);
+  assert.match(bridge.generations[2].params.prompt, /verified-account/);
+  assert.deepEqual(dispatches, [[tool.slug, { userId: alice, connectedAccountId: 'github-alice', version: tool.version, arguments: {} }]]);
+  const rows = listRows(bot.id);
+  const calls: any[] = rows.filter(row => row.body.type === 'tool-call').map(row => row.body);
+  assert.deepEqual(calls.map(call => [call.name, call.status]), [['SWARM_APPS_SEARCH', 'done'], ['SWARM_APPS_EXECUTE', 'done']]);
+  assert.ok(calls.every(call => call.startedAt && call.completedAt));
+  assert.ok(rows.some(row => row.body.type === 'message' && row.body.role === 'assistant' && row.body.text.includes('Verified GitHub')));
+  assert.doesNotMatch(JSON.stringify(rows), /invented execution claim|No such tool available|Something went wrong/);
+  assert.equal(db.prepare('SELECT 1 FROM approvals WHERE bot_id=?').get(bot.id), undefined);
 });
 
 test('cancelled AbortSignal sends a cancel RPC for exactly the pending generation and permits later requests', async () => {

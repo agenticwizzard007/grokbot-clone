@@ -54,6 +54,24 @@ Normal connected-app chat in this checkout uses `SWARM_APPS_SEARCH` / `SWARM_APP
 
 The prompt permits an empty tool array on completion but the adapter rejects an entirely empty completion. A follow-up fix should distinguish a valid end after an already delivered answer/bookkeeping from an empty initial response or an unresolved app failure. Do not fix this by silently accepting every empty response or automatically replaying app writes. This behavior remains unchanged in this patch.
 
+## Follow-up: Claude reports `No such tool available: SWARM_APPS_SEARCH`
+
+The later GitHub screenshot shows a different failure on Sonnet Low: the account lookup succeeds, then the assistant claims app discovery is unavailable and suggests activating the agent. Both app wrappers are already permitted during setup; execution remains restricted to provider-verified reads. Activation is not required to verify an existing connection.
+
+The exact missing-tool message occurs in the installed Claude CLI, not Swarm's dispatcher. Swarm supplies its action definitions as prompt data and expects a JSON action envelope, while native CLI tools are disabled. A native `tool_use` attempt can therefore fail inside the CLI before Swarm sees it. This is the leading diagnosis supported by the source and screenshot; no production CLI event trace was available to prove the exact sequence.
+
+The follow-up repair:
+
+- Gives Claude a system prompt defining its role as Swarm's stateless reasoning engine and makes the current action manifest authoritative over stale assistant claims.
+- Restricts action names in the output schema to the current function tools, with zero actions allowed when no tools exist. Custom structured-output schemas remain unchanged and receive no action manifest.
+- Reads Claude's NDJSON events for text and image requests. If a complete assistant event contains only known app tool calls with complete object arguments, hands those requests back to Swarm and terminates the CLI process group before another internal error/reasoning cycle. Non-action narration in that event is discarded because execution has not happened yet.
+- Requires names to match both explicit request metadata and the output schema. Unknown names, mixed known/unknown batches, partial events, error events and malformed arguments are never captured as app actions. Cancellation, size limits, subscription authentication, disabled native tools and process cleanup remain enforced.
+- Routes captured requests through the existing server validation, ownership checks, setup read restrictions and approval loop. The repair does not execute tools inside Claude or replay previous writes.
+
+Validation: 131 focused tests passed across CLI runner/subscription/catalog/concurrency/hosted/supervisor suites and app read-only/connection suites. The process reproducer returns the requested search action before the fake CLI's missing-tool loop; tests cover split Unicode/JSON, malformed and unknown calls, oversized arguments, cancellation and descendant cleanup. A real WebSocket/Responses/agent-loop test using fixture CLI and provider implementations completes GitHub discovery and one read while setup remains in review. A captured write pauses for approval with zero provider executions. Typechecking and the production build passed.
+
+Deploy the server and the runner containing `companion/cli-bridge.mjs` together. Hosted tenant workers need the updated runner image; a personal computer bridge needs the updated script and a restart. Then retry the connection verification in the existing conversation. This action handoff is not token-by-token user-text streaming, and the tests do not establish production latency or live GitHub access.
+
 ## Controlled measurements
 
 These are deterministic local probes, not production latency estimates:
