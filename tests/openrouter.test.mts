@@ -26,7 +26,8 @@ mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: Re
   const req = input instanceof Request ? input : new Request(input, init);
   const url = new URL(req.url);
   const auth = req.headers.get('authorization')?.replace('Bearer ', '') ?? '';
-  const body = req.method === 'POST' ? await req.json() as any : null;
+  const body = req.method !== 'POST' ? null : req.headers.get('content-type')?.startsWith('multipart/form-data')
+    ? Object.fromEntries(await req.formData()) : await req.json() as any;
   if (url.hostname === 'registry.npmjs.org') return Response.json({ version: '0.28.0' });
   if (url.hostname === 'telemetry.composio.dev') return Response.json({});
   if (url.pathname === '/v1/auth/keys') {
@@ -248,7 +249,7 @@ test('disconnect and corrupt ciphertext fail closed, while identity survives key
   assert.equal(calls.at(-1)!.key, 'server-direct-key');
 });
 
-test('audio uses the personal key and does not retry with a shared paid key', async () => {
+test('audio uses the personal key; standalone transcription falls back to direct without trying shared OpenRouter', async () => {
   const user = account(), key = await connect(user);
   await withUsage({ userId: user.id }, async () => {
     assert.equal(await transcribe({ data: Buffer.from('audio'), mime: 'audio/wav' }), 'My transcription.');
@@ -258,7 +259,10 @@ test('audio uses the personal key and does not retry with a shared paid key', as
     const before = calls.length;
     try { await assert.rejects(transcribe({ data: Buffer.from('audio'), mime: 'audio/wav' })); }
     finally { inferenceRejected = false; }
-    assert.equal(calls.length - before, 1);
+    assert.deepEqual(calls.slice(before).map(c => ({ path: c.path, key: c.key })), [
+      { path: 'https://router.test/v1/audio/transcriptions', key },
+      { path: 'https://direct.test/v1/stt', key: 'server-direct-key' },
+    ]);
   });
 });
 

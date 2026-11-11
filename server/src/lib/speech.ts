@@ -15,9 +15,9 @@ import { openrouterConnection, personalOpenRouterKey, usesPersonalOpenRouter } f
 /**
  * Speech for Bots: transcription (voice notes, dictation) and text-to-speech (voice replies, previews).
  *
- * Platform voice first, for every account, including CLI and personal OpenRouter users.
- * Without it, OpenRouter first: POST /audio/transcriptions and /audio/speech, so one key covers models,
- * hearing and speaking. A direct provider's /stt and /tts are the fallback when only a direct provider key is set.
+ * Standalone voice notes try OpenRouter first, then platform voice and the legacy direct provider.
+ * CLI subscriptions use platform voice without falling back to shared text API credentials.
+ * Speech synthesis keeps platform voice first, including CLI and personal OpenRouter users.
  * Live voice calls are separate: they need direct provider's realtime API (voice.ts).
  */
 
@@ -40,15 +40,18 @@ const subscriptionMode = () => !!selectedCli(currentUserId());
 const openrouterKey = () => usesPersonalOpenRouter(currentUserId()) ? personalOpenRouterKey(currentUserId()!) : env.openrouterKey;
 
 export function speechStatus() {
-  if (isTenant ? !!voiceProvider().key : !!env.voiceKey) return { transcription: 'xai', speech: 'xai', sttModel: 'xai-stt', ttsModel: 'xai-tts' } as const;
+  const platform = isTenant ? !!voiceProvider().key : !!env.voiceKey;
   const personal = openrouterConnection(currentUserId());
-  const or = !subscriptionMode() && (personal?.enabled ? !!personal.encrypted_key : !isTenant && !!env.openrouterKey);
-  const direct = !isTenant && !subscriptionMode() && !personal?.enabled && !!env.directKey;
+  const subscription = subscriptionMode();
+  const or = !subscription && (personal?.enabled ? !!personal.encrypted_key : !isTenant && !!env.openrouterKey);
+  const direct = !isTenant && !subscription && !personal?.enabled && !!env.directKey;
+  const transcriptionOr = isTenant ? !platform && or : personal?.enabled ? !!personal.encrypted_key : !subscription && !!env.openrouterKey;
+  const transcriptionDirect = !isTenant && !subscription && !!env.directKey;
   return {
-    transcription: or ? 'openrouter' : direct ? 'direct' : null,
-    speech: or ? 'openrouter' : direct ? 'direct' : null,
-    sttModel: or ? STT_MODEL() : direct ? DIRECT_STT_MODEL() : null,
-    ttsModel: or ? TTS_MODEL() : null,
+    transcription: transcriptionOr ? 'openrouter' : platform ? 'xai' : transcriptionDirect ? 'direct' : null,
+    speech: platform ? 'xai' : or ? 'openrouter' : direct ? 'direct' : null,
+    sttModel: transcriptionOr ? STT_MODEL() : platform ? 'xai-stt' : transcriptionDirect ? DIRECT_STT_MODEL() : null,
+    ttsModel: platform ? 'xai-tts' : or ? TTS_MODEL() : null,
   } as const;
 }
 
@@ -73,7 +76,7 @@ function ffmpeg(): string | null {
 }
 
 /**
- * Convert audio OpenRouter can't read (iMessage voice notes are CAF) to mp3. Input goes through a temp file because
+ * Convert unsupported audio (iMessage voice notes are CAF) to mp3. Input goes through a temp file because
  * some containers (CAF) need a seekable input.
  */
 export async function toMp3(a: Audio): Promise<Audio> {
@@ -96,6 +99,10 @@ export async function toMp3(a: Audio): Promise<Audio> {
 
 // ---------- transcription ----------
 
+class TranscriptionFailure extends Error {
+  constructor(provider: string, readonly status: number) { super(`${provider} transcription failed (${status}).`); }
+}
+
 async function openrouterTranscribe(a: Audio, language?: string): Promise<string> {
   const ready = formatFor(a.mime) ? a : await toMp3(a);
   const r = await fetch(`${env.openrouterBaseUrl}/audio/transcriptions`, {
@@ -104,23 +111,32 @@ async function openrouterTranscribe(a: Audio, language?: string): Promise<string
     body: JSON.stringify({ model: STT_MODEL(), input_audio: { data: ready.data.toString('base64'), format: formatFor(ready.mime) }, ...(language ? { language } : {}) }),
     signal: AbortSignal.timeout(90_000),
   });
-  if (!r.ok) throw new Error(`OpenRouter transcription failed (${r.status}): ${(await r.text().catch(() => '')).slice(0, 200)}`);
+  if (!r.ok) { await r.body?.cancel(); throw new TranscriptionFailure('OpenRouter', r.status); }
   const j = (await r.json()) as { text?: string; usage?: unknown };
   if (j.usage) void recordModelUsage({ kind: 'transcription', model: STT_MODEL(), provider: 'openrouter', response: j });
   else recordUnits({ kind: 'transcription', model: STT_MODEL(), provider: 'openrouter', units: 1, unit: 'recordings' });
   return String(j.text ?? '').trim();
 }
 
-async function directTranscribe(a: Audio, language?: string): Promise<string> {
-  const provider = voiceProvider();
+async function directTranscribe(a: Audio, language?: string, provider: Pick<ReturnType<typeof voiceProvider>, 'key' | 'baseUrl' | 'provider'> = voiceProvider()): Promise<string> {
+  // Platform STT does not accept Apple's CAF container either. Keep the same
+  // normalization as OpenRouter instead of bypassing it when platform voice is enabled.
+  const ready = formatFor(a.mime) ? a : await toMp3(a);
   const model = provider.provider === 'xai' ? 'xai-stt' : DIRECT_STT_MODEL();
-  const form = new FormData();
-  if (provider.provider !== 'xai') form.append('model', model);
-  if (language && /^[a-z]{2}$/.test(language)) form.append('language', language);
-  const ext = formatFor(a.mime) ?? (baseMime(a.mime).includes('caf') ? 'caf' : 'audio');
-  form.append('file', new Blob([new Uint8Array(a.data)], { type: baseMime(a.mime) }), `voice.${ext}`); // must be last
-  const r = await fetch(`${provider.baseUrl}/stt`, { method: 'POST', headers: { Authorization: `Bearer ${provider.key}` }, body: form, redirect: 'error', signal: AbortSignal.timeout(60_000) });
-  if (!r.ok) throw new Error(`Voice transcription failed (${r.status}).`);
+  const upload = (audio: Audio) => {
+    const form = new FormData();
+    if (provider.provider !== 'xai') form.append('model', model);
+    if (language && /^[a-z]{2}$/.test(language)) form.append('language', language);
+    form.append('file', new Blob([new Uint8Array(audio.data)], { type: baseMime(audio.mime) }), `voice.${formatFor(audio.mime)}`); // must be last
+    return fetch(`${provider.baseUrl}/stt`, { method: 'POST', headers: { Authorization: `Bearer ${provider.key}` }, body: form, redirect: 'error', signal: AbortSignal.timeout(60_000) });
+  };
+  let r = await upload(ready);
+  // Retry rejected containers/codecs once as MP3 before trying another provider.
+  if (provider.provider === 'xai' && (r.status === 400 || r.status === 415) && ready === a && formatFor(a.mime) !== 'mp3') {
+    await r.body?.cancel();
+    r = await upload(await toMp3(a));
+  }
+  if (!r.ok) { await r.body?.cancel(); throw new TranscriptionFailure('Voice', r.status); }
   const j = (await r.json()) as { text?: string; usage?: unknown };
   if (j.usage) void recordModelUsage({ kind: 'transcription', model, provider: provider.provider, response: j });
   else recordUnits({ kind: 'transcription', model, provider: provider.provider, units: 1, unit: 'recordings' });
@@ -129,16 +145,28 @@ async function directTranscribe(a: Audio, language?: string): Promise<string> {
 
 /** Transcribe a recording. Throws SpeechUnavailable when no provider is set up; tries the other provider on failure. */
 export async function transcribe(a: Audio, opts: { language?: string } = {}): Promise<string> {
-  if (isTenant ? !!voiceProvider().key : !!env.voiceKey) return directTranscribe(a, opts.language);
-  if (subscriptionMode()) throw new SpeechUnavailable(SUBSCRIPTION_VOICE_UNAVAILABLE);
-  if (usesPersonalOpenRouter(currentUserId())) return openrouterTranscribe(a, opts.language);
-  if (isTenant) throw new SpeechUnavailable('Configure your own compatible voice API credential first.');
-  const order = [env.openrouterKey ? 'openrouter' : null, env.directKey ? 'direct' : null].filter(Boolean) as ('openrouter' | 'direct')[];
-  if (!order.length) throw new SpeechUnavailable('Voice notes need an OpenRouter or direct provider key on this server.');
+  if (isTenant) {
+    if (voiceProvider().key) return directTranscribe(a, opts.language);
+    if (subscriptionMode()) throw new SpeechUnavailable(SUBSCRIPTION_VOICE_UNAVAILABLE);
+    if (usesPersonalOpenRouter(currentUserId())) return openrouterTranscribe(a, opts.language);
+    throw new SpeechUnavailable('Configure your own compatible voice API credential first.');
+  }
+  const subscription = subscriptionMode();
+  const order = [
+    usesPersonalOpenRouter(currentUserId()) || (!subscription && env.openrouterKey) ? 'openrouter' : null,
+    env.voiceKey ? 'xai' : null,
+    !subscription && env.directKey ? 'direct' : null,
+  ].filter(Boolean) as ('openrouter' | 'xai' | 'direct')[];
+  if (!order.length) throw new SpeechUnavailable(subscription ? SUBSCRIPTION_VOICE_UNAVAILABLE : 'Voice notes need an OpenRouter or direct provider key on this server.');
   let last: unknown;
   for (const p of order) {
-    try { return p === 'openrouter' ? await openrouterTranscribe(a, opts.language) : await directTranscribe(a, opts.language); }
-    catch (e) { last = e; console.warn(`[speech] ${p} transcription failed: ${(e as Error).message}`); }
+    try {
+      if (p === 'openrouter') return await openrouterTranscribe(a, opts.language);
+      return await directTranscribe(a, opts.language, p === 'xai' ? voiceProvider() : { key: env.directKey, baseUrl: env.directBaseUrl.replace(/\/$/, ''), provider: 'direct' });
+    } catch (e) {
+      last = e;
+      console.warn(`[speech] ${p} transcription failed: ${e instanceof TranscriptionFailure ? e.status : 'unavailable'}`);
+    }
   }
   throw last;
 }

@@ -1,20 +1,31 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { once } from 'node:events';
 import fs from 'node:fs';
 import { createServer } from 'node:http';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { after, beforeEach, test } from 'node:test';
 import { Hono } from 'hono';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-platform-voice-'));
-const requests: { path: string; key: string; body: string }[] = [];
+const ffmpegBin = createRequire(import.meta.url)('ffmpeg-static') as string;
+const recordings = Object.fromEntries(['caf', 'ogg', 'webm', 'mp3'].map(format => {
+  const file = path.join(tmp, `recording.${format}`);
+  execFileSync(ffmpegBin, ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=0.25',
+    '-c:a', format === 'mp3' ? 'libmp3lame' : 'libopus', '-f', format, file]);
+  return [format, fs.readFileSync(file)];
+}));
+const requests: { path: string; key: string; body: string; upload?: { name: string; mime: string; data: Buffer } }[] = [];
 let failure: 'reject' | 'malformed' | 'expired' | 'echo' | 'offline' | null = null;
 const upstream = createServer(async (req, res) => {
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
-  const body = Buffer.concat(chunks).toString();
-  requests.push({ path: req.url!, key: req.headers.authorization ?? '', body });
+  const bytes = Buffer.concat(chunks);
+  const body = bytes.toString();
+  const request: typeof requests[number] = { path: req.url!, key: req.headers.authorization ?? '', body };
+  requests.push(request);
   res.setHeader('content-type', 'application/json');
   if (failure === 'reject' || failure === 'offline') {
     res.statusCode = failure === 'reject' ? 401 : 503;
@@ -26,7 +37,35 @@ const upstream = createServer(async (req, res) => {
       expires_at: Math.floor(Date.now() / 1000) + (failure === 'expired' ? -5 : 300),
     }));
   }
-  if (req.url === '/xai/stt') return res.end(JSON.stringify({ text: 'Ask the main agent to prepare my agenda.' }));
+  if (req.url === '/xai/stt') {
+    try {
+      const form = await new Response(bytes, { headers: { 'content-type': req.headers['content-type']! } }).formData();
+      const file = form.get('file');
+      assert.ok(file && typeof file !== 'string');
+      request.upload = { name: file.name, mime: file.type, data: Buffer.from(await file.arrayBuffer()) };
+      // Match the provider's container contract; arbitrary bytes must not pass this fixture.
+      assert.ok(['audio/mpeg', 'audio/ogg', 'audio/webm'].includes(file.type));
+      assert.equal([...form.keys()].at(-1), 'file');
+      execFileSync(ffmpegBin, ['-hide_banner', '-loglevel', 'error', '-i', 'pipe:0', '-f', 'null', '-'],
+        { input: request.upload.data, stdio: ['pipe', 'pipe', 'pipe'] });
+      return res.end(JSON.stringify({ text: 'Ask the main agent to prepare my agenda.' }));
+    } catch {
+      res.statusCode = 400;
+      return res.end(JSON.stringify({ error: 'Unsupported or invalid audio input.' }));
+    }
+  }
+  if (req.url === '/openrouter/audio/transcriptions') {
+    try {
+      const input = JSON.parse(body).input_audio;
+      assert.ok(['mp3', 'ogg', 'webm'].includes(input?.format));
+      execFileSync(ffmpegBin, ['-hide_banner', '-loglevel', 'error', '-i', 'pipe:0', '-f', 'null', '-'],
+        { input: Buffer.from(input.data, 'base64'), stdio: ['pipe', 'pipe', 'pipe'] });
+      return res.end(JSON.stringify({ text: 'Ask the main agent to prepare my agenda.' }));
+    } catch {
+      res.statusCode = 400;
+      return res.end(JSON.stringify({ error: 'Unsupported or invalid audio input.' }));
+    }
+  }
   if (req.url === '/xai/tts') {
     if (typeof JSON.parse(body).language !== 'string') {
       res.statusCode = 422;
@@ -144,9 +183,10 @@ test('voice credentials never allow another account’s bot or calls to be acces
   assert.equal(requests.length, 0);
 });
 
-test('CLI subscriptions and personal OpenRouter keep their text routing while using platform voice', async () => {
+test('CLI subscriptions use platform transcription and personal OpenRouter keeps its own transcription routing', async () => {
   await save();
   for (const mode of ['codex', 'claude', 'openrouter'] as const) {
+    const requestStart = requests.length;
     selectCli('alice', mode === 'openrouter' ? null : mode);
     if (mode === 'openrouter') saveOpenRouterKey('alice', 'personal-text-secret', 'manual');
     const selected = withUsage({ userId: 'alice' }, () => llmProvider());
@@ -155,19 +195,47 @@ test('CLI subscriptions and personal OpenRouter keep their text routing while us
     assert.equal(session.status, 200);
     const body = await session.json();
     assert.equal((await request('alice', '/voice/preview', 'POST', { botId: alice.id })).status, 200);
-    const form = new FormData(); form.append('file', new Blob([Buffer.alloc(512)], { type: 'audio/webm' }), 'voice.webm');
+    const form = new FormData(); form.append('file', new Blob([recordings.webm], { type: 'audio/webm' }), 'voice.webm');
     const stt = await app.request('/api/voice/stt', { method: 'POST', headers: { cookie: 'swarm_session=alice' }, body: form });
     assert.equal(stt.status, 200); assert.match((await stt.json()).text, /main agent/);
     await withUsage({ userId: 'alice' }, async () => {
       assert.equal(speechStatus().speech, 'xai');
       await synthesize('Hello', 'luna');
-      assert.match(await transcribe({ data: Buffer.alloc(512), mime: 'audio/webm' }), /main agent/);
+      assert.match(await transcribe({ data: recordings.webm, mime: 'audio/webm' }), /main agent/);
       assert.equal(llmProvider(), selected);
     });
     await request('alice', '/voice/end', 'POST', { botId: alice.id, callId: body.callId });
+    const sttCalls = requests.slice(requestStart).filter(r => r.path.endsWith('/stt') || r.path.endsWith('/transcriptions'));
+    assert.equal(sttCalls.length, 2);
+    assert.ok(sttCalls.every(r => mode === 'openrouter'
+      ? r.path === '/openrouter/audio/transcriptions' && r.key === 'Bearer personal-text-secret'
+      : r.path === '/xai/stt' && r.key === `Bearer ${key}`));
   }
-  assert.ok(requests.every(r => r.key === `Bearer ${key}` && r.path.startsWith('/xai/')));
-  assert.ok((db.prepare('SELECT DISTINCT user_id,provider FROM usage_events').all() as any[]).every(r => r.user_id === 'alice' && r.provider === 'xai'));
+  assert.ok(requests.every(r => r.path === '/openrouter/audio/transcriptions'
+    ? r.key === 'Bearer personal-text-secret'
+    : r.key === `Bearer ${key}` && r.path.startsWith('/xai/')));
+  const usage = db.prepare('SELECT user_id,provider,kind FROM usage_events').all() as any[];
+  assert.ok(usage.every(r => r.user_id === 'alice' && (r.provider === 'xai' || (r.provider === 'openrouter' && r.kind === 'transcription'))));
+  assert.equal(usage.filter(r => r.provider === 'openrouter').length, 2);
+});
+
+test('platform transcription converts Apple CAF voice notes and preserves supported WhatsApp/browser containers', async () => {
+  await save(); selectCli('alice', 'codex'); requests.length = 0;
+  for (const [format, mime] of [['caf', 'audio/x-caf'], ['ogg', 'audio/ogg; codecs=opus'], ['webm', 'audio/webm'], ['mp3', 'audio/mpeg']] as const) {
+    const text = await withUsage({ userId: 'alice' }, () => transcribe({ data: recordings[format], mime }));
+    assert.match(text, /main agent/);
+    const call = requests.at(-1)!;
+    assert.equal(call.path, '/xai/stt');
+    assert.equal(call.key, `Bearer ${key}`);
+    assert.equal(call.upload?.name, `voice.${format === 'caf' ? 'mp3' : format}`);
+    assert.equal(call.upload?.mime, format === 'caf' ? 'audio/mpeg' : mime.split(';')[0]);
+    if (format === 'caf') assert.notDeepEqual(call.upload?.data, recordings.caf);
+    else assert.deepEqual(call.upload?.data, recordings[format], 'supported audio is not needlessly converted');
+  }
+  assert.equal(requests.length, 4, 'each note uses the selected platform provider once');
+  const usage = db.prepare("SELECT user_id,provider FROM usage_events WHERE kind='transcription'").all();
+  assert.equal(usage.length, 4);
+  assert.ok(usage.every((row: any) => row.user_id === 'alice' && row.provider === 'xai'));
 });
 
 test('upstream failures and invalid credentials are sanitized, produce no call, and never fall back to text keys', async () => {
