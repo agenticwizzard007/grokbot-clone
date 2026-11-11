@@ -1,0 +1,123 @@
+{
+  "version": 1,
+  "target": {
+    "kind": "dedicated-staging",
+    "origin": "https://replace-staging.invalid",
+    "approvedOrigin": "https://replace-staging.invalid",
+    "appId": "REPLACE_REVIEWED_FLY_APP",
+    "imageDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "approval": {
+    "reference": "REPLACE_APPROVED_RUN_REFERENCE",
+    "disposableAccounts": true,
+    "modelLoopRiskAcknowledged": true
+  },
+  "budget": {
+    "maxTurns": 20,
+    "maxMinutes": 30
+  },
+  "evidenceDir": "/private/provider-test/evidence",
+  "users": [
+    {
+      "alias": "a",
+      "userId": "REPLACE_USER_A",
+      "botId": "REPLACE_BOT_A",
+      "disposableBot": true,
+      "sessionFile": "/private/provider-test/a-session",
+      "observerSessionFile": "/private/provider-test/a-observer-session",
+      "imageFixture": {
+        "url": "https://fixtures.invalid/desktop/a/prepare",
+        "identity": "desktop-a",
+        "tokenFile": "/private/provider-test/a-desktop-fixture-token"
+      },
+      "connections": [
+        {
+          "id": "REPLACE_A_CONNECTION_1",
+          "toolkit": "notion",
+          "readOnlyReviewed": true,
+          "toolSlug": "REPLACE_DISCOVERED_READ_TOOL",
+          "arguments": {
+            "REPLACE_REVIEWED_PARAMETER": "REPLACE_TEST_RESOURCE"
+          },
+          "expectedMarker": "REPLACE_FRESH_RANDOM_A_1_MARKER",
+          "audit": {
+            "url": "https://witness.invalid/provider/a",
+            "identity": "staging-account-a-witness",
+            "tokenFile": "/private/provider-test/a-witness-token"
+          }
+        },
+        {
+          "id": "REPLACE_A_CONNECTION_2",
+          "toolkit": "notion",
+          "readOnlyReviewed": true,
+          "toolSlug": "REPLACE_DISCOVERED_READ_TOOL",
+          "arguments": {
+            "REPLACE_REVIEWED_PARAMETER": "REPLACE_TEST_RESOURCE"
+          },
+          "expectedMarker": "REPLACE_FRESH_RANDOM_A_2_MARKER",
+          "audit": {
+            "url": "https://witness.invalid/provider/a",
+            "identity": "staging-account-a-witness",
+            "tokenFile": "/private/provider-test/a-witness-token"
+          }
+        }
+      ],
+      "mcp": {
+        "serverId": "REPLACE_MCP_A",
+        "toolName": "REPLACE_ACTUAL_DISCOVERED_REVISIONED_TOOL_NAME",
+        "readOnlyReviewed": true,
+        "nonceArgument": "probe",
+        "arguments": {},
+        "expectedMarker": "REPLACE_RANDOM_MCP_A_MARKER",
+        "audit": {
+          "url": "https://witness.invalid/mcp/a",
+          "identity": "staging-mcp-a",
+          "tokenFile": "/private/provider-test/a-mcp-audit-token"
+        }
+      }
+    },
+    {
+      "alias": "b",
+      "userId": "REPLACE_USER_B",
+      "botId": "REPLACE_BOT_B",
+      "disposableBot": true,
+      "sessionFile": "/private/provider-test/b-session",
+      "observerSessionFile": "/private/provider-test/b-observer-session",
+      "imageFixture": {
+        "url": "https://fixtures.invalid/desktop/b/prepare",
+        "identity": "desktop-b",
+        "tokenFile": "/private/provider-test/b-desktop-fixture-token"
+      },
+      "connections": [
+        {
+          "id": "REPLACE_B_CONNECTION_1",
+          "toolkit": "notion",
+          "readOnlyReviewed": true,
+          "toolSlug": "REPLACE_DISCOVERED_READ_TOOL",
+          "arguments": {
+            "REPLACE_REVIEWED_PARAMETER": "REPLACE_TEST_RESOURCE"
+          },
+          "expectedMarker": "REPLACE_FRESH_RANDOM_B_1_MARKER",
+          "audit": {
+            "url": "https://witness.invalid/provider/b",
+            "identity": "staging-account-b-witness",
+            "tokenFile": "/private/provider-test/b-witness-token"
+          }
+        }
+      ],
+      "mcp": {
+        "serverId": "REPLACE_MCP_B",
+        "toolName": "REPLACE_ACTUAL_DISCOVERED_REVISIONED_TOOL_NAME",
+        "readOnlyReviewed": true,
+        "nonceArgument": "probe",
+        "arguments": {},
+        "expectedMarker": "REPLACE_RANDOM_MCP_B_MARKER",
+        "audit": {
+          "url": "https://witness.invalid/mcp/b",
+          "identity": "staging-mcp-b",
+          "tokenFile": "/private/provider-test/b-mcp-audit-token"
+        }
+      }
+    }
+  ]
+}
