@@ -1,10 +1,10 @@
 name: Tenant isolation
 on:
   pull_request:
-    paths: ['server/**', 'tests/**', 'infra/tenant-host/**', 'scripts/test-isolation.mjs', 'package*.json', '.github/workflows/isolation.yml']
+    paths: ['server/**', 'tests/**', 'infra/tenant-host/**', 'infra/monitoring/**', 'scripts/test-isolation.mjs', 'package*.json', '.github/workflows/isolation.yml']
   push:
     branches: [main]
-    paths: ['server/**', 'tests/**', 'infra/tenant-host/**', 'scripts/test-isolation.mjs', 'package*.json', '.github/workflows/isolation.yml']
+    paths: ['server/**', 'tests/**', 'infra/tenant-host/**', 'infra/monitoring/**', 'scripts/test-isolation.mjs', 'package*.json', '.github/workflows/isolation.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -37,5 +37,21 @@ jobs:
       - run: npm run test:deployment
       - run: npm run test:isolation
       - run: npm run test:cli
+      - name: Validate operational alert rules
+        shell: bash
+        run: |
+          set -euo pipefail
+          monitoring_tools="$(mktemp -d)"
+          trap 'rm -rf "$monitoring_tools"' EXIT
+          curl --fail --silent --show-error --location --retry 3 \
+            https://github.com/prometheus/prometheus/releases/download/v3.5.0/prometheus-3.5.0.linux-amd64.tar.gz \
+            --output "$monitoring_tools/prometheus.tar.gz"
+          printf '%s  %s\n' e811827af26d822afb09a4f28314f61b618b12cff5369835a67f674d8b46f39a "$monitoring_tools/prometheus.tar.gz" | sha256sum --check -
+          tar -xzf "$monitoring_tools/prometheus.tar.gz" -C "$monitoring_tools" --strip-components=1 prometheus-3.5.0.linux-amd64/promtool prometheus-3.5.0.linux-amd64/prometheus
+          PROMETHEUS_BIN="$monitoring_tools/prometheus" node --import tsx tests/operations-collector-smoke.mts
+          "$monitoring_tools/promtool" check config --syntax-only infra/monitoring/prometheus.example.yml
+          cd infra/monitoring
+          "$monitoring_tools/promtool" check rules swarm-alerts.yml
+          "$monitoring_tools/promtool" test rules swarm-alerts.test.yml
       # Real container/Fly/provider qualification has a separate controlled
       # inventory. This job must not claim those external gates passed.

@@ -10,6 +10,7 @@ import Database from 'better-sqlite3';
 import {Directory,opaqueToken} from '../server/src/platform/directory.js';
 import {MigrationCoordinator,type MigrationSource} from '../server/src/platform/migration-coordinator.js';
 import {MigrationDestination,planMigrationDestination} from '../server/src/platform/migration-destination.js';
+import {inventoryLegacySource} from '../server/src/platform/migration-inventory.js';
 import {MigrationTransfer} from '../server/src/platform/migration-transfer.js';
 import {FlyMigrationTarget} from '../server/src/platform/migration-target.js';
 import {HostControl} from '../server/src/platform/host-control.js';
@@ -31,8 +32,9 @@ test('Fly migration target uses held installation, exact readiness and a fresh r
   for(const gate of infrastructureGates)await directory.pool.query('INSERT INTO release_gates(name,image_digest,evidence_uri,approved_at) VALUES($1,$2,$3,now())',[gate,image,'simulated-target-infrastructure']);
   t.after(async()=>{fs.rmSync(root,{recursive:true,force:true});await directory.pool.end();await admin.query(`DROP SCHEMA ${schema} CASCADE`);await admin.end();});
   async function fixture(options:{timeout?:number;idle?:boolean}={}){
-    const tenant=await directory.identity('google',opaqueToken(),{name:'Target migration'}),master=randomBytes(32),fly=new FakeFly(),sourceSnapshot=path.join(root,`${tenant}-source.db`),filesRoot=path.join(root,`${tenant}-files`);
+    const tenant=await directory.identity('google',opaqueToken(),{name:'Target migration'}),master=randomBytes(32),fly=new FakeFly(),sourceSnapshot=path.join(root,`${tenant}-source.db`),filesRoot=path.join(root,`${tenant}-files`),cliProfilesRoot=path.join(root,`${tenant}-cli`);
     t.after(()=>master.fill(0));fs.mkdirSync(path.join(filesRoot,'bot_owned'),{recursive:true});fs.writeFileSync(path.join(filesRoot,'bot_owned/note.txt'),'source file');
+    fs.mkdirSync(cliProfilesRoot);
     const db=new Database(sourceSnapshot);db.exec('CREATE TABLE users(id TEXT PRIMARY KEY,phone TEXT);CREATE TABLE bots(id TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id));CREATE TABLE notes(user_id TEXT REFERENCES users(id),body TEXT);');
     db.prepare('INSERT INTO users VALUES(?,NULL)').run(tenant);db.prepare('INSERT INTO bots VALUES(?,?)').run('bot_owned',tenant);db.prepare('INSERT INTO notes VALUES(?,?)').run(tenant,'source data');db.close();
     const sourceCheckpoint=createHash('sha256').update(fs.readFileSync(sourceSnapshot)).digest('hex');
@@ -78,7 +80,8 @@ test('Fly migration target uses held installation, exact readiness and a fresh r
     const adapter=new FlyMigrationTarget(directory,fly,source,async()=>{await hostTick();},options.timeout??3000),coordinator=new MigrationCoordinator(directory,source,adapter,()=>{});
     const frozen=await coordinator.beginExport(tenant),plan=await planMigrationDestination(directory,{tenant,image,region:'iad'});
     const reservation=await new MigrationDestination(directory,fly,source).reserve(plan);
-    const uploaded=await new MigrationTransfer(directory,{create:async()=>{},key:async()=>Buffer.from(master)},storage,source).upload({tenant,operation:frozen.operation,checkpoint:frozen.checkpoint,volume:reservation.volume,sourceSnapshot,filesRoot,sourceSessionSecret:'test-only-legacy-session-secret',workDirectory:path.join(root,`${tenant}-transfer`)});
+    const reviewedInventoryHash=(await inventoryLegacySource({tenant,sourceSnapshot,filesRoot,cliProfilesRoot})).inventoryHash;
+    const uploaded=await new MigrationTransfer(directory,{create:async()=>{},key:async()=>Buffer.from(master)},storage,source).upload({tenant,operation:frozen.operation,checkpoint:frozen.checkpoint,volume:reservation.volume,sourceSnapshot,filesRoot,cliProfilesRoot,reviewedInventoryHash,sourceSessionSecret:'test-only-legacy-session-secret',workDirectory:path.join(root,`${tenant}-transfer`)});
     await coordinator.prepare(tenant,uploaded.packageHash,uploaded.checkpoint);
     return {tenant,fly,source,state,coordinator,adapter,frozen,reservation,uploaded,hostTick,installedRoot:()=>installedRoot,onWait:(fn:typeof onWait)=>{onWait=fn;}};
   }

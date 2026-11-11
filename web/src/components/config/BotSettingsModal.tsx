@@ -1,3 +1,4 @@
+import { useModels, effortsFor, effectiveEffort, EFFORT_LABEL } from '../../lib/models';
 import { BotModelField } from './BotModelField';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AvatarColor, AvatarShape, Bot, Memory, Routine, Skill } from '@shared/types';
@@ -11,15 +12,6 @@ import { Modal } from '../modals/Modal';
 import { BotAnalyticsTab } from './BotAnalyticsTab';
 import { Glyph } from './glyphs';
 import { ConfirmButton, Field, Segmented, Switch, nextRunLabel, shortDate } from './ui';
-
-const EFFORTS: { value: Bot['effort']; label: string }[] = [
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'xhigh', label: 'Extra high' },
-  { value: 'max', label: 'Max' },
-  { value: 'ultracode', label: 'Ultracode' },
-];
 
 const EFFORT_HINT: Record<Bot['effort'], string> = {
   none: 'Answers straight away, without thinking first.',
@@ -101,6 +93,10 @@ const draftOf = (b: Bot): Draft => ({ name: b.name, label: b.label, description:
 
 function GeneralTab({ bot, onClose }: { bot: Bot; onClose: () => void }) {
   const [draft, setDraft] = useState<Draft>(() => draftOf(bot));
+  const modelCatalog = useModels();
+  const modelInfo = draft.model ? modelCatalog.byId.get(draft.model) : undefined;
+  const supportedEfforts = effortsFor(modelInfo).map(value => ({ value, label: EFFORT_LABEL[value] }));
+  const shownEffort = effectiveEffort(draft.effort, modelInfo);
   const [picker, setPicker] = useState(false);
   const [saving, setSaving] = useState(false);
   const [note, setNote] = useState<{ text: string; tone: 'ok' | 'error' } | null>(null);
@@ -160,10 +156,10 @@ function GeneralTab({ bot, onClose }: { bot: Bot; onClose: () => void }) {
         <Field label="Instructions" htmlFor="cfg-instructions" hint={`Standing guidance ${draft.name || 'this Bot'} always follows, like tone, priorities or things to avoid. It also learns from chat, skills and memories.`}>
           <textarea id="cfg-instructions" className="text-input cfg-textarea cfg-textarea--tall" rows={7} value={draft.instructions} maxLength={8000} placeholder="e.g. Keep updates to three bullets. Never email anyone outside the team without asking." onChange={(e) => put('instructions', e.target.value)} />
         </Field>
-        <Field label="Thinking effort" hint={EFFORT_HINT[draft.effort]}>
-          <Segmented label="Thinking effort" value={draft.effort} options={EFFORTS} onChange={(v) => put('effort', v)} />
+        <Field label="Thinking effort" hint={supportedEfforts.length ? EFFORT_HINT[shownEffort] : 'Select a model to see its supported effort levels. The default uses the provider’s settings.'}>
+          {supportedEfforts.length > 0 && <Segmented label="Thinking effort" value={shownEffort} options={supportedEfforts} onChange={(v) => put('effort', v)} />}
         </Field>
-        <Field label="Model" hint="Which AI model this Bot thinks with. Leave it on Default to follow Settings → API keys.">
+        <Field label="Model" hint="Which AI model this Bot thinks with. Default follows your active API or plan connection.">
           <BotModelField value={draft.model} onChange={(v) => put('model', v)} />
         </Field>
         <Field label="Used as">

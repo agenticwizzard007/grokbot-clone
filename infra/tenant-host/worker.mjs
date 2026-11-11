@@ -48,6 +48,7 @@ input.on('line', async line => {
     if (message.operation !== 'login') send({ type: 'ready' });
     let result;
     if (message.operation === 'status') result = (await runner.checkProviders(options))[message.provider];
+    else if (message.operation === 'catalog') result = await runner.readCatalog({ provider: message.provider }, options);
     else if (message.operation === 'generate') {
       if (message.params?.provider !== message.provider) throw new Error('Provider mismatch.');
       result = await runner.runGeneration(message.params, options);

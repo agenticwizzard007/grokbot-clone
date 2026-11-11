@@ -53,6 +53,10 @@
 		3EE4C1E74526CE9A7C006F9E /* MacControlProcessLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 117A30B2CD6BCA560DC6B9D2 /* MacControlProcessLifecycle.swift */; };
 		B77B6A71332FB71EAA109E96 /* MacControlLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7005C0CB8AA90AFC1DE5808E /* MacControlLifecycleTests.swift */; };
 		473F2E46F71F13DFD9B1F5AC /* MacControlLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7005C0CB8AA90AFC1DE5808E /* MacControlLifecycleTests.swift */; };
+		3F72CCE1A95417AA14DD3518 /* InstrumentSans-550.ttf in Resources */ = {isa = PBXBuildFile; fileRef = E630A6092462CA55C2E15FD4 /* InstrumentSans-550.ttf */; };
+		2B0DC13C0D70A4B8DC652068 /* InstrumentSans-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 045C025ED2554AB2B9B19DE5 /* InstrumentSans-LICENSE.txt */; };
+		BF2F031753893E1D93A16EAA /* InstrumentSans-550.ttf in Resources */ = {isa = PBXBuildFile; fileRef = E630A6092462CA55C2E15FD4 /* InstrumentSans-550.ttf */; };
+		9B5A32FFE2A0249678A54A5A /* InstrumentSans-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 045C025ED2554AB2B9B19DE5 /* InstrumentSans-LICENSE.txt */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -78,6 +82,8 @@
 		939B8A1BC0EC20B22042E01F /* MacControlPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacControlPolicyTests.swift; sourceTree = "<group>"; };
 		117A30B2CD6BCA560DC6B9D2 /* MacControlProcessLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacControlProcessLifecycle.swift; sourceTree = "<group>"; };
 		7005C0CB8AA90AFC1DE5808E /* MacControlLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacControlLifecycleTests.swift; sourceTree = "<group>"; };
+		E630A6092462CA55C2E15FD4 /* InstrumentSans-550.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = InstrumentSans-550.ttf; sourceTree = "<group>"; };
+		045C025ED2554AB2B9B19DE5 /* InstrumentSans-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = InstrumentSans-LICENSE.txt; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -112,6 +118,7 @@
 				6CEB0AC10D9B02588A950783 /* MacControlPolicy.swift */,
 				74DA510A9AECB84FFA5FAA6C /* MacControlController.swift */,
 				536C6DA428A2BAF1E1AB33FF /* MacControlAPI.swift */,
+				2034691F85C3CC0B2A2CB79A /* Resources */,
 				69CC32614EC30D470A2EF27A /* Assets.xcassets */,
 				9D16FCC75A1B4D9F39DC9088 /* PrivacyInfo.xcprivacy */,
 				B99DAAFC4229215C47379899 /* ServerAddress.swift */,
@@ -131,6 +138,15 @@
 				939B8A1BC0EC20B22042E01F /* MacControlPolicyTests.swift */,
 			);
 			path = SwarmTests;
+			sourceTree = "<group>";
+		};
+		2034691F85C3CC0B2A2CB79A /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				E630A6092462CA55C2E15FD4 /* InstrumentSans-550.ttf */,
+				045C025ED2554AB2B9B19DE5 /* InstrumentSans-LICENSE.txt */,
+			);
+			path = Resources;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -261,6 +277,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				4466E89EA3BCEF39F792DCD4 /* Assets.xcassets in Resources */,
+				2B0DC13C0D70A4B8DC652068 /* InstrumentSans-LICENSE.txt in Resources */,
+				3F72CCE1A95417AA14DD3518 /* InstrumentSans-550.ttf in Resources */,
 				8B39E95E8B305CADE9076082 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -270,6 +288,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				5329DFF982255DBA428428B8 /* Assets.xcassets in Resources */,
+				9B5A32FFE2A0249678A54A5A /* InstrumentSans-LICENSE.txt in Resources */,
+				BF2F031753893E1D93A16EAA /* InstrumentSans-550.ttf in Resources */,
 				777D62F8E06606768202D83D /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

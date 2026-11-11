@@ -25,9 +25,9 @@ const { initSubagents } = await import('../server/src/agent/subagents.js');
 const { initRooms } = await import('../server/src/agent/rooms.js');
 initSubagents(); initRooms();
 const { enqueue } = await import('../server/src/agent/loop.js');
-const { appendRow } = await import('../server/src/store.js');
+const { appendRow, appendHistory, listRows } = await import('../server/src/store.js');
 const { createAccount } = await import('../server/src/accounts.js');
-const { effortFor, withFast, providerFields } = await import('../server/src/lib/llm.js');
+const { effortFor, withFast, providerFields, textOnlyInput } = await import('../server/src/lib/llm.js');
 const { botAnalytics, toolMinutes, RATES } = await import('../server/src/analytics.js');
 const { shortName, modelsApi } = await import('../server/src/routes-models.js');
 const { api } = await import('../server/src/routes.js');
@@ -169,3 +169,29 @@ test("GET /bots/:id/analytics: own Bots only, ranges validated", async () => {
   assert.equal(r.body.days.length, 30);
   assert.equal((await call(other, 'GET', `/api/bots/${b}/analytics?range=bogus`)).body.range, '7d');
 });
+
+test('image capability adaptation preserves current images and explicitly marks only older images',()=>{
+  const image={type:'input_image',image_url:'data:image/png;base64,aGVsbG8='};
+  const old=[{role:'user',content:[{type:'input_text',text:'Old screenshot'},image]},{role:'assistant',content:'Seen'},{role:'user',content:'Hi'}];
+  const result=textOnlyInput(old);
+  assert.equal(result.omitted,1); assert.match(JSON.stringify(result.input),/Earlier image omitted/);
+  assert.doesNotMatch(JSON.stringify(result.input),/input_image/); assert.equal(old[0].content[1],image,'stored history is not mutated');
+  assert.throws(()=>textOnlyInput([{role:'user',content:[image]}]),/cannot read this request/);
+  assert.throws(()=>textOnlyInput([{role:'user',content:'Look now'},{type:'function_call_output',output:[image]}]),/cannot read this request/);
+});
+for(const model of ['deepseek/deepseek-v4','mock/vision-unavailable']) {
+ test(`${model}: plain text after screenshot history completes without a raw image-input error`,async()=>{
+  const user=createAccount({email:`${model.replaceAll('/','-')}@example.com`,name:'Image regression'}).id;
+  const b=botOf(user);db.prepare('UPDATE bots SET model=?,fast=0 WHERE id=?').run(model,b);
+  appendHistory(b,[{role:'user',content:[{type:'input_text',text:'Earlier screenshot'},{type:'input_image',image_url:'data:image/png;base64,aGVsbG8='}]}]);
+  const t0=Date.now();enqueue(b,{type:'user',text:'mock: say Image history recovered'} as any);
+  for(let i=0;i<100;i++) { if(listRows(b).some((r:any)=>r.body?.role==='assistant'&&!r.body.streaming))break;await new Promise(r=>setTimeout(r,50)); }
+  const rows=listRows(b);
+  assert.ok(rows.some((r:any)=>r.body?.text==='Image history recovered'));
+  assert.ok(rows.some((r:any)=>/Earlier images were omitted/.test(r.body?.text??'')));
+  const requests=(await (await fetch(`http://localhost:${mockPort}/_requests`)).json() as any[]).filter(r=>r.at>=t0&&r.body?.model===model);
+  assert.equal(requests.length,model==='mock/vision-unavailable'?2:1);
+  assert.doesNotMatch(JSON.stringify(requests.at(-1).body.input),/input_image/);
+  assert.match(JSON.stringify(requests.at(-1).body.input),/Earlier image omitted/);
+ });
+}

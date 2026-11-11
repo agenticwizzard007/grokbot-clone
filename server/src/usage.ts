@@ -88,7 +88,7 @@ export async function recordModelUsage(opts: RecordOpts & { response: any }): Pr
       if (p && (input || output)) { cost = (input * p.input + output * p.output) / 1e6; source = 'estimate'; }
     }
     insert({
-      userId: who.userId, botId: who.botId, kind: who.kind, provider: opts.provider ?? opts.response?.provider ?? llmProvider(), model: opts.model,
+      userId: who.userId, botId: who.botId, kind: who.kind, provider: opts.provider ?? opts.response?.provider ?? llmProvider(), model: opts.response?.billing === 'subscription' && typeof opts.response.model === 'string' ? opts.response.model : opts.model,
       input, cached, output, reasoning, tools, units: null, unit: null, cost, source,
       byok: typeof u.is_byok === 'boolean' ? (u.is_byok ? 1 : 0) : null, requestId: typeof opts.response?.id === 'string' ? opts.response.id : null,
     });

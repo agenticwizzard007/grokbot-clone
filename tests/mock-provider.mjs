@@ -19,6 +19,7 @@ const OPENROUTER_MODELS = [
   { id: 'anthropic/claude-sonnet-5.5', name: 'Anthropic: Claude Sonnet 5.5', vision: true, reasoning: true, prompt: '0.000003', completion: '0.000015', efforts: ANTHROPIC_EFFORTS },
   { id: 'anthropic/claude-opus-5.5', name: 'Anthropic: Claude Opus 5.5', vision: true, reasoning: true, prompt: '0.000005', completion: '0.000025', efforts: ANTHROPIC_EFFORTS },
   { id: 'google/gemini-3.8-flash', name: 'Google: Gemini 3.8 Flash', vision: true, reasoning: false, prompt: '0.0000003', completion: '0.0000025' },
+  { id: 'mock/vision-unavailable', name: 'Mock: Vision endpoint unavailable', vision: true, reasoning: false, prompt: '0', completion: '0' },
   { id: 'deepseek/deepseek-v4', name: 'DeepSeek: V4', vision: false, reasoning: true, prompt: '0.0000005', completion: '0.000002' },
 ].map((m) => ({
   id: m.id, name: m.name, context_length: 200000,
@@ -123,6 +124,7 @@ const server = http.createServer((req, res) => {
     try { body = JSON.parse(raw); } catch { /* empty */ }
     recent.push({ at: Date.now(), auth: auth.slice(0, 20), referer: req.headers['http-referer'] ?? null, title: req.headers['x-title'] ?? null, body });
     if (recent.length > 20) recent.shift();
+    if (body.model === 'mock/vision-unavailable' && JSON.stringify(body.input).includes('input_image')) return json(404, {error:{message:'No endpoints found that support image input',code:404}});
     // "mock-delay:N" anywhere in the user's message holds each model reply for N ms (max 20 s), to see live UI.
     const lastUser = [...(Array.isArray(body.input) ? body.input : [])].reverse().find((it) => it.role === 'user');
     const delay = Math.min(20000, Number(JSON.stringify(lastUser?.content ?? '').match(/mock-delay:(\d+)/)?.[1] ?? 0));

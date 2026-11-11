@@ -166,11 +166,139 @@ export async function checkProviders(options = {}) {
   })));
 }
 
+// Read-only control protocols: no prompt, turn, native tool, or model inference is sent.
+// Keep stdin open for replies, and stop the entire child group before returning.
+async function controlSession(provider, args, options, cwd, signal, work) {
+  aborted(signal);
+  const child = spawn(executable(provider, options), args, { cwd, env: childEnvironment(options.env), detached: process.platform !== 'win32', windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
+  const pending = new Map();
+  let next = 0, buffer = '', bytes = 0, failure;
+  const fail = error => { failure = error; for (const p of pending.values()) p.reject(error); pending.clear(); killTree(child, true); };
+  const abort = () => fail(cancelled());
+  const closed = new Promise(resolve => child.once('close', resolve));
+  child.on('error', () => fail(new RunnerError('CLI catalog could not be started. Update the official CLI.')));
+  child.stdin.on('error', () => fail(new RunnerError('CLI catalog connection closed.')));
+  child.stdout.on('error', () => fail(new RunnerError('CLI catalog output closed.')));
+  child.stderr.on('error', () => fail(new RunnerError('CLI catalog output closed.')));
+  child.once('exit', () => fail(new RunnerError('CLI catalog connection closed. Update the official CLI.')));
+  signal.addEventListener('abort', abort, { once: true });
+  if (signal.aborted) abort();
+  const count = chunk => { bytes += chunk.length; if (bytes > MAX_BYTES) fail(new RunnerError('CLI catalog exceeded the output limit.')); };
+  child.stderr.on('data', count);
+  const decoder = new StringDecoder('utf8');
+  child.stdout.on('data', chunk => {
+    count(chunk); if (failure) return;
+    buffer += decoder.write(chunk);
+    let end;
+    while ((end = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
+      if (!line.trim()) continue;
+      let event; try { event = JSON.parse(line); } catch { fail(new RunnerError('CLI returned an invalid catalog.')); return; }
+      const reply = provider === 'claude' ? event.type === 'control_response' && event.response : event;
+      const id = provider === 'claude' ? reply?.request_id : reply?.id;
+      const p = pending.get(id); if (!p) continue;
+      pending.delete(id);
+      if (reply.error || reply.subtype === 'error') p.reject(new RunnerError('The CLI could not report this account information.'));
+      else p.resolve(provider === 'claude' ? reply.response : reply.result);
+    }
+  });
+  const send = value => child.stdin.write(JSON.stringify(value) + '\n');
+  const request = (method, params = {}, timeoutMs) => new Promise((resolve, reject) => {
+    if (failure) { reject(failure); return; }
+    const id = String(++next);
+    const timer = timeoutMs ? setTimeout(() => { pending.delete(id); reject(new RunnerError('CLI account information is unavailable.')); }, timeoutMs) : undefined;
+    pending.set(id, { resolve: value => { clearTimeout(timer); resolve(value); }, reject: error => { clearTimeout(timer); reject(error); } });
+    send(provider === 'claude' ? { type: 'control_request', request_id: id, request: { subtype: method, ...params } } : { id, method, params });
+  });
+  try { return await work(request, send); }
+  finally { signal.removeEventListener('abort', abort); killTree(child, true); await closed; }
+}
+
+const modelId = value => typeof value === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9._:[\]-]{0,119}$/.test(value);
+const EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+const effortList = values => Array.isArray(values) ? [...new Set(values.filter(v => EFFORTS.has(v)))] : [];
+const safeLabel = value => typeof value === 'string' ? value.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 160) : '';
+const percent = n => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 100;
+function codexWindows(result) {
+  const buckets = result?.rateLimitsByLimitId ?? (result?.rateLimits ? { codex: result.rateLimits } : {});
+  return Object.entries(buckets).flatMap(([key, bucket]) => ['primary', 'secondary'].flatMap(kind => {
+    const w = bucket?.[kind];
+    return w && percent(w.usedPercent) ? [{ label: `${safeLabel(bucket.limitName || key)} · ${w.windowDurationMins ? `${w.windowDurationMins} min` : kind}`, usedPercent: w.usedPercent,
+      resetsAt: Number.isFinite(w.resetsAt) ? w.resetsAt * 1000 : null }] : [];
+  }));
+}
+function claudeWindows(result) {
+  if (!result?.rate_limits_available || !result.rate_limits) return [];
+  const limits = result.rate_limits;
+  if (Array.isArray(limits.limits)) return limits.limits.filter(w => percent(w.percent)).map(w => ({
+    label: [w.group, w.scope?.model?.display_name, w.scope?.surface?.display_name, w.kind].filter(Boolean).map(safeLabel).join(' · '), usedPercent: w.percent,
+    resetsAt: Number.isFinite(Date.parse(w.resets_at)) ? Date.parse(w.resets_at) : null,
+  }));
+  return Object.entries(limits).filter(([, w]) => w && percent(w.utilization)).map(([key, w]) => ({
+    label: safeLabel(key.replaceAll('_', ' ')), usedPercent: w.utilization, resetsAt: Number.isFinite(Date.parse(w.resets_at)) ? Date.parse(w.resets_at) : null,
+  }));
+}
+
+/** Current account's picker and usage. No hardcoded model versions or quota estimates. */
+export async function readCatalog(params, options = {}) {
+  const provider = params?.provider;
+  if (!Object.hasOwn(LABEL, provider)) throw new RunnerError('Provider must be codex or claude.');
+  return deadline(options.signal, 20_000, async signal => {
+    const cwd = await mkdtemp(join(tmpdir(), 'swarm-cli-catalog-'));
+    try {
+      const status = await providerStatus(provider, options, cwd, signal);
+      if (!status.subscription) throw new RunnerError(status.error, 'auth');
+      const args = provider === 'codex' ? ['app-server', '-c', 'forced_login_method="chatgpt"', '-c', 'model_provider="openai"', '-c', 'chatgpt_base_url="https://chatgpt.com/backend-api"', '-c', 'features.hooks=false', '-c', 'features.plugins=false', '-c', 'features.apps=false', '-c', 'mcp_servers={}', '-c', 'notify=[]'] :
+        ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--tools', '', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--setting-sources', '', '--permission-mode', 'dontAsk', '--no-session-persistence', '--disable-slash-commands', '--safe-mode', '--settings', '{"disableAllHooks":true,"forceLoginMethod":"claudeai"}'];
+      if (provider === 'codex' && options.fileCredentials) args.push('-c', 'cli_auth_credentials_store="file"');
+      return await controlSession(provider, args, options, cwd, signal, async (request, send) => {
+        let models, plan = null, windows = [], defaultModel = null;
+        if (provider === 'codex') {
+          await request('initialize', { clientInfo: { name: 'swarm', version: '1.0.0' }, capabilities: { experimentalApi: true } });
+          send({ method: 'initialized' });
+          const account = await request('account/read', { refreshToken: false });
+          if (account?.account?.type !== 'chatgpt') throw new RunnerError('Codex requires a ChatGPT plan login.', 'auth');
+          plan = safeLabel(account.account.planType) || null;
+          models = []; let cursor = null; const seen = new Set();
+          do {
+            const page = await request('model/list', { limit: 100, includeHidden: false, cursor });
+            if (!Array.isArray(page?.data)) throw new RunnerError('Codex returned an invalid model catalog.');
+            for (const m of page.data) {
+              if (m.hidden || !modelId(m.model)) continue;
+              const efforts = effortList(m.supportedReasoningEfforts?.map(e => e.reasoningEffort));
+              models.push({ id: `codex/${m.model}`, name: safeLabel(m.displayName) || m.model, efforts, defaultEffort: efforts.includes(m.defaultReasoningEffort) ? m.defaultReasoningEffort : null,
+                vision: !m.inputModalities || m.inputModalities.includes('image') });
+              if (m.isDefault) defaultModel = `codex/${m.model}`;
+            }
+            cursor = page.nextCursor;
+            if (cursor && (seen.has(cursor) || seen.size >= 100)) throw new RunnerError('Codex catalog pagination did not finish.');
+            if (cursor) seen.add(cursor);
+          } while (cursor);
+          try { windows = codexWindows(await request('account/rateLimits/read', {}, 5000)); } catch { /* Unknown is never zero usage. */ }
+        } else {
+          const init = await request('initialize');
+          if (!CLAUDE_PLANS.has(init?.account?.subscriptionType) || (init.account.apiProvider && init.account.apiProvider !== 'firstParty') || init.account.tokenSource === 'none') throw new RunnerError('Claude subscription authentication changed. Sign in again.', 'auth');
+          if (!Array.isArray(init?.models)) throw new RunnerError('Claude returned an invalid model catalog.');
+          plan = safeLabel(init.account?.subscriptionType) || null;
+          models = init.models.filter(m => modelId(m.value)).map(m => ({ id: `claude/${m.value}`, name: safeLabel(m.displayName) || m.value, ...(modelId(m.resolvedModel) ? { resolvedModel: m.resolvedModel } : {}),
+            efforts: m.supportsEffort ? effortList(m.supportedEffortLevels) : [], defaultEffort: null, vision: true }));
+          defaultModel = models.find(m => m.id === 'claude/default')?.id ?? null;
+          try { const result = await request('get_usage', { skip_behaviors: true }, 5000); windows = claudeWindows(result); plan = safeLabel(result?.subscription_type) || plan; } catch { /* Older CLIs don't expose plan usage. */ }
+        }
+        aborted(signal);
+        return { models, defaultModel, plan, usage: { windows, available: windows.length > 0, checkedAt: Date.now() } };
+      });
+    } finally { await rm(cwd, { recursive: true, force: true }); }
+  });
+}
+
 function validateParams(params) {
   if (!params || typeof params !== 'object' || !Object.hasOwn(LABEL, params.provider)) throw new RunnerError('Provider must be codex or claude.');
   if (typeof params.prompt !== 'string' || !params.prompt.trim()) throw new RunnerError('A nonempty prompt is required.');
   if (!params.schema || typeof params.schema !== 'object' || Array.isArray(params.schema)) throw new RunnerError('A JSON Schema object is required.');
   if (!Number.isSafeInteger(params.timeoutMs) || params.timeoutMs < 1 || params.timeoutMs > MAX_TIMEOUT_MS) throw new RunnerError('timeoutMs must be an integer from 1 to 900000.');
+  if (params.model !== undefined && !modelId(params.model)) throw new RunnerError('Invalid CLI model.');
+  if (params.effort !== undefined && !EFFORTS.has(params.effort)) throw new RunnerError('Invalid CLI effort.');
   let schema;
   try { schema = JSON.stringify(params.schema); } catch { throw new RunnerError('Schema must be serializable JSON.'); }
   let bytes = Buffer.byteLength(params.prompt) + Buffer.byteLength(schema);
@@ -236,6 +364,8 @@ async function generateCodex(params, options, cwd, signal) {
     await writeFile(imageFile, Buffer.from(image.data, 'base64'), { mode: 0o600 });
     args.push('--image', imageFile);
   }
+  if (params.model && params.model !== 'default') args.push('--model', params.model);
+  if (params.effort) args.push('-c', `model_reasoning_effort=${JSON.stringify(params.effort)}`);
   args.push('-');
   const output = await execute(executable('codex', options), args, { cwd, env: childEnvironment(options.env), signal, input: params.prompt });
   aborted(signal);
@@ -254,7 +384,7 @@ async function generateCodex(params, options, cwd, signal) {
     }
   }
   if (!completed) throw new RunnerError('Codex returned no completed generation.');
-  return { text: structuredText(await readBounded(outputFile, MAX_BYTES - output.bytes), 'codex'), usage: usage(input, generated, cached) };
+  return { ...(params.model ? { model: params.model } : {}), text: structuredText(await readBounded(outputFile, MAX_BYTES - output.bytes), 'codex'), usage: usage(input, generated, cached) };
 }
 
 async function generateClaude(params, options, cwd, signal) {
@@ -262,6 +392,8 @@ async function generateClaude(params, options, cwd, signal) {
   const args = ['-p', '--output-format', params.images.length ? 'stream-json' : 'json', '--json-schema', params.schema, '--tools', '',
     '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--setting-sources', '', '--permission-mode', 'dontAsk',
     '--no-session-persistence', '--disable-slash-commands', '--safe-mode', '--settings', '{"disableAllHooks":true,"forceLoginMethod":"claudeai"}'];
+  if (params.model) args.push('--model', params.model);
+  if (params.effort) args.push('--effort', params.effort);
   let input = params.prompt;
   if (params.images.length) {
     args.push('--input-format', 'stream-json', '--verbose');
@@ -287,7 +419,11 @@ async function generateClaude(params, options, cwd, signal) {
   const text = structuredText(result.structured_output ?? result.result, 'claude');
   const used = result.usage ?? {};
   const cached = tokens(used.cache_read_input_tokens);
-  return { text, usage: usage(tokens(used.input_tokens) + tokens(used.cache_creation_input_tokens) + cached, tokens(used.output_tokens), cached) };
+  const totals = Object.values(result.modelUsage ?? {});
+  const reportedTotals = totals.length > 0 && totals.every(u => Number.isSafeInteger(u.inputTokens) && Number.isSafeInteger(u.outputTokens));
+  const aggregate = reportedTotals ? usage(totals.reduce((n, u) => n + tokens(u.inputTokens) + tokens(u.cacheCreationInputTokens) + tokens(u.cacheReadInputTokens), 0), totals.reduce((n, u) => n + tokens(u.outputTokens), 0), totals.reduce((n, u) => n + tokens(u.cacheReadInputTokens), 0)) : null;
+  const actualModels = Object.keys(result.modelUsage ?? {});
+  return { ...(actualModels.length === 1 || params.model ? { model: actualModels.length === 1 ? actualModels[0] : params.model } : {}), text, usage: aggregate ?? usage(tokens(used.input_tokens) + tokens(used.cache_creation_input_tokens) + cached, tokens(used.output_tokens), cached) };
 }
 
 /** Generate JSON text using subscription auth. Options never come from the server. */
@@ -665,12 +801,12 @@ async function connection(url, options) {
     if (message.type === 'pong') return;
     if (typeof message.id !== 'string' || !message.id || message.id.length > 256) return;
     if (message.method === 'cancel') { controllers.get(message.id)?.abort(cancelled()); return; }
-    if (!['status', 'generate'].includes(message.method)) { send({ id: message.id, error: 'Unsupported bridge method.' }); return; }
+    if (!['status', 'generate', 'catalog'].includes(message.method)) { send({ id: message.id, error: 'Unsupported bridge method.' }); return; }
     if (controllers.has(message.id)) { send({ id: message.id, error: 'Request ID is already in use.' }); return; }
     const controller = new AbortController();
     controllers.set(message.id, controller);
     const localOptions = { codexPath: options.codexPath, claudePath: options.claudePath, env: options.env, signal: controller.signal };
-    const job = Promise.resolve().then(() => message.method === 'status' ? checkProviders(localOptions) : runGeneration(message.params, localOptions))
+    const job = Promise.resolve().then(() => message.method === 'status' ? checkProviders(localOptions) : message.method === 'catalog' ? readCatalog(message.params, localOptions) : runGeneration(message.params, localOptions))
       .then((result) => send({ id: message.id, result }), (error) => send({ id: message.id, error: safeError(error) }))
       .finally(() => { controllers.delete(message.id); pending.delete(job); });
     pending.add(job);

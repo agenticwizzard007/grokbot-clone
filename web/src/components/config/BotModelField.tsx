@@ -31,9 +31,9 @@ export function BotModelField({ value, onChange }: { value: string | null; onCha
   const defaultLabel = selected === 'codex' ? 'ChatGPT · Codex default' : selected === 'claude' ? 'Claude · CLI default' : fallback || 'server default';
   return (
     <>
-      {cli ? <ModelPicker key={selected ?? 'api'} label="Bot model" value={selected ? null : value} onChange={onChange} defaultLabel={defaultLabel} disabled={!!selected} />
+      {cli ? <ModelPicker key={selected ?? 'api'} label="Bot model" value={selected && !value?.startsWith(`${selected}/`) ? null : value} onChange={onChange} defaultLabel={defaultLabel} />
         : <button type="button" className="model-picker__button text-input" aria-label="Bot model" disabled>{error ? 'Provider status unavailable' : 'Checking provider…'}</button>}
-      {selected && <div className="cfg-field__hint">Per-Bot API model and thinking effort overrides are inactive in subscription mode. The CLI default handles both. Your saved settings are kept for API mode. {cli && (!cli.connected || !cli.providers[selected].installed || !cli.providers[selected].authenticated || !cli.providers[selected].subscription || cli.providers[selected].error) && 'The selected subscription is blocked until its bridge and CLI authentication are ready. No API fallback is used.'}</div>}
+      {selected && <div className="cfg-field__hint">Models come from your connected CLI account. Model and supported effort selections use your plan; API fallback is disabled. {cli && (!cli.connected || !cli.providers[selected].installed || !cli.providers[selected].authenticated || !cli.providers[selected].subscription || cli.providers[selected].error) && 'The selected subscription is blocked until its bridge and CLI authentication are ready. No API fallback is used.'}</div>}
       {error && <div className="cfg-error" role="alert">{error} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setAttempt((current) => current + 1)}>Retry provider status</button></div>}
     </>
   );

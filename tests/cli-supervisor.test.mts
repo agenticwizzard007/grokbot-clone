@@ -68,11 +68,12 @@ async function fixture(t: any) {
   return { connect, open, close: supervisor.close, workers, removed, removalHolds, removalFailures, confirmedRemoved, resets, holdReset: () => resetHold = defer() };
 }
 
-test('36 same-provider generations and status start together without a slot queue or provider lock', async t => {
+test('36 same-provider generations, status and catalog start together without a slot queue or provider lock', async t => {
   const f = await fixture(t);
   const calls = await Promise.all(Array.from({ length: 36 }, () => f.connect()));
   const status = await f.connect({ operation: 'status' });
-  await until(() => f.workers.length === 37 && [...calls, status].every(c => c.frames.some(v => v.type === 'ready')));
+  const catalog = await f.connect({ operation: 'catalog' });
+  await until(() => f.workers.length === 38 && [...calls, status, catalog].every(c => c.frames.some(v => v.type === 'ready')));
   assert.equal(f.removed.length, 0, 'every worker starts while all previous workers are still running');
   for (const [i, worker] of f.workers.entries()) {
     assert.ok(worker.args.includes('--read-only'));
@@ -80,10 +81,10 @@ test('36 same-provider generations and status start together without a slot queu
     assert.ok(worker.args.includes('type=bind,src=/private/tenant/subscriptions/codex,dst=/home/runner'));
     worker.reply({ type: 'result', result: { request: i } });
   }
-  await Promise.all([...calls, status].map(c => c.closed));
-  assert.equal(f.removed.length, 37);
-  assert.ok([...calls, status].every(c => c.frames.filter(v => v.type === 'result').length === 1));
-  assert.equal(new Set([...calls, status].map(c => c.frames.find(v => v.type === 'result').result.request)).size, 37);
+  await Promise.all([...calls, status, catalog].map(c => c.closed));
+  assert.equal(f.removed.length, 38);
+  assert.ok([...calls, status, catalog].every(c => c.frames.filter(v => v.type === 'result').length === 1));
+  assert.equal(new Set([...calls, status, catalog].map(c => c.frames.find(v => v.type === 'result').result.request)).size, 38);
 });
 
 test('cancelling one overlapping request does not stop its sibling requests', async t => {

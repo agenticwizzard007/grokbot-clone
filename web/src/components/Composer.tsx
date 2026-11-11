@@ -6,6 +6,7 @@ import { Icon } from './Icon';
 import { Menu } from './Menu';
 import { ComposerModelMenu, cycleEffort, toggleFast } from './ComposerModelMenu';
 import { useModels } from '../lib/models';
+import { UsageModeBubble } from './UsageModeBubble';
 import { endCall, isCallActive, startCall, useVoice } from '../voice/call';
 import { useDictation } from '../voice/dictation';
 
@@ -41,7 +42,8 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   }, [text, onScreen, mobile]);
 
   // Ultracode: a one-off flare when it's switched on.
-  const ultra = bot.effort === 'ultracode';
+  const billing = useModels(s => s.billing);
+  const ultra = billing !== 'plan' && bot.effort === 'ultracode';
   const [flare, setFlare] = useState(false);
   const wasUltra = useRef(ultra);
   useEffect(() => {
@@ -111,6 +113,7 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   return (
     <div className="composer-area" ref={area}>
       {error && <div className="composer__error">{error} <button type="button" className="link-btn" onClick={() => setError(null)}>Dismiss</button></div>}
+      <UsageModeBubble />
       <div className={`composer-shell${flare ? ' is-flaring' : ''}`}>
       {ultra && <span className="composer__glow" aria-hidden />}
       <div className={`composer${multiline ? ' is-multiline' : ''}${ultra ? ' is-ultracode' : ''}`}>

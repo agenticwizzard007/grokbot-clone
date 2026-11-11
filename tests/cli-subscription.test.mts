@@ -39,9 +39,11 @@ initSubagents(); initRooms();
 const { createCliPairing, authenticateCli, revokeCliPairing, selectCli, selectedCli } = await import('../server/src/cli/store.js');
 const { attachCliSocket, cliStatus, cliRequest, disconnectCli, refreshCli, CLI_OFFLINE } = await import('../server/src/cli/bridge.js');
 const { cliResponsesClient, prepareCliRequest } = await import('../server/src/cli/responses.js');
+const { modelsApi } = await import('../server/src/routes-models.js');
+const { clearCliCatalog, cliCatalog } = await import('../server/src/cli/catalog.js');
 const { cliApi } = await import('../server/src/cli/routes.js');
 const { requireUser } = await import('../server/src/lib/auth.js');
-const { llmClient, defaultModel, llmProvider, modelFor, serverTools, providerFields } = await import('../server/src/lib/llm.js');
+const { llmClient, defaultModel, llmProvider, modelFor, modelInfo, serverTools, providerFields } = await import('../server/src/lib/llm.js');
 const { withUsage, recordModelUsage, usageReport } = await import('../server/src/usage.js');
 const { createBot } = await import('../server/src/bots.js');
 const { enqueue, runInBotQueue, interrupt } = await import('../server/src/agent/loop.js');
@@ -52,7 +54,7 @@ const { voiceApi } = await import('../server/src/voice.js');
 const { synthesize, transcribe, SUBSCRIPTION_VOICE_UNAVAILABLE } = await import('../server/src/lib/speech.js');
 
 attachCliSocket(server);
-const app = new Hono().route('/api/cli', cliApi);
+const app = new Hono().route('/api/cli', cliApi).route('/api', modelsApi);
 const authenticated = new Hono();
 authenticated.use('*', requireUser);
 authenticated.route('/voice', voiceApi);
@@ -75,7 +77,7 @@ for (const id of users) {
 }
 
 type Provider = 'codex' | 'claude';
-type Rpc = { id: string; method: 'status' | 'generate' | 'cancel'; params?: any };
+type Rpc = { id: string; method: 'status' | 'generate' | 'catalog' | 'cancel'; params?: any };
 const HOLD = Symbol('hold request until cancellation');
 const verified = () => ({
   codex: { installed: true, authenticated: true, subscription: true },
@@ -98,6 +100,10 @@ class FakeBridge {
   ws = new WebSocket(base.replace('http:', 'ws:') + '/api/cli-bridge');
   requests: Rpc[] = [];
   status: any = verified();
+  catalog: (request: Rpc) => any = request => ({
+    models: [{ id: `${request.params.provider}/account-model`, name: `Model for ${this.userId}`, efforts: ['low','high'], defaultEffort: 'low', vision: true }],
+    defaultModel: `${request.params.provider}/account-model`, plan: this.userId, usage: { available: true, checkedAt: Date.now(), windows: [{label:'Weekly',usedPercent:43,resetsAt:null}] },
+  });
   generate: (request: Rpc) => any = () => result(this.userId);
   welcome = false;
   closed = new Promise<{ code: number; reason: string }>(resolve => {
@@ -112,6 +118,7 @@ class FakeBridge {
       if (message.type === 'welcome') { this.welcome = true; return; }
       this.requests.push(message);
       if (message.method === 'status') this.respond(message.id, this.status);
+      if (message.method === 'catalog') { const reply = this.catalog(message); if (reply !== HOLD) this.respond(message.id, reply); }
       if (message.method === 'generate') {
         try {
           const reply = this.generate(message);
@@ -156,7 +163,7 @@ function newBot(userId: string) {
   return bot;
 }
 const events = (userId: string) => db.prepare('SELECT * FROM usage_events WHERE user_id=? ORDER BY id').all(userId) as any[];
-const requestBody = () => ({ model: 'ignored-api-model', input: [{ role: 'user', content: 'Use the app tools when needed.' }] });
+const requestBody = () => ({ input: [{ role: 'user', content: 'Use the app tools when needed.' }] });
 
 beforeEach(() => { apiRequests.length = 0; });
 afterEach(async () => {
@@ -168,6 +175,7 @@ afterEach(async () => {
   await Promise.all([...bridges].map(bridge => bridge.closed));
   await Promise.all([...bots].map(id => runInBotQueue(id, async () => {})));
   bridges.clear(); bots.clear();
+  for (const id of users) clearCliCatalog(id);
   db.exec('DELETE FROM cli_pairings; DELETE FROM cli_preferences; DELETE FROM usage_events; DELETE FROM bots; DELETE FROM mcp_servers;');
   assert.deepEqual(apiRequests, [], 'subscription paths must not call API inference, audio, MCP execution before approval, or token pricing');
 });
@@ -590,4 +598,135 @@ test('voice session, preview and dictation return 409 in either selected CLI mod
   }
   assert.equal((await app.request('/authenticated/voice/session', { method: 'POST', body: '{}' })).status, 401);
   assert.equal(events(alice).length, 0);
+});
+
+for (const provider of ['codex', 'claude'] as const) {
+  test(`${provider}: HTTP picker uses the account catalog and plan usage, never configured API models`, async () => {
+    const bridge = await connect(alice); await choose(alice, provider);
+    const response = await app.request('/api/models', {headers:{cookie:`swarm_session=${alice}`}});
+    assert.equal(response.status,200);
+    const data = await response.json();
+    assert.equal(data.provider,`${provider}-cli`); assert.equal(data.billing,'plan'); assert.equal(data.canFast,false);
+    assert.deepEqual(data.models.map((m:any)=>m.id),[`${provider}/account-model`]);
+    assert.equal(data.models[0].billing,'plan'); assert.equal(data.models[0].price,null);
+    assert.equal(data.plan,alice);assert.equal(data.usage.windows[0].usedPercent,43);
+    assert.equal(bridge.requests.filter(r=>r.method==='catalog').length,1);
+  });
+  test(`${provider}: explicit model/effort/images/tools reach the bridge and preserve Responses usage`,async()=>{
+    const bridge=await connect(alice);await choose(alice,provider);
+    bridge.generate=()=>({...result('selected'),model:'account-model'});
+    await withUsage({userId:alice},async()=>{
+      assert.equal(modelFor(`${provider}/account-model`),`${provider}/account-model`);
+      const response:any=await llmClient(3000).responses.create({model:`${provider}/account-model`,reasoning:{effort:'high'},input:[{role:'user',content:[{type:'input_image',image_url:'data:image/png;base64,aGVsbG8='}]}],tools:[{type:'function',name:'remember',parameters:{type:'object'}}]});
+      assert.equal(response.model,`${provider}/account-model`);
+      await recordModelUsage({model:`${provider}/default`,response});
+    });
+    const params=bridge.generations[0].params;
+    assert.equal(params.model,'account-model');assert.equal(params.effort,'high');assert.equal(params.images.length,1);assert.match(params.prompt,/remember/);
+    assert.equal(events(alice)[0].model,`${provider}/account-model`);
+  });
+  test(`${provider}: explicit default alias resolves metadata, high effort, generation and usage to the account default`, async () => {
+    const bridge = await connect(alice);
+    await choose(alice, provider);
+    bridge.generate = () => ({ ...result('Resolved account default.'), model: 'account-model' });
+    const bot = newBot(alice);
+    const alias = `${provider}/default`, resolved = `${provider}/account-model`;
+    await withUsage({ userId: alice, botId: bot.id, kind: 'chat' }, async () => {
+      assert.equal(defaultModel(), alias);
+      assert.equal(modelFor(alias), alias);
+      const info = await modelInfo(alias, true);
+      assert.ok(info, 'saved explicit default aliases must have the account default metadata');
+      assert.equal(info.id, resolved);
+      assert.deepEqual(info.efforts, ['low', 'high']);
+      const fields = providerFields({ effort: 'high', reasoning: info.reasoning, efforts: info.efforts, cacheKey: bot.id, safetyId: alice });
+      assert.deepEqual(fields, { reasoning: { effort: 'high' } });
+      const response: any = await llmClient(3000).responses.create({ ...requestBody(), model: alias, ...fields });
+      assert.equal(response.model, info.id, 'generation identity must agree with the resolved metadata');
+      assert.equal(response.provider, `${provider}-cli`);
+      assert.equal(response.billing, 'subscription');
+      assert.equal(response.output_text, 'Resolved account default.');
+      await recordModelUsage({ model: alias, response });
+    });
+    assert.equal(bridge.generations.length, 1);
+    const params = bridge.generations[0].params;
+    assert.equal(params.provider, provider);
+    assert.equal(params.model, 'account-model', 'default is resolved before dispatching the native CLI request');
+    assert.equal(params.effort, 'high');
+    assert.equal(bridge.requests.filter(request => request.method === 'catalog').length, 1);
+    const [event] = events(alice);
+    assert.equal(events(alice).length, 1);
+    assert.equal(event.bot_id, bot.id);
+    assert.equal(event.model, resolved, 'usage must record the resolved response identity, not the saved alias');
+    assert.equal(event.provider, `${provider}-cli`);
+    assert.equal(event.cost_source, 'subscription');
+    assert.equal(event.cost_usd, 0);
+    assert.deepEqual([event.input_tokens, event.cached_tokens, event.output_tokens], [100, 30, 20]);
+    assert.equal(events(bob).length, 0);
+  });
+  test(`${provider}: a queued Bot with a saved default alias keeps high effort and owner attribution`, async () => {
+    const ownerBridge = await connect(alice), otherBridge = await connect(bob);
+    await choose(alice, provider);
+    await choose(bob, provider === 'codex' ? 'claude' : 'codex');
+    const bot = newBot(alice);
+    const alias = `${provider}/default`, resolved = `${provider}/account-model`;
+    db.prepare('UPDATE bots SET model=?,effort=? WHERE id=?').run(alias, 'high', bot.id);
+    ownerBridge.generate = () => ({ ...result('Saved default turn completed.'), model: 'account-model' });
+    withUsage({ userId: bob }, () => enqueue(bot.id, { type: 'user', text: 'Reply using my saved default and high effort.' }));
+    await runInBotQueue(bot.id, async () => {});
+    assert.equal(ownerBridge.generations.length, 1, 'the saved alias must reach generation through the real turn loop');
+    assert.equal(otherBridge.generations.length, 0, 'ambient foreign attribution cannot choose another account or provider');
+    const params = ownerBridge.generations[0].params;
+    assert.equal(params.provider, provider);
+    assert.equal(params.model, 'account-model');
+    assert.equal(params.effort, 'high');
+    assert.match(params.prompt, /Reply using my saved default and high effort/);
+    assert.ok(listRows(bot.id).some(row => row.body.type === 'message' && row.body.role === 'assistant' && row.body.text === 'Saved default turn completed.' && !row.body.streaming));
+    assert.equal(getLive(bot.id).isRunning, false);
+    assert.deepEqual(db.prepare('SELECT model,effort FROM bots WHERE id=?').get(bot.id), { model: alias, effort: 'high' }, 'runtime resolution must preserve the saved default preference');
+    const [event] = events(alice);
+    assert.equal(events(alice).length, 1);
+    assert.equal(event.user_id, alice);
+    assert.equal(event.bot_id, bot.id);
+    assert.equal(event.kind, 'chat');
+    assert.equal(event.provider, `${provider}-cli`);
+    assert.equal(event.model, resolved);
+    assert.equal(event.cost_source, 'subscription');
+    assert.equal(event.cost_usd, 0);
+    assert.equal(events(bob).length, 0);
+  });
+  test(`${provider}: foreign/unlisted model and unsupported effort never generate or fall back`,async()=>{
+    const bridge=await connect(alice);await choose(alice,provider);
+    for(const [model,effort] of [['api/paid-model','high'],[`${provider}/removed`,'high'],[`${provider}/account-model`,'max']]){
+      await assert.rejects(cliResponsesClient(alice,provider,3000).responses.create({...requestBody(),model,reasoning:{effort}}),/not part|no longer offered|not supported/);
+    }
+    assert.equal(bridge.generations.length,0);
+  });
+  test(`${provider}: retained screenshot history rejects a text-only model before dispatch`,async()=>{
+    const bridge=await connect(alice);await choose(alice,provider);
+    const catalog=bridge.catalog;bridge.catalog=request=>{const value=catalog(request);value.models[0].vision=false;return value;};
+    await assert.rejects(cliResponsesClient(alice,provider,3000).responses.create({model:`${provider}/account-model`,input:[{role:'user',content:[{type:'input_image',image_url:'data:image/png;base64,aGVsbG8='}]},{role:'user',content:'Hi'}]}),/cannot read images/);
+    assert.equal(bridge.generations.length,0);
+  });
+}
+
+test('credential changes fence a delayed catalog response so stale account data is not cached',async()=>{
+ const bridge=await connect(alice);await choose(alice,'codex');
+ const original=bridge.catalog;bridge.catalog=()=>HOLD;
+ const pending=cliCatalog(alice,'codex',true);
+ await until(()=>bridge.requests.some(r=>r.method==='catalog'),'catalog is in flight');
+ const request=bridge.requests.find(r=>r.method==='catalog')!;
+ clearCliCatalog(alice);
+ bridge.respond(request.id,original(request));
+ await assert.rejects(pending,/connection changed/);
+});
+
+test('cancelling explicit model discovery cancels that RPC before generation',async()=>{
+ const bridge=await connect(alice);await choose(alice,'codex');bridge.catalog=()=>HOLD;
+ const controller=new AbortController();
+ const pending=cliResponsesClient(alice,'codex',3000).responses.create({...requestBody(),model:'codex/account-model'},{signal:controller.signal});
+ await until(()=>bridge.requests.some(r=>r.method==='catalog'),'catalog is in flight');
+ const request=bridge.requests.find(r=>r.method==='catalog')!;controller.abort();
+ await assert.rejects(pending,/cancelled/);
+ await until(()=>bridge.requests.some(r=>r.method==='cancel'&&r.id===request.id),'matching catalog cancellation');
+ assert.equal(bridge.generations.length,0);
 });

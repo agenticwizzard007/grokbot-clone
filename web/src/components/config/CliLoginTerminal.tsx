@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
-import { X } from 'lucide-react';
+import { CheckCircle2, Eye, EyeOff, X } from 'lucide-react';
 import { cliApi, type CliProvider, type LoginSession } from '../../lib/cliApi';
 import { ApiError } from '../../lib/api';
 import { SwarmMark } from '../SwarmMark';
@@ -47,11 +47,19 @@ export function CliLoginTerminal({ provider, onConnected, onClose, onStateChange
   onStateChange: (state: LoginSession['state']) => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
+  const codeInput = useRef<HTMLInputElement>(null);
+  const sendCode = useRef<((data: string) => Promise<boolean>) | null>(null);
   const callbacks = useRef({ onConnected, onClose, onStateChange });
   callbacks.current = { onConnected, onClose, onStateChange };
   const [state, setState] = useState<LoginSession['state'] | 'starting'>('starting');
   const [error, setError] = useState<string | null>(null);
   const [exitCode, setExitCode] = useState<number | null>(null);
+  const [code, setCode] = useState('');
+  const [showCode, setShowCode] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const [codeSent, setCodeSent] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   const name = provider === 'claude' ? 'Claude Code' : 'Codex';
 
   useEffect(() => {
@@ -101,6 +109,8 @@ export function CliLoginTerminal({ provider, onConnected, onClose, onStateChange
       clearTimeout(timer);
       terminal.options.disableStdin = true;
       setState('failed');
+      setCode('');
+      setShowCode(false);
       setError(err instanceof Error ? err.message : 'The login connection failed. Close this terminal and try again.');
       callbacks.current.onStateChange('failed');
       if (session) cancel(session.id);
@@ -122,6 +132,15 @@ export function CliLoginTerminal({ provider, onConnected, onClose, onStateChange
         }
         fail(err);
       });
+      return queue;
+    };
+    sendCode.current = async (data) => {
+      let sent = false;
+      await enqueue(async (id) => {
+        await cliApi.loginInput(id, data, controller.signal);
+        sent = true;
+      });
+      return sent;
     };
     const encoder = new TextEncoder();
     const input = terminal.onData((data) => {
@@ -154,10 +173,16 @@ export function CliLoginTerminal({ provider, onConnected, onClose, onStateChange
       if (disposed || failed) return;
       session = next;
       if (next.reset) terminal.reset();
-      // No local prompts, progress text, or keyboard echo: the PTY owns the terminal screen.
+      // The PTY owns its screen; the separate code field handles visible input.
       if (next.output) await new Promise<void>((resolve) => terminal.write(next.output, resolve));
       if (disposed || failed) return;
       terminal.options.disableStdin = next.state !== 'running';
+      if (next.state !== 'running') {
+        terminal.options.cursorBlink = false;
+        terminal.blur();
+        setCode('');
+        setShowCode(false);
+      }
       setState(next.state);
       setError(next.error ?? null);
       setExitCode(next.exitCode ?? null);
@@ -193,13 +218,14 @@ export function CliLoginTerminal({ provider, onConnected, onClose, onStateChange
         await apply(next);
         if (disposed) return;
         enqueue((id) => cliApi.resizeLogin(id, terminal.cols, terminal.rows, controller.signal));
-        terminal.focus();
+        if (session?.state === 'running') codeInput.current?.focus();
         if (session && active(session.state)) timer = setTimeout(poll, 200);
       } catch (err) { fail(err); }
     }, 0);
 
     return () => {
       disposed = true;
+      sendCode.current = null;
       clearTimeout(start); clearTimeout(timer); clearTimeout(resizeTimer);
       controller.abort();
       observer.disconnect(); appearance.disconnect(); input.dispose(); resize.dispose(); links.dispose();
@@ -208,24 +234,68 @@ export function CliLoginTerminal({ provider, onConnected, onClose, onStateChange
     };
   }, [provider]);
 
+  const submitCode = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const value = code.trim();
+    if (state !== 'running' || sendingCode || !sendCode.current || !value) return;
+    if (new TextEncoder().encode(value + '\r').length > 8192) {
+      setCodeError('This code is too long. Paste only the authorization code from the sign-in page.');
+      return;
+    }
+    setSendingCode(true);
+    setCodeError(null);
+    try {
+      if (await sendCode.current(value + '\r')) {
+        setCode('');
+        setShowCode(false);
+        setCodeSent(true);
+      }
+    } finally { setSendingCode(false); }
+  };
+
   const running = state === 'starting' || active(state);
   return (
     <section className="cli-login-terminal" data-state={state} aria-label={`${name} login terminal`}>
       <div className="cli-login-terminal__header">
         <SwarmMark size={24} />
         <span className="cli-login-terminal__title">{name} login</span>
-        <span className="cli-login-terminal__state" role="status">{running && <span className="cfg-spinner" aria-hidden />}{state === 'starting' ? 'Starting' : LABELS[state]}</span>
+        <span className="cli-login-terminal__state" role="status">{state === 'connected' ? <CheckCircle2 size={13} aria-hidden /> : running && <span className="cfg-spinner" aria-hidden />}{state === 'starting' ? 'Starting' : LABELS[state]}</span>
         <button type="button" className="cfg-icon-btn" aria-label={running ? 'Cancel login and close terminal' : 'Close login terminal'} title={running ? 'Cancel login' : 'Close terminal'} onClick={onClose}><X size={16} aria-hidden /></button>
       </div>
-      <div className="cli-login-terminal__screen" ref={container} onKeyDown={(event) => event.stopPropagation()} />
-      <div className="cli-login-terminal__footer" role="status">
+      {state === 'connected' && <div className="cli-login-terminal__success" role="status">
+        <CheckCircle2 className="cli-login-terminal__success-icon" size={32} aria-hidden />
+        <h3>{name} connected</h3>
+        <p>Your {provider === 'claude' ? 'Claude' : 'ChatGPT'} subscription is verified and selected for all your Bots. You can close this panel and start chatting.</p>
+        <div className="subscription-settings__actions">
+          <button type="button" className="cfg-btn cfg-btn--primary" onClick={onClose}>Done</button>
+          <button type="button" className="cfg-btn cfg-btn--secondary" aria-expanded={showDetails} onClick={() => setShowDetails(!showDetails)}>{showDetails ? 'Hide login details' : 'View login details'}</button>
+        </div>
+      </div>}
+      <div className="cli-login-terminal__screen" ref={container} hidden={state === 'connected' && !showDetails} onKeyDown={(event) => event.stopPropagation()} />
+      {(state === 'starting' || state === 'running') && <form className="cli-login-terminal__code" onSubmit={(event) => void submitCode(event)}>
+        <label htmlFor={`cli-login-code-${provider}`}>Authorization code</label>
+        <p id={`cli-login-code-hint-${provider}`}>If the sign-in page gives you a code, paste it here to finish connecting.</p>
+        <div className="cli-login-terminal__code-row">
+          <div className="cli-login-terminal__code-field">
+            <input ref={codeInput} id={`cli-login-code-${provider}`} type={showCode ? 'text' : 'password'} value={code} onChange={(event) => { setCode(event.target.value); setCodeError(null); setCodeSent(false); }}
+              placeholder="Paste your authorization code" autoComplete="off" autoCapitalize="off" spellCheck={false} maxLength={8191}
+              aria-describedby={`cli-login-code-hint-${provider}`} aria-invalid={!!codeError} disabled={state !== 'running' || sendingCode} />
+            <button type="button" className="cli-login-terminal__code-visibility" aria-label={showCode ? 'Hide code' : 'Show code'} aria-pressed={showCode} onClick={() => setShowCode(!showCode)} disabled={state !== 'running'}>
+              {showCode ? <EyeOff size={16} aria-hidden /> : <Eye size={16} aria-hidden />}<span>{showCode ? 'Hide' : 'Show'}</span>
+            </button>
+          </div>
+          <button type="submit" className="cfg-btn cfg-btn--primary" disabled={state !== 'running' || sendingCode || !code.trim()}>{sendingCode ? 'Sending code…' : `Connect ${name}`}</button>
+        </div>
+        {codeError && <p className="cli-login-terminal__error" role="alert">{codeError}</p>}
+        {codeSent && <p role="status">Code sent. Waiting for {name} to finish signing in…</p>}
+      </form>}
+      {state !== 'connected' && <div className="cli-login-terminal__footer" role="status">
         {error ? <span className="cli-login-terminal__error">{error}{exitCode !== null ? ` (exit ${exitCode})` : ''} Close this terminal and try Login again.</span>
-          : state === 'connected' ? 'Signed in. Your saved subscription login is ready for your Bots.'
-            : state === 'cancelled' ? 'Login cancelled.'
+          : state === 'cancelled' ? 'Login cancelled.'
               : state === 'failed' ? `Login failed${exitCode !== null ? ` (exit ${exitCode})` : ''}. Close this terminal and try Login again.`
                 : state === 'verifying' ? 'Verifying your subscription login. The terminal is now read-only.'
-                : 'Type or paste into the terminal. Open the official HTTPS sign-in link shown by the CLI, then return here to finish.'}
-      </div>
+                : 'Open the official sign-in link above, then return here. You can also type directly into the terminal if prompted.'}
+      </div>}
     </section>
   );
 }

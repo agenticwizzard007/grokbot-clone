@@ -1,6 +1,6 @@
 import { recordModelUsage, withUsage } from '../usage.js';
 import { selectedCli } from '../cli/store.js';
-import { llmClient, modelFor, withFast, modelInfo, prepareInput, providerFields, serverTools, tagOutput } from '../lib/llm.js';
+import { llmClient, modelFor, withFast, modelInfo, prepareInput, textOnlyInput, providerFields, serverTools, tagOutput } from '../lib/llm.js';
 import { db, now } from '../db.js';
 import { env } from '../env.js';
 import { newId, sha256 } from '../lib/ids.js';
@@ -20,6 +20,7 @@ import { localAccess } from '../computers/local-access.js';
 import { currentComputerRevision } from '../usage-context.js';
 import { approvalBinding } from '../security/approval.js';
 import { acceptJob, beginJob, finishJob, recoverJobs, beginTool, finishTool } from './jobs.js';
+import { BrowserRecovery } from './browser-recovery.js';
 
 const llm = () => llmClient(360_000);
 
@@ -155,7 +156,7 @@ async function runTurn(botId: string, trigger: Trigger) {
   running.set(botId, trigger);
   let depth = trigger.type === 'bot' ? trigger.depth : 0;
 
-  const ctx: ToolCtx = { userId, botId, enqueueBotMessage, depth };
+  const ctx: ToolCtx = { userId, botId, enqueueBotMessage, depth, recovery: new BrowserRecovery() };
   setLive(botId, { isRunning: true, activity: { kind: 'thinking', since: now() }, awaiting: null, startedAt: now() });
 
   try {
@@ -176,6 +177,7 @@ async function runTurn(botId: string, trigger: Trigger) {
       depth = st.depth;
       const paused = await processCalls(ctx, st);
       if (paused) return;
+      if (st.outputs.some((o: any) => o.__endTurn)) return;
     } else {
       const item = triggerItem(trigger);
       if (item) appendHistory(botId, [item]);
@@ -236,6 +238,7 @@ async function runTurn(botId: string, trigger: Trigger) {
 async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
   const { botId, userId } = ctx;
   while (st.calls.length) {
+    turnSignal(botId)?.throwIfAborted();
     const c = st.calls[0];
     const args = safeParse(c.arguments) ?? {};
     const row = getRow(botId, c.rowSeq);
@@ -297,7 +300,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
         updateRow(botId, c.rowSeq, { ...body, status: 'done', summary: res.summary });
       } catch (e: any) {
         finishTool(botId, c.call_id, false);
-        res = { output: `Tool error: ${e?.message ?? e}` };
+        res = { output: `Tool error: ${e?.message ?? e}`, replan: /^(?:browser_|computer_|open_browser$|wait_for_browser_access$)/.test(c.name) };
         updateRow(botId, c.rowSeq, { ...body, status: 'error', summary: String(e?.message ?? e).slice(0, 200) });
       } finally {
         latency('tool', toolStart, { botId, tool: c.name });
@@ -306,6 +309,18 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
     const out: any = { type: 'function_call_output', call_id: c.call_id, output: res.output };
     st.outputs.push(res.endTurn ? { ...out, __endTurn: true } : out);
     st.calls.shift();
+    // These calls were planned against the old page or before a request to wait. Never run
+    // a stale click/submission after a login redirect, dialog, failed action or human handoff.
+    if (res.replan || res.endTurn || turnSignal(botId)?.aborted) {
+      const reason = res.endTurn || turnSignal(botId)?.aborted
+        ? 'Skipped because this turn stopped or is waiting for the user. Continue only after their reply.'
+        : 'Skipped because the preceding result requires a fresh plan. Inspect that result and current screen before choosing the next action.';
+      for (const remaining of st.calls.splice(0)) {
+        const pending = getRow(botId, remaining.rowSeq);
+        if (pending) updateRow(botId, remaining.rowSeq, { ...(pending.body as ToolCallBody), status: 'denied', summary: 'Skipped remaining planned action' });
+        st.outputs.push({ type: 'function_call_output', call_id: remaining.call_id, output: reason });
+      }
+    }
   }
   // Batch complete: persist outputs (strip internal markers).
   appendHistory(botId, st.outputs.map(({ __endTurn, ...o }: any) => o));
@@ -338,6 +353,7 @@ async function finishPending(ctx: ToolCtx, st: PendingState, reason: string) {
 
 // ---------- model call with streaming into a message row ----------
 
+const imageWarnings = new WeakSet<ToolCtx>();
 async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: AbortSignal): Promise<{ output: any[] }> {
   const { botId, userId } = ctx;
   const bot = getBotRow(botId);
@@ -347,11 +363,22 @@ async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: Abo
   const [history, prompt, info, tools] = await Promise.all([
     maybeCompact(botId, loadHistory(botId)).catch(() => loadHistory(botId)),
     systemPrompt(userId, botId),
-    modelInfo(model),
+    modelInfo(model, bot.model === model, signal),
     toolsPromise,
   ]);
   // The model is only called when no approval is pending, so every orphaned call can be repaired.
-  const input = [{ role: 'system', content: prompt }, ...prepareInput(pruneImages(deduplicateBrowserSnapshots(repairHistory(history))), model)];
+  let input = [{ role: 'system', content: prompt }, ...prepareInput(pruneImages(deduplicateBrowserSnapshots(repairHistory(history))), model)];
+
+  const discloseImages = (omitted: number) => {
+    if (omitted && !imageWarnings.has(ctx)) {
+      imageWarnings.add(ctx);
+      appendRow(botId, 'notice', { type: 'notice', text: 'Earlier images were omitted for this text-only model endpoint. Their text is preserved. Choose a model with image support to inspect those images.', tone: 'warn' });
+    }
+  };
+  if (info?.vision === false) {
+    const prepared = textOnlyInput(input);
+    input = prepared.input; discloseImages(prepared.omitted);
+  }
 
   const body: any = {
     model: withFast(model, !!bot.fast),
@@ -375,8 +402,14 @@ async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: Abo
   try {
     stream = await llm().responses.create(body, { signal });
   } catch (e: any) {
-    // If an external schema is rejected, make the degraded capability visible.
-    if (e?.status === 400 && tools.length > functionSchemas(botId).length + serverTools().length) {
+    if (e?.status === 404 && /image input/i.test(e?.message ?? '')) {
+      const prepared = textOnlyInput(body.input);
+      if (!prepared.omitted) throw new Error('The selected API model has no endpoint available for image input. Choose another image-capable model or connect your plan in Settings → Subscriptions. No fallback was used.');
+      body.input = prepared.input;
+      discloseImages(prepared.omitted);
+      // Same selected model/provider. Never reroute a plan request to an API.
+      stream = await llm().responses.create(body, { signal });
+    } else if (e?.status === 400 && tools.length > functionSchemas(botId).length + serverTools().length) {
       console.warn('[agent] 400 with composio tools, retrying without:', e?.message);
       if (tools.some(t => t.name?.startsWith('mcp_'))) appendRow(botId, 'notice', { type: 'notice', text: 'The model rejected an external tool definition. Custom MCP tools are unavailable for this response; check the server’s tool schemas or choose another model.', tone: 'warn' });
       body.tools = [...functionSchemas(botId), ...(isConfiguring(botId) ? [] : serverTools())];

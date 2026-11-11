@@ -18,7 +18,7 @@ const keyFor = (master: Buffer, tenant: string, id: string) => {
   return Buffer.from(hkdfSync('sha256', master, id, `swarm-backup:${tenant}:v1`, 32));
 };
 interface Entry { path: string; blob: string; size: number; hash: string; iv: string; tag: string }
-interface Manifest { version: 1; tenant: string; id: string; createdAt: string; scope?: 'database'|'environment'; entries: Entry[] }
+interface Manifest { version: 1 | 2; tenant: string; id: string; createdAt: string; scope?: 'database'|'environment'; entries: Entry[]; directories?: string[] }
 function owner(database: string, tenant: string) {
   const db = new Database(database, { readonly: true, fileMustExist: true });
   try {
@@ -36,11 +36,15 @@ function meter(maximum: number, digest = createHash('sha256')) {
   } });
   return { stream, result: () => ({ size, hash: digest.digest('hex') }) };
 }
-function list(root: string, relative: string, result: string[]) {
+function list(root: string, relative: string, result: string[], directories: string[], depth = 0) {
+  if (result.length + directories.length >= MAX_FILES - 1 || depth > 64) throw new Error('Backup inventory limit exceeded.');
   const target = path.join(root, relative), info = fs.lstatSync(target);
   if (info.isSymbolicLink()) throw new Error('Backup symlinks require explicit migration.');
   if (info.isDirectory()) {
-    for (const name of fs.readdirSync(target)) list(root, `${relative}/${name}`, result);
+    directories.push(validateArchiveEntry(relative));
+    const dir = fs.opendirSync(target);
+    try { for (let entry; (entry = dir.readSync());) list(root, `${relative}/${entry.name}`, result, directories, depth + 1); }
+    finally { dir.closeSync(); }
   } else if (info.isFile()) {
     if (result.length >= MAX_FILES) throw new Error('Backup file limit exceeded.');
     result.push(validateArchiveEntry(relative));
@@ -59,9 +63,9 @@ export async function backupEnvironment(root: string, output: string, tenant: st
   try {
     const snapshot=path.join(staging,'swarm.db'),source=new Database(path.join(root,'app/swarm.db'),{readonly:true,fileMustExist:true});
     try { await source.backup(snapshot); } finally { source.close(); }
-    const files: string[]=[];
+    const files: string[]=[],directories:string[]=[];
     // Refresh/bootstrap tokens, Docker state, host credentials and caches are deliberately excluded.
-    if(scope==='environment')for (const dir of ['files','desktop','subscriptions']) if(fs.existsSync(path.join(root,dir)))list(root,dir,files);
+    if(scope==='environment')for (const dir of ['files','desktop','subscriptions']) if(fs.existsSync(path.join(root,dir)))list(root,dir,files,directories);
     const entries:Entry[]=[];let total=0;
     for (const relative of ['app/swarm.db',...files]) {
       const blob=`${entries.length}.bin`,iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',key,iv);
@@ -74,7 +78,9 @@ export async function backupEnvironment(root: string, output: string, tenant: st
       if(result.size!==before.size)throw new Error('File changed during backup; retry with workloads stopped.');
       entries.push({path:relative,blob,...result,iv:iv.toString('base64url'),tag:cipher.getAuthTag().toString('base64url')});
     }
-    const manifest:Manifest={version:1,tenant,id,createdAt:new Date().toISOString(),scope,entries};
+    // Old readers reject version two rather than silently discard directories.
+    // The authenticated envelope/KDF remains v1; the plaintext schema advances.
+    const manifest:Manifest={version:2,tenant,id,createdAt:new Date().toISOString(),scope,entries,directories};
     const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',key,iv);cipher.setAAD(Buffer.from(JSON.stringify([tenant,id,'manifest',1])));
     const payload=Buffer.concat([cipher.update(JSON.stringify(manifest)),cipher.final()]);
     fs.writeFileSync(path.join(output,'manifest.bin'),Buffer.concat([iv,cipher.getAuthTag(),payload]),{flag:'wx',mode:0o600});
@@ -92,16 +98,28 @@ export async function restoreEnvironment(bundle: string, destination: string, te
     let bytes:Buffer;try{if(fs.fstatSync(fd).size>32*1024*1024)throw new Error('Manifest limit exceeded.');bytes=fs.readFileSync(fd);}finally{fs.closeSync(fd);}
     const decipher=createDecipheriv('aes-256-gcm',key,bytes.subarray(0,12));decipher.setAAD(Buffer.from(JSON.stringify([tenant,id,'manifest',1])));decipher.setAuthTag(bytes.subarray(12,28));
     const manifest=JSON.parse(Buffer.concat([decipher.update(bytes.subarray(28)),decipher.final()]).toString()) as Manifest;
-    if(manifest.version!==1||manifest.tenant!==tenant||manifest.id!==id||!Array.isArray(manifest.entries)||manifest.entries.length>MAX_FILES)throw new Error('Invalid backup manifest.');
+    if(![1,2].includes(manifest.version)||manifest.tenant!==tenant||manifest.id!==id||!Array.isArray(manifest.entries)||!Array.isArray(manifest.directories??[])||manifest.version===2&&!Array.isArray(manifest.directories)||manifest.entries.length+(manifest.directories?.length??0)>MAX_FILES)throw new Error('Invalid backup manifest.');
     let total=0;const paths=new Set<string>();
     for(const entry of manifest.entries){
       validateArchiveEntry(entry.path);
+      if(path.posix.normalize(entry.path)!==entry.path||entry.path.endsWith('/')||entry.path.split('/').length>66)throw new Error('Invalid backup path.');
       if((entry.path!=='app/swarm.db'&&!/^(files|desktop|subscriptions)\//.test(entry.path))||paths.has(entry.path)||!/^\d+\.bin$/.test(entry.blob)||!Number.isSafeInteger(entry.size)||entry.size<0||!/^[a-f0-9]{64}$/.test(entry.hash))throw new Error('Invalid backup entry.');
       paths.add(entry.path);total+=entry.size;
       if(total>MAX_TOTAL)throw new Error('Backup size limit exceeded.');
     }
     if(!paths.has('app/swarm.db'))throw new Error('Missing backup database.');
+    const directories=new Set<string>();
+    for(const dir of manifest.directories??[]){
+      if(typeof dir!=='string')throw new Error('Invalid backup directory.');
+      validateArchiveEntry(dir);
+      if(!/^(files|desktop|subscriptions)(\/|$)/.test(dir)||path.posix.normalize(dir)!==dir||dir.endsWith('/')||directories.has(dir)||paths.has(dir)||dir.split('/').length>65)throw new Error('Invalid backup directory.');
+      directories.add(dir);
+    }
+    for(const name of [...directories,...paths]){
+      for(let parent=path.posix.dirname(name);parent!=='.';parent=path.posix.dirname(parent))if(paths.has(parent))throw new Error('Conflicting backup paths.');
+    }
     fs.mkdirSync(staging,{recursive:false,mode:0o700});
+    for(const dir of directories)fs.mkdirSync(path.join(staging,dir),{recursive:true,mode:0o700});
     for(const entry of manifest.entries){
       const destinationFile=path.join(staging,entry.path);fs.mkdirSync(path.dirname(destinationFile),{recursive:true,mode:0o700});
       const decipher=createDecipheriv('aes-256-gcm',key,Buffer.from(entry.iv,'base64url'));decipher.setAAD(Buffer.from(JSON.stringify([tenant,id,entry.path,1])));decipher.setAuthTag(Buffer.from(entry.tag,'base64url'));

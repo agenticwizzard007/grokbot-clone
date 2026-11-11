@@ -1,3 +1,4 @@
+import { clearCliCatalog } from './catalog.js';
 import { Hono, type Context } from 'hono';
 import { env } from '../env.js';
 import { requireUser, requireRecentAuth, recentlyAuthenticated, userFromSessionHash, type AuthVars } from '../lib/auth.js';
@@ -27,7 +28,10 @@ function withAuthorizedMutation<T>(c: Context<AuthVars>, recent: boolean, action
   return withCliMutation(c.get('user').id, async () => {
     // Middleware may have authorized this request before another mutation held
     // the lock. Recheck expiry/revocation and recent authentication after waiting.
-    return mutationAuthorization(c, recent) ?? action();
+    const unauthorized = mutationAuthorization(c, recent);
+    if (unauthorized) return unauthorized;
+    clearCliCatalog(c.get('user').id);
+    try { return await action(); } finally { clearCliCatalog(c.get('user').id); }
   });
 }
 cliApi.post('/login', requireRecentAuth, async (c) => {

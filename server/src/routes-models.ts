@@ -1,8 +1,10 @@
+import { cliCatalog } from './cli/catalog.js';
+import { selectedCli } from './cli/store.js';
 import { Hono } from 'hono';
 import { db } from './db.js';
 import { env } from './env.js';
 import { requireUser, type AuthVars } from './lib/auth.js';
-import { llmProvider, openrouterModels, type ModelInfo } from './lib/llm.js';
+import { defaultModel, llmProvider, openrouterModels, type ModelInfo } from './lib/llm.js';
 import { verifyDirectKey } from './settings.js';
 import { getBotRow } from './store.js';
 import { ANALYTICS_RANGES, botAnalytics, type AnalyticsRange } from './analytics.js';
@@ -34,6 +36,16 @@ function favouritesOf(userId: string): string[] | null {
 modelsApi.get('/models', async (c) => {
   const user = c.get('user');
   const provider = llmProvider();
+  const cli = selectedCli(user.id);
+  if (cli) {
+    c.header('Cache-Control', 'no-store');
+    try {
+      const data = await cliCatalog(user.id, cli, true);
+      const ids = new Set(data.models.map(m => m.id));
+      const saved = favouritesOf(user.id)?.filter(id => ids.has(id));
+      return c.json({ provider, billing: 'plan', canFast: false, ...data, favourites: saved?.length ? saved : data.models.slice(0, 12).map(m => m.id) });
+    } catch (e) { return c.json({ provider, billing: 'plan', canFast: false, models: [], favourites: [], error: (e as Error).message }); }
+  }
   let models: (ModelInfo & { short: string })[] = [];
   let error: string | undefined;
   if (provider === 'openrouter') {
@@ -47,7 +59,7 @@ modelsApi.get('/models', async (c) => {
   const ids = new Set(models.map((m) => m.id));
   const saved = favouritesOf(user.id);
   const favourites = (saved ?? SUGGESTED).filter((id) => ids.has(id)).slice(0, 12);
-  return c.json({ provider, canFast: provider === 'openrouter', models, favourites, suggested: saved === null, error });
+  return c.json({ provider, billing: 'api', canFast: provider === 'openrouter', defaultModel: defaultModel(), models: models.map(m => ({ ...m, billing: 'api' })), favourites, suggested: saved === null, error });
 });
 
 modelsApi.put('/models/favourites', async (c) => {

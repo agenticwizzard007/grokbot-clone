@@ -95,7 +95,7 @@ export function attachSupervisor(server: http.Server, policy: HostPolicy, driver
           if (message.tenantId !== policy.tenantId) throw new Error('Invalid owner.');
           let workload: Workload;
           if (req.url === '/cli') {
-            if (!['claude', 'codex'].includes(message.provider) || !['status', 'generate', 'login', 'delete'].includes(message.operation)) throw new Error('Invalid operation.');
+            if (!['claude', 'codex'].includes(message.provider) || !['status', 'catalog', 'generate', 'login', 'delete'].includes(message.operation)) throw new Error('Invalid operation.');
             provider = message.provider;
             if (writers.has(provider)) throw new Error('Subscription credentials are being changed.');
             workload = { kind: 'cli', provider: message.provider };

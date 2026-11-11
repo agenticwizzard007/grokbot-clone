@@ -1,3 +1,4 @@
+import { catalogModelId, cliCatalog } from './catalog.js';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { cliRequest } from './bridge.js';
@@ -52,7 +53,23 @@ export function cliResponsesClient(userId: string, provider: CliProvider, timeou
     responses: {
       create: async (body: any, options?: { signal?: AbortSignal }): Promise<any> => {
         const request = prepareCliRequest(body);
-        const result = await cliRequest(userId, 'generate', { provider, ...request, timeoutMs }, timeoutMs + 1000, options?.signal);
+        const model = typeof body.model === 'string' ? body.model : `${provider}/default`;
+        if (!model.startsWith(`${provider}/`)) throw new Error('This model is not part of the selected subscription. Refresh the model picker. No API fallback was used.');
+        // Legacy default calls still work; explicit selections must be present in this account's catalog.
+        let selectedModel = model.slice(provider.length + 1);
+        let effort: string | undefined;
+        if (selectedModel !== 'default' || body.reasoning?.effort) {
+          const catalog = await cliCatalog(userId, provider, false, options?.signal);
+          const effective = catalogModelId(provider, model, catalog);
+          const info = catalog.models.find(m => m.id === effective);
+          if (!info) throw new Error('This model is no longer offered by your CLI connection. Refresh the model picker. No API fallback was used.');
+          if (request.images.length && !info.vision) throw new Error('This model cannot read images in this conversation. Choose a model with image support.');
+          if (body.reasoning?.effort && !info.efforts.includes(body.reasoning.effort)) throw new Error('This effort is not supported by the selected CLI model. Refresh the model picker.');
+          selectedModel = effective.slice(provider.length + 1);
+          effort = body.reasoning?.effort;
+        }
+
+        const result = await cliRequest(userId, 'generate', { provider, ...request, model: selectedModel, ...(effort ? { effort } : {}), timeoutMs }, timeoutMs + 1000, options?.signal);
         if (typeof result?.text !== 'string' || !result.text.trim()) throw new Error('The CLI returned an empty response.');
         let output: any[];
         let text: string;
@@ -77,7 +94,7 @@ export function cliResponsesClient(userId: string, provider: CliProvider, timeou
         }
         const count = (n: unknown) => typeof n === 'number' && Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
         const response = {
-          id: `cli_${randomUUID()}`, output, output_text: text, model: `${provider}/default`,
+          id: `cli_${randomUUID()}`, output, output_text: text, model: `${provider}/${typeof result.model === 'string' ? result.model : selectedModel}`,
           billing: 'subscription', provider: `${provider}-cli`,
           usage: { input_tokens: count(result.usage?.input_tokens), output_tokens: count(result.usage?.output_tokens), input_tokens_details: { cached_tokens: count(result.usage?.input_tokens_details?.cached_tokens) } },
         };
