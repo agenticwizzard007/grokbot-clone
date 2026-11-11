@@ -23,12 +23,14 @@ import { creationSchema, isConfiguring, saveSetupDraft, setupDraftSchema } from 
 import { createTeammate, replicateTeammate, retryTeammate } from './teammates.js';
 import { z } from 'zod';
 import { findMcpTool } from '../mcp/store.js';
+import { platformState } from './platform-state.js';
 
 export interface ToolCtx {
   userId: string;
   botId: string;
   enqueueBotMessage: (fromBotId: string, toBotId: string, text: string, depth: number) => void;
   depth: number;
+  jobId?: string;
   recovery?: BrowserRecovery;
 }
 
@@ -79,6 +81,16 @@ function botByName(userId: string, name: string) {
 }
 
 export const TOOLS: ToolDef[] = [
+  {
+    name: 'get_platform_state',
+    description: 'Read authoritative Swarm configuration: this agent’s text model and provider, separate voice model, subscription CLI connection, recorded usage and optionally the model catalog. Use this for questions about this app; never browse Swarm or ask for a browser login to inspect its own configuration. Unknown subscription tiers or remaining provider allowance must not be guessed.',
+    parameters: obj({ range: { type: 'string', enum: ['today', '7d', '30d', 'month'] }, include_models: { type: 'boolean' } }),
+    activity: 'working', label: 'Reading app configuration',
+    impl: async (a, ctx) => {
+      const args = z.object({ range: z.enum(['today', '7d', '30d', 'month']).optional(), include_models: z.boolean().optional() }).parse(a);
+      return { output: JSON.stringify(await platformState(ctx.userId, ctx.botId, { range: args.range, includeModels: args.include_models })) };
+    },
+  },
   {
     name: 'save_agent_setup',
     description: 'Save your own agent specification during the setup interview. Incorporate the user’s answers into the brief, working style, workflows and boundaries. Save after each substantive answer. Use stage review only when the specification is complete and open_questions is empty. The user activates it in Configuration; you cannot activate yourself.',
@@ -538,7 +550,7 @@ export const TOOLS: ToolDef[] = [
     activity: 'waiting_for_you',
     label: 'Waiting on you',
     impl: async (a, ctx) => {
-      appendRow(ctx.botId, 'card', { type: 'card', card: 'question', question: a.question, options: (a.options ?? []).slice(0, 6), status: 'pending' });
+      appendRow(ctx.botId, 'card', { type: 'card', card: 'question', jobId: ctx.jobId, question: a.question, options: (a.options ?? []).slice(0, 6), status: 'pending' });
       return { output: 'Question shown to the user. Stop here and wait for their answer.', endTurn: true };
     },
   },
@@ -552,7 +564,7 @@ export const TOOLS: ToolDef[] = [
       if (!env.composioEnabled) return { output: `${APPS_OFF} Tell the user, and use your browser instead if that can do the job.`, summary: 'Apps not set up' };
       const info = await toolkitInfo(String(a.toolkit).toLowerCase());
       if (!info) return { output: `Unknown toolkit "${a.toolkit}". Use COMPOSIO_SEARCH_TOOLS to find the right toolkit slug.` };
-      appendRow(ctx.botId, 'card', { type: 'card', card: 'connect', toolkit: info.slug, toolkitName: info.name, logo: info.logo, reason: a.reason, status: 'pending' });
+      appendRow(ctx.botId, 'card', { type: 'card', card: 'connect', jobId: ctx.jobId, toolkit: info.slug, toolkitName: info.name, logo: info.logo, reason: a.reason, status: 'pending' });
       return { output: `Asked the user to connect ${info.name}. Stop here; you'll be told when it's connected.`, endTurn: true };
     },
   },

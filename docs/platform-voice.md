@@ -21,6 +21,20 @@ Only server administrators (`ADMIN_USER_IDS` or an `account_roles` admin entry; 
 - Authenticated users can only start sessions and access voice tools for their own bots. The main-agent shortcut continues to target the primary bot.
 - Without a platform key, legacy API-provider speech behavior is retained; CLI users receive an instruction to contact their platform admin.
 
+## Native team coordination
+
+The realtime voice agent can inspect and coordinate Swarm directly. It does not need to open Swarm in its computer's browser or sign into a second copy of the app.
+
+- `get_platform_state` reports the selected text provider/model, CLI connection and runtime, recorded provider plan/quota observations when available, and account-scoped usage. `include_models` requests the available catalog. The active call's voice provider/model is reported separately from text routing. A CLI default, account label, or zero recorded API charges does not prove a particular subscription tier, remaining allowance, or absence of subscription fees. Unobserved facts remain unknown.
+- `list_agents` and `get_agent` read the user's team, configurations, chats, tasks, routines and setup status. The primary agent can create teammates with `create_bot` and change their identity/model settings with `update_agent`. Creation uses the same durable setup service as text chat, preserving the spoken brief and corrections. It creates the teammate immediately; the existing setup interview and activation rules still apply. Computer readiness is reported separately.
+- `send_task` accepts an optional `bot_id` to assign work, follow up, or forward the user's answer to a specialist. It uses the normal agent loop and approval policies. `control_agent` stops work without deleting the agent; only the primary can stop another agent.
+- `/api/voice/updates` delivers finalized team replies, inter-agent inputs, pending questions/approvals, and tracked job status throughout the call, including agents whose chats have never been opened in the client. Question answers, approval resumes and app-connection callbacks retain the original assignment through durable parent-job links. Pending decisions stay waiting, and continuations stay queued/running until they finish. A reply is not proof that a queued task completed. Completion means the latest run ended; its result determines whether the requested outcome succeeded.
+- Tool calls and update polling are bound to the authenticated account, call ID, and calling bot. Provider function-call IDs deduplicate retried actions within a call. Updates are cursor-based and bounded; a missed-history marker directs the agent to read current chats if the call falls behind. Ending a call stops delivery, while accepted agent work continues in chat.
+
+Text agents receive the same native configuration context and `get_platform_state` tool, so a delegated configuration question also stays inside the app. Native controls do not bypass setup activation or approvals for external actions.
+
 ## Validation
 
 Run `node --import tsx --test tests/platform-voice.test.mts` for admin authorization, encrypted persistence, new-account inheritance, tenant isolation, CLI/personal-provider routing, credential validation, error sanitization and usage attribution. The tests use a local mock; a real microphone call and live xAI billing/permissions must also be checked after a production key is supplied.
+
+Run `node --import tsx --test tests/voice-coordinator.test.mts tests/platform-state.test.mts tests/voice-controls.test.mts tests/voice-results-client.test.mts` for native routing, configuration knowledge, creation/controls, isolation, tool retry deduplication and multi-agent update delivery. Client delivery is exercised with a mocked realtime socket, microphone and voice API; no paid provider call is required for those checks.
