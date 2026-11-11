@@ -9,11 +9,11 @@ import { pinnedImage } from './container-policy.js';
 import { HostBackups, hostBackupTransport } from './backups.js';
 import { verifyHostContainment } from './host-preflight.js';
 import { HostActivation } from './host-activation.js';
+import { confirmApplicationReady as confirmReady, reportApplicationRunning } from './application-readiness.js';
 import { RuntimeRefreshStore } from './refresh-state.js';
 import {HostInstaller,hostInstallTransport} from './install-environment.js';
 import {HostCheckpoint,hostCheckpointTransport} from './checkpoints.js';
 import path from 'node:path';
-import Database from 'better-sqlite3';
 import {setTimeout as delay} from 'node:timers/promises';
 const exec=promisify(execFile);
 const tenant=process.env.SWARM_TENANT_ID!,machine=process.env.FLY_MACHINE_ID!,volume=process.env.SWARM_VOLUME_ID!,generation=process.env.SWARM_RUNTIME_GENERATION!;
@@ -61,7 +61,7 @@ async function renew(){
 }
 await renew();
 let renewing=false,stopping=false;
-let workloadsStarted=false;
+let workloadsStarted=false,workloadEpoch=0;
 const activation=new HostActivation(process.env.PLATFORM_URL!,'/run/swarm-host/host-token',{tenant,generation,machine});
 const installer=new HostInstaller('/data',{tenant,generation,machine,volume},()=>requireBackupKey(),hostInstallTransport(process.env.PLATFORM_URL!,'/run/swarm-host/host-token'));
 let supervisor:Awaited<ReturnType<typeof startSupervisor>>|undefined;
@@ -77,9 +77,8 @@ async function failClosed(){
 }
 setInterval(()=>{if(renewing)return;renewing=true;void renew().then(async()=>{
   if(!workloadsStarted)return;
-  const policy=await activation.policy();
-  if(policy.desired!=='run')throw new Error('Tenant workload authorization revoked.');
-  await activation.report(policy,'running');
+  const epoch=workloadEpoch;
+  await reportApplicationRunning(application,{},()=>!stopping&&workloadsStarted&&workloadEpoch===epoch);
 }).catch(async()=>{
   await failClosed();
 }).finally(()=>{renewing=false;});},180_000);
@@ -116,6 +115,7 @@ for(const name of ['app','files','desktop','subscriptions']){
   if(environmentRoot!=='/data')await restoredOwnership(dir);else await fs.chown(dir,10001,10001);
 }
 await atomic('/run/swarm/desktop-token',randomBytes(32).toString('base64url'));
+const application={tenant,generation,desktopToken:requireHostFile('/run/swarm/desktop-token'),database:path.join(environmentRoot,'app/swarm.db'),activation};
 await fs.chown('/run/swarm',0,10001);await fs.chmod('/run/swarm',0o750);
 const supervisorPolicy={tenantId:tenant,root:environmentRoot,runnerImage:release.runnerImage,mcpImage:release.mcpImage,network:'swarm-public'};
 supervisor=await startSupervisor(supervisorPolicy,'/run/swarm/runner.sock',()=>{void failClosed();});
@@ -133,16 +133,9 @@ await exec('docker',[...basic,'--name=swarm-desktop','--network=swarm-desktop','
   `--mount=type=bind,src=${environmentRoot}/desktop,dst=/home/agent`,'--mount=type=bind,src=/run/swarm/desktop-token,dst=/run/desktop-token,readonly',
   release.desktopImage,'node','/opt/swarm/companion.mjs','--server','http://172.30.0.2:8787','--token-file','/run/desktop-token','--multi','--agent-home','/home/agent','--data-dir','/home/agent/.swarm']);
 async function confirmApplicationReady(){
-  let ready=false;
-  for(let attempt=0;attempt<30;attempt++){
-    try{const response=await fetch('http://172.30.0.2:8787/api/health',{redirect:'error',signal:AbortSignal.timeout(2000)});ready=response.ok;await response.body?.cancel();}catch{/* Startup is bounded below. */}
-    if(ready)break;await delay(1000);
-  }
-  if(!ready)throw new Error('Tenant application readiness failed.');
-  const database=new Database(path.join(environmentRoot,'app/swarm.db'),{readonly:true,fileMustExist:true});
-  try{if((database.prepare('SELECT tenant_id FROM tenant_identity WHERE singleton=1').get() as any)?.tenant_id!==tenant)throw new Error('Tenant database owner mismatch.');}finally{database.close();}
-  const policy=await activation.policy();if(policy.desired!=='run')throw new Error('Workload authorization changed during startup.');
-  await activation.report(policy,'running');workloadsStarted=true;
+  const epoch=++workloadEpoch;
+  await confirmReady(application,{},()=>!stopping&&workloadEpoch===epoch);
+  workloadsStarted=true;
 }
 try{await confirmApplicationReady();}catch{await failClosed();}
 let checkingActivation=false;
@@ -153,7 +146,7 @@ setInterval(()=>{
 const backups=new HostBackups(environmentRoot,tenant,()=>requireBackupKey(),hostBackupTransport('/run/swarm-host/host-token',process.env.PLATFORM_URL!),async()=>{
   if(stopping)throw new Error('Host is stopping.');
   try{
-    workloadsStarted=false;await activation.report(await activation.policy(),'held');
+    workloadsStarted=false;workloadEpoch++;await activation.report(await activation.policy(),'held');
     await supervisor!.close();
     await exec('docker',['stop','--time=10','swarm-app','swarm-desktop'],{timeout:30000});
     const state=JSON.parse((await exec('docker',['inspect','swarm-app','swarm-desktop'])).stdout);
