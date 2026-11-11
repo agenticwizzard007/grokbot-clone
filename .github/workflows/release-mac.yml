@@ -1,0 +1,150 @@
+name: Mac direct download
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Full Git SHA or release tag (mac-vVERSION)'
+        required: true
+        type: string
+      version:
+        description: 'App version: major.minor.patch'
+        required: true
+        default: '1.0.0'
+        type: string
+      build_number:
+        description: 'Positive, increasing build number'
+        required: true
+        type: string
+      server_origin:
+        description: 'Default HTTPS server origin for new installations'
+        required: true
+        default: 'https://swarm-team.fly.dev'
+        type: string
+      architectures:
+        description: 'Packaged architectures'
+        required: true
+        default: universal
+        type: choice
+        options: [universal, arm64, x64]
+      dry_run:
+        description: 'Ad-hoc signing only; never notarize or publish'
+        required: true
+        default: true
+        type: boolean
+  pull_request:
+    paths:
+      - '.github/workflows/release-mac.yml'
+      - 'scripts/mac-release/**'
+      - 'scripts/apple.sh'
+      - 'scripts/package-apple-mac.sh'
+      - 'scripts/stage-apple-mac.mjs'
+      - 'apple/**'
+      - 'companion/swarm-companion.mjs'
+      - 'docs/mac-distribution.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mac-distribution-${{ github.event_name }}-${{ inputs.version || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: macos-15
+    timeout-minutes: 90
+    # Configure required reviewers and a mac-v* tag-only deployment rule for mac-release.
+    # PRs never enter that environment or evaluate its secret values.
+    environment: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry_run && 'mac-release' || 'mac-release-dry-run' }}
+    outputs:
+      publish: ${{ steps.sign.outputs.publish }}
+      tag: ${{ steps.sign.outputs.tag }}
+      sha: ${{ steps.sign.outputs.sha }}
+    env:
+      RELEASE_REF: ${{ inputs.ref || github.sha }}
+      RELEASE_VERSION: ${{ inputs.version || '0.0.0' }}
+      RELEASE_BUILD: ${{ inputs.build_number || '1' }}
+      RELEASE_ORIGIN: ${{ inputs.server_origin || 'https://swarm-team.fly.dev' }}
+      RELEASE_ARCH: ${{ inputs.architectures || 'universal' }}
+      RELEASE_DRY_RUN: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Credentialed requests always check out the workflow's own tag commit.
+          # An arbitrary input ref can run only in a credential-free dry run.
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && inputs.ref || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate inputs and synthetic release policy tests
+        run: |
+          python3 scripts/mac-release/release.py validate
+          python3 -m unittest discover -s scripts/mac-release -p 'test_*.py' -v
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Native policy tests (including server-origin override)
+        run: bash scripts/apple.sh test
+      - uses: actions/cache@v4
+        with:
+          path: apple/build/runtime-cache
+          key: mac-release-node-${{ env.RELEASE_ARCH }}-${{ hashFiles('apple/MacControl/node-runtimes.json') }}
+      - name: Stage pinned dependencies and build complete unsigned app
+        run: |
+          bash scripts/package-apple-mac.sh stage --arch "$RELEASE_ARCH"
+          bash scripts/package-apple-mac.sh build "$RELEASE_ARCH"
+      - name: Sign, optionally notarize, and verify
+        id: sign
+        env:
+          # Never load credentials for a PR, even for same-repository PRs.
+          APPLE_DEVELOPER_ID_P12: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry_run && secrets.APPLE_DEVELOPER_ID_P12 || '' }}
+          APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry_run && secrets.APPLE_DEVELOPER_ID_P12_PASSWORD || '' }}
+          APPLE_DEVELOPER_ID_PROFILE: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry_run && secrets.APPLE_DEVELOPER_ID_PROFILE || '' }}
+          APPLE_ASC_KEY_ID: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry_run && secrets.APPLE_ASC_KEY_ID || '' }}
+          APPLE_ASC_ISSUER_ID: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry_run && secrets.APPLE_ASC_ISSUER_ID || '' }}
+          APPLE_ASC_PRIVATE_KEY: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry_run && secrets.APPLE_ASC_PRIVATE_KEY || '' }}
+        run: python3 scripts/mac-release/release.py sign
+      - name: Remove temporary signing material (also on cancellation/failure)
+        if: always()
+        run: python3 scripts/mac-release/release.py cleanup
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-distribution-${{ github.run_id }}-${{ github.run_attempt }}
+          path: apple/build-release/*
+          if-no-files-found: error
+          retention-days: 14
+      - name: Record artifact status
+        env:
+          PUBLISH: ${{ steps.sign.outputs.publish }}
+        run: |
+          if [[ "$PUBLISH" == true ]]; then
+            echo 'Developer ID / notarization / stapling / Gatekeeper passed. Release publication follows.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'DRY RUN ONLY: ad-hoc archive; no Developer ID, Apple sign-in provisioning, notarization or public release.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  publish:
+    needs: package
+    if: github.event_name == 'workflow_dispatch' && !inputs.dry_run && needs.package.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.package.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: mac-distribution-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-assets
+      - name: Verify archive provenance and publish a new versioned release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.package.outputs.tag }}
+          RELEASE_SHA: ${{ needs.package.outputs.sha }}
+        run: python3 scripts/mac-release/publish.py release-assets

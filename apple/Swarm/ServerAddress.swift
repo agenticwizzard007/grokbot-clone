@@ -1,7 +1,18 @@
 import Foundation
 
 struct ServerAddress: Equatable {
-    static let defaultURL = URL(string: "https://swarm-team.fly.dev")!
+    // Distribution stamps this into the built Info.plist before signing. An
+    // invalid override must never relax the origin/HTTPS policy. Existing saved
+    // server choices still take precedence in AppModel.
+    static let defaultURL = defaultURL(configuration: Bundle.main.infoDictionary ?? [:])
+
+    static func defaultURL(configuration: [String: Any]) -> URL {
+        if let value = configuration["SwarmDefaultServerOrigin"] as? String,
+           let address = try? ServerAddress(value) {
+            return address.url
+        }
+        return URL(string: "https://swarm-team.fly.dev")!
+    }
     let url: URL
 
     init(_ text: String, allowLocalHTTP: Bool = false) throws {
