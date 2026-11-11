@@ -34,6 +34,27 @@ export const mcpConfigSchema = z.object({
 export type McpConfig = z.infer<typeof mcpConfigSchema>;
 export interface McpTool { name: string; description?: string; inputSchema: Record<string, unknown> }
 export interface McpServer { id: string; userId: string; config: McpConfig; tools: McpTool[]; revision: number; checkedAt: number | null; error: string | null }
+// The single-file CLI runner accepts 512 native tools. Reserve 64 slots for
+// Swarm's built-ins and app wrappers; test the source-derived union against this
+// reserve so discovery cannot save a configuration that breaks subscription chat.
+export const MAX_CUSTOM_MCP_TOOLS = 448;
+export function assertMcpToolCount(count: number) {
+  if (count > MAX_CUSTOM_MCP_TOOLS) throw new Error(`An agent has ${count} custom MCP tools; the limit is ${MAX_CUSTOM_MCP_TOOLS}. Disable an MCP server or assign fewer servers to that agent, then test the connection again.`);
+}
+
+/** Validate a prospective discovery against only the agents it can affect. */
+export function assertMcpCapacity(userId: string, candidate: McpServer) {
+  if (!candidate.config.enabled || candidate.config.botIds?.length === 0) return;
+  const servers = listMcpServers(userId).map(server => server.id === candidate.id ? candidate : server).filter(server => server.config.enabled);
+  const shared = servers.filter(server => server.config.botIds === null).reduce((count, server) => count + server.tools.length, 0);
+  // All-agent assignments also apply to agents created after discovery.
+  if (candidate.config.botIds === null) assertMcpToolCount(shared);
+  const affected = new Set(candidate.config.botIds ?? servers.flatMap(server => server.config.botIds ?? []));
+  for (const botId of affected) {
+    const count = shared + servers.filter(server => server.config.botIds?.includes(botId)).reduce((total, server) => total + server.tools.length, 0);
+    assertMcpToolCount(count);
+  }
+}
 const fromRow = (r: any): McpServer => {
   const config = openPrivate<McpConfig>(r.user_id, `mcp:${r.id}`, r.config);
   return { id: r.id, userId: r.user_id, config: { ...config, folders: config.folders ?? [] }, tools: JSON.parse(r.tools), revision: r.revision, checkedAt: r.checked_at, error: r.error };

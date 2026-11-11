@@ -432,7 +432,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
         res = impl ? await impl.impl(args, { ...ctx, depth: st.depth })
           : c.name.startsWith('mcp_') ? await runMcpTool(userId, botId, c.name, args)
           : await runComposioTool({ ...ctx, readOnlyApps: ctx.readOnlyApps === true || pol.readOnlyApps }, c.name, args);
-        const successful = res.summary !== 'failed';
+        const successful = res.isError !== true && res.summary !== 'failed';
         finishTool(botId, c.call_id, successful);
         updateRow(botId, c.rowSeq, { ...body, status: successful ? 'done' : 'error', summary: res.summary, completedAt: now() });
       } catch (e: any) {

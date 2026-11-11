@@ -8,7 +8,7 @@ import { mcpOAuthToken } from './oauth.js';
 import { db, now } from '../db.js';
 import { validateMcpFolders } from './folders.js';
 import { isConfiguring } from '../bot-setup.js';
-import { findMcpTool, getMcpServer, mcpForBot, mcpToolName, type McpServer, type McpTool } from './store.js';
+import { assertMcpCapacity, assertMcpToolCount, findMcpTool, getMcpServer, mcpForBot, mcpToolName, type McpServer, type McpTool } from './store.js';
 import { assertLegacyWorkOpen, legacyWorkHeld, withLegacyWork } from '../security/legacy-work.js';
 
 const sessions = new Map<string, { serverId: string; promise: Promise<Client>; touched: number }>();
@@ -122,6 +122,7 @@ async function testAdmittedServer(s: McpServer) {
       if (cursor && (seen.has(cursor) || seen.size >= 20)) throw new Error('The MCP server returned invalid tool pagination.');
       if (cursor) seen.add(cursor);
     } while (cursor);
+    assertMcpCapacity(s.userId, { ...s, tools });
     const changed = JSON.stringify(tools) !== JSON.stringify(s.tools);
     db.prepare('UPDATE mcp_servers SET tools=?, checked_at=?, error=NULL, revision=revision+? WHERE id=? AND user_id=? AND revision=?').run(JSON.stringify(tools), now(), Number(changed && s.tools.length > 0), s.id, s.userId, s.revision);
   } catch (error) {
@@ -133,7 +134,11 @@ async function testAdmittedServer(s: McpServer) {
 
 export function mcpSchemas(userId: string, botId: string) {
   if (isConfiguring(botId)) return [];
-  return mcpForBot(userId, botId).flatMap(server => server.tools.map(tool => ({
+  const servers = mcpForBot(userId, botId);
+  // Existing configurations may predate discovery admission. Fail with a
+  // repairable configuration error rather than losing the whole CLI manifest.
+  assertMcpToolCount(servers.reduce((count, server) => count + server.tools.length, 0));
+  return servers.flatMap(server => server.tools.map(tool => ({
     type: 'function' as const, name: mcpToolName(server, tool.name),
     description: `${server.config.name}: ${tool.description || tool.name}`.slice(0, 6000),
     parameters: tool.inputSchema, strict: false,
