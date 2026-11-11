@@ -4,6 +4,8 @@ import QRCode from 'qrcode';
 import { createSession, requireUser, type AuthVars } from '../lib/auth.js';
 import { canManageServer, clearSetting, saveSetting, SETTINGS, type SettingName } from '../settings.js';
 import { env } from '../env.js';
+import { isTenant } from '../deployment.js';
+import { messagingRequest } from '../runtime/messaging.js';
 import { getBotRow, getBot } from '../store.js';
 import { accountByPhone, consumeLoginToken, createLoginLink, getAccount, isPlaceholderEmail, setEmail } from '../accounts.js';
 import { deliver, hasTextLink } from './bridge.js';
@@ -38,6 +40,7 @@ async function publicWhatsApp() {
 }
 
 async function publicLine() {
+  if (isTenant) return messagingRequest('status').then(r=>r.line).catch(()=>null);
   const line = await lineInfo().catch(() => null);
   if (!line) return null;
   return { number: line.number, connectCommand: line.connectCommand, smsLink: line.smsLink, whatsapp: await publicWhatsApp() };
@@ -113,7 +116,8 @@ async function status(userId: string, owner: boolean) {
   const prefs = getPrefs(userId);
   const active = prefs.activeBotId ? getBot(prefs.activeBotId) : null;
   const acct = getAccount(userId);
-  const line = await publicLine();
+  const platform = isTenant ? await messagingRequest('status').catch(()=>null) : null;
+  const line = isTenant ? platform?.line ?? null : await publicLine();
   const cfg = signupConfig();
   const whatsapp = owner && env.inkboxAdminKey && env.inkboxHandle ? await ib.getWhatsAppStatus(env.inkboxAdminKey, env.inkboxHandle).catch(() => null) : null;
   return {
@@ -122,7 +126,7 @@ async function status(userId: string, owner: boolean) {
     prefs: { forward: prefs.forward, activeBot: active ? { id: active.id, name: active.name } : null, voiceReplies: prefs.voiceReplies, ttsVoice: prefs.ttsVoice },
     speech: { ...speechStatus(), voices: TTS_VOICES },
     line,
-    invites: { allowance: cfg.memberInvites },
+    invites: { allowance: isTenant ? platform?.memberInvites ?? 0 : cfg.memberInvites },
     ...(owner ? {
       owner: {
         inkbox: {
@@ -182,6 +186,7 @@ messagingApi.post('/phone/verify', async (c) => {
 messagingApi.delete('/links/:channel', async (c) => {
   const ch = c.req.param('channel');
   if (!isChannel(ch)) return c.json({ error: 'unknown channel' }, 404);
+  if (isTenant) await messagingRequest('disconnect', { channel: ch });
   deleteLink(c.get('user').id, ch);
   return c.json(await status(c.get('user').id, canManageServer(c.get('user'))));
 });

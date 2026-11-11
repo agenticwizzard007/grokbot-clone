@@ -2,11 +2,28 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import { env } from './env.js';
+import crypto from 'node:crypto';
+import { deploymentRole, isTenant, tenantId, validateDeployment } from './deployment.js';
+import { registerLegacyFenceFunctions, assertLegacyDatabaseFences } from './platform/legacy-database-fence.js';
+
+validateDeployment();
+if (!['standalone','tenant'].includes(deploymentRole)) throw new Error('Platform services cannot open application SQLite databases.');
 
 fs.mkdirSync(path.dirname(env.dbPath), { recursive: true });
 export const db = new Database(env.dbPath);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
+db.function('session_hash', (t: unknown) => crypto.createHash('sha256').update(String(t)).digest('hex'));
+registerLegacyFenceFunctions(db);
+assertLegacyDatabaseFences(db);
+if (isTenant) {
+  const manifest = JSON.parse(fs.readFileSync(process.env.TENANT_MANIFEST_FILE!, 'utf8'));
+  if (manifest.tenantId !== tenantId || !manifest.volumeId || manifest.volumeId !== process.env.SWARM_VOLUME_ID) throw new Error('Volume ownership mismatch.');
+  db.exec('CREATE TABLE IF NOT EXISTS tenant_identity (singleton INTEGER PRIMARY KEY CHECK(singleton=1), tenant_id TEXT NOT NULL)');
+  const existing = db.prepare('SELECT tenant_id FROM tenant_identity WHERE singleton=1').get() as { tenant_id: string } | undefined;
+  if (existing && existing.tenant_id !== tenantId) throw new Error('Database ownership mismatch.');
+  db.prepare('INSERT OR IGNORE INTO tenant_identity VALUES(1,?)').run(tenantId);
+}
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
@@ -164,6 +181,7 @@ function addColumn(table: string, col: string, ddl: string) {
   if (!cols.some((c) => c.name === col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`);
 }
 addColumn('composio_sessions', 'key_fingerprint', 'TEXT');
+addColumn('approvals', 'binding_hash', 'TEXT');
 addColumn('bots', 'voice', "TEXT NOT NULL DEFAULT 'luna'");
 addColumn('bots', 'model', 'TEXT'); // per-Bot model (OpenRouter id like "anthropic/claude-sonnet-5.5", or a direct provider model); NULL = server default
 addColumn('bots', 'voice_speed', 'REAL NOT NULL DEFAULT 1');
@@ -175,5 +193,29 @@ addColumn('bot_setups', 'onboarding_status', "TEXT NOT NULL DEFAULT 'active'");
 addColumn('bot_setups', 'revision', 'INTEGER NOT NULL DEFAULT 1');
 addColumn('bot_setups', 'confirmed_at', 'INTEGER');
 addColumn('bot_setups', 'pending_handoff', 'TEXT');
+addColumn('auth_sessions', 'last_seen_at', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('auth_sessions', 'authenticated_at', 'INTEGER NOT NULL DEFAULT 0');
+// Preserve standalone rename continuity by hashing existing bearer tokens once.
+// In-flight legacy linking attempts are revoked when the old row is deleted;
+// migration never refreshes authentication time or extends absolute expiry.
+if (deploymentRole === 'standalone') db.transaction(() => {
+  const legacy = db.prepare("SELECT * FROM auth_sessions WHERE length(token)<>64 OR token GLOB '*[^a-f0-9]*'").all() as { token: string; user_id: string; created_at: number; expires_at: number; last_seen_at: number; authenticated_at: number }[];
+  const put = db.prepare('INSERT OR IGNORE INTO auth_sessions(token,user_id,created_at,expires_at,last_seen_at,authenticated_at) VALUES (?,?,?,?,?,?)');
+  for (const row of legacy) put.run(crypto.createHash('sha256').update(row.token).digest('hex'), row.user_id, row.created_at, Math.min(row.expires_at, row.created_at + 7 * 86400_000), row.last_seen_at, row.authenticated_at);
+})();
+// Tenant migrations do not preserve old sessions. No bearer credential remains.
+db.prepare("DELETE FROM auth_sessions WHERE length(token)<>64 OR token GLOB '*[^a-f0-9]*'").run();
+db.exec(`CREATE TABLE IF NOT EXISTS account_roles (
+ user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ role TEXT NOT NULL CHECK(role='admin'), PRIMARY KEY(user_id,role));`);
+if (isTenant) {
+  if (db.prepare('SELECT 1 FROM users WHERE id<>? LIMIT 1').get(tenantId)) throw new Error('Foreign accounts in tenant database.');
+  db.exec(`CREATE TRIGGER IF NOT EXISTS tenant_users_insert BEFORE INSERT ON users
+    WHEN NEW.id <> (SELECT tenant_id FROM tenant_identity WHERE singleton=1)
+    BEGIN SELECT RAISE(ABORT, 'Tenant identity mismatch'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_users_update BEFORE UPDATE OF id ON users
+    WHEN NEW.id <> (SELECT tenant_id FROM tenant_identity WHERE singleton=1)
+    BEGIN SELECT RAISE(ABORT, 'Tenant identity mismatch'); END;`);
+}
 
 export const now = () => Date.now();

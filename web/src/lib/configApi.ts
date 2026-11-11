@@ -42,6 +42,7 @@ export interface Pairing { token: string; server: string; command: string }
 
 export interface KeyStatus { set: boolean; source: 'app' | 'env' | null; hint: string | null }
 export interface KeysResponse {
+  isolated?: boolean;
   canEdit: boolean;
   voice: KeyStatus;
   direct: KeyStatus;
@@ -69,6 +70,8 @@ export interface MessagingLink {
 export interface MessagingWhatsAppStart { number: string | null; messageText: string; messageLink: string; qr: string }
 export interface MessagingLine { number: string; connectCommand: string; smsLink: string; whatsapp?: MessagingWhatsAppStart | null }
 export type SignupMode = 'invite' | 'open' | 'closed';
+export interface PlatformSignupPolicy { mode: SignupMode; signupsPerDay: number; memberInvites: number; revision: string }
+export interface PlatformWaitlistEntry extends WaitlistEntry { revision: string }
 export interface InkboxWhatsAppStatus { enabled: boolean; number: string | null; status: string }
 export interface InkboxWhatsAppOnboarding { agentIdentityId: string; number: string | null; messageText: string; messageLink: string | null; messageQrPngDataUrl: string | null; ready: boolean }
 export interface InkboxWhatsAppInfo { status: InkboxWhatsAppStatus | null; onboarding: InkboxWhatsAppOnboarding | null }
@@ -147,9 +150,11 @@ export interface ProviderUsage {
 
 export const configApi = {
   mcpServers: () => req<{ servers: McpServerView[]; canManage: boolean }>('GET', '/mcp/servers'),
+  mcpFolders: (path = '', after = '') => req<{ folders: { path: string; name: string }[]; next: string | null }>('GET', `/mcp/servers/folders?path=${encodeURIComponent(path)}&after=${encodeURIComponent(after)}`),
   createMcpServer: (input: McpServerInput) => req<{ server: McpServerView }>('POST', '/mcp/servers', input),
   updateMcpServer: (id: string, input: Partial<McpServerInput>) => req<{ server: McpServerView }>('PATCH', `/mcp/servers/${id}`, input),
   testMcpServer: (id: string) => req<{ server: McpServerView }>('POST', `/mcp/servers/${id}/test`),
+  authorizeMcpServer: (id: string) => req<{ redirectUrl: string }>('POST', `/mcp/servers/${id}/oauth`),
   deleteMcpServer: (id: string) => req<{ ok: true }>('DELETE', `/mcp/servers/${id}`),
   agentSetup: (botId: string) => req<AgentSetupView>('GET', `/bots/${botId}/setup`),
   startSetupInterview: (botId: string) => req<AgentSetupView>('POST', `/bots/${botId}/setup/interview`),
@@ -217,6 +222,11 @@ export const configApi = {
   inkboxWhatsApp: () => req<InkboxWhatsAppInfo>('GET', '/messaging/inkbox/whatsapp'),
   messagingSignup: (p: Partial<MessagingOwner['signup']>) => req<MessagingStatus>('PUT', '/messaging/signup', p),
   invites: () => req<{ invites: MessagingInvite[] }>('GET', '/messaging/invites'),
+  platformSignup: () => req<{ admin: boolean; settings?: PlatformSignupPolicy }>('GET', '/platform/signup'),
+  savePlatformSignup: (settings: PlatformSignupPolicy) => req<{ admin: boolean; settings: PlatformSignupPolicy }>('PUT', '/platform/signup', settings),
+  platformInvites: (cursor = '') => req<{ invites: MessagingInvite[]; next: string | null }>('GET', `/messaging/invites?cursor=${encodeURIComponent(cursor)}`),
+  platformWaitlist: (cursor = '') => req<{ waitlist: PlatformWaitlistEntry[]; next: string | null }>('GET', `/messaging/waitlist?cursor=${encodeURIComponent(cursor)}`),
+  decidePlatformWaitlist: (phone: string, revision: string, decision: 'approve' | 'decline') => req<{ ok: true }>('POST', `/messaging/waitlist/${encodeURIComponent(phone)}/${decision}`, { revision }),
   createInvite: (p: { maxUses?: number; expiresInDays?: number | null; note?: string }) => req<{ invite: MessagingInvite & { qr: string } }>('POST', '/messaging/invites', p),
   revokeInvite: (code: string) => req<{ ok: true }>('DELETE', `/messaging/invites/${encodeURIComponent(code)}`),
   waitlist: () => req<{ waitlist: WaitlistEntry[] }>('GET', '/messaging/waitlist'),
@@ -243,7 +253,16 @@ export const configApi = {
   phoneVerify: (id: string, code: string, inviteCode?: string) => req<{ ok: true; created: boolean }>('POST', '/auth/phone/verify', { id, code, inviteCode }),
   /** Connect your phone (signed in): the same code flow, attaching the number to this account. */
   phoneAttachStart: (phone: string) => req<PhoneStart>('POST', '/messaging/phone/start', { phone }),
-  phoneAttachVerify: (id: string, code: string) => req<MessagingStatus>('POST', '/messaging/phone/verify', { id, code }),
+  phoneAttachVerify: async (id: string, code: string) => {
+    const result = await req<MessagingStatus | {ok:true;phone:string}>('POST', '/messaging/phone/verify', { id, code });
+    if ('account' in result) return result;
+    let status = await req<MessagingStatus>('GET','/messaging');
+    for (let attempt=0; attempt<6 && status.account.phone!==result.phone; attempt++) {
+      await new Promise(resolve=>setTimeout(resolve,1000));
+      status=await req<MessagingStatus>('GET','/messaging');
+    }
+    return status;
+  },
 };
 
 export interface BotAnalytics {

@@ -1,3 +1,4 @@
+import { legacyWorkHeld } from './security/legacy-work.js';
 import { db, now } from './db.js';
 
 /**
@@ -54,6 +55,7 @@ function tick() {
   if (!enqueueFn) return;
   const rows = db.prepare('SELECT * FROM proactivity WHERE enabled=1').all() as any[];
   for (const r of rows) {
+    if (legacyWorkHeld(r.user_id)) continue;
     try {
       const { date, hm } = localParts(r.timezone);
       const times: string[] = JSON.parse(r.times);

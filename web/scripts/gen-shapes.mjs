@@ -1,4 +1,4 @@
-// Generates src/avatar/shapes.gen.ts from the Paper export's shape SVGs.
+// Generates src/avatar/shapes.gen.ts from the Swarms artwork SVGs.
 // Each shape keeps its full path (eyes are evenodd holes) plus the body outline subpath,
 // which we paint white underneath so the eyes read as white on any background.
 import fs from 'node:fs';

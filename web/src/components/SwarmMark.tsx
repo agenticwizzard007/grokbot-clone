@@ -1,4 +1,4 @@
-// Exact flock paths from Paper: Swarm — Mobile / Brand · Logos & motion / 165R-0.
+// Swarms flock mark.
 export function SwarmMark({ size = 32, className = '' }: { size?: number; className?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 100 100" fill="currentColor" className={`swarm-mark ${className}`} aria-hidden="true" focusable="false">

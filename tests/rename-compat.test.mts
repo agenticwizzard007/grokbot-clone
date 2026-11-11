@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { Hono } from 'hono';
+import Database from 'better-sqlite3';
 import type { AuthVars } from '../server/src/lib/auth.js';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-rename-'));
@@ -15,6 +16,14 @@ Object.assign(process.env, {
   APP_URL: 'http://localhost:5173', SERVER_URL: 'http://localhost:8787', GROKBOT_RENAME_TEST: 'from-old-env',
 });
 delete process.env.SWARM_RENAME_TEST;
+// Seed an actual pre-upgrade database so startup migration, not a runtime
+// plaintext-token fallback, provides compatibility.
+const legacyDb = new Database(process.env.DB_PATH!);
+legacyDb.exec(`CREATE TABLE users(id TEXT PRIMARY KEY,email TEXT UNIQUE NOT NULL,name TEXT NOT NULL,avatar_url TEXT,created_at INTEGER NOT NULL);
+  CREATE TABLE auth_sessions(token TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL);`);
+legacyDb.prepare('INSERT INTO users(id,email,name,created_at) VALUES (?,?,?,?)').run('usr_old','old@example.com','Old Browser',Date.now());
+legacyDb.prepare('INSERT INTO auth_sessions VALUES (?,?,?,?)').run('tok_old','usr_old',Date.now(),Date.now()+3600_000);
+legacyDb.close();
 const { env, preferExisting } = await import('../server/src/env.js');
 const { db, now } = await import('../server/src/db.js');
 const { loadSettings, sealSecret, unsealSecret } = await import('../server/src/settings.js');
@@ -58,8 +67,8 @@ test('keys saved before the rename still decrypt, and are re-saved under the new
 });
 
 test('a browser signed in before the rename stays signed in', async () => {
-  db.prepare('INSERT INTO users(id,email,name,created_at) VALUES (?,?,?,?)').run('usr_old', 'old@example.com', 'Old Browser', now());
-  db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (?,?,?,?)').run('tok_old', 'usr_old', now(), now() + 3600_000);
+  assert.equal(db.prepare('SELECT 1 FROM auth_sessions WHERE token=?').get('tok_old'), undefined, 'legacy bearer removed');
+  assert.ok(db.prepare('SELECT 1 FROM auth_sessions WHERE token=?').get(crypto.createHash('sha256').update('tok_old').digest('hex')), 'legacy session stored only as a hash');
   assert.equal(userFromCookieHeader('grokbot_session=tok_old')?.id, 'usr_old');
   assert.equal(userFromCookieHeader('swarm_session=nope; grokbot_session=tok_old'), null, 'the current cookie wins');
   const app = new Hono<AuthVars>().get('/me', requireUser, (c) => c.json({ id: c.get('user').id }));
@@ -69,6 +78,8 @@ test('a browser signed in before the rename stays signed in', async () => {
   const cookies = res.headers.getSetCookie();
   assert.ok(cookies.some((c) => c.startsWith('swarm_session=tok_old;')), 'moved to the new cookie');
   assert.ok(cookies.some((c) => c.startsWith('grokbot_session=;')), 'old cookie cleared');
+  assert.ok(cookies.some((c) => c.startsWith('swarm_session=') && Number(c.match(/Max-Age=(\d+)/)?.[1]) <= 3600), 'rename does not extend expiry');
+  assert.equal(userFromCookieHeader('grokbot_session=%ZZ'), null, 'malformed encoding fails closed');
   const bad = await app.request('/me', { headers: { cookie: 'grokbot_session=expired' } });
   assert.equal(bad.status, 401);
   assert.ok(!bad.headers.getSetCookie().some((c) => c.startsWith('swarm_session=')), 'unknown tokens are not copied');

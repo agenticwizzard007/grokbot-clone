@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, Copy, ExternalLink, KeyRound, RefreshCw, Sparkles, Terminal } from 'lucide-react';
+import { Check, ChevronDown, Copy, ExternalLink, KeyRound, RefreshCw, Terminal } from 'lucide-react';
 import { cliApi, type CliProvider, type CliProviderStatus, type CliStatus } from '../../lib/cliApi';
 import { refreshModels } from './ModelPicker';
 import { CliLoginTerminal } from './CliLoginTerminal';
 import { SwarmMark } from '../SwarmMark';
-import '@fontsource-variable/instrument-sans/wght.css';
+import { ProviderMark } from '../ProviderMark';
 import '../../styles/subscriptions.css';
 
 const PROVIDERS: { id: CliProvider; name: string; plan: string; install: string; login: string; docs: string }[] = [
@@ -192,7 +192,7 @@ export function SubscriptionSettings() {
   return (
     <div className="subscription-settings">
       <div className="app-settings__head">
-        <div className="subscription-settings__brand"><SwarmMark /><span>Your Swarm</span></div>
+        <div className="subscription-settings__brand"><SwarmMark size={24} /><span>Your Swarm</span></div>
         <h1>Subscriptions</h1>
         <p>Connect ChatGPT or Claude once. Bring your plan to every Bot, on every device.</p>
       </div>
@@ -206,7 +206,7 @@ export function SubscriptionSettings() {
             tabPicked.current = true; setProviderTab(next); setAuthMethod('cli');
             document.getElementById(`subscription-tab-${next}`)?.focus();
           }}>
-            {id === 'claude' ? <Sparkles size={18} aria-hidden /> : <Terminal size={18} aria-hidden />}{id === 'claude' ? 'Claude Code' : 'Codex'}
+            <ProviderMark provider={id} />{id === 'claude' ? 'Claude Code' : 'Codex'}
           </button>
         ))}
       </div>

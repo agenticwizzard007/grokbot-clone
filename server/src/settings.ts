@@ -3,6 +3,7 @@ import { db, now } from './db.js';
 import { env, envSource, setEnvOverride } from './env.js';
 import { composioHeaders } from './composio-auth.js';
 import { mintVoiceSecret } from './lib/voice-provider.js';
+import { isTenant } from './deployment.js';
 
 /**
  * Provider keys set from the app (Settings → API keys). Stored in SQLite encrypted with a key
@@ -60,6 +61,7 @@ export function unsealSecret(stored: string): string | null {
 
 /** Apply saved settings at startup. */
 export function loadSettings() {
+  if (isTenant) return;
   for (const row of db.prepare('SELECT key, value FROM server_settings').all() as { key: string; value: string }[]) {
     const def = (SETTINGS as Record<string, { env: string; secret: boolean }>)[row.key];
     if (!def) continue;
@@ -74,6 +76,7 @@ export function loadSettings() {
 }
 
 export function saveSetting(name: SettingName, value: string, userId: string | null) {
+  if (isTenant) throw new Error('Shared platform settings are unavailable in private environments.');
   const def = SETTINGS[name];
   db.prepare('INSERT OR REPLACE INTO server_settings(key,value,updated_by,updated_at) VALUES (?,?,?,?)').run(name, def.secret ? sealSecret(value) : value, userId, now());
   setEnvOverride(def.env, value);
@@ -88,6 +91,7 @@ const hint = (v: string) => (v.length > 8 ? `…${v.slice(-4)}` : 'set');
 
 export function settingsStatus() {
   return {
+    isolated: isTenant,
     voice: { set: !!env.voiceKey, source: envSource('XAI_API_KEY'), hint: null },
     direct: { set: !!env.directKey, source: envSource('DIRECT_API_KEY'), hint: env.directKey ? hint(env.directKey) : null },
     composio: { set: !!env.composioKey, source: envSource('COMPOSIO_API_KEY'), hint: env.composioKey ? hint(env.composioKey) : null },
@@ -102,17 +106,11 @@ export function settingsStatus() {
 /** Owner phone numbers (digits), for servers where the owner signs in by phone. */
 export const adminPhones = () => (process.env.ADMIN_PHONES ?? '').split(',').map((p) => p.replace(/\D/g, '')).filter(Boolean);
 
-/** Who may change server-wide keys: ADMIN_EMAILS / ADMIN_PHONES if set, otherwise the first account on this server (its owner). */
+/** Administrative authority is bound to immutable IDs, never contact details. */
 export function canManageServer(user: { id: string; email: string }): boolean {
-  const admins = (process.env.ADMIN_EMAILS ?? '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
-  const phones = adminPhones();
-  if (admins.length || phones.length) {
-    if (admins.includes(user.email.toLowerCase())) return true;
-    const phone = (db.prepare('SELECT phone FROM users WHERE id=?').get(user.id) as { phone: string | null } | undefined)?.phone;
-    return !!phone && phones.includes(phone);
-  }
-  const owner = db.prepare('SELECT id FROM users ORDER BY created_at ASC, rowid ASC LIMIT 1').get() as { id: string } | undefined;
-  return owner?.id === user.id;
+  if (isTenant) return false;
+  const ids = (process.env.ADMIN_USER_IDS ?? '').split(',').map(x => x.trim()).filter(Boolean);
+  return ids.includes(user.id) || !!db.prepare("SELECT 1 FROM account_roles WHERE user_id=? AND role='admin'").get(user.id);
 }
 
 // ---------- validation: call the provider with the key before saving it ----------

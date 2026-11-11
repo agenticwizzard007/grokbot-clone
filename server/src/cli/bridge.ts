@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import { authenticateCli, cliRuntime, selectedCli, type CliProvider } from './store.js';
 import { hostedGenerate, hostedStatus, refreshHosted, serverLoginAvailable } from './hosted.js';
+import { legacyWorkHeld, withLegacyWork } from '../security/legacy-work.js';
 
 export interface CliAuthStatus { installed: boolean; authenticated: boolean; subscription: boolean; error?: string }
 export type CliProviders = Record<CliProvider, CliAuthStatus>;
@@ -32,11 +33,14 @@ export function disconnectCli(userId: string) {
 }
 
 export function cliRequest(userId: string, method: 'status' | 'generate', params: unknown, timeoutMs: number, signal?: AbortSignal): Promise<any> {
+  return withLegacyWork(userId, () => admittedRequest(userId, method, params, timeoutMs, signal));
+}
+
+function admittedRequest(userId: string, method: 'status' | 'generate', params: unknown, timeoutMs: number, signal?: AbortSignal): Promise<any> {
   if (cliRuntime(userId) === 'server') return method === 'status' ? refreshHosted(userId, signal) : hostedGenerate(userId, params, signal);
   const c = connections.get(userId);
   if (!c || c.ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error(CLI_OFFLINE));
   if (signal?.aborted) return Promise.reject(new Error('CLI request cancelled.'));
-  if (c.pending.size >= 4) return Promise.reject(new Error('Your CLI bridge is busy. Try again when a running task finishes.'));
   const id = randomUUID();
   return new Promise((resolve, reject) => {
     const cancel = () => {
@@ -91,7 +95,7 @@ export function attachCliSocket(server: Server) {
         if (!connection) {
           if (msg?.type !== 'hello' || msg.version !== 1 || typeof msg.token !== 'string') return ws.close(4400, 'update bridge');
           userId = authenticateCli(msg.token);
-          if (!userId) return ws.close(4401, 'invalid or expired pairing token');
+          if (!userId || legacyWorkHeld(userId)) return ws.close(4401, 'invalid or expired pairing token');
           clearTimeout(handshake);
           disconnectCli(userId);
           connection = { ws, device: String(msg.device ?? 'My computer').slice(0, 100), providers: missing(), pending: new Map() };

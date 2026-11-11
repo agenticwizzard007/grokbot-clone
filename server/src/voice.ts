@@ -10,6 +10,7 @@ import { defaultModel, llmClient, llmProvider } from './lib/llm.js';
 import { recordModelUsage, recordUnits } from './usage.js';
 import { db, now } from './db.js';
 import { env } from './env.js';
+import { isTenant } from './deployment.js';
 import { mintVoiceSecret, voiceProvider } from './lib/voice-provider.js';
 import { newId } from './lib/ids.js';
 import type { AuthVars } from './lib/auth.js';
@@ -20,7 +21,8 @@ import type { ActivityKind, EventBody, MessageBody, RowBody, VoiceCallRecord, Vo
 
 export const voiceApi = new Hono<AuthVars>();
 voiceApi.use('*', async (c, next) => {
-  if (!env.voiceKey && c.req.method === 'POST' && /\/(session|preview|stt)$/.test(c.req.path) && selectedCli(c.get('user').id)) return c.json({ error: SUBSCRIPTION_VOICE_UNAVAILABLE }, 409);
+  const configuredVoiceKey = isTenant ? voiceProvider().key : env.voiceKey;
+  if (!configuredVoiceKey && c.req.method === 'POST' && /\/(session|preview|stt)$/.test(c.req.path) && selectedCli(c.get('user').id)) return c.json({ error: SUBSCRIPTION_VOICE_UNAVAILABLE }, 409);
   await next();
 });
 
@@ -250,7 +252,7 @@ voiceApi.post('/session', async (c) => {
   const bot = ownBot(user.id, botId);
   if (!bot) return c.json({ error: 'not found' }, 404);
   // Platform voice is independent of personal OpenRouter and CLI text-model choices.
-  if (!env.voiceKey && usesPersonalOpenRouter(user.id)) return c.json({ error: 'Platform voice is not configured yet. Ask your platform admin to enable it.' }, 503);
+  if (!(isTenant ? voiceProvider().key : env.voiceKey) && usesPersonalOpenRouter(user.id)) return c.json({ error: 'Voice is not configured. Add a voice credential in Settings.' }, 503);
   const provider = voiceProvider();
   if (!provider.key) return c.json({ error: 'Platform voice is not configured yet. Ask your platform admin to enable it.' }, 503);
   const s = settingsOf(bot);
@@ -433,7 +435,7 @@ voiceApi.post('/preview', async (c) => {
   const codec = p.codec === 'pcm' ? 'pcm' : 'mp3';
   // Shared voice always wins; fallback behavior is only for servers without platform voice.
   const provider = voiceProvider();
-  if (!env.voiceKey && (env.openrouterKey || usesPersonalOpenRouter(user.id)) && (TTS_VOICES.includes(voice) || !env.directKey)) {
+  if (!isTenant && !env.voiceKey && (env.openrouterKey || usesPersonalOpenRouter(user.id)) && (TTS_VOICES.includes(voice) || !env.directKey)) {
     try {
       const a = await synthesize(text, voice, codec);
       return c.body(a.data, 200, { 'Content-Type': codec === 'pcm' ? `audio/pcm;rate=${SAMPLE_RATE}` : 'audio/mpeg', 'Cache-Control': 'no-store' });

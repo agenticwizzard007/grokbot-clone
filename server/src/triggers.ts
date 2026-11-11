@@ -1,3 +1,6 @@
+import { legacyWorkHeld } from './security/legacy-work.js';
+import { isTenant, tenantId } from './deployment.js';
+import { gatewayRequest } from './runtime/gateway-client.js';
 import { db, now } from './db.js';
 import { checkRoutineRun, noteSkipped, trackRun } from './routine-limits.js';
 import { APPS_OFF, composio } from './composio.js';
@@ -27,6 +30,7 @@ function migrate() {
 export async function initTriggers(enqueue: (botId: string, t: any) => void) {
   migrate();
   enqueueFn = enqueue;
+  if (isTenant) return;
   if (!env.composioEnabled) { console.log('[triggers] off: no COMPOSIO_API_KEY'); return; }
   const count = (db.prepare("SELECT COUNT(*) n FROM routines WHERE schedule LIKE 'event:%'").get() as any).n;
   if (count > 0) await ensureSubscribed();
@@ -34,6 +38,7 @@ export async function initTriggers(enqueue: (botId: string, t: any) => void) {
 }
 
 async function ensureSubscribed() {
+  if (isTenant) return;
   if (subscribed) return;
   subscribed = true;
   const client = composio();
@@ -53,6 +58,7 @@ async function ensureSubscribed() {
 
 /** Live key changes must reconnect event delivery to the current project too. */
 export function refreshTriggerSubscription(): Promise<void> {
+  if (isTenant) return Promise.resolve();
   subscriptionChange = subscriptionChange.catch(() => {}).then(async () => {
     const next = env.composioEnabled ? composio() : null;
     if (subscriptionClient === next && subscribed) return;
@@ -67,11 +73,13 @@ export function refreshTriggerSubscription(): Promise<void> {
   return subscriptionChange;
 }
 
-function onTrigger(data: any) {
+export function onTrigger(data: any) {
   const ids = [data?.id, data?.metadata?.id, data?.metadata?.nanoId].filter(Boolean);
   if (!ids.length) return;
   const rows = db.prepare(`SELECT * FROM routines WHERE trigger_id IN (${ids.map(() => '?').join(',')}) AND enabled=1`).all(...ids) as any[];
   for (const r of rows) {
+    const owner = (db.prepare('SELECT user_id FROM bots WHERE id=?').get(r.bot_id) as { user_id: string } | undefined)?.user_id;
+    if (legacyWorkHeld(owner)) continue;
     const check = checkRoutineRun(r, 'event');
     if (!check.ok) { noteSkipped(r, check.reason); continue; }
     const payload = JSON.stringify(data.payload ?? data.originalPayload ?? {}, null, 1).slice(0, 8000);
@@ -88,7 +96,7 @@ function onTrigger(data: any) {
 }
 
 export async function listTriggerTypes(toolkit: string) {
-  const r: any = await composio().triggers.listTypes({ toolkits: [toolkit] } as any);
+  const r: any = isTenant ? await gatewayRequest(tenantId, 'trigger-types', { toolkit }) : await composio().triggers.listTypes({ toolkits: [toolkit] } as any);
   const items: any[] = r?.items ?? r ?? [];
   return items.slice(0, 40).map((t) => ({
     slug: t.slug,
@@ -102,7 +110,7 @@ export async function createEventRoutine(userId: string, botId: string, a: { nam
   migrate();
   if (!env.composioEnabled) throw new Error(APPS_OFF);
   const slug = a.trigger_slug.toUpperCase();
-  const res: any = await composio().triggers.create(userId, slug, { triggerConfig: a.config ?? {} } as any);
+  const res: any = isTenant ? await gatewayRequest(userId, 'trigger-create', { slug, config: a.config ?? {} }) : await composio().triggers.create(userId, slug, { triggerConfig: a.config ?? {} } as any);
   const triggerId = res?.triggerId ?? res?.trigger_id ?? res?.id;
   if (!triggerId) throw new Error(`Composio did not return a trigger id: ${JSON.stringify(res).slice(0, 200)}`);
   const id = `rt_${Math.random().toString(36).slice(2, 12)}`;
@@ -116,6 +124,7 @@ export async function createEventRoutine(userId: string, botId: string, a: { nam
 export async function setEventRoutineEnabled(routineId: string, enabled: boolean) {
   const r = db.prepare('SELECT trigger_id FROM routines WHERE id=?').get(routineId) as any;
   if (!r?.trigger_id) return;
+  if (isTenant) { await gatewayRequest(tenantId, enabled ? 'trigger-enable' : 'trigger-disable', { triggerId: r.trigger_id }); return; }
   try {
     if (enabled) { await composio().triggers.enable(r.trigger_id); await ensureSubscribed(); }
     else await composio().triggers.disable(r.trigger_id);
@@ -135,5 +144,6 @@ export function describeEvent(schedule: string) {
 export async function deleteEventTrigger(routineId: string) {
   const r = db.prepare('SELECT trigger_id FROM routines WHERE id=?').get(routineId) as any;
   if (!r?.trigger_id) return;
+  if (isTenant) { await gatewayRequest(tenantId, 'trigger-delete', { triggerId: r.trigger_id }); return; }
   try { await composio().triggers.delete(r.trigger_id); } catch (e) { console.warn('[triggers] delete failed', routineId, (e as Error).message); }
 }

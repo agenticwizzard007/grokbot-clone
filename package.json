@@ -31,10 +31,11 @@
     "test:mobile": "node tests/mobile-layout.mjs",
     "test:apple-auth": "node --import tsx --test tests/apple-auth.test.mts",
     "test:tasks": "node tests/tasks-layout.mjs",
-    "test:cli": "node --import tsx --test --test-concurrency=1 tests/cli-runner.test.mts tests/cli-login-runner.test.mts tests/cli-login.test.mts tests/cli-subscription.test.mts && node tests/cli-chat.mjs",
+    "test:cli": "node --import tsx --test --test-concurrency=1 tests/cli-runner.test.mts tests/cli-login-runner.test.mts tests/cli-login.test.mts tests/cli-subscription.test.mts tests/cli-concurrency.test.mts tests/cli-hosted-concurrency.test.mts tests/cli-supervisor.test.mts && node tests/cli-chat.mjs",
     "cli:bridge": "node companion/cli-bridge.mjs",
     "test:models": "node --import tsx --test --test-concurrency=1 tests/models.test.mts",
-    "test:rename": "node --import tsx --test tests/rename-compat.test.mts"
+    "test:rename": "node --import tsx --test tests/rename-compat.test.mts",
+    "test:isolation": "node scripts/test-isolation.mjs"
   },
   "engines": {
     "node": ">=22"

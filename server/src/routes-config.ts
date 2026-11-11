@@ -12,6 +12,8 @@ import { env } from './env.js';
 import { computers, ComputerError } from './computers/index.js';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { createPairing, localFilePath, pairingInfo, revokePairings } from './computers/local.js';
+import { openOwnedFile } from './security/files.js';
+import { registerCompanion } from './runtime/companion-registration.js';
 import { startThisComputer, stopThisComputer, thisComputerAvailable, thisComputerUser } from './computers/this-computer.js';
 import { canManageServer, clearSetting, saveSetting, SETTINGS, settingsStatus, verifyComposioKey, verifyOpenRouterKey, verifyDirectKey, type SettingName } from './settings.js';
 import { defaultModel, llmProvider, openrouterModels } from './lib/llm.js';
@@ -199,16 +201,15 @@ configApi.get('/bots/:id/files/raw', (c) => {
   if (!b) return c.json({ error: 'not found' }, 404);
   const rel = safeRel(c.req.query('path'));
   if (!rel || (computers.kind !== 'local' && computers.kind !== 'cloudvm')) return c.json({ error: 'bad path' }, 400);
-  let file: string;
-  try { file = localFilePath(b.id, rel); } catch { return c.json({ error: 'bad path' }, 400); }
-  if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return c.json({ error: 'not found' }, 404);
-  const name = path.basename(file).replace(/["\\\r\n]/g, '_');
-  return c.body(fs.readFileSync(file), 200, {
+  let fd: number;
+  try { fd = openOwnedFile(localFilePath(b.id, ''), rel); } catch { return c.json({ error: 'not found' }, 404); }
+  const name = path.basename(rel).replace(/["\\\r\n]/g, '_');
+  try { return c.body(fs.readFileSync(fd), 200, {
     'Content-Type': 'application/octet-stream',
     'Content-Disposition': `attachment; filename="${name}"`,
     'X-Content-Type-Options': 'nosniff',
     'Cache-Control': 'no-store',
-  });
+  }); } finally { fs.closeSync(fd); }
 });
 
 // ---------- computer: screens, reset, hibernation, pairing a PC ----------
@@ -264,10 +265,11 @@ configApi.post('/bots/:id/screen/reset', async (c) => {
 });
 
 /** Local computers: make a pairing token and the command that connects a PC with it. */
-configApi.post('/computer/pair', (c) => {
+configApi.post('/computer/pair', async (c) => {
   if (localAccess(c.get('user').id).enabled) return c.json({ error: 'Manage this Mac in the Swarm desktop app → Mac Control.' }, 409);
   if (computers.kind !== 'local') return c.json({ error: 'This server uses cloud computers (COMPUTER_PROVIDER=orgo).' }, 400);
   const token = createPairing(c.get('user').id);
+  await registerCompanion('desktop', token);
   const server = env.serverUrl.replace(/\/+$/, '');
   return c.json({
     token,
@@ -277,11 +279,13 @@ configApi.post('/computer/pair', (c) => {
 });
 
 /** Local computers: forget every paired PC and disconnect the current one. */
-configApi.delete('/computer/pair', (c) => {
+configApi.delete('/computer/pair', async (c) => {
   if (localAccess(c.get('user').id).enabled) return c.json({ error: 'Disconnect this Mac in the Swarm desktop app → Mac Control.' }, 409);
   if (computers.kind !== 'local') return c.json({ error: 'not available' }, 400);
   if (thisComputerUser() === c.get('user').id) stopThisComputer();
-  return c.json({ ok: true, revoked: revokePairings(c.get('user').id) });
+  const revoked = revokePairings(c.get('user').id);
+  await registerCompanion('desktop');
+  return c.json({ ok: true, revoked });
 });
 
 // ---------- API keys (Settings → API keys): owner only, verified with the provider before saving ----------

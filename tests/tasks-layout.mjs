@@ -17,14 +17,14 @@ vite.stderr.on('data', (s) => { logs += s; });
 const now = Date.now();
 const bots = ['Quinn', 'Atlas', 'Nova'].map((name, i) => ({ id: `bot-${i}`, name, label: ['Your primary bot', 'Research & strategy', 'Product & engineering'][i], description: '', instructions: '', avatarShape: ['blob', 'star', 'flower'][i], avatarColor: ['blue', 'violet', 'green'][i], mode: 'personal', isPrimary: i === 0, pinned: i === 0, effort: 'medium', model: null, voice: 'ara', voiceSpeed: 1, voiceLanguage: 'auto', generation: 1, unread: 0, lastPreview: ['Your team is ready.', 'Comparing agent architectures.', 'Your launch summary is ready.'][i], lastActivityAt: now, createdAt: now }));
 const sampleTasks = [
-  ['needs_input', 'GrokBot Architecture Comparison', 'Which architecture should I use for the prototype?', 1, 3],
+  ['needs_input', 'Swarms Architecture Comparison', 'Which architecture should I use for the prototype?', 1, 3],
   ['needs_input', 'Live Trading Co-Pilot', 'Please confirm the trading limits before I continue.', 0, 7],
   ['needs_input', 'Obelisk AI Google Cloud Setup', 'Connect your Google Cloud account to continue.', 2, 24],
   ['working', 'Open-Instinct Comparison', 'Comparing multi-agent coordination and workflows.', 1, 0.04],
   ['working', 'Systemised.com Infoproduct', 'Checking sources and tightening the final draft.', 0, 0.2],
   ['working', 'AI Video Generation Tools', 'Evaluating tools against your requirements.', 1, 0.44],
   ['working', 'E2B System Design', 'Mapping the sandbox lifecycle and API.', 2, 1],
-  ['done', 'Grokbot Launch and Test', 'Build checks passed. Your launch summary is ready.', 2, 1],
+  ['done', 'Swarms Launch and Test', 'Build checks passed. Your launch summary is ready.', 2, 1],
   ['done', 'Connection and Preparation', 'Account setup and app connections are complete.', 0, 24],
 ].map(([state, title, note, bot, hours], i) => ({ id: `task-${i}`, botId: bots[bot].id, title, note, state, updatedAt: now - hours * 3600000 }));
 const screenshotDir = new URL('../.context/tasks/', import.meta.url);

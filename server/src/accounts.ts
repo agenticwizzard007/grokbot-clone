@@ -1,3 +1,4 @@
+import { legacyWritableRows } from './platform/legacy-database-fence.js';
 import crypto from 'node:crypto';
 import { db, now } from './db.js';
 import { env } from './env.js';
@@ -20,6 +21,7 @@ function addColumn(table: string, col: string, ddl: string) {
   if (!cols.some((c) => c.name === col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`);
 }
 addColumn('users', 'phone', 'TEXT');
+addColumn('users', 'pending_email', 'TEXT');
 addColumn('users', 'signup_source', "TEXT NOT NULL DEFAULT 'web'");
 addColumn('users', 'invited_by', 'TEXT');
 addColumn('users', 'timezone', 'TEXT');
@@ -74,13 +76,18 @@ export interface CreateAccountInput {
   preferId?: string;
   source?: 'web' | 'text';
   invitedBy?: string | null;
+  /** Only the explicitly enabled local development login may reuse an email. */
+  developmentEmailLookup?: boolean;
 }
 
 /** Find an account by email (or phone), or create it with its primary Bot. */
 export function createAccount(input: CreateAccountInput): { id: string; isNew: boolean } {
   const phone = input.phone ? input.phone.replace(/\D/g, '') : null;
   const byEmail = input.email ? (db.prepare('SELECT id FROM users WHERE lower(email)=lower(?)').get(input.email) as any) : null;
-  if (byEmail) return { id: byEmail.id, isNew: false };
+  if (byEmail) {
+    if (input.developmentEmailLookup && env.devLogin && process.env.NODE_ENV !== 'production') return { id: byEmail.id, isNew: false };
+    throw new Error('email_link_required');
+  }
   const byPhone = phone ? accountByPhone(phone) : null;
   if (byPhone) return { id: byPhone.id, isNew: false };
   if (!input.email && !phone) throw new Error('An account needs an email or a phone number.');
@@ -107,32 +114,40 @@ export function setEmail(userId: string, email: string): { ok: true } | { ok: fa
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) || isPlaceholderEmail(e)) return { ok: false, error: 'Enter a valid email address.' };
   const other = db.prepare('SELECT id FROM users WHERE lower(email)=? AND id<>?').get(e, userId);
   if (other) return { ok: false, error: 'That email has its own Swarm account. Sign in there and link your phone with a link code instead.' };
-  db.prepare('UPDATE users SET email=? WHERE id=?').run(e, userId);
+  db.prepare('UPDATE users SET pending_email=? WHERE id=?').run(e, userId);
   return { ok: true };
 }
 
 /** Delete an account and everything in it. Bots, rows, links and sessions go with the user (foreign keys cascade). */
-export async function deleteAccount(userId: string) {
+export class AccountAuthorizationChanged extends Error {}
+export async function deleteAccount(userId: string, authorize: () => void = () => {}) {
   // Preserve the account and encrypted credentials on failure so revocation can be retried.
   const { revokeAppleAccess } = await import('./auth/apple-provider.js');
-  await revokeAppleAccess(userId);
   const [{ cancelUserLogins }, { deleteHostedProfile }, { disconnectCli }, { withCliMutation }] = await Promise.all([
     import('./cli/login.js'), import('./cli/hosted.js'), import('./cli/bridge.js'), import('./cli/lock.js'),
   ]);
   return withCliMutation(userId, async () => {
+    authorize();
+    await revokeAppleAccess(userId);
+    authorize();
     await cancelUserLogins(userId);
+    authorize();
     disconnectCli(userId);
     const bots = db.prepare('SELECT id FROM bots WHERE user_id=?').all(userId) as { id: string }[];
     for (const b of bots) {
       interrupt(b.id);
       for (const r of db.prepare('SELECT id FROM routines WHERE bot_id=?').all(b.id) as { id: string }[]) unscheduleRoutine(r.id);
       await computers.resetScreen(userId, b.id).catch(() => {});
+      authorize();
       removeSetupFiles(b.id);
     }
     // Cloud VMs: the account's VM and disk are deleted too (a background job, retried until done).
+    authorize();
     await deleteHostedProfile(userId);
+    authorize();
     if (env.computerProvider === 'cloudvm') enqueueAccountDeletion(userId);
     db.transaction(() => {
+      authorize();
       db.prepare('DELETE FROM screens WHERE user_id=?').run(userId);
       for (const t of ['proactivity', 'messaging_claims']) {
         try { db.prepare(`DELETE FROM ${t} WHERE ${t === 'messaging_claims' ? 'phone=(SELECT phone FROM users WHERE id=?)' : 'user_id=?'}`).run(userId); } catch { /* table absent */ }
@@ -150,7 +165,7 @@ const hash = (t: string) => crypto.createHash('sha256').update(t).digest('hex');
 
 /** A link that signs this user into the web app once, within 10 minutes. */
 export function createLoginLink(userId: string): string {
-  db.prepare('DELETE FROM login_tokens WHERE expires_at<?').run(now() - 24 * 3600_000);
+  db.prepare(`DELETE FROM login_tokens WHERE expires_at<? AND ${legacyWritableRows(db, 'login_tokens')}`).run(now() - 24 * 3600_000);
   const t = crypto.randomBytes(24).toString('base64url');
   db.prepare('INSERT INTO login_tokens(token_hash,user_id,expires_at) VALUES (?,?,?)').run(hash(t), userId, now() + LOGIN_TTL);
   return `${env.serverUrl.replace(/\/$/, '')}/api/auth/text?t=${encodeURIComponent(t)}`;

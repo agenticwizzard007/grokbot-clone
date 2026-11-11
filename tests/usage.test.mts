@@ -35,6 +35,7 @@ const { Hono } = await import('hono');
 after(() => { mock.kill(); });
 
 const owner = createAccount({ email: 'owner@example.com', name: 'Owner' }).id;
+db.prepare("INSERT INTO account_roles VALUES(?,'admin')").run(owner);
 const member = createAccount({ email: 'member@example.com', name: 'Member' }).id;
 const texter = createAccount({ phone: '15550001111', name: 'Texter', source: 'text' }).id;
 const botOf = (userId: string) => (db.prepare('SELECT id FROM bots WHERE user_id=? ORDER BY created_at LIMIT 1').get(userId) as { id: string }).id;
@@ -45,7 +46,7 @@ const app = new Hono();
 app.route('/api/usage', usageApi);
 const session = (userId: string) => {
   const t = `t_${userId}`;
-  db.prepare('INSERT OR REPLACE INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (?,?,?,?)').run(t, userId, Date.now(), Date.now() + 3_600_000);
+  db.prepare('INSERT OR REPLACE INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (session_hash(?),?,?,?)').run(t, userId, Date.now(), Date.now() + 3_600_000);
   return `swarm_session=${t}`;
 };
 const get = async (userId: string, url: string) => {

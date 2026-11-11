@@ -1,4 +1,4 @@
-/* Shared sign-in controls, matched to the Sign in · Web & Mobile Paper page. */
+/* Shared Swarms sign-in controls for web and mobile. */
 .auth-button {
   display: flex; align-items: center; gap: 12px;
   width: 100%; min-height: 48px; height: 48px; flex-shrink: 0;

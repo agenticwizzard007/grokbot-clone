@@ -144,7 +144,7 @@ Keep it running while your Bots work. The companion connects out to the server, 
 
 Guard rails, enforced on your PC: Bots get a browser only (no shell, no files from your PC), only `http(s)` pages, no downloads or file uploads, and local-network addresses such as `localhost` or `192.168.x.x` are blocked unless you add `--allow-private-network`. The token in the command is a secret: anyone who has it can connect their PC as your Bots' browser. **Disconnect** in the same settings page revokes it.
 
-From a clone of this repository you can also run `npm run companion -- --server <url> --token <token>`.
+From the Swarms repository you can also run `npm run companion -- --server <url> --token <token>`.
 
 #### Cloud VMs (`COMPUTER_PROVIDER=cloudvm`)
 
@@ -239,7 +239,7 @@ The main source directories are:
 ```text
 server/src/     API routes, agent runtime, tools, and integrations
 web/src/        Chat, Bot settings, app connections, computer viewer, and voice
-web/artwork/    Original design assets used to generate Bot avatars
+web/artwork/    Swarms design assets used to generate Bot avatars
 web/public/     Static UI assets
 tests/          Playwright integration and voice scripts
 docs/           Architecture and integration guides

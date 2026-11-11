@@ -1,6 +1,7 @@
 import { db, now } from '../db.js';
 import { newId } from '../lib/ids.js';
 import { getLive } from '../store.js';
+import { selectedCli } from '../cli/store.js';
 
 /**
  * Subagents (Swarm: CheckSubagent / MessageSubagent / StopSubagent, `sand-subagent-*`).
@@ -18,8 +19,10 @@ export function initSubagents() {
 export function createSubagent(parentId: string, goal: string, label?: string) {
   const p = db.prepare('SELECT * FROM bots WHERE id=?').get(parentId) as any;
   if (!p) throw new Error('parent not found');
-  const active = (db.prepare('SELECT COUNT(*) n FROM bots WHERE parent_bot_id=? AND hidden=1').get(parentId) as any).n;
-  if (active >= 4) throw new Error('This Bot already has 4 subagents; stop one first.');
+  if (!selectedCli(p.user_id)) {
+    const active = (db.prepare('SELECT COUNT(*) n FROM bots WHERE parent_bot_id=? AND hidden=1').get(parentId) as any).n;
+    if (active >= 4) throw new Error('This Bot already has 4 subagents; stop one first.');
+  }
   const id = newId('sub');
   const name = `${p.name} · ${(label || goal).replace(/\s+/g, ' ').slice(0, 32)}`;
   const instructions =

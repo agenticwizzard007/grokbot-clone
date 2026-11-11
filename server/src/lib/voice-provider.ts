@@ -1,12 +1,16 @@
 import { env } from '../env.js';
+import { isTenant } from '../deployment.js';
+import { privateKey } from '../providers/private-keys.js';
+import { currentUserId } from '../usage-context.js';
 
 /** Read credentials per request so admin key changes apply without a restart. */
 export function voiceProvider() {
-  const platform = !!env.voiceKey;
+  const key = isTenant ? privateKey(currentUserId(),'voice') : env.voiceKey;
+  const platform = isTenant || !!key;
   const baseUrl = (platform ? env.voiceBaseUrl : env.directBaseUrl).replace(/\/$/, '');
   const model = platform ? 'grok-voice' : process.env.DIRECT_VOICE_MODEL || 'voice-realtime-latest';
   return {
-    key: platform ? env.voiceKey : env.directKey,
+    key: platform ? key : env.directKey,
     baseUrl,
     provider: platform ? 'xai' : 'direct',
     clientSecretProtocol: platform ? 'xai-client-secret' : 'direct-client-secret',

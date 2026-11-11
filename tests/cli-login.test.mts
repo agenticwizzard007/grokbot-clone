@@ -38,6 +38,11 @@ const audit = value => fs.appendFileSync(${JSON.stringify(auditFile)}, JSON.stri
 const probe = args[0] === 'login' && args[1] === 'status' || args[0] === 'auth' && args[1] === 'status';
 if (probe) {
   audit({ kind: 'status' });
+  const hold = path.join(process.env.HOME, provider + '-hold-status');
+  if (fs.existsSync(hold)) {
+    audit({ kind: 'status-held' });
+    while (fs.existsSync(hold)) await new Promise(resolve => setTimeout(resolve, 10));
+  }
   const auth = fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8') : '';
   if (provider === 'codex') {
     console.error(auth === 'subscription' ? 'Logged in using ChatGPT' : auth === 'api' ? 'Logged in using an API key' : 'Not logged in');
@@ -97,6 +102,9 @@ const { db } = await import('../server/src/db.js');
 const { cliApi } = await import('../server/src/cli/routes.js');
 const { selectedCli } = await import('../server/src/cli/store.js');
 const { cliRuntime } = await import('../server/src/cli/store.js');
+const { createCliPairing, selectCli, setCliRuntime } = await import('../server/src/cli/store.js');
+const { withCliMutation } = await import('../server/src/cli/lock.js');
+const { revokeSession, sessionHash } = await import('../server/src/lib/auth.js');
 const { startLoginSession, cancelUserLogins } = await import('../server/src/cli/login.js');
 const { profilePath } = await import('../server/src/cli/hosted.js');
 const { llmClient, defaultModel, llmProvider } = await import('../server/src/lib/llm.js');
@@ -170,7 +178,8 @@ beforeEach(() => {
   bob = `embedded/bob-${sequence}@example.test`;
   for (const id of [alice, bob]) {
     db.prepare('INSERT INTO users(id,email,name,created_at) VALUES (?,?,?,?)').run(id, id, id, Date.now());
-    db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (?,?,?,?)').run(id, id, Date.now(), Date.now() + 3_600_000);
+    db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (session_hash(?),?,?,?)').run(id, id, Date.now(), Date.now() + 3_600_000);
+  db.prepare('UPDATE auth_sessions SET last_seen_at=created_at,authenticated_at=created_at WHERE token=session_hash(?)').run(id);
   }
 });
 afterEach(async () => {
@@ -189,7 +198,7 @@ after(async () => {
 });
 
 test('login terminal endpoints require an unexpired signed-in cookie', async () => {
-  db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (?,?,?,?)').run('expired-login-session', alice, Date.now() - 2000, Date.now() - 1);
+  db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (session_hash(?),?,?,?)').run('expired-login-session', alice, Date.now() - 2000, Date.now() - 1);
   for (const credential of [null, 'unknown', 'expired-login-session']) {
     for (const [route, method, body] of [
       ['/login', 'POST', { provider: 'codex', cols: 80, rows: 24 }],
@@ -619,4 +628,173 @@ test('account deletion removes saved CLI credentials and pending login processes
   assert.equal((await req(bob)).status, 200);
   const otherResponse: any = await withUsage({ userId: bob }, () => llmClient(3000).responses.create({ model: defaultModel(), input: 'remaining account still works' }));
   assert.equal(otherResponse.provider, 'codex-cli');
+});
+
+test('another session of the same account cannot operate the sign-in terminal', async () => {
+  const terminal = await start(alice, 'codex');
+  const second = `${alice}-second-device`;
+  db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at,last_seen_at,authenticated_at) VALUES(session_hash(?),?,?,?,?,?)')
+    .run(second,alice,Date.now(),Date.now()+3600000,Date.now(),Date.now());
+  for (const [route,method,body] of [
+    [`/login/${terminal.id}`,'GET',undefined],
+    [`/login/${terminal.id}/input`,'POST',{data:'OK\r'}],
+    [`/login/${terminal.id}/resize`,'POST',{cols:80,rows:24}],
+    [`/login/${terminal.id}`,'DELETE',undefined],
+  ] as const) assert.equal((await req(second,route,method,body)).status,404);
+  const { revokeSession, sessionHash } = await import('../server/src/lib/auth.js');
+  revokeSession(sessionHash(alice));
+  await delay(100);
+  assert.equal((await req(alice,`/login/${terminal.id}`)).status,401);
+  assert.equal((await req(second,`/login/${terminal.id}`)).status,404);
+});
+
+test('credential replacement requires recent authentication', async () => {
+  db.prepare('UPDATE auth_sessions SET authenticated_at=? WHERE token=session_hash(?)').run(Date.now()-11*60000,alice);
+  assert.equal((await req(alice,'/login','POST',{provider:'codex',cols:80,rows:24})).status,401);
+  assert.equal((await req(alice,'/pair','POST',{})).status,401);
+});
+
+const credentialMutations = [
+  { name: 'login', route: '/login', method: 'POST', body: { provider: 'claude', cols: 80, rows: 24 }, recent: true },
+  { name: 'pair creation', route: '/pair', method: 'POST', body: undefined, recent: true },
+  { name: 'disconnect', route: '/pair', method: 'DELETE', body: undefined, recent: true },
+  // Selecting API mode would remove the existing subscription without an auth
+  // refresh, so it also exercises the mutation's initial authorization boundary.
+  { name: 'provider selection', route: '', method: 'PUT', body: { provider: null }, recent: false },
+] as const;
+type CredentialMutation = typeof credentialMutations[number];
+
+async function queuedMutation(userId: string, mutation: CredentialMutation, whileWaiting: () => void | Promise<void> = () => {}) {
+  let release!: () => void, acquired!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const entered = new Promise<void>(resolve => { acquired = resolve; });
+  const holder = withCliMutation(userId, async () => { acquired(); await gate; });
+  await entered;
+  const oldSeen = Date.now() - 120_000;
+  db.prepare('UPDATE auth_sessions SET last_seen_at=? WHERE token=session_hash(?)').run(oldSeen, userId);
+  let settled = false;
+  const pending = req(userId, mutation.route, mutation.method, mutation.body).finally(() => { settled = true; });
+  try {
+    await until(() => (db.prepare('SELECT last_seen_at FROM auth_sessions WHERE token=session_hash(?)').get(userId) as any)?.last_seen_at > oldSeen,
+      'the request authenticates before its session changes');
+    // Let JSON parsing and the auth middleware finish while the lock remains held.
+    await delay(0);
+    assert.equal(settled, false, 'a valid request must wait behind the held account mutation');
+    await whileWaiting();
+  } finally {
+    release();
+    await holder;
+  }
+  return pending;
+}
+
+function seedMutationState(mutation: CredentialMutation) {
+  createCliPairing(alice);
+  setCliRuntime(alice, mutation.name === 'login' ? 'bridge' : 'server');
+  selectCli(alice, 'codex');
+  if (mutation.name !== 'login') {
+    fs.mkdirSync(profilePath(alice), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(path.join(profilePath(alice), 'codex-fake-auth'), 'subscription', { mode: 0o600 });
+  }
+}
+
+function mutationState(userId: string) {
+  const home = profilePath(userId);
+  return {
+    selected: selectedCli(userId), runtime: cliRuntime(userId),
+    savedRuntime: db.prepare('SELECT location FROM cli_runtimes WHERE user_id=?').get(userId),
+    pairing: db.prepare('SELECT token_hash,expires_at FROM cli_pairings WHERE user_id=?').get(userId),
+    profile: fs.existsSync(home) ? fs.readdirSync(home, { recursive: true }).sort().map(relative => {
+      const full = path.join(home, relative), stat = fs.statSync(full);
+      return { relative, mode: stat.mode, content: stat.isFile() ? fs.readFileSync(full).toString('base64') : null };
+    }) : null,
+    cliCalls: audit().length,
+  };
+}
+
+for (const invalidation of ['revoked', 'expired'] as const) {
+  for (const mutation of credentialMutations) {
+    test(`queued ${mutation.name} rejects a session ${invalidation} while waiting without changing credentials or routing`, async () => {
+      seedMutationState(mutation);
+      const before = mutationState(alice);
+      try {
+        const response = await queuedMutation(alice, mutation, () => {
+          if (invalidation === 'revoked') revokeSession(sessionHash(alice));
+          else db.prepare('UPDATE auth_sessions SET expires_at=? WHERE token=session_hash(?)').run(Date.now() - 1, alice);
+        });
+        assert.equal(response.status, 401, await response.clone().text());
+        assert.deepEqual(mutationState(alice), before, 'rejected requests cannot create/delete profiles, start a CLI, rotate/revoke pairing, or change selection/runtime');
+      } finally { await cancelUserLogins(alice); }
+    });
+  }
+}
+
+for (const mutation of credentialMutations.filter(value => value.recent)) {
+  test(`queued ${mutation.name} requires authentication to remain recent while waiting`, async () => {
+    seedMutationState(mutation);
+    const before = mutationState(alice);
+    try {
+      const response = await queuedMutation(alice, mutation, () => {
+        db.prepare('UPDATE auth_sessions SET authenticated_at=? WHERE token=session_hash(?)').run(Date.now() - 11 * 60_000, alice);
+      });
+      assert.equal(response.status, 401, await response.clone().text());
+      assert.equal((await response.json()).code, 'reauth_required');
+      assert.equal((await req(alice)).status, 200, 'the session itself remains valid; only recent authentication aged out');
+      assert.deepEqual(mutationState(alice), before);
+    } finally { await cancelUserLogins(alice); }
+  });
+}
+
+test('valid sessions queued behind the same lock can log in, pair, disconnect and select API mode', async () => {
+  const [loginMutation, pairMutation, disconnectMutation, selectMutation] = credentialMutations;
+  const started = await queuedMutation(alice, loginMutation);
+  assert.equal(started.status, 200, await started.clone().text());
+  const terminal = await started.json() as Login;
+  sessions.set(terminal.id, alice);
+  await waitFor(alice, terminal.id, value => value.output.includes('Paste the test authorization code:'), 'an authorized queued login starts the real PTY');
+  await input(alice, terminal.id, 'OK\r');
+  await waitFor(alice, terminal.id, value => value.state === 'connected', 'the authorized queued login verifies its subscription');
+  assert.equal(selectedCli(alice), 'claude');
+  const paired = await queuedMutation(alice, pairMutation);
+  assert.equal(paired.status, 200, await paired.clone().text());
+  assert.match((await paired.json()).command, /--token /);
+  assert.ok(db.prepare('SELECT 1 FROM cli_pairings WHERE user_id=?').get(alice));
+  assert.equal(cliRuntime(alice), 'bridge');
+  // Disconnect the saved server profile, using the same held-lock path.
+  setCliRuntime(alice, 'server');
+  const disconnected = await queuedMutation(alice, disconnectMutation);
+  assert.equal(disconnected.status, 200, await disconnected.clone().text());
+  assert.equal(fs.existsSync(profilePath(alice)), false);
+  assert.equal(db.prepare('SELECT 1 FROM cli_pairings WHERE user_id=?').get(alice), undefined);
+  assert.equal(selectedCli(alice), 'claude', 'disconnect preserves the explicit subscription choice');
+  const selected = await queuedMutation(alice, selectMutation);
+  assert.equal(selected.status, 200, await selected.clone().text());
+  assert.equal(selectedCli(alice), null, 'a still-authorized explicit request may choose API mode');
+});
+
+test('revocation during async CLI auth refresh cannot select a verified provider', async () => {
+  await login(alice, 'codex');
+  const home = profilePath(alice), hold = path.join(home, 'claude-hold-status');
+  fs.writeFileSync(path.join(home, 'claude-fake-auth'), 'subscription', { mode: 0o600 });
+  fs.writeFileSync(hold, 'wait for session revocation');
+  const pending = req(alice, '', 'PUT', { provider: 'claude' });
+  try {
+    await until(() => audit().some(value => value.kind === 'status-held' && value.provider === 'claude' && value.env.HOME === home),
+      'provider selection is awaiting the actual fake CLI authentication probe');
+    assert.equal(selectedCli(alice), 'codex');
+    revokeSession(sessionHash(alice));
+    fs.rmSync(hold);
+    const response = await pending;
+    assert.equal(response.status, 401, await response.clone().text());
+    assert.equal(selectedCli(alice), 'codex', 'a successful auth probe cannot authorize the revoked browser session');
+    assert.equal(cliRuntime(alice), 'server');
+    assert.equal(db.prepare('SELECT 1 FROM cli_pairings WHERE user_id=?').get(alice), undefined);
+    assert.equal(fs.readFileSync(path.join(home, 'codex-fake-auth'), 'utf8'), 'subscription');
+    assert.equal(fs.readFileSync(path.join(home, 'claude-fake-auth'), 'utf8'), 'subscription');
+    assert.equal(audit().filter(value => value.kind === 'generate').length, 0);
+  } finally {
+    fs.rmSync(hold, { force: true });
+    await pending;
+    await cancelUserLogins(alice);
+  }
 });

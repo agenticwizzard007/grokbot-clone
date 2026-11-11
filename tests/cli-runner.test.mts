@@ -262,6 +262,80 @@ test('WebSocket hello, welcome, heartbeat, status and dispatch use only the fixe
   assert.doesNotMatch(JSON.stringify(socket.sent.slice(1)), /private@example|auth-secret-sentinel|local-pair-token/);
 });
 
+test('eight same-provider WebSocket generations overlap, cancel independently and preserve quota errors', async (t) => {
+  const f = await fixture(t, 'codex', { generate: `
+    const held = setInterval(() => {
+      if (!fs.existsSync(cwd + '/release')) return;
+      clearInterval(held);
+      audit({ kind: 'finished', input });
+      if (input === 'quota') {
+        process.stderr.write('429 subscription quota exceeded auth-secret-sentinel');
+        process.exit(1);
+      }
+      fs.writeFileSync(args[args.indexOf('--output-last-message') + 1], JSON.stringify({ answer: input }));
+      console.log(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 2, output_tokens: 1 } }));
+    }, 10);
+  ` });
+  const fallback = await fixture(t, 'claude', { generate: "throw new Error('Unexpected provider fallback');" });
+  const controller = new AbortController();
+  const prompts = ['cancel-me', 'quota', ...Array.from({ length: 6 }, (_, i) => `held-${i}`)];
+  const { MockWebSocket, instances } = mockWebSocket((socket, message) => {
+    if (message.type === 'hello') for (const prompt of prompts) {
+      socket.receive({ id: prompt, method: 'generate', params: request('codex', { prompt, timeoutMs: 15000 }) });
+    }
+  });
+  const bridge = startBridge({ server: 'ws://swarm.test', token: 'token', ...f.options, claudePath: fallback.executable, WebSocketImpl: MockWebSocket, signal: controller.signal });
+  try {
+    await until(async () => {
+      try { return (await f.audit()).filter((event) => event.kind === 'generate').length === prompts.length; }
+      catch (error: any) { if (error.code === 'ENOENT') return false; throw error; }
+    }, 5000);
+    const socket = instances[0], calls = await f.audit();
+    const started = calls.filter((event) => event.kind === 'generate');
+    const replies = () => socket.sent.filter((message: any) => typeof message.id === 'string');
+    assert.equal(started.length, 8, 'all eight processes started while every release gate was closed');
+    assert.equal(calls.filter((event) => event.kind === 'auth').length, 8, 'each overlapping job rechecks subscription auth');
+    assert.equal(calls.some((event) => event.kind === 'finished'), false, 'none finished before all eight started');
+    assert.deepEqual(replies(), [], 'overlapping jobs receive no capacity/busy response');
+    for (const call of started) {
+      assert.ok(call.args.includes('forced_login_method="chatgpt"'));
+      assert.ok(call.args.includes('model_provider="openai"'));
+      assert.doesNotMatch(JSON.stringify(call.env), /do-not-pass|untrusted|third-party|console/);
+    }
+
+    socket.receive({ id: 'cancel-me', method: 'cancel' });
+    await until(() => replies().length === 1);
+    assert.equal(replies()[0].id, 'cancel-me');
+    assert.match(replies()[0].error, /cancelled/);
+    const cancelledCall = started.find((call) => call.input === 'cancel-me');
+    await assert.rejects(stat(cancelledCall.cwd), { code: 'ENOENT' });
+    for (const call of started.filter((event) => event.input !== 'cancel-me')) await stat(call.cwd);
+    assert.equal((await f.audit()).some((event) => event.kind === 'finished'), false, 'cancelling one did not finish or stop its peers');
+
+    const quotaCall = started.find((call) => call.input === 'quota');
+    await writeFile(join(quotaCall.cwd, 'release'), '');
+    await until(() => replies().length === 2);
+    const quota = replies().find((message: any) => message.id === 'quota');
+    assert.match(quota.error, /subscription rate limit/);
+    assert.equal(Object.hasOwn(quota, 'result'), false);
+    assert.doesNotMatch(quota.error, /auth-secret-sentinel/);
+    await assert.rejects(stat(fallback.auditFile), { code: 'ENOENT' });
+
+    const successful = started.filter((call) => !['cancel-me', 'quota'].includes(call.input));
+    for (const call of successful) await stat(call.cwd);
+    await Promise.all(successful.map((call) => writeFile(join(call.cwd, 'release'), '')));
+    await until(() => replies().length === 8);
+    for (const call of successful) {
+      const reply = replies().find((message: any) => message.id === call.input);
+      assert.equal(Object.hasOwn(reply, 'error'), false);
+      assert.deepEqual(JSON.parse(reply.result.text), { answer: call.input });
+    }
+    assert.equal((await f.audit()).filter((event) => event.kind === 'generate').length, 8, 'quota failure neither retries nor falls back');
+    await assert.rejects(stat(fallback.auditFile), { code: 'ENOENT' });
+    for (const call of started) await assert.rejects(stat(call.cwd), { code: 'ENOENT' });
+  } finally { controller.abort(); await bridge; }
+});
+
 test('terminal WebSocket close codes stop retries with sanitized repair instructions', async () => {
   for (const code of [4400, 4401, 4403, 4409]) {
     const { MockWebSocket, instances } = mockWebSocket((socket) => queueMicrotask(() => socket.disconnect(code)));

@@ -4,6 +4,7 @@ import { appendRow } from './store.js';
 import type { Routine } from './types.js';
 import { isEventSchedule, setEventRoutineEnabled } from './triggers.js';
 import { checkRoutineRun, noteSkipped, trackRun, type RunCheck } from './routine-limits.js';
+import { legacyWorkHeld } from './security/legacy-work.js';
 
 const jobs = new Map<string, Cron>();
 let enqueueFn: ((botId: string, t: any) => void) | null = null;
@@ -37,6 +38,8 @@ export function unscheduleRoutine(id: string) {
 export function runRoutine(id: string, kind: 'schedule' | 'manual' = 'manual'): RunCheck {
   const r = db.prepare('SELECT * FROM routines WHERE id=?').get(id) as any;
   if (!r || !enqueueFn) return { ok: false, reason: 'routine not found' };
+  const owner = (db.prepare('SELECT user_id FROM bots WHERE id=?').get(r.bot_id) as { user_id: string } | undefined)?.user_id;
+  if (legacyWorkHeld(owner)) return { ok: false, reason: 'account migration in progress' };
   const check = checkRoutineRun(r, kind);
   if (!check.ok) { noteSkipped(r, check.reason); return check; }
   db.prepare('UPDATE routines SET last_run_at=? WHERE id=?').run(now(), id);

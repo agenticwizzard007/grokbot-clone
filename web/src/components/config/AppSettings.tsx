@@ -16,13 +16,14 @@ import { McpSettings } from './McpSettings';
 import { MessagingSettings } from './MessagingSettings';
 import { SubscriptionSettings } from './SubscriptionSettings';
 import { OpenRouterSettings } from './OpenRouterSettings';
+import { PrivateKeysSettings } from './PrivateKeysSettings';
 import { AppleSignIn } from '../AppleSignIn';
 import { api } from '../../lib/api';
 import { useCompactLayout } from '../../lib/useCompactLayout';
 import { isNativeApp } from '../../lib/native';
 import '../../styles/settings.css';
 
-// Design: Paper › "Swarm — Mobile" › "Settings · Redesign" (desktop, phone, Mac and iPhone app boards).
+// Swarms settings design for desktop, phone, Mac, and iPhone.
 type NavItem = { id: AppSection; label: string; icon: LucideIcon; keywords: string };
 const NAV: { group: string; items: NavItem[] }[] = [
   { group: 'Personal', items: [
@@ -301,7 +302,7 @@ function KeyCard({ name, title, what, link, status, canEdit, required, onChange 
 
 function KeysSection() {
   return <>
-    <PageHead title="API keys" sub="Manage model connections and shared platform services." />
+    <PageHead title="API keys" sub="Manage your model and voice connections." />
     <OpenRouterSettings />
     <ServerKeysSection />
   </>;
@@ -323,6 +324,7 @@ function ServerKeysSection() {
 
   if (error) return <div className="cfg-error">Could not load server defaults: {error}</div>;
   if (!keys) return <div className="cfg-empty cfg-empty--flat">Loading server defaults…</div>;
+  if (keys.isolated) return <PrivateKeysSettings />;
   const running = keys.provider.value;
   const chosen = keys.provider.chosen ?? running;
   const keyFor = (p: 'direct' | 'openrouter') => (p === 'openrouter' ? keys.openrouter.set : keys.direct.set);
@@ -635,6 +637,18 @@ function PermissionsSection() {
 
 function AppsSection() {
   const version = useStore((s) => s.connectionsVersion);
+  const [connections, setConnections] = useState<{id:string;toolkit:string;isDefault?:boolean}[]>([]);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const loadConnections = () => fetch('/api/apps/connections', {credentials:'include'}).then(async r => { const body = await r.json(); if (!r.ok) throw new Error(body.error ?? 'Could not load accounts.'); setConnections(body.connections); });
+  useEffect(() => { void loadConnections().catch(e=>setError(e.message)); }, [version]);
+  const manage = async (id:string, action:'default'|'disconnect') => {
+    setBusy(true);setError('');
+    try { const r=await fetch(`/api/apps/connections/${encodeURIComponent(id)}${action==='default'?'/default':''}`, {method:action==='default'?'POST':'DELETE',credentials:'include',headers:{'content-type':'application/json'},body:'{}'});
+      if(!r.ok) throw new Error((await r.json()).error ?? 'Could not update this account.');
+      await loadConnections();
+    } catch(e) { setError((e as Error).message); } finally { setBusy(false); }
+  };
   const [apps, setApps] = useState<Toolkit[] | null>(null);
   useEffect(() => { configApi.connectedApps().then((r) => setApps(r.connectedApps ?? [])).catch(() => setApps([])); }, [version]);
   const openApps = () => { useConfigUI.getState().closeAppSettings(); useStore.getState().setModal('apps'); };
@@ -662,6 +676,16 @@ function AppsSection() {
             </div>
           ))}
         </div>
+      </section>
+      <section className="cfg-section">
+        <h2 className="cfg-section__label">Your connected accounts</h2>
+        <p className="cfg-field__hint">Choose a default when you have several accounts for an app. Otherwise, select the account explicitly when asking a Bot to use it.</p>
+        {connections.map((c,index)=><div className="cfg-card cfg-row" key={c.id}>
+          <div className="cfg-row__text"><div className="cfg-row__title">{apps?.find(a=>a.slug===c.toolkit)?.name ?? c.toolkit} · Account {index+1}</div><div className="cfg-row__sub">{c.id}{c.isDefault?' · Default':''}</div></div>
+          <button className="cfg-btn cfg-btn--secondary" type="button" disabled={busy||c.isDefault} onClick={()=>void manage(c.id,'default')}>Use by default</button>
+          <button className="cfg-btn cfg-btn--secondary" type="button" disabled={busy} onClick={()=>void manage(c.id,'disconnect')}>Disconnect</button>
+        </div>)}
+        {error&&<div className="cfg-error" role="alert">{error}</div>}
       </section>
     </>
   );

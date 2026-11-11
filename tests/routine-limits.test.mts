@@ -24,7 +24,7 @@ const app = new Hono().route('/api', api);
 
 const DAY = 24 * 3600_000;
 for (const id of ['u1', 'u2', 'idle']) db.prepare('INSERT INTO users(id,email,name,created_at) VALUES (?,?,?,?)').run(id, `${id}@example.com`, id, Date.now() - (id === 'idle' ? 40 * DAY : 0));
-db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (?,?,?,?)').run('s1', 'u1', Date.now(), Date.now() + 60_000);
+db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (session_hash(?),?,?,?)').run('s1', 'u1', Date.now(), Date.now() + 60_000);
 const b1 = createBot('u1', { name: 'One', isPrimary: true });
 const b2 = createBot('u1', { name: 'Two' });
 const idleBot = createBot('idle', { name: 'Idle', isPrimary: true });

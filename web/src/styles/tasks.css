@@ -1,4 +1,4 @@
-/* Paper: Swarm — Mobile / Tasks · Web & Mobile (112-0, 113-0).
+/* Swarms Tasks for web and mobile.
    Shared by the web and native shells; typography stays scoped to task content. */
 .tasks-view, .bot-task-cards {
   font-family: 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack);

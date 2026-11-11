@@ -1,0 +1,17 @@
+**
+!server/
+!server/dist/
+!server/dist/**
+!server/package.json
+!node_modules/
+!node_modules/**
+node_modules/.cache
+!infra/
+!infra/tenant-host/
+!infra/tenant-host/entrypoint.sh
+!infra/tenant-host/firewall.sh
+!.context/
+!.context/tenant-release/
+!.context/tenant-release/release.json
+!.context/tenant-release/images/
+!.context/tenant-release/images/*.tar

@@ -20,6 +20,7 @@ import { useVersion } from '../../configStore';
 import { useStore } from '../../store';
 import { ConfirmButton, Segmented, Switch, shortDate } from './ui';
 import '../../styles/messaging.css';
+import { PlatformSignupSettings } from './PlatformSignupSettings';
 
 /** Settings → Messaging: run your Bots by iMessage, SMS or WhatsApp through the server's Inkbox line. */
 
@@ -58,6 +59,11 @@ function Note({ note }: { note: { tone: 'ok' | 'error'; text: string } | null })
 type NoteState = { tone: 'ok' | 'error'; text: string } | null;
 
 export function MessagingSettings() {
+  const accountId = useStore(s => s.user?.id);
+  return <AccountMessagingSettings key={accountId} />;
+}
+
+function AccountMessagingSettings() {
   const version = useVersion('messaging');
   const [status, setStatus] = useState<MessagingStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -89,6 +95,7 @@ export function MessagingSettings() {
       {status.line && <InviteFriendsSection allowance={status.invites.allowance} />}
       {status.line && <CommandsSection />}
       {status.owner && <OwnerSections owner={status.owner} status={status} setStatus={setStatus} version={version} />}
+      {!status.owner && <PlatformSignupSettings version={version} />}
     </>
   );
 }

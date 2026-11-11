@@ -1,5 +1,8 @@
 import { Composio } from '@composio/core';
 import { OpenAIResponsesProvider } from '@composio/openai';
+import { gatewayRequest } from './runtime/gateway-client.js';
+import { assertTenant, isTenant, tenantId } from './deployment.js';
+import { randomUUID } from 'node:crypto';
 import { createHash } from 'node:crypto';
 import { db } from './db.js';
 import { env } from './env.js';
@@ -10,6 +13,7 @@ const makeClient = (apiKey: string) => new Composio({ ...composioCredentials(api
 let current: { key: string; client: ReturnType<typeof makeClient> } | null = null;
 /** The Composio client for the current key; rebuilt (and caches dropped) when the key changes in Settings. */
 export function composio() {
+  if (isTenant) throw new Error('Raw Composio access is forbidden in tenant runtimes.');
   const key = env.composioKey;
   if (!key) throw new Error(APPS_OFF);
   const identity = composioIdentity();
@@ -38,6 +42,17 @@ type CatalogItem = Omit<Toolkit, 'connected'>;
 let catalogCache: { at: number; items: CatalogItem[] } | null = null;
 
 export async function catalog(): Promise<CatalogItem[]> {
+  if (isTenant) {
+    const items: CatalogItem[] = []; const seen = new Set<string>(); let cursor: string | undefined;
+    do {
+      const page = await gatewayRequest(tenantId, 'catalog', { cursor });
+      items.push(...(page.items ?? []).map((t: any) => ({ slug: t.slug, name: t.name, logo: t.meta?.logo, description: t.meta?.description, categories: (t.meta?.categories ?? []).map((c: any) => c.name ?? c.id), managedAuth: true, noAuth: !!t.noAuth })));
+      cursor = page.nextCursor ?? undefined;
+      if (cursor && (seen.has(cursor) || seen.size >= 100)) throw new Error('Invalid catalog pagination.');
+      if (cursor) seen.add(cursor);
+    } while (cursor);
+    return items;
+  }
   if (!env.composioEnabled) return [];
   composio(); // Apply key changes before consulting a cache.
   const key = composioIdentity();
@@ -78,7 +93,7 @@ const promptConnections = new Map<string, { expires: number; promise: Promise<Se
 
 /** Only prompt context may use a short cache; connection management always reads the provider. */
 export async function connectedToolkits(userId: string, cached = false): Promise<Set<string>> {
-  if (cached && env.composioEnabled) {
+  if (cached && env.composioEnabled && !isTenant) {
     composio(); // Invalidate across credential/project changes before reading.
     let entry = promptConnections.get(userId);
     if (!entry || Date.now() >= entry.expires) {
@@ -92,7 +107,9 @@ export async function connectedToolkits(userId: string, cached = false): Promise
   return new Set((await connectionsDetail(userId)).filter((c) => c.status === 'ACTIVE').map((c) => c.toolkit));
 }
 
-export async function connectionsDetail(userId: string) {
+export async function connectionsDetail(userId: string): Promise<{ id: string; toolkit: string; status: string; revision?: number; isDefault?: boolean }[]> {
+  assertTenant(userId);
+  if (isTenant) return gatewayRequest(userId, 'connections');
   if (!env.composioEnabled) return [];
   const client = composio();
   const key = composioIdentity();
@@ -111,6 +128,12 @@ export async function connectionsDetail(userId: string) {
 }
 
 export async function disconnect(userId: string, toolkit: string) {
+  if (isTenant) {
+    const own = (await connectionsDetail(userId)).filter(c => c.toolkit === toolkit);
+    if (own.length > 1) throw new Error('Select a specific connected account to disconnect.');
+    if (own[0]) await gatewayRequest(userId, 'disconnect', { connectionId: own[0].id });
+    return;
+  }
   const client = composio();
   const key = composioIdentity();
   try {
@@ -174,45 +197,46 @@ export async function sessionFor(userId: string): Promise<Session> {
 
 /** Start a connect flow; returns the hosted Connect Link URL. */
 export async function startConnect(userId: string, toolkit: string, callbackUrl: string): Promise<{ redirectUrl: string; connectedAccountId?: string }> {
+  if (isTenant) return gatewayRequest(userId, 'connect', { toolkit, native: new URL(callbackUrl).searchParams.get('native') === '1' });
   const session = await sessionFor(userId);
   const req = await session.authorize(toolkit, { callbackUrl });
   if (!req.redirectUrl) throw new Error('Composio did not return a connection link. Please retry.');
   return { redirectUrl: req.redirectUrl, connectedAccountId: req.id };
 }
 
-/** OpenAI-Responses-format function tools for this user's Composio session (meta tools). */
-const sessionTools = new WeakMap<Session, Promise<any[]>>();
+/** Narrow app adapter. Models cannot acquire project administration or arbitrary proxy/workbench access. */
 export async function composioTools(userId: string): Promise<any[]> {
+  assertTenant(userId);
   if (!env.composioEnabled) return [];
-  try {
-    const session = await sessionFor(userId);
-    let pending = sessionTools.get(session);
-    if (!pending) {
-      pending = session.tools().then((tools) => Array.isArray(tools) ? tools : []);
-      sessionTools.set(session, pending);
-      pending.catch(() => { if (sessionTools.get(session) === pending) sessionTools.delete(session); });
-    }
-    return await pending;
-  } catch (e) {
-    console.warn('[composio] tools unavailable', (e as Error).message);
-    return [];
-  }
+  return [
+    { type: 'function', name: 'SWARM_APPS_SEARCH', description: 'Discover tools for one of your private connected apps. Specify an account when several are connected.', parameters: { type: 'object', properties: { toolkit: { type: 'string' }, query: { type: 'string' }, connectionId: { type: 'string' } }, required: ['toolkit', 'query'], additionalProperties: false } },
+    { type: 'function', name: 'SWARM_APPS_EXECUTE', description: 'Execute a discovered app tool using its exact private connection and revision. Never retry an uncertain write automatically.', parameters: { type: 'object', properties: { connectionId: { type: 'string' }, revision: { type: 'integer' }, tool_slug: { type: 'string' }, arguments: { type: 'object', additionalProperties: true } }, required: ['connectionId', 'revision', 'tool_slug', 'arguments'], additionalProperties: false } },
+  ];
 }
-
-export async function executeComposio(userId: string, name: string, args: Record<string, unknown>) {
-  const session = await sessionFor(userId);
-  try {
-    const r = await session.execute(name, args);
-    return r as { data?: unknown; error?: unknown; resultType?: string; logId?: string };
-  } catch (e: any) {
-    if ([404, 410].includes(e?.status ?? e?.cause?.status)) invalidateComposioSession(userId);
-    // Never automatically replay a tool call: it may have already changed external data.
-    throw e;
+export async function executeComposio(userId: string, name: string, args: Record<string, unknown>): Promise<{ data?: unknown; error?: unknown; resultType?: string; logId?: string }> {
+  assertTenant(userId);
+  if (!['SWARM_APPS_SEARCH','SWARM_APPS_EXECUTE'].includes(name)) throw new Error('Unsupported connected-app operation.');
+  if (isTenant) return { data: await gatewayRequest(userId, name === 'SWARM_APPS_SEARCH' ? 'search' : 'execute', name === 'SWARM_APPS_SEARCH' ? { toolkit: args.toolkit, query: args.query, connectionId: args.connectionId } : { connectionId: args.connectionId, revision: args.revision, slug: args.tool_slug, arguments: args.arguments, dispatchId: randomUUID() }) };
+  // Development adapter still enforces private account selection and never executes Tool Router meta tools.
+  const accounts = (await connectionsDetail(userId)).filter(c => c.status === 'ACTIVE');
+  if (name === 'SWARM_APPS_SEARCH') {
+    const choices = accounts.filter(c => c.toolkit === args.toolkit && (!args.connectionId || c.id === args.connectionId));
+    if (choices.length !== 1) throw new Error('Choose a specific connected account.');
+    const tools = await composio().tools.getRawComposioTools({ toolkits: [choices[0].toolkit], search: String(args.query ?? '').slice(0, 300), limit: 20 });
+    return { data: { connectionId: choices[0].id, revision: 1, tools: tools.filter(t => !t.slug.startsWith('COMPOSIO_')).map(t => ({ slug: t.slug, parameters: t.inputParameters, description: t.description })) } };
   }
+  const account = accounts.find(c => c.id === args.connectionId);
+  const slug = String(args.tool_slug ?? '');
+  if (!account || !/^[A-Z][A-Z0-9_]{2,199}$/.test(slug) || slug.startsWith('COMPOSIO_') || args.revision !== 1) throw new Error('Connection not found.');
+  const tool = await composio().tools.getRawComposioToolBySlug(slug);
+  if (tool.toolkit?.slug !== account.toolkit || !tool.version || tool.version === 'latest') throw new Error('Invalid tool selection.');
+  return composio().tools.execute(slug, { userId, connectedAccountId: account.id, version: tool.version, arguments: args.arguments as Record<string, unknown> });
 }
 
 /** Which inner tool slugs a Composio meta-tool call would run (for approval checks). */
 export function innerToolSlugs(name: string, args: any): string[] {
+  if (name === 'SWARM_APPS_SEARCH') return [];
+  if (name === 'SWARM_APPS_EXECUTE') return [String(args?.tool_slug ?? 'UNKNOWN_WRITE')];
   if (name === 'COMPOSIO_MULTI_EXECUTE_TOOL') {
     const list = args?.tools ?? args?.tool_calls ?? args?.actions ?? [];
     return (Array.isArray(list) ? list : []).map((t: any) => String(t.tool_slug ?? t.slug ?? t.name ?? t.tool ?? '')).filter(Boolean);
@@ -224,41 +248,14 @@ export function innerToolSlugs(name: string, args: any): string[] {
 const READ_RE = /_(GET|LIST|SEARCH|FETCH|FIND|READ|RETRIEVE|QUERY|LOOKUP|CHECK|DESCRIBE|VIEW|COUNT)(_|$)/;
 export const isReadOnlySlug = (slug: string) => READ_RE.test(slug.toUpperCase());
 
-// ---------- sign-in via Composio-managed Google (Gmail) connection ----------
 
-export async function startGoogleLogin(provisionalUserId: string, callbackUrl: string) {
-  if (!env.composioEnabled) throw new Error(APPS_OFF);
-  const session = await composio().create(provisionalUserId, { manageConnections: false });
-  const req = await session.authorize('gmail', { callbackUrl });
-  if (!req.redirectUrl || !req.id) throw new Error('Google sign-in did not return a connection link.');
-  return { redirectUrl: req.redirectUrl, connectedAccountId: req.id };
-}
-
-export class GoogleLoginError extends Error {
-  constructor(public readonly code: 'google_denied' | 'google_pending' | 'google_permissions' | 'google_unavailable') {
-    super(code);
-  }
-}
-
-/** Only a confirmed Gmail authorization can establish the sign-in identity. */
-export async function googleProfile(connectedAccountId: string, userId: string): Promise<{ email: string; name?: string }> {
-  const account = await composio().connectedAccounts.get(connectedAccountId);
-  if (account.status === 'FAILED' && /access_denied/i.test(account.statusReason ?? '')) throw new GoogleLoginError('google_denied');
-  if (account.status !== 'ACTIVE' || account.toolkit.slug !== 'gmail') throw new GoogleLoginError('google_pending');
-  const r = await composio().tools.proxyExecute({
-    endpoint: 'https://gmail.googleapis.com/gmail/v1/users/me/profile',
-    method: 'GET',
-    connectedAccountId,
-    userId,
-  });
-  if (r.status === 401 || r.status === 403) throw new GoogleLoginError('google_permissions');
-  if (r.status < 200 || r.status >= 300) throw new GoogleLoginError('google_unavailable');
-  const data = r.data as { emailAddress?: unknown } | undefined;
-  const email = data?.emailAddress;
-  if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new GoogleLoginError('google_unavailable');
-  return { email: email.trim().toLowerCase(), name: undefined };
-}
-
-export async function deleteConnection(id: string) {
-  try { await composio().connectedAccounts.delete(id); } catch { /* ignore */ }
+/** Account-specific management never accepts a toolkit as an ownership proof. */
+export async function manageConnection(userId: string, id: string, operation: 'disconnect' | 'default') {
+  assertTenant(userId);
+  if (isTenant) return gatewayRequest(userId, operation, { connectionId: id });
+  const own = (await connectionsDetail(userId)).find(c => c.id === id && c.status === 'ACTIVE');
+  if (!own) throw new Error('Connection not found.');
+  if (operation === 'default') throw new Error('Saved account defaults require a private tenant environment.');
+  await composio().connectedAccounts.delete(id);
+  invalidateComposioSession(userId);
 }

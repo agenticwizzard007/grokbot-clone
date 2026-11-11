@@ -17,6 +17,7 @@ import { ComputerError, type BotScreen, type BrowserResult, type ComputerProvide
 import { decodeCompanionFrame } from './frames.js';
 import { localAccess } from './local-access.js';
 import { currentUserId, withUsage } from '../usage-context.js';
+import { assertLegacyWorkOpen, legacyWorkHeld } from '../security/legacy-work.js';
 
 /**
  * Local computers: a Chrome browser on the user's own PC, driven through the companion
@@ -99,6 +100,7 @@ function state(userId: string): ComputerState {
 let stateOf: (userId: string) => ComputerState = state;
 function setComputerStateSource(fn: (userId: string) => ComputerState) { stateOf = fn; }
 const emitState = (userId: string) => {
+  if (legacyWorkHeld(userId)) return;
   // Status emissions are background observations, not commands in a possibly revoked turn.
   withUsage({ userId, botId: null }, () => hub.emit(userId, { type: 'computer', state: stateOf(userId) }));
 };
@@ -126,10 +128,12 @@ async function waitForCompanion(userId: string, timeoutMs: number): Promise<bool
 /** Disconnect a user's companion now (its VM was frozen or deleted, so it can't answer a close handshake). */
 function dropCompanion(userId: string, reason = 'computer stopped') {
   const c = companions.get(userId);
-  if (!c) return;
-  console.log(`[local] dropping companion user=${userId}: ${reason}`);
-  forget(c);
-  c.ws.terminate();
+  if (c) {
+    console.log(`[local] dropping companion user=${userId}: ${reason}`);
+    forget(c);
+    c.ws.terminate();
+  }
+  for (const finish of [...companionWaiters.get(userId) ?? []]) finish();
   emitState(userId);
 }
 
@@ -143,6 +147,7 @@ function forget(c: Companion) {
 }
 
 function need(userId: string): Companion {
+  assertLegacyWorkOpen(userId);
   const c = companions.get(userId);
   if ((DEVICE && !localAccess(userId).enabled) || !c || c.ws.readyState !== WebSocket.OPEN) throw new ComputerError(OFFLINE, 409);
   return c;
@@ -245,7 +250,7 @@ function onCompanion(ws: WebSocket) {
       if (msg?.type !== 'hello' || typeof msg.token !== 'string') return ws.close(4400, 'expected hello');
       const hash = sha256(msg.token);
       const row = db.prepare('SELECT user_id FROM companion_tokens WHERE token_hash=? AND scope=? AND (expires_at IS NULL OR expires_at>?)').get(hash, SCOPE, now()) as any;
-      if (!row || (DEVICE && !localAccess(row.user_id).enabled)) return ws.close(4401, 'invalid token');
+      if (!row || legacyWorkHeld(row.user_id) || (DEVICE && !localAccess(row.user_id).enabled)) return ws.close(4401, 'invalid token');
       if (DEVICE && (msg.mode !== 'desktop' || msg.desktop !== true || !String(msg.platform).startsWith('darwin'))) return ws.close(4403, 'This pairing requires the Swarm Mac desktop companion.');
       clearTimeout(helloTimer);
       if (MULTI && msg.mode !== 'multi') return ws.close(4403, 'This Swarm runs Bots on cloud VMs; only the VM companion (--multi) can connect.');

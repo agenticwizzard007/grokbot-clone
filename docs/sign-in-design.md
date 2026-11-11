@@ -1,6 +1,6 @@
 # Shared sign-in design
 
-Design source: [Paper — Sign in · Web & Mobile](https://app.paper.design/file/01M73GPA3GPRHEBRRXNDC09HDV/p-4-0).
+Swarms sign-in design for web and mobile.
 
 The web, iOS, and macOS apps render the same hosted sign-in view. The existing Swarm mascot and provider artwork are reused.
 

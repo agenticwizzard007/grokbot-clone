@@ -6,6 +6,9 @@ import { db } from '../db.js';
 import { sha256 } from '../lib/ids.js';
 import type { CliProviders } from './bridge.js';
 import type { CliProvider } from './store.js';
+import { assertTenant, isTenant } from '../deployment.js';
+import { isolatedRunner } from '../runtime/subscription-client.js';
+import { assertLegacyWorkOpen, legacyWorkHeld, withLegacyWork } from '../security/legacy-work.js';
 
 const require = createRequire(import.meta.url);
 // Claude uses OS Keychain on macOS; deleting a profile directory would leave
@@ -19,7 +22,6 @@ const statuses = new Map<string, CliProviders>();
 const active = new Map<string, Set<AbortController>>();
 const signingIn = new Set<string>();
 const deleting = new Set<string>();
-let totalJobs = 0;
 
 export interface LoginHandle {
   write(data: string): void;
@@ -28,6 +30,7 @@ export interface LoginHandle {
   done: Promise<{ exitCode: number | null }>;
 }
 export interface RunnerOptions {
+  tenantUserId?: string;
   env: NodeJS.ProcessEnv;
   codexPath: string;
   claudePath: string;
@@ -45,6 +48,7 @@ interface Runner {
 }
 let runnerPromise: Promise<Runner> | undefined;
 export function hostedRunner(): Promise<Runner> {
+  if (isTenant) return Promise.resolve(isolatedRunner);
   return runnerPromise ??= import(new URL('../../../companion/cli-bridge.mjs', import.meta.url).href) as Promise<Runner>;
 }
 
@@ -62,12 +66,16 @@ export function profilePath(userId: string): string {
 
 /** One credential home per account, never the server process's home or another user's CLI state. */
 export async function hostedOptions(userId: string): Promise<RunnerOptions> {
+  assertLegacyWorkOpen(userId);
+  assertTenant(userId);
   if (!serverLoginAvailable()) throw new Error('Server CLI login is disabled on this server.');
   if (!db.prepare('SELECT 1 FROM users WHERE id=?').get(userId)) throw new Error('Account no longer exists.');
   if (deleting.has(userId)) throw new Error('This CLI profile is being disconnected. Please try again shortly.');
+  if (isTenant) return { tenantUserId: userId, env: {}, codexPath: '', claudePath: '' };
   const home = profilePath(userId);
   await fs.mkdir(path.dirname(home), { recursive: true, mode: 0o700 });
   for (const dir of [home, ...['.codex', '.claude', '.config', '.cache', '.local/share', '.local/state'].map((p) => path.join(home, p))]) {
+    assertLegacyWorkOpen(userId);
     await fs.mkdir(dir, { recursive: true, mode: 0o700 });
     await fs.chmod(dir, 0o700);
   }
@@ -90,33 +98,46 @@ export const hostedStatus = (userId: string) => ({ connected: statuses.has(userI
 export const setHostedSigningIn = (userId: string, value: boolean) => { if (value) signingIn.add(userId); else signingIn.delete(userId); };
 
 async function job<T>(userId: string, signal: AbortSignal | undefined, fn: (options: RunnerOptions) => Promise<T>): Promise<T> {
+  return withLegacyWork(userId, () => admittedJob(userId, signal, fn));
+}
+
+async function admittedJob<T>(userId: string, signal: AbortSignal | undefined, fn: (options: RunnerOptions) => Promise<T>): Promise<T> {
   if (signal?.aborted) throw new Error('CLI request cancelled.');
   const jobs = active.get(userId) ?? new Set<AbortController>();
-  if (jobs.size >= 4 || totalJobs >= 32) throw new Error('CLI runners are busy. Try again when a running task finishes.');
   const controller = new AbortController();
-  active.set(userId, jobs); jobs.add(controller); totalJobs++;
+  // Track every request for cancellation; subscription work has no app-level slot limit.
+  active.set(userId, jobs); jobs.add(controller);
   const abort = () => controller.abort();
   signal?.addEventListener('abort', abort, { once: true });
   try {
     const options = await hostedOptions(userId);
+    assertLegacyWorkOpen(userId);
     if (controller.signal.aborted) throw new Error('CLI request cancelled.');
     return await fn({ ...options, signal: controller.signal });
   } finally {
     signal?.removeEventListener('abort', abort);
-    jobs.delete(controller); totalJobs--;
+    jobs.delete(controller);
     if (!jobs.size) active.delete(userId);
   }
 }
 
 export async function refreshHosted(userId: string, signal?: AbortSignal): Promise<CliProviders> {
-  const providers = await job(userId, signal, async (opts) => (await hostedRunner()).checkProviders(opts));
-  if (!signal?.aborted && !deleting.has(userId) && db.prepare('SELECT 1 FROM users WHERE id=?').get(userId)) statuses.set(userId, providers);
+  const providers = await job(userId, signal, async (opts) => {
+    const runner = await hostedRunner(); assertLegacyWorkOpen(userId);
+    if (opts.signal?.aborted) throw new Error('CLI request cancelled.');
+    return runner.checkProviders(opts);
+  });
+  if (!signal?.aborted && !legacyWorkHeld(userId) && !deleting.has(userId) && db.prepare('SELECT 1 FROM users WHERE id=?').get(userId)) statuses.set(userId, providers);
   return providers;
 }
 
 export async function hostedGenerate(userId: string, params: unknown, signal?: AbortSignal) {
   if (signingIn.has(userId)) throw new Error('CLI sign-in is in progress. Finish or cancel it before starting a model request.');
-  return job(userId, signal, async (opts) => (await hostedRunner()).runGeneration(params, opts));
+  return job(userId, signal, async (opts) => {
+    const runner = await hostedRunner(); assertLegacyWorkOpen(userId);
+    if (opts.signal?.aborted) throw new Error('CLI request cancelled.');
+    return runner.runGeneration(params, opts);
+  });
 }
 
 export function stopHostedJobs(userId: string) {
@@ -135,7 +156,8 @@ export async function deleteHostedProfile(userId: string) {
     statuses.delete(userId);
     // Cancellation stops child processes asynchronously; wait before removing credentials.
     await stopHostedJobsAndWait(userId);
-    await fs.rm(profilePath(userId), { recursive: true, force: true });
+    if (isTenant) await isolatedRunner.deleteProfiles({ tenantUserId: userId, env: {}, codexPath: '', claudePath: '' });
+    else await fs.rm(profilePath(userId), { recursive: true, force: true });
     statuses.delete(userId);
   } finally { deleting.delete(userId); }
 }

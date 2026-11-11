@@ -1,4 +1,5 @@
 import { withUsage } from '../usage-context.js';
+import { assertLegacyWorkOpen, legacyWorkHeld, withLegacyWork } from '../security/legacy-work.js';
 import { db, now } from '../db.js';
 import { env } from '../env.js';
 import { hub } from '../lib/hub.js';
@@ -9,6 +10,7 @@ import { activateSetup, getSetup } from '../bot-setup.js';
 import { connectedToolkits, startConnect, toolkitInfo } from '../composio.js';
 import { computers } from '../computers/index.js';
 import { createPairing } from '../computers/local.js';
+import { isTenant } from '../deployment.js';
 import { createLoginLink, deleteAccount, getAccount } from '../accounts.js';
 import type { CardBody, MessageBody, NoticeBody, Row } from '../types.js';
 import { chunk, clip, toPlainText } from './format.js';
@@ -87,9 +89,11 @@ const adapterFor = (link: Link) => adapters.get(link.transport);
 
 const chains = new Map<string, Promise<unknown>>();
 /** Serialize per user so messages arrive in order. */
-function serial<T>(userId: string, job: () => Promise<T>): Promise<T> {
+function serial(userId: string, job: () => Promise<void>): Promise<void> {
   const prev = chains.get(userId) ?? Promise.resolve();
-  const p = prev.then(job, job);
+  // Recheck after waiting: work queued before the hold must not dispatch later.
+  const admitted = () => legacyWorkHeld(userId) ? Promise.resolve() : withLegacyWork(userId, job);
+  const p = prev.then(admitted, admitted);
   const tail = p.then(() => {}, () => {});
   chains.set(userId, tail);
   void tail.then(() => { if (chains.get(userId) === tail) chains.delete(userId); });
@@ -134,6 +138,7 @@ export function deliver(userId: string, msg: OutMessage, meta: Meta): Promise<vo
     try {
       await sendParts(link, a, msg, meta);
     } catch (e) {
+      if (legacyWorkHeld(userId)) return;
       console.warn(`[messaging] ${link.channel} send failed`, (e as Error).message);
       if (meta.slot) markMessage(meta.slot, { status: 'failed' });
     }
@@ -151,12 +156,14 @@ async function sendParts(link: Link, a: ChannelAdapter, msg: OutMessage, meta: M
   const parts = chunk(a.format(msg.text, link), a.maxChars(link));
   for (let i = 0; i < parts.length; i++) {
     const last = i === parts.length - 1;
+    assertLegacyWorkOpen(link.userId);
     const id = await a.send(link, { text: parts[i], quote: i === 0 ? msg.quote : undefined });
     // Every part maps back to its row, so quoting any of them reaches the right Bot.
     if (last && meta.slot) markMessage(meta.slot, { waId: id, status: 'sent', channel: link.channel });
     else logMessage(link.userId, { channel: link.channel, waId: id, botId: meta.botId, kind: meta.kind, ref: meta.ref, token: meta.token, status: last ? 'sent' : 'part' });
   }
   if (msg.audio && a.sendAudio && a.canSendAudio?.(link)) {
+    assertLegacyWorkOpen(link.userId);
     const id = await a.sendAudio(link, msg.audio);
     if (!parts.length && meta.slot) markMessage(meta.slot, { waId: id, status: 'sent', channel: link.channel });
     else logMessage(link.userId, { channel: link.channel, waId: id, botId: meta.botId, kind: meta.kind, ref: meta.ref, status: 'sent' });
@@ -176,6 +183,7 @@ export function flushQueue(userId: string) {
       try {
         await sendParts(link, a, JSON.parse(m.payload ?? '{"text":""}'), { botId: m.botId, kind: m.kind, ref: m.ref, token: m.token, slot: m.id });
       } catch {
+        if (legacyWorkHeld(userId)) return;
         markMessage(m.id, { status: 'failed' });
       }
     }
@@ -196,13 +204,14 @@ function keepTypingWhileBusy(userId: string, botId: string, channel: Channel, ch
     const a = link && adapterFor(link);
     const live = getLive(botId);
     const busy = isBotBusy(botId) || live.isRunning;
-    if (!busy || !link || !a?.typing || Date.now() - started > TYPING_HEARTBEAT_MAX_MS) {
+    if (legacyWorkHeld(userId) || !busy || !link || !a?.typing || Date.now() - started > TYPING_HEARTBEAT_MAX_MS) {
       const t = typingHeartbeats.get(key);
       if (t) clearTimeout(t);
       typingHeartbeats.delete(key);
       return;
     }
-    await a.typing(link, { userId, channel, waId: `typing:${botId}:${Date.now()}`, chatRef: chatRef ?? link.chatRef ?? undefined }).catch(() => {});
+    await withLegacyWork(userId, () => a.typing!(link, { userId, channel, waId: `typing:${botId}:${Date.now()}`, chatRef: chatRef ?? link.chatRef ?? undefined })).catch(() => {});
+    if (legacyWorkHeld(userId)) { typingHeartbeats.delete(key); return; }
     const progress = progressText(botId, live);
     const pastFirst = Date.now() - started >= PROGRESS_FIRST_MS;
     const due = Date.now() - lastProgressAt >= PROGRESS_EVERY_MS;
@@ -240,6 +249,7 @@ export function startBridge() {
 }
 
 function onRow(userId: string, row: Row, isNew: boolean) {
+  if (legacyWorkHeld(userId)) return;
   const bot = getBotRow(row.botId);
   if (!bot || bot.hidden) return;
   const b = row.body;
@@ -417,6 +427,10 @@ function mentioned(userId: string, text: string): { bot: ReturnType<typeof botBy
 }
 
 export async function handleInbound(inb: Inbound): Promise<void> {
+  return withLegacyWork(inb.userId, () => admittedInbound(inb));
+}
+
+async function admittedInbound(inb: Inbound): Promise<void> {
   const link = getLink(inb.userId, inb.channel);
   if (!isLive(link)) return;
   if (isOwnMessage(inb.userId, inb.waId) || seenInbound(inb.userId, inb.waId)) return;
@@ -428,7 +442,7 @@ export async function handleInbound(inb: Inbound): Promise<void> {
   if (inb.reaction) return handleReaction(link, inb);
 
   const a = adapterFor(link);
-  void a?.typing?.(link, inb).catch(() => {});
+  if (a?.typing) void withLegacyWork(inb.userId, () => a.typing!(link, inb)).catch(() => {});
 
   let text = (inb.text ?? '').trim();
   let voice = false;
@@ -715,7 +729,7 @@ async function command(link: Link, inb: Inbound, raw: string) {
     }
 
     case 'invite': {
-      const r = memberInvite(userId);
+      const r = isTenant ? await (await import('../runtime/messaging.js')).messagingRequest('invite',{channel:inb.channel}) : memberInvite(userId);
       if ('error' in r) return void reply(r.error);
       return void reply(`🎟️ Your invite link (${r.remaining} left):\n${r.url}\n\nSend it to someone; they enter their number and text us to get their own Bots.`);
     }
@@ -739,6 +753,7 @@ async function command(link: Link, inb: Inbound, raw: string) {
     }
 
     case 'web': case 'login': {
+      if(isTenant){await (await import('../runtime/messaging.js')).messagingRequest('login-link',{channel:inb.channel});return;}
       const url = createLoginLink(userId);
       return void reply(`🔑 Open your Swarm in a browser (works once, for 10 minutes):\n${url}`);
     }
@@ -756,11 +771,13 @@ async function command(link: Link, inb: Inbound, raw: string) {
         return void reply(`Your Bots use a cloud computer (status: ${st.status}). Nothing to set up.`);
       }
       const token = createPairing(userId);
+      if(isTenant)await (await import('../runtime/companion-registration.js')).registerCompanion('desktop',token);
       const server = env.serverUrl.replace(/\/+$/, '');
       return void reply(`💻 To let your Bots use a browser on your PC, run this on it (needs Node.js 22+ and Chrome) and keep it running:\n\ncurl -fsSL ${server}/api/companion/script -o swarm-companion.mjs && node swarm-companion.mjs --server ${server} --token ${token}${env.localDesktop ? ' --desktop' : ''}\n\nThe token is private: anyone with it can connect their PC as your Bots' computer.`);
     }
 
     case 'delete': {
+      if(isTenant)return void reply('Open Settings → Account to delete your account, or send /delete again through your connected phone.');
       if (arg.toLowerCase() !== 'confirm') {
         deleteRequests.set(userId, now());
         return void reply('⚠️ This deletes your Swarm account: every Bot, conversation, memory and connection. Send **/delete confirm** within 5 minutes to go ahead.');

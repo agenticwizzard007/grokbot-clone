@@ -4,6 +4,7 @@ import { accountByPhone, mayCreateAccount } from '../accounts.js';
 import { inkboxConfigured, textNewlyConnected } from './inkbox/adapter.js';
 import { activeClaim, isAdminPhone, signupConfig, signupsToday, startAccount, usableInvite, welcomeText } from './signup.js';
 import { digits, hostLinkByPhone } from './store.js';
+import { legacyPhoneOwner, withLegacyWork } from '../security/legacy-work.js';
 
 /**
  * One text to join. People reach the line by texting "connect @<handle>" to Inkbox's shared number, but Inkbox keeps
@@ -44,6 +45,9 @@ const pendingPhoneLogin = (phone: string) => !!db.prepare('SELECT 1 FROM phone_l
 
 /** What a newly connected number should get. Exported for tests. */
 export async function greetConnection(phone: string): Promise<string> {
+  return withLegacyWork(legacyPhoneOwner(phone), () => greetConnectionOpen(phone));
+}
+async function greetConnectionOpen(phone: string): Promise<string> {
   const p = digits(phone);
   if (!p || greeted(p)) return 'already';
   if (hostLinkByPhone('inkbox', 'imessage', p)) { markGreeted(p, 'member'); return 'member'; }

@@ -1,3 +1,4 @@
+import { assertLegacyWorkOpen, legacyWorkHeld, withLegacyWork } from '../security/legacy-work.js';
 import { localAccess } from './local-access.js';
 import { db, now } from '../db.js';
 import { env } from '../env.js';
@@ -94,6 +95,10 @@ const inflight = new Map<string, Promise<VmRow>>();
 
 /** Make sure the user's VM exists, is running and its companion is connected. One VM per user, always. */
 export function ensureVm(userId: string): Promise<VmRow> {
+  return withLegacyWork(userId, () => ensureVmOpen(userId));
+}
+
+function ensureVmOpen(userId: string): Promise<VmRow> {
   const existing = inflight.get(userId);
   if (existing) return existing;
   const p = (async () => {
@@ -110,6 +115,7 @@ export function ensureVm(userId: string): Promise<VmRow> {
       if (!vm.ext_id) {
         // Adopt a VM created before a crash rather than making a second one.
         const adopted = (await driver.list()).find((v) => v.vmId === vm!.vm_id);
+        assertLegacyWorkOpen(userId);
         if (adopted) setStatus(vm.vm_id, 'starting', { ext_id: adopted.id });
         else {
           const size = sizeFor(userId);
@@ -125,6 +131,7 @@ export function ensureVm(userId: string): Promise<VmRow> {
         vm = vmFor(userId)!;
       } else {
         const info = await driver.get(vm.ext_id);
+        assertLegacyWorkOpen(userId);
         if (!info) {
           // Deleted outside Swarm: forget it and start over with a fresh VM.
           console.warn(`[cloudvm] VM ${vm.ext_id} for user=${userId} is gone; recreating`);
@@ -141,7 +148,7 @@ export function ensureVm(userId: string): Promise<VmRow> {
     } catch (e: any) {
       const msg = String(e?.message ?? e).slice(0, 300);
       console.warn(`[cloudvm] ensure failed for user=${userId}: ${msg}`);
-      setStatus(vm.vm_id, 'error', { error: msg });
+      if (!legacyWorkHeld(userId)) setStatus(vm.vm_id, 'error', { error: msg });
       throw new ComputerError(`Your Bots' computer couldn't start: ${msg}`, 503);
     }
   })();
@@ -152,6 +159,10 @@ export function ensureVm(userId: string): Promise<VmRow> {
 
 /** Freeze the user's VM (idle or on request). The next computer action resumes it. */
 export async function suspendVm(userId: string, reason = 'manual') {
+  return withLegacyWork(userId, () => suspendVmOpen(userId, reason));
+}
+
+async function suspendVmOpen(userId: string, reason = 'manual') {
   const vm = vmFor(userId);
   if (!vm?.ext_id || !['running', 'starting', 'resuming'].includes(vm.status)) return;
   // On an outdated image: stop and move it to the current image instead of pausing it, so its next
@@ -162,11 +173,12 @@ export async function suspendVm(userId: string, reason = 'manual') {
     try {
       await driver.stop(vm.ext_id);
       dropCompanion(userId, 'computer updating');
+      assertLegacyWorkOpen(userId);
       await driver.setImage(vm.ext_id, env.vmImage);
       db.prepare('UPDATE vms SET image=? WHERE vm_id=?').run(env.vmImage, vm.vm_id);
       setStatus(vm.vm_id, 'stopped');
     } catch (e: any) {
-      setStatus(vm.vm_id, 'running', { error: String(e?.message ?? e) });
+      if (!legacyWorkHeld(userId)) setStatus(vm.vm_id, 'running', { error: String(e?.message ?? e) });
       throw e;
     }
     return;
@@ -179,13 +191,18 @@ export async function suspendVm(userId: string, reason = 'manual') {
     dropCompanion(userId, 'computer suspended');
     setStatus(vm.vm_id, 'suspended');
   } catch (e: any) {
-    setStatus(vm.vm_id, 'running', { error: String(e?.message ?? e) });
+    if (!legacyWorkHeld(userId)) setStatus(vm.vm_id, 'running', { error: String(e?.message ?? e) });
     throw e;
   }
 }
 
 /** Delete a VM and its disk (account deleted, or an orphan found by the reconcile loop). */
 export async function destroyVm(vmId: string) {
+  const owner = (db.prepare('SELECT user_id FROM vms WHERE vm_id=?').get(vmId) as { user_id: string | null } | undefined)?.user_id;
+  return withLegacyWork(owner, () => destroyVmOpen(vmId));
+}
+
+async function destroyVmOpen(vmId: string) {
   const vm = db.prepare('SELECT * FROM vms WHERE vm_id=?').get(vmId) as VmRow | undefined;
   if (!vm) return;
   console.log(`[cloudvm] destroying VM ${vm.ext_id ?? '(not created)'} (user=${vm.user_id ?? 'none'})`);
@@ -202,6 +219,10 @@ export async function destroyVm(vmId: string) {
  * The next computer task boots a fresh VM, from the current image, on the same disk.
  */
 export async function archiveVm(userId: string) {
+  return withLegacyWork(userId, () => archiveVmOpen(userId));
+}
+
+async function archiveVmOpen(userId: string) {
   const vm = vmFor(userId);
   if (!vm?.ext_id || !['suspended', 'stopped'].includes(vm.status)) return;
   console.log(`[cloudvm] archiving VM ${vm.ext_id} for user=${userId} (asleep since ${new Date(vm.updated_at).toISOString()}); keeping its disk`);
@@ -212,6 +233,10 @@ export async function archiveVm(userId: string) {
 
 /** Grow (or shrink) the VM to fit the user's Bots: one screen each. Called while the VM sleeps; applies at its next boot. */
 export async function resizeVm(userId: string) {
+  return withLegacyWork(userId, () => resizeVmOpen(userId));
+}
+
+async function resizeVmOpen(userId: string) {
   const vm = vmFor(userId);
   if (!vm?.ext_id) return;
   const size = sizeFor(userId);
