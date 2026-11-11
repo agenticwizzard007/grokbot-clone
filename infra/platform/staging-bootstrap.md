@@ -14,6 +14,27 @@ and never copy production secrets into staging.
 - Ed25519 platform key pair; a `SESSION_SECRET` of at least 32 random bytes; Composio **project** credential and
   webhook secret; staging Google/Apple OAuth clients; Inkbox staging line; `cosign` and `trivy` installed.
 
+## 0b. AWS: key service and backup bucket (about 10 minutes of the owner's time, then one command)
+1. Create the AWS account at https://portal.aws.amazon.com/billing/signup (payment card and phone verification are
+   yours; never share them in chat). Turn on MFA for the root user, then create an IAM user with AdministratorAccess
+   and an access key for the CLI (`aws configure --profile swarm-admin`). Delete that key when setup is done.
+2. From a checkout of main on your Mac:
+   ```sh
+   AWS_PROFILE=swarm-admin ./infra/platform/aws/setup.sh staging us-east-1 swarm-backups-staging-<random>
+   ```
+   This deploys `infra/platform/aws/swarm-platform-kms.cfn.yaml`: a symmetric KMS key with rotation whose key policy
+   allows the platform identity only `GenerateDataKey`/`Decrypt`/`DescribeKey` with
+   `kms:EncryptionContext:purpose = swarm-tenant-master-v1`; a private, versioned, TLS-only bucket with lifecycle
+   rules for aborted uploads and old versions; an IAM user limited to those KMS actions and to the
+   `swarm-backups/` prefix. It writes `~/.swarm-staging-aws.env` (mode 0600) with `TENANT_KMS_KEY_ID`,
+   `AWS_REGION`, `BACKUP_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`.
+3. Verify the real key with the platform's exact envelope contract (same tenant decrypts, another tenant is refused):
+   ```sh
+   AWS_PROFILE=swarm-admin node infra/platform/aws/verify-kms.mjs "$(grep TENANT_KMS_KEY_ID ~/.swarm-staging-aws.env | cut -d= -f2)"
+   ```
+4. Import `~/.swarm-staging-aws.env` into the platform, provisioner and gateway apps in step 4 below, then shred it.
+Cost: KMS $1/month per key plus $0.03 per 10,000 requests; S3 cents per GB.
+
 ## 1. Postgres **[$ Basic $38/month + $0.28/GB storage]**
 ```sh
 flyctl mpg create --org <staging-org> --name swarm-staging-pg --region iad --plan basic
@@ -24,9 +45,8 @@ Use the direct or **session-pooled** endpoint for `DATABASE_URL`: the platform k
 replica and transaction pooling breaks it.
 
 ## 2. Object storage **[$ AWS S3: cents per GB at staging scale]**
-With the current code the platform, provisioner and gateway build `KMSClient({})` and `S3Client({})` from the same
-default credential chain, so the AWS principal must be authorized for both KMS and the bucket. Create a private,
-versioned S3 bucket in the KMS account and set `BACKUP_BUCKET`. **Tigris is not usable yet:** replacing the AWS keys
+Created by step 0b together with the key: the same AWS principal is authorized for both KMS and the bucket, which is
+what the code requires (`KMSClient({})` and `S3Client({})` share the default credential chain). **Tigris is not usable yet:** replacing the AWS keys
 with Tigris keys would send Tigris credentials to KMS; offering Tigris requires separately configured S3 credentials in
 `platform/backup-storage.ts` first (decision 3 in `docs/tenant-infrastructure-decisions.md`).
 

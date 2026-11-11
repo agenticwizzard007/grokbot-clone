@@ -1,0 +1,117 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Swarm isolated platform: tenant master key (KMS), least-privilege platform identity and private versioned
+  backup bucket. Deploy once per environment (staging, production) in one region.
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [staging, production]
+  BackupBucketName:
+    Type: String
+    Description: Globally unique bucket name, e.g. swarm-backups-staging-<random>
+Resources:
+  TenantMasterKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: !Sub Swarm ${Environment} tenant master key (envelope encryption of per-tenant data keys)
+      KeySpec: SYMMETRIC_DEFAULT
+      KeyUsage: ENCRYPT_DECRYPT
+      EnableKeyRotation: true
+      PendingWindowInDays: 30
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AccountAdministration
+            Effect: Allow
+            Principal: { AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root' }
+            Action: 'kms:*'
+            Resource: '*'
+          - Sid: PlatformEnvelopeOperationsOnly
+            Effect: Allow
+            Principal: { AWS: !GetAtt PlatformUser.Arn }
+            Action: ['kms:GenerateDataKey', 'kms:Decrypt', 'kms:DescribeKey']
+            Resource: '*'
+            Condition:
+              StringEquals:
+                'kms:EncryptionContext:purpose': swarm-tenant-master-v1
+  TenantMasterKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub alias/swarm-${Environment}-tenant-master
+      TargetKeyId: !Ref TenantMasterKey
+  BackupBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BackupBucketName
+      VersioningConfiguration: { Status: Enabled }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      LifecycleConfiguration:
+        Rules:
+          - Id: AbortIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 }
+          - Id: ExpireOldVersionsAfterCatalogRetention
+            Status: Enabled
+            NoncurrentVersionExpiration: { NoncurrentDays: 30 }
+  BackupBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref BackupBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: [!GetAtt BackupBucket.Arn, !Sub '${BackupBucket.Arn}/*']
+            Condition: { Bool: { 'aws:SecureTransport': 'false' } }
+  PlatformUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !Sub swarm-${Environment}-platform
+  PlatformPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub swarm-${Environment}-platform-envelopes-and-backups
+      Users: [!Ref PlatformUser]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: EnvelopeOperations
+            Effect: Allow
+            Action: ['kms:GenerateDataKey', 'kms:Decrypt', 'kms:DescribeKey']
+            Resource: !GetAtt TenantMasterKey.Arn
+            Condition:
+              StringEquals:
+                'kms:EncryptionContext:purpose': swarm-tenant-master-v1
+          - Sid: BackupObjectsWithinPrefix
+            Effect: Allow
+            Action: ['s3:PutObject', 's3:GetObject', 's3:GetObjectVersion', 's3:DeleteObject', 's3:DeleteObjectVersion', 's3:AbortMultipartUpload', 's3:ListMultipartUploadParts']
+            Resource: !Sub '${BackupBucket.Arn}/swarm-backups/*'
+          - Sid: BackupListingWithinPrefix
+            Effect: Allow
+            Action: ['s3:ListBucket', 's3:ListBucketVersions', 's3:ListBucketMultipartUploads', 's3:GetBucketLocation']
+            Resource: !GetAtt BackupBucket.Arn
+            Condition:
+              StringLike: { 's3:prefix': ['swarm-backups/*', 'swarm-backups'] }
+Outputs:
+  TenantKmsKeyId:
+    Description: Value for TENANT_KMS_KEY_ID
+    Value: !GetAtt TenantMasterKey.Arn
+  BackupBucket:
+    Description: Value for BACKUP_BUCKET (prefix swarm-backups is the default BACKUP_PREFIX)
+    Value: !Ref BackupBucket
+  PlatformUserName:
+    Description: IAM user whose access key becomes AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY on the three platform roles
+    Value: !Ref PlatformUser
+  Region:
+    Description: Value for AWS_REGION
+    Value: !Ref AWS::Region
