@@ -1,0 +1,9 @@
+{
+  "name": "swarm-macos-control-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pinned production dependencies for Swarm's opt-in native Mac companion",
+  "dependencies": {
+    "@playwright/mcp": "0.0.85"
+  }
+}

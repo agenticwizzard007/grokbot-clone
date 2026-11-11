@@ -1,3 +1,4 @@
+import { localAccess } from './local-access.js';
 import { db, now } from '../db.js';
 import { env } from '../env.js';
 import { hub } from '../lib/hub.js';
@@ -61,7 +62,7 @@ export function sizeFor(userId: string): { memoryMb: number; cpus: number } {
 function setStatus(vmId: string, status: string, extra: { error?: string | null; ext_id?: string | null } = {}) {
   db.prepare('UPDATE vms SET status=?, error=?, ext_id=COALESCE(?, ext_id), updated_at=? WHERE vm_id=?').run(status, extra.error ?? null, extra.ext_id ?? null, now(), vmId);
   const row = db.prepare('SELECT user_id FROM vms WHERE vm_id=?').get(vmId) as { user_id: string | null } | undefined;
-  if (row?.user_id) hub.emit(row.user_id, { type: 'computer', state: state(row.user_id) });
+  if (row?.user_id && !localAccess(row.user_id).enabled) hub.emit(row.user_id, { type: 'computer', state: state(row.user_id) });
 }
 
 const STATUS: Record<string, ComputerState['status']> = {
@@ -103,7 +104,7 @@ export function ensureVm(userId: string): Promise<VmRow> {
       const vmId = newId('vm');
       db.prepare('INSERT INTO vms(vm_id,user_id,driver,status,image,created_at,updated_at) VALUES (?,?,?,?,?,?,?)').run(vmId, userId, driver.name, 'creating', env.vmImage, now(), now());
       vm = vmFor(userId)!;
-      hub.emit(userId, { type: 'computer', state: state(userId) });
+      if (!localAccess(userId).enabled) hub.emit(userId, { type: 'computer', state: state(userId) });
     }
     try {
       if (!vm.ext_id) {
@@ -193,7 +194,7 @@ export async function destroyVm(vmId: string) {
   revokeVmTokens(vmId);
   if (vm.user_id) dropCompanion(vm.user_id, 'computer deleted');
   db.prepare('DELETE FROM vms WHERE vm_id=?').run(vmId);
-  if (vm.user_id) hub.emit(vm.user_id, { type: 'computer', state: state(vm.user_id) });
+  if (vm.user_id && !localAccess(vm.user_id).enabled) hub.emit(vm.user_id, { type: 'computer', state: state(vm.user_id) });
 }
 
 /**

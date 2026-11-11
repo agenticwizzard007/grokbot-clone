@@ -5,10 +5,11 @@
 //   node swarm-companion.mjs --server https://swarm.swarms.so --token swc_...
 //
 // Get the token (and the full command) from Swarm: Settings → Computer → Connect your PC.
-// Requires Node.js 22+ and Google Chrome (or Chromium). No other dependencies.
+// Requires Node.js 22+ and Google Chrome (or Chromium). Browser-only mode has no other
+// dependencies; structured desktop browser tools use the bundled pinned Playwright MCP.
 //
 // What it does:
-// - Connects out to your Swarm server (no open ports on this PC) and waits for work.
+// - Connects out to your Swarm server (no public listener on this PC) and waits for work.
 // - Starts a separate Chrome per Bot, each with its own profile under --data-dir (default
 //   ~/.swarm-companion). Your everyday Chrome profile is never touched.
 // - Drives Chrome through the DevTools protocol over a private pipe (no debugging port).
@@ -16,8 +17,8 @@
 // Full desktop (--desktop): Bots see this computer's real screen and use its mouse and keyboard,
 // open websites in your default browser, and run commands in a shell as you. All Bots share the
 // one desktop; the server lets one Bot at a time act on it. Supported on macOS and Linux (X11).
-// - macOS: give the app that runs this (Terminal, iTerm, Conductor…) Accessibility and Screen
-//   Recording permission in System Settings → Privacy & Security.
+// - macOS: enable Swarm in System Settings → Privacy & Security → Accessibility and
+//   Screen & System Audio Recording. For a manual CLI launch, enable the launching terminal app.
 // - Linux: needs an X11 session with xdotool and ImageMagick (import) or ffmpeg installed.
 //
 // Guard rails in browser mode (the default; enforced here, on your PC):
@@ -30,6 +31,10 @@
 //   --server URL              Swarm server URL (or SWARM_SERVER)
 //   --token TOKEN             pairing token (or SWARM_TOKEN)
 //   --desktop                 give Bots this computer's full desktop and a shell (see above)
+//   --local-device            --desktop only: app opt-in route (/api/companion/local)
+//   --playwright-mcp PATH     bundled @playwright/mcp cli.js (or PLAYWRIGHT_MCP_CLI)
+//   --browser-cdp URL         explicit desktop-only attach to an existing loopback CDP browser
+//   --parent-pid PID          stop when the launching Swarm app exits
 //   --max-width N             full desktop: screenshot width sent to Bots (default 1280)
 //   --multi                   cloud VM mode (Linux): every Bot gets its own virtual screen, Chrome
 //                             profile and shell folder on this machine (needs Xvfb, xdotool, ImageMagick)
@@ -54,30 +59,382 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { fileURLToPath } from 'node:url';
+import http from 'node:http';
+import https from 'node:https';
+import { randomUUID } from 'node:crypto';
 
 const VERSION = '1.5.2';
 const W = 1280;
 const H = 800;
 
+// ---------- local desktop lifecycle and structured browser tools ----------
+// Kept in this file: VM boot and manual installs download this companion as one script.
+
+// Cancellation shared by local desktop RPCs, including work waiting in a serial queue.
+
+const commands = new AsyncLocalStorage();
+export const commandSignal = () => commands.getStore();
+export const runCommand = (signal, fn) => commands.run(signal, fn);
+export const checkCommand = (signal = commandSignal()) => signal?.throwIfAborted();
+
+export function serialCommand(queue, fn) {
+  const signal = commandSignal();
+  const invoke = () => { checkCommand(signal); return runCommand(signal, fn); };
+  return queue.then(invoke, invoke);
+}
+
+// Playwright starts Chrome in its own process group. Snapshot descendants before stopping MCP
+// so a wedged browser can also be stopped, without ever selecting an externally attached Chrome.
+export function descendantPids(pid) {
+  if (!pid || process.platform === 'win32') return [];
+  const ps = spawnSync('/bin/ps', ['-axo', 'pid=,ppid='], { encoding: 'utf8', timeout: 2000 });
+  const rows = (ps.stdout ?? '').trim().split('\n').map(line => line.trim().split(/\s+/).map(Number));
+  const found = new Set([pid]);
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const [child, parent] of rows) if (found.has(parent) && !found.has(child)) { found.add(child); changed = true; }
+  }
+  found.delete(pid);
+  return [...found].reverse();
+}
+
+export function killGroup(pid, signal = 'SIGKILL') {
+  if (!pid) return;
+  try { process.kill(-pid, signal); } catch { try { process.kill(pid, signal); } catch { /* already gone */ } }
+}
+
+export function cancelChild(proc, signal = commandSignal()) {
+  const cancel = () => killGroup(proc.pid);
+  signal?.addEventListener('abort', cancel, { once: true });
+  if (signal?.aborted) cancel();
+  const dispose = () => signal?.removeEventListener('abort', cancel);
+  proc.once('close', dispose);
+  proc.once('error', dispose);
+  return dispose;
+}
+
+// Local desktop browser tools. Never installs packages, exposes a CDP listener, or uses a
+// person's normal Chrome profile. Existing-browser access requires the explicit CLI endpoint.
+
+export const BROWSER_TOOLS = new Set([
+  'browser_navigate', 'browser_navigate_back', 'browser_snapshot', 'browser_click', 'browser_type', 'browser_fill_form',
+  'browser_select_option', 'browser_press_key', 'browser_hover', 'browser_drag', 'browser_file_upload', 'browser_handle_dialog',
+  'browser_tabs', 'browser_wait_for', 'browser_take_screenshot', 'browser_find', 'browser_evaluate', 'browser_console_messages',
+]);
+const PAGE_CHANGING = new Set(['browser_navigate', 'browser_navigate_back', 'browser_click', 'browser_type', 'browser_fill_form',
+  'browser_select_option', 'browser_press_key', 'browser_drag', 'browser_file_upload', 'browser_handle_dialog', 'browser_tabs', 'browser_wait_for']);
+
+export function validateDesktopOptions({ desktop, multi, localDevice, browserCdp }) {
+  if (localDevice && (!desktop || multi)) throw new Error('--local-device requires --desktop and cannot be used with --multi.');
+  if (browserCdp !== undefined) {
+    if (!desktop || multi) throw new Error('--browser-cdp requires --desktop and cannot be used with --multi.');
+    return validateBrowserCdp(browserCdp);
+  }
+  return null;
+}
+
+export function validateBrowserCdp(raw) {
+  const invalid = () => new Error('--browser-cdp must be an explicit loopback http(s)/ws(s) endpoint with no credentials, query, or fragment.');
+  if (typeof raw !== 'string' || !raw || raw !== raw.trim() || /[?#\\\s]/.test(raw)) throw invalid();
+  let url;
+  try { url = new URL(raw); } catch { throw invalid(); }
+  if (!['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol) || url.username || url.password || raw.includes('@') ||
+      !['127.0.0.1', '[::1]', 'localhost'].includes(url.hostname)) throw invalid();
+  // Pin localhost without DNS resolution; no hosts-file or DNS override can send it elsewhere.
+  if (url.hostname === 'localhost') url.hostname = '127.0.0.1';
+  return url.href;
+}
+
+export async function resolveBrowserCdp(raw) {
+  const endpoint = validateBrowserCdp(raw);
+  if (endpoint.startsWith('ws:') || endpoint.startsWith('wss:')) return endpoint;
+  // Chromium's HTTP discovery can advertise an arbitrary WebSocket URL. Validate that too,
+  // and refuse redirects before giving the exact loopback WebSocket endpoint to Playwright.
+  const response = await fetch(`${endpoint.replace(/\/+$/, '')}/json/version`, { redirect: 'error', signal: AbortSignal.any([AbortSignal.timeout(5000), ...(commandSignal() ? [commandSignal()] : [])]) });
+  if (!response.ok) throw new Error('The opted-in loopback browser did not return a CDP endpoint.');
+  const data = await response.json();
+  const ws = validateBrowserCdp(data.webSocketDebuggerUrl);
+  if (!ws.startsWith('ws:') && !ws.startsWith('wss:')) throw new Error('The opted-in browser must advertise a loopback CDP WebSocket.');
+  return ws;
+}
+
+// Playwright follows WebSocket redirects. A private loopback relay pins the opted-in upstream
+// and rejects every non-upgrade response, so even a local endpoint cannot redirect MCP remotely.
+export async function createCdpRelay(raw) {
+  const endpoint = new URL(validateBrowserCdp(raw));
+  if (!['ws:', 'wss:'].includes(endpoint.protocol)) throw new Error('CDP relay requires a loopback WebSocket.');
+  endpoint.protocol = endpoint.protocol === 'wss:' ? 'https:' : 'http:';
+  const secretPath = `/${randomUUID()}`;
+  const sockets = new Set();
+  const requests = new Set();
+  const server = http.createServer((_req, res) => { res.writeHead(403); res.end(); });
+  server.on('connection', socket => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); socket.on('error', () => {}); });
+  server.on('upgrade', (request, client, head) => {
+    if (request.url !== secretPath) return client.destroy();
+    const transport = endpoint.protocol === 'https:' ? https : http;
+    const upstream = transport.request(endpoint, { method: 'GET', headers: { ...request.headers, host: endpoint.host }, timeout: 5000 });
+    requests.add(upstream);
+    upstream.on('close', () => requests.delete(upstream));
+    client.on('close', () => upstream.destroy());
+    upstream.on('timeout', () => upstream.destroy());
+    upstream.on('error', () => client.destroy());
+    // Includes 30x: never forward a Location header to Playwright.
+    upstream.on('response', response => { response.destroy(); client.destroy(); });
+    upstream.on('upgrade', (response, remote, remoteHead) => {
+      upstream.setTimeout(0); remote.setTimeout(0); client.setTimeout(0);
+      sockets.add(remote);
+      remote.on('error', () => client.destroy());
+      remote.on('close', () => { sockets.delete(remote); client.destroy(); });
+      client.on('close', () => remote.destroy());
+      const headers = response.rawHeaders.reduce((lines, value, index, all) => index % 2 ? lines : `${lines}${value}: ${all[index + 1]}\r\n`, '');
+      client.write(`HTTP/1.1 101 Switching Protocols\r\n${headers}\r\n`);
+      if (remoteHead.length) client.write(remoteHead);
+      if (head.length) remote.write(head);
+      client.pipe(remote); remote.pipe(client);
+    });
+    upstream.end();
+  });
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+  return {
+    endpoint: `ws://127.0.0.1:${server.address().port}${secretPath}`,
+    close: () => {
+      for (const request of requests) request.destroy();
+      for (const socket of sockets) socket.destroy();
+      return new Promise(resolve => server.close(resolve));
+    },
+  };
+}
+
+export function findPlaywrightMcp({ explicit, moduleUrl = import.meta.url, execPath = process.execPath } = {}) {
+  // The running executable is already native's bundled Node22+. Use it directly for MCP.
+  const here = path.dirname(fileURLToPath(moduleUrl));
+  const resources = path.resolve(path.dirname(execPath), '..');
+  const candidates = explicit ? [explicit] : [
+    path.join(here, 'node_modules/@playwright/mcp/cli.js'),
+    path.join(here, '../node_modules/@playwright/mcp/cli.js'),
+    path.join(resources, 'node_modules/@playwright/mcp/cli.js'),
+    path.join(resources, 'playwright/node_modules/@playwright/mcp/cli.js'),
+    path.join(here, '../playwright/node_modules/@playwright/mcp/cli.js'),
+    path.join(resources, 'companion/node_modules/@playwright/mcp/cli.js'),
+    '/usr/lib/node_modules/@playwright/mcp/cli.js',
+    '/usr/local/lib/node_modules/@playwright/mcp/cli.js',
+  ];
+  const found = candidates.find(file => { try { return fs.statSync(file).isFile(); } catch { return false; } });
+  return found ? path.resolve(found) : null;
+}
+
+/** Minimal stdio MCP client. Closing rejects every waiter immediately. */
+export class LocalMcpProcess {
+  constructor(cli, args, cwd, { node = process.execPath, external = false } = {}) {
+    // Inherited MCP configuration must never silently enable extension/CDP attach, change a
+    // profile, or turn stdio into a public HTTP server. Native configuration uses explicit flags.
+    const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('PLAYWRIGHT_MCP_') && !['SWARM_TOKEN', 'SWARM_TOKEN_FILE'].includes(name)));
+    this.proc = spawn(node, [cli, ...args], { cwd, env, detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    this.external = external;
+    this.pending = new Map();
+    this.nextId = 0;
+    this.dead = false;
+    this.exited = new Promise(resolve => { this.resolveExit = resolve; });
+    let buffer = '';
+    let stderr = '';
+    this.proc.stdout.on('data', data => {
+      buffer += data;
+      for (let index; (index = buffer.indexOf('\n')) >= 0;) {
+        const line = buffer.slice(0, index); buffer = buffer.slice(index + 1);
+        let message;
+        try { message = JSON.parse(line); } catch { continue; }
+        const pending = this.pending.get(message.id);
+        if (!pending) continue;
+        this.pending.delete(message.id); clearTimeout(pending.timer);
+        if (message.error) pending.reject(new Error(message.error.message ?? 'Playwright RPC failed')); else pending.resolve(message.result);
+      }
+    });
+    this.proc.stderr.on('data', data => { stderr = (stderr + data).slice(-2000); });
+    this.proc.on('error', error => { this.fail(error); this.resolveExit(); });
+    this.proc.on('exit', () => { this.fail(new Error(`Playwright stopped${stderr ? `: ${stderr.trim().split('\n').pop()}` : ''}`)); this.resolveExit(); });
+    this.proc.stdin.on('error', () => {});
+  }
+  fail(error) {
+    this.dead = true;
+    for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(error); }
+    this.pending.clear();
+  }
+  request(method, params, timeoutMs = 120_000) {
+    if (this.dead) return Promise.reject(new Error('Playwright stopped'));
+    const id = ++this.nextId;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`Playwright timed out (${method})`)); void this.close(); }, timeoutMs);
+      this.pending.set(id, { resolve, reject, timer });
+      this.proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
+    });
+  }
+  async init() {
+    await this.request('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'swarm-companion', version: VERSION } }, 30_000);
+    this.proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
+    return this;
+  }
+  close() {
+    if (this.closing) return this.closing;
+    this.fail(new Error('Local browser control stopped'));
+    const children = descendantPids(this.proc.pid);
+    // Never call browser_close (or Browser.close over CDP) for an external browser. Force
+    // terminating only our stdio client also prevents its shutdown hooks touching that browser.
+    killGroup(this.proc.pid, this.external ? 'SIGKILL' : 'SIGTERM');
+    this.closing = (async () => {
+      let timer;
+      await Promise.race([this.exited, new Promise(resolve => { timer = setTimeout(resolve, 800); })]);
+      clearTimeout(timer);
+      if (this.proc.exitCode === null && this.proc.signalCode === null) killGroup(this.proc.pid);
+      for (const pid of children) killGroup(pid);
+      await this.exited;
+    })();
+    return this.closing;
+  }
+}
+
+function snapshotText(content, out) {
+  try {
+    const link = content.filter(item => item.type === 'text').map(item => item.text).join('\n').match(/^- \[Snapshot\]\(([^)]+)\)/m)?.[1];
+    if (!link) return '';
+    const file = fs.realpathSync(path.resolve(out, link));
+    if (!file.startsWith(fs.realpathSync(out) + path.sep) || fs.statSync(file).size > 2 * 1024 * 1024) return '';
+    return `### Snapshot\n\`\`\`yaml\n${fs.readFileSync(file, 'utf8')}\n\`\`\``;
+  } catch { return ''; }
+}
+
+export class DesktopBrowser {
+  constructor({ cli, dataDir, chrome, cdp, noSandbox = false, captchaDetector }) {
+    this.cli = cli;
+    this.dataDir = dataDir;
+    this.chrome = chrome;
+    this.cdp = cdp;
+    this.noSandbox = noSandbox;
+    this.captchaDetector = captchaDetector;
+    this.sessions = new Map();
+    this.closings = new Set();
+  }
+  get available() { return !!this.cli; }
+  async session(botId) {
+    checkCommand();
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(String(botId))) throw new Error('bad bot id');
+    if (!this.cli) throw new Error('Browser tools require bundled @playwright/mcp. Set --playwright-mcp or PLAYWRIGHT_MCP_CLI to its cli.js; OS desktop tools and shell remain available.');
+    let session = this.sessions.get(botId);
+    if (session?.mcp?.dead) { await this.close(botId); session = null; }
+    if (!session) {
+      session = { stopped: false };
+      this.sessions.set(botId, session);
+      session.start = (async () => {
+        const out = path.join(this.dataDir, 'playwright', botId);
+        fs.mkdirSync(out, { recursive: true, mode: 0o700 });
+        // --desktop has explicit filesystem/shell approval; uploads may use the same local files.
+        const args = ['--output-dir', out, '--image-responses', 'allow', '--timeout-settle', '150', '--idle-timeout', '0', '--no-webmcp', '--allow-unrestricted-file-access'];
+        if (this.cdp) {
+          const endpoint = await resolveBrowserCdp(this.cdp);
+          if (session.stopped) throw new Error('Local browser control stopped');
+          checkCommand();
+          session.relay = await createCdpRelay(endpoint);
+          args.push('--cdp-endpoint', session.relay.endpoint);
+        }
+        else {
+          const profile = path.join(this.dataDir, 'desktop-browser-profiles', botId);
+          fs.mkdirSync(profile, { recursive: true, mode: 0o700 });
+          clearStaleProfileLock(profile);
+          // No --headless, --isolated, --port, --extension or user-profile import. Playwright
+          // launches headed persistent Chrome and uses a private debugging pipe by default.
+          args.push('--browser', 'chrome', '--executable-path', this.chrome(), '--user-data-dir', profile);
+          if (this.noSandbox) args.push('--no-sandbox');
+        }
+        if (session.stopped) throw new Error('Local browser control stopped');
+        checkCommand();
+        session.out = out;
+        session.mcp = new LocalMcpProcess(this.cli, args, out, { external: !!this.cdp });
+        await session.mcp.init();
+        return session;
+      })();
+      session.start.catch(() => {
+        if (this.sessions.get(botId) === session) void this.close(botId);
+        else { void session.mcp?.close(); void session.relay?.close(); }
+      });
+    }
+    return session.start;
+  }
+  async call(botId, tool, args = {}) {
+    checkCommand();
+    if (!BROWSER_TOOLS.has(tool)) throw new Error(`Unknown browser tool ${tool}.`);
+    const session = await this.session(botId);
+    checkCommand();
+    const result = await session.mcp.request('tools/call', { name: tool, arguments: args }, 150_000);
+    checkCommand();
+    let content = result?.content ?? [];
+    if (!result?.isError && PAGE_CHANGING.has(tool) && content.some(item => item.type === 'text' && /- \[Snapshot\]\(/.test(item.text))) {
+      let text = snapshotText(content, session.out);
+      if (!text) {
+        const snap = await session.mcp.request('tools/call', { name: 'browser_snapshot', arguments: {} }, 60_000);
+        text = (snap?.content ?? []).filter(item => item.type === 'text').map(item => item.text).join('\n');
+      }
+      content = content.map(item => item.type === 'text' ? { ...item, text: item.text.replace(/- \[Snapshot\]\([^)]*\)\n?/g, '') } : item);
+      if (text) content.push({ type: 'text', text });
+    } else content = content.map(item => item.type === 'text' ? { ...item, text: item.text.replace(/- \[Snapshot\]\([^)]*\)/g, '- Call browser_snapshot to read the page.') } : item);
+    const captcha = !result?.isError && (PAGE_CHANGING.has(tool) || tool === 'browser_snapshot') ? await this.captcha(botId).catch(() => null) : null;
+    checkCommand();
+    content = content.map(item => item.type === 'text' ? { ...item, text: item.text.replace(/### Ran Playwright code\n```js\n[\s\S]*?\n```\n?/g, '').trim() } : item).filter(item => item.type !== 'text' || item.text);
+    return { content, isError: !!result?.isError, captcha };
+  }
+  async captcha(botId) {
+    // A screen check must not open a managed browser before a structured browser action.
+    if (!this.captchaDetector || !this.sessions.has(botId)) return null;
+    const session = await this.session(botId);
+    checkCommand();
+    const result = await session.mcp.request('tools/call', { name: 'browser_evaluate', arguments: { function: this.captchaDetector } }, 20_000);
+    const text = (result?.content ?? []).filter(item => item.type === 'text').map(item => item.text).join('\n');
+    const json = text.match(/### Result\n([\s\S]*?)(?:\n### |$)/)?.[1];
+    const found = json ? JSON.parse(json) : null;
+    return found?.kind ? found : null;
+  }
+  close(botId) {
+    const session = this.sessions.get(botId);
+    if (!session) return;
+    this.sessions.delete(botId);
+    session.stopped = true;
+    const closing = Promise.all([session.mcp?.close(), session.relay?.close()]);
+    this.closings.add(closing);
+    const done = () => this.closings.delete(closing);
+    void closing.then(done, done);
+    return closing;
+  }
+  async closeAll() {
+    const pending = [...this.sessions.keys()].map(botId => this.close(botId));
+    await Promise.all([...pending, ...this.closings]);
+  }
+}
+
 // ---------- options ----------
 
-const argv = process.argv.slice(2);
+const IS_MAIN = (() => { try { return fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url); } catch { return false; } })();
+const argv = IS_MAIN ? process.argv.slice(2) : [];
 const flag = (name) => argv.includes(`--${name}`);
 const opt = (name, fallback) => {
   const i = argv.indexOf(`--${name}`);
   return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : fallback;
 };
 if (flag('help') || flag('h')) {
-  console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').filter((l) => l.startsWith('//')).map((l) => l.slice(3)).join('\n'));
+  console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n\nimport ')[0].split('\n').filter((l) => l.startsWith('//')).map((l) => l.slice(3)).join('\n'));
   process.exit(0);
 }
 // GROKBOT_* names are from before the Swarm rename.
 const envOpt = (name) => process.env[`SWARM_${name}`] ?? process.env[`GROKBOT_${name}`];
 const SERVER = (opt('server', envOpt('SERVER')) ?? '').replace(/\/+$/, '');
 const TOKEN_FILE = opt('token-file', envOpt('TOKEN_FILE'));
-const TOKEN = opt('token', envOpt('TOKEN')) ?? (TOKEN_FILE && fs.existsSync(TOKEN_FILE) ? fs.readFileSync(TOKEN_FILE, 'utf8').trim() : undefined);
+const TOKEN = IS_MAIN ? opt('token', envOpt('TOKEN')) ?? (TOKEN_FILE && fs.existsSync(TOKEN_FILE) ? fs.readFileSync(TOKEN_FILE, 'utf8').trim() : undefined) : undefined;
 const DESKTOP = flag('desktop');
 const MULTI = flag('multi');
+const LOCAL_DEVICE = flag('local-device');
+let BROWSER_CDP;
+try {
+  BROWSER_CDP = validateDesktopOptions({ desktop: DESKTOP, multi: MULTI, localDevice: LOCAL_DEVICE, browserCdp: flag('browser-cdp') ? opt('browser-cdp', '') : undefined });
+} catch (error) { console.error(error.message); process.exit(2); }
 const HEADED = flag('headed');
 /** Bots' Chrome profiles (and their sign-ins). Before the Swarm rename they lived in ~/.grokbot-companion. */
 function defaultDataDir() {
@@ -92,18 +449,18 @@ const IDLE_MS = Number(opt('idle-minutes', '30')) * 60_000;
 /** Set when Swarm's server started this companion ("Use this computer"): exit when that server is gone. */
 const PARENT_PID = Number(opt('parent-pid', '0')) || 0;
 
-if (!SERVER || !TOKEN) {
+if (IS_MAIN && (!SERVER || !TOKEN)) {
   console.error('Usage: node swarm-companion.mjs --server <swarm url> --token <pairing token>\nGet both from Swarm: Settings → Computer → Connect your PC.');
   process.exit(2);
 }
-if (typeof WebSocket !== 'function') {
+if (IS_MAIN && typeof WebSocket !== 'function') {
   console.error(`This needs Node.js 22 or newer (found ${process.version}).`);
   process.exit(2);
 }
 
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
-function findChrome() {
+function findChrome(required = true) {
   const explicit = opt('chrome', process.env.CHROME_PATH);
   if (explicit) return explicit;
   const candidates =
@@ -118,12 +475,14 @@ function findChrome() {
         : ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/snap/bin/chromium'];
   const found = candidates.find((p) => p && fs.existsSync(p));
   if (!found) {
-    console.error('Could not find Chrome. Install Google Chrome, or pass --chrome /path/to/chrome.');
+    const message = 'Could not find Chrome. Install Google Chrome, or pass --chrome /path/to/chrome.';
+    if (!required) throw new Error(message);
+    console.error(message);
     process.exit(2);
   }
   return found;
 }
-const CHROME = DESKTOP && !MULTI ? null : findChrome();
+const CHROME = !IS_MAIN || DESKTOP && !MULTI ? null : findChrome();
 
 // ---------- URL guard ----------
 
@@ -649,11 +1008,13 @@ function streamDesktop(display, size, fps, onFrame) {
 
 /** Run a program; resolves with stdout (Buffer), rejects with its stderr. */
 function exec(cmd, args, { input, timeoutMs = 30_000, env } = {}) {
+  checkCommand();
   return new Promise((resolve, reject) => {
-    const p = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'], ...(env ? { env } : {}) });
+    const p = spawn(cmd, args, { detached: DESKTOP && !MULTI, stdio: ['pipe', 'pipe', 'pipe'], ...(env ? { env } : {}) });
+    if (DESKTOP && !MULTI) cancelChild(p);
     const out = [];
     let err = '';
-    const t = setTimeout(() => { p.kill('SIGKILL'); reject(new Error(`${path.basename(cmd)} timed out`)); }, timeoutMs);
+    const t = setTimeout(() => { if (DESKTOP && !MULTI) killGroup(p.pid); else p.kill('SIGKILL'); reject(new Error(`${path.basename(cmd)} timed out`)); }, timeoutMs);
     p.stdout.on('data', (d) => out.push(d));
     p.stderr.on('data', (d) => { err = (err + d).slice(-2000); });
     p.on('error', (e) => { clearTimeout(t); reject(e.code === 'ENOENT' ? new Error(`${cmd} isn't installed on this computer.`) : e); });
@@ -726,7 +1087,7 @@ function macKey(name) {
 }
 
 // One osascript run executes a batch of input events, so a click or a burst of viewer input is one process.
-const JXA_INPUT = `ObjC.import('CoreGraphics'); ObjC.import('ApplicationServices');
+export const JXA_INPUT = `ObjC.import('CoreGraphics'); ObjC.import('ApplicationServices');
 function run(argv) {
   if (!$.AXIsProcessTrusted()) return 'NO_ACCESSIBILITY';
   var acts = JSON.parse(argv[0]);
@@ -735,29 +1096,54 @@ function run(argv) {
     if (a.t === 'm') { e = $.CGEventCreateMouseEvent(null, a.type, { x: a.x, y: a.y }, a.b || 0); if (a.c) $.CGEventSetIntegerValueField(e, 1, a.c); if (a.flags) $.CGEventSetFlags(e, a.flags); }
     else if (a.t === 'k') { e = $.CGEventCreateKeyboardEvent(null, a.code, a.down); $.CGEventSetFlags(e, a.flags || 0); }
     else if (a.t === 's') { try { e = $.CGEventCreateScrollWheelEvent2(null, 1, 2, a.dy, 0, 0); } catch (err) { e = $.CGEventCreateScrollWheelEvent(null, 1, 1, a.dy); } }
-    else if (a.t === 'text') Application('System Events').keystroke(a.text);
     else if (a.t === 'wait') delay(a.s);
     if (e) { $.CGEventPost(0, e); delay(0.008); }
   }
   return 'ok';
 }`;
 
-const MAC_NO_AX = "macOS hasn't given this app Accessibility permission, so Bots can't click or type. Open System Settings → Privacy & Security → Accessibility, turn on the app that runs Swarm (Terminal, iTerm, Conductor…), then try again.";
-const MAC_NO_SCREEN = "macOS blocked the screenshot. Open System Settings → Privacy & Security → Screen & System Audio Recording, turn on the app that runs Swarm (Terminal, iTerm, Conductor…), then restart Swarm.";
+export const MAC_NO_AX = "macOS has not granted Accessibility permission. Open System Settings → Privacy & Security → Accessibility and enable Swarm, then retry. If you launched the companion manually, enable the launching app (Terminal, iTerm, or Conductor) instead.";
+export const MAC_NO_SCREEN = "macOS has not granted Screen Recording permission. Open System Settings → Privacy & Security → Screen & System Audio Recording (Screen Recording on older macOS) and enable Swarm, then quit and reopen Swarm. For a manual companion launch, enable and restart the launching app (Terminal, iTerm, or Conductor) instead.";
+// CoreGraphics exposes CGPreflightScreenCaptureAccess without JXA bridge metadata on some
+// macOS releases. Bind it explicitly; an unavailable probe must not prevent shell/browser startup.
+// These probes only read permission status. They never capture a screen, send input, or prompt.
+export const MAC_PERMISSION_PROBE = `
+ObjC.import('CoreGraphics'); ObjC.import('ApplicationServices');
+var result = { accessibility: null, screen: null, errors: {} };
+try { result.accessibility = !!$.AXIsProcessTrusted(); }
+catch (error) { result.errors.accessibility = String(error); }
+try {
+  ObjC.bindFunction('CGPreflightScreenCaptureAccess', ['bool', []]);
+  result.screen = !!$.CGPreflightScreenCaptureAccess();
+} catch (error) { result.errors.screen = String(error); }
+JSON.stringify(result);
+`;
+export const MAC_SCREEN_PROBE = `
+ObjC.import('CoreGraphics'); ObjC.import('ApplicationServices');
+ObjC.bindFunction('CGPreflightScreenCaptureAccess', ['bool', []]);
+JSON.stringify({ screen: !!$.CGPreflightScreenCaptureAccess() });
+`;
+
 let shotSeq = 0;
 
-const macBackend = {
+export const macBackend = {
   name: 'macOS',
   async size() {
     const out = await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', "ObjC.import('AppKit'); var f = $.NSScreen.screens.objectAtIndex(0).frame; JSON.stringify({ w: f.size.width, h: f.size.height })"]);
     return JSON.parse(out.toString());
   },
-  async capture(width, quality) {
+  async capture(width, quality, execute = exec) {
+    let permission;
+    try {
+      permission = JSON.parse((await execute('/usr/bin/osascript', ['-l', 'JavaScript', '-e', MAC_SCREEN_PROBE])).toString());
+    } catch { throw new Error(`Could not verify macOS Screen Recording permission. ${MAC_NO_SCREEN}`); }
+    // Fail closed: neither a denied permission nor an unavailable probe permits capture.
+    if (permission.screen !== true) throw new Error(MAC_NO_SCREEN);
     const tmp = path.join(os.tmpdir(), `swarm-shot-${process.pid}-${++shotSeq}`);
     try {
-      await exec('/usr/sbin/screencapture', ['-x', '-m', '-t', 'jpg', `${tmp}.jpg`], { timeoutMs: 20_000 }).catch((e) => { throw new Error(`${MAC_NO_SCREEN} (${e.message})`); });
+      await execute('/usr/sbin/screencapture', ['-x', '-m', '-t', 'jpg', `${tmp}.jpg`], { timeoutMs: 20_000 }).catch((e) => { throw new Error(`${MAC_NO_SCREEN} (${e.message})`); });
       if (!fs.existsSync(`${tmp}.jpg`)) throw new Error(MAC_NO_SCREEN);
-      await exec('/usr/bin/sips', ['-s', 'format', 'jpeg', '-s', 'formatOptions', String(quality), '--resampleWidth', String(width), `${tmp}.jpg`, '--out', `${tmp}-s.jpg`], { timeoutMs: 20_000 });
+      await execute('/usr/bin/sips', ['-s', 'format', 'jpeg', '-s', 'formatOptions', String(quality), '--resampleWidth', String(width), `${tmp}.jpg`, '--out', `${tmp}-s.jpg`], { timeoutMs: 20_000 });
       return fs.readFileSync(`${tmp}-s.jpg`);
     } finally {
       fs.rmSync(`${tmp}.jpg`, { force: true });
@@ -767,6 +1153,11 @@ const macBackend = {
   /** Run a batch of portable input ops. `state.flags` holds modifiers held down from the live viewer. */
   async run(ops, state) {
     const acts = [];
+    const flush = async () => {
+      if (!acts.length) return;
+      const out = (await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', JXA_INPUT, JSON.stringify(acts.splice(0))], { timeoutMs: 60_000 })).toString().trim();
+      if (out === 'NO_ACCESSIBILITY') throw new Error(MAC_NO_AX);
+    };
     const BTN = { left: 0, right: 1, middle: 2 };
     const DOWN = [1, 3, 25], UP = [2, 4, 26], DRAG = [6, 7, 27];
     for (const o of ops) {
@@ -794,26 +1185,36 @@ const macBackend = {
         const name = def.key === 'Enter' ? 'Return' : def.key === 'Backspace' ? 'BackSpace' : def.key === 'Escape' ? 'Escape' : def.key.startsWith('Arrow') ? def.key.slice(5) : def.key === 'PageUp' ? 'Page_Up' : def.key === 'PageDown' ? 'Page_Down' : def.key === ' ' ? 'space' : def.key;
         const k = macKey(name);
         if (k) acts.push({ t: 'k', code: k.code, down: o.down, flags: state.flags | (k.shift ? MAC_MODS.shift.flag : 0) });
-        else if (o.down && def.text) acts.push({ t: 'text', text: def.text });
-      } else if (o.op === 'text') acts.push({ t: 'text', text: o.text });
+        else if (o.down && def.text) { await flush(); await this.type(def.text, state); }
+      } else if (o.op === 'text') { await flush(); await this.type(o.text, state); }
       else if (o.op === 'wait') acts.push({ t: 'wait', s: o.ms / 1000 });
     }
-    if (!acts.length) return;
-    const out = (await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', JXA_INPUT, JSON.stringify(acts)], { timeoutMs: 60_000 })).toString().trim();
-    if (out === 'NO_ACCESSIBILITY') throw new Error(MAC_NO_AX);
+    await flush();
   },
-  /** Type text: keystrokes for plain ASCII, the clipboard (restored afterwards) for anything else. */
+  /** Type through the clipboard, restoring its previous text afterwards. */
   async type(text, state) {
-    if (/^[\x20-\x7e\t]*$/.test(text)) return this.run([{ op: 'text', text }], state);
+    // Paste supports arbitrary layouts and Unicode without System Events/Automation permission.
+    if (!text) return;
     const old = await exec('/usr/bin/pbpaste', []).catch(() => null);
     await exec('/usr/bin/pbcopy', [], { input: text });
-    await this.run([{ op: 'combo', mods: ['meta'], name: 'v' }, { op: 'wait', ms: 300 }], state);
-    if (old !== null) await exec('/usr/bin/pbcopy', [], { input: old }).catch(() => {});
+    try {
+      await this.run([{ op: 'combo', mods: ['meta'], name: 'v' }, { op: 'wait', ms: 300 }], state);
+    } finally {
+      // Restoring the clipboard is cleanup even when control was revoked during paste.
+      if (old !== null) await runCommand(undefined, () => exec('/usr/bin/pbcopy', [], { input: old, timeoutMs: 2000 })).catch(() => {});
+    }
   },
   async open(url) { await exec('/usr/bin/open', [url]); },
-  async checkPermissions() {
-    const out = await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', "ObjC.import('ApplicationServices'); var ok = $.AXIsProcessTrusted(); if (!ok) { try { $.AXIsProcessTrustedWithOptions($({ AXTrustedCheckOptionPrompt: true })); } catch (e) {} } String(ok)"]).catch(() => Buffer.from('unknown'));
-    if (out.toString().trim() === 'false') log(`WARNING: ${MAC_NO_AX}`);
+  async checkPermissions(execute = exec) {
+    try {
+      const out = await execute('/usr/bin/osascript', ['-l', 'JavaScript', '-e', MAC_PERMISSION_PROBE]);
+      const permissions = JSON.parse(out.toString());
+      if (permissions.accessibility === false) log(`WARNING: ${MAC_NO_AX}`);
+      if (permissions.screen === false) log(`WARNING: ${MAC_NO_SCREEN}`);
+      if (permissions.accessibility === null || permissions.screen === null) log('WARNING: macOS permission preflight is unavailable. Shell/browser can still start; screen and input permissions are enforced when used.');
+    } catch {
+      log('WARNING: Could not inspect macOS permissions. Shell/browser can still start; screen and input permissions are enforced when used.');
+    }
   },
 };
 
@@ -914,7 +1315,7 @@ class Desktop {
 
   /** Serialize actions so two never interleave (e.g. a Bot's drag and viewer input). */
   serial(fn) {
-    const p = this.queue.then(fn, fn);
+    const p = serialCommand(this.queue, fn);
     this.queue = p.catch(() => {});
     return p;
   }
@@ -922,6 +1323,7 @@ class Desktop {
   run(ops) { return this.serial(() => this.b.run(ops, this.state)); }
 
   async picture(quality) {
+    checkCommand();
     const data = await this.b.capture(this.shotWidth, quality);
     const size = jpegSize(data) ?? { width: this.shotWidth, height: Math.round((this.logical.h * this.shotWidth) / this.logical.w) };
     return { data, ...size };
@@ -1012,12 +1414,14 @@ class Desktop {
   }
 
   async shell(command, timeoutSec = 120) {
+    checkCommand();
     const { cwd = os.homedir(), env = process.env, user } = this.shellOpts;
     const sh = user ? '/bin/bash' : process.env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash');
     // --run-as: the Bot's shell runs as a separate, unprivileged user (it can't read the companion's token).
     const [cmd, args] = user ? ['sudo', ['-n', '-u', user, '-H', '--', 'env', `DISPLAY=${env.DISPLAY ?? ''}`, sh, '-lc', `cd ${JSON.stringify(cwd)} 2>/dev/null; ${command}`]] : [sh, ['-lc', command]];
     return new Promise((resolve) => {
       const p = spawn(cmd, args, { cwd: user ? '/' : cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+      if (DESKTOP && !MULTI) cancelChild(p);
       let out = '';
       const add = (d) => { out = (out + d).slice(-40_000); };
       p.stdout.on('data', add);
@@ -1119,25 +1523,6 @@ if (DESKTOP) {
 // Chrome DevTools protocol to the Bot's visible, logged-in Chrome on its own screen. One MCP process
 // per Bot; it runs as this companion's user and reaches Chrome on a port only this machine can use.
 
-/** The tools Bots may call (server/src/computers/browser-tools.ts lists the same ones). */
-const BROWSER_TOOLS = new Set([
-  'browser_navigate', 'browser_navigate_back', 'browser_snapshot', 'browser_click', 'browser_type', 'browser_fill_form',
-  'browser_select_option', 'browser_press_key', 'browser_hover', 'browser_drag', 'browser_file_upload', 'browser_handle_dialog',
-  'browser_tabs', 'browser_wait_for', 'browser_take_screenshot', 'browser_find', 'browser_evaluate', 'browser_console_messages',
-]);
-
-function findPlaywrightMcp() {
-  const here = path.dirname(new URL(import.meta.url).pathname);
-  const candidates = [
-    opt('playwright-mcp', process.env.PLAYWRIGHT_MCP_CLI),
-    path.join(here, 'node_modules/@playwright/mcp/cli.js'),
-    path.join(here, '../node_modules/@playwright/mcp/cli.js'),
-    '/usr/lib/node_modules/@playwright/mcp/cli.js',
-    '/usr/local/lib/node_modules/@playwright/mcp/cli.js',
-  ].filter(Boolean);
-  return candidates.find((c) => fs.existsSync(c)) ?? null;
-}
-
 /** A minimal MCP client over stdio (newline-delimited JSON-RPC). */
 class McpProcess {
   constructor(cli, args, cwd) {
@@ -1187,7 +1572,7 @@ class McpProcess {
   close() { try { this.proc.kill(); } catch { /* gone */ } }
 }
 
-const PLAYWRIGHT_MCP = MULTI ? findPlaywrightMcp() : null;
+const PLAYWRIGHT_MCP = MULTI || DESKTOP ? findPlaywrightMcp({ explicit: opt('playwright-mcp', process.env.PLAYWRIGHT_MCP_CLI), moduleUrl: import.meta.url }) : null;
 
 /**
  * Is a person being asked to prove they're human on this page? Runs in the page (via Playwright).
@@ -1214,9 +1599,9 @@ const CAPTCHA_DETECTOR = `() => {
   return { kind, url: location.href, title };
 }`;
 
-/** Tools after which the page usually changed: their results include the updated page snapshot. */
-const PAGE_CHANGING = new Set(['browser_navigate', 'browser_navigate_back', 'browser_click', 'browser_type', 'browser_fill_form', 'browser_select_option',
-  'browser_press_key', 'browser_drag', 'browser_file_upload', 'browser_handle_dialog', 'browser_tabs', 'browser_wait_for']);
+const localBrowser = DESKTOP && !MULTI ? new DesktopBrowser({
+  cli: PLAYWRIGHT_MCP, dataDir: DATA_DIR, chrome: () => findChrome(false), cdp: BROWSER_CDP, noSandbox: NO_SANDBOX, captchaDetector: CAPTCHA_DETECTOR,
+}) : null;
 
 // ---------- one screen per Bot (--multi: a user's cloud VM) ----------
 
@@ -1395,6 +1780,7 @@ let socket = null;
 let binaryFrames = false;
 
 const send = (msg) => {
+  if (commandSignal()?.aborted) return;
   if (socket?.readyState !== WebSocket.OPEN) return;
   // Drop obsolete video under congestion so it cannot queue seconds of stale frames
   // in front of action replies. RPC responses and input acknowledgements are never dropped.
@@ -1489,7 +1875,15 @@ async function handleDesktop(msg) {
     if (method === 'input') return desktop.input(params);
     if (method === 'close') {
       desktop.stopScreencast(params.botId);
+      await localBrowser?.close(params.botId);
       if (desktop.used.delete(params.botId)) reportBrowsers();
+    } else if (method === 'browser') {
+      const resultForBrowser = () => localBrowser.call(params.botId, String(params.tool ?? ''), params.args && typeof params.args === 'object' ? params.args : {});
+      desktop.used.set(params.botId, Date.now());
+      reportBrowsers();
+      result = await desktop.serial(resultForBrowser);
+    } else if (method === 'captcha') {
+      result = { captcha: await desktop.serial(() => localBrowser.captcha(params.botId)) };
     } else if (DESKTOP_METHODS[method]) {
       if (!params.peek && !method.startsWith('screencast.')) {
         const first = !desktop.used.has(params.botId);
@@ -1524,11 +1918,11 @@ async function handle(msg) {
 }
 
 // Close browsers nobody has used for a while (keeps this PC light).
-setInterval(async () => {
+if (IS_MAIN) setInterval(async () => {
   if (MULTI) return; // screens stay until the server closes them; the whole VM sleeps when idle
   if (desktop) {
     const before = desktop.used.size;
-    for (const [botId, t] of desktop.used) if (!desktop.viewers.has(botId) && Date.now() - t > IDLE_MS) desktop.used.delete(botId);
+    for (const [botId, t] of desktop.used) if (!desktop.viewers.has(botId) && Date.now() - t > IDLE_MS) { desktop.used.delete(botId); await localBrowser?.close(botId); }
     if (desktop.used.size !== before) reportBrowsers();
     return;
   }
@@ -1540,14 +1934,21 @@ setInterval(async () => {
 
 // ---------- connection to Swarm ----------
 
-const wsUrl = `${SERVER.replace(/^http/, 'ws')}/api/companion`;
+const wsUrl = `${SERVER.replace(/^http/, 'ws')}/api/companion${LOCAL_DEVICE ? '/local' : ''}`;
+let stopping = false;
+let connectionCommands = null;
 let backoff = 1000;
 
 function connect() {
+  if (stopping) return;
+  const controller = DESKTOP && !MULTI ? new AbortController() : null;
+  connectionCommands = controller;
+  const botCommands = new Map();
   const ws = new WebSocket(wsUrl);
   socket = ws;
+  let welcomed = false;
   ws.onopen = () => {
-    ws.send(JSON.stringify({ type: 'hello', token: TOKEN, version: VERSION, name: os.hostname(), platform: `${process.platform}-${process.arch}`, headless: DESKTOP || MULTI ? false : !HEADED, desktop: DESKTOP && !MULTI, mode: MULTI ? 'multi' : DESKTOP ? 'desktop' : 'browser', width: MULTI ? SCREEN_W : desktop?.shotWidth ?? W, height: MULTI ? SCREEN_H : desktop ? Math.round((desktop.logical.h * desktop.shotWidth) / desktop.logical.w) : H }));
+    ws.send(JSON.stringify({ type: 'hello', token: TOKEN, version: VERSION, name: os.hostname(), platform: `${process.platform}-${process.arch}`, headless: DESKTOP || MULTI ? false : !HEADED, desktop: DESKTOP && !MULTI, mode: MULTI ? 'multi' : DESKTOP ? 'desktop' : 'browser', capabilities: { shell: DESKTOP || MULTI, browser: MULTI ? !!PLAYWRIGHT_MCP : !!localBrowser?.available }, width: MULTI ? SCREEN_W : desktop?.shotWidth ?? W, height: MULTI ? SCREEN_H : desktop ? Math.round((desktop.logical.h * desktop.shotWidth) / desktop.logical.w) : H }));
   };
   ws.onmessage = (ev) => {
     let msg;
@@ -1568,12 +1969,31 @@ function connect() {
       }
       else if (DESKTOP) log(`Connected to ${SERVER}. Your Bots can now use this computer's desktop (${desktop.b.name}, ${desktop.logical.w}x${desktop.logical.h}) and a shell. Press Ctrl+C to stop.`);
       else log(`Connected to ${SERVER}. Your Bots can now use a browser on this PC${HEADED ? '' : ' (headless; watch it from Swarm)'}. Press Ctrl+C to stop.`);
+      welcomed = true;
       reportBrowsers();
       return;
     }
-    if (msg.method) void handle(msg);
+    if (msg.method) {
+      if (socket !== ws || controller?.signal.aborted || stopping || (controller && !welcomed)) return;
+      // Suppress responses from an obsolete socket, including after a reconnect.
+      if (controller) {
+        const botId = msg.params?.botId;
+        let bot = botCommands.get(botId);
+        if (msg.method === 'close') {
+          bot?.abort(new Error('Local Bot control closed'));
+          botCommands.delete(botId);
+          void runCommand(controller.signal, () => handle(msg));
+        } else {
+          if (!bot) { bot = new AbortController(); botCommands.set(botId, bot); }
+          void runCommand(AbortSignal.any([controller.signal, bot.signal]), () => handle(msg));
+        }
+      } else void handle(msg);
+    }
   };
   ws.onclose = (ev) => {
+    controller?.abort(new Error('Local desktop control disconnected'));
+    const cleanup = localBrowser?.closeAll();
+    if (desktop) desktop.pendingInput.length = 0;
     if (socket === ws) {
       socket = null;
       binaryFrames = false;
@@ -1581,11 +2001,13 @@ function connect() {
       for (const pending of screens.values()) void pending.then(s => s.desktop.stopScreencasts(), () => {});
       for (const pending of browsers.values()) void pending.then(b => b.stopScreencast(), () => {}).catch(() => {});
     }
+    if (stopping) return;
     if (ev.code === 4401) { console.error('Swarm rejected the pairing token. Get a new command from Settings → Computer → Connect your PC.'); shutdown(1); return; }
     if (ev.code === 4403) { console.error(ev.reason || 'Swarm refused this companion.'); shutdown(1); return; }
     if (ev.code === 4409) { console.error('Another companion connected with this account, so this one is stopping.'); shutdown(1); return; }
     log(`Disconnected (${ev.code}${ev.reason ? ` ${ev.reason}` : ''}). Reconnecting in ${Math.round(backoff / 1000)}s…`);
-    setTimeout(connect, backoff);
+    // Complete cleanup before accepting another local connection/profile session.
+    setTimeout(() => { void Promise.resolve(cleanup).then(connect); }, backoff);
     backoff = Math.min(backoff * 2, MULTI ? 2_000 : 30_000);
   };
   ws.onerror = () => { /* onclose follows */ };
@@ -1602,21 +2024,29 @@ if (MULTI) {
 }
 
 async function shutdown(code = 0) {
+  if (stopping) return;
+  stopping = true;
+  connectionCommands?.abort(new Error('Local desktop control stopped'));
+  desktop?.stopScreencasts();
+  if (desktop) desktop.pendingInput.length = 0;
+  await localBrowser?.closeAll();
   for (const botId of [...screens.keys()]) await closeScreen(botId).catch(() => {});
   for (const botId of [...browsers.keys()]) await closeBrowser(botId).catch(() => {});
   try { socket?.close(); } catch { /* */ }
   process.exit(code);
 }
-process.on('SIGINT', () => { log('Stopping…'); void shutdown(0); });
-process.on('SIGTERM', () => void shutdown(0));
+if (IS_MAIN) {
+  process.on('SIGINT', () => { log('Stopping…'); void shutdown(0); });
+  process.on('SIGTERM', () => void shutdown(0));
 
-if (PARENT_PID) {
-  setInterval(() => {
-    try { process.kill(PARENT_PID, 0); } catch { log('Swarm server stopped; stopping too.'); void shutdown(0); }
-  }, 3000).unref();
+  if (PARENT_PID) {
+    setInterval(() => {
+      try { process.kill(PARENT_PID, 0); } catch { log('Parent app stopped; stopping too.'); void shutdown(0); }
+    }, LOCAL_DEVICE ? 500 : 3000).unref();
+  }
+
+  if (MULTI) log(`Swarm companion ${VERSION} · CLOUD VM: one screen per Bot${RUN_AS ? ` · Bots run as ${RUN_AS}` : ''} · files in ${AGENT_HOME}`);
+  else if (DESKTOP) log(`Swarm companion ${VERSION} · FULL DESKTOP: Bots can see this screen, use the mouse and keyboard, and run shell commands as ${os.userInfo().username}`);
+  else log(`Swarm companion ${VERSION} · Chrome: ${CHROME} · profiles: ${path.join(DATA_DIR, 'profiles')}${ALLOW_PRIVATE ? ' · local network ALLOWED' : ''}`);
+  connect();
 }
-
-if (MULTI) log(`Swarm companion ${VERSION} · CLOUD VM: one screen per Bot${RUN_AS ? ` · Bots run as ${RUN_AS}` : ''} · files in ${AGENT_HOME}`);
-else if (DESKTOP) log(`Swarm companion ${VERSION} · FULL DESKTOP: Bots can see this screen, use the mouse and keyboard, and run shell commands as ${os.userInfo().username}`);
-else log(`Swarm companion ${VERSION} · Chrome: ${CHROME} · profiles: ${path.join(DATA_DIR, 'profiles')}${ALLOW_PRIVATE ? ' · local network ALLOWED' : ''}`);
-connect();

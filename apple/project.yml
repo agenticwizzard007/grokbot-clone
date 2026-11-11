@@ -43,6 +43,8 @@ targets:
         PRODUCT_NAME: Swarm
         INFOPLIST_FILE: Configuration/macOS-Info.plist
         CODE_SIGN_ENTITLEMENTS: Configuration/Swarm.entitlements
+        # Direct Developer ID distribution; control runs as the signed-in OS user.
+        ENABLE_APP_SANDBOX: NO
     scheme:
       testTargets: [Swarm-macOSTests]
   Swarm-iOSTests:
@@ -56,7 +58,7 @@ targets:
   Swarm-macOSTests:
     type: bundle.unit-test
     platform: macOS
-    sources: [SwarmTests, Swarm/ServerAddress.swift, Swarm/SignInAttempt.swift, Swarm/VoiceShortcut.swift]
+    sources: [SwarmTests, Swarm/ServerAddress.swift, Swarm/SignInAttempt.swift, Swarm/VoiceShortcut.swift, Swarm/MacControlPolicy.swift, Swarm/MacControlTokenStore.swift, Swarm/MacControlProcessLifecycle.swift]
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

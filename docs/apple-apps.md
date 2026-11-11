@@ -1,6 +1,6 @@
 # Swarm for iOS and macOS
 
-The Apple apps share a SwiftUI shell and load the existing Swarm interface in WebKit. They connect to a hosted Swarm server; model keys, SQLite, routines, computers, and bot execution stay on that server. Closing the app does not stop server-side work. These are development apps, not App Store or notarized releases.
+The Apple apps share a SwiftUI shell and load the existing Swarm interface in WebKit. They connect to a hosted Swarm server; model keys, SQLite, routines, and bot execution stay on that server. On macOS, [Use this Mac](mac-control.md) can explicitly pair an app-managed companion for local terminal, filesystem, browser and desktop access. Quitting Swarm stops that companion and its owned work; closing its windows alone leaves the menu-bar app and any running control active. Server-side work continues. Development builds are not notarized releases.
 
 Supported platforms: **iOS/iPadOS 17+** and **macOS 14+**. No Electron, Capacitor, CocoaPods, or third-party Swift packages are required. XcodeGen generates two app targets and two policy-test targets from `apple/project.yml`.
 
@@ -24,7 +24,7 @@ npm run apple:ios     # compile for the iOS simulator
 npm run apple:test    # run the native URL/authentication policy tests on Mac
 ```
 
-The scripts use unsigned builds so CI needs no developer credentials. For a runnable sandboxed Mac development build, run through Xcode with local development/ad-hoc signing. The resulting apps are under `apple/build/Build/Products/Debug/Swarm.app` (Mac) and `Debug-iphonesimulator/Swarm.app` (simulator). Simulator apps cannot be installed on a physical phone.
+The scripts use unsigned builds so CI needs no developer credentials. For a runnable Mac development build, run through Xcode with local development/ad-hoc signing. The Mac target is unsandboxed with hardened runtime for optional local computer control; iOS remains unchanged. The resulting apps are under `apple/build/Build/Products/Debug/Swarm.app` (Mac) and `Debug-iphonesimulator/Swarm.app` (simulator). Simulator apps cannot be installed on a physical phone.
 
 The `Apple apps` GitHub Actions workflow builds both platforms and runs native policy tests on a Mac runner. Its artifacts are development builds, not distribution packages.
 
@@ -32,7 +32,7 @@ The `Apple apps` GitHub Actions workflow builds both platforms and runs native p
 
 The app defaults to `https://swarm-team.fly.dev`. Use the native **… → Server settings** menu to point at your own server. It requires an HTTPS origin with no path, query, or embedded credentials. Debug builds additionally accept `http://localhost:8787` (and loopback IPs). Localhost on a physical iPhone is the phone itself; use an HTTPS server reachable from the device.
 
-Build and deploy **this version of the server and web app together** before using native Google sign-in or the new phone layout. Set `APP_URL` and `SERVER_URL` to that same public origin. A production server should have `DEV_LOGIN=0`. Keep the usual model and Composio keys on the server, never in the Apple project. The apps require connectivity; they do not bundle or start the Node server or desktop companion.
+Build and deploy **this version of the server and web app together** before using native Google sign-in or the new phone layout. Set `APP_URL` and `SERVER_URL` to that same public origin. A production server should have `DEV_LOGIN=0`. Keep the usual model and Composio keys on the server, never in the Apple project. The apps require connectivity and do not bundle or start the Node server. Packaged Mac builds include a local companion and its runtime, launched only from the native consent controls; ordinary development builds can omit that payload.
 
 For local development, run `npm run build`, start the API, and connect the Debug app to `http://localhost:8787`. The API serves the built web interface. When developing Google authentication, use one publicly reachable HTTPS origin for both app and API so browser cookies and callbacks stay on the same host.
 
@@ -52,7 +52,7 @@ Pending attempts expire after ten minutes. Expired, reused, malformed, mismatche
 
 Connected-app authorization opens in the default browser. Native requests receive a signed callback bound to the account, app, bot, transcript card, and a fifteen-minute expiry. This allows a callback to confirm the right connection even if the browser is signed in to another Swarm account. The browser shows a **Return to Swarm** link; the app refreshes connections and messages on return. No native login session is created by that callback.
 
-**Clear local sign-in data** removes this app's WebKit cookies and local website settings for every server. It does not delete accounts, bots, or conversations on the server. Use the web app's Log out action to revoke the active server session.
+**Clear local sign-in data** removes this app's WebKit cookies and local website settings for every server. On Mac it also stops local computer control and removes its pairing grants from Keychain. It does not delete accounts, bots, or conversations on the server. Use the web app's Log out action to revoke the active server session.
 
 ## Native behavior
 
@@ -62,7 +62,7 @@ Connected-app authorization opens in the default browser. Native requests receiv
 - Microphone requests from the server's main frame prompt for permission. Camera and foreign-frame capture are denied. Voice calls need the app in the foreground; no background-audio entitlement is requested.
 - Downloads use the Mac save panel or the iOS share sheet. File uploads use WebKit's picker (with an explicit open panel on Mac).
 - Native connection errors offer retry and server settings. Returning from the background resynchronizes messages and connected apps without discarding drafts.
-- The Mac is sandboxed with outbound networking, microphone, and user-selected file access. No arbitrary local shell access is granted to web content. The existing computer companion remains a separate, explicit pairing flow.
+- The Mac has native **Use this Mac** controls and a menu-bar running/stopped indicator, Stop, and Disconnect. Four explicit approvals bind local access to the current account and server; native OS privacy controls gate protected desktop actions. The app manages a bundled companion as the signed-in OS user, with a Keychain token and no generic JavaScript-to-native shell bridge. See [Mac control and packaging](mac-control.md).
 
 ## iPhone Action Button: Talk to Swarm
 
@@ -87,12 +87,12 @@ npm run apple:macos
 npm run apple:test
 ```
 
-The server authentication tests use an isolated temporary database and a simulated already-verified Google callback, with no provider calls. The browser tests serve the built frontend and mock API responses and exercise phone navigation, details, creation dialogs, settings, and draft-preserving resume at 320, 390, 844, and 1440 pixels. They use installed Chrome (`CHROME_PATH` can override its path). Native policy tests cover URL boundaries and authentication callback validation.
+The server authentication tests use an isolated temporary database and a simulated already-verified Google callback, with no provider calls. The browser tests serve the built frontend and mock API responses and exercise phone navigation, details, creation dialogs, settings, and draft-preserving resume at 320, 390, 844, and 1440 pixels. They use installed Chrome (`CHROME_PATH` can override its path). Native policy tests cover URL boundaries, authentication callbacks, Mac-control consent/account/session boundaries, local-only process arguments, and token-file privacy/cleanup.
 
 Before shipping, also exercise real Google sign-in (success/cancellation), phone sign-in, app connections, microphone permission and voice, authenticated downloads/uploads, switching servers, offline recovery, and background/resume on a physical iPhone and a signed Mac build. Automated code-exchange tests do not establish that a particular production Google/Composio project is correctly configured.
 
 ## Distribution
 
-Choose your Apple development team, signing identities and provisioning profiles, then archive the appropriate app target in Xcode. Use TestFlight/App Store Connect for iOS; use Developer ID signing and notarization for direct Mac distribution, or prepare a Mac App Store submission. This repository does not include signing credentials, a paid Apple Developer account, or an automatic update service.
+Choose your Apple development team, signing identities and provisioning profiles, then archive the appropriate app target in Xcode. Use TestFlight/App Store Connect for iOS. The unsandboxed Mac control target uses direct Developer ID signing and notarization; it is not a Mac App Store sandbox target. Follow the [Mac packaging steps](mac-control.md#build-an-installable-mac-app) to stage verified Node runtimes and pinned Playwright dependencies, build a complete app, then sign and notarize it. This repository does not include signing credentials, a paid Apple Developer account, or an automatic update service.
 
 The privacy manifest declares the app's local UserDefaults use and the account, conversation, attachment, audio, and usage data the hosted product can process for app functionality. Review those declarations and the App Store privacy answers against your deployed providers and retention policy. Supply your privacy policy, support URL, screenshots, reviewer access, and any required sign-in options before submission. Apple still reviews the complete product, including minimum functionality and account-deletion requirements; building the app is not App Store approval. Push notifications, offline chat, and background voice are not implemented.

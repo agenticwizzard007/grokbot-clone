@@ -28,6 +28,7 @@ export interface BotSettingsBundle {
 export interface LibraryListing { status: 'ok' | 'asleep' | 'error'; path: string; files: LibraryFile[]; error?: string }
 
 export interface ComputerDetails {
+  localComputer?: { enabled: boolean; paired: boolean; connected: boolean; device: { name: string; platform: string } | null; desktop: boolean; browser: boolean };
   computer: ComputerState;
   screens: { botId: string; screenId: string; lastUsedAt: number }[];
   hibernation: { idleMinutes: number; viewers: number; dryRun: boolean };

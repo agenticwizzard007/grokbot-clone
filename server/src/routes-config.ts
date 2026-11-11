@@ -23,12 +23,15 @@ import { idleConfig, viewerCount } from './idle.js';
 import { loadHistory } from './store.js';
 import type { Memory, Skill } from './types.js';
 import { getSetup, setupFiles } from './bot-setup.js';
+import { localAccess } from './computers/local-access.js';
+import { localComputerApi, localComputerStatus } from './computers/local-routes.js';
 
 /**
  * Bot settings, skills, library, computer controls and memory maintenance.
  * Mounted next to routes.ts in index.ts; every path here needs a signed-in user.
  */
 export const configApi = new Hono<AuthVars>();
+configApi.route('/computer/local', localComputerApi);
 
 for (const p of ['/bots/*', '/skills/*', '/computer/*', '/settings/*']) configApi.use(p, requireUser);
 
@@ -216,8 +219,9 @@ configApi.get('/computer/details', (c) => {
     computer: computers.state(userId),
     screens: computers.screens(userId),
     hibernation: { idleMinutes: idleConfig.idleMin, viewers: viewerCount(userId), dryRun: idleConfig.dryRun },
-    pairing: computers.kind === 'local' ? pairingInfo(userId) : null,
-    thisComputer: computers.kind === 'local' ? { available: thisComputerAvailable() && fromThisMachine(c) && canManageServer(c.get('user')), active: thisComputerUser() === userId } : null,
+    localComputer: localComputerStatus(userId),
+    pairing: computers.kind === 'local' && !localAccess(userId).enabled ? pairingInfo(userId) : null,
+    thisComputer: computers.kind === 'local' && !localAccess(userId).enabled ? { available: thisComputerAvailable() && fromThisMachine(c) && canManageServer(c.get('user')), active: thisComputerUser() === userId } : null,
   });
 });
 
@@ -261,6 +265,7 @@ configApi.post('/bots/:id/screen/reset', async (c) => {
 
 /** Local computers: make a pairing token and the command that connects a PC with it. */
 configApi.post('/computer/pair', (c) => {
+  if (localAccess(c.get('user').id).enabled) return c.json({ error: 'Manage this Mac in the Swarm desktop app → Mac Control.' }, 409);
   if (computers.kind !== 'local') return c.json({ error: 'This server uses cloud computers (COMPUTER_PROVIDER=orgo).' }, 400);
   const token = createPairing(c.get('user').id);
   const server = env.serverUrl.replace(/\/+$/, '');
@@ -273,6 +278,7 @@ configApi.post('/computer/pair', (c) => {
 
 /** Local computers: forget every paired PC and disconnect the current one. */
 configApi.delete('/computer/pair', (c) => {
+  if (localAccess(c.get('user').id).enabled) return c.json({ error: 'Disconnect this Mac in the Swarm desktop app → Mac Control.' }, 409);
   if (computers.kind !== 'local') return c.json({ error: 'not available' }, 400);
   if (thisComputerUser() === c.get('user').id) stopThisComputer();
   return c.json({ ok: true, revoked: revokePairings(c.get('user').id) });

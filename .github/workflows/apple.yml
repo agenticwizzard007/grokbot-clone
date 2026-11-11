@@ -1,10 +1,10 @@
 name: Apple apps
 on:
   pull_request:
-    paths: ['apple/**', 'web/**', 'server/src/auth/**', 'server/src/accounts.ts', 'server/src/native-auth.ts', 'server/src/routes.ts', 'server/src/lib/auth.ts', 'tests/apple-auth.test.mts', 'tests/native-auth.test.mts', 'tests/composio.test.mts', 'tests/mobile-layout.mjs', 'tests/voice-shortcut.mjs', 'package*.json', 'scripts/apple.sh', '.github/workflows/apple.yml']
+    paths: ['apple/**', 'web/**', 'server/src/auth/**', 'server/src/accounts.ts', 'server/src/native-auth.ts', 'server/src/routes.ts', 'server/src/lib/auth.ts', 'tests/apple-auth.test.mts', 'tests/native-auth.test.mts', 'tests/composio.test.mts', 'tests/mobile-layout.mjs', 'tests/voice-shortcut.mjs', 'package*.json', 'scripts/apple.sh', 'scripts/stage-apple-mac.mjs', 'scripts/package-apple-mac.sh', 'companion/swarm-companion.mjs', 'server/src/computers/**', 'server/src/usage-context.ts', 'server/src/agent/loop.ts', 'server/src/routes-config.ts', 'tests/native-computer.test.mts', 'tests/rename-compat.test.mts', 'tests/latency.test.mts', 'tests/viewer-ready.test.mts', 'companion/tests/**', '.github/workflows/apple.yml']
   push:
     branches: [main]
-    paths: ['apple/**', 'web/**', 'server/src/auth/**', 'server/src/accounts.ts', 'server/src/native-auth.ts', 'server/src/routes.ts', 'server/src/lib/auth.ts', 'tests/apple-auth.test.mts', 'tests/native-auth.test.mts', 'tests/composio.test.mts', 'tests/mobile-layout.mjs', 'tests/voice-shortcut.mjs', 'package*.json', 'scripts/apple.sh', '.github/workflows/apple.yml']
+    paths: ['apple/**', 'web/**', 'server/src/auth/**', 'server/src/accounts.ts', 'server/src/native-auth.ts', 'server/src/routes.ts', 'server/src/lib/auth.ts', 'tests/apple-auth.test.mts', 'tests/native-auth.test.mts', 'tests/composio.test.mts', 'tests/mobile-layout.mjs', 'tests/voice-shortcut.mjs', 'package*.json', 'scripts/apple.sh', 'scripts/stage-apple-mac.mjs', 'scripts/package-apple-mac.sh', 'companion/swarm-companion.mjs', 'server/src/computers/**', 'server/src/usage-context.ts', 'server/src/agent/loop.ts', 'server/src/routes-config.ts', 'tests/native-computer.test.mts', 'tests/rename-compat.test.mts', 'tests/latency.test.mts', 'tests/viewer-ready.test.mts', 'companion/tests/**', '.github/workflows/apple.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -22,6 +22,16 @@ jobs:
       - run: npm run test:apple-auth && npm run test:native-auth && npm run test:composio
       - run: npm run test:mobile
       - run: npm run test:voice-shortcut
+      - name: Test native computer routing, latency and viewer readiness
+        run: node --import tsx --test tests/native-computer.test.mts tests/rename-compat.test.mts tests/latency.test.mts tests/viewer-ready.test.mts
+      - name: Test native supervisor quick exit regression
+        run: python3 apple/MacControl/test_lifecycle.py SupervisorLifecycleTests.test_quick_child_exit_preserves_status
+      - name: Install companion desktop test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb xdotool imagemagick
+      - name: Test companion policies and lifecycle
+        run: node --test companion/tests/*.test.mjs
   build:
     runs-on: macos-15
     steps:
@@ -30,13 +40,48 @@ jobs:
         run: brew install xcodegen
       - name: Build iOS simulator app
         run: bash scripts/apple.sh ios
-      - name: Build macOS app
-        run: bash scripts/apple.sh macos
-      - name: Test native URL and authentication policies
+      # The test scheme also builds the Debug Mac app; avoid a separate duplicate build.
+      - name: Test native authentication, consent and process lifecycle policies
         run: bash scripts/apple.sh test
-      - name: Preserve app bundle permissions in archive
-        run: tar -czf apple/build/Swarm-development-apps.tgz -C apple/build/Build/Products Debug/Swarm.app Debug-iphonesimulator/Swarm.app
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apple/MacControl/package-lock.json
+      - name: Select the runner's Mac payload architecture
+        shell: bash
+        run: |
+          case "$(uname -m)" in
+            arm64) echo 'SWARM_PACKAGE_ARCH=arm64' >> "$GITHUB_ENV" ;;
+            x86_64) echo 'SWARM_PACKAGE_ARCH=x64' >> "$GITHUB_ENV" ;;
+            *) echo 'Unsupported Mac runner architecture' >&2; exit 1 ;;
+          esac
+      - uses: actions/cache@v4
+        with:
+          path: apple/build/runtime-cache
+          key: mac-control-node-${{ runner.arch }}-${{ hashFiles('apple/MacControl/node-runtimes.json') }}
+      - name: Stage the pinned Node and Playwright payload
+        run: bash scripts/package-apple-mac.sh stage --arch "$SWARM_PACKAGE_ARCH"
+      - name: Build the packaged Mac app
+        run: bash scripts/package-apple-mac.sh build "$SWARM_PACKAGE_ARCH"
+      - name: Verify the bundled runtime without requesting Mac permissions
+        shell: bash
+        run: |
+          payload="$PWD/apple/build-distribution/Build/Products/Release/Swarm.app/Contents/Resources/MacControl"
+          node scripts/stage-apple-mac.mjs --check --arch "$SWARM_PACKAGE_ARCH" --output "$payload"
+          host="$payload/$SWARM_PACKAGE_ARCH/control-host"
+          runtime="$payload/$SWARM_PACKAGE_ARCH/node"
+          test -x "$host"
+          test -x "$runtime"
+          "$host" "$runtime" --version
+          "$host" "$runtime" "$payload/companion/swarm-companion.mjs" --help > /dev/null
+          "$host" "$runtime" "$payload/playwright/node_modules/@playwright/mcp/cli.js" --help > /dev/null
+      - name: Preserve app bundle permissions in development archives
+        shell: bash
+        run: |
+          tar -czf apple/build/Swarm-macOS-development.tgz -C apple/build-distribution/Build/Products/Release Swarm.app
+          tar -czf apple/build/Swarm-iOS-development.tgz -C apple/build/Build/Products/Debug-iphonesimulator Swarm.app
       - uses: actions/upload-artifact@v4
         with:
           name: Swarm-development-apps
-          path: apple/build/Swarm-development-apps.tgz
+          path: apple/build/Swarm-*-development.tgz

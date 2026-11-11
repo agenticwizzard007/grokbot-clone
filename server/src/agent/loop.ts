@@ -15,6 +15,8 @@ import { isConfiguring } from '../bot-setup.js';
 import { mcpSchemas, runMcpTool } from '../mcp/client.js';
 import { findMcpTool } from '../mcp/store.js';
 import { latency } from '../lib/latency.js';
+import { localAccess } from '../computers/local-access.js';
+import { currentComputerRevision } from '../usage-context.js';
 
 const llm = () => llmClient(360_000);
 
@@ -27,6 +29,7 @@ export type Trigger =
   | { type: 'resume' };
 
 interface PendingState {
+  computerRevision?: number;
   /** function_call items still to process, in order. */
   calls: { call_id: string; name: string; arguments: string; rowSeq: number }[];
   /** outputs already produced for this batch. */
@@ -145,6 +148,11 @@ async function runTurn(botId: string, trigger: Trigger) {
     if (trigger.type === 'resume') {
       if (!pendingRow) return;
       const st = JSON.parse(pendingRow.state) as PendingState;
+      if ((st.computerRevision ?? 0) !== localAccess(userId).revision) {
+        await finishPending(ctx, st, 'computer-changed');
+        appendRow(botId, 'notice', { type: 'notice', text: 'Your selected computer changed. The previous approval and its remaining actions were cancelled. Send a new request to continue on the selected computer.', tone: 'info' });
+        return;
+      }
       depth = st.depth;
       const paused = await processCalls(ctx, st);
       if (paused) return;
@@ -175,6 +183,7 @@ async function runTurn(botId: string, trigger: Trigger) {
       if (!calls.length) break;
 
       const st: PendingState = {
+        computerRevision: currentComputerRevision() ?? localAccess(userId).revision,
         calls: calls.map((c: any) => {
           const act = activityFor(c.name);
           const row = appendRow(botId, 'tool-call', { type: 'tool-call', callId: c.call_id, name: c.name, label: act.label, status: 'running', args: safeParse(c.arguments) } satisfies ToolCallBody);
@@ -280,18 +289,18 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
 }
 
 /** When a new message arrives while an approval is pending, close the batch with denials. */
-async function finishPending(ctx: ToolCtx, st: PendingState, _reason: string) {
+async function finishPending(ctx: ToolCtx, st: PendingState, reason: string) {
   const { botId } = ctx;
   if (st.approvalId) {
     const ap = db.prepare('SELECT * FROM approvals WHERE id=?').get(st.approvalId) as any;
-    if (ap?.status === 'pending') {
+    if (ap && (ap.status === 'pending' || reason === 'computer-changed')) {
       db.prepare("UPDATE approvals SET status='expired', resolved_at=? WHERE id=?").run(now(), ap.id);
       const card = getRow(botId, ap.row_seq);
       if (card && card.body.type === 'card' && card.body.card === 'approval') updateRow(botId, ap.row_seq, { ...card.body, status: 'expired' });
     }
   }
   for (const c of st.calls) {
-    st.outputs.push({ type: 'function_call_output', call_id: c.call_id, output: 'Skipped: the user sent a new message before approving this. Do not retry unless they ask.' });
+    st.outputs.push({ type: 'function_call_output', call_id: c.call_id, output: reason === 'computer-changed' ? 'Skipped: the selected computer changed after these actions were planned. Do not retry unless the user sends a new request.' : 'Skipped: the user sent a new message before approving this. Do not retry unless they ask.' });
     const row = getRow(botId, c.rowSeq);
     if (row) updateRow(botId, c.rowSeq, { ...(row.body as ToolCallBody), status: 'denied', summary: 'Skipped' });
   }
