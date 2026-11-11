@@ -59,6 +59,7 @@ const queues = new Map<string, Promise<void>>();
 const aborts = new Map<string, AbortController>();
 const running = new Map<string, Trigger>();
 const userQueues = new Map<string, Promise<void>>();
+const scheduledJobs = new Set<string>();
 /** Drain accepted work before orderly shutdown or test storage teardown. */
 export async function settleAgentJobs() { while (queues.size) await Promise.allSettled([...queues.values()]); }
 
@@ -95,12 +96,20 @@ export function enqueue(botId: string, trigger: Trigger) {
   return job.id;
 }
 function scheduleJob(jobId: string, userId: string, botId: string, trigger: Trigger) {
+  if (scheduledJobs.has(jobId)) return;
+  scheduledJobs.add(jobId);
   const queuedAt = performance.now();
   const prev = queues.get(botId) ?? Promise.resolve();
   const subscription = !!selectedCli(userId);
   const userPrev = subscription ? Promise.resolve() : userQueues.get(userId) ?? Promise.resolve();
   // Usage attribution: every model call in this turn (including compaction) is billed to this Bot and its owner.
   const next = Promise.all([prev, userPrev]).then(async () => {
+    // A second native action is independent work, not a replacement user message.
+    // Leave it durably queued without holding the bot/user queue while approval waits.
+    if (trigger.type === 'native-tool' && (
+      db.prepare('SELECT 1 FROM pending_turns WHERE bot_id=?').get(botId) ||
+      db.prepare("SELECT 1 FROM agent_jobs WHERE bot_id=? AND state='queued' AND json_extract(trigger,'$.type')='native-tool' AND rowid < (SELECT rowid FROM agent_jobs WHERE id=?) LIMIT 1").get(botId, jobId)
+    )) return;
     if (!beginJob(jobId)) return;
     latency('queue', queuedAt, { botId });
     try { await withUsage({ botId, kind: 'chat' }, () => runTurn(botId, trigger, jobId)); finishJob(jobId, true); }
@@ -108,7 +117,17 @@ function scheduleJob(jobId: string, userId: string, botId: string, trigger: Trig
   }).catch(() => { finishJob(jobId, false); });
   if (!subscription) userQueues.set(userId, next);
   queues.set(botId, next);
-  next.finally(() => { if (queues.get(botId) === next) queues.delete(botId); if (userQueues.get(userId) === next) userQueues.delete(userId); });
+  next.finally(() => {
+    scheduledJobs.delete(jobId);
+    if (queues.get(botId) === next) queues.delete(botId);
+    if (userQueues.get(userId) === next) userQueues.delete(userId);
+    // A completed/denied resume (or explicit superseding user message) releases the
+    // next accepted native action. Recovery reads these same durable queued jobs.
+    if (!db.prepare('SELECT 1 FROM pending_turns WHERE bot_id=?').get(botId)) {
+      const waiting = db.prepare("SELECT id,user_id,trigger FROM agent_jobs WHERE bot_id=? AND state='queued' AND json_extract(trigger,'$.type')='native-tool' ORDER BY rowid").all(botId) as { id: string; user_id: string; trigger: string }[];
+      for (const job of waiting) scheduleJob(job.id, job.user_id, botId, JSON.parse(job.trigger));
+    }
+  });
 }
 export function initDurableJobs() {
   for (const job of recoverJobs()) scheduleJob(job.id, job.user_id, job.bot_id, JSON.parse(job.trigger));

@@ -45,6 +45,8 @@ During an agent’s setup interview, native connection reads, service search and
 
 The live call displays pending connection and approval cards from the user's team. Connect starts the existing sign-in flow from a user gesture; only subsequent server state confirms the account. Voice discovers each exact tool/account/revision before dispatch. Writes and tools without verified read-only metadata use the existing approval flow unless the user saved an allow policy. Approval persists the exact operation and arguments, resumes it without a text-model planning step, and delivers its result through the team update feed. Repeated provider call IDs cannot dispatch the same operation again. Provider failures and uncertain outcomes remain failures and are never automatically retried.
 
+Connected-app execution requires a stable `toolCallId`; a client retry must reuse it. Multiple native actions for the same agent stay durably queued behind a pending approval. Resolving the earlier approval releases the next action without replacing the earlier decision or blocking other agents.
+
 ## Validation
 
 Run `node --import tsx --test tests/platform-voice.test.mts` for admin authorization, encrypted persistence, new-account inheritance, tenant isolation, CLI/personal-provider routing, credential validation, error sanitization and usage attribution. The tests use a local mock; a real microphone call and live xAI billing/permissions must also be checked after a production key is supplied.

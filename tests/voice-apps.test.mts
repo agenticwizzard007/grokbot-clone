@@ -84,7 +84,7 @@ mock.method(client.tools, 'execute', async (slug, input) => {
   return { data: { repository: 'alice/project', canRead: true }, successful: !providerFailure, error: null, logId: 'provider-log' };
 });
 const { createBot } = await import('../server/src/bots.js');
-const { appendRow, updateRow } = await import('../server/src/store.js');
+const { appendRow, updateRow, getLive } = await import('../server/src/store.js');
 const { settleAgentJobs, resolveApproval, runInBotQueue, enqueue } = await import('../server/src/agent/loop.js');
 const { voiceApi } = await import('../server/src/voice.js');
 const { requireUser } = await import('../server/src/lib/auth.js');
@@ -107,8 +107,10 @@ const session = async (botId = chief.id) => {
   openCalls.push(call);
   return call;
 };
+let nextExecuteId = 0;
 const tool = async (call: any, name: string, args: unknown = {}, toolCallId?: string) => {
-  const response = await post('tool', { botId: call.botId, callId: call.callId, name, args, toolCallId });
+  const invocationId = toolCallId ?? (name === 'SWARM_APPS_EXECUTE' ? `execute-${++nextExecuteId}` : undefined);
+  const response = await post('tool', { botId: call.botId, callId: call.callId, name, args, toolCallId: invocationId });
   assert.equal(response.status, 200);
   return response.json() as Promise<any>;
 };
@@ -294,6 +296,109 @@ test('voice connection actions reuse cards, reflect confirmation, and exclude an
   assert.ok(result.connections.some((c: any) => c.id === 'slack-alice' && c.status === 'ACTIVE'));
   assert.equal(JSON.parse((await tool(call, 'request_app_connection', args)).output).status, 'connected');
   accounts.pop();
+});
+
+for (const decision of ['allow', 'deny'] as const) {
+  test(`two native writes preserve independent approvals when the first is ${decision === 'allow' ? 'approved' : 'denied'}`, async t => {
+    const sameMillisecond = Date.now();
+    t.mock.method(Date, 'now', () => sameMillisecond);
+    const call = await session();
+    discovered = [rawTool('GITHUB_CREATE_ISSUE', ['createHint'])];
+    await search(call);
+    const firstArgs = { ...executeArgs('GITHUB_CREATE_ISSUE'), arguments: { repo: `alice/first-${decision}` } };
+    const secondArgs = { ...executeArgs('GITHUB_CREATE_ISSUE'), arguments: { repo: `alice/second-${decision}` } };
+    const firstId = `two-writes-${decision}-a`, secondId = `two-writes-${decision}-b`;
+    const before = executed.length;
+    try {
+      const first = await tool(call, 'SWARM_APPS_EXECUTE', firstArgs, firstId);
+      const second = await tool(call, 'SWARM_APPS_EXECUTE', secondArgs, secondId);
+      assert.ok(first.taskId); assert.ok(second.taskId);
+      assert.notEqual(first.taskId, second.taskId);
+      await settleAgentJobs();
+
+      const pending = await updates(call);
+      assert.deepEqual(pending.tasks.map((task: any) => [task.id, task.status]), [[first.taskId, 'waiting'], [second.taskId, 'queued']]);
+      const firstApproval = pending.approvals.find((approval: any) => approval.body.jobId === first.taskId);
+      assert.ok(firstApproval, 'the first approval remains pending instead of expiring');
+      assert.deepEqual(firstApproval.body.args, firstArgs);
+      assert.ok(!pending.approvals.some((approval: any) => approval.body.jobId === second.taskId), 'the second operation has not requested approval yet');
+      assert.equal((db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(second.taskId) as any).state, 'queued');
+      assert.equal(executed.length, before);
+
+      resolveApproval('alice', firstApproval.body.approvalId, decision);
+      await settleAgentJobs();
+      const between = await updates(call);
+      assert.deepEqual(between.tasks.map((task: any) => [task.id, task.status]), [[first.taskId, 'completed'], [second.taskId, 'waiting']], 'finishing A must not inherit B’s waiting state');
+      const completedFirst = db.prepare("SELECT finished_at FROM agent_jobs WHERE bot_id=? AND json_extract(trigger,'$.parentJobId')=? ORDER BY rowid DESC LIMIT 1").get(chief.id, first.taskId) as { finished_at: number };
+      assert.equal(completedFirst.finished_at, sameMillisecond);
+      assert.equal(getLive(chief.id).awaiting?.since, sameMillisecond, 'A finishes in the exact millisecond that B starts waiting');
+      assert.ok(!between.approvals.some((approval: any) => approval.body.approvalId === firstApproval.body.approvalId));
+      const secondApproval = between.approvals.find((approval: any) => approval.body.jobId === second.taskId);
+      assert.ok(secondApproval, 'the second operation receives its own approval after the first resolves');
+      assert.notEqual(secondApproval.body.approvalId, firstApproval.body.approvalId);
+      assert.deepEqual(secondApproval.body.args, secondArgs);
+      assert.equal(executed.slice(before).filter(result => result.input.arguments.repo === firstArgs.arguments.repo).length, decision === 'allow' ? 1 : 0);
+      assert.equal(executed.slice(before).filter(result => result.input.arguments.repo === secondArgs.arguments.repo).length, 0);
+
+      resolveApproval('alice', secondApproval.body.approvalId, 'allow');
+      resolveApproval('alice', secondApproval.body.approvalId, 'allow');
+      await settleAgentJobs();
+      const done = await updates(call);
+      assert.deepEqual(done.tasks.map((task: any) => [task.id, task.status]), [[first.taskId, 'completed'], [second.taskId, 'completed']]);
+      assert.ok(!done.approvals.some((approval: any) => [first.taskId, second.taskId].includes(approval.body.jobId)));
+      assert.equal(executed.slice(before).filter(result => result.input.arguments.repo === secondArgs.arguments.repo).length, 1);
+      assert.deepEqual(await tool(call, 'SWARM_APPS_EXECUTE', firstArgs, firstId), first);
+      assert.deepEqual(await tool(call, 'SWARM_APPS_EXECUTE', secondArgs, secondId), second);
+      await settleAgentJobs();
+      assert.equal(executed.length, before + (decision === 'allow' ? 2 : 1), 'approval and stable-ID replays never dispatch either operation twice');
+    } finally {
+      // Drain through the public approval path even when an assertion fails so a
+      // pending native operation cannot interfere with later scenarios.
+      for (let i = 0; i < 3; i++) {
+        await settleAgentJobs();
+        const pending = db.prepare("SELECT id FROM approvals WHERE bot_id=? AND status='pending'").all(chief.id) as { id: string }[];
+        if (!pending.length) break;
+        for (const approval of pending) resolveApproval('alice', approval.id, 'deny');
+      }
+      await settleAgentJobs();
+      discovered = [rawTool('GITHUB_GET_REPOSITORY')];
+    }
+  });
+}
+
+test('native writes require a stable transport ID before dispatch and stable-ID retries execute once', async () => {
+  const call = await session();
+  discovered = [rawTool('GITHUB_CREATE_ISSUE', ['createHint'])];
+  await search(call);
+  db.prepare("INSERT OR REPLACE INTO policies(user_id,tool,mode) VALUES('alice','GITHUB_CREATE_ISSUE','always_allow')").run();
+  const args = executeArgs('GITHUB_CREATE_ISSUE');
+  const before = executed.length;
+  try {
+    for (let i = 0; i < 2; i++) {
+      const missing = await post('tool', { botId: call.botId, callId: call.callId, name: 'SWARM_APPS_EXECUTE', args });
+      assert.equal(missing.status, 400);
+      assert.equal(typeof (await missing.json() as any).error, 'string');
+    }
+    for (const toolCallId of ['', '   ']) {
+      const blank = await post('tool', { botId: call.botId, callId: call.callId, name: 'SWARM_APPS_EXECUTE', args, toolCallId });
+      assert.equal(blank.status, 400);
+    }
+    assert.equal(executed.length, before, 'missing or blank invocation IDs never reach the provider');
+    const stableId = 'always-allow-stable-write';
+    const [first, replay] = await Promise.all([
+      tool(call, 'SWARM_APPS_EXECUTE', args, stableId),
+      tool(call, 'SWARM_APPS_EXECUTE', args, stableId),
+    ]);
+    assert.deepEqual(replay, first);
+    assert.equal(JSON.parse(first.output).repository, 'alice/project');
+    assert.deepEqual(await tool(call, 'SWARM_APPS_EXECUTE', args, stableId), first);
+    assert.equal(executed.length, before + 1);
+    const dispatch = db.prepare('SELECT state FROM tool_dispatches WHERE bot_id=? AND call_id=?').get(chief.id, `${call.callId}:${stableId}`) as any;
+    assert.equal(dispatch.state, 'completed');
+  } finally {
+    db.prepare("DELETE FROM policies WHERE user_id='alice' AND tool='GITHUB_CREATE_ISSUE'").run();
+    discovered = [rawTool('GITHUB_GET_REPOSITORY')];
+  }
 });
 
 test('text setup receives discovery tools, verifies GitHub reads and refuses writes even with always-allow', async () => {

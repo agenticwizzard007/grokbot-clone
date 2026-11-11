@@ -324,7 +324,7 @@ voiceApi.post('/updates', async (c) => {
       AND json_extract(body,'$.jobId') IN (${lineage.map(() => '?').join(',')}) LIMIT 1`).get(task.botId, generation, ...lineage.map(j => j.id));
     const since = getLive(task.botId).awaiting?.since;
     // A question from later work on the same agent must not relabel an older completed job.
-    const awaiting = !!pendingDecision || since !== undefined && job?.started_at != null && since >= job.started_at && (job.finished_at == null || since <= job.finished_at);
+    const awaiting = !!pendingDecision || job?.state === 'running' && since !== undefined && job.started_at != null && since >= job.started_at;
     const status = job?.state === 'cancelled' ? 'cancelled' : job?.state === 'uncertain' || !job ? 'failed' : awaiting ? 'waiting' : job.state === 'queued' ? 'queued' : job.state === 'running' ? 'running' : 'completed';
     if (call.jobStates.get(task.id) !== status) {
       call.jobStates.set(task.id, status);
@@ -421,6 +421,7 @@ voiceApi.post('/tool', async (c) => {
   const bot = ownBot(userId, botId);
   const call = calls.get(callId);
   if (!bot || !call || call.userId !== userId || call.botId !== bot.id) return c.json({ error: 'Call not found.' }, 404);
+  if (name === 'SWARM_APPS_EXECUTE' && !toolCallId?.trim()) return c.json({ error: 'A stable toolCallId is required for connected-app execution. Reuse it when retrying the same invocation.' }, 400);
   const signature = JSON.stringify([name, args]);
   const prior = toolCallId ? call.toolCalls.get(toolCallId) : undefined;
   if (prior) {
@@ -458,6 +459,7 @@ async function runVoiceTool(call: ActiveCall, bot: any, name: string, a: Record<
     return { output };
   }
   if (name === 'SWARM_APPS_EXECUTE') {
+    if (!toolCallId?.trim()) throw new Error('Connected-app execution requires a stable invocation ID.');
     const args = z.object({ connectionId: z.string().min(1).max(200), revision: z.number().int().positive(), tool_slug: z.string().regex(/^[A-Z][A-Z0-9_]{2,199}$/), arguments: z.record(z.string(), z.unknown()) }).strict().parse(a);
     const discovered = call.appTools.get(JSON.stringify([args.connectionId, args.revision, args.tool_slug]));
     if (!discovered) return { output: 'Discover this tool with SWARM_APPS_SEARCH on this call first, using the current account and revision. Use its exact schema.' };
@@ -468,7 +470,7 @@ async function runVoiceTool(call: ActiveCall, bot: any, name: string, a: Record<
     // Provider metadata can be stricter than a verb in the tool name. Unknown/write tools
     // require approval unless the user explicitly saved an allow policy for this tool.
     const requireApproval = policy.decision === 'ask' || !discovered.readOnly && saved?.mode !== 'always_allow';
-    const dispatchId = `${callId}:${toolCallId ?? newId('voice_tool')}`;
+    const dispatchId = `${callId}:${toolCallId}`;
     if (requireApproval) {
       if (call.jobs.length >= 200) return { output: 'This call has reached its task limit. Start a new call before assigning more work.' };
       const taskId = enqueue(bot.id, { type: 'native-tool', name, args, callId: dispatchId, requireApproval: true, readOnly: discovered.readOnly });
