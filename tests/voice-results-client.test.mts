@@ -60,6 +60,7 @@ const approval = (seq = 13, botId = 'research'): VoiceApproval => ({ botId, seq,
 async function fixture(t: TestContext) {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const requests: { path: string; body: any; init: RequestInit }[] = [];
+  const beacons: { path: string; body: Blob }[] = [];
   const sockets: FakeSocket[] = [];
   const harness = { store: { user: { name: 'Alex' }, bots: [{ id: 'main', name: 'Main agent' }, { id: 'research', name: 'Research agent' }] }, players: [] as any[] };
   const listeners = new Map();
@@ -79,6 +80,7 @@ async function fixture(t: TestContext) {
   }
   for (const [key, value] of Object.entries({
     window: { addEventListener: (name: string, fn: unknown) => listeners.set(name, fn), removeEventListener: (name: string) => listeners.delete(name) },
+    navigator: { sendBeacon: (path: string, body: Blob) => { beacons.push({ path, body }); return true; } },
     WebSocket: FakeSocket, __voiceHarness: harness,
   })) {
     const old = Object.getOwnPropertyDescriptor(globalThis, key);
@@ -112,7 +114,7 @@ async function fixture(t: TestContext) {
   }
   const ws = await start();
   return {
-    ws, requests, harness, warnings, listeners, start,
+    ws, requests, beacons, harness, warnings, listeners, start,
     setPoll: (fn: typeof poll) => { poll = fn; }, setTool: (fn: typeof tool) => { tool = fn; },
     tick: async (ms = 1500) => { t.mock.timers.tick(ms); await settle(); },
     polls: () => requests.filter(r => r.path.endsWith('/updates')),
@@ -125,6 +127,137 @@ function noteData(text: string): { updates: VoiceUpdate[]; tasks: VoiceTask[]; o
 }
 const done = (ws: { emit: (e: object) => void }, output: object[] = []) => ws.emit({ type: 'response.done', response: { output } });
 const toolEvent = (callId: string, name: string, args: object) => ({ type: 'response.function_call_arguments.done', call_id: callId, name, arguments: JSON.stringify(args) });
+
+test('send_task forwards final spoken context outside model args and duplicate invocations retain their original snapshot', async t => {
+  const f = await fixture(t);
+  const reply = deferred<Response>();
+  f.setTool(() => reply.promise);
+  f.ws.emit({ type: 'conversation.item.input_audio_transcription.delta', item_id: 'partial-user', delta: 'Unfinished request' });
+  f.ws.emit({ type: 'response.audio_transcript.delta', item_id: 'partial-agent', delta: 'Unfinished reply' });
+  f.ws.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'constraint', transcript: '  Draft the agenda using my work account. Do not send it or contact anyone.  ' });
+  f.ws.emit({ type: 'response.audio_transcript.done', item_id: 'acknowledgement', transcript: 'I will prepare a draft for your review.' });
+  f.ws.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'empty', transcript: '   ' });
+  const args = { bot_id: 'research', request: 'Prepare the agenda' };
+  const event = toolEvent('provider-context', 'send_task', args);
+  const expected = [
+    { id: 'constraint', role: 'user', text: 'Draft the agenda using my work account. Do not send it or contact anyone.' },
+    { id: 'acknowledgement', role: 'assistant', text: 'I will prepare a draft for your review.' },
+  ];
+  f.ws.emit(event);
+  assert.equal(f.tools().length, 1);
+  assert.equal(f.tools()[0].body.toolCallId, 'provider-context');
+  assert.equal(f.tools()[0].body.transcriptRevision, 1);
+  assert.deepEqual(f.tools()[0].body.transcript, expected, 'actual spoken constraints accompany the shorter model summary');
+  assert.deepEqual(f.tools()[0].body.args, args, 'transcript is transport context, never model tool arguments');
+  const originalBody = f.tools()[0].init.body;
+
+  f.ws.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'constraint', transcript: 'Use the work account and save the draft only.' });
+  f.ws.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'later', transcript: 'Keep the budget below fifty dollars.' });
+  f.ws.emit(event);
+  done(f.ws, [{ type: 'function_call', call_id: 'provider-context', name: 'send_task', arguments: event.arguments }]);
+  assert.equal(f.tools().length, 1, 'argument and response replays do not create another request');
+  assert.equal(f.tools()[0].init.body, originalBody);
+  assert.equal(f.tools()[0].body.transcriptRevision, 1, 'duplicate invocation retains the captured revision');
+  assert.deepEqual(f.tools()[0].body.transcript, expected, 'later caption finalization cannot mutate an invocation snapshot');
+  reply.resolve(json({ output: 'Queued for chat', taskId: 'chat-context-task', taskBotId: 'research' }));
+  await settle();
+  f.ws.emit(event);
+  assert.equal(f.tools().length, 1, 'a replay after resolution still keeps the stable invocation');
+
+  f.setTool(async () => json({ output: 'Agent state' }));
+  f.ws.emit(toolEvent('provider-next-context', 'get_agent', { bot_id: 'research' }));
+  await settle();
+  const latest = [
+    { id: 'constraint', role: 'user', text: 'Use the work account and save the draft only.' },
+    expected[1],
+    { id: 'later', role: 'user', text: 'Keep the budget below fifty dollars.' },
+  ];
+  assert.deepEqual(f.tools()[1].body.transcript, latest, 'every remote tool receives its own current finalized context');
+  assert.equal(f.tools()[1].body.transcriptRevision, 2, 'provider replays do not consume another revision');
+  voice.endCall();
+  const end = f.requests.find(r => r.path.endsWith('/end'))!.body;
+  assert.deepEqual(end.transcript, latest, 'call end persists final context and excludes partial captions');
+  assert.equal(end.transcriptRevision, 3);
+});
+
+test('tool and end context retain the latest 200 finalized captions and cap each text at 2000 characters', async t => {
+  const f = await fixture(t);
+  const long = `  Use the work account. ${'Keep this constraint. '.repeat(200)}  `;
+  const boundary = 'b'.repeat(2000);
+  for (let i = 0; i < 205; i++) f.ws.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: `line-${i}`, transcript: i === 6 ? long : i === 7 ? boundary : `Constraint ${i}` });
+  f.ws.emit(toolEvent('bounded-context', 'send_task', { request: 'Follow the spoken constraints' }));
+  await settle();
+  const transcript = f.tools()[0].body.transcript;
+  assert.equal(transcript.length, 200);
+  assert.deepEqual(transcript[0], { id: 'line-5', role: 'user', text: 'Constraint 5' });
+  assert.equal(transcript[1].text.length, 2000);
+  assert.equal(transcript[1].text, `${long.trim().slice(0, 1999)}…`, 'oversized final captions use the server ellipsis convention');
+  assert.deepEqual(transcript[2], { id: 'line-7', role: 'user', text: boundary }, 'exactly 2000 characters are retained without an ellipsis');
+  assert.deepEqual(transcript.at(-1), { id: 'line-204', role: 'user', text: 'Constraint 204' });
+  assert.equal(voice.useVoice.getState().captions.find(c => c.id === 'line-6')!.text, long, 'transport clipping preserves the displayed caption');
+  voice.endCall();
+  assert.deepEqual(f.requests.find(r => r.path.endsWith('/end'))!.body.transcript, transcript);
+});
+
+test('disjoint rolling snapshots carry capture order even when an older tool response arrives last', async t => {
+  const f = await fixture(t);
+  const olderReply = deferred<Response>();
+  f.setTool(body => body.toolCallId === 'older-snapshot' ? olderReply.promise : Promise.resolve(json({ output: 'Newer request accepted' })));
+  f.ws.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'old-constraint', transcript: 'Draft only.' });
+  const olderEvent = toolEvent('older-snapshot', 'send_task', { request: 'Prepare an initial draft' });
+  f.ws.emit(olderEvent);
+  const originalBody = f.tools()[0].init.body;
+  for (let i = 0; i < 205; i++) f.ws.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: `new-${i}`, transcript: `New constraint ${i}` });
+  f.ws.emit(toolEvent('newer-snapshot', 'send_task', { request: 'Revise the draft' }));
+  await settle();
+
+  const [older, newer] = f.tools().map(r => r.body);
+  assert.deepEqual(older.transcript, [{ id: 'old-constraint', role: 'user', text: 'Draft only.' }]);
+  assert.equal(newer.transcript.length, 200);
+  assert.equal(newer.transcript[0].id, 'new-5');
+  assert.ok(newer.transcript.every((entry: { id: string }) => entry.id !== 'old-constraint'), 'snapshots have no shared IDs for content dedup to compare');
+  assert.deepEqual([older.transcriptRevision, newer.transcriptRevision], [1, 2], 'server can order disjoint context by capture revision');
+  f.ws.emit(olderEvent);
+  assert.equal(f.tools().length, 2);
+  assert.equal(f.tools()[0].init.body, originalBody, 'an older invocation replay cannot capture newer context');
+  voice.endCall();
+  const end = f.requests.find(r => r.path.endsWith('/end'))!.body;
+  assert.equal(end.transcriptRevision, 3);
+  assert.deepEqual(end.transcript, newer.transcript);
+  olderReply.resolve(json({ output: 'Older request accepted after the newer request' }));
+  await settle();
+  assert.equal(f.tools()[0].init.body, originalBody, 'response arrival order cannot mutate capture order');
+});
+
+test('identical captions keep distinct IDs and beacon/end revisions increase within a call then reset for a new call', async t => {
+  const f = await fixture(t);
+  for (const id of ['repeat-1', 'repeat-2', 'repeat-1']) f.ws.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: id, transcript: 'Yes, draft only.' });
+  f.ws.emit({ type: 'response.audio_transcript.delta', item_id: 'partial', delta: 'Still speaking' });
+  f.ws.emit(toolEvent('repeat-task', 'send_task', { request: 'Prepare a draft' }));
+  await settle();
+  const expected = ['repeat-1', 'repeat-2'].map(id => ({ id, role: 'user', text: 'Yes, draft only.' }));
+  assert.deepEqual(f.tools()[0].body.transcript, expected, 'identical text is distinct by caption ID; replaying one ID does not duplicate it');
+  assert.equal(f.tools()[0].body.transcriptRevision, 1);
+
+  f.listeners.get('pagehide')();
+  assert.equal(f.beacons.length, 1);
+  assert.equal(f.beacons[0].path, '/api/voice/end');
+  const beacon = JSON.parse(await f.beacons[0].body.text());
+  assert.deepEqual(beacon, { botId: 'main', callId: 'session-1', transcript: expected, transcriptRevision: 2 });
+  voice.endCall();
+  const end = f.requests.find(r => r.path.endsWith('/end'))!.body;
+  assert.deepEqual(end.transcript, expected);
+  assert.equal(end.transcriptRevision, 3);
+
+  const next = await f.start();
+  next.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'repeat-1', transcript: 'New call constraint.' });
+  next.emit(toolEvent('new-call-task', 'send_task', { request: 'Prepare another draft' }));
+  await settle();
+  const fresh = f.tools().at(-1)!.body;
+  assert.equal(fresh.callId, 'session-2');
+  assert.equal(fresh.transcriptRevision, 1, 'revision sequence belongs to the VoiceCall instance');
+  assert.deepEqual(fresh.transcript, [{ id: 'repeat-1', role: 'user', text: 'New call constraint.' }]);
+});
 
 test('polls while idle, serializes slow requests, and delivers deduped team updates without inferring completion', async t => {
   const f = await fixture(t);
@@ -279,7 +412,7 @@ test('end aborts polling, drops queued notes and ignores late tool/update respon
   f.setPoll(async () => json({ cursor: 0, updates: [], tasks: [] }));
   const next = await f.start();
   slow.resolve(json({ cursor: 10, updates: [update(10)], tasks: [task('old-call')], connectionRequests: [connection()], approvals: [approval()] }));
-  toolReply.resolve(json({ output: 'Late task', taskId: 'old-task', taskBotId: 'research', connectionRequest: connection() }));
+  toolReply.resolve(json({ output: 'Late task', taskId: 'old-task', taskBotId: 'research' }));
   await settle();
   assert.deepEqual(voice.useVoice.getState().working, []);
   assert.deepEqual(voice.useVoice.getState().connectionRequests, []);
@@ -292,27 +425,29 @@ test('end aborts polling, drops queued notes and ignores late tool/update respon
   assert.equal(f.polls().length, count, 'no timer is recreated by a late response');
 });
 
-test('direct connection metadata appears immediately and survives an older in-flight poll until a fresh list arrives', async t => {
+test('delegated chat work delivers connection cards through polling without direct voice app schemas', async t => {
   const f = await fixture(t);
   const slow = deferred<Response>();
   f.setPoll(() => slow.promise);
   await f.tick();
-  f.setTool(async () => json({ output: 'Connection needed', connectionRequest: connection() }));
-  f.ws.emit(toolEvent('connect-gmail', 'SWARM_APPS_CONNECT', { toolkit: 'gmail' }));
+  f.setTool(async () => json({ output: 'Queued for chat', taskId: 'chat-connect', taskBotId: 'research' }));
+  f.ws.emit(toolEvent('connect-gmail', 'send_task', { bot_id: 'research', request: 'Connect my Gmail account so you can prepare a draft' }));
   done(f.ws);
   await settle();
-  assert.deepEqual(voice.useVoice.getState().connectionRequests, [connection()]);
+  assert.deepEqual(voice.useVoice.getState().connectionRequests, [], 'delegation does not invent a connection card');
   assert.equal(f.tools()[0].body.toolCallId, 'connect-gmail');
-  assert.equal(f.requests.some(r => r.path.includes('/apps/')), false, 'tool metadata never starts OAuth without a user gesture');
+  assert.equal(f.tools()[0].body.name, 'send_task');
+  assert.equal(f.requests.some(r => r.path.includes('/apps/')), false, 'voice does not execute app tools or start OAuth');
   slow.resolve(json({ cursor: 0, updates: [], tasks: [], connectionRequests: [], approvals: [] }));
   await settle();
-  assert.deepEqual(voice.useVoice.getState().connectionRequests, [connection()], 'a snapshot requested before the tool reply cannot erase it');
-  f.setPoll(async () => json({ cursor: 0, updates: [], tasks: [], connectionRequests: [connection()] }));
+  assert.deepEqual(voice.useVoice.getState().connectionRequests, []);
+  f.setPoll(async () => json({ cursor: 1, updates: [update(1, 'waiting', 'research', 'Connect Gmail using the card.')], tasks: [task('chat-connect', 'research', 'waiting')], connectionRequests: [connection()] }));
   await f.tick();
-  assert.equal(voice.useVoice.getState().connectionRequests.length, 1, 'direct metadata and server list are deduped by agent and row');
-  f.setPoll(async () => json({ cursor: 0, updates: [], tasks: [], connectionRequests: [] }));
+  assert.deepEqual(voice.useVoice.getState().connectionRequests, [connection()], 'chat-owned cards reach voice through the authoritative feed');
+  f.setPoll(async () => json({ cursor: 1, updates: [], tasks: [task('chat-connect')], connectionRequests: [] }));
   await f.tick();
   assert.deepEqual(voice.useVoice.getState().connectionRequests, [], 'the next authoritative empty list removes the button');
+  assert.equal(voice.useVoice.getState().working[0].id, 'chat-connect', 'authorizing an account does not complete delegated work');
 });
 
 test('connection and approval snapshots are authoritative independently of updates, tolerate absent fields, and clear on hang-up', async t => {
@@ -343,13 +478,14 @@ test('connection and approval snapshots are authoritative independently of updat
   assert.deepEqual(voice.useVoice.getState().approvals, []);
 });
 
-test('direct app execution task IDs coexist with call-scoped pending approvals and clear only by task snapshot', async t => {
+test('delegated app task IDs coexist with chat-owned approvals and clear only by task snapshot', async t => {
   const f = await fixture(t);
-  f.setTool(async () => json({ output: 'Approval needed', taskId: 'approval-operation', taskBotId: 'research' }));
-  f.ws.emit(toolEvent('execute-app', 'SWARM_APPS_EXECUTE', { tool_slug: 'GMAIL_SEND_EMAIL' }));
+  f.setTool(async () => json({ output: 'Queued for the chat agent', taskId: 'approval-operation', taskBotId: 'research' }));
+  f.ws.emit(toolEvent('delegate-app', 'send_task', { bot_id: 'research', request: 'Prepare the agenda email and ask me before sending' }));
   done(f.ws);
   await settle();
   assert.equal(voice.useVoice.getState().working.length, 1);
+  assert.deepEqual(f.tools().map(r => r.body.name), ['send_task'], 'only the chat agent owns external execution');
   f.setPoll(async () => json({ cursor: 1, updates: [update(1, 'waiting')], tasks: [task('approval-operation', 'research', 'waiting')], approvals: [approval()] }));
   await f.tick();
   assert.equal(voice.useVoice.getState().working[0].id, 'approval-operation');
@@ -406,6 +542,6 @@ test('failed hand-offs clear only their optimism and preserve tool error and han
   await settle();
   assert.equal(voice.useVoice.getState().status, 'idle');
   const end = f.requests.find(r => r.path.endsWith('/end'))!;
-  assert.deepEqual(end.body.transcript, [{ role: 'user', text: 'Goodbye' }]);
+  assert.deepEqual(end.body.transcript, [{ id: 'user-caption', role: 'user', text: 'Goodbye' }]);
   assert.equal(f.tools().length, 1, 'hang-up stays local');
 });

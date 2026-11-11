@@ -28,7 +28,7 @@ const llm = () => llmClient(360_000);
 
 export type Trigger = (
   /** channel: where the user wrote it (a text channel via the messaging bridge; absent = the web app). */
-  | { type: 'user'; text: string; channel?: 'imessage' | 'sms' | 'whatsapp'; images?: string[]; voice?: boolean; quote?: string }
+  | { type: 'user'; text: string; channel?: 'imessage' | 'sms' | 'whatsapp'; images?: string[]; voice?: boolean; quote?: string; voiceAssignment?: boolean }
   | { type: 'routine'; routineId: string; name: string; prompt: string }
   | { type: 'bot'; fromBotId: string; fromName: string; text: string; depth: number }
   | { type: 'system'; text: string }
@@ -79,7 +79,7 @@ export function enqueue(botId: string, trigger: Trigger) {
     const pending = db.prepare('SELECT state FROM pending_turns WHERE bot_id=?').get(botId) as { state: string } | undefined;
     const parentJobId = pending ? (JSON.parse(pending.state) as PendingState).jobId : undefined;
     if (parentJobId) trigger = { ...trigger, parentJobId };
-  } else if (trigger.type === 'user') {
+  } else if (trigger.type === 'user' && !trigger.voiceAssignment) {
     const bot = getBotRow(botId);
     const pending = bot && db.prepare("SELECT seq FROM rows WHERE bot_id=? AND generation=? AND kind='card' AND json_extract(body,'$.card')='question' AND json_extract(body,'$.status') IN ('pending','answered') AND json_extract(body,'$.jobId') IS NOT NULL AND json_extract(body,'$.answerJobId') IS NULL ORDER BY seq DESC LIMIT 1").get(botId, bot.generation) as { seq: number } | undefined;
     question = pending ? getRow(botId, pending.seq) : null;
@@ -99,6 +99,23 @@ export function enqueue(botId: string, trigger: Trigger) {
   scheduleJob(job.id, job.userId, botId, trigger);
   return job.id;
 }
+
+// Independent voice assignments and legacy native invocations share one durable FIFO.
+// Answers, corrections and approval/connection continuations must be able to bypass it.
+const independentJobSql = `(json_extract(trigger,'$.type')='native-tool' OR
+  (json_extract(trigger,'$.type')='user' AND json_extract(trigger,'$.voiceAssignment')=1))`;
+function hasPendingDecision(botId: string) {
+  // A card can resolve before its answer/callback runs; that continuation still
+  // takes priority over independent work already scheduled on this bot.
+  return !!db.prepare('SELECT 1 FROM pending_turns WHERE bot_id=?').get(botId)
+    || !!db.prepare(`SELECT 1 FROM rows r JOIN bots b ON b.id=r.bot_id AND b.generation=r.generation
+      WHERE r.bot_id=? AND r.kind='card' AND json_extract(r.body,'$.card') IN ('question','approval','connect')
+      AND (json_extract(r.body,'$.status')='pending' OR EXISTS (
+        SELECT 1 FROM agent_jobs j WHERE j.id=json_extract(r.body,'$.answerJobId')
+        AND j.bot_id=r.bot_id AND j.state IN ('queued','running')
+      )) LIMIT 1`).get(botId);
+}
+
 function scheduleJob(jobId: string, userId: string, botId: string, trigger: Trigger) {
   if (scheduledJobs.has(jobId)) return;
   scheduledJobs.add(jobId);
@@ -108,11 +125,12 @@ function scheduleJob(jobId: string, userId: string, botId: string, trigger: Trig
   const userPrev = subscription ? Promise.resolve() : userQueues.get(userId) ?? Promise.resolve();
   // Usage attribution: every model call in this turn (including compaction) is billed to this Bot and its owner.
   const next = Promise.all([prev, userPrev]).then(async () => {
-    // A second native action is independent work, not a replacement user message.
-    // Leave it durably queued without holding the bot/user queue while approval waits.
-    if (trigger.type === 'native-tool' && (
-      db.prepare('SELECT 1 FROM pending_turns WHERE bot_id=?').get(botId) ||
-      db.prepare("SELECT 1 FROM agent_jobs WHERE bot_id=? AND state='queued' AND json_extract(trigger,'$.type')='native-tool' AND rowid < (SELECT rowid FROM agent_jobs WHERE id=?) LIMIT 1").get(botId, jobId)
+    // Independent work cannot replace an unresolved approval or answer a question.
+    // Release the serial queue while it waits so another agent or a follow-up can run.
+    if ((trigger.type === 'native-tool' || trigger.type === 'user' && trigger.voiceAssignment === true) && (
+      hasPendingDecision(botId) ||
+      db.prepare(`SELECT 1 FROM agent_jobs WHERE bot_id=? AND state='queued' AND ${independentJobSql}
+        AND rowid < (SELECT rowid FROM agent_jobs WHERE id=?) LIMIT 1`).get(botId, jobId)
     )) return;
     if (!beginJob(jobId)) return;
     latency('queue', queuedAt, { botId });
@@ -125,10 +143,10 @@ function scheduleJob(jobId: string, userId: string, botId: string, trigger: Trig
     scheduledJobs.delete(jobId);
     if (queues.get(botId) === next) queues.delete(botId);
     if (userQueues.get(userId) === next) userQueues.delete(userId);
-    // A completed/denied resume (or explicit superseding user message) releases the
-    // next accepted native action. Recovery reads these same durable queued jobs.
-    if (!db.prepare('SELECT 1 FROM pending_turns WHERE bot_id=?').get(botId)) {
-      const waiting = db.prepare("SELECT id,user_id,trigger FROM agent_jobs WHERE bot_id=? AND state='queued' AND json_extract(trigger,'$.type')='native-tool' ORDER BY rowid").all(botId) as { id: string; user_id: string; trigger: string }[];
+    // Answers, resumes and connection callbacks release the next independent job
+    // only after their own continuation has cleared every pending decision.
+    if (!hasPendingDecision(botId)) {
+      const waiting = db.prepare(`SELECT id,user_id,trigger FROM agent_jobs WHERE bot_id=? AND state='queued' AND ${independentJobSql} ORDER BY rowid`).all(botId) as { id: string; user_id: string; trigger: string }[];
       for (const job of waiting) scheduleJob(job.id, job.user_id, botId, JSON.parse(job.trigger));
     }
   });
