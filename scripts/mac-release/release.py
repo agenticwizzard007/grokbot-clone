@@ -209,7 +209,9 @@ def sign(config, env, private):
         require("1.2.840.113635.100.6.1.13" in certificate, "Certificate lacks Developer ID Application extension")
         decoded = plistlib.loads(run("security", "cms", "-D", "-i", profile))
         app_entitlements = validate_profile(decoded, der)
-        shutil.copyfile(profile, APP / "Contents/embedded.provisionprofile")
+        embedded_profile = APP / "Contents/embedded.provisionprofile"
+        shutil.copyfile(profile, embedded_profile)
+        embedded_profile.chmod(0o644)  # Public signed resource, readable after an administrator installs the app.
         keychain_args = ["--keychain", str(keychain)]
         config["profile"] = {"uuid": decoded.get("UUID"), "expiry": decoded["ExpirationDate"].isoformat(), "certificate_sha256": hashlib.sha256(der).hexdigest()}
     else:
