@@ -46,12 +46,14 @@ const SYNONYMS: Record<string, string[]> = {
   repo: ['repositori'], repositori: ['repo'],
   pr: ['pull'], pull: ['pr'],
   msg: ['messag'], messag: ['msg'],
-  dm: ['direct'], mail: ['email', 'messag'], email: ['mail', 'messag'],
+  dm: ['direct'], mail: ['email', 'messag'], email: ['mail', 'messag'], inbox: ['email', 'mail', 'messag', 'fetch'],
+  post: ['send', 'messag', 'creat'], repli: ['send', 'messag'], unread: ['fetch', 'email'],
   cal: ['calendar'], event: ['calendar'],
   delet: ['remov'], remov: ['delet'],
   updat: ['edit', 'modifi'], edit: ['updat'], modifi: ['updat'],
   creat: ['add', 'new', 'open'], add: ['creat'], new: ['creat'], open: ['creat'],
-  list: ['get', 'find', 'search'], find: ['search', 'list'], search: ['find', 'list'], get: ['fetch', 'read', 'list'], fetch: ['get'], read: ['get'],
+  list: ['get', 'find', 'search'], find: ['search', 'list'], search: ['find', 'list', 'fetch'], get: ['fetch', 'read', 'list'], fetch: ['get'], read: ['get', 'fetch', 'list'],
+  todai: ['list'], upcom: ['list'], free: ['freebusi', 'slot'], avail: ['free', 'slot'],
   me: ['authenticat'], my: ['authenticat'], own: ['authenticat'], mine: ['authenticat'], authenticat: ['me', 'my'],
 };
 
@@ -59,26 +61,35 @@ function expand(t: string): string[] { return [t, ...(SYNONYMS[t] ?? [])]; }
 
 export function scoreTool(tool: DiscoverableTool, queryTokens: string[], preferReadOnly: boolean): { score: number; matched: number } {
   const slugTokens = tokens(tool.slug);
-  const slugSet = new Set(slugTokens);
   const descTokens = new Set(tokens(tool.description ?? ''));
   const tags = tool.tags ?? [];
+  // Each slug word can satisfy one query word. Exact words are claimed first so a synonym never
+  // steals the word another query term names literally ("reply to a message" keeps REPLY_TO_THREAD
+  // ahead of DELETE_MESSAGE).
+  const free = new Set(slugTokens);
   let score = 0;
   let matched = 0;
+  const pending: string[] = [];
+  // The first query word is usually the intent verb ("reply", "list", "create"); naming it in the slug counts a little extra.
+  const intent = queryTokens[0];
   for (const q of queryTokens) {
-    const alts = expand(q);
-    if (alts.some((a) => slugSet.has(a))) { score += q === alts[0] && slugSet.has(q) ? 4 : 2.5; matched++; continue; }
-    if (slugTokens.some((s) => alts.some((a) => s.startsWith(a) || a.startsWith(s)))) { score += 1.5; matched++; continue; }
-    if (alts.some((a) => descTokens.has(a))) { score += 1; matched++; continue; }
+    if (free.has(q)) { free.delete(q); score += q === intent ? 5 : 4; matched++; } else pending.push(q);
+  }
+  for (const q of pending) {
+    const synonym = expand(q).slice(1).find((a) => free.has(a));
+    if (synonym) { free.delete(synonym); score += q === intent ? 2.5 : 2; matched++; continue; }
+    const prefix = [...free].find((s) => s.length >= 3 && q.length >= 3 && (s.startsWith(q) || q.startsWith(s)));
+    if (prefix) { free.delete(prefix); score += 1.5; matched++; continue; }
+    if (expand(q).some((a) => descTokens.has(a))) { score += 0.5; matched++; }
   }
   if (queryTokens.length && matched === queryTokens.length) score += 3; // every query term found
   if (!queryTokens.length) score += tags.includes('important') ? 2 : 0;
   else if (tags.includes('important')) score += 0.5;
   if (preferReadOnly && tags.includes('readOnlyHint') && !tags.some((t) => ['createHint', 'updateHint', 'destructiveHint'].includes(t))) score += 3;
-  // Prefer the tool whose name says no more than the query asked: each uncovered slug word (after the toolkit prefix) costs a little.
+  // Prefer the tool whose name says no more than the query asked: each unclaimed slug word (after the toolkit prefix) costs one point.
   if (queryTokens.length) {
-    const covered = new Set(queryTokens.flatMap(expand));
-    const uncovered = slugTokens.slice(1).filter((s) => !covered.has(s) && ![...covered].some((c) => s.startsWith(c) || c.startsWith(s)));
-    score -= Math.min(uncovered.length, 8);
+    free.delete(slugTokens[0]);
+    score -= Math.min(free.size, 8);
   }
   return { score, matched };
 }
