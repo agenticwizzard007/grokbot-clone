@@ -68,6 +68,9 @@ try {
   await page.screenshot({ path: path.join(screenshots, 'signin-desktop.png') });
   await page.getByRole('link', { name: 'Continue with OpenRouter' }).click();
   await page.getByText('OpenRouter · Active', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('link', { name: 'Connect OpenRouter', exact: true }).count(), 0, 'OAuth signup must not ask to connect again');
+  assert.equal(await page.locator('.openrouter-settings .auth-button').count(), 0);
+  await page.screenshot({ path: path.join(screenshots, 'oauth-connected-desktop.png') });
   const first = (await (await context.request.get(`${base}/api/auth/me`)).json()).user;
   assert.ok(first.id);
   assert.equal((await (await context.request.get(`${base}/api/settings/models`)).json()).provider, 'openrouter');
@@ -75,11 +78,11 @@ try {
   await page.getByRole('option').filter({ hasText: 'Alternate model' }).click();
   await page.getByText('Default model saved for your Bots.', { exact: true }).waitFor();
   assert.equal((await (await context.request.get(`${base}/api/providers/openrouter`)).json()).model, 'test/alternate');
-  await page.getByLabel('Or paste your API key').fill('bad-key');
+  await page.getByLabel('Replace your API key').fill('bad-key');
   await page.getByRole('button', { name: 'Save & verify key', exact: true }).click();
   await page.getByRole('alert').filter({ hasText: 'OpenRouter rejected this key' }).waitFor();
-  assert.equal(await page.getByLabel('Or paste your API key').inputValue(), '');
-  await page.getByLabel('Or paste your API key').fill(customKey);
+  assert.equal(await page.getByLabel('Replace your API key').inputValue(), '');
+  await page.getByLabel('Replace your API key').fill(customKey);
   await page.getByRole('button', { name: 'Save & verify key', exact: true }).click();
   await page.getByText('Key verified and saved.', { exact: true }).waitFor();
   assert.ok(!(await page.content()).includes(customKey));
@@ -95,8 +98,9 @@ try {
   await page.getByText('OpenRouter · Reconnect to continue', { exact: true }).waitFor();
   let status = await (await context.request.get(`${base}/api/providers/openrouter`)).json();
   assert.equal(status.connected, false); assert.equal(status.linked, true); assert.equal(status.active, true);
-  await page.getByRole('link', { name: 'Connect OpenRouter', exact: true }).click();
+  await page.getByRole('link', { name: 'Reconnect OpenRouter', exact: true }).click();
   await page.getByText('OpenRouter · Active', { exact: true }).waitFor();
+  assert.equal(await page.locator('.openrouter-settings .auth-button').count(), 0, 'Successful reconnection removes the authorization prompt');
   assert.equal((await (await context.request.get(`${base}/api/auth/me`)).json()).user.id, first.id);
   await context.request.post(`${base}/api/auth/logout`);
   await page.goto(base);
@@ -105,17 +109,21 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await page.getByRole('link', { name: 'Continue with OpenRouter' }).click();
   await page.getByText('OpenRouter · Active', { exact: true }).waitFor();
+  assert.equal(await page.locator('.openrouter-settings .auth-button').count(), 0, 'Repeat sign-in must preserve the connected UI');
   assert.equal((await (await context.request.get(`${base}/api/auth/me`)).json()).user.id, first.id);
   assert.deepEqual(errors, []);
   // A non-owner has an independent connection and can paste a key without OAuth.
   const bob = await browser.newContext({ viewport: { width: 390, height: 844 } });
   await bob.request.post(`${base}/api/auth/dev`, { data: { email: 'bob@example.test' } });
   const bobPage = await bob.newPage(); await bobPage.goto(`${base}/#settings/keys`);
+  await bobPage.getByRole('link', { name: 'Connect OpenRouter', exact: true }).waitFor();
   await bobPage.getByLabel('Or paste your API key').fill(customKey);
   await bobPage.getByRole('button', { name: 'Save & verify key', exact: true }).click();
   await bobPage.getByText('Key verified and saved.', { exact: true }).waitFor();
   status = await (await bob.request.get(`${base}/api/providers/openrouter`)).json();
   assert.equal(status.connected, true); assert.equal(status.linked, false); assert.equal(status.active, true);
+  await bobPage.getByRole('link', { name: 'Enable OpenRouter sign-in', exact: true }).waitFor();
+  assert.equal(await bobPage.getByRole('link', { name: 'Connect OpenRouter', exact: true }).count(), 0, 'Manual-key users have a connection but can separately link sign-in');
   console.log('OpenRouter browser checks passed: signup, repeat login, linking, manual keys, model selection, disconnect, non-owner access, desktop/mobile layouts.');
 } catch (e) {
   console.error(logs.slice(-4000));
