@@ -28,6 +28,7 @@ COPY --from=build /app/server/package.json server/
 COPY --from=build /app/server/dist server/dist
 COPY --from=build /app/web/dist web/dist
 COPY companion companion
+COPY infra/tenant-host/worker.mjs infra/tenant-host/worker.mjs
 EXPOSE 8787
 VOLUME ["/data"]
 CMD ["node", "server/dist/index.js"]

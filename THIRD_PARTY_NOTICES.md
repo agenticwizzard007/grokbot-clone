@@ -4,11 +4,11 @@ Swarm is MIT-licensed (see `LICENSE`). It bundles or depends on the third-party 
 
 ## Instrument Sans
 
-The subscription interface uses Instrument Sans by the Instrument Sans Project Authors, distributed through `@fontsource-variable/instrument-sans` under the SIL Open Font License 1.1. The font is served locally. Its complete copyright and license notice is included with the web app at [instrument-sans-LICENSE.txt](web/public/assets/fonts/instrument-sans-LICENSE.txt).
+Instrument Sans by the Instrument Sans Project Authors is included through `@fontsource-variable/instrument-sans` under the SIL Open Font License 1.1. Its complete copyright and license notice is included with the web app at [instrument-sans-LICENSE.txt](web/public/assets/fonts/instrument-sans-LICENSE.txt). Subscription settings use the shared platform font stack.
 
 ## Lucide icons
 
-The web UI's icons come from [Lucide](https://lucide.dev), via the `lucide-react` package (pinned to 1.61.0 in `web/package.json`). The original UI glyphs have been restored; Lucide remains listed here while its dependency is retained.
+Swarms includes [Lucide](https://lucide.dev) through the `lucide-react` package (pinned to 1.61.0 in `web/package.json`). The interface also uses the bundled Swarms UI glyphs.
 
 ```
 ISC License
@@ -52,8 +52,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## Restored UI artwork
+## Swarms UI artwork
 
-The original UI artwork is restored from the project's design export: bot silhouettes and eyes (`web/artwork/` and `web/src/avatar/shapes.gen.ts`), UI icons and app tiles (`web/public/assets/`), and the favicon. Third-party app logos remain the property of their respective owners; the project's MIT license does not grant rights to that artwork. Inclusion does not imply affiliation or endorsement.
+Swarms UI artwork includes bot silhouettes and eyes (`web/artwork/` and `web/src/avatar/shapes.gen.ts`), UI icons and app tiles (`web/public/assets/`), and the favicon. Third-party app logos remain the property of their respective owners; the project's MIT license does not grant rights to that artwork. Inclusion does not imply affiliation or endorsement.
 
 App logos supplied at runtime by Composio also remain the property of their respective owners. The Google sign-in mark is a trademark of Google LLC.
+
+Swarms bundles the OpenAI knot (`web/public/assets/providers/openai.svg`) for monochrome display and the Claude Code pixel mascot (`web/public/assets/providers/claude-code.svg`). These provider marks remain the property of OpenAI and Anthropic respectively and identify the corresponding sign-in provider.

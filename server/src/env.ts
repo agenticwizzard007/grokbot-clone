@@ -1,10 +1,12 @@
-import fs from 'node:fs';
+import { isTenant } from './deployment.js';
 import path from 'node:path';
+import fs from 'node:fs';
 
-// Installs from before the Swarm rename may still set GROKBOT_* variables; read them as SWARM_*.
-for (const [name, value] of Object.entries(process.env)) {
+// Legacy aliases are for standalone installations only; tenant identity is explicit.
+if (!isTenant) for (const [name, value] of Object.entries(process.env)) {
   if (name.startsWith('GROKBOT_') && value !== undefined) process.env[`SWARM_${name.slice(8)}`] ??= value;
 }
+
 
 function req(name: string): string {
   const v = process.env[name];
@@ -40,10 +42,9 @@ const inkboxHandle = () => {
   return !h || h === 'swarm-team' ? 'swarm' : h;
 };
 
-/** `current`, unless only `legacy` exists (an install from before the Swarm rename). */
 export const preferExisting = (current: string, legacy: string) => (!fs.existsSync(current) && fs.existsSync(legacy) ? legacy : current);
 const dataFile = (name: string) => new URL(`../../data/${name}`, import.meta.url).pathname;
-const dbPath = process.env.DB_PATH ?? preferExisting(dataFile('swarm.db'), dataFile('grokbot.db'));
+const dbPath = process.env.DB_PATH ?? (isTenant ? dataFile('swarm.db') : preferExisting(dataFile('swarm.db'), dataFile('grokbot.db')));
 
 export const env = {
   port: Number(process.env.PORT ?? 8787),
@@ -79,7 +80,7 @@ export const env = {
     return p === 'direct' || p === 'openrouter' ? p : null;
   },
   get composioKey() { return live('COMPOSIO_API_KEY'); },
-  get composioEnabled() { return !!live('COMPOSIO_API_KEY'); },
+  get composioEnabled() { return isTenant ? !!process.env.COMPOSIO_GATEWAY_URL : !!live('COMPOSIO_API_KEY'); },
   get composioOrgId() { return live('COMPOSIO_ORG_ID'); },
   get composioProjectId() { return live('COMPOSIO_PROJECT_ID'); },
   /** Inkbox (inkbox.ai): the server's iMessage/SMS/WhatsApp line. Set in Settings → Messaging, or here. */

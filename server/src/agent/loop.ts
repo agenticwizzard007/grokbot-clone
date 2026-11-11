@@ -1,4 +1,5 @@
 import { recordModelUsage, withUsage } from '../usage.js';
+import { selectedCli } from '../cli/store.js';
 import { llmClient, modelFor, withFast, modelInfo, prepareInput, providerFields, serverTools, tagOutput } from '../lib/llm.js';
 import { db, now } from '../db.js';
 import { env } from '../env.js';
@@ -17,6 +18,8 @@ import { findMcpTool } from '../mcp/store.js';
 import { latency } from '../lib/latency.js';
 import { localAccess } from '../computers/local-access.js';
 import { currentComputerRevision } from '../usage-context.js';
+import { approvalBinding } from '../security/approval.js';
+import { acceptJob, beginJob, finishJob, recoverJobs, beginTool, finishTool } from './jobs.js';
 
 const llm = () => llmClient(360_000);
 
@@ -29,6 +32,7 @@ export type Trigger =
   | { type: 'resume' };
 
 interface PendingState {
+  /** Keep paused approvals bound to the computer on which this batch was planned. */
   computerRevision?: number;
   /** function_call items still to process, in order. */
   calls: { call_id: string; name: string; arguments: string; rowSeq: number }[];
@@ -47,20 +51,36 @@ const KEEP_IMAGES = 3;
 const queues = new Map<string, Promise<void>>();
 const aborts = new Map<string, AbortController>();
 const running = new Map<string, Trigger>();
+const userQueues = new Map<string, Promise<void>>();
+/** Drain accepted work before orderly shutdown or test storage teardown. */
+export async function settleAgentJobs() { while (queues.size) await Promise.allSettled([...queues.values()]); }
+
 
 /** The trigger of the turn a Bot is running right now (rows it writes during the turn belong to it). */
 export const currentTrigger = (botId: string): Trigger | undefined => running.get(botId);
 
 export function enqueue(botId: string, trigger: Trigger) {
+  const job = acceptJob(botId, trigger);
+  scheduleJob(job.id, job.userId, botId, trigger);
+}
+function scheduleJob(jobId: string, userId: string, botId: string, trigger: Trigger) {
   const queuedAt = performance.now();
   const prev = queues.get(botId) ?? Promise.resolve();
+  const subscription = !!selectedCli(userId);
+  const userPrev = subscription ? Promise.resolve() : userQueues.get(userId) ?? Promise.resolve();
   // Usage attribution: every model call in this turn (including compaction) is billed to this Bot and its owner.
-  const next = prev.then(() => {
+  const next = Promise.all([prev, userPrev]).then(async () => {
+    if (!beginJob(jobId)) return;
     latency('queue', queuedAt, { botId });
-    return withUsage({ botId, kind: 'chat' }, () => runTurn(botId, trigger));
-  }).catch((e) => console.error('[agent] turn failed', botId, e));
+    try { await withUsage({ botId, kind: 'chat' }, () => runTurn(botId, trigger)); finishJob(jobId, true); }
+    catch { finishJob(jobId, false); }
+  }).catch(() => { finishJob(jobId, false); });
+  if (!subscription) userQueues.set(userId, next);
   queues.set(botId, next);
-  next.finally(() => { if (queues.get(botId) === next) queues.delete(botId); });
+  next.finally(() => { if (queues.get(botId) === next) queues.delete(botId); if (userQueues.get(userId) === next) userQueues.delete(userId); });
+}
+export function initDurableJobs() {
+  for (const job of recoverJobs()) scheduleJob(job.id, job.user_id, job.bot_id, JSON.parse(job.trigger));
 }
 
 /** The running turn's abort signal (aborted when the user stops the Bot). */
@@ -200,7 +220,8 @@ async function runTurn(botId: string, trigger: Trigger) {
   } catch (e: any) {
     const msg = ctrl.signal.aborted ? 'Stopped.' : `Something went wrong: ${e?.message ?? e}`;
     appendRow(botId, 'notice', { type: 'notice', text: msg, tone: ctrl.signal.aborted ? 'info' : 'error' });
-    if (!ctrl.signal.aborted) console.error('[agent]', e);
+    if (!ctrl.signal.aborted) console.error('[agent] turn failed', botId);
+    throw new Error('Task did not complete. Review its activity before retrying.');
   } finally {
     latency('turn', turnStart, { botId });
     aborts.delete(botId);
@@ -231,13 +252,15 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
 
     // Was this call just approved/denied?
     const ap = st.approvalId ? (db.prepare('SELECT * FROM approvals WHERE id=?').get(st.approvalId) as any) : null;
-    let decision = policyFor(userId, c.name, args).decision;
+    let decision = policyFor(userId, c.name, args, botId).decision;
     if (ap && ap.call_id === c.call_id) {
       if (ap.status === 'pending') return true;
-      decision = ap.status === 'denied' ? 'block' : 'allow';
+      decision = ap.bot_id === botId && ['allowed', 'always'].includes(ap.status)
+        && ap.binding_hash === approvalBinding(userId, botId, c.call_id, c.name, args)
+        && decision !== 'block' ? 'allow' : 'block';
       st.approvalId = '';
     } else if (decision === 'ask') {
-      const pol = policyFor(userId, c.name, args);
+      const pol = policyFor(userId, c.name, args, botId);
       const approvalId = newId('apr');
       const tk = pol.toolkit ? await toolkitInfo(pol.toolkit) : undefined;
       const mcp = c.name.startsWith('mcp_') ? findMcpTool(userId, c.name, botId) : undefined;
@@ -245,7 +268,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
         type: 'card', card: 'approval', approvalId, title: `Allow ${getBotRow(botId).name} to ${pol.title.split(': ')[1] ?? pol.title}?`,
         detail: describeArgs(args), tool: pol.key, toolkit: pol.toolkit, toolkitName: mcp?.server.config.name ?? tk?.name, logo: tk?.logo, args, status: 'pending',
       });
-      db.prepare('INSERT INTO approvals(id,bot_id,row_seq,call_id,tool,status,created_at) VALUES (?,?,?,?,?,?,?)').run(approvalId, botId, card.seq, c.call_id, pol.key, 'pending', now());
+      db.prepare('INSERT INTO approvals(id,bot_id,row_seq,call_id,tool,status,created_at,binding_hash) VALUES (?,?,?,?,?,?,?,?)').run(approvalId, botId, card.seq, c.call_id, pol.key, 'pending', now(), approvalBinding(userId, botId, c.call_id, c.name, args));
       updateRow(botId, c.rowSeq, { ...body, status: 'awaiting-approval' });
       st.approvalId = approvalId;
       db.prepare('INSERT OR REPLACE INTO pending_turns(bot_id,state) VALUES (?,?)').run(botId, JSON.stringify(st));
@@ -260,17 +283,20 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
       updateRow(botId, c.rowSeq, { ...body, status: 'denied', summary: 'Not allowed' });
     } else {
       const act = activityFor(c.name);
-      const pol = policyFor(userId, c.name, args);
+      const pol = policyFor(userId, c.name, args, botId);
       const detail = c.name === 'send_to_bot' ? String(args.bot_name ?? '') : !toolMap.has(c.name) && pol.toolkit ? (await toolkitInfo(pol.toolkit))?.name ?? pol.toolkit : undefined;
       setLive(botId, { isRunning: true, activity: { kind: c.name === 'send_to_bot' ? 'messaging_named' : act.kind, detail, since: now() }, awaiting: null });
       const toolStart = performance.now();
       try {
+        if (!beginTool(botId, c.call_id, c.name, approvalBinding(userId, botId, c.call_id, c.name, args))) throw new Error('This action has already been dispatched. Reconcile its outcome before requesting another action.');
         const impl = toolMap.get(c.name);
         res = impl ? await impl.impl(args, { ...ctx, depth: st.depth })
           : c.name.startsWith('mcp_') ? await runMcpTool(userId, botId, c.name, args)
           : await runComposioTool(ctx, c.name, args);
+        finishTool(botId, c.call_id, true);
         updateRow(botId, c.rowSeq, { ...body, status: 'done', summary: res.summary });
       } catch (e: any) {
+        finishTool(botId, c.call_id, false);
         res = { output: `Tool error: ${e?.message ?? e}` };
         updateRow(botId, c.rowSeq, { ...body, status: 'error', summary: String(e?.message ?? e).slice(0, 200) });
       } finally {
@@ -300,7 +326,9 @@ async function finishPending(ctx: ToolCtx, st: PendingState, reason: string) {
     }
   }
   for (const c of st.calls) {
-    st.outputs.push({ type: 'function_call_output', call_id: c.call_id, output: reason === 'computer-changed' ? 'Skipped: the selected computer changed after these actions were planned. Do not retry unless the user sends a new request.' : 'Skipped: the user sent a new message before approving this. Do not retry unless they ask.' });
+    st.outputs.push({ type: 'function_call_output', call_id: c.call_id, output: reason === 'computer-changed'
+      ? 'Skipped: the selected computer changed after these actions were planned. Do not retry unless the user sends a new request.'
+      : 'Skipped: the user sent a new message before approving this. Do not retry unless they ask.' });
     const row = getRow(botId, c.rowSeq);
     if (row) updateRow(botId, c.rowSeq, { ...(row.body as ToolCallBody), status: 'denied', summary: 'Skipped' });
   }

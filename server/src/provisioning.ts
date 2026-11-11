@@ -3,6 +3,7 @@ import { archiveVm, destroyVm, driver, ensureVm, resizeVm, suspendVm, vmFor } fr
 import { getLive } from './store.js';
 import { localProvider } from './computers/local.js';
 import { newId } from './lib/ids.js';
+import { assertLegacyWorkOpen, heldLegacyOwners, legacyWorkHeld, withLegacyWork } from './security/legacy-work.js';
 
 /**
  * Automatic computer setup for cloud VMs (COMPUTER_PROVIDER=cloudvm), with no manual steps:
@@ -46,6 +47,8 @@ const running = new Set<string>();
 
 /** Queue work for a user's (or a deleted user's) VM. Duplicate pending jobs are skipped. */
 export function enqueueVmJob(kind: Kind, ref: { userId?: string; vmId?: string }) {
+  assertLegacyWorkOpen(ref.userId);
+  if (ref.vmId) assertLegacyWorkOpen((db.prepare('SELECT user_id FROM vms WHERE vm_id=?').get(ref.vmId) as { user_id: string | null } | undefined)?.user_id);
   const dup = db.prepare("SELECT 1 FROM provision_jobs WHERE kind=? AND status IN ('pending','running') AND COALESCE(user_id,'')=? AND COALESCE(vm_id,'')=?")
     .get(kind, ref.userId ?? '', ref.vmId ?? '');
   if (dup) return;
@@ -91,12 +94,21 @@ async function run(job: Job) {
 }
 
 async function runJob(job: Job) {
+  const owner = job.user_id ?? (job.vm_id ? (db.prepare('SELECT user_id FROM vms WHERE vm_id=?').get(job.vm_id) as { user_id: string | null } | undefined)?.user_id : null);
+  if (legacyWorkHeld(owner)) return;
+  return withLegacyWork(owner, () => runAdmittedJob(job, owner));
+}
+
+async function runAdmittedJob(job: Job, owner: string | null | undefined) {
   running.add(job.id);
   db.prepare("UPDATE provision_jobs SET status='running', attempts=attempts+1, updated_at=? WHERE id=?").run(now(), job.id);
   try {
     await run(job);
     db.prepare("UPDATE provision_jobs SET status='done', error=NULL, updated_at=? WHERE id=?").run(now(), job.id);
   } catch (e: any) {
+    // The held snapshot keeps the original job state. A provider effect already
+    // issued before the hold must be reconciled by the migration adapter.
+    if (legacyWorkHeld(owner)) return;
     if (e instanceof Defer) {
       db.prepare("UPDATE provision_jobs SET status='pending', attempts=attempts-1, error=?, next_at=?, updated_at=? WHERE id=?").run(e.message, now() + 60_000, now(), job.id);
       return;
@@ -113,10 +125,12 @@ async function runJob(job: Job) {
   }
 }
 
-function tick() {
+export function tick() {
   const free = PARALLEL - running.size;
   if (free <= 0) return;
-  const due = db.prepare("SELECT * FROM provision_jobs WHERE status='pending' AND next_at<=? ORDER BY created_at LIMIT ?").all(now(), free + running.size) as Job[];
+  const due = db.prepare(`SELECT * FROM provision_jobs j WHERE status='pending' AND next_at<=?
+    AND COALESCE(j.user_id,(SELECT user_id FROM vms WHERE vm_id=j.vm_id),'') NOT IN (SELECT value FROM json_each(?))
+    ORDER BY created_at LIMIT ?`).all(now(), JSON.stringify(heldLegacyOwners()), free + running.size) as Job[];
   for (const job of due) {
     if (running.size >= PARALLEL) break;
     if (running.has(job.id)) continue;
@@ -134,8 +148,9 @@ async function anyBotBusy(userId: string) {
 export function sweepLongSleepers() {
   if (!ARCHIVE_AFTER_MS) return 0;
   const due = db.prepare("SELECT user_id FROM vms WHERE user_id IS NOT NULL AND ext_id IS NOT NULL AND status IN ('suspended','stopped') AND updated_at < ?").all(now() - ARCHIVE_AFTER_MS) as { user_id: string }[];
-  for (const v of due) enqueueVmJob('archive', { userId: v.user_id });
-  return due.length;
+  const admitted = due.filter(v => !legacyWorkHeld(v.user_id));
+  for (const v of admitted) enqueueVmJob('archive', { userId: v.user_id });
+  return admitted.length;
 }
 
 let started = false;
@@ -147,9 +162,12 @@ export async function reconcile() {
   const known = new Map((db.prepare('SELECT vm_id, user_id, ext_id FROM vms').all() as { vm_id: string; user_id: string | null; ext_id: string | null }[]).map((r) => [r.vm_id, r]));
   for (const v of remote) {
     const row = v.vmId ? known.get(v.vmId) : undefined;
+    // In-flight creation can finish after a hold prevented ext_id bookkeeping.
+    // Retain that resource for the source adapter; never treat it as an orphan.
+    if (legacyWorkHeld(row?.user_id) || legacyWorkHeld(v.userId)) continue;
     if (!row || row.ext_id !== v.id) {
       console.warn(`[provision] destroying orphan VM ${v.id} (no matching account)`);
-      await driver.destroy(v.id).catch((e) => console.warn(`[provision] orphan ${v.id}: ${e?.message ?? e}`));
+      await withLegacyWork(row?.user_id ?? v.userId, () => driver.destroy(v.id)).catch((e) => console.warn(`[provision] orphan ${v.id}: ${e?.message ?? e}`));
     }
   }
   for (const row of known.values()) if (!row.user_id) enqueueVmJob('destroy', { vmId: row.vm_id });
@@ -160,10 +178,11 @@ export function startProvisioning() {
   if (started || process.env.SWARM_NO_SCHEDULER === '1') return;
   started = true;
   // Jobs that were mid-flight when the server stopped run again (each step is idempotent).
-  db.prepare("UPDATE provision_jobs SET status='pending', next_at=? WHERE status='running'").run(now());
+  db.prepare(`UPDATE provision_jobs SET status='pending', next_at=? WHERE status='running'
+    AND COALESCE(user_id,(SELECT user_id FROM vms WHERE vms.vm_id=provision_jobs.vm_id),'') NOT IN (SELECT value FROM json_each(?))`).run(now(), JSON.stringify(heldLegacyOwners()));
   if (process.env.VM_PROVISION_EXISTING === '1') {
     const missing = db.prepare('SELECT id FROM users WHERE id NOT IN (SELECT user_id FROM vms WHERE user_id IS NOT NULL)').all() as { id: string }[];
-    for (const u of missing) enqueueVmJob('create', { userId: u.id });
+    for (const u of missing) if (!legacyWorkHeld(u.id)) enqueueVmJob('create', { userId: u.id });
     if (missing.length) console.log(`[provision] queued VMs for ${missing.length} existing account(s)`);
   }
   setInterval(tick, 2_000).unref();

@@ -1,3 +1,4 @@
+import { isTenant } from '../deployment.js';
 import { execFile } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -39,10 +40,10 @@ const subscriptionMode = () => !!selectedCli(currentUserId());
 const openrouterKey = () => usesPersonalOpenRouter(currentUserId()) ? personalOpenRouterKey(currentUserId()!) : env.openrouterKey;
 
 export function speechStatus() {
-  if (env.voiceKey) return { transcription: 'xai', speech: 'xai', sttModel: 'xai-stt', ttsModel: 'xai-tts' } as const;
+  if (isTenant ? !!voiceProvider().key : !!env.voiceKey) return { transcription: 'xai', speech: 'xai', sttModel: 'xai-stt', ttsModel: 'xai-tts' } as const;
   const personal = openrouterConnection(currentUserId());
-  const or = !subscriptionMode() && (personal?.enabled ? !!personal.encrypted_key : !!env.openrouterKey);
-  const direct = !subscriptionMode() && !personal?.enabled && !!env.directKey;
+  const or = !subscriptionMode() && (personal?.enabled ? !!personal.encrypted_key : !isTenant && !!env.openrouterKey);
+  const direct = !isTenant && !subscriptionMode() && !personal?.enabled && !!env.directKey;
   return {
     transcription: or ? 'openrouter' : direct ? 'direct' : null,
     speech: or ? 'openrouter' : direct ? 'direct' : null,
@@ -128,9 +129,10 @@ async function directTranscribe(a: Audio, language?: string): Promise<string> {
 
 /** Transcribe a recording. Throws SpeechUnavailable when no provider is set up; tries the other provider on failure. */
 export async function transcribe(a: Audio, opts: { language?: string } = {}): Promise<string> {
-  if (env.voiceKey) return directTranscribe(a, opts.language);
+  if (isTenant ? !!voiceProvider().key : !!env.voiceKey) return directTranscribe(a, opts.language);
   if (subscriptionMode()) throw new SpeechUnavailable(SUBSCRIPTION_VOICE_UNAVAILABLE);
   if (usesPersonalOpenRouter(currentUserId())) return openrouterTranscribe(a, opts.language);
+  if (isTenant) throw new SpeechUnavailable('Configure your own compatible voice API credential first.');
   const order = [env.openrouterKey ? 'openrouter' : null, env.directKey ? 'direct' : null].filter(Boolean) as ('openrouter' | 'direct')[];
   if (!order.length) throw new SpeechUnavailable('Voice notes need an OpenRouter or direct provider key on this server.');
   let last: unknown;
@@ -162,7 +164,7 @@ async function directSpeak(text: string, voice: string, format: 'mp3' | 'pcm'): 
   const r = await fetch(`${provider.baseUrl}/tts`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${provider.key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, voice_id: voice, output_format: { codec: format, sample_rate: 24000 } }),
+    body: JSON.stringify({ text, voice_id: voice, ...(provider.provider === 'xai' ? { language: 'auto' } : {}), output_format: { codec: format, sample_rate: 24000 } }),
     signal: AbortSignal.timeout(60_000),
     redirect: 'error',
   });
@@ -173,9 +175,10 @@ async function directSpeak(text: string, voice: string, format: 'mp3' | 'pcm'): 
 
 /** Speak text. `voice` is an OpenRouter TTS voice (or a direct provider voice id when only direct provider is set up). */
 export async function synthesize(text: string, voice: string, format: 'mp3' | 'pcm' = 'mp3'): Promise<Audio> {
-  if (env.voiceKey) return directSpeak(text, voice, format);
+  if (isTenant ? !!voiceProvider().key : !!env.voiceKey) return directSpeak(text, voice, format);
   if (subscriptionMode()) throw new SpeechUnavailable(SUBSCRIPTION_VOICE_UNAVAILABLE);
   if (usesPersonalOpenRouter(currentUserId())) return openrouterSpeak(text, voice, format);
+  if (isTenant) throw new SpeechUnavailable('Configure your own compatible voice API credential first.');
   if (env.openrouterKey) return openrouterSpeak(text, voice, format);
   if (env.directKey) return directSpeak(text, voice, format);
   throw new SpeechUnavailable('Voice replies need an OpenRouter or direct provider key on this server.');

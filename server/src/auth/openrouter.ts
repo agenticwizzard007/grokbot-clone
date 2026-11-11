@@ -1,10 +1,11 @@
+import { legacyWritableRows } from '../platform/legacy-database-fence.js';
 import crypto from 'node:crypto';
 import { Hono, type Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { db, now } from '../db.js';
 import { env } from '../env.js';
 import { createAccount } from '../accounts.js';
-import { createSession, sessionToken, userFromCookieHeader, userFromToken } from '../lib/auth.js';
+import { createSession, sessionToken, sessionHash, recentlyAuthenticated, userFromCookieHeader, userFromSessionHash } from '../lib/auth.js';
 import { sealSecret, unsealSecret } from '../settings.js';
 import { finishNativeLogin, nativeLink } from '../native-auth.js';
 import { exchangeOpenRouterCode, OpenRouterError, saveOpenRouterKey } from '../providers/openrouter.js';
@@ -32,20 +33,20 @@ openrouterAuth.use('*', async (c, next) => {
 
 openrouterAuth.get('/start', (c) => {
   const native = nativeLink(c);
-  const user = native ? userFromToken(native.session) : userFromCookieHeader(c.req.header('cookie'));
+  const user = native ? userFromSessionHash(native.session) : userFromCookieHeader(c.req.header('cookie'));
   if (native && user?.id !== native.userId) return failure(c, 'openrouter_link_signin');
   const linking = c.req.query('intent') === 'link';
   if (linking && !user) return failure(c, 'openrouter_link_signin');
   // A signed-in browser always links, preventing accidental duplicate accounts.
   const linkUser = user;
-  db.prepare('DELETE FROM openrouter_login_attempts WHERE expires_at<=?').run(now());
+  db.prepare(`DELETE FROM openrouter_login_attempts WHERE expires_at<=? AND ${legacyWritableRows(db, 'openrouter_login_attempts')}`).run(now());
   const count = db.prepare('SELECT count(*) AS n FROM openrouter_login_attempts').get() as { n: number };
   if (count.n >= 2000) return failure(c, 'openrouter_busy', !!linkUser);
   const id = random(), verifier = random();
   const prior = getCookie(c, COOKIE);
   if (prior) db.prepare('DELETE FROM openrouter_login_attempts WHERE id=?').run(prior);
   db.prepare('INSERT INTO openrouter_login_attempts(id,verifier,link_user_id,link_session,expires_at) VALUES (?,?,?,?,?)')
-    .run(id, sealSecret(verifier), linkUser?.id ?? null, linkUser ? native?.session ?? sessionToken(c)! : null, now() + TTL);
+    .run(id, sealSecret(verifier), linkUser?.id ?? null, linkUser ? native?.session ?? sessionHash(sessionToken(c)!) : null, now() + TTL);
   setCookie(c, COOKIE, id, { httpOnly: true, secure: new URL(env.serverUrl).protocol === 'https:', sameSite: 'Lax', path: PATH, maxAge: TTL / 1000 });
   const url = new URL('https://openrouter.ai/auth');
   url.search = new URLSearchParams({ callback_url: `${env.serverUrl.replace(/\/$/, '')}${PATH}/callback`, state: id, code_challenge: hash(verifier), code_challenge_method: 'S256', key_label: 'Swarm' }).toString();
@@ -63,7 +64,7 @@ openrouterAuth.get('/callback', async (c) => {
   if (!attempt) return failure(c, 'openrouter_session');
   const linking = !!attempt.link_user_id;
   if (denied) return failure(c, 'openrouter_denied', linking);
-  const validSession = () => !linking || ((nativeLink(c)?.session ?? sessionToken(c)) === attempt.link_session && userFromToken(attempt.link_session!)?.id === attempt.link_user_id);
+  const validSession = () => !linking || ((nativeLink(c)?.session ?? (sessionToken(c) ? sessionHash(sessionToken(c)!) : undefined)) === attempt.link_session && userFromSessionHash(attempt.link_session!)?.id === attempt.link_user_id);
   if (!validSession()) return failure(c, 'openrouter_link_signin', linking);
   const code = c.req.query('code');
   const verifier = unsealSecret(attempt.verifier);

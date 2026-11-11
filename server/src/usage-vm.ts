@@ -1,3 +1,4 @@
+import { legacyWorkHeld } from './security/legacy-work.js';
 import { db, now } from './db.js';
 import { env } from './env.js';
 
@@ -108,6 +109,7 @@ export function recordVmSeconds(seconds: number, at = now()) {
   const stmt = upsert();
   db.transaction(() => {
     for (const m of currentMachines()) {
+      if (legacyWorkHeld(m.userId)) continue;
       stmt.run(day, m.userId, m.key, m.provider, m.state, seconds, m.cpus, m.memoryMb, m.diskGb, seconds * costPerSecond(m), at);
     }
   })();

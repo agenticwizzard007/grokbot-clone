@@ -667,7 +667,6 @@ async function connection(url, options) {
     if (message.method === 'cancel') { controllers.get(message.id)?.abort(cancelled()); return; }
     if (!['status', 'generate'].includes(message.method)) { send({ id: message.id, error: 'Unsupported bridge method.' }); return; }
     if (controllers.has(message.id)) { send({ id: message.id, error: 'Request ID is already in use.' }); return; }
-    if (controllers.size >= 4) { send({ id: message.id, error: 'CLI bridge is busy. Try again later.' }); return; }
     const controller = new AbortController();
     controllers.set(message.id, controller);
     const localOptions = { codexPath: options.codexPath, claudePath: options.claudePath, env: options.env, signal: controller.signal };

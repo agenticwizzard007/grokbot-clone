@@ -66,7 +66,7 @@ const { saveSetting } = await import('../server/src/settings.js');
 registerAdapter(inkboxAdapter);
 startBridge();
 
-after(() => { mock.kill(); inkbox.close(); db.close(); fs.rmSync(root, { recursive: true, force: true }); });
+after(async () => { await inbox.settle(); await (await import('../server/src/agent/loop.js')).settleAgentJobs(); for (const u of db.prepare('SELECT id FROM users').all() as any[]) await (await import('../server/src/messaging/bridge.js')).drain(u.id); mock.kill(); inkbox.close(); db.close(); fs.rmSync(root, { recursive: true, force: true }); });
 
 let n = 0;
 async function textIn(phone: string, text: string) {

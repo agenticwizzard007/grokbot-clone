@@ -4,10 +4,10 @@
 
 ## What was tested
 
-- **Image:** `infra/vm-image`, built and pushed to `registry.fly.io/grokbot-team-vms` (`v1` before the Swarm rename, `v2` from commit 131a140 after it). The Fly app names predate the rename and were not renamed.
-- **Server:** a temporary staging server on Fly in cloud-VM mode, plus an app holding the user VMs (`grokbot-team-vms`, region `iad`).
+- **Image:** the Swarms VM image in `infra/vm-image`, built and pushed to the Fly registry for staging tests.
+- **Server:** a temporary Swarms staging server on Fly in cloud-VM mode, plus an app holding the user VMs in region `iad`.
 - **Flow:** real sign-ups through the API, with each VM created by the server's Fly driver. Everything was torn down afterwards.
-- **Production (2026-11-10):** `swarm-team` runs with `COMPUTER_PROVIDER=cloudvm` (commit 92801fd). User VMs live in `swarm-team-vms` (image `registry.fly.io/swarm-team-vms:v1`). A test account created in production got its VM and first Bot screen in ~24 s, and deleting the account destroyed the VM and its disk. The spike's `grokbot-team-vms` app has been deleted.
+- **Production (2026-11-10):** `swarm-team` runs with `COMPUTER_PROVIDER=cloudvm` (commit 92801fd). User VMs live in `swarm-team-vms` (image `registry.fly.io/swarm-team-vms:v1`). A test account created in production got its VM and first Bot screen in ~24 s, and deleting the account destroyed the VM and its disk. The temporary Swarms staging app has been deleted.
 
 ## Results
 
@@ -35,7 +35,7 @@
 ## Blockers before real users
 
 - **Add a payment method to the Fly account.** Without one, Fly stops every machine after **5 minutes**, including the app server and user VMs, and caps volumes at **20 GB** total (two users' 10 GB disks).
-- **Rebuild and push the VM image after the in-progress rename.** The server and image must agree on the token path (`/run/<name>/token`) and the server URL variable.
+- **Keep the Swarms VM image and server configuration aligned.** The server and image must agree on the token path (`/run/swarm/token`) and the server URL variable.
 - **Keep the server's database on a volume** (the production `fly.toml` does). The spike's staging server used `/tmp`, so each Fly stop wiped it.
 
 ## Resizing behaviour (by design)

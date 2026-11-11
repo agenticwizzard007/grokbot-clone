@@ -392,7 +392,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'spawn_subagent',
-    description: 'Start a subagent: a helper copy of you with its own context and its own computer screen, to work on one goal in parallel (e.g. research one company each). It reports back to you as a message when done. Max 4 at a time.',
+    description: 'Start a subagent: a helper copy of you with its own context and its own computer screen, to work on one goal in parallel (e.g. research one company each). It reports back to you as a message when done. API billing allows up to 4 helpers; subscription connections have no fixed helper-count limit.',
     parameters: obj({ goal: { type: 'string', description: 'Self-contained task with everything the subagent needs to know' }, label: { type: 'string', description: 'Short name, e.g. "Acme research"' } }, ['goal']),
     activity: 'messaging_named',
     label: 'Starting a helper',
@@ -571,11 +571,12 @@ export function functionSchemas(botId?: string) {
 
 export type Decision = 'allow' | 'ask' | 'block';
 
-export function policyFor(userId: string, toolName: string, args: any): { decision: Decision; key: string; toolkit?: string; title: string } {
+export function policyFor(userId: string, toolName: string, args: any, botId?: string): { decision: Decision; key: string; toolkit?: string; title: string } {
   if (toolName.startsWith('mcp_')) {
-    const match = findMcpTool(userId, toolName);
-    const policy = db.prepare('SELECT mode FROM policies WHERE user_id=? AND tool=?').get(userId, toolName) as { mode: string } | undefined;
-    return { decision: !match || policy?.mode === 'blocked' ? 'block' : policy?.mode === 'always_allow' || !match.server.config.requireApproval ? 'allow' : 'ask', key: toolName, title: match ? `MCP: use ${match.tool.name} on ${match.server.config.name}` : 'MCP: use an unavailable tool' };
+    const match = botId ? findMcpTool(userId, toolName, botId) : undefined;
+    const key = `${toolName}:bot:${botId ?? ''}`;
+    const policy = db.prepare('SELECT mode FROM policies WHERE user_id=? AND tool=?').get(userId, key) as { mode: string } | undefined;
+    return { decision: !match || policy?.mode === 'blocked' ? 'block' : policy?.mode === 'always_allow' || !match.server.config.requireApproval ? 'allow' : 'ask', key, title: match ? `MCP: use ${match.tool.name} on ${match.server.config.name}` : 'MCP: use an unavailable tool' };
   }
   if (toolMap.has(toolName)) return { decision: 'allow', key: toolName, title: toolName };
   const slugs = innerToolSlugs(toolName, args);

@@ -1,3 +1,4 @@
+import { legacyWorkHeld } from '../security/legacy-work.js';
 import { db, now } from '../db.js';
 import { sha256, token } from '../lib/ids.js';
 
@@ -53,7 +54,7 @@ export function authenticateCli(secret: string): string | null {
   if (secret.length > 256) return null;
   const hash = sha256(secret);
   const row = db.prepare('SELECT user_id,expires_at FROM cli_pairings WHERE token_hash=?').get(hash) as { user_id: string; expires_at: number | null } | undefined;
-  if (!row || (row.expires_at !== null && row.expires_at < now())) return null;
+  if (!row || legacyWorkHeld(row.user_id) || (row.expires_at !== null && row.expires_at < now())) return null;
   db.prepare('UPDATE cli_pairings SET expires_at=NULL WHERE token_hash=?').run(hash);
   return row.user_id;
 }

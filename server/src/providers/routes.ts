@@ -2,7 +2,9 @@ import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { db, now } from '../db.js';
 import { env } from '../env.js';
-import { requireUser, type AuthVars } from '../lib/auth.js';
+import { requireUser, requireRecentAuth, type AuthVars } from '../lib/auth.js';
+import { privateKey, privateKeyStatus, savePrivateKey } from './private-keys.js';
+import { mintVoiceSecret } from '../lib/voice-provider.js';
 import { selectCli, selectedCli } from '../cli/store.js';
 import { defaultModel, llmProvider, openrouterModels } from '../lib/llm.js';
 import { OpenRouterError, OPENROUTER_ERRORS, openrouterConnection, personalOpenRouterKey, saveOpenRouterKey, verifyPersonalOpenRouterKey } from './openrouter.js';
@@ -31,7 +33,27 @@ providerApi.use('*', async (c, next) => {
   await next();
 });
 providerApi.get('/openrouter', (c) => c.json(providerStatus(c.get('user').id)));
-providerApi.put('/openrouter/key', async (c) => {
+providerApi.get('/private-keys',c=>c.json({keys:privateKeyStatus(c.get('user').id)}));
+providerApi.post('/private-keys/direct/select',async c=>{
+  const user=c.get('user').id;if(!privateKey(user,'direct'))return c.json({error:'Connect your model API key first.'},409);
+  db.transaction(()=>{selectCli(user,null);db.prepare('UPDATE provider_connections SET enabled=0 WHERE user_id=?').run(user);})();
+  return c.json({ok:true});
+});
+providerApi.put('/private-keys/:provider',requireRecentAuth,async c=>{
+  const provider=c.req.param('provider');if(!['voice','direct'].includes(provider))return c.json({error:'Unknown provider.'},404);
+  const b=await c.req.json();if(typeof b.key!=='string'||b.key.length<16||b.key.length>4096||/[\r\n]/.test(b.key))return c.json({error:'Enter a valid API key.'},400);
+  try{
+    if(provider==='voice')await mintVoiceSecret(b.key,env.voiceBaseUrl);
+    else {const r=await fetch(`${env.directBaseUrl}/models`,{headers:{authorization:`Bearer ${b.key}`},redirect:'error',signal:AbortSignal.timeout(15_000)});if(!r.ok)throw new Error();await r.body?.cancel();}
+    savePrivateKey(c.get('user').id,provider as 'voice'|'direct',b.key);
+    return c.json({keys:privateKeyStatus(c.get('user').id)});
+  }catch{return c.json({error:'The provider could not verify this credential.'},400);}
+});
+providerApi.delete('/private-keys/:provider',requireRecentAuth,c=>{
+  const provider=c.req.param('provider');if(provider!=='voice'&&provider!=='direct')return c.json({error:'Unknown provider.'},404);
+  savePrivateKey(c.get('user').id,provider,null);return c.json({ok:true});
+});
+providerApi.put('/openrouter/key', requireRecentAuth, async (c) => {
   const body = await c.req.json().catch(() => null);
   if (typeof body?.key !== 'string') return c.json({ error: 'Paste an OpenRouter API key.' }, 400);
   try {
@@ -67,7 +89,7 @@ providerApi.put('/openrouter', async (c) => {
   })();
   return c.json(providerStatus(userId));
 });
-providerApi.delete('/openrouter/key', (c) => {
+providerApi.delete('/openrouter/key', requireRecentAuth, (c) => {
   // Retain identity and selected mode. No implicit fallback to the server's paid key.
   db.prepare("UPDATE provider_connections SET encrypted_key=NULL,key_hint=NULL,key_hash=NULL,updated_at=? WHERE user_id=? AND provider='openrouter'").run(now(), c.get('user').id);
   return c.json(providerStatus(c.get('user').id));

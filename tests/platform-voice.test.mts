@@ -27,7 +27,14 @@ const upstream = createServer(async (req, res) => {
     }));
   }
   if (req.url === '/xai/stt') return res.end(JSON.stringify({ text: 'Ask the main agent to prepare my agenda.' }));
-  if (req.url === '/xai/tts') { res.setHeader('content-type', 'audio/mpeg'); return res.end(Buffer.alloc(256, 1)); }
+  if (req.url === '/xai/tts') {
+    if (typeof JSON.parse(body).language !== 'string') {
+      res.statusCode = 422;
+      return res.end(JSON.stringify({ error: 'missing field language' }));
+    }
+    res.setHeader('content-type', 'audio/mpeg');
+    return res.end(Buffer.alloc(256, 1));
+  }
   res.statusCode = 500;
   res.end('{}');
 });
@@ -62,10 +69,11 @@ authenticated.route('/voice', voiceApi);
 const app = new Hono().route('/api', configApi).route('/api', authenticated);
 function account(id: string) {
   db.prepare('INSERT INTO users(id,email,name,created_at) VALUES (?,?,?,?)').run(id, `${id}@example.com`, id, Date.now());
-  db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (?,?,?,?)').run(id, id, Date.now(), Date.now() + 3600_000);
+  db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (session_hash(?),?,?,?)').run(id, id, Date.now(), Date.now() + 3600_000);
   return createBot(id, { name: `${id} main agent`, isPrimary: true });
 }
 account('admin');
+db.prepare("INSERT INTO account_roles VALUES(?,'admin')").run('admin');
 const alice = account('alice'), bob = account('bob');
 function request(user: string | null, endpoint: string, method = 'GET', body?: unknown) {
   return app.request(`/api${endpoint}`, {

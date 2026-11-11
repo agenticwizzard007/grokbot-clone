@@ -7,6 +7,7 @@ import { hub } from '../lib/hub.js';
 import { localAccess, setLocalAccess } from './local-access.js';
 import { nativeLocal } from './local.js';
 import { closeComputerViewers, computers } from './index.js';
+import { registerCompanion } from '../runtime/companion-registration.js';
 
 export function localComputerStatus(userId: string) {
   const state = nativeLocal.localProvider.state(userId);
@@ -43,16 +44,18 @@ localComputerApi.post('/pair', async (c) => {
   nativeLocal.revokePairings(userId);
   setLocalAccess(userId, true);
   const token = nativeLocal.createPairing(userId);
+  await registerCompanion('native-local', token);
   hub.emit(userId, { type: 'computer', state: computers.state(userId) });
   return c.json({ token, server: new URL(env.serverUrl).origin });
 });
 
-localComputerApi.delete('/', (c) => {
+localComputerApi.delete('/', async (c) => {
   const userId = c.get('user').id;
   // Revocation is always available, even while a task is running.
   closeComputerViewers(userId);
   setLocalAccess(userId, false);
   const revoked = nativeLocal.revokePairings(userId);
+  await registerCompanion('native-local');
   hub.emit(userId, { type: 'computer', state: computers.state(userId) });
   return c.json({ ok: true, revoked });
 });

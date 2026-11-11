@@ -1,0 +1,161 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { test } from 'node:test';
+import Database from 'better-sqlite3';
+import { holdLegacyDatabase, assertLegacyDatabaseFences, registerLegacyFenceFunctions, legacyAccountHeld } from '../server/src/platform/legacy-database-fence.js';
+import { LegacyActivityGate } from '../server/src/security/legacy-activity.js';
+const a='usr_aaaaaaaa',b='usr_bbbbbbbb',operation='migration-operation-111';
+function fixture(t:any){
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'swarm-source-fence-')),file=path.join(root,'source.db');
+ const db=new Database(file);db.pragma('journal_mode=WAL');db.pragma('foreign_keys=ON');
+ db.exec(`CREATE TABLE users(id TEXT PRIMARY KEY,email TEXT UNIQUE,phone TEXT);CREATE TABLE bots(id TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id),parent_bot_id TEXT,members TEXT);
+ CREATE TABLE rows(bot_id TEXT REFERENCES bots(id),body TEXT);CREATE TABLE private_keys(user_id TEXT,secret TEXT);
+ CREATE TABLE history(id INTEGER PRIMARY KEY,user_id TEXT,slug TEXT);CREATE UNIQUE INDEX history_slug ON history(slug COLLATE NOCASE);
+ CREATE TABLE messaging_inbox(id TEXT PRIMARY KEY,source TEXT,payload TEXT,status TEXT);
+ CREATE TABLE messaging_greeted(phone TEXT PRIMARY KEY);
+ CREATE TABLE provider_connections(user_id TEXT REFERENCES users(id),secret TEXT);
+ CREATE TABLE auth_sessions(token TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id));
+ CREATE TABLE native_attempts(id TEXT PRIMARY KEY,link_session TEXT REFERENCES auth_sessions(token));
+ INSERT INTO users VALUES('${a}','a@example.test','15551111111'),('${b}','b@example.test','15552222222');
+ INSERT INTO bots VALUES('bot_a','${a}',NULL,NULL),('hidden_a','${a}','bot_a',NULL),('room_a','${a}',NULL,'["bot_a","hidden_a"]'),('bot_b','${b}',NULL,NULL);
+ INSERT INTO rows VALUES('bot_a','a-private'),('bot_b','b-private');
+ INSERT INTO history VALUES(1,'${a}','Alpha'),(2,'${b}','Beta');
+ INSERT INTO auth_sessions VALUES('a-session','${a}'),('b-session','${b}');
+ INSERT INTO native_attempts VALUES('native-a','a-session'),('native-b','b-session');`);
+ const other=new Database(file);other.pragma('foreign_keys=ON');other.pragma('recursive_triggers=OFF');registerLegacyFenceFunctions(other);
+ t.after(()=>{other.close();db.close();fs.rmSync(root,{recursive:true,force:true});});
+ return {db,other,file};
+}
+const event=(phone:string)=>JSON.stringify({event_type:'imessage.received',data:{message:{id:'message',remote_number:phone,content:'hello'}}});
+
+test('activity accounting permits parallel work and drains only the held owner',async t=>{
+ const {db}=fixture(t),gate=new LegacyActivityGate(db);const releases:(()=>void)[]=[];
+ const tasks=Array.from({length:20},()=>gate.run(a,()=>new Promise<void>(done=>releases.push(done))));
+ assert.equal(releases.length,20);assert.equal(gate.count(a),20);
+ let otherRelease!:()=>void;const other=gate.run(b,()=>new Promise<void>(done=>{otherRelease=done;}));
+ holdLegacyDatabase(db,a,operation,'1');let called=false;
+ assert.throws(()=>gate.run(a,()=>{called=true;}),/being migrated/);assert.equal(called,false);
+ await assert.rejects(gate.drain(a,5),/have not stopped/);assert.equal(legacyAccountHeld(db,a),true);
+ const pending=gate.drain(a,1000);for(const release of releases)release();await Promise.all(tasks);
+ assert.deepEqual(await pending,{tenant:a,active:0,boundary:'tracked-usage-only'});assert.equal(gate.count(b),1);
+ otherRelease();await other;assert.equal(gate.count(b),0);
+});
+
+test('activity accounting releases synchronous and rejected work without changing its result',async t=>{
+ const {db}=fixture(t),gate=new LegacyActivityGate(db);
+ assert.equal(gate.run(a,()=>42),42);assert.equal(gate.count(a),0);
+ assert.throws(()=>gate.run(a,()=>{throw new Error('sync error');}),/sync error/);assert.equal(gate.count(a),0);
+ await assert.rejects(gate.run(a,async()=>{throw new Error('async error');}),/async error/);assert.equal(gate.count(a),0);
+ await assert.rejects(gate.drain(a),/durable account hold/);
+});
+
+test('database hold is durable across connections and blocks late writes without serializing another owner',t=>{
+ const {db,other,file}=fixture(t);
+ const pending=other.prepare('INSERT INTO rows VALUES(?,?)');
+ const receipt=holdLegacyDatabase(db,a,operation,'1');
+ assert.equal(receipt.boundary,'database-only');assert.ok(!('filesFrozen' in receipt));
+ assert.equal(legacyAccountHeld(other,a),true);assert.equal(legacyAccountHeld(other,b),false);
+ assert.throws(()=>pending.run('bot_a','late'),/migration_hold/);
+ assert.throws(()=>other.prepare('UPDATE users SET email=? WHERE id=?').run('changed',a),/migration_hold/);
+ assert.throws(()=>other.prepare('DELETE FROM users WHERE id=?').run(a),/migration_hold/);
+ assert.throws(()=>other.prepare('UPDATE rows SET bot_id=? WHERE bot_id=?').run('bot_b','bot_a'),/migration_hold/);
+ assert.throws(()=>other.prepare('UPDATE rows SET bot_id=? WHERE bot_id=?').run('bot_a','bot_b'),/migration_hold/);
+ pending.run('bot_b','allowed');other.prepare('UPDATE users SET email=? WHERE id=?').run('changed@example.test',b);
+ const reopened=new Database(file);try{assertLegacyDatabaseFences(reopened);assert.throws(()=>reopened.prepare('INSERT INTO private_keys VALUES(?,?)').run(a,'late-key'),/migration_hold/);}finally{reopened.close();}
+ assert.equal((db.prepare('SELECT count(*) n FROM rows WHERE bot_id=?').get('bot_b') as any).n,2);
+});
+
+test('implicit hidden-bot, room, phone and nested OAuth relationships cannot bypass the hold',t=>{
+ const {db,other}=fixture(t);holdLegacyDatabase(db,a,operation,'1');
+ for(const bot of ['hidden_a','room_a'])assert.throws(()=>other.prepare('INSERT INTO rows VALUES(?,?)').run(bot,'late'),/migration_hold/);
+ assert.throws(()=>other.prepare('UPDATE bots SET parent_bot_id=? WHERE id=?').run('bot_a','bot_b'),/migration_hold/);
+ assert.throws(()=>other.prepare('UPDATE bots SET members=? WHERE id=?').run('["bot_a"]','bot_b'),/migration_hold/);
+ assert.throws(()=>other.prepare('INSERT INTO messaging_greeted VALUES(?)').run('15551111111'),/migration_hold/);
+ assert.throws(()=>other.prepare('INSERT INTO messaging_inbox VALUES(?,?,?,?)').run('a','inkbox',event('+1 (555) 111-1111'),'pending'),/migration_hold/);
+ assert.throws(()=>other.prepare('UPDATE native_attempts SET link_session=? WHERE id=?').run('a-session','native-b'),/migration_hold/);
+ assert.throws(()=>other.prepare('DELETE FROM native_attempts WHERE id=?').run('native-a'),/migration_hold/);
+ other.prepare('INSERT INTO messaging_inbox VALUES(?,?,?,?)').run('b','inkbox',event('15552222222'),'pending');
+ other.prepare('DELETE FROM native_attempts WHERE id=?').run('native-b');
+});
+
+test('REPLACE and UPSERT cannot delete a held owner through rowid, unique values or index collation',t=>{
+ const {db,other}=fixture(t);holdLegacyDatabase(db,a,operation,'1');
+ for(const sql of [
+  `INSERT OR REPLACE INTO users VALUES('${b}','a@example.test',NULL)`,
+  `UPDATE OR REPLACE users SET email='a@example.test' WHERE id='${b}'`,
+  `INSERT OR REPLACE INTO history VALUES(1,'${b}','new')`,
+  `INSERT OR REPLACE INTO history VALUES(3,'${b}','aLPHa')`,
+  `UPDATE OR REPLACE history SET slug='aLPHa' WHERE id=2`,
+  `INSERT INTO history VALUES(3,'${b}','Alpha') ON CONFLICT DO UPDATE SET user_id=excluded.user_id`,
+  `INSERT OR REPLACE INTO rows(rowid,bot_id,body) VALUES(1,'bot_b','replace-a')`,
+ ])assert.throws(()=>other.exec(sql),/migration_hold/,sql);
+ assert.equal((other.prepare('SELECT user_id FROM history WHERE id=1').get() as any).user_id,a);
+ other.exec(`INSERT OR REPLACE INTO history VALUES(2,'${b}','Beta-two')`);
+});
+
+test('stale, foreign and replayed fences cannot reassign the migration',t=>{
+ const {db}=fixture(t);const first=holdLegacyDatabase(db,a,operation,'2');
+ assert.deepEqual(holdLegacyDatabase(db,a,operation,'2'),first);
+ assert.equal(holdLegacyDatabase(db,a,operation,'3').fence,'3');
+ assert.throws(()=>holdLegacyDatabase(db,a,operation,'2'),/superseded/);
+ assert.throws(()=>holdLegacyDatabase(db,a,'different-migration-op','4'),/superseded/);
+ for(const value of ['0','-1','1.5','9223372036854775808'])assert.throws(()=>holdLegacyDatabase(db,a,operation,value),/Invalid/);
+ assert.equal(holdLegacyDatabase(db,b,'migration-operation-222','1').tenant,b);
+});
+
+test('missing triggers and schema drift stop startup instead of silently repairing the barrier',t=>{
+ const {db}=fixture(t);holdLegacyDatabase(db,a,operation,'1');assertLegacyDatabaseFences(db);
+ db.exec('CREATE INDEX unexpected_index ON rows(body)');
+ assert.throws(()=>assertLegacyDatabaseFences(db),/schema changed/);
+ assert.throws(()=>holdLegacyDatabase(db,b,'migration-operation-222','1'),/schema changed/);
+ db.exec('DROP INDEX unexpected_index');assertLegacyDatabaseFences(db);
+ const name=(db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' LIMIT 1").get() as any).name;
+ db.exec(`DROP TRIGGER "${name}"`);
+ assert.throws(()=>assertLegacyDatabaseFences(db),/missing or changed/);
+ assert.throws(()=>holdLegacyDatabase(db,a,operation,'2'),/missing or changed/);
+});
+
+test('unmapped extension schemas are refused atomically, even when currently empty',t=>{
+ const {db}=fixture(t);db.exec('CREATE TABLE unknown_extension(payload TEXT)');
+ assert.throws(()=>holdLegacyDatabase(db,a,operation,'1'),/ownership mapping/);
+ assert.equal(legacyAccountHeld(db,a),false);
+ assert.equal((db.prepare("SELECT count(*) n FROM sqlite_master WHERE type='trigger'").get() as any).n,0);
+ db.exec('DROP TABLE unknown_extension; CREATE UNIQUE INDEX expression_index ON users(lower(email))');
+ assert.throws(()=>holdLegacyDatabase(db,a,operation,'1'),/expression unique indexes/);
+ assert.equal(legacyAccountHeld(db,a),false);
+});
+
+test('the current application schema can hold one account and refuses its existing sessions',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'swarm-source-app-fence-'));
+ Object.assign(process.env,{DB_PATH:path.join(root,'app.db'),FILES_DIR:path.join(root,'files'),SESSION_SECRET:'legacy-fence-tests-only',COMPUTER_PROVIDER:'local',COMPOSIO_API_KEY:'',SWARM_NO_SCHEDULER:'1'});
+ const {db}=await import('../server/src/db.js');
+ await import('../server/src/routes.js');await import('../server/src/routes-config.js');
+ await import('../server/src/mcp/oauth.js');await import('../server/src/provisioning.js');
+ const {initRooms}=await import('../server/src/agent/rooms.js');initRooms();
+ const {initSubagents}=await import('../server/src/agent/subagents.js');initSubagents();
+ const {createBot}=await import('../server/src/bots.js');
+ const {userFromToken}=await import('../server/src/lib/auth.js');
+ const {exportTenantDatabase}=await import('../server/src/platform/migration.js');
+ t.after(()=>{db.close();fs.rmSync(root,{recursive:true,force:true});});
+ for(const owner of [a,b]){
+  db.prepare('INSERT INTO users(id,email,name,created_at) VALUES(?,?,?,?)').run(owner,owner+'@example.test',owner,Date.now());
+  db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES(session_hash(?),?,?,?)').run(owner,owner,Date.now(),Date.now()+60000);
+ }
+ const owned=createBot(a,{name:'Migrating',isPrimary:true}),other=createBot(b,{name:'Active',isPrimary:true});
+ assert.equal(userFromToken(a)!.id,a);
+ holdLegacyDatabase(db,a,operation,'1');assertLegacyDatabaseFences(db);
+ assert.equal(userFromToken(a),null);assert.equal(userFromToken(b)!.id,b);
+ assert.throws(()=>db.prepare('UPDATE bots SET instructions=? WHERE id=?').run('late task',owned.id),/migration_hold/);
+ db.prepare('UPDATE bots SET instructions=? WHERE id=?').run('other account works',other.id);
+ const snapshot=path.join(root,'checkpoint.db'),destination=path.join(root,'export.db');
+ await db.backup(snapshot);
+ await exportTenantDatabase(snapshot,destination,a,'new_volume');
+ const exported=new Database(destination);
+ try{
+  assert.deepEqual(exported.prepare('SELECT id FROM users').all(),[{id:a}]);
+  assert.equal((exported.prepare('SELECT count(*) n FROM legacy_owner_fences').get() as any).n,0);
+  assert.equal((exported.prepare("SELECT count(*) n FROM sqlite_master WHERE type='trigger' AND name LIKE 'swarm_legacy_fence_%'").get() as any).n,0);
+ }finally{exported.close();}
+});

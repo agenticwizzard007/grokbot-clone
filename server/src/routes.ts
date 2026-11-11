@@ -7,11 +7,11 @@ import { db, now } from './db.js';
 import { env } from './env.js';
 import { newId } from './lib/ids.js';
 import { hub } from './lib/hub.js';
-import { createSession, destroySession, requireUser, userFromCookieHeader, type AuthVars } from './lib/auth.js';
+import { createSession, destroySession, requireUser, requireRecentAuth, recentlyAuthenticated, userFromCookieHeader, revokeSession, sessionHash, sessionFromCookie, type AuthVars } from './lib/auth.js';
 import { allLive, appendRow, clearConversation, emitBot, getBot, getBotRow, getRow, listBots, listRoutines, listRows, listTasks, toRoutine, updateRow } from './store.js';
 import { enqueue, interrupt, resolveApproval, runInBotQueue } from './agent/loop.js';
 import { computers } from './computers/index.js';
-import { catalog, connectedToolkits, deleteConnection, disconnect, GoogleLoginError, googleProfile, invalidateComposioSession, startConnect, startGoogleLogin, toolkitInfo } from './composio.js';
+import { catalog, connectedToolkits, connectionsDetail, manageConnection, disconnect, invalidateComposioSession, startConnect, toolkitInfo } from './composio.js';
 import { runRoutine, scheduleRoutine, unscheduleRoutine } from './routines.js';
 import { deleteEventTrigger } from './triggers.js';
 import { dispatchRoomMessage } from './agent/rooms.js';
@@ -22,76 +22,37 @@ import { importTeammate, provisionTeammate } from './agent/teammates.js';
 import type { Toolkit } from './types.js';
 import { compareAppPriority, matchesAppCategory } from './app-catalog.js';
 import { signUser, verifyUserSig } from './messaging/store.js';
-import { createAccount, deleteAccount } from './accounts.js';
+import { createAccount, deleteAccount, AccountAuthorizationChanged } from './accounts.js';
 import { finishNativeLogin, nativeAuth } from './native-auth.js';
 import { appleAuth } from './auth/apple.js';
 import { appleAvailableForAgent } from './auth/apple-provider.js';
 import { openrouterAuth } from './auth/openrouter.js';
 import { providerApi } from './providers/routes.js';
+import { googleAuth } from './auth/google.js';
+import { onSessionRevoked } from './security/session-lifecycle.js';
+import { googleAvailable } from './auth/google-provider.js';
+import { isTenant } from './deployment.js';
 
 export const api = new Hono<AuthVars>();
 
-const findOrCreateUser = (email: string, name?: string, preferId?: string) => createAccount({ email, name, preferId, source: 'web' });
+const findOrCreateUser = (email: string, name?: string, preferId?: string) => createAccount({ email, name, preferId, source: 'web', developmentEmailLookup: true });
 
 // ---------- auth ----------
 
-const GOOGLE_ATTEMPT_COOKIE = 'google_signin_attempt';
-const GOOGLE_ATTEMPT_TTL = 15 * 60_000;
-const googleResult = (code: string) => `${env.appUrl}/?login=${encodeURIComponent(code)}`;
-const googleFailure = (c: Context, code: string) => c.redirect(finishNativeLogin(c, undefined, code) ?? googleResult(code));
-
 api.route('/auth/native', nativeAuth);
 api.route('/auth/apple', appleAuth);
+api.route('/auth/google', googleAuth);
 api.route('/auth/openrouter', openrouterAuth);
 api.route('/providers', providerApi);
 
 api.get('/auth/me', (c) => {
   const user = userFromCookieHeader(c.req.header('cookie'));
   const appleLinked = !!user && !!db.prepare('SELECT 1 FROM apple_identities WHERE user_id=?').get(user.id);
-  return c.json({ user, devLogin: env.devLogin, googleLogin: env.composioEnabled, appleLogin: appleAvailableForAgent(c.req.header('user-agent')), appleLinked });
-});
-
-api.get('/auth/google/start', async (c) => {
-  const attemptId = newId('login');
-  const provisional = newId('usr');
-  const cb = `${env.serverUrl}/api/auth/google/callback?attempt=${attemptId}`;
-  try {
-    const { redirectUrl, connectedAccountId } = await startGoogleLogin(provisional, cb);
-    db.prepare('DELETE FROM login_attempts WHERE created_at<?').run(now() - GOOGLE_ATTEMPT_TTL);
-    db.prepare('INSERT INTO login_attempts(id,provisional_user_id,connected_account_id,created_at) VALUES (?,?,?,?)').run(attemptId, provisional, connectedAccountId, now());
-    setCookie(c, GOOGLE_ATTEMPT_COOKIE, attemptId, { httpOnly: true, sameSite: 'Lax', secure: new URL(env.serverUrl).protocol === 'https:', path: '/api/auth/google', maxAge: GOOGLE_ATTEMPT_TTL / 1000 });
-    return c.redirect(redirectUrl);
-  } catch {
-    console.warn('[auth] could not start Google sign-in');
-    return googleFailure(c, 'google_unavailable');
-  }
-});
-
-api.get('/auth/google/callback', async (c) => {
-  const attempt = db.prepare('SELECT * FROM login_attempts WHERE id=?').get(c.req.query('attempt') ?? '') as any;
-  if (!attempt || getCookie(c, GOOGLE_ATTEMPT_COOKIE) !== attempt.id) return googleFailure(c, 'google_session');
-  deleteCookie(c, GOOGLE_ATTEMPT_COOKIE, { path: '/api/auth/google' });
-  db.prepare('DELETE FROM login_attempts WHERE id=?').run(attempt.id);
-  if (now() - attempt.created_at > GOOGLE_ATTEMPT_TTL) return googleFailure(c, 'expired');
-  const caId = attempt.connected_account_id;
-  if (!caId || (c.req.query('connected_account_id') && c.req.query('connected_account_id') !== caId)) return googleFailure(c, 'google_session');
-  try {
-    const profile = await googleProfile(caId, attempt.provisional_user_id);
-    if (c.req.query('status') === 'failed' || c.req.query('error')) return googleFailure(c, 'google_denied');
-    const { id, isNew } = findOrCreateUser(profile.email, profile.name, attempt.provisional_user_id);
-    // Existing user: the Gmail connection made for sign-in belongs to a throwaway id; remove it.
-    if (!isNew && id !== attempt.provisional_user_id) await deleteConnection(caId);
-    createSession(c, id);
-    return c.redirect(finishNativeLogin(c, id) ?? `${env.appUrl}/`);
-  } catch (e: any) {
-    const code = e instanceof GoogleLoginError ? e.code : 'google_unavailable';
-    console.warn('[auth] Google sign-in did not finish:', code);
-    return googleFailure(c, code);
-  }
+  return c.json({ user, devLogin: env.devLogin, googleLogin: googleAvailable(), appleLogin: appleAvailableForAgent(c.req.header('user-agent')), appleLinked });
 });
 
 api.post('/auth/dev', async (c) => {
-  if (!env.devLogin) return c.json({ error: 'disabled' }, 403);
+  if (!env.devLogin || process.env.NODE_ENV === 'production') return c.json({ error: 'disabled' }, 403);
   const { email, name } = await c.req.json<{ email: string; name?: string }>();
   if (!email?.includes('@')) return c.json({ error: 'email required' }, 400);
   const { id } = findOrCreateUser(email, name);
@@ -99,7 +60,18 @@ api.post('/auth/dev', async (c) => {
   return c.json({ ok: true });
 });
 
-api.post('/auth/logout', (c) => { destroySession(c); return c.json({ ok: true }); });
+api.post('/auth/logout', requireUser, (c) => { destroySession(c); return c.json({ ok: true }); });
+
+api.get('/auth/sessions', requireUser, c => {
+  const current = sessionHash(sessionFromCookie(c.req.header('cookie')) ?? '');
+  const sessions = (db.prepare('SELECT token,created_at,expires_at,last_seen_at FROM auth_sessions WHERE user_id=? AND expires_at>?').all(c.get('user').id, now()) as any[]).map(({ token, ...row }) => ({ ...row, id: token, current: token === current }));
+  return c.json({ sessions });
+});
+api.delete('/auth/sessions/:id', requireUser, c => {
+  const row = db.prepare('SELECT token FROM auth_sessions WHERE user_id=? AND token=?').get(c.get('user').id, c.req.param('id')) as { token: string } | undefined;
+  if (!row) return c.json({ error: 'Session not found.' }, 404);
+  revokeSession(row.token); return c.json({ ok: true });
+});
 
 // everything below requires a session
 api.use('/*', async (c, next) => {
@@ -109,16 +81,20 @@ api.use('/*', async (c, next) => {
 
 // ---------- events (SSE) ----------
 
-api.delete('/account', async (c) => {
+api.delete('/account', requireRecentAuth, async (c) => {
   const origin = c.req.header('origin');
   if (origin && ![new URL(env.appUrl).origin, new URL(env.serverUrl).origin].includes(origin)) return c.json({ error: 'Invalid request origin.' }, 403);
   const body = await c.req.json().catch(() => null);
   if (body?.confirmation !== 'DELETE') return c.json({ error: 'Confirm account deletion first.' }, 400);
   try {
-    await deleteAccount(c.get('user').id);
+    if(isTenant)return c.json({error:'Account deletion must be authorized by the platform.'},403);
+    await deleteAccount(c.get('user').id,()=>{
+      if(!recentlyAuthenticated(c)||userFromCookieHeader(c.req.header('cookie'))?.id!==c.get('user').id)throw new AccountAuthorizationChanged();
+    });
     destroySession(c);
     return c.json({ ok: true });
-  } catch {
+  } catch(error) {
+    if(error instanceof AccountAuthorizationChanged)return c.json({error:'Sign in again to delete your account.',code:'reauth_required'},401);
     return c.json({ error: 'Could not finish account deletion. If you use Apple sign-in, Apple access must be revoked first. Please try again.' }, 502);
   }
 });
@@ -128,8 +104,10 @@ api.get('/events', (c) => {
   return streamSSE(c, async (stream) => {
     const queue: string[] = [];
     let wake: (() => void) | null = null;
-    const unsub = hub.subscribe(user.id, (ev) => { queue.push(JSON.stringify(ev)); wake?.(); });
-    stream.onAbort(() => { unsub(); wake?.(); });
+    const unsub = hub.subscribe(user.id, (ev) => { if (queue.length >= 1000) { stream.abort(); return; } queue.push(JSON.stringify(ev)); wake?.(); });
+    const off = onSessionRevoked(sessionHash(sessionFromCookie(c.req.header('cookie')) ?? ''), () => stream.abort());
+    const expiry = setInterval(() => { if (!userFromCookieHeader(c.req.header('cookie'))) stream.abort(); }, 15_000).unref();
+    stream.onAbort(() => { clearInterval(expiry); off(); unsub(); wake?.(); });
     await stream.writeSSE({ data: JSON.stringify({ type: 'hello', serverTime: now() }) });
     while (!stream.aborted) {
       if (!queue.length) {
@@ -142,11 +120,13 @@ api.get('/events', (c) => {
       }
       while (queue.length) await stream.writeSSE({ data: queue.shift()! });
     }
-    unsub();
+    clearInterval(expiry); off(); unsub();
   });
 });
 
 // ---------- bots ----------
+api.get('/jobs', c => c.json({ jobs: db.prepare("SELECT id,bot_id,state,created_at,started_at,finished_at FROM agent_jobs WHERE user_id=? ORDER BY created_at DESC LIMIT 200").all(c.get('user').id) }));
+api.get('/runtime/events', c => c.json({ failures: isTenant ? db.prepare('SELECT id,error_code,received_at FROM runtime_event_failures ORDER BY received_at DESC LIMIT 200').all() : [] }));
 
 const ownBot = (userId: string, id: string) => {
   const b = getBotRow(id);
@@ -442,6 +422,18 @@ api.get('/apps', async (c) => {
   const apps = items.slice(offset, offset + limit);
   const nextOffset = offset + apps.length < items.length ? offset + apps.length : null;
   return c.json({ apps, connected: [...connected], connectedApps, categories, total: items.length, nextOffset });
+});
+
+api.get('/apps/connections', async c => c.json({ connections: await connectionsDetail(c.get('user').id) }));
+api.post('/apps/connections/:id/default', async c => {
+  await manageConnection(c.get('user').id, c.req.param('id'), 'default');
+  hub.emit(c.get('user').id, { type: 'connections' });
+  return c.json({ ok: true });
+});
+api.delete('/apps/connections/:id', async c => {
+  await manageConnection(c.get('user').id, c.req.param('id'), 'disconnect');
+  hub.emit(c.get('user').id, { type: 'connections' });
+  return c.json({ ok: true });
 });
 
 api.post('/apps/:slug/connect', async (c) => {

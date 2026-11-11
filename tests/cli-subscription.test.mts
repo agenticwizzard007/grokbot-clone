@@ -70,7 +70,8 @@ const users = ['cli-alice', 'cli-bob'] as const;
 const [alice, bob] = users;
 for (const id of users) {
   db.prepare('INSERT INTO users(id,email,name,created_at) VALUES (?,?,?,?)').run(id, `${id}@example.com`, id, Date.now());
-  db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (?,?,?,?)').run(id, id, Date.now(), Date.now() + 3_600_000);
+  db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (session_hash(?),?,?,?)').run(id, id, Date.now(), Date.now() + 3_600_000);
+  db.prepare('UPDATE auth_sessions SET last_seen_at=created_at,authenticated_at=created_at WHERE token=session_hash(?)').run(id);
 }
 
 type Provider = 'codex' | 'claude';
@@ -199,7 +200,7 @@ test('pairing secrets are hashed, scoped to a user, rotated independently, expir
 });
 
 test('all CLI REST mutations and status require a real, unexpired browser session', async () => {
-  db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (?,?,?,?)').run('expired', alice, Date.now() - 2000, Date.now() - 1);
+  db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (session_hash(?),?,?,?)').run('expired', alice, Date.now() - 2000, Date.now() - 1);
   for (const credential of [null, 'invalid', 'expired']) {
     for (const [route, method] of [['', 'GET'], ['', 'PUT'], ['/refresh', 'POST'], ['/pair', 'POST'], ['/pair', 'DELETE']]) {
       const response = await req(credential, route, method, method === 'PUT' ? { provider: 'codex' } : undefined);
@@ -221,7 +222,8 @@ test('REST status and mode validation fail closed and explicit null restores API
   for (const body of [null, {}, { provider: 'openrouter' }, { provider: 'Codex' }, { provider: 1 }, { provider: {} }]) {
     assert.equal((await req(alice, '', 'PUT', body)).status, 400);
   }
-  assert.equal((await app.request('/api/cli', { method: 'PUT', headers: { cookie: `swarm_session=${alice}` }, body: 'invalid JSON' })).status, 400);
+  assert.equal((await app.request('/api/cli', { method: 'PUT', headers: { cookie: `swarm_session=${alice}` }, body: 'invalid JSON' })).status, 415);
+  assert.equal((await app.request('/api/cli', { method: 'PUT', headers: { cookie: `swarm_session=${alice}`, 'content-type': 'application/json' }, body: 'invalid JSON' })).status, 400);
   assert.equal((await req(alice, '', 'PUT', { provider: 'codex' })).status, 409);
   assert.equal(selectedCli(alice), null);
   selectCli(alice, 'codex');
@@ -492,7 +494,7 @@ test('a real queued Bot turn routes to its owner bridge and enters the existing 
   const a = await connect(alice), b = await connect(bob);
   await choose(alice, 'codex'); await choose(bob, 'claude');
   const bot = newBot(alice);
-  const mcp = saveMcpServer(alice, { name: 'Approval fixture', transport: 'http', url: `${base}/mcp-must-not-run`, botIds: [bot.id], requireApproval: true });
+  const mcp = saveMcpServer(alice, { name: 'Approval fixture', transport: 'http', url: 'https://mcp-approval.example.test/must-not-run', botIds: [bot.id], requireApproval: true });
   // Model a previously discovered tool; discovery is covered by mcp.test.mts.
   db.prepare('UPDATE mcp_servers SET tools=?,checked_at=? WHERE id=?').run(JSON.stringify([
     { name: 'write_note', description: 'Write a note', inputSchema: { type: 'object', properties: { message: { type: 'string' } }, required: ['message'] } },
@@ -507,7 +509,7 @@ test('a real queued Bot turn routes to its owner bridge and enters the existing 
   assert.ok(a.generations[0].params.prompt.includes(name), 'the available app tool reaches the bridge');
   const approval = db.prepare('SELECT * FROM approvals WHERE bot_id=?').get(bot.id) as any;
   assert.ok(approval, 'the CLI action must enter the normal app approval loop');
-  assert.equal(approval.tool, name);
+  assert.equal(approval.tool, `${name}:bot:${bot.id}`);
   assert.equal(approval.status, 'pending');
   const call = listRows(bot.id).find(row => row.body.type === 'tool-call')?.body as any;
   assert.equal(call.name, name);
@@ -516,7 +518,7 @@ test('a real queued Bot turn routes to its owner bridge and enters the existing 
   assert.ok(getLive(bot.id).awaiting, 'the Bot is paused waiting for user approval');
   const card = listRows(bot.id).find(row => row.body.type === 'card' && row.body.card === 'approval')?.body as any;
   assert.equal(card.approvalId, approval.id);
-  assert.equal(card.tool, name);
+  assert.equal(card.tool, `${name}:bot:${bot.id}`);
   assert.equal(card.toolkitName, 'Approval fixture');
   assert.equal(card.status, 'pending');
   assert.ok(db.prepare('SELECT 1 FROM pending_turns WHERE bot_id=?').get(bot.id));

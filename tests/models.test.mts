@@ -44,7 +44,8 @@ app.route('/api', api);
 app.route('/api', modelsApi);
 const session = (userId: string) => {
   const t = `t_${userId}`;
-  db.prepare('INSERT OR REPLACE INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (?,?,?,?)').run(t, userId, Date.now(), Date.now() + 3_600_000);
+  const at = Date.now();
+  db.prepare('INSERT OR REPLACE INTO auth_sessions(token,user_id,created_at,expires_at,last_seen_at,authenticated_at) VALUES (session_hash(?),?,?,?,?,?)').run(t, userId, at, at + 3_600_000, at, at);
   return `swarm_session=${t}`;
 };
 const call = async (userId: string, method: string, url: string, body?: unknown) => {

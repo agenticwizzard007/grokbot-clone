@@ -1,3 +1,4 @@
+import { assertLegacyWorkOpen, legacyPhoneOwner, withLegacyWork } from '../../security/legacy-work.js';
 import { Hono } from 'hono';
 import { env } from '../../env.js';
 import { saveSetting } from '../../settings.js';
@@ -29,6 +30,7 @@ export const inkboxAdapter: ChannelAdapter = {
   format: (md) => toPlainText(md),
   maxChars: (link) => link.channel === 'whatsapp' ? WHATSAPP_MAX : link.channel === 'sms' ? SMS_MAX : IMESSAGE_MAX,
   async send(link: Link, msg) {
+    assertLegacyWorkOpen(link.userId);
     const key = env.inkboxIdentityKey;
     if (link.channel === 'whatsapp') {
       return (await ib.sendWhatsApp(key, { conversationId: link.chatRef ?? undefined, to: link.chatRef ? undefined : `+${link.phone}`, text: msg.text, replyToMessageId: msg.quote })).id;
@@ -43,91 +45,42 @@ export const inkboxAdapter: ChannelAdapter = {
   // Voice notes: iMessage only (SMS gets the text). Arrives as an audio attachment that plays in the thread.
   canSendAudio: (link) => link.channel === 'imessage' && (!!link.chatRef || !!link.phone),
   async sendAudio(link: Link, audio) {
+    assertLegacyWorkOpen(link.userId);
     const key = env.inkboxIdentityKey;
     const url = await ib.uploadMedia(key, { data: audio.data, filename: audio.filename, contentType: audio.mime });
+    assertLegacyWorkOpen(link.userId);
     const sent = await ib.sendIMessage(key, { conversationId: link.chatRef ?? undefined, to: link.chatRef ? undefined : `+${link.phone}`, mediaUrls: [url] });
     if (sentAsCarrierSms(sent)) throw new Error('Inkbox downgraded this iMessage to carrier SMS.');
     return sent.id;
   },
   async typing(link, inb) {
+    assertLegacyWorkOpen(link.userId);
     const conv = inb.chatRef ?? link.chatRef;
     if (link.channel !== 'imessage' || !conv) return;
     await ib.markRead(env.inkboxIdentityKey, conv).catch(() => {});
+    assertLegacyWorkOpen(link.userId);
     await ib.typing(env.inkboxIdentityKey, conv);
   },
 };
 
 // ---------- inbound ----------
 
-const dict = (v: unknown): Record<string, any> | null => (v && typeof v === 'object' && !Array.isArray(v) ? (v as any) : null);
-const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
-
-interface Parsed {
-  channel: Channel;
-  phone: string;
-  conversationId?: string;
-  messageId: string;
-  text: string;
-  replyTo?: string;
-  media: { url: string; mime: string }[];
-  reaction?: { targetId: string; kind: string };
-  name?: string;
-}
-
-/** Normalize an Inkbox webhook event. Delivery lifecycle events and groups return null. */
-export function parseEvent(p: any): Parsed | null {
-  const type = str(p?.event_type);
-  const data = dict(p?.data);
-  if (!type || !data) return null;
-  const media = (m: any) => (Array.isArray(m) ? m : []).map((x: any) => ({ url: str(x?.url) ?? '', mime: str(x?.content_type) ?? str(x?.mime_type) ?? '' })).filter((x: any) => x.url);
-  const nameFor = (num: string) => (Array.isArray(data.contacts) ? data.contacts : []).find((c: any) => digits(c?.phone_number ?? c?.number) === num)?.name;
-  if (type === 'imessage.received') {
-    const m = dict(data.message);
-    if (!m || m.is_group === true) return null;
-    const phone = digits(str(m.remote_number) ?? str(m.sender_number));
-    if (!phone || !str(m.id)) return null;
-    return { channel: 'imessage', phone, conversationId: str(m.conversation_id), messageId: m.id, text: str(m.content) ?? str(m.text) ?? '', replyTo: str(m.reply_to_message_id), media: media(m.media), name: nameFor(phone) };
-  }
-  if (type === 'imessage.reaction_received') {
-    const r = dict(data.reaction);
-    if (!r) return null;
-    const phone = digits(str(r.remote_number));
-    if (!phone) return null;
-    return { channel: 'imessage', phone, conversationId: str(r.conversation_id), messageId: str(r.id) ?? `${r.target_message_id}:${r.reaction}`, text: '', media: [], reaction: { targetId: String(r.target_message_id ?? ''), kind: String(r.reaction ?? '') } };
-  }
-  if (type === 'text.received') {
-    const m = dict(data.text_message) ?? dict(data.message);
-    if (!m) return null;
-    const phone = digits(str(m.sender_phone_number) ?? str(m.remote_phone_number) ?? str(m.remote_number) ?? str(m.from));
-    if (!phone) return null;
-    return { channel: 'sms', phone, conversationId: str(m.conversation_id), messageId: str(m.id) ?? `${phone}:${p.timestamp}`, text: str(m.text) ?? str(m.content) ?? str(m.body) ?? '', media: media(m.media), name: nameFor(phone) };
-  }
-  if (type === 'whatsapp.received') {
-    const m = dict(data.message);
-    if (!m || m.is_group === true) return null;
-    const phone = digits(str(m.remote_number) ?? str(m.sender_number));
-    if (!phone || !str(m.id)) return null;
-    return { channel: 'whatsapp', phone, conversationId: str(m.conversation_id), messageId: m.id, text: str(m.content) ?? str(m.text) ?? '', replyTo: str(m.reply_to_message_id), media: media(m.media), name: nameFor(phone) };
-  }
-  if (type === 'whatsapp.reaction_received') {
-    const r = dict(data.reaction);
-    if (!r) return null;
-    const phone = digits(str(r.remote_number));
-    if (!phone) return null;
-    return { channel: 'whatsapp', phone, conversationId: str(r.conversation_id), messageId: str(r.id) ?? `${r.target_message_id}:${r.reaction}`, text: '', media: [], reaction: { targetId: String(r.target_message_id ?? ''), kind: String(r.reaction ?? '') } };
-  }
-  return null;
-}
+export { parseEvent } from './events.js';
+import { parseEvent, type Parsed } from './events.js';
 
 async function acknowledgeIncoming(e: Parsed) {
+  const check = () => assertLegacyWorkOpen(legacyPhoneOwner(e.phone));
+  check();
   if (e.reaction) return;
   if (e.channel === 'imessage' && e.conversationId) {
     await ib.markRead(env.inkboxIdentityKey, e.conversationId).catch(() => {});
+    check();
     await ib.typing(env.inkboxIdentityKey, e.conversationId).catch(() => {});
   }
   if (e.channel === 'whatsapp' && e.conversationId) await ib.markWhatsAppRead(env.inkboxIdentityKey, e.conversationId, e.messageId).catch(() => {});
   const react = e.channel === 'whatsapp' ? ib.sendWhatsAppReaction : e.channel === 'imessage' ? ib.sendIMessageReaction : null;
   if (react) {
+    check();
     await react(env.inkboxIdentityKey, e.messageId, 'eyes').catch((err) => {
       console.warn(`[inkbox] could not react to inbound ${e.channel} message:`, err?.code ?? '', err?.message ?? err);
     });
@@ -139,6 +92,7 @@ async function onEvent(p: any) {
   const e = parseEvent(p);
   if (!e) return;
   await acknowledgeIncoming(e);
+  assertLegacyWorkOpen(legacyPhoneOwner(e.phone));
   const link = hostLinkByPhone('inkbox', e.channel, e.phone);
   let userId = link?.userId ?? null;
   if (!userId) {
@@ -163,6 +117,7 @@ async function onEvent(p: any) {
 async function rawReply(e: Parsed, text: string) {
   const max = e.channel === 'whatsapp' ? WHATSAPP_MAX : e.channel === 'sms' ? SMS_MAX : IMESSAGE_MAX;
   for (const part of chunk(toPlainText(text), max)) {
+    assertLegacyWorkOpen(legacyPhoneOwner(e.phone));
     if (e.channel === 'whatsapp') await ib.sendWhatsApp(env.inkboxIdentityKey, { conversationId: e.conversationId, to: e.conversationId ? undefined : `+${e.phone}`, text: part });
     else if (e.channel === 'sms' && env.inkboxPhoneNumberId) await ib.sendSms(env.inkboxIdentityKey, env.inkboxPhoneNumberId, { conversationId: e.conversationId, to: e.conversationId ? undefined : `+${e.phone}`, text: part });
     else await ib.sendIMessage(env.inkboxIdentityKey, { conversationId: e.conversationId, to: e.conversationId ? undefined : `+${e.phone}`, text: part });
@@ -258,6 +213,9 @@ export async function isConnectedToLine(phone: string): Promise<boolean> {
 
 /** Text a number that just connected (no conversation id yet). Returns false if Inkbox won't allow it yet. */
 export async function textNewlyConnected(phone: string, text: string): Promise<boolean> {
+  return withLegacyWork(legacyPhoneOwner(phone), () => textNewlyConnectedOpen(phone, text));
+}
+async function textNewlyConnectedOpen(phone: string, text: string): Promise<boolean> {
   try {
     const sent = await ib.sendIMessage(env.inkboxIdentityKey, { to: `+${digits(phone)}`, text: toPlainText(text) });
     return !sentAsCarrierSms(sent);

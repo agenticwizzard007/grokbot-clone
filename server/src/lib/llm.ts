@@ -1,3 +1,5 @@
+import { isTenant, assertTenant } from '../deployment.js';
+import { privateKey } from '../providers/private-keys.js';
 import OpenAI from 'openai';
 import { env } from '../env.js';
 import { currentUserId } from '../usage-context.js';
@@ -25,9 +27,10 @@ export function llmClient(timeout: number): OpenAI | ReturnType<typeof cliRespon
   const userId = currentUserId();
   const cli = selectedCli(userId);
   if (cli && userId) return cliResponsesClient(userId, cli, timeout);
+  if (isTenant) { if (!userId) throw new Error(NO_LLM_KEY); assertTenant(userId); }
   const p = llmProvider();
   const personal = userId && usesPersonalOpenRouter(userId);
-  const apiKey = personal ? personalOpenRouterKey(userId!) : p === 'openrouter' ? env.openrouterKey : env.directKey;
+  const apiKey = personal ? personalOpenRouterKey(userId!) : isTenant ? privateKey(userId,'direct') : p === 'openrouter' ? env.openrouterKey : env.directKey;
   if (!apiKey) throw new Error(NO_LLM_KEY);
   const baseURL = p === 'openrouter' ? env.openrouterBaseUrl : env.directBaseUrl;
   const sig = `${p}|${apiKey}|${baseURL}`;

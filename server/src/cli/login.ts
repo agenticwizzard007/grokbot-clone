@@ -1,12 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { cliRuntime, selectCli, setCliRuntime, type CliProvider } from './store.js';
 import { hostedOptions, hostedRunner, refreshHosted, setHostedSigningIn, stopHostedJobsAndWait, type LoginHandle } from './hosted.js';
+import { currentSessionHash } from '../security/request-context.js';
+import { onSessionRevoked } from '../security/session-lifecycle.js';
+import { assertLegacyWorkOpen } from '../security/legacy-work.js';
 
 export type LoginState = 'running' | 'verifying' | 'connected' | 'failed' | 'cancelled';
 interface LoginSession {
   id: string; userId: string; provider: CliProvider; state: LoginState;
   output: string; base: number; cursor: number; error?: string; exitCode?: number | null;
   controller: AbortController; handle?: LoginHandle; timer: NodeJS.Timeout; finished?: Promise<void>; settled: boolean;
+  sessionHash?: string; unsubscribe?: () => void;
 }
 export class CliLoginError extends Error {
   constructor(message: string, public status: 400 | 404 | 409 | 429 | 503) { super(message); }
@@ -28,14 +32,16 @@ function append(s: LoginSession, data: string) {
 
 function retire(s: LoginSession) {
   clearTimeout(s.timer);
+  s.unsubscribe?.();
   s.settled = true;
   if (![...sessions.values()].some((other) => other.id !== s.id && other.userId === s.userId && !other.settled)) setHostedSigningIn(s.userId, false);
   s.timer = setTimeout(() => { sessions.delete(s.id); s.output = ''; }, 120_000).unref();
 }
 
 function own(userId: string, id: string): LoginSession {
+  assertLegacyWorkOpen(userId);
   const s = sessions.get(id);
-  if (!s || s.userId !== userId) throw new CliLoginError('Sign-in terminal not found or expired.', 404);
+  if (!s || s.userId !== userId || s.sessionHash !== currentSessionHash()) throw new CliLoginError('Sign-in terminal not found or expired.', 404);
   return s;
 }
 
@@ -49,6 +55,7 @@ export function readLoginSession(userId: string, id: string, cursor = 0) {
 }
 
 export async function startLoginSession(userId: string, provider: CliProvider, cols: number, rows: number) {
+  assertLegacyWorkOpen(userId);
   if ([...sessions.values()].some((s) => s.userId === userId && !s.settled)) throw new CliLoginError('A sign-in terminal is already running. Close it before starting another.', 409);
   if ([...sessions.values()].filter((s) => !s.settled).length >= 16) throw new CliLoginError('Sign-in runners are busy. Please try again shortly.', 503);
   const recent = (attempts.get(userId) ?? []).filter((at) => Date.now() - at < 5 * 60_000);
@@ -59,7 +66,7 @@ export async function startLoginSession(userId: string, provider: CliProvider, c
   setHostedSigningIn(userId, true);
   const controller = new AbortController();
   const s: LoginSession = {
-    id: randomUUID(), userId, provider, state: 'running', output: '', base: 0, cursor: 0, controller, settled: false,
+    id: randomUUID(), userId, provider, state: 'running', output: '', base: 0, cursor: 0, controller, settled: false, sessionHash: currentSessionHash(),
     timer: setTimeout(() => {
       if (!isRunning(s)) return;
       s.state = 'failed'; s.error = 'Sign-in timed out. Open a new terminal to try again.';
@@ -67,6 +74,7 @@ export async function startLoginSession(userId: string, provider: CliProvider, c
     }, 10 * 60_000).unref(),
   };
   sessions.set(s.id, s);
+  if (s.sessionHash) s.unsubscribe = onSessionRevoked(s.sessionHash, () => { void cancel(s).catch(() => {}); });
   const fail = (error: unknown) => {
     if (isRunning(s)) { s.state = 'failed'; s.error = error instanceof Error ? error.message : 'Sign-in failed. Please try again.'; }
   };
@@ -79,6 +87,7 @@ export async function startLoginSession(userId: string, provider: CliProvider, c
     if (controller.signal.aborted) return;
     const runner = await hostedRunner();
     if (controller.signal.aborted) return;
+    assertLegacyWorkOpen(userId);
     s.handle = await runner.startLogin(provider, { ...options, signal: controller.signal, cols, rows, onData: (data) => append(s, data) });
     if (controller.signal.aborted) s.handle.cancel();
   })().catch(fail);
@@ -118,15 +127,18 @@ export function resizeLoginSession(userId: string, id: string, cols: number, row
 }
 
 export async function cancelLoginSession(userId: string, id: string) {
-  const s = own(userId, id);
+  await cancel(own(userId, id));
+}
+
+async function cancel(s: LoginSession) {
   if (isRunning(s)) { s.state = 'cancelled'; s.controller.abort(); s.handle?.cancel(); }
   await s.finished;
-  clearTimeout(s.timer); sessions.delete(id); s.output = '';
-  if (![...sessions.values()].some((other) => other.userId === userId && !other.settled)) setHostedSigningIn(userId, false);
+  s.unsubscribe?.(); clearTimeout(s.timer); sessions.delete(s.id); s.output = '';
+  if (![...sessions.values()].some((other) => other.userId === s.userId && !other.settled)) setHostedSigningIn(s.userId, false);
 }
 
 export async function cancelUserLogins(userId: string) {
-  await Promise.all([...sessions.values()].filter((s) => s.userId === userId).map((s) => cancelLoginSession(userId, s.id)));
+  await Promise.all([...sessions.values()].filter((s) => s.userId === userId).map(cancel));
 }
 
 process.once('exit', () => { for (const s of sessions.values()) { s.controller.abort(); s.handle?.cancel(); } });

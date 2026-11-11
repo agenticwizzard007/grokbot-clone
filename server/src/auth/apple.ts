@@ -1,3 +1,4 @@
+import { legacyWritableRows } from '../platform/legacy-database-fence.js';
 import crypto from 'node:crypto';
 import { Hono, type Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
@@ -5,7 +6,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { createAccount } from '../accounts.js';
 import { db, now } from '../db.js';
 import { env } from '../env.js';
-import { createSession, sessionToken, userFromCookieHeader } from '../lib/auth.js';
+import { createSession, sessionToken, userFromCookieHeader, sessionHash, recentlyAuthenticated } from '../lib/auth.js';
 import { appleAvailability, appleConfiguration, AppleError, exchangeAppleCode, saveAppleRefreshToken, type AppleClient } from './apple-provider.js';
 
 const COOKIE = 'swarm_apple_attempt';
@@ -29,11 +30,11 @@ type Attempt = { id: string; client: AppleClient; client_id: string; nonce: stri
 function start(c: Context, client: AppleClient, challenge: string | null, linking: boolean) {
   if (!appleAvailability()[client]) throw new AppleError('apple_unavailable');
   const user = userFromCookieHeader(c.req.header('cookie'));
-  if (linking && !user) throw new AppleError('apple_link_signin');
-  db.prepare('DELETE FROM apple_login_attempts WHERE expires_at<=?').run(now());
+  if (linking && (!user || !recentlyAuthenticated(c))) throw new AppleError('apple_link_signin');
+  db.prepare(`DELETE FROM apple_login_attempts WHERE expires_at<=? AND ${legacyWritableRows(db, 'apple_login_attempts')}`).run(now());
   const count = db.prepare('SELECT count(*) AS n FROM apple_login_attempts').get() as { n: number };
   if (count.n >= 2000) throw new AppleError('apple_busy');
-  const attempt: Attempt = { id: random(), client, client_id: appleConfiguration().clients[client], nonce: random(), challenge, link_user_id: linking ? user!.id : null, link_session: linking ? sessionToken(c)! : null, expires_at: now() + TTL };
+  const attempt: Attempt = { id: random(), client, client_id: appleConfiguration().clients[client], nonce: random(), challenge, link_user_id: linking ? user!.id : null, link_session: linking ? sessionHash(sessionToken(c)!) : null, expires_at: now() + TTL };
   db.prepare('INSERT INTO apple_login_attempts(id,client,client_id,nonce,challenge,link_user_id,link_session,expires_at) VALUES (@id,@client,@client_id,@nonce,@challenge,@link_user_id,@link_session,@expires_at)').run(attempt);
   return attempt;
 }

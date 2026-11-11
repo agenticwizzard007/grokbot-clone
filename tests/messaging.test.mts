@@ -171,7 +171,7 @@ async function waitFor<T>(fn: () => T | undefined | null | false, ms = 8000): Pr
 const sentTo = (phone: string, re: RegExp) => waitFor(() => ib.sent.find((m) => m.conversation_id === conv(phone) && re.test(m.text)));
 const usersCount = () => (db.prepare('SELECT count(*) n FROM users').get() as any).n;
 const OWNER = '15550000001';
-const cookieFor = (userId: string) => { const t = `sess_${userId}`; db.prepare('INSERT OR IGNORE INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (?,?,?,?)').run(t, userId, Date.now(), Date.now() + 600_000); return `swarm_session=${t}`; };
+const cookieFor = (userId: string) => { const t = `sess_${userId}`; db.prepare('INSERT OR IGNORE INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (session_hash(?),?,?,?)').run(t, userId, Date.now(), Date.now() + 600_000); return `swarm_session=${t}`; };
 
 // ---------- tests ----------
 
@@ -194,6 +194,7 @@ test('no sign-up before the server has an owner', async () => {
 let owner: string;
 test('unknown numbers join the waitlist once (invite mode)', async () => {
   owner = createAccount({ email: 'owner@example.com', name: 'Owner', source: 'web' }).id;
+  db.prepare("INSERT INTO account_roles VALUES(?,'admin')").run(owner);
   ib.sent.length = 0;
   await text('15550001111', 'hey is this swarm?');
   await sentTo('15550001111', /waitlist/);
@@ -532,16 +533,16 @@ test('/delete confirm removes the account and everything in it', async () => {
   assert.equal((db.prepare('SELECT count(*) n FROM messaging_links WHERE user_id=?').get(u) as any).n, 0);
 });
 
-test('owner by phone (ADMIN_PHONES) for servers without email sign-in', async () => {
+test('mutable phone numbers never confer administrator privileges', async () => {
   const { canManageServer } = await import('../server/src/settings.js');
   const { mayCreateAccount } = await import('../server/src/accounts.js');
   const alice = db.prepare("SELECT id, email FROM users WHERE phone='15550002222'").get() as any;
   const ownerRow = getAccount(owner)!;
-  assert.equal(canManageServer(ownerRow), true, 'first account is the owner by default');
+  assert.equal(canManageServer(ownerRow), true, 'administrator was explicitly granted to immutable account ID');
   process.env.ADMIN_PHONES = '+1 555 000 2222';
   try {
-    assert.equal(canManageServer(alice), true, 'the listed phone is the owner');
-    assert.equal(canManageServer(ownerRow), false, 'once owners are listed, only they are');
+    assert.equal(canManageServer(alice), false, 'a mutable phone cannot grant administrator access');
+    assert.equal(canManageServer(ownerRow), true, 'the immutable grant is unaffected by phone configuration');
     assert.equal(mayCreateAccount('15559998888'), true, 'a server with users accepts sign-ups (mode permitting)');
   } finally { delete process.env.ADMIN_PHONES; }
 });

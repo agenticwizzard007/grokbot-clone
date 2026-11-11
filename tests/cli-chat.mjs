@@ -54,7 +54,8 @@ if (args[0] === 'exec') {
   assert.equal((await fetch(`${base}/api/cli`)).status, 401);
   const login = await fetch(`${base}/api/auth/dev`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'cli-e2e@example.com' }) });
   assert.equal(login.status, 200);
-  const cookie = login.headers.get('set-cookie').split(';')[0];
+  const cookie = login.headers.getSetCookie().filter(value => value.startsWith('swarm_session=')).at(-1)?.split(';')[0];
+  assert.ok(cookie, 'login issues a session cookie after clearing the previous session');
   const api = async (url, method = 'GET', body) => {
     const response = await fetch(base + '/api' + url, { method, headers: { cookie, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
     const data = await response.json();

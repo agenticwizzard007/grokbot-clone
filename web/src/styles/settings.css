@@ -1,5 +1,5 @@
 /* ---------- Settings: desktop, phone and the Apple apps ----------
-   Design: Paper › "Swarm — Mobile" › "Settings · Redesign".
+   Swarms settings design for desktop and mobile.
    A grey nav with grouped, icon-led sections; a 720px column of bordered cards whose rows put
    the label and description on the left and the control on the right. Phones get a section
    list that drills into each page. Every colour comes from tokens.css, so dark mode follows. */

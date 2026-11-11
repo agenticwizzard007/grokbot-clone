@@ -3,7 +3,9 @@ import type { Duplex } from 'node:stream';
 import { WebSocketServer } from 'ws';
 import { db } from '../db.js';
 import { env } from '../env.js';
-import { userFromCookieHeader } from '../lib/auth.js';
+import { userFromCookieHeader, sessionFromCookie, sessionHash } from '../lib/auth.js';
+import { onSessionRevoked } from '../security/session-lifecycle.js';
+import { allowedBrowserOrigin } from '../security/request.js';
 import { attachCompanionSocket, localProvider, nativeLocal, setComputerStateSource } from './local.js';
 import { cloudvmProvider } from './cloudvm.js';
 import { orgoProvider } from './orgo.js';
@@ -90,6 +92,7 @@ export function attachComputerSockets(server: Server) {
     const url = new URL(req.url ?? '/', 'http://x');
     const m = url.pathname.match(/^\/api\/bots\/([^/]+)\/screen$/);
     if (!m) return; // not ours
+    if ((req.headers.origin && !allowedBrowserOrigin(req.headers.origin)) || req.headers['sec-fetch-site'] === 'cross-site') { socket.destroy(); return; }
     const user = userFromCookieHeader(req.headers.cookie);
     const bot = user ? (db.prepare('SELECT * FROM bots WHERE id=? AND user_id=?').get(m[1], user.id) as any) : null;
     if (!user || !bot) {
@@ -98,7 +101,13 @@ export function attachComputerSockets(server: Server) {
       return;
     }
     const mode = url.searchParams.get('mode') === 'control' ? 'control' : 'watch';
-    wss.handleUpgrade(req, socket, head, (client) => { void computers.viewer(client, user.id, bot.id, mode); });
+    wss.handleUpgrade(req, socket, head, (client) => {
+      const close = () => client.close(4401, 'Session expired or revoked');
+      const unsubscribe = onSessionRevoked(sessionHash(sessionFromCookie(req.headers.cookie) ?? ''), close);
+      const timer = setInterval(() => { if (!userFromCookieHeader(req.headers.cookie)) close(); }, 15_000).unref();
+      client.once('close', () => { clearInterval(timer); unsubscribe(); });
+      void computers.viewer(client, user.id, bot.id, mode);
+    });
   });
   if (serverProvider.kind === 'local' || serverProvider.kind === 'cloudvm') attachCompanionSocket(server);
   nativeLocal.attachCompanionSocket(server);

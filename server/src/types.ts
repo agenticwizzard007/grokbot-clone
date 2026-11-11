@@ -13,13 +13,15 @@ export interface User { id: string; email: string; name: string; avatarUrl: stri
 export interface McpServerView {
   id: string; name: string; transport: 'http' | 'sse' | 'stdio';
   url: string; command: string; args: string[]; cwd: string;
+  folders: string[];
   enabled: boolean; botIds: string[] | null; requireApproval: boolean;
+  oauth?: boolean;
   hasBearerToken: boolean; headerNames: string[]; envNames: string[];
   checkedAt: number | null; error: string | null;
   tools: { name: string; description: string; toolName: string }[];
 }
 export type McpServerInput = Pick<McpServerView, 'name' | 'transport' | 'url' | 'command' | 'args' | 'cwd' | 'enabled' | 'botIds' | 'requireApproval'> & {
-  bearerToken?: string; headers?: Record<string, string>; env?: Record<string, string>;
+  bearerToken?: string; headers?: Record<string, string>; env?: Record<string, string>; oauth?: boolean; folders?: string[];
 };
 
 export interface AgentBrief {

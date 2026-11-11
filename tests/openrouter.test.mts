@@ -82,7 +82,8 @@ const sessionUser = (r: Response) => userFromCookieHeader(sessionCookie(r));
 function account() {
   const id = random();
   db.prepare('INSERT INTO users(id,email,name,created_at) VALUES (?,?,?,?)').run(id, `${id}@example.com`, 'Member', Date.now());
-  db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (?,?,?,?)').run(id, id, Date.now(), Date.now() + 3600000);
+  db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (session_hash(?),?,?,?)').run(id, id, Date.now(), Date.now() + 3600000);
+  db.prepare('UPDATE auth_sessions SET last_seen_at=created_at,authenticated_at=created_at WHERE token=session_hash(?)').run(id);
   return { id, cookie: `swarm_session=${id}` };
 }
 function request(cookie: string | undefined, suffix = '', method = 'GET', body?: unknown, extra: Record<string, string> = {}) {
@@ -127,7 +128,7 @@ test('OAuth signup creates the primary Bot, encrypts secrets, and repeated login
   assert.match(user.email, /@openrouter.invalid$/);
   assert.equal((db.prepare('SELECT count(*) n FROM bots WHERE user_id=? AND is_primary=1').get(user.id) as any).n, 1);
   const row = openrouterConnection(user.id)!;
-  assert.match(row.encrypted_key!, /^v1:/); assert.ok(!JSON.stringify(row).includes(signup.key));
+  assert.match(row.encrypted_key!, /^private1:/); assert.ok(!JSON.stringify(row).includes(signup.key));
   assert.equal(personalOpenRouterKey(user.id), signup.key);
   const again = callback(await start(), subject); const signedIn = await again.response;
   assert.equal(sessionUser(signedIn)?.id, user.id); assert.equal(personalOpenRouterKey(user.id), again.key);
@@ -154,6 +155,7 @@ test('linking preserves accounts, rejects cross-account links and changed/expire
   const alice = account(), bob = account(), subject = random();
   const linked = await callback(await start(alice.cookie), subject).response;
   assert.equal(sessionUser(linked)?.id, alice.id);
+  alice.cookie = linked.headers.getSetCookie().find(v => v.startsWith('swarm_session=') && !v.includes('Max-Age=0'))!.split(';')[0];
   const login = await callback(await start(), subject).response;
   assert.equal(sessionUser(login)?.id, alice.id);
   for (const [user, identity] of [[bob, subject], [alice, random()]] as const) {
@@ -164,7 +166,7 @@ test('linking preserves accounts, rejects cross-account links and changed/expire
   const changed = await callback(flow, random(), { cookie: flow.cookie.replace(bob.cookie, alice.cookie) }).response;
   assert.match(changed.headers.get('location')!, /openrouter_link_signin/);
   const expired = await start(bob.cookie);
-  db.prepare('UPDATE auth_sessions SET expires_at=0 WHERE token=?').run(bob.id);
+  db.prepare('UPDATE auth_sessions SET expires_at=0 WHERE token=session_hash(?)').run(bob.id);
   assert.match((await callback(expired, random()).response).headers.get('location')!, /openrouter_link_signin/);
 });
 

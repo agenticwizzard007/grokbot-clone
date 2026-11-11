@@ -1,6 +1,6 @@
 # Task board
 
-The Tasks view follows the reference dashboard’s card-and-column layout. It uses the task states already supported by the runtime:
+The Swarms Tasks view uses a card-and-column layout and the task states already supported by the runtime:
 
 | Runtime state | Column | Card label | Action |
 | --- | --- | --- | --- |
@@ -18,16 +18,14 @@ Above 880px of available content width, the board has three columns. Below that,
 
 Task events and connection changes refresh the data. A failed request shows a retry action rather than a successful empty state. A failed refresh preserves the last known cards and explains that they may be stale.
 
-## Paper design
+## Swarms design
 
-[Tasks · Web & Mobile in Paper](https://app.paper.design/file/01M73GPA3GPRHEBRRXNDC09HDV/p-3-0)
-
-The completed editable artboards were created using Paper MCP on the connected Mac:
+The Swarms task board supports web and mobile layouts:
 
 - **Tasks · Web · All tasks**: all nine sample tasks across Pending, In progress, and Done, with a pending summary, owner filter, and explicit card actions.
 - **Tasks · Mobile · Pending**: a 390px phone layout with visible status filters and counts, three full-width pending cards, and a clear reply action on every card.
 
-Both artboards were refined against the existing Composer · Model menu and Composer · Ultracode references, then visually reviewed for spacing, typography, contrast, alignment, and clipping. Their heights fit the full content. Both now show only the Tasks panel, with native bot avatar shapes; the web panel is 1090px wide and the mobile panel is 390px wide. Surrounding platform navigation is intentionally excluded from the handoff. Clean JSX exports and computed styles are saved under `.context/tasks/paper-web.jsx`, `paper-mobile.jsx`, and `paper-styles.json`. Final Paper screenshots are `paper-panel-web.png` and `paper-panel-mobile.png` in the same directory. The shared app implementation already mounts this panel within the existing app shell.
+Both layouts use Swarms bot avatar shapes and shared composer styling. The web design is 1090px wide and the mobile design is 390px wide, with heights that fit the full content. The shared app implementation mounts the Tasks panel within the existing app shell.
 
 ## Verification
 

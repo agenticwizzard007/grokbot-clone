@@ -25,7 +25,7 @@ const { configApi } = await import('../server/src/routes-config.js');
 const app = new Hono().route('/api', api).route('/api', configApi);
 for (const id of ['owner', 'other']) db.prepare('INSERT INTO users(id,email,name,created_at) VALUES (?,?,?,?)').run(id, `${id}@example.com`, id, Date.now());
 const cookie = 'test-session';
-db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (?,?,?,?)').run(cookie, 'owner', Date.now(), Date.now()+60000);
+db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (session_hash(?),?,?,?)').run(cookie, 'owner', Date.now(), Date.now()+60000);
 const master = createBot('owner', { name: 'Chief', isPrimary: true, model: 'test-model', effort: 'high' });
 const foreign = createBot('other', { name: 'Foreign', isPrimary: true });
 const userText = 'Own LinkedIn research for Acme. Produce five sourced leads each Friday. Do not send outreach. Use the shared research guide.';

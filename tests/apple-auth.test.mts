@@ -58,7 +58,8 @@ after(() => { mock.restoreAll(); db.close(); fs.rmSync(root, { recursive: true, 
 
 function account(id: string, email: string) {
   db.prepare('INSERT INTO users(id,email,name,created_at) VALUES (?,?,?,?)').run(id, email, 'Existing user', Date.now());
-  db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (?,?,?,?)').run(id, id, Date.now(), Date.now() + 3600000);
+  db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (session_hash(?),?,?,?)').run(id, id, Date.now(), Date.now() + 3600000);
+  db.prepare('UPDATE auth_sessions SET authenticated_at=created_at,last_seen_at=created_at WHERE user_id=?').run(id);
   return `swarm_session=${id}`;
 }
 function register(attempt: any, subject: string, email?: string, options: { bad?: boolean; verified?: boolean } = {}) {
@@ -177,7 +178,7 @@ test('cancelled, stale, unverified and wrong-nonce authorizations create no sess
   }
   const cookie = account('logout-link', 'logout@example.com');
   const linking = await native('ios', cookie);
-  db.prepare('DELETE FROM auth_sessions WHERE token=?').run('logout-link');
+  db.prepare('DELETE FROM auth_sessions WHERE token=session_hash(?)').run('logout-link');
   assert.equal((await complete(linking, 'unused')).status, 401, 'logging out invalidates an outstanding link');
 });
 
