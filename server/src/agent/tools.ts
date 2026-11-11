@@ -90,12 +90,12 @@ export const TOOLS: ToolDef[] = [
   ...APP_CONNECTION_TOOLS,
   {
     name: 'get_platform_state',
-    description: 'Read authoritative Swarm configuration: this agent’s text model and provider, separate voice model, subscription CLI connection, recorded usage and optionally the model catalog. Use this for questions about this app; never browse Swarm or ask for a browser login to inspect its own configuration. Unknown subscription tiers or remaining provider allowance must not be guessed.',
-    parameters: obj({ range: { type: 'string', enum: ['today', '7d', '30d', 'month'] }, include_models: { type: 'boolean' } }),
+    description: 'Read authoritative Swarm configuration: this agent’s text model and provider, separate voice model, subscription CLI connection, recorded usage and optionally the model catalog or fresh connected-service status (include_connections). Use this for questions about this app; never browse Swarm or ask for a browser login to inspect its own configuration. Unknown subscription tiers or remaining provider allowance must not be guessed.',
+    parameters: obj({ range: { type: 'string', enum: ['today', '7d', '30d', 'month'] }, include_models: { type: 'boolean' }, include_connections: { type: 'boolean' } }),
     activity: 'working', label: 'Reading app configuration',
     impl: async (a, ctx) => {
-      const args = z.object({ range: z.enum(['today', '7d', '30d', 'month']).optional(), include_models: z.boolean().optional() }).parse(a);
-      return { output: JSON.stringify(await platformState(ctx.userId, ctx.botId, { range: args.range, includeModels: args.include_models })) };
+      const args = z.object({ range: z.enum(['today', '7d', '30d', 'month']).optional(), include_models: z.boolean().optional(), include_connections: z.boolean().optional() }).parse(a);
+      return { output: JSON.stringify(await platformState(ctx.userId, ctx.botId, { range: args.range, includeModels: args.include_models, includeConnections: args.include_connections })) };
     },
   },
   {

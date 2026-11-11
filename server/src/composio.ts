@@ -114,18 +114,33 @@ export async function connectedToolkits(userId: string, cached = false): Promise
   return new Set((await connectionsDetail(userId)).filter((c) => c.status === 'ACTIVE').map((c) => c.toolkit));
 }
 
-export async function connectionsDetail(userId: string): Promise<{ id: string; toolkit: string; status: string; revision?: number; isDefault?: boolean }[]> {
+export interface AppConnection {
+  id: string; toolkit: string; status: string; revision?: number; isDefault?: boolean;
+  isDisabled?: boolean; authorizationIncomplete?: boolean;
+}
+const UNFINISHED_AUTH_REASONS = new Set([
+  'Authorization was started but not completed within 10 minutes',
+  'Connection expired before authorization was started',
+]);
+
+export async function connectionsDetail(userId: string, options: { signal?: AbortSignal } = {}): Promise<AppConnection[]> {
   assertTenant(userId);
-  if (isTenant) return gatewayRequest(userId, 'connections');
+  if (isTenant) return gatewayRequest(userId, 'connections', {}, options);
   if (!env.composioEnabled) return [];
   const client = composio();
   const key = composioIdentity();
-  const items: { id: string; toolkit: string; status: string }[] = [];
+  const items: AppConnection[] = [];
   let cursor: string | undefined;
   const cursors = new Set<string>();
   do {
-    const r = await client.connectedAccounts.list({ userIds: [userId], accountType: 'PRIVATE', limit: 100, cursor });
-    items.push(...r.items.map((i) => ({ id: i.id, toolkit: i.toolkit.slug, status: i.status })));
+    options.signal?.throwIfAborted();
+    const r = await client.connectedAccounts.list({ userIds: [userId], accountType: 'PRIVATE', limit: 100, cursor }, options);
+    items.push(...r.items.map((i) => ({ id: i.id, toolkit: i.toolkit.slug, status: i.status,
+      ...(i.isDisabled ? { isDisabled: true } : {}),
+      // Project only a known classification, never raw provider reasons or credential state.
+      ...(i.status === 'EXPIRED' && UNFINISHED_AUTH_REASONS.has(i.statusReason?.trim().replace(/\.$/, '') ?? '')
+        ? { authorizationIncomplete: true } : {}),
+    })));
     cursor = r.nextCursor ?? undefined;
     if (cursor && cursors.has(cursor)) throw new Error('Composio returned a repeated connections page. Please retry.');
     if (cursor) cursors.add(cursor);
