@@ -13,7 +13,7 @@ import { appName } from '../tool-activity.js';
 import { systemPrompt } from './prompt.js';
 import { deduplicateBrowserSnapshots, repairHistory } from './history.js';
 import { maybeCompact, noteUsage } from './memory.js';
-import { activityFor, allowedDuringSetup, functionSchemas, humanizeSlug, policyFor, runComposioTool, toolMap, type ToolCtx, type ToolResult } from './tools.js';
+import { activityFor, allowedDuringSetup, executionPolicyFor, functionSchemas, humanizeSlug, runComposioTool, toolMap, type ToolCtx, type ToolResult } from './tools.js';
 import { isConfiguring } from '../bot-setup.js';
 import { mcpSchemas, runMcpTool } from '../mcp/client.js';
 import { findMcpTool } from '../mcp/store.js';
@@ -371,7 +371,9 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
 
     // Was this call just approved/denied?
     const ap = st.approvalId ? (db.prepare('SELECT * FROM approvals WHERE id=?').get(st.approvalId) as any) : null;
-    let decision = policyFor(userId, c.name, args, botId).decision;
+    const pol = await executionPolicyFor(userId, c.name, args, botId);
+    turnSignal(botId)?.throwIfAborted();
+    let decision = pol.decision;
     if (st.nativeRequireApproval && decision === 'allow') decision = 'ask';
     if (ap && ap.call_id === c.call_id) {
       if (ap.status === 'pending') return true;
@@ -380,7 +382,6 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
         && decision !== 'block' ? 'allow' : 'block';
       st.approvalId = '';
     } else if (decision === 'ask') {
-      const pol = policyFor(userId, c.name, args, botId);
       const approvalId = newId('apr');
       const mcp = c.name.startsWith('mcp_') ? findMcpTool(userId, c.name, botId) : undefined;
       const card = appendRow(botId, 'card', {
@@ -412,7 +413,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
         const impl = toolMap.get(c.name);
         res = impl ? await impl.impl(args, { ...ctx, depth: st.depth })
           : c.name.startsWith('mcp_') ? await runMcpTool(userId, botId, c.name, args)
-          : await runComposioTool(ctx, c.name, args);
+          : await runComposioTool({ ...ctx, readOnlyApps: ctx.readOnlyApps === true || pol.readOnlyApps }, c.name, args);
         const successful = res.summary !== 'failed';
         finishTool(botId, c.call_id, successful);
         updateRow(botId, c.rowSeq, { ...body, status: successful ? 'done' : 'error', summary: res.summary, completedAt: now() });
@@ -537,10 +538,10 @@ async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: Abo
       discloseImages(prepared.omitted);
       // Same selected model/provider. Never reroute a plan request to an API.
       stream = await llm().responses.create(body, { signal });
-    } else if (e?.status === 400 && tools.length > functionSchemas(botId).length + serverTools().length) {
-      console.warn('[agent] 400 with composio tools, retrying without:', e?.message);
-      if (tools.some(t => t.name?.startsWith('mcp_'))) appendRow(botId, 'notice', { type: 'notice', text: 'The model rejected an external tool definition. Custom MCP tools are unavailable for this response; check the server’s tool schemas or choose another model.', tone: 'warn' });
-      body.tools = [...functionSchemas(botId), ...(isConfiguring(botId) ? [] : serverTools())];
+    } else if (e?.status === 400 && tools.some(t => t.name?.startsWith('mcp_'))) {
+      console.warn('[agent] 400 with custom MCP tools, retrying without those schemas');
+      appendRow(botId, 'notice', { type: 'notice', text: 'The model rejected the request with custom MCP tools. Retrying without those tools; native connected-app tools remain available.', tone: 'warn' });
+      body.tools = tools.filter(t => !t.name?.startsWith('mcp_'));
       stream = await llm().responses.create(body, { signal });
     } else throw e;
   }

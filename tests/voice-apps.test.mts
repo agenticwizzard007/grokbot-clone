@@ -9,7 +9,11 @@ import { Hono } from 'hono';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-voice-apps-'));
 let textRequests = 0;
+let expectedTextRequests = 6;
 let setupScenario = '';
+let activeScenario: { slug: string; step: number; calls: string[]; results: any[] } | undefined;
+let rejectNextModelRequest = false;
+const rejectedBodies: any[] = [];
 let closing = false;
 const modelBodies: any[] = [];
 const upstream = createServer(async (req, res) => {
@@ -20,6 +24,36 @@ const upstream = createServer(async (req, res) => {
   if (req.url?.endsWith('/realtime/client_secrets')) return res.end(JSON.stringify({ value: 'ephemeral-test', expires_at: Math.floor(Date.now() / 1000) + 300 }));
   if (closing) return res.end(JSON.stringify({ id: 'summary', output: [], output_text: '', usage: {} }));
   textRequests++;
+  if (rejectNextModelRequest) {
+    rejectNextModelRequest = false;
+    rejectedBodies.push(body);
+    res.statusCode = 400;
+    return res.end(JSON.stringify({ error: { message: 'Invalid tool schema', type: 'invalid_request_error' } }));
+  }
+  if (activeScenario) {
+    modelBodies.push(body);
+    const last = body.input?.at(-1);
+    let prior: any = null;
+    if (last?.type === 'function_call_output') {
+      try { prior = JSON.parse(last.output); } catch { prior = { error: last.output }; }
+      activeScenario.results.push(prior);
+    }
+    const step = activeScenario.step++;
+    const name = ['list_app_connections', 'SWARM_APPS_SEARCH', 'SWARM_APPS_EXECUTE'][step];
+    let args: any = {};
+    if (step === 1) args = { toolkit: 'github', connectionId: prior.connections[0].id, query: activeScenario.slug };
+    if (step === 2) args = { connectionId: prior.connectionId, revision: prior.revision, tool_slug: prior.tools.find((t: any) => t.slug === activeScenario!.slug).slug, arguments: { repo: 'alice/project' } };
+    if (name) activeScenario.calls.push(name);
+    const text = `App result: ${JSON.stringify(prior)}`;
+    const item = name ? { type: 'function_call', id: `item-${textRequests}`, call_id: `active-${textRequests}`, name, arguments: JSON.stringify(args) }
+      : { type: 'message', id: `item-${textRequests}`, role: 'assistant', status: 'completed', content: [{ type: 'output_text', text, annotations: [] }] };
+    const response = { id: `response-${textRequests}`, object: 'response', status: 'completed', model: body.model, output: [item], usage: { input_tokens: 1, output_tokens: 1 } };
+    res.setHeader('Content-Type', 'text/event-stream');
+    for (const event of [{ type: 'response.output_item.added', item },
+      ...(name ? [] : [{ type: 'response.output_text.delta', delta: text }]),
+      { type: 'response.output_item.done', item }, { type: 'response.completed', response }]) res.write(`data: ${JSON.stringify(event)}\n\n`);
+    return res.end();
+  }
   if (setupScenario) {
     modelBodies.push(body);
     const last = body.input?.at(-1);
@@ -121,12 +155,12 @@ const search = (call: any, connectionId = 'github-alice') => tool(call, 'SWARM_A
 const executeArgs = (slug = 'GITHUB_GET_REPOSITORY') => ({ connectionId: 'github-alice', revision: 1, tool_slug: slug, arguments: { repo: 'alice/project' } });
 after(async () => {
   await settleAgentJobs();
-  assert.equal(textRequests, 6, 'only the two explicit text setup scenarios call a text model');
   closing = true;
   for (const call of openCalls) await post('end', { botId: call.botId, callId: call.callId });
   await new Promise(resolve => setTimeout(resolve, 100));
   await new Promise<void>(resolve => upstream.close(() => resolve()));
   mock.restoreAll(); db.close(); fs.rmSync(tmp, { recursive: true, force: true });
+  assert.equal(textRequests, expectedTextRequests, 'only explicit chat scenarios call a text model');
 });
 
 test('setup voice exposes native app tools and verifies existing GitHub access directly', async () => {
@@ -428,4 +462,112 @@ test('text setup receives discovery tools, verifies GitHub reads and refuses wri
   }
   assert.equal(executed.length, before + 1, 'only the verified read executes');
   setDiscovered([rawTool('GITHUB_GET_REPOSITORY')]);
+});
+
+for (const source of ['chat', 'voice delegation'] as const) {
+  for (const [slug, tags, mutation] of [
+    ['GITHUB_GET_REPOSITORY', ['readOnlyHint'], false],
+    ['GITHUB_CREATE_ISSUE', ['createHint'], true],
+    ['GITHUB_GET_AND_DELETE', ['destructiveHint'], true],
+    ['GITHUB_GET_UNKNOWN', [], true],
+    ['GITHUB_GET_CONFLICTING', ['readOnlyHint', 'updateHint'], true],
+  ] as const) {
+    test(`${source}: ${slug} lists a connection, discovers and ${mutation ? 'approves the action' : 'executes a verified read'}, then returns the result`, async () => {
+      expectedTextRequests += 4;
+      const bot = createBot('alice', { name: `${source} ${slug}` });
+      db.prepare("UPDATE bot_setups SET onboarding_status='active' WHERE bot_id=?").run(bot.id);
+      setDiscovered([rawTool(slug, [...tags])]);
+      activeScenario = { slug, step: 0, calls: [], results: [] };
+      const before = executed.length;
+      let call: any, jobId: string;
+      try {
+        if (source === 'voice delegation') {
+          call = await session();
+          const assigned = await tool(call, 'send_task', { bot_id: bot.id, request: 'Use the already connected GitHub account to perform the requested repository task.' }, `delegate-active-${mutation}`);
+          jobId = assigned.taskId;
+          assert.ok(jobId);
+        } else jobId = enqueue(bot.id, { type: 'user', text: 'Use the already connected GitHub account to perform the requested repository task.' });
+        await settleAgentJobs();
+        if (mutation) {
+          assert.equal(executed.length, before, 'no write executes before approval');
+          const approval = db.prepare("SELECT id FROM approvals WHERE bot_id=? AND status='pending'").get(bot.id) as any;
+          assert.ok(approval);
+          if (call) {
+            const pending = await updates(call);
+            assert.equal(pending.tasks.find((t: any) => t.id === jobId).status, 'waiting');
+            assert.ok(pending.approvals.some((a: any) => a.body.approvalId === approval.id));
+          }
+          resolveApproval('alice', approval.id, 'allow');
+          await settleAgentJobs();
+        }
+        assert.deepEqual(activeScenario.calls, ['list_app_connections', 'SWARM_APPS_SEARCH', 'SWARM_APPS_EXECUTE']);
+        assert.equal(activeScenario.results[0].connections[0].id, 'github-alice');
+        assert.equal(activeScenario.results[1].tools[0].slug, slug);
+        assert.deepEqual(activeScenario.results[2], { repository: 'alice/project', canRead: true });
+        assert.equal(executed.length, before + 1);
+        assert.equal(executed.at(-1).slug, slug);
+        assert.equal(executed.at(-1).input.connectedAccountId, 'github-alice');
+        const reply = db.prepare("SELECT body FROM rows WHERE bot_id=? AND kind='message' AND json_extract(body,'$.role')='assistant' ORDER BY seq DESC LIMIT 1").get(bot.id) as any;
+        assert.match(JSON.parse(reply.body).text, /alice\/project/);
+        assert.equal(db.prepare("SELECT COUNT(*) n FROM rows WHERE bot_id=? AND kind='card' AND json_extract(body,'$.card')='connect'").get(bot.id).n, 0, 'already connected accounts never require new sign-in');
+        for (const body of modelBodies.splice(0)) {
+          const names = body.tools.map((t: any) => t.name);
+          for (const name of ['list_app_connections', 'SWARM_APPS_SEARCH', 'SWARM_APPS_EXECUTE']) assert.ok(names.includes(name));
+          assert.match(body.input[0].content, /Connected apps: github/);
+        }
+        if (call) {
+          const done = await updates(call);
+          assert.equal(done.tasks.find((t: any) => t.id === jobId).status, 'completed');
+          assert.ok(done.updates.some((u: any) => u.botId === bot.id && u.kind === 'message' && u.text.includes('alice/project')));
+        }
+      } finally {
+        activeScenario = undefined;
+        setDiscovered([rawTool('GITHUB_GET_REPOSITORY')]);
+      }
+    });
+  }
+}
+
+test('a model HTTP400 retries without custom MCP schemas while retaining all native app schemas', async () => {
+  expectedTextRequests += 5;
+  const bot = createBot('alice', { name: 'App schema fallback', isPrimary: true });
+  const { saveMcpServer, mcpToolName } = await import('../server/src/mcp/store.js');
+  const server = saveMcpServer('alice', { name: 'Invalid custom schema fixture', transport: 'http', url: 'https://mcp.example.test', botIds: [bot.id] });
+  db.prepare('UPDATE mcp_servers SET tools=?,checked_at=? WHERE id=?').run(JSON.stringify([{ name: 'bad_tool', inputSchema: { type: 'object' } }]), Date.now(), server.id);
+  const customName = mcpToolName(server, 'bad_tool');
+  activeScenario = { slug: 'GITHUB_GET_REPOSITORY', step: 0, calls: [], results: [] };
+  rejectNextModelRequest = true;
+  const before = executed.length;
+  try {
+    enqueue(bot.id, { type: 'user', text: 'Read the repository using the existing connected app.' });
+    await settleAgentJobs();
+    const rejected = rejectedBodies.pop();
+    assert.ok(rejected.tools.some((t: any) => t.name === customName));
+    assert.deepEqual(modelBodies[0].tools, rejected.tools.filter((t: any) => t.name !== customName), 'retry removes only custom MCP tools');
+    for (const name of ['list_app_connections', 'search_apps', 'request_app_connection', 'SWARM_APPS_SEARCH', 'SWARM_APPS_EXECUTE']) assert.ok(modelBodies[0].tools.some((t: any) => t.name === name));
+    assert.equal(executed.length, before + 1);
+    assert.deepEqual(activeScenario.results.at(-1), { repository: 'alice/project', canRead: true });
+  } finally {
+    activeScenario = undefined; modelBodies.length = 0;
+    db.prepare('DELETE FROM mcp_servers WHERE id=?').run(server.id);
+  }
+});
+
+test('a model HTTP400 without custom MCP tools fails visibly instead of silently removing app access', async () => {
+  expectedTextRequests += 1;
+  const bot = createBot('alice', { name: 'Native schema error', isPrimary: true });
+  activeScenario = { slug: 'GITHUB_GET_REPOSITORY', step: 0, calls: [], results: [] };
+  rejectNextModelRequest = true;
+  const before = executed.length;
+  try {
+    const jobId = enqueue(bot.id, { type: 'user', text: 'Read the repository.' });
+    await settleAgentJobs();
+    const rejected = rejectedBodies.pop();
+    assert.ok(rejected.tools.some((t: any) => t.name === 'SWARM_APPS_SEARCH'));
+    assert.equal(modelBodies.length, 0, 'no reduced-schema retry');
+    assert.equal((db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(jobId) as any).state, 'uncertain');
+    assert.equal(executed.length, before);
+    const notices = db.prepare("SELECT body FROM rows WHERE bot_id=? AND kind='notice'").all(bot.id) as any[];
+    assert.ok(notices.some(row => JSON.parse(row.body).text.includes('Invalid tool schema')));
+  } finally { activeScenario = undefined; modelBodies.length = 0; }
 });

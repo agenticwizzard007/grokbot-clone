@@ -25,6 +25,8 @@ Only server administrators (`ADMIN_USER_IDS` or an `account_roles` admin entry; 
 
 The realtime voice agent can inspect and coordinate Swarm directly. It does not need to open Swarm in its computer's browser or sign into a second copy of the app.
 
+Composer dictation and live voice calls are separate features. Dictation transcribes speech into the message composer. A live call runs a realtime agent with native coordination and connected-app tools; it can delegate a task to a chat agent and receive that agent's result during the call.
+
 - `get_platform_state` reports the selected text provider/model, CLI connection and runtime, recorded provider plan/quota observations when available, and account-scoped usage. `include_models` requests the available catalog. The active call's voice provider/model is reported separately from text routing. A CLI default, account label, or zero recorded API charges does not prove a particular subscription tier, remaining allowance, or absence of subscription fees. Unobserved facts remain unknown.
 - `list_agents` and `get_agent` read the user's team, configurations, chats, tasks, routines and setup status. The primary agent can create teammates with `create_bot` and change their identity/model settings with `update_agent`. Creation uses the same durable setup service as text chat, preserving the spoken brief and corrections. It creates the teammate immediately; the existing setup interview and activation rules still apply. Computer readiness is reported separately.
 - `send_task` accepts an optional `bot_id` to assign work, follow up, or forward the user's answer to a specialist. It uses the normal agent loop and approval policies. `control_agent` stops work without deleting the agent; only the primary can stop another agent.
@@ -47,6 +49,8 @@ The live call displays pending connection and approval cards from the user's tea
 
 Connected-app execution requires a stable `toolCallId`; a client retry must reuse it. Multiple native actions for the same agent stay durably queued behind a pending approval. Resolving the earlier approval releases the next action without replacing the earlier decision or blocking other agents.
 
+Ordinary chat agents use these connections too, including when their reasoning model runs through a subscription CLI. They can list an existing private connection, discover an exact app tool, execute it and return its result without connecting the account again. Default app approval decisions use provider metadata: a verified read can run with a fresh read-only check at dispatch, while write, unknown or conflicting metadata requires approval unless the user saved an allow policy. The read-only constraint belongs to the individual tool call. If a model rejects custom MCP schemas, the retry removes only those schemas and retains the native Composio adapter tools; a request without custom MCP tools fails visibly instead of silently losing app access.
+
 ## Validation
 
 Run `node --import tsx --test tests/platform-voice.test.mts` for admin authorization, encrypted persistence, new-account inheritance, tenant isolation, CLI/personal-provider routing, credential validation, error sanitization and usage attribution. The tests use a local mock; a real microphone call and live xAI billing/permissions must also be checked after a production key is supplied.
@@ -56,3 +60,5 @@ Run `node --import tsx --test tests/voice-coordinator.test.mts tests/platform-st
 Run `node --import tsx --test tests/app-connections.test.mts` for native connection ownership, secret-safe output, complete/bounded service search, unavailable-versus-empty results, active-account checks, connect-card reuse, job lineage and setup prompt constraints. The suite uses local SDK/transport mocks and does not start OAuth or call a live provider.
 
 Run `node --import tsx --test tests/app-readonly.test.mts tests/voice-apps.test.mts` for local/tenant gateway metadata enforcement, SDK result handling, setup read checks in both voice and text chat, approval continuation, action deduplication and account isolation. Run `npm run build -w web && node tests/voice-apps-ui.mjs` for desktop/mobile call controls with mocked OAuth and realtime services. These tests do not exercise a live provider authorization or microphone conversation.
+
+Run `node --import tsx --test tests/app-text-policy.test.mts tests/cli-apps.test.mts` for ordinary chat's metadata-based approval policy, current connection discovery, API/CLI dispatch and approval resumption. The voice-apps suite also covers ordinary active chat, voice-delegated app work and native app tool retention on model schema errors.
