@@ -23,6 +23,8 @@ const cafPath = path.join(root, 'voice.caf');
 const { execFileSync } = await import('node:child_process');
 execFileSync(ffmpegBin, ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-c:a', 'libopus', '-f', 'caf', cafPath, '-y']);
 const cafAudio = fs.readFileSync(cafPath);
+const oggAudio = execFileSync(ffmpegBin, ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=660:duration=1', '-c:a', 'libopus', '-f', 'ogg', 'pipe:1']);
+const platformStt: { filename: string; mime: string; data: Buffer }[] = [];
 
 // ---------- fake Inkbox ----------
 const ib = {
@@ -41,9 +43,28 @@ const inkbox = http.createServer((req, res) => {
   let raw = '';
   const chunks: Buffer[] = [];
   req.on('data', (d) => { raw += d; chunks.push(d); });
-  req.on('end', () => {
+  req.on('end', async () => {
     const json = (code: number, b: unknown) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(b)); };
     const url = req.url ?? '';
+    if (url === '/xai/stt' && req.method === 'POST') {
+      if (req.headers.authorization !== 'Bearer shared-voice-test-key') return json(401, { error: 'bad voice key' });
+      try {
+        const form = await new Response(Buffer.concat(chunks), { headers: { 'content-type': String(req.headers['content-type']) } }).formData();
+        const file = form.get('file');
+        if (!(file instanceof File)) return json(400, { error: 'file required' });
+        const data = Buffer.from(await file.arrayBuffer());
+        // The fake must reject the actual regression, even if CAF is mislabeled as MP3.
+        if (data.subarray(0, 4).toString() === 'caff') return json(415, { error: 'CAF unsupported' });
+        const mp3 = data.subarray(0, 3).toString() === 'ID3' || (data[0] === 0xff && (data[1] & 0xe0) === 0xe0);
+        const ogg = data.subarray(0, 4).toString() === 'OggS';
+        if (!(mp3 && file.type === 'audio/mpeg' && file.name.endsWith('.mp3')) &&
+            !(ogg && file.type === 'audio/ogg' && file.name.endsWith('.ogg'))) return json(415, { error: 'unsupported container or MIME' });
+        execFileSync(ffmpegBin, ['-hide_banner', '-loglevel', 'error', '-i', 'pipe:0', '-f', 'null', '-'], { input: data, timeout: 5000 });
+        platformStt.push({ filename: file.name, mime: file.type, data });
+        return json(200, { text: 'mock: say Shared platform voice note accepted' });
+      } catch { return json(400, { error: 'invalid audio upload' }); }
+    }
+    if (url === '/media/whatsapp.ogg') { res.writeHead(200, { 'content-type': 'audio/ogg; codecs=opus' }); return res.end(oggAudio); }
     if (url.startsWith('/media/voice')) { res.writeHead(200, { 'content-type': 'audio/x-caf' }); return res.end(cafAudio); }
     if (url === '/api/v1/imessage/media' && req.method === 'POST') {
       if (req.headers['x-api-key'] !== 'idkey') return json(401, { detail: 'bad key' });
@@ -108,6 +129,7 @@ await new Promise<void>((r) => inkbox.listen(ibPort, r));
 Object.assign(process.env, {
   DB_PATH: path.join(root, 'test.db'), FILES_DIR: path.join(root, 'files'), SESSION_SECRET: 'test-only-secret', COMPUTER_PROVIDER: 'local', COMPOSIO_API_KEY: '',
   OPENROUTER_API_KEY: 'test', OPENROUTER_BASE_URL: `http://localhost:${mockPort}/api/v1`, DIRECT_API_KEY: 'test', DIRECT_BASE_URL: `http://localhost:${mockPort}/v1`, LLM_PROVIDER: 'openrouter',
+  XAI_API_KEY: '', XAI_BASE_URL: `http://localhost:${ibPort}/xai`,
   INKBOX_BASE_URL: `http://localhost:${ibPort}`, INKBOX_ADMIN_API_KEY: 'admin', INKBOX_API_KEY: 'idkey', INKBOX_SIGNING_KEY: 'whsec_test', INKBOX_IDENTITY_ID: 'idn_1', INKBOX_HANDLE: 'swarm',
   SERVER_URL: 'https://swarm.swarms.so', APP_URL: 'https://swarm.swarms.so', INKBOX_TUNNEL: '0',
 });
@@ -133,6 +155,10 @@ const { matchApprovalReply, parseVerdict } = await import('../server/src/messagi
 const { speakable } = await import('../server/src/messaging/bridge.js');
 const { toPlainText } = await import('../server/src/messaging/format.js');
 const { saveSetting, clearSetting } = await import('../server/src/settings.js');
+const { createCliPairing, revokeCliPairing, selectCli, setCliRuntime } = await import('../server/src/cli/store.js');
+const { attachCliSocket, refreshCli, disconnectCli } = await import('../server/src/cli/bridge.js');
+const { WebSocket } = await import('ws');
+attachCliSocket(inkbox);
 const { Hono } = await import('hono');
 initMessaging({ process: true });
 const app = new Hono().route('/api/messaging/inkbox/webhook', inkboxWebhook).route('/api', messagingPublic).route('/api/messaging', messagingApi);
@@ -666,6 +692,89 @@ test('WhatsApp through Inkbox routes replies and sends eyes reactions', async ()
   assert.equal(r.reply_to_message_id, ev.data.message.id, 'Bot replies quote the inbound WhatsApp message');
   const user = listRows((db.prepare('SELECT id FROM bots WHERE user_id=? AND is_primary=1').get(alice) as any).id).find((x) => x.body.type === 'message' && (x.body as any).text === 'hello from whatsapp');
   assert.deepEqual((user!.body as any).from, { kind: 'whatsapp', id: 'whatsapp', name: 'WhatsApp' });
+});
+
+test('shared STT fixture rejects raw CAF and invalid audio instead of blindly accepting multipart', async () => {
+  for (const [data, mime, filename] of [[cafAudio, 'audio/x-caf', 'voice.caf'], [cafAudio, 'audio/mpeg', 'voice.mp3'], [Buffer.from('OggS-invalid'), 'audio/ogg', 'voice.ogg']] as const) {
+    const form = new FormData();
+    form.append('file', new Blob([new Uint8Array(data)], { type: mime }), filename);
+    const r = await fetch(`http://localhost:${ibPort}/xai/stt`, { method: 'POST', headers: { authorization: 'Bearer shared-voice-test-key' }, body: form });
+    assert.ok(r.status === 400 || r.status === 415);
+    await r.body?.cancel();
+  }
+  assert.equal(platformStt.length, 0);
+});
+
+test('shared xAI transcribes real iMessage CAF and WhatsApp OGG once while text uses the CLI subscription', async t => {
+  const generations: any[] = [];
+  const ws = new WebSocket(`ws://localhost:${ibPort}/api/cli-bridge`);
+  const secret = createCliPairing(alice);
+  await new Promise<void>((resolve, reject) => {
+    ws.once('error', reject);
+    ws.on('message', raw => {
+      const r = JSON.parse(String(raw));
+      if (r.type === 'welcome') { resolve(); return; }
+      const reply = (result: unknown) => ws.send(JSON.stringify({ id: r.id, result }));
+      if (r.method === 'status') reply({ codex: { installed: true, authenticated: true, subscription: true }, claude: { installed: false, authenticated: false, subscription: false } });
+      if (r.method === 'catalog') reply({ models: [{ id: 'codex/voice-fixture', name: 'Voice fixture', efforts: ['low'], defaultEffort: 'low', vision: true }], defaultModel: 'codex/voice-fixture' });
+      if (r.method === 'generate') {
+        generations.push(r);
+        reply({ text: JSON.stringify({ text: 'Shared platform voice note accepted', tool_calls: [] }), usage: { input_tokens: 20, output_tokens: 8 } });
+      }
+    });
+    ws.once('open', () => ws.send(JSON.stringify({ type: 'hello', version: 1, nativeMcp: true, token: secret, device: 'Voice-note test bridge' })));
+  });
+  const prefs = store.getPrefs(alice);
+  const bot = (db.prepare('SELECT id FROM bots WHERE user_id=? AND is_primary=1').get(alice) as any).id;
+  selectCli(alice, 'codex');
+  saveSetting('voice', 'shared-voice-test-key', owner);
+  store.setPrefs(alice, { activeBotId: bot, voiceReplies: 'off' });
+  try {
+    await refreshCli(alice);
+    for (const [channel, phone, filename, mime] of [
+      ['imessage', '15550002222', 'voice.caf', 'audio/x-caf'],
+      ['whatsapp', '15550008888', 'whatsapp.ogg', 'audio/ogg; codecs=opus'],
+    ] as const) await t.test(channel, async () => {
+      const event = (channel === 'imessage' ? imessage : whatsapp)(phone, '', { media: [{ url: `http://localhost:${ibPort}/media/${filename}`, content_type: mime }] });
+      const beforeRows = listRows(bot).at(-1)?.seq ?? 0;
+      const beforeGenerations = generations.length;
+      const beforeStt = platformStt.length;
+      const beforeApi = (await mockReqs()).length;
+      ib.sent.length = 0;
+      assert.equal((await hook(event)).status, 204);
+      assert.equal((await hook(event)).status, 204);
+      await inbox.settle();
+      const reply = await sentTo(phone, /Shared platform voice note accepted/);
+      await bridge.drain(alice);
+      // A redelivery after completion also must not transcribe or enqueue a second turn.
+      assert.equal((await hook(event)).status, 204);
+      await inbox.settle();
+      await bridge.drain(alice);
+      assert.equal(platformStt.length, beforeStt + 1);
+      const upload = platformStt.at(-1)!;
+      assert.equal(upload.mime, channel === 'imessage' ? 'audio/mpeg' : 'audio/ogg');
+      assert.equal(upload.filename, channel === 'imessage' ? 'voice.mp3' : 'voice.ogg');
+      if (channel === 'whatsapp') assert.deepEqual(upload.data, oggAudio);
+      assert.equal(generations.length, beforeGenerations + 1);
+      assert.equal(generations.at(-1).params.provider, 'codex');
+      assert.match(generations.at(-1).params.prompt, channel === 'imessage' ? /\[via iMessage, voice note\]/ : /\[via WhatsApp, voice note\]/);
+      assert.equal((await mockReqs()).length, beforeApi, 'neither transcription nor text falls back to another provider');
+      const users = listRows(bot).filter(r => r.seq > beforeRows && r.body.type === 'message' && r.body.role === 'user');
+      assert.equal(users.length, 1);
+      assert.equal((users[0].body as any).text, 'mock: say Shared platform voice note accepted');
+      assert.equal(ib.sent.filter(m => m.conversation_id === conv(phone)).length, 1);
+      assert.equal(reply.reply_to_message_id, event.data.message.id);
+      assert.equal(!!reply.whatsapp, channel === 'whatsapp');
+    });
+  } finally {
+    clearSetting('voice');
+    selectCli(alice, null);
+    disconnectCli(alice);
+    revokeCliPairing(alice);
+    setCliRuntime(alice, 'server');
+    store.setPrefs(alice, prefs);
+    ws.close();
+  }
 });
 
 test('owner can fetch WhatsApp onboarding link and QR for testing', async () => {

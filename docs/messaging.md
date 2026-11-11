@@ -69,7 +69,7 @@ New accounts get a short welcome. Then Quinn, their primary Bot, runs a brief on
 
 ## Voice
 
-- **Voice notes in.** Voice notes are transcribed and handled like a typed message, and the Bot is told it was spoken. Transcription uses OpenRouter (`OPENROUTER_STT_MODEL`, default `openai/gpt-4o-mini-transcribe`), falling back to the custom provider. iMessage voice notes come in Apple's CAF format, which is converted to MP3 first with the bundled ffmpeg (`ffmpeg-static`).
+- **Voice notes in.** Voice notes are transcribed and handled like a typed message, and the Bot is told it was spoken. On a standalone server, transcription tries the user's enabled personal OpenRouter connection first, or the server's OpenRouter key when the account is not using a CLI subscription (`OPENROUTER_STT_MODEL`, default `openai/gpt-4o-mini-transcribe`). It then tries configured platform voice, followed by the legacy direct provider when the account is not using a CLI subscription. CLI accounts without a personal OpenRouter connection use platform voice; they do not silently charge the server's OpenRouter or legacy direct key. Tenant credential routing stays scoped to that tenant. Unsupported containers such as Apple's CAF are converted to MP3 with the bundled ffmpeg (`ffmpeg-static`) before transcription, including on platform voice. If xAI rejects a supported non-MP3 recording with HTTP 400/415, it is converted and retried once before provider fallback continues.
 - **Voice replies out.** Each user picks **Reply by voice** in Settings → Messaging, or by text with `/voice`:
   - **When I send a voice note** (default): voice in, voice out; text in, text out.
   - **Always.**
