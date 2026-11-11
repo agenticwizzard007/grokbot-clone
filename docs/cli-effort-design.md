@@ -1,0 +1,11 @@
+# Model effort in subscription mode
+
+The composer reuses [Paper · Composer & Analytics](https://app.paper.design/file/01M73GPA3GPRHEBRRXNDC09HDV/p-2-0): model-menu artboard `HF-0`, effort flyout `W5-0`, and composer ring/glow artboard `HG-0`. Their tree and computed styles were read through Paper MCP. The flyout retains the 14px surface radius, 6px inset, 8px option radius, level descriptions and selected checkmark. Phones and constrained desktop layouts show the same options inside the model menu.
+
+Every model with reported effort support has an effort button in its row, including search results. Choosing a level saves that model and effort together. The main Effort control and keyboard shortcut also work before an explicit model is selected: they resolve the connected CLI's reported default and pin the concrete model when saving. The UI shows the provider's default effort for an implicit CLI default, or “Default” if that information is unavailable. It does not invent an effort for models without support or silently substitute for removed explicit models.
+
+Subscription options come only from the CLI's advertised levels. API-only Ultracode is not added to that list. The visual effect is independent of billing: Low uses a restrained slow blue ring; Medium and High increase its color and motion; Extra high and Max use Paper's rainbow treatment. The working-line shimmer also follows the selection. These are visual indicators of the selected effort, not measurements of token use, progress or response speed. They do not change token budgets, tool permissions, provider limits or the agent's step budget.
+
+Reduced motion preserves a static ring and glow. Models without an effort selection have no effort glow. Choosing a different model, changing providers, or rolling back a failed save updates the display to the supported effective effort.
+
+Validation: `node tests/cli-effort-ui.mjs` exercises the actual composer and activity line with controlled Codex/Claude catalogs at 1440, 960, 390 and 320px in light/dark themes. It checks atomic model/effort saves, implicit and explicit defaults, row/search selection, keyboard controls, failure rollback, unsupported and unknown metadata, motion and reduced motion. These fixtures do not qualify live provider authentication or inference.

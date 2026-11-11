@@ -5,7 +5,7 @@ import { displayName, useStore } from '../store';
 import { Icon } from './Icon';
 import { Menu } from './Menu';
 import { ComposerModelMenu, cycleEffort, toggleFast } from './ComposerModelMenu';
-import { useModels } from '../lib/models';
+import { modelSelection, useModels } from '../lib/models';
 import { UsageModeBubble } from './UsageModeBubble';
 import { endCall, isCallActive, startCall, useVoice } from '../voice/call';
 import { useDictation } from '../voice/dictation';
@@ -41,22 +41,26 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
     el.style.overflowY = el.scrollHeight > MAX_H ? 'auto' : 'hidden';
   }, [text, onScreen, mobile]);
 
-  // Ultracode: a one-off flare when it's switched on.
-  const billing = useModels(s => s.billing);
-  const ultra = billing !== 'plan' && bot.effort === 'ultracode';
+  // The Paper ring reflects the supported, selected effort in either billing mode.
+  const catalog = useModels();
+  const { effort } = modelSelection(bot, catalog);
+  const animated = effort !== null && effort !== 'none';
+  const ultra = effort === 'ultracode';
   const [flare, setFlare] = useState(false);
-  const wasUltra = useRef(ultra);
+  const previousEffort = useRef({ botId: bot.id, effort });
   useEffect(() => {
-    if (ultra && !wasUltra.current) { setFlare(true); const t = setTimeout(() => setFlare(false), 1400); wasUltra.current = ultra; return () => clearTimeout(t); }
-    wasUltra.current = ultra;
-  }, [ultra]);
+    const changed = animated && previousEffort.current.botId === bot.id && previousEffort.current.effort !== effort;
+    previousEffort.current = { botId: bot.id, effort };
+    setFlare(changed);
+    if (changed) { const timer = setTimeout(() => setFlare(false), 1400); return () => clearTimeout(timer); }
+  }, [bot.id, effort, animated]);
 
   // ⌘⇧/ cycles the effort, ⌘⇧F toggles Fast (while the composer has focus).
   const area = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || !area.current?.contains(document.activeElement)) return;
-      const m = bot.model ? useModels.getState().byId.get(bot.model) : undefined;
+      const m = modelSelection(bot, useModels.getState()).current;
       if (e.code === 'Slash') { e.preventDefault(); cycleEffort(bot, m); }
       else if (e.code === 'KeyF' && useModels.getState().canFast) { e.preventDefault(); toggleFast(bot); }
     };
@@ -114,9 +118,9 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
     <div className="composer-area" ref={area}>
       {error && <div className="composer__error">{error} <button type="button" className="link-btn" onClick={() => setError(null)}>Dismiss</button></div>}
       <UsageModeBubble />
-      <div className={`composer-shell${flare ? ' is-flaring' : ''}`}>
-      {ultra && <span className="composer__glow" aria-hidden />}
-      <div className={`composer${multiline ? ' is-multiline' : ''}${ultra ? ' is-ultracode' : ''}`}>
+      <div className={`composer-shell effort-motion${flare ? ' is-flaring' : ''}`} data-effort={effort ?? undefined}>
+      {animated && <span className="composer__glow" aria-hidden />}
+      <div className={`composer${multiline ? ' is-multiline' : ''}${animated ? ' has-effort' : ''}${ultra ? ' is-ultracode' : ''}`}>
         <textarea
           ref={ref}
           className="composer__input"

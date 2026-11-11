@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { useStore } from '../store';
-import type { Effort } from '@shared/types';
+import type { Bot, Effort } from '@shared/types';
 
 /** The composer's model picker: the provider's models, the user's favourites, effort levels. */
 
@@ -106,6 +106,25 @@ export function effectiveEffort(effort: Effort, m: PickerModel | undefined): Eff
   const best = supported.map((s) => ({ s: s as Effort, i: ORDER.indexOf(s as Effort) })).filter((x) => x.i >= 0)
     .sort((a, b) => Math.abs(a.i - at) - Math.abs(b.i - at) || a.i - b.i)[0];
   return best?.s ?? effort;
+}
+
+/** Resolve defaults like the server. An explicit model removed from the catalog stays unavailable. */
+export function modelSelection(bot: Pick<Bot, 'model' | 'effort'>, catalog: Pick<ModelsState, 'provider' | 'billing' | 'defaultModel' | 'byId'>) {
+  const cli = catalog.provider === 'codex-cli' ? 'codex' : catalog.provider === 'claude-cli' ? 'claude' : null;
+  const implicitPlanDefault = !!cli && !bot.model?.startsWith(`${cli}/`);
+  let id = bot.model;
+  if (cli) {
+    if (implicitPlanDefault || id === `${cli}/default`) id = catalog.defaultModel;
+  } else if (!id || /^(claude|codex)\//.test(id) || (catalog.provider === 'openrouter') !== id.includes('/')) {
+    id = catalog.defaultModel;
+  }
+  const current = id ? catalog.byId.get(id) : undefined;
+  const supported = effortsFor(current);
+  // An implicit CLI default runs with the CLI's default effort until the user picks one.
+  const effort = !current || !supported.length ? null : implicitPlanDefault
+    ? supported.find(level => level === current.defaultEffort) ?? null
+    : effectiveEffort(bot.effort, current);
+  return { current, effort };
 }
 
 /** "anthropic/claude-opus-5.5" → "claude-opus-5.5", for models missing from the catalog. */

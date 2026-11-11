@@ -4,6 +4,7 @@ import { BotAvatarFor } from '../avatar/BotAvatar';
 import { activityPhrase } from '../lib/phrases';
 import { BrailleSpinner, ElapsedTimer, type SpinnerVariant } from './BrailleSpinner';
 import type { ActivityKind } from '@shared/types';
+import { modelSelection, useModels } from '../lib/models';
 
 /** Which spinner animation fits what the Bot is doing. */
 function variantFor(kind: ActivityKind | undefined, waiting: boolean): SpinnerVariant {
@@ -15,6 +16,7 @@ function variantFor(kind: ActivityKind | undefined, waiting: boolean): SpinnerVa
 
 /** The single live "activity line": avatar mark + shimmering phrase + a braille spinner and a running clock. */
 export function ActivityLine({ bot, live, rows }: { bot: Bot; live: LiveState; rows: Row[] }) {
+  const { effort } = modelSelection(bot, useModels());
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -25,7 +27,7 @@ export function ActivityLine({ bot, live, rows }: { bot: Bot; live: LiveState; r
   const phrase = activityPhrase(live, rows, tick);
   const waiting = !live.isRunning && (live.awaiting || live.activity?.kind === 'waiting_for_you');
   return (
-    <div className={`activity-line${waiting ? ' is-waiting' : ''}`} role="status" aria-live="polite">
+    <div className={`activity-line effort-motion${waiting ? ' is-waiting' : ''}`} data-effort={waiting ? undefined : effort ?? undefined} role="status" aria-live="polite">
       <span className="activity-line__mark"><BotAvatarFor bot={bot} size={20} /></span>
       <span className="activity-line__text shimmer" key={phrase}>{phrase}</span>
       <span className="activity-timer" title={waiting ? 'Waiting for you' : 'Working'}>

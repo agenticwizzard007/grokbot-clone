@@ -61,7 +61,7 @@ createRoot(document.getElementById('root')).render(React.createElement(Harness))
    await page.waitForFunction(id=>document.querySelector('.model-pill__name')?.textContent==='Account model',`${provider}/account-special`);
    assert.equal(bot.model,`${provider}/account-special`);assert.equal(bot.effort,'high');assert.equal(bot.fast,false);
    await page.locator('.model-pill').click();
-   await page.getByRole('button',{name:/^Effort/}).click();
+   await page.getByRole('button',{name:'Effort',exact:true}).click();
    const choices=await page.getByRole('option').allTextContents();
    assert.equal(choices.length,2);assert.ok(choices.some(x=>x.startsWith('High')));assert.ok(choices.some(x=>x.startsWith('Low')));assert.ok(choices.every(x=>!x.includes('Ultracode')));
    await page.keyboard.press('Escape');
