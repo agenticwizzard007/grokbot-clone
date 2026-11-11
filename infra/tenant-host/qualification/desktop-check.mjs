@@ -190,12 +190,13 @@ export async function checkDesktop({ docker, exec, manifest, release, output }) 
     assert.equal(result.status, 'passed', result.error);
     assert.equal(result.blockedTargets.length, 7);
     return { ...result, profileSha256: manifest.desktopSeccompSha256,
-      image: release.desktopImage, config: desktopId, nonDesktopDefaultSeccomp: true, positiveControlListeners: 8 };
+      image: release.desktopImage, config: desktopId, nonDesktopDefaultSeccomp: true, positiveControlListeners: 8,
+      firewallSha256: manifest.hostFiles['/opt/swarm/firewall.sh'], firewallRestored: true };
   } finally {
     // Restore before cleanup: production IPv6 egress restrictions can prevent
     // private Fly SSH responses. Restoration failure must invalidate the run.
     try { restore(); } finally {
-      process.removeListener('exit', exitRestore);
+      if (restored || !saved4 || !saved6) process.removeListener('exit', exitRestore);
       const cleanup = [];
       for (const name of [...containers].reverse()) try { await docker(['rm', '-f', '--volumes', name]); } catch (error) { cleanup.push(error); }
       for (const name of [...networks].reverse()) try { await docker(['network', 'rm', name]); } catch (error) { cleanup.push(error); }

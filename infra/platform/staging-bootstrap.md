@@ -151,7 +151,7 @@ The provisioner exits until step 9 records release-gate evidence for `TENANT_HOS
 1. Containment: run `tests/container-containment.test.mts` with `RUN_CONTAINER_TESTS=1` on a Fly performance machine
    running the host image (a Firecracker VM has its own kernel with cgroup v2 domain controllers; this sandbox did not).
    Use the [real-Fly qualification job](../tenant-host/qualification/README.md) to render the bounded `iad`
-   performance-2x Machine definition, verify the pinned Alpine identity and production policy, collect image-bound
+   performance-2x/8 GiB Machine definition, verify the pinned Alpine identity and production policy, collect image-bound
    JSON/SHA-256 evidence, and tear down the disposable Machine. Preparation alone does not satisfy this gate.
 2. Network isolation: two tenant apps on separate custom networks; prove no cross-reach and Fly's network attestation.
 3. Signed image: cosign verify the host image digest.

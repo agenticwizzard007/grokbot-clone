@@ -23,6 +23,8 @@ assert.deepEqual(job.imageProvenance, manifest.imageProvenance);
 assert.equal(job.checks.desktop.status, 'passed');
 assert.equal(job.checks.desktop.profileSha256, manifest.desktopSeccompSha256);
 assert.equal(job.checks.desktop.nonDesktopDefaultSeccomp, true);
+assert.equal(job.checks.desktop.firewallRestored, true);
+assert.equal(job.checks.desktop.firewallSha256, manifest.hostFiles['/opt/swarm/firewall.sh']);
 for (const check of ['filesystem', 'kernel', 'namespaceContained', 'companionRoute', 'invalidCompanionTokenRejected', 'chromeNamespaceSandbox', 'chromeSeccompSandbox']) assert.equal(job.checks.desktop.checks[check], true);
 assert.equal(job.checks.desktop.blockedTargets.length, 7);
 assert.equal(job.fly.region, 'iad');
