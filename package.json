@@ -29,6 +29,7 @@
     "test:native-auth": "node --import tsx --test tests/native-auth.test.mts",
     "test:voice-shortcut": "node tests/voice-shortcut.mjs",
     "test:mobile": "node tests/mobile-layout.mjs",
+    "test:google-auth": "node --import tsx --test tests/google-auth.test.mts tests/google-composio-auth.test.mts",
     "test:apple-auth": "node --import tsx --test tests/apple-auth.test.mts",
     "test:tasks": "node tests/tasks-layout.mjs",
     "test:cli": "node --import tsx --test --test-concurrency=1 tests/cli-catalog.test.mts tests/cli-runner.test.mts tests/cli-login-runner.test.mts tests/cli-login.test.mts tests/cli-subscription.test.mts tests/cli-concurrency.test.mts tests/cli-hosted-concurrency.test.mts tests/cli-supervisor.test.mts && node tests/cli-chat.mjs",

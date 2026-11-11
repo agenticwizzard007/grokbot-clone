@@ -28,6 +28,8 @@ export async function stageLegacyImport(directory:Directory,provider:Pick<Connec
     if(!owner)throw new Error('Source owner missing.');profile={name:typeof owner.name==='string'?owner.name.slice(0,200):'Swarm member'};
     for(const identity of input.identities){
       if(!['google','apple','openrouter'].includes(identity.provider)||!identity.subject||identity.subject.length>500)throw new Error('Invalid immutable identity.');
+      // Standalone Composio Gmail sign-in binds a mailbox, not Google's immutable OIDC subject; tenants re-link Google.
+      if(identity.provider==='google'&&identity.subject.startsWith('gmail-mailbox:'))throw new Error('Invalid immutable identity.');
       const table=`${identity.provider}_identities`;
       if(!source.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table))throw new Error('Authenticated provider linking is required in the source account.');
       const row=source.prepare(`SELECT user_id FROM ${table} WHERE subject=?`).get(identity.subject) as any;

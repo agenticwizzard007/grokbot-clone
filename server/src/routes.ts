@@ -28,9 +28,8 @@ import { appleAuth } from './auth/apple.js';
 import { appleAvailableForAgent } from './auth/apple-provider.js';
 import { openrouterAuth } from './auth/openrouter.js';
 import { providerApi } from './providers/routes.js';
-import { googleAuth } from './auth/google.js';
+import { googleAuth, googleLinked, googleSignInAvailable } from './auth/google.js';
 import { onSessionRevoked } from './security/session-lifecycle.js';
-import { googleAvailable } from './auth/google-provider.js';
 import { isTenant } from './deployment.js';
 
 export const api = new Hono<AuthVars>();
@@ -48,7 +47,7 @@ api.route('/providers', providerApi);
 api.get('/auth/me', (c) => {
   const user = userFromCookieHeader(c.req.header('cookie'));
   const appleLinked = !!user && !!db.prepare('SELECT 1 FROM apple_identities WHERE user_id=?').get(user.id);
-  return c.json({ user, devLogin: env.devLogin, googleLogin: googleAvailable(), appleLogin: appleAvailableForAgent(c.req.header('user-agent')), appleLinked });
+  return c.json({ user, devLogin: env.devLogin, googleLogin: googleSignInAvailable(), googleLinked: !!user && googleLinked(user.id), appleLogin: appleAvailableForAgent(c.req.header('user-agent')), appleLinked });
 });
 
 api.post('/auth/dev', async (c) => {

@@ -14,6 +14,7 @@ interface State {
   googleLogin: boolean;
   appleLogin: boolean;
   appleLinked: boolean;
+  googleLinked: boolean;
   authChecked: boolean;
 
   bots: Bot[];
@@ -70,6 +71,7 @@ export const useStore = create<State>((set, get) => ({
   googleLogin: true,
   appleLogin: false,
   appleLinked: false,
+  googleLinked: false,
   authChecked: false,
   bots: [],
   botsLoaded: false,
@@ -91,8 +93,8 @@ export const useStore = create<State>((set, get) => ({
 
   async checkAuth() {
     try {
-      const { user, devLogin, googleLogin, appleLogin, appleLinked } = await api.me();
-      set({ user, devLogin, googleLogin: googleLogin !== false, appleLogin: !!appleLogin, appleLinked: !!appleLinked, authChecked: true });
+      const { user, devLogin, googleLogin, googleLinked, appleLogin, appleLinked } = await api.me();
+      set({ user, devLogin, googleLogin: googleLogin !== false, appleLogin: !!appleLogin, appleLinked: !!appleLinked, googleLinked: !!googleLinked, authChecked: true });
     } catch {
       set({ user: null, authChecked: true });
     }

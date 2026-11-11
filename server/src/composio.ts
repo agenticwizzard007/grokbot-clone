@@ -290,3 +290,47 @@ export async function manageConnection(userId: string, id: string, operation: 'd
   await composio().connectedAccounts.delete(id);
   invalidateComposioSession(userId);
 }
+
+// ---------- Google sign-in through a Composio-managed Gmail authorization ----------
+// The Gmail profile address comes from Google for the authorized mailbox, so it is verified.
+// It is never compared with the editable users.email; see auth/google.ts for how it is bound.
+
+export async function startGoogleLogin(provisionalUserId: string, callbackUrl: string) {
+  if (isTenant || !env.composioEnabled) throw new Error(APPS_OFF);
+  const session = await composio().create(provisionalUserId, { manageConnections: false });
+  const req = await session.authorize('gmail', { callbackUrl });
+  if (!req.redirectUrl || !req.id) throw new Error('Google sign-in did not return a connection link.');
+  return { redirectUrl: req.redirectUrl, connectedAccountId: req.id };
+}
+
+export class GoogleLoginError extends Error {
+  constructor(public readonly code: 'google_denied' | 'google_pending' | 'google_permissions' | 'google_unavailable') { super(code); }
+}
+
+/** Only a confirmed Gmail authorization for this exact account and user establishes the mailbox. */
+export async function googleProfile(connectedAccountId: string, userId: string): Promise<{ email: string }> {
+  const account = await composio().connectedAccounts.get(connectedAccountId) as any;
+  if (account.status === 'FAILED' && /access_denied/i.test(account.statusReason ?? '')) throw new GoogleLoginError('google_denied');
+  if (account.status !== 'ACTIVE' || account.toolkit?.slug !== 'gmail') throw new GoogleLoginError('google_pending');
+  const r = await composio().tools.proxyExecute({ endpoint: 'https://gmail.googleapis.com/gmail/v1/users/me/profile', method: 'GET', connectedAccountId, userId } as any) as any;
+  if (r.status === 401 || r.status === 403) throw new GoogleLoginError('google_permissions');
+  if (r.status < 200 || r.status >= 300) throw new GoogleLoginError('google_unavailable');
+  const email = (r.data as { emailAddress?: unknown } | undefined)?.emailAddress;
+  if (typeof email !== 'string' || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new GoogleLoginError('google_unavailable');
+  return { email: email.trim().toLowerCase() };
+}
+
+/** Verified mailboxes of this user's own ACTIVE Gmail authorizations (proof for adopting a pre-binding account). */
+export async function ownGmailMailboxes(userId: string): Promise<Set<string>> {
+  const out = new Set<string>();
+  const r = await composio().connectedAccounts.list({ userIds: [userId], toolkitSlugs: ['gmail'], statuses: ['ACTIVE'], limit: 20 } as any) as any;
+  for (const a of r.items ?? []) {
+    if (a.status !== 'ACTIVE' || a.toolkit?.slug !== 'gmail' || a.isDisabled) continue;
+    try { out.add((await googleProfile(a.id, userId)).email); } catch { /* unusable authorization is not proof */ }
+  }
+  return out;
+}
+
+export async function deleteGoogleLoginConnection(id: string) {
+  try { await composio().connectedAccounts.delete(id); } catch { /* best effort: it belongs to a throwaway id */ }
+}
