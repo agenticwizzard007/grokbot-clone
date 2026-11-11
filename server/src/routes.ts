@@ -11,7 +11,8 @@ import { createSession, destroySession, requireUser, requireRecentAuth, recently
 import { allLive, appendRow, clearConversation, emitBot, getBot, getBotRow, getRow, listBots, listRoutines, listRows, listTasks, toRoutine, updateRow } from './store.js';
 import { enqueue, interrupt, resolveApproval, runInBotQueue } from './agent/loop.js';
 import { computers } from './computers/index.js';
-import { catalog, connectedToolkits, connectionsDetail, manageConnection, disconnect, invalidateComposioSession, startConnect, toolkitInfo } from './composio.js';
+import { catalog, connectedToolkits, connectionsDetail, manageConnection, removeExpiredConnection, ExpiredConnectionRemovalError, disconnect, invalidateComposioSession } from './composio.js';
+import { ConnectionCardChanged, pendingConnectionCards, reconcileConnectionCards, startCardConnect } from './agent/connection-cards.js';
 import { runRoutine, scheduleRoutine, unscheduleRoutine } from './routines.js';
 import { deleteEventTrigger } from './triggers.js';
 import { dispatchRoomMessage } from './agent/rooms.js';
@@ -433,7 +434,23 @@ api.get('/apps', async (c) => {
   return c.json({ apps, connected: [...connected], connectedApps, categories, total: items.length, nextOffset });
 });
 
-api.get('/apps/connections', async c => c.json({ connections: await connectionsDetail(c.get('user').id) }));
+api.get('/apps/connections', async c => {
+  const userId = c.get('user').id;
+  const pending = pendingConnectionCards(userId);
+  const connections = await connectionsDetail(userId);
+  reconcileConnectionCards(userId, pending, connections);
+  return c.json({ connections });
+});
+api.delete('/apps/connections/:id/expired', async c => {
+  try {
+    const result = await removeExpiredConnection(c.get('user').id, c.req.param('id'));
+    hub.emit(c.get('user').id, { type: 'connections' });
+    return c.json({ ok: true, ...result });
+  } catch (e) {
+    if (e instanceof ExpiredConnectionRemovalError) return c.json({ error: e.message, code: e.code }, e.status);
+    return c.json({ error: 'Could not verify or remove this expired connection. Try again later.' }, 503);
+  }
+});
 api.post('/apps/connections/:id/default', async c => {
   await manageConnection(c.get('user').id, c.req.param('id'), 'default');
   hub.emit(c.get('user').id, { type: 'connections' });
@@ -462,8 +479,11 @@ api.post('/apps/:slug/connect', async (c) => {
     cb.searchParams.set('expires', expires);
     cb.searchParams.set('sig', signUser(user.id, `native-apps:${slug}:${cb.searchParams.get('bot') ?? ''}:${cb.searchParams.get('seq') ?? ''}:${expires}`));
   }
-  const r = await startConnect(user.id, slug, cb.toString());
-  return c.json(r);
+  try { return c.json(await startCardConnect(user.id, slug, cb, botId, seq)); }
+  catch (e) {
+    if (e instanceof ConnectionCardChanged) return c.json({ error: e.message }, 409);
+    throw e;
+  }
 });
 
 api.get('/apps/callback', async (c) => {
@@ -481,16 +501,33 @@ api.get('/apps/callback', async (c) => {
   if (userExists && c.req.query('status') !== 'failed') {
     const connected = await connectedToolkits(userId).catch(() => new Set<string>());
     if (connected.has(slug)) {
-      ok = true;
+      ok = !botId && !seq;
       invalidateComposioSession(userId);
       hub.emit(userId, { type: 'connections' });
       if (botId && ownBot(userId, botId)) {
-        const info = await toolkitInfo(slug);
-        if (seq) {
+        const bot = ownBot(userId, botId);
+        if (seq && bot && bot.generation === Number(c.req.query('generation'))) {
           const row = getRow(botId, seq);
-          if (row?.body.type === 'card' && row.body.card === 'connect') updateRow(botId, seq, { ...row.body, status: 'connected' });
+          if (row?.body.type === 'card' && row.body.card === 'connect' && row.body.toolkit === slug &&
+              row.body.connectionAttempt && row.body.connectionAttempt === c.req.query('attempt') &&
+              ['pending', 'connected'].includes(row.body.status)) {
+            const connectedAccountId = row.body.connectedAccountId;
+            const accounts = await connectionsDetail(userId).catch(() => []);
+            // The user's other ACTIVE account must not confirm this sign-in attempt.
+            const verified = accounts.some(a => a.id === connectedAccountId && a.toolkit === slug && a.status === 'ACTIVE' && !a.isDisabled);
+            const currentBot = ownBot(userId, botId);
+            const current = currentBot?.generation === row.generation ? getRow(botId, seq) : null;
+            if (verified && current && JSON.stringify(current.body) === JSON.stringify(row.body)) {
+              ok = true;
+              if (!row.body.answerJobId) {
+                updateRow(botId, seq, { ...row.body, status: 'connected' });
+                const answerJobId = enqueue(botId, { type: 'system', connectionCardSeq: seq, text: `The user connected ${row.body.toolkitName}. Continue with what you were doing.` });
+                const resolved = getRow(botId, seq);
+                if (resolved?.body.type === 'card' && resolved.body.card === 'connect') updateRow(botId, seq, { ...resolved.body, answerJobId });
+              }
+            }
+          }
         }
-        enqueue(botId, { type: 'system', text: `The user connected ${info?.name ?? slug}. Continue with what you were doing.` });
       }
     }
   }

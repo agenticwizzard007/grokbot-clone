@@ -397,3 +397,44 @@ test('a held call summary cannot overwrite a new-generation row after chat is cl
     assert.ok(!JSON.stringify(loadHistory(chief.id)).includes('held-summary-context'));
   } finally { release(); summaryGate = undefined; summaryStarted = undefined; }
 });
+
+test('fresh calls omit historical connect cards and show one current request per toolkit even at equal timestamps', async t => {
+  const frozen = Date.now();
+  t.mock.method(Date, 'now', () => frozen);
+  const target = createBot('alice', { name: 'Connection cleanup target' });
+  const card = (botId: string, toolkit: string) => appendRow(botId, 'card', {
+    type: 'card', card: 'connect', toolkit, toolkitName: toolkit, reason: 'Authorize requested work', status: 'pending',
+  });
+  card(target.id, 'exa'); card(target.id, 'exa');
+  const call = await session();
+  try {
+    assert.equal((await updates(call.callId)).connectionRequests.length, 0, 'old cards are not inherited by a new call');
+    card(target.id, 'exa');
+    const newest = card(target.id, 'exa');
+    const gmail = card(target.id, 'gmail');
+    card(foreign.id, 'private-service');
+    const requests = (await updates(call.callId)).connectionRequests;
+    assert.equal(requests.length, 2);
+    assert.equal(requests.find((r: any) => r.toolkit === 'exa').seq, newest.seq);
+    assert.equal(requests.find((r: any) => r.toolkit === 'gmail').seq, gmail.seq);
+    assert.ok(requests.every((r: any) => r.botId === target.id));
+  } finally { await close(call.callId); clearConversation(target.id); }
+});
+
+test('delegating to an agent exposes its existing connection blocker once, without creating another authorization', async () => {
+  const target = createBot('alice', { name: 'Blocked connection target' });
+  const card = appendRow(target.id, 'card', { type: 'card', card: 'connect', toolkit: 'exa', toolkitName: 'Exa', reason: 'Pending setup', status: 'pending' });
+  const call = await session();
+  try {
+    assert.equal((await updates(call.callId)).connectionRequests.length, 0);
+    await tool(call.callId, 'send_task', { bot_id: target.id, request: 'Continue the requested setup.' }, 'connection-blocker-task');
+    await settleAgentJobs();
+    const result = await updates(call.callId);
+    assert.deepEqual(result.connectionRequests, [{ botId: target.id, seq: card.seq, toolkit: 'exa', toolkitName: 'Exa' }]);
+    assert.equal(result.tasks[0].status, 'queued');
+    updateRow(target.id, card.seq, { ...card.body, status: 'skipped' } as any);
+    enqueue(target.id, { type: 'system', text: 'The user skipped connecting Exa. Continue without it.' });
+    await settleAgentJobs();
+    assert.equal((await updates(call.callId)).connectionRequests.length, 0);
+  } finally { await close(call.callId); clearConversation(target.id); }
+});

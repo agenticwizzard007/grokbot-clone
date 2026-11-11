@@ -7,7 +7,8 @@ import { appendRow, clearConversation, emitBot, getBotRow, getLive, getRow, list
 import { currentTrigger, enqueue, interrupt, isBotBusy, resolveApproval, runInBotQueue, type Trigger } from '../agent/loop.js';
 import { dispatchRoomMessage } from '../agent/rooms.js';
 import { activateSetup, getSetup } from '../bot-setup.js';
-import { connectedToolkits, startConnect, toolkitInfo } from '../composio.js';
+import { connectedToolkits, toolkitInfo } from '../composio.js';
+import { startCardConnect } from '../agent/connection-cards.js';
 import { computers } from '../computers/index.js';
 import { createPairing } from '../computers/local.js';
 import { isTenant } from '../deployment.js';
@@ -397,7 +398,7 @@ async function connectLink(userId: string, slug: string, botId?: string, seq?: n
   if (seq) cb.searchParams.set('seq', String(seq));
   cb.searchParams.set('u', userId);
   cb.searchParams.set('sig', signUser(userId, 'apps-callback'));
-  return (await startConnect(userId, slug, cb.toString())).redirectUrl;
+  return (await startCardConnect(userId, slug, cb, botId, seq)).redirectUrl;
 }
 
 // ---------- inbound ----------

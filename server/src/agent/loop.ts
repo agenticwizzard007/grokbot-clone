@@ -31,7 +31,7 @@ export type Trigger = (
   | { type: 'user'; text: string; channel?: 'imessage' | 'sms' | 'whatsapp'; images?: string[]; voice?: boolean; quote?: string; voiceAssignment?: boolean }
   | { type: 'routine'; routineId: string; name: string; prompt: string }
   | { type: 'bot'; fromBotId: string; fromName: string; text: string; depth: number }
-  | { type: 'system'; text: string }
+  | { type: 'system'; text: string; connectionCardSeq?: number }
   | { type: 'native-tool'; name: 'SWARM_APPS_EXECUTE'; args: Record<string, unknown>; callId: string; requireApproval?: boolean; readOnly?: boolean }
   | { type: 'resume' }) & { parentJobId?: string };
 
@@ -86,8 +86,13 @@ export function enqueue(botId: string, trigger: Trigger) {
     if (question?.body.type === 'card' && question.body.card === 'question' && question.body.jobId) trigger = { ...trigger, parentJobId: question.body.jobId };
   } else if (trigger.type === 'system') {
     const bot = getBotRow(botId);
-    const resolved = bot && db.prepare("SELECT seq FROM rows WHERE bot_id=? AND generation=? AND kind='card' AND json_extract(body,'$.card')='connect' AND json_extract(body,'$.status') IN ('connected','skipped') AND json_extract(body,'$.jobId') IS NOT NULL AND json_extract(body,'$.answerJobId') IS NULL ORDER BY seq DESC LIMIT 1").get(botId, bot.generation) as { seq: number } | undefined;
-    question = resolved ? getRow(botId, resolved.seq) : null;
+    if (trigger.connectionCardSeq !== undefined) {
+      const candidate = bot ? getRow(botId, trigger.connectionCardSeq) : null;
+      if (candidate?.body.type === 'card' && candidate.body.card === 'connect' && ['connected', 'skipped'].includes(candidate.body.status) && !candidate.body.answerJobId) question = candidate;
+    } else {
+      const resolved = bot && db.prepare("SELECT seq FROM rows WHERE bot_id=? AND generation=? AND kind='card' AND json_extract(body,'$.card')='connect' AND json_extract(body,'$.status') IN ('connected','skipped') AND json_extract(body,'$.jobId') IS NOT NULL AND json_extract(body,'$.answerJobId') IS NULL ORDER BY seq DESC LIMIT 1").get(botId, bot.generation) as { seq: number } | undefined;
+      question = resolved ? getRow(botId, resolved.seq) : null;
+    }
     if (question?.body.type === 'card' && question.body.card === 'connect' && question.body.jobId) trigger = { ...trigger, parentJobId: question.body.jobId };
   }
   const job = acceptJob(botId, trigger);

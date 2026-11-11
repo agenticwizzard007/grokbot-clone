@@ -140,7 +140,7 @@ export function ConnectCard({ row, body }: { row: Row; body: Card<'connect'> }) 
       ) : (
         <div className={`card__outcome is-${body.status}`}>
           <Icon name={body.status === 'connected' ? 'check' : 'close'} size={12} opacity={0.7} />
-          {body.status === 'connected' ? `${body.toolkitName} connected` : 'Skipped'}
+          {body.status === 'connected' ? `${body.toolkitName} connected` : body.status === 'expired' ? 'This connection request has expired. Connect again from Settings.' : 'Skipped'}
         </div>
       )}
     </div>

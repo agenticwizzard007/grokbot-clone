@@ -394,7 +394,10 @@ class VoiceCall {
   }
 
   private syncConnections() {
-    const requests = new Map([...this.optimisticConnections.values(), ...this.connectionRequests].map((r) => [`${r.botId}:${r.seq}`, r]));
+    const requests = new Map<string, VoiceConnectionRequest>();
+    for (const request of [...this.connectionRequests, ...this.optimisticConnections.values()]) {
+      if (!requests.has(request.toolkit)) requests.set(request.toolkit, request);
+    }
     setV({ connectionRequests: [...requests.values()] });
   }
 

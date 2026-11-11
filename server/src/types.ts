@@ -162,7 +162,9 @@ export type CardBody =
       toolkitName: string;
       logo?: string;
       reason: string;
-      status: 'pending' | 'connected' | 'skipped';
+      connectedAccountId?: string;
+      connectionAttempt?: string;
+      status: 'pending' | 'connected' | 'skipped' | 'expired';
     }
   | {
       type: 'card';

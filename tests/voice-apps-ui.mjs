@@ -120,9 +120,10 @@ try {
   }
 
   const web = await fixture();
-  web.snapshot({ connectionRequests: [connection], approvals: [approval] });
+  web.snapshot({ connectionRequests: [connection, { ...connection, seq: 20 }, { ...connection, botId: 'main', seq: 18 }], approvals: [approval] });
   await web.tool();
   await web.page.getByRole('button', { name: 'Connect Gmail', exact: true }).waitFor();
+  assert.equal(await web.page.locator('.vcall__connection').count(), 1, 'duplicate pending cards for one service appear once');
   await web.page.getByRole('button', { name: 'Allow', exact: true }).waitFor();
   assert.deepEqual(await web.popups(), [], 'tool output URL never opens automatically; chat cards require a user gesture');
   await waitFor(() => web.frames.length > 0);
