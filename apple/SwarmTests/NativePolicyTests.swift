@@ -50,6 +50,16 @@ final class NativePolicyTests: XCTestCase {
         XCTAssertThrowsError(try ServerAddress("http://localhost.evil.test:8787", allowLocalHTTP: true))
     }
 
+    func testReleaseDefaultServerOrigin() {
+        XCTAssertEqual(ServerAddress.defaultURL(configuration: ["SwarmDefaultServerOrigin": "https://PLATFORM.example.com"]).absoluteString,
+                       "https://platform.example.com/")
+        for value in ["http://localhost:8787", "https://user@example.com", "https://example.com/path", "https://example.com?token=secret", "not a URL"] {
+            XCTAssertEqual(ServerAddress.defaultURL(configuration: ["SwarmDefaultServerOrigin": value]).absoluteString,
+                           "https://swarm-team.fly.dev")
+        }
+        XCTAssertEqual(ServerAddress.defaultURL(configuration: [:]).absoluteString, "https://swarm-team.fly.dev")
+    }
+
     func testSignInRejectsUnsolicitedAndAmbiguousCallbacks() throws {
         let attempt = try SignInAttempt()
         let other = try SignInAttempt()

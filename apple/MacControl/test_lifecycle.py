@@ -45,7 +45,12 @@ def fixture(mode, root):
         signal.signal(signal.SIGTERM, stop)
     else:
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
-    write(root / 'ready', json.dumps({'companion': os.getpid(), 'worker': worker.pid}))
+    # Both Swift and Python readers use existence as the readiness signal.
+    # Publish only a closed, complete JSON file; an in-place write exposes an
+    # empty file between open/truncate and write on a contended CI runner.
+    pending = root / 'ready.pending'
+    write(pending, json.dumps({'companion': os.getpid(), 'worker': worker.pid}))
+    os.replace(pending, root / 'ready')
     while True:
         time.sleep(0.02)
 
