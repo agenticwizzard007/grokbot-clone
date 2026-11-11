@@ -18,6 +18,9 @@ final class AppModel: NSObject, ObservableObject {
     @Published var signingIn = false
     @Published var sharedFile: SharedFile?
     let webView: WKWebView
+    #if os(macOS)
+    lazy var macControl = MacControlController(cookies: webView.configuration.websiteDataStore.httpCookieStore, address: server)
+    #endif
     private var authentication: ASWebAuthenticationSession?
     private var appleAuthorization: AppleAuthorization?
     private var exchangeTask: Task<Void, Never>?
@@ -60,6 +63,9 @@ final class AppModel: NSObject, ObservableObject {
         webView.backgroundColor = .systemBackground
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         #endif
+        #if os(macOS)
+        _ = macControl
+        #endif
         loadHome()
     }
 
@@ -80,6 +86,8 @@ final class AppModel: NSObject, ObservableObject {
         guard next != server else { showingSettings = false; return }
         #if os(iOS)
         cancelVoiceShortcut()
+        #else
+        macControl.contextChanged(address: next)
         #endif
         authentication?.cancel()
         appleAuthorization?.cancel()
@@ -104,6 +112,8 @@ final class AppModel: NSObject, ObservableObject {
     func clearWebsiteData() {
         #if os(iOS)
         cancelVoiceShortcut()
+        #else
+        macControl.contextChanged(clearAll: true)
         #endif
         authentication?.cancel()
         appleAuthorization?.cancel()

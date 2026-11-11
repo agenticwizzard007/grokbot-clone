@@ -14,7 +14,9 @@ fi
 case "${1:-open}" in
   open) open Swarm.xcodeproj ;;
   macos) xcodebuild -project Swarm.xcodeproj -scheme Swarm-macOS -configuration Debug -derivedDataPath build -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build ;;
+  macos-stage) shift; exec ../scripts/package-apple-mac.sh stage "$@" ;;
+  macos-package) shift; exec ../scripts/package-apple-mac.sh build "$@" ;;
   ios) xcodebuild -project Swarm.xcodeproj -scheme Swarm-iOS -configuration Debug -derivedDataPath build -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build ;;
   test) xcodebuild -project Swarm.xcodeproj -scheme Swarm-macOS -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO test ;;
-  *) echo 'Usage: scripts/apple.sh [open|macos|ios|test]' >&2; exit 1 ;;
+  *) echo 'Usage: scripts/apple.sh [open|macos|ios|test|macos-stage|macos-package]' >&2; exit 1 ;;
 esac

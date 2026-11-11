@@ -15,6 +15,8 @@ import type { ComputerState, LibraryFile } from '../types.js';
 import { ByteQueue, browserHandshake, jpegSize, jpegUpdate, msgLength, RFB_DESKTOP_SIZE, RFB_TIGHT, serverInit } from './rfb.js';
 import { ComputerError, type BotScreen, type BrowserResult, type ComputerProvider, type Shot } from './types.js';
 import { decodeCompanionFrame } from './frames.js';
+import { localAccess } from './local-access.js';
+import { currentUserId, withUsage } from '../usage-context.js';
 
 /**
  * Local computers: a Chrome browser on the user's own PC, driven through the companion
@@ -36,16 +38,25 @@ import { decodeCompanionFrame } from './frames.js';
  *   companion -> server  {event:'browsers', bots:[botId...]}            which Bots have a browser open
  */
 
+// Existing VM/browser tokens remain in the default scope. Native Macs use a separate channel.
+for (const sql of [
+  'ALTER TABLE companion_tokens ADD COLUMN vm_id TEXT',
+  "ALTER TABLE companion_tokens ADD COLUMN scope TEXT NOT NULL DEFAULT 'default'",
+  'ALTER TABLE companion_tokens ADD COLUMN expires_at INTEGER',
+]) { try { db.exec(sql); } catch { /* migrated */ } }
+
+function createLocalBackend(DEVICE: boolean) {
+const SCOPE = DEVICE ? 'native-local' : 'default';
 /** Bots use the PC's full desktop and a shell (COMPUTER_PROVIDER=desktop). */
-const DESKTOP = env.localDesktop;
+const DESKTOP = DEVICE || env.localDesktop;
 /** Cloud VMs (COMPUTER_PROVIDER=cloudvm): the companion runs inside each user's VM with one screen per Bot (see cloudvm.ts). */
-const MULTI = env.computerProvider === 'cloudvm';
-const OFFLINE = MULTI
+const MULTI = !DEVICE && env.computerProvider === 'cloudvm';
+const OFFLINE = DEVICE
+  ? "Your Mac is offline. Open the Swarm desktop app and start Mac Control. Actions will wait for your Mac; they will not move to a cloud computer."
+  : MULTI
   ? "Your Bots' computer isn't running yet. It starts on its own; try again in a moment."
   : "Your PC isn't connected. Open Settings → Computer, then run the connect command on your PC.";
 
-// Tokens can be bound to one cloud VM, so a VM's token is revoked with the VM.
-try { db.exec('ALTER TABLE companion_tokens ADD COLUMN vm_id TEXT'); } catch { /* exists */ }
 const PROTOCOL_VERSION = 1;
 
 interface Frame { data: Buffer; width: number; height: number }
@@ -54,7 +65,7 @@ interface Companion {
   ws: WebSocket;
   userId: string;
   tokenHash: string;
-  device: { name: string; platform: string; version: string; headless: boolean; desktop: boolean };
+  device: { name: string; platform: string; version: string; headless: boolean; desktop: boolean; browser: boolean };
   width: number;
   height: number;
   nextId: number;
@@ -86,14 +97,17 @@ function state(userId: string): ComputerState {
 
 /** The computer state the UI sees; cloudvm.ts replaces it with the VM's own state. */
 let stateOf: (userId: string) => ComputerState = state;
-export function setComputerStateSource(fn: (userId: string) => ComputerState) { stateOf = fn; }
-const emitState = (userId: string) => hub.emit(userId, { type: 'computer', state: stateOf(userId) });
+function setComputerStateSource(fn: (userId: string) => ComputerState) { stateOf = fn; }
+const emitState = (userId: string) => {
+  // Status emissions are background observations, not commands in a possibly revoked turn.
+  withUsage({ userId, botId: null }, () => hub.emit(userId, { type: 'computer', state: stateOf(userId) }));
+};
 
 /** Is this user's companion (PC or cloud VM) connected right now? */
-export const companionConnected = (userId: string) => companions.has(userId);
+const companionConnected = (userId: string) => companions.has(userId);
 
 /** Wait until the user's companion connects (a cloud VM finishing boot or resume). */
-export async function waitForCompanion(userId: string, timeoutMs: number): Promise<boolean> {
+async function waitForCompanion(userId: string, timeoutMs: number): Promise<boolean> {
   if (companions.has(userId)) return true;
   return new Promise((resolve) => {
     let waiters = companionWaiters.get(userId);
@@ -110,16 +124,27 @@ export async function waitForCompanion(userId: string, timeoutMs: number): Promi
 }
 
 /** Disconnect a user's companion now (its VM was frozen or deleted, so it can't answer a close handshake). */
-export function dropCompanion(userId: string, reason = 'computer stopped') {
+function dropCompanion(userId: string, reason = 'computer stopped') {
   const c = companions.get(userId);
   if (!c) return;
   console.log(`[local] dropping companion user=${userId}: ${reason}`);
+  forget(c);
   c.ws.terminate();
+  emitState(userId);
+}
+
+// Invalidate immediately, before the asynchronous WebSocket close handshake completes.
+function forget(c: Companion) {
+  if (companions.get(c.userId) === c) companions.delete(c.userId);
+  for (const p of c.pending.values()) { clearTimeout(p.timer); p.reject(new ComputerError('Your computer disconnected or access was revoked.', 503)); }
+  c.pending.clear();
+  for (const fn of [...c.onClose]) fn();
+  c.onClose.clear();
 }
 
 function need(userId: string): Companion {
   const c = companions.get(userId);
-  if (!c) throw new ComputerError(OFFLINE, 409);
+  if ((DEVICE && !localAccess(userId).enabled) || !c || c.ws.readyState !== WebSocket.OPEN) throw new ComputerError(OFFLINE, 409);
   return c;
 }
 
@@ -138,8 +163,7 @@ function call<T = any>(userId: string, method: string, params: Record<string, un
 }
 
 function notify(userId: string, method: string, params: Record<string, unknown>) {
-  const c = companions.get(userId);
-  if (c?.ws.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ method, params }));
+  try { need(userId).ws.send(JSON.stringify({ method, params })); } catch { /* revoked or offline */ }
 }
 
 function touch(userId: string, botId: string) {
@@ -153,35 +177,39 @@ function touch(userId: string, botId: string) {
 // ---------- pairing ----------
 
 /** Create a pairing token for the user's PC. Only its hash is stored. */
-export function createPairing(userId: string, vmId: string | null = null): string {
+function createPairing(userId: string, vmId: string | null = null): string {
   const t = `swc_${randomToken()}`;
-  db.prepare('INSERT INTO companion_tokens(token_hash,user_id,created_at,vm_id) VALUES (?,?,?,?)').run(sha256(t), userId, now(), vmId);
+  db.prepare('INSERT INTO companion_tokens(token_hash,user_id,created_at,vm_id,scope,expires_at) VALUES (?,?,?,?,?,?)')
+    .run(sha256(t), userId, now(), vmId, SCOPE, DEVICE ? now() + 10 * 60_000 : null);
   return t;
 }
 
 /** Revoke a cloud VM's tokens (the VM is being destroyed or replaced). */
-export function revokeVmTokens(vmId: string) {
-  db.prepare('DELETE FROM companion_tokens WHERE vm_id=?').run(vmId);
+function revokeVmTokens(vmId: string) {
+  db.prepare('DELETE FROM companion_tokens WHERE vm_id=? AND scope=?').run(vmId, SCOPE);
 }
 
 /** Revoke every pairing token for the user and disconnect their PC. */
-export function revokePairings(userId: string): number {
-  const n = db.prepare('DELETE FROM companion_tokens WHERE user_id=?').run(userId).changes;
-  companions.get(userId)?.ws.close(4401, 'pairing revoked');
+function revokePairings(userId: string): number {
+  const n = db.prepare('DELETE FROM companion_tokens WHERE user_id=? AND scope=?').run(userId, SCOPE).changes;
+  const c = companions.get(userId);
+  if (c) { forget(c); c.ws.close(4401, 'pairing revoked'); }
+  holders.delete(userId);
+  emitState(userId);
   return n;
 }
 
-export function pairingInfo(userId: string) {
-  const r = db.prepare('SELECT COUNT(*) n, MAX(last_seen_at) seen FROM companion_tokens WHERE user_id=?').get(userId) as any;
+function pairingInfo(userId: string) {
+  const r = db.prepare('SELECT COUNT(*) n, MAX(last_seen_at) seen FROM companion_tokens WHERE user_id=? AND scope=? AND (expires_at IS NULL OR expires_at>?)').get(userId, SCOPE, now()) as any;
   return { paired: r.n > 0, lastSeenAt: r.seen ?? null };
 }
 
 // ---------- companion connections ----------
 
-export function attachCompanionSocket(server: Server) {
+function attachCompanionSocket(server: Server) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 * 1024 });
   server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
-    if (new URL(req.url ?? '/', 'http://x').pathname !== '/api/companion') return;
+    if (new URL(req.url ?? '/', 'http://x').pathname !== (DEVICE ? '/api/companion/local' : '/api/companion')) return;
     wss.handleUpgrade(req, socket, head, (ws) => onCompanion(ws));
   });
 }
@@ -216,16 +244,17 @@ function onCompanion(ws: WebSocket) {
     if (!comp) {
       if (msg?.type !== 'hello' || typeof msg.token !== 'string') return ws.close(4400, 'expected hello');
       const hash = sha256(msg.token);
-      const row = db.prepare('SELECT user_id FROM companion_tokens WHERE token_hash=?').get(hash) as any;
-      if (!row) return ws.close(4401, 'invalid token');
+      const row = db.prepare('SELECT user_id FROM companion_tokens WHERE token_hash=? AND scope=? AND (expires_at IS NULL OR expires_at>?)').get(hash, SCOPE, now()) as any;
+      if (!row || (DEVICE && !localAccess(row.user_id).enabled)) return ws.close(4401, 'invalid token');
+      if (DEVICE && (msg.mode !== 'desktop' || msg.desktop !== true || !String(msg.platform).startsWith('darwin'))) return ws.close(4403, 'This pairing requires the Swarm Mac desktop companion.');
       clearTimeout(helloTimer);
       if (MULTI && msg.mode !== 'multi') return ws.close(4403, 'This Swarm runs Bots on cloud VMs; only the VM companion (--multi) can connect.');
       if (!MULTI && msg.mode === 'multi') return ws.close(4403, 'This Swarm does not use cloud VMs; start the companion without --multi.');
       if (DESKTOP && msg.desktop !== true) return ws.close(4403, 'This Swarm gives Bots your full desktop. Update the companion and start it with --desktop.');
-      db.prepare('UPDATE companion_tokens SET last_seen_at=? WHERE token_hash=?').run(now(), hash);
+      db.prepare('UPDATE companion_tokens SET last_seen_at=?, expires_at=NULL WHERE token_hash=?').run(now(), hash);
       // One PC per user: a new connection replaces the old one.
       const old = companions.get(row.user_id);
-      if (old) old.ws.close(4409, 'replaced by a newer connection');
+      if (old) { forget(old); old.ws.close(4409, 'replaced by a newer connection'); }
       comp = {
         ws,
         userId: row.user_id,
@@ -236,6 +265,7 @@ function onCompanion(ws: WebSocket) {
           version: String(msg.version ?? '').slice(0, 20),
           headless: msg.headless !== false,
           desktop: msg.desktop === true,
+          browser: msg.capabilities?.browser === true,
         },
         width: Number(msg.width) || 1280,
         height: Number(msg.height) || 800,
@@ -252,6 +282,7 @@ function onCompanion(ws: WebSocket) {
       emitState(row.user_id);
       return;
     }
+    if (companions.get(comp.userId) !== comp) return;
     if (typeof msg.id === 'number') {
       const p = comp.pending.get(msg.id);
       if (!p) return;
@@ -273,14 +304,9 @@ function onCompanion(ws: WebSocket) {
     clearTimeout(helloTimer);
     clearInterval(ping);
     if (!comp) return;
-    for (const p of comp.pending.values()) { clearTimeout(p.timer); p.reject(new ComputerError('Your PC disconnected.', 503)); }
-    comp.pending.clear();
-    for (const fn of comp.onClose) fn();
-    if (companions.get(comp.userId) === comp) {
-      companions.delete(comp.userId);
-      console.log(`[local] PC disconnected user=${comp.userId}`);
-      emitState(comp.userId);
-    }
+    const wasCurrent = companions.get(comp.userId) === comp;
+    forget(comp);
+    if (wasCurrent) emitState(comp.userId);
   });
   ws.on('error', () => { /* close follows */ });
 }
@@ -288,8 +314,9 @@ function onCompanion(ws: WebSocket) {
 // ---------- live viewer: an RFB server fed by the browser's screencast ----------
 
 async function viewer(client: WebSocket, userId: string, botId: string, mode: 'watch' | 'control') {
-  const comp = companions.get(userId);
-  if (!comp) { client.close(1011, "Your PC isn't connected"); return; }
+  let comp: Companion;
+  try { comp = need(userId); } catch { client.close(1011, 'Your computer is offline'); return; }
+  const revision = localAccess(userId).revision;
   const fromClient = new ByteQueue();
   let ready = false;
   let pending = Buffer.alloc(0);
@@ -306,7 +333,11 @@ async function viewer(client: WebSocket, userId: string, botId: string, mode: 'w
   let lastMove = 0;
 
   const send = (b: Buffer) => { if (client.readyState === WebSocket.OPEN) client.send(b); };
-  const input = (params: Record<string, unknown>) => { touch(userId, botId); notify(userId, 'input', { botId, ...params, width: fbW, height: fbH }); };
+  const input = (params: Record<string, unknown>) => {
+    if (closed || client.readyState !== WebSocket.OPEN || companions.get(userId) !== comp || localAccess(userId).revision !== revision) return;
+    touch(userId, botId);
+    notify(userId, 'input', { botId, ...params, width: fbW, height: fbH });
+  };
 
   let sendingFrame = false;
   const flush = () => {
@@ -472,6 +503,7 @@ const botName = (botId: string) => (db.prepare('SELECT name FROM bots WHERE id=?
 async function takeDesktop(userId: string, botId: string) {
   const deadline = Date.now() + WAIT_MS;
   for (;;) {
+    need(userId);
     const h = holders.get(userId);
     if (!h || h.botId === botId || h.until < Date.now() || !getLive(h.botId).isRunning) {
       holders.set(userId, { botId, until: Date.now() + HOLD_MS });
@@ -485,7 +517,7 @@ async function takeDesktop(userId: string, botId: string) {
 const osName = (platform: string) => (platform.startsWith('darwin') ? 'macOS' : platform.startsWith('linux') ? 'Linux' : platform.startsWith('win') ? 'Windows' : 'unknown');
 
 const DESKTOP_PROMPT =
-  "You can use the user's own computer: its full desktop (every app, with the user's own logins), mouse, keyboard, and a shell running as the user. Other Bots share this desktop, so you may briefly wait for your turn. If a task needs the web, use open_browser: it opens the page in the user's default browser and brings it to the front. Use the shell for files, scripts and command-line work, and the computer_* tools for apps. Save finished deliverables with save_file so they appear in the user's Library. Always take a screenshot before clicking, and check the screenshot after each action. This is the user's real computer: don't close their windows or unsaved work, don't delete or overwrite their files, and don't send messages, buy things or change settings unless they asked you to.";
+  "You can use the user's own computer: its full desktop (every app, with the user's own logins), mouse, keyboard, and a shell running as the user. Other Bots share this desktop, so you may briefly wait for your turn. For structured web work, use browser_* tools in Swarm's managed Chrome with its own persistent profile (or an explicitly attached browser). To use the user's existing browser session, open_browser opens their default browser and computer_* controls it on the real desktop. These can be different browsers; do not assume their tabs or logins are shared. Use the shell for files, scripts and command-line work, and the computer_* tools for apps. Save finished deliverables with save_file so they appear in the user's Library. Always take a screenshot before clicking, and check the screenshot after each action. This is the user's real computer: don't close their windows or unsaved work, don't delete or overwrite their files, and don't send messages, buy things or change settings unless they asked you to.";
 
 const DESKTOP_TOOLS: Partial<Record<string, string>> = {
   computer_screenshot: "Take a screenshot of the user's desktop. Use this before acting on the screen.",
@@ -495,14 +527,17 @@ const DESKTOP_TOOLS: Partial<Record<string, string>> = {
     'Press a key or key combination on the desktop, using X11 keysym names joined by "+", e.g. "Return", "Tab", "Escape", "BackSpace", "Page_Down", "ctrl+c". Use "cmd" for the Command key on macOS (e.g. "cmd+space" opens Spotlight, "cmd+tab" switches apps, "cmd+l" focuses the browser address bar).',
   computer_scroll: 'Scroll the mouse wheel at a position on the desktop.',
   computer_drag: 'Drag with the left mouse button from one point to another on the desktop.',
-  open_browser: "Open a web page (http/https) in the user's default browser, which comes to the front. Use this whenever a task needs a website. Returns a screenshot.",
+  open_browser: "Open a web page (http/https) in the user's default browser, which comes to the front. Use computer_* for this browser; browser_* may use a separate managed Chrome. Returns a screenshot.",
   shell: "Run a shell command on the user's computer as the user (their login shell, starting in their home folder). Use for files, scripts, CLIs and quick data work. Output is truncated to 20k characters.",
   save_file: 'Save a deliverable (report, notes, CSV, code, markdown) to your Library so the user can open and download it.',
 };
 
-export const localProvider: ComputerProvider = {
+const localProvider: ComputerProvider = {
   kind: 'local',
-  capabilities: { shell: DESKTOP || MULTI },
+  get capabilities() {
+    const id = currentUserId();
+    return { shell: DESKTOP || MULTI, browser: DESKTOP ? (id && companions.has(id) ? companions.get(id)!.device.browser : DEVICE) : undefined };
+  },
   promptFor: (userId) => {
     if (!DESKTOP) return localProvider.promptLine;
     const c = companions.get(userId);
@@ -529,9 +564,12 @@ export const localProvider: ComputerProvider = {
   suspend: async () => { /* a PC isn't suspended by us */ },
 
   async screen(userId, botId) {
-    need(userId);
+    const connection = need(userId);
+    const guard = () => { if (need(userId) !== connection) throw new ComputerError('Computer connection changed. Start a new action.', 409); };
     const rpc = async (method: string, params: Record<string, unknown> = {}, timeoutMs?: number) => {
+      guard();
       if (DESKTOP && method !== 'shell') await takeDesktop(userId, botId);
+      guard();
       const r = await call(userId, method, { botId, ...params }, timeoutMs);
       touch(userId, botId);
       return r;
@@ -545,8 +583,8 @@ export const localProvider: ComputerProvider = {
       scroll: async (a) => { await rpc('scroll', a); },
       openUrl: async (url) => { await rpc('open', { url }, 60_000); },
     };
-    if (MULTI) screen.browser = async (tool, args) => rpc('browser', { tool, args }, 160_000);
-    if (MULTI) screen.captcha = async () => ((await call(userId, 'captcha', { botId }, 30_000)) as any)?.captcha ?? null;
+    if (MULTI || (DESKTOP && connection.device.browser)) screen.browser = async (tool, args) => rpc('browser', { tool, args }, 160_000);
+    if (MULTI || (DESKTOP && connection.device.browser)) screen.captcha = async () => ((await rpc('captcha', {}, 30_000)) as any)?.captcha ?? null;
     if (DESKTOP || MULTI) screen.shell = async (command, timeoutSec) => rpc('shell', { command, timeout: timeoutSec }, (timeoutSec + 15) * 1000);
     return screen;
   },
@@ -606,6 +644,17 @@ export const localProvider: ComputerProvider = {
 };
 
 /** Absolute path of a local Library file (for the raw download route). */
-export function localFilePath(botId: string, rel: string): string {
+function localFilePath(botId: string, rel: string): string {
   return inside(filesRoot(botId), rel);
 }
+
+return { localProvider, setComputerStateSource, companionConnected, waitForCompanion, dropCompanion,
+  createPairing, revokeVmTokens, revokePairings, pairingInfo, attachCompanionSocket, localFilePath,
+  browserAvailable: (userId: string) => companions.get(userId)?.device.browser ?? false };
+}
+
+const defaultBackend = createLocalBackend(false);
+const deviceBackend = createLocalBackend(true);
+export const { localProvider, setComputerStateSource, companionConnected, waitForCompanion, dropCompanion,
+  createPairing, revokeVmTokens, revokePairings, pairingInfo, attachCompanionSocket, localFilePath } = defaultBackend;
+export const nativeLocal = deviceBackend;

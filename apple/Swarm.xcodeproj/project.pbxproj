@@ -34,6 +34,25 @@
 		E9ACDB36470BE0913C4E0C0E /* SignInAttempt.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F3AAEA9C99649B483F6CB2 /* SignInAttempt.swift */; };
 		F289F9D127F60B32B7DAD566 /* AppleAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = E228259B68A8DFAAE8596305 /* AppleAuthorization.swift */; };
 		FBB1041429FBC9F033DBEE2D /* VoiceShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5389F0EC76B309CAE73B9EC8 /* VoiceShortcut.swift */; };
+		965EEA415104123014E57986 /* MacControlAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 536C6DA428A2BAF1E1AB33FF /* MacControlAPI.swift */; };
+		D39A763134B60DA0E6024EDD /* MacControlController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74DA510A9AECB84FFA5FAA6C /* MacControlController.swift */; };
+		D2E100ED384D028E6A5F09FB /* MacControlPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CEB0AC10D9B02588A950783 /* MacControlPolicy.swift */; };
+		54E41A700433E5F4F9849452 /* MacControlTokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFFEAE5285B1D7E2AC3700B4 /* MacControlTokenStore.swift */; };
+		62182EEDDB70BBAA2E29142A /* MacControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 953E0938E44A7BBC501474E9 /* MacControlView.swift */; };
+		4364338E6A3A4338F6C0F140 /* MacControlAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 536C6DA428A2BAF1E1AB33FF /* MacControlAPI.swift */; };
+		BE74793E221D87F77F3030A4 /* MacControlController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74DA510A9AECB84FFA5FAA6C /* MacControlController.swift */; };
+		73EC4BA7C5925210BAB66C04 /* MacControlPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CEB0AC10D9B02588A950783 /* MacControlPolicy.swift */; };
+		F3A9CBF8CDED2F6DFEF09A1F /* MacControlTokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFFEAE5285B1D7E2AC3700B4 /* MacControlTokenStore.swift */; };
+		7C3DD21F7E2E9FC091AD4B6F /* MacControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 953E0938E44A7BBC501474E9 /* MacControlView.swift */; };
+		7B010DA55D953B84C814B361 /* MacControlPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CEB0AC10D9B02588A950783 /* MacControlPolicy.swift */; };
+		31AF43036C5B9B40CB6FA455 /* MacControlTokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFFEAE5285B1D7E2AC3700B4 /* MacControlTokenStore.swift */; };
+		C336DD7222D778C285731A7A /* MacControlPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 939B8A1BC0EC20B22042E01F /* MacControlPolicyTests.swift */; };
+		AFC56BD8C6B0F3F38D2527BC /* MacControlPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 939B8A1BC0EC20B22042E01F /* MacControlPolicyTests.swift */; };
+		0CC83F803ADA75FA8A04626C /* MacControlProcessLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 117A30B2CD6BCA560DC6B9D2 /* MacControlProcessLifecycle.swift */; };
+		4087842E0D07828251016149 /* MacControlProcessLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 117A30B2CD6BCA560DC6B9D2 /* MacControlProcessLifecycle.swift */; };
+		3EE4C1E74526CE9A7C006F9E /* MacControlProcessLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 117A30B2CD6BCA560DC6B9D2 /* MacControlProcessLifecycle.swift */; };
+		B77B6A71332FB71EAA109E96 /* MacControlLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7005C0CB8AA90AFC1DE5808E /* MacControlLifecycleTests.swift */; };
+		473F2E46F71F13DFD9B1F5AC /* MacControlLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7005C0CB8AA90AFC1DE5808E /* MacControlLifecycleTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -51,6 +70,14 @@
 		C3F5AA7A49B7B9EA42E8797E /* Swarm-iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "Swarm-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		C9F3AAEA9C99649B483F6CB2 /* SignInAttempt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInAttempt.swift; sourceTree = "<group>"; };
 		E228259B68A8DFAAE8596305 /* AppleAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleAuthorization.swift; sourceTree = "<group>"; };
+		536C6DA428A2BAF1E1AB33FF /* MacControlAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacControlAPI.swift; sourceTree = "<group>"; };
+		74DA510A9AECB84FFA5FAA6C /* MacControlController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacControlController.swift; sourceTree = "<group>"; };
+		6CEB0AC10D9B02588A950783 /* MacControlPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacControlPolicy.swift; sourceTree = "<group>"; };
+		BFFEAE5285B1D7E2AC3700B4 /* MacControlTokenStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacControlTokenStore.swift; sourceTree = "<group>"; };
+		953E0938E44A7BBC501474E9 /* MacControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacControlView.swift; sourceTree = "<group>"; };
+		939B8A1BC0EC20B22042E01F /* MacControlPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacControlPolicyTests.swift; sourceTree = "<group>"; };
+		117A30B2CD6BCA560DC6B9D2 /* MacControlProcessLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacControlProcessLifecycle.swift; sourceTree = "<group>"; };
+		7005C0CB8AA90AFC1DE5808E /* MacControlLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacControlLifecycleTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -79,6 +106,12 @@
 			children = (
 				E228259B68A8DFAAE8596305 /* AppleAuthorization.swift */,
 				0DC347F48E500BC45A83C157 /* AppModel.swift */,
+				117A30B2CD6BCA560DC6B9D2 /* MacControlProcessLifecycle.swift */,
+				953E0938E44A7BBC501474E9 /* MacControlView.swift */,
+				BFFEAE5285B1D7E2AC3700B4 /* MacControlTokenStore.swift */,
+				6CEB0AC10D9B02588A950783 /* MacControlPolicy.swift */,
+				74DA510A9AECB84FFA5FAA6C /* MacControlController.swift */,
+				536C6DA428A2BAF1E1AB33FF /* MacControlAPI.swift */,
 				69CC32614EC30D470A2EF27A /* Assets.xcassets */,
 				9D16FCC75A1B4D9F39DC9088 /* PrivacyInfo.xcprivacy */,
 				B99DAAFC4229215C47379899 /* ServerAddress.swift */,
@@ -94,6 +127,8 @@
 			isa = PBXGroup;
 			children = (
 				7C5E22C3FAB43C810CFD467F /* NativePolicyTests.swift */,
+				7005C0CB8AA90AFC1DE5808E /* MacControlLifecycleTests.swift */,
+				939B8A1BC0EC20B22042E01F /* MacControlPolicyTests.swift */,
 			);
 			path = SwarmTests;
 			sourceTree = "<group>";
@@ -246,6 +281,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4087842E0D07828251016149 /* MacControlProcessLifecycle.swift in Sources */,
+				7C3DD21F7E2E9FC091AD4B6F /* MacControlView.swift in Sources */,
+				F3A9CBF8CDED2F6DFEF09A1F /* MacControlTokenStore.swift in Sources */,
+				73EC4BA7C5925210BAB66C04 /* MacControlPolicy.swift in Sources */,
+				BE74793E221D87F77F3030A4 /* MacControlController.swift in Sources */,
+				4364338E6A3A4338F6C0F140 /* MacControlAPI.swift in Sources */,
 				467DE7BF5A070F32D07120A2 /* AppModel.swift in Sources */,
 				D590DB9BA85EBBFFA0D872FA /* AppleAuthorization.swift in Sources */,
 				37D025E9AD9E81071717ECF6 /* ServerAddress.swift in Sources */,
@@ -260,6 +301,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B77B6A71332FB71EAA109E96 /* MacControlLifecycleTests.swift in Sources */,
+				3EE4C1E74526CE9A7C006F9E /* MacControlProcessLifecycle.swift in Sources */,
+				C336DD7222D778C285731A7A /* MacControlPolicyTests.swift in Sources */,
+				31AF43036C5B9B40CB6FA455 /* MacControlTokenStore.swift in Sources */,
+				7B010DA55D953B84C814B361 /* MacControlPolicy.swift in Sources */,
 				8588C39E304087DE5C156710 /* NativePolicyTests.swift in Sources */,
 				D4511DCED054A049D040871A /* ServerAddress.swift in Sources */,
 				4F7C2F04469DE50C9252FDB8 /* SignInAttempt.swift in Sources */,
@@ -271,6 +317,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				473F2E46F71F13DFD9B1F5AC /* MacControlLifecycleTests.swift in Sources */,
+				AFC56BD8C6B0F3F38D2527BC /* MacControlPolicyTests.swift in Sources */,
 				021CF09B72D9FCECDADF43AD /* NativePolicyTests.swift in Sources */,
 				6F97D0FF2CEF06423A3316BB /* ServerAddress.swift in Sources */,
 				15E8DF962FE6007B1E9F4DE3 /* SignInAttempt.swift in Sources */,
@@ -283,6 +331,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0CC83F803ADA75FA8A04626C /* MacControlProcessLifecycle.swift in Sources */,
+				62182EEDDB70BBAA2E29142A /* MacControlView.swift in Sources */,
+				54E41A700433E5F4F9849452 /* MacControlTokenStore.swift in Sources */,
+				D2E100ED384D028E6A5F09FB /* MacControlPolicy.swift in Sources */,
+				D39A763134B60DA0E6024EDD /* MacControlController.swift in Sources */,
+				965EEA415104123014E57986 /* MacControlAPI.swift in Sources */,
 				E18EB05DAE525F0C5DFEDA57 /* AppModel.swift in Sources */,
 				F289F9D127F60B32B7DAD566 /* AppleAuthorization.swift in Sources */,
 				98C667B20A6457FB9C3B685E /* ServerAddress.swift in Sources */,
@@ -425,6 +479,7 @@
 		42E47C1A489DB10779F8B086 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ENABLE_APP_SANDBOX = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Configuration/Swarm.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -542,6 +597,7 @@
 		9C72C2041AAAB41474D9BDA7 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ENABLE_APP_SANDBOX = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Configuration/Swarm.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;

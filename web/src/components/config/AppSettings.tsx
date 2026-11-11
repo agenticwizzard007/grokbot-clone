@@ -396,7 +396,7 @@ function ComputerSection() {
   const [busy, setBusy] = useState<'wake' | 'sleep' | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const load = useCallback(() => { configApi.computerDetails().then(setDetails).catch(() => {}); }, []);
-  useEffect(() => { load(); }, [load, computer?.status, computer?.screens.length]);
+  useEffect(() => { load(); }, [load, computer?.status, computer?.screens.length, computer?.provider, computer?.device?.name]);
 
   const status = computer?.status ?? details?.computer.status;
   const running = status === 'running';
@@ -478,6 +478,7 @@ function LocalComputerSection({ details, reload }: { details: ComputerDetails | 
   const [copied, setCopied] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const connected = computer?.status === 'running';
+  const nativeMac = !!details?.localComputer?.enabled;
   const paired = !!details?.pairing?.paired;
   const here = details?.thisComputer;
   const useHere = async () => {
@@ -514,14 +515,14 @@ function LocalComputerSection({ details, reload }: { details: ComputerDetails | 
           <div className="cfg-row">
             <span className={`computer-status-dot is-${connected ? 'on' : 'off'}`} aria-hidden />
             <div className="cfg-row__text">
-              <div className="cfg-row__title">Your PC · {computerStatusText(computer)}</div>
+              <div className="cfg-row__title">{nativeMac ? 'Your Mac' : 'Your PC'} · {computerStatusText(computer)}</div>
               <div className="cfg-row__sub">
                 {connected
                   ? `${computer?.device?.name ?? 'PC'}${computer?.device?.platform ? ` · ${computer.device.platform}` : ''} · ${desktop ? 'Your Bots can use this desktop now.' : 'Your Bots can browse now.'}`
-                  : paired ? 'Paired, but the companion isn’t running. Start it again on your PC, or connect a new one.' : desktop ? 'Connect a PC so your Bots can use its desktop.' : 'Connect a PC so your Bots can use a browser.'}
+                  : nativeMac ? 'Open the Swarm desktop app → Mac Control to start. Your tasks stay on this Mac while it is offline.' : paired ? 'Paired, but the companion isn’t running. Start it again on your PC, or connect a new one.' : desktop ? 'Connect a PC so your Bots can use its desktop.' : 'Connect a PC so your Bots can use a browser.'}
               </div>
             </div>
-            <div className="settings-row__actions">
+            {!nativeMac && <div className="settings-row__actions">
               {!connected && here?.available && !here.active && <button type="button" className="cfg-btn cfg-btn--primary" disabled={busy} onClick={useHere}>{busy ? 'Starting…' : 'Use this computer'}</button>}
               {!connected && here?.active && <span className="cfg-row__sub">Starting…</span>}
               {!connected && !here?.active && <button type="button" className={`cfg-btn ${here?.available ? 'cfg-btn--secondary' : 'cfg-btn--primary'}`} disabled={busy} onClick={pair}>{busy ? 'Preparing…' : here?.available ? 'Connect another PC' : paired ? 'New connect command' : 'Connect your PC'}</button>}
@@ -535,8 +536,9 @@ function LocalComputerSection({ details, reload }: { details: ComputerDetails | 
                   Disconnect
                 </ConfirmButton>
               )}
-            </div>
+            </div>}
           </div>
+          {nativeMac && <div className="cfg-field__hint">Manage permissions, Stop, or Disconnect in the Swarm desktop app → Mac Control. Terminal commands run as your Mac user. Playwright uses managed Chrome; desktop controls can use your existing browser windows.</div>}
           {pairing && !connected && (
             <div className="cfg-pair">
               <div className="cfg-pair__step">On your PC (needs <b>Node.js 22+</b>{desktop ? <> on macOS or Linux</> : <> and <b>Google Chrome</b></>}), run this in a terminal and keep it running:</div>

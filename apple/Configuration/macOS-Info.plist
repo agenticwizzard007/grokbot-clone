@@ -44,5 +44,7 @@
 	<string>public.app-category.productivity</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>When you enable Use this Mac, Swarm may automate apps and browsers you approve to carry out your bots’ tasks.</string>
 </dict>
 </plist>
