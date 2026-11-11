@@ -47,6 +47,12 @@ function startup(dbPath: string, env: Record<string, string | undefined>, ids: s
   return JSON.parse(out.split('RESULT ')[1]) as { roles: string[]; marker: { outcome: string; granted: string[]; updatedBy: string | null } | null; manage: Record<string, boolean> };
 }
 const mutate = (dbPath: string, sql: string) => { const d = new Database(dbPath); d.exec(sql); d.close(); };
+/** A startup that is allowed to fail; returns the exit status and combined output. */
+const boot = (dbPath: string, env: Record<string, string | undefined>) => {
+  const r = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', `const { db } = await import(${JSON.stringify(path.join(serverSrc, 'db.ts'))}); await import(${JSON.stringify(path.join(serverSrc, 'accounts.ts'))}); db.close();`], { env: clean({ ...baseEnv(dbPath), ...env }), encoding: 'utf8', cwd: process.cwd() });
+  return { status: r.status, output: r.stdout + r.stderr };
+};
+const state = (dbPath: string) => { const d = new Database(dbPath, { readonly: true }); const roles = d.prepare("SELECT user_id FROM account_roles WHERE role='admin' ORDER BY user_id").all().map((r: any) => r.user_id as string); const marker = d.prepare("SELECT 1 FROM server_settings WHERE key='admin_bootstrap'").get(); d.close(); return { roles, consumed: !!marker }; };
 const LISTED = '15550100001';
 
 test('upgrade: the first startup maps the configured owner once and records a marker outside user and role rows', () => {
@@ -120,4 +126,26 @@ test('an email address never grants administration', () => {
   const dbPath = seedOldDatabase([{ id: 'usr_email', phone: null }]);
   mutate(dbPath, "UPDATE users SET email='claimed@example.test' WHERE id='usr_email'");
   assert.equal(startup(dbPath, { ADMIN_PHONES: LISTED }, ['usr_email']).manage.usr_email, false);
+});
+
+test('a failure to write the consumed marker rolls back the grants and fails the startup; a later retry may succeed', () => {
+  const dbPath = seedOldDatabase([{ id: 'usr_owner', phone: LISTED }]);
+  mutate(dbPath, "CREATE TRIGGER fail_marker BEFORE INSERT ON server_settings WHEN NEW.key='admin_bootstrap' BEGIN SELECT RAISE(ABORT, 'test_marker_failure'); END;");
+  const failed = boot(dbPath, { ADMIN_PHONES: LISTED });
+  assert.notEqual(failed.status, 0, 'startup must not continue past a failed mapping transaction');
+  assert.match(failed.output, /test_marker_failure/);
+  assert.deepEqual(state(dbPath), { roles: [], consumed: false }, 'the grant and the marker are one transaction');
+  mutate(dbPath, 'DROP TRIGGER fail_marker');
+  assert.deepEqual(startup(dbPath, { ADMIN_PHONES: LISTED }, []).roles, ['usr_owner'], 'a genuinely failed transaction may be retried on the next start');
+});
+
+test('a failure to insert one role rolls back the roles already granted and leaves the mapping unconsumed', () => {
+  const dbPath = seedOldDatabase([{ id: 'usr_owner', phone: LISTED }, { id: 'usr_other', phone: '15550100002' }]);
+  mutate(dbPath, "CREATE TRIGGER fail_role BEFORE INSERT ON account_roles WHEN NEW.user_id='usr_other' BEGIN SELECT RAISE(ABORT, 'test_role_failure'); END;");
+  const failed = boot(dbPath, { ADMIN_PHONES: `${LISTED},15550100002` });
+  assert.notEqual(failed.status, 0);
+  assert.match(failed.output, /test_role_failure/);
+  assert.deepEqual(state(dbPath), { roles: [], consumed: false });
+  mutate(dbPath, 'DROP TRIGGER fail_role');
+  assert.deepEqual(startup(dbPath, { ADMIN_PHONES: `${LISTED},15550100002` }, []).roles, ['usr_other', 'usr_owner']);
 });
