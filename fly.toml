@@ -8,6 +8,8 @@ primary_region = "iad"
 
 [env]
   NODE_ENV = "production"
+  # One shared server for all accounts (the isolated per-user platform uses the other roles). Required in production.
+  SWARM_ROLE = "standalone"
   PORT = "8787"
   DB_PATH = "/data/swarm.db"
   FILES_DIR = "/data/files"

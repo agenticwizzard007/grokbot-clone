@@ -1,14 +1,18 @@
 /** Deployment identity is immutable for the lifetime of a process. */
 export const roles = ['standalone', 'platform', 'provisioner', 'composio-gateway', 'tenant'] as const;
 export type DeploymentRole = typeof roles[number];
-const value = process.env.SWARM_ROLE ?? 'standalone';
+const configured = process.env.SWARM_ROLE;
+const value = configured ?? 'standalone';
 if (!roles.includes(value as DeploymentRole)) throw new Error('Invalid SWARM_ROLE');
 export const deploymentRole = value as DeploymentRole;
 export const production = process.env.NODE_ENV === 'production';
 export const tenantId = process.env.SWARM_TENANT_ID ?? '';
 export const isTenant = deploymentRole === 'tenant';
 export function validateDeployment() {
-  if (production && deploymentRole === 'standalone') throw new Error('Production requires an explicit isolated deployment role.');
+  // A production process must name its role. SWARM_ROLE=standalone is the legacy single shared server (fly.toml sets it);
+  // it is not per-user isolation and the other roles are the isolated platform. Leaving SWARM_ROLE unset is refused so a
+  // tenant image can never start as a shared multi-user server by accident.
+  if (production && configured === undefined) throw new Error('Production requires SWARM_ROLE. Set SWARM_ROLE=standalone for the single-server deployment, or one of platform, provisioner, composio-gateway, tenant.');
   if (production && process.env.DEV_LOGIN === '1') throw new Error('Development authentication is forbidden in production.');
   if (isTenant) {
     if (!/^usr_[A-Za-z0-9_-]{8,100}$/.test(tenantId)) throw new Error('Tenant identity is required.');

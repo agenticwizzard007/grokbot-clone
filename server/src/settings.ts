@@ -107,6 +107,11 @@ export function settingsStatus() {
 export const adminPhones = () => (process.env.ADMIN_PHONES ?? '').split(',').map((p) => p.replace(/\D/g, '')).filter(Boolean);
 
 /** Administrative authority is bound to immutable IDs, never contact details. */
+/**
+ * Who may change server-wide keys: accounts listed in ADMIN_USER_IDS or holding an account_roles admin entry. Authority is
+ * bound to immutable account ids; phones and emails never grant it. A server upgraded from the ADMIN_PHONES rule maps
+ * those owners to the role exactly once, on its first startup of this version (bootstrapAdministrators in accounts.ts).
+ */
 export function canManageServer(user: { id: string; email: string }): boolean {
   if (isTenant) return false;
   const ids = (process.env.ADMIN_USER_IDS ?? '').split(',').map(x => x.trim()).filter(Boolean);
