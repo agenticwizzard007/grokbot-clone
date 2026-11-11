@@ -423,9 +423,11 @@ if (flag('help') || flag('h')) {
   console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n\nimport ')[0].split('\n').filter((l) => l.startsWith('//')).map((l) => l.slice(3)).join('\n'));
   process.exit(0);
 }
-const SERVER = (opt('server', process.env.SWARM_SERVER) ?? '').replace(/\/+$/, '');
-const TOKEN_FILE = opt('token-file', process.env.SWARM_TOKEN_FILE);
-const TOKEN = IS_MAIN ? opt('token', process.env.SWARM_TOKEN) ?? (TOKEN_FILE && fs.existsSync(TOKEN_FILE) ? fs.readFileSync(TOKEN_FILE, 'utf8').trim() : undefined) : undefined;
+// GROKBOT_* names are from before the Swarm rename.
+const envOpt = (name) => process.env[`SWARM_${name}`] ?? process.env[`GROKBOT_${name}`];
+const SERVER = (opt('server', envOpt('SERVER')) ?? '').replace(/\/+$/, '');
+const TOKEN_FILE = opt('token-file', envOpt('TOKEN_FILE'));
+const TOKEN = IS_MAIN ? opt('token', envOpt('TOKEN')) ?? (TOKEN_FILE && fs.existsSync(TOKEN_FILE) ? fs.readFileSync(TOKEN_FILE, 'utf8').trim() : undefined) : undefined;
 const DESKTOP = flag('desktop');
 const MULTI = flag('multi');
 const LOCAL_DEVICE = flag('local-device');
@@ -434,7 +436,13 @@ try {
   BROWSER_CDP = validateDesktopOptions({ desktop: DESKTOP, multi: MULTI, localDevice: LOCAL_DEVICE, browserCdp: flag('browser-cdp') ? opt('browser-cdp', '') : undefined });
 } catch (error) { console.error(error.message); process.exit(2); }
 const HEADED = flag('headed');
-const DATA_DIR = path.resolve(opt('data-dir', path.join(os.homedir(), '.swarm-companion')));
+/** Bots' Chrome profiles (and their sign-ins). Before the Swarm rename they lived in ~/.grokbot-companion. */
+function defaultDataDir() {
+  const current = path.join(os.homedir(), '.swarm-companion');
+  const legacy = path.join(os.homedir(), '.grokbot-companion');
+  return !fs.existsSync(current) && fs.existsSync(legacy) ? legacy : current;
+}
+const DATA_DIR = path.resolve(opt('data-dir', defaultDataDir()));
 const ALLOW_PRIVATE = flag('allow-private-network');
 const NO_SANDBOX = flag('no-sandbox');
 const IDLE_MS = Number(opt('idle-minutes', '30')) * 60_000;

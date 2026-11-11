@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import { BROWSER_TOOLS, MAC_SCREEN_PROBE, macBackend, DesktopBrowser, findPlaywrightMcp, LocalMcpProcess, resolveBrowserCdp, validateBrowserCdp, validateDesktopOptions } from '../swarm-companion.mjs';
@@ -20,6 +20,21 @@ function alive(pid) {
   // A reparented zombie has already stopped executing, even before init reaps it.
   try { if (process.platform === 'linux' && fs.readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].startsWith('Z')) return false; process.kill(pid, 0); return true; } catch { return false; }
 }
+
+test('importing the companion never reads current or legacy token files', t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-import-token-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  for (const key of ['SWARM_TOKEN_FILE', 'GROKBOT_TOKEN_FILE']) {
+    const env = { ...process.env };
+    for (const name of ['SWARM_TOKEN', 'GROKBOT_TOKEN', 'SWARM_TOKEN_FILE', 'GROKBOT_TOKEN_FILE']) delete env[name];
+    // Reading this directory as a credential file would throw before the import finishes.
+    env[key] = directory;
+    const moduleUrl = new URL('../swarm-companion.mjs', import.meta.url).href;
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(moduleUrl)})`], { env, encoding: 'utf8', timeout: 5000 });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.error, undefined);
+  }
+});
 
 test('only desktop can opt into the scoped local route or explicit CDP', () => {
   assert.equal(validateDesktopOptions({ desktop: true, localDevice: true }), null);

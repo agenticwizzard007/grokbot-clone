@@ -1,10 +1,10 @@
 name: Apple apps
 on:
   pull_request:
-    paths: ['apple/**', 'web/**', 'server/src/auth/**', 'server/src/accounts.ts', 'server/src/native-auth.ts', 'server/src/routes.ts', 'server/src/lib/auth.ts', 'tests/apple-auth.test.mts', 'tests/native-auth.test.mts', 'tests/composio.test.mts', 'tests/mobile-layout.mjs', 'tests/voice-shortcut.mjs', 'package*.json', 'scripts/apple.sh', 'scripts/stage-apple-mac.mjs', 'scripts/package-apple-mac.sh', 'companion/swarm-companion.mjs', 'server/src/computers/**', 'server/src/usage-context.ts', 'server/src/agent/loop.ts', 'server/src/routes-config.ts', 'tests/native-computer.test.mts', 'tests/latency.test.mts', 'tests/viewer-ready.test.mts', 'companion/tests/**', '.github/workflows/apple.yml']
+    paths: ['apple/**', 'web/**', 'server/src/auth/**', 'server/src/accounts.ts', 'server/src/native-auth.ts', 'server/src/routes.ts', 'server/src/lib/auth.ts', 'tests/apple-auth.test.mts', 'tests/native-auth.test.mts', 'tests/composio.test.mts', 'tests/mobile-layout.mjs', 'tests/voice-shortcut.mjs', 'package*.json', 'scripts/apple.sh', 'scripts/stage-apple-mac.mjs', 'scripts/package-apple-mac.sh', 'companion/swarm-companion.mjs', 'server/src/computers/**', 'server/src/usage-context.ts', 'server/src/agent/loop.ts', 'server/src/routes-config.ts', 'tests/native-computer.test.mts', 'tests/rename-compat.test.mts', 'tests/latency.test.mts', 'tests/viewer-ready.test.mts', 'companion/tests/**', '.github/workflows/apple.yml']
   push:
     branches: [main]
-    paths: ['apple/**', 'web/**', 'server/src/auth/**', 'server/src/accounts.ts', 'server/src/native-auth.ts', 'server/src/routes.ts', 'server/src/lib/auth.ts', 'tests/apple-auth.test.mts', 'tests/native-auth.test.mts', 'tests/composio.test.mts', 'tests/mobile-layout.mjs', 'tests/voice-shortcut.mjs', 'package*.json', 'scripts/apple.sh', 'scripts/stage-apple-mac.mjs', 'scripts/package-apple-mac.sh', 'companion/swarm-companion.mjs', 'server/src/computers/**', 'server/src/usage-context.ts', 'server/src/agent/loop.ts', 'server/src/routes-config.ts', 'tests/native-computer.test.mts', 'tests/latency.test.mts', 'tests/viewer-ready.test.mts', 'companion/tests/**', '.github/workflows/apple.yml']
+    paths: ['apple/**', 'web/**', 'server/src/auth/**', 'server/src/accounts.ts', 'server/src/native-auth.ts', 'server/src/routes.ts', 'server/src/lib/auth.ts', 'tests/apple-auth.test.mts', 'tests/native-auth.test.mts', 'tests/composio.test.mts', 'tests/mobile-layout.mjs', 'tests/voice-shortcut.mjs', 'package*.json', 'scripts/apple.sh', 'scripts/stage-apple-mac.mjs', 'scripts/package-apple-mac.sh', 'companion/swarm-companion.mjs', 'server/src/computers/**', 'server/src/usage-context.ts', 'server/src/agent/loop.ts', 'server/src/routes-config.ts', 'tests/native-computer.test.mts', 'tests/rename-compat.test.mts', 'tests/latency.test.mts', 'tests/viewer-ready.test.mts', 'companion/tests/**', '.github/workflows/apple.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -23,7 +23,7 @@ jobs:
       - run: npm run test:mobile
       - run: npm run test:voice-shortcut
       - name: Test native computer routing, latency and viewer readiness
-        run: node --import tsx --test tests/native-computer.test.mts tests/latency.test.mts tests/viewer-ready.test.mts
+        run: node --import tsx --test tests/native-computer.test.mts tests/rename-compat.test.mts tests/latency.test.mts tests/viewer-ready.test.mts
       - name: Test native supervisor quick exit regression
         run: python3 apple/MacControl/test_lifecycle.py SupervisorLifecycleTests.test_quick_child_exit_preserves_status
       - name: Install companion desktop test dependencies

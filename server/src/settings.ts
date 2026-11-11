@@ -32,6 +32,8 @@ export const SETTINGS = {
 export type SettingName = keyof typeof SETTINGS;
 
 const cryptoKey = crypto.createHash('sha256').update(`swarm-settings:${env.sessionSecret}`).digest();
+/** Secrets saved before the Swarm rename; read with it, and re-saved under the current key when written again. */
+const legacyCryptoKey = crypto.createHash('sha256').update(`grokbot-settings:${env.sessionSecret}`).digest();
 
 export function sealSecret(plain: string): string {
   const iv = crypto.randomBytes(12);
@@ -40,16 +42,20 @@ export function sealSecret(plain: string): string {
   return `v1:${Buffer.concat([iv, c.getAuthTag(), body]).toString('base64')}`;
 }
 
-export function unsealSecret(stored: string): string | null {
-  if (!stored.startsWith('v1:')) return null;
+function unsealWith(key: Buffer, raw: Buffer): string | null {
   try {
-    const raw = Buffer.from(stored.slice(3), 'base64');
-    const d = crypto.createDecipheriv('aes-256-gcm', cryptoKey, raw.subarray(0, 12));
+    const d = crypto.createDecipheriv('aes-256-gcm', key, raw.subarray(0, 12));
     d.setAuthTag(raw.subarray(12, 28));
     return Buffer.concat([d.update(raw.subarray(28)), d.final()]).toString('utf8');
   } catch {
     return null;
   }
+}
+
+export function unsealSecret(stored: string): string | null {
+  if (!stored.startsWith('v1:')) return null;
+  const raw = Buffer.from(stored.slice(3), 'base64');
+  return unsealWith(cryptoKey, raw) ?? unsealWith(legacyCryptoKey, raw);
 }
 
 /** Apply saved settings at startup. */
@@ -59,6 +65,10 @@ export function loadSettings() {
     if (!def) continue;
     const v = def.secret ? unsealSecret(row.value) : row.value;
     if (v === null) { console.warn(`[settings] could not decrypt ${row.key} (SESSION_SECRET changed?); re-enter it in Settings → API keys`); continue; }
+    // Secrets saved before the Swarm rename: re-save them under the current key.
+    if (def.secret && unsealWith(cryptoKey, Buffer.from(row.value.slice(3), 'base64')) === null) {
+      db.prepare('UPDATE server_settings SET value=? WHERE key=?').run(sealSecret(v), row.key);
+    }
     setEnvOverride(def.env, v);
   }
 }

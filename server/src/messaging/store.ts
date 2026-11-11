@@ -311,9 +311,14 @@ export function lastUserChannel(botId: string): Channel | 'web' | null {
 // ---------- signed callback params (app connections opened from a phone, without a browser session) ----------
 
 const sigKey = crypto.createHash('sha256').update(`swarm-messaging:${env.sessionSecret}`).digest();
-export const signUser = (userId: string, scope: string) => crypto.createHmac('sha256', sigKey).update(`${scope}:${userId}`).digest('base64url').slice(0, 32);
+/** Links texted before the Swarm rename were signed with this key. */
+const legacySigKey = crypto.createHash('sha256').update(`grokbot-messaging:${env.sessionSecret}`).digest();
+const signWith = (key: Buffer, userId: string, scope: string) => crypto.createHmac('sha256', key).update(`${scope}:${userId}`).digest('base64url').slice(0, 32);
+export const signUser = (userId: string, scope: string) => signWith(sigKey, userId, scope);
 export function verifyUserSig(userId: string, scope: string, sig: string) {
-  const want = Buffer.from(signUser(userId, scope));
   const got = Buffer.from(String(sig ?? ''));
-  return want.length === got.length && crypto.timingSafeEqual(want, got);
+  return [sigKey, legacySigKey].some((key) => {
+    const want = Buffer.from(signWith(key, userId, scope));
+    return want.length === got.length && crypto.timingSafeEqual(want, got);
+  });
 }
