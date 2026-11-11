@@ -1,7 +1,7 @@
 # Swarm platform role (platform API: provider sign-in, sessions, routing, phone/messaging ownership,
-# encrypted events, host backup API). One Fly app per environment; replicas share SESSION_SECRET.
-# Deploy:  flyctl deploy -c infra/platform/fly.platform.toml -a <app> --remote-only
-# Build:   the repo Dockerfile; SWARM_ROLE selects the process (server/src/index.ts).
+# encrypted events, host backup API).
+# Deploy the exact reviewed image:  flyctl deploy -c infra/platform/fly.platform.toml -a <app> --image registry.fly.io/<app>@sha256:<digest>
+# Build once (step 5 of staging-bootstrap.md); SWARM_ROLE selects the process (server/src/index.ts).
 app = "swarm-platform-staging"          # production: swarm-platform
 primary_region = "iad"
 
@@ -12,23 +12,31 @@ primary_region = "iad"
   NODE_ENV = "production"
   SWARM_ROLE = "platform"
   PORT = "8787"
-  # Owned HTTPS origins. The VM host refuses a non-https exchange endpoint (server/src/runtime/host.ts).
-  PLATFORM_URL = "https://platform-staging.example.invalid"          # set to the real owned origin
-  COMPOSIO_GATEWAY_URL = "https://gateway-staging.example.invalid"   # set to the gateway's owned origin
-  # Backups: S3-compatible bucket (AWS S3, or Tigris on Fly with AWS_ENDPOINT_URL_S3 set as a secret).
+  # Owned HTTPS origin. PLATFORM_URL is used by the platform code; APP_URL and SERVER_URL feed the request boundary
+  # (server/src/security/request.ts via lib/auth.ts): browser mutations from any other origin are rejected with 403.
+  # All three must be the same public origin of this app.
+  PLATFORM_URL = "https://platform-staging.example.invalid"
+  APP_URL = "https://platform-staging.example.invalid"
+  SERVER_URL = "https://platform-staging.example.invalid"
+  COMPOSIO_GATEWAY_URL = "https://gateway-staging.example.invalid"   # the gateway app's owned origin
+  # Ed25519 platform keys are mounted as files from secrets (see [[files]]); these are the paths the code reads.
+  PLATFORM_PRIVATE_KEY_FILE = "/run/swarm/platform-private.pem"
+  PLATFORM_PUBLIC_KEY_FILE = "/run/swarm/platform-public.pem"
+  # Backups: S3-compatible versioned bucket. With the current code the SAME AWS credential chain serves KMS and S3,
+  # so use one AWS principal authorized for both; Tigris needs separately configured S3 credentials first.
   BACKUP_PREFIX = "swarm-backups"
   AWS_REGION = "us-east-1"
 
-# Secrets (flyctl secrets set -a <app> ...), names exactly as read by the code:
+# Secrets (flyctl secrets import -a <app> < file, or secrets set), names exactly as the code reads them:
 #   SESSION_SECRET            >= 32 bytes, identical across platform replicas, never copied to a tenant (platform/auth.ts)
-#   DATABASE_URL              Managed Postgres, SESSION pooling or direct (LISTEN/NOTIFY; platform/directory.ts, session-notifications.ts)
-#   TENANT_KMS_KEY_ID         AWS KMS key ARN (platform/envelopes.ts) + AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY (short-lived IAM preferred)
-#   BACKUP_BUCKET             private, versioned bucket (platform/backup-storage.ts); AWS_ENDPOINT_URL_S3 for Tigris
+#   DATABASE_URL              Managed Postgres application role; direct or SESSION pooling (LISTEN/NOTIFY; platform/directory.ts)
+#   TENANT_KMS_KEY_ID         AWS KMS key ARN (platform/envelopes.ts) + AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (short-lived IAM)
+#   BACKUP_BUCKET             private, versioned bucket (platform/backup-storage.ts)
 #   COMPOSIO_API_KEY          platform-owned PROJECT credential (platform/composio-service.ts rejects ck_/uak_ keys)
 #   GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET   OIDC web client; callback ${PLATFORM_URL}/api/auth/google/callback
 #   APPLE_TEAM_ID APPLE_KEY_ID APPLE_SERVICE_ID APPLE_IOS_CLIENT_ID APPLE_MACOS_CLIENT_ID APPLE_PRIVATE_KEY
 #   INKBOX_API_KEY INKBOX_ADMIN_API_KEY INKBOX_IDENTITY_ID INKBOX_SIGNING_KEY INKBOX_HANDLE   (messaging ownership)
-#   PLATFORM_PRIVATE_KEY / PLATFORM_PUBLIC_KEY   Ed25519 PKCS8 / SPKI PEM, mounted as files below
+#   PLATFORM_PRIVATE_KEY / PLATFORM_PUBLIC_KEY   BASE64-ENCODED PEM (Fly decodes file secrets from base64), mounted below
 # The schema migration is NOT run by this process: see README.md (separate trusted job with MIGRATION_DATABASE_URL).
 
 [[files]]
@@ -37,16 +45,17 @@ primary_region = "iad"
 [[files]]
   guest_path = "/run/swarm/platform-public.pem"
   secret_name = "PLATFORM_PUBLIC_KEY"
-[env.files]
-  PLATFORM_PRIVATE_KEY_FILE = "/run/swarm/platform-private.pem"
-  PLATFORM_PUBLIC_KEY_FILE = "/run/swarm/platform-public.pem"
 
 [http_service]
   internal_port = 8787
   force_https = true
   auto_stop_machines = "off"
-  auto_start_machines = true
-  min_machines_running = 2        # two replicas: SessionNotifications needs one LISTEN connection each
+  auto_start_machines = false
+  # ONE serving machine until owner-aware inter-replica routing exists: TunnelBroker keeps tenant tunnels in a
+  # process-local map (platform/tunnel.ts) and forwards 503 for tenants connected to another replica. LISTEN/NOTIFY
+  # broadcasts revocations, not tunnel ownership. Fly may still start a standby for its own HA behaviour; keep
+  # min_machines_running at 1 and do not scale out before that routing is implemented and tested.
+  min_machines_running = 1
   [[http_service.checks]]
     grace_period = "30s"
     interval = "15s"
@@ -55,5 +64,5 @@ primary_region = "iad"
     path = "/api/health"          # 503 until the directory listener is ready (platform/server.ts)
 
 [[vm]]
-  size = "performance-2x"         # 2 vCPU / 4 GB: directory pool max 20 per process, relays for ~500 tenants per replica (unmeasured)
+  size = "performance-2x"         # 2 vCPU / 4 GB: directory pool max 20 per process; relay capacity per machine is unmeasured
   memory = "4gb"

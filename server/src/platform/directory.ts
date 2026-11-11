@@ -89,6 +89,8 @@ export class Directory {
         CREATE TABLE IF NOT EXISTS release_gates (name text NOT NULL, evidence_uri text NOT NULL, image_digest text NOT NULL, approved_at timestamptz NOT NULL);
         ALTER TABLE release_gates DROP CONSTRAINT IF EXISTS release_gates_pkey;
         ALTER TABLE release_gates ADD PRIMARY KEY(name,image_digest);
+        ALTER TABLE release_gates ADD COLUMN IF NOT EXISTS evidence_sha256 text;
+        ALTER TABLE release_gates ADD COLUMN IF NOT EXISTS reviewer text;
         CREATE TABLE IF NOT EXISTS phone_attempts (
           hash text PRIMARY KEY, phone text NOT NULL, ciphertext text NOT NULL, code_hash text NOT NULL,
           link_session text REFERENCES sessions(hash) ON DELETE CASCADE, attempts integer NOT NULL DEFAULT 0,

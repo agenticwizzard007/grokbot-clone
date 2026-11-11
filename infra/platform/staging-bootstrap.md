@@ -23,14 +23,14 @@ Create two roles: a schema owner (for `MIGRATION_DATABASE_URL`) and an applicati
 Use the direct or **session-pooled** endpoint for `DATABASE_URL`: the platform keeps one `LISTEN` connection per
 replica and transaction pooling breaks it.
 
-## 2. Object storage **[$ Tigris: pay per GB stored and egress; cents at staging scale]**
-```sh
-flyctl storage create --org <staging-org> --name swarm-staging-backups      # Tigris, S3-compatible
-```
-Export the returned endpoint as `AWS_ENDPOINT_URL_S3` and the keys as AWS credentials on the platform and
-provisioner apps; enable versioning; set `BACKUP_BUCKET`.
+## 2. Object storage **[$ AWS S3: cents per GB at staging scale]**
+With the current code the platform, provisioner and gateway build `KMSClient({})` and `S3Client({})` from the same
+default credential chain, so the AWS principal must be authorized for both KMS and the bucket. Create a private,
+versioned S3 bucket in the KMS account and set `BACKUP_BUCKET`. **Tigris is not usable yet:** replacing the AWS keys
+with Tigris keys would send Tigris credentials to KMS; offering Tigris requires separately configured S3 credentials in
+`platform/backup-storage.ts` first (decision 3 in `docs/tenant-infrastructure-decisions.md`).
 
-## 3. Apps **[$ platform 2 × performance-2x = $132/month; provisioner shared-cpu-2x 1 GB ≈ $7.40; gateway ≈ $7.40]**
+## 3. Apps **[$ platform 1 × performance-2x = $66/month; provisioner shared-cpu-2x 1 GB ≈ $7.40; gateway ≈ $7.40]**
 ```sh
 flyctl apps create swarm-platform-staging --org <staging-org>
 flyctl apps create swarm-provisioner-staging --org <staging-org>
@@ -44,13 +44,16 @@ Edit `PLATFORM_URL` and `COMPOSIO_GATEWAY_URL` in the three manifests to those o
 ```sh
 flyctl secrets set -a swarm-platform-staging SESSION_SECRET=... DATABASE_URL=... TENANT_KMS_KEY_ID=... \
   AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... BACKUP_BUCKET=... COMPOSIO_API_KEY=... \
+  APP_URL and SERVER_URL are in the manifest [env]; set them to the real platform origin before deploying \
   GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... INKBOX_API_KEY=... INKBOX_ADMIN_API_KEY=... INKBOX_IDENTITY_ID=... INKBOX_SIGNING_KEY=... INKBOX_HANDLE=... \
-  PLATFORM_PRIVATE_KEY="$(cat platform-private.pem)" PLATFORM_PUBLIC_KEY="$(cat platform-public.pem)"
+  PLATFORM_PRIVATE_KEY="$(base64 -w0 < platform-private.pem)" PLATFORM_PUBLIC_KEY="$(base64 -w0 < platform-public.pem)"
+# Prefer `flyctl secrets import -a <app> < secrets.env` from a protected file over argument lists. File secrets are base64.
 flyctl secrets set -a swarm-provisioner-staging SESSION_SECRET=... DATABASE_URL=... FLY_API_TOKEN=<org-scoped> FLY_ORG_SLUG=<staging-org> \
   TENANT_KMS_KEY_ID=... AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... BACKUP_BUCKET=... TENANT_HOST_IMAGE=<set in step 7>
 flyctl secrets set -a swarm-gateway-staging DATABASE_URL=... TENANT_KMS_KEY_ID=... AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... \
-  COMPOSIO_API_KEY=... COMPOSIO_WEBHOOK_SECRET=... PLATFORM_PUBLIC_KEY="$(cat platform-public.pem)"
+  COMPOSIO_API_KEY=... COMPOSIO_WEBHOOK_SECRET=... PLATFORM_PUBLIC_KEY="$(base64 -w0 < platform-public.pem)"
 ```
+After the first deploy, verify on each machine that `/run/swarm/platform-public.pem` decodes to the exact SPKI PEM.
 
 ## 5. Build the application image once and pin its digest
 ```sh
@@ -58,23 +61,24 @@ flyctl deploy -c infra/platform/fly.platform.toml -a swarm-platform-staging --re
 flyctl image show -a swarm-platform-staging        # note the @sha256 digest for APP_IMAGE / RUNNER_IMAGE / MCP_IMAGE
 ```
 
-## 6. Schema migration (separate trusted job; see README.md)
-```sh
-flyctl machine run registry.fly.io/swarm-platform-staging@sha256:<digest> -a swarm-platform-staging --rm \
-  -e SWARM_ROLE=platform -e NODE_ENV=production -e MIGRATION_DATABASE_URL="$MIGRATION_DATABASE_URL" -- node server/dist/platform/migrate.js
-```
+## 6. Schema migration (dedicated trusted job; see README.md)
+Create `swarm-migrate-staging`, stage the schema-owner URL as a base64 secret from stdin, run the job with
+`--file-secret` so the credential is read only by that process, then unset the secret. Never pass it with `-e` or on
+argv, and never store it on a serving role.
 
 ## 7. Tenant host image **[$ build machine while running]**
 Build `HOST_BASE` and `DESKTOP_BASE` (definitions still to be authored; see `docs/tenant-capacity-model.md` and the
-owner notes), then run `infra/tenant-host/build-release.sh` with digest-pinned `APP_IMAGE RUNNER_IMAGE MCP_IMAGE
-DESKTOP_IMAGE HOST_BASE`, `IMAGE_VERIFICATION_KEY` (cosign) and `PLATFORM_PUBLIC_KEY_FILE`; push; set
-`TENANT_HOST_IMAGE` on the provisioner to the resulting `@sha256` digest.
+owner notes), sign and scan every component image, then run `infra/tenant-host/build-release.sh` with digest-pinned
+`APP_IMAGE RUNNER_IMAGE MCP_IMAGE DESKTOP_IMAGE HOST_BASE`, `HOST_IMAGE_TAG`, `IMAGE_VERIFICATION_KEY` (cosign) and
+`PLATFORM_PUBLIC_KEY_FILE`; push; set `TENANT_HOST_IMAGE` on the provisioner to the resulting `@sha256` digest. Until
+those base definitions exist this step cannot be completed, so a first tenant is not a one-session outcome.
 
 ## 8. Deploy the roles
 ```sh
-flyctl deploy -c infra/platform/fly.platform.toml -a swarm-platform-staging --remote-only
-flyctl deploy -c infra/platform/fly.composio-gateway.toml -a swarm-gateway-staging --remote-only
-flyctl deploy -c infra/platform/fly.provisioner.toml -a swarm-provisioner-staging --remote-only
+IMG=registry.fly.io/swarm-platform-staging@sha256:<digest from step 5>   # the one reviewed image for every role and the migration job
+flyctl deploy -c infra/platform/fly.platform.toml -a swarm-platform-staging --image "$IMG"
+flyctl deploy -c infra/platform/fly.composio-gateway.toml -a swarm-gateway-staging --image "$IMG"
+flyctl deploy -c infra/platform/fly.provisioner.toml -a swarm-provisioner-staging --image "$IMG"
 curl -s https://platform-staging.<your-domain>/api/health   # expect {"ok":true,"role":"platform"}
 curl -s https://gateway-staging.<your-domain>/health
 ```
@@ -86,7 +90,7 @@ The provisioner exits until step 9 records release-gate evidence for `TENANT_HOS
 2. Network isolation: two tenant apps on separate custom networks; prove no cross-reach and Fly's network attestation.
 3. Signed image: cosign verify the host image digest.
 4. Provider gates: hosted login and quota evidence from the CLI owner's harness (`agenticwizzard007/cli-provider-qualification`).
-5. Record each: `node server/dist/platform/release-gates-cli.js record <image@sha256> <gate> <evidence-uri> --approve`, then `verify`.
+5. Record each: `node server/dist/platform/release-gates-cli.js record <image@sha256> <gate> <evidence-uri> <artifact sha256> <reviewer> --approve`, then `verify`.
 
 ## 10. First tenant **[$ ≈ $25.40/month running, $1.50 volume]**
 Sign up through the platform origin; the provisioner creates the tenant app, network, volume and machine. Confirm the
@@ -99,5 +103,6 @@ flyctl apps destroy swarm-<tenant-app> -y   # for each tenant app created by sta
 flyctl apps destroy swarm-provisioner-staging -y; flyctl apps destroy swarm-gateway-staging -y; flyctl apps destroy swarm-platform-staging -y
 flyctl mpg destroy swarm-staging-pg; flyctl storage destroy swarm-staging-backups
 ```
-Staging steady state before tenants: about $185/month (Postgres Basic $38 + platform $132 + provisioner and gateway
-$15); each running staging tenant adds about $27/month.
+Staging steady state before tenants: about $119/month (Postgres Basic $38 + one platform performance-2x $66 +
+provisioner and gateway about $15); each running staging tenant adds about $27/month. Prices from fly.io/pricing-update
+(effective 2026-10-01) and docs.fly.io/mpg/overview as read on 2026-11-11; recheck before committing budget.

@@ -25,8 +25,9 @@ services below exist. Each decision names the code that depends on it and the co
 ## 3. Object storage for encrypted backups
 - **Needs:** S3 API with versioning, delete markers and multipart uploads (`platform/backup-storage.ts` lists
   versions, aborts multipart uploads, deletes within a prefix); private bucket; credentials scoped to the prefix.
-- **Option A: AWS S3** (natural if option 1A is taken). **Option B: Tigris on Fly** via `AWS_ENDPOINT_URL_S3`;
-  confirm versioning and multipart behaviour in staging before relying on retention cleanup. Either way an S3
+- **Option A: AWS S3 with the same AWS principal as KMS** (works with the code as written: both clients share the
+  default credential chain). **Option B: Tigris on Fly** requires a code change first, separately configured S3
+  credentials/endpoint in `platform/backup-storage.ts`, otherwise Tigris keys would be sent to KMS. Either way an S3
   lifecycle rule for aborted uploads is required (`docs/tenant-isolation.md`).
 
 ## 4. Fly organization, limits and budget
@@ -34,8 +35,10 @@ services below exist. Each decision names the code that depends on it and the co
 - Ask Fly support to raise limits: the platform creates one app, one custom private network, one 10 GB encrypted
   volume and one machine per tenant; 1,000 tenants plus a 1,250 burst need about 1,250 of each. Personal
   organizations start with a soft cap of roughly 20–50 running machines.
-- Approve budget: staging about $185/month before tenants (`infra/platform/staging-bootstrap.md`); fleet at 1,000
+- Approve budget: staging about $119/month before tenants (`infra/platform/staging-bootstrap.md`); fleet at 1,000
   simultaneously active tenants about $27,000/month for tenant machines and volumes (`tenant-capacity-model.md`).
+- Platform serving capacity: one machine until owner-aware inter-replica tunnel routing is implemented; scaling the
+  platform tier out is itself engineering work, not a configuration change.
 
 ## 5. Credentials and identities
 Google OAuth client (staging and production; callback `${PLATFORM_URL}/api/auth/google/callback`), Apple staging

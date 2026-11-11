@@ -1,7 +1,6 @@
-# Swarm Composio gateway role (narrow connected-apps API for tenants: connection and tool calls, OAuth
-# callbacks and triggers). Holds the platform-owned Composio project credential; tenants never see it.
-# Deploy:  flyctl deploy -c infra/platform/fly.platform.toml -a <app> --remote-only
-# Build:   the repo Dockerfile; SWARM_ROLE selects the process (server/src/index.ts).
+# Swarm Composio gateway role (narrow connected-apps API for tenants: connection and tool calls, OAuth callbacks
+# and triggers). Holds the platform-owned Composio project credential; tenants never see it.
+# Deploy the exact reviewed image:  flyctl deploy -c infra/platform/fly.composio-gateway.toml -a <app> --image registry.fly.io/<app>@sha256:<digest>
 app = "swarm-gateway-staging"           # production: swarm-gateway
 primary_region = "iad"
 
@@ -12,12 +11,35 @@ primary_region = "iad"
   NODE_ENV = "production"
   SWARM_ROLE = "composio-gateway"
   PORT = "8787"
-  # Owned HTTPS origins. The VM host refuses a non-https exchange endpoint (server/src/runtime/host.ts).
-  PLATFORM_URL = "https://platform-staging.example.invalid"          # set to the real owned origin
+  PLATFORM_URL = "https://platform-staging.example.invalid"   # the platform app's owned origin
+  # Runtime identity verification uses the platform PUBLIC key only; the private signing key never reaches this role.
+  PLATFORM_PUBLIC_KEY_FILE = "/run/swarm/platform-public.pem"
   AWS_REGION = "us-east-1"
 
-# Secrets, names exactly as read by the code:
-#   DATABASE_URL, TENANT_KMS_KEY_ID + AWS credentials   (platform/directory.ts, envelopes.ts: encrypted event delivery)
+# Secrets, names exactly as the code reads them:
+#   DATABASE_URL              Managed Postgres application role (platform/directory.ts)
+#   TENANT_KMS_KEY_ID + AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY   (platform/envelopes.ts: encrypted event delivery)
 #   COMPOSIO_API_KEY          platform-owned PROJECT credential (never a user key)
 #   COMPOSIO_WEBHOOK_SECRET   webhook signature verification (platform/composio-gateway.ts)
-#   PLATFORM_PUBLIC_KEY       runtime identity verification, mounted as a file above
+#   PLATFORM_PUBLIC_KEY       BASE64-ENCODED SPKI PEM, mounted as the file below
+
+[[files]]
+  guest_path = "/run/swarm/platform-public.pem"
+  secret_name = "PLATFORM_PUBLIC_KEY"
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = false
+  min_machines_running = 1
+  [[http_service.checks]]
+    grace_period = "20s"
+    interval = "15s"
+    timeout = "5s"
+    method = "GET"
+    path = "/health"              # platform/composio-gateway.ts
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "1gb"
