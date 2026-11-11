@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
 umask 077
+node /opt/swarm/validate-release.mjs /opt/swarm/release.json /opt/swarm/chromium-seccomp.json
 mkdir -p /run/swarm-host /run/swarm /data/app /data/files /data/subscriptions /data/desktop
 # Only fixed image archives supplied by the signed host release are loaded; boot downloads no code.
 dockerd --host=unix:///run/docker.sock --data-root=/var/lib/docker --dns=1.1.1.1 --dns=1.0.0.1 --ipv6=false > /run/swarm-host/docker.log 2>&1 &
