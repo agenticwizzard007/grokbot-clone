@@ -1,6 +1,6 @@
 # Tenant isolation implementation and release boundaries
 
-This implementation is not qualified for production or 1,000 concurrent users. The Mac-only PR16 is separate. Do not deploy the shared working tree over the existing standalone service: production startup now requires an explicit isolated deployment role, and migration is not wired to production adapters.
+This implementation is not qualified for production or 1,000 concurrent users. The Mac-only PR16 is separate. Production startup requires an explicit `SWARM_ROLE`: the existing shared service sets `SWARM_ROLE=standalone` (see `fly.toml`), and the isolated platform uses the other roles; a process whose role is unset is refused so a tenant image never starts as a shared server by accident. Migration is not wired to production adapters.
 
 ## Deployment model
 
@@ -13,7 +13,7 @@ Each immutable Swarm account owns one Fly application, private network, microVM 
 | `composio-gateway` | Narrow connection and tool API; callbacks and triggers | Platform-owned Composio project credential, PostgreSQL, runtime verification public key, event encryption access |
 | tenant host | Verify release/volume identity, renew runtime identity, supervise containers and backups | Root-only bootstrap/refresh and host token, only this tenant's data key and volume |
 | `tenant` | One account's application, SQLite WAL, files, Bots, approvals, MCP and durable jobs | Tenant data key and runtime token; no platform database, Fly, Composio or AWS credential |
-| `standalone` | Local development and compatibility tests | Shared process; unsuitable for unrelated production tenants and refused with `NODE_ENV=production` |
+| `standalone` | The existing single shared server, local development and compatibility tests | Shared process; unsuitable for isolating unrelated tenants. Allowed in production only when `SWARM_ROLE=standalone` is set explicitly |
 
 `server/src/index.ts` loads only the selected application role. The tenant database owner, configured immutable ID and volume manifest must agree. The tenant application's server accepts routed requests carrying short-lived signed authorization. Incoming browser identity headers are stripped at the platform; they cannot choose a tenant or VM.
 

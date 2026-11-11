@@ -35,6 +35,7 @@
     "cli:bridge": "node companion/cli-bridge.mjs",
     "test:models": "node --import tsx --test --test-concurrency=1 tests/models.test.mts",
     "test:rename": "node --import tsx --test tests/rename-compat.test.mts",
+    "test:deployment": "node --import tsx --test tests/deployment.test.mts",
     "test:isolation": "node scripts/test-isolation.mjs"
   },
   "engines": {
