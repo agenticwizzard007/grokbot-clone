@@ -188,6 +188,16 @@ export class Directory {
           generation bigint NOT NULL,volume_id text NOT NULL,expected_parts integer NOT NULL,expected_bytes bigint NOT NULL,
           state text NOT NULL DEFAULT 'uploading' CHECK(state IN ('uploading','complete','revoked')),
           created_at timestamptz NOT NULL DEFAULT now(),completed_at timestamptz);
+        CREATE TABLE IF NOT EXISTS host_checkpoints (
+          tenant_id text PRIMARY KEY REFERENCES tenants(id),id text NOT NULL UNIQUE,migration_id text NOT NULL REFERENCES migration_runs(id),
+          machine_id text NOT NULL,volume_id text NOT NULL,generation bigint NOT NULL,policy_revision bigint NOT NULL,
+          state text NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','uploading','complete','cancelled')),
+          backup_id text,receipt_hash text,created_at timestamptz NOT NULL DEFAULT now(),completed_at timestamptz);
+        ALTER TABLE backups ADD COLUMN IF NOT EXISTS checkpoint_id text REFERENCES host_checkpoints(id);
+        CREATE TABLE IF NOT EXISTS migration_targets (
+          tenant_id text PRIMARY KEY REFERENCES tenants(id),migration_id text NOT NULL UNIQUE REFERENCES migration_runs(id),
+          generation bigint NOT NULL,machine_id text,volume_id text NOT NULL,installation_id text NOT NULL,
+          image_digest text NOT NULL,run_authorized_at timestamptz,created_at timestamptz NOT NULL DEFAULT now());
         CREATE OR REPLACE FUNCTION swarm_session_revocation() RETURNS trigger LANGUAGE plpgsql AS $$
         BEGIN
           PERFORM pg_notify('swarm_revocations',json_build_object('schema',TG_TABLE_SCHEMA,'tenant',OLD.tenant_id,'session',OLD.hash)::text);

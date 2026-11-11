@@ -11,6 +11,7 @@ export async function setHostIntent(client:PoolClient,owner:HostOwner,desired:'h
   const tenant=await client.query("SELECT 1 FROM tenants WHERE id=$1 AND generation=$2 AND machine_id=$3 AND state IN ('active','provisioning','suspended') FOR UPDATE",[owner.tenant,owner.generation,owner.machine]);
   if(!tenant.rowCount)throw new Error('Host ownership changed.');
   if(desired==='run'&&(await client.query("SELECT 1 FROM host_installations WHERE tenant_id=$1 AND (generation!=$2 OR machine_id!=$3 OR state!='installed')",[owner.tenant,owner.generation,owner.machine])).rowCount)throw new Error('Environment installation is not acknowledged.');
+  if(desired==='run'&&(await client.query("SELECT 1 FROM host_checkpoints WHERE tenant_id=$1 AND state!='cancelled'",[owner.tenant])).rowCount)throw new Error('A reconciled checkpoint still requires its writer hold.');
   const result=await client.query(`INSERT INTO host_policies(tenant_id,generation,machine_id,desired) VALUES($1,$2,$3,$4)
     ON CONFLICT(tenant_id) DO UPDATE SET generation=excluded.generation,machine_id=excluded.machine_id,desired=excluded.desired,
       revision=host_policies.revision+1,acknowledged_revision=NULL,observed=NULL,reported_at=NULL,error_code=NULL

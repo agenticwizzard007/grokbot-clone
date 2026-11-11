@@ -5,7 +5,9 @@ import { LegacyActivityGate } from './legacy-activity.js';
 // Background callbacks have a separate counter from request/agent usage. Neither
 // counter serializes work or limits subscription concurrency.
 const activities = new LegacyActivityGate(db);
-export const legacyWorkHeld = (owner: string | null | undefined) => !!owner && legacyAccountHeld(db, owner);
+// Socket-close/background observers can outlive SQLite during shutdown. Stop
+// admitting observations then; a closed database is not proof of a migration hold.
+export const legacyWorkHeld = (owner: string | null | undefined) => !db.open || !!owner && legacyAccountHeld(db, owner);
 export const heldLegacyOwners = () => legacyHeldOwners(db);
 export function legacyPhoneOwner(phone: string): string | undefined {
   const owners = db.prepare("SELECT id FROM users WHERE phone=? AND phone!=''").all(phone.replace(/\D/g, '')) as { id: string }[];

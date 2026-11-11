@@ -8,7 +8,7 @@ if (!process.env.TEST_DATABASE_URL) {
 const files = [
   'isolation-security', 'gateway-isolation', 'platform-directory', 'platform-lifecycle', 'platform-tunnel', 'host-preflight', 'runtime-refresh', 'runtime-operations',
   'platform-messaging', 'platform-messaging-dispatch', 'platform-signup', 'platform-native-auth', 'tenant-sessions', 'session-notifications',
-  'backup-lifecycle', 'backup-storage', 'backup-upload', 'storage-recovery', 'host-installation', 'environment-operations', 'legacy-database-fence', 'legacy-background', 'migration-package', 'migration-destination', 'migration-transfer', 'migration-coordinator', 'migration-import', 'runtime-event-delivery',
+  'backup-lifecycle', 'backup-storage', 'backup-upload', 'storage-recovery', 'host-installation', 'host-checkpoint', 'environment-operations', 'legacy-database-fence', 'legacy-background', 'migration-package', 'migration-destination', 'migration-transfer', 'migration-target', 'migration-coordinator', 'migration-import', 'runtime-event-delivery',
   'google-auth', 'apple-auth', 'openrouter', 'native-auth', 'native-computer', 'rename-compat',
   'mcp', 'mcp-folders', 'composio', 'messaging',
 ];

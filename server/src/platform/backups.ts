@@ -5,6 +5,7 @@ import type {PoolClient} from 'pg';
 import type { RuntimeIdentity } from './runtime-identity.js';
 import { backupLocation, MAX_BACKUP_BYTES, MAX_BACKUP_PARTS, type BackupStorage } from './backup-storage.js';
 import {checkedBackupUpload} from './backup-upload.js';
+import {backupWriterAuthorized} from './host-checkpoints.js';
 
 export class BackupCatalog {
   constructor(readonly directory:Directory,readonly storage:BackupStorage){}
@@ -44,7 +45,7 @@ export class BackupCatalog {
     const admitted=await this.directory.transaction(async c=>{
       await c.query('SELECT id FROM tenants WHERE id=$1 FOR UPDATE',[owner.tenant]);
       const b=(await c.query(`SELECT b.* FROM backups b JOIN tenants t ON t.id=b.tenant_id WHERE b.tenant_id=$1 AND b.id=$2
-        AND b.generation=$3 AND t.generation=b.generation AND t.state='active' AND b.state IN ('uploading','complete') FOR UPDATE OF b`,[owner.tenant,id,owner.generation])).rows[0];
+        AND b.generation=$3 AND t.generation=b.generation AND ${backupWriterAuthorized} AND b.state IN ('uploading','complete') FOR UPDATE OF b`,[owner.tenant,id,owner.generation])).rows[0];
       if(!b)throw new Error('Backup unavailable.');
       const existing=(await c.query('SELECT *,lease_until>clock_timestamp() AS busy FROM backup_parts WHERE tenant_id=$1 AND backup_id=$2 AND name=$3',[owner.tenant,id,name])).rows[0];
       if(existing){if(Number(existing.bytes)!==bytes||existing.sha256!==sha256)throw new Error('Part cannot be replaced.');if(existing.state==='ready')return false;if(existing.state==='uploading'&&existing.busy)throw new Error('Upload already running.');}
@@ -62,7 +63,7 @@ export class BackupCatalog {
       const valid=await client.query(`UPDATE backup_parts p SET lease_until=CASE WHEN $6 THEN clock_timestamp()+interval '3 minutes' ELSE p.lease_until END
         FROM backups b,tenants t WHERE p.tenant_id=$1 AND p.backup_id=$2 AND p.name=$3 AND p.upload_owner=$5
         AND p.state='uploading' AND p.lease_until>clock_timestamp() AND b.tenant_id=p.tenant_id AND b.id=p.backup_id AND b.state='uploading'
-        AND b.generation=$4 AND t.id=b.tenant_id AND t.generation=$4 AND t.state='active' RETURNING p.name`,[owner.tenant,id,name,owner.generation,upload,dispatch]);
+        AND b.generation=$4 AND t.id=b.tenant_id AND t.generation=$4 AND ${backupWriterAuthorized} RETURNING p.name`,[owner.tenant,id,name,owner.generation,upload,dispatch]);
       if(!valid.rowCount)throw new Error('Backup upload authorization changed.');
       return action(client);
     });
@@ -84,7 +85,7 @@ export class BackupCatalog {
     return this.directory.transaction(async c=>{
       await c.query('SELECT id FROM tenants WHERE id=$1 FOR UPDATE',[owner.tenant]);
       const b=(await c.query(`SELECT b.* FROM backups b JOIN tenants t ON t.id=b.tenant_id WHERE b.tenant_id=$1 AND b.id=$2 AND t.generation=$3
-        AND b.generation=t.generation AND t.state='active' AND b.state IN ('uploading','complete') FOR UPDATE OF b`,[owner.tenant,id,owner.generation])).rows[0];
+        AND b.generation=t.generation AND ${backupWriterAuthorized} AND b.state IN ('uploading','complete') FOR UPDATE OF b`,[owner.tenant,id,owner.generation])).rows[0];
       if(!b)throw new Error('Backup unavailable.');
       const parts=(await c.query('SELECT name,bytes,state FROM backup_parts WHERE tenant_id=$1 AND backup_id=$2',[owner.tenant,id])).rows;
       if(parts.length!==b.expected_parts||parts.some(p=>p.state!=='ready')||parts.reduce((n,p)=>n+Number(p.bytes),0)!==Number(b.expected_bytes)||!parts.some(p=>p.name==='manifest.bin'))throw new Error('Backup inventory is incomplete.');
@@ -109,7 +110,10 @@ export class BackupCatalog {
               AND t.state NOT IN ('deleting','deleted') AND (o.full_backup=b.id OR o.database_backup=b.id))
             AND NOT EXISTS(SELECT 1 FROM migration_transfers x JOIN migration_runs m ON m.id=x.migration_id JOIN tenants t ON t.id=x.tenant_id
               WHERE x.tenant_id=b.tenant_id AND x.backup_id=b.id AND x.state IN ('uploading','complete')
-              AND m.phase NOT IN ('active','rolled_back','cancelled') AND t.state NOT IN ('deleting','deleted'))) RETURNING id`,[row.tenant_id,row.id,!!tenant]);
+              AND m.phase NOT IN ('active','rolled_back','cancelled') AND t.state NOT IN ('deleting','deleted'))
+            AND NOT EXISTS(SELECT 1 FROM host_checkpoints q JOIN migration_runs m ON m.id=q.migration_id JOIN tenants t ON t.id=q.tenant_id
+              WHERE q.tenant_id=b.tenant_id AND q.id=b.checkpoint_id AND q.backup_id=b.id AND q.state!='cancelled'
+              AND m.phase NOT IN ('rolled_back','cancelled') AND t.state NOT IN ('deleting','deleted'))) RETURNING id`,[row.tenant_id,row.id,!!tenant]);
         return !!result.rowCount;
       });
       if(!admitted)continue;

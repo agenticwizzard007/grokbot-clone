@@ -11,6 +11,7 @@ import { verifyHostContainment } from './host-preflight.js';
 import { HostActivation } from './host-activation.js';
 import { RuntimeRefreshStore } from './refresh-state.js';
 import {HostInstaller,hostInstallTransport} from './install-environment.js';
+import {HostCheckpoint,hostCheckpointTransport} from './checkpoints.js';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -88,7 +89,18 @@ for(;;){
   const policy=await activation.policy();
   if(policy.desired==='run')break;
   if(policy.revision!=='0')await activation.report(policy,'held');
-  try{await installer.tick();}catch{
+  try{
+    await installer.tick();
+    const checkpoints=new HostCheckpoint(installer.activeRoot(),'/data/host-checkpoints',{tenant,generation,machine,volume},()=>requireBackupKey(),hostCheckpointTransport(process.env.PLATFORM_URL!,'/run/swarm-host/host-token'),async plan=>{
+      const current=await activation.policy();
+      if(current.desired!=='hold'||current.revision!==plan.revision)throw new Error('Checkpoint hold changed.');
+      // This path runs only on a held boot before supervisor/application startup.
+      // Verify actual absence, not just a successful stop request or stale report.
+      if((await exec('docker',['ps','-q'])).stdout.trim())throw new Error('Checkpoint workloads are not stopped.');
+      await activation.report(current,'held');
+    });
+    await checkpoints.tick();
+  }catch{
     try{if(policy.revision!=='0')await activation.report(policy,'held','host_requires_reconciliation');}finally{await failClosed();}
   }
   await delay(5000);

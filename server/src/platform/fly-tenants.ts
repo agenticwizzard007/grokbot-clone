@@ -70,14 +70,16 @@ export class FlyTenants {
     }});
     this.checkMachine(machine,tenant,volume,generation);return machine as TenantMachine;
   }
-  async configureBootstrap(app:string,machine:string,tenant:string,bootstrap:string,generation?:string){
+  async configureBootstrap(app:string,machine:string,tenant:string,bootstrap:string,generation?:string,beforeEffect?:BeforeCreate){
     const current=await this.machine(app,tenant,machine,undefined,generation);
     if(!['created','stopped'].includes(current.state))throw new Error('Bootstrap changes require a stopped machine.');
+    await beforeEffect?.();
     await this.request('POST',`/apps/${segment(app)}/machines/${segment(machine)}`,{skip_launch:true,config:{...current.config,files:[{guest_path:'/run/swarm-host/bootstrap',raw_value:Buffer.from(bootstrap).toString('base64')}]}});
   }
-  async action(app:string,machine:string,operation:'start'|'suspend'|'stop',tenant:string,generation?:string){
+  async action(app:string,machine:string,operation:'start'|'suspend'|'stop',tenant:string,generation?:string,beforeEffect?:BeforeCreate){
     const current=await this.machine(app,tenant,machine,undefined,generation);
     if(operation==='start'&&['started','starting'].includes(current.state)||operation==='stop'&&['stopped','stopping'].includes(current.state)||operation==='suspend'&&['suspended','suspending'].includes(current.state))return;
+    await beforeEffect?.();
     await this.request('POST',`/apps/${segment(app)}/machines/${segment(machine)}/${operation}`,{});
   }
   async waitStopped(app:string,tenant:string,machine:string,generation?:string,wait=(ms:number)=>delay(ms)){

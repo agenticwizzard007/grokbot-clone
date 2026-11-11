@@ -14,9 +14,18 @@ function start(args,env={}){const p=spawn(process.execPath,args,{env:{...process
 async function until(fn){for(let i=0;i<200;i++){const v=await fn();if(v)return v;await sleep(100);}throw new Error('Timed out');}
 const apiPort=await port(), mockPort=await port(), mcpPort=await port();
 const base=`http://127.0.0.1:${apiPort}`;
+// This process-only preload rewrites one validated public test origin to the
+// fixture. Application HTTPS/private-address enforcement remains unchanged.
+const fixtureFetch=path.join(root,'fixture-fetch.mjs');
+fs.writeFileSync(fixtureFetch,`const realFetch=globalThis.fetch;
+globalThis.fetch=(input,init)=>{
+ const request=new Request(input,init),url=new URL(request.url);
+ if(url.origin!=='https://mcp-fixture.example')return realFetch(input,init);
+ return realFetch('http://127.0.0.1:${mcpPort}'+url.pathname+url.search,{method:request.method,headers:request.headers,body:['GET','HEAD'].includes(request.method)?undefined:request.body,signal:request.signal,redirect:'error',duplex:'half'});
+};`);
 try{
  start(['tests/mock-provider.mjs',String(mockPort)]);start(['tests/fixtures/mcp-server.mjs',String(mcpPort)]);
- start(['--import','tsx','server/src/index.ts'],{DB_PATH:path.join(root,'app.db'),FILES_DIR:path.join(root,'files'),SESSION_SECRET:'mcp-test',COMPUTER_PROVIDER:'local',DEV_LOGIN:'1',PORT:String(apiPort),APP_URL:base,SERVER_URL:base,DIRECT_API_KEY:'mock-key',DIRECT_BASE_URL:`http://127.0.0.1:${mockPort}/v1`,OPENROUTER_API_KEY:'',COMPOSIO_API_KEY:'',LLM_PROVIDER:'direct',SWARM_NO_SCHEDULER:'1',WHATSAPP_DISABLED:'1',MEMORY_CONSOLIDATE_IDLE_MINUTES:'0',ADMIN_EMAILS:''});
+ start(['--import',fixtureFetch,'--import','tsx','server/src/index.ts'],{DB_PATH:path.join(root,'app.db'),FILES_DIR:path.join(root,'files'),SESSION_SECRET:'mcp-test',COMPUTER_PROVIDER:'local',DEV_LOGIN:'1',PORT:String(apiPort),APP_URL:base,SERVER_URL:base,DIRECT_API_KEY:'mock-key',DIRECT_BASE_URL:`http://127.0.0.1:${mockPort}/v1`,OPENROUTER_API_KEY:'',COMPOSIO_API_KEY:'',LLM_PROVIDER:'direct',SWARM_NO_SCHEDULER:'1',WHATSAPP_DISABLED:'1',MEMORY_CONSOLIDATE_IDLE_MINUTES:'0',ADMIN_EMAILS:''});
  await until(()=>fetch(base+'/api/health').then(r=>r.ok).catch(()=>false));
  const login=await fetch(base+'/api/auth/dev',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:'mcp-test@example.com'})});
  const cookie=login.headers.get('set-cookie').split(';')[0];
@@ -28,13 +37,13 @@ try{
  await page.goto(base+'/#settings/mcp');
  await page.getByRole('button',{name:'Add MCP server',exact:true}).click();
  await page.getByLabel('Name',{exact:true}).fill('Research MCP');
- await page.getByLabel('Server URL',{exact:true}).fill(`http://127.0.0.1:${mcpPort}/mcp`);
+ await page.getByLabel('Server URL',{exact:true}).fill('https://mcp-fixture.example/mcp');
  await page.getByText('Authentication & headers',{exact:true}).click();
  await page.getByLabel('Bearer token (optional)').fill('secret-fixture-token');
  await page.getByLabel('Custom headers (JSON, optional)').fill('{"X-Fixture":"header-secret"}');
  await page.getByRole('button',{name:'Save & test connection'}).click();
  const card=page.getByRole('region',{name:'Research MCP',exact:true});
- await card.getByText(/^Remote HTTP · All my Bots · 2 tools · Verified /).waitFor();
+ await card.getByText(/^Remote HTTP · 0 selected Bots · 2 tools · Verified /).waitFor();
  await card.getByText('Available tools (2)',{exact:true}).click();await card.getByText('Echoes the supplied message.',{exact:true}).waitFor();
  await card.getByRole('button',{name:'Edit',exact:true}).click();
  await page.getByLabel('Bot access').selectOption('selected');
@@ -59,7 +68,9 @@ try{
  const pending=await send(`mock: ${tool} {"message":"must not run"} | say Result: {last}`);
  const pendingCard=await until(async()=>(await after(pending.seq)).find(r=>r.body.card==='approval'&&r.body.status==='pending'));
  await api('/mcp/servers/'+server.id,'PATCH',{enabled:false});await api('/approvals/'+pendingCard.body.approvalId,'POST',{decision:'allow'});
- const revoked=await until(async()=>(await after(pending.seq)).find(r=>r.body.role==='assistant'&&!r.body.streaming));assert.match(revoked.body.text,/no longer enabled/);
+ await until(async()=>(await after(pending.seq)).find(r=>r.body.role==='assistant'&&!r.body.streaming));
+ const mcpCalls=await (await fetch(`http://127.0.0.1:${mcpPort}/_calls`,{headers:{authorization:'Bearer secret-fixture-token','x-fixture':'header-secret'}})).json();
+ assert.deepEqual(mcpCalls,[{name:'echo',arguments:{message:'from agent chat'}}],'revoked approval must never reach the MCP server');
  // A fabricated operational MCP call from an onboarding agent stays blocked.
  const {bot:draft}=await api('/bots','POST',{name:'Draft'});await api('/mcp/servers/'+server.id,'PATCH',{enabled:true,botIds:null});
  const draftMessage=(await api(`/bots/${draft.id}/messages`,'POST',{text:`mock: ${tool} {"message":"not activated"} | say Done`})).row;

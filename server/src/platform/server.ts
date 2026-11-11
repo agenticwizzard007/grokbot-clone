@@ -14,6 +14,7 @@ import { platformAuth } from './auth.js';
 import { requestBoundary } from '../security/request.js';
 import { platformMessaging } from './messaging.js';
 import { BackupCatalog, backupRoutes } from './backups.js';
+import {HostCheckpoints,hostCheckpointRoutes} from './host-checkpoints.js';
 import { S3BackupStorage } from './backup-storage.js';
 import { HostControl,hostControlRoutes } from './host-control.js';
 import {HostInstallations,hostInstallationRoutes} from './host-installations.js';
@@ -45,6 +46,7 @@ export async function startPlatform() {
   app.route('/',signupAdminRoutes(directory));
   const backupStorage=new S3BackupStorage();
   app.route('/internal/host/backups',backupRoutes(new BackupCatalog(directory,backupStorage),identity));
+  app.route('/internal/host/checkpoints',hostCheckpointRoutes(new HostCheckpoints(directory),identity));
   app.route('/internal/host/installations',hostInstallationRoutes(new HostInstallations(directory,backupStorage),identity));
   app.route('/internal/host',hostControlRoutes(new HostControl(directory),identity));
   app.post('/internal/runtime/exchange',async c=>{
