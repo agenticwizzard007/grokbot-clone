@@ -8,6 +8,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS agent_jobs (
   state TEXT NOT NULL CHECK(state IN ('queued','running','completed','uncertain','cancelled')),
   created_at INTEGER NOT NULL, started_at INTEGER, finished_at INTEGER);
 CREATE INDEX IF NOT EXISTS agent_jobs_pending ON agent_jobs(state,created_at);
+CREATE INDEX IF NOT EXISTS agent_jobs_parent ON agent_jobs(json_extract(trigger,'$.parentJobId'));
 CREATE TABLE IF NOT EXISTS tool_dispatches (
   bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE, call_id TEXT NOT NULL,
   tool TEXT NOT NULL, arguments_hash TEXT NOT NULL, state TEXT NOT NULL,

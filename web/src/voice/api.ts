@@ -18,8 +18,25 @@ export interface VoiceSession {
 
 export interface VoiceOptions { voices: VoiceOption[]; languages: { code: string; name: string }[]; speeds: number[] }
 
-async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`/api/voice${path}`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+export interface VoiceToolResult { output: string; taskSeq?: number; taskBotId?: string; taskId?: string }
+export interface VoiceUpdate {
+  id: number;
+  botId: string;
+  botName: string;
+  kind: 'message' | 'input' | 'waiting' | 'status';
+  text: string;
+}
+export interface VoiceTask {
+  id: string;
+  botId: string;
+  botName: string;
+  request: string;
+  status: 'queued' | 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled';
+}
+export interface VoiceUpdates { cursor: number; updates: VoiceUpdate[]; tasks: VoiceTask[] }
+
+async function post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(`/api/voice${path}`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal });
   if (!res.ok) {
     let msg = res.statusText;
     try { msg = ((await res.json()) as { error?: string }).error ?? msg; } catch { /* not json */ }
@@ -36,7 +53,8 @@ export const voiceApi = {
     return r.json() as Promise<VoiceOptions>;
   }).catch((e) => { optionsPromise = null; throw e; })),
   session: (botId: string) => post<VoiceSession>('/session', { botId }),
-  tool: (botId: string, callId: string, name: string, args: unknown) => post<{ output: string; taskSeq?: number }>('/tool', { botId, callId, name, args }),
+  tool: (botId: string, callId: string, name: string, args: unknown, toolCallId?: string) => post<VoiceToolResult>('/tool', { botId, callId, name, args, toolCallId }),
+  updates: (botId: string, callId: string, after: number, signal?: AbortSignal) => post<VoiceUpdates>('/updates', { botId, callId, after }, signal),
   end: (botId: string, callId: string, transcript: { role: 'user' | 'assistant'; text: string }[], error?: string) => post<{ ok: true }>('/end', { botId, callId, transcript, error }),
   /** Best-effort end on tab close. */
   endBeacon: (botId: string, callId: string, transcript: { role: 'user' | 'assistant'; text: string }[]) => {

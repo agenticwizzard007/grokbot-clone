@@ -123,6 +123,8 @@ export type CardBody =
       type: 'card';
       card: 'approval';
       approvalId: string;
+      /** Durable run that requested the decision, used to follow continuations. */
+      jobId?: string;
       title: string;
       detail: string;
       tool: string;
@@ -136,6 +138,8 @@ export type CardBody =
       type: 'card';
       card: 'question';
       question: string;
+      jobId?: string;
+      answerJobId?: string;
       options: string[];
       status: 'pending' | 'answered' | 'dismissed';
       answer?: string;
@@ -143,6 +147,8 @@ export type CardBody =
   | {
       type: 'card';
       card: 'connect';
+      jobId?: string;
+      answerJobId?: string;
       toolkit: string;
       toolkitName: string;
       logo?: string;

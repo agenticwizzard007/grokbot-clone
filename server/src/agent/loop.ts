@@ -24,15 +24,16 @@ import { BrowserRecovery } from './browser-recovery.js';
 
 const llm = () => llmClient(360_000);
 
-export type Trigger =
+export type Trigger = (
   /** channel: where the user wrote it (a text channel via the messaging bridge; absent = the web app). */
   | { type: 'user'; text: string; channel?: 'imessage' | 'sms' | 'whatsapp'; images?: string[]; voice?: boolean; quote?: string }
   | { type: 'routine'; routineId: string; name: string; prompt: string }
   | { type: 'bot'; fromBotId: string; fromName: string; text: string; depth: number }
   | { type: 'system'; text: string }
-  | { type: 'resume' };
+  | { type: 'resume' }) & { parentJobId?: string };
 
 interface PendingState {
+  jobId?: string;
   /** Keep paused approvals bound to the computer on which this batch was planned. */
   computerRevision?: number;
   /** function_call items still to process, in order. */
@@ -61,8 +62,32 @@ export async function settleAgentJobs() { while (queues.size) await Promise.allS
 export const currentTrigger = (botId: string): Trigger | undefined => running.get(botId);
 
 export function enqueue(botId: string, trigger: Trigger) {
+  // Questions and approvals end one run before their continuation starts. Preserve the
+  // lineage so observers track the assignment instead of mistaking that pause for completion.
+  let question: ReturnType<typeof getRow> = null;
+  if (trigger.type === 'resume') {
+    const pending = db.prepare('SELECT state FROM pending_turns WHERE bot_id=?').get(botId) as { state: string } | undefined;
+    const parentJobId = pending ? (JSON.parse(pending.state) as PendingState).jobId : undefined;
+    if (parentJobId) trigger = { ...trigger, parentJobId };
+  } else if (trigger.type === 'user') {
+    const bot = getBotRow(botId);
+    const pending = bot && db.prepare("SELECT seq FROM rows WHERE bot_id=? AND generation=? AND kind='card' AND json_extract(body,'$.card')='question' AND json_extract(body,'$.status') IN ('pending','answered') AND json_extract(body,'$.jobId') IS NOT NULL AND json_extract(body,'$.answerJobId') IS NULL ORDER BY seq DESC LIMIT 1").get(botId, bot.generation) as { seq: number } | undefined;
+    question = pending ? getRow(botId, pending.seq) : null;
+    if (question?.body.type === 'card' && question.body.card === 'question' && question.body.jobId) trigger = { ...trigger, parentJobId: question.body.jobId };
+  } else if (trigger.type === 'system') {
+    const bot = getBotRow(botId);
+    const resolved = bot && db.prepare("SELECT seq FROM rows WHERE bot_id=? AND generation=? AND kind='card' AND json_extract(body,'$.card')='connect' AND json_extract(body,'$.status') IN ('connected','skipped') AND json_extract(body,'$.jobId') IS NOT NULL AND json_extract(body,'$.answerJobId') IS NULL ORDER BY seq DESC LIMIT 1").get(botId, bot.generation) as { seq: number } | undefined;
+    question = resolved ? getRow(botId, resolved.seq) : null;
+    if (question?.body.type === 'card' && question.body.card === 'connect' && question.body.jobId) trigger = { ...trigger, parentJobId: question.body.jobId };
+  }
   const job = acceptJob(botId, trigger);
+  if (question?.body.type === 'card' && question.body.card === 'question' && trigger.type === 'user') {
+    updateRow(botId, question.seq, { ...question.body, status: 'answered', answer: question.body.answer ?? trigger.text, answerJobId: job.id });
+  } else if (question?.body.type === 'card' && question.body.card === 'connect' && trigger.type === 'system') {
+    updateRow(botId, question.seq, { ...question.body, answerJobId: job.id });
+  }
   scheduleJob(job.id, job.userId, botId, trigger);
+  return job.id;
 }
 function scheduleJob(jobId: string, userId: string, botId: string, trigger: Trigger) {
   const queuedAt = performance.now();
@@ -73,7 +98,7 @@ function scheduleJob(jobId: string, userId: string, botId: string, trigger: Trig
   const next = Promise.all([prev, userPrev]).then(async () => {
     if (!beginJob(jobId)) return;
     latency('queue', queuedAt, { botId });
-    try { await withUsage({ botId, kind: 'chat' }, () => runTurn(botId, trigger)); finishJob(jobId, true); }
+    try { await withUsage({ botId, kind: 'chat' }, () => runTurn(botId, trigger, jobId)); finishJob(jobId, true); }
     catch { finishJob(jobId, false); }
   }).catch(() => { finishJob(jobId, false); });
   if (!subscription) userQueues.set(userId, next);
@@ -146,7 +171,7 @@ function triggerItem(t: Trigger): any | null {
 
 // ---------- the turn ----------
 
-async function runTurn(botId: string, trigger: Trigger) {
+async function runTurn(botId: string, trigger: Trigger, jobId: string) {
   const turnStart = performance.now();
   const bot = getBotRow(botId);
   if (!bot) return;
@@ -156,7 +181,7 @@ async function runTurn(botId: string, trigger: Trigger) {
   running.set(botId, trigger);
   let depth = trigger.type === 'bot' ? trigger.depth : 0;
 
-  const ctx: ToolCtx = { userId, botId, enqueueBotMessage, depth, recovery: new BrowserRecovery() };
+  const ctx: ToolCtx = { userId, botId, jobId, enqueueBotMessage, depth, recovery: new BrowserRecovery() };
   setLive(botId, { isRunning: true, activity: { kind: 'thinking', since: now() }, awaiting: null, startedAt: now() });
 
   try {
@@ -169,6 +194,7 @@ async function runTurn(botId: string, trigger: Trigger) {
     if (trigger.type === 'resume') {
       if (!pendingRow) return;
       const st = JSON.parse(pendingRow.state) as PendingState;
+      st.jobId = jobId;
       if ((st.computerRevision ?? 0) !== localAccess(userId).revision) {
         await finishPending(ctx, st, 'computer-changed');
         appendRow(botId, 'notice', { type: 'notice', text: 'Your selected computer changed. The previous approval and its remaining actions were cancelled. Send a new request to continue on the selected computer.', tone: 'info' });
@@ -205,6 +231,7 @@ async function runTurn(botId: string, trigger: Trigger) {
       if (!calls.length) break;
 
       const st: PendingState = {
+        jobId,
         computerRevision: currentComputerRevision() ?? localAccess(userId).revision,
         calls: calls.map((c: any) => {
           const act = activityFor(c.name);
@@ -268,7 +295,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
       const tk = pol.toolkit ? await toolkitInfo(pol.toolkit) : undefined;
       const mcp = c.name.startsWith('mcp_') ? findMcpTool(userId, c.name, botId) : undefined;
       const card = appendRow(botId, 'card', {
-        type: 'card', card: 'approval', approvalId, title: `Allow ${getBotRow(botId).name} to ${pol.title.split(': ')[1] ?? pol.title}?`,
+        type: 'card', card: 'approval', approvalId, jobId: ctx.jobId, title: `Allow ${getBotRow(botId).name} to ${pol.title.split(': ')[1] ?? pol.title}?`,
         detail: describeArgs(args), tool: pol.key, toolkit: pol.toolkit, toolkitName: mcp?.server.config.name ?? tk?.name, logo: tk?.logo, args, status: 'pending',
       });
       db.prepare('INSERT INTO approvals(id,bot_id,row_seq,call_id,tool,status,created_at,binding_hash) VALUES (?,?,?,?,?,?,?,?)').run(approvalId, botId, card.seq, c.call_id, pol.key, 'pending', now(), approvalBinding(userId, botId, c.call_id, c.name, args));

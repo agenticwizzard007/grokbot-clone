@@ -10,8 +10,10 @@ import { isLive, listUserLinks } from '../messaging/store.js';
 import { isPlaceholderEmail } from '../accounts.js';
 import { RECOVERY_PROMPT } from './browser-recovery.js';
 import { screenLink } from './captcha.js';
+import { platformContext } from './platform-state.js';
 
 export async function systemPrompt(userId: string, botId: string): Promise<string> {
+  const nativeState = platformContext(userId, botId);
   const bot = getBotRow(botId);
   const user = db.prepare('SELECT * FROM users WHERE id=?').get(userId) as any;
   const setup = getSetup(botId);
@@ -40,6 +42,8 @@ ${agentsMarkdown(botId)}
 
 Original master-chat brief, for reference:
 ${setup.source.messages.map((m) => JSON.stringify(m.text)).join('\n') || 'No master-chat brief; establish the role from the user’s answers.'}
+
+${nativeState}
 
 User answer numbers in this conversation:
 ${creationContext(botId).slice(0, 30).reverse().map((m) => `Message ${m.seq}: ${JSON.stringify(m.text)}`).join('\n') || 'No answers yet.'}`;
@@ -85,6 +89,8 @@ Your live screen for user handoffs: ${screenLink(botId)}
 - Don't narrate tool use step by step; report outcomes.
 
 ## Context
+${nativeState}
+
 - User: ${user?.name ?? ''}${user?.email && !isPlaceholderEmail(user.email) ? ` <${user.email}>` : ''}${user?.phone ? ` (phone +${user.phone})` : ''}${user?.timezone ? `, time zone ${user.timezone}` : ''}
 - Connected apps: ${apps || 'none yet'}
 - Custom MCP servers assigned to you: ${mcpForBot(userId, botId).map(s => `${s.config.name} (${s.error ? 'last connection check failed' : s.checkedAt ? `${s.tools.length} tools` : 'needs connection test'})`).join(', ') || 'none'}
