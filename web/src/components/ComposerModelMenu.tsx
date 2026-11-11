@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, GripVertical, Minus, Search, Settings2, Star } from 'lucide-react';
 import type { Bot, Effort } from '@shared/types';
 import { configApi } from '../lib/configApi';
-import { EFFORT_DESC, EFFORT_LABEL, ICON_AUTHORS, effectiveEffort, effortsFor, fallbackShort, useModels, type PickerModel } from '../lib/models';
+import { EFFORT_DESC, EFFORT_LABEL, ICON_AUTHORS, effectiveEffort, effortsFor, fallbackShort, modelSelection, useModels, type PickerModel } from '../lib/models';
 import { useStore } from '../store';
 import { ClaudeMascot } from './ClaudeMascot';
 
@@ -40,8 +40,8 @@ async function patchBot(bot: Bot, p: Partial<Pick<Bot, 'model' | 'effort' | 'fas
 export function cycleEffort(bot: Bot, m: PickerModel | undefined) {
   const list: Effort[] = effortsFor(m).filter((e) => e !== 'none');
   if (!list.length) return;
-  const cur = list.indexOf(effectiveEffort(bot.effort, m));
-  void patchBot(bot, { effort: list[(cur + 1) % list.length] });
+  const cur = list.indexOf(modelSelection(bot, useModels.getState()).effort ?? effectiveEffort(bot.effort, m));
+  void patchBot(bot, { effort: list[(cur + 1) % list.length], ...(m?.billing === 'plan' ? { model: m.id, fast: false } : {}) });
 }
 export const toggleFast = (bot: Bot) => void patchBot(bot, { fast: !bot.fast });
 
@@ -52,21 +52,19 @@ export function ComposerModelMenu({ bot }: { bot: Bot }) {
   useEffect(() => { void models.load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const planMode = models.billing === 'plan';
-  const effectiveId = !planMode && (!bot.model || /^(claude|codex)\//.test(bot.model)) ? models.defaultModel : bot.model;
-  const current = effectiveId ? models.byId.get(effectiveId) : undefined;
-  const label = models.status === 'loading' ? 'Loading models…' : models.status === 'error' ? 'Models unavailable' : current?.short ?? (planMode ? 'CLI default' : effectiveId ? fallbackShort(effectiveId) : 'Default model');
-  const effort = effectiveEffort(bot.effort, current);
+  const { current, effort } = modelSelection(bot, models);
+  const label = models.status === 'loading' ? 'Loading models…' : models.status === 'error' ? 'Models unavailable' : current?.short ?? (planMode ? 'CLI default' : bot.model ? fallbackShort(bot.model) : 'Default model');
   const efforts = effortsFor(current);
-  const ultra = !planMode && bot.effort === 'ultracode';
+  const ultra = effort === 'ultracode';
 
   return (
     <span className="model-pill-anchor">
       <button type="button" className={`model-pill${ultra ? ' is-ultracode' : ''}`} onClick={() => { if (!open) void models.load(true); setOpen(!open); }} aria-haspopup="dialog" aria-expanded={open}
-        aria-label={`Model: ${label}${models.billing ? `, ${planMode ? 'Plan' : 'API'} connection` : ''}${efforts.length ? `, ${EFFORT_LABEL[effort]} effort` : ''}${bot.fast && models.canFast ? ', fast' : ''}. Change`}>
+        aria-label={`Model: ${label}${models.billing ? `, ${planMode ? 'Plan' : 'API'} connection` : ''}${efforts.length ? `, ${effort ? EFFORT_LABEL[effort] : 'Default'} effort` : ''}${bot.fast && models.canFast ? ', fast' : ''}. Change`}>
         {current ? <ProviderIcon author={current.author} /> : !planMode && bot.model ? <ProviderIcon author={bot.model.split('/')[0]} /> : null}
         <span className="model-pill__name">{label}</span>
         {models.billing && <span className="model-billing">{planMode ? 'Plan' : 'API'}</span>}
-        {efforts.length > 0 && <span className="model-pill__effort">{EFFORT_LABEL[effort]}</span>}
+        {efforts.length > 0 && <span className="model-pill__effort">{effort ? EFFORT_LABEL[effort] : 'Default'}</span>}
         {bot.fast && models.canFast && <span className="model-pill__fast" title="Fast: fastest providers">⚡︎</span>}
         <ChevronDown size={14} strokeWidth={1.75} aria-hidden className="model-pill__chev" />
       </button>
@@ -79,15 +77,44 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
   const { models, byId, favourites, canFast, status, error, setFavourites, provider, billing, plan, usage } = useModels();
   const [q, setQ] = useState('');
   const [view, setView] = useState<'main' | 'effort'>('main');
+  const [effortModelId, setEffortModelId] = useState<string | null>(null);
+  const [inlineEffort, setInlineEffort] = useState(sheet);
+  const [menuOffset, setMenuOffset] = useState(0);
   const [editing, setEditing] = useState(false);
   const [drag, setDrag] = useState<number | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
+  const effortRef = useRef<HTMLUListElement>(null);
+  const effortTrigger = useRef<HTMLElement | null>(null);
+  const back = () => {
+    const label = effortTrigger.current?.getAttribute('aria-label');
+    setView('main');
+    requestAnimationFrame(() => {
+      const trigger = [...(ref.current?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(button => button.getAttribute('aria-label') === label);
+      (trigger ?? search.current)?.focus();
+    });
+  };
+  const openEffort = (model: PickerModel, trigger: HTMLElement) => {
+    effortTrigger.current = trigger; setEffortModelId(model.id); setView('effort');
+  };
+  useLayoutEffect(() => {
+    const measure = () => {
+      const left = (ref.current?.parentElement?.getBoundingClientRect().left ?? 4) - 4;
+      const offset = sheet ? 0 : Math.min(0, innerWidth - 12 - left - 340);
+      setMenuOffset(offset);
+      setInlineEffort(sheet || left + offset + 588 > innerWidth - 12);
+    };
+    measure(); window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [sheet]);
+  useEffect(() => {
+    if (view === 'effort') (effortRef.current?.querySelector<HTMLElement>('[aria-selected="true"]') ?? effortRef.current?.querySelector<HTMLElement>('button'))?.focus();
+  }, [view, effortModelId, inlineEffort]);
 
   // Close on outside press / Escape (Escape steps back from the effort list first).
   useEffect(() => {
     const down = (e: PointerEvent) => { if (ref.current && !ref.current.contains(e.target as Node) && !(e.target as Element).closest?.('.model-pill')) onClose(); };
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); if (view === 'effort') setView('main'); else onClose(); } };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); if (view === 'effort') back(); else onClose(); } };
     const t = setTimeout(() => document.addEventListener('pointerdown', down));
     document.addEventListener('keydown', key, true);
     return () => { clearTimeout(t); document.removeEventListener('pointerdown', down); document.removeEventListener('keydown', key, true); };
@@ -101,8 +128,16 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
   }, [q, models]);
 
   const favs = favourites.map((id) => byId.get(id)).filter(Boolean) as PickerModel[];
-  const efforts = effortsFor(current);
-  const effort = effectiveEffort(bot.effort, current);
+  const target = effortModelId ? byId.get(effortModelId) : current;
+  const efforts = effortsFor(target);
+  const currentEffort = modelSelection(bot, useModels.getState()).effort;
+  const effort = target?.id === current?.id ? currentEffort : null;
+  const rowEffort = (m: PickerModel) => !editing && effortsFor(m).length > 0 && (
+    <button type="button" className="mm-row__effort" aria-label={`Effort for ${m.short}`} aria-haspopup="listbox" aria-expanded={view === 'effort' && target?.id === m.id}
+      onClick={e => openEffort(m, e.currentTarget)}>
+      <span>{m.id === current?.id && currentEffort ? EFFORT_LABEL[currentEffort] : 'Effort'}</span><ChevronRight size={12} aria-hidden />
+    </button>
+  );
 
   const choose = (m: PickerModel) => {
     // Keep the effort the user picked when the new model accepts it; else the server snaps it.
@@ -135,6 +170,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
           <span className="model-billing">{billing === 'plan' ? 'Plan' : 'API'}</span>
           {!m.vision && <span className="mm-row__meta">No images</span>}
         </button>
+        {rowEffort(m)}
         {editing && i !== null ? (
           <button type="button" className="mm-row__act" onClick={() => toggleFav(m.id)} aria-label={`Remove ${m.short} from favourites`}><Minus size={14} strokeWidth={2} /></button>
         ) : selected ? (
@@ -147,12 +183,18 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
   };
 
   const effortList = (
-    <ul className="mm-efforts" role="listbox" aria-label="Effort">
+    <ul ref={effortRef} className="mm-efforts" role="listbox" aria-label="Effort" onKeyDown={event => {
+      if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const options = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="option"]')];
+      const index = options.indexOf(document.activeElement as HTMLButtonElement);
+      options[event.key === 'Home' ? 0 : event.key === 'End' ? options.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : options.length - 1)) % options.length]?.focus();
+    }}>
       {efforts.map((e) => (
         <li key={e}>
           <button type="button" role="option" aria-selected={e === effort} className={`mm-effort${e === 'ultracode' ? ' is-ultracode' : ''}${e === effort ? ' is-selected' : ''}`}
-            onClick={() => { void patchBot(bot, { effort: e }); onClose(); }}>
-            <span className="mm-effort__text"><span className="mm-effort__label">{EFFORT_LABEL[e]}</span><span className="mm-effort__desc">{e === current?.defaultEffort ? 'The model’s default' : EFFORT_DESC[e]}</span></span>
+            onClick={() => { if (target) void patchBot(bot, { model: target.id, effort: e, ...(target.billing === 'plan' ? { fast: false } : {}) }); onClose(); }}>
+            <span className="mm-effort__text"><span className="mm-effort__label">{EFFORT_LABEL[e]}</span><span className="mm-effort__desc">{e === target?.defaultEffort ? 'The model’s default' : EFFORT_DESC[e]}</span></span>
             {e === effort && <Check size={16} strokeWidth={2} aria-hidden />}
           </button>
         </li>
@@ -163,11 +205,11 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
   return (
     <>
       {sheet && <div className="mm-scrim" aria-hidden onClick={onClose} />}
-      <div ref={ref} className={`mm-wrap${sheet ? ' is-sheet' : ''}`}>
+      <div ref={ref} className={`mm-wrap${sheet ? ' is-sheet' : ''}`} style={sheet ? undefined : { marginLeft: menuOffset }}>
       <div className={`model-menu${sheet ? ' is-sheet' : ''}`} role="dialog" aria-label="Choose a model">
-        {sheet && view === 'effort' ? (
+        {inlineEffort && view === 'effort' ? (
           <>
-            <div className="mm-sheet-head"><button type="button" className="mm-back" onClick={() => setView('main')}><ChevronLeft size={18} strokeWidth={1.75} /> Effort</button></div>
+            <div className="mm-sheet-head"><button type="button" className="mm-back" aria-label="Back to models" onClick={back}><ChevronLeft size={18} strokeWidth={1.75} /><span>{target?.short} · Effort</span></button></div>
             {effortList}
           </>
         ) : (
@@ -180,7 +222,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
               <ul className="mm-list">
                 {results.length === 0 && <li className="mm-empty">No models match “{q.trim()}”.</li>}
                 {results.map((m) => (
-                  <li key={m.id} className={`mm-row${m.id === bot.model ? ' is-selected' : ''}`}>
+                  <li key={m.id} className={`mm-row${m.id === current?.id ? ' is-selected' : ''}`}>
                     <span className="mm-row__grip" aria-hidden />
                     <button type="button" className="mm-row__main" onClick={() => choose(m)}>
                       <ProviderIcon author={m.author} />
@@ -189,6 +231,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
           {!m.vision && <span className="mm-row__meta">No images</span>}
                       <span className="mm-row__meta">{m.author}</span>
                     </button>
+                    {rowEffort(m)}
                     <button type="button" className={`mm-row__act mm-star${favourites.includes(m.id) ? ' is-on' : ''}`} onClick={() => toggleFav(m.id)} aria-pressed={favourites.includes(m.id)} aria-label={`${favourites.includes(m.id) ? 'Remove from' : 'Add to'} favourites`}>
                       <Star size={14} strokeWidth={1.75} />
                     </button>
@@ -206,10 +249,10 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
             )}
             {!q.trim() && (
               <div className="mm-section">
-                {efforts.length > 0 && (
-                  <button type="button" className={`mm-item${view === 'effort' ? ' is-open' : ''}`} onClick={() => setView(view === 'effort' ? 'main' : 'effort')} aria-expanded={view === 'effort'}>
+                {current && effortsFor(current).length > 0 && (
+                  <button type="button" aria-label="Effort" className={`mm-item${view === 'effort' ? ' is-open' : ''}`} onClick={e => view === 'effort' ? back() : openEffort(current, e.currentTarget)} aria-expanded={view === 'effort'}>
                     <span>Effort</span>
-                    <span className={`mm-item__value${effort === 'ultracode' ? ' is-ultracode' : ''}`}>{EFFORT_LABEL[effort]}<ChevronRight size={14} strokeWidth={1.75} /></span>
+                    <span className={`mm-item__value${currentEffort === 'ultracode' ? ' is-ultracode' : ''}`}>{currentEffort ? EFFORT_LABEL[currentEffort] : 'Default'}<ChevronRight size={14} strokeWidth={1.75} /></span>
                   </button>
                 )}
                 {canFast && (
@@ -235,12 +278,12 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
               <button type="button" className="mm-foot__edit" onClick={() => setEditing(!editing)} aria-pressed={editing}>
                 <Settings2 size={14} strokeWidth={1.75} aria-hidden />{editing ? 'Done' : 'Edit'}
               </button>
-              {!sheet && efforts.length > 0 && <span className="mm-foot__hint"><kbd className="mm-kbd">{MOD}⇧/</kbd>Cycle effort</span>}
+              {!sheet && effortsFor(current).length > 0 && <span className="mm-foot__hint"><kbd className="mm-kbd">{MOD}⇧/</kbd>Cycle effort</span>}
             </div>
           </>
         )}
       </div>
-      {!sheet && view === 'effort' && <div className="mm-flyout">{effortList}</div>}
+      {!inlineEffort && view === 'effort' && <div className="mm-flyout"><div className="mm-effort-model">{target?.short}</div>{effortList}</div>}
       </div>
     </>
   );
