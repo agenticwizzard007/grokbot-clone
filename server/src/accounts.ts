@@ -29,30 +29,44 @@ addColumn('users', 'timezone', 'TEXT');
 addColumn('users', 'onboarded_at', 'INTEGER');
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_phone ON users(phone) WHERE phone IS NOT NULL');
 
+const ADMIN_BOOTSTRAP_KEY = 'admin_bootstrap';
+export type AdminBootstrapOutcome = 'not-standalone' | 'already-consumed' | 'explicit-ids' | 'preexisting-admin' | 'no-phones' | 'no-match' | 'mapped';
+
 /**
  * Administrators are account_roles rows or ADMIN_USER_IDS: authority is bound to immutable account ids. A shared server
- * upgraded from the rule that granted its owner by ADMIN_PHONES is mapped once: the first time it starts with no
- * administrator configured, each existing account whose verified phone is listed in ADMIN_PHONES receives the role.
- * Phones never grant the role afterwards, and tenant/platform processes never run this. Returns the ids granted.
+ * upgraded from the rule that granted its owner by ADMIN_PHONES is mapped exactly once: on the FIRST standalone startup
+ * of this version, in one immediate transaction, each existing account whose verified phone is listed in ADMIN_PHONES
+ * receives the role and a consumed marker is written to server_settings (shared configuration, never tenant-exported,
+ * independent of user and role rows). The marker is written whatever the outcome, so no later restart can map again:
+ * revoking or deleting administrators, changing ADMIN_PHONES or reassigning a number reopens nothing. Recovery after
+ * that is explicit: ADMIN_USER_IDS or an account_roles entry. Tenant and platform processes never run this.
  */
-export function bootstrapAdministrators(): string[] {
-  if (deploymentRole !== 'standalone' || (process.env.ADMIN_USER_IDS ?? '').trim()) return [];
-  if (db.prepare("SELECT 1 FROM account_roles WHERE role='admin' LIMIT 1").get()) return [];
-  const phones = (process.env.ADMIN_PHONES ?? '').split(',').map((p) => p.replace(/\D/g, '')).filter(Boolean);
-  if (!phones.length) return [];
-  const granted = db.transaction(() => {
-    const ids: string[] = [];
-    const grant = db.prepare("INSERT OR IGNORE INTO account_roles(user_id, role) VALUES (?, 'admin')");
-    for (const phone of phones) {
-      const row = db.prepare('SELECT id FROM users WHERE phone=?').get(phone) as { id: string } | undefined;
-      if (row) { grant.run(row.id); ids.push(row.id); }
+export function bootstrapAdministrators(): { outcome: AdminBootstrapOutcome; granted: string[] } {
+  if (deploymentRole !== 'standalone') return { outcome: 'not-standalone', granted: [] };
+  return db.transaction((): { outcome: AdminBootstrapOutcome; granted: string[] } => {
+    if (db.prepare('SELECT 1 FROM server_settings WHERE key=?').get(ADMIN_BOOTSTRAP_KEY)) return { outcome: 'already-consumed', granted: [] };
+    const granted: string[] = [];
+    let outcome: AdminBootstrapOutcome;
+    const phones = (process.env.ADMIN_PHONES ?? '').split(',').map((p) => p.replace(/\D/g, '')).filter(Boolean);
+    if ((process.env.ADMIN_USER_IDS ?? '').trim()) outcome = 'explicit-ids';
+    else if (db.prepare("SELECT 1 FROM account_roles WHERE role='admin' LIMIT 1").get()) outcome = 'preexisting-admin';
+    else if (!phones.length) outcome = 'no-phones';
+    else {
+      const grant = db.prepare("INSERT OR IGNORE INTO account_roles(user_id, role) VALUES (?, 'admin')");
+      for (const phone of phones) {
+        const row = db.prepare('SELECT id FROM users WHERE phone=?').get(phone) as { id: string } | undefined;
+        if (row) { grant.run(row.id); granted.push(row.id); }
+      }
+      outcome = granted.length ? 'mapped' : 'no-match';
     }
-    return ids;
-  })();
-  if (granted.length) console.log(`[accounts] administrator role recorded for ${granted.join(', ')} from ADMIN_PHONES (one-time mapping; manage it with ADMIN_USER_IDS or account_roles from now on)`);
-  return granted;
+    db.prepare('INSERT INTO server_settings(key,value,updated_by,updated_at) VALUES (?,?,NULL,?)').run(ADMIN_BOOTSTRAP_KEY, JSON.stringify({ outcome, granted, consumedAt: now() }), now());
+    return { outcome, granted };
+  }).immediate();
 }
-bootstrapAdministrators();
+{
+  const first = bootstrapAdministrators();
+  if (first.outcome !== 'not-standalone' && first.outcome !== 'already-consumed') console.log(`[accounts] administrator bootstrap consumed (${first.outcome}${first.granted.length ? `: ${first.granted.join(', ')} from ADMIN_PHONES` : ''}); manage the role with ADMIN_USER_IDS or account_roles from now on`);
+}
 
 export const PLACEHOLDER_DOMAIN = 'phone.invalid';
 export const placeholderEmail = (phone: string) => `tel+${phone.replace(/\D/g, '')}@${PLACEHOLDER_DOMAIN}`;

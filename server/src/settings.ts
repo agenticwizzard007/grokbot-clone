@@ -110,7 +110,7 @@ export const adminPhones = () => (process.env.ADMIN_PHONES ?? '').split(',').map
 /**
  * Who may change server-wide keys: accounts listed in ADMIN_USER_IDS or holding an account_roles admin entry. Authority is
  * bound to immutable account ids; phones and emails never grant it. A server upgraded from the ADMIN_PHONES rule maps
- * those owners to the role once, at startup (see bootstrapAdministrators in accounts.ts).
+ * those owners to the role exactly once, on its first startup of this version (bootstrapAdministrators in accounts.ts).
  */
 export function canManageServer(user: { id: string; email: string }): boolean {
   if (isTenant) return false;

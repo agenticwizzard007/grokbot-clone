@@ -83,7 +83,7 @@ cp .env.example .env
 
 ### 2. Configure model access
 
-Generate `SESSION_SECRET` (below). For subscription access, start the app without model keys and open **Settings → Subscriptions** to log in to Codex or Claude Code; see the [subscription setup guide](docs/cli-subscriptions.md). Hosted terminals require Python 3; Docker includes it. For API access, provider keys can go in `.env`, or you can paste them into the running app under **Settings → API keys**: they are checked with the provider before saving, stored encrypted with `SESSION_SECRET`, take effect without a restart, and override `.env`. Only the server's administrators can change them: accounts listed in `ADMIN_USER_IDS` or holding an `account_roles` admin entry. A server that granted its owner by `ADMIN_PHONES` maps those owners to the role once, the first time it starts on this version.
+Generate `SESSION_SECRET` (below). For subscription access, start the app without model keys and open **Settings → Subscriptions** to log in to Codex or Claude Code; see the [subscription setup guide](docs/cli-subscriptions.md). Hosted terminals require Python 3; Docker includes it. For API access, provider keys can go in `.env`, or you can paste them into the running app under **Settings → API keys**: they are checked with the provider before saving, stored encrypted with `SESSION_SECRET`, take effect without a restart, and override `.env`. Only the server's administrators can change them: accounts listed in `ADMIN_USER_IDS` or holding an `account_roles` admin entry. A server that granted its owner by `ADMIN_PHONES` maps those owners to the role exactly once, the first time it starts on this version; after that only `ADMIN_USER_IDS` or `account_roles` grant it.
 
 Values for `.env`:
 
