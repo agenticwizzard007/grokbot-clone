@@ -93,6 +93,18 @@ test('missing executables and nonzero auth fail closed before generation', async
   }
 });
 
+for (const provider of ['codex', 'claude']) test(`${provider}: provider policy refusals stay refused and expose only a safe explanation`, async t => {
+  const f = await fixture(t, provider, { generate: `console.error('Invalid prompt: your prompt was flagged as potentially violating our usage policy. auth-secret-sentinel private@example.test'); process.exit(1);` });
+  await assert.rejects(runGeneration(request(provider), f.options), (error: any) => {
+    assert.equal(error.code, 'policy');
+    assert.match(error.message, /declined this request under its usage policy/);
+    assert.match(error.message, /No API fallback was used/);
+    assert.doesNotMatch(error.message, /auth-secret-sentinel|private@example/);
+    return true;
+  });
+  assert.equal((await f.audit()).filter(event => event.kind === 'generate').length, 1, 'a policy refusal is never automatically retried');
+});
+
 test('Codex preserves credential locations, strips overrides, isolates tools and normalizes usage', async (t) => {
   const f = await fixture(t);
   assert.deepEqual(await runGeneration(request(), f.options), { text: '{"answer":"done"}', usage: { input_tokens: 20, output_tokens: 4, input_tokens_details: { cached_tokens: 12 } } });

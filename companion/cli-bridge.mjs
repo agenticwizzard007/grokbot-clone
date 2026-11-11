@@ -109,6 +109,9 @@ function execute(executable, args, { cwd, env, signal, input = '' }) {
 }
 
 function diagnostic(provider, output, fallback) {
+  if (/prompt was flagged as potentially violating (?:our|the) usage policy|\b(?:content|safety)_policy_violation\b/i.test(output)) {
+    return new RunnerError(`${LABEL[provider]} declined this request under its usage policy. Review the request in the official CLI. No API fallback was used.`, 'policy');
+  }
   if (/rate.?limit|too many requests|\b429\b|quota.{0,30}(?:exceed|reach)|(?:usage|subscription) limit|hit your limit/i.test(output)) {
     return new RunnerError(`${LABEL[provider]} subscription rate limit reached. Try again later.`, 'rate_limit');
   }
