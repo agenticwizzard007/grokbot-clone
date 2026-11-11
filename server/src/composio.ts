@@ -349,11 +349,14 @@ export async function ownGoogleSubjects(userId: string): Promise<Set<string>> {
   return out;
 }
 
-/** Remove every authorization held by a throwaway sign-in id. Refuses real accounts. True when nothing remains. */
+/** Requires a durable cleanup claim excluding promotion. Refuses real accounts; true when nothing remains. */
 export async function deleteProvisionalAuthorizations(provisionalUserId: string): Promise<boolean> {
   if (db.prepare('SELECT 1 FROM users WHERE id=?').get(provisionalUserId)) return false;
   try {
-    for (const a of await gmailAccountsOf(provisionalUserId, 'ALL')) await composio().connectedAccounts.delete(a.id);
+    for (const a of await gmailAccountsOf(provisionalUserId, 'ALL')) {
+      if (db.prepare('SELECT 1 FROM users WHERE id=?').get(provisionalUserId)) return false;
+      await composio().connectedAccounts.delete(a.id);
+    }
     return (await gmailAccountsOf(provisionalUserId, 'ALL')).length === 0;
   } catch { return false; }
 }
