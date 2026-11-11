@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import {setTimeout as delay} from 'node:timers/promises';
 import { pinnedImage } from '../runtime/container-policy.js';
+import {validateGuest,sameGuest,type TenantGuest,type TenantCapacity} from './tenant-capacity.js';
 const segment=(s:string)=>encodeURIComponent(s);
 export type BeforeCreate=()=>Promise<void>;
 export interface TenantMachine {id:string;state:string;region?:string;config:any}
@@ -54,21 +55,41 @@ export class FlyTenants {
     this.appName(app,tenant);const machine=await this.request('GET',`/apps/${segment(app)}/machines/${segment(id)}`);
     if(machine.id!==id)throw new Error('Machine identity changed.');this.checkMachine(machine,tenant,volume,generation);return machine;
   }
-  async ensureMachine(app:string,tenant:string,volume:string,image:string,region:string,generation:string,beforeCreate?:BeforeCreate){
-    this.appName(app,tenant);pinnedImage(image);
+  async ensureMachine(app:string,tenant:string,volume:string,image:string,region:string,generation:string,beforeCreate?:BeforeCreate,guest:TenantGuest={cpu_kind:'shared',cpus:2,memory_mb:4096}){
+    this.appName(app,tenant);pinnedImage(image);validateGuest(guest);
     const machines=await this.request('GET',`/apps/${segment(app)}/machines`);
     if(!Array.isArray(machines)||machines.some((m:any)=>m.state!=='destroyed'&&m.config?.metadata?.swarm_tenant!==tenant))throw new Error('Foreign machine in tenant application.');
     const existing=machines.filter((m:any)=>m.state!=='destroyed');
     if(existing.length>1)throw new Error('Multiple tenant writers require reconciliation.');
-    if(existing[0]){this.checkMachine(existing[0],tenant,volume,generation);if(existing[0].config.image!==image)throw new Error('Runtime image update requires an explicit lifecycle operation.');return existing[0] as TenantMachine;}
+    if(existing[0]){this.checkMachine(existing[0],tenant,volume,generation);if(existing[0].config.image!==image)throw new Error('Runtime image update requires an explicit lifecycle operation.');if(!sameGuest(existing[0].config.guest,guest))throw new Error('Machine size differs from the admitted operation.');return existing[0] as TenantMachine;}
     await beforeCreate?.();
     const machine=await this.request('POST',`/apps/${segment(app)}/machines`,{name:'tenant',region,skip_launch:true,config:{
-      image,guest:{cpu_kind:'shared',cpus:2,memory_mb:4096},mounts:[{volume,path:'/data'}],
+      image,guest:{...guest},mounts:[{volume,path:'/data'}],
       services:[],metadata:{swarm_tenant:tenant,swarm_generation:generation},
       env:{SWARM_TENANT_ID:tenant,SWARM_VOLUME_ID:volume,SWARM_RUNTIME_GENERATION:generation,PLATFORM_URL:process.env.PLATFORM_URL,COMPOSIO_GATEWAY_URL:process.env.COMPOSIO_GATEWAY_URL},
       restart:{policy:'on-failure',max_retries:5},
     }});
-    this.checkMachine(machine,tenant,volume,generation);return machine as TenantMachine;
+    this.checkMachine(machine,tenant,volume,generation);if(!sameGuest(machine.config.guest,guest))throw new Error('Created machine size is unverified.');return machine as TenantMachine;
+  }
+  async capacity(app:string,tenant:string,machine:string,volume:string,generation:string,region:string,operations:string[]=[],image?:string):Promise<TenantCapacity>{
+    const inventory=await this.inventory(app,tenant,operations),current=await this.machine(app,tenant,machine,volume,generation);
+    const disk=inventory.volumes.find(v=>v.id===volume);validateGuest(current.config.guest);
+    if(image&&current.config.image!==image||current.region!==region||!disk||disk.encrypted!==true||disk.region!==region||!Number.isSafeInteger(disk.size_gb)||disk.size_gb<10||disk.size_gb>10000)throw new Error('Tenant capacity ownership or source image is unverified.');
+    return {guest:{...current.config.guest},volumeGb:disk.size_gb};
+  }
+  /** A lost extension response is an uncertain write. The caller durably marks
+   * dispatch before this request and refuses another dispatch until inspection
+   * proves the target size. No relative increments or volume shrinking. */
+  async extendVolume(app:string,tenant:string,volume:string,region:string,sourceGb:number,targetGb:number,operations:string[],beforeEffect:BeforeCreate){
+    if(!Number.isSafeInteger(sourceGb)||!Number.isSafeInteger(targetGb)||sourceGb<10||targetGb<=sourceGb||targetGb>10000)throw new Error('Invalid volume growth.');
+    const inspect=async()=>{
+      const inventory=await this.inventory(app,tenant,operations),disk=inventory.volumes.find(v=>v.id===volume);
+      if(!disk||disk.encrypted!==true||disk.region!==region||![sourceGb,targetGb].includes(disk.size_gb)||disk.size_gb!==targetGb&&inventory.machines.some(m=>m.config?.mounts?.some((v:any)=>v.volume===volume)))throw new Error('Volume growth requires a verified detached tenant volume.');
+      return disk;
+    };
+    let disk=await inspect();if(disk.size_gb===targetGb)return disk;
+    await beforeEffect();await this.request('PUT',`/apps/${segment(app)}/volumes/${segment(volume)}/extend`,{size_gb:targetGb});
+    disk=await inspect();if(disk.size_gb!==targetGb)throw new Error('Volume growth outcome requires reconciliation.');return disk;
   }
   async configureBootstrap(app:string,machine:string,tenant:string,bootstrap:string,generation?:string,beforeEffect?:BeforeCreate){
     const current=await this.machine(app,tenant,machine,undefined,generation);
@@ -94,13 +115,14 @@ export class FlyTenants {
     const remaining=await this.machine(app,tenant,id,undefined,generation).catch((e:any)=>{if(e.status===404)return null;throw e;});
     if(remaining&&remaining.state!=='destroyed')throw new Error('Machine removal is not confirmed.');
   }
-  async ensureDeploymentVolume(app:string,tenant:string,operation:string,region:string,operations:string[],beforeCreate:BeforeCreate){
+  async ensureDeploymentVolume(app:string,tenant:string,operation:string,region:string,operations:string[],beforeCreate:BeforeCreate,sizeGb=10){
+    if(!Number.isSafeInteger(sizeGb)||sizeGb<10||sizeGb>10000)throw new Error('Invalid restore volume size.');
     const inventory=await this.inventory(app,tenant,operations);if(!inventory.present)throw new Error('Existing tenant application is missing.');
     const name=this.deploymentVolumeName(tenant,operation),matching=inventory.volumes.filter(v=>v.name===name&&v.state!=='destroyed');
     if(matching.length>1)throw new Error('Ambiguous restore volumes.');
     if(!matching.length)await beforeCreate();
-    const volume=matching[0]??await this.request('POST',`/apps/${segment(app)}/volumes`,{name,region,size_gb:10,encrypted:true});
-    if(volume.name!==name||!volume.id||volume.encrypted!==true||volume.region!==region)throw new Error('Restore volume ownership is unverified.');
+    const volume=matching[0]??await this.request('POST',`/apps/${segment(app)}/volumes`,{name,region,size_gb:sizeGb,encrypted:true});
+    if(volume.name!==name||!volume.id||volume.encrypted!==true||volume.region!==region||volume.size_gb!==sizeGb)throw new Error('Restore volume ownership or size is unverified.');
     return volume;
   }
   async removeRetiredVolume(app:string,tenant:string,id:string,operations:string[]){

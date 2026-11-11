@@ -17,12 +17,12 @@ export async function environmentCommand(args:string[],directory:Directory){
   if(command==='queue'){
     only(['plan']);if(!options.plan)throw new Error('A reviewed plan file is required.');
     const fd=fs.openSync(options.plan,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);
-    let plan;try{const info=fs.fstatSync(fd);if(!info.isFile()||info.size>16384)throw new Error('Invalid plan file.');plan=JSON.parse(fs.readFileSync(fd,'utf8'));}finally{fs.closeSync(fd);}
+    let plan;try{const info=fs.fstatSync(fd);if(!info.isFile()||info.size>65536)throw new Error('Invalid plan file.');plan=JSON.parse(fs.readFileSync(fd,'utf8'));}finally{fs.closeSync(fd);}
     return queueEnvironmentOperation(directory,plan);
   }
   if(command==='status'){
     only(['id']);if(!/^[a-f0-9]{32}$/.test(options.id??''))throw new Error('A valid operation ID is required.');
-    const row=(await directory.pool.query(`SELECT id,tenant_id,kind,phase,target_generation,target_machine,target_volume,attempts,error_code,retry_at,created_at,completed_at,run_authorized_at,rollback_operation
+    const row=(await directory.pool.query(`SELECT id,tenant_id,kind,phase,target_generation,target_machine,target_volume,attempts,error_code,retry_at,created_at,completed_at,run_authorized_at,rollback_operation,capacity_change
       FROM environment_operations WHERE id=$1`,[options.id])).rows[0];if(!row)throw new Error('Operation not found.');return row;
   }
   if(command==='rollback-before-activation'){only(['id']);return requestEnvironmentRollback(directory,options.id);}

@@ -162,6 +162,12 @@ export class Directory {
         CREATE UNIQUE INDEX IF NOT EXISTS environment_one_operation ON environment_operations(tenant_id) WHERE phase NOT IN ('completed','cancelled');
         ALTER TABLE environment_operations ADD COLUMN IF NOT EXISTS run_authorized_at timestamptz;
         ALTER TABLE environment_operations ADD COLUMN IF NOT EXISTS rollback_operation text;
+        ALTER TABLE environment_operations ADD COLUMN IF NOT EXISTS source_guest jsonb;
+        ALTER TABLE environment_operations ADD COLUMN IF NOT EXISTS source_volume_gb integer;
+        ALTER TABLE environment_operations ADD COLUMN IF NOT EXISTS capacity_change jsonb;
+        CREATE TABLE IF NOT EXISTS tenant_capacity_policies (
+          tenant_id text PRIMARY KEY REFERENCES tenants(id),policy jsonb NOT NULL,
+          revision bigint NOT NULL DEFAULT 1,updated_at timestamptz NOT NULL DEFAULT now());
         CREATE TABLE IF NOT EXISTS retired_volumes (
           tenant_id text NOT NULL REFERENCES tenants(id),volume_id text NOT NULL,operation_id text NOT NULL REFERENCES environment_operations(id),
           delete_after timestamptz NOT NULL,state text NOT NULL DEFAULT 'pending',error_code text,PRIMARY KEY(tenant_id,volume_id));
