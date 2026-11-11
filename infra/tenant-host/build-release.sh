@@ -18,6 +18,8 @@ if [[ $mode == verified ]]; then
   done
 fi
 # Everything below is local. Dry-run never pulls, signs, logs in, or pushes.
+# Fail before Docker can resolve a missing local base during assembly.
+for name in "${required[@]}"; do docker image inspect "${!name}" >/dev/null; done
 release_dir=.context/tenant-release
 mkdir -p "$release_dir/images" "$release_dir/app/server"
 rm -f "$release_dir/images/"*.tar
@@ -68,4 +70,4 @@ docker build --platform=linux/amd64 -f infra/tenant-host/Dockerfile \
   --build-arg "HOST_BASE=$HOST_BASE" \
   --label "org.opencontainers.image.revision=$RELEASE_SOURCE_SHA" \
   --label "so.swarms.tenant.build-mode=$mode" -t "$HOST_IMAGE_TAG" .
-# Publishing/signing belongs to release-images.sh. Dry-run hosts refuse to boot.
+# Publishing/signing belongs to release-images.mjs. Dry-run hosts refuse to boot.

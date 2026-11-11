@@ -9,6 +9,7 @@ COPY .context/tenant-release/release.json /opt/swarm/release.json
 COPY .context/tenant-release/app /app
 COPY infra/tenant-host/validate-release.mjs /opt/swarm/validate-release.mjs
 COPY infra/tenant-host/chromium-seccomp.json /opt/swarm/chromium-seccomp.json
+COPY infra/tenant-host/PLAYWRIGHT-LICENSE /usr/share/doc/swarm-desktop-policy/LICENSE
 COPY infra/tenant-host/firewall.sh /opt/swarm/firewall.sh
 COPY infra/tenant-host/entrypoint.sh /opt/swarm/entrypoint.sh
 RUN chmod 755 /opt/swarm/*.sh

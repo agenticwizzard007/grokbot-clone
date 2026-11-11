@@ -5,6 +5,7 @@
 !infra/tenant-host/firewall.sh
 !infra/tenant-host/validate-release.mjs
 !infra/tenant-host/chromium-seccomp.json
+!infra/tenant-host/PLAYWRIGHT-LICENSE
 !.context/
 !.context/tenant-release/
 !.context/tenant-release/release.json

@@ -38,6 +38,8 @@ still dropped**, and returns ENOSYS for clone3 so libc falls back to the profile
 ERRNO. The host applies it **only to the desktop**; app and runner/MCP containers retain Docker's default seccomp.
 The profile SHA-256 is bound into the release manifest and checked before the host boots. No `--no-sandbox`, privileged
 workload, Docker socket mount, or added workload capability is used.
+Microsoft's Apache-2.0 license is retained in `PLAYWRIGHT-LICENSE` and the host image. The local changes to the
+upstream profile are the `chroot` allowance and clone3 ENOSYS fallback described above.
 
 The desktop-to-app TCP8787 firewall rule uses an exact source/destination ACCEPT. A RETURN would encounter Docker's
 inter-bridge isolation and drop the intended companion connection. All other private/metadata denies remain.
