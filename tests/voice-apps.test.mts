@@ -66,12 +66,14 @@ await import('../server/src/db-config.js');
 const { initSubagents } = await import('../server/src/agent/subagents.js');
 const { initRooms } = await import('../server/src/agent/rooms.js');
 initSubagents(); initRooms();
-const { composio } = await import('../server/src/composio.js');
+const { composio, resetAppDiscovery } = await import('../server/src/composio.js');
 const client = composio();
 let accounts = [{ id: 'github-alice', toolkit: { slug: 'github' }, status: 'ACTIVE' }];
 const parameters = { type: 'object', properties: { repo: { type: 'string' } }, required: ['repo'], additionalProperties: false };
 const rawTool = (slug: string, tags: string[] = ['readOnlyHint']) => ({ slug, description: 'Verify repository access.', toolkit: { slug: 'github' }, version: '20261101_00', tags, inputParameters: parameters });
 let discovered = [rawTool('GITHUB_GET_REPOSITORY')];
+// Discovery pages are cached briefly per toolkit; drop the cache whenever the mocked provider list changes.
+const setDiscovered = (tools: typeof discovered) => { discovered = tools; resetAppDiscovery(); };
 let providerFailure = false;
 let providerThrow = false;
 const executed: any[] = [];
@@ -166,22 +168,22 @@ test('setup refuses write and unknown metadata despite saved allow policy, and r
   const before = executed.length;
   db.prepare("INSERT OR REPLACE INTO policies(user_id,tool,mode) VALUES('alice','GITHUB_GET_AND_DELETE','always_allow')").run();
   for (const tags of [[], ['destructiveHint'], ['readOnlyHint', 'updateHint']]) {
-    discovered = [rawTool('GITHUB_GET_AND_DELETE', tags)];
+    setDiscovered([rawTool('GITHUB_GET_AND_DELETE', tags)]);
     await search(call);
     assert.match((await tool(call, 'SWARM_APPS_EXECUTE', executeArgs('GITHUB_GET_AND_DELETE'))).output, /Only provider-verified read-only/);
   }
-  discovered = [rawTool('GITHUB_GET_REPOSITORY')];
+  setDiscovered([rawTool('GITHUB_GET_REPOSITORY')]);
   await search(call);
-  discovered = [rawTool('GITHUB_GET_REPOSITORY', ['updateHint'])];
+  setDiscovered([rawTool('GITHUB_GET_REPOSITORY', ['updateHint'])]);
   assert.match((await tool(call, 'SWARM_APPS_EXECUTE', executeArgs(), 'changed-metadata')).output, /failed or its outcome is uncertain/);
-  discovered = [rawTool('GITHUB_GET_REPOSITORY')];
+  setDiscovered([rawTool('GITHUB_GET_REPOSITORY')]);
   assert.equal(executed.length, before);
   db.prepare("DELETE FROM policies WHERE user_id='alice' AND tool='GITHUB_GET_AND_DELETE'").run();
 });
 
 test('active voice write waits for exact approval, resumes once, and delivers the result through updates', async () => {
   const call = await session();
-  discovered = [rawTool('GITHUB_CREATE_ISSUE', ['createHint'])];
+  setDiscovered([rawTool('GITHUB_CREATE_ISSUE', ['createHint'])]);
   await search(call);
   const before = executed.length;
   const args = executeArgs('GITHUB_CREATE_ISSUE');
@@ -215,12 +217,12 @@ test('active voice write waits for exact approval, resumes once, and delivers th
     assert.equal(executed.length, before + 1);
     const conflict = await post('tool', { botId: chief.id, callId: call.callId, name: 'SWARM_APPS_EXECUTE', args: { ...args, arguments: { repo: 'other' } }, toolCallId: 'write-approved' });
     assert.equal(conflict.status, 409);
-  } finally { release(); await holding; discovered = [rawTool('GITHUB_GET_REPOSITORY')]; }
+  } finally { release(); await holding; setDiscovered([rawTool('GITHUB_GET_REPOSITORY')]); }
 });
 
 test('untrusted read-looking slugs require approval; denial and blocking never dispatch', async () => {
   const call = await session();
-  discovered = [rawTool('GITHUB_GET_AND_DELETE', [])];
+  setDiscovered([rawTool('GITHUB_GET_AND_DELETE', [])]);
   await search(call);
   const before = executed.length;
   const assigned = await tool(call, 'SWARM_APPS_EXECUTE', executeArgs('GITHUB_GET_AND_DELETE'), 'denied-write');
@@ -234,7 +236,7 @@ test('untrusted read-looking slugs require approval; denial and blocking never d
   assert.match((await tool(call, 'SWARM_APPS_EXECUTE', executeArgs('GITHUB_GET_AND_DELETE'), 'blocked-write')).output, /blocked/);
   assert.equal(executed.length, before);
   db.prepare("DELETE FROM policies WHERE user_id='alice' AND tool='GITHUB_GET_AND_DELETE'").run();
-  discovered = [rawTool('GITHUB_GET_REPOSITORY')];
+  setDiscovered([rawTool('GITHUB_GET_REPOSITORY')]);
 });
 
 test('SDK unsuccessful and uncertain responses are failures and duplicate call IDs do not retry', async () => {
@@ -256,7 +258,7 @@ test('SDK unsuccessful and uncertain responses are failures and duplicate call I
 
 test('an approved SDK failure reaches the call and marks its durable dispatch and activity as failed', async () => {
   const call = await session();
-  discovered = [rawTool('GITHUB_CREATE_ISSUE', ['createHint'])];
+  setDiscovered([rawTool('GITHUB_CREATE_ISSUE', ['createHint'])]);
   await search(call);
   const assigned = await tool(call, 'SWARM_APPS_EXECUTE', executeArgs('GITHUB_CREATE_ISSUE'), 'approved-failure');
   await settleAgentJobs();
@@ -303,7 +305,7 @@ for (const decision of ['allow', 'deny'] as const) {
     const sameMillisecond = Date.now();
     t.mock.method(Date, 'now', () => sameMillisecond);
     const call = await session();
-    discovered = [rawTool('GITHUB_CREATE_ISSUE', ['createHint'])];
+    setDiscovered([rawTool('GITHUB_CREATE_ISSUE', ['createHint'])]);
     await search(call);
     const firstArgs = { ...executeArgs('GITHUB_CREATE_ISSUE'), arguments: { repo: `alice/first-${decision}` } };
     const secondArgs = { ...executeArgs('GITHUB_CREATE_ISSUE'), arguments: { repo: `alice/second-${decision}` } };
@@ -361,14 +363,14 @@ for (const decision of ['allow', 'deny'] as const) {
         for (const approval of pending) resolveApproval('alice', approval.id, 'deny');
       }
       await settleAgentJobs();
-      discovered = [rawTool('GITHUB_GET_REPOSITORY')];
+      setDiscovered([rawTool('GITHUB_GET_REPOSITORY')]);
     }
   });
 }
 
 test('native writes require a stable transport ID before dispatch and stable-ID retries execute once', async () => {
   const call = await session();
-  discovered = [rawTool('GITHUB_CREATE_ISSUE', ['createHint'])];
+  setDiscovered([rawTool('GITHUB_CREATE_ISSUE', ['createHint'])]);
   await search(call);
   db.prepare("INSERT OR REPLACE INTO policies(user_id,tool,mode) VALUES('alice','GITHUB_CREATE_ISSUE','always_allow')").run();
   const args = executeArgs('GITHUB_CREATE_ISSUE');
@@ -397,7 +399,7 @@ test('native writes require a stable transport ID before dispatch and stable-ID 
     assert.equal(dispatch.state, 'completed');
   } finally {
     db.prepare("DELETE FROM policies WHERE user_id='alice' AND tool='GITHUB_CREATE_ISSUE'").run();
-    discovered = [rawTool('GITHUB_GET_REPOSITORY')];
+    setDiscovered([rawTool('GITHUB_GET_REPOSITORY')]);
   }
 });
 
@@ -406,7 +408,7 @@ test('text setup receives discovery tools, verifies GitHub reads and refuses wri
   const before = executed.length;
   for (const [slug, tags] of [['GITHUB_GET_REPOSITORY', ['readOnlyHint']], ['GITHUB_GET_AND_DELETE', ['destructiveHint']]] as const) {
     const bot = createBot('alice', { name: `Setup ${slug}` });
-    discovered = [rawTool(slug, [...tags])];
+    setDiscovered([rawTool(slug, [...tags])]);
     setupScenario = slug;
     db.prepare("INSERT OR REPLACE INTO policies(user_id,tool,mode) VALUES('alice',?,'always_allow')").run(slug);
     enqueue(bot.id, { type: 'user', text: 'Verify the repository access required for this setup.' });
@@ -425,5 +427,5 @@ test('text setup receives discovery tools, verifies GitHub reads and refuses wri
     db.prepare("DELETE FROM policies WHERE user_id='alice' AND tool=?").run(slug);
   }
   assert.equal(executed.length, before + 1, 'only the verified read executes');
-  discovered = [rawTool('GITHUB_GET_REPOSITORY')];
+  setDiscovered([rawTool('GITHUB_GET_REPOSITORY')]);
 });
