@@ -147,3 +147,10 @@ button.mm-item:hover, .mm-item.is-open { background: var(--color-bg-hover); }
 @media (prefers-reduced-motion: reduce) {
   .claude-mascot, .claude-mascot__eye, .claude-mascot__legs-a, .claude-mascot__legs-b { animation: none !important; }
 }
+
+/* Billing source stays visible beside the selected model and every picker row. */
+.model-billing { display: inline-flex; align-items: center; flex-shrink: 0; border: 1px solid var(--color-border-primary); border-radius: 999px; padding: 1px 6px; font-size: 10px; line-height: 16px; font-weight: 500; color: var(--color-text-secondary); }
+.mm-plan-usage { max-height: min(160px, 24dvh); overflow-y: auto; flex-shrink: 0; padding: 10px 14px; border-top: 1px solid var(--color-border-primary); font-size: 12px; line-height: 18px; color: var(--color-text-secondary); overflow-wrap: anywhere; }
+.mm-plan-usage strong, .mm-plan-usage small { display: block; }
+.mm-plan-usage small { font-size: 11px; }
+.mm-row__resolved { display: block; font-size: 10px; line-height: 14px; font-weight: 400; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; }

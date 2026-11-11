@@ -1,3 +1,4 @@
+import { cliCatalog } from './cli/catalog.js';
 import { selectedCli } from './cli/store.js';
 import { verifyVoiceKey } from './settings.js';
 import { Hono } from 'hono';
@@ -365,7 +366,10 @@ configApi.delete('/settings/keys/:name', (c) => {
 /** Models for the model pickers: OpenRouter's tool-capable catalog, or the models the direct provider key can use. */
 configApi.get('/settings/models', async (c) => {
   const cli = selectedCli(c.get('user').id);
-  if (cli && !c.req.query('provider')) return c.json({ provider: `${cli}-cli`, models: [{ id: `${cli}/default`, name: cli === 'codex' ? 'ChatGPT · Codex default' : 'Claude · CLI default', vision: true, reasoning: true, context: 0, price: null }] });
+  if (cli && !c.req.query('provider')) {
+    try { return c.json({ provider: `${cli}-cli`, billing: 'plan', ...await cliCatalog(c.get('user').id, cli) }); }
+    catch (e) { return c.json({ provider: `${cli}-cli`, billing: 'plan', models: [], error: (e as Error).message }); }
+  }
   const provider = c.req.query('provider') === 'direct' || c.req.query('provider') === 'openrouter' ? c.req.query('provider') : llmProvider();
   if (provider === 'openrouter') {
     try { return c.json({ provider, defaultModel: defaultModel(), models: await openrouterModels() }); }

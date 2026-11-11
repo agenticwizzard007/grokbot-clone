@@ -1,9 +1,15 @@
 import { create } from 'zustand';
+import { useStore } from '../store';
 import type { Effort } from '@shared/types';
 
 /** The composer's model picker: the provider's models, the user's favourites, effort levels. */
 
+export interface PlanUsage { available: boolean; checkedAt: number; windows: { label: string; usedPercent: number; resetsAt: number | null }[] }
+export type ModelProvider = 'openrouter' | 'direct' | 'codex-cli' | 'claude-cli';
+
 export interface PickerModel {
+  billing?: 'api' | 'plan';
+  resolvedModel?: string;
   id: string;
   name: string;
   /** Short display name: "Opus 5.5", "GPT-5.5". */
@@ -26,7 +32,11 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 
 interface ModelsState {
   status: 'idle' | 'loading' | 'ready' | 'error';
-  provider: 'openrouter' | 'direct' | null;
+  provider: ModelProvider | null;
+  billing: 'api' | 'plan' | null;
+  defaultModel: string | null;
+  plan: string | null;
+  usage: PlanUsage | null;
   canFast: boolean;
   models: PickerModel[];
   byId: Map<string, PickerModel>;
@@ -36,24 +46,36 @@ interface ModelsState {
   setFavourites(ids: string[]): Promise<void>;
 }
 
+let loadVersion = 0;
 export const useModels = create<ModelsState>((set, get) => ({
-  status: 'idle', provider: null, canFast: false, models: [], byId: new Map(), favourites: [], error: null,
+  status: 'idle', provider: null, billing: null, defaultModel: null, plan: null, usage: null, canFast: false, models: [], byId: new Map(), favourites: [], error: null,
   async load(force) {
     if (!force && (get().status === 'loading' || get().status === 'ready')) return;
-    set({ status: 'loading' });
+    const version = ++loadVersion;
+    set({ status: 'loading', ...(force ? { provider: null, billing: null, canFast: false, models: [], byId: new Map(), usage: null, plan: null, defaultModel: null } : {}) });
     try {
-      const r = await req<{ provider: 'openrouter' | 'direct'; canFast: boolean; models: PickerModel[]; favourites: string[]; error?: string }>('GET', '/models');
-      set({ status: 'ready', provider: r.provider, canFast: r.canFast, models: r.models, byId: new Map(r.models.map((m) => [m.id, m])), favourites: r.favourites, error: r.error ?? null });
+      const r = await req<{ provider: ModelProvider; billing: 'api' | 'plan'; defaultModel?: string | null; plan?: string | null; usage?: PlanUsage; canFast: boolean; models: PickerModel[]; favourites: string[]; error?: string }>('GET', '/models');
+      if (version !== loadVersion) return;
+      set({ status: 'ready', provider: r.provider, billing: r.billing, defaultModel: r.defaultModel ?? null, plan: r.plan ?? null, usage: r.usage ?? null, canFast: r.canFast, models: r.models, byId: new Map(r.models.map((m) => [m.id, m])), favourites: r.favourites, error: r.error ?? null });
     } catch (e) {
-      set({ status: 'error', error: (e as Error).message });
+      if (version !== loadVersion) return;
+      set({ status: 'error', models: [], byId: new Map(), usage: null, plan: null, error: (e as Error).message });
     }
   },
   async setFavourites(ids) {
+    const version = loadVersion;
     const prev = get().favourites;
     set({ favourites: ids });
-    try { await req('PUT', '/models/favourites', { ids }); } catch { set({ favourites: prev }); }
+    try { await req('PUT', '/models/favourites', { ids }); } catch { if (version === loadVersion) set({ favourites: prev }); }
   },
 }));
+
+// A sign-out/reauthentication within the same page must not retain another account’s plan data.
+useStore.subscribe((state, previous) => {
+  if (state.user?.id === previous.user?.id) return;
+  loadVersion++;
+  useModels.setState({ status: 'idle', provider: null, billing: null, defaultModel: null, plan: null, usage: null, canFast: false, models: [], byId: new Map(), favourites: [], error: null });
+});
 
 export const EFFORT_LABEL: Record<Effort, string> = {
   none: 'No thinking', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max', ultracode: 'Ultracode',
@@ -67,16 +89,17 @@ const ORDER: Effort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'm
 
 /** The levels to offer for a model, strongest first. Ultracode for any model that reasons. */
 export function effortsFor(m: PickerModel | undefined): Effort[] {
-  if (!m) return ['ultracode', 'xhigh', 'high', 'medium', 'low'];
+  if (!m) return [];
   if (!m.reasoning && !m.efforts?.length) return [];
   const accepted = m.efforts === null ? ORDER : ORDER.filter((e) => m.efforts!.includes(e));
   if (!accepted.length) return [];
-  return ['ultracode', ...[...accepted].reverse()];
+  return m.billing === 'plan' ? [...accepted].reverse() : ['ultracode', ...[...accepted].reverse()];
 }
 
 /** The level the server will actually send (same rule as server/src/lib/llm.ts effortFor). */
 export function effectiveEffort(effort: Effort, m: PickerModel | undefined): Effort {
-  if (effort === 'ultracode' || !m || m.efforts === null) return effort;
+  if (!m || m.efforts === null) return effort;
+  if (effort === 'ultracode') return m.billing === 'plan' ? effortsFor(m)[0] ?? 'medium' : effort;
   const supported = m.efforts;
   if (!supported.length || supported.includes(effort)) return effort;
   const at = ORDER.indexOf(effort);

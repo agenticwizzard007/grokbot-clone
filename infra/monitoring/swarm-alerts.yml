@@ -1,0 +1,130 @@
+groups:
+  - name: swarm-operations
+    rules:
+      - alert: SwarmOperationsScrapeFailed
+        expr: up{job="swarm-operations"} == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: Swarm operations metrics cannot be collected
+          description: Check the process, collector token, database connectivity and scrape logs. A missing snapshot must not be treated as healthy.
+      - alert: SwarmOperationsTargetsMissing
+        expr: absent(up{job="swarm-operations"})
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: No Swarm operations targets are being scraped
+          description: Restore the reviewed collector target inventory. Also monitor the collector itself using an independent dead-man alert.
+      - alert: SwarmServiceNotReady
+        expr: swarm_service_ready{job="swarm-operations"} == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: Swarm service readiness has failed
+          description: For platform processes, inspect the PostgreSQL LISTEN connection and revocation triggers. Do not bypass readiness or replay closed relays.
+      - alert: SwarmHostReadinessMissing
+        expr: max by (deployment) (swarm_operations_unready_hosts{job="swarm-operations"}) > 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: Active tenants lack current host readiness
+          description: Inspect exact generation, machine and hold/run policy acknowledgements. Preserve writer fences.
+      - alert: SwarmBackupReporterStale
+        expr: max by (deployment) (swarm_operations_stale_backup_reporters{job="swarm-operations"}) > 0
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: Tenant backup status reports are stale or missing
+          description: Inspect host backup journals and current generation. A prior generation report is not current evidence.
+      - alert: SwarmDatabaseBackupsLate
+        expr: max by (deployment) (swarm_operations_overdue_database_backups{job="swarm-operations"}) > 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: Active tenants lack fresh confirmed database backups
+          description: The five-minute snapshot threshold has been exceeded. Preserve encrypted pending bundles and verify uploads; do not clear outstanding leases to force a retry.
+      - alert: SwarmEnvironmentBackupsLate
+        expr: max by (deployment) (swarm_operations_overdue_environment_backups{job="swarm-operations"}) > 0
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: Active tenants lack a confirmed environment backup within 24 hours
+          description: Check full snapshot quiescence and available encrypted staging space. A recent acknowledgement cannot make an old snapshot fresh.
+      - alert: SwarmBackupUploadNeedsRetry
+        expr: max by (deployment) (swarm_operations_backup_retries{job="swarm-operations"}) > 0 or max by (deployment) (swarm_operations_backup_upload_failures{job="swarm-operations"}) > 0
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: Backup uploads need reconciliation or retry
+          description: Inspect sanitized host and catalog state. Retain the original ciphertext and respect per-attempt outstanding-write leases.
+      - alert: SwarmBackupCleanupDelayed
+        expr: max by (deployment) (swarm_operations_backup_cleanup_failures{job="swarm-operations"}) > 0 or max by (deployment) (swarm_operations_overdue_volume_cleanup{job="swarm-operations"}) > 0
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: Backup or retired volume cleanup is delayed
+          description: Check scoped storage permissions, versions and outstanding operations. Never delete current, attached or migration-retained inputs.
+      - alert: SwarmLifecycleNeedsAttention
+        expr: max by (deployment) (swarm_operations_lifecycle_failures{job="swarm-operations"}) > 0 or max by (deployment) (swarm_operations_expired_lifecycle_leases{job="swarm-operations"}) > 0 or max by (deployment) (swarm_operations_overdue_lifecycle_queue{job="swarm-operations"}) > 0
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: Tenant lifecycle work is not completing
+          description: Inspect the provisioner and scoped job state. Unknown cloud outcomes require inventory reconciliation, not duplicate creates.
+      - alert: SwarmEnvironmentOperationDelayed
+        expr: max by (deployment) (swarm_operations_overdue_environment_operations{job="swarm-operations"}) > 0 or max by (deployment) (swarm_operations_environment_failures{job="swarm-operations"}) > 0
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: Tenant recovery or image update needs attention
+          description: Use the recovery runbook to inspect the operation and writer hold. Do not roll back to stale data after a run permit.
+      - alert: SwarmMigrationRequiresReconciliation
+        expr: max by (deployment) (swarm_operations_migration_reconciliation{job="swarm-operations"}) > 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: A migration has unresolved writer authority
+          description: Preserve source and target containment. Database or process-only receipts cannot prove complete source quiescence.
+      - alert: SwarmMigrationDelayed
+        expr: max by (deployment) (swarm_operations_overdue_migrations{job="swarm-operations"}) > 0 or max by (deployment) (swarm_operations_overdue_host_checkpoints{job="swarm-operations"}) > 0
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: A migration or held-host checkpoint has not progressed
+          description: Inspect the reviewed operation and retained inputs. Do not manufacture checkpoint or retirement receipts.
+      - alert: SwarmInfrastructureOutcomeUncertain
+        expr: max by (deployment) (swarm_operations_uncertain_infrastructure_actions{job="swarm-operations"}) > 0
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: Infrastructure effects remain unobserved
+          description: Reconcile exact tenant resource ownership and late outcomes before retrying creation or deleting resources.
+      - alert: SwarmProviderDispatchUncertain
+        expr: max by (deployment) (swarm_operations_uncertain_provider_dispatches{job="swarm-operations"}) > 0
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: Provider actions have unknown outcomes
+          description: Reconcile with the provider using the approved operator procedure. Do not automatically replay uncertain external writes.
+      - alert: SwarmProvisionerRetentionStalled
+        expr: time() - swarm_provisioner_retention_last_success_seconds{job="swarm-operations"} > 180
+        for: 3m
+        labels: {severity: warning}
+        annotations:
+          summary: Provisioner retention has not completed successfully
+          description: Check the provisioner retention tasks and scoped storage permissions. Startup has a three-minute alert grace period.
+      - alert: SwarmProvisionerUnexpectedFailures
+        expr: increase(swarm_provisioner_tick_failures_total{job="swarm-operations"}[5m]) > 0 or increase(swarm_provisioner_retention_failures_total{job="swarm-operations"}[5m]) > 0
+        for: 1m
+        labels: {severity: warning}
+        annotations:
+          summary: Provisioner tasks are failing unexpectedly
+          description: Inspect sanitized service logs and operation state. Metrics intentionally omit error messages and tenant identifiers.
+      - alert: SwarmProvisionerTickStalled
+        expr: swarm_provisioner_oldest_tick_seconds{job="swarm-operations"} > 1800
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: Provisioner work has exceeded thirty minutes
+          description: A live lease or successful retention sweep does not prove progress. Inspect the pending dependency and preserve resource ownership before restarting.
+

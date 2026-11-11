@@ -20,6 +20,7 @@ final class AppModel: NSObject, ObservableObject {
     let webView: WKWebView
     #if os(macOS)
     lazy var macControl = MacControlController(cookies: webView.configuration.websiteDataStore.httpCookieStore, address: server)
+    private lazy var computerSettings = MacControlSettingsHost(webView: webView, control: macControl, address: { [weak self] in self?.server })
     #endif
     private var authentication: ASWebAuthenticationSession?
     private var appleAuthorization: AppleAuthorization?
@@ -65,6 +66,7 @@ final class AppModel: NSObject, ObservableObject {
         #endif
         #if os(macOS)
         _ = macControl
+        _ = computerSettings
         #endif
         loadHome()
     }
@@ -87,6 +89,7 @@ final class AppModel: NSObject, ObservableObject {
         #if os(iOS)
         cancelVoiceShortcut()
         #else
+        computerSettings.hide()
         macControl.contextChanged(address: next)
         #endif
         authentication?.cancel()
@@ -113,6 +116,7 @@ final class AppModel: NSObject, ObservableObject {
         #if os(iOS)
         cancelVoiceShortcut()
         #else
+        computerSettings.hide()
         macControl.contextChanged(clearAll: true)
         #endif
         authentication?.cancel()
@@ -126,6 +130,20 @@ final class AppModel: NSObject, ObservableObject {
             loadHome()
         }
     }
+
+    #if os(macOS)
+    func showComputerSettings() {
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        webView.window?.makeKeyAndOrderFront(nil)
+        guard let url = webView.url, server.contains(url), !webView.isLoading else {
+            var components = URLComponents(url: server.url, resolvingAgainstBaseURL: false)!
+            components.fragment = "settings/computer"
+            if let target = components.url { webView.load(URLRequest(url: target)) }
+            return
+        }
+        webView.evaluateJavaScript("window.location.hash = 'settings/computer'; window.dispatchEvent(new Event('hashchange'));", completionHandler: nil)
+    }
+    #endif
 
     #if os(iOS)
     func cancelVoiceShortcut() {
@@ -383,8 +401,19 @@ extension AppModel: WKNavigationDelegate, WKUIDelegate {
         } else { decisionHandler(response.canShowMIMEType ? .allow : .download) }
     }
 
-    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) { loading = true }
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { loading = false; failure = nil }
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        #if os(macOS)
+        computerSettings.hide()
+        #endif
+        loading = true
+    }
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        loading = false
+        failure = nil
+        #if os(macOS)
+        computerSettings.refresh()
+        #endif
+    }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { failed(error) }
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { failed(error) }
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { reload() }

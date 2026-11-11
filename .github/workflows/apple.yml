@@ -1,10 +1,10 @@
 name: Apple apps
 on:
   pull_request:
-    paths: ['apple/**', 'web/**', 'server/src/auth/**', 'server/src/accounts.ts', 'server/src/native-auth.ts', 'server/src/routes.ts', 'server/src/lib/auth.ts', 'tests/apple-auth.test.mts', 'tests/native-auth.test.mts', 'tests/composio.test.mts', 'tests/mobile-layout.mjs', 'tests/voice-shortcut.mjs', 'package*.json', 'scripts/apple.sh', 'scripts/stage-apple-mac.mjs', 'scripts/package-apple-mac.sh', 'companion/swarm-companion.mjs', 'server/src/computers/**', 'server/src/usage-context.ts', 'server/src/agent/loop.ts', 'server/src/routes-config.ts', 'tests/native-computer.test.mts', 'tests/rename-compat.test.mts', 'tests/latency.test.mts', 'tests/viewer-ready.test.mts', 'companion/tests/**', '.github/workflows/apple.yml']
+    paths: ['apple/**', 'web/**', 'server/src/auth/**', 'server/src/accounts.ts', 'server/src/native-auth.ts', 'server/src/routes.ts', 'server/src/lib/auth.ts', 'tests/apple-auth.test.mts', 'tests/native-auth.test.mts', 'tests/composio.test.mts', 'tests/mobile-layout.mjs', 'tests/device-access-ui.mjs', 'tests/voice-shortcut.mjs', 'package*.json', 'scripts/apple.sh', 'scripts/stage-apple-mac.mjs', 'scripts/package-apple-mac.sh', 'companion/swarm-companion.mjs', 'server/src/computers/**', 'server/src/usage-context.ts', 'server/src/agent/loop.ts', 'server/src/routes-config.ts', 'tests/native-computer.test.mts', 'tests/rename-compat.test.mts', 'tests/latency.test.mts', 'tests/viewer-ready.test.mts', 'companion/tests/**', '.github/workflows/apple.yml']
   push:
     branches: [main]
-    paths: ['apple/**', 'web/**', 'server/src/auth/**', 'server/src/accounts.ts', 'server/src/native-auth.ts', 'server/src/routes.ts', 'server/src/lib/auth.ts', 'tests/apple-auth.test.mts', 'tests/native-auth.test.mts', 'tests/composio.test.mts', 'tests/mobile-layout.mjs', 'tests/voice-shortcut.mjs', 'package*.json', 'scripts/apple.sh', 'scripts/stage-apple-mac.mjs', 'scripts/package-apple-mac.sh', 'companion/swarm-companion.mjs', 'server/src/computers/**', 'server/src/usage-context.ts', 'server/src/agent/loop.ts', 'server/src/routes-config.ts', 'tests/native-computer.test.mts', 'tests/rename-compat.test.mts', 'tests/latency.test.mts', 'tests/viewer-ready.test.mts', 'companion/tests/**', '.github/workflows/apple.yml']
+    paths: ['apple/**', 'web/**', 'server/src/auth/**', 'server/src/accounts.ts', 'server/src/native-auth.ts', 'server/src/routes.ts', 'server/src/lib/auth.ts', 'tests/apple-auth.test.mts', 'tests/native-auth.test.mts', 'tests/composio.test.mts', 'tests/mobile-layout.mjs', 'tests/device-access-ui.mjs', 'tests/voice-shortcut.mjs', 'package*.json', 'scripts/apple.sh', 'scripts/stage-apple-mac.mjs', 'scripts/package-apple-mac.sh', 'companion/swarm-companion.mjs', 'server/src/computers/**', 'server/src/usage-context.ts', 'server/src/agent/loop.ts', 'server/src/routes-config.ts', 'tests/native-computer.test.mts', 'tests/rename-compat.test.mts', 'tests/latency.test.mts', 'tests/viewer-ready.test.mts', 'companion/tests/**', '.github/workflows/apple.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -20,6 +20,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck && npm run build
       - run: npm run test:apple-auth && npm run test:native-auth && npm run test:composio
+      - name: Test device access guidance and settings navigation
+        run: node tests/device-access-ui.mjs
       - run: npm run test:mobile
       - run: npm run test:voice-shortcut
       - name: Test native computer routing, latency and viewer readiness
@@ -43,6 +45,8 @@ jobs:
       # The test scheme also builds the Debug Mac app; avoid a separate duplicate build.
       - name: Test native authentication, consent and process lifecycle policies
         run: bash scripts/apple.sh test
+      - name: Test inline native device settings and isolated WebKit placement
+        run: python3 apple/MacControl/test_settings.py
       - uses: actions/setup-node@v4
         with:
           node-version: 22

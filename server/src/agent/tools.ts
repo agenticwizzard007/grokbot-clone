@@ -1,12 +1,14 @@
 import { db, now } from '../db.js';
 import { BROWSER_TOOLS } from '../computers/browser-tools.js';
-import { captchaOutcome, handOffCaptcha } from './captcha.js';
+import { captchaOutcome, handOffCaptcha, screenLink } from './captcha.js';
+import { BrowserRecovery, browserText } from './browser-recovery.js';
+import { waitForBrowserAccess } from './browser-access.js';
 import { checkRoutineCreate } from '../routine-limits.js';
 import { newId } from '../lib/ids.js';
 import { hub } from '../lib/hub.js';
 import { computers } from '../computers/index.js';
 import type { BotScreen } from '../computers/types.js';
-import { appendRow, getBotRow, listRoutines, toRoutine, describeCron } from '../store.js';
+import { appendRow, getBotRow, listRoutines, toRoutine, describeCron, setLive } from '../store.js';
 import { APPS_OFF, executeComposio, innerToolSlugs, isReadOnlySlug, toolkitInfo } from '../composio.js';
 import { env } from '../env.js';
 import { scheduleRoutine, unscheduleRoutine } from '../routines.js';
@@ -27,6 +29,7 @@ export interface ToolCtx {
   botId: string;
   enqueueBotMessage: (fromBotId: string, toBotId: string, text: string, depth: number) => void;
   depth: number;
+  recovery?: BrowserRecovery;
 }
 
 export interface ToolResult {
@@ -35,6 +38,8 @@ export interface ToolResult {
   summary?: string;
   /** End the turn after this tool (e.g. a question was asked). */
   endTurn?: boolean;
+  /** Drop subsequent calls planned before this unexpected result and let the model inspect it. */
+  replan?: boolean;
 }
 
 type Impl = (args: any, ctx: ToolCtx) => Promise<ToolResult>;
@@ -488,6 +493,45 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'wait_for_browser_access',
+    description: 'When a browser task requires the user to sign in or complete MFA, ask once with a live-screen link and watch for the access screen to clear. First try available connected apps or authorized existing sessions. Preserve progress in checkpoint; never include passwords or codes. Does not enter credentials. If the wait expires, ends the turn; the user can reply to resume.',
+    parameters: obj({
+      reason: { type: 'string', description: 'The specific action only the user can perform, without secrets.' },
+      checkpoint: { type: 'string', description: 'Task, completed work, and exact next step after access returns. No secrets.' },
+      resume_when: { type: 'string', description: 'Optional exact visible text expected only after access returns, such as an account dashboard heading. Required for an unrecognized login screen.' },
+    }, ['reason', 'checkpoint']),
+    activity: 'waiting_for_you',
+    label: 'Waiting for browser access',
+    impl: async (a, ctx) => {
+      const reason = String(a.reason ?? '').trim().slice(0, 500);
+      const checkpoint = String(a.checkpoint ?? '').trim().slice(0, 2000);
+      if (!reason || !checkpoint) return { output: 'Provide the specific user action and a checkpoint of completed work and the next step.', replan: true };
+      const screen = await onScreen(ctx);
+      const link = screenLink(ctx.botId);
+      if (!screen.browser) return { output: `Automatic access monitoring is unavailable on this computer. Use ask_user with the checkpoint and this screen link: ${link}. After their reply, inspect a fresh screenshot.`, replan: true };
+      const { turnSignal } = await import('./loop.js');
+      const configured = Number(process.env.BROWSER_ACCESS_WAIT_MIN ?? 10);
+      const timeoutMs = (Number.isFinite(configured) && configured > 0 ? Math.min(configured, 30) : 10) * 60_000;
+      try {
+        const result = await waitForBrowserAccess({
+          read: () => screen.browser!('browser_snapshot', {}), signal: turnSignal(ctx.botId), timeoutMs,
+          resumeWhen: typeof a.resume_when === 'string' ? a.resume_when.slice(0, 300) : undefined,
+          onWaiting: () => {
+            appendRow(ctx.botId, 'message', { type: 'message', role: 'assistant', text: `${reason}\nOpen my screen and use Take control: ${link}\nI'll check for access to return for up to ${Math.ceil(timeoutMs / 60_000)} minutes.\n\nProgress saved: ${checkpoint}` });
+            setLive(ctx.botId, { awaiting: { reason, since: Date.now() } });
+          },
+        });
+        if (result.status === 'aborted') return { output: 'Access wait stopped. Preserve the checkpoint; do not continue acting.', endTurn: true };
+        if (result.status === 'unrecognized') return { output: `No recognizable access blocker was found. Inspect the current page; continue if access already works. If human help is still necessary, use ask_user with the checkpoint and ${link}, or provide resume_when for an unfamiliar login.\n${result.page ? browserText(result.page) : ''}`, replan: true };
+        if (result.status === 'timeout') {
+          appendRow(ctx.botId, 'message', { type: 'message', role: 'assistant', text: `I couldn't confirm browser access before the wait expired. Complete the step on my screen (${link}), then reply here to continue.\n\nProgress saved: ${checkpoint}` });
+          return { output: `Access wait expired. Stop here. Resume from this checkpoint after the user replies: ${checkpoint}`, endTurn: true };
+        }
+        return { output: `The access screen is no longer visible in two consecutive observations. Verify the intended account and actual access on this fresh page, then continue from the checkpoint without repeating completed writes.\nCheckpoint: ${checkpoint}\n${browserText(result.page!)}`, replan: true, summary: 'Access screen cleared' };
+      } finally { setLive(ctx.botId, { awaiting: null }); }
+    },
+  },
+  {
     name: 'ask_user',
     description: 'Ask the user a multiple-choice question when you need a decision before continuing. Ends your turn; their answer arrives as their next message.',
     parameters: obj({ question: { type: 'string' }, options: { type: 'array', items: { type: 'string' } } }, ['question', 'options']),
@@ -527,23 +571,42 @@ export const TOOLS: ToolDef[] = [
       impl: async (a, ctx) => {
         const screen = await onScreen(ctx);
         if (!screen.browser) return { output: 'Browser tools are not available on this computer.', summary: 'No browser' };
-        let r = await screen.browser(b.name, a ?? {});
+        const recovery = ctx.recovery ?? new BrowserRecovery();
+        if (recovery.blocked(b.name, a ?? {})) {
+          // The person/page may have made progress since the last observation. Recheck before skipping.
+          const fresh = await screen.browser('browser_snapshot', {});
+          recovery.observe('browser_snapshot', {}, fresh);
+          if (recovery.blocked(b.name, a ?? {})) return { output: `Skipped an action that already produced the same observed state twice. Inspect this page and change approach; use wait_for_browser_access if only the user can restore access, or ask_user for an unresolved decision.\n${browserText(fresh)}`, summary: 'Repeated ineffective action skipped', replan: true };
+        }
+        let r;
+        try { r = await screen.browser(b.name, a ?? {}); }
+        catch (error) {
+          recovery.observe(b.name, a ?? {}, { isError: true, content: [{ type: 'text', text: String(error) }] });
+          throw error;
+        }
+        const recoveryResult = recovery.observe(b.name, a ?? {}, r);
+        let handedOff = false;
+        let captchaStopped = false;
         // A CAPTCHA or human check: never solved by the Bot. Hand the page to the user, wait, then continue.
         if (r.captcha && screen.captcha) {
+          handedOff = true;
           const { turnSignal } = await import('./loop.js');
           const outcome = await handOffCaptcha(ctx.botId, screen, r.captcha, turnSignal(ctx.botId));
+          captchaStopped = !outcome.solved;
+          if (captchaStopped && !turnSignal(ctx.botId)?.aborted) appendRow(ctx.botId, 'message', { type: 'message', role: 'assistant', text: `The human check is still blocking this step. Complete it on my screen (${screenLink(ctx.botId)}), then reply here to continue.` });
           const page = outcome.solved ? await screen.browser('browser_snapshot', {}).catch(() => null) : null;
           const pageText = page ? page.content.filter((c) => c.type === 'text').map((c) => (c as { text: string }).text).join('\n') : '';
           r = { content: [{ type: 'text', text: captchaOutcome(r.captcha, outcome, pageText) }], isError: false };
         }
         let text = r.content.filter((c) => c.type === 'text').map((c) => (c as { text: string }).text).join('\n');
         if (text.length > 40000) text = text.slice(0, 40000) + '\n…(truncated; use browser_find or a smaller snapshot depth)';
+        if (recoveryResult.note && !handedOff) text += `\n\n[Browser recovery]\n${recoveryResult.note}`;
         const images = r.content.filter((c) => c.type === 'image') as { data: string; mimeType: string }[];
         const output = images.length
           ? [{ type: 'input_text', text: text || 'Screenshot:' }, ...images.map((i) => ({ type: 'input_image', image_url: `data:${i.mimeType};base64,${i.data}`, detail: 'high' }))]
           : text || '(no output)';
         const what = b.name === 'browser_navigate' ? `Opened ${String(a?.url ?? '')}` : b.name.replace(/^browser_/, '').replace(/_/g, ' ');
-        return { output, summary: r.isError ? `${what} failed` : what };
+        return { output, summary: r.isError ? `${what} failed` : what, replan: handedOff || recoveryResult.replan, endTurn: captchaStopped };
       },
     });
   }

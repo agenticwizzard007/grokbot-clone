@@ -12,6 +12,7 @@ const MOD = IS_MAC ? '⌘' : 'Ctrl+';
 /** OpenRouter's icon for the model's maker (served via our server), or a monogram. */
 export function ProviderIcon({ author, size = 16 }: { author: string; size?: number }) {
   const [failed, setFailed] = useState(false);
+  if (author === 'openai') return <svg className="provider-icon" width={size} height={size} viewBox="20 20 88 88" aria-hidden="true"><use href="/assets/providers/openai.svg#mark" /></svg>;
   // Claude models: Claude's own mascot, never the Anthropic logo.
   if (author === 'anthropic') return <span className="provider-icon is-claude" style={{ width: size, height: size }}><ClaudeMascot size={size} /></span>;
   if (ICON_AUTHORS.has(author) && !failed) {
@@ -39,7 +40,7 @@ async function patchBot(bot: Bot, p: Partial<Pick<Bot, 'model' | 'effort' | 'fas
 export function cycleEffort(bot: Bot, m: PickerModel | undefined) {
   const list: Effort[] = effortsFor(m).filter((e) => e !== 'none');
   if (!list.length) return;
-  const cur = list.indexOf(bot.effort === 'ultracode' ? 'ultracode' : effectiveEffort(bot.effort, m));
+  const cur = list.indexOf(effectiveEffort(bot.effort, m));
   void patchBot(bot, { effort: list[(cur + 1) % list.length] });
 }
 export const toggleFast = (bot: Bot) => void patchBot(bot, { fast: !bot.fast });
@@ -50,18 +51,21 @@ export function ComposerModelMenu({ bot }: { bot: Bot }) {
   const mobile = useStore((s) => s.mobile);
   useEffect(() => { void models.load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const current = bot.model ? models.byId.get(bot.model) : undefined;
-  const label = current?.short ?? (bot.model ? fallbackShort(bot.model) : 'Default model');
+  const planMode = models.billing === 'plan';
+  const effectiveId = !planMode && (!bot.model || /^(claude|codex)\//.test(bot.model)) ? models.defaultModel : bot.model;
+  const current = effectiveId ? models.byId.get(effectiveId) : undefined;
+  const label = models.status === 'loading' ? 'Loading models…' : models.status === 'error' ? 'Models unavailable' : current?.short ?? (planMode ? 'CLI default' : effectiveId ? fallbackShort(effectiveId) : 'Default model');
   const effort = effectiveEffort(bot.effort, current);
   const efforts = effortsFor(current);
-  const ultra = bot.effort === 'ultracode';
+  const ultra = !planMode && bot.effort === 'ultracode';
 
   return (
     <span className="model-pill-anchor">
-      <button type="button" className={`model-pill${ultra ? ' is-ultracode' : ''}`} onClick={() => setOpen(!open)} aria-haspopup="dialog" aria-expanded={open}
-        aria-label={`Model: ${label}${efforts.length ? `, ${EFFORT_LABEL[effort]} effort` : ''}${bot.fast ? ', fast' : ''}. Change`}>
-        {current ? <ProviderIcon author={current.author} /> : bot.model ? <ProviderIcon author={bot.model.split('/')[0]} /> : null}
+      <button type="button" className={`model-pill${ultra ? ' is-ultracode' : ''}`} onClick={() => { if (!open) void models.load(true); setOpen(!open); }} aria-haspopup="dialog" aria-expanded={open}
+        aria-label={`Model: ${label}${models.billing ? `, ${planMode ? 'Plan' : 'API'} connection` : ''}${efforts.length ? `, ${EFFORT_LABEL[effort]} effort` : ''}${bot.fast && models.canFast ? ', fast' : ''}. Change`}>
+        {current ? <ProviderIcon author={current.author} /> : !planMode && bot.model ? <ProviderIcon author={bot.model.split('/')[0]} /> : null}
         <span className="model-pill__name">{label}</span>
+        {models.billing && <span className="model-billing">{planMode ? 'Plan' : 'API'}</span>}
         {efforts.length > 0 && <span className="model-pill__effort">{EFFORT_LABEL[effort]}</span>}
         {bot.fast && models.canFast && <span className="model-pill__fast" title="Fast: fastest providers">⚡︎</span>}
         <ChevronDown size={14} strokeWidth={1.75} aria-hidden className="model-pill__chev" />
@@ -72,7 +76,7 @@ export function ComposerModelMenu({ bot }: { bot: Bot }) {
 }
 
 function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: PickerModel | undefined; onClose: () => void; sheet: boolean }) {
-  const { models, byId, favourites, canFast, status, error, setFavourites, provider } = useModels();
+  const { models, byId, favourites, canFast, status, error, setFavourites, provider, billing, plan, usage } = useModels();
   const [q, setQ] = useState('');
   const [view, setView] = useState<'main' | 'effort'>('main');
   const [editing, setEditing] = useState(false);
@@ -102,7 +106,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
 
   const choose = (m: PickerModel) => {
     // Keep the effort the user picked when the new model accepts it; else the server snaps it.
-    void patchBot(bot, { model: m.id });
+    void patchBot(bot, { model: m.id, ...(m.billing === 'plan' ? { effort: effectiveEffort(bot.effort, m), fast: false } : {}) });
     onClose();
   };
   const toggleFav = (id: string) => setFavourites(favourites.includes(id) ? favourites.filter((x) => x !== id) : [...favourites, id]);
@@ -118,7 +122,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
   };
 
   const modelRow = (m: PickerModel, i: number | null) => {
-    const selected = m.id === bot.model;
+    const selected = m.id === current?.id;
     return (
       <li key={m.id} className={`mm-row${selected ? ' is-selected' : ''}${drag === i ? ' is-dragging' : ''}`}
         draggable={i !== null && !sheet} onDragStart={() => setDrag(i)} onDragEnd={() => setDrag(null)}
@@ -127,8 +131,9 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
         <button type="button" className="mm-row__main" onClick={() => choose(m)} onKeyDown={i !== null ? rowKeys(i) : undefined} aria-current={selected || undefined}
           title={i !== null ? 'Alt+↑/↓ to reorder' : undefined}>
           <ProviderIcon author={m.author} />
-          <span className="mm-row__name">{m.short}</span>
-          {m.defaultEffort && <span className="mm-row__meta">{EFFORT_LABEL[m.defaultEffort as Effort] ?? m.defaultEffort}</span>}
+          <span className="mm-row__name">{m.short}{m.resolvedModel && <small className="mm-row__resolved">{m.resolvedModel}</small>}</span>
+          <span className="model-billing">{billing === 'plan' ? 'Plan' : 'API'}</span>
+          {!m.vision && <span className="mm-row__meta">No images</span>}
         </button>
         {editing && i !== null ? (
           <button type="button" className="mm-row__act" onClick={() => toggleFav(m.id)} aria-label={`Remove ${m.short} from favourites`}><Minus size={14} strokeWidth={2} /></button>
@@ -145,10 +150,10 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
     <ul className="mm-efforts" role="listbox" aria-label="Effort">
       {efforts.map((e) => (
         <li key={e}>
-          <button type="button" role="option" aria-selected={e === (bot.effort === 'ultracode' ? 'ultracode' : effort)} className={`mm-effort${e === 'ultracode' ? ' is-ultracode' : ''}${e === (bot.effort === 'ultracode' ? 'ultracode' : effort) ? ' is-selected' : ''}`}
+          <button type="button" role="option" aria-selected={e === effort} className={`mm-effort${e === 'ultracode' ? ' is-ultracode' : ''}${e === effort ? ' is-selected' : ''}`}
             onClick={() => { void patchBot(bot, { effort: e }); onClose(); }}>
             <span className="mm-effort__text"><span className="mm-effort__label">{EFFORT_LABEL[e]}</span><span className="mm-effort__desc">{e === current?.defaultEffort ? 'The model’s default' : EFFORT_DESC[e]}</span></span>
-            {e === (bot.effort === 'ultracode' ? 'ultracode' : effort) && <Check size={16} strokeWidth={2} aria-hidden />}
+            {e === effort && <Check size={16} strokeWidth={2} aria-hidden />}
           </button>
         </li>
       ))}
@@ -179,7 +184,9 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
                     <span className="mm-row__grip" aria-hidden />
                     <button type="button" className="mm-row__main" onClick={() => choose(m)}>
                       <ProviderIcon author={m.author} />
-                      <span className="mm-row__name">{m.short}</span>
+                      <span className="mm-row__name">{m.short}{m.resolvedModel && <small className="mm-row__resolved">{m.resolvedModel}</small>}</span>
+          <span className="model-billing">{billing === 'plan' ? 'Plan' : 'API'}</span>
+          {!m.vision && <span className="mm-row__meta">No images</span>}
                       <span className="mm-row__meta">{m.author}</span>
                     </button>
                     <button type="button" className={`mm-row__act mm-star${favourites.includes(m.id) ? ' is-on' : ''}`} onClick={() => toggleFav(m.id)} aria-pressed={favourites.includes(m.id)} aria-label={`${favourites.includes(m.id) ? 'Remove from' : 'Add to'} favourites`}>
@@ -202,7 +209,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
                 {efforts.length > 0 && (
                   <button type="button" className={`mm-item${view === 'effort' ? ' is-open' : ''}`} onClick={() => setView(view === 'effort' ? 'main' : 'effort')} aria-expanded={view === 'effort'}>
                     <span>Effort</span>
-                    <span className={`mm-item__value${bot.effort === 'ultracode' ? ' is-ultracode' : ''}`}>{EFFORT_LABEL[bot.effort === 'ultracode' ? 'ultracode' : effort]}<ChevronRight size={14} strokeWidth={1.75} /></span>
+                    <span className={`mm-item__value${effort === 'ultracode' ? ' is-ultracode' : ''}`}>{EFFORT_LABEL[effort]}<ChevronRight size={14} strokeWidth={1.75} /></span>
                   </button>
                 )}
                 {canFast && (
@@ -216,6 +223,14 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
                 )}
               </div>
             )}
+            {billing === 'plan' && <div className="mm-plan-usage" aria-label="Plan usage">
+              <strong>{plan ? `${plan} plan` : 'Connected plan'}</strong>
+              {usage?.available ? usage.windows.map((w, i) => <div key={i}>
+                <span>{w.label}: {w.usedPercent}% used</span>
+                {w.resetsAt !== null && <small>Resets {new Date(w.resetsAt).toLocaleString()}</small>}
+              </div>) : <div>Plan usage unavailable from the CLI.</div>}
+              {usage && <small>Checked {new Date(usage.checkedAt).toLocaleTimeString()}. Provider limits apply across your account.</small>}
+            </div>}
             <div className="mm-foot">
               <button type="button" className="mm-foot__edit" onClick={() => setEditing(!editing)} aria-pressed={editing}>
                 <Settings2 size={14} strokeWidth={1.75} aria-hidden />{editing ? 'Done' : 'Edit'}

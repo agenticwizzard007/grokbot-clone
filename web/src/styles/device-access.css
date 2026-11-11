@@ -1,0 +1,27 @@
+/* Paper: Settings · Redesign / Mac app · Computer · Device access.
+   Use the shared settings cards, 20px inset rows and monochrome controls. */
+.device-access, .device-access-link {
+  font-family: 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack);
+  font-weight: 550;
+}
+.device-access .cfg-row__title, .device-access .cfg-section__label { font-weight: 550; }
+.device-access__availability, .device-access__requirement {
+  flex: none; font-size: 13px; line-height: 18px; color: var(--color-text-secondary);
+}
+.device-access__availability { padding: 5px 10px; border-radius: var(--radius-full); background: var(--color-bg-tertiary); }
+.device-access__label { margin: 12px 0 -6px; font-size: 15px; font-weight: 550; line-height: 20px; }
+.device-access__capabilities { display: flex; flex-direction: column; gap: 10px; margin: 16px 0 2px; padding: 0; list-style: none; }
+.device-access__capabilities li { display: flex; align-items: baseline; gap: 16px; font-size: 13px; line-height: 18px; }
+.device-access__capabilities b { flex: 0 0 108px; font-weight: 550; color: var(--color-text-primary); }
+.device-access__capabilities span { color: var(--color-text-secondary); }
+.device-access__requirement { width: 156px; text-align: right; }
+.device-access-native { position: relative; height: max(660px,min(900px,calc(100vh - 180px))); }
+.device-access-link { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; font-size: 13px; line-height: 18px; color: var(--color-text-secondary); }
+.device-access-link .cfg-btn { display: inline-flex; align-items: center; gap: 6px; }
+@media (max-width: 600px) {
+  .device-access__capabilities li { flex-direction: column; gap: 2px; }
+  .device-access__capabilities b { flex-basis: auto; }
+  .device-access__permissions .cfg-row { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .app-settings .device-access__permissions .cfg-row > .cfg-row__text { flex: initial; }
+  .device-access__requirement { width: auto; text-align: left; }
+}

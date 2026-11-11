@@ -1,0 +1,38 @@
+# Run a collector beside EACH platform/provisioner process. The exporter binds
+# only 127.0.0.1; forward metrics over your existing authenticated TLS transport
+# when rule evaluation is central. Review every placeholder before deployment.
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+  external_labels:
+    deployment: staging
+    collector: staging-platform-01 # Mandatory: unique, non-sensitive collector identity.
+
+rule_files:
+  - /etc/prometheus/swarm-alerts.yml
+
+scrape_configs:
+  - job_name: swarm-operations
+    scrape_timeout: 15s
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /run/secrets/swarm-metrics-token
+    static_configs:
+      - targets: ['127.0.0.1:9464']
+        labels:
+          deployment: staging
+          role: platform # Set to provisioner on the provisioner collector.
+          instance: staging-platform-01 # Mandatory: change for EVERY service replica.
+
+# Supply the approved Alertmanager destination and its separate private token.
+# This example intentionally cannot deliver a notification as supplied.
+alerting:
+  alertmanagers:
+    - scheme: https
+      authorization:
+        type: Bearer
+        credentials_file: /run/secrets/alertmanager-token
+      static_configs:
+        - targets: ['alertmanager.example.invalid:443']
+

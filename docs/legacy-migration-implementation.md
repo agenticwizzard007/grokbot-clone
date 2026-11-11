@@ -26,9 +26,15 @@ const plan = await planMigrationDestination(directory, {
 // Review plan before this infrastructure mutation.
 const destination = await new MigrationDestination(directory, fly, qualifiedSource).reserve(plan);
 const transfer = new MigrationTransfer(directory, envelopes, storage, qualifiedSource);
+// Inspect the exact artifacts attested by qualifiedSource, after its freeze.
+// Review the private report; zero inventory issues is necessary, not a freeze.
+const inventory = await inventoryLegacySource({
+  tenant, sourceSnapshot, filesRoot, cliProfilesRoot, desktopSnapshot,
+});
 const result = await transfer.upload({
   tenant, operation: frozen.operation, checkpoint: frozen.checkpoint,
   sourceSnapshot, filesRoot, cliProfilesRoot, desktopSnapshot,
+  reviewedInventoryHash: inventory.inventoryHash,
   volume: destination.volume, workDirectory: privateMaintenanceDirectory,
   sourceSessionSecret,
 });
@@ -36,6 +42,43 @@ await coordinator.prepare(tenant, result.packageHash, result.checkpoint);
 ```
 
 This is a library integration contract, not an enabled production migration command. `sourceSnapshot` and all file/profile roots must come from the reviewed frozen source layout. The full source checkpoint must attest those artifacts. The destination volume must come from the reviewed reservation above; transfer rejects missing or substituted reservations. Inventing a source/volume record is not a migration shortcut. Import the legacy session secret through the maintenance secret store, never a CLI argument, log, model prompt or shell history. The maintenance workspace must reside on encrypted storage, be absolute/canonical, owned by the maintenance user and mode 0700.
+
+## Offline source inventory
+
+`migration-inventory-cli.ts` provides a read-only prerequisite inspection. It imports no application runtime, starts no provider client and changes no source file, routing, host or directory record. It writes an exclusive mode-0600 report beneath a canonical mode-0700 maintenance directory. The report contains private paths, IDs, sizes and hashes, so keep it on encrypted maintenance storage; it is not platform telemetry.
+
+Example for a **previously prepared offline staging snapshot** (substitute reviewed staging values; never point this command at the production live database):
+
+```sh
+node server/dist/platform/migration-inventory-cli.js inventory \
+  --tenant usr_REVIEWED_ID \
+  --snapshot /encrypted-maintenance/source/swarm-snapshot.db \
+  --files-root /encrypted-maintenance/source/files \
+  --cli-profiles-root /encrypted-maintenance/source/cli-profiles \
+  --desktop-snapshot /encrypted-maintenance/desktop \
+  --source-image "$reviewed_legacy_image_digest" \
+  --source-host staging-source/REVIEWED_MACHINE_ID \
+  --source-volume REVIEWED_VOLUME_ID \
+  --output /encrypted-maintenance/reports/source-inventory.json
+```
+
+Omit `--desktop-snapshot` only when the source records no desktop volume. An absent CLI root is incomplete, even when no provider is currently selected. Do not create an empty replacement root to satisfy inspection: its provenance must be part of the future qualified source checkpoint. The command requires an explicit pinned image and app/machine/volume declaration, but marks that declaration `verified:false`; it has not queried the cloud provider or attested a host.
+
+The database input must be an offline rollback-format SQLite snapshot without WAL, SHM or journal sidecars. A trusted snapshot operation may create one with SQLite's backup or `VACUUM INTO` facilities as appropriate to the reviewed source. This inspection never changes journal mode. A WAL-format database is refused before opening SQLite, because even a read-only connection may create sidecar files. A copied database without its WAL is not a valid snapshot.
+
+The inventory includes all owned Bot IDs, including hidden Bots; mapped files; hosted `.claude`, `.claude.json` and `.codex` profiles; and supported browser/desktop paths. It requires exact desktop tenant/volume manifest identity. Missing roots, unowned Bot directories, unmapped desktop content and nonempty shared CLI home paths require explicit reconciliation. Empty cache/config directories are harmless, but nonempty unknown content is never silently discarded or copied into both provider runners. Foreign known Bot/profile directories are not opened.
+
+Descriptor-relative opens reject symlinks in every ancestor, dangling links, hardlinks, devices and FIFOs. Enumeration, recursion, file count and bytes are bounded. The inventory hash binds paths, ownership, snapshot bytes, file contents, empty directories and outstanding issues. `MigrationTransfer` now requires `reviewedInventoryHash`; packaging compares it before writing, validates copied bytes and enumerates again before publication. Changing the reviewed inventory, roots or journal binding requires reconciliation. Old transfer journals lacking this binding are refused; do not delete or rewrite an admitted journal to bypass that check.
+
+The boundary is explicitly **`observed-files-only`**. The report contains no `writersStopped`, `filesFrozen` or source checkpoint field. It records remote CLI mode and uncertain provider jobs without claiming that disconnecting them stopped their processes. It also cannot discover source hosts, custom environment paths or files outside the declared roots. A full source adapter still needs independently verified process, pending-start, descriptor, writable-mount and provider inventory evidence. A clean report cannot authorize `beginExport`, target activation or source deletion by itself.
+
+The package and encrypted backup format now preserve empty directories. New backups use plaintext manifest schema version 2 inside the existing authenticated envelope. Current readers accept older version-1 backups; old readers reject version 2 instead of silently losing directories. Qualify and use a host release with the updated reader before transferring these bundles. Restore rejects traversal, duplicate/conflicting directory paths, file-as-parent layouts and excessive depth before creating the unpublished environment.
+
+## Rollback credential preparation
+
+`rewrapLegacyRollbackCredentials(database, tenant, targetKey, legacySessionSecret)` prepares credentials in an already restored, owner-verified **isolated snapshot**, never a live shared database. It authenticates the target tenant/purpose envelopes and re-encrypts them with the original source's owner-derived key. Supported records are private model/voice API keys, OpenRouter credentials, Apple refresh tokens and MCP credentials/OAuth. Invalid keys, foreign owners, substituted ciphertext or malformed secrets roll back the entire transaction. Temporary key and plaintext buffers use the shared envelope cleanup rules.
+
+MCP Bot/folder grants and cached tools are cleared, revisions advance, pending approvals are denied and MCP policies are removed. The return value still requires reconciled import and makes no routing or writer claim. The source adapter must independently verify that the reviewed source image understands `private1` owner/purpose envelopes, resolve the exact fresh target checkpoint, obtain the original source secret through the maintenance secret store, merge only owned records/files while all source writers remain fenced, and handle interrupted resume/retirement. This helper supplies no live-merge, freeze-release, resume or deletion shortcut.
 
 Reservation uses the actual `FlyTenants` driver behind the same private-network/encrypted-volume assertions as ordinary provisioning. An immutable `migration_destinations` record binds tenant, migration, checkpoint, source fence, generation, image, region and destination. Cloud creation intents are committed before dispatch. Lost responses may be reconciled against observed resources; an absent resource after an unobserved create does not authorize another create. Unadmitted namespaces, extra volumes, unexpected machines and changed bindings fail. Revocation, lease expiry and source loss are checked after cloud waits and before effects/publication. A failed reservation retry withdraws the previous transfer permission until the complete inventory is revalidated. The tenant remains pending with no routing, credentials or host run permit. Qualified source/Fly behavior is still required; tests use a simulated Fly transport, not real infrastructure.
 
@@ -92,12 +135,12 @@ The current-process receipt cannot prove a remote CLI or an orphaned subprocess 
 
 ## Remaining concrete adapter work
 
-- Inventory all legacy source application processes and data paths. Bind the new drain functions to a reviewed source image and a qualified maintenance control plane. Finish the source-wide background/housekeeping inventory; current tests do not attest every possible extension.
+- Supply the reviewed staging source app/machine/volume IDs, pinned image, database/files/CLI root paths and all additional process/remote bridge writers. Run the offline inventory on legitimately captured staging artifacts, reconcile its issues, then bind the drain functions to that image and a qualified maintenance control plane. The implemented file report does not discover every process/host or attest every possible extension.
 - Prove actual container/process-group termination and remote CLI shutdown rather than inferring it from a disconnected WebSocket or a settled callback.
 - Reconcile unknown or late cloud creates, archives and deletes before accepting a source checkpoint. Qualify the desktop stopper against real Fly metadata/stop/inventory semantics; tests use a simulated driver.
 - Enforce and verify filesystem quiescence, including already-open descriptors and CLI/browser profiles. A path check or successful copy is not a write fence. Verify exact source layout, owner/volume, schema, operation and checkpoint before issuing a full `SourceCheckpoint`.
 - Qualify the implemented Fly target activation/stop and fresh checkpoint protocol against actual provider/network/container behavior. Integrate it with the complete source adapter and a reviewed maintenance entrypoint; do not manufacture source receipts or use ordinary recovery to bypass legacy provenance.
-- Implement reconciled source restore/resume, provider credential rewrap in the reverse direction where valid, rollback routing and retryable deletion across both source and target. No stale checkpoint may overwrite a source already resumed after a lost response.
+- Implement reconciled source record/file restore, source resume, rollback routing and retryable deletion across both source and target. Reverse credential rewrap for an isolated rollback snapshot is implemented above, but is not a live source merge. No stale checkpoint may overwrite a source already resumed after a lost response.
 - Qualify a synthetic end-to-end cutover, crash/restart, failure containment, rollback and account deletion before importing real credentials. Kernel/Fly/KMS/provider evidence and the independent security assessment remain external release gates.
 
 Deletion now requires both `writer='none'` and an actual source-retirement receipt (`source_retired_at` and `source_retirement_digest`) before generic lifecycle cleanup can finish. A stopped source still contains private data. The future trusted retirement adapter must produce these fields from verified source record/file/credential cleanup; do not populate them merely to bypass a pending deletion. The receipt and deletion integration still require implementation and qualification.

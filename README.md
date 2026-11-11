@@ -25,6 +25,7 @@ Swarm is the main product from Swarms.so: a runtime for always-on AI teammates y
 
 - **Give every Bot a role.** Set its instructions, appearance, thinking effort, skills, and memories. Make one your primary point of contact.
 - **Put it to work on a computer.** Bots browse websites in a Chrome browser on your own PC, or use a full Linux desktop with a shell through Orgo. Watch live, take control, and find saved work in the Library.
+- **Recover from interruptions.** Bots inspect unfamiliar screens and try available authenticated routes. Browser recovery bounds repeated ineffective actions and can watch for login/MFA to clear after a human handoff. See [recovery behavior and coverage](docs/browser-recovery.md).
 - **Connect your apps.** Google sign-in and app connections run through Composio. Read actions run automatically; Composio write actions pause for approval, with an option to remember your choice.
 - **Add custom MCP tools.** In Settings → MCP servers, connect a remote HTTP/SSE server or local stdio command, test its tools, and choose which agents can use it. Also accessible through Connect Apps → Custom MCP; no Composio key required.
 - **Build a team from chat.** Tell your primary Bot what a new teammate should own. It creates a permanent Bot with a focused brief, identity, `AGENTS.md`, resources, handoffs, and its own browser. Bots delegate work, start temporary subagents, and join group chats with @mentions.

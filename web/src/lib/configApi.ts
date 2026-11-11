@@ -55,7 +55,8 @@ export interface KeysResponse {
   modelOk?: boolean;
 }
 
-export interface ModelInfo { id: string; name: string; vision: boolean; reasoning: boolean; context: number; price: { input: number; output: number } | null }
+export interface ModelInfo {
+  billing?: 'api' | 'plan'; id: string; name: string; vision: boolean; reasoning: boolean; context: number; price: { input: number; output: number } | null }
 export type SettingKey = 'voice' | 'direct' | 'composio' | 'model' | 'openrouter' | 'openrouter_model' | 'provider';
 
 export type MessagingChannel = 'imessage' | 'sms' | 'whatsapp';

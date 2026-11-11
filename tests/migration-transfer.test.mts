@@ -8,6 +8,7 @@ import {Readable} from 'node:stream';
 import {Pool} from 'pg';
 import Database from 'better-sqlite3';
 import {Directory,opaqueToken} from '../server/src/platform/directory.js';
+import {inventoryLegacySource} from '../server/src/platform/migration-inventory.js';
 import {MigrationTransfer,verifiedMigrationTransfer} from '../server/src/platform/migration-transfer.js';
 import {MigrationDestination,planMigrationDestination} from '../server/src/platform/migration-destination.js';
 import {infrastructureGates} from '../server/src/platform/release-policy.js';
@@ -31,9 +32,10 @@ test('migration packages transfer under a frozen-source lease and install privat
   async function fixture(){
     const tenant=await directory.identity('google',opaqueToken(),{name:'Migrating'}),operation=opaqueToken(),master=randomBytes(32),secret='source-test-only-session-secret';
     t.after(()=>master.fill(0));
-    const sourceSnapshot=path.join(root,`${tenant}.db`),filesRoot=path.join(root,`${tenant}-files`),workDirectory=path.join(root,`${tenant}-work`);
-    fs.mkdirSync(path.join(filesRoot,'bot_owned'),{recursive:true});fs.writeFileSync(path.join(filesRoot,'bot_owned/note.txt'),'private owner file');fs.writeFileSync(path.join(filesRoot,'bot_owned/empty.txt'),'');
+    const sourceSnapshot=path.join(root,`${tenant}.db`),filesRoot=path.join(root,`${tenant}-files`),cliProfilesRoot=path.join(root,`${tenant}-cli`),workDirectory=path.join(root,`${tenant}-work`);
+    fs.mkdirSync(path.join(filesRoot,'bot_owned/empty-folder'),{recursive:true});fs.writeFileSync(path.join(filesRoot,'bot_owned/note.txt'),'private owner file');fs.writeFileSync(path.join(filesRoot,'bot_owned/empty.txt'),'');
     fs.mkdirSync(path.join(filesRoot,'bot_foreign'),{recursive:true});fs.writeFileSync(path.join(filesRoot,'bot_foreign/secret.txt'),'foreign file');
+    fs.mkdirSync(cliProfilesRoot);
     const db=new Database(sourceSnapshot);
     db.exec('CREATE TABLE users(id TEXT PRIMARY KEY,phone TEXT);CREATE TABLE bots(id TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id));CREATE TABLE private_api_keys(user_id TEXT REFERENCES users(id),provider TEXT,secret TEXT,PRIMARY KEY(user_id,provider));');
     db.prepare('INSERT INTO users VALUES(?,NULL)').run(tenant);db.prepare('INSERT INTO users VALUES(?,NULL)').run('usr_foreign_owner');
@@ -53,7 +55,8 @@ test('migration packages transfer under a frozen-source lease and install privat
       async get(who,id,name){const value=objects.get(backupLocation(who,id,name));if(!value)throw new Error('Missing object');return {body:Readable.from([value]),bytes:value.length};},
       async remove(who,id){for(const name of objects.keys())if(name.startsWith(backupLocation(who,id)))objects.delete(name);},
     };
-    const input={tenant,operation,checkpoint,volume,sourceSnapshot,filesRoot,workDirectory,sourceSessionSecret:secret};
+    const reviewedInventoryHash=(await inventoryLegacySource({tenant,sourceSnapshot,filesRoot,cliProfilesRoot})).inventoryHash;
+    const input={tenant,operation,checkpoint,volume,sourceSnapshot,filesRoot,cliProfilesRoot,reviewedInventoryHash,workDirectory,sourceSessionSecret:secret};
     return {tenant,operation,volume,master,source,storage,input,state,objects,calls,transfer:()=>new MigrationTransfer(directory,envelopes,storage,source),beforePut:(fn?:typeof beforePut)=>{beforePut=fn;},afterPut:(fn?:typeof afterPut)=>{afterPut=fn;},beforeKey:(fn?:typeof beforeKey)=>{beforeKey=fn;}};
   }
   const record=async(tenant:string)=>(await directory.pool.query('SELECT * FROM migration_transfers WHERE tenant_id=$1',[tenant])).rows[0];
@@ -84,6 +87,7 @@ test('migration packages transfer under a frozen-source lease and install privat
     });
     await host.tick();const restored=host.activeRoot();
     assert.equal(fs.readFileSync(path.join(restored,'files/bot_owned/note.txt'),'utf8'),'private owner file');assert.equal(fs.statSync(path.join(restored,'files/bot_owned/empty.txt')).size,0);assert.equal(fs.existsSync(path.join(restored,'files/bot_foreign')),false);
+    assert.ok(fs.statSync(path.join(restored,'files/bot_owned/empty-folder')).isDirectory());
     const db=new Database(path.join(restored,'app/swarm.db'));try{
       assert.deepEqual(db.prepare('SELECT id FROM users').all(),[{id:f.tenant}]);
       assert.equal(openSecret(f.master,f.tenant,'api:voice',(db.prepare('SELECT secret FROM private_api_keys').get() as any).secret),'private provider token');
@@ -196,7 +200,7 @@ test('migration packages transfer under a frozen-source lease and install privat
   await t.test('unknown/private workspace contents and incomplete file inventory fail without deleting unrelated files',async()=>{
     const f=await fixture();fs.mkdirSync(f.input.workDirectory,{mode:0o700});fs.writeFileSync(path.join(f.input.workDirectory,'environment'),'unrelated');
     await assert.rejects(f.transfer().upload(f.input),/Unbound/);assert.equal(fs.readFileSync(path.join(f.input.workDirectory,'environment'),'utf8'),'unrelated');
-    const other=await fixture();await assert.rejects(other.transfer().upload({...other.input,filesRoot:undefined}),/inventory is incomplete/);assert.equal(other.calls.length,0);
+    const other=await fixture(),missing={...other.input,filesRoot:undefined};missing.reviewedInventoryHash=(await inventoryLegacySource(missing)).inventoryHash;await assert.rejects(other.transfer().upload(missing),/inventory is incomplete/);assert.equal(other.calls.length,0);
   });
   await t.test('packaging-crash plaintext is removed only from its bound private workspace',async()=>{
     const f=await fixture();await f.transfer().upload(f.input);

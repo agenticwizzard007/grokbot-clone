@@ -1,15 +1,21 @@
+import { useStore } from '../../store';
+import { useModels } from '../../lib/models';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { configApi, type ModelInfo } from '../../lib/configApi';
 
 type Provider = 'direct' | 'openrouter';
-/** Models per provider (or the active one), fetched once per page load (and again after `refreshModels`). */
-const cache = new Map<string, Promise<{ models: ModelInfo[]; error?: string }>>();
-export const refreshModels = () => { cache.clear(); };
-const loadModels = (provider?: Provider) => {
-  const k = provider ?? 'active';
-  if (!cache.has(k)) cache.set(k, configApi.models(provider).catch((e) => ({ models: [], error: (e as Error).message })));
+type ModelCatalog = { models: ModelInfo[]; error?: string; billing?: 'api' | 'plan' };
+/** Share the latest request for labels, but always refresh when opening a picker. */
+const cache = new Map<string, Promise<ModelCatalog>>();
+export const refreshModels = () => { cache.clear(); void useModels.getState().load(true); };
+const loadModels = (provider?: Provider, force = false) => {
+  const k = `${useStore.getState().user?.id ?? 'anonymous'}:${provider ?? 'active'}`;
+  if (force || !cache.has(k)) cache.set(k, (provider ? configApi.models(provider).then(d => ({ ...d, billing: 'api' as const })) : fetch('/api/models', { credentials: 'include' }).then(async r => { if (!r.ok) throw new Error('Could not load models.'); return r.json(); })).catch((e: Error) => ({ models: [], error: e.message })));
   return cache.get(k)!;
 };
+useStore.subscribe((state, previous) => {
+  if (state.user?.id !== previous.user?.id) cache.clear();
+});
 
 const price = (m: ModelInfo) => {
   if (!m.price) return '';
@@ -32,10 +38,17 @@ export function ModelPicker({ value, onChange, defaultLabel, disabled, label = '
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [data, setData] = useState<{ models: ModelInfo[]; error?: string } | null>(null);
+  const userId = useStore(s => s.user?.id);
+  const [loaded, setLoaded] = useState<{ userId?: string; provider?: Provider; data: ModelCatalog } | null>(null);
+  const data = loaded && loaded.userId === userId && loaded.provider === provider ? loaded.data : null;
   const box = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { let alive = true; setData(null); loadModels(provider).then((d) => { if (alive) setData(d); }); return () => { alive = false; }; }, [provider]);
+  useEffect(() => {
+    let alive = true;
+    setLoaded(null);
+    loadModels(provider, open).then(data => { if (alive) setLoaded({ userId, provider, data }); });
+    return () => { alive = false; };
+  }, [provider, userId, open]);
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
@@ -61,6 +74,7 @@ export function ModelPicker({ value, onChange, defaultLabel, disabled, label = '
         <span className="model-picker__current">
           {value ? (selected?.name ?? value) : defaultLabel ? `Default · ${defaultLabel}` : 'Choose a model'}
         </span>
+        {data?.billing && <span className="model-billing">{data.billing === 'plan' ? 'Plan' : 'API'}</span>}
         {value && <span className="model-picker__id">{value}</span>}
         {selected && !selected.vision && <span className="cfg-chip cfg-chip--warn">No images</span>}
       </button>
@@ -71,15 +85,15 @@ export function ModelPicker({ value, onChange, defaultLabel, disabled, label = '
             {defaultLabel && !query && (
               <button type="button" role="option" aria-selected={value === null} className={`model-picker__row${value === null ? ' is-selected' : ''}`} onClick={() => pick(null)}>
                 <span className="model-picker__name">Default</span>
-                <span className="model-picker__meta">{defaultLabel} · set in Settings → API keys</span>
+                <span className="model-picker__meta">{defaultLabel}</span>
               </button>
             )}
             {data?.error && <div className="model-picker__empty">{data.error}</div>}
             {!data && <div className="model-picker__empty">Loading models…</div>}
-            {data && !shown.length && <div className="model-picker__empty">{models.length ? 'No match.' : 'Add a model key in Settings → API keys first.'}</div>}
+            {data && !data.error && !shown.length && <div className="model-picker__empty">{models.length ? 'No match.' : data.billing === 'plan' ? 'No models are available from this CLI connection. Refresh it in Settings → Subscriptions.' : 'Add a model key in Settings → API keys first.'}</div>}
             {shown.map((m) => (
               <button type="button" role="option" aria-selected={m.id === value} key={m.id} className={`model-picker__row${m.id === value ? ' is-selected' : ''}`} onClick={() => pick(m.id)}>
-                <span className="model-picker__name">{m.name}{!m.vision && <span className="cfg-chip cfg-chip--warn">No images</span>}</span>
+                <span className="model-picker__name">{m.name}<span className="model-billing">{m.billing === 'plan' ? 'Plan' : 'API'}</span>{!m.vision && <span className="cfg-chip cfg-chip--warn">No images</span>}</span>
                 <span className="model-picker__meta">{m.id}{price(m) ? ` · ${price(m)}` : ''}</span>
               </button>
             ))}

@@ -18,11 +18,11 @@ struct SwarmApp: App {
         .defaultSize(width: 1200, height: 800)
         .commands {
             CommandGroup(replacing: .appSettings) {
-                Button("Use this Mac…") { openWindow(id: "mac-control") }
-                Button("Server Settings…") { model.showingSettings = true }.keyboardShortcut(",")
+                Button("Computer & Device Access…") { openWindow(id: "main"); model.showComputerSettings() }.keyboardShortcut(",")
+                Button("Server Settings…") { model.showingSettings = true }
             }
             CommandMenu("Mac Control") {
-                MacControlMenu(control: model.macControl) { openWindow(id: "mac-control") }
+                MacControlMenu(control: model.macControl) { openWindow(id: "main"); model.showComputerSettings() }
             }
             CommandGroup(after: .toolbar) {
                 Button("Reload Swarm") { model.reload() }.keyboardShortcut("r")
@@ -32,14 +32,12 @@ struct SwarmApp: App {
         MenuBarExtra {
             MacControlMenu(control: model.macControl) {
                 NSApplication.shared.activate(ignoringOtherApps: true)
-                openWindow(id: "mac-control")
+                openWindow(id: "main")
+                model.showComputerSettings()
             }
             Divider()
             Button("Quit Swarm") { NSApplication.shared.terminate(nil) }
         } label: { MacControlMenuLabel(control: model.macControl) }
-        Window("Use this Mac", id: "mac-control") { MacControlView(control: model.macControl) }
-            .defaultSize(width: 660, height: 760)
-            .windowResizability(.contentSize)
         #else
         WindowGroup("Swarm") { content }
         #endif
@@ -65,9 +63,6 @@ struct SwarmApp: App {
 
 struct ContentView: View {
     @ObservedObject var model: AppModel
-    #if os(macOS)
-    @Environment(\.openWindow) private var openWindow
-    #endif
 
     var body: some View {
         NavigationStack {
@@ -110,7 +105,7 @@ struct ContentView: View {
                         Button("Talk to Swarm", systemImage: "waveform") { VoiceShortcutCenter.shared.request() }
                         #endif
                         #if os(macOS)
-                        Button("Use this Mac…", systemImage: "desktopcomputer") { openWindow(id: "mac-control") }
+                        Button("Computer & Device Access…", systemImage: "desktopcomputer") { model.showComputerSettings() }
                         #endif
                         Button("Home", systemImage: "house") { model.loadHome() }
                         Button("Reload", systemImage: "arrow.clockwise") { model.reload() }

@@ -210,11 +210,16 @@ test('cloud drain rejects foreign metadata and unresolved creation before any st
 
 test('cloud drain treats an accepted stop with a still-suspended VM as unproven', async t => {
   const owner = account(), id = vm(owner.id, 'suspended-machine', 'suspended'), receipt = hold(owner.id); let stops = 0;
+  // Expire the deadline only after observing a still-suspended VM after stop. A 150ms wall
+  // deadline could expire in the preceding database/process drain on a busy CI
+  // host, testing a different path and never reaching the assertion below.
+  let clock = Date.now(), postStopReads = 0; t.mock.method(Date, 'now', () => clock);
   const info = { id: 'suspended-machine', vmId: id, userId: owner.id, state: 'suspended' };
-  t.mock.method(cloud.driver, 'list', async () => [info]); t.mock.method(cloud.driver, 'get', async () => info);
+  t.mock.method(cloud.driver, 'list', async () => [info]);
+  t.mock.method(cloud.driver, 'get', async () => { if(stops && ++postStopReads === 2)clock += 10001; return info; });
   t.mock.method(cloud.driver, 'stop', async () => { stops++; });
-  await assert.rejects(stopLegacyCloud(receipt, async () => {}, 150), /timed out|not been observed/);
-  assert.equal(stops, 1);
+  await assert.rejects(stopLegacyCloud(receipt, async () => {}, 10000), /timed out|not been observed/);
+  assert.equal(stops, 1); assert.equal(postStopReads, 2);
 });
 
 test('cloud drain rechecks authorization after inventory waits and never issues a revoked stop', async t => {
