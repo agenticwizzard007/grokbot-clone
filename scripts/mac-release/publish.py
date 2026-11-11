@@ -15,6 +15,11 @@ def verify(directory, tag, sha):
         or manifest.get("notarization", {}).get("status") != "Accepted"
         or manifest.get("verification") != {"stapler": "passed", "gatekeeper": "passed", "codesign": "passed"}):
         raise ValueError("Artifact is not a verified notarized release for this source/tag")
+    smoke = manifest.get("runtime_smoke")
+    arch = manifest.get("architectures")
+    if arch not in ("arm64", "x64", "universal") or not (smoke in ("arm64", "x64") and arch in (smoke, "universal")
+        or arch != "universal" and smoke == "not-run: runner architecture differs"):
+        raise ValueError("Missing runtime smoke result")
     if not re.fullmatch(r"mac-v[0-9]+\.[0-9]+\.[0-9]+", tag) or not re.fullmatch(r"[a-f0-9]{40}", sha):
         raise ValueError("Invalid tag/SHA")
     archive = "Swarm-" + tag.removeprefix("mac-v") + "-macos.zip"

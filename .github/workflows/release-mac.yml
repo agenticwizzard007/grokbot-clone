@@ -109,6 +109,8 @@ jobs:
       - name: Remove temporary signing material (also on cancellation/failure)
         if: always()
         run: python3 scripts/mac-release/release.py cleanup
+      - name: Smoke signed runtime after credential cleanup
+        run: python3 scripts/mac-release/release.py smoke
       - uses: actions/upload-artifact@v4
         with:
           name: mac-distribution-${{ github.run_id }}-${{ github.run_attempt }}

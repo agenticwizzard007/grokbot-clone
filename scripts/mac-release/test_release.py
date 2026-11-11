@@ -146,7 +146,7 @@ class PublicationTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.folder = Path(self.temp.name)
         self.sha, self.tag = "a" * 40, "mac-v1.2.3"
-        self.manifest = {"mode": "developer-id", "sha": self.sha, "tag": self.tag, "archive": "Swarm-1.2.3-macos.zip",
+        self.manifest = {"mode": "developer-id", "runtime_smoke": "arm64", "architectures": "universal", "sha": self.sha, "tag": self.tag, "archive": "Swarm-1.2.3-macos.zip",
                          "notarization": {"status": "Accepted"}, "verification": {"stapler": "passed", "gatekeeper": "passed", "codesign": "passed"}}
         (self.folder / "Swarm-1.2.3-macos.zip").write_bytes(b"synthetic archive")
         (self.folder / "notarization-log.json").write_text("{}")
@@ -161,7 +161,7 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(len(publish.verify(self.folder, self.tag, self.sha)[1]), 4)
 
     def test_never_publish_dry_run_unaccepted_unstapled_or_other_source(self):
-        for key, value in (("mode", "dry-run"), ("sha", "b" * 40), ("tag", "mac-v2.0.0"), ("notarization", {"status": "In Progress"}), ("verification", {"codesign": "passed"})):
+        for key, value in (("runtime_smoke", "pending credential-free step"), ("mode", "dry-run"), ("sha", "b" * 40), ("tag", "mac-v2.0.0"), ("notarization", {"status": "In Progress"}), ("verification", {"codesign": "passed"})):
             original = self.manifest[key]
             self.manifest[key] = value
             self.write()
@@ -182,6 +182,121 @@ class PublicationTests(unittest.TestCase):
         self.write()
         with self.assertRaises(ValueError):
             publish.verify(self.folder, self.tag, self.sha)
+
+class SigningSequenceTests(unittest.TestCase):
+    def test_synthetic_developer_id_signing_notary_and_staple_order(self):
+        # Synthetic subprocess receipts exercise control flow only, never Apple services.
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder)
+            app, output, private = folder / "Swarm.app", folder / "output", folder / "private"
+            output.mkdir()
+            private.mkdir()
+            native = {"Contents/MacOS/Swarm": ["arm64"], "Contents/Resources/MacControl/arm64/node": ["arm64"], "Contents/Resources/MacControl/arm64/control-host": ["arm64"]}
+            for name in native:
+                path = app / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"synthetic unsigned native code")
+            cert = b"synthetic certificate"
+            identity = hashlib.sha1(cert).hexdigest().upper()
+            common_name = "Developer ID Application: Synthetic Owner (" + release.TEAM + ")"
+            fixture = ReleasePolicyTests()
+            fixture.setUp()
+            profile = fixture.profile
+            profile["DeveloperCertificates"] = [cert]
+            env = {**fixture.env, **{name: "synthetic" for name in release.SECRET_NAMES}}
+            import base64
+            env.update(APPLE_DEVELOPER_ID_P12=base64.b64encode(b"synthetic p12").decode(), APPLE_DEVELOPER_ID_PROFILE=base64.b64encode(b"synthetic cms").decode(), APPLE_ASC_KEY_ID="ABCDEFGHIJ", APPLE_ASC_ISSUER_ID="12345678-1234-1234-1234-123456789abc")
+            calls = []
+            def command(*args, **kwargs):
+                args = tuple(str(a) for a in args)
+                calls.append(args)
+                if args[:2] == ("security", "find-identity"):
+                    return f'1) {identity} "{common_name}"'.encode()
+                if args[:2] == ("security", "find-certificate"):
+                    return b"-----BEGIN CERTIFICATE-----\nsynthetic\n-----END CERTIFICATE-----"
+                if args[:4] == ("openssl", "x509", "-outform", "DER"):
+                    return cert
+                if args[:3] == ("openssl", "x509", "-subject"):
+                    return ("subject=CN=Synthetic,OU=" + release.TEAM + ",O=Synthetic\n").encode()
+                if args[:3] == ("openssl", "x509", "-text"):
+                    return b"1.2.840.113635.100.6.1.13"
+                if args[:2] == ("security", "cms"):
+                    return plistlib.dumps(profile)
+                if args[0] == "ditto":
+                    Path(args[-1]).write_bytes(b"synthetic archive")
+                if args[:3] == ("xcrun", "notarytool", "submit"):
+                    return b'{"status":"Accepted","id":"12345678-1234-1234-1234-123456789abc"}'
+                if args[:3] == ("xcrun", "notarytool", "log"):
+                    return b'{"status":"Accepted"}'
+                return b""
+            config = {**release.inputs(env), "mode": "developer-id"}
+            with patch.object(release, "APP", app), patch.object(release, "OUTPUT", output), patch.object(release, "inventory", return_value=native), patch.object(release, "signature_check") as check, patch.object(release, "run", side_effect=command):
+                release.sign(config, env, private)
+            signs = [args for args in calls if args[0] == "codesign" and "--sign" in args]
+            self.assertEqual([args[-1] for args in signs], [str(app / path) for path in list(native)[1:]] + [str(app)])
+            self.assertTrue(all("--deep" not in args and "--timestamp" in args and "runtime" in args for args in signs))
+            self.assertEqual(check.call_count, 3)
+            staple = next(i for i, args in enumerate(calls) if args[:3] == ("xcrun", "stapler", "staple"))
+            final_zip = max(i for i, args in enumerate(calls) if args[0] == "ditto")
+            gatekeeper = next(i for i, args in enumerate(calls) if args[0] == "spctl")
+            self.assertLess(staple, gatekeeper)
+            self.assertLess(gatekeeper, final_zip)
+            self.assertEqual(config["notarization"]["status"], "Accepted")
+            self.assertTrue((output / "Swarm-1.2.3-macos.zip").exists())
+            # Unaccepted notarization must stop before staple/final ZIP.
+            calls.clear()
+            def rejected(*args, **kwargs):
+                result = command(*args, **kwargs)
+                if tuple(args[:3]) == ("xcrun", "notarytool", "submit"):
+                    return b'{"status":"In Progress","id":"12345678-1234-1234-1234-123456789abc"}'
+                return result
+            with patch.object(release, "APP", app), patch.object(release, "OUTPUT", output), patch.object(release, "inventory", return_value=native), patch.object(release, "signature_check"), patch.object(release, "run", side_effect=rejected), self.assertRaisesRegex(ValueError, "not Accepted"):
+                release.sign(config, env, private)
+            self.assertFalse(any(args[:3] == ("xcrun", "stapler", "staple") for args in calls))
+
+    def test_failure_removes_stale_output_and_private_material(self):
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder)
+            app, output = folder / "Swarm.app", folder / "output"
+            (app / "Contents").mkdir(parents=True)
+            (app / "Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": release.BUNDLE}))
+            output.mkdir()
+            (output / "old-release.zip").write_text("must not survive")
+            fixture = ReleasePolicyTests()
+            fixture.setUp()
+            env = {**fixture.env, "RELEASE_DRY_RUN": "true", "RUNNER_TEMP": str(folder), "GITHUB_RUN_ID": "1234", "GITHUB_RUN_ATTEMPT": "1"}
+            def failure(config, unused_env, private):
+                self.assertFalse((output / "old-release.zip").exists())
+                (private / "AuthKey.p8").write_text("synthetic")
+                (private / "signing.keychain-db").write_text("synthetic")
+                (output / "partial.zip").write_text("must not survive")
+                raise ValueError("synthetic signing failure")
+            with patch.dict(release.os.environ, env, clear=True), patch.object(release.sys, "argv", ["release.py", "sign"]), patch.object(release.sys, "platform", "darwin"), patch.object(release, "APP", app), patch.object(release, "OUTPUT", output), patch.object(release, "verify_ref", return_value="a" * 40), patch.object(release, "run", return_value=b""), patch.object(release.signal, "signal"), patch.object(release, "sign", side_effect=failure), self.assertRaisesRegex(ValueError, "synthetic signing failure"):
+                release.main()
+            self.assertFalse(output.exists())
+            self.assertFalse((folder / "swarm-signing-1234-1").exists())
+
+
+class CredentialBoundaryTests(unittest.TestCase):
+    def test_subprocess_environment_strips_all_signing_credentials(self):
+        import sys
+        with patch.dict(release.os.environ, {name: "synthetic-private-value" for name in release.SECRET_NAMES}):
+            observed = json.loads(release.run(sys.executable, "-c", "import os,json; print(json.dumps(dict(os.environ)))"))
+        self.assertTrue(all(name not in observed for name in release.SECRET_NAMES))
+
+    def test_keychain_deletion_failure_still_removes_every_private_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            private = Path(folder) / "private"
+            private.mkdir()
+            for name in ("signing.keychain-db", "identity.p12", "AuthKey.p8", "distribution.provisionprofile"):
+                (private / name).write_text("synthetic")
+            with patch.object(release, "run", side_effect=ValueError("security failed")), self.assertRaisesRegex(ValueError, "security failed"):
+                release.cleanup(private)
+            self.assertFalse(private.exists())
+
+    def test_runtime_smoke_refuses_credentialed_environment(self):
+        with patch.dict(release.os.environ, {"APPLE_ASC_PRIVATE_KEY": "synthetic"}), self.assertRaisesRegex(ValueError, "credential-free"):
+            release.smoke()
 
 
 if __name__ == "__main__":

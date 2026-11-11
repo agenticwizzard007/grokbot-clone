@@ -29,7 +29,7 @@ No real credentials are required for PR validation. Real Developer ID issuance, 
 
 ## PR and manual dry runs
 
-Every PR touching the workflow, release helper/tests, native app or packaging inputs builds a **universal** Mac app and ad-hoc signs it. Signing secrets are never loaded for a PR or an explicitly selected dry run. The native runner's slice executes Node, the launcher, companion help and Playwright help; the other slice's architecture and signatures are inspected. This does not replace testing on an Intel Mac and an Apple silicon Mac.
+Every PR touching the workflow, release helper/tests, native app or packaging inputs builds a **universal** Mac app and ad-hoc signs it. Signing secrets are never loaded for a PR or an explicitly selected dry run. The native runner's slice executes Node, the launcher, companion help and Playwright help; the other slice's architecture and signatures are inspected. Runtime smoke runs in a separate credential-free step after signing material is removed. Signing helper subprocesses also receive an environment with all six credential variables removed. This does not replace testing on an Intel Mac and an Apple silicon Mac.
 
 For a manual dry run, choose **Actions → Mac direct download → Run workflow**, select the reviewed pipeline branch, set `ref` to the desired commit, supply version/build/origin/architectures, and leave `dry_run` enabled. Download the `mac-distribution-<run-id>-<attempt>` Actions artifact. Its archive is named `Swarm-<version>-macos-ADHOC-DO-NOT-DISTRIBUTE.zip`. It has no provisioning profile or Apple sign-in entitlement; it is neither notarized nor published as a GitHub Release. Do not put it on the website or weaken Gatekeeper to distribute it.
 

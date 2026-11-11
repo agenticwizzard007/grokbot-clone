@@ -36,8 +36,13 @@ def require(condition, message):
         raise ValueError(message)
 
 
+def child_environment():
+    return {key: value for key, value in os.environ.items() if key not in SECRET_NAMES}
+
+
 def run(*args, **kwargs):
-    result = subprocess.run([str(a) for a in args], stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
+    result = subprocess.run([str(a) for a in args], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            env=child_environment(), **kwargs)
     # Never include argv/stderr here: import/partition-list/notary commands carry secrets.
     require(result.returncode == 0, f"{Path(args[0]).name} failed (exit {result.returncode}); no release produced")
     return result.stdout
@@ -148,7 +153,7 @@ def inventory(app, arch):
 def signature_check(path, entitlements, release, cpu):
     # Inspect all slices, not just whichever slice codesign chooses by default.
     for arch in cpu:
-        result = subprocess.run(["codesign", "--display", "--verbose=4", "--arch", arch, str(path)], capture_output=True)
+        result = subprocess.run(["codesign", "--display", "--verbose=4", "--arch", arch, str(path)], capture_output=True, env=child_environment())
         details = result.stderr.decode()
         require(result.returncode == 0 and "runtime" in details, "Missing hardened runtime signature")
         if release:
@@ -162,10 +167,13 @@ def signature_check(path, entitlements, release, cpu):
 
 def cleanup(directory):
     keychain = directory / "signing.keychain-db"
-    if keychain.exists():
-        run("security", "delete-keychain", keychain)
-    if directory.exists():
-        shutil.rmtree(directory)
+    try:
+        if keychain.exists():
+            run("security", "delete-keychain", keychain)
+    finally:
+        # A Keychain API failure must not retain the P12, .p8, or profile.
+        if directory.exists():
+            shutil.rmtree(directory)
 
 
 def sign(config, env, private):
@@ -195,6 +203,8 @@ def sign(config, env, private):
         der = run("openssl", "x509", "-outform", "DER", input=pem)
         require(hashlib.sha1(der).hexdigest().upper() == identity.upper(), "Certificate/identity mismatch")
         run("openssl", "x509", "-checkend", "0", "-noout", input=pem)
+        subject = run("openssl", "x509", "-subject", "-nameopt", "RFC2253", "-noout", input=pem).decode()
+        require(re.search(r"(?:^|,)OU=" + TEAM + r"(?:,|$)", subject.strip().removeprefix("subject=")), "Wrong certificate organizational unit/team")
         certificate = run("openssl", "x509", "-text", "-noout", input=pem).decode()
         require("1.2.840.113635.100.6.1.13" in certificate, "Certificate lacks Developer ID Application extension")
         decoded = plistlib.loads(run("security", "cms", "-D", "-i", profile))
@@ -248,6 +258,22 @@ def sign(config, env, private):
         config["verification"] = {"stapler": "passed", "gatekeeper": "passed", "codesign": "passed"}
     else:
         config["verification"] = {"codesign": "passed", "stapler": "not-run", "gatekeeper": "not-run"}
+    config["runtime_smoke"] = "pending credential-free step"
+    filename = f"Swarm-{config['version']}-macos" + ("" if release else "-ADHOC-DO-NOT-DISTRIBUTE") + ".zip"
+    run("ditto", "-c", "-k", "--keepParent", APP, OUTPUT / filename)
+    config["archive"] = filename
+    write_manifest(config)
+
+
+def write_manifest(config):
+    (OUTPUT / "release-manifest.json").write_text(json.dumps(config, indent=2) + "\n")
+    files = sorted(p for p in OUTPUT.iterdir() if p.name != "SHA256SUMS")
+    (OUTPUT / "SHA256SUMS").write_text("".join(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n" for p in files))
+
+
+def smoke():
+    require(not any(os.environ.get(key) for key in SECRET_NAMES), "Runtime smoke requires a credential-free step")
+    config = json.loads((OUTPUT / "release-manifest.json").read_text())
     # Run only the native slice; universal cross-architecture execution is a separate release qualification.
     native_arch = "arm64" if os.uname().machine == "arm64" else "x64"
     if config["architectures"] in (native_arch, "universal"):
@@ -258,22 +284,21 @@ def sign(config, env, private):
         config["runtime_smoke"] = native_arch
     else:
         config["runtime_smoke"] = "not-run: runner architecture differs"
-    filename = f"Swarm-{config['version']}-macos" + ("" if release else "-ADHOC-DO-NOT-DISTRIBUTE") + ".zip"
-    run("ditto", "-c", "-k", "--keepParent", APP, OUTPUT / filename)
-    config["archive"] = filename
-    (OUTPUT / "release-manifest.json").write_text(json.dumps(config, indent=2) + "\n")
-    files = sorted(OUTPUT.iterdir())
-    (OUTPUT / "SHA256SUMS").write_text("".join(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n" for p in files))
+    write_manifest(config)
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("validate", "sign", "cleanup"))
+    parser.add_argument("action", choices=("validate", "sign", "cleanup", "smoke"))
     options = parser.parse_args()
     env = os.environ
     private = Path(env.get("RUNNER_TEMP", "/tmp")) / ("swarm-signing-" + env.get("GITHUB_RUN_ID", "local") + "-" + env.get("GITHUB_RUN_ATTEMPT", "1"))
     if options.action == "cleanup":
         cleanup(private)
+        return
+    if options.action == "smoke":
+        require(not private.exists(), "Runtime smoke requires completed signing cleanup")
+        smoke()
         return
     config = inputs(env)
     config["mode"] = signing_mode(env)
@@ -306,7 +331,11 @@ def main():
         shutil.rmtree(OUTPUT, ignore_errors=True)
         raise
     finally:
-        cleanup(private)
+        try:
+            cleanup(private)
+        except BaseException:
+            shutil.rmtree(OUTPUT, ignore_errors=True)
+            raise
     if env.get("GITHUB_OUTPUT"):
         with open(env["GITHUB_OUTPUT"], "a") as output:
             output.write(f"publish={'true' if config['mode'] == 'developer-id' else 'false'}\ntag={config['tag']}\nsha={config['sha']}\n")
