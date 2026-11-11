@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
-import type { VoiceTask, VoiceUpdate, VoiceUpdates } from '../web/src/voice/api.js';
+import type { VoiceApproval, VoiceConnectionRequest, VoiceTask, VoiceUpdate, VoiceUpdates } from '../web/src/voice/api.js';
 
 const bundle = await build({
   entryPoints: ['web/src/voice/call.ts'], bundle: true, platform: 'node', format: 'esm', write: false,
@@ -51,6 +51,11 @@ function deferred<T>() {
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const task = (id: string, botId = 'research', status: VoiceTask['status'] = 'running'): VoiceTask => ({ id, botId, botName: botId === 'main' ? 'Main agent' : 'Research agent', request: `Request ${id}`, status });
 const update = (id: number, kind: VoiceUpdate['kind'] = 'message', botId = 'research', text = `Update ${id}`): VoiceUpdate => ({ id, botId, botName: botId === 'main' ? 'Main agent' : 'Research agent', kind, text });
+const connection = (seq = 12, botId = 'research'): VoiceConnectionRequest => ({ botId, seq, toolkit: 'gmail', toolkitName: 'Gmail' });
+const approval = (seq = 13, botId = 'research'): VoiceApproval => ({ botId, seq, body: {
+  type: 'card', card: 'approval', approvalId: `approval-${botId}-${seq}`, title: 'Send this email?', detail: 'To Sam: agenda for tomorrow',
+  tool: 'GMAIL_SEND_EMAIL', toolkit: 'gmail', toolkitName: 'Gmail', args: { recipient: 'sam@example.test' }, status: 'pending',
+} });
 
 async function fixture(t: TestContext) {
   t.mock.timers.enable({ apis: ['setTimeout'] });
@@ -273,16 +278,89 @@ test('end aborts polling, drops queued notes and ignores late tool/update respon
   const oldSent = f.ws.sent.length;
   f.setPoll(async () => json({ cursor: 0, updates: [], tasks: [] }));
   const next = await f.start();
-  slow.resolve(json({ cursor: 10, updates: [update(10)], tasks: [task('old-call')] }));
-  toolReply.resolve(json({ output: 'Late task', taskId: 'old-task', taskBotId: 'research' }));
+  slow.resolve(json({ cursor: 10, updates: [update(10)], tasks: [task('old-call')], connectionRequests: [connection()], approvals: [approval()] }));
+  toolReply.resolve(json({ output: 'Late task', taskId: 'old-task', taskBotId: 'research', connectionRequest: connection() }));
   await settle();
   assert.deepEqual(voice.useVoice.getState().working, []);
+  assert.deepEqual(voice.useVoice.getState().connectionRequests, []);
+  assert.deepEqual(voice.useVoice.getState().approvals, []);
   assert.equal(f.ws.sent.length, oldSent);
   assert.equal(notes(next).length, 0);
   voice.endCall();
   const count = f.polls().length;
   await f.tick(30000);
   assert.equal(f.polls().length, count, 'no timer is recreated by a late response');
+});
+
+test('direct connection metadata appears immediately and survives an older in-flight poll until a fresh list arrives', async t => {
+  const f = await fixture(t);
+  const slow = deferred<Response>();
+  f.setPoll(() => slow.promise);
+  await f.tick();
+  f.setTool(async () => json({ output: 'Connection needed', connectionRequest: connection() }));
+  f.ws.emit(toolEvent('connect-gmail', 'SWARM_APPS_CONNECT', { toolkit: 'gmail' }));
+  done(f.ws);
+  await settle();
+  assert.deepEqual(voice.useVoice.getState().connectionRequests, [connection()]);
+  assert.equal(f.tools()[0].body.toolCallId, 'connect-gmail');
+  assert.equal(f.requests.some(r => r.path.includes('/apps/')), false, 'tool metadata never starts OAuth without a user gesture');
+  slow.resolve(json({ cursor: 0, updates: [], tasks: [], connectionRequests: [], approvals: [] }));
+  await settle();
+  assert.deepEqual(voice.useVoice.getState().connectionRequests, [connection()], 'a snapshot requested before the tool reply cannot erase it');
+  f.setPoll(async () => json({ cursor: 0, updates: [], tasks: [], connectionRequests: [connection()] }));
+  await f.tick();
+  assert.equal(voice.useVoice.getState().connectionRequests.length, 1, 'direct metadata and server list are deduped by agent and row');
+  f.setPoll(async () => json({ cursor: 0, updates: [], tasks: [], connectionRequests: [] }));
+  await f.tick();
+  assert.deepEqual(voice.useVoice.getState().connectionRequests, [], 'the next authoritative empty list removes the button');
+});
+
+test('connection and approval snapshots are authoritative independently of updates, tolerate absent fields, and clear on hang-up', async t => {
+  const f = await fixture(t);
+  f.setPoll(async () => json({ cursor: 0, updates: [], tasks: [], connectionRequests: [connection(), connection(12, 'main')], approvals: [approval(), { ...approval(14), body: { ...approval(14).body, status: 'allowed' } }] }));
+  await f.tick();
+  assert.equal(voice.useVoice.getState().connectionRequests.length, 2, 'equal row sequences in different agent chats remain distinct');
+  assert.deepEqual(voice.useVoice.getState().approvals, [approval()], 'resolved approval bodies are not actionable');
+  f.setPoll(async () => json({ cursor: 0, updates: [], tasks: [] }));
+  await f.tick();
+  assert.equal(voice.useVoice.getState().connectionRequests.length, 2, 'absent fields are compatible and do not imply resolution');
+  assert.equal(voice.useVoice.getState().approvals.length, 1);
+  f.setPoll(async () => json({ error: 'Unavailable' }, 503));
+  await f.tick();
+  assert.equal(voice.useVoice.getState().approvals.length, 1, 'transient errors do not resolve approvals');
+  f.setPoll(async () => json({ cursor: 0, updates: [], tasks: [], connectionRequests: [], approvals: [] }));
+  await f.tick();
+  assert.deepEqual(voice.useVoice.getState().connectionRequests, []);
+  assert.deepEqual(voice.useVoice.getState().approvals, []);
+  f.setPoll(async () => json({ cursor: 0, updates: [], tasks: [], connectionRequests: [connection()], approvals: [approval()] }));
+  await f.tick();
+  voice.endCall();
+  assert.deepEqual(voice.useVoice.getState().connectionRequests, []);
+  assert.deepEqual(voice.useVoice.getState().approvals, []);
+  f.setPoll(async () => json({ cursor: 0, updates: [], tasks: [] }));
+  await f.start();
+  assert.deepEqual(voice.useVoice.getState().connectionRequests, []);
+  assert.deepEqual(voice.useVoice.getState().approvals, []);
+});
+
+test('direct app execution task IDs coexist with call-scoped pending approvals and clear only by task snapshot', async t => {
+  const f = await fixture(t);
+  f.setTool(async () => json({ output: 'Approval needed', taskId: 'approval-operation', taskBotId: 'research' }));
+  f.ws.emit(toolEvent('execute-app', 'SWARM_APPS_EXECUTE', { tool_slug: 'GMAIL_SEND_EMAIL' }));
+  done(f.ws);
+  await settle();
+  assert.equal(voice.useVoice.getState().working.length, 1);
+  f.setPoll(async () => json({ cursor: 1, updates: [update(1, 'waiting')], tasks: [task('approval-operation', 'research', 'waiting')], approvals: [approval()] }));
+  await f.tick();
+  assert.equal(voice.useVoice.getState().working[0].id, 'approval-operation');
+  assert.equal(voice.useVoice.getState().approvals[0].body.approvalId, approval().body.approvalId);
+  f.setPoll(async () => json({ cursor: 1, updates: [], tasks: [task('approval-operation', 'research', 'running')], approvals: [] }));
+  await f.tick();
+  assert.deepEqual(voice.useVoice.getState().approvals, []);
+  assert.equal(voice.useVoice.getState().working[0].id, 'approval-operation', 'approval disappearance does not imply operation completion');
+  f.setPoll(async () => json({ cursor: 2, updates: [update(2, 'status')], tasks: [task('approval-operation', 'research', 'completed')], approvals: [] }));
+  await f.tick();
+  assert.deepEqual(voice.useVoice.getState().working, []);
 });
 
 test('busy-team backlog and task context stay bounded with explicit missed-status and recall markers', async t => {

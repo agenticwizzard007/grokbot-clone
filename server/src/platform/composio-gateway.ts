@@ -6,12 +6,14 @@ import fs from 'node:fs';
 import { Directory, hashToken, opaqueToken } from './directory.js';
 import { RuntimeIdentity } from './runtime-identity.js';
 import { createComposioService } from './composio-service.js';
-import { ConnectionGateway, ConnectionNotFound } from './composio-policy.js';
+import { ConnectionGateway, ConnectionNotFound, publicAppTools } from './composio-policy.js';
+import { createMetadataCache, rankAppTools } from './app-discovery.js';
 import { TenantEnvelopes } from './envelopes.js';
 import { resolveTenantSession } from './tenant-sessions.js';
 
 export function composioGatewayApp(directory: Directory, runtime: RuntimeIdentity) {
   const { provider, registry, gateway } = createComposioService(directory);
+  const toolkitMetadata = createMetadataCache<Awaited<ReturnType<typeof provider.sdk.tools.getRawComposioTools>>>(5 * 60_000);
   const app = new Hono();
   app.use('*', bodyLimit({ maxSize: 512 * 1024 }));
   app.use('*', async (c, next) => { c.header('Cache-Control', 'no-store'); c.header('Referrer-Policy', 'no-referrer'); await next(); });
@@ -71,7 +73,7 @@ export function composioGatewayApp(directory: Directory, runtime: RuntimeIdentit
       case 'connections': return c.json((await gateway.list(tenant)).map(r => ({ id: r.id, toolkit: r.toolkit, revision: r.revision, status: 'ACTIVE', isDefault: r.isDefault })));
       case 'disconnect': await gateway.disconnect(tenant, String(a.connectionId)); return c.json({ ok: true });
       case 'refresh': return c.json(await gateway.refresh(tenant, String(a.connectionId)));
-      case 'execute': return c.json(await gateway.execute(tenant, { connectionId: String(a.connectionId), revision: Number(a.revision), dispatchId: String(a.dispatchId), slug: String(a.slug), arguments: a.arguments ?? {} }) as any);
+      case 'execute': return c.json(await gateway.execute(tenant, { connectionId: String(a.connectionId), revision: Number(a.revision), dispatchId: String(a.dispatchId), slug: String(a.slug), arguments: a.arguments ?? {}, readOnly: a.readOnly }) as any);
       case 'default': {
         const { row } = await gateway.own(tenant, String(a.connectionId));
         await directory.transaction(async client => {
@@ -87,8 +89,12 @@ export function composioGatewayApp(directory: Directory, runtime: RuntimeIdentit
       case 'search': {
         const toolkit = String(a.toolkit ?? '').toLowerCase();
         const row = await gateway.select(tenant, toolkit, typeof a.connectionId === 'string' ? a.connectionId : undefined);
-        const result = await provider.sdk.tools.getRawComposioTools({ toolkits: [toolkit], search: String(a.query ?? '').slice(0, 300), limit: 20 });
-        return c.json({ connectionId: row.id, revision: row.revision, tools: result.filter(t => t.toolkit?.slug === toolkit && !t.slug.startsWith('COMPOSIO_')).map(t => ({ slug: t.slug, description: t.description, parameters: t.inputParameters })) });
+        if (a.readOnly !== undefined && typeof a.readOnly !== 'boolean') throw new Error('Invalid execution mode.');
+        // Toolkit metadata is project-wide (no tenant data); rank locally because the provider's query filter is alphabetical.
+        const all = await toolkitMetadata.get(toolkit, () => provider.sdk.tools.getRawComposioTools({ toolkits: [toolkit], limit: 5000 }));
+        const result = rankAppTools(all, String(a.query ?? ''), { limit: 20, preferReadOnly: a.readOnly === true });
+        await gateway.own(tenant, row.id, row.revision);
+        return c.json({ connectionId: row.id, revision: row.revision, tools: publicAppTools(result, toolkit) });
       }
       case 'connect': {
         const session = await resolveTenantSession(directory, await authorize(), request.sessionHash);

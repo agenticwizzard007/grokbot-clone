@@ -8,6 +8,11 @@ import { db } from './db.js';
 import { env } from './env.js';
 import { composioCredentials, composioHeaders, composioIdentity } from './composio-auth.js';
 import type { Toolkit } from './types.js';
+import { appArguments, publicAppTools, trustedReadOnly } from './platform/composio-policy.js';
+import { createMetadataCache, rankAppTools } from './platform/app-discovery.js';
+
+/** Full toolkit metadata (no credentials), cached briefly per project key so discovery can rank locally. */
+const toolkitMetadata = createMetadataCache<Awaited<ReturnType<ReturnType<typeof composio>['tools']['getRawComposioTools']>>>(5 * 60_000);
 
 const makeClient = (apiKey: string) => new Composio({ ...composioCredentials(apiKey), provider: new OpenAIResponsesProvider() });
 let current: { key: string; client: ReturnType<typeof makeClient> } | null = null;
@@ -22,6 +27,7 @@ export function composio() {
     sessionCache.clear();
     promptConnections.clear();
     catalogCache = null;
+    toolkitMetadata.clear();
   }
   return current.client;
 }
@@ -157,6 +163,9 @@ function assertCurrentKey(key: string) {
 }
 
 /** A connection change must also drop the saved session, which may still select the old account. */
+/** Drop cached toolkit metadata (tests and credential/project changes). Never affects execution checks, which always re-fetch by slug. */
+export function resetAppDiscovery() { toolkitMetadata.clear(); }
+
 export function invalidateComposioSession(userId: string) {
   sessionCache.delete(userId);
   promptConnections.delete(userId);
@@ -209,28 +218,50 @@ export async function composioTools(userId: string): Promise<any[]> {
   assertTenant(userId);
   if (!env.composioEnabled) return [];
   return [
-    { type: 'function', name: 'SWARM_APPS_SEARCH', description: 'Discover tools for one of your private connected apps. Specify an account when several are connected.', parameters: { type: 'object', properties: { toolkit: { type: 'string' }, query: { type: 'string' }, connectionId: { type: 'string' } }, required: ['toolkit', 'query'], additionalProperties: false } },
+    { type: 'function', name: 'SWARM_APPS_SEARCH', description: 'Discover tools for one of your private connected apps. Describe the action in a few words (for example "list my repositories" or "send a message"); results are ranked by relevance and mark provider-attested read-only tools. Specify an account when several are connected.', parameters: { type: 'object', properties: { toolkit: { type: 'string' }, query: { type: 'string' }, connectionId: { type: 'string' } }, required: ['toolkit', 'query'], additionalProperties: false } },
     { type: 'function', name: 'SWARM_APPS_EXECUTE', description: 'Execute a discovered app tool using its exact private connection and revision. Never retry an uncertain write automatically.', parameters: { type: 'object', properties: { connectionId: { type: 'string' }, revision: { type: 'integer' }, tool_slug: { type: 'string' }, arguments: { type: 'object', additionalProperties: true } }, required: ['connectionId', 'revision', 'tool_slug', 'arguments'], additionalProperties: false } },
   ];
 }
-export async function executeComposio(userId: string, name: string, args: Record<string, unknown>): Promise<{ data?: unknown; error?: unknown; resultType?: string; logId?: string }> {
+export interface ComposioExecutionResult { data?: unknown; error?: unknown; successful?: boolean; resultType?: string; logId?: string }
+export async function executeComposio(userId: string, name: string, args: Record<string, unknown>, options: { readOnly?: boolean } = {}): Promise<ComposioExecutionResult> {
   assertTenant(userId);
   if (!['SWARM_APPS_SEARCH','SWARM_APPS_EXECUTE'].includes(name)) throw new Error('Unsupported connected-app operation.');
-  if (isTenant) return { data: await gatewayRequest(userId, name === 'SWARM_APPS_SEARCH' ? 'search' : 'execute', name === 'SWARM_APPS_SEARCH' ? { toolkit: args.toolkit, query: args.query, connectionId: args.connectionId } : { connectionId: args.connectionId, revision: args.revision, slug: args.tool_slug, arguments: args.arguments, dispatchId: randomUUID() }) };
+  if (options.readOnly !== undefined && typeof options.readOnly !== 'boolean') throw new Error('Invalid execution mode.');
+  if (isTenant) {
+    if (name === 'SWARM_APPS_SEARCH') return { data: await gatewayRequest(userId, 'search', { toolkit: args.toolkit, query: args.query, connectionId: args.connectionId, ...(options.readOnly !== undefined ? { readOnly: options.readOnly } : {}) }) };
+    return gatewayRequest<ComposioExecutionResult>(userId, 'execute', { connectionId: args.connectionId, revision: args.revision, slug: args.tool_slug, arguments: args.arguments, dispatchId: randomUUID(), ...(options.readOnly !== undefined ? { readOnly: options.readOnly } : {}) });
+  }
   // Development adapter still enforces private account selection and never executes Tool Router meta tools.
+  const client = composio(), key = composioIdentity();
   const accounts = (await connectionsDetail(userId)).filter(c => c.status === 'ACTIVE');
+  assertCurrentKey(key);
   if (name === 'SWARM_APPS_SEARCH') {
     const choices = accounts.filter(c => c.toolkit === args.toolkit && (!args.connectionId || c.id === args.connectionId));
     if (choices.length !== 1) throw new Error('Choose a specific connected account.');
-    const tools = await composio().tools.getRawComposioTools({ toolkits: [choices[0].toolkit], search: String(args.query ?? '').slice(0, 300), limit: 20 });
-    return { data: { connectionId: choices[0].id, revision: 1, tools: tools.filter(t => !t.slug.startsWith('COMPOSIO_')).map(t => ({ slug: t.slug, parameters: t.inputParameters, description: t.description })) } };
+    // Composio's server-side query filter returns alphabetical matches (GitHub alone has 900+ tools), so fetch the
+    // toolkit's metadata once and rank locally. Ranking orders provider metadata only; it never grants access.
+    const fingerprint = createHash('sha256').update(key).digest('hex').slice(0, 16);
+    const all = await toolkitMetadata.get(`${fingerprint}:${choices[0].toolkit}`, () => client.tools.getRawComposioTools({ toolkits: [choices[0].toolkit], limit: 5000 }));
+    assertCurrentKey(key);
+    const tools = rankAppTools(all, String(args.query ?? ''), { limit: 20, preferReadOnly: options.readOnly === true });
+    const current = (await connectionsDetail(userId)).find(c => c.id === choices[0].id && c.toolkit === choices[0].toolkit && c.status === 'ACTIVE');
+    assertCurrentKey(key);
+    if (!current) throw new Error('Connection not found.');
+    return { data: { connectionId: choices[0].id, revision: 1, tools: publicAppTools(tools, choices[0].toolkit) } };
   }
   const account = accounts.find(c => c.id === args.connectionId);
   const slug = String(args.tool_slug ?? '');
   if (!account || !/^[A-Z][A-Z0-9_]{2,199}$/.test(slug) || slug.startsWith('COMPOSIO_') || args.revision !== 1) throw new Error('Connection not found.');
-  const tool = await composio().tools.getRawComposioToolBySlug(slug);
+  appArguments(args.arguments);
+  const tool = await client.tools.getRawComposioToolBySlug(slug);
+  assertCurrentKey(key);
   if (tool.toolkit?.slug !== account.toolkit || !tool.version || tool.version === 'latest') throw new Error('Invalid tool selection.');
-  return composio().tools.execute(slug, { userId, connectedAccountId: account.id, version: tool.version, arguments: args.arguments as Record<string, unknown> });
+  if (tool.slug !== undefined && tool.slug !== slug) throw new Error('Invalid tool selection.');
+  if (options.readOnly && !trustedReadOnly(tool)) throw new Error('Setup requires a provider-verified read-only app tool. Write or unknown tool metadata is refused.');
+  const current = (await connectionsDetail(userId)).find(c => c.id === account.id && c.toolkit === account.toolkit && c.status === 'ACTIVE');
+  assertCurrentKey(key);
+  if (!current) throw new Error('Connection not found.');
+  return client.tools.execute(slug, { userId, connectedAccountId: account.id, version: tool.version, arguments: args.arguments });
 }
 
 /** Which inner tool slugs a Composio meta-tool call would run (for approval checks). */

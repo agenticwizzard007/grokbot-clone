@@ -1,4 +1,21 @@
 import { createHash } from 'node:crypto';
+import type { Tool } from '@composio/core';
+
+/** The SDK ToolSchema exposes tags?: string[]; schema.readOnly and slug names are not attestations. */
+export function trustedReadOnly(tool: Pick<Tool, 'tags'>): boolean {
+  return Array.isArray(tool.tags) && tool.tags.includes('readOnlyHint') &&
+    !tool.tags.some(tag => ['createHint', 'updateHint', 'destructiveHint'].includes(tag));
+}
+export function publicAppTools(tools: Tool[], toolkit: string) {
+  return tools.filter(t => /^[A-Z][A-Z0-9_]{2,199}$/.test(t.slug) && !t.slug.startsWith('COMPOSIO_') && t.toolkit?.slug === toolkit)
+    .map(t => ({ slug: t.slug, description: t.description, parameters: t.inputParameters, readOnly: trustedReadOnly(t) }));
+}
+export function appArguments(args: unknown): asserts args is Record<string, unknown> {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Invalid app arguments.');
+  for (const key of ['tenantId', 'userId', 'user_id', 'connectedAccountId', 'connected_account_id', 'authConfigId', 'sessionId']) {
+    if (Object.hasOwn(args, key)) throw new Error('Connection identity overrides are forbidden.');
+  }
+}
 export interface PrivateConnection { id: string; tenant: string; toolkit: string; revision: number; state: string; isDefault: boolean }
 export interface ConnectionRegistry {
   identity(tenant: string): Promise<string>;
@@ -10,7 +27,7 @@ export interface ConnectionRegistry {
 }
 export interface ConnectionProvider {
   owned(identity: string, id: string): Promise<{ toolkit: string; active: boolean } | undefined>;
-  tool(slug: string): Promise<{ toolkit: string; version: string }>;
+  tool(slug: string): Promise<{ toolkit: string; version: string; readOnly?: boolean }>;
   execute(identity: string, connection: string, slug: string, version: string, args: Record<string, unknown>): Promise<unknown>;
   disconnect(id: string): Promise<void>;
   refresh(id: string): Promise<unknown>;
@@ -47,16 +64,15 @@ export class ConnectionGateway {
     if (!choice) throw new Error('Choose a specific connected account.');
     return choice;
   }
-  async execute(tenant: string, input: { connectionId: string; revision: number; dispatchId: string; slug: string; arguments: Record<string, unknown> }) {
+  async execute(tenant: string, input: { connectionId: string; revision: number; dispatchId: string; slug: string; arguments: Record<string, unknown>; readOnly?: boolean }) {
     if (!/^[A-Z][A-Z0-9_]{2,199}$/.test(input.slug) || input.slug.startsWith('COMPOSIO_')) throw new Error('Unsupported app operation.');
     if (!/^[A-Za-z0-9_-]{16,100}$/.test(input.dispatchId) || !Number.isSafeInteger(input.revision)) throw new Error('Invalid dispatch.');
+    if (input.readOnly !== undefined && typeof input.readOnly !== 'boolean') throw new Error('Invalid execution mode.');
+    appArguments(input.arguments);
     const { row, identity } = await this.own(tenant, input.connectionId, input.revision);
     const tool = await this.provider.tool(input.slug);
     if (tool.toolkit !== row.toolkit || !tool.version || tool.version === 'latest') throw new Error('Tool does not belong to the selected app or has no pinned version.');
-    // Control fields may not be smuggled into upstream request options; arguments remain tool data only.
-    for (const key of ['tenantId', 'userId', 'user_id', 'connectedAccountId', 'connected_account_id', 'authConfigId', 'sessionId']) {
-      if (Object.hasOwn(input.arguments, key)) throw new Error('Connection identity overrides are forbidden.');
-    }
+    if (input.readOnly && tool.readOnly !== true) throw new Error('Setup requires a provider-verified read-only app tool. Write or unknown tool metadata is refused.');
     const hash = createHash('sha256').update(JSON.stringify(input.arguments)).digest('hex');
     if (!await this.registry.begin(tenant, row.id, row.revision, input.dispatchId, input.slug, hash)) throw new Error('Dispatch already exists or authorization changed. Inspect its outcome before retrying.');
     try {
