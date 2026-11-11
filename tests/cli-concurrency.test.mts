@@ -144,7 +144,7 @@ async function selectedBridge(provider: Provider) {
   assert.ok(secret);
   const bridge = new HeldBridge();
   await once(bridge.ws, 'open');
-  bridge.ws.send(JSON.stringify({ type: 'hello', version: 1, token: secret, device: 'Held concurrency fixture' }));
+  bridge.ws.send(JSON.stringify({ type: 'hello', version: 1, nativeMcp: true, token: secret, device: 'Held concurrency fixture' }));
   await until(() => bridge.welcome, 'bridge authenticates');
   await refreshCli(owner);
   const selected = await request('/cli', 'PUT', { provider });
@@ -197,6 +197,7 @@ for (const provider of ['codex', 'claude'] as const) test(`${provider}: ten same
   assert.ok(jobs().every(job => job.state === 'running'), 'no CLI work is held behind an account capacity queue');
   assert.ok(team.every(bot => getLive(bot.id).isRunning));
   assert.ok(bridge.generations.every(rpc => rpc.params.provider === provider));
+  assert.ok(bridge.generations.every(rpc => rpc.params.nativeTools?.length > 0), 'parallel Bots retain their native MCP manifests');
   assert.equal(usage().length, 0);
 
   // Finish a later arrival while the first request is still held.

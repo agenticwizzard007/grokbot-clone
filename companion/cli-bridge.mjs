@@ -8,6 +8,8 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { StringDecoder } from 'node:string_decoder';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { createServer } from 'node:http';
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const MAX_TIMEOUT_MS = 15 * 60_000;
@@ -322,9 +324,18 @@ function validateParams(params) {
   if (params.model !== undefined && !modelId(params.model)) throw new RunnerError('Invalid CLI model.');
   if (params.effort !== undefined && !EFFORTS.has(params.effort)) throw new RunnerError('Invalid CLI effort.');
   if (params.actionNames !== undefined && (!Array.isArray(params.actionNames) || params.actionNames.some(name => typeof name !== 'string' || !/^[A-Za-z0-9_-]{1,256}$/.test(name)))) throw new RunnerError('Invalid Swarm action manifest.');
-  let schema;
-  try { schema = JSON.stringify(params.schema); } catch { throw new RunnerError('Schema must be serializable JSON.'); }
-  let bytes = Buffer.byteLength(params.prompt) + Buffer.byteLength(schema) + Buffer.byteLength(JSON.stringify(params.actionNames ?? []));
+  const nativeTools = params.nativeTools === undefined ? [] : params.nativeTools;
+  if (!Array.isArray(nativeTools) || nativeTools.length > 512) throw new RunnerError('Invalid native tool manifest.');
+  const names = new Set();
+  for (const tool of nativeTools) {
+    if (!tool || typeof tool.name !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(tool.name) || names.has(tool.name)
+      || (tool.description !== undefined && typeof tool.description !== 'string')
+      || !tool.parameters || typeof tool.parameters !== 'object' || Array.isArray(tool.parameters)) throw new RunnerError('Invalid native tool manifest.');
+    names.add(tool.name);
+  }
+  let schema, manifest;
+  try { schema = JSON.stringify(params.schema); manifest = JSON.stringify(nativeTools); } catch { throw new RunnerError('Schema must be serializable JSON.'); }
+  let bytes = Buffer.byteLength(params.prompt) + Buffer.byteLength(schema) + Buffer.byteLength(manifest) + Buffer.byteLength(JSON.stringify(params.actionNames ?? []));
   if (params.images !== undefined && (!Array.isArray(params.images) || params.images.length > 16)) throw new RunnerError('images must contain at most 16 images.');
   const images = (params.images ?? []).map((image) => {
     if (!image || !Object.hasOwn(IMAGE_EXT, image.mediaType) || typeof image.data !== 'string' || !image.data.length || image.data.length % 4 !== 0 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(image.data)) throw new RunnerError('Images require a supported mediaType and valid base64 data.');
@@ -332,12 +343,191 @@ function validateParams(params) {
     return image;
   });
   if (bytes > MAX_BYTES) throw new RunnerError('CLI input exceeded the 8 MB limit.');
-  return { ...params, schema, images };
+  return { ...params, schema, images, nativeTools: JSON.parse(manifest) };
+}
+
+// Streamable HTTP MCP, kept inline because personal pairing downloads this file
+// alone. A new authenticated loopback server belongs to exactly one generation;
+// neither prompts nor remote parameters can select its endpoint or executable.
+const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+function canonical(value) {
+  if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']';
+  if (object(value)) return '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}';
+  return JSON.stringify(value);
+}
+function mcpContent(output) {
+  if (!Array.isArray(output)) {
+    const text = typeof output === 'string' ? output : JSON.stringify(output ?? null);
+    if (typeof text !== 'string') throw new RunnerError('Invalid native tool result.');
+    return [{ type: 'text', text }];
+  }
+  return output.map(part => {
+    if (part?.type === 'input_text' && typeof part.text === 'string') return { type: 'text', text: part.text };
+    if (part?.type === 'input_image' && typeof part.image_url === 'string') {
+      const match = /^data:(image\/(?:png|jpeg|webp|gif));base64,((?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?)$/.exec(part.image_url);
+      if (match && match[2]) return { type: 'image', mimeType: match[1], data: match[2] };
+    }
+    throw new RunnerError('Invalid native tool content. Only text and inline images are supported.');
+  });
+}
+
+async function nativeMcp(params, options, controller) {
+  if (typeof options.onToolCall !== 'function') throw new RunnerError('Native tools require an application tool handler.');
+  const signal = controller.signal, token = randomBytes(32).toString('hex'), prefix = randomUUID();
+  const tools = params.nativeTools.map(tool => ({ name: tool.name, ...(tool.description ? { description: tool.description } : {}), inputSchema: tool.parameters,
+    // Official Claude extension keeps large application results inline; Read is
+    // deliberately disabled. Bound text below its documented 500k ceiling too.
+    ...(params.provider === 'claude' ? { _meta: { 'anthropic/maxResultSizeChars': 500000 } } : {}) }));
+  const names = new Set(tools.map(tool => tool.name)), calls = new Map();
+  let listed = false, closed = false, queue = Promise.resolve(), callBytes = 0;
+  const fail = error => {
+    if (!signal.aborted && !closed) controller.abort(error instanceof RunnerError ? error : new RunnerError('Native tool execution failed.'));
+  };
+  const bounded = work => new Promise((resolveResult, reject) => {
+    const abort = () => reject(signal.reason instanceof RunnerError ? signal.reason : cancelled());
+    signal.addEventListener('abort', abort, { once: true });
+    if (signal.aborted) { abort(); signal.removeEventListener('abort', abort); return; }
+    Promise.resolve().then(work).then(resolveResult, reject).finally(() => signal.removeEventListener('abort', abort));
+  });
+  const toolCall = request => {
+    const args = request.params?.arguments ?? {}, name = request.params?.name;
+    if (!names.has(name) || !object(args)) return Promise.resolve({ error: { code: -32602, message: 'Unknown native tool or invalid arguments.' } });
+    const key = typeof request.id + ':' + request.id, payload = canonical({ name, arguments: args }), previous = calls.get(key);
+    if (previous) return previous.payload === payload ? previous.result : Promise.resolve({ error: { code: -32602, message: 'Tool call ID was reused with different arguments.' } });
+    callBytes += Buffer.byteLength(payload);
+    if (calls.size >= 4096 || callBytes > MAX_BYTES) throw new RunnerError('Native tool requests exceeded the generation limit.');
+    const result = queue.then(async () => {
+      aborted(signal);
+      const reply = await bounded(() => options.onToolCall({ id: prefix + ':' + key, name, arguments: args }));
+      aborted(signal);
+      if (!object(reply) || !Object.hasOwn(reply, 'output') || (reply.stop !== undefined && typeof reply.stop !== 'boolean')
+        || (reply.isError !== undefined && typeof reply.isError !== 'boolean')) throw new RunnerError('Invalid native tool result.');
+      if (reply.stop === true) {
+        fail(new RunnerError('Native generation stopped by the application.', 'native_stop'));
+        aborted(signal);
+      }
+      const content = mcpContent(reply.output);
+      if (params.provider === 'claude') {
+        let remaining = reply.isError ? 9000 : 400000, truncated = false;
+        for (const part of content) if (part.type === 'text') {
+          if (part.text.length > remaining) { part.text = part.text.slice(0, remaining); truncated = true; }
+          remaining -= part.text.length;
+        }
+        if (truncated) content.push({ type: 'text', text: '\n[Swarm truncated this tool result to keep it inline. Request a smaller result or use the application tool to paginate. Do not read local files.]' });
+      }
+      const response = { result: { content, ...(reply.isError ? { isError: true } : {}) } };
+      if (Buffer.byteLength(JSON.stringify(response)) > MAX_BYTES) throw new RunnerError('Native tool result exceeded the 8 MB limit.');
+      return response;
+    });
+    // Serialize callbacks: a stop boundary cannot race a later action. Cache the
+    // promise before executing so retried HTTP IDs never execute a tool twice.
+    queue = result.catch(error => { fail(error); });
+    calls.set(key, { payload, result });
+    return result;
+  };
+  const server = createServer(async (req, res) => {
+    const status = code => { res.writeHead(code); res.end(); };
+    try {
+      if (closed || signal.aborted) { status(503); return; }
+      const address = server.address();
+      if (req.url !== '/mcp' || req.headers.host !== `127.0.0.1:${address.port}`) { status(404); return; }
+      if (req.headers.authorization !== `Bearer ${token}` || (req.headers.origin && req.headers.origin !== `http://${req.headers.host}`)) { status(403); return; }
+      if (req.method !== 'POST') { status(405); return; }
+      if (!/^application\/json(?:;|$)/i.test(req.headers['content-type'] ?? '')) { status(415); return; }
+      const chunks = []; let bytes = 0;
+      for await (const chunk of req) {
+        bytes += chunk.length;
+        if (bytes > MAX_BYTES) { status(413); return; }
+        chunks.push(chunk);
+      }
+      let request;
+      try { request = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { status(400); return; }
+      if (!object(request) || request.jsonrpc !== '2.0' || typeof request.method !== 'string') { status(400); return; }
+      const hasId = Object.hasOwn(request, 'id');
+      if (!hasId) { status(request.method.startsWith('notifications/') ? 202 : 400); return; }
+      if (!(typeof request.id === 'string' && request.id.length > 0 && request.id.length <= 256) && !Number.isSafeInteger(request.id)) { status(400); return; }
+      let reply;
+      if (request.method === 'initialize') reply = { result: { protocolVersion: ['2025-03-26', '2025-06-18', '2025-11-25'].includes(request.params?.protocolVersion) ? request.params.protocolVersion : '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'swarm', version: '1.0.0' } } };
+      else if (request.method === 'ping') reply = { result: {} };
+      else if (request.method === 'tools/list') { listed = true; reply = { result: { tools } }; }
+      else if (request.method === 'tools/call') reply = await toolCall(request);
+      else reply = { error: { code: -32601, message: 'Method not supported.' } };
+      if (signal.aborted || closed) { res.destroy(); return; }
+      const data = JSON.stringify({ jsonrpc: '2.0', id: request.id, ...reply });
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(data);
+    } catch (error) { fail(error); res.destroy(); }
+  });
+  const close = () => {
+    closed = true;
+    server.closeAllConnections();
+    server.close();
+  };
+  signal.addEventListener('abort', close, { once: true });
+  try {
+    aborted(signal);
+    await new Promise((resolveListen, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolveListen);
+    });
+    aborted(signal);
+  } catch (error) { signal.removeEventListener('abort', close); close(); throw error; }
+  server.on('error', () => fail(new RunnerError('Native MCP server failed.')));
+  return {
+    url: `http://127.0.0.1:${server.address().port}/mcp`, token,
+    ready: () => { if (!listed) throw new RunnerError(`${LABEL[params.provider]} did not load the native Swarm MCP tools. Update the official CLI and retry.`, 'configuration'); },
+    close: () => { signal.removeEventListener('abort', close); close(); calls.clear(); },
+  };
 }
 
 const tokens = (value) => Number.isSafeInteger(value) && value >= 0 ? value : 0;
 function usage(input, output, cached) {
   return { input_tokens: input, output_tokens: output, ...(cached ? { input_tokens_details: { cached_tokens: cached } } : {}) };
+}
+function measuredNativeUsage(provider, samples, final = false) {
+  const result = {}, valid = value => Number.isSafeInteger(value) && value >= 0;
+  const fields = provider === 'claude' ? ['input_tokens', 'output_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens'] : ['input_tokens', 'output_tokens', 'cached_input_tokens'];
+  const sum = (keys, assign) => {
+    let total = 0, measured = false;
+    for (const sample of samples) for (const key of keys) if (valid(sample?.[key])) { measured = true; total += sample[key]; }
+    if (measured && valid(total)) assign(total);
+  };
+  sum(provider === 'claude' ? ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens'] : ['input_tokens'], value => { result.input_tokens = value; });
+  sum(['output_tokens'], value => { result.output_tokens = value; });
+  sum([provider === 'claude' ? 'cache_read_input_tokens' : 'cached_input_tokens'], value => { result.input_tokens_details = { cached_tokens: value }; });
+  if (!Object.keys(result).length) return { usage_status: 'unavailable' };
+  const complete = final && samples.length > 0 && samples.every(sample => valid(sample?.input_tokens) && valid(sample?.output_tokens)
+    && fields.every(key => !Object.hasOwn(sample, key) || valid(sample[key]))) && valid(result.input_tokens) && valid(result.output_tokens);
+  return { usage: result, usage_status: complete ? 'complete' : 'partial' };
+}
+// Completed assistant events can precede an application stop. Keep only counters
+// actually reported so accounting can mark this lower bound as partial, without
+// waiting for a final result or synthesizing missing counts as measured zeros.
+function observedNativeUsage(provider) {
+  const decoder = new StringDecoder('utf8'), samples = new Map();
+  let buffer = '', turn = 0, anonymous = 0, finalUsage;
+  const valid = value => Number.isSafeInteger(value) && value >= 0;
+  const observe = chunk => {
+    buffer += decoder.write(chunk);
+    let end;
+    while ((end = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
+      let event; try { event = JSON.parse(line); } catch { continue; }
+      if (provider === 'codex' && event?.type === 'turn.started') turn++;
+      const counts = provider === 'claude' ? event?.type === 'assistant' && event.message?.usage : event?.type === 'turn.completed' && event.usage;
+      if (!object(counts)) continue;
+      const key = provider === 'claude' ? event.message.id ?? event.uuid ?? `anonymous-${anonymous++}` : `turn-${turn}`;
+      const sample = samples.get(key) ?? {};
+      for (const field of ['input_tokens', 'output_tokens', 'cached_input_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens']) {
+        if (valid(counts[field])) sample[field] = Math.max(sample[field] ?? 0, counts[field]);
+      }
+      samples.set(key, sample);
+    }
+  };
+  const snapshot = () => measuredNativeUsage(provider, [...samples.values()]);
+  return { observe, snapshot,
+    complete: values => { finalUsage = measuredNativeUsage(provider, values, true); },
+    result: () => finalUsage?.usage_status !== 'unavailable' ? finalUsage ?? snapshot() : snapshot(),
+  };
 }
 function structuredText(value, provider) {
   const text = typeof value === 'string' ? value.trim() : JSON.stringify(value);
@@ -375,7 +565,7 @@ async function generateCodex(params, options, cwd, signal) {
   const args = ['exec', '--json', '--output-schema', schemaFile, '--output-last-message', outputFile,
     '--ignore-user-config', '--ignore-rules', '--skip-git-repo-check', '--ephemeral', '--sandbox', 'read-only',
     '-c', 'forced_login_method="chatgpt"', '-c', 'model_provider="openai"', '-c', 'web_search="disabled"',
-    '-c', 'mcp_servers={}', '-c', 'notify=[]', '-c', 'approval_policy="never"'];
+    '-c', options.nativeMcp ? `mcp_servers={swarm={url=${JSON.stringify(options.nativeMcp.url)},http_headers={Authorization=${JSON.stringify('Bearer ' + options.nativeMcp.token)}},enabled_tools=${JSON.stringify(params.nativeTools.map(tool => tool.name))},tool_timeout_sec=${Math.ceil(params.timeoutMs / 1000)},required=true,default_tools_approval_mode="auto"}}` : 'mcp_servers={}', '-c', 'notify=[]', '-c', 'approval_policy="never"'];
   if (options.fileCredentials === true) args.push('-c', 'cli_auth_credentials_store="file"');
   // shell_tool is the supported command-execution gate. unified_exec alone is
   // insufficient (newer releases ignore user opt-outs for that feature).
@@ -390,7 +580,7 @@ async function generateCodex(params, options, cwd, signal) {
   if (params.model && params.model !== 'default') args.push('--model', params.model);
   if (params.effort) args.push('-c', `model_reasoning_effort=${JSON.stringify(params.effort)}`);
   args.push('-');
-  const output = await execute(executable('codex', options), args, { cwd, env: childEnvironment(options.env), signal, input: params.prompt });
+  const output = await execute(executable('codex', options), args, { cwd, env: childEnvironment(options.env), signal, input: params.prompt, onStdout: options.nativeUsage?.observe });
   aborted(signal);
   if (output.code !== 0) throw diagnostic('codex', output.stderr + output.stdout, 'Codex CLI exited unsuccessfully.');
   const events = output.stdout.split(/\r?\n/).filter((line) => line.trim()).map((line) => {
@@ -407,6 +597,7 @@ async function generateCodex(params, options, cwd, signal) {
     }
   }
   if (!completed) throw new RunnerError('Codex returned no completed generation.');
+  options.nativeUsage?.complete(events.filter(event => event?.type === 'turn.completed').map(event => event.usage));
   return { ...(params.model ? { model: params.model } : {}), text: structuredText(await readBounded(outputFile, MAX_BYTES - output.bytes), 'codex'), usage: usage(input, generated, cached) };
 }
 
@@ -414,9 +605,12 @@ async function generateClaude(params, options, cwd, signal) {
   // Observe complete assistant events so Swarm actions accidentally emitted as native
   // tool_use blocks can return to the app before Claude loops on "No such tool" errors.
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--json-schema', params.schema, '--tools', '',
-    '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--setting-sources', '', '--permission-mode', 'dontAsk',
-    '--no-session-persistence', '--disable-slash-commands', '--safe-mode', '--settings', '{"disableAllHooks":true,"forceLoginMethod":"claudeai"}',
-    '--system-prompt', 'You are the stateless reasoning engine for Swarm. Follow the supplied conversation roles and return the requested JSON schema. Available Swarm tools are actions for the outer application, not native CLI tools. Put requested actions in tool_calls with JSON-encoded arguments, then stop so Swarm can execute them. Do not attempt native tool_use calls, use local tools, or infer that a Swarm action is unavailable from the CLI tool registry. Only supplied application tool results establish execution outcomes.'];
+    '--strict-mcp-config', '--mcp-config', options.nativeMcp ? JSON.stringify({ mcpServers: { swarm: { type: 'http', url: options.nativeMcp.url, headers: { Authorization: 'Bearer ' + options.nativeMcp.token }, alwaysLoad: true, timeout: params.timeoutMs } } }) : '{"mcpServers":{}}', '--setting-sources', '', '--permission-mode', 'dontAsk',
+    '--no-session-persistence', '--disable-slash-commands', options.nativeMcp ? '--restricted' : '--safe-mode', '--settings', options.nativeMcp ? '{"disableAllHooks":true,"forceLoginMethod":"claudeai","autoMemoryEnabled":false,"enabledPlugins":{}}' : '{"disableAllHooks":true,"forceLoginMethod":"claudeai"}',
+    '--system-prompt', options.nativeMcp
+      ? 'You are the stateless reasoning engine for Swarm. Follow the supplied conversation roles. Use the registered Swarm MCP tools for all actions and consume their results in this generation. Only application tool results establish execution outcomes. Return the requested final JSON schema with text and an empty tool_calls array.'
+      : 'You are the stateless reasoning engine for Swarm. Follow the supplied conversation roles and return the requested JSON schema. Available Swarm tools are actions for the outer application, not native CLI tools. Put requested actions in tool_calls with JSON-encoded arguments, then stop so Swarm can execute them. Do not attempt native tool_use calls, use local tools, or infer that a Swarm action is unavailable from the CLI tool registry. Only supplied application tool results establish execution outcomes.'];
+  if (options.nativeMcp) args.push('--allowedTools', params.nativeTools.map(tool => `mcp__swarm__${tool.name}`).join(','));
   if (params.model) args.push('--model', params.model);
   if (params.effort) args.push('--effort', params.effort);
   let input = params.prompt;
@@ -430,12 +624,13 @@ async function generateClaude(params, options, cwd, signal) {
   const names = JSON.parse(params.schema)?.properties?.tool_calls?.items?.properties?.name?.enum;
   // Explicit metadata distinguishes action envelopes from arbitrary structured
   // output schemas, which may coincidentally contain a field called tool_calls.
-  const allowed = new Set((params.actionNames ?? []).filter(name => Array.isArray(names) && names.includes(name)));
+  const allowed = new Set((options.nativeMcp ? [] : params.actionNames ?? []).filter(name => Array.isArray(names) && names.includes(name)));
   let actionMessage;
   let actionText;
   let pending = '';
   const decoder = new StringDecoder('utf8');
   const onStdout = chunk => {
+    options.nativeUsage?.observe(chunk);
     if (!allowed.size) return false;
     pending += decoder.write(chunk);
     let end;
@@ -480,6 +675,9 @@ async function generateClaude(params, options, cwd, signal) {
   const totals = Object.values(result.modelUsage ?? {});
   const reportedTotals = totals.length > 0 && totals.every(u => Number.isSafeInteger(u.inputTokens) && Number.isSafeInteger(u.outputTokens));
   const aggregate = reportedTotals ? usage(totals.reduce((n, u) => n + tokens(u.inputTokens) + tokens(u.cacheCreationInputTokens) + tokens(u.cacheReadInputTokens), 0), totals.reduce((n, u) => n + tokens(u.outputTokens), 0), totals.reduce((n, u) => n + tokens(u.cacheReadInputTokens), 0)) : null;
+  options.nativeUsage?.complete(totals.length ? totals.map(u => ({ input_tokens: u?.inputTokens, output_tokens: u?.outputTokens,
+    ...(u?.cacheCreationInputTokens !== undefined ? { cache_creation_input_tokens: u.cacheCreationInputTokens } : {}),
+    ...(u?.cacheReadInputTokens !== undefined ? { cache_read_input_tokens: u.cacheReadInputTokens } : {}) })) : [result.usage]);
   const actualModels = Object.keys(result.modelUsage ?? {});
   return { ...(actualModels.length === 1 || params.model ? { model: actualModels.length === 1 ? actualModels[0] : params.model } : {}), text, usage: aggregate ?? usage(tokens(used.input_tokens) + tokens(used.cache_creation_input_tokens) + cached, tokens(used.output_tokens), cached) };
 }
@@ -487,14 +685,33 @@ async function generateClaude(params, options, cwd, signal) {
 /** Generate JSON text using subscription auth. Options never come from the server. */
 export async function runGeneration(params, options = {}) {
   const valid = validateParams(params);
+  if (valid.nativeTools.length && typeof options.onToolCall !== 'function') throw new RunnerError('Native tools require an application tool handler.');
   return deadline(options.signal, valid.timeoutMs, async (signal) => {
     const cwd = await mkdtemp(join(tmpdir(), 'swarm-cli-generate-'));
+    let mcp;
+    const nativeUsage = valid.nativeTools.length ? observedNativeUsage(valid.provider) : undefined;
+    const controller = new AbortController();
+    const abort = () => controller.abort(signal.reason instanceof RunnerError ? signal.reason : cancelled());
+    signal.addEventListener('abort', abort, { once: true });
     try {
+      if (signal.aborted) abort();
       const status = await providerStatus(valid.provider, options, cwd, signal);
       aborted(signal);
       if (!status.subscription) throw new RunnerError(status.error ?? 'Official subscription login required.', 'auth');
-      return await (valid.provider === 'codex' ? generateCodex : generateClaude)(valid, options, cwd, signal);
-    } finally { await rm(cwd, { recursive: true, force: true }); }
+      if (valid.nativeTools.length) mcp = await nativeMcp(valid, options, controller);
+      const result = await (valid.provider === 'codex' ? generateCodex : generateClaude)(valid, { ...options, nativeMcp: mcp, nativeUsage }, cwd, controller.signal);
+      mcp?.ready();
+      if (!mcp) return result;
+      const { usage: _legacyUsage, ...nativeResult } = result;
+      return { ...nativeResult, ...nativeUsage.result() };
+    } catch (error) {
+      if (controller.signal.reason instanceof RunnerError && controller.signal.reason.code === 'native_stop') return { text: JSON.stringify({ text: '', tool_calls: [] }), stopped: true, ...nativeUsage.snapshot() };
+      throw error;
+    } finally {
+      // Also release callbacks when a CLI exits while its tool call is pending.
+      controller.abort(cancelled()); mcp?.close(); signal.removeEventListener('abort', abort);
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 }
 
@@ -820,7 +1037,7 @@ function pause(ms, signal) {
 }
 
 async function connection(url, options) {
-  const controllers = new Map(), pending = new Set();
+  const controllers = new Map(), pending = new Set(), toolReplies = new Map(), usedRequests = new Set();
   let socket, closed = false, openedAt = 0, welcomed = false, terminal, finish;
   const done = new Promise((resolveDone) => { finish = resolveDone; });
   const stop = () => {
@@ -858,15 +1075,39 @@ async function connection(url, options) {
     if (message.type === 'ping') { send({ type: 'pong' }); return; }
     if (message.type === 'pong') return;
     if (typeof message.id !== 'string' || !message.id || message.id.length > 256) return;
+    if (message.type === 'tool_result') {
+      if (typeof message.callId !== 'string') return;
+      const waiting = toolReplies.get(message.id)?.get(message.callId);
+      if (!waiting) return; // Late, duplicate, cancelled, or different connection.
+      if (Object.hasOwn(message, 'error')) waiting.reject(new RunnerError('Application native tool callback failed.'));
+      else if (Object.hasOwn(message, 'result')) waiting.resolve(message.result);
+      else waiting.reject(new RunnerError('Invalid application native tool response.'));
+      return;
+    }
     if (message.method === 'cancel') { controllers.get(message.id)?.abort(cancelled()); return; }
     if (!['status', 'generate', 'catalog'].includes(message.method)) { send({ id: message.id, error: 'Unsupported bridge method.' }); return; }
-    if (controllers.has(message.id)) { send({ id: message.id, error: 'Request ID is already in use.' }); return; }
+    if (usedRequests.has(message.id)) { send({ id: message.id, error: 'Request ID is already in use.' }); return; }
+    if (usedRequests.size >= 65536) { stop(); return; }
+    usedRequests.add(message.id);
     const controller = new AbortController();
     controllers.set(message.id, controller);
-    const localOptions = { codexPath: options.codexPath, claudePath: options.claudePath, env: options.env, signal: controller.signal };
+    const replies = new Map(); toolReplies.set(message.id, replies);
+    const onToolCall = call => new Promise((resolveReply, rejectReply) => {
+      const finishReply = (work, value) => { replies.delete(call.id); controller.signal.removeEventListener('abort', abort); work(value); };
+      const abort = () => finishReply(rejectReply, cancelled());
+      if (closed || controller.signal.aborted || controllers.get(message.id) !== controller) { rejectReply(cancelled()); return; }
+      if (replies.has(call.id)) { rejectReply(new RunnerError('Native tool call ID is already in use.')); return; }
+      replies.set(call.id, { resolve: value => finishReply(resolveReply, value), reject: error => finishReply(rejectReply, error) });
+      controller.signal.addEventListener('abort', abort, { once: true });
+      send({ id: message.id, type: 'tool_call', call });
+    });
+    const localOptions = { codexPath: options.codexPath, claudePath: options.claudePath, env: options.env, signal: controller.signal, onToolCall };
     const job = Promise.resolve().then(() => message.method === 'status' ? checkProviders(localOptions) : message.method === 'catalog' ? readCatalog(message.params, localOptions) : runGeneration(message.params, localOptions))
       .then((result) => send({ id: message.id, result }), (error) => send({ id: message.id, error: safeError(error) }))
-      .finally(() => { controllers.delete(message.id); pending.delete(job); });
+      .finally(() => {
+        for (const reply of replies.values()) reply.reject(cancelled());
+        toolReplies.delete(message.id); controllers.delete(message.id); pending.delete(job);
+      });
     pending.add(job);
   };
   options.signal?.addEventListener('abort', stop, { once: true });
@@ -877,7 +1118,7 @@ async function connection(url, options) {
     socket.addEventListener('open', () => {
       if (closed) { try { socket.close(); } catch {} return; }
       clearTimeout(handshake); openedAt = Date.now();
-      send({ type: 'hello', token: options.token, version: 1, device: hostname() });
+      send({ type: 'hello', token: options.token, version: 1, device: hostname(), nativeMcp: true });
     });
     socket.addEventListener('message', receive);
     socket.addEventListener('close', (event) => {

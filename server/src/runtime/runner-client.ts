@@ -18,7 +18,8 @@ export class SandboxMcpTransport implements Transport {
   constructor(private server: McpServer) { assertTenant(server.userId); }
   async start() {
     if (this.closed) throw new Error('MCP authorization was revoked.');
-    const ws = this.ws = new WebSocket('ws://localhost/mcp', { socketPath: socketPath(), maxPayload: 8 * 1024 * 1024 });
+    // ws derives socketPath from this URL and overwrites an explicit socketPath option.
+    const ws = this.ws = new WebSocket(`ws+unix://${socketPath()}:/mcp`, { maxPayload: 8 * 1024 * 1024 });
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => { ws.terminate(); reject(new Error('Isolated MCP runner timed out.')); }, 12_000);
       ws.once('error', e => { clearTimeout(timer); reject(e); });

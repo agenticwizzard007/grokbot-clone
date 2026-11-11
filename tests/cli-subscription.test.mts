@@ -40,6 +40,7 @@ initSubagents(); initRooms();
 const { createCliPairing, authenticateCli, revokeCliPairing, selectCli, selectedCli } = await import('../server/src/cli/store.js');
 const { attachCliSocket, cliStatus, cliRequest, disconnectCli, refreshCli, CLI_OFFLINE } = await import('../server/src/cli/bridge.js');
 const { cliResponsesClient, prepareCliRequest } = await import('../server/src/cli/responses.js');
+const { withNativeTools } = await import('../server/src/cli/native-tools.js');
 const { modelsApi } = await import('../server/src/routes-models.js');
 const { clearCliCatalog, cliCatalog, cliModelCatalog } = await import('../server/src/cli/catalog.js');
 const { cliApi } = await import('../server/src/cli/routes.js');
@@ -107,6 +108,7 @@ class FakeBridge {
   });
   generate: (request: Rpc) => any = () => result(this.userId);
   welcome = false;
+  toolReplies = new Map<string, { resolve: (result: any) => void; reject: (error: Error) => void }>();
   closed = new Promise<{ code: number; reason: string }>(resolve => {
     this.ws.once('close', (code, reason) => resolve({ code, reason: reason.toString() }));
   });
@@ -117,13 +119,19 @@ class FakeBridge {
     this.ws.on('message', raw => {
       const message = JSON.parse(raw.toString());
       if (message.type === 'welcome') { this.welcome = true; return; }
+      if (message.type === 'tool_result') {
+        const key = `${message.id}:${message.callId}`, pending = this.toolReplies.get(key);
+        this.toolReplies.delete(key);
+        if (message.error) pending?.reject(new Error(message.error)); else pending?.resolve(message.result);
+        return;
+      }
       this.requests.push(message);
       if (message.method === 'status') this.respond(message.id, this.status);
       if (message.method === 'catalog') { const reply = this.catalog(message); if (reply !== HOLD) this.respond(message.id, reply); }
       if (message.method === 'generate') {
         try {
           const reply = this.generate(message);
-          if (reply !== HOLD) this.respond(message.id, reply);
+          if (reply !== HOLD) void this.deliver(message, reply).catch(error => this.ws.send(JSON.stringify({ id: message.id, error: error.message })));
         } catch (error) {
           this.ws.send(JSON.stringify({ id: message.id, error: (error as Error).message }));
         }
@@ -132,10 +140,30 @@ class FakeBridge {
   }
 
   respond(id: string, value: unknown) { this.ws.send(JSON.stringify({ id, result: value })); }
+  toolCall(id: string, call: any): Promise<any> {
+    return new Promise((resolve, reject) => {
+      this.toolReplies.set(`${id}:${call.id}`, { resolve, reject });
+      this.ws.send(JSON.stringify({ id, type: 'tool_call', call }));
+    });
+  }
+  async deliver(rpc: Rpc, reply: any) {
+    // Existing model fixtures express desired actions as envelopes. Simulate the
+    // native MCP exchange when the application enables it for a queued Bot.
+    let parsed: any;
+    try { parsed = JSON.parse(reply.text); } catch {}
+    if (rpc.params?.nativeTools?.length && parsed?.tool_calls?.length) {
+      for (const [index, tool] of parsed.tool_calls.entries()) {
+        const value = await this.toolCall(rpc.id, { id: `fixture-${index}`, name: tool.name, arguments: JSON.parse(tool.arguments) });
+        if (value.stop) { this.respond(rpc.id, { ...result(''), stopped: true }); return; }
+      }
+      reply = result(parsed.text || 'Tool completed.');
+    }
+    this.respond(rpc.id, reply);
+  }
   get generations() { return this.requests.filter(request => request.method === 'generate'); }
   async hello(secret: string) {
     await once(this.ws, 'open');
-    this.ws.send(JSON.stringify({ type: 'hello', version: 1, token: secret, device: `Computer of ${this.userId}` }));
+    this.ws.send(JSON.stringify({ type: 'hello', version: 1, nativeMcp: true, token: secret, device: `Computer of ${this.userId}` }));
   }
 }
 
@@ -441,36 +469,69 @@ test('action schemas use the current function manifest and leave custom structur
   const custom = prepareCliRequest({ ...requestBody(), tools, text: { format: { schema } } });
   assert.deepEqual(custom.schema, schema);
   assert.equal(custom.actionNames, undefined);
+  const native = prepareCliRequest({ ...requestBody(), tools: tools.slice(0, 2) }, true);
+  assert.deepEqual(native.nativeTools?.map(tool => tool.name), ['SWARM_APPS_SEARCH', 'SWARM_APPS_EXECUTE']);
+  assert.equal(native.schema.properties.tool_calls.maxItems, 0);
+  assert.equal(native.actionNames, undefined);
+  assert.match(native.prompt, /registered swarm MCP tools/);
+  assert.doesNotMatch(native.prompt, /never invoke them as native CLI tool_use/);
+  assert.deepEqual(prepareCliRequest({ ...requestBody(), tools, text: { format: { schema } } }, true).schema, schema);
 });
 
 // Connect the real process runner to the real WebSocket/Responses/agent loop.
 // Only the CLI executable and external app provider are fixtures.
 function nativeClaude(t: any, bridge: FakeBridge, events: any[]) {
   const pending: Promise<void>[] = [];
+  const auditFile = path.join(temp, `native-mcp-results-${bridge.userId}.jsonl`);
+  fs.writeFileSync(auditFile, '');
   let index = 0;
   bridge.generate = rpc => {
-    assert.ok(index < events.length, 'no extra model retries');
-    const event = events[index++];
+    assert.equal(index++, 0, 'all native tools finish within one model generation');
     const executable = path.join(temp, `native-claude-${bridge.userId}-${index}.mjs`);
     fs.writeFileSync(executable, `#!${process.execPath}
+      import fs from 'node:fs';
       if (process.argv[2] === 'auth') console.log(JSON.stringify({loggedIn:true,authMethod:'claude.ai',subscriptionType:'max'}));
       else {
         for await (const chunk of process.stdin) {}
-        console.log(${JSON.stringify(JSON.stringify(event))});
-        ${event.type === 'assistant' ? 'setInterval(()=>{},1000);' : ''}
+        const args=process.argv.slice(2), value=args[args.indexOf('--mcp-config')+1];
+        const config=JSON.parse(value.startsWith('{')?value:fs.readFileSync(value,'utf8')).mcpServers.swarm;
+        if(!config) throw new Error('No registered Swarm MCP server');
+        let id=0,session;
+        const request=async(method,params={},notification=false)=>{
+          const response=await fetch(config.url,{method:'POST',headers:{...config.headers,'content-type':'application/json',accept:'application/json, text/event-stream',...(session?{'mcp-session-id':session}:{})},body:JSON.stringify({jsonrpc:'2.0',...(!notification?{id:++id}:{}),method,params})});
+          session=response.headers.get('mcp-session-id')||session;
+          if(notification&&response.status===202)return;
+          const text=await response.text();
+          const data=response.headers.get('content-type')?.includes('text/event-stream')?JSON.parse(text.split('\\n').find(line=>line.startsWith('data:')).slice(5)):JSON.parse(text);
+          if(data.error)throw new Error(JSON.stringify(data.error));return data.result;
+        };
+        await request('initialize',{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'native-test-cli',version:'1'}});
+        await request('notifications/initialized',{},true);
+        const listed=await request('tools/list');
+        console.log(JSON.stringify({type:'system',subtype:'init',mcp_servers:[{name:'swarm',status:'connected'}]}));
+        for(const event of ${JSON.stringify(events)}) {
+          if(event.type==='assistant') {
+            for(const tool of event.message.content.filter(block=>block.type==='tool_use')) {
+              if(!listed.tools.some(item=>item.name===tool.name)) throw new Error('Requested tool was not registered');
+              const result=await request('tools/call',{name:tool.name,arguments:tool.input});
+              fs.appendFileSync(${JSON.stringify(auditFile)},JSON.stringify({name:tool.name,result})+'\\n');
+            }
+          } else console.log(JSON.stringify(event));
+        }
       }
     `, { mode: 0o700 });
-    pending.push(runGeneration(rpc.params, { claudePath: executable, env: { PATH: process.env.PATH, HOME: temp } })
+    pending.push(runGeneration(rpc.params, { claudePath: executable, env: { PATH: process.env.PATH, HOME: temp }, onToolCall: call => bridge.toolCall(rpc.id, call) })
       .then(reply => bridge.respond(rpc.id, reply), error => bridge.ws.send(JSON.stringify({ id: rpc.id, error: error.message }))));
     return HOLD;
   };
   t.after(() => Promise.all(pending));
+  return () => fs.readFileSync(auditFile, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
 }
 const nativeAction = (name: string, input: unknown) => ({ type: 'assistant', message: { role: 'assistant', content: [
   { type: 'text', text: 'This invented execution claim must not appear.' }, { type: 'tool_use', id: 'native-action', name, input },
 ] } });
 
-test('a native Claude app write still pauses for approval before provider execution', async t => {
+test('a native Claude app write pauses for approval and resumes its exact action once', async t => {
   const { setEnvOverride } = await import('../server/src/env.js');
   setEnvOverride('COMPOSIO_API_KEY', 'native-write-test');
   t.after(() => setEnvOverride('COMPOSIO_API_KEY', ''));
@@ -484,7 +545,9 @@ test('a native Claude app write still pauses for approval before provider execut
   const client = composio();
   t.mock.method(client.connectedAccounts, 'list', async () => ({ items: [{ id: 'github-alice', toolkit: { slug: 'github' }, status: 'ACTIVE' }], nextCursor: null }));
   let executed = 0;
-  t.mock.method(client.tools, 'execute', async () => { executed++; throw new Error('Unapproved write'); });
+  const tool = { slug: 'GITHUB_CREATE_ISSUE', toolkit: { slug: 'github' }, version: '20261101_00', tags: ['createHint'], inputParameters: { type: 'object' } };
+  t.mock.method(client.tools, 'getRawComposioToolBySlug', async () => tool);
+  t.mock.method(client.tools, 'execute', async () => { executed++; return { data: { issue: 17 }, successful: true }; });
   const bridge = await connect(alice);
   await choose(alice, 'claude');
   const bot = newBot(alice);
@@ -501,9 +564,18 @@ test('a native Claude app write still pauses for approval before provider execut
   assert.equal(approval?.status, 'pending');
   assert.equal(executed, 0);
   assert.doesNotMatch(JSON.stringify(listRows(bot.id)), /invented execution claim/);
+  db.prepare("UPDATE approvals SET status='allowed' WHERE id=?").run(approval.id);
+  bridge.generate = () => result('Created the requested issue.');
+  enqueue(bot.id, { type: 'resume' });
+  await runInBotQueue(bot.id, async () => {});
+  assert.equal(executed, 1);
+  assert.equal(db.prepare('SELECT 1 FROM pending_turns WHERE bot_id=?').get(bot.id), undefined);
+  assert.equal(listRows(bot.id).filter(row => row.body.type === 'tool-call').length, 1, 'resuming does not request or dispatch a second write');
+  assert.equal((listRows(bot.id).find(row => row.body.type === 'tool-call')?.body as any).status, 'done');
+  assert.match(bridge.generations[1].params.prompt, /issue.*17/);
 });
 
-test('a setup agent discovers and verifies GitHub through native Claude handoffs without activation', async t => {
+test('a setup agent discovers and verifies GitHub through MCP in one Claude session without activation', async t => {
   const { setEnvOverride } = await import('../server/src/env.js');
   const { beginSetupInterview, isConfiguring } = await import('../server/src/bot-setup.js');
   setEnvOverride('COMPOSIO_API_KEY', 'native-setup-test');
@@ -527,7 +599,7 @@ test('a setup agent discovers and verifies GitHub through native Claude handoffs
   const bot = newBot(alice);
   beginSetupInterview(bot.id);
   db.prepare("UPDATE bot_setups SET onboarding_status='review' WHERE bot_id=?").run(bot.id);
-  nativeClaude(t, bridge, [
+  const results = nativeClaude(t, bridge, [
     nativeAction('SWARM_APPS_SEARCH', { toolkit: 'github', query: 'verify connected user' }),
     nativeAction('SWARM_APPS_EXECUTE', { connectionId: 'github-alice', revision: 1, tool_slug: tool.slug, arguments: {} }),
     { type: 'result', subtype: 'success', structured_output: { text: 'Verified GitHub account: verified-account.', tool_calls: [] } },
@@ -535,9 +607,10 @@ test('a setup agent discovers and verifies GitHub through native Claude handoffs
   enqueue(bot.id, { type: 'user', text: 'We connected GitHub. Verify that it works.' });
   await runInBotQueue(bot.id, async () => {});
   assert.equal(isConfiguring(bot.id), true);
-  assert.equal(bridge.generations.length, 3);
-  assert.match(bridge.generations[1].params.prompt, /readOnly.*true/);
-  assert.match(bridge.generations[2].params.prompt, /verified-account/);
+  assert.equal(bridge.generations.length, 1);
+  assert.deepEqual(results().map(call => call.name), ['SWARM_APPS_SEARCH', 'SWARM_APPS_EXECUTE']);
+  assert.match(JSON.stringify(results()[0]), /readOnly.*true/);
+  assert.match(JSON.stringify(results()[1]), /verified-account/);
   assert.deepEqual(dispatches, [[tool.slug, { userId: alice, connectedAccountId: 'github-alice', version: tool.version, arguments: {} }]]);
   const rows = listRows(bot.id);
   const calls: any[] = rows.filter(row => row.body.type === 'tool-call').map(row => row.body);
@@ -623,6 +696,77 @@ test('subscription usage records tokens and subscription cost without consulting
   assert.equal(report.totals.unpricedRequests, 0);
 });
 
+test('adapter preserves reported usage completeness and leaves missing counters unknown', async () => {
+  const bridge = await connect(alice);
+  const client = cliResponsesClient(alice, 'codex', 2000);
+  for (const stream of [false, true]) for (const fixture of [
+    { usage: { input_tokens: 0, output_tokens: 0 }, status: undefined, expected: 'complete' },
+    { usage: { input_tokens: 12, output_tokens: 3 }, status: 'complete', expected: 'complete' },
+    { usage: { input_tokens: 12, output_tokens: 3 }, status: 'partial', expected: 'partial' },
+    { usage: { input_tokens: 12 }, status: 'partial', expected: 'partial' },
+    { usage: { output_tokens: 3 }, status: undefined, expected: 'partial' },
+    { usage: undefined, status: 'unavailable', expected: 'unavailable' },
+    { usage: undefined, status: undefined, expected: 'unavailable' },
+    { usage: null, status: 'complete', expected: 'unavailable' },
+    { usage: [], status: 'complete', expected: 'unavailable' },
+    { usage: 'invalid', status: 'complete', expected: 'unavailable' },
+    { usage: {}, status: 'partial', expected: 'unavailable' },
+    { usage: { input_tokens: -1, output_tokens: 0.5 }, status: 'complete', expected: 'unavailable' },
+    { usage: { input_tokens: 12, output_tokens: 3 }, status: 'not-a-status', expected: 'complete' },
+    { usage: { input_tokens: 0, output_tokens: 0 }, status: 'unavailable', expected: 'unavailable' },
+  ]) {
+    bridge.generate = () => ({ text: result('done').text, usage: fixture.usage, usage_status: fixture.status });
+    let response = await client.responses.create({ ...requestBody(), stream });
+    if (stream) {
+      const events: any[] = [];
+      for await (const event of response) events.push(event);
+      assert.equal(events.at(-1).type, 'response.completed');
+      response = events.at(-1).response;
+    }
+    assert.equal(response.usage_status, fixture.expected);
+    if (fixture.expected === 'unavailable') assert.equal(Object.hasOwn(response, 'usage'), false);
+    else assert.deepEqual(response.usage, fixture.usage, 'do not invent cached or missing token counters');
+    assert.equal(response.billing, 'subscription');
+  }
+  bridge.generate = () => ({ text: result('done').text, usage_status: 'complete',
+    usage: { input_tokens: -1, output_tokens: 2, input_tokens_details: { cached_tokens: '5' } } });
+  const malformed = await client.responses.create(requestBody());
+  assert.equal(malformed.usage_status, 'partial');
+  assert.deepEqual(malformed.usage, { output_tokens: 2 });
+});
+
+for (const stream of [false, true]) for (const observed of [false, true]) test(`native approval stop preserves ${observed ? 'partial' : 'unavailable'} usage in ${stream ? 'streaming' : 'direct'} responses`, async () => {
+  const bridge = await connect(alice);
+  const usage = observed ? { input_tokens: 91, output_tokens: 7, input_tokens_details: { cached_tokens: 13 } } : undefined;
+  bridge.generate = rpc => {
+    void bridge.toolCall(rpc.id, { id: 'generation:string:approval', name: 'write_note', arguments: {} }).then(reply => {
+      assert.equal(reply.stop, true);
+      // A runner's claimed completeness cannot turn an intentional stop into
+      // a measured completed generation.
+      // The application's stop remains authoritative even if a runner omits its flag.
+      bridge.respond(rpc.id, { text: result('').text, ...(stream ? { stopped: true } : {}), usage_status: observed ? 'complete' : 'unavailable', usage });
+    });
+    return HOLD;
+  };
+  let executed = 0;
+  let response = await withNativeTools(alice, async () => { executed++; return { output: 'Waiting for approval', stop: true }; }, () =>
+    cliResponsesClient(alice, 'claude', 2000).responses.create({ ...requestBody(), stream,
+      tools: [{ type: 'function', name: 'write_note', parameters: { type: 'object' } }] }));
+  if (stream) {
+    const emitted: any[] = [];
+    for await (const event of response) emitted.push(event);
+    response = emitted.at(-1).response;
+    assert.equal(emitted.at(-1).type, 'response.completed');
+  }
+  assert.equal(response.usage_status, observed ? 'partial' : 'unavailable');
+  assert.deepEqual(response.usage, usage);
+  assert.equal(Object.hasOwn(response, 'usage'), observed);
+  assert.equal(response.billing, 'subscription');
+  assert.deepEqual(response.output, []);
+  assert.equal(executed, 1);
+  assert.equal(bridge.generations.length, 1, 'accounting must not retry a stopped generation');
+});
+
 test('a real queued Bot turn routes to its owner bridge and enters the existing MCP approval path', async () => {
   const a = await connect(alice), b = await connect(bob);
   await choose(alice, 'codex'); await choose(bob, 'claude');
@@ -639,7 +783,7 @@ test('a real queued Bot turn routes to its owner bridge and enters the existing 
   assert.equal(a.generations.length, 1);
   assert.equal(b.generations.length, 0, 'an inherited foreign HTTP context must not choose its CLI');
   assert.equal(a.generations[0].params.provider, 'codex');
-  assert.ok(a.generations[0].params.prompt.includes(name), 'the available app tool reaches the bridge');
+  assert.ok(a.generations[0].params.nativeTools.some((tool: any) => tool.name === name), 'the available app tool reaches the bridge as a native MCP definition');
   const approval = db.prepare('SELECT * FROM approvals WHERE bot_id=?').get(bot.id) as any;
   assert.ok(approval, 'the CLI action must enter the normal app approval loop');
   assert.equal(approval.tool, `${name}:bot:${bot.id}`);

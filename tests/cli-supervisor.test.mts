@@ -99,6 +99,29 @@ test('cancelling one overlapping request does not stop its sibling requests', as
   assert.equal(b.frames.at(-1).result.text, 'second'); assert.equal(c.frames.at(-1).result.text, 'third');
 });
 
+test('supervisor carries native callback frames only between their existing generation socket and worker', async t => {
+  const f = await fixture(t);
+  const a = await f.connect(), b = await f.connect();
+  await until(() => f.workers.length === 2 && a.frames.length === 1 && b.frames.length === 1);
+  const call = { id: 'same:string:1', name: 'read_app', arguments: { safe: true } };
+  for (const worker of f.workers) worker.reply({ type: 'tool_call', call });
+  await until(() => a.frames.length === 2 && b.frames.length === 2);
+  assert.deepEqual(a.frames[1], { type: 'tool_call', call });
+  assert.deepEqual(b.frames[1], { type: 'tool_call', call });
+  a.ws.send(JSON.stringify({ type: 'tool_result', id: call.id, result: { output: 'a', stop: true } }));
+  b.ws.send(JSON.stringify({ type: 'tool_result', id: call.id, result: { output: 'b' } }));
+  await until(() => f.workers.every(worker => worker.messages.length === 2));
+  assert.deepEqual(f.workers.map(worker => worker.messages[1]), [
+    { type: 'tool_result', id: call.id, result: { output: 'a', stop: true } },
+    { type: 'tool_result', id: call.id, result: { output: 'b' } },
+  ]);
+  assert.equal(f.removed.length, 0, 'tool calls and stop replies are relayed without becoming terminal supervisor messages');
+  f.workers[0].reply({ type: 'result', result: { text: '', stopped: true } });
+  f.workers[1].reply({ type: 'result', result: { text: 'b' } });
+  await Promise.all([a.closed, b.closed]);
+  assert.equal(f.removed.length, 2);
+});
+
 test('sign-in cancels its provider workers and waits for container removal before changing credentials', async t => {
   const f = await fixture(t);
   const a = await f.connect(), b = await f.connect(), other = await f.connect({ provider: 'claude' });

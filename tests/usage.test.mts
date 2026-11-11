@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { after, test } from 'node:test';
+import { after, mock as testMock, test } from 'node:test';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-usage-'));
 const free = () => new Promise<number>((r) => { const s = http.createServer().listen(0, () => { const p = (s.address() as any).port; s.close(() => r(p)); }); });
@@ -97,6 +97,89 @@ test('attribution: a Bot context bills its owner; a request without usage is ign
   assert.equal(rows.length, 1);
   assert.equal(rows[0].bot_id, botOf(owner));
   assert.equal(rows[0].kind, 'memory');
+});
+
+test('unavailable subscription requests remain counted with an empty mask and never consult API prices', async () => {
+  clear();
+  let priceReads = 0;
+  const fetch = testMock.method(globalThis, 'fetch', async () => { priceReads++; throw new Error('API pricing must not run'); });
+  try {
+    for (const provider of ['codex-cli', 'claude-cli']) {
+      await usage.recordModelUsage({ userId: member, botId: botOf(member), model: 'gpt-4.1', response: {
+        id: `unavailable-${provider}`, provider, model: `${provider}/actual`, billing: 'subscription', usage_status: 'unavailable',
+      } });
+    }
+  } finally { fetch.mock.restore(); }
+  assert.equal(priceReads, 0);
+  const rows = events(member);
+  assert.equal(rows.length, 2);
+  for (const row of rows) {
+    assert.equal(row.usage_status, 'unavailable');
+    assert.deepEqual(JSON.parse(row.token_fields), []);
+    assert.equal(row.cost_source, 'subscription');
+    assert.equal(row.cost_usd, 0);
+    assert.equal(row.bot_id, botOf(member));
+  }
+  const report = usage.usageReport(member, 'today');
+  assert.equal(report.totals.requests, 2);
+  assert.equal(report.totals.unavailableUsageRequests, 2);
+  assert.equal(report.totals.knownTokenRequests, 0);
+  assert.equal(report.totals.estimatedUsd, 0);
+  assert.equal(report.totals.unpricedRequests, 0, 'unknown counters are independent of known zero model API charges');
+  assert.deepEqual(report.accounting, { unavailableUsage: 'counted', tokenTotals: 'observed' });
+});
+
+test('partial/unavailable masks exclude unknown counters from every report and leave CSV cells blank', async () => {
+  clear();
+  const bot = botOf(member);
+  const record = (response: any) => usage.recordModelUsage({ userId: member, botId: bot, kind: 'chat', model: 'gpt-4.1', response: { provider: 'codex-cli', billing: 'subscription', ...response } });
+  await record({ id: 'complete', usage_status: 'complete', usage: { input_tokens: 100, output_tokens: 50, cost: 99 } });
+  await record({ id: 'partial', usage_status: 'partial', usage: { input_tokens: 7, input_tokens_details: { cached_tokens: 2 }, output_tokens_details: { reasoning_tokens: -10 } } });
+  await record({ id: 'unavailable', usage_status: 'unavailable' });
+  const rows = events(member);
+  assert.deepEqual(rows.map(row => row.usage_status), ['complete', 'partial', 'unavailable']);
+  assert.deepEqual(JSON.parse(rows[1].token_fields), ['input_tokens', 'cached_tokens']);
+  // Reports must consult the mask, even if a zero-compatible storage field has a stale value.
+  db.prepare('UPDATE usage_events SET output_tokens=999,reasoning_tokens=999 WHERE request_id=?').run('partial');
+  db.prepare('UPDATE usage_events SET input_tokens=999,output_tokens=999,cached_tokens=999,reasoning_tokens=999 WHERE request_id=?').run('unavailable');
+  const report = usage.usageReport(member, 'today');
+  assert.deepEqual([report.totals.requests, report.totals.inputTokens, report.totals.outputTokens, report.totals.cachedTokens, report.totals.reasoningTokens], [3, 107, 50, 2, 0]);
+  assert.deepEqual([report.totals.partialUsageRequests, report.totals.unavailableUsageRequests, report.totals.knownTokenRequests], [1, 1, 2]);
+  assert.equal(report.totals.costUsd, 0);
+  assert.equal(report.totals.estimatedUsd, 0);
+  for (const group of [report.days, report.byBot, report.byModel, report.byKind, usage.usageReport(null, 'today').byUser!.filter(row => row.key === member)]) {
+    assert.equal(group.length, 1);
+    assert.equal(group[0].tokens, 157);
+    assert.equal(group[0].requests, 3);
+    assert.equal(group[0].partialUsageRequests, 1);
+    assert.equal(group[0].unavailableUsageRequests, 1);
+  }
+  const [header, ...csvRows] = usage.usageCsv(member, 'today').trim().split('\n').map(line => line.split(','));
+  const cell = (row: string[], key: string) => row[header.indexOf(key)];
+  assert.deepEqual(csvRows.map(row => cell(row, 'usage_status')), ['complete', 'partial', 'unavailable']);
+  assert.equal(cell(csvRows[1], 'input_tokens'), '7');
+  assert.equal(cell(csvRows[1], 'cached_tokens'), '2');
+  assert.equal(cell(csvRows[1], 'output_tokens'), '');
+  for (const key of ['input_tokens', 'cached_tokens', 'output_tokens', 'reasoning_tokens']) assert.equal(cell(csvRows[2], key), '');
+  assert.equal(cell(csvRows[2], 'cost_usd'), '0');
+  assert.equal(cell(csvRows[2], 'cost_source'), 'subscription');
+});
+
+test('legacy subscription availability is inferred while valid zero counters remain measured', async () => {
+  clear();
+  for (const response of [
+    { usage: { input_tokens: 0, output_tokens: 0 } },
+    { usage: { input_tokens: 0, output_tokens: '12', input_tokens_details: { cached_tokens: Infinity } } },
+    {},
+  ]) await usage.recordModelUsage({ userId: member, model: 'gpt-4.1', response: { billing: 'subscription', provider: 'claude-cli', ...response } });
+  const rows = events(member);
+  assert.deepEqual(rows.map(row => row.usage_status), ['complete', 'partial', 'unavailable']);
+  assert.deepEqual(rows.map(row => JSON.parse(row.token_fields)), [['input_tokens', 'output_tokens'], ['input_tokens'], []]);
+  const report = usage.usageReport(member, 'today');
+  assert.equal(report.totals.requests, 3);
+  assert.equal(report.totals.knownTokenRequests, 2);
+  assert.equal(report.totals.knownInputRequests, 2);
+  assert.equal(report.totals.knownOutputRequests, 1);
 });
 
 test('a real Bot turn records its model call against the user and Bot, with OpenRouter cost', async () => {

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { Download } from 'lucide-react';
 import { useStore } from '../../store';
-import { configApi, type ProviderUsage, type UsageRange, type UsageReport, type UsageRow } from '../../lib/configApi';
+import { configApi, type ProviderUsage, type UsageCoverage, type UsageRange, type UsageReport, type UsageRow } from '../../lib/configApi';
 import '../../styles/usage.css';
 
 /**
@@ -37,6 +37,9 @@ export function compact(v: number): string {
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${compact(n)} ${n === 1 ? one : many}`;
+const incomplete = (value: UsageCoverage) => (value.partialUsageRequests ?? 0) + (value.unavailableUsageRequests ?? 0);
+const tokenFigure = (tokens: number, value: UsageCoverage & { requests: number }) => value.requests > 0 && value.knownTokenRequests === 0
+  ? 'Unavailable' : `${compact(tokens)}${incomplete(value) ? ' known' : ''}`;
 const dayLong = (day: string) => new Date(`${day}T00:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
 const dayLabel = (day: string) => new Date(`${day}T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 const inHours = (t: number) => {
@@ -157,6 +160,8 @@ function DailyChart({ days, metric, withComputer }: { days: UsageReport['days'];
   const ai = (d: UsageReport['days'][number]) => (metric === 'cost' ? d.costUsd : d.tokens);
   const value = (d: UsageReport['days'][number]) => ai(d) + (stacked ? d.computerUsd : 0);
   const fmt = (v: number) => (metric === 'cost' ? fmtUsd(v) : compact(v));
+  const figure = (day: UsageReport['days'][number]) => metric === 'tokens' ? tokenFigure(day.tokens, day) : fmt(value(day));
+  const tokenDetail = (day: UsageReport['days'][number]) => day.requests > 0 && day.knownTokenRequests === 0 ? 'Token usage unavailable' : `${tokenFigure(day.tokens, day)} tokens`;
   const ticks = niceTicks(Math.max(...days.map(value), 0));
   const top = ticks[ticks.length - 1] || 1;
   const plot = useRef<HTMLDivElement>(null);
@@ -190,7 +195,7 @@ function DailyChart({ days, metric, withComputer }: { days: UsageReport['days'];
   const title = metric === 'cost' ? 'Daily cost' : 'Daily tokens';
   const peak = days.reduce((a, d) => (value(d) > value(a) ? d : a), days[0]);
   const detail = (d: UsageReport['days'][number]) =>
-    [stacked ? `AI ${fmtUsd(d.costUsd)} · computer ${fmtUsd(d.computerUsd)}` : metric === 'cost' ? `${compact(d.tokens)} tokens` : fmtUsd(d.costUsd), plural(d.requests, 'request')].join(' · ');
+    [stacked ? `AI ${fmtUsd(d.costUsd)} · computer ${fmtUsd(d.computerUsd)}` : metric === 'cost' ? tokenDetail(d) : fmtUsd(d.costUsd), plural(d.requests, 'request'), ...(incomplete(d) ? ['Incomplete token accounting'] : [])].join(' · ');
   return (
     <div className="usage-card">
       <div className="usage-card__head">
@@ -204,7 +209,7 @@ function DailyChart({ days, metric, withComputer }: { days: UsageReport['days'];
       </div>
       {/* Phones: a fixed readout instead of a tooltip under the finger. */}
       <div className="usage-readout" aria-live="polite">
-        <div className="usage-readout__title">{h ? `${dayLong(h.day)} · ${fmt(value(h))}` : value(peak) > 0 ? `Peak ${fmt(value(peak))} on ${dayLabel(peak.day)}` : 'Nothing yet this period'}</div>
+        <div className="usage-readout__title">{h ? `${dayLong(h.day)} · ${figure(h)}` : value(peak) > 0 ? `Peak ${figure(peak)} on ${dayLabel(peak.day)}` : days.some(day => incomplete(day)) ? 'Token accounting incomplete' : 'Nothing yet this period'}</div>
         <div className="usage-readout__detail">{h ? detail(h) : 'Tap a bar to see that day'}</div>
       </div>
       <div className="usage-chart">
@@ -223,7 +228,7 @@ function DailyChart({ days, metric, withComputer }: { days: UsageReport['days'];
                   className={`usage-chart__slot${hover === i ? ' is-hover' : ''}`}
                   tabIndex={0}
                   role="img"
-                  aria-label={`${dayLabel(d.day)}: ${stacked ? `${fmtUsd(total)} (AI ${fmtUsd(d.costUsd)}, computer ${fmtUsd(d.computerUsd)})` : fmt(total)}, ${compact(d.tokens)} tokens, ${plural(d.requests, 'request')}`}
+                  aria-label={`${dayLabel(d.day)}: ${stacked ? `${fmtUsd(total)} (AI ${fmtUsd(d.costUsd)}, computer ${fmtUsd(d.computerUsd)})` : figure(d)}, ${tokenDetail(d)}, ${plural(d.requests, 'request')}${incomplete(d) ? ', incomplete token accounting' : ''}`}
                   onFocus={() => setHover(i)}
                   onBlur={() => setHover(null)}
                 >
@@ -237,14 +242,14 @@ function DailyChart({ days, metric, withComputer }: { days: UsageReport['days'];
           </div>
           {h && hover !== null && (
             <div className="usage-tip" style={{ left: `${at * 100}%`, transform: `translateX(${tipShift})` }} role="status">
-              <div className="usage-tip__value">{fmt(value(h))}</div>
+              <div className="usage-tip__value">{figure(h)}</div>
               {stacked && (
                 <>
                   <div className="usage-tip__row"><i className="usage-tip__key usage-key--ai" aria-hidden /><b>{fmtUsd(h.costUsd)}</b> AI</div>
                   <div className="usage-tip__row"><i className="usage-tip__key usage-key--vm" aria-hidden /><b>{fmtUsd(h.computerUsd)}</b> computer (est.)</div>
                 </>
               )}
-              <div className="usage-tip__label">{dayLabel(h.day)} · {metric === 'cost' ? `${compact(h.tokens)} tokens` : fmtUsd(h.costUsd)} · {plural(h.requests, 'request')}</div>
+              <div className="usage-tip__label">{dayLabel(h.day)} · {metric === 'cost' ? tokenDetail(h) : fmtUsd(h.costUsd)} · {plural(h.requests, 'request')}{incomplete(h) ? ' · Incomplete token accounting' : ''}</div>
             </div>
           )}
         </div>
@@ -257,7 +262,7 @@ function DailyChart({ days, metric, withComputer }: { days: UsageReport['days'];
         <table>
           <thead><tr><th>Day (UTC)</th><th>{stacked ? 'AI cost' : 'Cost'}</th>{stacked && <th>Computer (est.)</th>}<th>Tokens</th><th>Requests</th></tr></thead>
           <tbody>
-            {days.map((d) => <tr key={d.day}><td>{dayLabel(d.day)}</td><td>{fmtUsd(d.costUsd)}</td>{stacked && <td>{fmtUsd(d.computerUsd)}</td>}<td>{compact(d.tokens)}</td><td>{compact(d.requests)}</td></tr>)}
+            {days.map((d) => <tr key={d.day}><td>{dayLabel(d.day)}</td><td>{fmtUsd(d.costUsd)}</td>{stacked && <td>{fmtUsd(d.computerUsd)}</td>}<td>{tokenFigure(d.tokens, d)}</td><td>{compact(d.requests)}</td></tr>)}
           </tbody>
         </table>
       </details>
@@ -309,7 +314,9 @@ function ComputerCard({ data }: { data: UsageReport }) {
 /** What a row used, in its own unit: tokens, or voice minutes / recordings / characters for audio. */
 function rowSub(r: UsageRow): string {
   const parts: string[] = [];
-  if (r.tokens > 0) parts.push(`${compact(r.tokens)} tokens`);
+  if (r.tokens > 0) parts.push(`${tokenFigure(r.tokens, r)} tokens`);
+  else if (r.requests > 0 && r.knownTokenRequests === 0) parts.push('Token usage unavailable');
+  if (incomplete(r)) parts.push(`${plural(incomplete(r), 'request')} with incomplete token accounting`);
   if (r.minutes > 0) parts.push(`${compact(Math.round(r.minutes))} min`);
   if (r.recordings > 0) parts.push(plural(r.recordings, 'recording'));
   if (r.characters > 0) parts.push(`${compact(r.characters)} characters`);
@@ -319,7 +326,7 @@ function rowSub(r: UsageRow): string {
 }
 
 const rowCost = (r: UsageRow) => r.costUsd + (r.computerUsd ?? 0);
-const rowFigure = (r: UsageRow, byCost: boolean) => (!byCost ? compact(r.tokens) : rowCost(r) === 0 && r.unpriced === r.requests && r.requests > 0 ? 'No price' : fmtUsd(rowCost(r)));
+const rowFigure = (r: UsageRow, byCost: boolean) => (!byCost ? tokenFigure(r.tokens, r) : rowCost(r) === 0 && r.unpriced === r.requests && r.requests > 0 ? 'No price' : fmtUsd(rowCost(r)));
 
 function RankedList({ title, rows, byCost }: { title: string; rows: UsageRow[]; byCost: boolean }) {
   const [all, setAll] = useState(false);
@@ -452,8 +459,9 @@ export function UsageSection() {
           )}
 
           <Hero ai={t.costUsd} computer={hasComputer ? vm!.costUsd : null} days={days.length} sub={subCost} />
+          {incomplete(t) > 0 && <p className="usage-card__note" role="status">Token accounting is incomplete: {plural(t.partialUsageRequests ?? 0, 'request')} with partial usage and {plural(t.unavailableUsageRequests ?? 0, 'request')} with unavailable usage. Subscription requests with unavailable usage are counted; token totals include only reported counters.</p>}
           <div className="usage-tiles">
-            <Tile label="Tokens" value={compact(t.inputTokens + t.outputTokens)} sub={`${compact(t.inputTokens)} in · ${compact(t.outputTokens)} out${t.cachedTokens ? ` · ${compact(t.cachedTokens)} cached` : ''}`} />
+            <Tile label={incomplete(t) ? 'Known tokens' : 'Tokens'} value={tokenFigure(t.inputTokens + t.outputTokens, t)} sub={`${t.knownInputRequests === 0 && t.requests > 0 ? 'Unavailable' : compact(t.inputTokens)} in · ${t.knownOutputRequests === 0 && t.requests > 0 ? 'Unavailable' : compact(t.outputTokens)} out${t.cachedTokens ? ` · ${compact(t.cachedTokens)} cached` : ''}`} />
             <Tile label="AI requests" value={compact(t.requests)} sub={t.toolCalls ? plural(t.toolCalls, 'web search', 'web searches') : undefined} />
             {t.voiceMinutes > 0 && <Tile label="Voice" value={`${compact(Math.round(t.voiceMinutes))} min`} sub={voiceCalls ? plural(voiceCalls, 'call') : undefined} />}
             {hasComputer && <Tile label="Computer" value={hours(vm!.runningHours)} sub={`running · ${hours(vm!.asleepHours + vm!.archivedHours)} asleep`} />}

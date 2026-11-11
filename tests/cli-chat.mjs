@@ -14,8 +14,8 @@ const port = await new Promise((resolve) => {
   const server = http.createServer().listen(0, '127.0.0.1', () => { const p = server.address().port; server.close(() => resolve(p)); });
 });
 const base = `http://127.0.0.1:${port}`;
-function start(args, env = {}) {
-  const child = spawn(process.execPath, args, { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+function start(args, env = {}, cwd) {
+  const child = spawn(process.execPath, args, { cwd, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
   children.push(child);
   child.stdout.on('data', (d) => { logs += d; }); child.stderr.on('data', (d) => { logs += d; });
   return child;
@@ -46,7 +46,31 @@ for await (const line of createInterface({ input: process.stdin })) {
  if(method==='account/rateLimits/read')reply({rateLimits:{primary:{usedPercent:19,windowDurationMins:300}}});
  if(method==='get_usage')reply({subscription_type:'max',rate_limits_available:true,rate_limits:{five_hour:{utilization:23,resets_at:null}}});
 }
-fs.appendFileSync(${JSON.stringify(path.join(root, 'generations.jsonl'))}, JSON.stringify({args})+'\\n');
+let native;
+if (args[0] === 'exec') {
+ const config = args.find(arg => arg.startsWith('mcp_servers={swarm='));
+ if (config) native = {url:JSON.parse(config.match(/url=("[^"]+")/)[1]),headers:{Authorization:JSON.parse(config.match(/Authorization=("[^"]+")/)[1])}};
+} else {
+ const index = args.indexOf('--mcp-config');
+ if (index >= 0) native = JSON.parse(args[index+1]).mcpServers?.swarm;
+}
+if (native) {
+ let id = 0;
+ const rpc = async (method, params = {}) => {
+  const response = await fetch(native.url, {method:'POST',headers:{'Content-Type':'application/json',...native.headers},body:JSON.stringify({jsonrpc:'2.0',id:++id,method,params}),signal:AbortSignal.timeout(5000)});
+  const result = await response.json();
+  if (!response.ok || result.error) throw new Error('Native MCP request failed.');
+  return result.result;
+ };
+ await rpc('initialize', {protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'packaging-fixture',version:'1'}});
+ const listed = await rpc('tools/list');
+ if (!listed.tools.some(tool => tool.name === 'get_platform_state')) throw new Error('Native app tools were not registered.');
+ const result = await rpc('tools/call', {name:'get_platform_state',arguments:{}});
+ if (result.isError) throw new Error('Native app callback failed.');
+ const state = JSON.parse(result.content.find(part => part.type === 'text').text);
+ if (!state.cli.connected || state.cli.selected !== (args[0] === 'exec' ? 'codex' : 'claude')) throw new Error('Native callback used the wrong subscription context.');
+}
+fs.appendFileSync(${JSON.stringify(path.join(root, 'generations.jsonl'))}, JSON.stringify({args,native:!!native})+'\\n');
 const reply = {text:'Subscription bridge integration reply.',tool_calls:[]};
 if (args[0] === 'exec') {
   fs.writeFileSync(args[args.indexOf('--output-last-message')+1], JSON.stringify(reply));
@@ -64,7 +88,15 @@ if (args[0] === 'exec') {
   await until(() => fetch(`${base}/api/health`).then((r) => r.ok, () => false));
   const script = await fetch(`${base}/api/cli/script`);
   assert.equal(script.status, 200);
-  assert.match(await script.text(), /export async function startBridge/);
+  assert.match(script.headers.get('content-type'), /text\/javascript/);
+  assert.equal(script.headers.get('cache-control'), 'no-store');
+  const downloadedSource = await script.text();
+  assert.match(downloadedSource, /export async function startBridge/);
+  // Exercise the exact public download without companion siblings or checkout modules.
+  const downloadDir = path.join(root, 'personal-bridge');
+  await fs.mkdir(downloadDir);
+  const downloadedBridge = path.join(downloadDir, 'swarm-cli-bridge.mjs');
+  await fs.writeFile(downloadedBridge, downloadedSource);
   assert.equal((await fetch(`${base}/api/cli`)).status, 401);
   const login = await fetch(`${base}/api/auth/dev`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'cli-e2e@example.com' }) });
   assert.equal(login.status, 200);
@@ -79,7 +111,7 @@ if (args[0] === 'exec') {
   const pair = await api('/cli/pair', 'POST');
   const token = pair.command.match(/--token '([^']+)'/)?.[1];
   assert.ok(token);
-  start(['companion/cli-bridge.mjs', '--server', base, '--token', token, '--codex-path', cli, '--claude-path', cli]);
+  start([downloadedBridge, '--server', base, '--token', token, '--codex-path', cli, '--claude-path', cli], {}, downloadDir);
   await until(async () => { const s = await api('/cli'); return s.connected && s.providers.codex.subscription && s.providers.claude.subscription; });
   const bot = (await api('/bots')).bots.find((b) => b.isPrimary);
   for (const provider of ['codex', 'claude']) {
@@ -127,9 +159,10 @@ if (args[0] === 'exec') {
   assert.equal(disconnected.connected, false);
   assert.deepEqual(await fs.readdir(path.join(root, 'cli-profiles')), []);
   const generations=(await fs.readFile(path.join(root,'generations.jsonl'),'utf8')).trim().split('\n').map(JSON.parse);
+  assert.ok(generations.every(g => g.native), 'every downloaded and hosted generation loads native MCP tools and receives an application result');
   for(const model of ['account-vision','account-alternate']) assert.equal(generations.filter(g=>g.args[g.args.indexOf('--model')+1]===model).length,4,'each discovered model is used by both providers through both runtimes');
   for(const {args} of generations) assert.ok(args.includes('--effort') ? args[args.indexOf('--effort')+1]==='high' : args.includes('model_reasoning_effort="high"'));
-  console.log('PASS: actual catalog selections/efforts across both hosted login terminals and bridge CLIs, Bot chat, subscription accounting, offline no-fallback behavior, and hosted profile deletion.');
+  console.log('PASS: single-file downloaded bridge, native MCP callbacks through both providers and hosted/bridge runtimes, catalog selections/efforts, Bot chat, subscription accounting, offline no-fallback behavior, and hosted profile deletion.');
 } catch (error) {
   console.error(logs.slice(-5000));
   throw error;

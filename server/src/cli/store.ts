@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS cli_runtimes (
   user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   location TEXT NOT NULL CHECK(location IN ('server','bridge'))
 );
+-- Persist pre-runtime-table bridge choices independently of their pairing tokens.
+INSERT OR IGNORE INTO cli_runtimes(user_id,location)
+  SELECT user_id,'bridge' FROM cli_pairings;
 `);
 
 export type CliRuntime = 'server' | 'bridge';
@@ -60,5 +63,9 @@ export function authenticateCli(secret: string): string | null {
 }
 
 export function revokeCliPairing(userId: string) {
-  db.prepare('DELETE FROM cli_pairings WHERE user_id=?').run(userId);
+  db.transaction(() => {
+    // Revoking a legacy token is not a request to switch to hosted execution.
+    db.prepare("INSERT OR IGNORE INTO cli_runtimes(user_id,location) SELECT user_id,'bridge' FROM cli_pairings WHERE user_id=?").run(userId);
+    db.prepare('DELETE FROM cli_pairings WHERE user_id=?').run(userId);
+  })();
 }

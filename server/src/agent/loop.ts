@@ -1,5 +1,6 @@
 import { recordModelUsage, withUsage } from '../usage.js';
 import { selectedCli } from '../cli/store.js';
+import { withNativeTools, type NativeToolHandler } from '../cli/native-tools.js';
 import { llmClient, modelFor, withFast, modelInfo, prepareInput, textOnlyInput, providerFields, serverTools, tagOutput } from '../lib/llm.js';
 import { db, now } from '../db.js';
 import { env } from '../env.js';
@@ -39,6 +40,8 @@ interface PendingState {
   native?: boolean;
   nativeRequireApproval?: boolean;
   nativeReadOnly?: boolean;
+  /** A browser recovery invalidates any sibling actions planned on the old page. */
+  replan?: boolean;
   jobId?: string;
   /** Keep paused approvals bound to the computer on which this batch was planned. */
   computerRevision?: number;
@@ -264,10 +267,45 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
 
     // Ultracode: a longer budget for long, careful runs.
     const maxSteps = getBotRow(botId)?.effort === 'ultracode' ? ULTRACODE_STEPS : MAX_STEPS;
+    let nativeCount = 0;
     for (let step = 0; step < maxSteps; step++) {
       if (ctrl.signal.aborted) throw new Error('interrupted');
-      const result = await callModel(ctx, tools, ctrl.signal);
+      let nativeBoundary: 'approval' | 'end' | 'replan' | 'budget' | undefined;
+      const nativeCall: NativeToolHandler = async call => {
+        ctrl.signal.throwIfAborted();
+        if (nativeBoundary) return { output: 'This turn has paused. No further actions were executed.', stop: true };
+        if (nativeCount >= maxSteps) {
+          nativeBoundary = 'budget';
+          return { output: 'The tool step limit was reached. Stop and report the completed work.', stop: true };
+        }
+        const available = await tools;
+        if (!available.some(tool => tool.type === 'function' && tool.name === call.name)) throw new Error('This tool is unavailable to the current agent.');
+        nativeCount++;
+        // Never trust a runner-provided ID as a durable dispatch identifier.
+        // The adapter deduplicates its IDs within this generation; Swarm owns
+        // the history, journal and approval IDs across all generations.
+        const item = { type: 'function_call', call_id: newId('cli'), name: call.name, arguments: JSON.stringify(call.arguments) };
+        appendHistory(botId, [item]);
+        const activity = activityFor(item.name, call.arguments);
+        const row = appendRow(botId, 'tool-call', { type: 'tool-call', callId: item.call_id, name: item.name, label: activity.label, status: 'queued', args: call.arguments });
+        toolRows.push(row.seq);
+        const state: PendingState = { jobId, computerRevision: currentComputerRevision() ?? localAccess(userId).revision,
+          calls: [{ ...item, rowSeq: row.seq }], outputs: [], approvalId: '', depth };
+        const paused = await processCalls(ctx, state);
+        const output = state.outputs.find(value => value.call_id === item.call_id)?.output;
+        if (paused) nativeBoundary = 'approval';
+        else if (state.outputs.some(value => value.__endTurn)) nativeBoundary = 'end';
+        else if (state.replan) nativeBoundary = 'replan';
+        if (!nativeBoundary) setLive(botId, { activity: { kind: 'thinking', detail: selectedCli(userId) === 'claude' ? 'Waiting for Claude' : 'Waiting for Codex', since: now() } });
+        return { output: output ?? 'Waiting for user approval. This action has not executed.',
+          isError: getRow(botId, row.seq)?.body.type === 'tool-call' && ['error', 'denied'].includes((getRow(botId, row.seq)!.body as ToolCallBody).status),
+          ...(nativeBoundary ? { stop: true } : {}) };
+      };
+      const result = await withNativeTools(userId, nativeCall, () => callModel(ctx, tools, ctrl.signal));
       appendHistory(botId, result.output);
+      if (nativeBoundary === 'budget') throw new Error('The tool step limit was reached. Review the completed steps before continuing.');
+      if (nativeBoundary === 'approval' || nativeBoundary === 'end') return;
+      if (nativeBoundary === 'replan') continue;
       const calls = result.output.filter((o: any) => o.type === 'function_call');
       if (!calls.length) break;
 
@@ -392,6 +430,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
     // These calls were planned against the old page or before a request to wait. Never run
     // a stale click/submission after a login redirect, dialog, failed action or human handoff.
     if (res.replan || res.endTurn || turnSignal(botId)?.aborted) {
+      if (res.replan) st.replan = true;
       const reason = res.endTurn || turnSignal(botId)?.aborted
         ? 'Skipped because this turn stopped or is waiting for the user. Continue only after their reply.'
         : 'Skipped because the preceding result requires a fresh plan. Inspect that result and current screen before choosing the next action.';

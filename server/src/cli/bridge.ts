@@ -5,11 +5,13 @@ import { authenticateCli, cliRuntime, selectedCli, type CliProvider } from './st
 import { hostedCatalog, hostedGenerate, hostedStatus, refreshHosted, serverLoginAvailable } from './hosted.js';
 import { legacyWorkHeld, withLegacyWork } from '../security/legacy-work.js';
 import { clearCliCatalog } from './catalog.js';
+import type { NativeToolHandler } from './native-tools.js';
+import { hasNativeTools, ToolCallbacks } from './tool-callback.js';
 
 export interface CliAuthStatus { installed: boolean; authenticated: boolean; subscription: boolean; error?: string }
 export type CliProviders = Record<CliProvider, CliAuthStatus>;
-interface Pending { finish: (error?: Error, value?: unknown) => void }
-interface Connection { ws: WebSocket; device: string; providers: CliProviders; pending: Map<string, Pending> }
+interface Pending { finish: (error?: Error, value?: unknown) => void; toolCall: (call: unknown) => void }
+interface Connection { ws: WebSocket; device: string; nativeMcp: boolean; providers: CliProviders; pending: Map<string, Pending> }
 const connections = new Map<string, Connection>();
 const missing = (): CliProviders => ({
   codex: { installed: false, authenticated: false, subscription: false },
@@ -34,29 +36,45 @@ export function disconnectCli(userId: string) {
   }
 }
 
-export function cliRequest(userId: string, method: 'status' | 'generate' | 'catalog', params: unknown, timeoutMs: number, signal?: AbortSignal): Promise<any> {
-  return withLegacyWork(userId, () => admittedRequest(userId, method, params, timeoutMs, signal));
+export function cliRequest(userId: string, method: 'status' | 'generate' | 'catalog', params: unknown, timeoutMs: number, signal?: AbortSignal, onToolCall?: NativeToolHandler): Promise<any> {
+  return withLegacyWork(userId, () => admittedRequest(userId, method, params, timeoutMs, signal, onToolCall));
 }
 
-function admittedRequest(userId: string, method: 'status' | 'generate' | 'catalog', params: unknown, timeoutMs: number, signal?: AbortSignal): Promise<any> {
-  if (cliRuntime(userId) === 'server') return method === 'status' ? refreshHosted(userId, signal) : method === 'catalog' ? hostedCatalog(userId, params, signal) : hostedGenerate(userId, params, signal);
+function admittedRequest(userId: string, method: 'status' | 'generate' | 'catalog', params: unknown, timeoutMs: number, signal?: AbortSignal, onToolCall?: NativeToolHandler): Promise<any> {
+  if (cliRuntime(userId) === 'server') return method === 'status' ? refreshHosted(userId, signal) : method === 'catalog' ? hostedCatalog(userId, params, signal) : hostedGenerate(userId, params, signal, onToolCall);
   const c = connections.get(userId);
   if (!c || c.ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error(CLI_OFFLINE));
+  if (method === 'generate' && hasNativeTools(params)) {
+    if (!c.nativeMcp) return Promise.reject(new Error('Your subscription CLI bridge needs an update for native tools. Reconnect it in Settings → Subscriptions using a freshly downloaded bridge script.'));
+    if (!onToolCall) return Promise.reject(new Error('Native CLI tool callback is unavailable.'));
+  }
   if (signal?.aborted) return Promise.reject(new Error('CLI request cancelled.'));
   const id = randomUUID();
+  const callbacks = new ToolCallbacks(method === 'generate' ? params : undefined, method === 'generate' ? onToolCall : undefined);
   return new Promise((resolve, reject) => {
     const cancel = () => {
-      if (c.ws.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ method: 'cancel', id }));
+      try { if (c.ws.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ method: 'cancel', id })); } catch { /* already disconnected */ }
     };
     const abort = () => { cancel(); finish(new Error('CLI request cancelled.')); };
     const timer = setTimeout(() => { cancel(); finish(new Error('CLI request timed out. No API fallback was used.')); }, timeoutMs);
     const finish = (error?: Error, value?: unknown) => {
       if (!c.pending.delete(id)) return;
+      callbacks.close();
       clearTimeout(timer);
       signal?.removeEventListener('abort', abort);
       if (error) reject(error); else resolve(value);
     };
-    c.pending.set(id, { finish });
+    const toolCall = (call: unknown) => {
+      const fail = (error: unknown) => { cancel(); finish(error instanceof Error ? error : new Error('Invalid native CLI tool call.')); };
+      const reply = (value: Record<string, unknown>) => {
+        if (!c.pending.has(id) || connections.get(userId) !== c || c.ws.readyState !== WebSocket.OPEN) return;
+        try { c.ws.send(JSON.stringify({ id, type: 'tool_result', callId: (call as any).id, ...value }), error => { if (error) fail(new Error(CLI_OFFLINE)); }); }
+        catch { fail(new Error('Invalid native CLI tool result.')); }
+      };
+      try { void callbacks.run(call).then(result => reply({ result }), error => reply({ error: error instanceof Error ? error.message.slice(0, 1000) : 'Native CLI tool call failed.' })); }
+      catch (error) { fail(error); }
+    };
+    c.pending.set(id, { finish, toolCall });
     signal?.addEventListener('abort', abort, { once: true });
     try { c.ws.send(JSON.stringify({ id, method, params }), (error) => { if (error) finish(new Error(CLI_OFFLINE)); }); }
     catch { finish(new Error(CLI_OFFLINE)); }
@@ -100,7 +118,7 @@ export function attachCliSocket(server: Server) {
           if (!userId || legacyWorkHeld(userId)) return ws.close(4401, 'invalid or expired pairing token');
           clearTimeout(handshake);
           disconnectCli(userId);
-          connection = { ws, device: String(msg.device ?? 'My computer').slice(0, 100), providers: missing(), pending: new Map() };
+          connection = { ws, device: String(msg.device ?? 'My computer').slice(0, 100), nativeMcp: msg.nativeMcp === true, providers: missing(), pending: new Map() };
           connections.set(userId, connection);
           ws.send(JSON.stringify({ type: 'welcome' }));
           void refreshCli(userId).catch(() => {});
@@ -109,6 +127,8 @@ export function attachCliSocket(server: Server) {
         if (!msg || typeof msg.id !== 'string') return;
         const pending = connection.pending.get(msg.id);
         if (!pending) return;
+        if (msg.type === 'tool_call') { pending.toolCall(msg.call); return; }
+        if (msg.type !== undefined && msg.type !== 'result' && msg.type !== 'error') return;
         pending.finish(typeof msg.error === 'string' ? new Error(msg.error.slice(0, 1000)) : undefined, msg.result);
       });
       ws.on('close', () => {

@@ -54,7 +54,7 @@ Normal connected-app chat in this checkout uses `SWARM_APPS_SEARCH` / `SWARM_APP
 
 The prompt permits an empty tool array on completion but the adapter rejects an entirely empty completion. A follow-up fix should distinguish a valid end after an already delivered answer/bookkeeping from an empty initial response or an unresolved app failure. Do not fix this by silently accepting every empty response or automatically replaying app writes. This behavior remains unchanged in this patch.
 
-## Follow-up: Claude reports `No such tool available: SWARM_APPS_SEARCH`
+## Initial follow-up: Claude reports `No such tool available: SWARM_APPS_SEARCH`
 
 The later GitHub screenshot shows a different failure on Sonnet Low: the account lookup succeeds, then the assistant claims app discovery is unavailable and suggests activating the agent. Both app wrappers are already permitted during setup; execution remains restricted to provider-verified reads. Activation is not required to verify an existing connection.
 
@@ -71,6 +71,14 @@ The follow-up repair:
 Validation: 131 focused tests passed across CLI runner/subscription/catalog/concurrency/hosted/supervisor suites and app read-only/connection suites. The process reproducer returns the requested search action before the fake CLI's missing-tool loop; tests cover split Unicode/JSON, malformed and unknown calls, oversized arguments, cancellation and descendant cleanup. A real WebSocket/Responses/agent-loop test using fixture CLI and provider implementations completes GitHub discovery and one read while setup remains in review. A captured write pauses for approval with zero provider executions. Typechecking and the production build passed.
 
 Deploy the server and the runner containing `companion/cli-bridge.mjs` together. Hosted tenant workers need the updated runner image; a personal computer bridge needs the updated script and a restart. Then retry the connection verification in the existing conversation. This action handoff is not token-by-token user-text streaming, and the tests do not establish production latency or live GitHub access.
+
+## Native MCP follow-up
+
+The [native MCP implementation](cli-native-mcp.md) supersedes the action-envelope workaround for queued Bot turns. Claude and Codex now receive actual registered tools and use a generation-scoped MCP server to return calls to Swarm's existing execution path. Reads and their results continue within one CLI generation, eliminating a new process/auth/prompt round for each ordinary tool step. Approvals, user questions and browser recovery retain explicit continuation boundaries. The structured action adapter remains available to non-Bot callers; memory requests remain structured-only.
+
+Full-path fixture tests demonstrate GitHub discovery and verification in a single generation, with live recorded tool steps, and approval/resume of a write with one provider execution. Downloaded single-file bridge and hosted execution tests exercise both Claude and Codex. Account and selected-computer context are preserved across callback transports. These establish the wiring and removed process rounds, not a measured production speedup. Final assistant text is still buffered, and provider inference, Composio operations and initial CLI startup still contribute to latency.
+
+For native MCP turns, `model_complete` measures the whole CLI generation, including its tool calls. Individual `tool` timings remain available. Do not add these overlapping durations or interpret the generation timer as pure model inference time.
 
 ## Controlled measurements
 

@@ -9,6 +9,8 @@ import type { CliProvider } from './store.js';
 import { assertTenant, isTenant } from '../deployment.js';
 import { isolatedRunner } from '../runtime/subscription-client.js';
 import { assertLegacyWorkOpen, legacyWorkHeld, withLegacyWork } from '../security/legacy-work.js';
+import type { NativeToolHandler } from './native-tools.js';
+import { hasNativeTools, ToolCallbacks } from './tool-callback.js';
 
 const require = createRequire(import.meta.url);
 // Claude uses OS Keychain on macOS; deleting a profile directory would leave
@@ -38,6 +40,7 @@ export interface RunnerOptions {
   fileCredentials?: boolean;
   signal?: AbortSignal;
   onData?: (data: string) => void;
+  onToolCall?: NativeToolHandler;
   cols?: number;
   rows?: number;
 }
@@ -132,12 +135,17 @@ export async function refreshHosted(userId: string, signal?: AbortSignal): Promi
   return providers;
 }
 
-export async function hostedGenerate(userId: string, params: unknown, signal?: AbortSignal) {
+export async function hostedGenerate(userId: string, params: unknown, signal?: AbortSignal, onToolCall?: NativeToolHandler) {
+  if (hasNativeTools(params) && !onToolCall) throw new Error('Native CLI tool callback is unavailable.');
   if (signingIn.has(userId)) throw new Error('CLI sign-in is in progress. Finish or cancel it before starting a model request.');
   return job(userId, signal, async (opts) => {
     const runner = await hostedRunner(); assertLegacyWorkOpen(userId);
     if (opts.signal?.aborted) throw new Error('CLI request cancelled.');
-    return runner.runGeneration(params, opts);
+    const callbacks = new ToolCallbacks(params, onToolCall);
+    const close = () => callbacks.close();
+    opts.signal?.addEventListener('abort', close, { once: true });
+    try { return await runner.runGeneration(params, { ...opts, ...(onToolCall ? { onToolCall: call => callbacks.run(call) } : {}) }); }
+    finally { callbacks.close(); opts.signal?.removeEventListener('abort', close); }
   });
 }
 

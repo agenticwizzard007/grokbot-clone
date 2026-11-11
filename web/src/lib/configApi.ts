@@ -113,15 +113,17 @@ async function inkboxSetup(p: { handle?: string; withPhone?: boolean; rotateSign
 export type BotPatch = Partial<Pick<Bot, 'name' | 'label' | 'description' | 'instructions' | 'avatarShape' | 'avatarColor' | 'effort' | 'mode' | 'model' | 'fast'>>;
 
 export type UsageRange = 'today' | '7d' | '30d' | 'month';
-export interface UsageRow { key: string; label: string; costUsd: number; tokens: number; requests: number; unpriced: number; minutes: number; recordings: number; characters: number; computerUsd?: number; computerHours?: number }
+export interface UsageCoverage { partialUsageRequests?: number; unavailableUsageRequests?: number; knownTokenRequests?: number; knownInputRequests?: number; knownOutputRequests?: number }
+export interface UsageRow extends UsageCoverage { key: string; label: string; costUsd: number; tokens: number; requests: number; unpriced: number; minutes: number; recordings: number; characters: number; computerUsd?: number; computerHours?: number }
 export interface UsageReport {
   range: { key: UsageRange; from: number; to: number };
   scope: 'me' | 'all';
   canSeeAll: boolean;
   canSeeProvider?: boolean;
   provider: string;
-  totals: { costUsd: number; estimatedUsd: number; unpricedRequests: number; unpricedVoice: number; inputTokens: number; cachedTokens: number; outputTokens: number; reasoningTokens: number; requests: number; toolCalls: number; voiceMinutes: number };
-  days: { day: string; costUsd: number; computerUsd: number; tokens: number; requests: number }[];
+  totals: { costUsd: number; estimatedUsd: number; unpricedRequests: number; unpricedVoice: number; inputTokens: number; cachedTokens: number; outputTokens: number; reasoningTokens: number; requests: number; toolCalls: number; voiceMinutes: number } & UsageCoverage;
+  accounting?: { unavailableUsage: 'counted'; tokenTotals: 'observed' };
+  days: ({ day: string; costUsd: number; computerUsd: number; tokens: number; requests: number } & UsageCoverage)[];
   computer: {
     costUsd: number; runningHours: number; asleepHours: number; archivedHours: number;
     now: { provider: string; state: 'running' | 'asleep' | 'archived'; cpus: number | null; memoryMb: number | null; diskGb: number | null; perHourUsd: number } | null;

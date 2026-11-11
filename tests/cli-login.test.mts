@@ -648,6 +648,26 @@ test('another session of the same account cannot operate the sign-in terminal', 
   assert.equal((await req(second,`/login/${terminal.id}`)).status,404);
 });
 
+test('a verified hosted subscription is shared by browser sessions of one account, independent of the login browser', async () => {
+  await login(alice, 'codex');
+  const second = `${alice}-ipad`;
+  db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at,last_seen_at,authenticated_at) VALUES(session_hash(?),?,?,?,?,?)')
+    .run(second, alice, Date.now(), Date.now() + 3_600_000, Date.now(), Date.now());
+  revokeSession(sessionHash(alice));
+  const status = await (await req(second)).json();
+  assert.equal(status.runtime, 'server');
+  assert.equal(status.selected, 'codex');
+  assert.equal(status.providers.codex.subscription, true);
+  assert.equal((await req(second, '/refresh', 'POST')).status, 200);
+  const other = await (await req(bob)).json();
+  assert.equal(other.selected, null);
+  assert.equal(other.providers.codex.authenticated, false);
+  const response: any = await withUsage({ userId: alice }, () => llmClient(3000).responses.create({ model: defaultModel(), input: 'Original browser is signed out. Use the saved server profile.' }));
+  assert.equal(response.provider, 'codex-cli');
+  assert.equal(response.billing, 'subscription');
+  assert.equal(cliRuntime(alice), 'server');
+});
+
 test('credential replacement requires recent authentication', async () => {
   db.prepare('UPDATE auth_sessions SET authenticated_at=? WHERE token=session_hash(?)').run(Date.now()-11*60000,alice);
   assert.equal((await req(alice,'/login','POST',{provider:'codex',cols:80,rows:24})).status,401);
