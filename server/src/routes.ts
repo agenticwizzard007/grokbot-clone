@@ -201,8 +201,18 @@ api.patch('/bots/:id', async (c) => {
   }
   if (p.effort !== undefined && !isEffort(p.effort)) return c.json({ error: 'bad effort' }, 400);
   if (p.fast !== undefined && typeof p.fast !== 'boolean') return c.json({ error: 'bad fast' }, 400);
+  // The inline configuration editor supplies its original text so a delayed or
+  // missed roster event cannot let one browser overwrite another browser's edit.
+  if (p.expectedInstructions !== undefined) {
+    if (typeof p.expectedInstructions !== 'string' || typeof p.instructions !== 'string' || p.instructions.length > 8000)
+      return c.json({ error: 'bad instructions' }, 400);
+    const result = db.prepare('UPDATE bots SET instructions=?, updated_at=? WHERE id=? AND user_id=? AND instructions=?')
+      .run(p.instructions, now(), b.id, c.get('user').id, p.expectedInstructions);
+    if (!result.changes) return c.json({ error: 'Instructions changed elsewhere. Reload the current instructions before saving.' }, 409);
+  }
   const cols: Record<string, string> = { name: 'name', label: 'label', description: 'description', instructions: 'instructions', avatarShape: 'avatar_shape', avatarColor: 'avatar_color', mode: 'mode', effort: 'effort', pinned: 'pinned', voice: 'voice', voiceSpeed: 'voice_speed', voiceLanguage: 'voice_language', model: 'model', fast: 'fast' };
   for (const [k, col] of Object.entries(cols)) {
+    if (k === 'instructions' && p.expectedInstructions !== undefined) continue;
     if (p[k] !== undefined) db.prepare(`UPDATE bots SET ${col}=?, updated_at=? WHERE id=?`).run(typeof p[k] === 'boolean' ? (p[k] ? 1 : 0) : p[k], now(), b.id);
   }
   if (getSetup(b.id)) {

@@ -46,6 +46,13 @@ export interface AgentSetupView {
   files: Record<string, string>;
 }
 
+export interface AgentInstructionPreview {
+  instructions: string;
+  stage: 'interviewing' | 'review' | 'active';
+  revision: number | null;
+  capturedAt: number;
+}
+
 export interface Bot {
   id: string;
   name: string;

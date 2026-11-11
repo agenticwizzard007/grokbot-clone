@@ -5,7 +5,7 @@ import { Hono } from 'hono';
 import { db, now } from './db.js';
 import './db-config.js';
 import { newId } from './lib/ids.js';
-import { requireUser, type AuthVars } from './lib/auth.js';
+import { requireUser, userFromCookieHeader, type AuthVars } from './lib/auth.js';
 import { getBotRow, listRoutines, listTasks } from './store.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -28,6 +28,8 @@ import type { Memory, Skill } from './types.js';
 import { getSetup, setupFiles } from './bot-setup.js';
 import { localAccess } from './computers/local-access.js';
 import { localComputerApi, localComputerStatus } from './computers/local-routes.js';
+import { systemPrompt } from './agent/prompt.js';
+import { withUsage } from './usage-context.js';
 
 /**
  * Bot settings, skills, library, computer controls and memory maintenance.
@@ -46,6 +48,24 @@ const ownBot = (userId: string, id: string) => {
 const toMemory = (m: any): Memory => ({ id: m.id, botId: m.bot_id, text: m.text, createdAt: m.created_at, source: m.source === 'learned' ? 'learned' : 'chat' });
 const toSkill = (s: any): Skill => ({ id: s.id, botId: s.bot_id, name: s.name, description: s.description ?? '', body: s.body, createdAt: s.created_at, updatedAt: s.updated_at ?? s.created_at });
 const listSkills = (botId: string) => (db.prepare('SELECT * FROM skills WHERE bot_id=? ORDER BY created_at ASC').all(botId) as any[]).map(toSkill);
+
+// A read-only preview from the same builder used for model requests. It does not
+// start an agent, read exported files, or call a model. Prompt content is private.
+configApi.get('/bots/:id/instructions', async (c) => {
+  c.header('Cache-Control', 'no-store');
+  const userId = c.get('user').id;
+  const b = ownBot(userId, c.req.param('id'));
+  if (!b || b.kind === 'room' || b.hidden) return c.json({ error: 'not found' }, 404);
+  const setup = getSetup(b.id);
+  const instructions = await withUsage({ userId, botId: b.id }, () => systemPrompt(userId, b.id));
+  if (userFromCookieHeader(c.req.header('cookie'))?.id !== userId) return c.json({ error: 'unauthenticated' }, 401);
+  const current = ownBot(userId, b.id);
+  if (!current) return c.json({ error: 'not found' }, 404);
+  if (getSetup(b.id)?.onboarding.revision !== setup?.onboarding.revision || current.updated_at !== b.updated_at) {
+    return c.json({ error: 'The configuration changed. Refresh the instruction preview.' }, 409);
+  }
+  return c.json({ instructions, stage: setup?.onboarding.status ?? 'active', revision: setup?.onboarding.revision ?? null, capturedAt: now() });
+});
 
 // ---------- settings bundle ----------
 
