@@ -2,7 +2,7 @@ import type { Server } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import { authenticateCli, cliRuntime, selectedCli, type CliProvider } from './store.js';
-import { hostedGenerate, hostedStatus, refreshHosted, serverLoginAvailable } from './hosted.js';
+import { hostedCatalog, hostedGenerate, hostedStatus, refreshHosted, serverLoginAvailable } from './hosted.js';
 import { legacyWorkHeld, withLegacyWork } from '../security/legacy-work.js';
 
 export interface CliAuthStatus { installed: boolean; authenticated: boolean; subscription: boolean; error?: string }
@@ -32,12 +32,12 @@ export function disconnectCli(userId: string) {
   }
 }
 
-export function cliRequest(userId: string, method: 'status' | 'generate', params: unknown, timeoutMs: number, signal?: AbortSignal): Promise<any> {
+export function cliRequest(userId: string, method: 'status' | 'generate' | 'catalog', params: unknown, timeoutMs: number, signal?: AbortSignal): Promise<any> {
   return withLegacyWork(userId, () => admittedRequest(userId, method, params, timeoutMs, signal));
 }
 
-function admittedRequest(userId: string, method: 'status' | 'generate', params: unknown, timeoutMs: number, signal?: AbortSignal): Promise<any> {
-  if (cliRuntime(userId) === 'server') return method === 'status' ? refreshHosted(userId, signal) : hostedGenerate(userId, params, signal);
+function admittedRequest(userId: string, method: 'status' | 'generate' | 'catalog', params: unknown, timeoutMs: number, signal?: AbortSignal): Promise<any> {
+  if (cliRuntime(userId) === 'server') return method === 'status' ? refreshHosted(userId, signal) : method === 'catalog' ? hostedCatalog(userId, params, signal) : hostedGenerate(userId, params, signal);
   const c = connections.get(userId);
   if (!c || c.ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error(CLI_OFFLINE));
   if (signal?.aborted) return Promise.reject(new Error('CLI request cancelled.'));

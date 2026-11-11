@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, hkdfSync, createCipheriv, createDecipheriv } from 'node:crypto';
 import {sealSecret,openSecret} from '../server/src/security/secret-envelope.js';
 import Database from 'better-sqlite3';
 import { backupEnvironment, restoreEnvironment } from '../server/src/platform/backup.js';
@@ -71,6 +71,7 @@ test('encrypted recovery is tenant-bound, rejects tampering and never overwrites
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'swarm-backup-')),data=path.join(root,'data'),bundle=path.join(root,'bundle'),tenant='usr_aaaaaaaa',master=randomBytes(32);
   try{
     fs.mkdirSync(path.join(data,'app'),{recursive:true});fs.mkdirSync(path.join(data,'files/bot'),{recursive:true});
+    fs.mkdirSync(path.join(data,'files/bot/empty'),{recursive:true});
     fs.writeFileSync(path.join(data,'tenant-manifest.json'),JSON.stringify({tenantId:tenant,volumeId:'vol_a'}));
     fs.writeFileSync(path.join(data,'files/bot/private.txt'),'tenant private content');
     fs.writeFileSync(path.join(data,'runtime-refresh'),'never include a host identity');
@@ -91,6 +92,7 @@ test('encrypted recovery is tenant-bound, rejects tampering and never overwrites
     assert.equal(fs.existsSync(path.join(root,'foreign')),false);
     const target=path.join(root,'restored');await restoreEnvironment(bundle,target,tenant,backup.id,'new_volume',master);
     assert.equal(fs.readFileSync(path.join(target,'files/bot/private.txt'),'utf8'),'tenant private content');assert.equal(fs.existsSync(path.join(target,'runtime-refresh')),false);
+    assert.ok(fs.statSync(path.join(target,'files/bot/empty')).isDirectory());
     const restored=new Database(path.join(target,'app/swarm.db'));assert.equal(restored.prepare('SELECT count(*) n FROM auth_sessions').get().n,0);
     assert.equal(restored.prepare("SELECT count(*) n FROM agent_jobs WHERE state='uncertain'").get().n,2);
     assert.equal(restored.prepare("SELECT state FROM agent_jobs WHERE id='already-done'").get().state,'completed');
@@ -104,6 +106,24 @@ test('encrypted recovery is tenant-bound, rejects tampering and never overwrites
     assert.equal(restored.prepare('SELECT count(*) n FROM mcp_oauth').get().n,0);assert.deepEqual(restored.prepare('SELECT tool FROM policies').all(),[{tool:'some-other-tool'}]);
     assert.throws(()=>openSecret(master,'usr_bbbbbbbb','mcp:restored-mcp',mcp.config),/ownership/);restored.close();
     await assert.rejects(restoreEnvironment(bundle,target,tenant,backup.id,'new_volume',master),/already exists/);
+    // Even correctly authenticated manifests must obey extraction boundaries.
+    const manifestFile=path.join(bundle,'manifest.bin'),originalManifest=fs.readFileSync(manifestFile);
+    const backupKey=Buffer.from(hkdfSync('sha256',master,backup.id,`swarm-backup:${tenant}:v1`,32)),aad=Buffer.from(JSON.stringify([tenant,backup.id,'manifest',1]));
+    try{
+      const decoder=createDecipheriv('aes-256-gcm',backupKey,originalManifest.subarray(0,12));decoder.setAAD(aad);decoder.setAuthTag(originalManifest.subarray(12,28));
+      const original=JSON.parse(Buffer.concat([decoder.update(originalManifest.subarray(28)),decoder.final()]).toString());
+      const rewrite=(manifest:any)=>{const iv=randomBytes(12),c=createCipheriv('aes-256-gcm',backupKey,iv);c.setAAD(aad);const encrypted=Buffer.concat([c.update(JSON.stringify(manifest)),c.final()]);fs.writeFileSync(manifestFile,Buffer.concat([iv,c.getAuthTag(),encrypted]));};
+      let attempt=0;
+      for(const directories of [['../escape'],['files/../../escape'],['files/x','files/x'],['app/secrets'],['files/bot/private.txt'],['files/bot/private.txt/child'],['files/bot/./child'],['files/'+'x/'.repeat(66)+'last'],['files//child'],{}]){
+        rewrite({...original,directories});const invalid=path.join(root,`invalid-${attempt++}`);
+        await assert.rejects(restoreEnvironment(bundle,invalid,tenant,backup.id,'new_volume',master));assert.equal(fs.existsSync(invalid),false);
+      }
+      // Older version-one bundles without directory metadata remain readable.
+      assert.equal(original.version,2);
+      const old={...original,version:1};delete old.directories;rewrite(old);
+      const compat=path.join(root,'legacy-format');await restoreEnvironment(bundle,compat,tenant,backup.id,'new_volume',master);
+      assert.equal(fs.readFileSync(path.join(compat,'files/bot/private.txt'),'utf8'),'tenant private content');
+    }finally{backupKey.fill(0);fs.writeFileSync(manifestFile,originalManifest);}
     const blob=fs.readFileSync(path.join(bundle,'1.bin'));blob[0]^=1;fs.writeFileSync(path.join(bundle,'1.bin'),blob);
     await assert.rejects(restoreEnvironment(bundle,path.join(root,'tampered'),tenant,backup.id,'new_volume',master));assert.equal(fs.existsSync(path.join(root,'tampered')),false);
     assert.equal(fs.readdirSync(root).some(n=>n.includes('.restoring-')),false);

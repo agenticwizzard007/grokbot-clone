@@ -1,3 +1,4 @@
+import { catalogModelId, cliCatalog } from '../cli/catalog.js';
 import { isTenant, assertTenant } from '../deployment.js';
 import { privateKey } from '../providers/private-keys.js';
 import OpenAI from 'openai';
@@ -62,7 +63,9 @@ export const defaultModel = () => {
 
 /** A Bot's own model if it suits the active provider (OpenRouter ids look like "vendor/model"), else the default. */
 export function modelFor(botModel?: string | null): string {
-  if (selectedCli(currentUserId()) || !botModel || /^(codex|claude)\/default$/.test(botModel)) return defaultModel();
+  const cli = selectedCli(currentUserId());
+  if (cli) return botModel?.startsWith(`${cli}/`) ? botModel : defaultModel();
+  if (!botModel || /^(codex|claude)\//.test(botModel)) return defaultModel();
   return (llmProvider() === 'openrouter') === botModel.includes('/') ? botModel : defaultModel();
 }
 
@@ -106,6 +109,24 @@ export function prepareInput(items: any[], model: string): any[] {
 
 export const tagOutput = (items: any[], model: string) => items.map((it) => (it && typeof it === 'object' ? { ...it, _m: modelTag(model) } : it));
 
+/** A text turn may follow old screenshots. Preserve their text and disclose omitted images;
+ * never drop an image from the current request or a tool result awaiting interpretation. */
+export function textOnlyInput(items: any[]): { input: any[]; omitted: number } {
+  const lastUser = items.findLastIndex(it => it?.role === 'user');
+  let omitted = 0;
+  const visit = (value: any, historical: boolean): any => {
+    if (!value || typeof value !== 'object') return value;
+    if (value.type === 'input_image') {
+      if (!historical) throw new Error('The selected model cannot read this request’s image or screenshot. Choose a model with image support.');
+      omitted++;
+      return { type: 'input_text', text: '[Earlier image omitted because this model accepts text only. Do not infer its contents. Ask the user to select an image-capable model if the image is needed.]' };
+    }
+    if (Array.isArray(value)) return value.map(v => visit(v, historical));
+    return Object.fromEntries(Object.entries(value).map(([key, v]) => [key, visit(v, historical)]));
+  };
+  return { input: items.map((item, index) => visit(item, lastUser >= 0 && index < lastUser)), omitted };
+}
+
 const EFFORT_ORDER = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 
 /**
@@ -127,7 +148,10 @@ export function effortFor(effort: string, supported: string[] | null | undefined
 
 /** Request fields that differ by provider. */
 export function providerFields(opts: { effort: string; reasoning: boolean; efforts?: string[] | null; cacheKey: string; safetyId: string }): Record<string, unknown> {
-  if (selectedCli(currentUserId())) return {};
+  if (selectedCli(currentUserId())) {
+    const effort = effortFor(opts.effort, opts.efforts);
+    return effort ? { reasoning: { effort } } : {};
+  }
   if (llmProvider() === 'direct') {
     // A compatible direct provider takes low | medium | high | xhigh.
     const direct = opts.effort === 'none' || opts.effort === 'minimal' ? 'low' : opts.effort === 'max' || opts.effort === 'ultracode' ? 'xhigh' : opts.effort;
@@ -159,7 +183,7 @@ export interface ModelInfo {
   reasoning: boolean;
   context: number;
   /** USD per million tokens. */
-  price: { input: number; output: number };
+  price: { input: number; output: number } | null;
 }
 
 let catalog: { at: number; models: ModelInfo[] } | null = null;
@@ -210,7 +234,14 @@ async function fetchModels(): Promise<ModelInfo[]> {
   return models;
 }
 
-export async function modelInfo(id: string): Promise<ModelInfo | undefined> {
+export async function modelInfo(id: string, explicit = false, signal?: AbortSignal): Promise<ModelInfo | undefined> {
+  const userId = currentUserId(), cli = selectedCli(userId);
+  if (cli && userId) {
+    if (id === `${cli}/default` && !explicit) return undefined;
+    const catalog = await cliCatalog(userId, cli, false, signal);
+    const effective = catalogModelId(cli, id, catalog);
+    return catalog.models.find(m => m.id === effective);
+  }
   if (llmProvider() !== 'openrouter') return undefined;
   const base = id.replace(/:nitro$/, '');
   return (await openrouterModels().catch(() => [] as ModelInfo[])).find((m) => m.id === base);

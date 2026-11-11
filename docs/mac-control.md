@@ -1,16 +1,16 @@
 # Use this Mac
 
-Swarm for macOS can run its own local companion as your signed-in Mac user. Open **Swarm → Use this Mac…**, **Mac Control → Use this Mac…**, or the Swarm menu-bar icon. The controls use a native window and remain available when the web interface is offline or its window is closed. iOS does not include this feature.
+Swarm for macOS can run its own local companion as your signed-in Mac user. Open **Settings → Computer**. This is the only device-access permission surface; **Settings → Permissions** contains saved agent action approvals and links to Computer. Native device-access controls appear directly in Computer settings. **Swarm → Computer & Device Access…**, the Mac Control menu, and the menu-bar icon navigate to Computer settings. Native Stop and Disconnect remain available from the menu bar if the website is offline or the main window is closed. iOS does not include local-device control.
 
-Sign in to your server in Swarm, check the account and server shown in the native window, and explicitly approve terminal, files, browsers, and desktop access. Choose **Approve and start**. All four approvals are required because the companion offers the full desktop protocol. Nothing starts automatically on install, app launch, login, or returning to the app. Quitting and reopening Swarm requires another explicit Start. Closing its windows alone leaves the menu-bar app and any running control active.
+The setup has three steps: review terminal, file, browser and desktop access; enable the required macOS privacy permissions; then choose **Connect this Mac**. Check the displayed account/server before approving. **Approve all** selects all four native access approvals; it does not grant macOS permissions or connect automatically. All four approvals are required because the companion offers the full desktop protocol. Nothing starts automatically on install, app launch, login, or returning to the app. Quitting and reopening Swarm requires another explicit connection. Closing its windows alone leaves the menu-bar app and any running control active.
 
 The approved account’s bots can run commands, read/change/delete files your user can access, use Playwright, and interact with apps and browsers on the real desktop. The companion runs without privilege elevation. macOS permissions still apply. Screen contents, command results and files used by tasks can reach your Swarm server and configured AI providers.
 
 ## Permissions and status
 
-The window and menu bar show **Stopped**, **Stopping…**, **Running · connecting**, or **Running · connected**. The window identifies the account by email or name and shows the server origin, connection errors and actual Accessibility/Screen Recording status. The account ID remains internal to the consent and token binding. Running describes the app-managed process; connected also requires the server to report its local connection.
+Settings show connection status, the account by email or name, the server origin, errors and actual Accessibility/Screen Recording status. Each permission explains what it enables and provides an Enable or Settings action. Protected-file and app-automation guidance is in the macOS permissions rows. The account ID remains internal to the consent and token binding. Running describes the app-managed process; connected also requires the server to report its local connection.
 
-The four access approvals belong to Swarm’s own control window; they do not grant Apple’s separate privacy permissions. Terminal and Playwright may start before desktop permissions are granted:
+The four access approvals belong to Swarm’s native settings controls; they do not grant Apple’s separate privacy permissions. Terminal and Playwright may start before desktop permissions are granted:
 
 | Permission | Behavior |
 | --- | --- |
@@ -41,17 +41,19 @@ The remembered pairing grant and consent are stored together in Keychain, scoped
 
 `POST /api/computer/local/pair` sends `{ "desktop": true }` and explicitly selects local mode for the signed-in account. Unused grants expire after ten minutes; a grant accepted by a first companion connection remains valid until revoked. Pairing may return HTTP 409 while computer tasks are running; wait for them to finish. GET `/api/computer/local` provides the selected preference and connection/capability status. The companion receives `--desktop --local-device` and connects through `/api/companion/local`, separately from the cloud computer transport.
 
-No generic JavaScript-to-native shell bridge or inbound remote-control listener is installed. Explicit CDP attachment uses the companion’s private loopback relay to pin its approved upstream endpoint. Only the native consent UI starts the companion. It receives an explicit environment with the real OS user’s HOME and login shell, its bundled Node in PATH, and no inherited Node/DYLD injection options or app credentials. Companion stdout/stderr are discarded so tokens and task data are not written to app logs; the native window reports exit status and recovery guidance.
+No generic JavaScript-to-native shell bridge or inbound remote-control listener is installed. An isolated WebKit content world reports only the native settings surface's placement; page JavaScript cannot access that handler, grant consent, pair, start a process or read tokens. Placement accepts only the configured server's main frame and hides on navigation or overlaid web dialogs. Older hosted Computer settings pages receive the same inline native controls without requiring a server update. Permissions never places native controls, including when an older page still supplies a placement slot. Explicit CDP attachment uses the companion’s private loopback relay to pin its approved upstream endpoint. Only native consent controls start the companion. It receives an explicit environment with the real OS user’s HOME and login shell, its bundled Node in PATH, and no inherited Node/DYLD injection options or app credentials. Companion stdout/stderr are discarded so tokens and task data are not written to app logs; native settings report exit status and recovery guidance.
 
 ## Browsers
 
 For managed browser mode, install Google Chrome or Chromium in `/Applications` (Chrome may also be in `~/Applications`). The app checks this requirement before pairing; explicit CDP attachment does not require another local Chrome installation. Playwright uses a separate persistent managed Chrome profile; it does not copy cookies from your everyday profile or reopen it behind your back. Desktop permission and the native browser approval allow bots to interact with whatever browser you have visibly open, including signed-in websites.
 
-The native **Advanced: attach Playwright to an existing browser** section accepts an optional CDP endpoint and requires a separate explicit approval for that browser and its signed-in tabs. An empty field keeps managed Chrome. The endpoint must use http(s) or ws(s) on literal `127.0.0.1`, `[::1]` or `localhost`, without credentials, query, fragment, whitespace or backslash. Native validation pins localhost to `127.0.0.1`; the companion validates the discovered WebSocket endpoint and refuses redirects. Native additionally rejects port zero and noncanonical loopback aliases.
+The native **Use an existing browser** section accepts an optional CDP endpoint and requires a separate explicit approval for that browser and its signed-in tabs. An empty field keeps managed Chrome. The endpoint must use http(s) or ws(s) on literal `127.0.0.1`, `[::1]` or `localhost`, without credentials, query, fragment, whitespace or backslash. Native validation pins localhost to `127.0.0.1`; the companion validates the discovered WebSocket endpoint and refuses redirects. Native additionally rejects port zero and noncanonical loopback aliases.
 
 Only an explicitly entered, approved endpoint is passed as `--browser-cdp`. Endpoint and attachment approval stay in memory and are cleared on account/session/server changes. Changing them stops in-flight control. The user must supply an already-running debuggable browser; Swarm does not enable debugging, start/restart that browser, or copy its profile. Stop detaches Playwright and leaves the external browser open. Keep debugging endpoints private because they expose browser control. Playwright dependencies are bundled, and no `npx` or dependency install occurs when a bot calls a browser tool.
 
 ## Build an installable Mac app
+
+The native settings bundle the OFL-licensed Instrument Sans font at weight 550, matching the Paper brand guidelines. The checked-in Xcode project and XcodeGen sources both include the font and license.
 
 The `Swarm-macOS` target is an unsandboxed, hardened-runtime app for direct Developer ID distribution. It is not a Mac App Store sandbox build. The iOS target, entitlements, authentication, App Intent, and voice behavior remain unchanged.
 
@@ -63,7 +65,7 @@ scripts/apple.sh ios
 scripts/apple.sh test
 ```
 
-Those development builds need no staged payload. If the complete runtime is absent, **Approve and start** reports an actionable missing-runtime error; chat, authentication and voice remain usable.
+Those development builds need no staged payload. If the complete runtime is absent, **Connect this Mac** reports an actionable missing-runtime error; chat, authentication and voice remain usable.
 
 Packaging requires a build machine with Node 22+, npm, Xcode and its command-line tools. XcodeGen is optional when using the checked-in project. Run from the repository root:
 

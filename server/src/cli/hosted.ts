@@ -43,6 +43,7 @@ export interface RunnerOptions {
 }
 interface Runner {
   checkProviders(options: RunnerOptions): Promise<CliProviders>;
+  readCatalog(params: unknown, options: RunnerOptions): Promise<unknown>;
   runGeneration(params: unknown, options: RunnerOptions): Promise<unknown>;
   startLogin(provider: CliProvider, options: RunnerOptions): Promise<LoginHandle>;
 }
@@ -138,6 +139,11 @@ export async function hostedGenerate(userId: string, params: unknown, signal?: A
     if (opts.signal?.aborted) throw new Error('CLI request cancelled.');
     return runner.runGeneration(params, opts);
   });
+}
+
+export async function hostedCatalog(userId: string, params: unknown, signal?: AbortSignal) {
+  if (signingIn.has(userId)) throw new Error('Finish CLI sign-in before refreshing models.');
+  return job(userId, signal, async opts => (await hostedRunner()).readCatalog(params, opts));
 }
 
 export function stopHostedJobs(userId: string) {

@@ -8,6 +8,8 @@ import { agentsMarkdown, creationContext, getSetup, setupMissing } from '../bot-
 import { mcpForBot } from '../mcp/store.js';
 import { isLive, listUserLinks } from '../messaging/store.js';
 import { isPlaceholderEmail } from '../accounts.js';
+import { RECOVERY_PROMPT } from './browser-recovery.js';
+import { screenLink } from './captcha.js';
 
 export async function systemPrompt(userId: string, botId: string): Promise<string> {
   const bot = getBotRow(botId);
@@ -73,6 +75,9 @@ ${textingLine(userId)}${bot.is_primary ? `- You CAN create permanent teammates d
 - create_bot writes a draft setup, preserves the selected user brief, adds the Bot to the team, and starts its own setup-consultant interview. Tell the user to open the new Bot’s chat to specify its exact functions, then review and activate it in Configuration. It has AGENTS.md, SOUL.md and workflow files. Operational work and any initial assignment wait until activation. Report computer status separately. If computer setup is pending, use retry_bot_setup after the connection is restored. Never create another Bot just to retry setup.
 - Use replicate_bot to reproduce an existing teammate’s saved role with a fresh browser. Use handoff_message only for an initial assignment the user requested.` : `- To create a permanent teammate, send the complete user brief to ${primary?.name ?? 'the current primary Bot'} using send_to_bot. You can coordinate with teammates directly across chats.`}
 - Use spawn_subagent only for temporary parallel helpers that disappear after the task. Do not describe subagents as real team Bots.
+
+${RECOVERY_PROMPT}
+Your live screen for user handoffs: ${screenLink(botId)}
 
 ## Style
 - Follow the working style specified in your persistent charter (SOUL.md). When it does not specify a preference, be short, warm and direct. No headings for simple replies. Use markdown lists or tables only when they help.

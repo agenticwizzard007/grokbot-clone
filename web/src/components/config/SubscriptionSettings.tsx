@@ -1,3 +1,4 @@
+import { useModels } from '../../lib/models';
 import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, Copy, ExternalLink, KeyRound, RefreshCw, Terminal } from 'lucide-react';
 import { cliApi, type CliProvider, type CliProviderStatus, type CliStatus } from '../../lib/cliApi';
@@ -36,6 +37,7 @@ function providerState(provider: CliProviderStatus | undefined, connected: boole
 type Action = 'load' | 'pair' | 'refresh' | 'codex' | 'claude' | 'api' | 'revoke';
 
 export function SubscriptionSettings() {
+  const modelCatalog = useModels();
   const [providerTab, setProviderTab] = useState<CliProvider>('claude');
   const [authMethod, setAuthMethod] = useState<'cli' | 'api'>('cli');
   const [loginProvider, setLoginProvider] = useState<CliProvider | null>(null);
@@ -353,6 +355,11 @@ export function SubscriptionSettings() {
       <section className="cfg-section subscription-settings__coverage" aria-labelledby="subscription-limits-title">
         <h2 className="cfg-section__label" id="subscription-limits-title">Usage and coverage</h2>
         <p>All your Bots share your plan across desktop, phone and linked iMessage or WhatsApp. Your provider’s usage limits and extra usage charges still apply.</p>
+        {status?.selected && modelCatalog.billing === 'plan' && <div className="cfg-card" aria-label="Connected plan usage">
+          <p>{modelCatalog.plan ? `Reported plan: ${modelCatalog.plan}` : 'Plan name unavailable from the CLI.'}</p>
+          {modelCatalog.status === 'loading' ? <p>Checking plan usage…</p> : modelCatalog.usage?.available ? modelCatalog.usage.windows.map((w, i) => <p key={i}>{w.label}: {w.usedPercent}% used{w.resetsAt !== null ? ` · Resets ${new Date(w.resetsAt).toLocaleString()}` : ''}</p>) : <p>Plan usage unavailable from the CLI. Check your provider account for current limits.</p>}
+          {modelCatalog.usage && <p>Checked {new Date(modelCatalog.usage.checkedAt).toLocaleString()}</p>}
+        </div>}
         <p>Your subscription covers model usage. Platform-provided voice and external services are separate and have their own billing.</p>
       </section>
     </div>

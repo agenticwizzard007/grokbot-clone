@@ -29,10 +29,24 @@ try {
   const cli = path.join(root, 'fake-cli.mjs');
   await fs.writeFile(cli, `#!/usr/bin/env node
 import fs from 'node:fs';
+import { createInterface } from 'node:readline';
 const args = process.argv.slice(2);
 if (args[0] === 'login') { console.error('Logged in using ChatGPT'); process.exit(0); }
 if (args[0] === 'auth') { console.log(JSON.stringify({loggedIn:true,authMethod:'claude.ai',subscriptionType:'max'})); process.exit(0); }
-let prompt = ''; for await (const chunk of process.stdin) prompt += chunk;
+let prompt = '';
+for await (const line of createInterface({ input: process.stdin })) {
+ let r; try {r=JSON.parse(line);} catch {}
+ const method=r?.method??r?.request?.subtype;
+ if (!method) {prompt+=line+'\\n';continue;}
+ const codex=args[0]==='app-server';
+ const reply=value=>console.log(JSON.stringify(codex?{id:r.id,result:value}:{type:'control_response',response:{subtype:'success',request_id:r.request_id,response:value}}));
+ if(method==='initialize')reply(codex?{}:{account:{subscriptionType:'max'},models:['account-vision','account-alternate'].map(value=>({value,displayName:value,supportsEffort:true,supportedEffortLevels:['low','high']}))});
+ if(method==='account/read')reply({account:{type:'chatgpt',planType:'pro'}});
+ if(method==='model/list')reply({data:['account-vision','account-alternate'].map((model,i)=>({model,displayName:model,isDefault:i===0,inputModalities:['text','image'],supportedReasoningEfforts:[{reasoningEffort:'low'},{reasoningEffort:'high'}],defaultReasoningEffort:'low'})),nextCursor:null});
+ if(method==='account/rateLimits/read')reply({rateLimits:{primary:{usedPercent:19,windowDurationMins:300}}});
+ if(method==='get_usage')reply({subscription_type:'max',rate_limits_available:true,rate_limits:{five_hour:{utilization:23,resets_at:null}}});
+}
+fs.appendFileSync(${JSON.stringify(path.join(root, 'generations.jsonl'))}, JSON.stringify({args})+'\\n');
 const reply = {text:'Subscription bridge integration reply.',tool_calls:[]};
 if (args[0] === 'exec') {
   fs.writeFileSync(args[args.indexOf('--output-last-message')+1], JSON.stringify(reply));
@@ -71,9 +85,13 @@ if (args[0] === 'exec') {
   for (const provider of ['codex', 'claude']) {
     const selected = await api('/cli', 'PUT', { provider });
     assert.equal(selected.selected, provider);
-    const sent = (await api(`/bots/${bot.id}/messages`, 'POST', { text: `Reply through ${provider}.` })).row;
-    const reply = await until(async () => (await api(`/bots/${bot.id}/rows`)).rows.find((r) => r.seq > sent.seq && r.body.role === 'assistant' && !r.body.streaming));
-    assert.equal(reply.body.text, 'Subscription bridge integration reply.');
+    const catalog=await api('/models');assert.equal(catalog.billing,'plan');assert.equal(catalog.models.length,2);
+    for (const model of catalog.models) {
+      await api(`/bots/${bot.id}`,'PATCH',{model:model.id,effort:'high'});
+      const sent = (await api(`/bots/${bot.id}/messages`, 'POST', { text: `Reply through ${model.id}.` })).row;
+      const reply = await until(async () => (await api(`/bots/${bot.id}/rows`)).rows.find((r) => r.seq > sent.seq && r.body.role === 'assistant' && !r.body.streaming));
+      assert.equal(reply.body.text, 'Subscription bridge integration reply.');
+    }
   }
   const report = await api('/usage?range=today');
   assert.equal(report.totals.costUsd, 0);
@@ -94,9 +112,13 @@ if (args[0] === 'exec') {
     assert.equal(status.runtime, 'server');
     assert.equal(status.selected, provider);
     assert.equal(status.providers[provider].subscription, true);
-    const sent = (await api(`/bots/${bot.id}/messages`, 'POST', { text: `Hosted ${provider} reply.` })).row;
-    const reply = await until(async () => (await api(`/bots/${bot.id}/rows`)).rows.find((r) => r.seq > sent.seq && r.body.role === 'assistant' && !r.body.streaming));
-    assert.equal(reply.body.text, 'Subscription bridge integration reply.');
+    const catalog=await api('/models');assert.equal(catalog.billing,'plan');assert.equal(catalog.models.length,2);
+    for (const model of catalog.models) {
+      await api(`/bots/${bot.id}`,'PATCH',{model:model.id,effort:'high'});
+      const sent = (await api(`/bots/${bot.id}/messages`, 'POST', { text: `Hosted ${model.id} reply.` })).row;
+      const reply = await until(async () => (await api(`/bots/${bot.id}/rows`)).rows.find((r) => r.seq > sent.seq && r.body.role === 'assistant' && !r.body.streaming));
+      assert.equal(reply.body.text, 'Subscription bridge integration reply.');
+    }
   }
   assert.equal((await fs.readdir(path.join(root, 'cli-profiles'))).length, 1);
   const disconnected = await api('/cli/pair', 'DELETE');
@@ -104,7 +126,10 @@ if (args[0] === 'exec') {
   assert.equal(disconnected.selected, 'claude');
   assert.equal(disconnected.connected, false);
   assert.deepEqual(await fs.readdir(path.join(root, 'cli-profiles')), []);
-  console.log('PASS: both hosted login terminals and bridge CLIs, Bot chat, subscription accounting, offline no-fallback behavior, and hosted profile deletion.');
+  const generations=(await fs.readFile(path.join(root,'generations.jsonl'),'utf8')).trim().split('\n').map(JSON.parse);
+  for(const model of ['account-vision','account-alternate']) assert.equal(generations.filter(g=>g.args[g.args.indexOf('--model')+1]===model).length,4,'each discovered model is used by both providers through both runtimes');
+  for(const {args} of generations) assert.ok(args.includes('--effort') ? args[args.indexOf('--effort')+1]==='high' : args.includes('model_reasoning_effort="high"'));
+  console.log('PASS: actual catalog selections/efforts across both hosted login terminals and bridge CLIs, Bot chat, subscription accounting, offline no-fallback behavior, and hosted profile deletion.');
 } catch (error) {
   console.error(logs.slice(-5000));
   throw error;

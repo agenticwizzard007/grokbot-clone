@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomBytes,createHash,createCipheriv,createDecipheriv,hkdfSync } from 'node:crypto';
 import Database from 'better-sqlite3';
-import { prepareMigrationPackage } from '../server/src/platform/migration-package.js';
+import { prepareMigrationPackage,rewrapLegacyRollbackCredentials } from '../server/src/platform/migration-package.js';
+import {sealSecret} from '../server/src/security/secret-envelope.js';
 const owner='usr_aaaaaaaa',other='usr_bbbbbbbb',secret='old-server-session-secret-only-for-tests';
 function encrypted(who:string,purpose:string,value:any){const key=Buffer.from(hkdfSync('sha256',secret,who,'swarm-private-secrets-v1',32)),iv=randomBytes(12),c=createCipheriv('aes-256-gcm',key,iv);c.setAAD(Buffer.from(JSON.stringify([who,purpose,1])));const content=Buffer.concat([c.update(JSON.stringify(value)),c.final()]);key.fill(0);return `private1:${Buffer.concat([iv,c.getAuthTag(),content]).toString('base64url')}`;}
 function decrypt(key:Buffer,who:string,purpose:string,value:string){const b=Buffer.from(value.slice(9),'base64url'),d=createDecipheriv('aes-256-gcm',key,b.subarray(0,12));d.setAAD(Buffer.from(JSON.stringify([who,purpose,1])));d.setAuthTag(b.subarray(12,28));return JSON.parse(Buffer.concat([d.update(b.subarray(28)),d.final()]).toString());}
@@ -51,4 +52,53 @@ test('migration package preserves only owned files and authenticated credentials
     await assert.rejects(prepareMigrationPackage({sourceSnapshot:source,tenant:owner,volume:'new_volume',destination:path.join(root,'unsafe'),sourceSessionSecret:secret,targetKey:key,filesRoot:files,cliProfilesRoot:profiles}),/Source directory|symlink/);
     assert.equal(fs.existsSync(path.join(root,'unsafe')),false);
   }finally{if(db.open)db.close();key.fill(0);fs.rmSync(root,{recursive:true,force:true});}
+});
+
+for(const failure of ['none','foreign-ciphertext','wrong-key','foreign-row','malformed-secret','shared-database'] as const)test(`rollback credential preparation ${failure} preserves authenticated ownership and requires reconciled import`,t=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'swarm-rollback-keys-')),file=path.join(root,'rollback.db'),key=randomBytes(32);
+  t.after(()=>{key.fill(0);fs.rmSync(root,{recursive:true,force:true});});
+  const db=new Database(file);
+  db.exec(`CREATE TABLE tenant_identity(singleton INTEGER PRIMARY KEY,tenant_id TEXT);INSERT INTO tenant_identity VALUES(1,'${owner}');
+    CREATE TABLE users(id TEXT PRIMARY KEY);INSERT INTO users VALUES('${owner}');
+    CREATE TABLE provider_connections(user_id TEXT,provider TEXT,encrypted_key TEXT,key_hint TEXT,key_hash TEXT);
+    CREATE TABLE private_api_keys(user_id TEXT,provider TEXT,secret TEXT);
+    CREATE TABLE apple_refresh_tokens(user_id TEXT,client_id TEXT,token TEXT);
+    CREATE TABLE mcp_servers(id TEXT PRIMARY KEY,user_id TEXT,config TEXT,revision INTEGER,tools TEXT,checked_at INTEGER,error TEXT);
+    CREATE TABLE mcp_oauth(connection_id TEXT PRIMARY KEY,user_id TEXT,revision INTEGER,secret TEXT);
+    CREATE TABLE approvals(id TEXT,status TEXT,resolved_at INTEGER);INSERT INTO approvals VALUES('pending','pending',NULL);
+    CREATE TABLE policies(tool TEXT);INSERT INTO policies VALUES('mcp_saved'),('bot:mcp_saved'),('other_tool');`);
+  db.prepare('INSERT INTO provider_connections VALUES(?,?,?,?,?)').run(owner,'openrouter',sealSecret(key,owner,'provider:openrouter','owner-router'),'hint','hash');
+  db.prepare('INSERT INTO private_api_keys VALUES(?,?,?)').run(owner,'voice',sealSecret(key,owner,'api:voice','owner-voice'));
+  db.prepare('INSERT INTO apple_refresh_tokens VALUES(?,?,?)').run(owner,'native',sealSecret(key,owner,'apple:native','owner-apple'));
+  const config={enabled:true,botIds:['bot_a'],folders:['bot_a/docs'],name:'Private MCP',requireApproval:false,headers:{authorization:'owner-mcp'}};
+  db.prepare('INSERT INTO mcp_servers VALUES(?,?,?,7,?,1,NULL)').run('mcp_a',owner,sealSecret(key,owner,'mcp:mcp_a',config),'[{}]');
+  db.prepare('INSERT INTO mcp_oauth VALUES(?,?,7,?)').run('mcp_a',owner,sealSecret(key,owner,'mcp-oauth:mcp_a:7',{tokens:{access_token:'owner-oauth'},verifier:'pending-verifier'}));
+  if(failure==='foreign-ciphertext')db.prepare('UPDATE private_api_keys SET secret=?').run(sealSecret(key,other,'api:voice','foreign-private-key'));
+  if(failure==='foreign-row')db.prepare('UPDATE private_api_keys SET user_id=?').run(other);
+  if(failure==='malformed-secret')db.prepare('UPDATE private_api_keys SET secret=?').run(sealSecret(key,owner,'api:voice',{not:'a key'}));
+  if(failure==='shared-database')db.prepare('INSERT INTO users VALUES(?)').run(other);
+  const tables=['provider_connections','private_api_keys','apple_refresh_tokens','mcp_servers','mcp_oauth','approvals','policies'];
+  const rows=()=>Object.fromEntries(tables.map(table=>[table,db.prepare(`SELECT * FROM ${table}`).all()]));
+  const before=rows();db.close();
+  const usedKey=failure==='wrong-key'?randomBytes(32):Buffer.from(key);
+  if(failure!=='none'){
+    assert.throws(()=>rewrapLegacyRollbackCredentials(file,owner,usedKey,secret),/owner|Foreign|integrity/);
+    const verify=new Database(file);try{assert.deepEqual(Object.fromEntries(tables.map(table=>[table,verify.prepare(`SELECT * FROM ${table}`).all()])),before);}finally{verify.close();usedKey.fill(0);}
+    return;
+  }
+  assert.deepEqual(rewrapLegacyRollbackCredentials(file,owner,usedKey,secret),{tenant:owner,requiresReconciledImport:true,routingChanged:false});usedKey.fill(0);
+  const legacyKey=Buffer.from(hkdfSync('sha256',secret,owner,'swarm-private-secrets-v1',32)),legacy=new Database(file);
+  try{
+    const value=(table:string,column:string,purpose:string)=>decrypt(legacyKey,owner,purpose,(legacy.prepare(`SELECT ${column} value FROM ${table}`).get() as any).value);
+    assert.equal(value('provider_connections','encrypted_key','provider:openrouter'),'owner-router');
+    assert.equal(value('private_api_keys','secret','api:voice'),'owner-voice');
+    assert.equal(value('apple_refresh_tokens','token','apple:native'),'owner-apple');
+    assert.deepEqual(value('mcp_servers','config','mcp:mcp_a'),{...config,enabled:false,botIds:[],folders:[],requireApproval:true});
+    assert.deepEqual(value('mcp_oauth','secret','mcp-oauth:mcp_a:8'),{tokens:{access_token:'owner-oauth'}});
+    assert.equal((legacy.prepare('SELECT revision FROM mcp_servers').get() as any).revision,8);
+    assert.equal((legacy.prepare('SELECT status FROM approvals').get() as any).status,'denied');
+    assert.deepEqual(legacy.prepare('SELECT tool FROM policies').all(),[{tool:'other_tool'}]);
+    assert.throws(()=>decrypt(key,owner,'api:voice',(legacy.prepare('SELECT secret FROM private_api_keys').get() as any).secret));
+    assert.throws(()=>decrypt(legacyKey,other,'api:voice',(legacy.prepare('SELECT secret FROM private_api_keys').get() as any).secret));
+  }finally{legacyKey.fill(0);legacy.close();}
 });

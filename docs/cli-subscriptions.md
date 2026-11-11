@@ -9,7 +9,7 @@ Use a ChatGPT account eligible for Codex, or a Claude account eligible for Claud
 1. Open **Settings → Subscriptions**, select **Claude Code** or **Codex**, and click **Login**. Swarm starts the official CLI in a real terminal embedded in the page.
 2. Open the official HTTPS sign-in link printed in the terminal. Codex uses device authorization; Claude uses its subscription login. Complete the provider's browser flow and paste a code into the terminal if prompted. Keep the terminal open until sign-in finishes. Closing it cancels the login process.
 3. Swarm checks the CLI's authentication status. A verified subscription login becomes the selected provider for the account. An API-key or unverified login is rejected.
-4. Use any of your Bots. Chat, tasks, routines, tool calls, bot handoffs, history summaries, and memory use the selected CLI's default model. Per-Bot API model and thinking-effort overrides are inactive while a subscription is selected.
+4. Use any of your Bots. The model selector shows **Plan** for subscription connections and **API** for API connections. Select from the connected CLI’s reported models and effort levels. Saved API selections use the CLI default until you choose a Plan model; they never trigger API billing. Background summaries and memory use the CLI default.
 
 Your phone, desktop, and messaging identity must belong to the **same Swarm account**. Link your number in Messaging settings before using iMessage, SMS, or WhatsApp. Messaging transport still needs its own configured integration. Each Bot keeps its conversations and approvals; all Bots share the subscription's allowance and rate limits.
 
@@ -70,14 +70,14 @@ Use **Advanced · connect your own computer** if you prefer keeping credentials 
 
 3. Refresh the connection status, then choose **ChatGPT via Codex** or **Claude via Claude Code**. Swarm checks subscription authentication before allowing the selection, and the bridge checks again before every request.
 
-4. Leave the bridge running. Your Bots now use the selected CLI's default model, including text conversations, tool calls, tasks, routines, bot handoffs, history summaries and learned memory. Per-Bot API model and thinking-effort overrides are inactive while a subscription is selected.
+4. Leave the bridge running. Your Bots can select the connected CLI’s reported models and supported effort levels, just as in hosted mode. Text, images, tool calls, tasks, routines and bot handoffs use that connection; history summaries and learned memory use its default model.
 
 For remote Swarm servers, `SERVER_URL` must be a URL your computer can reach. Use HTTPS outside localhost and allow WebSocket upgrades for `/api/cli-bridge` through the reverse proxy. The bridge connects outward; no inbound port is needed on your computer. The bridge runs independently of the computer companion, so CLI model access can be combined with local or cloud Bot computers.
 
 ## Billing and capabilities
 
 - Swarm does not use model API keys when a subscription is selected. Missing authentication, rate limits, an unavailable runner, and CLI failures stop the request. **API providers** is an explicit user action; disconnecting a server profile or revoking a bridge does not enable API mode.
-- Subscription limits and any provider-enabled extra usage or purchased credits still apply. Manage those settings in your provider account. Swarm cannot report an exact remaining subscription allowance. Its usage report records CLI token counts with zero Swarm model API charges and `subscription` as the cost source; it does not measure subscription fees or provider extra usage charges.
+- Subscription limits and any provider-enabled extra usage or purchased credits still apply. Manage those settings in your provider account. The selector and Subscriptions settings show the plan name and usage windows reported by the CLI, with a check time. Missing or unsupported usage readings show as unavailable, never as zero. These are provider snapshots, not guaranteed remaining message counts. Its usage report records CLI token counts with zero Swarm model API charges and `subscription` as the cost source; it does not measure subscription fees or provider extra usage charges.
 - Tool requests return through Swarm's existing execution and approval system. Both runner modes disable native CLI tools and do not grant the model an extra shell. Browser/computer tools, connected apps, and MCP tools still run through Swarm.
 - Screenshots and uploaded images are passed to the CLI. Provider-hosted search tools are unavailable in this mode; Bots can use configured browser or MCP tools for research.
 - CLI output is validated as a complete structured response before being displayed or executed, so text arrives after each model step rather than token by token.
@@ -100,3 +100,17 @@ Use this connection for the account holder's trusted Swarm installation. The ser
 Official references: [Codex authentication](https://developers.openai.com/codex/auth/), [Codex non-interactive execution](https://developers.openai.com/codex/noninteractive/), [Claude Code authentication](https://code.claude.com/docs/en/authentication), and [Claude Code CLI reference](https://code.claude.com/docs/en/cli-reference).
 
 Run `npm run test:cli` for isolated fake-CLI, real PTY, authenticated HTTP, and WebSocket integration tests. These tests do not spend subscription allowance or API credits; live login and inference require the account holder's authenticated CLI.
+
+## Model discovery and image handling
+
+The installed CLI is the source for subscription model choices. Codex uses its read-only app-server `model/list`, `account/read` and `account/rateLimits/read` methods; Claude uses the SDK control `initialize` model list and `get_usage` report. Discovery sends no prompt or inference turn. Catalogs are scoped to the signed-in Swarm account and runner location, refreshed when the picker opens, and cached server-side for at most 30 seconds. Changing credentials or provider invalidates them. If a bridge is too old to implement catalog discovery, update the bridge; Swarm does not substitute a preset API list.
+
+Both the composer and Bot settings refresh on reopening, including after a failed catalog read. A late response or account change cannot restore old choices. Saved `codex/default` and `claude/default` selections resolve to the catalog default for model capabilities, effort validation and generation; the saved preference remains a default alias.
+
+`--model` and the provider’s effort option reach the actual generation subprocess. Unsupported model IDs or efforts are rejected before generation. API Fast routing and Swarm’s custom Ultracode choice are not offered as plan modes. Claude aliases retain the canonical model identifier reported by the CLI. A **Plan** badge identifies the connection, not a promise that every model is included without overage: provider entitlements, extra-usage settings and model availability still apply. Gemini/Grok models cannot run through a Claude or Codex plan.
+
+A text-only model can continue a new plain-text turn after older screenshots. Swarm substitutes explicit image-omission markers and shows a notice, without changing stored history. An image in the current request or a new tool result is never removed; the user must choose an image-capable model. If an API catalog advertises vision but the endpoint returns the reported image-input 404, only historical images may be omitted for one retry on the same model and provider. There is no provider or API-billing fallback.
+
+Verification: `npm run test:cli`, `npm run test:models`, and `node tests/model-selector-ui.mjs` cover fake-provider control protocols, every fixture catalog selection through hosted and bridge HTTP chat, saved default aliases through Bot turns, capability failures, account isolation and browser rendering. Browser checks exercise both the composer and Bot settings, including catalog refresh, failed reads, late responses and account changes. These checks do not establish live account entitlement, actual inference, hosted provider policy, or tenant container containment. Test those separately on the intended signed-in account and qualified host.
+
+Protocol references: [Codex app-server](https://developers.openai.com/codex/app-server/), [Claude SDK reference](https://code.claude.com/docs/en/agent-sdk/typescript), [Claude model configuration](https://code.claude.com/docs/en/model-config).

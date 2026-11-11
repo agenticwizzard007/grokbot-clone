@@ -18,7 +18,7 @@ interface Journal {
   backup:string;packageHash:string;parts:Part[];receipt:Awaited<ReturnType<typeof prepareMigrationPackage>>;
 }
 export interface MigrationTransferInput extends Omit<MigrationPackageInput,'targetKey'|'destination'> {
-  operation:string;checkpoint:string;workDirectory:string;
+  operation:string;checkpoint:string;workDirectory:string;reviewedInventoryHash:string;
 }
 const digest=(value:string)=>/^[a-f0-9]{64}$/.test(value);
 class SourceChanged extends Error {}
@@ -45,7 +45,7 @@ async function partDigest(root:string,name:string):Promise<Part>{
 export class MigrationTransfer {
   constructor(private directory:Directory,private envelopes:Pick<TenantEnvelopes,'create'|'key'>,private storage:BackupStorage,private source:Pick<MigrationSource,'inspect'|'frozen'|'stop'>){}
   async upload(input:MigrationTransferInput){
-    if(!/^usr_[A-Za-z0-9_-]{8,100}$/.test(input.tenant)||! /^[A-Za-z0-9_-]{1,120}$/.test(input.operation)||!digest(input.checkpoint)||! /^[A-Za-z0-9_-]{1,120}$/.test(input.volume))throw new Error('Invalid migration transfer identity.');
+    if(!/^usr_[A-Za-z0-9_-]{8,100}$/.test(input.tenant)||! /^[A-Za-z0-9_-]{1,120}$/.test(input.operation)||!digest(input.checkpoint)||!digest(input.reviewedInventoryHash)||! /^[A-Za-z0-9_-]{1,120}$/.test(input.volume))throw new Error('Invalid migration transfer identity or reviewed inventory.');
     if(!path.isAbsolute(input.workDirectory)||fs.realpathSync(path.dirname(input.workDirectory))!==path.dirname(input.workDirectory))throw new Error('Migration workspace must have a canonical absolute parent.');
     const lease=opaqueToken(),owner=input.tenant;
     const operation=await this.directory.transaction(async client=>{
@@ -88,7 +88,7 @@ export class MigrationTransfer {
       if(!fs.existsSync(input.workDirectory))fs.mkdirSync(input.workDirectory,{mode:0o700});
       const workspace=fs.lstatSync(input.workDirectory);
       if(!workspace.isDirectory()||workspace.isSymbolicLink()||fs.realpathSync(input.workDirectory)!==input.workDirectory||workspace.uid!==process.getuid?.()||(workspace.mode&0o077)!==0)throw new Error('Migration workspace is not private.');
-      const binding={version:1,tenant:owner,operation:input.operation,checkpoint:input.checkpoint,sourceFence:operation.source_fence,volume:input.volume};
+      const binding={version:1,tenant:owner,operation:input.operation,checkpoint:input.checkpoint,sourceFence:operation.source_fence,volume:input.volume,reviewedInventoryHash:input.reviewedInventoryHash};
       const bindingPath=path.join(input.workDirectory,'binding.json');
       if(fs.existsSync(bindingPath)){
         const fd=openOwnedFile(input.workDirectory,'binding.json');
@@ -212,7 +212,7 @@ export class MigrationTransfer {
     if(!source||source.tenant!==input.tenant||source.checkpoint!==input.checkpoint||source.fence!==fence||source.writersStopped!==true||source.filesFrozen!==true)throw new Error('Migration requires the exact complete frozen source checkpoint.');
   }
   private validateJournal(input:MigrationTransferInput,fence:string,j:Journal){
-    if(!j||j.version!==1||j.tenant!==input.tenant||j.operation!==input.operation||j.checkpoint!==input.checkpoint||j.sourceFence!==fence||j.volume!==input.volume||!Array.isArray(j.parts)||j.parts.length<2||j.parts.length>MAX_BACKUP_PARTS||j.packageHash!==packageHash(j)||j.receipt?.tenant!==input.tenant||j.receipt.volume!==input.volume||j.receipt.requiresFileInventory!==false)throw new Error('Migration journal does not match the admitted export.');
+    if(!j||j.version!==1||j.tenant!==input.tenant||j.operation!==input.operation||j.checkpoint!==input.checkpoint||j.sourceFence!==fence||j.volume!==input.volume||!Array.isArray(j.parts)||j.parts.length<2||j.parts.length>MAX_BACKUP_PARTS||j.packageHash!==packageHash(j)||j.receipt?.tenant!==input.tenant||j.receipt.volume!==input.volume||j.receipt.requiresFileInventory!==false||j.receipt.sourceInventoryHash!==input.reviewedInventoryHash)throw new Error('Migration journal does not match the admitted export.');
     backupLocation(j.tenant,j.backup);
     let total=0;const names=new Set<string>();
     for(const part of j.parts){backupLocation(j.tenant,j.backup,part.name);if(names.has(part.name)||!Number.isSafeInteger(part.bytes)||part.bytes<0||!digest(part.sha256))throw new Error('Invalid migration journal part.');names.add(part.name);total+=part.bytes;}

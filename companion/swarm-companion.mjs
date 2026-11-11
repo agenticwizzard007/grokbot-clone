@@ -754,8 +754,9 @@ class BotBrowser {
         else this.cdp.send('Target.createTarget', { url: 'about:blank' }).then((r) => this.attach(r.targetId)).catch(() => {});
       }
     } else if (method === 'Page.javascriptDialogOpening') {
-      // alert/confirm/prompt/beforeunload would block the page; accept them.
-      this.cdp.send('Page.handleJavaScriptDialog', { accept: true, promptText: '' }, sessionId).catch(() => {});
+      // Clear informational alerts. Confirm/prompt/beforeunload may authorize a destructive
+      // action or discard work; cancel those in this screenshot-only browser.
+      this.cdp.send('Page.handleJavaScriptDialog', { accept: params.type === 'alert', promptText: '' }, sessionId).catch(() => {});
     } else if (method === 'Page.screencastFrame') {
       this.cdp.send('Page.screencastFrameAck', { sessionId: params.sessionId }, sessionId).catch(() => {});
       if (this.screencasting && sessionId === this.active?.sessionId) this.onFrame(this.botId, params.data);

@@ -21,6 +21,7 @@ import {HostInstallations,hostInstallationRoutes} from './host-installations.js'
 import { runtimeOperations } from './runtime-operations.js';
 import { signupAdminRoutes } from './signup-routes.js';
 import { SessionNotifications } from './session-notifications.js';
+import { startOperationsMetrics } from './operations-metrics.js';
 
 export async function startPlatform() {
   const directory=new Directory(),origin=process.env.PLATFORM_URL!;
@@ -81,8 +82,10 @@ export async function startPlatform() {
   });
   const webDist=path.resolve(new URL('.',import.meta.url).pathname,'../../../web/dist');
   if(fs.existsSync(webDist)){app.use('/*',serveStatic({root:path.relative(process.cwd(),webDist)}));app.get('*',c=>c.html(fs.readFileSync(path.join(webDist,'index.html'),'utf8')));}
+  const metrics=await startOperationsMetrics(directory,'platform',{state:()=>({ready:broker.ready})})
+    .catch(async error=>{notifications.stop();await directory.pool.end();throw error;});
   const server=serve({fetch:app.fetch,port:Number(process.env.PORT??8787)});
   broker.attach(server as unknown as Server);
-  server.on('close',()=>notifications.stop());
+  server.on('close',()=>{notifications.stop();void metrics?.close().catch(()=>{});});
   return {server,directory};
 }

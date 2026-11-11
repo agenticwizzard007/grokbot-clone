@@ -1,0 +1,100 @@
+rule_files:
+  - swarm-alerts.yml
+evaluation_interval: 1m
+tests:
+  - name: Sustained backup failures deduplicate replicas and resolve on recovery
+    interval: 1m
+    input_series:
+      - series: 'up{job="swarm-operations",deployment="test",instance="platform-1",role="platform"}'
+        values: '1+0x12'
+      - series: 'swarm_operations_overdue_database_backups{job="swarm-operations",deployment="test",instance="platform-1"}'
+        values: '0 0 2 2 2 2 2 0 0 0'
+      - series: 'swarm_operations_overdue_database_backups{job="swarm-operations",deployment="test",instance="provisioner-1"}'
+        values: '0 0 2 2 2 2 2 0 0 0'
+    promql_expr_test:
+      - expr: 'ALERTS{alertname="SwarmDatabaseBackupsLate",alertstate="firing"}'
+        eval_time: 3m
+        exp_samples: []
+      - expr: 'ALERTS{alertname="SwarmDatabaseBackupsLate",alertstate="firing"}'
+        eval_time: 4m
+        exp_samples:
+          - labels: 'ALERTS{alertname="SwarmDatabaseBackupsLate",alertstate="firing",deployment="test",severity="critical"}'
+            value: 1
+      - expr: 'ALERTS{alertname="SwarmDatabaseBackupsLate",alertstate="firing"}'
+        eval_time: 8m
+        exp_samples: []
+  - name: One failed listener is visible despite a healthy platform replica
+    interval: 1m
+    input_series:
+      - series: 'up{job="swarm-operations",deployment="test",instance="platform-1",role="platform"}'
+        values: '1+0x8'
+      - series: 'swarm_service_ready{job="swarm-operations",deployment="test",instance="platform-1",role="platform"}'
+        values: '1 1 0 0 0 1 1 1'
+      - series: 'swarm_service_ready{job="swarm-operations",deployment="test",instance="platform-2",role="platform"}'
+        values: '1+0x8'
+    promql_expr_test:
+      - expr: 'ALERTS{alertname="SwarmServiceNotReady",alertstate="firing"}'
+        eval_time: 2m
+        exp_samples: []
+      - expr: 'ALERTS{alertname="SwarmServiceNotReady",alertstate="firing"}'
+        eval_time: 3m
+        exp_samples:
+          - labels: 'ALERTS{alertname="SwarmServiceNotReady",alertstate="firing",deployment="test",instance="platform-1",role="platform",job="swarm-operations",severity="critical"}'
+            value: 1
+      - expr: 'ALERTS{alertname="SwarmServiceNotReady",alertstate="firing"}'
+        eval_time: 6m
+        exp_samples: []
+  - name: Failed scrape and missing exporter do not become all clear
+    interval: 1m
+    input_series:
+      - series: 'up{job="swarm-operations",deployment="test",instance="platform-1",role="platform"}'
+        values: '0+0x5'
+    promql_expr_test:
+      - expr: 'ALERTS{alertname="SwarmOperationsScrapeFailed",alertstate="firing"}'
+        eval_time: 2m
+        exp_samples:
+          - labels: 'ALERTS{alertname="SwarmOperationsScrapeFailed",alertstate="firing",deployment="test",instance="platform-1",role="platform",job="swarm-operations",severity="critical"}'
+            value: 1
+  - name: Entire missing target inventory alerts
+    interval: 1m
+    input_series: []
+    promql_expr_test:
+      - expr: 'ALERTS{alertname="SwarmOperationsTargetsMissing",alertstate="firing"}'
+        eval_time: 5m
+        exp_samples:
+          - labels: 'ALERTS{alertname="SwarmOperationsTargetsMissing",alertstate="firing",job="swarm-operations",severity="critical"}'
+            value: 1
+  - name: Unknown migration writer pages and resolves
+    interval: 1m
+    input_series:
+      - series: 'up{job="swarm-operations",deployment="test",instance="platform-1"}'
+        values: '1+0x6'
+      - series: 'swarm_operations_migration_reconciliation{job="swarm-operations",deployment="test",instance="platform-1"}'
+        values: '0 1 1 0 0 0'
+    promql_expr_test:
+      - expr: 'ALERTS{alertname="SwarmMigrationRequiresReconciliation",alertstate="firing"}'
+        eval_time: 2m
+        exp_samples:
+          - labels: 'ALERTS{alertname="SwarmMigrationRequiresReconciliation",alertstate="firing",deployment="test",severity="critical"}'
+            value: 1
+      - expr: 'ALERTS{alertname="SwarmMigrationRequiresReconciliation",alertstate="firing"}'
+        eval_time: 4m
+        exp_samples: []
+  - name: Hung work alerts despite healthy readiness and lease renewal
+    interval: 1m
+    input_series:
+      - series: 'up{job="swarm-operations",deployment="test",instance="provisioner-1",role="provisioner"}'
+        values: '1+0x5'
+      - series: 'swarm_service_ready{job="swarm-operations",deployment="test",instance="provisioner-1",role="provisioner"}'
+        values: '1+0x5'
+      - series: 'swarm_provisioner_oldest_tick_seconds{job="swarm-operations",deployment="test",instance="provisioner-1",role="provisioner"}'
+        values: '1799 1801 1861 0 0'
+    promql_expr_test:
+      - expr: 'ALERTS{alertname="SwarmProvisionerTickStalled",alertstate="firing"}'
+        eval_time: 2m
+        exp_samples:
+          - labels: 'ALERTS{alertname="SwarmProvisionerTickStalled",alertstate="firing",deployment="test",instance="provisioner-1",role="provisioner",job="swarm-operations",severity="critical"}'
+            value: 1
+      - expr: 'ALERTS{alertname="SwarmProvisionerTickStalled",alertstate="firing"}'
+        eval_time: 4m
+        exp_samples: []

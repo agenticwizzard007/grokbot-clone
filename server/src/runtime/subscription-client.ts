@@ -48,6 +48,11 @@ export const isolatedRunner = {
     const [codex, claude] = await Promise.all((['codex', 'claude'] as const).map(provider => connect(options, { operation: 'status', provider }).done));
     return { codex, claude };
   },
+  async readCatalog(params: unknown, options: RunnerOptions) {
+    const provider = (params as { provider?: string })?.provider;
+    if (provider !== 'codex' && provider !== 'claude') throw new Error('Select a subscription provider.');
+    return connect(options, { operation: 'catalog', provider }).done;
+  },
   async runGeneration(params: unknown, options: RunnerOptions) {
     const provider = (params as { provider?: string })?.provider;
     if (provider !== 'codex' && provider !== 'claude') throw new Error('Select a subscription provider.');

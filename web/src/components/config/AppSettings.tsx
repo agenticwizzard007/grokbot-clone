@@ -21,6 +21,7 @@ import { AppleSignIn } from '../AppleSignIn';
 import { api } from '../../lib/api';
 import { useCompactLayout } from '../../lib/useCompactLayout';
 import { isNativeApp } from '../../lib/native';
+import { DeviceAccessSection } from './DeviceAccessSection';
 import '../../styles/settings.css';
 
 // Swarms settings design for desktop, phone, Mac, and iPhone.
@@ -33,8 +34,8 @@ const NAV: { group: string; items: NavItem[] }[] = [
     { id: 'usage', label: 'Usage', icon: Gauge, keywords: 'cost spend money dollars tokens requests billing limits' },
   ] },
   { group: 'Bots', items: [
-    { id: 'computer', label: 'Computer', icon: Monitor, keywords: 'vm cloud browser screen desktop pc companion sleep wake reset' },
-    { id: 'permissions', label: 'Permissions', icon: ShieldCheck, keywords: 'approvals always allow ask again tools' },
+    { id: 'computer', label: 'Computer', icon: Monitor, keywords: 'vm cloud browser screen desktop pc companion sleep wake reset device access accessibility recording files automation' },
+    { id: 'permissions', label: 'Permissions', icon: ShieldCheck, keywords: 'approvals always allow ask again tools device access accessibility recording files automation' },
   ] },
   { group: 'Integrations', items: [
     { id: 'apps', label: 'Connected apps', icon: Blocks, keywords: 'composio gmail google calendar slack notion integrations connect' },
@@ -415,7 +416,8 @@ function ComputerSection() {
 
   return (
     <>
-      <PageHead title="Computer" sub="Your Bots share one cloud computer. Each Bot works on its own screen." />
+      <PageHead title="Computer" sub="Choose where agents work and manage access to your device." />
+      <DeviceAccessSection />
       <section className="cfg-section">
         <h2 className="cfg-section__label">Status</h2>
         <div className="cfg-card">
@@ -508,9 +510,10 @@ function LocalComputerSection({ details, reload }: { details: ComputerDetails | 
 
   return (
     <>
-      <PageHead title="Computer" sub={desktop
+      <PageHead title="Computer" sub={nativeMac ? 'Manage this Mac’s device access and connection for your account.' : desktop
         ? 'Your Bots use your own computer: its full desktop and apps, your default browser, and a shell. They take turns, one Bot at a time.'
         : 'Your Bots use a Chrome browser on your own PC. Each Bot gets its own browser profile there, separate from yours.'} />
+      <DeviceAccessSection />
       <section className="cfg-section">
         <h2 className="cfg-section__label">Status</h2>
         <div className="cfg-card">
@@ -521,7 +524,7 @@ function LocalComputerSection({ details, reload }: { details: ComputerDetails | 
               <div className="cfg-row__sub">
                 {connected
                   ? `${computer?.device?.name ?? 'PC'}${computer?.device?.platform ? ` · ${computer.device.platform}` : ''} · ${desktop ? 'Your Bots can use this desktop now.' : 'Your Bots can browse now.'}`
-                  : nativeMac ? 'Open the Swarm desktop app → Mac Control to start. Your tasks stay on this Mac while it is offline.' : paired ? 'Paired, but the companion isn’t running. Start it again on your PC, or connect a new one.' : desktop ? 'Connect a PC so your Bots can use its desktop.' : 'Connect a PC so your Bots can use a browser.'}
+                  : nativeMac ? 'Use the device access controls above in the Swarm Mac app to connect. Tasks stay on this Mac while it is offline.' : paired ? 'Paired, but the companion isn’t running. Start it again on your PC, or connect a new one.' : desktop ? 'Connect a PC so your Bots can use its desktop.' : 'Connect a PC so your Bots can use a browser.'}
               </div>
             </div>
             {!nativeMac && <div className="settings-row__actions">
@@ -540,7 +543,7 @@ function LocalComputerSection({ details, reload }: { details: ComputerDetails | 
               )}
             </div>}
           </div>
-          {nativeMac && <div className="cfg-field__hint">Manage permissions, Stop, or Disconnect in the Swarm desktop app → Mac Control. Terminal commands run as your Mac user. Playwright uses managed Chrome; desktop controls can use your existing browser windows.</div>}
+          {nativeMac && <div className="cfg-field__hint">Manage access, Stop, or Disconnect above in the Swarm Mac app. Terminal commands run as your Mac user. Playwright uses managed Chrome; desktop controls can use your existing browser windows.</div>}
           {pairing && !connected && (
             <div className="cfg-pair">
               <div className="cfg-pair__step">On your PC (needs <b>Node.js 22+</b>{desktop ? <> on macOS or Linux</> : <> and <b>Google Chrome</b></>}), run this in a terminal and keep it running:</div>
@@ -609,9 +612,10 @@ function PermissionsSection() {
   useEffect(() => { load(); }, [load]);
   return (
     <>
-      <PageHead title="Permissions" sub="Actions your Bots can take without asking first. Remove one and they’ll ask again next time." />
+      <PageHead title="Permissions" sub="Choose which agent actions can run without asking again." />
       <section className="cfg-section">
-        <h2 className="cfg-section__label">Always allowed</h2>
+        <h2 className="cfg-section__label">Actions you’ve always allowed</h2>
+        <p>These are individual tool approvals. Remove a choice to have your agents ask again.</p>
         <div className="cfg-card">
           {policies === null ? <div className="cfg-empty cfg-empty--flat">Loading…</div> : policies.length === 0 ? (
             <div className="cfg-empty cfg-empty--flat">Nothing here yet. When you choose “Always allow” on an approval, it shows up here.</div>
@@ -629,6 +633,10 @@ function PermissionsSection() {
           })}
         </div>
       </section>
+      <div className="device-access-link" data-swarm-device-access-link="">
+        <span>Looking for device access?</span>
+        <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().openAppSettings('computer')}>Computer settings <ChevronRight size={14} aria-hidden /></button>
+      </div>
     </>
   );
 }

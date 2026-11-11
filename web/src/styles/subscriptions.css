@@ -90,6 +90,21 @@
 .subscription-settings .cli-login-terminal__screen { min-width: 0; height: 300px; padding: 16px; overflow: hidden; }
 .subscription-settings .cli-login-terminal__screen .xterm { height: 100%; }
 .subscription-settings .cli-login-terminal__screen .xterm-viewport { scrollbar-width: thin; }
+.subscription-settings .cli-login-terminal__code { display: flex; flex-direction: column; gap: 8px; padding: 16px; border-top: 1px solid var(--color-border-tertiary); background: var(--color-bg-pane); }
+.subscription-settings .cli-login-terminal__code > label { color: var(--color-text-primary); font-size: 13px; font-weight: 500; }
+.subscription-settings .cli-login-terminal__code-row { display: flex; align-items: stretch; gap: 10px; margin-top: 4px; }
+.subscription-settings .cli-login-terminal__code-field { display: flex; flex: 1; min-width: 0; border: 1px solid var(--color-border-secondary); border-radius: 10px; overflow: hidden; background: var(--color-bg-subtle); }
+.subscription-settings .cli-login-terminal__code-field:focus-within { border-color: var(--color-border-focus); outline: 2px solid var(--subscription-selection); }
+.subscription-settings .cli-login-terminal__code-field input { width: 100%; min-width: 0; min-height: 44px; padding: 10px 12px; border: 0; outline: none; background: transparent; color: var(--color-text-primary); font: 13px/20px var(--font-mono-stack); }
+.subscription-settings .cli-login-terminal__code-field input::placeholder { color: var(--color-text-tertiary); }
+.subscription-settings .cli-login-terminal__code-visibility { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none; min-width: 72px; padding: 8px 12px; color: var(--color-text-secondary); font-size: 12px; }
+.subscription-settings .cli-login-terminal__code-visibility:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.subscription-settings .cli-login-terminal__code-row > .cfg-btn { min-height: 44px; height: auto; white-space: nowrap; }
+.subscription-settings .cli-login-terminal__success { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 24px; background: var(--color-bg-pane); }
+.subscription-settings .cli-login-terminal__success-icon { color: var(--color-success-text); }
+.subscription-settings .cli-login-terminal__success h3 { margin: 0; color: var(--color-text-primary); font-size: 18px; line-height: 26px; font-weight: 500; }
+.subscription-settings .cli-login-terminal__success p { max-width: 480px; }
+.subscription-settings .cli-login-terminal__success .subscription-settings__actions { margin-top: 4px; }
 .subscription-settings .cli-login-terminal__footer { padding: 14px 16px; border-top: 1px solid var(--color-border-tertiary); color: var(--color-text-secondary); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
 .subscription-settings .cli-login-terminal__error { color: var(--color-danger-text); }
 .subscription-settings .cli-login-terminal button:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
@@ -116,6 +131,10 @@
   .subscription-settings .cli-login-terminal__title { font-size: 13px; }
   .subscription-settings .cli-login-terminal__state { padding: 3px 7px; }
   .subscription-settings .cli-login-terminal__screen { height: 300px; padding: 14px 12px; }
+  .subscription-settings .cli-login-terminal__code { padding: 14px 12px; }
+  .subscription-settings .cli-login-terminal__code-row { flex-direction: column; }
+  .subscription-settings .cli-login-terminal__code-field input { font-size: 16px; }
+  .subscription-settings .cli-login-terminal__success { padding: 20px 16px; }
   .subscription-settings .cli-login-terminal__footer { padding: 12px; }
 }
 @media (max-width: 360px) {
