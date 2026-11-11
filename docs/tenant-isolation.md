@@ -13,7 +13,7 @@ Each immutable Swarm account owns one Fly application, private network, microVM 
 | `composio-gateway` | Narrow connection and tool API; callbacks and triggers | Platform-owned Composio project credential, PostgreSQL, runtime verification public key, event encryption access |
 | tenant host | Verify release/volume identity, renew runtime identity, supervise containers and backups | Root-only bootstrap/refresh and host token, only this tenant's data key and volume |
 | `tenant` | One account's application, SQLite WAL, files, Bots, approvals, MCP and durable jobs | Tenant data key and runtime token; no platform database, Fly, Composio or AWS credential |
-| `standalone` | The existing single shared server, local development and compatibility tests | Shared process; unsuitable for isolating unrelated tenants. Allowed in production only when `SWARM_ROLE=standalone` is set explicitly |
+| `standalone` | The existing single shared server (legacy boot path), local development and compatibility tests | Shared process; not per-user isolation and never counts toward isolation qualification. Allowed in production only when `SWARM_ROLE=standalone` is set explicitly |
 
 `server/src/index.ts` loads only the selected application role. The tenant database owner, configured immutable ID and volume manifest must agree. The tenant application's server accepts routed requests carrying short-lived signed authorization. Incoming browser identity headers are stripped at the platform; they cannot choose a tenant or VM.
 

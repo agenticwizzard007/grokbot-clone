@@ -11,7 +11,7 @@ An administrator configures one **xAI API key** for voice. Every existing and ne
 
 Alternatively, store `XAI_API_KEY` in the hosted server's secret store. Never put it in native app resources, web environment variables, source control or chat. `XAI_BASE_URL` defaults to `https://api.x.ai/v1`; override it only for a trusted compatible server or local tests.
 
-Only `ADMIN_EMAILS` / `ADMIN_PHONES` (or the first account when neither is configured) can change platform credentials. App-saved keys are encrypted with the server's `SESSION_SECRET`, override deployment secrets and take effect immediately. Keep `SESSION_SECRET` stable. Removing an app key reveals an underlying deployment key if one exists; remove both to disable platform voice. Key rotation/removal affects new requests; already issued short-lived credentials and active provider sessions are not revoked by that action.
+Only server administrators (`ADMIN_USER_IDS` or an `account_roles` admin entry; owners configured by `ADMIN_PHONES` are mapped to the role once at upgrade) can change platform credentials. App-saved keys are encrypted with the server's `SESSION_SECRET`, override deployment secrets and take effect immediately. Keep `SESSION_SECRET` stable. Removing an app key reveals an underlying deployment key if one exists; remove both to disable platform voice. Key rotation/removal affects new requests; already issued short-lived credentials and active provider sessions are not revoked by that action.
 
 ## Behavior and billing
 

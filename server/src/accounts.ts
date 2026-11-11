@@ -1,6 +1,7 @@
 import { legacyWritableRows } from './platform/legacy-database-fence.js';
 import crypto from 'node:crypto';
 import { db, now } from './db.js';
+import { deploymentRole } from './deployment.js';
 import { env } from './env.js';
 import { newId } from './lib/ids.js';
 import { createBot } from './bots.js';
@@ -27,6 +28,31 @@ addColumn('users', 'invited_by', 'TEXT');
 addColumn('users', 'timezone', 'TEXT');
 addColumn('users', 'onboarded_at', 'INTEGER');
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_phone ON users(phone) WHERE phone IS NOT NULL');
+
+/**
+ * Administrators are account_roles rows or ADMIN_USER_IDS: authority is bound to immutable account ids. A shared server
+ * upgraded from the rule that granted its owner by ADMIN_PHONES is mapped once: the first time it starts with no
+ * administrator configured, each existing account whose verified phone is listed in ADMIN_PHONES receives the role.
+ * Phones never grant the role afterwards, and tenant/platform processes never run this. Returns the ids granted.
+ */
+export function bootstrapAdministrators(): string[] {
+  if (deploymentRole !== 'standalone' || (process.env.ADMIN_USER_IDS ?? '').trim()) return [];
+  if (db.prepare("SELECT 1 FROM account_roles WHERE role='admin' LIMIT 1").get()) return [];
+  const phones = (process.env.ADMIN_PHONES ?? '').split(',').map((p) => p.replace(/\D/g, '')).filter(Boolean);
+  if (!phones.length) return [];
+  const granted = db.transaction(() => {
+    const ids: string[] = [];
+    const grant = db.prepare("INSERT OR IGNORE INTO account_roles(user_id, role) VALUES (?, 'admin')");
+    for (const phone of phones) {
+      const row = db.prepare('SELECT id FROM users WHERE phone=?').get(phone) as { id: string } | undefined;
+      if (row) { grant.run(row.id); ids.push(row.id); }
+    }
+    return ids;
+  })();
+  if (granted.length) console.log(`[accounts] administrator role recorded for ${granted.join(', ')} from ADMIN_PHONES (one-time mapping; manage it with ADMIN_USER_IDS or account_roles from now on)`);
+  return granted;
+}
+bootstrapAdministrators();
 
 export const PLACEHOLDER_DOMAIN = 'phone.invalid';
 export const placeholderEmail = (phone: string) => `tel+${phone.replace(/\D/g, '')}@${PLACEHOLDER_DOMAIN}`;
