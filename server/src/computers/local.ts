@@ -563,7 +563,7 @@ const localProvider: ComputerProvider = {
   kind: 'local',
   get capabilities() {
     const id = currentUserId();
-    return { shell: DESKTOP || MULTI, browser: DESKTOP ? (id && companions.has(id) ? companions.get(id)!.device.browser : DEVICE) : undefined };
+    return { shell: DESKTOP || MULTI, browser: MULTI ? true : DESKTOP ? (id && companions.has(id) ? companions.get(id)!.device.browser : DEVICE) : undefined };
   },
   promptFor: (userId) => {
     if (!DESKTOP) return localProvider.promptLine;

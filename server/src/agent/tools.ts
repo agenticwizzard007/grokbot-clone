@@ -42,6 +42,8 @@ export interface ToolResult {
   /** Responses API function_call_output.output: string or content array (text + images). */
   output: string | any[];
   summary?: string;
+  /** Preserve tool-reported failures in the dispatch journal, UI and native MCP result. */
+  isError?: boolean;
   /** End the turn after this tool (e.g. a question was asked). */
   endTurn?: boolean;
   /** Drop subsequent calls planned before this unexpected result and let the model inspect it. */
@@ -344,9 +346,12 @@ export const TOOLS: ToolDef[] = [
     activity: 'working',
     label: 'Removing a routine',
     impl: async (a, ctx) => {
-      unscheduleRoutine(a.routine_id);
-      await deleteEventTrigger(a.routine_id);
-      db.prepare('DELETE FROM routines WHERE id=? AND bot_id=?').run(a.routine_id, ctx.botId);
+      const id = String(a.routine_id);
+      const routine = db.prepare('SELECT r.id FROM routines r JOIN bots b ON b.id=r.bot_id WHERE r.id=? AND r.bot_id=? AND b.user_id=?').get(id, ctx.botId, ctx.userId);
+      if (!routine) return { output: 'No such routine.' };
+      unscheduleRoutine(id);
+      await deleteEventTrigger(id);
+      db.prepare('DELETE FROM routines WHERE id=? AND bot_id=?').run(id, ctx.botId);
       hub.emit(ctx.userId, { type: 'routines', botId: ctx.botId });
       return { output: 'Deleted.' };
     },
@@ -458,8 +463,11 @@ export const TOOLS: ToolDef[] = [
     label: 'Wrapping up a helper',
     impl: async (a, ctx) => {
       const { interrupt } = await import('./loop.js');
-      interrupt(String(a.subagent_id));
-      return { output: deleteSubagent(ctx.botId, String(a.subagent_id)) ? 'Stopped and removed.' : 'No such subagent.' };
+      const id = String(a.subagent_id);
+      const child = db.prepare('SELECT id FROM bots WHERE id=? AND parent_bot_id=? AND user_id=?').get(id, ctx.botId, ctx.userId);
+      if (!child) return { output: 'No such subagent.' };
+      interrupt(id);
+      return { output: deleteSubagent(ctx.botId, id) ? 'Stopped and removed.' : 'No such subagent.' };
     },
   },
   {
@@ -610,7 +618,7 @@ export const TOOLS: ToolDef[] = [
           ? [{ type: 'input_text', text: text || 'Screenshot:' }, ...images.map((i) => ({ type: 'input_image', image_url: `data:${i.mimeType};base64,${i.data}`, detail: 'high' }))]
           : text || '(no output)';
         const what = b.name === 'browser_navigate' ? `Opened ${String(a?.url ?? '')}` : b.name.replace(/^browser_/, '').replace(/_/g, ' ');
-        return { output, summary: r.isError ? `${what} failed` : what, replan: handedOff || recoveryResult.replan, endTurn: captchaStopped };
+        return { output, isError: r.isError === true, summary: r.isError ? `${what} failed` : what, replan: handedOff || recoveryResult.replan, endTurn: captchaStopped };
       },
     });
   }
