@@ -54,7 +54,7 @@ test('unapproved and withdrawn evidence never qualifies; approval does, for that
   status = await releaseGateStatus(directory, image);
   assert.equal(status.qualified, true); assert.deepEqual(status.missing, []); assert.deepEqual(status.incomplete, []);
   await assertQualifiedImage(directory.pool, image);
-  assert.deepEqual(await run(['verify', image]), { image, qualified: true, required: infrastructureGates });
+  assert.deepEqual(await run(['verify', image]), { image, qualified: true, provenance: 'complete', required: infrastructureGates });
   await assert.rejects(assertQualifiedImage(directory.pool, other), /lacks/, 'another image is unaffected');
 
   // Re-recording without --approve withdraws the approval.
@@ -72,6 +72,10 @@ test('an approval dated in the future does not count, and legacy rows without pr
   const status = await releaseGateStatus(directory, other);
   assert.equal(status.qualified, true, 'assertQualifiedImage predicate is unchanged by provenance columns');
   assert.deepEqual(status.incomplete, ['signed-runtime-image'], 'but missing provenance is surfaced');
+  await assertQualifiedImage(directory.pool, other);
+  await assert.rejects(run(['verify', other]), /lack evidence SHA-256 or reviewer: signed-runtime-image/, 'operator verify refuses incomplete required provenance');
+  await run(['record', other, 'signed-runtime-image', uri, digest, 'bob', '--approve']);
+  assert.deepEqual(await run(['verify', other]), { image: other, qualified: true, provenance: 'complete', required: infrastructureGates });
 });
 
 test('the optional capacity gate is recorded but never required', async () => {

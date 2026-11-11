@@ -19,7 +19,10 @@ platform credentials (`validateDeployment` denies the whole list, including `MIG
 `TunnelBroker` keeps tenant tunnels in a process-local map (`platform/tunnel.ts`) and answers 503 for a tenant whose
 tunnel is connected to another replica; LISTEN/NOTIFY broadcasts revocations, not tunnel ownership or traffic. Until
 authenticated, owner-aware inter-replica routing exists and is tested, deploy exactly one serving platform machine and
-treat Fly's standby behaviour as failover, not capacity. The multi-replica revocation tests remain valid for the
+deploy it with `--ha=false` (Fly's deploy default creates spare machines; `min_machines_running = 1` is only a
+minimum), confirm with `flyctl machines list` that exactly one machine exists before accepting traffic, and destroy
+any extra machine as an explicit operator step. A second simultaneously serving process is not safe failover. The
+provisioner is likewise exactly one worker (`--ha=false`). The multi-replica revocation tests remain valid for the
 guarantee they cover.
 
 ## Networks
@@ -39,13 +42,19 @@ removed afterwards; it is never passed on a command line or stored in a serving 
 
 ```sh
 flyctl apps create swarm-migrate-staging --org <staging-org>
-printf '%s' "$MIGRATION_DATABASE_URL" | base64 -w0 | flyctl secrets set -a swarm-migrate-staging --stage MIGRATION_DATABASE_URL_B64=-   # value from stdin, not argv
+# The URL lives only in a protected file (mode 0600, outside the repo). Produce NAME=VALUE on stdin for `secrets import`;
+# `secrets set` takes literal arguments and would expose the value in argv and shell history.
+umask 077
+{ printf 'MIGRATION_DATABASE_URL_B64='; base64 -w0 < /secure/migration-url.txt; printf '\n'; } | flyctl secrets import --stage -a swarm-migrate-staging
 flyctl machine run registry.fly.io/<app>@sha256:<reviewed digest> -a swarm-migrate-staging --rm \
   -e SWARM_ROLE=platform -e NODE_ENV=production \
   --file-secret /run/swarm/migration-url=MIGRATION_DATABASE_URL_B64 \
-  -- sh -c 'MIGRATION_DATABASE_URL="$(cat /run/swarm/migration-url)" node server/dist/platform/migrate.js'
+  -- sh -c 'test -s /run/swarm/migration-url && MIGRATION_DATABASE_URL="$(cat /run/swarm/migration-url)" node server/dist/platform/migrate.js'
 flyctl secrets unset -a swarm-migrate-staging MIGRATION_DATABASE_URL_B64
 ```
+
+Verify the mounted file without printing it (for example compare `sha256sum /run/swarm/migration-url` inside the
+machine with the hash of the local file); never echo the URL.
 
 `MIGRATION_DATABASE_URL` is accepted only by `platform`, `provisioner` and `composio-gateway` roles, never falls back
 to `DATABASE_URL`, and is on the tenant credential denylist (contract from PR #21; the exact flags above must be
@@ -65,7 +74,10 @@ DATABASE_URL=... node server/dist/platform/release-gates-cli.js verify <image@sh
 ```
 
 Every record names the archived artifact by URI **and** its SHA-256, and the reviewer who approved it; the command
-rejects credential-bearing URIs and never fetches or verifies the artifact itself. The optional
+rejects credential-bearing URIs and never fetches or verifies the artifact itself. The runtime predicate the
+provisioner and the capacity gate use (`assertQualifiedImage`) accepts any approved row, for compatibility with rows
+recorded before provenance existed; the operator `verify` command is stricter and refuses when a required gate's row
+lacks SHA-256 or reviewer, so `list` shows such rows as `incomplete` and release reviews use `verify`. The optional
 `tenant-capacity-resize` gate records staging qualification of Fly machine resize, volume extend and guest filesystem
 growth for an image; it is never required for ordinary provisioning.
 

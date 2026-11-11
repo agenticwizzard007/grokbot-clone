@@ -38,22 +38,64 @@ flyctl apps create swarm-gateway-staging --org <staging-org>
 flyctl certs add -a swarm-platform-staging platform-staging.<your-domain>
 flyctl certs add -a swarm-gateway-staging gateway-staging.<your-domain>
 ```
-Edit `PLATFORM_URL` and `COMPOSIO_GATEWAY_URL` in the three manifests to those origins.
+Edit the manifests to those origins: `PLATFORM_URL`, `APP_URL` and `SERVER_URL` in `fly.platform.toml` (all three the
+platform origin), `COMPOSIO_GATEWAY_URL` in the platform and provisioner manifests, `PLATFORM_URL` in the gateway manifest.
 
 ## 4. Secrets (names as the manifests list them)
+Write each app's secrets as `NAME=VALUE` lines into a protected file (mode 0600, outside the repository) and import
+them from stdin; never pass secret values as command arguments. File-mounted secrets (`[[files]]`) must be the
+base64 of the PEM.
+
 ```sh
-flyctl secrets set -a swarm-platform-staging SESSION_SECRET=... DATABASE_URL=... TENANT_KMS_KEY_ID=... \
-  AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... BACKUP_BUCKET=... COMPOSIO_API_KEY=... \
-  APP_URL and SERVER_URL are in the manifest [env]; set them to the real platform origin before deploying \
-  GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... INKBOX_API_KEY=... INKBOX_ADMIN_API_KEY=... INKBOX_IDENTITY_ID=... INKBOX_SIGNING_KEY=... INKBOX_HANDLE=... \
-  PLATFORM_PRIVATE_KEY="$(base64 -w0 < platform-private.pem)" PLATFORM_PUBLIC_KEY="$(base64 -w0 < platform-public.pem)"
-# Prefer `flyctl secrets import -a <app> < secrets.env` from a protected file over argument lists. File secrets are base64.
-flyctl secrets set -a swarm-provisioner-staging SESSION_SECRET=... DATABASE_URL=... FLY_API_TOKEN=<org-scoped> FLY_ORG_SLUG=<staging-org> \
-  TENANT_KMS_KEY_ID=... AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... BACKUP_BUCKET=... TENANT_HOST_IMAGE=<set in step 7>
-flyctl secrets set -a swarm-gateway-staging DATABASE_URL=... TENANT_KMS_KEY_ID=... AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... \
-  COMPOSIO_API_KEY=... COMPOSIO_WEBHOOK_SECRET=... PLATFORM_PUBLIC_KEY="$(base64 -w0 < platform-public.pem)"
+umask 077
+cat > /secure/platform.env <<EOT
+SESSION_SECRET=<32+ random bytes>
+DATABASE_URL=<application role, direct or session-pooled endpoint>
+TENANT_KMS_KEY_ID=<KMS key ARN>
+AWS_ACCESS_KEY_ID=<principal authorized for KMS and the bucket>
+AWS_SECRET_ACCESS_KEY=<...>
+BACKUP_BUCKET=<private versioned bucket>
+COMPOSIO_API_KEY=<platform project credential>
+GOOGLE_CLIENT_ID=<...>
+GOOGLE_CLIENT_SECRET=<...>
+INKBOX_API_KEY=<...>
+INKBOX_ADMIN_API_KEY=<...>
+INKBOX_IDENTITY_ID=<...>
+INKBOX_SIGNING_KEY=<...>
+INKBOX_HANDLE=<...>
+PLATFORM_PRIVATE_KEY=$(base64 -w0 < /secure/platform-private.pem)
+PLATFORM_PUBLIC_KEY=$(base64 -w0 < /secure/platform-public.pem)
+EOT
+flyctl secrets import --stage -a swarm-platform-staging < /secure/platform.env
+
+cat > /secure/provisioner.env <<EOT
+SESSION_SECRET=<same value as the platform>
+DATABASE_URL=<application role>
+FLY_API_TOKEN=<org-scoped token>
+FLY_ORG_SLUG=<staging-org>
+TENANT_KMS_KEY_ID=<KMS key ARN>
+AWS_ACCESS_KEY_ID=<...>
+AWS_SECRET_ACCESS_KEY=<...>
+BACKUP_BUCKET=<same bucket>
+TENANT_HOST_IMAGE=<set in step 7, digest-pinned>
+EOT
+flyctl secrets import --stage -a swarm-provisioner-staging < /secure/provisioner.env
+
+cat > /secure/gateway.env <<EOT
+DATABASE_URL=<application role>
+TENANT_KMS_KEY_ID=<KMS key ARN>
+AWS_ACCESS_KEY_ID=<...>
+AWS_SECRET_ACCESS_KEY=<...>
+COMPOSIO_API_KEY=<platform project credential>
+COMPOSIO_WEBHOOK_SECRET=<...>
+PLATFORM_PUBLIC_KEY=$(base64 -w0 < /secure/platform-public.pem)
+EOT
+flyctl secrets import --stage -a swarm-gateway-staging < /secure/gateway.env
+shred -u /secure/*.env
 ```
-After the first deploy, verify on each machine that `/run/swarm/platform-public.pem` decodes to the exact SPKI PEM.
+`APP_URL` and `SERVER_URL` are not secrets: they are set in `fly.platform.toml` `[env]` in step 3. After the first
+deploy, verify on each machine that the mounted key files decode to the exact PEM by comparing hashes, without
+printing them.
 
 ## 5. Build the application image once and pin its digest
 ```sh
@@ -62,9 +104,9 @@ flyctl image show -a swarm-platform-staging        # note the @sha256 digest for
 ```
 
 ## 6. Schema migration (dedicated trusted job; see README.md)
-Create `swarm-migrate-staging`, stage the schema-owner URL as a base64 secret from stdin, run the job with
-`--file-secret` so the credential is read only by that process, then unset the secret. Never pass it with `-e` or on
-argv, and never store it on a serving role.
+Create `swarm-migrate-staging`, import the base64 schema-owner URL with `flyctl secrets import --stage` from a protected
+file, run the job with `--file-secret` so the credential is read only by that process, verify the mounted file by hash
+without printing it, then unset the secret. Never pass it with `-e` or on argv, and never store it on a serving role.
 
 ## 7. Tenant host image **[$ build machine while running]**
 Build `HOST_BASE` and `DESKTOP_BASE` (definitions still to be authored; see `docs/tenant-capacity-model.md` and the
@@ -76,9 +118,12 @@ those base definitions exist this step cannot be completed, so a first tenant is
 ## 8. Deploy the roles
 ```sh
 IMG=registry.fly.io/swarm-platform-staging@sha256:<digest from step 5>   # the one reviewed image for every role and the migration job
-flyctl deploy -c infra/platform/fly.platform.toml -a swarm-platform-staging --image "$IMG"
-flyctl deploy -c infra/platform/fly.composio-gateway.toml -a swarm-gateway-staging --image "$IMG"
-flyctl deploy -c infra/platform/fly.provisioner.toml -a swarm-provisioner-staging --image "$IMG"
+flyctl deploy -c infra/platform/fly.platform.toml -a swarm-platform-staging --image "$IMG" --ha=false
+flyctl deploy -c infra/platform/fly.composio-gateway.toml -a swarm-gateway-staging --image "$IMG" --ha=false
+flyctl deploy -c infra/platform/fly.provisioner.toml -a swarm-provisioner-staging --image "$IMG" --ha=false
+flyctl machines list -a swarm-platform-staging      # exactly ONE machine before any traffic; destroy extras:
+# flyctl machine destroy <id> -a swarm-platform-staging --force
+flyctl machines list -a swarm-provisioner-staging   # exactly ONE worker
 curl -s https://platform-staging.<your-domain>/api/health   # expect {"ok":true,"role":"platform"}
 curl -s https://gateway-staging.<your-domain>/health
 ```

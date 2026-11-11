@@ -81,7 +81,12 @@ export async function releaseGatesCommand(args:string[],directory:Directory){
       const detail=status?` Missing or unapproved: ${status.missing.join(', ')||'none (check evidence_uri and approved_at)'}.`:'';
       throw new Error(`${error instanceof Error?error.message:'Verification failed.'}${detail}`);
     }
-    return {image,qualified:true,required:infrastructureGates};
+    // The runtime predicate (assertQualifiedImage, shared with the provisioner and capacity gates) is deliberately
+    // unchanged. The operator command is stricter: every REQUIRED gate must also carry archived-artifact provenance.
+    const status=await releaseGateStatus(directory,image);
+    const unprovenanced=status.incomplete.filter(name=>infrastructureGates.includes(name));
+    if(unprovenanced.length)throw new Error(`Runtime qualification passes, but required gates lack evidence SHA-256 or reviewer: ${unprovenanced.join(', ')}. Re-record them with provenance before release.`);
+    return {image,qualified:true,provenance:'complete',required:infrastructureGates};
   }
   throw new Error(usage);
 }

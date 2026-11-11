@@ -1,7 +1,9 @@
 # Swarm provisioner role (durable tenant lifecycle: create/wake/suspend/delete tenant apps, volumes and
 # machines; recovery and image replacement; backup retention). Exactly ONE machine: lifecycle leases are
 # per tenant, but the worker is not designed for horizontal duplication without measurement.
-# Deploy the exact reviewed image:  flyctl deploy -c infra/platform/fly.provisioner.toml -a <app> --image registry.fly.io/<app>@sha256:<digest>
+# Deploy the exact reviewed image as ONE worker (no spare machines):
+#   flyctl deploy -c infra/platform/fly.provisioner.toml -a <app> --image registry.fly.io/<app>@sha256:<digest> --ha=false
+# Confirm a single machine with: flyctl machines list -a <app>
 # SWARM_ROLE selects the process (server/src/index.ts).
 app = "swarm-provisioner-staging"       # production: swarm-provisioner
 primary_region = "iad"

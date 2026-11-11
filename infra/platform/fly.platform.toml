@@ -1,6 +1,8 @@
 # Swarm platform role (platform API: provider sign-in, sessions, routing, phone/messaging ownership,
 # encrypted events, host backup API).
-# Deploy the exact reviewed image:  flyctl deploy -c infra/platform/fly.platform.toml -a <app> --image registry.fly.io/<app>@sha256:<digest>
+# Deploy the exact reviewed image with NO spare machines (TunnelBroker is process-local; see [http_service]):
+#   flyctl deploy -c infra/platform/fly.platform.toml -a <app> --image registry.fly.io/<app>@sha256:<digest> --ha=false
+# Then confirm exactly one machine serves before accepting traffic: flyctl machines list -a <app> (destroy extras).
 # Build once (step 5 of staging-bootstrap.md); SWARM_ROLE selects the process (server/src/index.ts).
 app = "swarm-platform-staging"          # production: swarm-platform
 primary_region = "iad"
@@ -53,8 +55,9 @@ primary_region = "iad"
   auto_start_machines = false
   # ONE serving machine until owner-aware inter-replica routing exists: TunnelBroker keeps tenant tunnels in a
   # process-local map (platform/tunnel.ts) and forwards 503 for tenants connected to another replica. LISTEN/NOTIFY
-  # broadcasts revocations, not tunnel ownership. Fly may still start a standby for its own HA behaviour; keep
-  # min_machines_running at 1 and do not scale out before that routing is implemented and tested.
+  # broadcasts revocations, not tunnel ownership. min_machines_running is only a minimum: deploy with --ha=false so Fly
+  # creates no spare machine, verify exactly one machine with `flyctl machines list`, and destroy any extra before
+  # accepting traffic. A second simultaneously serving process is NOT safe failover until that routing exists.
   min_machines_running = 1
   [[http_service.checks]]
     grace_period = "30s"
