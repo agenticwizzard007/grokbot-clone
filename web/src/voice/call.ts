@@ -3,7 +3,7 @@
 // deliver replies and requests for input; server task snapshots determine what is still working.
 import { create } from 'zustand';
 import { useStore } from '../store';
-import { voiceApi, type VoiceSession, type VoiceTask, type VoiceUpdate } from './api';
+import { voiceApi, type VoiceApproval, type VoiceConnectionRequest, type VoiceSession, type VoiceTask, type VoiceUpdate } from './api';
 import { MicCapture, PcmPlayer, base64ToPcm, createAudioContext, micErrorMessage, openMic, pcmToBase64 } from './audio';
 
 export interface Caption { id: string; role: 'user' | 'assistant'; text: string; final: boolean }
@@ -23,6 +23,8 @@ interface VoiceState {
   thinking: boolean;
   /** Active server tasks, plus hand-offs still awaiting a fresh server snapshot. */
   working: WorkingTask[];
+  connectionRequests: VoiceConnectionRequest[];
+  approvals: VoiceApproval[];
   captions: Caption[];
   error: string | null;
   startedAt: number | null;
@@ -30,7 +32,7 @@ interface VoiceState {
 
 export const useVoice = create<VoiceState>(() => ({
   status: 'idle', botId: null, callId: null, muted: false, speaking: false, listening: false, thinking: false,
-  working: [], captions: [], error: null, startedAt: null,
+  working: [], connectionRequests: [], approvals: [], captions: [], error: null, startedAt: null,
 }));
 
 const setV = (p: Partial<VoiceState>) => useVoice.setState(p);
@@ -81,6 +83,9 @@ class VoiceCall {
   private handledCalls = new Set<string>();
   private tasks: VoiceTask[] = [];
   private optimistic = new Map<string, OptimisticTask>();
+  private connectionRequests: VoiceConnectionRequest[] = [];
+  /** Direct tool results stay visible until a poll requested after that result confirms the list. */
+  private optimisticConnections = new Map<string, VoiceConnectionRequest>();
   private cursor = 0;
   private notes: VoiceUpdate[] = [];
   private noteChars = 0;
@@ -102,7 +107,7 @@ class VoiceCall {
   micLevel() { return useVoice.getState().muted ? 0 : this.mic?.level ?? 0; }
 
   async start() {
-    setV({ status: 'connecting', botId: this.botId, callId: null, muted: false, speaking: false, listening: false, thinking: false, working: [], captions: [], error: null, startedAt: null });
+    setV({ status: 'connecting', botId: this.botId, callId: null, muted: false, speaking: false, listening: false, thinking: false, working: [], connectionRequests: [], approvals: [], captions: [], error: null, startedAt: null });
     window.addEventListener('pagehide', this.onUnload);
     let stream: MediaStream;
     try {
@@ -317,6 +322,11 @@ class VoiceCall {
       promise = voiceApi.tool(this.botId, this.sess!.callId, name, args, callId)
         .then((r) => {
           if (!this.ended) {
+            if (r.connectionRequest) {
+              const request = r.connectionRequest;
+              this.optimisticConnections.set(`${request.botId}:${request.seq}`, request);
+              this.syncConnections();
+            }
             if (r.taskId !== undefined || r.taskSeq !== undefined) {
               placeholder.pending = false;
               placeholder.taskId = r.taskId;
@@ -370,6 +380,11 @@ class VoiceCall {
     setV({ working: [...active, ...optimistic] });
   }
 
+  private syncConnections() {
+    const requests = new Map([...this.optimisticConnections.values(), ...this.connectionRequests].map((r) => [`${r.botId}:${r.seq}`, r]));
+    setV({ connectionRequests: [...requests.values()] });
+  }
+
   private async pollUpdates() {
     if (this.ended || !this.ready || !this.sess || this.updatesRequest) return;
     const controller = new AbortController();
@@ -377,6 +392,7 @@ class VoiceCall {
     const timeout = setTimeout(() => controller.abort(), 10000);
     // Only retire optimistic hand-offs if the snapshot was requested after their tool response.
     const settled = [...this.optimistic].filter(([, o]) => !o.pending).map(([id]) => id);
+    const connections = [...this.optimisticConnections];
     try {
       const result = await voiceApi.updates(this.botId, this.sess.callId, this.cursor, controller.signal);
       if (this.ended) return;
@@ -392,6 +408,15 @@ class VoiceCall {
       this.tasks = result.tasks;
       for (const id of settled) this.optimistic.delete(id);
       this.syncWorking();
+      // Missing fields are compatible with older servers/mocks. Explicit empty lists clear the UI.
+      if (result.connectionRequests !== undefined) {
+        this.connectionRequests = result.connectionRequests;
+        for (const [id, request] of connections) {
+          if (this.optimisticConnections.get(id) === request) this.optimisticConnections.delete(id);
+        }
+        this.syncConnections();
+      }
+      if (result.approvals !== undefined) setV({ approvals: result.approvals.filter((a) => a.body.status === 'pending') });
       if (fresh.length) {
         for (const update of fresh) {
           this.notes.push(update);
@@ -450,6 +475,8 @@ class VoiceCall {
     this.omittedNotes = {};
     this.tasks = [];
     this.optimistic.clear();
+    this.connectionRequests = [];
+    this.optimisticConnections.clear();
     try { this.ws?.close(1000, 'call ended'); } catch { /* ignore */ }
     this.mic?.stop();
     this.player.dispose();
@@ -458,10 +485,10 @@ class VoiceCall {
     if (this.sess) void voiceApi.end(this.botId, this.sess.callId, transcript, error).catch((e) => console.warn('[voice] end failed', e));
     if (current === this) current = null;
     if (error) {
-      setV({ status: 'error', error, speaking: false, listening: false, thinking: false, working: [] });
+      setV({ status: 'error', error, speaking: false, listening: false, thinking: false, working: [], connectionRequests: [], approvals: [] });
       setTimeout(() => { if (useVoice.getState().status === 'error' && !current) setV({ status: 'idle', botId: null, error: null }); }, 6000);
     } else {
-      setV({ status: 'idle', botId: null, callId: null, speaking: false, listening: false, thinking: false, working: [], startedAt: null });
+      setV({ status: 'idle', botId: null, callId: null, speaking: false, listening: false, thinking: false, working: [], connectionRequests: [], approvals: [], startedAt: null });
     }
   }
 }

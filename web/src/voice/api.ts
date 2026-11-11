@@ -1,4 +1,4 @@
-import type { VoiceOption } from '@shared/types';
+import type { CardBody, VoiceOption } from '@shared/types';
 
 export interface VoiceSession {
   callId: string;
@@ -18,7 +18,15 @@ export interface VoiceSession {
 
 export interface VoiceOptions { voices: VoiceOption[]; languages: { code: string; name: string }[]; speeds: number[] }
 
-export interface VoiceToolResult { output: string; taskSeq?: number; taskBotId?: string; taskId?: string }
+export interface VoiceConnectionRequest { botId: string; seq: number; toolkit: string; toolkitName: string }
+export interface VoiceApproval { botId: string; seq: number; body: Extract<CardBody, { card: 'approval' }> }
+export interface VoiceToolResult {
+  output: string;
+  taskSeq?: number;
+  taskBotId?: string;
+  taskId?: string;
+  connectionRequest?: VoiceConnectionRequest;
+}
 export interface VoiceUpdate {
   id: number;
   botId: string;
@@ -33,7 +41,13 @@ export interface VoiceTask {
   request: string;
   status: 'queued' | 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled';
 }
-export interface VoiceUpdates { cursor: number; updates: VoiceUpdate[]; tasks: VoiceTask[] }
+export interface VoiceUpdates {
+  cursor: number;
+  updates: VoiceUpdate[];
+  tasks: VoiceTask[];
+  connectionRequests?: VoiceConnectionRequest[];
+  approvals?: VoiceApproval[];
+}
 
 async function post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
   const res = await fetch(`/api/voice${path}`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal });

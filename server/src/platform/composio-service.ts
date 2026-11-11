@@ -1,6 +1,6 @@
 import { Composio } from '@composio/core';
 import type { Directory } from './directory.js';
-import { ConnectionGateway, type ConnectionRegistry, type PrivateConnection, type ConnectionProvider } from './composio-policy.js';
+import { ConnectionGateway, trustedReadOnly, type ConnectionRegistry, type PrivateConnection, type ConnectionProvider } from './composio-policy.js';
 
 const connection = (r: any): PrivateConnection => ({ id: r.id, tenant: r.tenant_id, toolkit: r.toolkit, revision: Number(r.revision), state: r.state, isDefault: r.is_default });
 export class PgConnectionRegistry implements ConnectionRegistry {
@@ -42,7 +42,11 @@ export class ComposioProvider implements ConnectionProvider {
       if (cursor) seen.add(cursor);
     } while (cursor);
   }
-  async tool(slug: string) { const t = await this.sdk.tools.getRawComposioToolBySlug(slug); return { toolkit: t.toolkit?.slug ?? '', version: t.version ?? '' }; }
+  async tool(slug: string) {
+    const t = await this.sdk.tools.getRawComposioToolBySlug(slug);
+    if (t.slug !== slug) throw new Error('Invalid tool selection.');
+    return { toolkit: t.toolkit?.slug ?? '', version: t.version ?? '', readOnly: trustedReadOnly(t) };
+  }
   execute(identity: string, id: string, slug: string, version: string, args: Record<string, unknown>) {
     return this.sdk.tools.execute(slug, { userId: identity, connectedAccountId: id, version, arguments: args }, { signal: AbortSignal.timeout(60_000) });
   }

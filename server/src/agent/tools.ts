@@ -24,6 +24,7 @@ import { createTeammate, replicateTeammate, retryTeammate } from './teammates.js
 import { z } from 'zod';
 import { findMcpTool } from '../mcp/store.js';
 import { platformState } from './platform-state.js';
+import { APP_CONNECTION_TOOLS } from './app-connections.js';
 
 export interface ToolCtx {
   userId: string;
@@ -31,6 +32,8 @@ export interface ToolCtx {
   enqueueBotMessage: (fromBotId: string, toBotId: string, text: string, depth: number) => void;
   depth: number;
   jobId?: string;
+  /** Native callers can pin a discovered read to read-only provider metadata. */
+  readOnlyApps?: boolean;
   recovery?: BrowserRecovery;
 }
 
@@ -81,6 +84,7 @@ function botByName(userId: string, name: string) {
 }
 
 export const TOOLS: ToolDef[] = [
+  ...APP_CONNECTION_TOOLS,
   {
     name: 'get_platform_state',
     description: 'Read authoritative Swarm configuration: this agent’s text model and provider, separate voice model, subscription CLI connection, recorded usage and optionally the model catalog. Use this for questions about this app; never browse Swarm or ask for a browser login to inspect its own configuration. Unknown subscription tiers or remaining provider allowance must not be guessed.',
@@ -554,20 +558,7 @@ export const TOOLS: ToolDef[] = [
       return { output: 'Question shown to the user. Stop here and wait for their answer.', endTurn: true };
     },
   },
-  {
-    name: 'request_app_connection',
-    description: 'Ask the user to connect an app (e.g. gmail, googlecalendar, slack, github, notion, linear) so you can use it. Use the Composio toolkit slug.',
-    parameters: obj({ toolkit: { type: 'string' }, reason: { type: 'string' } }, ['toolkit', 'reason']),
-    activity: 'connecting_service',
-    label: 'Using a connected app',
-    impl: async (a, ctx) => {
-      if (!env.composioEnabled) return { output: `${APPS_OFF} Tell the user, and use your browser instead if that can do the job.`, summary: 'Apps not set up' };
-      const info = await toolkitInfo(String(a.toolkit).toLowerCase());
-      if (!info) return { output: `Unknown toolkit "${a.toolkit}". Use COMPOSIO_SEARCH_TOOLS to find the right toolkit slug.` };
-      appendRow(ctx.botId, 'card', { type: 'card', card: 'connect', jobId: ctx.jobId, toolkit: info.slug, toolkitName: info.name, logo: info.logo, reason: a.reason, status: 'pending' });
-      return { output: `Asked the user to connect ${info.name}. Stop here; you'll be told when it's connected.`, endTurn: true };
-    },
-  },
+
 ];
 
 // Playwright browser tools (cloud VMs): every web action runs on the Bot's own Chrome through Playwright MCP.
@@ -627,7 +618,7 @@ export const TOOLS: ToolDef[] = [
 export const toolMap = new Map(TOOLS.map((t) => [t.name, t]));
 
 export function allowedDuringSetup(botId: string, toolName: string) {
-  return !isConfiguring(botId) || ['ask_user', 'save_agent_setup'].includes(toolName);
+  return !isConfiguring(botId) || ['ask_user', 'save_agent_setup', 'get_platform_state', 'list_app_connections', 'search_apps', 'request_app_connection', 'SWARM_APPS_SEARCH', 'SWARM_APPS_EXECUTE'].includes(toolName);
 }
 
 export function functionSchemas(botId?: string) {
@@ -674,9 +665,9 @@ export function humanizeSlug(slug: string) {
 }
 
 export async function runComposioTool(ctx: ToolCtx, name: string, args: any): Promise<ToolResult> {
-  const r = await executeComposio(ctx.userId, name, args);
-  const ok = r.resultType ? r.resultType === 'completed' : !r.error;
-  const payload = ok ? r.data : { error: r.error, logId: r.logId };
+  const r = await executeComposio(ctx.userId, name, args, { readOnly: isConfiguring(ctx.botId) || ctx.readOnlyApps === true });
+  const ok = r.successful !== false && !r.error && (!r.resultType || ['completed', 'success'].includes(r.resultType));
+  const payload = ok ? r.data : { error: 'The connected app reported a failed operation. Verify its outcome before retrying.', logId: r.logId };
   let out = JSON.stringify(payload ?? null);
   if (out.length > 60000) out = out.slice(0, 60000) + '…(truncated)';
   return { output: out, summary: ok ? 'done' : 'failed' };

@@ -30,9 +30,14 @@ export type Trigger = (
   | { type: 'routine'; routineId: string; name: string; prompt: string }
   | { type: 'bot'; fromBotId: string; fromName: string; text: string; depth: number }
   | { type: 'system'; text: string }
+  | { type: 'native-tool'; name: 'SWARM_APPS_EXECUTE'; args: Record<string, unknown>; callId: string; requireApproval?: boolean; readOnly?: boolean }
   | { type: 'resume' }) & { parentJobId?: string };
 
 interface PendingState {
+  /** A native voice invocation resumes the exact tool without asking a text model to re-plan it. */
+  native?: boolean;
+  nativeRequireApproval?: boolean;
+  nativeReadOnly?: boolean;
   jobId?: string;
   /** Keep paused approvals bound to the computer on which this batch was planned. */
   computerRevision?: number;
@@ -165,7 +170,8 @@ function triggerItem(t: Trigger): any | null {
     case 'routine': return { role: 'user', content: `[Routine "${t.name}" is running now. Do this:]\n${t.prompt}` };
     case 'bot': return { role: 'user', content: `[Message from ${t.fromName}, another Bot on the team. Reply to them with send_to_bot if they asked you something.]\n${t.text}` };
     case 'system': return { role: 'user', content: `[System notice] ${t.text}` };
-    case 'resume': return null;
+    case 'resume':
+    case 'native-tool': return null;
   }
 }
 
@@ -201,9 +207,21 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
         return;
       }
       depth = st.depth;
+      ctx.readOnlyApps = st.nativeReadOnly;
       const paused = await processCalls(ctx, st);
       if (paused) return;
+      if (st.native) { publishNativeResult(botId, st); return; }
       if (st.outputs.some((o: any) => o.__endTurn)) return;
+    } else if (trigger.type === 'native-tool') {
+      if (trigger.name !== 'SWARM_APPS_EXECUTE') throw new Error('Unsupported native app operation.');
+      ctx.readOnlyApps = trigger.readOnly;
+      const call = { type: 'function_call', call_id: trigger.callId, name: trigger.name, arguments: JSON.stringify(trigger.args) };
+      appendHistory(botId, [call]);
+      const activity = activityFor(call.name);
+      const row = appendRow(botId, 'tool-call', { type: 'tool-call', callId: call.call_id, name: call.name, label: activity.label, status: 'running', args: trigger.args });
+      const st: PendingState = { native: true, nativeRequireApproval: trigger.requireApproval, nativeReadOnly: trigger.readOnly, jobId, computerRevision: currentComputerRevision() ?? localAccess(userId).revision, calls: [{ ...call, rowSeq: row.seq }], outputs: [], approvalId: '', depth: 0 };
+      if (!await processCalls(ctx, st)) publishNativeResult(botId, st);
+      return;
     } else {
       const item = triggerItem(trigger);
       if (item) appendHistory(botId, [item]);
@@ -214,7 +232,7 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
       const schemas = [
         ...functionSchemas(botId),
         ...mcpSchemas(userId, botId),
-        ...(isConfiguring(botId) ? [] : await composioTools(userId)),
+        ...await composioTools(userId),
         ...(isConfiguring(botId) ? [] : serverTools()),
       ];
       latency('tools_prepare', toolsStart, { botId });
@@ -275,7 +293,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
     // pending call is resumed. Configuring an agent must not launch operational work.
     if (!allowedDuringSetup(botId, c.name)) {
       updateRow(botId, c.rowSeq, { ...body, status: 'denied', summary: 'Complete agent setup first' });
-      st.outputs.push({ type: 'function_call_output', call_id: c.call_id, output: 'This agent is still being configured. Ask the user about the role and save_agent_setup; operational tools become available after the user activates the specification in Configuration.' });
+      st.outputs.push({ type: 'function_call_output', call_id: c.call_id, output: 'This agent is still being configured. Continue the interview with ask_user and save_agent_setup. Native connection discovery, authorization and provider-verified read-only access checks are available; operational tools become available after the user activates the specification in Configuration.' });
       st.calls.shift();
       continue;
     }
@@ -283,6 +301,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
     // Was this call just approved/denied?
     const ap = st.approvalId ? (db.prepare('SELECT * FROM approvals WHERE id=?').get(st.approvalId) as any) : null;
     let decision = policyFor(userId, c.name, args, botId).decision;
+    if (st.nativeRequireApproval && decision === 'allow') decision = 'ask';
     if (ap && ap.call_id === c.call_id) {
       if (ap.status === 'pending') return true;
       decision = ap.bot_id === botId && ['allowed', 'always'].includes(ap.status)
@@ -323,8 +342,9 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
         res = impl ? await impl.impl(args, { ...ctx, depth: st.depth })
           : c.name.startsWith('mcp_') ? await runMcpTool(userId, botId, c.name, args)
           : await runComposioTool(ctx, c.name, args);
-        finishTool(botId, c.call_id, true);
-        updateRow(botId, c.rowSeq, { ...body, status: 'done', summary: res.summary });
+        const successful = res.summary !== 'failed';
+        finishTool(botId, c.call_id, successful);
+        updateRow(botId, c.rowSeq, { ...body, status: successful ? 'done' : 'error', summary: res.summary });
       } catch (e: any) {
         finishTool(botId, c.call_id, false);
         res = { output: `Tool error: ${e?.message ?? e}`, replan: /^(?:browser_|computer_|open_browser$|wait_for_browser_access$)/.test(c.name) };
@@ -376,6 +396,12 @@ async function finishPending(ctx: ToolCtx, st: PendingState, reason: string) {
   }
   appendHistory(botId, st.outputs.map(({ __endTurn, ...o }: any) => o));
   db.prepare('DELETE FROM pending_turns WHERE bot_id=?').run(botId);
+}
+
+/** Publish native execution results to the normal transcript and live voice feed. */
+function publishNativeResult(botId: string, state: PendingState) {
+  const results = state.outputs.map((item: any) => ({ callId: item.call_id, output: item.output }));
+  appendRow(botId, 'message', { type: 'message', role: 'assistant', text: `Connected app result (inspect the returned data for success or failure):\n${JSON.stringify(results).slice(0, 60000)}` });
 }
 
 // ---------- model call with streaming into a message row ----------
@@ -517,6 +543,9 @@ function safeParse(s: string) {
 
 function describeArgs(args: any): string {
   if (!args || typeof args !== 'object') return '';
+  if (typeof args.tool_slug === 'string' && args.arguments && typeof args.arguments === 'object') {
+    return `Account: ${String(args.connectionId)}\nTool: ${args.tool_slug}\n${JSON.stringify(args.arguments, null, 2)}`.slice(0, 4000);
+  }
   const inner = Array.isArray(args.tools) ? args.tools.map((t: any) => t.arguments ?? t.args ?? t) : [args];
   const flat = inner.map((a: any) => Object.entries(a ?? {}).filter(([, v]) => typeof v !== 'object' || v === null).slice(0, 6).map(([k, v]) => `${k}: ${String(v).slice(0, 160)}`).join('\n'));
   return flat.join('\n\n').slice(0, 1200);

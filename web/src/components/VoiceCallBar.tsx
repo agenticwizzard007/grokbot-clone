@@ -1,8 +1,54 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { BotAvatarFor } from '../avatar/BotAvatar';
 import { botVars } from '../lib/colors';
+import { api, openPopup } from '../lib/api';
 import { useStore } from '../store';
 import { callLevels, endCall, toggleMute, useVoice } from '../voice/call';
+import type { VoiceConnectionRequest } from '../voice/api';
+import { ApprovalCard } from './cards/Cards';
+import { ToolkitLogo } from './ToolkitLogo';
+
+function VoiceConnect({ request, callId }: { request: VoiceConnectionRequest; callId: string }) {
+  const [busy, setBusy] = useState(false);
+  const [waiting, setWaiting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+
+  const connect = async () => {
+    if (busy) return;
+    setBusy(true); setError(null);
+    // Reserve the popup synchronously in the click; native shells open the final URL instead.
+    const popup = openPopup('about:blank');
+    try {
+      const { redirectUrl } = await api.connect(request.toolkit, request.botId, request.seq);
+      const state = useVoice.getState();
+      if (!alive.current || state.status !== 'live' || state.callId !== callId || !state.connectionRequests.some((r) => r.botId === request.botId && r.seq === request.seq && r.toolkit === request.toolkit)) {
+        popup?.close();
+        return;
+      }
+      if (popup) popup.location.href = redirectUrl; else window.open(redirectUrl, '_blank');
+      setWaiting(true);
+    } catch (e) {
+      popup?.close();
+      if (alive.current) setError((e as Error).message || 'Couldn’t start the connection');
+    } finally {
+      if (alive.current) setBusy(false);
+    }
+  };
+
+  return (
+    <div className="vcall__connection">
+      <ToolkitLogo slug={request.toolkit} name={request.toolkitName} size={32} />
+      <div className="vcall__connection-info">
+        <button type="button" className="vcall__connect" disabled={busy} onClick={() => void connect()}>Connect {request.toolkitName}</button>
+        {busy ? <span className="vcall__connection-hint" role="status">Opening sign-in…</span>
+          : waiting && <span className="vcall__connection-hint" role="status">Waiting for sign-in…</span>}
+        {error && <span className="vcall__connection-error" role="alert">{error}</span>}
+      </div>
+    </div>
+  );
+}
 
 function MicGlyph({ off }: { off?: boolean }) {
   return (
@@ -118,6 +164,16 @@ export function VoiceCallBar() {
           )}
         </div>
       </div>
+      {v.status === 'live' && v.callId && (v.connectionRequests.length > 0 || v.approvals.length > 0) && (
+        <div className="vcall__requests" role="group" aria-label="Connections and approvals">
+          {v.connectionRequests.map((request) => (
+            <VoiceConnect key={`${v.callId}:${request.botId}:${request.seq}:${request.toolkit}`} request={request} callId={v.callId!} />
+          ))}
+          {v.approvals.filter((approval) => approval.body.status === 'pending').map((approval) => (
+            <ApprovalCard key={`${v.callId}:${approval.botId}:${approval.seq}:${approval.body.approvalId}`} body={approval.body} />
+          ))}
+        </div>
+      )}
       {v.status === 'live' && (
         expanded ? (
           <div className="vcall__log" ref={logRef}>

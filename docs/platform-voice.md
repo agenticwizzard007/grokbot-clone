@@ -33,8 +33,24 @@ The realtime voice agent can inspect and coordinate Swarm directly. It does not 
 
 Text agents receive the same native configuration context and `get_platform_state` tool, so a delegated configuration question also stays inside the app. Native controls do not bypass setup activation or approvals for external actions.
 
+## Native app connections
+
+Voice and text agents share `list_app_connections`, `search_apps` and `request_app_connection`. Connection listing reads all provider pages for the authenticated user’s private accounts and reports each account ID, revision and status without credentials. An unavailable provider or disabled integration is reported as unavailable, separately from a successful lookup containing no accounts. Multiple active accounts remain distinct; the agent must select the exact account for app tool discovery and execution.
+
+`search_apps` searches the complete supported service catalog before applying its query and page bounds. It accepts `query`, `offset` and `limit` (default 20, maximum 100), returning `total` and `nextOffset` alongside the bounded service list. This discovers services; `SWARM_APPS_SEARCH` discovers executable tools for a selected active account, and `SWARM_APPS_EXECUTE` uses their exact schema and connection revision. Provider credentials and tool-router administration are never exposed.
+
+`request_app_connection` validates the service, checks for existing active accounts and reuses a pending connect card in the current agent’s chat. It preserves the originating durable job on that card. A pending result includes `connectionRequest: { botId, seq, toolkit, toolkitName }`; it does not generate or return an OAuth URL. The frontend starts the existing `api.connect` flow so iOS/macOS use the native callback and web uses the normal browser callback. A shown card or an opened authorization screen is not proof of an active connection. Existing active accounts are reported directly without starting another authorization flow.
+
+During an agent’s setup interview, native connection reads, service search and user authorization are permitted. Provider-verified read-only app operations may validate authentication and the requested account or repository scope. A tool name suggesting a read is insufficient: unverified operations remain blocked. Operational workflows, external writes and routines still require the user to review and activate the agent. Connecting an app does not activate setup or bypass ordinary approval and scope checks.
+
+The live call displays pending connection and approval cards from the user's team. Connect starts the existing sign-in flow from a user gesture; only subsequent server state confirms the account. Voice discovers each exact tool/account/revision before dispatch. Writes and tools without verified read-only metadata use the existing approval flow unless the user saved an allow policy. Approval persists the exact operation and arguments, resumes it without a text-model planning step, and delivers its result through the team update feed. Repeated provider call IDs cannot dispatch the same operation again. Provider failures and uncertain outcomes remain failures and are never automatically retried.
+
 ## Validation
 
 Run `node --import tsx --test tests/platform-voice.test.mts` for admin authorization, encrypted persistence, new-account inheritance, tenant isolation, CLI/personal-provider routing, credential validation, error sanitization and usage attribution. The tests use a local mock; a real microphone call and live xAI billing/permissions must also be checked after a production key is supplied.
 
 Run `node --import tsx --test tests/voice-coordinator.test.mts tests/platform-state.test.mts tests/voice-controls.test.mts tests/voice-results-client.test.mts` for native routing, configuration knowledge, creation/controls, isolation, tool retry deduplication and multi-agent update delivery. Client delivery is exercised with a mocked realtime socket, microphone and voice API; no paid provider call is required for those checks.
+
+Run `node --import tsx --test tests/app-connections.test.mts` for native connection ownership, secret-safe output, complete/bounded service search, unavailable-versus-empty results, active-account checks, connect-card reuse, job lineage and setup prompt constraints. The suite uses local SDK/transport mocks and does not start OAuth or call a live provider.
+
+Run `node --import tsx --test tests/app-readonly.test.mts tests/voice-apps.test.mts` for local/tenant gateway metadata enforcement, SDK result handling, setup read checks in both voice and text chat, approval continuation, action deduplication and account isolation. Run `npm run build -w web && node tests/voice-apps-ui.mjs` for desktop/mobile call controls with mocked OAuth and realtime services. These tests do not exercise a live provider authorization or microphone conversation.

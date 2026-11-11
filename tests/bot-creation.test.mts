@@ -74,7 +74,7 @@ test('creates a visible durable teammate and complete setup despite an offline c
   assert.equal(fs.readFileSync(path.join(setupDirectory(teammate.id), 'AGENTS.md'), 'utf8'), files['AGENTS.md']);
   assert.equal(sent.length, 0); assert.equal(result.handoff_deferred, true);
   assert.equal(getSetup(teammate.id)?.onboarding.status, 'interviewing');
-  assert.deepEqual(functionSchemas(teammate.id).map(t => t.name).sort(), ['ask_user', 'save_agent_setup']);
+  assert.deepEqual(functionSchemas(teammate.id).map(t => t.name).sort(), ['ask_user', 'get_platform_state', 'list_app_connections', 'request_app_connection', 'save_agent_setup', 'search_apps']);
   assert.ok(!functionSchemas(teammate.id).some((t) => t.name === 'create_bot'));
   await assert.rejects(createTeammate({ ...spec, name: 'Not allowed' }, { ...ctx, botId: teammate.id }), /Only this user/);
 });
