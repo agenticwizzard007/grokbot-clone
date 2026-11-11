@@ -90,7 +90,8 @@ a threaded/delegation-limited sandbox cannot satisfy it. The actual Fly containm
 
 ## Local dry build
 
-A Linux/amd64 Docker builder and Node 22+ are required. No credentials are required:
+A Linux/amd64 Docker **BuildKit** builder and Node 22+ are required. The final host uses a Dockerfile-specific
+ignore file to admit only the staged release artifacts; the legacy Docker builder cannot assemble it. No credentials are required:
 
 ```sh
 bash infra/tenant-host/install-release-tools.sh
@@ -102,21 +103,21 @@ exception or `ignore-unfixed` switch. Package-inventory scans also do not prove 
 safe. Source provenance and deliberately restricted FFmpeg functionality accompany those scans. Any future exceptions
 policy needs separate owner approval and review; no exceptions are granted by this release code.
 
-## First staging tenant: 8 GiB approved, sizing still unqualified
+## First staging tenant: 4 GiB boot, evidenced growth to 8 GiB
 
 The existing ceilings are `1536 + 1536 + 768*n` MiB, where `n` counts simultaneous runner/MCP containers. For one
 runner that is **3840 MiB**, leaving only **256 MiB** on a 4096 MiB guest before the supervisor, dockerd, kernel and
 other host memory. Two worker containers reach **4608 MiB**, exceeding that guest size. Ceilings are not reservations
 and tmpfs/browser/shared pages consume memory too; this arithmetic does not predict actual usage.
 
-The coordinator approved **8 GiB for initial staging**. One runner leaves 4352 MiB nominal headroom; a runner plus
-one local MCP leaves 3584 MiB. Container limits and the global provisioning default remain unchanged. The existing
-provisioning code still defaults new guests to 4096 MiB; the staging operator must arrange an explicitly reviewed
-8192 MiB creation path before exercising that workload. Never silently alter an existing guest or bypass resize fencing.
+The coordinator approved **8 GiB as the first staging target**. One runner leaves 4352 MiB nominal headroom; a runner plus
+one local MCP leaves 3584 MiB. Container limits and the global provisioning default remain unchanged. The agreed staging
+sequence is to boot on the existing reviewed 4096 MiB path, collect fresh owned usage samples, then grow through the
+evidenced capacity-maintenance path. Never silently alter an existing guest or bypass resize fencing.
 The existing operator commands are in [tenant capacity operations](../../docs/tenant-capacity-operations.md): install an
 approved policy, collect a fresh host usage window, plan, then queue the reviewed maintenance operation. They require
 an existing environment and exact-image `tenant-capacity-resize` evidence; they do not configure the initial guest size
-or provide a shortcut for a tenant that has not yet booted. An initial-size override needs a separate reviewed change.
+or provide a shortcut for a tenant that has not yet booted. No initial-size override is included in this release.
 No account generation/helper caps or queues are introduced. Measure RSS, cgroup pressure/OOMs, browser viewing, cold
 loads and backup temporary-disk use before choosing production limits or claiming 1,000-user capacity.
 
