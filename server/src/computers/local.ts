@@ -5,6 +5,7 @@ import type { Duplex } from 'node:stream';
 import { WebSocket, WebSocketServer } from 'ws';
 import { db, now } from '../db.js';
 import { env } from '../env.js';
+import { isTenant, tenantId } from '../deployment.js';
 import { hub } from '../lib/hub.js';
 import { getLive } from '../store.js';
 
@@ -50,8 +51,8 @@ function createLocalBackend(DEVICE: boolean) {
 const SCOPE = DEVICE ? 'native-local' : 'default';
 /** Bots use the PC's full desktop and a shell (COMPUTER_PROVIDER=desktop). */
 const DESKTOP = DEVICE || env.localDesktop;
-/** Cloud VMs (COMPUTER_PROVIDER=cloudvm): the companion runs inside each user's VM with one screen per Bot (see cloudvm.ts). */
-const MULTI = !DEVICE && env.computerProvider === 'cloudvm';
+/** Isolated tenants and legacy cloud VMs each run one virtual screen per Bot. */
+const MULTI = !DEVICE && (env.computerProvider === 'cloudvm' || isTenant && env.computerProvider === 'local');
 const OFFLINE = DEVICE
   ? "Your Mac is offline. Open the Swarm desktop app and start Mac Control. Actions will wait for your Mac; they will not move to a cloud computer."
   : MULTI
@@ -66,6 +67,8 @@ interface Companion {
   ws: WebSocket;
   userId: string;
   tokenHash: string;
+  welcomeSent: boolean;
+  welcomeAcknowledged: boolean;
   device: { name: string; platform: string; version: string; headless: boolean; desktop: boolean; browser: boolean };
   width: number;
   height: number;
@@ -107,6 +110,15 @@ const emitState = (userId: string) => {
 
 /** Is this user's companion (PC or cloud VM) connected right now? */
 const companionConnected = (userId: string) => companions.has(userId);
+
+/** Live host readiness, bound to this boot's default-scope token and the actual welcome exchange. */
+function tenantCompanionReady(expectedTokenHash: string): boolean {
+  if (!isTenant || DEVICE || !MULTI) return false;
+  const c = companions.get(tenantId);
+  if (!c || c.ws.readyState !== WebSocket.OPEN || !c.welcomeAcknowledged || c.tokenHash !== expectedTokenHash || legacyWorkHeld(tenantId)) return false;
+  return !!db.prepare('SELECT 1 FROM companion_tokens WHERE token_hash=? AND user_id=? AND scope=? AND (expires_at IS NULL OR expires_at>?)')
+    .get(expectedTokenHash, tenantId, SCOPE, now());
+}
 
 /** Wait until the user's companion connects (a cloud VM finishing boot or resume). */
 async function waitForCompanion(userId: string, timeoutMs: number): Promise<boolean> {
@@ -250,6 +262,7 @@ function onCompanion(ws: WebSocket) {
       if (msg?.type !== 'hello' || typeof msg.token !== 'string') return ws.close(4400, 'expected hello');
       const hash = sha256(msg.token);
       const row = db.prepare('SELECT user_id FROM companion_tokens WHERE token_hash=? AND scope=? AND (expires_at IS NULL OR expires_at>?)').get(hash, SCOPE, now()) as any;
+      if (isTenant && row?.user_id !== tenantId) return ws.close(4401, 'invalid token');
       if (!row || legacyWorkHeld(row.user_id) || (DEVICE && !localAccess(row.user_id).enabled)) return ws.close(4401, 'invalid token');
       if (DEVICE && (msg.mode !== 'desktop' || msg.desktop !== true || !String(msg.platform).startsWith('darwin'))) return ws.close(4403, 'This pairing requires the Swarm Mac desktop companion.');
       clearTimeout(helloTimer);
@@ -264,6 +277,8 @@ function onCompanion(ws: WebSocket) {
         ws,
         userId: row.user_id,
         tokenHash: hash,
+        welcomeSent: false,
+        welcomeAcknowledged: false,
         device: {
           name: String(msg.name ?? 'My PC').slice(0, 80),
           platform: String(msg.platform ?? '').slice(0, 40),
@@ -282,7 +297,11 @@ function onCompanion(ws: WebSocket) {
       };
       companions.set(row.user_id, comp);
       for (const finish of companionWaiters.get(row.user_id) ?? []) finish();
-      ws.send(JSON.stringify({ type: 'welcome', protocol: PROTOCOL_VERSION, binaryFrames: true, mode: MULTI ? 'multi' : DESKTOP ? 'desktop' : 'browser' }));
+      const registered = comp;
+      ws.send(JSON.stringify({ type: 'welcome', protocol: PROTOCOL_VERSION, binaryFrames: true, mode: MULTI ? 'multi' : DESKTOP ? 'desktop' : 'browser' }), error => {
+        if (error) { forget(registered); ws.terminate(); return; }
+        registered.welcomeSent = true;
+      });
       console.log(`[local] PC connected user=${row.user_id} name="${comp.device.name}" platform=${comp.device.platform} headless=${comp.device.headless}`);
       emitState(row.user_id);
       return;
@@ -298,6 +317,9 @@ function onCompanion(ws: WebSocket) {
     } else if (msg.event === 'frame' && typeof msg.botId === 'string' && typeof msg.data === 'string') {
       frame(msg.botId, Buffer.from(msg.data, 'base64'));
     } else if (msg.event === 'browsers' && Array.isArray(msg.bots)) {
+      // The real companion sends its browser inventory only after accepting welcome.
+      // No persistent readiness file can survive disconnect, replacement or token revocation.
+      if (comp.welcomeSent && msg.bots.every((id: unknown) => typeof id === 'string' && safeBotId(id))) comp.welcomeAcknowledged = true;
       const open = new Set(msg.bots.filter((b: unknown) => typeof b === 'string'));
       for (const b of [...comp.browsers.keys()]) if (!open.has(b)) comp.browsers.delete(b);
       for (const b of open as Set<string>) if (!comp.browsers.has(b)) comp.browsers.set(b, now());
@@ -653,13 +675,13 @@ function localFilePath(botId: string, rel: string): string {
   return inside(filesRoot(botId), rel);
 }
 
-return { localProvider, setComputerStateSource, companionConnected, waitForCompanion, dropCompanion,
+return { localProvider, setComputerStateSource, companionConnected, tenantCompanionReady, waitForCompanion, dropCompanion,
   createPairing, revokeVmTokens, revokePairings, pairingInfo, attachCompanionSocket, localFilePath,
   browserAvailable: (userId: string) => companions.get(userId)?.device.browser ?? false };
 }
 
 const defaultBackend = createLocalBackend(false);
 const deviceBackend = createLocalBackend(true);
-export const { localProvider, setComputerStateSource, companionConnected, waitForCompanion, dropCompanion,
+export const { localProvider, setComputerStateSource, companionConnected, tenantCompanionReady, waitForCompanion, dropCompanion,
   createPairing, revokeVmTokens, revokePairings, pairingInfo, attachCompanionSocket, localFilePath } = defaultBackend;
 export const nativeLocal = deviceBackend;
