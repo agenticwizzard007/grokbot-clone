@@ -54,6 +54,9 @@
 .mm-row__check { flex-shrink: 0; color: var(--color-text-primary); }
 .mm-row__act { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 6px; color: var(--color-text-tertiary); flex-shrink: 0; }
 .mm-row__act:hover { background: var(--color-bg-secondary-hover); color: var(--color-text-primary); }
+.mm-row__effort { display: inline-flex; align-items: center; justify-content: flex-end; gap: 2px; min-width: 44px; min-height: 36px; padding: 0 4px; flex-shrink: 0; border-radius: 6px; font-size: 12px; color: var(--color-text-secondary); }
+.mm-row__effort:hover, .mm-row__effort[aria-expanded='true'] { background: var(--color-bg-secondary-hover); color: var(--color-text-primary); }
+.mm-row__effort:focus-visible, .mm-effort:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: -2px; }
 .mm-star.is-on { color: #e8a317; }
 .mm-star.is-on svg { fill: currentColor; }
 .mm-section { padding: 6px; border-top: 0.5px solid var(--color-border-tertiary); flex-shrink: 0; }
@@ -70,7 +73,8 @@ button.mm-item:hover, .mm-item.is-open { background: var(--color-bg-hover); }
 .mm-foot__hint { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--color-text-secondary); }
 
 /* effort levels: a flyout beside the menu (a page of the sheet on phones) */
-.mm-flyout { width: 240px; padding: 6px; border-radius: 14px; background: var(--color-bg-elevated); box-shadow: var(--shadow-modal), 0 0 0 0.5px var(--color-border-secondary); animation: mm-in 120ms var(--ease-out); margin-bottom: 44px; }
+.mm-flyout { width: 240px; max-height: 70dvh; overflow-y: auto; flex-shrink: 0; padding: 6px; border-radius: 14px; background: var(--color-bg-elevated); box-shadow: var(--shadow-modal), 0 0 0 0.5px var(--color-border-secondary); animation: mm-in 120ms var(--ease-out); margin-bottom: 44px; }
+.mm-effort-model { padding: 6px 10px 10px; font-size: 13px; font-weight: 500; color: var(--color-text-secondary); overflow-wrap: anywhere; }
 .mm-efforts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .mm-effort { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 7px 10px; border-radius: 8px; text-align: left; color: var(--color-text-primary); }
 .mm-effort:hover, .mm-effort.is-selected { background: var(--color-bg-hover); }
@@ -85,35 +89,48 @@ button.mm-item:hover, .mm-item.is-open { background: var(--color-bg-hover); }
 .model-menu.is-sheet { width: 100%; max-height: 82dvh; border-radius: 18px 18px 0 0; padding-bottom: var(--safe-bottom, 0px); animation: mm-sheet 220ms var(--ease-out); }
 @keyframes mm-sheet { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
 .model-menu.is-sheet .mm-row, .model-menu.is-sheet .mm-item { height: 48px; }
+.model-menu.is-sheet .mm-row__effort, .model-menu.is-sheet .mm-effort { min-height: 44px; }
 .model-menu.is-sheet .mm-search input { font-size: 16px; }
 .mm-sheet-head { display: flex; align-items: center; height: 48px; padding: 0 8px; border-bottom: 0.5px solid var(--color-border-tertiary); }
 .mm-back { display: inline-flex; align-items: center; gap: 4px; height: 36px; padding: 0 8px; border-radius: 8px; font-size: 15px; font-weight: 600; color: var(--color-text-primary); }
+.mm-back { min-width: 0; max-width: 100%; }
+.mm-back > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mm-back > svg { flex-shrink: 0; }
+.model-menu > .mm-efforts { overflow-y: auto; }
 .model-menu.is-sheet .mm-efforts { padding: 6px; }
 
-/* ---------- Ultracode: a turning rainbow ring and a breathing glow ---------- */
+/* Paper's ring/glow, scaled by the selected effort. This is a visual preference, not measured usage. */
+.effort-motion { --effort-turn: 6s; --effort-breathe: 3s; --effort-glow-min: 0.35; --effort-glow-max: 0.55; --effort-flare: 0.9; --effort-shimmer: 1.4s; --effort-bob: 2.4s; }
+.effort-motion[data-effort='minimal'], .effort-motion[data-effort='low'] { --effort-turn: 18s; --effort-breathe: 6s; --effort-glow-min: 0.06; --effort-glow-max: 0.12; --effort-flare: 0.18; --effort-shimmer: 2.8s; --effort-bob: 3.6s; --effort-colors: #93a9c4, #c8d8ee, #7689bb, #c8d8ee, #93a9c4; }
+.effort-motion[data-effort='medium'] { --effort-turn: 12s; --effort-breathe: 4.5s; --effort-glow-min: 0.12; --effort-glow-max: 0.22; --effort-flare: 0.3; --effort-shimmer: 2.2s; --effort-bob: 3s; --effort-colors: #7787e1, #20c7e8, #5064c4, #9baaf0, #7787e1; }
+.effort-motion[data-effort='high'] { --effort-turn: 9s; --effort-breathe: 3.8s; --effort-glow-min: 0.2; --effort-glow-max: 0.35; --effort-flare: 0.5; --effort-shimmer: 1.8s; --effort-bob: 2.7s; --effort-colors: #3aa0ff, #20c7e8, #7b61ff, #d25cff, #3aa0ff; }
+.effort-motion[data-effort='xhigh'] { --effort-turn: 7.5s; --effort-breathe: 3.4s; --effort-glow-min: 0.28; --effort-glow-max: 0.45; --effort-flare: 0.7; --effort-shimmer: 1.6s; }
 @property --uc-angle { syntax: '<angle>'; inherits: false; initial-value: 210deg; }
-.composer.is-ultracode {
+.composer.has-effort {
   border: 1.5px solid transparent;
   background:
     linear-gradient(var(--color-bg-pane), var(--color-bg-pane)) padding-box,
-    conic-gradient(from var(--uc-angle), #ff5f6d, #ffb341, #ffe14d, #3ddc84, #20c7e8, #3aa0ff, #7b61ff, #d25cff, #ff5f6d) border-box;
+    conic-gradient(from var(--uc-angle), var(--effort-colors, #ff5f6d, #ffb341, #ffe14d, #3ddc84, #20c7e8, #3aa0ff, #7b61ff, #d25cff, #ff5f6d)) border-box;
   box-shadow: none;
-  animation: uc-turn 6s linear infinite;
+  animation: uc-turn var(--effort-turn) linear infinite;
 }
 /* The glow sits behind the composer (a sibling), never over its controls. */
 .composer-shell { position: relative; max-width: 960px; margin: 0 auto; }
 .composer-shell > .composer { position: relative; z-index: 1; }
 .composer__glow {
   position: absolute; inset: 10px 18px -8px; z-index: 0; border-radius: 26px; pointer-events: none;
-  background: conic-gradient(from var(--uc-angle), #ff5f6d, #ffb341, #ffe14d, #3ddc84, #20c7e8, #3aa0ff, #7b61ff, #d25cff, #ff5f6d);
-  filter: blur(18px); opacity: 0.4;
-  animation: uc-turn 6s linear infinite, uc-breathe 3s ease-in-out infinite;
+  background: conic-gradient(from var(--uc-angle), var(--effort-colors, #ff5f6d, #ffb341, #ffe14d, #3ddc84, #20c7e8, #3aa0ff, #7b61ff, #d25cff, #ff5f6d));
+  filter: blur(18px); opacity: var(--effort-glow-min);
+  animation: uc-turn var(--effort-turn) linear infinite, uc-breathe var(--effort-breathe) ease-in-out infinite;
 }
-.composer-shell.is-flaring .composer__glow { animation: uc-turn 6s linear infinite, uc-flare 1.3s var(--ease-out); }
+.composer-shell.is-flaring .composer__glow { animation: uc-turn var(--effort-turn) linear infinite, uc-flare 1.3s var(--ease-out); }
 @keyframes uc-turn { to { --uc-angle: 570deg; } }
-@keyframes uc-breathe { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.55; } }
-@keyframes uc-flare { 0% { opacity: 0; transform: scale(0.92); } 35% { opacity: 0.9; transform: scale(1.04); } 100% { opacity: 0.4; transform: none; } }
-:root[data-theme='dark'] .composer__glow { opacity: 0.5; }
+@keyframes uc-breathe { 0%, 100% { opacity: var(--effort-glow-min); } 50% { opacity: var(--effort-glow-max); } }
+@keyframes uc-flare { 0% { opacity: 0; transform: scale(0.92); } 35% { opacity: var(--effort-flare); transform: scale(1.04); } 100% { opacity: var(--effort-glow-min); transform: none; } }
+.activity-line.effort-motion .shimmer { animation-duration: var(--effort-shimmer); }
+.activity-line.effort-motion .activity-line__mark { animation-duration: var(--effort-bob); }
+.activity-line[data-effort='none'] .shimmer { animation: none; background: none; color: var(--color-text-secondary); }
+.activity-line[data-effort='none'] .activity-line__mark { animation: none; }
 
 /* ---------- the working clock ---------- */
 .activity-timer { display: inline-flex; align-items: center; gap: 7px; padding: 0 2px; font-family: var(--font-mono-stack); font-size: 13px; color: var(--color-text-tertiary); font-variant-numeric: tabular-nums; }
@@ -123,7 +140,9 @@ button.mm-item:hover, .mm-item.is-open { background: var(--color-bg-hover); }
 .activity-line.is-waiting .braille .is-on { fill: var(--color-warn-text); }
 
 @media (prefers-reduced-motion: reduce) {
-  .composer.is-ultracode, .composer__glow, .model-menu, .mm-flyout, .model-menu.is-sheet { animation: none; }
+  .composer.has-effort, .composer__glow, .composer-shell.is-flaring .composer__glow, .model-menu, .mm-flyout, .model-menu.is-sheet,
+  .activity-line.effort-motion .shimmer, .activity-line.effort-motion .activity-line__mark { animation: none; }
+  .activity-line.effort-motion:not(.is-waiting) .shimmer { background: none; color: var(--color-text-secondary); }
 }
 
 /* phones: the ring sits flush; keep the toolbar tight */
