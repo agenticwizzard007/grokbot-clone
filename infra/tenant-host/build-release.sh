@@ -30,13 +30,13 @@ cleanup() { if [[ -n $extract_id ]]; then docker rm --force --volumes "$extract_
 trap cleanup EXIT
 # Reuse the compiled application and production dependency tree from the exact reviewed APP_IMAGE.
 # Do not independently compile privileged host code from a potentially different working tree.
-extract_id=$(docker create --pull=never --network=none "$APP_IMAGE")
+extract_id=$(docker create --pull=never --network=none "$APP_IMAGE" node --version)
 docker cp "$extract_id:/app/server/dist" "$release_dir/app/server/"
 docker cp "$extract_id:/app/server/package.json" "$release_dir/app/server/package.json"
 docker cp "$extract_id:/app/node_modules" "$release_dir/app/"
 docker rm --volumes "$extract_id" >/dev/null
 extract_id=''
-extract_id=$(docker create --pull=never --network=none "$DESKTOP_IMAGE")
+extract_id=$(docker create --pull=never --network=none "$DESKTOP_IMAGE" node --version)
 docker cp "$extract_id:/opt/swarm/ffmpeg-build.json" "$release_dir/ffmpeg-build.json"
 docker cp "$extract_id:/usr/local/bin/ffmpeg" "$release_dir/ffmpeg"
 docker rm --volumes "$extract_id" >/dev/null

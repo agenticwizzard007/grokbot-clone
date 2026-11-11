@@ -113,6 +113,10 @@ The coordinator approved **8 GiB for initial staging**. One runner leaves 4352 M
 one local MCP leaves 3584 MiB. Container limits and the global provisioning default remain unchanged. The existing
 provisioning code still defaults new guests to 4096 MiB; the staging operator must arrange an explicitly reviewed
 8192 MiB creation path before exercising that workload. Never silently alter an existing guest or bypass resize fencing.
+The existing operator commands are in [tenant capacity operations](../../docs/tenant-capacity-operations.md): install an
+approved policy, collect a fresh host usage window, plan, then queue the reviewed maintenance operation. They require
+an existing environment and exact-image `tenant-capacity-resize` evidence; they do not configure the initial guest size
+or provide a shortcut for a tenant that has not yet booted. An initial-size override needs a separate reviewed change.
 No account generation/helper caps or queues are introduced. Measure RSS, cgroup pressure/OOMs, browser viewing, cold
 loads and backup temporary-disk use before choosing production limits or claiming 1,000-user capacity.
 

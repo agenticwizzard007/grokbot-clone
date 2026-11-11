@@ -57,7 +57,7 @@ if(tool==='docker'){
   if(process.env.MOCK_MISSING_BASE==='1'&&a[2].includes('host-base'))process.exit(1);
   const name=a[2],id='sha256:'+(name.includes('desktop')?'d':'c').repeat(64);
   console.log(JSON.stringify([{Id:id,Os:'linux',Architecture:'amd64',RepoDigests:['registry.fly.io/approved-app@'+id],Config:{Labels:{'org.opencontainers.image.revision':process.env.MOCK_BAD_REVISION==='1'?'0'.repeat(40):process.env.MOCK_SOURCE}}}]));
- }else if(a[0]==='create')console.log('extract-fixture');
+ }else if(a[0]==='create'){if(a.at(-2)!=='node'||a.at(-1)!=='--version'){console.error('no command specified');process.exit(1);}console.log('extract-fixture');}
  else if(a[0]==='cp'){
   const target=a[2];
   if(a[1].endsWith('/ffmpeg-build.json')){const c=JSON.parse(fs.readFileSync('infra/tenant-host/images.lock.json')).ffmpeg;fs.writeFileSync(target,JSON.stringify({...c,binaryVersion:'ffmpeg version '+c.version,binarySha256:require('node:crypto').createHash('sha256').update('binary-fixture').digest('hex')}));}
