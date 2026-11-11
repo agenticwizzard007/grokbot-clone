@@ -4,12 +4,13 @@ import { currentSessionHash } from '../security/request-context.js';
 export class GatewayError extends Error {
   constructor(readonly status: number) { super(`Connected app operation refused (${status}).`); }
 }
-export async function gatewayRequest<T = any>(userId: string, operation: string, input: Record<string, unknown> = {}): Promise<T> {
+export async function gatewayRequest<T = any>(userId: string, operation: string, input: Record<string, unknown> = {}, options: { signal?: AbortSignal } = {}): Promise<T> {
   assertTenant(userId);
   const endpoint = process.env.COMPOSIO_GATEWAY_URL, tokenPath = process.env.RUNTIME_TOKEN_FILE;
   if (!isTenant || !endpoint?.startsWith('https://') || !tokenPath?.startsWith('/run/swarm/')) throw new Error('Connected apps gateway unavailable.');
   const authorization = (await fs.readFile(tokenPath, 'utf8')).trim();
-  const res = await fetch(new URL('/rpc', endpoint), { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(65_000),
+  const timeout = AbortSignal.timeout(65_000);
+  const res = await fetch(new URL('/rpc', endpoint), { method: 'POST', redirect: 'error', signal: options.signal ? AbortSignal.any([options.signal, timeout]) : timeout,
     headers: { authorization: `Bearer ${authorization}`, 'content-type': 'application/json' },
     body: JSON.stringify({ operation, input, sessionHash: currentSessionHash() }) }).catch(() => { throw new GatewayError(503); });
   if (!res.ok) { await res.body?.cancel(); throw new GatewayError(res.status); }

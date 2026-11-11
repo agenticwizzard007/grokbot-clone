@@ -6,8 +6,9 @@ import { llmProvider, modelFor, openrouterModels, withFast, type LlmProvider } f
 import { voiceProvider } from '../lib/voice-provider.js';
 import { usageReport, type UsageRange, type UsageReport } from '../usage.js';
 import { withUsage } from '../usage-context.js';
+import { connectionState, type ConnectionState } from './connection-state.js';
 
-export interface PlatformStateOptions { range?: UsageRange; includeModels?: boolean }
+export interface PlatformStateOptions { range?: UsageRange; includeModels?: boolean; includeConnections?: boolean }
 export interface PlatformModel {
   id: string;
   name: string | null;
@@ -49,6 +50,7 @@ export interface PlatformSnapshot {
 export interface PlatformState extends PlatformSnapshot {
   usage: { scope: 'account'; range: UsageReport['range']; totals: UsageReport['totals'] };
   models?: { available: boolean; items: PlatformModel[] };
+  connections?: ConnectionState;
 }
 
 // cli/catalog has no synchronous cache reader. Retain only our public observations,
@@ -148,6 +150,7 @@ export async function platformState(userId: string, botId: string, options: Plat
   const range = options.range ?? '30d';
   if (!['today', '7d', '30d', 'month'].includes(range)) throw new Error('Invalid platform usage range.');
   return withUsage({ userId, botId }, async () => {
+    const connections = options.includeConnections ? connectionState(userId, botId) : undefined;
     const before = cliStatus(userId);
     let models: PlatformState['models'] = options.includeModels ? { available: false, items: [] } : undefined;
     const auth = before.selected ? before.providers[before.selected] : null;
@@ -174,11 +177,13 @@ export async function platformState(userId: string, botId: string, options: Plat
     } else if (!before.selected && options.includeModels && llmProvider() === 'openrouter') {
       try { models = { available: true, items: publicModels(await openrouterModels()) }; } catch { /* Unknown, not an empty available catalog. */ }
     }
+    const connectionSnapshot = await connections;
     const state = snapshot(userId, botId);
     // A selection/runtime change while discovery was pending invalidates its model list.
     if (models && (state.cli.selected !== before.selected || state.cli.runtime !== before.runtime)) models = { available: false, items: [] };
     const report = usageReport(userId, range);
-    return { ...state, usage: { scope: 'account', range: report.range, totals: report.totals }, ...(models ? { models } : {}) };
+    return { ...state, usage: { scope: 'account', range: report.range, totals: report.totals }, ...(models ? { models } : {}),
+      ...(connectionSnapshot ? { connections: connectionSnapshot } : {}) };
   });
 }
 
