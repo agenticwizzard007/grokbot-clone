@@ -55,11 +55,9 @@ with Tigris keys would send Tigris credentials to KMS; offering Tigris requires 
 flyctl apps create swarm-platform-staging --org <staging-org>
 flyctl apps create swarm-provisioner-staging --org <staging-org>
 flyctl apps create swarm-gateway-staging --org <staging-org>
-flyctl certs add -a swarm-platform-staging platform-staging.<your-domain>
-flyctl certs add -a swarm-gateway-staging gateway-staging.<your-domain>
 ```
-Edit the manifests to those origins: `PLATFORM_URL`, `APP_URL` and `SERVER_URL` in `fly.platform.toml` (all three the
-platform origin), `COMPOSIO_GATEWAY_URL` in the platform and provisioner manifests, `PLATFORM_URL` in the gateway manifest.
+Staging uses the apps' own `https://<app>.fly.dev` origins (TLS provided by Fly), already set in the manifests; production
+replaces them with owned domains via `flyctl certs add` and the same three manifest keys.
 
 ## 4. Secrets (names as the manifests list them)
 Write each app's secrets as `NAME=VALUE` lines into a protected file (mode 0600, outside the repository) and import
