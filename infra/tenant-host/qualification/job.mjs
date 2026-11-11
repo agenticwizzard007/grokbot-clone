@@ -7,7 +7,7 @@ import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { assertKernelProbe, assertSuite, immutableImage, sha256 } from './policy.mjs';
+import { assertDesktopProfile, assertKernelProbe, assertSuite, immutableImage, sha256 } from './policy.mjs';
 import { checkDesktop } from './desktop-check.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -120,6 +120,7 @@ try {
   assert.equal(release.sourceCommit, manifest.imageProvenance.sourceCommit);
   assert.equal(release.appImage, manifest.imageProvenance.components.app);
   assert.equal(release.desktopImage, manifest.imageProvenance.components.desktop);
+  assertDesktopProfile(fs.readFileSync('/opt/swarm/chromium-seccomp.json'), manifest, release);
   immutableImage(release.mcpImage);
   await docker(['load', '--input', '/opt/swarm/images/MCP_IMAGE.tar'], 120000);
   // docker save/load drops RepoDigests; the signed release maps them to config IDs.

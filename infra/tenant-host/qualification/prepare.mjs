@@ -15,6 +15,8 @@ immutableImage(image);
 const provenance = imageProvenance(JSON.parse(fs.readFileSync(provenanceFile)), image);
 const hostSource = fs.readFileSync(path.join(repo, 'server/src/runtime/host.ts'), 'utf8');
 const desktopFlags = desktopArguments(hostSource);
+assert.equal(sha256(fs.readFileSync(path.join(repo, 'infra/tenant-host/chromium-seccomp.json'))), provenance.desktopSeccompSha256,
+  'Published desktop profile differs from the reviewed source.');
 assertDefaultWorkloadPolicy(fs.readFileSync(path.join(repo, 'server/src/runtime/container-policy.ts'), 'utf8'), hostBasicArguments(hostSource));
 assert.equal(process.platform, 'linux', 'Prepare the Linux x64 tool bundle on Linux x64.');
 assert.equal(process.arch, 'x64');
