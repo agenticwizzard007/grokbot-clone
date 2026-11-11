@@ -16,6 +16,7 @@ import { cliApi } from './cli/routes.js';
 import { attachCliSocket } from './cli/bridge.js';
 import { api } from './routes.js';
 import { attachComputerSockets, computers } from './computers/index.js';
+import { tenantDesktopReadiness } from './computers/tenant-readiness.js';
 import { initRoutines } from './routines.js';
 import { initTriggers } from './triggers.js';
 import { initProactive } from './proactive.js';
@@ -48,12 +49,13 @@ if (isTenant && !db.prepare('SELECT 1 FROM users WHERE id=?').get(tenantId)) {
   if (profile.id !== tenantId) throw new Error('Tenant bootstrap mismatch.');
   createAccount({ preferId: tenantId, email: profile.verified_email || `${tenantId}@tenant.invalid`, name: profile.display_name });
 }
+const desktopToken = isTenant ? fs.readFileSync('/run/swarm/desktop-token', 'utf8').trim() : '';
 if (isTenant) {
-  const desktopToken = fs.readFileSync('/run/swarm/desktop-token', 'utf8').trim();
   db.prepare('INSERT OR IGNORE INTO companion_tokens(token_hash,user_id,created_at) VALUES(?,?,?)').run(sha256(desktopToken), tenantId, Date.now());
 }
 
 const app = new Hono();
+if (isTenant) app.route('/internal/desktop-ready', tenantDesktopReadiness(desktopToken));
 app.use('/api/*', async (c, next) => {
   const start = performance.now();
   await next();
