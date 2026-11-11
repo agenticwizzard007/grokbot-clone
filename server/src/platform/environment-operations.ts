@@ -50,8 +50,8 @@ export async function queueEnvironmentOperation(directory:Directory,plan:Environ
     if(plan.kind==='restore')await validateBackups(client,plan.tenant,plan.fullBackup,plan.databaseBackup);
     if(plan.capacity){await assertCapacityQualified(client,plan.image);await validateCapacityChange(client,plan.capacity,plan);}
     const id=randomBytes(16).toString('hex'),generation=String(BigInt(plan.generation)+1n);
-    await client.query(`INSERT INTO environment_operations(id,tenant_id,kind,source_generation,target_generation,source_machine,source_volume,source_image,image_digest,region,full_backup,database_backup,capacity_change,source_guest,source_volume_gb)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,[id,plan.tenant,plan.kind,plan.generation,generation,plan.machine,plan.volume,plan.sourceImage,plan.image,plan.region,plan.fullBackup??null,plan.databaseBackup??null,plan.capacity??null,plan.capacity?.source.guest??null,plan.capacity?.source.volumeGb??null]);
+    await client.query(`INSERT INTO environment_operations(id,tenant_id,kind,source_generation,target_generation,source_machine,source_volume,source_image,image_digest,region,full_backup,database_backup,capacity_change,source_guest,source_volume_gb,created_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,clock_timestamp())`,[id,plan.tenant,plan.kind,plan.generation,generation,plan.machine,plan.volume,plan.sourceImage,plan.image,plan.region,plan.fullBackup??null,plan.databaseBackup??null,plan.capacity??null,plan.capacity?.source.guest??null,plan.capacity?.source.volumeGb??null]);
     // Revoke routing/runtime authority before any slow cloud operation. User
     // sessions survive this maintenance; no tenant process receives a Fly key.
     await client.query("UPDATE tenants SET state='suspended',generation=$2 WHERE id=$1",[plan.tenant,generation]);
@@ -74,7 +74,7 @@ export async function requestEnvironmentRollback(directory:Directory,id:string){
     await assertQualifiedImage(client,operation.source_image);
     await client.query("UPDATE tenants SET state='suspended' WHERE id=$1",[operation.tenant_id]);
     await client.query('DELETE FROM runtime_credentials WHERE tenant_id=$1',[operation.tenant_id]);
-    await client.query("UPDATE environment_operations SET phase='aborting',fence=fence+1,lease_until=NULL,retry_at=now(),error_code=NULL WHERE id=$1",[id]);
+    await client.query("UPDATE environment_operations SET phase='aborting',fence=fence+1,lease_until=NULL,retry_at=clock_timestamp(),error_code=NULL WHERE id=$1",[id]);
     return {id,tenant:operation.tenant_id,phase:'aborting'};
   });
 }
@@ -86,25 +86,28 @@ export class EnvironmentWorker {
   async tick():Promise<'idle'|'completed'|'retry'>{
     const operation=await this.directory.transaction(async client=>{
       const row=(await client.query(`SELECT o.* FROM environment_operations o JOIN tenants t ON t.id=o.tenant_id
-        WHERE o.phase NOT IN ('completed','cancelled') AND o.retry_at<=now() AND (o.lease_until IS NULL OR o.lease_until<now())
+        WHERE o.phase NOT IN ('completed','cancelled') AND o.retry_at<=clock_timestamp() AND (o.lease_until IS NULL OR o.lease_until<clock_timestamp())
         AND t.generation=o.target_generation AND t.state IN ('suspended','provisioning')
         AND NOT EXISTS(SELECT 1 FROM lifecycle_jobs j WHERE j.tenant_id=o.tenant_id AND j.state='running')
         ORDER BY o.created_at FOR UPDATE OF o,t SKIP LOCKED LIMIT 1`)).rows[0];
       if(!row)return null;
-      return (await client.query("UPDATE environment_operations SET lease_owner=$2,lease_until=now()+interval '2 minutes',fence=fence+1,attempts=attempts+1 WHERE id=$1 RETURNING *",[row.id,this.worker])).rows[0];
+      return (await client.query("UPDATE environment_operations SET lease_owner=$2,lease_until=clock_timestamp()+interval '2 minutes',fence=fence+1,attempts=attempts+1 WHERE id=$1 RETURNING *",[row.id,this.worker])).rows[0];
     });
     if(!operation)return 'idle';
     const id=operation.id,tenant=operation.tenant_id,generation=String(operation.target_generation),app=this.fly.name(tenant),owner=()=>({tenant,generation,machine:operation.target_machine as string});
     const fenced=async<T>(fn:(client:PoolClient)=>Promise<T>)=>this.directory.transaction(async client=>{
+      // Lock first. A locking WHERE may have been evaluated before waiting;
+      // transaction-start now() cannot prove that the lease is still live.
+      await client.query(`SELECT o.id FROM environment_operations o JOIN tenants t ON t.id=o.tenant_id WHERE o.id=$1 FOR UPDATE OF o,t`,[id]);
       const valid=await client.query(`SELECT 1 FROM environment_operations o JOIN tenants t ON t.id=o.tenant_id WHERE o.id=$1 AND o.lease_owner=$2 AND o.fence=$3
-        AND o.lease_until>now() AND o.phase NOT IN ('completed','cancelled') AND t.generation=o.target_generation AND t.state IN ('suspended','provisioning') FOR UPDATE OF o,t`,[id,this.worker,operation.fence]);
+        AND o.lease_until>clock_timestamp() AND o.phase NOT IN ('completed','cancelled') AND t.generation=o.target_generation AND t.state IN ('suspended','provisioning')`,[id,this.worker,operation.fence]);
       if(!valid.rowCount)throw new Error('Environment operation ownership changed.');
       if(operation.capacity_change&&operation.phase!=='aborting'){
         await assertCapacityQualified(client,operation.image_digest);
         const policy=(await client.query('SELECT revision,policy FROM tenant_capacity_policies WHERE tenant_id=$1',[tenant])).rows[0];
         if(!policy?.policy?.enabled||String(policy.revision)!==operation.capacity_change.policyRevision)throw new Error('Admitted capacity policy was revoked.');
       }
-      await client.query("UPDATE environment_operations SET lease_until=now()+interval '2 minutes' WHERE id=$1",[id]);
+      if(!(await client.query("UPDATE environment_operations SET lease_until=clock_timestamp()+interval '2 minutes' WHERE id=$1 AND lease_until>clock_timestamp() RETURNING id",[id])).rowCount)throw new Error('Environment lease expired before renewal.');
       return fn(client);
     });
     const guard=()=>fenced(async()=>{}),actionKind=(kind:string)=>`environment:${id}:${kind}`;
@@ -235,7 +238,10 @@ export class EnvironmentWorker {
       }
       throw new Error('Environment phase requires reconciliation.');
     }catch(error){
-      await this.directory.pool.query("UPDATE environment_operations SET error_code=$4,retry_at=now()+interval '5 seconds'*least(attempts,12),lease_until=NULL WHERE id=$1 AND lease_owner=$2 AND fence=$3 AND phase NOT IN ('completed','cancelled')",[id,this.worker,operation.fence,error instanceof PendingOperation?error.code:'environment_requires_reconciliation']);
+      await this.directory.transaction(async client=>{
+        await client.query('SELECT id FROM environment_operations WHERE id=$1 FOR UPDATE',[id]);
+        await client.query("UPDATE environment_operations SET error_code=$4,retry_at=clock_timestamp()+interval '5 seconds'*least(attempts,12),lease_until=NULL WHERE id=$1 AND lease_owner=$2 AND fence=$3 AND phase NOT IN ('completed','cancelled') AND lease_until>clock_timestamp()",[id,this.worker,operation.fence,error instanceof PendingOperation?error.code:'environment_requires_reconciliation']);
+      });
       return 'retry';
     }finally{clearInterval(heartbeat);}
   }

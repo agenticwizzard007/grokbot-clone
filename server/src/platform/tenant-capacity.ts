@@ -75,7 +75,7 @@ export function recommendCapacity(policy:CapacityPolicy,source:TenantCapacity,sa
   return {guest:{...policy.tiers[tier+(pressure?1:0)]},volumeGb};
 }
 export function capacityDigest(change:CapacityChange){return createHash('sha256').update(JSON.stringify(change)).digest('hex');}
-export async function validateCapacityChange(client:PoolClient,change:CapacityChange,owner:{tenant:string;generation:string;machine:string;volume:string},now=Date.now()){
+export async function validateCapacityChange(client:PoolClient,change:CapacityChange,owner:{tenant:string;generation:string;machine:string;volume:string}){
   exact(change,['policyRevision','source','target','samples','evidence','maintenanceAcknowledged']);
   if(!/^[1-9]\d*$/.test(change.policyRevision)||change.maintenanceAcknowledged!==true)throw new Error('Reviewed maintenance acknowledgement is required.');
   exact(change.evidence,['uri','sha256','reviewer']);
@@ -84,11 +84,12 @@ export async function validateCapacityChange(client:PoolClient,change:CapacityCh
   const url=new URL(uri);if(url.username||url.password||url.hash)throw new Error('Evidence URI cannot carry credentials or fragments.');
   const row=(await client.query('SELECT revision,policy FROM tenant_capacity_policies WHERE tenant_id=$1 FOR UPDATE',[owner.tenant])).rows[0];
   if(!row||String(row.revision)!==change.policyRevision)throw new Error('Capacity policy changed or is missing.');
-  const recommended=recommendCapacity(row.policy,change.source,change.samples,owner,now);validateCapacity(change.target);
+  // Compute freshness only after the policy row lock has been acquired.
+  const recommended=recommendCapacity(row.policy,change.source,change.samples,owner,Date.now());validateCapacity(change.target);
   if(!sameGuest(recommended.guest,change.target.guest)||recommended.volumeGb!==change.target.volumeGb)throw new Error('Capacity target differs from the reviewed usage recommendation.');
   if(sameGuest(change.source.guest,change.target.guest)&&change.source.volumeGb===change.target.volumeGb)throw new Error('Usage does not require a capacity change.');
   if((await client.query("SELECT 1 FROM environment_operations WHERE tenant_id=$1 AND capacity_change IS NOT NULL AND created_at>now()-make_interval(secs=>$2) LIMIT 1",[owner.tenant,row.policy.cooldownSeconds])).rowCount)throw new Error('Capacity change cooldown is active.');
 }
 export async function assertCapacityQualified(client:Pick<PoolClient,'query'>,image:string){
-  if(!(await client.query("SELECT 1 FROM release_gates WHERE name='tenant-capacity-resize' AND image_digest=$1 AND evidence_uri!=''",[image])).rowCount)throw new Error('Tenant capacity resize qualification is required.');
+  if(!(await client.query("SELECT 1 FROM release_gates WHERE name='tenant-capacity-resize' AND image_digest=$1 AND evidence_uri!='' AND approved_at<=now()",[image])).rowCount)throw new Error('Tenant capacity resize qualification is required.');
 }

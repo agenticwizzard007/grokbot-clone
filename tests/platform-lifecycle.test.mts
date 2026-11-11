@@ -12,6 +12,7 @@ import {LifecycleWorker} from '../server/src/platform/lifecycle-worker.js';
 import {HostControl,hostControlRoutes,setHostIntent} from '../server/src/platform/host-control.js';
 import {RuntimeIdentity} from '../server/src/platform/runtime-identity.js';
 import {RuntimeRefreshStore} from '../server/src/runtime/refresh-state.js';
+import {expireLeaseDuringLock} from './fixtures/lease-expiry.mjs';
 const url=process.env.TEST_DATABASE_URL,image='registry.test/host@sha256:'+'a'.repeat(64);
 test('durable provisioning, host activation and revocation boundaries',{skip:!url},async t=>{
   const schema=`test_${randomBytes(8).toString('hex')}`,admin=new Pool({connectionString:url});await admin.query(`CREATE SCHEMA ${schema}`);
@@ -40,6 +41,14 @@ test('durable provisioning, host activation and revocation boundaries',{skip:!ur
     f.fly.after=async(method,route)=>{if(!failed&&method==='POST'&&route.endsWith('/volumes')){failed=true;throw new Error('lost response');}};
     assert.equal(await f.worker.tick(),'retry');assert.equal(await f.again(),'retry');await f.ready();assert.equal(await f.again(),'completed');
     assert.equal(f.fly.calls.filter(c=>c.method==='POST'&&c.route.endsWith('/volumes')).length,1);
+  });
+  await t.test('a lifecycle guard cannot renew an expired lease after waiting on an unchanged row',async()=>{
+    const f=await fixture();let held:Awaited<ReturnType<typeof expireLeaseDuringLock>>|undefined;
+    f.fly.after=async(m,r)=>{if(!held&&m==='GET'&&r.endsWith('/volumes'))held=await expireLeaseDuringLock(directory,'lifecycle_jobs',f.tenant);};
+    assert.equal(await f.worker.tick(),'retry');assert.ok(held);assert.deepEqual(await held.released,{sawWait:true,expired:true});
+    assert.equal(f.fly.calls.filter(c=>c.method==='POST'&&c.route.endsWith('/volumes')).length,0);
+    assert.equal((await directory.pool.query("SELECT 1 FROM infrastructure_actions WHERE tenant_id=$1 AND kind='volume'",[f.tenant])).rowCount,0);
+    f.fly.after=undefined;assert.equal(await f.again(),'retry');await f.ready();assert.equal(await f.again(),'completed');
   });
   await t.test('unknown creation with no observable result remains blocked instead of issuing another write',async()=>{
     const f=await fixture();f.fly.failBefore=(m,r)=>m==='POST'&&r.endsWith('/volumes');

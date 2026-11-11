@@ -15,6 +15,7 @@ import {environmentCommand} from '../server/src/platform/environment-cli.js';
 import {migrateDirectory} from '../server/src/platform/migrate.js';
 import {infrastructureGates} from '../server/src/platform/release-policy.js';
 import {FakeFly} from './fixtures/fly-tenants.mjs';
+import {expireLeaseDuringLock} from './fixtures/lease-expiry.mjs';
 
 const image='registry.test/host@sha256:'+'a'.repeat(64),base={guest:{cpu_kind:'shared' as const,cpus:2,memory_mb:4096},volumeGb:10};
 const policy:CapacityPolicy={version:1,enabled:true,tiers:[base.guest,{cpu_kind:'shared',cpus:4,memory_mb:8192}],maxVolumeGb:40,volumeStepGb:10,cpuThreshold:.8,memoryThreshold:.8,diskThreshold:.8,reserveGb:2,windowSeconds:120,cooldownSeconds:600};
@@ -106,6 +107,19 @@ test('durable usage-based capacity maintenance',{skip:!process.env.TEST_DATABASE
     assert.equal(await f.worker.tick(),'retry');assert.equal(f.growths(),0);
     await directory.pool.query("INSERT INTO release_gates(name,evidence_uri,image_digest,approved_at) VALUES('tenant-capacity-resize','test-fixture://only',$1,now())",[image]);
   });
+  await t.test('unapproved, future and withdrawn evidence cannot authorize resize or its next dispatch',async()=>{
+    const f=await fixture();
+    try{
+      for(const date of ['infinity','2099-01-01']){
+        await directory.pool.query("UPDATE release_gates SET approved_at=$1::timestamptz WHERE name='tenant-capacity-resize'",[date]);
+        await assert.rejects(f.plan(),/qualification/);
+      }
+      await directory.pool.query("UPDATE release_gates SET approved_at=now() WHERE name='tenant-capacity-resize'");
+      await queueEnvironmentOperation(directory,await f.plan());
+      f.fly.after=async(m,r)=>{if(m==='GET'&&r.endsWith('/volumes')&&(await f.operation()).source_removed)await directory.pool.query("UPDATE release_gates SET approved_at='infinity' WHERE name='tenant-capacity-resize'");};
+      assert.equal(await f.worker.tick(),'retry');assert.equal(f.growths(),0);assert.equal((await f.operation()).run_authorized_at,null);
+    }finally{await directory.pool.query("UPDATE release_gates SET approved_at=now() WHERE name='tenant-capacity-resize'");}
+  });
   await t.test('revoked policy at the stopped replacement lookup prevents bootstrap delivery',async()=>{
     const f=await fixture();await queueEnvironmentOperation(directory,await f.plan());
     const before=f.fly.calls.length;let lookups=0;
@@ -148,6 +162,32 @@ test('durable usage-based capacity maintenance',{skip:!process.env.TEST_DATABASE
     const f=await fixture();await queueEnvironmentOperation(directory,await f.plan());
     f.fly.after=async(m,r)=>{if(m==='GET'&&r.endsWith('/volumes')&&(await f.operation()).source_removed)await directory.pool.query('UPDATE environment_operations SET fence=fence+1,lease_until=NULL WHERE tenant_id=$1',[f.tenant]);};
     assert.equal(await f.worker.tick(),'retry');assert.equal(f.growths(),0);
+  });
+  await t.test('lease expiry during an unchanged row lock wait blocks growth until a new claim',async()=>{
+    const f=await fixture();await queueEnvironmentOperation(directory,await f.plan());let held:Awaited<ReturnType<typeof expireLeaseDuringLock>>|undefined;
+    f.fly.after=async(m,r)=>{if(!held&&m==='GET'&&r.endsWith('/volumes')&&(await f.operation()).source_removed)held=await expireLeaseDuringLock(directory,'environment_operations',f.tenant);};
+    assert.equal(await f.worker.tick(),'retry');assert.ok(held);assert.deepEqual(await held.released,{sawWait:true,expired:true});
+    assert.equal(f.growths(),0);assert.equal((await f.operation()).phase,'allocating');
+    assert.equal((await directory.pool.query("SELECT 1 FROM infrastructure_actions WHERE tenant_id=$1 AND kind LIKE '%:volume-growth'",[f.tenant])).rowCount,0);
+    const expired=(await f.operation()).fence;f.fly.after=undefined;
+    assert.equal(await f.again(),'retry');assert.ok(BigInt((await f.operation()).fence)>BigInt(expired));assert.equal(f.growths(),1);
+    await f.ready();assert.equal(await f.again(),'completed');
+  });
+  await t.test('usage that expires while waiting for a policy row cannot be queued',async()=>{
+    const f=await fixture(),capacity=f.change();capacity.samples=samples(f.binding,Date.now()-55000);
+    const plan=await planEnvironmentOperation(directory,{tenant:f.tenant,kind:'update',image,capacity});
+    const blocker=await directory.pool.connect();await blocker.query('BEGIN');const pid=(await blocker.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+    await blocker.query('SELECT tenant_id FROM tenant_capacity_policies WHERE tenant_id=$1 FOR UPDATE',[f.tenant]);
+    const pending=queueEnvironmentOperation(directory,plan);void pending.catch(()=>{});let sawWait=false;
+    try{
+      for(let n=0;n<200;n++){
+        if((await directory.pool.query("SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND $1=ANY(pg_blocking_pids(pid)) AND query LIKE 'SELECT revision,policy FROM tenant_capacity_policies%'",[pid])).rowCount){sawWait=true;break;}
+        await new Promise(resolve=>setTimeout(resolve,10));
+      }
+      assert.equal(sawWait,true);const newest=capacity.samples.at(-1)!.at;
+      while(Date.now()-newest<=60010)await new Promise(resolve=>setTimeout(resolve,25));
+    }finally{await blocker.query('COMMIT');blocker.release();}
+    await assert.rejects(pending,/stale/);assert.equal((await f.current()).state,'active');assert.equal((await f.current()).generation,'1');assert.equal(await f.operation(),undefined);
   });
   await t.test('deletion waits for an in-flight growth outcome then cleans only the owning environment',async()=>{
     const f=await fixture();await queueEnvironmentOperation(directory,await f.plan());let entered!:()=>void,release!:()=>void;
