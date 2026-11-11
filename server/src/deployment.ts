@@ -16,7 +16,7 @@ export function validateDeployment() {
   if (production && process.env.DEV_LOGIN === '1') throw new Error('Development authentication is forbidden in production.');
   if (isTenant) {
     if (!/^usr_[A-Za-z0-9_-]{8,100}$/.test(tenantId)) throw new Error('Tenant identity is required.');
-    for (const name of ['COMPOSIO_API_KEY', 'COMPOSIO_WEBHOOK_SECRET', 'FLY_API_TOKEN', 'DATABASE_URL', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'INKBOX_ADMIN_API_KEY', 'INKBOX_API_KEY', 'DIRECT_API_KEY', 'OPENROUTER_API_KEY', 'XAI_API_KEY', 'GOOGLE_CLIENT_SECRET', 'APPLE_PRIVATE_KEY']) {
+    for (const name of ['COMPOSIO_API_KEY', 'COMPOSIO_WEBHOOK_SECRET', 'FLY_API_TOKEN', 'DATABASE_URL', 'MIGRATION_DATABASE_URL', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'INKBOX_ADMIN_API_KEY', 'INKBOX_API_KEY', 'DIRECT_API_KEY', 'OPENROUTER_API_KEY', 'XAI_API_KEY', 'GOOGLE_CLIENT_SECRET', 'APPLE_PRIVATE_KEY']) {
       if (process.env[name]) throw new Error(`Platform credential ${name} is forbidden in a tenant process.`);
     }
     if (!process.env.TENANT_DATA_KEY_FILE || !process.env.TENANT_MANIFEST_FILE) throw new Error('Tenant key and volume manifest are required.');

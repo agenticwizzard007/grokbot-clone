@@ -116,7 +116,8 @@ export class LifecycleWorker {
         // the directory. An absent resource cannot settle an uncertain create.
         const app=fly.name(tenant.id);
         if(tenant.fly_app&&tenant.fly_app!==app)throw new Error('Foreign tenant application.');
-        const operations=(await this.directory.pool.query('SELECT id FROM environment_operations WHERE tenant_id=$1',[tenant.id])).rows.map(r=>r.id);
+        const environments=(await this.directory.pool.query('SELECT id,source_volume,capacity_change FROM environment_operations WHERE tenant_id=$1',[tenant.id])).rows;
+        const operations=environments.map(r=>r.id);
         await guard();const inventory=await fly.inventory(app,tenant.id,operations);await guard();
         for(const machine of inventory.machines){
           await guard();
@@ -127,6 +128,11 @@ export class LifecycleWorker {
         await fenced(async client=>{
           const unresolved=(await client.query("SELECT generation,kind FROM infrastructure_actions WHERE tenant_id=$1 AND state='dispatching'",[tenant.id])).rows;
           for(const action of unresolved){
+            const growth=/^environment:([a-f0-9]{32}):volume-growth$/.exec(action.kind),sizing=growth&&environments.find(o=>o.id===growth[1]);
+            if(sizing){
+              if(inventory.volumes.some(v=>v.id===sizing.source_volume&&v.size_gb===sizing.capacity_change?.target.volumeGb))await client.query("UPDATE infrastructure_actions SET state='observed',resource_id=$4 WHERE tenant_id=$1 AND generation=$2 AND kind=$3",[tenant.id,action.generation,action.kind,sizing.source_volume]);
+              continue;
+            }
             const match=/^environment:([a-f0-9]{32}):(volume|machine)$/.exec(action.kind),deployment=match&&operations.includes(match[1])?match:null;
             const kind=deployment?.[2]??action.kind;
             const found=kind==='app'&&inventory.present?app:kind==='volume'?deployment?inventory.volumes.find(v=>v.name===fly.deploymentVolumeName(tenant.id,deployment[1]))?.id:inventory.volumes.length===1?inventory.volumes[0].id:undefined

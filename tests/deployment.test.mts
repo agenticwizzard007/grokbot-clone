@@ -42,3 +42,8 @@ test('a tenant process still needs its identity, key and manifest', () => {
   assert.match(run({ NODE_ENV: 'production', SWARM_ROLE: 'tenant' }).out, /Tenant identity is required/);
   assert.match(run({ NODE_ENV: 'production', SWARM_ROLE: 'tenant', SWARM_TENANT_ID: 'usr_12345678abc' }).out, /Tenant key and volume manifest are required/);
 });
+
+test('tenant processes refuse the separate schema-owner credential', () => {
+  const r=run({NODE_ENV:'production',SWARM_ROLE:'tenant',SWARM_TENANT_ID:'usr_12345678abc',MIGRATION_DATABASE_URL:'postgresql://migration-test.invalid/schema'});
+  assert.notEqual(r.status,0);assert.match(r.out,/Platform credential MIGRATION_DATABASE_URL is forbidden/);
+});

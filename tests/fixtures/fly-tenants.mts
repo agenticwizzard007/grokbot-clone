@@ -17,7 +17,8 @@ export class FakeFly extends FlyTenants {
     else if(parts.length===2&&method==='DELETE'){this.apps.delete(app);}
     else if(parts[2]==='volumes'){
       const list=this.volumes.get(app)??[];
-      if(method==='GET')result=list;
+      if(method==='GET')result=parts.length===3?list:list.find(v=>v.id===parts[3])??missing();
+      if(method==='PUT'&&parts[4]==='extend'){const disk=list.find(v=>v.id===parts[3])??missing();disk.size_gb=body.size_gb;result={needs_restart:true};}
       if(method==='POST'){result={...body,id:`volume_${randomBytes(6).toString('hex')}`,state:'created'};list.push(result);this.volumes.set(app,list);}
       if(method==='DELETE'){
         if(this.machines.get(app)?.some(m=>m.config.mounts.some((mount:any)=>mount.volume===parts[3])))throw Object.assign(new Error('volume attached'),{status:409});
