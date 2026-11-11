@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 // These are credential-free validator tests. They do not generate qualification
 // receipts or claim any kernel/real-Fly coverage.
-import { alpine, assertKernelProbe, assertSuite, imageProvenance, immutableImage, machineDefinition, observedMachine, sha256 } from '../infra/tenant-host/qualification/policy.mjs';
+import { alpine, assertDesktopProfile, assertKernelProbe, assertSuite, chromeSandboxArguments, chromeSandboxStatus, imageProvenance, immutableImage, machineDefinition, observedMachine, sha256 } from '../infra/tenant-host/qualification/policy.mjs';
 import { assertDefaultWorkloadPolicy, daemonArguments, desktopArguments, hostBasicArguments, networkArguments } from '../infra/tenant-host/qualification/source-policy.mjs';
 import reporter from '../infra/tenant-host/qualification/reporter.mjs';
 import { copyLoaderPackages } from '../infra/tenant-host/qualification/bundle.mjs';
@@ -56,11 +56,51 @@ test('desktop-only profile adapter fails closed before profile integration or on
 });
 
 test('published provenance pins both bases and refuses dry-run or another host image', () => {
-  const fixture = { mode: 'publish', hostImage: image, sourceCommit: revision,
+  const fixture = { mode: 'publish', hostImage: image, sourceCommit: revision, desktopSeccompSha256: hash,
     components: { hostBase: image, desktopBase: image, app: image, desktop: image } };
   assert.equal(imageProvenance(fixture, image).components.hostBase, image);
+  assert.equal(imageProvenance(fixture, image).desktopSeccompSha256, hash);
   for (const change of [{ mode: 'dry-run' }, { hostImage: 'sha256:' + 'a'.repeat(64) }, { sourceCommit: 'main' },
+    { desktopSeccompSha256: undefined }, { desktopSeccompSha256: 'invalid' },
     { components: { ...fixture.components, desktopBase: 'latest' } }]) assert.throws(() => imageProvenance({ ...fixture, ...change }, image));
+});
+
+test('desktop profile must agree across installed bytes, prepared bundle, published report and release', () => {
+  const bytes = Buffer.from('profile validator fixture');
+  const digest = sha256(bytes);
+  const manifest = { desktopSeccompSha256: digest, imageProvenance: { desktopSeccompSha256: digest } };
+  const release = { desktopSeccompSha256: digest };
+  assert.equal(assertDesktopProfile(bytes, manifest, release), digest);
+  for (const value of [undefined, 'invalid', 'a'.repeat(64)]) {
+    assert.throws(() => assertDesktopProfile(bytes, { ...manifest, desktopSeccompSha256: value }, release));
+    assert.throws(() => assertDesktopProfile(bytes, { ...manifest, imageProvenance: { desktopSeccompSha256: value } }, release));
+    assert.throws(() => assertDesktopProfile(bytes, manifest, { desktopSeccompSha256: value }));
+  }
+  assert.throws(() => assertDesktopProfile(Buffer.from('changed bytes'), manifest, release));
+});
+
+test('Chrome157 probe requires modern namespace and seccomp rows and explicit chrome scheme flag', () => {
+  const values = { 'Layer 1 Sandbox': 'Namespace', 'PID namespaces': 'Yes', 'Network namespaces': 'Yes', 'Seccomp-BPF sandbox': 'Yes' };
+  const document = rows => `<html><table id="sandbox-status">${Object.entries(rows).map(([name, value]) => `<tr><td class="good">${name}</td><td class="good"><span>${value}</span></td></tr>`).join('')}</table></html>`;
+  const html = document(values);
+  assert.deepEqual(chromeSandboxStatus(html), values);
+  // This exact parser is injected into a separate Node process with the desktop probe.
+  const serialized = Function('return (' + chromeSandboxStatus.toString() + ')')();
+  assert.deepEqual(serialized(html), values);
+  for (const name of Object.keys(values)) {
+    assert.throws(() => chromeSandboxStatus(document({ ...values, [name]: 'No' })));
+    const missing = { ...values }; delete missing[name]; assert.throws(() => chromeSandboxStatus(document(missing)));
+  }
+  assert.throws(() => chromeSandboxStatus('<html><title>NewTab</title></html>'));
+  assert.throws(() => chromeSandboxStatus(document({ 'Namespace sandbox': 'Yes', 'Seccomp-BPF sandbox': 'Yes' })));
+  assert.throws(() => chromeSandboxStatus(html.replace('</table>', '<tr><td>PID namespaces</td><td>No</td></tr></table>')));
+  assert.throws(() => chromeSandboxStatus(html + html));
+  assert.throws(() => chromeSandboxStatus(html.replace(' id=', ' data-id=')));
+  assert.throws(() => chromeSandboxStatus(document({ ...values, 'Seccomp-BPF sandbox': 'No', 'Seccomp-BPF sandbox supports TSYNC': 'Yes' })));
+  const args = chromeSandboxArguments();
+  assert.ok(args.includes('--allow-chrome-scheme-url'));
+  assert.equal(args.at(-1), 'chrome://sandbox');
+  assert.ok(!args.some(arg => ['--no-sandbox', '--disable-setuid-sandbox', '--disable-seccomp-filter-sandbox'].includes(arg)));
 });
 
 test('suite rejects skipped, partial, failed and cancelled executions even on exit zero', () => {

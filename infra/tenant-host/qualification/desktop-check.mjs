@@ -5,11 +5,11 @@ import path from 'node:path';
 import net from 'node:net';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { sha256 } from './policy.mjs';
+import { chromeSandboxArguments, chromeSandboxStatus, sha256 } from './policy.mjs';
 
 // Serialized into the actual desktop image as a controlled adversarial workload.
 // Nothing from the host's Node environment or credentials is inherited.
-export async function desktopProbe(config) {
+export async function desktopProbe(config, readSandboxStatus) {
   const fs = require('node:fs'), net = require('node:net'), http = require('node:http');
   const { execFileSync, spawnSync } = require('node:child_process');
   const assert = require('node:assert/strict');
@@ -61,10 +61,10 @@ export async function desktopProbe(config) {
     });
     assert.equal(await request(config.desktopToken), 200); assert.equal(await request('invalid-fixture-token'), 401);
     out.checks.companionRoute = true; out.checks.invalidCompanionTokenRejected = true;
-    const html = execFileSync('google-chrome-stable', ['--headless', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
-      '--user-data-dir=/home/agent/qualification-chrome', '--dump-dom', 'chrome://sandbox'], { timeout: 60000, maxBuffer: 1024 * 1024, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-    for (const label of ['Namespace sandbox', 'Seccomp-BPF sandbox']) assert.match(html, new RegExp(label + '</td>\\s*<td[^>]*>Yes</td>', 'i'));
+    const html = execFileSync('google-chrome-stable', config.chromeArguments, { timeout: 60000, maxBuffer: 1024 * 1024, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    out.checks.chromeSandboxStatus = readSandboxStatus(html);
     out.checks.chromeNamespaceSandbox = true; out.checks.chromeSeccompSandbox = true;
+    out.checks.chromePidNamespace = true; out.checks.chromeNetworkNamespace = true;
     out.checks.filesystem = true; out.checks.kernel = true; out.status = 'passed';
   } catch (error) { out.error = String(error.message).slice(0, 1000); }
   fs.writeFileSync('/home/agent/qualification-result.json', JSON.stringify(out) + '\n', { mode: 0o600 });
@@ -158,7 +158,7 @@ export async function checkDesktop({ docker, exec, manifest, release, output }) 
     assert.ok(await connected('172.30.0.2', 8787));
     assert.ok(await connected('172.31.0.1', 18080)); assert.ok(await connected(privateIp, 18080));
     const name = `swarm-desktop-${randomUUID()}`; containers.push(name);
-    const config = { desktopToken: token, hostPid: process.pid,
+    const config = { desktopToken: token, hostPid: process.pid, chromeArguments: chromeSandboxArguments(),
       forbiddenFiles: ['/data/swarm.db', '/files/private', '/subscriptions/claude/credential', '/subscriptions/codex/credential',
         '/run/docker.sock', '/var/run/docker.sock', '/run/swarm/data-key', '/run/swarm/runtime-token', '/run/swarm-host/host-token',
         ...['app', 'subscriptions/claude', 'subscriptions/codex'].map(part => path.join(root, part, 'credential'))],
@@ -167,7 +167,7 @@ export async function checkDesktop({ docker, exec, manifest, release, output }) 
     };
     // Bring up Docker's network rules before saving them. The controlled Node
     // process stays inert until the production firewall is installed.
-    const probe = `(async()=>{const fs=require('node:fs');for(let i=0;!fs.existsSync('/home/agent/start-probe');i++){if(i>120)throw Error('Firewall barrier timed out');await new Promise(r=>setTimeout(r,250));}await (${desktopProbe.toString()})(${JSON.stringify(config)});})().catch(()=>process.exit(1));`;
+    const probe = `(async()=>{const fs=require('node:fs');for(let i=0;!fs.existsSync('/home/agent/start-probe');i++){if(i>120)throw Error('Firewall barrier timed out');await new Promise(r=>setTimeout(r,250));}await (${desktopProbe.toString()})(${JSON.stringify(config)},${chromeSandboxStatus.toString()});})().catch(()=>process.exit(1));`;
     await docker([...manifest.hostBasicArguments, ...manifest.desktopArguments, `--name=${name}`, '--network=swarm-desktop', '--ip=172.31.0.2',
       `--mount=type=bind,src=${root}/desktop,dst=/home/agent`, `--mount=type=bind,src=${tokenFile},dst=/run/desktop-token,readonly`, desktopId, 'node', '-e', probe]);
     const inspected = JSON.parse((await docker(['inspect', name])).stdout)[0];

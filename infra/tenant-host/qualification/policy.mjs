@@ -58,10 +58,44 @@ export function imageProvenance(record, image) {
   assert.equal(record.mode, 'publish', 'Dry-run image builds cannot satisfy release qualification.');
   assert.equal(record.hostImage, immutableImage(image));
   assert.match(record.sourceCommit, /^[a-f0-9]{40}$/);
+  assert.match(record.desktopSeccompSha256, /^[a-f0-9]{64}$/, 'Published image provenance must pin the desktop profile.');
   for (const name of ['hostBase', 'desktopBase', 'app', 'desktop']) immutableImage(record.components[name]);
-  return { sourceCommit: record.sourceCommit, hostImage: record.hostImage,
+  return { sourceCommit: record.sourceCommit, hostImage: record.hostImage, desktopSeccompSha256: record.desktopSeccompSha256,
     components: Object.fromEntries(['hostBase', 'desktopBase', 'app', 'desktop'].map(name => [name, record.components[name]])),
     lockedInputs: record.lockedInputs };
+}
+
+export function assertDesktopProfile(bytes, manifest, release) {
+  const actual = sha256(bytes);
+  for (const declared of [manifest.desktopSeccompSha256, manifest.imageProvenance.desktopSeccompSha256, release.desktopSeccompSha256]) {
+    assert.match(declared, /^[a-f0-9]{64}$/, 'Missing desktop profile identity.');
+    assert.equal(declared, actual, 'Desktop profile differs between installed bytes, prepared bundle or published/release manifests.');
+  }
+  return actual;
+}
+
+export function chromeSandboxArguments() {
+  return ['--headless', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+    '--user-data-dir=/home/agent/qualification-chrome', '--allow-chrome-scheme-url', '--dump-dom', 'chrome://sandbox'];
+}
+
+// Self-contained: this exact function is serialized into the real desktop
+// canary, so fixture tests exercise the parser used by that process too.
+export function chromeSandboxStatus(html) {
+  if (typeof html !== 'string' || html.length > 1024 * 1024) throw Error('Invalid Chrome sandbox status document.');
+  const tables = [...html.matchAll(/<table\b[^>]*\sid\s*=\s*["']sandbox-status["'][^>]*>([\s\S]*?)<\/table>/gi)];
+  if (tables.length !== 1) throw Error('Chrome did not return one sandbox status table.');
+  const expected = { 'Layer 1 Sandbox': 'Namespace', 'PID namespaces': 'Yes', 'Network namespaces': 'Yes', 'Seccomp-BPF sandbox': 'Yes' };
+  const observed = {};
+  const text = value => value.replace(/<[^>]*>/g, '').replace(/&nbsp;|&#160;/gi, ' ').replace(/\s+/g, ' ').trim();
+  for (const row of tables[0][1].matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
+    const cells = [...row[1].matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map(cell => text(cell[1]));
+    if (!Object.hasOwn(expected, cells[0])) continue;
+    if (cells.length !== 2 || Object.hasOwn(observed, cells[0])) throw Error('Ambiguous Chrome sandbox status row.');
+    observed[cells[0]] = cells[1];
+  }
+  for (const [name, value] of Object.entries(expected)) if (observed[name] !== value) throw Error('Chrome sandbox requirement failed: ' + name);
+  return Object.fromEntries(Object.keys(expected).map(name => [name, observed[name]]));
 }
 
 export function observedMachine(machine, manifest, manifestHash, job) {
