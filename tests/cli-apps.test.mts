@@ -92,12 +92,16 @@ function conversation(rpc: Rpc): any[] {
   return JSON.parse(rpc.params.prompt.slice(index + marker.length));
 }
 function availableTools(rpc: Rpc): any[] {
+  if (rpc.params.nativeTools?.length) return rpc.params.nativeTools;
   const marker = '\n\nAvailable Swarm tools:\n';
   const index = rpc.params.prompt.indexOf(marker);
   assert.ok(index >= 0);
   return JSON.parse(rpc.params.prompt.slice(index + marker.length).split('\n\nConversation:\n')[0]);
 }
+// Native MCP results from the current generation; earlier generations' results come from the conversation.
+let nativeOutputs = new Map<string, any>();
 function toolOutput(rpc: Rpc, name: string) {
+  if (nativeOutputs.has(name)) return nativeOutputs.get(name);
   const items = conversation(rpc);
   const call = items.filter(item => item.type === 'function_call' && item.name === name).at(-1);
   const output = call && items.find(item => item.type === 'function_call_output' && item.call_id === call.call_id);
@@ -114,18 +118,28 @@ class ScriptedBridge {
   cleanup = false;
   requests: Rpc[] = [];
   failures: Error[] = [];
+  toolReplies = new Map<string, { resolve: (result: any) => void; reject: (error: Error) => void }>();
   constructor() {
     bridges.add(this);
     this.ws.on('error', () => {});
     this.ws.on('message', raw => {
       const rpc = JSON.parse(raw.toString());
       if (rpc.type === 'welcome') { this.welcome = true; return; }
+      if (rpc.type === 'tool_result') {
+        const key = `${rpc.id}:${rpc.callId}`, pending = this.toolReplies.get(key);
+        this.toolReplies.delete(key);
+        if (rpc.error) pending?.reject(new Error(rpc.error)); else pending?.resolve(rpc.result);
+        return;
+      }
       this.requests.push(rpc);
       try {
         if (rpc.method === 'status') this.reply(rpc, { codex: { installed: true, authenticated: true, subscription: true }, claude: { installed: true, authenticated: true, subscription: true } });
         if (rpc.method === 'catalog') this.reply(rpc, { models: [{ id: `${rpc.params.provider}/account-model`, name: 'Fixture model', efforts: ['low', 'medium', 'high'], defaultEffort: 'low', vision: true }],
           defaultModel: `${rpc.params.provider}/account-model`, plan: 'Fixture plan', usage: { available: false, checkedAt: Date.now(), windows: [] } });
-        if (rpc.method === 'generate') this.reply(rpc, this.cleanup ? envelope('Cleanup complete') : this.generate(rpc));
+        if (rpc.method === 'generate') {
+          if (this.cleanup) this.reply(rpc, envelope('Cleanup complete'));
+          else void this.deliver(rpc).catch(error => { this.failures.push(error as Error); this.ws.send(JSON.stringify({ id: rpc.id, error: (error as Error).message })); });
+        }
       } catch (error) {
         this.failures.push(error as Error);
         this.ws.send(JSON.stringify({ id: rpc.id, error: (error as Error).message }));
@@ -134,6 +148,29 @@ class ScriptedBridge {
   }
   get generations() { return this.requests.filter(rpc => rpc.method === 'generate'); }
   reply(rpc: Rpc, result: unknown) { this.ws.send(JSON.stringify({ id: rpc.id, result })); }
+  toolCall(id: string, call: { id: string; name: string; arguments: unknown }): Promise<any> {
+    return new Promise((resolve, reject) => {
+      this.toolReplies.set(`${id}:${call.id}`, { resolve, reject });
+      this.ws.send(JSON.stringify({ id, type: 'tool_call', call }));
+    });
+  }
+  /** The scripted model expresses each next action as an envelope; with native MCP the bridge executes them as tool calls in-generation. */
+  async deliver(rpc: Rpc) {
+    nativeOutputs = new Map();
+    try {
+      for (let step = 0; step < 8; step++) {
+        const reply = this.generate(rpc);
+        const parsed = JSON.parse(reply.text);
+        if (!rpc.params.nativeTools?.length || !parsed.tool_calls.length) return this.reply(rpc, reply);
+        for (const [index, call] of parsed.tool_calls.entries()) {
+          const value = await this.toolCall(rpc.id, { id: `fixture-${step}-${index}`, name: call.name, arguments: JSON.parse(call.arguments) });
+          if (value?.stop) return this.reply(rpc, { ...envelope(''), stopped: true });
+          nativeOutputs.set(call.name, typeof value?.output === 'string' ? JSON.parse(value.output) : value?.output);
+        }
+      }
+      throw new Error('Scripted native session did not finish');
+    } finally { nativeOutputs = new Map(); }
+  }
   generate(rpc: Rpc) {
     const names = availableTools(rpc).map(definition => definition.name);
     for (const name of ['list_app_connections', 'SWARM_APPS_SEARCH', 'SWARM_APPS_EXECUTE']) assert.ok(names.includes(name), `${name} must remain offered throughout ordinary chat`);
@@ -161,7 +198,7 @@ async function connect(provider: Provider) {
   assert.ok(token);
   const bridge = new ScriptedBridge();
   await once(bridge.ws, 'open');
-  bridge.ws.send(JSON.stringify({ type: 'hello', version: 1, token, device: 'CLI connected-app fixture' }));
+  bridge.ws.send(JSON.stringify({ type: 'hello', version: 1, nativeMcp: true, token, device: 'CLI connected-app fixture' }));
   await until(() => bridge.welcome, 'CLI handshake completes');
   await refreshCli(owner);
   const selected = await request('/cli', 'PUT', { provider });
@@ -176,7 +213,8 @@ async function chat(bridge: ScriptedBridge) {
   assert.deepEqual(bridge.failures, []);
 }
 function assertFinished(bridge: ScriptedBridge, provider: Provider, expectedJobs: number) {
-  assert.deepEqual(bridge.failures, []); assert.equal(bridge.generations.length, 4);
+  // Native MCP: one generation per job (actions run in-generation; an approval pause ends the first).
+  assert.deepEqual(bridge.failures, []); assert.equal(bridge.generations.length, expectedJobs);
   assert.ok(bridge.generations.every(rpc => rpc.params.provider === provider));
   assert.equal(executions.length, 1);
   assert.deepEqual(executions[0], [tool.slug, { userId: owner, connectedAccountId: accountId(), version: tool.version, arguments: appArguments }]);
@@ -197,7 +235,7 @@ function assertFinished(bridge: ScriptedBridge, provider: Provider, expectedJobs
   assert.equal(db.prepare('SELECT 1 FROM pending_turns WHERE bot_id=?').get(bot.id), undefined);
   assert.equal(getLive(bot.id).isRunning, false); assert.equal(getLive(bot.id).awaiting, null);
   const usage = db.prepare('SELECT * FROM usage_events WHERE user_id=?').all(owner) as any[];
-  assert.equal(usage.length, 4); assert.ok(usage.every(event => event.provider === `${provider}-cli` && event.cost_source === 'subscription' && event.cost_usd === 0));
+  assert.equal(usage.length, expectedJobs); assert.ok(usage.every(event => event.provider === `${provider}-cli` && event.cost_source === 'subscription' && event.cost_usd === 0));
 }
 
 beforeEach(() => {
@@ -251,7 +289,7 @@ for (const provider of ['codex', 'claude'] as const) {
     const bridge = await connect(provider);
     await chat(bridge);
     assert.equal(executions.length, 0, 'Write/unknown provider metadata must pause before SDK execution regardless of a read-looking slug');
-    assert.equal(bridge.generations.length, 3);
+    assert.equal(bridge.generations.length, 1);
     assert.equal(approvals().length, 1);
     const approval = approvals()[0];
     assert.equal(approval.status, 'pending'); assert.ok(approval.tool.includes(tool.slug)); assert.ok(approval.binding_hash);
@@ -274,6 +312,6 @@ for (const provider of ['codex', 'claude'] as const) {
     assert.equal(resumed.length, 1); assert.equal(JSON.parse(resumed[0].trigger).parentJobId, jobs()[0].id);
     assert.equal((await request(`/approvals/${approval.id}`, 'POST', { decision: 'allow' })).status, 200);
     await runInBotQueue(bot.id, async () => {});
-    assert.equal(executions.length, 1); assert.equal(jobs().length, 2); assert.equal(bridge.generations.length, 4);
+    assert.equal(executions.length, 1); assert.equal(jobs().length, 2); assert.equal(bridge.generations.length, 2);
   });
 }
