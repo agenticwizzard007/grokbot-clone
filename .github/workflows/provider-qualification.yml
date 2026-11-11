@@ -1,0 +1,24 @@
+name: Provider harness self-tests
+on:
+  pull_request:
+    paths: ['scripts/qualify-providers.mjs', 'tests/provider-qualification.test.mjs', 'examples/provider-qualification.example.json', 'docs/provider-qualification.md', '.github/workflows/provider-qualification.yml']
+  push:
+    branches: [main]
+    paths: ['scripts/qualify-providers.mjs', 'tests/provider-qualification.test.mjs', 'examples/provider-qualification.example.json', 'docs/provider-qualification.md', '.github/workflows/provider-qualification.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-harness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --check scripts/qualify-providers.mjs
+      - run: node --test tests/provider-qualification.test.mjs
+      - name: Validate example without network or credentials
+        run: node scripts/qualify-providers.mjs --config examples/provider-qualification.example.json --phase preflight
+      # No credentials and no --execute. This is not a live-provider release gate.
