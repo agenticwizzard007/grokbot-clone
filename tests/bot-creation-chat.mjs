@@ -58,6 +58,7 @@ try {
   const config = page.getByRole('button',{name:'Configuration',exact:true});
   if(!await config.isVisible()) await page.getByRole('button',{name:'Show details',exact:true}).click();
   await config.click();
+  await page.evaluate(() => document.fonts.ready);
   await page.locator('.agent-config__status').getByText('Setup interview',{exact:true}).waitFor();
   const saved = await chat(teammate.id, `mock: save_agent_setup ${JSON.stringify(complete)} | say Your configuration is ready for review.`);
   assert.equal(saved.rows.find(r=>r.body.name==='save_agent_setup').body.status,'done');
@@ -82,6 +83,7 @@ try {
   await filesTab.click();
   await page.getByRole('button',{name:'SOUL.md Style & working principles',exact:true}).click();
   await page.getByText('Concise, factual, and explicit about missing evidence.',{exact:true}).last().waitFor();
+  await until(async () => page.getByRole('region',{name:'SOUL.md contents',exact:true}).evaluate(el=>document.activeElement === el));
   const download = page.waitForEvent('download');
   await page.getByRole('link',{name:'Download',exact:true}).click();
   const downloaded = await download;
@@ -158,7 +160,7 @@ try {
   await page.locator('.details__scroll').evaluate(el=>el.scrollTop=180);
   await page.locator('aside.details').screenshot({path:'.context/shots/agent-configuration-harness.png'});
   // Narrow layouts retain readable controls and do not introduce horizontal scrolling.
-  for (const width of [375,390,430]) {
+  for (const width of [320,375,390,430,768,1024]) {
     await page.setViewportSize({width,height:900});
     if (!await page.locator('aside.details').isVisible()) {
       const botRow = page.locator('.bot-row').filter({hasText:'Nia · LinkedIn Research'});
@@ -170,13 +172,48 @@ try {
       await section.click();
       assert.ok(await page.locator('aside.details').evaluate(el=>el.scrollWidth<=el.clientWidth),`panel overflow at ${width}`);
       assert.ok(await page.locator('.details__scroll').evaluate(el=>el.scrollWidth<=el.clientWidth),`content overflow at ${width}`);
+      if (width <= 760) {
+        const undersized = await page.locator('.agent-config button, .agent-config summary, .agent-config__row > a').evaluateAll(els => els.filter(el => {
+          const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.height < 44;
+        }).map(el => el.textContent));
+        assert.deepEqual(undersized,[],`touch actions are at least 44px at ${width}`);
+      }
+      if (width === 390 || width === 1024) {
+        await page.locator('.details__scroll').evaluate(el=>el.scrollTop=0);
+        await page.locator('aside.details').screenshot({path:`.context/shots/agent-configuration-paper-${width}-${(await section.innerText()).toLowerCase()}.png`});
+        if (width === 390 && await section.innerText() === 'Files') {
+          const soul = page.getByRole('button',{name:'SOUL.md Style & working principles',exact:true});
+          await soul.click();
+          await page.locator('aside.details').screenshot({path:'.context/shots/agent-configuration-paper-file-reader.png',animations:'disabled'});
+          await page.getByRole('button',{name:'Back to files',exact:true}).click();
+          assert.ok(await soul.evaluate(el=>document.activeElement===el),'Back to files returns focus to the selected file');
+        }
+
+      }
+
     }
   }
+  await page.setViewportSize({width:390,height:900});
+  if (!await page.locator('aside.details').isVisible()) {
+    const botRow = page.locator('.bot-row').filter({hasText:'Nia · LinkedIn Research'});
+    if (await botRow.isVisible()) await botRow.click();
+    await page.getByRole('button',{name:'Show details',exact:true}).click();
+    await config.click();
+  }
   await harnessTab.click();
-  await page.locator('.details__scroll').evaluate(el=>el.scrollTop=150);
+  await page.getByRole('button',{name:'Edit instructions',exact:true}).click();
+  await page.locator('.agent-config__instructions').scrollIntoViewIfNeeded();
+  await page.screenshot({path:'.context/shots/agent-configuration-paper-editor.png'});
+  await page.getByRole('button',{name:'Cancel',exact:true}).click();
+  await page.locator('summary').filter({hasText:'Preview assembled instructions'}).click();
+  await page.getByLabel('Assembled system instructions').waitFor();
+  await page.getByLabel('Assembled system instructions').scrollIntoViewIfNeeded();
+  await page.screenshot({path:'.context/shots/agent-configuration-paper-preview.png'});
+  await page.locator('summary').filter({hasText:'Preview assembled instructions'}).click();
+  await page.locator('.details__scroll').evaluate(el=>el.scrollTop=0);
   await page.screenshot({path:'.context/shots/agent-configuration-mobile.png'});
   await page.evaluate(()=>document.documentElement.dataset.theme='dark');
-  await page.screenshot({path:'.context/shots/agent-configuration-mobile-dark.png'});
+  await page.screenshot({path:'.context/shots/agent-configuration-mobile-dark.png',animations:'disabled'});
   await page.evaluate(()=>document.documentElement.dataset.theme='light');
   await page.setViewportSize({width:1440,height:1000});
   if (!await config.isVisible()) await page.getByRole('button',{name:'Show details',exact:true}).click();
@@ -202,6 +239,13 @@ try {
   for (const placeholder of await page.getByText('None specified.',{exact:true}).all()) assert.equal(await placeholder.isVisible(),false);
   assert.ok((await api(`/bots/${blank.id}/rows`)).rows.some(r=>r.body.text?.includes('What job would you like Blank QA to handle?')));
   await page.locator('aside.details').screenshot({path:'.context/shots/agent-configuration-empty.png'});
+  // A room reached from Configuration keeps its ordinary Library header.
+  await api('/rooms','POST',{name:'Configuration room QA',botIds:[primary.id,teammate.id]});
+  await page.locator('.bot-row').filter({hasText:'Configuration room QA'}).click();
+  assert.equal(await page.getByRole('button',{name:'Configuration',exact:true}).count(),0);
+  assert.equal(await page.locator('.agent-config').count(),0);
+  assert.equal(await page.locator('aside.details').evaluate(el=>el.classList.contains('details--configuration')),false);
+
   console.log('PASS creation, guided setup, tool enforcement, saved answers/SOUL/workflows, responsibilities/harness/files navigation, live instruction preview, editable standing instructions, failure recovery, keyboard navigation, mobile layouts and downloaded files, clean empty state, reviewed activation, deferred handoff, separate browsers, fresh-chat persistence and replication');
 } catch(e) { console.error(logs.join('').slice(-7000)); throw e; }
 finally { if(browser) await browser.close(); for(const p of children.reverse()) { if(p.exitCode===null) { p.kill('SIGTERM'); await Promise.race([new Promise((r)=>p.once('exit',r)),sleep(3000)]); if(p.exitCode===null) p.kill('SIGKILL'); } } fs.rmSync(root,{recursive:true,force:true}); }
