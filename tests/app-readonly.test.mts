@@ -23,6 +23,22 @@ const { composioGatewayApp } = await import('../server/src/platform/composio-gat
 for (const id of ['alice', 'bob']) db.prepare('INSERT INTO users(id,email,name,created_at) VALUES (?,?,?,?)').run(id, `${id}@test.example`, id, Date.now());
 after(() => { mock.restoreAll(); db.close(); fs.rmSync(root, { recursive: true, force: true }); });
 
+test('bulk provider ownership shares private account pages and stops when all requested accounts are found', async t => {
+  const provider = new ComposioProvider('test-bulk-project');
+  const queries: any[] = [];
+  t.mock.method(provider.sdk.connectedAccounts, 'list', async (args: any) => {
+    queries.push(args);
+    return args.cursor ? { items: [{ id: 'second', toolkit: { slug: 'gmail' }, status: 'EXPIRED' }], nextCursor: 'unused-third' }
+      : { items: [{ id: 'first', toolkit: { slug: 'notion' }, status: 'ACTIVE' }, { id: 'unrequested', toolkit: { slug: 'slack' }, status: 'ACTIVE' }], nextCursor: 'second-page' };
+  });
+  const result = await provider.ownedMany('owner', ['first', 'second']);
+  assert.deepEqual([...result], [['first', { toolkit: 'notion', active: true }], ['second', { toolkit: 'gmail', active: false }]]);
+  assert.equal(queries.length, 2);
+  assert.ok(queries.every(q => q.accountType === 'PRIVATE' && q.userIds.length === 1 && q.userIds[0] === 'owner'));
+  assert.deepEqual(await provider.owned('owner', 'first'), { toolkit: 'notion', active: true });
+  assert.equal(queries.length, 3);
+});
+
 const parameters = { type: 'object', properties: { owner: { type: 'string' }, repo: { type: 'string' } }, required: ['owner', 'repo'], additionalProperties: false };
 const rawTool = (slug = 'GITHUB_PEEK', tags: unknown = ['readOnlyHint']) => ({ slug, name: 'GitHub account read', description: 'Inspect repository access.',
   toolkit: { slug: 'github', name: 'GitHub' }, version: '20261101_00', tags, inputParameters: parameters, internalKey: 'never-project-secret' });
@@ -213,9 +229,10 @@ test('tenant adapter forwards readOnly and returns one SDK envelope rather than 
     const requests = [];
     globalThis.fetch = async (_url, init) => {
       const request = JSON.parse(init.body); requests.push(request);
+      if (request.operation === 'connections') return Response.json([{id:'github-alice',toolkit:'github',status:'ACTIVE',revision:3}]);
       return Response.json(request.operation === 'search' ? {connectionId:'github-alice',revision:3,tools:[]} : {data:{repo:'verified'},successful:false,error:null,logId:'test-log'});
     };
-    const {executeComposio} = await import('./server/src/composio.ts');
+    const {executeComposio,connectedToolkits,connectionsDetail,invalidateComposioSession} = await import('./server/src/composio.ts');
     const args = {connectionId:'github-alice',revision:3,tool_slug:'GITHUB_PEEK',arguments:{}};
     const result = await executeComposio('${tenant}','SWARM_APPS_EXECUTE',args,{readOnly:true});
     assert.deepEqual(result,{data:{repo:'verified'},successful:false,error:null,logId:'test-log'});
@@ -223,6 +240,18 @@ test('tenant adapter forwards readOnly and returns one SDK envelope rather than 
     const search = await executeComposio('${tenant}','SWARM_APPS_SEARCH',{toolkit:'github',query:'verify'});
     assert.equal(search.data.connectionId,'github-alice');
     assert.equal(requests.length,2);
+    const [a,b] = await Promise.all([connectedToolkits('${tenant}',true),connectedToolkits('${tenant}',true)]);
+    assert.deepEqual([...a],['github']); assert.deepEqual([...b],['github']);
+    assert.equal(requests.length,3,'concurrent tenant prompts share a connection snapshot');
+    a.clear();
+    assert.deepEqual([...await connectedToolkits('${tenant}',true)],['github']);
+    await assert.rejects(connectedToolkits('another-tenant',true),/Tenant identity mismatch/);
+    assert.equal(requests.length,3);
+    await connectionsDetail('${tenant}');
+    assert.equal(requests.length,4,'explicit account checks bypass prompt cache');
+    invalidateComposioSession('${tenant}');
+    await connectedToolkits('${tenant}',true);
+    assert.equal(requests.length,5,'connection changes invalidate prompt metadata');
     console.log('tenant envelope verified');
   `;
   const childEnv = { ...process.env, SWARM_ROLE: 'tenant', SWARM_TENANT_ID: tenant, SWARM_VOLUME_ID: 'test-volume',

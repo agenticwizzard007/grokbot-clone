@@ -25,6 +25,7 @@ import { z } from 'zod';
 import { findMcpTool } from '../mcp/store.js';
 import { platformState } from './platform-state.js';
 import { APP_CONNECTION_TOOLS } from './app-connections.js';
+import { appToolLabel } from '../tool-activity.js';
 
 export interface ToolCtx {
   userId: string;
@@ -673,7 +674,9 @@ export async function runComposioTool(ctx: ToolCtx, name: string, args: any): Pr
   return { output: out, summary: ok ? 'done' : 'failed' };
 }
 
-export function activityFor(name: string): { kind: ActivityKind; label: string } {
+export function activityFor(name: string, args?: unknown): { kind: ActivityKind; label: string } {
+  const appLabel = appToolLabel(name, args);
+  if (appLabel) return { kind: 'connecting_service', label: appLabel };
   if (name.startsWith('mcp_')) return { kind: 'connecting_service', label: 'Using a custom MCP tool' };
   const t = toolMap.get(name);
   if (t) return { kind: t.activity, label: t.label };

@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import { createServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { after, afterEach, beforeEach, test } from 'node:test';
+import { after, afterEach, beforeEach, mock, test } from 'node:test';
 import { Hono } from 'hono';
 import { WebSocket } from 'ws';
 
@@ -40,7 +40,7 @@ const { createCliPairing, authenticateCli, revokeCliPairing, selectCli, selected
 const { attachCliSocket, cliStatus, cliRequest, disconnectCli, refreshCli, CLI_OFFLINE } = await import('../server/src/cli/bridge.js');
 const { cliResponsesClient, prepareCliRequest } = await import('../server/src/cli/responses.js');
 const { modelsApi } = await import('../server/src/routes-models.js');
-const { clearCliCatalog, cliCatalog } = await import('../server/src/cli/catalog.js');
+const { clearCliCatalog, cliCatalog, cliModelCatalog } = await import('../server/src/cli/catalog.js');
 const { cliApi } = await import('../server/src/cli/routes.js');
 const { requireUser } = await import('../server/src/lib/auth.js');
 const { llmClient, defaultModel, llmProvider, modelFor, modelInfo, serverTools, providerFields } = await import('../server/src/lib/llm.js');
@@ -729,4 +729,58 @@ test('cancelling explicit model discovery cancels that RPC before generation',as
  await assert.rejects(pending,/cancelled/);
  await until(()=>bridge.requests.some(r=>r.method==='cancel'&&r.id===request.id),'matching catalog cancellation');
  assert.equal(bridge.generations.length,0);
+});
+
+test('concurrent model discovery shares one RPC while cancellation remains caller-specific', async () => {
+  const bridge = await connect(alice); await choose(alice, 'claude');
+  const original = bridge.catalog; bridge.catalog = () => HOLD;
+  const controller = new AbortController();
+  const first = cliModelCatalog(alice, 'claude', controller.signal);
+  const second = cliModelCatalog(alice, 'claude');
+  await until(() => bridge.requests.some(r => r.method === 'catalog'), 'catalog starts');
+  const requests = bridge.requests.filter(r => r.method === 'catalog');
+  assert.equal(requests.length, 1);
+  const rejection = assert.rejects(first, /cancelled/);
+  controller.abort(); await rejection;
+  assert.equal(bridge.requests.some(r => r.method === 'cancel' && r.id === requests[0].id), false);
+  bridge.respond(requests[0].id, original(requests[0]));
+  assert.equal((await second).models[0].id, 'claude/account-model');
+  assert.equal(bridge.generations.length, 0);
+});
+
+test('generation reuses capabilities for five minutes while forced usage refresh and invalidation stay fresh', async () => {
+  const bridge = await connect(alice); await choose(alice, 'claude');
+  await cliModelCatalog(alice, 'claude');
+  const calls = () => bridge.requests.filter(r => r.method === 'catalog').length;
+  assert.equal(calls(), 1);
+  let time = Date.now();
+  const clock = mock.method(Date, 'now', () => time);
+  try {
+    time += 31_000;
+    await cliModelCatalog(alice, 'claude');
+    assert.equal(calls(), 1, 'a slow model round must not force another catalog process');
+    await cliCatalog(alice, 'claude', true);
+    assert.equal(calls(), 2, 'explicit picker/usage refresh still contacts the provider');
+    time += 300_001;
+    await cliModelCatalog(alice, 'claude');
+    assert.equal(calls(), 3, 'capabilities still expire');
+    clearCliCatalog(alice);
+    await cliModelCatalog(alice, 'claude');
+    assert.equal(calls(), 4, 'credential invalidation overrides cache age');
+  } finally { clock.mock.restore(); }
+});
+
+test('replacing a CLI bridge drops capabilities from the previous connection', async () => {
+  const first = await connect(alice); await choose(alice, 'claude');
+  assert.equal((await cliModelCatalog(alice, 'claude')).models[0].id, 'claude/account-model');
+  const second = await connect(alice);
+  const catalog = second.catalog;
+  second.catalog = request => {
+    const result = catalog(request);
+    result.models[0].id = 'claude/reconnected-model';
+    result.defaultModel = 'claude/reconnected-model';
+    return result;
+  };
+  assert.equal((await cliModelCatalog(alice, 'claude')).models[0].id, 'claude/reconnected-model');
+  assert.equal((await first.closed).code, 4401);
 });

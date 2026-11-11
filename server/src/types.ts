@@ -111,7 +111,9 @@ export interface ToolCallBody {
   name: string;
   /** Human phrase, e.g. "Clicking on screen". */
   label: string;
-  status: 'running' | 'done' | 'error' | 'awaiting-approval' | 'denied';
+  status: 'queued' | 'running' | 'done' | 'error' | 'awaiting-approval' | 'denied';
+  startedAt?: number;
+  completedAt?: number;
   args?: unknown;
   summary?: string;
   /** Data URL thumbnail for computer actions. */

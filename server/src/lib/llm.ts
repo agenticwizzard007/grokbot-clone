@@ -1,4 +1,4 @@
-import { catalogModelId, cliCatalog } from '../cli/catalog.js';
+import { catalogModelId, cliModelCatalog } from '../cli/catalog.js';
 import { isTenant, assertTenant } from '../deployment.js';
 import { privateKey } from '../providers/private-keys.js';
 import OpenAI from 'openai';
@@ -238,7 +238,7 @@ export async function modelInfo(id: string, explicit = false, signal?: AbortSign
   const userId = currentUserId(), cli = selectedCli(userId);
   if (cli && userId) {
     if (id === `${cli}/default` && !explicit) return undefined;
-    const catalog = await cliCatalog(userId, cli, false, signal);
+    const catalog = await cliModelCatalog(userId, cli, signal);
     const effective = catalogModelId(cli, id, catalog);
     return catalog.models.find(m => m.id === effective);
   }

@@ -10,6 +10,13 @@ const schema = z.object({
 });
 const revisions = new Map<string, number>();
 const cache = new Map<string, { at: number; value: ReturnType<typeof normalize> }>();
+interface PendingCatalog {
+  controller: AbortController;
+  promise: Promise<ReturnType<typeof normalize>>;
+  waiters: number;
+  settled: boolean;
+}
+const pending = new Map<string, PendingCatalog>();
 
 /** Saved defaults and explicit picker IDs must resolve identically for metadata and generation. */
 export function catalogModelId(provider: CliProvider, requested: string, catalog: { defaultModel: string | null }): string {
@@ -25,20 +32,62 @@ function normalize(raw: unknown, provider: CliProvider) {
 
 /** Never share an account's capabilities or quota with another account/runtime. */
 export async function cliCatalog(userId: string, provider: CliProvider, force = false, signal?: AbortSignal) {
+  return loadCatalog(userId, provider, force, signal, 30_000);
+}
+
+/** Generation needs capabilities, not fresh quota. Auth is still checked by every generation. */
+export async function cliModelCatalog(userId: string, provider: CliProvider, signal?: AbortSignal) {
+  return loadCatalog(userId, provider, false, signal, 5 * 60_000);
+}
+
+async function loadCatalog(userId: string, provider: CliProvider, force: boolean, signal: AbortSignal | undefined, maxAgeMs: number) {
   if (signal?.aborted) throw new Error('CLI request cancelled.');
-  const key = `${userId}:${cliRuntime(userId)}:${provider}`;
+  const runtime = cliRuntime(userId);
+  const key = `${userId}:${runtime}:${provider}`;
   const hit = cache.get(key);
-  if (!force && hit && Date.now() - hit.at < 30_000) return hit.value;
-  const revision = revisions.get(userId);
-  const raw = await cliRequest(userId, 'catalog', { provider }, 23_000, signal);
-  const value = normalize(raw, provider);
-  if (selectedCli(userId) !== provider || revisions.get(userId) !== revision) throw new Error('The model connection changed. Refresh the model picker.');
-  if (cache.size >= 200) cache.delete(cache.keys().next().value!);
-  cache.set(key, { at: Date.now(), value });
-  return value;
+  if (!force && hit && Date.now() - hit.at < maxAgeMs) return hit.value;
+  let entry = pending.get(key);
+  if (!entry || entry.controller.signal.aborted) {
+    const revision = revisions.get(userId);
+    const next: PendingCatalog = { controller: new AbortController(), promise: null!, waiters: 0, settled: false };
+    next.promise = (async () => {
+      const raw = await cliRequest(userId, 'catalog', { provider }, 23_000, next.controller.signal);
+      const value = normalize(raw, provider);
+      if (selectedCli(userId) !== provider || cliRuntime(userId) !== runtime || revisions.get(userId) !== revision) throw new Error('The model connection changed. Refresh the model picker.');
+      if (cache.size >= 200) cache.delete(cache.keys().next().value!);
+      cache.set(key, { at: Date.now(), value });
+      return value;
+    })().finally(() => {
+      next.settled = true;
+      if (pending.get(key) === next) pending.delete(key);
+    });
+    pending.set(key, next);
+    entry = next;
+  }
+  return waitForCatalog(entry, signal);
+}
+
+/** Cancelling one bot must not cancel another bot's shared metadata request. */
+function waitForCatalog(entry: PendingCatalog, signal?: AbortSignal) {
+  entry.waiters++;
+  return new Promise<ReturnType<typeof normalize>>((resolve, reject) => {
+    let finished = false;
+    const finish = (error?: unknown, value?: ReturnType<typeof normalize>) => {
+      if (finished) return;
+      finished = true;
+      signal?.removeEventListener('abort', abort);
+      if (--entry.waiters === 0 && !entry.settled) entry.controller.abort();
+      if (error) reject(error); else resolve(value!);
+    };
+    const abort = () => finish(new Error('CLI request cancelled.'));
+    entry.promise.then(value => finish(undefined, value), error => finish(error));
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
+  });
 }
 
 export function clearCliCatalog(userId: string) {
   revisions.set(userId, (revisions.get(userId) ?? 0) + 1);
   for (const key of cache.keys()) if (key.startsWith(`${userId}:`)) cache.delete(key);
+  for (const key of pending.keys()) if (key.startsWith(`${userId}:`)) pending.delete(key);
 }

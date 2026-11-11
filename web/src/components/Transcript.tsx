@@ -7,6 +7,8 @@ import { ActivityLine } from './ActivityLine';
 import { CardRow } from './cards/Cards';
 import { Icon } from './Icon';
 import { Markdown } from './Markdown';
+import { appToolLabel } from '@shared/tool-activity';
+import { ElapsedTimer, fmtElapsed } from './BrailleSpinner';
 
 type Item =
   | { kind: 'divider'; key: string; ts: number }
@@ -96,30 +98,34 @@ function SenderLabel({ from }: { from: NonNullable<MessageBody['from']> }) {
   );
 }
 
-function Steps({ rows, hideRunning }: { rows: Row[]; hideRunning: boolean }) {
+function Steps({ rows }: { rows: Row[] }) {
   const [open, setOpen] = useState(false);
-  const calls = rows.map((r) => r.body as ToolCallBody);
-  const visible = hideRunning ? calls.filter((c) => c.status !== 'running') : calls;
-  if (!visible.length) return null;
-  const n = visible.length;
+  // Keep execution visible even when the user collapses completed history.
+  const visible = open ? rows : rows.filter(r => ['queued', 'running', 'awaiting-approval'].includes((r.body as ToolCallBody).status));
+  const n = rows.length;
   return (
     <div className={`steps${open ? ' is-open' : ''}`}>
       <button type="button" className="steps__toggle" onClick={() => setOpen(!open)} aria-expanded={open}>
         {n} {n === 1 ? 'step' : 'steps'}
         <Icon name="chev_down" size={10} opacity={0.66} className="steps__chev" />
       </button>
-      {open && (
+      {visible.length > 0 && (
         <ul className="steps__list">
-          {visible.map((c) => (
-            <li key={c.callId} className={`step is-${c.status}`}>
+          {visible.map((r) => {
+            const c = r.body as ToolCallBody;
+            return <li key={c.callId} className={`step is-${c.status}`}>
               <span className="step__dot" />
-              <span className="step__label">{c.label}</span>
-              {c.summary && <span className="step__summary">{c.summary}</span>}
+              <span className="step__label">{appToolLabel(c.name, c.args) ?? c.label}</span>
+              {c.status === 'running' && <span className="step__summary">Running · <ElapsedTimer since={c.startedAt ?? r.createdAt} /></span>}
+              {c.status === 'queued' && <span className="step__summary">Queued</span>}
+              {c.status === 'awaiting-approval' && <span className="step__summary">Waiting for approval</span>}
+              {c.summary && c.summary !== 'done' && c.summary !== 'failed' && <span className="step__summary">{c.summary}</span>}
+              {c.status === 'done' && <span className="step__summary">Done{c.startedAt !== undefined && c.completedAt !== undefined ? ` · ${fmtElapsed(c.completedAt - c.startedAt)}` : ''}</span>}
               {c.status === 'error' && <span className="step__summary">Failed</span>}
-              {c.status === 'denied' && <span className="step__summary">Not allowed</span>}
+              {c.status === 'denied' && !c.summary && <span className="step__summary">Not allowed</span>}
               {c.screenshot && <img className="step__shot" src={c.screenshot} alt="" />}
-            </li>
-          ))}
+            </li>;
+          })}
         </ul>
       )}
     </div>
@@ -182,7 +188,7 @@ export const Transcript = memo(function Transcript({ bot, rows, live, loaded }: 
             case 'divider':
               return <div key={it.key} className="divider">{dividerLabel(it.ts)}</div>;
             case 'steps':
-              return <Steps key={it.key} rows={it.rows} hideRunning={running} />;
+              return <Steps key={it.key} rows={it.rows} />;
             case 'row':
               return <SystemRow key={it.key} row={it.row} />;
             case 'group':

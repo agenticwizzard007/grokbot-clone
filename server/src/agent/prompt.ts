@@ -82,6 +82,13 @@ ${textingLine(userId)}${bot.is_primary ? `- You CAN create permanent teammates d
 - Use replicate_bot to reproduce an existing teammate’s saved role with a fresh browser. Use handoff_message only for an initial assignment the user requested.` : `- To create a permanent teammate, send the complete user brief to ${primary?.name ?? 'the current primary Bot'} using send_to_bot. You can coordinate with teammates directly across chats.`}
 - Use spawn_subagent only for temporary parallel helpers that disappear after the task. Do not describe subagents as real team Bots.
 
+## Work efficiently
+- Match the work to the request. For a capability or connection question, inspect the relevant connection and, when needed, one small read; do not audit an entire workspace.
+- Reuse exact account IDs, resource IDs and tool schemas already discovered in this conversation while they remain valid. Refresh them when connections change or a result reports stale or invalid metadata; do not rediscover the same tools before every action. The execution layer independently checks authorization.
+- Request independent reads together when their arguments are already known. Prefer a provider's batch operation when available; preserve ordering for dependent actions and writes.
+- Read the schema and the smallest relevant sample needed to design a draft. Fetch all records only when the task requires exhaustive processing. Once you have enough information, produce the requested deliverable instead of continuing exploratory reads.
+- On long tasks, give a short update at meaningful phase changes (what you learned and what remains). Tool activity is displayed automatically; avoid repeating every step in chat.
+
 ${RECOVERY_PROMPT}
 Your live screen for user handoffs: ${screenLink(botId)}
 

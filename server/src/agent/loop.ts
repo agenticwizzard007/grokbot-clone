@@ -7,7 +7,8 @@ import { newId, sha256 } from '../lib/ids.js';
 import { hub } from '../lib/hub.js';
 import { appendHistory, appendRow, emitBot, getBotRow, getRow, loadHistory, setLive, updateRow } from '../store.js';
 import type { MessageBody, ToolCallBody } from '../types.js';
-import { composioTools, toolkitInfo } from '../composio.js';
+import { composioTools } from '../composio.js';
+import { appName } from '../tool-activity.js';
 import { systemPrompt } from './prompt.js';
 import { deduplicateBrowserSnapshots, repairHistory } from './history.js';
 import { maybeCompact, noteUsage } from './memory.js';
@@ -205,6 +206,7 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
   aborts.set(botId, ctrl);
   running.set(botId, trigger);
   let depth = trigger.type === 'bot' ? trigger.depth : 0;
+  const toolRows: number[] = [];
 
   const ctx: ToolCtx = { userId, botId, jobId, enqueueBotMessage, depth, recovery: new BrowserRecovery() };
   setLive(botId, { isRunning: true, activity: { kind: 'thinking', since: now() }, awaiting: null, startedAt: now() });
@@ -220,6 +222,7 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
       if (!pendingRow) return;
       const st = JSON.parse(pendingRow.state) as PendingState;
       st.jobId = jobId;
+      toolRows.push(...st.calls.map(c => c.rowSeq));
       if ((st.computerRevision ?? 0) !== localAccess(userId).revision) {
         await finishPending(ctx, st, 'computer-changed');
         appendRow(botId, 'notice', { type: 'notice', text: 'Your selected computer changed. The previous approval and its remaining actions were cancelled. Send a new request to continue on the selected computer.', tone: 'info' });
@@ -236,8 +239,9 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
       ctx.readOnlyApps = trigger.readOnly;
       const call = { type: 'function_call', call_id: trigger.callId, name: trigger.name, arguments: JSON.stringify(trigger.args) };
       appendHistory(botId, [call]);
-      const activity = activityFor(call.name);
-      const row = appendRow(botId, 'tool-call', { type: 'tool-call', callId: call.call_id, name: call.name, label: activity.label, status: 'running', args: trigger.args });
+      const activity = activityFor(call.name, trigger.args);
+      const row = appendRow(botId, 'tool-call', { type: 'tool-call', callId: call.call_id, name: call.name, label: activity.label, status: 'queued', args: trigger.args });
+      toolRows.push(row.seq);
       const st: PendingState = { native: true, nativeRequireApproval: trigger.requireApproval, nativeReadOnly: trigger.readOnly, jobId, computerRevision: currentComputerRevision() ?? localAccess(userId).revision, calls: [{ ...call, rowSeq: row.seq }], outputs: [], approvalId: '', depth: 0 };
       if (!await processCalls(ctx, st)) publishNativeResult(botId, st);
       return;
@@ -271,8 +275,10 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
         jobId,
         computerRevision: currentComputerRevision() ?? localAccess(userId).revision,
         calls: calls.map((c: any) => {
-          const act = activityFor(c.name);
-          const row = appendRow(botId, 'tool-call', { type: 'tool-call', callId: c.call_id, name: c.name, label: act.label, status: 'running', args: safeParse(c.arguments) } satisfies ToolCallBody);
+          const args = safeParse(c.arguments);
+          const act = activityFor(c.name, args);
+          const row = appendRow(botId, 'tool-call', { type: 'tool-call', callId: c.call_id, name: c.name, label: act.label, status: 'queued', args } satisfies ToolCallBody);
+          toolRows.push(row.seq);
           return { call_id: c.call_id, name: c.name, arguments: c.arguments, rowSeq: row.seq };
         }),
         outputs: [],
@@ -293,7 +299,15 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
     aborts.delete(botId);
     running.delete(botId);
     const stillPending = db.prepare('SELECT 1 FROM pending_turns WHERE bot_id=?').get(botId);
-    if (!stillPending) setLive(botId, { isRunning: false, activity: null, awaiting: null, startedAt: null });
+    if (!stillPending) {
+      for (const seq of toolRows) {
+        const row = getRow(botId, seq);
+        if (row?.body.type === 'tool-call' && ['queued', 'running'].includes(row.body.status)) {
+          updateRow(botId, seq, { ...row.body, status: 'denied', summary: ctrl.signal.aborted ? 'Stopped' : 'Not executed', completedAt: now() });
+        }
+      }
+      setLive(botId, { isRunning: false, activity: null, awaiting: null, startedAt: null });
+    }
     emitBot(botId);
   }
 }
@@ -306,7 +320,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
     const c = st.calls[0];
     const args = safeParse(c.arguments) ?? {};
     const row = getRow(botId, c.rowSeq);
-    const body = (row?.body ?? {}) as ToolCallBody;
+    let body = (row?.body ?? {}) as ToolCallBody;
 
     // Enforce the interview boundary even if a model fabricates a tool call or an old
     // pending call is resumed. Configuring an agent must not launch operational work.
@@ -330,11 +344,10 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
     } else if (decision === 'ask') {
       const pol = policyFor(userId, c.name, args, botId);
       const approvalId = newId('apr');
-      const tk = pol.toolkit ? await toolkitInfo(pol.toolkit) : undefined;
       const mcp = c.name.startsWith('mcp_') ? findMcpTool(userId, c.name, botId) : undefined;
       const card = appendRow(botId, 'card', {
         type: 'card', card: 'approval', approvalId, jobId: ctx.jobId, title: `Allow ${getBotRow(botId).name} to ${pol.title.split(': ')[1] ?? pol.title}?`,
-        detail: describeArgs(args), tool: pol.key, toolkit: pol.toolkit, toolkitName: mcp?.server.config.name ?? tk?.name, logo: tk?.logo, args, status: 'pending',
+        detail: describeArgs(args), tool: pol.key, toolkit: pol.toolkit, toolkitName: mcp?.server.config.name ?? appName(pol.toolkit), args, status: 'pending',
       });
       db.prepare('INSERT INTO approvals(id,bot_id,row_seq,call_id,tool,status,created_at,binding_hash) VALUES (?,?,?,?,?,?,?,?)').run(approvalId, botId, card.seq, c.call_id, pol.key, 'pending', now(), approvalBinding(userId, botId, c.call_id, c.name, args));
       updateRow(botId, c.rowSeq, { ...body, status: 'awaiting-approval' });
@@ -350,9 +363,10 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
       res = { output: 'The user declined this action. Do not retry it. Find another way, or tell the user what you could not do.', summary: 'Not allowed' };
       updateRow(botId, c.rowSeq, { ...body, status: 'denied', summary: 'Not allowed' });
     } else {
-      const act = activityFor(c.name);
-      const pol = policyFor(userId, c.name, args, botId);
-      const detail = c.name === 'send_to_bot' ? String(args.bot_name ?? '') : !toolMap.has(c.name) && pol.toolkit ? (await toolkitInfo(pol.toolkit))?.name ?? pol.toolkit : undefined;
+      const act = activityFor(c.name, args);
+      const detail = c.name === 'send_to_bot' ? String(args.bot_name ?? '') : act.kind === 'connecting_service' ? act.label : undefined;
+      body = { ...body, label: act.label, status: 'running', startedAt: now() };
+      updateRow(botId, c.rowSeq, body);
       setLive(botId, { isRunning: true, activity: { kind: c.name === 'send_to_bot' ? 'messaging_named' : act.kind, detail, since: now() }, awaiting: null });
       const toolStart = performance.now();
       try {
@@ -363,11 +377,11 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
           : await runComposioTool(ctx, c.name, args);
         const successful = res.summary !== 'failed';
         finishTool(botId, c.call_id, successful);
-        updateRow(botId, c.rowSeq, { ...body, status: successful ? 'done' : 'error', summary: res.summary });
+        updateRow(botId, c.rowSeq, { ...body, status: successful ? 'done' : 'error', summary: res.summary, completedAt: now() });
       } catch (e: any) {
         finishTool(botId, c.call_id, false);
         res = { output: `Tool error: ${e?.message ?? e}`, replan: /^(?:browser_|computer_|open_browser$|wait_for_browser_access$)/.test(c.name) };
-        updateRow(botId, c.rowSeq, { ...body, status: 'error', summary: String(e?.message ?? e).slice(0, 200) });
+        updateRow(botId, c.rowSeq, { ...body, status: 'error', summary: String(e?.message ?? e).slice(0, 200), completedAt: now() });
       } finally {
         latency('tool', toolStart, { botId, tool: c.name });
       }
@@ -431,6 +445,7 @@ async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: Abo
   const bot = getBotRow(botId);
   const prepareStart = performance.now();
   const model = modelFor(bot.model);
+  setLive(botId, { activity: { kind: 'thinking', detail: 'Preparing model context', since: now() } });
   // Runs inside the bot's serial queue, so compaction can't race a turn.
   const [history, prompt, info, tools] = await Promise.all([
     maybeCompact(botId, loadHistory(botId)).catch(() => loadHistory(botId)),
@@ -469,6 +484,8 @@ async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: Abo
   latency('model_prepare', prepareStart, { botId, model });
 
   const modelStart = performance.now();
+  const cli = selectedCli(userId);
+  setLive(botId, { activity: { kind: 'thinking', detail: cli === 'claude' ? 'Waiting for Claude' : cli === 'codex' ? 'Waiting for Codex' : 'Waiting for model response', since: now() } });
   let receivedText = false;
   let stream: any;
   try {

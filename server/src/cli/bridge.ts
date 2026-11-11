@@ -4,6 +4,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { authenticateCli, cliRuntime, selectedCli, type CliProvider } from './store.js';
 import { hostedCatalog, hostedGenerate, hostedStatus, refreshHosted, serverLoginAvailable } from './hosted.js';
 import { legacyWorkHeld, withLegacyWork } from '../security/legacy-work.js';
+import { clearCliCatalog } from './catalog.js';
 
 export interface CliAuthStatus { installed: boolean; authenticated: boolean; subscription: boolean; error?: string }
 export type CliProviders = Record<CliProvider, CliAuthStatus>;
@@ -24,6 +25,7 @@ export function cliStatus(userId: string) {
 }
 
 export function disconnectCli(userId: string) {
+  clearCliCatalog(userId);
   const c = connections.get(userId);
   if (c) {
     connections.delete(userId);
@@ -112,7 +114,7 @@ export function attachCliSocket(server: Server) {
       ws.on('close', () => {
         clearTimeout(handshake);
         clearInterval(heartbeat);
-        if (userId && connections.get(userId) === connection) connections.delete(userId);
+        if (userId && connections.get(userId) === connection) { connections.delete(userId); clearCliCatalog(userId); }
         if (connection) for (const p of [...connection.pending.values()]) p.finish(new Error(CLI_OFFLINE));
       });
     });

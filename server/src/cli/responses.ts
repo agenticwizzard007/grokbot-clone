@@ -1,4 +1,4 @@
-import { catalogModelId, cliCatalog } from './catalog.js';
+import { catalogModelId, cliModelCatalog } from './catalog.js';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { cliRequest } from './bridge.js';
@@ -59,7 +59,7 @@ export function cliResponsesClient(userId: string, provider: CliProvider, timeou
         let selectedModel = model.slice(provider.length + 1);
         let effort: string | undefined;
         if (selectedModel !== 'default' || body.reasoning?.effort) {
-          const catalog = await cliCatalog(userId, provider, false, options?.signal);
+          const catalog = await cliModelCatalog(userId, provider, options?.signal);
           const effective = catalogModelId(provider, model, catalog);
           const info = catalog.models.find(m => m.id === effective);
           if (!info) throw new Error('This model is no longer offered by your CLI connection. Refresh the model picker. No API fallback was used.');

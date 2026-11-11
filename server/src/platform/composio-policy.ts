@@ -27,6 +27,8 @@ export interface ConnectionRegistry {
 }
 export interface ConnectionProvider {
   owned(identity: string, id: string): Promise<{ toolkit: string; active: boolean } | undefined>;
+  /** One fresh provider snapshot for a listing, never reused for execution authorization. */
+  ownedMany?(identity: string, ids: string[]): Promise<Map<string, { toolkit: string; active: boolean }>>;
   tool(slug: string): Promise<{ toolkit: string; version: string; readOnly?: boolean }>;
   execute(identity: string, connection: string, slug: string, version: string, args: Record<string, unknown>): Promise<unknown>;
   disconnect(id: string): Promise<void>;
@@ -49,8 +51,20 @@ export class ConnectionGateway {
     return { row:current, identity };
   }
   async list(tenant: string) {
-    const rows = await this.registry.list(tenant);
+    const rows = (await this.registry.list(tenant)).map(row => ({ ...row }));
     const result: PrivateConnection[] = [];
+    if (this.provider.ownedMany && rows.length) {
+      const identity = await this.registry.identity(tenant);
+      const remote = await this.provider.ownedMany(identity, rows.map(row => row.id));
+      for (const row of rows) {
+        const account = remote.get(row.id);
+        const current = await this.registry.get(tenant, row.id);
+        if (!account?.active || account.toolkit !== row.toolkit || !current || current.tenant !== tenant || current.state !== 'active' || current.revision !== row.revision || current.toolkit !== row.toolkit) continue;
+        await this.authorize();
+        result.push({ ...current });
+      }
+      return result;
+    }
     for (const row of rows) {
       try { await this.own(tenant, row.id); result.push(row); }
       catch (e) { if (!(e instanceof ConnectionNotFound)) throw e; }

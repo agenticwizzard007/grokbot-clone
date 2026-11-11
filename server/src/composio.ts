@@ -99,8 +99,9 @@ const promptConnections = new Map<string, { expires: number; promise: Promise<Se
 
 /** Only prompt context may use a short cache; connection management always reads the provider. */
 export async function connectedToolkits(userId: string, cached = false): Promise<Set<string>> {
-  if (cached && env.composioEnabled && !isTenant) {
-    composio(); // Invalidate across credential/project changes before reading.
+  assertTenant(userId);
+  if (cached && env.composioEnabled) {
+    if (!isTenant) composio(); // Invalidate across credential/project changes before reading.
     let entry = promptConnections.get(userId);
     if (!entry || Date.now() >= entry.expires) {
       entry = { expires: Date.now() + 30_000, promise: connectedToolkits(userId) };
@@ -137,7 +138,7 @@ export async function disconnect(userId: string, toolkit: string) {
   if (isTenant) {
     const own = (await connectionsDetail(userId)).filter(c => c.toolkit === toolkit);
     if (own.length > 1) throw new Error('Select a specific connected account to disconnect.');
-    if (own[0]) await gatewayRequest(userId, 'disconnect', { connectionId: own[0].id });
+    if (own[0]) { await gatewayRequest(userId, 'disconnect', { connectionId: own[0].id }); invalidateComposioSession(userId); }
     return;
   }
   const client = composio();
@@ -283,7 +284,11 @@ export const isReadOnlySlug = (slug: string) => READ_RE.test(slug.toUpperCase())
 /** Account-specific management never accepts a toolkit as an ownership proof. */
 export async function manageConnection(userId: string, id: string, operation: 'disconnect' | 'default') {
   assertTenant(userId);
-  if (isTenant) return gatewayRequest(userId, operation, { connectionId: id });
+  if (isTenant) {
+    const result = await gatewayRequest(userId, operation, { connectionId: id });
+    invalidateComposioSession(userId);
+    return result;
+  }
   const own = (await connectionsDetail(userId)).find(c => c.id === id && c.status === 'ACTIVE');
   if (!own) throw new Error('Connection not found.');
   if (operation === 'default') throw new Error('Saved account defaults require a private tenant environment.');

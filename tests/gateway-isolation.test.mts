@@ -77,6 +77,38 @@ test('runtime revocation after dispatch reservation blocks the provider side eff
   await assert.rejects(gateway.execute('alice',dispatch(row)),/uncertain/);
   assert.equal(f.calls.length,0);assert.equal(f.dispatched.get('alice:dispatch_00000000001'),'uncertain');
 });
+
+test('connection listing uses one fresh bulk lookup and rechecks ownership, revision and revocation', async () => {
+  const f = fixture();
+  const keep = f.add('alice', 'notion');
+  const revoked = f.add('alice', 'gmail');
+  const revised = f.add('alice', 'slack');
+  const mismatch = f.add('alice', 'github');
+  const expired = f.add('alice', 'outlook');
+  const foreign = f.add('bob', 'notion');
+  let batches = 0, individual = 0;
+  const owned = f.provider.owned;
+  f.provider.owned = async (...args) => { individual++; return owned(...args); };
+  f.provider.ownedMany = async (identity, ids) => {
+    batches++;
+    assert.equal(identity, 'composio-alice');
+    assert.equal(ids.includes(foreign.id), false);
+    const snapshot = new Map(ids.map(id => [id, { toolkit: f.rows.get(id)!.toolkit, active: true }]));
+    await f.registry.revoke('alice', revoked.id);
+    revised.revision++;
+    snapshot.set(mismatch.id, { toolkit: 'notion', active: true });
+    snapshot.set(expired.id, { toolkit: 'outlook', active: false });
+    snapshot.set(foreign.id, { toolkit: 'notion', active: true });
+    return snapshot;
+  };
+  assert.deepEqual((await f.gateway.list('alice')).map(row => row.id), [keep.id]);
+  assert.equal(batches, 1); assert.equal(individual, 0);
+  await f.gateway.execute('alice', dispatch(keep));
+  assert.equal(individual, 1, 'dispatch must perform its own fresh authorization');
+  await f.registry.revoke('alice', keep.id);
+  await assert.rejects(f.gateway.execute('alice', dispatch(keep, 'dispatch_00000000002')), /Connection not found/);
+  assert.equal(f.calls.length, 1);
+});
 test('container policy forbids mutable images and isolates provider credential mounts', () => {
   const digest = 'registry.example/swarm@sha256:' + 'a'.repeat(64);
   const policy = { tenantId: 'usr_123456789', root: '/data', network: 'swarm-public', runnerImage: digest, mcpImage: digest };

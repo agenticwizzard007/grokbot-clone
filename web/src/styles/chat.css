@@ -127,11 +127,14 @@
 .step__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-success); margin-left: -15.5px; position: relative; top: -1px; box-shadow: 0 0 0 2px var(--color-bg-chrome); }
 .step.is-error .step__dot, .step.is-denied .step__dot { background: var(--color-danger); }
 .step.is-running .step__dot, .step.is-awaiting-approval .step__dot { background: var(--color-warn); }
+.step.is-queued .step__dot { background: var(--color-text-tertiary); }
+.step__label { overflow-wrap: anywhere; min-width: 0; }
 .step__summary { color: var(--color-text-tertiary); font-size: 12px; }
 .step__shot { flex-basis: 100%; max-width: 240px; border-radius: 6px; box-shadow: var(--color-border-tertiary) 0 0 0 0.5px; margin-top: 2px; }
 
 /* ---------- live activity line ---------- */
-.activity-line { display: flex; align-items: center; gap: 8px; padding: 2px 4px; font-size: 14px; line-height: 20px; letter-spacing: 0.14px; }
+.activity-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 2px 4px; font-size: 14px; line-height: 20px; letter-spacing: 0.14px; }
+.activity-line__text { overflow-wrap: anywhere; min-width: 0; }
 .activity-line__mark { display: inline-flex; animation: bob 2.4s ease-in-out infinite; }
 .activity-line__time { color: var(--color-text-tertiary); }
 .shimmer {

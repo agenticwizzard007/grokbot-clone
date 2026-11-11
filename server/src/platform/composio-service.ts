@@ -32,15 +32,26 @@ export class ComposioProvider implements ConnectionProvider {
     this.sdk = new Composio({ apiKey: key, dangerouslyAllowAutoUploadDownloadFiles: false });
   }
   async owned(identity: string, id: string) {
+    return (await this.ownedMany(identity, [id])).get(id);
+  }
+  async ownedMany(identity: string, ids: string[]) {
+    const remaining = new Set(ids);
+    const found = new Map<string, { toolkit: string; active: boolean }>();
+    if (!remaining.size) return found;
     let cursor: string | undefined; const seen = new Set<string>();
     do {
       const r = await this.sdk.connectedAccounts.list({ userIds: [identity], accountType: 'PRIVATE', cursor, limit: 100 });
-      const item = r.items.find(i => i.id === id);
-      if (item) return { toolkit: item.toolkit.slug, active: item.status === 'ACTIVE' };
+      for (const item of r.items) {
+        if (!remaining.has(item.id)) continue;
+        found.set(item.id, { toolkit: item.toolkit.slug, active: item.status === 'ACTIVE' });
+        remaining.delete(item.id);
+      }
+      if (!remaining.size) return found;
       cursor = r.nextCursor ?? undefined;
       if (cursor && (seen.has(cursor) || seen.size >= 100)) throw new Error('Invalid connection pagination.');
       if (cursor) seen.add(cursor);
     } while (cursor);
+    return found;
   }
   async tool(slug: string) {
     const t = await this.sdk.tools.getRawComposioToolBySlug(slug);

@@ -1,8 +1,9 @@
 import type { ActivityKind, LiveState, Row } from '@shared/types';
+import { appToolLabel } from '@shared/tool-activity';
 
 /** textKind → phrase table from docs/research/03-ui-design.md §2.4. Arrays rotate. */
 const PHRASES: Record<string, string[]> = {
-  thinking: ['Thinking it through', 'Mulling it over', 'Putting it together'],
+  thinking: ['Waiting for model response'],
   working: ['Getting it done', 'Making progress', 'Working on it', 'Handling it', 'Chipping away'],
   searching_web: ['Digging around'],
   reading_web: ['Doing some reading'],
@@ -32,13 +33,18 @@ export function activityPhrase(live: LiveState, rows: Row[], tick: number): stri
   const a = live.activity;
   if (!a) return live.awaiting ? 'Needs your input' : 'Working on it';
   const kind = a.kind as ActivityKind;
+  if (kind === 'thinking' && a.detail) return a.detail;
   if (kind === 'messaging_named') {
     const running = [...rows].reverse().find((r) => r.body.type === 'tool-call' && r.body.status === 'running');
     const args = running?.body.type === 'tool-call' ? (running.body.args as Record<string, unknown> | undefined) : undefined;
     const name = typeof args?.bot_name === 'string' ? args.bot_name : nice(a.detail) ? a.detail : null;
     return name ? `Checking with ${name}` : 'Checking with another Bot';
   }
-  if (kind === 'connecting_service') return nice(a.detail) ? `Working in ${a.detail}` : 'Working in a connected app';
+  if (kind === 'connecting_service') {
+    const running = rows.find(r => r.body.type === 'tool-call' && r.body.status === 'running');
+    if (running?.body.type === 'tool-call') return appToolLabel(running.body.name, running.body.args) ?? running.body.label;
+    return nice(a.detail) ? a.detail! : 'Working in a connected app';
+  }
   const list = PHRASES[kind] ?? PHRASES.working;
   return list[tick % list.length];
 }
