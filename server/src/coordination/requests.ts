@@ -54,6 +54,15 @@ function createRequest(userId:string,from:string,to:string,text:string,depth:num
  VALUES(?,?,?,?,?,?,'queued',?,?,?,?,?,?)`).run(id,userId,from,to,text,kind,parent?.correlation_id??id,parent?.id??null,depth,key,now(),now());
  event(db.prepare('SELECT * FROM coordination_requests WHERE id=?').get(id),'coordination.requested');return id;
 }
+/** Fan-in from a verified permanent workflow task; no automatic reply to a result. */
+export function recordWorkflowResult(input:{userId:string;fromBotId:string;toBotId:string;workflowId:string;taskId:string;result:unknown;evidence:unknown[]}) {
+ ownAgent(input.userId,input.fromBotId);ownAgent(input.userId,input.toBotId);assertLegacyWorkOpen(input.userId);
+ if(input.fromBotId===input.toBotId)return null;
+ const text=`[Verified workflow result ${input.workflowId}/${input.taskId}] Acceptance evidence is verified; inspect referenced artifacts for delivery status.\n${JSON.stringify({workflowId:input.workflowId,taskId:input.taskId,result:input.result,evidence:input.evidence}).slice(0,30000)}`;
+ // The enclosing verification transaction commits this result intent together
+ // with task acceptance. Admission drains after durable settlement or on timer.
+ return createRequest(input.userId,input.fromBotId,input.toBotId,text,1,`workflow-result:${input.taskId}`,{correlation_id:input.workflowId},'result');
+}
 export function enqueueInternalMessage(fromBotId:string,toBotId:string,text:string,depth:number,options:{idempotencyKey?:string;parentRequestId?:string}={}) {
  const from=db.prepare('SELECT * FROM bots WHERE id=?').get(fromBotId) as any;if(!from)throw new Error('Sender not found.');
  ownAgent(from.user_id,fromBotId);ownAgent(from.user_id,toBotId);assertLegacyWorkOpen(from.user_id);
@@ -95,6 +104,17 @@ export function drainInternalRequests() {
  }
 }
 export interface CoordinationFinish {userId:string;botId:string;jobId:string;status:string;finalText?:string;trigger?:Record<string,unknown>}
+/** Root writes this in the same SQLite transaction as finishJob, before the
+ * after-settlement hook. A crash between settlement and fan-in then loses no result. */
+export function recordCoordinationJobOutcome(input:CoordinationFinish) {
+ assertTenant(input.userId);assertLegacyWorkOpen(input.userId);ownAgent(input.userId,input.botId);
+ const job=db.prepare('SELECT trigger FROM agent_jobs WHERE id=? AND user_id=? AND bot_id=?').get(input.jobId,input.userId,input.botId) as any;
+ if(!job)throw new Error('Outcome job not found.');
+ const trigger=JSON.parse(job.trigger);
+ if(!trigger.coordinationRequestId&&!trigger.coordinationWakeId&&!trigger.workflowId&&!trigger.proactiveSlotKey&&!requestForJob(input))return;
+ db.prepare(`INSERT INTO coordination_job_outcomes(job_id,user_id,bot_id,status,final_text,created_at,updated_at) VALUES(?,?,?,?,?,?,?)
+ ON CONFLICT(job_id) DO UPDATE SET status=excluded.status,final_text=excluded.final_text,updated_at=excluded.updated_at WHERE coordination_job_outcomes.status='waiting'`).run(input.jobId,input.userId,input.botId,input.status,(input.finalText??'').slice(0,32000),now(),now());
+}
 function requestForJob(input:CoordinationFinish) {
  // Decisions resume on a new durable job. Follow only same-owner/same-bot lineage.
  return db.prepare(`WITH RECURSIVE lineage(id,parent,depth) AS (
@@ -113,7 +133,7 @@ function settle(r:any,status:string,text:string) {
 }
 export function onInternalJobFinished(input:CoordinationFinish) {
  assertTenant(input.userId);if(legacyWorkHeld(input.userId))return;
- ownAgent(input.userId,input.botId);
+ ownAgent(input.userId,input.botId);recordCoordinationJobOutcome(input);
  if(['waiting','queued','running'].includes(input.status))return;
  db.transaction(()=>{const r=requestForJob(input);if(r)settle(r,input.status,input.finalText??'No final text recorded.');})();
  drainInternalRequests();
@@ -125,6 +145,9 @@ export function recoverInternalRequests() {
   const continuation=db.prepare(`WITH RECURSIVE chain(id,depth) AS (SELECT ?,0 UNION ALL SELECT j.id,c.depth+1 FROM agent_jobs j JOIN chain c ON json_extract(j.trigger,'$.parentJobId')=c.id WHERE j.user_id=? AND j.bot_id=? AND c.depth<32)
   SELECT 1 FROM chain c JOIN agent_jobs j ON j.id=c.id WHERE c.depth>0 AND j.state IN ('queued','running') LIMIT 1`).get(r.job_id,r.user_id,r.to_bot_id);
   if(continuation)continue;
+  const outcome=db.prepare(`WITH RECURSIVE chain(id,n) AS (SELECT ?,0 UNION ALL SELECT j.id,c.n+1 FROM agent_jobs j JOIN chain c ON json_extract(j.trigger,'$.parentJobId')=c.id WHERE j.user_id=? AND j.bot_id=? AND c.n<32)
+  SELECT o.* FROM coordination_job_outcomes o JOIN chain c ON c.id=o.job_id JOIN agent_jobs j ON j.id=o.job_id WHERE o.user_id=? AND o.bot_id=? AND o.status NOT IN ('waiting','queued','running') AND j.state IN ('completed','uncertain','cancelled') ORDER BY c.n DESC,o.updated_at DESC LIMIT 1`).get(r.job_id,r.user_id,r.to_bot_id,r.user_id,r.to_bot_id) as any;
+  if(outcome){db.transaction(()=>settle(r,outcome.status,outcome.final_text))();continue;}
   db.transaction(()=>settle(r,r.job_state==='completed'?'result_unavailable_after_restart':r.job_state,'Execution outcome needs reconciliation after restart; no external action was replayed.'))();
  }
  drainInternalRequests();

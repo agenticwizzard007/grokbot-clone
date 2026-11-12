@@ -4,6 +4,7 @@ import { newId } from '../lib/ids.js';
 import { assertTenant } from '../deployment.js';
 import { appendRow } from '../store.js';
 import { legacyWritableRows } from '../platform/legacy-database-fence.js';
+import { recordWorkflowResult } from '../coordination/requests.js';
 import { publishNativeEvent } from '../native/events.js';
 import { assertLegacyWorkOpen } from '../security/legacy-work.js';
 import { createSubagent, initSubagents } from './subagents.js';
@@ -421,6 +422,7 @@ export function completeWorkflowTask(userId:string,workflowId:string,taskId:stri
     else if(!db.prepare("SELECT 1 FROM native_workflow_tasks WHERE workflow_id=? AND status='blocked'").get(workflowId)) {
       db.prepare("UPDATE native_workflows SET status='active',reason='',updated_at=? WHERE id=? AND status='blocked' AND reason='Task acceptance needs review.'").run(now(),workflowId);
     }
+    if(t.workerBotId&&t.assignedBotId&&t.assignedBotId!==w.botId)recordWorkflowResult({userId,fromBotId:t.assignedBotId,toBotId:w.botId,workflowId,taskId,result:t.result,evidence:receipts});
     publishNativeEvent({userId,botId:t.assignedBotId??w.botId,kind:'workflow.verified',sourceType:'workflow',sourceId:workflowId,jobId:t.activeJobId??undefined,audience:'internal',data:{taskId,evidence:receipts}});
   })();
   w = getWorkflow(userId,workflowId);

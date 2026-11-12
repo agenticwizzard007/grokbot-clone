@@ -35,7 +35,7 @@ export function reviewCoordination() {
  const j=db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(w.job_id) as any;
  const descendant=db.prepare(`WITH RECURSIVE chain(id,n) AS (SELECT ?,0 UNION ALL SELECT j.id,c.n+1 FROM agent_jobs j JOIN chain c ON json_extract(j.trigger,'$.parentJobId')=c.id WHERE j.user_id=? AND c.n<32)
  SELECT 1 FROM chain c JOIN agent_jobs j ON j.id=c.id WHERE c.n>0 AND j.state IN ('queued','running') LIMIT 1`).get(w.job_id,userId);
- if(j&&['uncertain','cancelled','completed'].includes(j.state)&&!botOccupied(s.primary_bot_id??'')&&!descendant)db.prepare("UPDATE coordination_wakes SET status='failed',reason='Interrupted or final review receipt unavailable; inspect canonical state.',updated_at=? WHERE id=?").run(now(),w.id);
+ if((!j||['uncertain','cancelled','completed'].includes(j.state))&&!botOccupied(s.primary_bot_id??'')&&!descendant)db.prepare("UPDATE coordination_wakes SET status='failed',reason='Interrupted or final review receipt unavailable; inspect canonical state.',updated_at=? WHERE id=?").run(now(),w.id);
  }
  if(!s.enabled||!primary)return;
  db.prepare("UPDATE coordination_wakes SET status='superseded',reason='Coalesced into newer state or authority.',updated_at=? WHERE user_id=? AND status='pending' AND (source_version!=? OR authority_revision!=?)").run(now(),userId,sourceVersion,s.authority_revision);

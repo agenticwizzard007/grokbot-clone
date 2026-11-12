@@ -1,4 +1,4 @@
-export { configureCoordinationRuntime, enqueueInternalMessage, drainInternalRequests, pendingDecision, botOccupied, getInternalRequest, listInternalRequests } from './requests.js';
+export { configureCoordinationRuntime, recordCoordinationJobOutcome, enqueueInternalMessage, drainInternalRequests, pendingDecision, botOccupied, getInternalRequest, listInternalRequests } from './requests.js';
 export { coordinationPrompt, teamState } from './state.js';
 export { setCoordinationEnabled, coordinationPreTurn, reviewCoordination } from './supervision.js';
 export { dailySynopsisContext, bindReportIntent, reconcileReportCoverage } from './reports.js';

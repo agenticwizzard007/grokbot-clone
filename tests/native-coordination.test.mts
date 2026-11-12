@@ -107,6 +107,7 @@ test('permanent workflow worker keeps identity, goal lineage, validation and exa
  beginJob(job.jobId);assert.equal(w.workflowPreTurn({userId:f.userId,botId:job.botId,jobId:job.jobId}).allowed,true);
  await w.workflowAfterTurn({userId:f.userId,botId:job.botId,jobId:job.jobId,status:'completed',finalText:'{"summary":"verified research"}',usage:{tokens:0,costUsd:0}});finishJob(job.jobId,true);
  const complete=w.getWorkflow(f.userId,wf.id);assert.equal(complete.status,'completed');assert.equal(complete.tasks[0].workerBotId,f.worker.id);assert.equal(complete.tasks[0].resultValidated,true);assert.equal(complete.tasks[0].status,'completed');
+ const returned=c.listInternalRequests(f.userId).requests.find(r=>r.kind==='result')!;assert.ok(returned);assert.equal(returned.toBotId,f.chief.id);assert.equal(returned.correlationId,wf.id);assert.match(returned.text,/verified research/);assert.equal(returned.status,'queued');
  const stopped=w.createWorkflow(f.userId,f.chief.id,{title:'Stop precisely',tasks:[task(f.worker.id)]});w.startWorkflow(f.userId,stopped.id);const bound=queued.at(-1)!;
  const unrelated=acceptJob(f.worker.id,{type:'user',text:'Other work'});const interrupts:any[]=[];w.configureWorkflowRuntime({enqueue,interrupt:(botId,expectedJobId)=>interrupts.push({botId,expectedJobId})});w.controlWorkflow(f.userId,stopped.id,'stop');
  assert.equal((db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(bound.jobId) as any).state,'cancelled');assert.equal((db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(unrelated.id) as any).state,'queued');assert.equal(interrupts.length,0);assert.ok(db.prepare('SELECT 1 FROM bots WHERE id=?').get(f.worker.id));
@@ -188,4 +189,22 @@ test('worker activation is revalidated before queued execution and task changes 
  const f=fixture(),wf=w.createWorkflow(f.userId,f.chief.id,{title:'Activation fence',tasks:[task(f.worker.id)]});w.startWorkflow(f.userId,wf.id);const job=queued.at(-1)!;beginJob(job.jobId);
  db.prepare("UPDATE bot_setups SET onboarding_status='interviewing' WHERE bot_id=?").run(f.worker.id);assert.equal(w.workflowPreTurn({userId:f.userId,botId:f.worker.id,jobId:job.jobId}).allowed,false);
  const event=db.prepare("SELECT * FROM native_events WHERE user_id=? AND source_type='workflow_task' ORDER BY seq DESC LIMIT 1").get(f.userId) as any;assert.ok(event);assert.ok(Number(event.source_revision)>=2);assert.equal(JSON.parse(event.data).status,'queued');
+});
+
+test('deleting a former primary preserves other bots, reply chains and canonical coverage cleanup',()=>{
+ const f=fixture(),third=createBot(f.userId,{name:'Third'});db.prepare("UPDATE bot_setups SET onboarding_status='active' WHERE bot_id=?").run(third.id);
+ const original=request(f);c.enqueueInternalMessage(f.worker.id,third.id,'Peer branch',0,{parentRequestId:original,idempotencyKey:'branch'});c.reviewCoordination();
+ transferPrimary(f.userId,f.chief.id,f.worker.id);assertPrimaryRemovalAllowed(f.userId,f.chief.id);assert.doesNotThrow(()=>db.prepare('DELETE FROM bots WHERE id=?').run(f.chief.id));
+ assert.ok(db.prepare('SELECT 1 FROM bots WHERE id=? AND is_primary=1').get(f.worker.id));const branch=c.listInternalRequests(f.userId).requests.find(r=>r.text==='Peer branch')!;assert.ok(branch);assert.equal(branch.parentRequestId,null);
+});
+
+test('atomic final-outcome checkpoint returns original final text once after a fresh-process restart',()=>{
+ const f=fixture(),id=request(f),job=queued.at(-1)!;beginJob(job.jobId);
+ db.transaction(()=>{finishJob(job.jobId,true);c.recordCoordinationJobOutcome({userId:f.userId,botId:f.worker.id,jobId:job.jobId,status:'completed',finalText:'Durable final research result',trigger:job.trigger});})();
+ // Simulate process loss before the after-settlement hook.
+ const program=`const {db}=await import('./server/src/db.ts');const r=await import('./server/src/coordination/requests.ts');r.recoverInternalRequests();db.close();`;
+ const child=spawnSync(process.execPath,['--import','tsx','--input-type=module','-e',program],{cwd:process.cwd(),env:process.env,encoding:'utf8'});assert.equal(child.status,0,child.stderr);
+ assert.equal(c.getInternalRequest(f.userId,id).status,'completed');assert.equal(c.getInternalRequest(f.userId,id).result,'Durable final research result');
+ let results=c.listInternalRequests(f.userId).requests.filter(r=>r.kind==='result');assert.equal(results.length,1);assert.match(results[0].text,/Durable final research result/);
+ r.recoverInternalRequests();results=c.listInternalRequests(f.userId).requests.filter(r=>r.kind==='result');assert.equal(results.length,1);
 });

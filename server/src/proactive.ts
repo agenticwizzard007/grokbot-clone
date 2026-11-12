@@ -13,7 +13,7 @@ function schema() {
  silent_streak INTEGER NOT NULL DEFAULT 0,updated_at INTEGER NOT NULL);
  CREATE TABLE IF NOT EXISTS proactive_due_slots (
  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,slot_key TEXT NOT NULL,
- status TEXT NOT NULL CHECK(status IN ('pending','admitted')),job_id TEXT REFERENCES agent_jobs(id),
+ status TEXT NOT NULL CHECK(status IN ('pending','admitted')),job_id TEXT REFERENCES agent_jobs(id) ON DELETE SET NULL,
  created_at INTEGER NOT NULL,admitted_at INTEGER,PRIMARY KEY(user_id,slot_key));`);
 }
 export function initProactive(enqueue:(botId:string,t:any)=>string|void) {
