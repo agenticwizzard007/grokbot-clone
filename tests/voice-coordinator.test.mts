@@ -4,11 +4,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createServer } from 'node:http';
-import { after, test } from 'node:test';
+import { after, mock, test } from 'node:test';
 import { Hono } from 'hono';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-voice-coordinator-'));
 let toolSequence = 0;
+let approvalToolName = '';
+let approvedWrites = 0;
 const modelInputs: any[][] = [];
 let summaryGate: Promise<void> | undefined;
 let summaryStarted: (() => void) | undefined;
@@ -29,7 +32,7 @@ const upstream = createServer(async (req, res) => {
   const lastInput = body.input?.at(-1);
   const scenario = lastInput?.role === 'user' ? String(lastInput.content) : '';
   const item = scenario.includes('question scenario') || scenario.includes('approval scenario')
-    ? { id: `tool-${++toolSequence}`, type: 'function_call', call_id: `call-${toolSequence}`, name: scenario.includes('question scenario') ? 'ask_user' : 'TEST_WRITE', arguments: JSON.stringify(scenario.includes('question scenario') ? { question: 'Which region?', options: ['Europe', 'Asia'] } : {}) }
+    ? { id: `tool-${++toolSequence}`, type: 'function_call', call_id: `call-${toolSequence}`, name: scenario.includes('question scenario') ? 'ask_user' : approvalToolName, arguments: JSON.stringify(scenario.includes('question scenario') ? { question: 'Which region?', options: ['Europe', 'Asia'] } : {}) }
     : { id: 'msg-test', type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text, annotations: [] }] };
   const response = { id: 'resp-test', object: 'response', model: body.model, status: 'completed', output: [item], output_text: text, usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 } };
   if (!body.stream) { res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify(response)); }
@@ -76,6 +79,16 @@ const researcher = createBot('alice', { name: 'Researcher' });
 const foreign = createBot('bob', { name: 'Private Bob' });
 // This fixture represents an already activated specialist.
 db.prepare("UPDATE bot_setups SET onboarding_status='active' WHERE bot_id=?").run(researcher.id);
+// Exercise a real discovered, Bot-scoped tool. Fabricated names must be denied
+// before approval and cannot stand in for an executable write operation.
+mock.method(Client.prototype, 'connect', async () => {});
+mock.method(Client.prototype, 'close', async () => {});
+mock.method(Client.prototype, 'listTools', async () => ({ tools: [{ name: 'write', inputSchema: { type: 'object', properties: {}, additionalProperties: false } }] }));
+mock.method(Client.prototype, 'callTool', async () => { approvedWrites++; return { content: [{ type: 'text', text: 'Write completed' }] }; });
+const { saveMcpServer, mcpToolName } = await import('../server/src/mcp/store.js');
+const { testMcpServer, closeMcpSessions } = await import('../server/src/mcp/client.js');
+const approvalServer = (await testMcpServer(saveMcpServer('alice', { name: 'Approval fixture', transport: 'http', url: 'https://fixture.example/mcp', botIds: [researcher.id] })))!;
+approvalToolName = mcpToolName(approvalServer, 'write');
 const post = (user: string, endpoint: string, body: unknown) => app.request(`/voice/${endpoint}`, { method: 'POST', headers: { cookie: `swarm_session=${user}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
 const session = async (botId = chief.id, user = 'alice') => {
   const response = await post(user, 'session', { botId });
@@ -87,6 +100,8 @@ const updates = async (callId: string, after = 0) => (await post('alice', 'updat
 const close = (callId: string) => post('alice', 'end', { botId: chief.id, callId });
 after(async () => {
   await settleAgentJobs();
+  await closeMcpSessions();
+  mock.restoreAll();
   // Summaries run after /end; all tests end calls without requesting remote summaries except one
   // queued-task test, whose summary request is allowed to drain before closing the mock.
   await new Promise(resolve => setTimeout(resolve, 150));
@@ -215,9 +230,11 @@ test('a pending question remains waiting and its spoken answer continues the sam
 
 test('approval continuation remains queued/running under the original assignment until its result', async () => {
   const call = await session();
+  const writesBefore = approvedWrites;
   const assigned = await (await tool(call.callId, 'send_task', { bot_id: researcher.id, request: 'approval scenario: perform the requested action.' }, 'approval-work')).json();
   await settleAgentJobs();
   assert.equal((await updates(call.callId)).tasks[0].status, 'waiting');
+  assert.equal(approvedWrites, writesBefore);
   const approval = db.prepare("SELECT id FROM approvals WHERE bot_id=? AND status='pending' ORDER BY created_at DESC LIMIT 1").get(researcher.id) as any;
   assert.ok(approval);
   let release!: () => void;
@@ -233,6 +250,7 @@ test('approval continuation remains queued/running under the original assignment
     assert.equal(JSON.parse(resumed.trigger).type, 'resume');
     release(); await holding; await settleAgentJobs();
     assert.equal((await updates(call.callId)).tasks[0].status, 'completed');
+    assert.equal(approvedWrites, writesBefore + 1, 'the approved real tool executes exactly once');
   } finally { release(); await holding; await settleAgentJobs(); await close(call.callId); }
 });
 

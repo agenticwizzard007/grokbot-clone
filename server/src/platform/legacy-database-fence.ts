@@ -20,6 +20,54 @@ function schemaHash(db: Database.Database, schema: Table[]) {
   return createHash('sha256').update(JSON.stringify([VERSION, schema, objects])).digest('hex');
 }
 
+/** Only this rebuildable index is exempt from row triggers: SQLite forbids
+ * triggers on virtual AND shadow tables. Its source rows remain fenced, search
+ * reads join back to rows/bots for ownership, and tenant export rebuilds it.
+ * Match the complete native DDL and maintenance triggers, never a name prefix.
+ * Future index/schema changes require an explicit review of this allowlist. */
+function nativeDerivedTables(db: Database.Database, schema: Table[]): Set<string> {
+  const definitions = new Map([
+    ['knowledge_messages_fts', `CREATE VIRTUAL TABLE knowledge_messages_fts USING fts5(
+ text,bot_id UNINDEXED,generation UNINDEXED,seq UNINDEXED,role UNINDEXED,created_at UNINDEXED,tokenize='unicode61')`],
+    ['knowledge_messages_fts_data', "CREATE TABLE 'knowledge_messages_fts_data'(id INTEGER PRIMARY KEY, block BLOB)"],
+    ['knowledge_messages_fts_idx', "CREATE TABLE 'knowledge_messages_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"],
+    ['knowledge_messages_fts_content', "CREATE TABLE 'knowledge_messages_fts_content'(id INTEGER PRIMARY KEY, c0, c1, c2, c3, c4, c5)"],
+    ['knowledge_messages_fts_docsize', "CREATE TABLE 'knowledge_messages_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"],
+    ['knowledge_messages_fts_config', "CREATE TABLE 'knowledge_messages_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID"],
+    ['knowledge_migrations', 'CREATE TABLE knowledge_migrations (name TEXT PRIMARY KEY)'],
+  ]);
+  const byName = new Map(schema.map(table => [table.name, table]));
+  if (![...definitions.keys()].some(name => byName.has(name))) return new Set();
+  const fail = () => { throw new Error('Native derived search schema requires an explicit ownership migration.'); };
+  for (const [name, sql] of definitions) if (normalize(byName.get(name)?.sql ?? '') !== normalize(sql)) fail();
+  const kinds = new Map((db.pragma('table_list') as { schema: string; name: string; type: string }[])
+    .filter(table => table.schema === 'main').map(table => [table.name, table.type]));
+  for (const name of definitions.keys()) {
+    if (kinds.get(name) !== (name === 'knowledge_migrations' ? 'table' : name === 'knowledge_messages_fts' ? 'virtual' : 'shadow')) fail();
+  }
+  const maintenance = new Map([
+    ['knowledge_messages_insert', `CREATE TRIGGER knowledge_messages_insert AFTER INSERT ON rows
+ WHEN NEW.kind='message' AND json_valid(NEW.body) AND json_extract(NEW.body,'$.type')='message'
+ AND coalesce(json_extract(NEW.body,'$.streaming'),0)=0
+ BEGIN INSERT INTO knowledge_messages_fts(rowid,text,bot_id,generation,seq,role,created_at)
+ VALUES(NEW.rowid,json_extract(NEW.body,'$.text'),NEW.bot_id,NEW.generation,NEW.seq,json_extract(NEW.body,'$.role'),NEW.created_at); END`],
+    ['knowledge_messages_delete', `CREATE TRIGGER knowledge_messages_delete AFTER DELETE ON rows
+ BEGIN DELETE FROM knowledge_messages_fts WHERE rowid=OLD.rowid; END`],
+    ['knowledge_messages_update', `CREATE TRIGGER knowledge_messages_update AFTER UPDATE OF body,kind ON rows
+ BEGIN DELETE FROM knowledge_messages_fts WHERE rowid=OLD.rowid;
+ INSERT INTO knowledge_messages_fts(rowid,text,bot_id,generation,seq,role,created_at)
+ SELECT NEW.rowid,json_extract(NEW.body,'$.text'),NEW.bot_id,NEW.generation,NEW.seq,json_extract(NEW.body,'$.role'),NEW.created_at
+ WHERE NEW.kind='message' AND json_valid(NEW.body) AND json_extract(NEW.body,'$.type')='message'
+ AND coalesce(json_extract(NEW.body,'$.streaming'),0)=0; END`],
+  ]);
+  const installed = new Map((db.prepare("SELECT name,sql FROM sqlite_master WHERE type='trigger'").all() as { name: string; sql: string }[]).map(row => [row.name, row.sql]));
+  for (const [name, sql] of maintenance) if (normalize(installed.get(name) ?? '') !== normalize(sql)) fail();
+  for (const column of ['bot_id','kind','body','generation','seq','created_at']) if (!byName.get('rows')?.columns.includes(column)) fail();
+  // The global backfill marker is protected separately, not silently exempted:
+  // it must not be changed while any source account is held.
+  return new Set([...definitions.keys()].filter(name => name !== 'knowledge_migrations'));
+}
+
 /** Pure decoder only: trigger functions must not query the busy SQLite connection.
  * A legacy binary lacking this function fails closed on messaging writes. */
 export function registerLegacyFenceFunctions(db: Database.Database) {
@@ -36,13 +84,14 @@ function ownerQueries(table: Table, alias: string, schema: Map<string, Table>, t
   const col = (name: string) => `${alias}.${quote(name)}`;
   if (table.name === 'users') return [`SELECT ${col('id')} AS owner`];
   if (table.name === 'server_settings') return [];
-  if (trail.includes(table.name)) return table.columns.includes('user_id') ? [`SELECT ${col('user_id')} AS owner`] : [];
+  if (table.name === 'knowledge_migrations') return [`SELECT tenant_id AS owner FROM ${TABLE} WHERE state='held'`];
   const queries: string[] = [], refs = [...table.foreign];
   const reference = (from: string, target: string, to: string) => {
     if (table.columns.includes(from) && schema.has(target) && !refs.some(r => r.from === from && r.table === target && (r.to || 'id') === to)) refs.push({ from, table: target, to });
   };
   for (const name of ['user_id', 'provisional_user_id', 'link_user_id', 'attach_user_id', 'created_by']) reference(name, 'users', 'id');
-  for (const name of ['bot_id', 'parent_bot_id', 'active_bot_id', 'from_bot_id', 'to_bot_id']) reference(name, 'bots', 'id');
+  for (const name of ['bot_id', 'parent_bot_id', 'active_bot_id', 'from_bot_id', 'to_bot_id', 'assigned_bot_id', 'child_bot_id']) reference(name, 'bots', 'id');
+  for (const name of ['job_id', 'parent_job_id', 'active_job_id']) reference(name, 'agent_jobs', 'id');
   reference('link_session', 'auth_sessions', 'token');
   reference('connection_id', 'mcp_servers', 'id');
   reference('vm_id', 'vms', 'vm_id');
@@ -55,6 +104,9 @@ function ownerQueries(table: Table, alias: string, schema: Map<string, Table>, t
       // longer resolves. A missing parent must not bypass a held identity.
       queries.push(`SELECT ${col(ref.from)} AS owner`); continue;
     }
+    // A self-referential workflow task still has workflow/Bot ownership. Stop
+    // only the cyclic edge, rather than discarding all the parent's anchors.
+    if (trail.includes(parent.name)) continue;
     const next = `p${trail.length}`;
     const parents = ownerQueries(parent, next, schema, [...trail, table.name]);
     if (parents.length) queries.push(`SELECT u${trail.length}.id AS owner FROM ${quote(parent.name)} AS ${next} JOIN users AS u${trail.length} ON u${trail.length}.id IN (${parents.join(' UNION ALL ')}) WHERE ${next}.${quote(ref.to || 'id')}=${col(ref.from)}`);
@@ -69,12 +121,13 @@ function ownerQueries(table: Table, alias: string, schema: Map<string, Table>, t
   return [...new Set(queries)];
 }
 
-function triggers(schema: Table[]) {
+function triggers(schema: Table[], derived: Set<string>) {
   const byName = new Map(schema.map(table => [table.name, table]));
   if (!byName.get('users')?.columns.includes('id')) throw new Error('Legacy users table is required.');
   if (byName.has('tenant_identity')) throw new Error('An isolated database is not a legacy migration source.');
   const output: { name: string; sql: string }[] = [];
   for (const table of schema) {
+    if (derived.has(table.name)) continue;
     if (/CREATE VIRTUAL TABLE/i.test(table.sql)) throw new Error('Legacy virtual tables require an explicit ownership migration.');
     if (table.foreign.some(ref => (ref.seq ?? 0) > 0)) throw new Error('Legacy composite foreign keys require explicit ownership migration.');
     const queries = (alias: string) => ownerQueries(table, alias, byName);
@@ -91,10 +144,10 @@ function triggers(schema: Table[]) {
   return output;
 }
 
-function replacementTriggers(db: Database.Database, schema: Table[]) {
+function replacementTriggers(db: Database.Database, schema: Table[], derived: Set<string>) {
   const byName = new Map(schema.map(table => [table.name, table])), output: { name: string; sql: string }[] = [];
   for (const table of schema) {
-    if (table.name === 'server_settings') continue;
+    if (table.name === 'server_settings' || derived.has(table.name)) continue;
     // REPLACE's implicit deletes can skip delete triggers on another connection.
     // Guard every unique conflict, including rowid and index-specific collation.
     const indexes = db.prepare(`PRAGMA index_list(${quote(table.name)})`).all() as { name: string; unique: number; partial: number }[];
@@ -123,7 +176,10 @@ function replacementTriggers(db: Database.Database, schema: Table[]) {
   }
   return output;
 }
-function expected(db: Database.Database, schema = tables(db)) { return [...triggers(schema), ...replacementTriggers(db, schema)]; }
+function expected(db: Database.Database, schema = tables(db)) {
+  const derived = nativeDerivedTables(db, schema);
+  return [...triggers(schema, derived), ...replacementTriggers(db, schema, derived)];
+}
 function normalize(sql: string) { return sql.replace(/\s+/g, ' ').trim(); }
 
 /** Called at startup before accepting work. Never repair a changed schema or a
@@ -146,6 +202,7 @@ export function legacyHeldOwners(db: Database.Database): string[] {
 export function legacyWritableRows(db: Database.Database, tableName: string): string {
   if (!legacyHeldOwners(db).length) return '1';
   const schema = new Map(tables(db).map(t => [t.name, t]));
+  if (nativeDerivedTables(db, [...schema.values()]).has(tableName)) throw new Error('Derived search tables are not legacy housekeeping targets.');
   const table = schema.get(tableName);
   if (!table) throw new Error('Unknown legacy housekeeping table.');
   const queries = ownerQueries(table, quote(tableName), schema);

@@ -256,3 +256,73 @@ test('authenticated downloads enforce ownership and safe attachment headers; Lib
   const csrf = await app.request(`/api/deliverables/artifacts/${a.id}/deliveries`, { method: 'POST', headers: { ...headers, origin: 'https://attacker.test' }, body: JSON.stringify({ channel: 'library' }) });
   assert.equal(csrf.status, 403);
 });
+
+test('fresh-process recovery leaves held routine/delivery state frozen and drains another owner past the oldest held item', async () => {
+  const { holdLegacyDatabase, assertLegacyDatabaseFences } = await import('../server/src/platform/legacy-database-fence.js');
+  const heldOwner = 'usr_deliveryheld', activeOwner = 'usr_deliveryactive';
+  const sent: { userId: string; deliveryId: string; content: string }[] = [];
+  const adapter = fakeTransport(async ({ userId, deliveryId, content }) => { sent.push({ userId, deliveryId, content: content.toString() }); return 'owned-receipt'; });
+  async function seed(userId: string, timestamp: number) {
+    const botId = `bot-${userId}`, routineId = `routine-${userId}`;
+    db.prepare('INSERT INTO users(id,email,name,created_at) VALUES(?,?,?,1)').run(userId, `${userId}@example.test`, userId);
+    db.prepare('INSERT INTO bots(id,user_id,name,created_at,updated_at) VALUES(?,?,?,1,1)').run(botId, userId, botId);
+    db.prepare("INSERT INTO routines(id,bot_id,name,prompt,schedule,enabled,created_at) VALUES(?,?,?,'Saved report','0 0 * * *',1,1)").run(routineId, botId, routineId);
+    const run = d.reserveRoutineRun({ userId, botId, routineId, name: 'Recovery report', kind: 'schedule', fireKey: 'one' }).run;
+    const job = acceptJob(botId, { type: 'routine', routineId, routineRunId: run.id }).id;
+    d.bindRoutineJob(userId, run.id, job);
+    db.prepare("UPDATE agent_jobs SET state='uncertain' WHERE id=?").run(job);
+    db.prepare("UPDATE routine_executions SET status='running',owner_pid=999999999,owner_birth='exited-fixture' WHERE id=?").run(run.id);
+    const artifact = d.recordArtifact({ userId, botId, jobId: job, filename: 'saved.md', content: `immutable ${userId}` });
+    const sending = await d.requestDelivery({ userId, artifactId: artifact.id, channel: 'imessage' }, adapter);
+    db.prepare("UPDATE artifact_deliveries SET status='sending' WHERE id=?").run(sending.id);
+    db.prepare("INSERT INTO artifact_delivery_attempts(id,delivery_id,number,status,started_at,owner_pid,owner_birth) VALUES(?,?,1,'sending',1,999999999,'exited-fixture')")
+      .run(`attempt-${userId}`, sending.id);
+    const pending = await d.requestDelivery({ userId, artifactId: artifact.id, channel: 'imessage' }, adapter);
+    db.prepare('UPDATE artifact_deliveries SET created_at=? WHERE id=?').run(timestamp, pending.id);
+    return { botId, runId: run.id, artifact, sendingId: sending.id, pendingId: pending.id };
+  }
+  const held = await seed(heldOwner, 1), active = await seed(activeOwner, 2);
+  const snapshot = () => ({
+    runs: db.prepare('SELECT * FROM routine_executions WHERE user_id=? ORDER BY id').all(heldOwner),
+    jobs: db.prepare('SELECT * FROM routine_execution_jobs WHERE run_id=? ORDER BY job_id').all(held.runId),
+    artifacts: db.prepare('SELECT * FROM output_artifacts WHERE user_id=? ORDER BY id').all(heldOwner),
+    deliveries: db.prepare('SELECT * FROM artifact_deliveries WHERE user_id=? ORDER BY id').all(heldOwner),
+    attempts: db.prepare('SELECT * FROM artifact_delivery_attempts WHERE delivery_id IN (SELECT id FROM artifact_deliveries WHERE user_id=?) ORDER BY id').all(heldOwner),
+    bytes: d.readArtifact(heldOwner, held.artifact.id).content.toString('hex'),
+  });
+  holdLegacyDatabase(db, heldOwner, 'delivery-recovery-operation', '1');
+  const before = snapshot(), jobsBefore = enqueued.length;
+  const moduleUrl = pathToFileURL(path.join(import.meta.dirname, '..', 'server/src/deliverables/index.ts')).href;
+  const child = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', `
+    const d=await import(${JSON.stringify(moduleUrl)});
+    console.log(JSON.stringify(d.recoverDeliverables()));
+  `], { env: process.env, encoding: 'utf8', timeout: 20000 });
+  assert.equal(child.status, 0, child.stderr);
+  const recovered = JSON.parse(child.stdout.trim().split('\n').at(-1)!);
+  assert.ok(recovered.runs >= 1); assert.equal(recovered.deliveries, 1);
+  assert.equal(d.getRoutineRun(activeOwner, active.runId).status, 'unknown');
+  assert.equal(d.getDelivery(activeOwner, active.sendingId).status, 'unknown');
+  assert.throws(() => d.retryDelivery(activeOwner, active.sendingId), /Unknown/);
+  assert.deepEqual(snapshot(), before);
+  assert.equal(await d.drainDeliveries(1, adapter), 1);
+  assert.deepEqual(sent, [{ userId: activeOwner, deliveryId: active.pendingId, content: `immutable ${activeOwner}` }]);
+  assert.equal(d.getDelivery(activeOwner, active.pendingId).status, 'delivered');
+  assert.equal(d.getDelivery(heldOwner, held.pendingId).status, 'pending');
+  assert.deepEqual(snapshot(), before, 'held canonical records and saved bytes must stay unchanged');
+  assert.equal(enqueued.length, jobsBefore, 'recovery/drain never enqueue a model turn');
+  assert.equal(d.recoverDeliveries(), 0); assert.equal(await d.drainDeliveries(1, adapter), 0);
+  assert.throws(() => db.prepare("UPDATE artifact_deliveries SET status='unknown' WHERE id=?").run(held.pendingId), /migration_hold/);
+  const lateOwner = 'usr_deliverylate', late = await seed(lateOwner, 4);
+  const first = await d.requestDelivery({ userId: activeOwner, artifactId: active.artifact.id, channel: 'imessage' }, adapter);
+  db.prepare('UPDATE artifact_deliveries SET created_at=3 WHERE id=?').run(first.id);
+  const lateBefore = d.getDelivery(lateOwner, late.pendingId);
+  const midBatch = fakeTransport(async ({ userId, deliveryId }) => {
+    assert.equal(userId, activeOwner); assert.equal(deliveryId, first.id);
+    holdLegacyDatabase(db, lateOwner, 'delivery-latehold-operation', '1');
+    return 'first-batch-receipt';
+  });
+  assert.equal(await d.drainDeliveries(2, midBatch), 1, 'a new hold is rechecked after awaiting the previous send');
+  assert.deepEqual(d.getDelivery(lateOwner, late.pendingId), lateBefore);
+  assert.deepEqual(snapshot(), before);
+  assertLegacyDatabaseFences(db);
+});

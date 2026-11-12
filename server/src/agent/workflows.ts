@@ -3,6 +3,7 @@ import { db, now } from '../db.js';
 import { newId } from '../lib/ids.js';
 import { assertTenant } from '../deployment.js';
 import { appendRow } from '../store.js';
+import { legacyWritableRows } from '../platform/legacy-database-fence.js';
 import { createSubagent, initSubagents } from './subagents.js';
 import {
   WorkflowError, ownWorkflowBot, emitWorkflow, criterionSchema, evidenceSchema, normalizeCriteria,
@@ -320,7 +321,7 @@ function stopTaskExecution(w:Workflow,t:WorkflowTask,cancel:boolean,reason:strin
       cancelExactJob(w.userId,r.bot_id,r.job_id);
     }
   }
-  if (t.status !== 'completed' && t.status !== 'cancelled') setTask(t.id,cancel ? 'cancelled' : t.status === 'running' ? 'blocked' : 'ready',reason);
+  if (t.status !== 'completed' && t.status !== 'cancelled') setTask(t.id,cancel ? 'cancelled' : ['running','blocked'].includes(t.status) ? 'blocked' : 'ready',reason);
 }
 export function controlWorkflow(userId:string,id:string,action:'pause'|'resume'|'block'|'stop',reason='') {
   const w = getWorkflow(userId,id); if (['completed','cancelled'].includes(w.status)) throw new WorkflowError('Workflow is terminal.',409);
@@ -535,8 +536,15 @@ export async function workflowAfterTurn(ctx:TurnHook & {status:'completed'|'wait
   if(goal && goal.status==='active' && goalBudgetReason(getGoal(ctx.userId,goal.id))) controlGoal(ctx.userId,goal.id,'pause',goalBudgetReason(getGoal(ctx.userId,goal.id))!);
 }
 export function recoverWorkflows() {
-  const lost=db.prepare(`SELECT r.* FROM native_workflow_runs r JOIN agent_jobs j ON j.id=r.job_id
-    WHERE r.status='running' OR r.status='queued' AND j.state IN ('running','uncertain')`).all() as any[];
+  // Select only writable owner/FK scopes before settling usage or changing any
+  // workflow state. The immediate transaction keeps a new migration hold from
+  // racing this selection; the SQL ownership fences remain the final guard.
+  return db.transaction(() => {
+  const writable=legacyWritableRows(db,'native_workflow_runs');
+  const lost=db.prepare(`SELECT native_workflow_runs.* FROM native_workflow_runs
+    JOIN agent_jobs j ON j.id=native_workflow_runs.job_id
+    WHERE (native_workflow_runs.status='running' OR native_workflow_runs.status='queued' AND j.state IN ('running','uncertain'))
+    AND (${writable})`).all() as any[];
   const goals=new Set<string>();
   for(const r of lost) {
     const bot=db.prepare('SELECT user_id FROM bots WHERE id=?').get(r.bot_id) as any; if(!bot)continue;
@@ -552,4 +560,5 @@ export function recoverWorkflows() {
   for(const id of goals) { const r=db.prepare('SELECT user_id FROM native_goals WHERE id=?').get(id) as any;
     if(r && !['completed','cancelled'].includes(getGoal(r.user_id,id).status))controlGoal(r.user_id,id,'block','Worker restarted; inspect the uncertain execution before continuing.'); }
   return {interruptedRuns:lost.length,blockedGoals:goals.size};
+  }).immediate();
 }

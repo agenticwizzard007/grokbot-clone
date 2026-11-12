@@ -23,7 +23,7 @@ Hosted messaging sends an authenticated artifact download link through the exist
 
 Tool schemas and arguments are validated in disposable workers with time and memory bounds. Workflow result contracts accept a bounded JSON Schema subset; references and unsupported keywords are rejected. JavaScript programs allow at most 50 explicit tool calls and 60 seconds of interpreter execution, with normal permissions checked for each action. These limits are enforced by the native runtime.
 
-All durable state is in the existing database and files tree. Restore fences pending external work because an older snapshot cannot prove that a later send did not occur. Account migration exports owned source rows and rebuilds the derived search index instead of copying cross-account FTS pages.
+All durable state is in the existing database and files tree. Restore fences pending external work because an older snapshot cannot prove that a later send did not occur. Account migration exports owned source rows and rebuilds the derived search index instead of copying cross-account FTS pages. Migration holds keep canonical records frozen: startup backfill, job/workflow recovery and delivery draining skip held ownership scopes while other accounts continue. Only the exact reviewed FTS index and its SQLite shadow tables are exempt from row fences; source records and the backfill marker stay protected.
 
 ## Validation
 

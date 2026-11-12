@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { db, now } from '../db.js';
 import { PROGRAM_WORKER } from './program-worker.js';
+import { legacyWritableRows } from '../platform/legacy-database-fence.js';
 import { validateToolArguments, type FunctionSchema } from './tool-catalog.js';
 import type { ToolDef } from './tools.js';
 
@@ -37,8 +38,8 @@ export interface ProgramResult { run_id: string; status: 'completed' | 'waiting'
 
 /** Recovery never executes scripts/actions. A waiting approval is still resumable. */
 export function recoverPrograms() {
-  db.prepare("UPDATE code_steps SET state='unknown' WHERE state='dispatching'").run();
-  db.prepare("UPDATE code_runs SET state='unknown',updated_at=? WHERE state='running'").run(now());
+  db.prepare(`UPDATE code_steps SET state='unknown' WHERE state='dispatching' AND (${legacyWritableRows(db, 'code_steps')})`).run();
+  db.prepare(`UPDATE code_runs SET state='unknown',updated_at=? WHERE state='running' AND (${legacyWritableRows(db, 'code_runs')})`).run(now());
 }
 export function cancelProgram(callId: string, botId: string) {
   db.prepare("UPDATE code_runs SET state='cancelled',updated_at=? WHERE id=? AND bot_id=? AND state IN ('running','waiting')").run(now(), callId, botId);

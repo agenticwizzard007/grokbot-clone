@@ -1,5 +1,6 @@
 import { db } from '../db.js';
 import '../db-config.js';
+import { legacyWritableRows } from '../platform/legacy-database-fence.js';
 
 function column(table: string, name: string, ddl: string) {
   if (!(db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some(c => c.name === name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${ddl}`);
@@ -44,7 +45,9 @@ CREATE TABLE IF NOT EXISTS knowledge_memory_events (
  snapshot TEXT NOT NULL, actor TEXT NOT NULL, created_at INTEGER NOT NULL);
 INSERT OR IGNORE INTO knowledge_skill_revisions(skill_id,bot_id,revision,snapshot,action,actor,created_at)
  SELECT id,bot_id,revision,json_object('name',name,'description',description,'body',body,'deleted',deleted_at IS NOT NULL),
- 'import','migration',coalesce(updated_at,created_at) FROM skills;
+ 'import','migration',coalesce(updated_at,created_at) FROM skills
+ WHERE NOT EXISTS(SELECT 1 FROM knowledge_skill_revisions r WHERE r.skill_id=skills.id AND r.revision=skills.revision)
+ AND ${legacyWritableRows(db, 'skills')};
 CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_messages_fts USING fts5(
  text,bot_id UNINDEXED,generation UNINDEXED,seq UNINDEXED,role UNINDEXED,created_at UNINDEXED,tokenize='unicode61');
 CREATE TRIGGER IF NOT EXISTS knowledge_messages_insert AFTER INSERT ON rows

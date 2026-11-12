@@ -3,6 +3,7 @@ import { db, now } from '../db.js';
 import { newId } from '../lib/ids.js';
 import { ownBot, ownerAlive, ownerBirth, writeOwner } from './ownership.js';
 import { DeliverableError, type RoutineRun, type RoutineRunStatus } from './types.js';
+import { legacyWritableRows } from '../platform/legacy-database-fence.js';
 
 interface RunRow {
   id: string; user_id: string; bot_id: string; routine_id: string; routine_name: string;
@@ -135,17 +136,18 @@ export function onJobFinished(input: { jobId: string; botId: string; status: 'wa
 
 export function recoverRoutineRuns() {
   let count = 0;
-  for (const r of db.prepare("SELECT id,user_id,bot_id,job_id,status,owner_pid,owner_birth FROM routine_executions WHERE status IN ('queued','running','waiting')").all() as { id: string; user_id: string; bot_id: string; job_id: string | null; status: string; owner_pid: number | null; owner_birth: string | null }[]) {
+  const writable = legacyWritableRows(db, 'routine_executions');
+  for (const r of db.prepare(`SELECT id,user_id,bot_id,job_id,status,owner_pid,owner_birth FROM routine_executions WHERE status IN ('queued','running','waiting') AND ${writable}`).all() as { id: string; user_id: string; bot_id: string; job_id: string | null; status: string; owner_pid: number | null; owner_birth: string | null }[]) {
     const job = r.job_id ? db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(r.job_id) as { state: string } | undefined : undefined;
     const unknown = db.prepare(`${lineage} SELECT 1 FROM agent_jobs j JOIN lineage l ON l.id=j.id WHERE j.state='uncertain' LIMIT 1`).get(r.id, r.bot_id, r.user_id);
     if (!unknown && (pendingDecision(r.id, r.bot_id, r.user_id) || r.status === 'waiting' && descendantWork(r.id, r.bot_id, r.user_id))) {
-      db.prepare("UPDATE routine_executions SET status='waiting',finished_at=NULL WHERE id=?").run(r.id);
+      db.prepare(`UPDATE routine_executions SET status='waiting',finished_at=NULL WHERE id=? AND ${writable}`).run(r.id);
       continue;
     }
     if (r.status === 'running' && ownerAlive(r.owner_pid, r.owner_birth) && job?.state !== 'uncertain') continue;
     if (r.status === 'queued' && job?.state === 'queued') continue;
     // No re-enqueue: after a crash, an external action may already have happened.
-    count += db.prepare("UPDATE routine_executions SET status='unknown',error='Execution owner was lost; work was not replayed.',finished_at=? WHERE id=? AND status IN ('queued','running','waiting')").run(now(), r.id).changes;
+    count += db.prepare(`UPDATE routine_executions SET status='unknown',error='Execution owner was lost; work was not replayed.',finished_at=? WHERE id=? AND status IN ('queued','running','waiting') AND ${writable}`).run(now(), r.id).changes;
   }
   return count;
 }

@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, beforeEach, mock, test } from 'node:test';
 import crypto from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-native-knowledge-'));
 Object.assign(process.env, { DB_PATH: path.join(root, 'test.db'), FILES_DIR: path.join(root, 'files'),
@@ -41,6 +42,72 @@ after(() => { mock.restoreAll(); db.close(); fs.rmSync(root, { recursive: true, 
 test('import migrations preserve existing skills and index already archived messages', () => {
   assert.equal(legacyHistory[0].action, 'import'); assert.equal(legacyHistory[0].body, 'Legacy instructions');
   assert.equal(legacySearch.messages[0].text, 'Backfilled evidence');
+});
+
+test('fresh-process knowledge startup preserves held skills and imports only missing writable revisions', t => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-held-knowledge-startup-'));
+  t.after(() => fs.rmSync(fixture, { recursive: true, force: true }));
+  const childEnv = { ...process.env, DB_PATH: path.join(fixture, 'app.db'), FILES_DIR: path.join(fixture, 'files'), SWARM_NO_SCHEDULER: '1' };
+  const prelude = `
+    import assert from 'node:assert/strict';
+    globalThis.fetch = async () => { throw new Error('No network in startup regression'); };
+    const { db } = await import('./server/src/db.ts');
+    await import('./server/src/routes.ts'); await import('./server/src/routes-config.ts');
+    await import('./server/src/mcp/oauth.ts'); await import('./server/src/provisioning.ts');
+    (await import('./server/src/agent/rooms.ts')).initRooms();
+    (await import('./server/src/agent/subagents.ts')).initSubagents();
+    const { holdLegacyDatabase, assertLegacyDatabaseFences } = await import('./server/src/platform/legacy-database-fence.ts');
+    const skills = await import('./server/src/knowledge/skills.ts');
+    const held = 'usr_held_12345678', open = 'usr_open_12345678';
+    const heldSnapshot = () => ({
+      skills: db.prepare('SELECT s.* FROM skills s JOIN bots b ON b.id=s.bot_id WHERE b.user_id=? ORDER BY s.id').all(held),
+      revisions: db.prepare('SELECT r.* FROM knowledge_skill_revisions r JOIN bots b ON b.id=r.bot_id WHERE b.user_id=? ORDER BY r.skill_id,r.revision').all(held),
+    });
+  `;
+  const run = (body: string) => {
+    const child = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '--eval', prelude + body], {
+      cwd: path.resolve(import.meta.dirname, '..'), env: childEnv, encoding: 'utf8', timeout: 20_000, maxBuffer: 2 * 1024 * 1024,
+    });
+    assert.equal(child.status, 0, `${child.error ?? ''}\n${child.stderr}\n${child.stdout}`);
+    return JSON.parse(child.stdout.trim().split('\n').at(-1)!);
+  };
+  const before = run(`
+    const { createBot } = await import('./server/src/bots.ts');
+    for (const owner of [held, open]) {
+      db.prepare('INSERT INTO users(id,email,name,created_at) VALUES(?,?,?,1)').run(owner, owner+'@example.test', owner);
+      const bot = createBot(owner, {name: owner, isPrimary: true});
+      skills.createSkill(owner, bot.id, {name:'Existing skill',description:'Original description',body:'Original approved body'});
+      // A legacy projection with no ledger entry must not be imported while held.
+      db.prepare('INSERT INTO skills(id,bot_id,name,description,body,revision,created_at) VALUES(?,?,?,?,?,1,1)')
+        .run(owner===held?'held-missing':'open-missing',bot.id,'Missing ledger','Legacy description','Legacy body');
+    }
+    // Also detect redundant INSERT attempts for unheld owners: OR IGNORE alone
+    // preserves the row but still runs BEFORE INSERT triggers.
+    db.exec(\`CREATE TRIGGER startup_reject_duplicate_skill_revision BEFORE INSERT ON knowledge_skill_revisions
+      WHEN EXISTS(SELECT 1 FROM knowledge_skill_revisions WHERE skill_id=NEW.skill_id AND revision=NEW.revision)
+      BEGIN SELECT RAISE(ABORT,'duplicate_revision_reimport'); END;\`);
+    holdLegacyDatabase(db, held, 'migration:knowledge:12345678', '1');
+    assertLegacyDatabaseFences(db);
+    console.log(JSON.stringify(heldSnapshot())); db.close();
+  `);
+  const after = run(`
+    assertLegacyDatabaseFences(db);
+    const ownBot = db.prepare('SELECT id FROM bots WHERE user_id=? AND is_primary=1').get(open).id;
+    const heldBot = db.prepare('SELECT id FROM bots WHERE user_id=? AND is_primary=1').get(held).id;
+    const imported = db.prepare("SELECT * FROM knowledge_skill_revisions WHERE skill_id='open-missing'").get();
+    assert.equal(imported.action,'import'); assert.equal(imported.actor,'migration');
+    assert.equal(JSON.parse(imported.snapshot).body,'Legacy body');
+    assert.equal(db.prepare("SELECT 1 FROM knowledge_skill_revisions WHERE skill_id='held-missing'").get(),undefined);
+    assert.throws(() => db.prepare("INSERT INTO knowledge_skill_revisions(skill_id,bot_id,revision,snapshot,action,actor,created_at) VALUES('held-missing',?,1,'{}','import','migration',1)").run(heldBot), /migration_hold/);
+    assert.throws(() => db.prepare("UPDATE skills SET body='late overwrite' WHERE id='held-missing'").run(), /migration_hold/);
+    const created = skills.createSkill(open, ownBot, {name:'Still writable',description:'After restart',body:'New procedure'});
+    assert.equal(skills.listSkillHistory(open,created.id).length,1);
+    assert.equal(skills.updateSkill(open,'open-missing',{body:'Owner edited after import'},1).revision,2);
+    assertLegacyDatabaseFences(db);
+    console.log(JSON.stringify(heldSnapshot())); db.close();
+  `);
+  assert.deepEqual(after, before, 'Held projections and immutable revisions must remain byte-for-byte unchanged');
+  assert.equal(before.skills.length, 2); assert.equal(before.revisions.length, 1);
 });
 
 test('user CRUD appends immutable snapshots and rejects stale edits', () => {

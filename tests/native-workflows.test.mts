@@ -22,8 +22,8 @@ beforeEach(()=>{
   queued.length=0;interrupted.length=0;interruptionCalls.length=0;
   workflows.configureWorkflowRuntime({enqueue:(botId,trigger)=>{const job=acceptJob(botId,trigger);queued.push({botId,jobId:job.id,trigger});return job.id;},interrupt:(botId,expectedJobId)=>{interrupted.push(botId);interruptionCalls.push({botId,expectedJobId});}});
 });
-function fixture() {
-  const n=++sequence,userId=`wf-user-${n}`,botId=`wf-bot-${n}`;
+function fixture(ownerId?:string) {
+  const n=++sequence,userId=ownerId??`wf-user-${n}`,botId=`wf-bot-${n}`;
   db.prepare('INSERT INTO users(id,email,name,created_at) VALUES(?,?,?,?)').run(userId,`${userId}@example.com`,userId,Date.now());
   db.prepare('INSERT INTO bots(id,user_id,name,created_at,updated_at) VALUES(?,?,?,?,?)').run(botId,userId,botId,Date.now(),Date.now());
   return {userId,botId};
@@ -291,4 +291,49 @@ test('HTTP routes require auth, enforce owner scope and reject invalid completio
   assert.equal((await app.request(`/api/workflows/${w.id}`,{headers})).status,404);
   assert.equal((await app.request('/api/workflows',{headers})).status,200);
   assert.equal((await app.request('/api/workflows/goals',{method:'POST',headers,body:JSON.stringify({botId:other.botId,title:'Bad',criteria:[],complete:true})})).status,400);
+});
+test('recovery skips held owner/FK scopes without weakening fences and recovers the other owner',async()=>{
+  const {holdLegacyDatabase,assertLegacyDatabaseFences}=await import('../server/src/platform/legacy-database-fence.js');
+  workflows.recoverWorkflows(); // Settle earlier fixtures before this two-owner boundary.
+  function seed(owner:string) {
+    const f=fixture(owner),g=goals.createGoal(f.userId,f.botId,{title:'Restarted goal',criteria:[{description:'Proof',kind:'row'}]});
+    const w=create(f,[task('a',[],true),task('b',['a'])],g.id);workflows.startWorkflow(f.userId,w.id);
+    const running=admit(f);usage(f,running.botId,{tokens:7,cost:0.02});
+    const standalone=goals.createGoal(f.userId,f.botId,{title:'Standalone restart',criteria:[{description:'Proof',kind:'row'}]});
+    workflows.startGoalExecution(f.userId,standalone.id);const goalRun=admit(f);
+    const uncertain=create(f);workflows.startWorkflow(f.userId,uncertain.id);const uncertainJob=queued.at(-1)!.jobId;
+    db.prepare("UPDATE agent_jobs SET state='uncertain' WHERE id=?").run(uncertainJob);
+    const idle=create(f);workflows.startWorkflow(f.userId,idle.id);const idleJob=queued.at(-1)!.jobId;
+    return {...f,g,w,running,standalone,goalRun,uncertain,uncertainJob,idle,idleJob};
+  }
+  const held=seed('usr_workflows_held_0001'),free=seed('usr_workflows_free_0001');
+  const ownBots='SELECT id FROM bots WHERE user_id=?',ownWorkflows='SELECT id FROM native_workflows WHERE user_id=?';
+  function snapshot(userId:string) {
+    const where={users:'id=?',bots:'user_id=?',native_goals:'user_id=?',native_workflows:'user_id=?',agent_jobs:'user_id=?',
+      native_goal_turns:'goal_id IN (SELECT id FROM native_goals WHERE user_id=?)',
+      native_workflow_tasks:`workflow_id IN (${ownWorkflows})`,
+      native_workflow_edges:`task_id IN (SELECT task_id FROM native_workflow_tasks WHERE workflow_id IN (${ownWorkflows}))`,
+      native_workflow_delegations:`task_id IN (SELECT task_id FROM native_workflow_tasks WHERE workflow_id IN (${ownWorkflows}))`,
+      native_workflow_runs:`bot_id IN (${ownBots})`,tasks:`bot_id IN (${ownBots})`,rows:`bot_id IN (${ownBots})`,usage_events:'user_id=?'};
+    return Object.fromEntries(Object.entries(where).map(([table,condition])=>[table,db.prepare(`SELECT * FROM ${table} WHERE ${condition} ORDER BY rowid`).all(userId)]));
+  }
+  holdLegacyDatabase(db,held.userId,'workflow-recovery-hold-0001','1');
+  const before=snapshot(held.userId);
+  assert.deepEqual(workflows.recoverWorkflows(),{interruptedRuns:3,blockedGoals:2});
+  assert.deepEqual(snapshot(held.userId),before,'held goals, usage receipts, child runs, jobs and projections must be unchanged');
+  assert.equal(goals.getGoal(free.userId,free.g.id).status,'blocked');
+  assert.equal(goals.getGoal(free.userId,free.standalone.id).status,'blocked');
+  assert.equal(goals.getGoal(free.userId,free.g.id).tokensUsed,7);
+  assert.equal((db.prepare('SELECT status FROM native_goal_turns WHERE job_id=?').get(free.running.jobId) as any).status,'settled');
+  assert.equal(workflows.getWorkflow(free.userId,free.w.id).status,'blocked');
+  assert.equal(workflows.getWorkflow(free.userId,free.w.id).tasks[0].status,'blocked','goal blocking must not reset a recovered task to ready');
+  assert.equal(workflows.getWorkflow(free.userId,free.uncertain.id).tasks[0].status,'blocked');
+  for(const id of [free.running.jobId,free.goalRun.jobId,free.uncertainJob])assert.equal((db.prepare('SELECT status FROM native_workflow_runs WHERE job_id=?').get(id) as any).status,'interrupted');
+  assert.equal((db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(free.idleJob) as any).state,'queued');
+  assert.equal((db.prepare('SELECT status FROM native_workflow_runs WHERE job_id=?').get(free.idleJob) as any).status,'queued');
+  assert.throws(()=>db.prepare("UPDATE native_workflow_runs SET status='interrupted' WHERE job_id=?").run(held.running.jobId),/legacy_account_migration_hold/);
+  assertLegacyDatabaseFences(db);
+  const fresh=spawnSync(process.execPath,['--import','tsx','--input-type=module','-e',`const {recoverWorkflows}=await import('./server/src/agent/workflows.ts');process.stdout.write(JSON.stringify(recoverWorkflows()));`],{cwd:path.resolve(import.meta.dirname,'..'),env:process.env,encoding:'utf8'});
+  assert.equal(fresh.status,0,fresh.stderr);assert.deepEqual(JSON.parse(fresh.stdout),{interruptedRuns:0,blockedGoals:0});
+  assert.deepEqual(snapshot(held.userId),before,'fresh-process recovery must also preserve the held owner');
 });

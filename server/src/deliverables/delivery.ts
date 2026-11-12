@@ -4,6 +4,7 @@ import { newId } from '../lib/ids.js';
 import { getArtifact, readArtifact } from './artifacts.js';
 import { ownerAlive, ownerBirth, writeOwner } from './ownership.js';
 import { DeliverableError, DeliveryNotSentError, type Artifact, type ArtifactDelivery, type DeliveryAttempt, type DeliveryChannel, type DeliveryStatus } from './types.js';
+import { legacyWritableRows } from '../platform/legacy-database-fence.js';
 
 export interface DeliveryTarget { channel: DeliveryChannel; transport?: string; phone?: string | null; chatRef?: string | null; revision?: string }
 export const targetIdentity = (target: DeliveryTarget) => JSON.stringify([target.channel, target.transport ?? null, target.phone ?? null, target.chatRef ?? null, target.revision ?? null]);
@@ -122,12 +123,14 @@ export function retryDelivery(userId: string, deliveryId: string): ArtifactDeliv
 
 export function recoverDeliveries() {
   let count = 0;
-  for (const a of db.prepare("SELECT id,delivery_id,owner_pid,owner_birth FROM artifact_delivery_attempts WHERE status='sending'").all() as { id: string; delivery_id: string; owner_pid: number; owner_birth: string }[]) {
+  const writable = legacyWritableRows(db, 'artifact_delivery_attempts');
+  const deliveryWritable = legacyWritableRows(db, 'artifact_deliveries');
+  for (const a of db.prepare(`SELECT id,delivery_id,owner_pid,owner_birth FROM artifact_delivery_attempts WHERE status='sending' AND ${writable}`).all() as { id: string; delivery_id: string; owner_pid: number; owner_birth: string }[]) {
     if (ownerAlive(a.owner_pid, a.owner_birth)) continue;
     count += db.transaction(() => {
       const error = 'Delivery owner was lost. Send outcome is unknown and was not retried.';
-      const changed = db.prepare("UPDATE artifact_delivery_attempts SET status='unknown',error=?,finished_at=? WHERE id=? AND status='sending'").run(error, now(), a.id).changes;
-      if (changed) db.prepare("UPDATE artifact_deliveries SET status='unknown',error=?,updated_at=? WHERE id=? AND status='sending'").run(error, now(), a.delivery_id);
+      const changed = db.prepare(`UPDATE artifact_delivery_attempts SET status='unknown',error=?,finished_at=? WHERE id=? AND status='sending' AND ${writable}`).run(error, now(), a.id).changes;
+      if (changed) db.prepare(`UPDATE artifact_deliveries SET status='unknown',error=?,updated_at=? WHERE id=? AND status='sending' AND ${deliveryWritable}`).run(error, now(), a.delivery_id);
       return changed;
     })();
   }
@@ -135,7 +138,14 @@ export function recoverDeliveries() {
 }
 
 export async function drainDeliveries(limit = 20, adapter?: DeliveryTransport) {
-  const pending = db.prepare("SELECT id,user_id FROM artifact_deliveries WHERE status='pending' ORDER BY created_at,id LIMIT ?").all(Math.max(0, Math.min(limit, 100))) as { id: string; user_id: string }[];
-  for (const r of pending) await sendDelivery(r.user_id, r.id, adapter);
-  return pending.length;
+  // Exclude held owners BEFORE applying the batch limit, so their frozen oldest
+  // deliveries cannot starve another account. Recheck after each awaited send.
+  const pending = db.prepare(`SELECT id,user_id FROM artifact_deliveries WHERE status='pending' AND ${legacyWritableRows(db, 'artifact_deliveries')} ORDER BY created_at,id LIMIT ?`).all(Math.max(0, Math.min(limit, 100))) as { id: string; user_id: string }[];
+  let count = 0;
+  for (const r of pending) {
+    if (!db.prepare(`SELECT 1 FROM artifact_deliveries WHERE id=? AND status='pending' AND ${legacyWritableRows(db, 'artifact_deliveries')}`).get(r.id)) continue;
+    await sendDelivery(r.user_id, r.id, adapter);
+    count++;
+  }
+  return count;
 }

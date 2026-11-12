@@ -35,8 +35,10 @@ try {
  const context=await browser.newContext({viewport:{width:1440,height:1000}});await context.addCookies([{name:'swarm_session',value:cookie.slice(cookie.indexOf('=')+1),url:base}]);
  const page=await context.newPage();page.setDefaultTimeout(12000);const errors=[];page.on('pageerror',e=>errors.push(String(e)));
  await page.goto(base);await page.locator('.composer__input').waitFor();
+ await page.getByText('I prefer concise weekly reports with links to sources.',{exact:true}).waitFor();
  // The owner reviews the actual proposed diff before activating the procedure.
  await page.getByRole('button',{name:'Bot settings',exact:true}).click();
+ const settings=page.getByRole('dialog',{name:/ settings$/});
  await page.getByRole('button',{name:'Skills',exact:true}).click();
  await page.getByText('Learned skills awaiting review (1)',{exact:true}).waitFor();
  await page.getByText('Weekly report · New skill',{exact:true}).click();
@@ -46,7 +48,7 @@ try {
  await page.getByRole('button',{name:'History · revision 1',exact:true}).waitFor();
  await page.getByRole('button',{name:/^Memories/}).click();
  await page.getByRole('link',{name:`Source ${original.generation}:${original.seq}`,exact:true}).click();
- await page.getByText('I prefer concise weekly reports with links to sources.',{exact:true}).waitFor();
+ await settings.getByText('I prefer concise weekly reports with links to sources.',{exact:true}).waitFor();
  await page.getByRole('button',{name:'Close sources',exact:true}).click();
  await page.getByRole('button',{name:'Correct',exact:true}).click();
  await page.getByLabel('Corrected memory').fill('Prefers detailed monthly reports with source links.');

@@ -2,6 +2,7 @@ import { db, now } from '../db.js';
 import { newId } from '../lib/ids.js';
 import { assertTenant } from '../deployment.js';
 import { selectedCli } from '../cli/store.js';
+import { legacyWritableRows } from '../platform/legacy-database-fence.js';
 db.exec(`CREATE TABLE IF NOT EXISTS agent_jobs (
   id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE, trigger TEXT NOT NULL,
@@ -32,9 +33,10 @@ export function beginJob(id: string) { return db.prepare("UPDATE agent_jobs SET 
 export function finishJob(id: string, successful: boolean) { db.prepare("UPDATE agent_jobs SET state=?,finished_at=? WHERE id=? AND state='running'").run(successful ? 'completed' : 'uncertain', now(), id); }
 export function recoverJobs() {
   // Running work may have issued an external write. Never silently re-execute it on restart.
-  db.prepare("UPDATE agent_jobs SET state='uncertain',finished_at=? WHERE state='running'").run(now());
-  db.prepare("UPDATE tool_dispatches SET state='uncertain' WHERE state='dispatching'").run();
-  return db.prepare("SELECT id,user_id,bot_id,trigger FROM agent_jobs WHERE state='queued' ORDER BY created_at,id").all() as { id: string; user_id: string; bot_id: string; trigger: string }[];
+  const jobs = legacyWritableRows(db, 'agent_jobs'), dispatches = legacyWritableRows(db, 'tool_dispatches');
+  db.prepare(`UPDATE agent_jobs SET state='uncertain',finished_at=? WHERE state='running' AND (${jobs})`).run(now());
+  db.prepare(`UPDATE tool_dispatches SET state='uncertain' WHERE state='dispatching' AND (${dispatches})`).run();
+  return db.prepare(`SELECT id,user_id,bot_id,trigger FROM agent_jobs WHERE state='queued' AND (${jobs}) ORDER BY created_at,id`).all() as { id: string; user_id: string; bot_id: string; trigger: string }[];
 }
 export function beginTool(botId: string, callId: string, tool: string, binding: string) {
   return db.prepare("INSERT OR IGNORE INTO tool_dispatches(bot_id,call_id,tool,arguments_hash,state,created_at) VALUES(?,?,?,?,'dispatching',?)").run(botId, callId, tool, binding, now()).changes === 1;

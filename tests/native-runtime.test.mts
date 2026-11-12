@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { after, mock, test } from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-native-runtime-'));
-Object.assign(process.env, { SWARM_ROLE: 'standalone', NODE_ENV: 'test', DB_PATH: path.join(root, 'test.db'), FILES_DIR: path.join(root, 'files'), SESSION_SECRET: 'runtime-test', COMPUTER_PROVIDER: 'local', DIRECT_API_KEY: 'fixture', DIRECT_BASE_URL: 'http://127.0.0.1:9/v1', LLM_PROVIDER: 'direct', COMPOSIO_API_KEY: '', ADMIN_EMAILS: '' });
+Object.assign(process.env, { SWARM_ROLE: 'standalone', SWARM_NO_SCHEDULER: '1', NODE_ENV: 'test', DB_PATH: path.join(root, 'test.db'), FILES_DIR: path.join(root, 'files'), SESSION_SECRET: 'runtime-test', COMPUTER_PROVIDER: 'local', DIRECT_API_KEY: 'fixture', DIRECT_BASE_URL: 'http://127.0.0.1:9/v1', LLM_PROVIDER: 'direct', COMPOSIO_API_KEY: '', ADMIN_EMAILS: '' });
 const { db } = await import('../server/src/db.js');
 const { createBot } = await import('../server/src/bots.js');
 const { initSubagents } = await import('../server/src/agent/subagents.js'); initSubagents();
@@ -241,4 +242,41 @@ test('missing API usage pauses finite goals before executing any requested tool'
   assert.equal(getGoal('owner',goal.id).status,'paused');
   assert.equal(listArtifacts('owner',bot.id).length,0);
   assert.equal(getGoal('owner',goal.id).unknownTokenTurns,1);
+});
+
+test('fresh-process job and program recovery preserves a held owner and recovers other accounts', async () => {
+  const {acceptJob,beginJob,beginTool}=await import('../server/src/agent/jobs.js');
+  const {holdLegacyDatabase}=await import('../server/src/platform/legacy-database-fence.js');
+  const seeds=['usr_held_native','usr_open_native'].map(userId=>{
+    db.prepare('INSERT INTO users(id,email,name,created_at) VALUES(?,?,?,?)').run(userId,`${userId}@example.test`,userId,Date.now());
+    const bot=createBot(userId,{name:userId,isPrimary:true});
+    const running=acceptJob(bot.id,{type:'user',text:'In-flight work'}),queued=acceptJob(bot.id,{type:'user',text:'Accepted work'});
+    beginJob(running.id);beginTool(bot.id,'uncertain-call','save_file','binding');
+    db.prepare("INSERT INTO code_runs(id,user_id,bot_id,job_id,binding,state,created_at,updated_at) VALUES(?,?,?,?,?,'running',1,1)").run(`code-${userId}`,userId,bot.id,running.id,'binding');
+    db.prepare("INSERT INTO code_steps(run_id,step,call_id,tool,binding,state) VALUES(?,0,'uncertain-step','save_file','binding','dispatching')").run(`code-${userId}`);
+    return {userId,botId:bot.id,running:running.id,queued:queued.id,code:`code-${userId}`};
+  });
+  const [held,open]=seeds;
+  const snapshot=()=>JSON.stringify([
+    db.prepare('SELECT * FROM agent_jobs WHERE user_id=? ORDER BY id').all(held.userId),
+    db.prepare('SELECT * FROM tool_dispatches WHERE bot_id=?').all(held.botId),
+    db.prepare('SELECT * FROM code_runs WHERE user_id=?').all(held.userId),
+    db.prepare('SELECT * FROM code_steps WHERE run_id=?').all(held.code),
+  ]);
+  holdLegacyDatabase(db,held.userId,'native-recovery-hold','1');
+  const before=snapshot();
+  const child=spawnSync(process.execPath,['--import','tsx','--input-type=module','-e',`
+    const {recoverPrograms}=await import('./server/src/agent/programs.ts');
+    const {recoverJobs}=await import('./server/src/agent/jobs.ts');
+    recoverPrograms();process.stdout.write(JSON.stringify(recoverJobs().map(job=>job.id)));
+    const {db}=await import('./server/src/db.ts');db.close();
+  `],{cwd:process.cwd(),env:process.env,encoding:'utf8',timeout:20_000});
+  assert.equal(child.status,0,child.stderr);
+  const queued=JSON.parse(child.stdout);
+  assert.ok(queued.includes(open.queued));assert.ok(!queued.includes(held.queued));
+  assert.equal(snapshot(),before);
+  assert.equal((db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(open.running) as any).state,'uncertain');
+  assert.equal((db.prepare('SELECT state FROM tool_dispatches WHERE bot_id=?').get(open.botId) as any).state,'uncertain');
+  assert.equal((db.prepare('SELECT state FROM code_runs WHERE id=?').get(open.code) as any).state,'unknown');
+  assert.equal((db.prepare('SELECT state FROM code_steps WHERE run_id=?').get(open.code) as any).state,'unknown');
 });
