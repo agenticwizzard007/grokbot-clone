@@ -135,3 +135,11 @@ CREATE TRIGGER IF NOT EXISTS knowledge_receipt_immutable BEFORE UPDATE ON knowle
 
 column('knowledge_learning_reviews','knowledge_snapshot',"TEXT NOT NULL DEFAULT '[]'");
 db.exec(`CREATE TRIGGER IF NOT EXISTS knowledge_receipt_no_delete BEFORE DELETE ON knowledge_use_receipts WHEN EXISTS(SELECT 1 FROM bots WHERE id=OLD.bot_id) BEGIN SELECT RAISE(ABORT,'Knowledge receipts are immutable'); END;`);
+column('knowledge_learning_state','skill_reset_job_id','TEXT');
+column('knowledge_learning_state','skill_reset_iteration','INTEGER');
+column('knowledge_skill_proposals','actor',"TEXT NOT NULL DEFAULT 'legacy'");
+column('knowledge_skill_proposals','source_versions',"TEXT NOT NULL DEFAULT '[]'");
+column('knowledge_learning_reviews','selected_model','TEXT');
+column('knowledge_learning_reviews','selected_provider','TEXT');
+column('knowledge_learning_reviews','budget_input_tokens','INTEGER NOT NULL DEFAULT 0');
+column('knowledge_learning_reviews','usage_status',"TEXT NOT NULL DEFAULT 'unavailable'");

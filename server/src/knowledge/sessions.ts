@@ -18,7 +18,7 @@ export function validateEvidence(userId: string, botId: string, refs: unknown, r
   if (!Array.isArray(refs) || refs.length > 12 || (required && !refs.length)) throw new KnowledgeError('Provide 1–12 source messages', 422);
   const seen = new Set<string>();
   return refs.map((s: any) => {
-    if (!s || s.botId !== botId || !Number.isSafeInteger(s.generation) || s.generation < 1 || !Number.isSafeInteger(s.seq) || s.seq < 1) throw new KnowledgeError('Invalid source message', 422);
+    if (!s || s.kind!==undefined&&s.kind!=='tool' || s.botId !== botId || !Number.isSafeInteger(s.generation) || s.generation < 1 || !Number.isSafeInteger(s.seq) || s.seq < 1) throw new KnowledgeError('Invalid source message', 422);
     const row = db.prepare("SELECT * FROM rows WHERE bot_id=? AND generation=? AND seq=? AND kind=?").get(botId, s.generation, s.seq,s.kind==='tool'?'tool-call':'message') as any;
     let body: any; try { body = row && JSON.parse(row.body); } catch { /* invalid source */ }
     if (!body || (s.kind==='tool' ? body.type!=='tool-call'||body.status!=='done'||typeof body.summary!=='string'||!body.summary.trim() : body.type !== 'message' || body.streaming || typeof body.text !== 'string' || !body.text.trim())) throw new KnowledgeError('Source message is unavailable or unfinished', 422);

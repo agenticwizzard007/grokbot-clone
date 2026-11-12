@@ -47,8 +47,9 @@ export function saveMemory(userId: string, botId: string, input: { text: string;
     assertWritable(userId,botId); const text = boundedText(input.text, 'Memory', 1000);
     const validated=validateEvidence(userId,botId,input.evidence);const evidence=refsOnly(validated);
     const target=input.target??'user';if(!['user','environment'].includes(target))throw new KnowledgeError('Invalid memory target');
-    const evidenceKind=input.evidenceKind??(validated.some(e=>e.role==='tool')?'tool':'human');
-    if(evidenceKind==='hypothesis'||validated.some(e=>e.role!=='tool'&&!isHumanUserMessage(e))||target==='user'&&(!validated.every(e=>isHumanUserMessage(e))||evidenceKind!=='human'))throw new KnowledgeError('User memory requires human evidence; hypotheses are not durable facts',422);
+    const evidenceKind=validated.some(e=>e.role==='tool')?'tool':'human';
+    if(input.evidenceKind!==undefined&&input.evidenceKind!==evidenceKind)throw new KnowledgeError('Evidence kind must match the actual sources',422);
+    if(validated.some(e=>e.role!=='tool'&&!isHumanUserMessage(e))||target==='user'&&(!validated.every(e=>isHumanUserMessage(e))||evidenceKind!=='human'))throw new KnowledgeError('User memory requires human evidence; hypotheses are not durable facts',422);
     const runId = checkedRun(userId, botId, input.runId);
     if (isSuppressed(botId, text, evidence)) return { memory: null, skipped: 'suppressed' as const };
     const existing = listMemories(userId, botId).find(m => m.target===target&&similar(m.text, text));
@@ -66,7 +67,7 @@ export function correctMemory(userId: string, id: string, input: { text: string;
     if (cur.status !== 'active') throw new KnowledgeError('Memory is no longer active', 409);
     const text = boundedText(input.text, 'Correction', 1000);
     if (normalize(text) === normalize(cur.text)) throw new KnowledgeError('Correction must change the fact');
-    const checked=validateEvidence(userId,cur.bot_id,input.evidence??[],false);if(cur.target==='user'&&checked.some(e=>!isHumanUserMessage(e)))throw new KnowledgeError('User memory requires human evidence',422);
+    const checked=validateEvidence(userId,cur.bot_id,input.evidence??[],false);if(checked.some(e=>e.role!=='tool'&&!isHumanUserMessage(e))||cur.target==='user'&&checked.some(e=>!isHumanUserMessage(e)))throw new KnowledgeError('User memory requires human evidence',422);
     const evidence=refsOnly(checked);
     const runId = checkedRun(userId, cur.bot_id, input.runId);
     // Explicit owner correction may reuse a source and update similar wording;
@@ -77,7 +78,7 @@ export function correctMemory(userId: string, id: string, input: { text: string;
     record(ownMemory(userId, id), 'supersede', userId);
     const nextId = newId('mem');
     db.prepare('INSERT INTO memories(id,bot_id,text,created_at,source,evidence,run_id,supersedes) VALUES(?,?,?,?,?,?,?,?)').run(nextId, cur.bot_id, text, now(), 'chat', JSON.stringify(evidence), runId, id);
-    db.prepare('UPDATE memories SET target=?,evidence_kind=?,scope=?,project_id=? WHERE id=?').run(cur.target,cur.evidence_kind,cur.scope,cur.project_id,nextId);
+    db.prepare('UPDATE memories SET target=?,evidence_kind=?,scope=?,project_id=? WHERE id=?').run(cur.target,checked.some(e=>e.role==='tool')?'tool':'human',cur.scope,cur.project_id,nextId);
     db.prepare("UPDATE knowledge_grants SET source_id=? WHERE kind='memories' AND source_id=?").run(nextId,id);
     const next = ownMemory(userId, nextId); record(next, 'correction', userId); return view(next);
   })();
@@ -132,7 +133,7 @@ export function stageMemoryChange(userId:string,botId:string,input:MemoryMutatio
   return listMemoryChanges(userId,botId).find(c=>c.id===id)!;
  })();
 }
-export function listMemoryChanges(userId:string,botId:string){ownedBot(userId,botId);return(db.prepare('SELECT * FROM knowledge_memory_changes WHERE bot_id=? AND user_id=? ORDER BY created_at DESC,id DESC LIMIT 1000').all(botId,userId)as any[]).map(c=>({id:c.id,botId:c.bot_id,memoryId:c.memory_id,baseRevision:c.base_revision,generation:c.generation,action:c.action,text:c.text,target:c.target,evidence:JSON.parse(c.evidence),runId:c.run_id,status:c.status,createdAt:c.created_at,resolvedAt:c.resolved_at}));}
+export function listMemoryChanges(userId:string,botId:string){ownedBot(userId,botId);return(db.prepare('SELECT * FROM knowledge_memory_changes WHERE bot_id=? AND user_id=? ORDER BY created_at DESC,id DESC').all(botId,userId)as any[]).map(c=>({id:c.id,botId:c.bot_id,memoryId:c.memory_id,baseRevision:c.base_revision,generation:c.generation,action:c.action,text:c.text,target:c.target,evidence:JSON.parse(c.evidence),runId:c.run_id,status:c.status,createdAt:c.created_at,resolvedAt:c.resolved_at}));}
 export function resolveMemoryChange(userId:string,id:string,decision:'approve'|'reject',expectedBaseRevision:number){
  return db.transaction(()=>{
   const p=db.prepare('SELECT * FROM knowledge_memory_changes WHERE id=? AND user_id=?').get(id,userId)as any;if(!p)throw new KnowledgeError('Not found',404);

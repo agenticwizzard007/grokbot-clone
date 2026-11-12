@@ -1,6 +1,6 @@
 import {curatorProtected} from './curator.js';
 import {publishNativeEvent} from '../native/events.js';
-import { assertWritable, canRead, managementContext, recordRead, requireRead, setGrants, type Scope } from './access.js';
+import { assertWritable, canRead, managementContext, recordRead, requireRead,hash, setGrants, type Scope } from './access.js';
 import { learningSettings } from './settings.js';
 import { db, now } from '../db.js';
 import { newId } from '../lib/ids.js';
@@ -102,6 +102,9 @@ export function stageSkillProposal(userId: string, botId: string, input: { skill
     const runId = checkedRun(userId, botId, input.runId); const id = newId('skp'); const skillId = cur?.id ?? newId('skl');
     db.prepare('INSERT INTO knowledge_skill_proposals(id,bot_id,skill_id,base_revision,generation,snapshot,reason,evidence,run_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)')
       .run(id, botId, skillId, input.expectedRevision, bot.generation, JSON.stringify(value), reason, JSON.stringify(evidence), runId, now());
+    const actor=managementContext()?.actor??'owner';
+    const sourceVersions=[...(managementContext()?.reads??new Map<string,string>())].filter(([key])=>key.startsWith('skill:')).map(([key,value])=>{const [,skillId,...rest]=key.split(':');const [revision,digest]=value.split(':');return{skillId,resource:rest.join(':'),revision:Number(revision),hash:digest};});
+    db.prepare('UPDATE knowledge_skill_proposals SET actor=?,source_versions=? WHERE id=?').run(actor,JSON.stringify(sourceVersions),id);
     publishNativeEvent({userId,botId,kind:'knowledge.skill.proposed',sourceType:'skill-proposal',sourceId:id,jobId:runId,data:{skillId}});
     return { id, skillId, baseRevision: input.expectedRevision, status: 'pending', diff: skillDiff(cur, value) };
   })();
@@ -110,7 +113,7 @@ export function listSkillProposals(userId: string, botId: string) {
   ownedBot(userId, botId);
   return (db.prepare("SELECT * FROM knowledge_skill_proposals WHERE bot_id=? ORDER BY created_at DESC,id DESC LIMIT 100").all(botId) as any[]).map(p => {
     const base = p.base_revision ? db.prepare('SELECT snapshot FROM knowledge_skill_revisions WHERE skill_id=? AND revision=?').get(p.skill_id, p.base_revision) as any : null;
-    return { id: p.id, skillId: p.skill_id, baseRevision: p.base_revision, content: JSON.parse(p.snapshot), reason: p.reason, evidence: JSON.parse(p.evidence), runId: p.run_id, status: p.status, createdAt: p.created_at, diff: skillDiff(base ? JSON.parse(base.snapshot) : null, JSON.parse(p.snapshot)) };
+    return { id: p.id, skillId: p.skill_id, baseRevision: p.base_revision, content: JSON.parse(p.snapshot),actor:p.actor,sourceVersions:JSON.parse(p.source_versions??'[]'), reason: p.reason, evidence: JSON.parse(p.evidence), runId: p.run_id, status: p.status, createdAt: p.created_at, diff: skillDiff(base ? JSON.parse(base.snapshot) : null, JSON.parse(p.snapshot)) };
   });
 }
 export function resolveSkillProposal(userId: string, id: string, decision: 'approve' | 'reject', expectedBaseRevision: number) {
@@ -124,8 +127,10 @@ export function resolveSkillProposal(userId: string, id: string, decision: 'appr
     if (decision === 'approve') {
       const bot = ownedBot(userId, p.bot_id);
       if (bot.generation !== p.generation) throw new KnowledgeError('Conversation changed; ask for a fresh proposal', 409);
-      const evidence = refsOnly(validateEvidence(userId, p.bot_id, JSON.parse(p.evidence)));
+      const evidence = refsOnly(validateEvidence(userId, p.bot_id, JSON.parse(p.evidence),p.actor!=='curator'));
       checkedRun(userId, p.bot_id, p.run_id);
+      for(const source of JSON.parse(p.source_versions??'[]')){const row=ownSkill(userId,source.skillId);if(!canRead(userId,p.bot_id,'skills',row)||row.deleted_at!==null||row.revision!==source.revision)throw new KnowledgeError('Source skill changed or is no longer shared',409);const text=source.resource?view(row).resources[source.resource]:row.body;if(text===undefined||hash(text)!==source.hash)throw new KnowledgeError('Source skill content changed',409);}
+
       const cur = db.prepare('SELECT * FROM skills WHERE id=? AND bot_id=?').get(p.skill_id, p.bot_id) as any;
       expectedRevision(cur?.revision ?? 0, p.base_revision);
       skill = cur ? append(cur, content(JSON.parse(p.snapshot)), 'learned', userId, evidence, p.run_id,!!JSON.parse(p.snapshot).deleted) : create(userId, p.bot_id, p.skill_id, content(JSON.parse(p.snapshot)), evidence, p.run_id);
@@ -168,6 +173,7 @@ export function manageSkill(userId:string,botId:string,input:SkillMutation) {
   const cur=input.skillId?ownSkill(userId,input.skillId):null;
   if(cur&&(cur.bot_id!==botId||cur.deleted_at!==null))throw new KnowledgeError('Not found',404);
   expectedRevision(cur?.revision??0,input.expectedRevision);
+  if(ctx.actor==='curator'&&input.action==='create'&&![...ctx.reads.keys()].some(key=>key.startsWith('skill:')))throw new KnowledgeError('Read source packages before curator consolidation',409);
   if(cur?.locked)throw new KnowledgeError('Skill is locked; do not recreate it under another name',409);
   if(!['create','update','patch','write_file','remove_file','delete','archive'].includes(input.action))throw new KnowledgeError('Invalid skill action');
   if(input.action==='create'&&cur||input.action!=='create'&&!cur)throw new KnowledgeError('Invalid skill target');
@@ -195,7 +201,11 @@ export function manageSkill(userId:string,botId:string,input:SkillMutation) {
   }else next=content(input);
   if(input.action==='archive')next.deleted=true;
   next=content(next);boundedText(input.reason,'Reason',1000);const evidence=refsOnly(validateEvidence(userId,botId,input.evidence,ctx.actor!=='curator'));const runId=checkedRun(userId,botId,input.runId??ctx.jobId);
-  db.prepare('UPDATE knowledge_learning_state SET skill_iterations=0 WHERE bot_id=? AND user_id=?').run(botId,userId);
+  if(ctx.actor==='foreground')db.prepare('UPDATE knowledge_learning_state SET skill_iterations=0 WHERE bot_id=? AND user_id=?').run(botId,userId);
+  if(ctx.actor==='foreground'&&ctx.jobId){
+   db.prepare('INSERT OR IGNORE INTO knowledge_learning_state(bot_id,user_id) VALUES(?,?)').run(botId,userId);
+   db.prepare('UPDATE knowledge_learning_state SET skill_reset_job_id=?,skill_reset_iteration=? WHERE bot_id=? AND user_id=?').run(ctx.jobId,ctx.iteration??null,botId,userId);
+  }
   if(learningSettings(userId,botId).settings.skillApproval){
    if(input.action==='delete')throw new KnowledgeError('Archive through owner controls when approval is required',409);
    return {proposal:stageSkillProposal(userId,botId,{skillId:cur?.id,expectedRevision:input.expectedRevision,content:next,reason:input.reason,evidence,runId:runId??undefined}),activated:false};
