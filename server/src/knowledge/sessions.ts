@@ -2,7 +2,7 @@ import { db } from '../db.js';
 import crypto from 'node:crypto';
 import { KnowledgeError, ownedBot } from './common.js';
 
-export interface MessageRef { botId: string; generation: number; seq: number; contentHash?: string }
+export interface MessageRef { botId: string; generation: number; seq: number; contentHash?: string; kind?: 'tool' }
 export interface MessageEvidence extends MessageRef { role: string; text: string; from?: { kind: string; id: string; name: string }; createdAt: number; archived: boolean; sourceKey: string }
 export function isHumanUserMessage(body: any): boolean {
   return body?.role === 'user' && (!body.from || ['voice', 'imessage', 'sms', 'whatsapp'].includes(body.from.kind));
@@ -10,8 +10,8 @@ export function isHumanUserMessage(body: any): boolean {
 const sourceKey = (s: MessageRef) => `${s.botId}:${s.generation}:${s.seq}`;
 function shape(row: any, generation: number): MessageEvidence {
   const body = JSON.parse(row.body);
-  const ref = { botId: row.bot_id, generation: row.generation, seq: row.seq, contentHash: crypto.createHash('sha256').update(row.body).digest('hex') };
-  return { ...ref, sourceKey: sourceKey(ref), role: body.role, ...(body.from ? { from: body.from } : {}), text: String(body.text).slice(0, 4000), createdAt: row.created_at, archived: row.generation !== generation };
+  const ref = { botId: row.bot_id, generation: row.generation, seq: row.seq, ...(body.type==='tool-call'?{kind:'tool' as const}:{}), contentHash: crypto.createHash('sha256').update(row.body).digest('hex') };
+  return { ...ref, sourceKey: sourceKey(ref), role: body.type==='tool-call'?'tool':body.role, ...(body.from ? { from: body.from } : {}), text: String(body.type==='tool-call'?body.summary:body.text).slice(0, 4000), createdAt: row.created_at, archived: row.generation !== generation };
 }
 export function validateEvidence(userId: string, botId: string, refs: unknown, required = true): MessageEvidence[] {
   const bot = ownedBot(userId, botId);
@@ -19,15 +19,15 @@ export function validateEvidence(userId: string, botId: string, refs: unknown, r
   const seen = new Set<string>();
   return refs.map((s: any) => {
     if (!s || s.botId !== botId || !Number.isSafeInteger(s.generation) || s.generation < 1 || !Number.isSafeInteger(s.seq) || s.seq < 1) throw new KnowledgeError('Invalid source message', 422);
-    const row = db.prepare("SELECT * FROM rows WHERE bot_id=? AND generation=? AND seq=? AND kind='message'").get(botId, s.generation, s.seq) as any;
+    const row = db.prepare("SELECT * FROM rows WHERE bot_id=? AND generation=? AND seq=? AND kind=?").get(botId, s.generation, s.seq,s.kind==='tool'?'tool-call':'message') as any;
     let body: any; try { body = row && JSON.parse(row.body); } catch { /* invalid source */ }
-    if (!body || body.type !== 'message' || body.streaming || typeof body.text !== 'string' || !body.text.trim()) throw new KnowledgeError('Source message is unavailable or unfinished', 422);
+    if (!body || (s.kind==='tool' ? body.type!=='tool-call'||body.status!=='done'||typeof body.summary!=='string'||!body.summary.trim() : body.type !== 'message' || body.streaming || typeof body.text !== 'string' || !body.text.trim())) throw new KnowledgeError('Source message is unavailable or unfinished', 422);
     const result = shape(row, bot.generation);
     if (s.contentHash !== undefined && s.contentHash !== result.contentHash) throw new KnowledgeError('Source message changed; refresh the evidence', 409);
     return result;
   }).filter(s => { const key = sourceKey(s); if (seen.has(key)) return false; seen.add(key); return true; });
 }
-export function refsOnly(refs: MessageRef[]): MessageRef[] { return refs.map(({ botId, generation, seq, contentHash }) => ({ botId, generation, seq, ...(contentHash ? { contentHash } : {}) })); }
+export function refsOnly(refs: MessageRef[]): MessageRef[] { return refs.map(({ botId, generation, seq, contentHash,kind }) => ({ botId, generation, seq, ...(kind?{kind}:{}), ...(contentHash ? { contentHash } : {}) })); }
 
 const GROUNDING_STOP = new Set('a an the i me my user users he she they his her their is are am at in on to of for that this remember prefers prefer'.split(' '));
 function groundingWords(text: string): Set<string> {

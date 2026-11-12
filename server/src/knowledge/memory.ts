@@ -1,11 +1,13 @@
+import { assertWritable,canRead,managementContext,setGrants,type Scope } from './access.js';
+import { learningSettings } from './settings.js';
 import crypto from 'node:crypto';
 import { db, now } from '../db.js';
 import { newId } from '../lib/ids.js';
 import { boundedText, checkedRun, expectedRevision, KnowledgeError, ownedBot } from './common.js';
-import { refsOnly, validateEvidence, type MessageRef } from './sessions.js';
+import { refsOnly, validateEvidence, isHumanUserMessage, type MessageRef } from './sessions.js';
 
-export interface MemoryView { id: string; botId: string; text: string; createdAt: number; source: 'chat' | 'learned'; status: string; revision: number; evidence: MessageRef[]; runId: string | null; supersedes: string | null }
-function view(m: any): MemoryView { return { id: m.id, botId: m.bot_id, text: m.text, createdAt: m.created_at, source: m.source === 'learned' ? 'learned' : 'chat', status: m.status, revision: m.revision, evidence: JSON.parse(m.evidence), runId: m.run_id, supersedes: m.supersedes }; }
+export interface MemoryView { id: string; botId: string; text: string; createdAt: number; source: 'chat' | 'learned'; status: string; revision: number; evidence: MessageRef[]; runId: string | null; supersedes: string | null; target:'user'|'environment';evidenceKind:'human'|'tool'|'hypothesis';scope:Scope;projectId:string|null }
+function view(m: any): MemoryView { return { id: m.id, botId: m.bot_id, text: m.text, createdAt: m.created_at, source: m.source === 'learned' ? 'learned' : 'chat', status: m.status, revision: m.revision, evidence: JSON.parse(m.evidence), runId: m.run_id, supersedes: m.supersedes,target:m.target??'user',evidenceKind:m.evidence_kind??'human',scope:m.scope??'private',projectId:m.project_id??null }; }
 function ownMemory(userId: string, id: string): any {
   const m = db.prepare('SELECT m.* FROM memories m JOIN bots b ON b.id=m.bot_id WHERE m.id=? AND b.user_id=?').get(id, userId);
   if (!m) throw new KnowledgeError('Not found', 404);
@@ -13,7 +15,7 @@ function ownMemory(userId: string, id: string): any {
 }
 const normalize = (s: string) => s.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 const fingerprint = (s: string) => crypto.createHash('sha256').update(normalize(s)).digest('hex');
-function similar(a: string, b: string): boolean {
+export function similar(a: string, b: string): boolean {
   if (normalize(a) === normalize(b)) return true;
   const A = new Set(normalize(a).split(' ').filter(w => w.length > 2)), B = new Set(normalize(b).split(' ').filter(w => w.length > 2));
   const inter = [...A].filter(w => B.has(w)).length;
@@ -38,25 +40,31 @@ function suppress(m: any) {
 // Hermes memory write-approval concept (tools/write_approval.py:201-254, MIT,
 // f0e7b68e439f8c1962fcf9dcb0341aadf1e2a898), adapted to native owner-scoped
 // sourced facts. Corrections/suppression are Swarm extensions, not Hermes claims.
-export function saveMemory(userId: string, botId: string, input: { text: string; evidence: MessageRef[]; source?: 'chat' | 'learned'; runId?: string }): { memory: MemoryView | null; skipped: 'suppressed' | 'duplicate' | null } {
+export function saveMemory(userId: string, botId: string, input: { text: string; evidence: MessageRef[]; source?: 'chat' | 'learned'; runId?: string;target?:'user'|'environment';evidenceKind?:'human'|'tool'|'hypothesis' }): { memory: MemoryView | null; skipped: 'suppressed' | 'duplicate' | null } {
   return db.transaction(() => {
-    ownedBot(userId, botId); const text = boundedText(input.text, 'Memory', 1000);
-    const evidence = refsOnly(validateEvidence(userId, botId, input.evidence)); const runId = checkedRun(userId, botId, input.runId);
+    assertWritable(userId,botId); const text = boundedText(input.text, 'Memory', 1000);
+    const validated=validateEvidence(userId,botId,input.evidence);const evidence=refsOnly(validated);
+    const target=input.target??'user';if(!['user','environment'].includes(target))throw new KnowledgeError('Invalid memory target');
+    const evidenceKind=input.evidenceKind??(validated.every(e=>e.role==='tool')?'tool':'human');
+    if(evidenceKind==='hypothesis'||target==='user'&&(!validated.every(e=>isHumanUserMessage(e))||evidenceKind!=='human'))throw new KnowledgeError('User memory requires human evidence; hypotheses are not durable facts',422);
+    const runId = checkedRun(userId, botId, input.runId);
     if (isSuppressed(botId, text, evidence)) return { memory: null, skipped: 'suppressed' as const };
-    const existing = listMemories(userId, botId).find(m => similar(m.text, text));
+    const existing = listMemories(userId, botId).find(m => m.target===target&&similar(m.text, text));
     if (existing) return { memory: existing, skipped: 'duplicate' as const };
     const id = newId('mem');
     db.prepare('INSERT INTO memories(id,bot_id,text,created_at,source,evidence,run_id) VALUES(?,?,?,?,?,?,?)').run(id, botId, text, now(), input.source === 'learned' ? 'learned' : 'chat', JSON.stringify(evidence), runId);
+    db.prepare('UPDATE memories SET target=?,evidence_kind=? WHERE id=?').run(target,evidenceKind,id);
     const m = ownMemory(userId, id); record(m, 'create', userId); return { memory: view(m), skipped: null };
   })();
 }
 export function correctMemory(userId: string, id: string, input: { text: string; expectedRevision: number; evidence?: MessageRef[]; runId?: string }): MemoryView {
   return db.transaction(() => {
-    const cur = ownMemory(userId, id); expectedRevision(cur.revision, input.expectedRevision);
+    const cur = ownMemory(userId, id);assertWritable(userId,cur.bot_id); expectedRevision(cur.revision, input.expectedRevision);
     if (cur.status !== 'active') throw new KnowledgeError('Memory is no longer active', 409);
     const text = boundedText(input.text, 'Correction', 1000);
     if (normalize(text) === normalize(cur.text)) throw new KnowledgeError('Correction must change the fact');
-    const evidence = refsOnly(validateEvidence(userId, cur.bot_id, input.evidence ?? [], false));
+    const checked=validateEvidence(userId,cur.bot_id,input.evidence??[],false);if(cur.target==='user'&&checked.some(e=>!isHumanUserMessage(e)))throw new KnowledgeError('User memory requires human evidence',422);
+    const evidence=refsOnly(checked);
     const runId = checkedRun(userId, cur.bot_id, input.runId);
     // Explicit owner correction may reuse a source and update similar wording;
     // the old statement is suppressed only after the replacement is validated.
@@ -66,12 +74,14 @@ export function correctMemory(userId: string, id: string, input: { text: string;
     record(ownMemory(userId, id), 'supersede', userId);
     const nextId = newId('mem');
     db.prepare('INSERT INTO memories(id,bot_id,text,created_at,source,evidence,run_id,supersedes) VALUES(?,?,?,?,?,?,?,?)').run(nextId, cur.bot_id, text, now(), 'chat', JSON.stringify(evidence), runId, id);
+    db.prepare('UPDATE memories SET target=?,evidence_kind=?,scope=?,project_id=? WHERE id=?').run(cur.target,cur.evidence_kind,cur.scope,cur.project_id,nextId);
+    db.prepare("UPDATE knowledge_grants SET source_id=? WHERE kind='memories' AND source_id=?").run(nextId,id);
     const next = ownMemory(userId, nextId); record(next, 'correction', userId); return view(next);
   })();
 }
 export function forgetMemory(userId: string, id: string, expected?: number): void {
   db.transaction(() => {
-    const cur = ownMemory(userId, id);
+    const cur = ownMemory(userId, id);assertWritable(userId,cur.bot_id);
     if (expected !== undefined) expectedRevision(cur.revision, expected);
     if (cur.status === 'deleted') return;
     // A correction is a chain. Forgetting its replacement suppresses each prior
@@ -92,4 +102,68 @@ export function recallMemories(userId: string, botId: string, query = '', limit 
   if (typeof query !== 'string' || query.length > 500) throw new KnowledgeError('Search query must be at most 500 characters');
   const terms = normalize(query).split(' ').filter(Boolean);
   return listMemories(userId, botId).filter(m => terms.every(t => normalize(m.text).includes(t))).slice(0, Math.max(1, Math.min(50, limit)));
+}
+
+export function authorizedMemories(userId:string,botId:string):MemoryView[]{
+ ownedBot(userId,botId);return(db.prepare("SELECT m.* FROM memories m JOIN bots b ON b.id=m.bot_id WHERE b.user_id=? AND m.status='active' ORDER BY m.created_at DESC,m.id").all(userId) as any[]).filter(m=>canRead(userId,botId,'memories',m)).map(view);
+}
+export function setMemoryScope(userId:string,id:string,input:{expectedRevision:number;scope:Scope;projectId?:string;botIds?:string[]}){
+ return db.transaction(()=>{const cur=ownMemory(userId,id);expectedRevision(cur.revision,input.expectedRevision);if(cur.status!=='active')throw new KnowledgeError('Memory is inactive',409);setGrants(userId,cur.bot_id,'memories',id,input.scope,input.projectId,input.botIds);db.prepare('UPDATE memories SET scope=?,project_id=?,revision=revision+1 WHERE id=?').run(input.scope,input.scope==='project'?input.projectId:null,id);const next=ownMemory(userId,id);record(next,'scope',userId);return view(next);})();
+}
+export interface MemoryMutation {action:'add'|'replace'|'remove';memoryId?:string;expectedRevision:number;text?:string;target?:'user'|'environment';evidence:MessageRef[];runId?:string;evidenceKind?:'human'|'tool'|'hypothesis'}
+export function stageMemoryChange(userId:string,botId:string,input:MemoryMutation){
+ return db.transaction(()=>{
+  assertWritable(userId,botId);const bot=ownedBot(userId,botId);const cur=input.memoryId?ownMemory(userId,input.memoryId):null;
+  if(cur&&(cur.bot_id!==botId||cur.status!=='active'))throw new KnowledgeError('Memory not active in this agent',404);
+  if(!['add','replace','remove'].includes(input.action)||input.action!=='add'&&!cur||input.action==='add'&&cur)throw new KnowledgeError('Invalid memory action');
+  expectedRevision(cur?.revision??0,input.expectedRevision);
+  const evidence=refsOnly(validateEvidence(userId,botId,input.evidence,input.action!=='remove'));
+  const text=input.action==='remove'?null:boundedText(input.text,'Memory',1000);const target=input.target??cur?.target??'user';
+  if(!['user','environment'].includes(target))throw new KnowledgeError('Invalid target');
+  if(target==='user'&&validateEvidence(userId,botId,evidence,false).some(e=>!isHumanUserMessage(e)))throw new KnowledgeError('User memory requires human evidence',422);
+  checkedRun(userId,botId,input.runId);
+  const id=newId('mch');db.prepare('INSERT INTO knowledge_memory_changes(id,user_id,bot_id,memory_id,base_revision,generation,action,text,target,evidence,run_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(id,userId,botId,cur?.id??null,input.expectedRevision,bot.generation,input.action,text,target,JSON.stringify(evidence),input.runId??null,now());
+  return listMemoryChanges(userId,botId).find(c=>c.id===id)!;
+ })();
+}
+export function listMemoryChanges(userId:string,botId:string){ownedBot(userId,botId);return(db.prepare('SELECT * FROM knowledge_memory_changes WHERE bot_id=? AND user_id=? ORDER BY created_at DESC,id DESC LIMIT 1000').all(botId,userId)as any[]).map(c=>({id:c.id,botId:c.bot_id,memoryId:c.memory_id,baseRevision:c.base_revision,generation:c.generation,action:c.action,text:c.text,target:c.target,evidence:JSON.parse(c.evidence),runId:c.run_id,status:c.status,createdAt:c.created_at,resolvedAt:c.resolved_at}));}
+export function resolveMemoryChange(userId:string,id:string,decision:'approve'|'reject',expectedBaseRevision:number){
+ return db.transaction(()=>{
+  const p=db.prepare('SELECT * FROM knowledge_memory_changes WHERE id=? AND user_id=?').get(id,userId)as any;if(!p)throw new KnowledgeError('Not found',404);
+  assertWritable(userId,p.bot_id);expectedRevision(p.base_revision,expectedBaseRevision);if(p.status!=='pending')throw new KnowledgeError('Change already reviewed',409);if(!['approve','reject'].includes(decision))throw new KnowledgeError('Invalid decision');
+  let memory:MemoryView|null=null;
+  if(decision==='approve'){
+   const bot=ownedBot(userId,p.bot_id);if(bot.generation!==p.generation)throw new KnowledgeError('Conversation changed; request a fresh change',409);
+   const evidence=refsOnly(validateEvidence(userId,p.bot_id,JSON.parse(p.evidence),p.action!=='remove'));checkedRun(userId,p.bot_id,p.run_id);
+   if(p.memory_id)expectedRevision(ownMemory(userId,p.memory_id).revision,p.base_revision);
+   if(p.action==='remove')forgetMemory(userId,p.memory_id,p.base_revision);
+   else if(p.action==='replace')memory=correctMemory(userId,p.memory_id,{text:p.text,expectedRevision:p.base_revision,evidence,runId:p.run_id});
+   else memory=saveMemory(userId,p.bot_id,{text:p.text,evidence,target:p.target,runId:p.run_id}).memory;
+  }
+  db.prepare('UPDATE knowledge_memory_changes SET status=?,resolved_at=? WHERE id=?').run(decision==='approve'?'approved':'rejected',now(),id);
+  return {status:decision==='approve'?'approved':'rejected',memory};
+ })();
+}
+export function manageMemory(userId:string,botId:string,input:MemoryMutation){
+ return db.transaction(()=>{
+  assertWritable(userId,botId);const ctx=managementContext();const bot=ownedBot(userId,botId);
+  const cur=input.memoryId?ownMemory(userId,input.memoryId):null;
+  if(cur&&(cur.bot_id!==botId||cur.status!=='active'))throw new KnowledgeError('Memory not active in this agent',404);
+  if(!['add','replace','remove'].includes(input.action)||input.action!=='add'&&!cur||input.action==='add'&&cur)throw new KnowledgeError('Invalid memory action');
+  expectedRevision(cur?.revision??0,input.expectedRevision);
+  validateEvidence(userId,bot.id,input.evidence,input.action!=='remove');
+  if(ctx?.unattended&&input.action!=='add')return{change:stageMemoryChange(userId,botId,input),activated:false};
+  if(input.action==='remove'){forgetMemory(userId,cur.id,input.expectedRevision);return{deleted:true,activated:true};}
+  if(input.action==='replace')return{memory:correctMemory(userId,cur.id,{text:input.text!,expectedRevision:input.expectedRevision,evidence:input.evidence,runId:input.runId}),activated:true};
+  return {...saveMemory(userId,botId,{...input,text:input.text!}),activated:true};
+ })();
+}
+/** Passive extraction recognizes changed high-overlap facts instead of treating
+ * changed values/negations as duplicates. Only exact normalized facts dedupe. */
+export function learnMemory(userId:string,botId:string,input:{text:string;evidence:MessageRef[];runId?:string;target?:'user'|'environment'}){
+ const text=boundedText(input.text,'Memory',1000);const current=listMemories(userId,botId).filter(m=>m.target===(input.target??'user'));
+ if(current.some(m=>normalize(m.text)===normalize(text)))return{memory:null,skipped:'duplicate'};
+ const prior=current.find(m=>similar(m.text,text));
+ if(prior){const pending=listMemoryChanges(userId,botId).find(c=>c.status==='pending'&&c.memoryId===prior.id&&normalize(c.text??'')===normalize(text));return{change:pending??stageMemoryChange(userId,botId,{action:'replace',memoryId:prior.id,expectedRevision:prior.revision,...input}),skipped:null};}
+ return saveMemory(userId,botId,{...input,source:'learned'});
 }
