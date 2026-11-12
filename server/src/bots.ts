@@ -1,3 +1,6 @@
+import { assertTenant } from './deployment.js';
+import { assertLegacyWorkOpen } from './security/legacy-work.js';
+import { publishNativeEvent } from './native/events.js';
 import { isEffort } from './types.js';
 import { db, now } from './db.js';
 import { env } from './env.js';
@@ -87,4 +90,24 @@ export function visibleAgentByName(userId: string, name: string) {
   return db.prepare(
     "SELECT * FROM bots WHERE user_id=? AND lower(name)=lower(?) AND COALESCE(hidden,0)=0 AND COALESCE(kind,'agent')<>'room'",
   ).get(userId, name.trim()) as any;
+}
+
+/** Call inside the same transaction as deletion/demotion. */
+export function assertPrimaryRemovalAllowed(userId:string,botId:string) {
+  assertTenant(userId);assertLegacyWorkOpen(userId);
+  const bot=db.prepare('SELECT is_primary FROM bots WHERE id=? AND user_id=?').get(botId,userId) as any;
+  if(!bot)throw new Error('Bot not found.');
+  if(bot.is_primary && !db.prepare("SELECT 1 FROM bots WHERE user_id=? AND id!=? AND is_primary=1 AND COALESCE(hidden,0)=0 AND COALESCE(kind,'agent')!='room'").get(userId,botId))throw new Error('Transfer the primary role to an activated teammate before removing this Bot.');
+}
+/** Atomic compare-and-transfer; permanent teammates keep their job lineage. */
+export function transferPrimary(userId:string,fromBotId:string,toBotId:string) {
+  assertTenant(userId);assertLegacyWorkOpen(userId);
+  return db.transaction(()=>{
+    const from=db.prepare('SELECT * FROM bots WHERE id=? AND user_id=? AND is_primary=1').get(fromBotId,userId) as any;
+    const to=db.prepare(`SELECT b.* FROM bots b JOIN bot_setups s ON s.bot_id=b.id WHERE b.id=? AND b.user_id=? AND COALESCE(b.hidden,0)=0 AND b.parent_bot_id IS NULL AND COALESCE(b.kind,'agent')!='room' AND s.onboarding_status='active'`).get(toBotId,userId) as any;
+    if(!from||!to||fromBotId===toBotId)throw new Error('Primary transfer requires the current primary and an activated permanent teammate.');
+    db.prepare('UPDATE bots SET is_primary=CASE WHEN id=? THEN 1 ELSE 0 END,updated_at=? WHERE user_id=? AND (is_primary=1 OR id=?)').run(toBotId,now(),userId,toBotId);
+    publishNativeEvent({userId,botId:toBotId,kind:'coordination.primary_transferred',sourceType:'bot',sourceId:toBotId,audience:'internal',data:{fromBotId,toBotId}});
+    hub.emit(userId,{type:'roster'});return getBot(toBotId)!;
+  })();
 }

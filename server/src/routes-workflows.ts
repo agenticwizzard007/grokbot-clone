@@ -30,5 +30,5 @@ workflowApi.post('/:id/control',async c=>{const a=control.parse(await c.req.json
 workflowApi.post('/:id/dependencies',async c=>{
   const a=z.object({taskId:z.string(),dependsOnId:z.string()}).strict().parse(await c.req.json());return c.json({workflow:addWorkflowDependency(owner(c),c.req.param('id'),a.taskId,a.dependsOnId)});
 });
-workflowApi.post('/:id/tasks/:taskId/delegate',c=>c.json({childBotId:delegateWorkflowTask(owner(c),c.req.param('id'),c.req.param('taskId'))}));
+workflowApi.post('/:id/tasks/:taskId/delegate',async c=>{const a=z.object({workerBotId:z.string().min(1).optional()}).strict().parse(await c.req.text().then(t=>t?JSON.parse(t):{}));const childBotId=delegateWorkflowTask(owner(c),c.req.param('id'),c.req.param('taskId'),a.workerBotId);return c.json({childBotId,workerBotId:getWorkflow(owner(c),c.req.param('id')).tasks.find(t=>t.id===c.req.param('taskId'))?.workerBotId??null});});
 workflowApi.post('/:id/tasks/:taskId/complete',async c=>{const a=evidence.parse(await c.req.json());return c.json({workflow:completeWorkflowTask(owner(c),c.req.param('id'),c.req.param('taskId'),a.evidence)});});

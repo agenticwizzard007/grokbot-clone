@@ -13,7 +13,7 @@ function define<S extends z.ZodType>(name:string,description:string,schema:S,fn:
       const gate=workflowToolGate(ctx,name);if(!gate.allowed)throw new WorkflowError(gate.reason!);
       // Hermes denies child kanban mutation; preserve the same leaf boundary so
       // delegated workers cannot mint independent goals to evade shared budgets.
-      if(['create_goal','create_workflow','delegate_workflow_task'].includes(name) && ownWorkflowBot(ctx.userId,ctx.botId).parent_bot_id)throw new WorkflowError('Delegated workers return task results; the parent owns goals and workflow creation.');
+      if(['create_goal','create_workflow','delegate_workflow_task'].includes(name) && (ownWorkflowBot(ctx.userId,ctx.botId).parent_bot_id || workflowScope(ctx)?.taskId))throw new WorkflowError('Delegated workers return task results; the parent owns goals and workflow creation.');
       return {output:JSON.stringify(await fn(schema.parse(args),ctx)),...(endTurn?{endTurn:true}:{})};
     }
     catch(e){return {output:JSON.stringify({error:e instanceof Error ? e.message : 'Workflow operation failed.'}),isError:true};}
@@ -41,7 +41,7 @@ export const WORKFLOW_TOOLS:ToolDef[]=[
     parentGoal(c,a.goal_id);return verifyGoal(c.userId,a.goal_id,a.evidence);
   },true),
   define('get_workflows','Read this agent’s native goals, dependency graph, child assignments, validated results and blockers.',z.object({}).strict(),(_a,c)=>({goals:listGoals(c.userId,c.botId),workflows:listWorkflows(c.userId,c.botId)})),
-  define('create_workflow','Create a native dependency task graph. Each task needs a stable key, instructions and evidence criteria. dependsOn contains prerequisite keys. Output schemas are JSON Schema; delegate creates a native child bot when started. Creation alone does not start execution. Within a persistent goal its goalId is inherited and cannot be replaced.',workflowInputSchema,(a,c)=>{
+  define('create_workflow','Create a native dependency task graph. Each task needs a stable key, instructions and evidence criteria. dependsOn contains prerequisite keys. Output schemas are JSON Schema; workerBotId assigns an existing activated permanent specialist; delegate without it creates a native child bot when started. Creation alone does not start execution. Within a persistent goal its goalId is inherited and cannot be replaced.',workflowInputSchema,(a,c)=>{
     const scope=workflowScope(c);
     if(scope?.goalId) {
       if(a.goalId && a.goalId!==scope.goalId)throw new WorkflowError('Workflow goalId must match the current persistent goal.');
@@ -59,8 +59,8 @@ export const WORKFLOW_TOOLS:ToolDef[]=[
   define('add_workflow_dependency','Add a prerequisite to a not-yet-admitted task. Cycles and cross-workflow links are rejected.',z.object({workflow_id:id,task_id:id,depends_on_id:id}).strict(),(a,c)=>{
     parentWorkflow(c,a.workflow_id);return addWorkflowDependency(c.userId,a.workflow_id,a.task_id,a.depends_on_id);
   }),
-  define('delegate_workflow_task','Assign a ready workflow task to a native child bot with persisted lineage and the task’s output contract. Uses the normal Swarm queue, tools and provider.',z.object({workflow_id:id,task_id:id}).strict(),(a,c)=>{
-    parentWorkflow(c,a.workflow_id);return {childBotId:delegateWorkflowTask(c.userId,a.workflow_id,a.task_id)};
+  define('delegate_workflow_task','Assign a ready workflow task to a native child bot with persisted lineage and the task’s output contract. Uses the normal Swarm queue, tools and provider.',z.object({workflow_id:id,task_id:id,workerBotId:id.optional()}).strict(),(a,c)=>{
+    parentWorkflow(c,a.workflow_id);return {childBotId:delegateWorkflowTask(c.userId,a.workflow_id,a.task_id,a.workerBotId)};
   }),
-  define('complete_workflow_task','Verify concrete acceptance evidence for a task. Dependencies and any required structured result must already validate. A completion claim alone is never sufficient.',z.object({workflow_id:id,task_id:id,evidence:z.array(evidenceSchema).min(1).max(30)}).strict(),(a,c)=>completeWorkflowTask(c.userId,a.workflow_id,a.task_id,a.evidence.map(e=>e.kind==='result'?e:{...e,botId:e.botId??c.botId}),c.botId),true),
+  define('complete_workflow_task','Verify concrete acceptance evidence for a task. Dependencies and any required structured result must already validate. A completion claim alone is never sufficient.',z.object({workflow_id:id,task_id:id,evidence:z.array(evidenceSchema).min(1).max(30)}).strict(),(a,c)=>{const scope=workflowScope(c);if(scope?.taskId && (scope.taskId!==a.task_id||scope.workflowId!==a.workflow_id))throw new WorkflowError('Worker completion must match the current task.');return completeWorkflowTask(c.userId,a.workflow_id,a.task_id,a.evidence.map(e=>e.kind==='result'?e:{...e,botId:e.botId??c.botId}),c.botId);},true),
 ];

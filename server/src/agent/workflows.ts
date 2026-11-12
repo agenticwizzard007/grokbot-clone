@@ -4,6 +4,8 @@ import { newId } from '../lib/ids.js';
 import { assertTenant } from '../deployment.js';
 import { appendRow } from '../store.js';
 import { legacyWritableRows } from '../platform/legacy-database-fence.js';
+import { publishNativeEvent } from '../native/events.js';
+import { assertLegacyWorkOpen } from '../security/legacy-work.js';
 import { createSubagent, initSubagents } from './subagents.js';
 import {
   WorkflowError, ownWorkflowBot, emitWorkflow, criterionSchema, evidenceSchema, normalizeCriteria,
@@ -17,7 +19,7 @@ import {
 // hermes_cli/kanban_db.py:_would_cycle/recompute_ready (dependency gates), and
 // tools/delegation_output_schema.py (JSON extraction, ten errors, ONE correction).
 // Swarm owns all persistence, scheduling, authorization and model execution.
-type SystemTrigger = { type: 'system'; text: string; parentJobId?: string };
+type SystemTrigger = { type: 'system'; text: string; parentJobId?: string; audience?:'internal'; workflowId?:string;taskId?:string;goalId?:string };
 interface Runtime { enqueue: (botId: string, trigger: SystemTrigger) => string; interrupt: (botId: string, expectedJobId?: string) => unknown }
 let runtime: Runtime | undefined;
 export function configureWorkflowRuntime(value: Runtime) { runtime = value; }
@@ -63,20 +65,29 @@ db.exec(`CREATE TABLE IF NOT EXISTS native_workflows (
 // imports also need its native tables; this import never imports the agent loop.
 import './jobs.js';
 
+if (!(db.prepare('PRAGMA table_info(native_workflow_tasks)').all() as any[]).some(c=>c.name==='worker_bot_id')) db.exec('ALTER TABLE native_workflow_tasks ADD COLUMN worker_bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL');
+
+export function approvedWorkflowWorker(userId:string,botId:string) {
+  const b=ownWorkflowBot(userId,botId);
+  const setup=db.prepare('SELECT onboarding_status FROM bot_setups WHERE bot_id=?').get(botId) as any;
+  if(b.hidden || b.parent_bot_id || setup?.onboarding_status!=='active')throw new WorkflowError('Worker must be an activated, visible permanent agent.',409);
+  return b;
+}
+
 export const workflowTaskInputSchema = z.object({
   key: z.string().min(1).max(80).regex(/^[a-zA-Z0-9_-]+$/), title: z.string().trim().min(1).max(500),
   instructions: z.string().trim().min(1).max(16_000),
   dependsOn: z.array(z.string().min(1).max(80)).max(100).default([]),
   parentKey: z.string().max(80).optional(),
   criteria: z.array(criterionSchema).min(1).max(30),
-  outputSchema: z.record(z.string(), z.unknown()).optional(), delegate: z.boolean().default(false),
+  outputSchema: z.record(z.string(), z.unknown()).optional(), workerBotId:z.string().min(1).optional(), delegate: z.boolean().default(false),
 }).strict();
 export const workflowInputSchema = z.object({ title: z.string().trim().min(1).max(500), goalId: z.string().optional(),
   tasks: z.array(workflowTaskInputSchema).min(1).max(100) }).strict();
 type TaskState = 'waiting' | 'ready' | 'queued' | 'running' | 'blocked' | 'completed' | 'cancelled';
 export interface WorkflowTask {
   id: string; key: string; title: string; instructions: string; parentTaskId: string | null;
-  dependsOn: string[]; status: TaskState; assignedBotId: string | null; delegate: boolean;
+  dependsOn: string[]; status: TaskState; assignedBotId: string | null; workerBotId:string|null; delegate: boolean;
   criteria: Criterion[]; outputSchema: Record<string, unknown> | null; correctionCount: number;
   result: unknown; resultValidated: boolean; evidence: unknown[]; reason: string; activeJobId: string | null;
 }
@@ -183,7 +194,7 @@ export function getWorkflow(userId: string, id: string): Workflow {
   return { id:r.id,userId:r.user_id,botId:r.bot_id,goalId:r.goal_id,title:r.title,status:r.status,reason:r.reason,createdAt:r.created_at,updatedAt:r.updated_at,
     tasks: tasks.map(t => ({ id:t.task_id,key:t.task_key,title:t.title,instructions:t.instructions,parentTaskId:t.parent_task_id,
       dependsOn:(db.prepare('SELECT depends_on_id FROM native_workflow_edges WHERE task_id=?').all(t.task_id) as any[]).map(e => e.depends_on_id),
-      status:t.status,assignedBotId:t.assigned_bot_id,delegate:!!t.delegate,criteria:JSON.parse(t.criteria),outputSchema:t.output_schema ? JSON.parse(t.output_schema) : null,
+      status:t.status,assignedBotId:t.assigned_bot_id,workerBotId:t.worker_bot_id??null,delegate:!!t.delegate,criteria:JSON.parse(t.criteria),outputSchema:t.output_schema ? JSON.parse(t.output_schema) : null,
       correctionCount:t.correction_count,result:t.result_json === null ? null : JSON.parse(t.result_json),resultValidated:!!t.result_validated,
       evidence:JSON.parse(t.evidence),reason:t.reason,activeJobId:t.active_job_id })) };
 }
@@ -194,22 +205,23 @@ export function listWorkflows(userId: string, botId?: string) {
   return (rows as any[]).map(r => getWorkflow(userId,r.id));
 }
 export function createWorkflow(userId: string, botId: string, input: z.input<typeof workflowInputSchema>) {
-  ownWorkflowBot(userId,botId); const a = workflowInputSchema.parse(input); validateDependencyGraph(a.tasks);
+  ownWorkflowBot(userId,botId); assertLegacyWorkOpen(userId); const a = workflowInputSchema.parse(input); validateDependencyGraph(a.tasks);
   if (a.goalId) { const goal = getGoal(userId,a.goalId); if (goal.botId !== botId || ['completed','cancelled'].includes(goal.status)) throw new WorkflowError('Goal is not available for this agent.'); }
-  for (const t of a.tasks) { normalizeCriteria(t.criteria); if (t.outputSchema) compileOutputSchema(t.outputSchema); }
+  for (const t of a.tasks) { if(t.workerBotId)approvedWorkflowWorker(userId,t.workerBotId); normalizeCriteria(t.criteria); if (t.outputSchema) compileOutputSchema(t.outputSchema); }
   return db.transaction(() => {
     const id = newId('wf'), ids = new Map(a.tasks.map(t => [t.key,newId('task')]));
     db.prepare("INSERT INTO native_workflows(id,user_id,bot_id,goal_id,title,status,created_at,updated_at) VALUES(?,?,?,?,?,'draft',?,?)").run(id,userId,botId,a.goalId ?? null,a.title,now(),now());
     for (const t of a.tasks) {
       const tid = ids.get(t.key)!;
       db.prepare("INSERT INTO tasks(id,bot_id,title,state,note,created_at,updated_at) VALUES(?,?,?,'working',?,?,?)").run(tid,botId,t.title,'Workflow: waiting to start',now(),now());
-      db.prepare(`INSERT INTO native_workflow_tasks(task_id,workflow_id,task_key,instructions,criteria,output_schema,status,delegate)
-        VALUES(?,?,?,?,?,?,?,?)`).run(tid,id,t.key,t.instructions,JSON.stringify(normalizeCriteria(t.criteria)),t.outputSchema ? JSON.stringify(t.outputSchema) : null,t.dependsOn.length ? 'waiting' : 'ready',t.delegate ? 1 : 0);
+      db.prepare(`INSERT INTO native_workflow_tasks(task_id,workflow_id,task_key,instructions,criteria,output_schema,status,delegate,worker_bot_id,assigned_bot_id)
+        VALUES(?,?,?,?,?,?,?,?,?,?)`).run(tid,id,t.key,t.instructions,JSON.stringify(normalizeCriteria(t.criteria)),t.outputSchema ? JSON.stringify(t.outputSchema) : null,t.dependsOn.length ? 'waiting' : 'ready',t.delegate || t.workerBotId ? 1 : 0,t.workerBotId??null,t.workerBotId??null);
     }
     for (const t of a.tasks) {
       if (t.parentKey) db.prepare('UPDATE native_workflow_tasks SET parent_task_id=? WHERE task_id=?').run(ids.get(t.parentKey),ids.get(t.key));
       for (const dep of t.dependsOn) db.prepare('INSERT INTO native_workflow_edges VALUES(?,?)').run(ids.get(t.key),ids.get(dep));
     }
+    publishNativeEvent({userId,botId,kind:'workflow.created',sourceType:'workflow',sourceId:id,audience:'internal'});
     emitWorkflow(userId,botId); return getWorkflow(userId,id);
   })();
 }
@@ -240,9 +252,19 @@ function recomputeReadiness(w:Workflow) {
 function outputContract(t:WorkflowTask) {
   return t.outputSchema ? `\nOUTPUT CONTRACT (machine-validated):\nYour FINAL response must be ONLY JSON matching this schema. One correction is permitted.\n${JSON.stringify(t.outputSchema)}` : '';
 }
-export function delegateWorkflowTask(userId:string,workflowId:string,taskId:string) {
+export function delegateWorkflowTask(userId:string,workflowId:string,taskId:string,workerBotId?:string) {
+  assertLegacyWorkOpen(userId);
   const w = getWorkflow(userId,workflowId), t = taskOf(w,taskId); requireRuntime();
   if (!['ready','blocked'].includes(t.status) || ['completed','cancelled'].includes(w.status)) throw new WorkflowError('Task cannot be delegated now.',409);
+  if(workerBotId) {
+    approvedWorkflowWorker(userId,workerBotId);
+    if(t.activeJobId && t.assignedBotId!==workerBotId)throw new WorkflowError('Cannot replace an admitted worker.',409);
+    return db.transaction(()=>{
+    db.prepare('UPDATE native_workflow_tasks SET worker_bot_id=?,assigned_bot_id=?,delegate=1 WHERE task_id=?').run(workerBotId,workerBotId,t.id);
+    publishNativeEvent({userId,botId:w.botId,kind:'workflow.assigned',sourceType:'workflow',sourceId:w.id,audience:'internal',data:{taskId,workerBotId}});
+    emitWorkflow(userId,w.botId);return workerBotId;
+    })();
+  }
   if (t.assignedBotId && t.assignedBotId !== w.botId) { ownWorkflowBot(userId,t.assignedBotId); return t.assignedBotId; }
   initSubagents();
   return db.transaction(() => {
@@ -256,15 +278,17 @@ function queueTask(w:Workflow,t:WorkflowTask,text?:string,parentJobId?:string) {
   return db.transaction(()=>{
   const rt = requireRuntime();
   const assigned = t.assignedBotId ?? (t.delegate ? delegateWorkflowTask(w.userId,w.id,t.id) : w.botId);
-  ownWorkflowBot(w.userId,assigned);
+  assertLegacyWorkOpen(w.userId);
+  ownWorkflowBot(w.userId,assigned);if(t.workerBotId)approvedWorkflowWorker(w.userId,t.workerBotId);
   const deps = t.dependsOn.map(id => { const dep = taskOf(w,id); return { taskId:id,title:dep.title,result:dep.result,evidence:dep.evidence }; });
   const prompt = text ?? `Execute native workflow ${w.id}, task ${t.id}: ${t.title}\n${t.instructions}\nVerified prerequisite results:\n${JSON.stringify(deps)}\nAcceptance criteria: ${JSON.stringify(t.criteria)}\nFor row/file evidence, call complete_workflow_task with concrete references. For result criteria, return the contracted JSON.${outputContract(t)}`;
   // enqueue schedules its promise microtask; binding commits before execution starts.
-  const jobId = rt.enqueue(assigned,{ type:'system',text:prompt,...(parentJobId ? {parentJobId} : {}) });
+  const jobId = rt.enqueue(assigned,{ type:'system',text:prompt,audience:'internal',workflowId:w.id,taskId:t.id,...(w.goalId?{goalId:w.goalId}:{}),...(parentJobId ? {parentJobId} : {}) });
   db.prepare(`INSERT INTO native_workflow_runs(job_id,workflow_id,task_id,goal_id,bot_id,parent_job_id,status,usage_start,created_at)
     VALUES(?,?,?,?,?,?,'queued',?,?)`).run(jobId,w.id,t.id,w.goalId,assigned,parentJobId ?? null,usageCursor(),now());
   db.prepare('UPDATE native_workflow_tasks SET assigned_bot_id=?,active_job_id=? WHERE task_id=?').run(assigned,jobId,t.id);
-  setTask(t.id,'queued'); return jobId;
+  setTask(t.id,'queued');
+  publishNativeEvent({userId:w.userId,botId:assigned,kind:'workflow.admitted',sourceType:'workflow',sourceId:w.id,jobId,audience:'internal',data:{taskId:t.id,goalId:w.goalId}});return jobId;
   })();
 }
 export function dispatchReadyWorkflow(userId:string,id:string) {
@@ -278,7 +302,7 @@ export function dispatchReadyWorkflow(userId:string,id:string) {
   emitWorkflow(userId,w.botId); return getWorkflow(userId,id);
 }
 export function startWorkflow(userId:string,id:string) {
-  requireRuntime(); const w = getWorkflow(userId,id);
+  assertLegacyWorkOpen(userId);requireRuntime(); const w = getWorkflow(userId,id);
   if (['completed','cancelled'].includes(w.status)) throw new WorkflowError('Workflow is terminal.',409);
   if (w.goalId && getGoal(userId,w.goalId).status !== 'active') throw new WorkflowError('Resume the goal before starting its workflow.',409);
   db.prepare("UPDATE native_workflows SET status='active',reason='',updated_at=? WHERE id=?").run(now(),id);
@@ -324,7 +348,7 @@ function stopTaskExecution(w:Workflow,t:WorkflowTask,cancel:boolean,reason:strin
   if (t.status !== 'completed' && t.status !== 'cancelled') setTask(t.id,cancel ? 'cancelled' : ['running','blocked'].includes(t.status) ? 'blocked' : 'ready',reason);
 }
 export function controlWorkflow(userId:string,id:string,action:'pause'|'resume'|'block'|'stop',reason='') {
-  const w = getWorkflow(userId,id); if (['completed','cancelled'].includes(w.status)) throw new WorkflowError('Workflow is terminal.',409);
+  assertLegacyWorkOpen(userId);const w = getWorkflow(userId,id); if (['completed','cancelled'].includes(w.status)) throw new WorkflowError('Workflow is terminal.',409);
   if (action === 'resume') {
     for (const t of w.tasks.filter(t => t.status === 'blocked')) {
       const active = t.activeJobId && db.prepare("SELECT 1 FROM agent_jobs WHERE id=? AND state='running'").get(t.activeJobId);
@@ -369,7 +393,7 @@ export function startGoalExecution(userId:string,goalId:string,parentJobId?:stri
 }
 
 export function completeWorkflowTask(userId:string,workflowId:string,taskId:string,evidence:Evidence[],actorBotId?:string) {
-  let w = getWorkflow(userId,workflowId),t = taskOf(w,taskId);
+  assertLegacyWorkOpen(userId);let w = getWorkflow(userId,workflowId),t = taskOf(w,taskId);
   if (actorBotId && actorBotId !== w.botId && actorBotId !== t.assignedBotId) throw new WorkflowError('Only the parent or assigned worker can complete this task.',404);
   if (t.status === 'completed') return w;
   if (t.status === 'cancelled' || ['cancelled','paused'].includes(w.status)) throw new WorkflowError('Task is not accepting completion.',409);
@@ -383,9 +407,10 @@ export function completeWorkflowTask(userId:string,workflowId:string,taskId:stri
     else if(!db.prepare("SELECT 1 FROM native_workflow_tasks WHERE workflow_id=? AND status='blocked'").get(workflowId)) {
       db.prepare("UPDATE native_workflows SET status='active',reason='',updated_at=? WHERE id=? AND status='blocked' AND reason='Task acceptance needs review.'").run(now(),workflowId);
     }
+    publishNativeEvent({userId,botId:t.assignedBotId??w.botId,kind:'workflow.verified',sourceType:'workflow',sourceId:workflowId,jobId:t.activeJobId??undefined,audience:'internal',data:{taskId,evidence:receipts}});
   })();
   w = getWorkflow(userId,workflowId);
-  if (t.assignedBotId && t.assignedBotId !== w.botId) {
+  if (t.assignedBotId && t.assignedBotId !== w.botId && !t.workerBotId) {
     appendRow(w.botId,'message',{type:'message',role:'assistant',text:`Delegated task verified: ${t.title}\n${JSON.stringify({taskId,result:t.result,evidence:receipts})}`});
   }
   emitWorkflow(userId,w.botId); if (w.status === 'active') dispatchReadyWorkflow(userId,workflowId);
@@ -466,10 +491,10 @@ export function checkWorkflowBudget(ctx:TurnHook):{allowed:boolean;reason?:strin
   // be awaited by the loop before this hook; empty pre-call accounting is zero,
   // while a recorded unavailable/estimated value fails closed for a finite cap.
   let liveTokens=0,liveSpend=0,unknownTokens=!!g.unknownTokenTurns,unknownSpend=!!g.unknownSpendTurns;
-  const liveTurns=db.prepare("SELECT bot_id,usage_start FROM native_goal_turns WHERE goal_id=? AND status='running'").all(g.id) as any[];
+  const liveTurns=db.prepare("SELECT job_id,bot_id,usage_start FROM native_goal_turns WHERE goal_id=? AND status='running'").all(g.id) as any[];
   for(const turn of liveTurns) {
-    if(!hasObservedTurnUsage(ctx.userId,turn.bot_id,turn.usage_start))continue;
-    const live=observedTurnUsage(ctx.userId,turn.bot_id,turn.usage_start);
+    if(!hasObservedTurnUsage(ctx.userId,turn.bot_id,turn.usage_start,turn.job_id))continue;
+    const live=observedTurnUsage(ctx.userId,turn.bot_id,turn.usage_start,turn.job_id);
     if(live.tokens===null)unknownTokens=true;else liveTokens+=live.tokens;
     if(live.costUsd===null)unknownSpend=true;else liveSpend+=live.costUsd;
   }
