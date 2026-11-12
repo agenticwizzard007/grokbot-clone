@@ -7,6 +7,7 @@ import { relativeShort } from '../../lib/time';
 import { useConfigUI, useVersion } from '../../configStore';
 import { backToList, useStore } from '../../store';
 import { Glyph } from './glyphs';
+import { TeamBoard } from './TeamBoard';
 import { WorkflowsPanel } from './WorkflowsPanel';
 import './ui';
 import '@fontsource-variable/instrument-sans/wght.css';
@@ -110,6 +111,7 @@ export function TasksView() {
       </header>
       <div className="tasks-view__scroll">
         <div className="tasks-view__inner">
+          <TeamBoard botId={selectedBot?.id} />
           <WorkflowsPanel botId={selectedBot?.id} />
           {error && <TaskError retry={retry} stale={tasks !== null} />}
           {tasks !== null && <div className={`tasks-attention${counts.needs_input ? '' : ' is-clear'}`}>

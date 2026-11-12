@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AvatarColor, AvatarShape, Bot, Routine } from '@shared/types';
 import { BotAvatar, BotAvatarFor, PICKER_SHAPES } from '../../avatar/BotAvatar';
 import { COLOR_ORDER, botVars, palette } from '../../lib/colors';
+import { KnowledgeScopeControl, PendingMemoryChanges, SkillPackageControls } from './KnowledgeManagement';
+import { learningApi } from '../../lib/learningApi';
+import { LearningSettingsPanel } from './LearningSettings';
 import { configApi, type BotSettingsBundle, type KnowledgeSkill, type KnowledgeMemory } from '../../lib/configApi';
 import { SkillHistory, SkillReview, MemoryEvidence, ConversationSearch, MemoryArchive } from './KnowledgePanels';
 import { RoutineHistory } from './RoutineHistory';
@@ -55,6 +58,7 @@ export function BotSettingsModal() {
     { id: 'memories', label: 'Memories', count: data?.memories.length },
     { id: 'routines', label: 'Routines', count: (routines ?? data?.routines)?.length },
     { id: 'analytics', label: 'Analytics' },
+    { id: 'learning', label: 'Learning' },
   ];
 
   return (
@@ -82,6 +86,7 @@ export function BotSettingsModal() {
           {target.tab === 'memories' && <MemoriesTab bot={bot} data={data} onChange={reload} />}
           {target.tab === 'routines' && <RoutinesTab bot={bot} routines={routines ?? data?.routines} />}
           {target.tab === 'analytics' && <BotAnalyticsTab bot={bot} />}
+          {target.tab === 'learning' && <LearningSettingsPanel key={bot.id} botId={bot.id} />}
         </div>
       </div>
     </Modal>
@@ -287,7 +292,7 @@ function SkillsTab({ bot, skills, onChange }: { bot: Bot; skills: KnowledgeSkill
               <div className="cfg-item__text">
                 <div className="cfg-item__title">{s.name}</div>
                 <div className="cfg-item__sub">{s.description || s.body.split('\n')[0]}</div>
-                <SkillHistory skill={s} onChange={onChange} />
+                <SkillHistory skill={s} onChange={onChange} /><SkillPackageControls skillId={s.id} revision={s.revision} onChange={onChange} />
               </div>
               <div className="cfg-item__actions">
                 <button type="button" className="cfg-icon-btn" onClick={() => setEditing(s.id)} aria-label={`Edit ${s.name}`} title="Edit"><Icon name="edit" size={14} /></button>
@@ -312,7 +317,7 @@ function SkillEditor({ botId, skill, onDone }: { botId: string; skill?: Knowledg
     if (!can) return;
     setBusy(true); setError(null);
     try {
-      if (skill) await configApi.updateSkill(skill.id, { name, description, body, expectedRevision: skill.revision });
+      if (skill) await learningApi.updateSkill(skill.id, { name, description, body, expectedRevision: skill.revision });
       else await configApi.createSkill(botId, { name, description, body });
       onDone();
     } catch (e) { setError((e as Error).message); setBusy(false); }
@@ -352,6 +357,7 @@ function MemoriesTab({ bot, data, onChange }: { bot: Bot; data: BotSettingsBundl
         </div>
       </div>
       {memoryError && <div className="cfg-error" role="alert">{memoryError}</div>}
+      <PendingMemoryChanges key={bot.id} botId={bot.id} onChange={onChange} />
       <ConversationSearch botId={bot.id} />
       {(data?.memories.length ?? 0) > 6 && (
         <input className="text-input" placeholder="Search memories" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search memories" />
@@ -368,7 +374,7 @@ function MemoriesTab({ bot, data, onChange }: { bot: Bot; data: BotSettingsBundl
                   {m.source === 'learned' ? <span className="cfg-chip">Picked up</span> : <span className="cfg-chip cfg-chip--muted">Saved in chat</span>}
                   <span>{shortDate(m.createdAt)}</span>
                 </div>
-                <MemoryEvidence memory={m} onChange={onChange} />
+                <div className="native-meta">{m.target === 'environment' ? 'Environment fact' : 'User preference'}{m.evidenceKind ? ` · ${m.evidenceKind} evidence` : ''}</div><MemoryEvidence memory={m} onChange={onChange} /><KnowledgeScopeControl kind="memories" item={m} onChange={onChange} />
               </div>
               <div className="cfg-item__actions">
                 <button type="button" className="cfg-icon-btn" onClick={() => remove(m)} aria-label="Forget this" title="Forget"><Glyph name="trash" size={14} /></button>

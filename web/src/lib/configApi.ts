@@ -17,11 +17,11 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
   return res.json() as Promise<T>;
 }
 
-export interface MessageSource { botId: string; generation: number; seq: number; contentHash?: string }
+export interface MessageSource { botId: string; generation: number; seq: number; contentHash?: string; kind?: 'tool' }
 export interface SourceMessage extends MessageSource { text: string; role: string; from?: { kind: string; id: string; name: string }; createdAt: number; archived: boolean; sourceKey: string }
 export interface KnowledgeSkill extends Skill { revision: number; deleted: boolean }
-export interface KnowledgeMemory extends Memory { revision: number; status: string; evidence: MessageSource[]; runId: string | null; supersedes: string | null }
-export interface SkillRevision { revision: number; name: string; description: string; body: string; deleted: boolean; action: string; actor: string; evidence: MessageSource[]; runId: string | null; createdAt: number }
+export interface KnowledgeMemory extends Memory { scope?: 'private' | 'project' | 'account'; projectId?: string | null; target?: 'user' | 'environment'; evidenceKind?: 'human' | 'tool' | 'hypothesis'; revision: number; status: string; evidence: MessageSource[]; runId: string | null; supersedes: string | null }
+export interface SkillRevision { resources?: Record<string,string>; locked?: boolean; pinned?: boolean; scope?: string; projectId?: string | null; revision: number; name: string; description: string; body: string; deleted: boolean; action: string; actor: string; evidence: MessageSource[]; runId: string | null; createdAt: number }
 export interface SkillProposal { id: string; skillId: string; baseRevision: number; content: Pick<Skill, 'name' | 'description' | 'body'>; reason: string; evidence: MessageSource[]; runId: string | null; status: 'pending' | 'approved' | 'rejected'; createdAt: number; diff: string }
 
 export interface BotSettingsBundle {
@@ -190,7 +190,7 @@ export const configApi = {
   knowledgeMemories: (botId: string, history = false) => req<{ memories: KnowledgeMemory[] }>('GET', `/bots/${botId}/memories${history ? '?history=1' : ''}`),
   correctMemory: (id: string, text: string, expectedRevision: number) => req<{ memory: KnowledgeMemory }>('PATCH', `/memories/${id}`, { text, expectedRevision }),
   memoryHistory: (id: string) => req<{ events: { action: string; actor: string; memory: KnowledgeMemory; createdAt: number }[] }>('GET', `/memories/${id}/history`),
-  sourceMessages: (ref: MessageSource) => req<{ messages: SourceMessage[] }>('GET', `/bots/${ref.botId}/messages/${ref.generation}/${ref.seq}${ref.contentHash ? `?contentHash=${ref.contentHash}` : ''}`),
+  sourceMessages: (ref: MessageSource) => req<{ messages: SourceMessage[] }>('GET', `/bots/${ref.botId}/messages/${ref.generation}/${ref.seq}?${new URLSearchParams({ ...(ref.contentHash ? { contentHash: ref.contentHash } : {}), ...(ref.kind ? { kind: ref.kind } : {}) })}`),
   searchConversations: (botId: string, query: string, offset = 0) => req<{ messages: SourceMessage[]; nextOffset: number | null }>('GET', `/bots/${botId}/conversation-search?q=${encodeURIComponent(query)}&offset=${offset}`),
 
   setRoutine: (id: string, enabled: boolean) => req<{ routine: Routine }>('PATCH', `/routines/${id}`, { enabled }),

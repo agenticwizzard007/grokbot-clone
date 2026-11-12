@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { configApi, type KnowledgeMemory, type KnowledgeSkill, type MessageSource, type SkillProposal, type SkillRevision, type SourceMessage } from '../../lib/configApi';
+import { learningApi } from '../../lib/learningApi';
 import { shortDate } from './ui';
 
 export function SourceMessages({ sources }: { sources: MessageSource[] }) {
@@ -12,13 +13,13 @@ export function SourceMessages({ sources }: { sources: MessageSource[] }) {
     finally { setBusy(false); }
   };
   return <div className="cfg-field__hint">
-    {sources.map(s => <a key={`${s.botId}:${s.generation}:${s.seq}`} href={`/api/bots/${s.botId}/messages/${s.generation}/${s.seq}`} onClick={e => { e.preventDefault(); void read(s); }} style={{ marginRight: 10 }}>Source {s.generation}:{s.seq}</a>)}
+    {sources.map(s => <a key={`${s.botId}:${s.generation}:${s.seq}:${s.kind ?? 'message'}`} href={`/api/bots/${encodeURIComponent(s.botId)}/messages/${s.generation}/${s.seq}${s.kind ? '?kind=tool' : ''}`} onClick={e => { e.preventDefault(); void read(s); }} style={{ marginRight: 10 }}>{s.kind === 'tool' ? 'Tool source' : 'Source'} {s.generation}:{s.seq}</a>)}
     {busy && <span role="status">Loading sources…</span>}
     {error && <div className="cfg-error" role="alert">{error}</div>}
     {messages && <div className="cfg-editor">
       <button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setMessages(null)}>Close sources</button>
       {messages.map(m => <div key={m.sourceKey} style={{ marginTop: 10 }}>
-        <strong>{m.from && ['bot', 'routine'].includes(m.from.kind) ? `${m.from.kind}: ${m.from.name}` : m.role === 'user' ? 'User' : 'Assistant'} · {m.generation}:{m.seq}{m.archived ? ' · Archived conversation' : ''}</strong>
+        <strong>{m.from && ['bot', 'routine'].includes(m.from.kind) ? `${m.from.kind}: ${m.from.name}` : m.role === 'user' ? 'User' : m.role === 'tool' ? 'Tool observation' : 'Assistant'} · {m.generation}:{m.seq}{m.archived ? ' · Archived conversation' : ''}</strong>
         <div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{m.text}</div>
       </div>)}
     </div>}
@@ -50,6 +51,8 @@ export function SkillHistory({ skill, onChange }: { skill: KnowledgeSkill; onCha
         <summary>Revision {r.revision} · {r.action} · {shortDate(r.createdAt)}{r.deleted ? ' · Deleted' : ''}</summary>
         <div>{r.name} · {r.description}</div>
         <pre style={{ whiteSpace: 'pre-wrap', maxHeight: 240, overflow: 'auto' }}>{r.body}</pre>
+        {r.resources && Object.entries(r.resources).map(([path, content]) => <details key={path}><summary>{path}</summary><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{content}</pre></details>)}
+        {(r.pinned || r.locked || r.scope) && <p className="cfg-field__hint">{r.pinned ? 'Pinned · ' : ''}{r.locked ? 'Locked · ' : ''}{r.scope ?? 'private'}</p>}
         <SourceMessages sources={r.evidence} />
         {r.revision !== skill.revision && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => void restore(r.revision)}>{busy ? 'Restoring…' : `Restore revision ${r.revision}`}</button>}
       </details>)}
@@ -65,8 +68,8 @@ export function SkillReview({ botId, version, onChange }: { botId: string; versi
   const [refresh, setRefresh] = useState(0);
   useEffect(() => {
     let active = true; setError('');
-    Promise.all([configApi.skillProposals(botId), configApi.skillArchive(botId)]).then(([p, a]) => {
-      if (active) { setProposals(p.proposals.filter(p => p.status === 'pending')); setArchive(a.skills); }
+    Promise.all([configApi.skillProposals(botId), learningApi.skills(botId, true)]).then(([p, a]) => {
+      if (active) { setProposals(p.proposals.filter(p => p.status === 'pending')); setArchive(a.skills.filter(s => s.deleted)); }
     }).catch(e => { if (active) setError(e.message); });
     return () => { active = false; };
   }, [botId, version, refresh]);
