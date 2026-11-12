@@ -35,7 +35,7 @@ try {
   assert.equal(await new Promise(resolve => seed.on('exit', resolve)), 0, 'canonical fixtures seeded');
   console.log('PASS canonical fixtures');
   const fixture = JSON.parse(fs.readFileSync(fixtureFile, 'utf8'));
-  start(['tests/fixtures/hermes-experience-provider.mjs', String(mockPort)]);
+  start([process.env.HERMES_MODEL_FIXTURE ?? 'tests/fixtures/hermes-experience-provider.mjs', String(mockPort)]);
   start(['--import', 'tsx', path.join(serverRoot, 'server/src/index.ts')], serverRoot);
   await until(() => fetch(apiBase + '/api/health').then(r => r.ok).catch(() => false), 'real server');
   start([path.join(experienceRoot, 'web/node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', String(uiPort)], path.join(experienceRoot, 'web'), { SWARM_API: apiBase });
@@ -211,7 +211,7 @@ try {
   await api('/learning/settings', 'PATCH', { botId: fixture.nia.id, expectedRevision: researchSettings.revision, settings: { automaticReview: true, memoryTurnInterval: 1, skillIterationInterval: 1, skillApproval: false } });
   await api(`/bots/${fixture.nia.id}/messages`, 'POST', { text: 'I now prefer daily research reports with named owners and source links. mock: say Research correction recorded.' });
   await until(async () => (await api(`/learning/reviews?botId=${fixture.nia.id}`)).reviews.some(r => r.reason === 'automatic' && r.status === 'completed'), 'automatic multi-step review');
-  let researchReview = (await api(`/learning/reviews?botId=${fixture.nia.id}`)).reviews.find(r => r.reason === 'automatic');
+  const researchReview = (await api(`/learning/reviews?botId=${fixture.nia.id}`)).reviews.find(r => r.reason === 'automatic');
   assert.ok(researchReview.iterations >= 4, 'review must read, update skill, stage memory and finish');
   const learned = (await api(`/learning/skills/${fixture.researchSkill.id}`)).skill;
   assert.match(learned.body, /daily/); assert.ok(learned.revision > fixture.researchSkill.revision, 'approval-off skill activated directly');
@@ -222,6 +222,8 @@ try {
   await api('/learning/settings', 'PATCH', { botId: fixture.nia.id, expectedRevision: researchSettings.revision, settings: { skillApproval: true } });
   await api(`/bots/${fixture.nia.id}/messages`, 'POST', { text: 'Always verify source links in the daily research report. mock: say Verification correction recorded.' });
   await until(async () => (await api(`/learning/reviews?botId=${fixture.nia.id}`)).reviews.filter(r => r.reason === 'automatic' && r.status === 'completed').length >= 2, 'approval-enabled review');
+  const approvalReview = (await api(`/learning/reviews?botId=${fixture.nia.id}`)).reviews.find(r => r.reason === 'automatic' && r.status === 'completed' && r.id !== researchReview.id);
+  assert.ok(approvalReview.iterations >= 4, 'approval-enabled review must also read, update skill, stage memory and finish');
   assert.equal((await api(`/learning/skills/${fixture.researchSkill.id}`)).skill.revision, learned.revision, 'approval-enabled revision must stay inactive');
   const stagedSkill = (await api(`/bots/${fixture.nia.id}/skill-proposals`)).proposals.find(p => p.status === 'pending' && p.skillId === fixture.researchSkill.id);
   assert.ok(stagedSkill, 'equivalent guarded skill update is pending when approval enabled');
@@ -241,7 +243,7 @@ try {
   const usage = await api('/usage?range=30d');
   assert.ok(usage.byKind?.some(k => k.key === 'background_review' && k.requests > 0), 'background review usage is separately attributed');
   assert.deepEqual(errors, []);
-  fs.writeFileSync(path.join(evidenceDir, 'result.json'), JSON.stringify({ status: 'passed', serverRoot, checks: ['defaults and existing proposals', 'Bot overrides/reset', 'explicit refinement', 'package resources/pin/lock/project/account/revoke/archive/rollback', 'memory review/source links', 'internal audience', 'response loss/reload/idempotency', 'unknown reconciliation without send', 'permanent workers/dependencies/validated artifacts', 'automatic multi-step direct/staged review', 'owner approval and exact fresh-read receipts', 'background usage attribution', 'account isolation', 'desktop/mobile'], screenshots: fs.readdirSync(evidenceDir).filter(f => f.endsWith('.png')) }, null, 2));
+  fs.writeFileSync(path.join(evidenceDir, 'result.json'), JSON.stringify({ status: 'passed', serverRoot, learningReviews: { direct: researchReview, approval: approvalReview }, checks: ['defaults and existing proposals', 'Bot overrides/reset', 'explicit refinement', 'package resources/pin/lock/project/account/revoke/archive/rollback', 'memory review/source links', 'internal audience', 'response loss/reload/idempotency', 'unknown reconciliation without send', 'permanent workers/dependencies/validated artifacts', 'automatic multi-step direct/staged review', 'owner approval and exact fresh-read receipts', 'background usage attribution', 'account isolation', 'desktop/mobile'], screenshots: fs.readdirSync(evidenceDir).filter(f => f.endsWith('.png')) }, null, 2));
   console.log('PASS native Hermes experience: real APIs/server, stable delivery recovery, review controls, account isolation, desktop/mobile.');
 } catch (error) {
   const page = browser?.contexts()[0]?.pages()[0];

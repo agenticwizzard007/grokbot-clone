@@ -16,6 +16,13 @@ const server = http.createServer(async (request, response) => {
     const lastUserIndex = items.findLastIndex(i => i.role === 'user');
     const content = items[lastUserIndex]?.content;
     const text = typeof content === 'string' ? content : JSON.stringify(content ?? '');
+    // Identify detached review by its real restricted management manifest. The
+    // native evidence trailer may be an anchor list or a bounded source index;
+    // prompt wording is not the identity of a review, nor executable fixture text.
+    const reviewTools = new Set(['session_search', 'list_skills', 'read_skill', 'manage_skill', 'propose_skill', 'recall', 'remember', 'correct_memory', 'forget_memory', 'manage_memory']);
+    const toolNames = (body.tools ?? []).map(tool => tool.type === 'function' ? tool.name : '');
+    const managementReview = body.store === false && body.parallel_tool_calls === false && toolNames.length > 0
+      && toolNames.every(name => reviewTools.has(name)) && toolNames.some(name => name === 'manage_skill' || name === 'manage_memory');
     if (request.url?.startsWith('/v1/responses') && text.includes('Execute native workflow') && text.includes('OUTPUT CONTRACT')) {
       const outputs = items.slice(lastUserIndex + 1).filter(i => i.type === 'function_call_output');
       const writing = text.includes('Write report');
@@ -34,7 +41,7 @@ const server = http.createServer(async (request, response) => {
       } else { response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify(result)); }
       return;
     }
-    if (request.url?.startsWith('/v1/responses') && text.includes('Native source anchors')) {
+    if (request.url?.startsWith('/v1/responses') && managementReview) {
       const research = text.includes(fixture.researchSkill.id), skill = research ? fixture.researchSkill : fixture.skill;
       const outputs = items.slice(lastUserIndex + 1).filter(i => i.type === 'function_call_output');
       let item;
