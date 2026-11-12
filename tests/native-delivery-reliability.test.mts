@@ -234,19 +234,21 @@ test('HTTP destination signing proof survives a fresh process with a different S
   assert.deepEqual(d.getDeliveryTarget(f.userId, saved.id), destination.target);
 });
 
-test('continuous runtime drains more than 100 pending items despite an oldest claim failure and channel refusals', async () => {
+test('continuous runtime drains healthy work beyond 125 poison pending rows without retrying failed or unknown sends', async () => {
   const f = fixture('backlog'), a = artifact(f), pending: string[] = [];
-  for (let n = 0; n < 208; n++) {
+  for (let n = 0; n < 332; n++) {
     const delivery = await d.requestDelivery({ userId: f.userId, artifactId: a.id, channel: 'sms', idempotencyKey: key() });
     db.prepare('UPDATE artifact_deliveries SET created_at=? WHERE id=?').run(n + 1, delivery.id);
     pending.push(delivery.id);
   }
-  const [claimFailure, refused, unknown, ...healthy] = pending;
+  const poisoned = pending.slice(0, 125);
+  const [refused, unknown, ...healthy] = pending.slice(125);
   f.failures.set(refused, 'not_sent'); f.failures.set(unknown, 'unknown');
-  // Inject a real SQLite claim failure in the oldest item. The actual drainer
-  // must catch it and keep processing later records across successive batches.
+  // More poison rows than one full batch must not permanently occupy every
+  // eligible slot. This trigger rejects only claims, allowing the real runtime
+  // to persist pre-claim failure backoff and reach newer accepted deliveries.
   db.exec(`CREATE TEMP TRIGGER delivery_fixture_claim_failure BEFORE UPDATE OF status ON artifact_deliveries
-    WHEN OLD.id='${claimFailure}' AND NEW.status='sending'
+    WHEN OLD.id IN (${poisoned.map(id => `'${id}'`).join(',')}) AND NEW.status='sending'
     BEGIN SELECT RAISE(ABORT,'fixture storage claim unavailable'); END;`);
   try {
     stopRuntime = d.startDeliveryRuntime(messagingDeliveryTransport, 10);
@@ -262,10 +264,21 @@ test('continuous runtime drains more than 100 pending items despite an oldest cl
       assert.equal(saved.status, 'delivered', `backlog item ${id} must advance without a manual drain`);
       assert.equal(saved.attempts.length, 1);
     }
-    assert.equal(d.getDelivery(f.userId, refused).status, 'failed');
-    assert.equal(d.getDelivery(f.userId, unknown).status, 'unknown');
-    assert.equal(d.getDelivery(f.userId, claimFailure).status, 'pending');
-    assert.equal(d.getDelivery(f.userId, claimFailure).attempts.length, 0);
+    for (const [id, status] of [[refused, 'failed'], [unknown, 'unknown']]) {
+      const saved = d.getDelivery(f.userId, id);
+      assert.equal(saved.status, status); assert.equal(saved.attempts.length, 1);
+    }
+    for (const id of poisoned) {
+      const saved = d.getDelivery(f.userId, id);
+      assert.equal(saved.status, 'pending'); assert.equal(saved.attempts.length, 0);
+      const backoff = db.prepare('SELECT next_attempt_at,drain_failures FROM artifact_deliveries WHERE id=?').get(id) as any;
+      assert.ok(backoff.drain_failures >= 1, 'each poison claim must record its failure for backoff');
+      assert.ok(backoff.next_attempt_at > 0, 'each poison claim must leave the immediate eligible batch');
+      assert.ok(!f.sends.some(send => send.deliveryId === id), 'pre-claim failure must not invoke the channel');
+    }
+    // Keep the runtime running for several more ticks: terminal failed/unknown
+    // sends must stay excluded while only pending storage failures may back off.
+    await new Promise(resolve => setTimeout(resolve, 40));
     assert.equal(f.sends.length, 207);
     assert.equal(new Set(f.sends.map(send => send.deliveryId)).size, 207, 'failed/unknown sends must not repeat on later runtime ticks');
     assert.ok(f.sends.some(send => send.deliveryId === healthy.at(-1)), 'the runtime must continue beyond its first 100-item batch');
