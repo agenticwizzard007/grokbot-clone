@@ -396,7 +396,8 @@ class VoiceCall {
   private syncConnections() {
     const requests = new Map<string, VoiceConnectionRequest>();
     for (const request of [...this.connectionRequests, ...this.optimisticConnections.values()]) {
-      if (!requests.has(request.toolkit)) requests.set(request.toolkit, request);
+      const identity = `${request.botId}:${request.seq}:${request.toolkit}`;
+      if (!requests.has(identity)) requests.set(identity, request);
     }
     setV({ connectionRequests: [...requests.values()] });
   }
@@ -417,7 +418,7 @@ class VoiceCall {
       let cursor = this.cursor;
       for (const update of updates) {
         if (update.id <= cursor) continue;
-        fresh.push(update);
+        if (update.audience !== 'internal') fresh.push(update);
         cursor = update.id;
       }
       this.cursor = Math.max(cursor, result.cursor);

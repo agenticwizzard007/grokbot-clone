@@ -1,3 +1,4 @@
+import { userFacingLive } from '../lib/audience';
 import { memo, useCallback, useState } from 'react';
 import { Blocks, Gauge, KeyRound, LogOut, Monitor, Settings } from 'lucide-react';
 import { useConfigUI } from '../configStore';
@@ -98,7 +99,7 @@ export function Sidebar() {
             <button type="button" className={`pinned__tile${selectedBotId === primary.id ? ' is-selected' : ''}`} onClick={() => selectBot(primary.id)} title={displayName(primary)}>
               <span className="pinned__avatar">
                 <BotAvatarFor bot={primary} size={collapsed ? 44 : 60} star />
-                {live[primary.id]?.isRunning && <span className="status-dot is-working pinned__dot" />}
+                {userFacingLive(live[primary.id])?.isRunning && <span className="status-dot is-working pinned__dot" />}
               </span>
               {!collapsed && <span className="pinned__label">{displayName(primary)}</span>}
             </button>
@@ -111,7 +112,7 @@ export function Sidebar() {
                 <BotAvatarFor bot={b} size={36} />
               </button>
             ) : (
-              <BotRow key={b.id} bot={b} selected={selectedBotId === b.id} running={!!live[b.id]?.isRunning} awaiting={live[b.id]?.awaiting?.reason ?? null} onSelect={selectBot} />
+              <BotRow key={b.id} bot={b} selected={selectedBotId === b.id} running={!!userFacingLive(live[b.id])?.isRunning} awaiting={userFacingLive(live[b.id])?.awaiting?.reason ?? null} onSelect={selectBot} />
             ),
           )}
           {!collapsed && others.length === 0 && (

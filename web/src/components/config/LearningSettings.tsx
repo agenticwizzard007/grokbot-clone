@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { learningApi, type LearningSettings as Settings, type LearningSettingsView, type LearningReview } from '../../lib/learningApi';
 import { useNativeRefresh } from '../../lib/useNativeRefresh';
+import { useConfigUI } from '../../configStore';
 import { useStore } from '../../store';
 import './native-learning.css';
 
@@ -87,6 +88,7 @@ export function LearningReviews({ botId }: { botId?: string }) {
   const chosen = botId ?? refineBot;
   return <section className="native-panel" aria-label="Learning review history">
     <header><h3>Review history and activity</h3><button className="cfg-btn cfg-btn--secondary" type="button" onClick={refresh}>Refresh reviews</button></header>
+    <button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => { useConfigUI.getState().closeBotSettings(); useConfigUI.getState().openAppSettings('usage'); }}>View background learning usage</button>
     <p className="native-meta">Reviews use multiple management steps. A completed review can make no changes; active and pending changes appear in Skills and Memories. Review token usage is background work; pricing appears in Usage.</p>
     <div className="learning-actions">{!botId && <select aria-label="Bot to refine" value={refineBot} onChange={e => setRefineBot(e.currentTarget.value)}><option value="">Select a Bot</option>{bots.filter(b => b.kind !== 'room').map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select>}<button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy || !chosen} onClick={() => void action(async () => { const r = await learningApi.refine(chosen); setNotice(`Refinement ${r.review.status}. Review ${r.review.id}`); })}>{busy ? 'Updating…' : 'Refine now'}</button></div>
     {notice && <p role="status">{notice}</p>}{error && <p className="cfg-error" role="alert">{error}</p>}

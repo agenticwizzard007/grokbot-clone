@@ -29,6 +29,7 @@ export interface VoiceToolResult {
   connectionRequest?: VoiceConnectionRequest;
 }
 export interface VoiceUpdate {
+  audience?: 'user' | 'internal';
   id: number;
   botId: string;
   botName: string;

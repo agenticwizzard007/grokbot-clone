@@ -17,7 +17,7 @@ export interface LearningReview {
   id: string; userId: string; botId: string; jobId: string | null; parentJobId: string | null;
   status: 'queued' | 'running' | 'completed' | 'cancelled' | 'failed'; reason: string;
   reviewMemory: boolean; reviewSkills: boolean; model: string | null; provider: string | null;
-  settingsRevision: number; foregroundEpoch: number; generation: number;
+  settingsRevision: string; foregroundEpoch: number; generation: number;
   createdAt: number; startedAt: number | null; finishedAt: number | null;
   iterations: number; inputTokens: number; outputTokens: number; summary: string | null; error: string | null;
 }

@@ -31,6 +31,11 @@ for (const bot of [quinn, nia, ellis]) {
     activateSetup(bot.id, view.onboarding.revision);
   }
 }
+const researchWeekly = appendRow(nia.id, 'message', { type: 'message', role: 'user', text: 'I prefer weekly research reports with named owners and source links.' });
+const researchDaily = appendRow(nia.id, 'message', { type: 'message', role: 'user', text: 'I now prefer daily research reports with named owners and source links.' });
+const researchEvidence = (row: any) => ({ botId: row.botId, generation: row.generation, seq: row.seq });
+const researchMemory = memories.saveMemory(owner, nia.id, { text: 'Prefers weekly research reports with named owners and source links.', evidence: [researchEvidence(researchWeekly)] }).memory;
+const researchSkill = skills.createSkill(owner, nia.id, { name: 'Research procedure', description: 'Prepare sourced research with named owners.', body: 'Inspect original sources and save a weekly research report with owners.' });
 const foreign = createBot('experience-other', { name: 'Other account', isPrimary: true });
 const weekly = appendRow(quinn.id, 'message', { type: 'message', role: 'user', text: 'I prefer weekly pipeline reports with named owners and source links.' });
 const daily = appendRow(quinn.id, 'message', { type: 'message', role: 'user', text: 'I now prefer daily pipeline reports with named owners and source links.' });
@@ -47,5 +52,5 @@ await sendDelivery(owner, uncertain.id, { prepare: async () => ({ channel: 'sms'
 appendRow(quinn.id, 'message', { type: 'message', role: 'user', text: 'INTERNAL_NARRATIVE_MUST_NOT_LEAK', from: { kind: 'bot', id: nia.id, name: 'Nia' }, audience: 'internal' });
 appendRow(quinn.id, 'message', { type: 'message', role: 'assistant', text: 'INTERNAL_ASSISTANT_MUST_NOT_LEAK', audience: 'internal' });
 patchLearningSettings(owner, { expectedRevision: 0, settings: { automaticReview: false } });
-fs.writeFileSync(process.env.HERMES_FIXTURE_FILE!, JSON.stringify({ owner, quinn, nia, ellis, foreign, memory, pendingMemory, skill, legacyProposal, artifact, uncertain, weekly: ref(weekly), daily: ref(daily) }));
+fs.writeFileSync(process.env.HERMES_FIXTURE_FILE!, JSON.stringify({ owner, quinn, nia, ellis, foreign, researchSkill, researchMemory, researchDaily: researchEvidence(researchDaily), memory, pendingMemory, skill, legacyProposal, artifact, uncertain, weekly: ref(weekly), daily: ref(daily) }));
 db.close();
