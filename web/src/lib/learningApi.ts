@@ -17,6 +17,8 @@ export interface LearningReview {
   id: string; userId: string; botId: string; jobId: string | null; parentJobId: string | null;
   status: 'queued' | 'running' | 'completed' | 'cancelled' | 'failed'; reason: string;
   reviewMemory: boolean; reviewSkills: boolean; model: string | null; provider: string | null;
+  originModel: string | null; originProvider: string | null;
+  usageStatus: 'complete' | 'partial' | 'unavailable'; budgetInputTokens: number;
   settingsRevision: string; foregroundEpoch: number; generation: number;
   createdAt: number; startedAt: number | null; finishedAt: number | null;
   iterations: number; inputTokens: number; outputTokens: number; summary: string | null; error: string | null;
@@ -25,6 +27,7 @@ export type KnowledgeScope = 'private' | 'project' | 'account';
 export interface ScopedKnowledge { scope: KnowledgeScope; projectId: string | null }
 export interface LearningSkill extends KnowledgeSkill, ScopedKnowledge {
   resources: Record<string, string>; locked: boolean; pinned: boolean; managed: boolean; lastUsedAt: number | null;
+  lifecycle: 'active' | 'stale' | 'archived';
 }
 export interface LearningMemory extends Omit<KnowledgeMemory, 'scope' | 'projectId'>, ScopedKnowledge {
   target: 'user' | 'environment'; evidenceKind: 'human' | 'tool' | 'hypothesis';
