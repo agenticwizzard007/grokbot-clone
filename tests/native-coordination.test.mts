@@ -83,7 +83,7 @@ test('request ownership, pagination and bounded reply ancestry',()=>{
 test('actual human activity suppresses check-ins; bot chatter does not',()=>{
  const f=fixture(),stop=initProactive(enqueue);
  appendRow(f.worker.id,'message',{type:'message',role:'user',text:'Internal',from:{kind:'bot',id:f.chief.id,name:'Quinn'}});
- assert.ok(fireCheckin(f.userId));assert.equal(queued.length,1);db.prepare("UPDATE agent_jobs SET state='completed' WHERE user_id=?").run(f.userId);
+ assert.ok(fireCheckin(f.userId));assert.equal(queued.length,1);assert.match(queued[0].trigger.proactiveSlotKey,/^manual:/);db.prepare("UPDATE agent_jobs SET state='completed' WHERE user_id=?").run(f.userId);
  appendRow(f.worker.id,'message',{type:'message',role:'user',text:'A human asks'});assert.equal(fireCheckin(f.userId),undefined);stop();
 });
 test('proactive due slots survive refusal and elapsed discovery window until admission',()=>{
@@ -207,4 +207,18 @@ test('atomic final-outcome checkpoint returns original final text once after a f
  assert.equal(c.getInternalRequest(f.userId,id).status,'completed');assert.equal(c.getInternalRequest(f.userId,id).result,'Durable final research result');
  let results=c.listInternalRequests(f.userId).requests.filter(r=>r.kind==='result');assert.equal(results.length,1);assert.match(results[0].text,/Durable final research result/);
  r.recoverInternalRequests();results=c.listInternalRequests(f.userId).requests.filter(r=>r.kind==='result');assert.equal(results.length,1);
+});
+
+test('current context remains bounded with large subscription work queues',()=>{
+ const f=fixture();const insert=db.prepare("INSERT INTO agent_jobs(id,user_id,bot_id,trigger,state,created_at) VALUES(?,?,?,?,'queued',?)");db.transaction(()=>{for(let n=0;n<900;n++)insert.run('large-queue-'+seq+'-'+n,f.userId,f.worker.id,JSON.stringify({type:'system',text:'Queued work'}),Date.now());})();
+ const prompt=c.coordinationPrompt(f.userId,f.chief.id);assert.ok(prompt.length<25000,`Operational context grew to ${prompt.length}`);assert.ok(c.teamState(f.userId).agents.find(a=>a.botId===f.worker.id)!.activeJobIds.length===900);
+});
+test('stable request identity survives more than 32 approval continuations and final-outcome replay',()=>{
+ const f=fixture(),id=request(f);let job=queued.at(-1)!;settle(f,job,'waiting','');let parent=job.jobId;
+ for(let n=0;n<40;n++){const next=acceptJob(f.worker.id,{type:'resume',parentJobId:parent,coordinationRequestId:id,audience:'internal'});beginJob(next.id);finishJob(next.id,true);c.recordCoordinationJobOutcome({userId:f.userId,botId:f.worker.id,jobId:next.id,status:n===39?'completed':'waiting',finalText:n===39?'Final after long continuation chain':''});parent=next.id;}
+ r.recoverInternalRequests();assert.equal(c.getInternalRequest(f.userId,id).status,'completed');assert.equal(c.getInternalRequest(f.userId,id).result,'Final after long continuation chain');assert.equal(c.listInternalRequests(f.userId).requests.filter(r=>r.kind==='result').length,1);
+});
+
+test('visible permanent workers without approved setup remain deferred',()=>{
+ const f=fixture();db.prepare('DELETE FROM bot_setups WHERE bot_id=?').run(f.worker.id);const id=request(f);assert.equal(c.getInternalRequest(f.userId,id).status,'deferred');assert.match(c.getInternalRequest(f.userId,id).reason,/activated/);assert.equal(queued.length,0);
 });

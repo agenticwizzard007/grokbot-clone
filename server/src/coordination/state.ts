@@ -35,12 +35,12 @@ export function teamState(userId:string) {
 export function coordinationPrompt(userId:string,botId:string,jobId?:string) {
  const state=teamState(userId);if(state.primaryBotId!==botId)return '';
  if(jobId)for(const [kind,revision] of Object.entries(state.sourceVersions))recordContextReceipt({userId,botId,jobId,kind:'coordination',sourceId:kind,revision,hash:revision});
- const compact={eventCursor:state.eventCursor,sourceVersions:state.sourceVersions,agents:state.agents.slice(0,24),
+ const compact={eventCursor:state.eventCursor,sourceVersions:state.sourceVersions,agents:state.agents.slice(0,24).map(a=>({...a,activeJobIds:a.activeJobIds.slice(0,8)})),
  jobs:state.jobs.filter(j=>['queued','running','uncertain'].includes(j.state)).slice(0,24),
  workflows:state.workflows.filter(w=>!['completed','cancelled'].includes(w.status)).slice(0,12).map(w=>({...w,tasks:w.tasks.slice(0,20).map(t=>({...t,title:t.title.slice(0,160),reason:t.reason.slice(0,160),evidence:t.evidence.map((e:any)=>({kind:e.kind,sha256:e.sha256})).slice(0,4)}))})),
  artifacts:state.artifacts.slice(0,12),deliveries:state.deliveries.slice(0,12),requests:state.requests,health:state.health};
  const text=JSON.stringify(compact);
  if(text.length<=24000)return `Current operational team state (execution finished is not acceptance or user delivery):\n${text}`;
  // Keep valid bounded JSON instead of silently truncating a source snapshot.
- return `Current operational team state (bounded summary; inspect team board for details):\n${JSON.stringify({eventCursor:state.eventCursor,sourceVersions:state.sourceVersions,agents:state.agents.slice(0,12),requests:state.requests,health:state.health,omittedDetails:true})}`;
+ return `Current operational team state (bounded summary; inspect team board for details):\n${JSON.stringify({eventCursor:state.eventCursor,sourceVersions:state.sourceVersions,agents:state.agents.slice(0,12).map(a=>({...a,activeJobIds:a.activeJobIds.slice(0,4)})),requests:state.requests,health:state.health,omittedDetails:true})}`;
 }

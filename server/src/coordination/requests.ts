@@ -90,7 +90,7 @@ export function drainInternalRequests() {
    if(!['queued','deferred'].includes(r.status)||r.claim_until>now())return;
    ownAgent(r.user_id,r.from_bot_id);const target=ownAgent(r.user_id,r.to_bot_id);
    const setup=db.prepare('SELECT onboarding_status FROM bot_setups WHERE bot_id=?').get(target.id) as any;
-   const reason=setup&&setup.onboarding_status!=='active'?'Worker setup is not activated.':botOccupied(r.to_bot_id)?'Worker is busy or waiting for a decision.':'';
+   const reason=(!target.hidden&&!target.parent_bot_id&&setup?.onboarding_status!=='active'||setup&&setup.onboarding_status!=='active')?'Worker setup is not activated.':botOccupied(r.to_bot_id)?'Worker is busy or waiting for a decision.':'';
    if(reason){if(r.status!=='deferred'||r.reason!==reason){db.prepare("UPDATE coordination_requests SET status='deferred',reason=?,revision=revision+1,updated_at=? WHERE id=?").run(reason,now(),r.id);event({...r,status:'deferred',revision:r.revision+1},'coordination.deferred');}return;}
    const token=newId('claim');if(!db.prepare('UPDATE coordination_requests SET claim_token=?,claim_until=? WHERE id=? AND (claim_until IS NULL OR claim_until<=?)').run(token,now()+30000,r.id,now()).changes)return;
    const from=ownAgent(r.user_id,r.from_bot_id);
@@ -116,6 +116,9 @@ export function recordCoordinationJobOutcome(input:CoordinationFinish) {
  ON CONFLICT(job_id) DO UPDATE SET status=excluded.status,final_text=excluded.final_text,updated_at=excluded.updated_at WHERE coordination_job_outcomes.status='waiting'`).run(input.jobId,input.userId,input.botId,input.status,(input.finalText??'').slice(0,32000),now(),now());
 }
 function requestForJob(input:CoordinationFinish) {
+ const direct=db.prepare(`SELECT r.* FROM coordination_requests r JOIN agent_jobs j ON json_extract(j.trigger,'$.coordinationRequestId')=r.id
+ WHERE j.id=? AND j.user_id=? AND j.bot_id=? AND r.user_id=j.user_id AND r.to_bot_id=j.bot_id`).get(input.jobId,input.userId,input.botId) as any;
+ if(direct)return direct;
  // Decisions resume on a new durable job. Follow only same-owner/same-bot lineage.
  return db.prepare(`WITH RECURSIVE lineage(id,parent,depth) AS (
  SELECT id,json_extract(trigger,'$.parentJobId'),0 FROM agent_jobs WHERE id=? AND user_id=? AND bot_id=?
@@ -144,9 +147,9 @@ export function recoverInternalRequests() {
   // A live continuation may already own this wait; never replay the original.
   const continuation=db.prepare(`WITH RECURSIVE chain(id,depth) AS (SELECT ?,0 UNION ALL SELECT j.id,c.depth+1 FROM agent_jobs j JOIN chain c ON json_extract(j.trigger,'$.parentJobId')=c.id WHERE j.user_id=? AND j.bot_id=? AND c.depth<32)
   SELECT 1 FROM chain c JOIN agent_jobs j ON j.id=c.id WHERE c.depth>0 AND j.state IN ('queued','running') LIMIT 1`).get(r.job_id,r.user_id,r.to_bot_id);
-  if(continuation)continue;
+  if(continuation||db.prepare("SELECT 1 FROM agent_jobs WHERE user_id=? AND bot_id=? AND json_extract(trigger,'$.coordinationRequestId')=? AND state IN ('queued','running') LIMIT 1").get(r.user_id,r.to_bot_id,r.id))continue;
   const outcome=db.prepare(`WITH RECURSIVE chain(id,n) AS (SELECT ?,0 UNION ALL SELECT j.id,c.n+1 FROM agent_jobs j JOIN chain c ON json_extract(j.trigger,'$.parentJobId')=c.id WHERE j.user_id=? AND j.bot_id=? AND c.n<32)
-  SELECT o.* FROM coordination_job_outcomes o JOIN chain c ON c.id=o.job_id JOIN agent_jobs j ON j.id=o.job_id WHERE o.user_id=? AND o.bot_id=? AND o.status NOT IN ('waiting','queued','running') AND j.state IN ('completed','uncertain','cancelled') ORDER BY c.n DESC,o.updated_at DESC LIMIT 1`).get(r.job_id,r.user_id,r.to_bot_id,r.user_id,r.to_bot_id) as any;
+  SELECT o.* FROM coordination_job_outcomes o JOIN agent_jobs j ON j.id=o.job_id LEFT JOIN chain c ON c.id=o.job_id WHERE o.user_id=? AND o.bot_id=? AND (c.id IS NOT NULL OR json_extract(j.trigger,'$.coordinationRequestId')=?) AND o.status NOT IN ('waiting','queued','running') AND j.state IN ('completed','uncertain','cancelled') ORDER BY o.updated_at DESC,j.rowid DESC LIMIT 1`).get(r.job_id,r.user_id,r.to_bot_id,r.user_id,r.to_bot_id,r.id) as any;
   if(outcome){db.transaction(()=>settle(r,outcome.status,outcome.final_text))();continue;}
   db.transaction(()=>settle(r,r.job_state==='completed'?'result_unavailable_after_restart':r.job_state,'Execution outcome needs reconciliation after restart; no external action was replayed.'))();
  }

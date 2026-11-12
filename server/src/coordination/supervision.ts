@@ -60,7 +60,7 @@ export function finishCoordinationReview(input:CoordinationFinish) {
  if(legacyWorkHeld(input.userId)||['waiting','queued','running'].includes(input.status))return;
  const wake=db.prepare(`WITH RECURSIVE chain(id,parent,n) AS (SELECT id,json_extract(trigger,'$.parentJobId'),0 FROM agent_jobs WHERE id=? AND user_id=? AND bot_id=?
  UNION ALL SELECT j.id,json_extract(j.trigger,'$.parentJobId'),c.n+1 FROM agent_jobs j JOIN chain c ON j.id=c.parent WHERE j.user_id=? AND j.bot_id=? AND c.n<32)
- SELECT w.* FROM coordination_wakes w JOIN chain c ON c.id=w.job_id WHERE w.user_id=? AND w.status='admitted' LIMIT 1`).get(input.jobId,input.userId,input.botId,input.userId,input.botId,input.userId) as any;
+ SELECT w.* FROM coordination_wakes w WHERE w.user_id=? AND w.status='admitted' AND (w.job_id IN (SELECT id FROM chain) OR w.id=(SELECT json_extract(trigger,'$.coordinationWakeId') FROM agent_jobs WHERE id=? AND user_id=? AND bot_id=?)) LIMIT 1`).get(input.jobId,input.userId,input.botId,input.userId,input.botId,input.userId,input.jobId,input.userId,input.botId) as any;
  if(!wake)return;
  db.transaction(()=>{
  db.prepare('UPDATE coordination_wakes SET status=?,updated_at=? WHERE id=?').run(input.status==='completed'?'completed':'failed',now(),wake.id);
@@ -72,7 +72,7 @@ export function coordinationPreTurn(input:{userId:string;botId:string;jobId:stri
  assertTenant(input.userId);if(legacyWorkHeld(input.userId))return {allowed:false,reason:'Account migration held.'};
  const wake=db.prepare(`WITH RECURSIVE chain(id,parent,n) AS (SELECT id,json_extract(trigger,'$.parentJobId'),0 FROM agent_jobs WHERE id=? AND user_id=? AND bot_id=?
  UNION ALL SELECT j.id,json_extract(j.trigger,'$.parentJobId'),c.n+1 FROM agent_jobs j JOIN chain c ON j.id=c.parent WHERE j.user_id=? AND j.bot_id=? AND c.n<32)
- SELECT w.* FROM coordination_wakes w JOIN chain c ON c.id=w.job_id WHERE w.user_id=? LIMIT 1`).get(input.jobId,input.userId,input.botId,input.userId,input.botId,input.userId) as any;
+ SELECT w.* FROM coordination_wakes w WHERE w.user_id=? AND (w.job_id IN (SELECT id FROM chain) OR w.id=(SELECT json_extract(trigger,'$.coordinationWakeId') FROM agent_jobs WHERE id=? AND user_id=? AND bot_id=?)) LIMIT 1`).get(input.jobId,input.userId,input.botId,input.userId,input.botId,input.userId,input.jobId,input.userId,input.botId) as any;
  if(!wake)return {allowed:true};
  const s=db.prepare('SELECT * FROM coordination_supervision WHERE user_id=?').get(input.userId) as any;
  const currentPrimary=db.prepare('SELECT 1 FROM bots WHERE id=? AND user_id=? AND is_primary=1').get(input.botId,input.userId);

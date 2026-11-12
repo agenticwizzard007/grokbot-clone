@@ -1,5 +1,6 @@
 import { legacyWorkHeld, assertLegacyWorkOpen } from './security/legacy-work.js';
 import { db, now } from './db.js';
+import { newId } from './lib/ids.js';
 import { assertTenant } from './deployment.js';
 import { botOccupied } from './coordination/requests.js';
 import { dailySynopsisContext, bindReportIntent } from './coordination/reports.js';
@@ -66,7 +67,7 @@ export function fireCheckin(userId:string,silentStreak=0,force=false,slotKey?:st
  if(!force&&lastHuman?.t&&now()-lastHuman.t<20*60000)return;
  const period=(slotKey??new Date().toISOString()).slice(0,10),synopsis=dailySynopsisContext(userId,period);
  const text=`[check-in] Scheduled proactive check-in. Use current facts below and inspect unresolved decisions or real results if useful. Send ONE concise user message only when useful; otherwise call stay_silent. A finished model turn is not proof of task acceptance or delivery.${silentStreak>=3?' Staying silent is fine.':''}\n${JSON.stringify(synopsis)}\nIf producing a daily report, create a report artifact and deliver it through the existing artifact delivery tools. Coverage requires its durable delivery receipt.`;
- const jobId=enqueueFn(primary.id,{type:'system',text,proactiveSlotKey:slotKey,coordinationReportPeriod:period});
+ const jobId=enqueueFn(primary.id,{type:'system',text,proactiveSlotKey:slotKey??`manual:${newId('checkin')}`,coordinationReportPeriod:period});
  if(typeof jobId!=='string')return; // Legacy callbacks can run, but cannot consume durable due work.
  if(!db.prepare('SELECT 1 FROM agent_jobs WHERE id=? AND user_id=? AND bot_id=?').get(jobId,userId,primary.id))throw new Error('Check-in did not receive a durable admission.');
  bindReportIntent(userId,jobId,period,synopsis.sources);return jobId;
