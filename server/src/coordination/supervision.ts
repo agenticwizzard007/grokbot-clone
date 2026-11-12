@@ -3,7 +3,7 @@ import { db, now } from '../db.js';
 import { newId, sha256 } from '../lib/ids.js';
 import { assertTenant } from '../deployment.js';
 import { legacyWorkHeld, assertLegacyWorkOpen } from '../security/legacy-work.js';
-import { publishNativeEvent } from '../native/events.js';
+import { publishNativeEvent, readNativeCursor, advanceNativeCursor } from '../native/events.js';
 import { teamState, coordinationPrompt } from './state.js';
 import { botOccupied, coordinationRuntime, type CoordinationFinish } from './requests.js';
 
@@ -28,8 +28,15 @@ export function reviewCoordination() {
  // supervisor turns perpetually waking themselves. Event cursor remains durable.
  const requestVersions=db.prepare("SELECT id,status,revision FROM coordination_requests WHERE user_id=? AND kind='request' ORDER BY seq").all(userId);
  const sourceVersion=sha256(JSON.stringify([state.sourceVersions.agents,state.sourceVersions.workflows,state.sourceVersions.artifacts,state.sourceVersions.deliveries,requestVersions]));
+ const previousCursor=readNativeCursor(userId,'coordination');
+ if(state.eventCursor>previousCursor&&!advanceNativeCursor(userId,'coordination',previousCursor,state.eventCursor))throw new Error('Coordination source cursor changed.');
  const admitted=db.prepare("SELECT * FROM coordination_wakes WHERE user_id=? AND status='admitted'").all(userId) as any[];
- for(const w of admitted){const j=db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(w.job_id) as any;if(j&&['uncertain','cancelled'].includes(j.state))db.prepare("UPDATE coordination_wakes SET status='failed',reason='Interrupted; inspect canonical state before follow-up.',updated_at=? WHERE id=?").run(now(),w.id);}
+ for(const w of admitted){
+ const j=db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(w.job_id) as any;
+ const descendant=db.prepare(`WITH RECURSIVE chain(id,n) AS (SELECT ?,0 UNION ALL SELECT j.id,c.n+1 FROM agent_jobs j JOIN chain c ON json_extract(j.trigger,'$.parentJobId')=c.id WHERE j.user_id=? AND c.n<32)
+ SELECT 1 FROM chain c JOIN agent_jobs j ON j.id=c.id WHERE c.n>0 AND j.state IN ('queued','running') LIMIT 1`).get(w.job_id,userId);
+ if(j&&['uncertain','cancelled','completed'].includes(j.state)&&!botOccupied(s.primary_bot_id??'')&&!descendant)db.prepare("UPDATE coordination_wakes SET status='failed',reason='Interrupted or final review receipt unavailable; inspect canonical state.',updated_at=? WHERE id=?").run(now(),w.id);
+ }
  if(!s.enabled||!primary)return;
  db.prepare("UPDATE coordination_wakes SET status='superseded',reason='Coalesced into newer state or authority.',updated_at=? WHERE user_id=? AND status='pending' AND (source_version!=? OR authority_revision!=?)").run(now(),userId,sourceVersion,s.authority_revision);
  db.prepare("INSERT OR IGNORE INTO coordination_wakes(id,user_id,authority_revision,source_cursor,source_version,status,created_at,updated_at) VALUES(?,?,?,?,?,'pending',?,?)").run(newId('wake'),userId,s.authority_revision,state.eventCursor,sourceVersion,now(),now());

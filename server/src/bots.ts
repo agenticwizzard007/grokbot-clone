@@ -97,7 +97,7 @@ export function assertPrimaryRemovalAllowed(userId:string,botId:string) {
   assertTenant(userId);assertLegacyWorkOpen(userId);
   const bot=db.prepare('SELECT is_primary FROM bots WHERE id=? AND user_id=?').get(botId,userId) as any;
   if(!bot)throw new Error('Bot not found.');
-  if(bot.is_primary && !db.prepare("SELECT 1 FROM bots WHERE user_id=? AND id!=? AND is_primary=1 AND COALESCE(hidden,0)=0 AND COALESCE(kind,'agent')!='room'").get(userId,botId))throw new Error('Transfer the primary role to an activated teammate before removing this Bot.');
+  if(bot.is_primary && !db.prepare("SELECT 1 FROM bots b JOIN bot_setups s ON s.bot_id=b.id WHERE b.user_id=? AND b.id!=? AND b.is_primary=1 AND COALESCE(b.hidden,0)=0 AND b.parent_bot_id IS NULL AND COALESCE(b.kind,'agent')!='room' AND s.onboarding_status='active'").get(userId,botId))throw new Error('Transfer the primary role to an activated teammate before removing this Bot.');
 }
 /** Atomic compare-and-transfer; permanent teammates keep their job lineage. */
 export function transferPrimary(userId:string,fromBotId:string,toBotId:string) {

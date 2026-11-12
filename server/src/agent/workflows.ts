@@ -66,6 +66,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS native_workflows (
 import './jobs.js';
 
 if (!(db.prepare('PRAGMA table_info(native_workflow_tasks)').all() as any[]).some(c=>c.name==='worker_bot_id')) db.exec('ALTER TABLE native_workflow_tasks ADD COLUMN worker_bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL');
+if (!(db.prepare('PRAGMA table_info(native_workflow_tasks)').all() as any[]).some(c=>c.name==='coordination_revision')) db.exec('ALTER TABLE native_workflow_tasks ADD COLUMN coordination_revision INTEGER NOT NULL DEFAULT 1');
 
 export function approvedWorkflowWorker(userId:string,botId:string) {
   const b=ownWorkflowBot(userId,botId);
@@ -227,8 +228,13 @@ export function createWorkflow(userId: string, botId: string, input: z.input<typ
 }
 function taskOf(w: Workflow, id: string) { const t = w.tasks.find(t => t.id === id); if (!t) throw new WorkflowError('Task not found.',404); return t; }
 function setTask(id: string, status: TaskState, reason = '') {
-  db.prepare('UPDATE native_workflow_tasks SET status=?,reason=? WHERE task_id=?').run(status,reason.slice(0,2000),id);
-  db.prepare('UPDATE tasks SET state=?,note=?,updated_at=? WHERE id=?').run(status === 'completed' ? 'done' : ['blocked','cancelled','waiting'].includes(status) ? 'needs_input' : 'working',reason || `Workflow: ${status}`,now(),id);
+  db.transaction(()=>{
+    const owner=db.prepare(`SELECT w.user_id,w.bot_id,t.assigned_bot_id,t.active_job_id,t.coordination_revision FROM native_workflow_tasks t JOIN native_workflows w ON w.id=t.workflow_id WHERE t.task_id=?`).get(id) as any;
+    if(!owner)throw new WorkflowError('Task not found.',404);
+    db.prepare('UPDATE native_workflow_tasks SET status=?,reason=?,coordination_revision=coordination_revision+1 WHERE task_id=?').run(status,reason.slice(0,2000),id);
+    db.prepare('UPDATE tasks SET state=?,note=?,updated_at=? WHERE id=?').run(status === 'completed' ? 'done' : ['blocked','cancelled','waiting'].includes(status) ? 'needs_input' : 'working',reason || `Workflow: ${status}`,now(),id);
+    publishNativeEvent({userId:owner.user_id,botId:owner.assigned_bot_id??owner.bot_id,kind:'workflow.task_changed',sourceType:'workflow_task',sourceId:id,sourceRevision:owner.coordination_revision+1,jobId:owner.active_job_id??undefined,audience:'internal',data:{status,reason:reason.slice(0,2000)}});
+  })();
 }
 export function addWorkflowDependency(userId:string,workflowId:string,taskId:string,dependsOnId:string) {
   return db.transaction(() => {
@@ -302,10 +308,14 @@ export function dispatchReadyWorkflow(userId:string,id:string) {
   emitWorkflow(userId,w.botId); return getWorkflow(userId,id);
 }
 export function startWorkflow(userId:string,id:string) {
+  return db.transaction(()=>startWorkflowMutation(userId,id))();
+}
+function startWorkflowMutation(userId:string,id:string) {
   assertLegacyWorkOpen(userId);requireRuntime(); const w = getWorkflow(userId,id);
   if (['completed','cancelled'].includes(w.status)) throw new WorkflowError('Workflow is terminal.',409);
   if (w.goalId && getGoal(userId,w.goalId).status !== 'active') throw new WorkflowError('Resume the goal before starting its workflow.',409);
   db.prepare("UPDATE native_workflows SET status='active',reason='',updated_at=? WHERE id=?").run(now(),id);
+  publishNativeEvent({userId,botId:w.botId,kind:'workflow.started',sourceType:'workflow',sourceId:id,audience:'internal'});
   return dispatchReadyWorkflow(userId,id);
 }
 function cancelExactJob(userId:string,botId:string,jobId:string) {
@@ -348,6 +358,9 @@ function stopTaskExecution(w:Workflow,t:WorkflowTask,cancel:boolean,reason:strin
   if (t.status !== 'completed' && t.status !== 'cancelled') setTask(t.id,cancel ? 'cancelled' : ['running','blocked'].includes(t.status) ? 'blocked' : 'ready',reason);
 }
 export function controlWorkflow(userId:string,id:string,action:'pause'|'resume'|'block'|'stop',reason='') {
+  return db.transaction(()=>controlWorkflowMutation(userId,id,action,reason))();
+}
+function controlWorkflowMutation(userId:string,id:string,action:'pause'|'resume'|'block'|'stop',reason:string) {
   assertLegacyWorkOpen(userId);const w = getWorkflow(userId,id); if (['completed','cancelled'].includes(w.status)) throw new WorkflowError('Workflow is terminal.',409);
   if (action === 'resume') {
     for (const t of w.tasks.filter(t => t.status === 'blocked')) {
@@ -360,6 +373,7 @@ export function controlWorkflow(userId:string,id:string,action:'pause'|'resume'|
   const state = action === 'stop' ? 'cancelled' : action === 'block' ? 'blocked' : 'paused';
   db.prepare('UPDATE native_workflows SET status=?,reason=?,updated_at=? WHERE id=?').run(state,reason.slice(0,2000),now(),id);
   for (const t of w.tasks) stopTaskExecution(w,t,action === 'stop',reason || `Workflow ${state}.`);
+  publishNativeEvent({userId,botId:w.botId,kind:'workflow.controlled',sourceType:'workflow',sourceId:id,audience:'internal',data:{action,status:state,reason}});
   emitWorkflow(userId,w.botId); return getWorkflow(userId,id);
 }
 configureGoalEffects({ control(goal,action) {
@@ -468,6 +482,7 @@ export function workflowPreTurn(ctx:TurnHook):{allowed:boolean;reason?:string;pr
   if (run.workflow_id) {
     w = getWorkflow(ctx.userId,run.workflow_id); t = taskOf(w,run.task_id);
     if (w.status !== 'active' || !['queued','running'].includes(t.status) || t.activeJobId !== ctx.jobId) return {allowed:false,reason:'Workflow is paused, blocked or superseded.'};
+    if(t.workerBotId){try{approvedWorkflowWorker(ctx.userId,t.workerBotId);}catch(e){return {allowed:false,reason:e instanceof Error?e.message:'Worker activation changed.'};}}
     if (!t.dependsOn.every(id => taskOf(w!,id).status === 'completed')) return {allowed:false,reason:'Dependencies are not complete.'};
   }
   let goal:Goal|undefined;

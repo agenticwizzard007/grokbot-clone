@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { after, beforeEach, test } from 'node:test';
 const storage=fs.mkdtempSync(path.join(os.tmpdir(),'swarm-coordination-'));
 Object.assign(process.env,{DB_PATH:path.join(storage,'test.db'),FILES_DIR:path.join(storage,'files'),SESSION_SECRET:'coordination-tests-secret',COMPUTER_PROVIDER:'local',COMPOSIO_API_KEY:'',INKBOX_TUNNEL:'0',SERVER_URL:'http://localhost:1',APP_URL:'http://localhost:1'});
@@ -24,8 +25,8 @@ let refuse=false;
 function enqueue(botId:string,trigger:any) {if(refuse)throw new Error('Queue capacity refused');const job=acceptJob(botId,trigger);queued.push({botId,jobId:job.id,trigger});return job.id;}
 beforeEach(()=>{queued.length=0;refuse=false;c.configureCoordinationRuntime({enqueue,interrupt:()=>{}});w.configureWorkflowRuntime({enqueue,interrupt:()=>{}});});
 after(()=>{db.close();fs.rmSync(storage,{recursive:true,force:true});});
-function fixture() {
- const userId=`coord-${++seq}`;db.prepare('INSERT INTO users(id,email,name,created_at) VALUES(?,?,?,?)').run(userId,`${userId}@example.test`,userId,Date.now());
+function fixture(ownerId?:string) {
+ const userId=ownerId??`coord-${++seq}`;db.prepare('INSERT INTO users(id,email,name,created_at) VALUES(?,?,?,?)').run(userId,`${userId}@example.test`,userId,Date.now());
  const chief=createBot(userId,{name:'Quinn',isPrimary:true}),worker=createBot(userId,{name:'Nia'});
  db.prepare("UPDATE bot_setups SET onboarding_status='active' WHERE bot_id=?").run(worker.id);
  return {userId,chief,worker};
@@ -105,7 +106,7 @@ test('permanent workflow worker keeps identity, goal lineage, validation and exa
  assert.equal(job.botId,f.worker.id);assert.equal((db.prepare('SELECT parent_bot_id FROM bots WHERE id=?').get(f.worker.id) as any).parent_bot_id,null);assert.equal(job.trigger.taskId,wf.tasks[0].id);assert.equal(job.trigger.goalId,goal.id);assert.equal(job.trigger.audience,'internal');
  beginJob(job.jobId);assert.equal(w.workflowPreTurn({userId:f.userId,botId:job.botId,jobId:job.jobId}).allowed,true);
  await w.workflowAfterTurn({userId:f.userId,botId:job.botId,jobId:job.jobId,status:'completed',finalText:'{"summary":"verified research"}',usage:{tokens:0,costUsd:0}});finishJob(job.jobId,true);
- const complete=w.getWorkflow(f.userId,wf.id);assert.equal(complete.status,'completed');assert.equal(complete.tasks[0].workerBotId,f.worker.id);assert.equal(complete.tasks[0].resultValidated,true);
+ const complete=w.getWorkflow(f.userId,wf.id);assert.equal(complete.status,'completed');assert.equal(complete.tasks[0].workerBotId,f.worker.id);assert.equal(complete.tasks[0].resultValidated,true);assert.equal(complete.tasks[0].status,'completed');
  const stopped=w.createWorkflow(f.userId,f.chief.id,{title:'Stop precisely',tasks:[task(f.worker.id)]});w.startWorkflow(f.userId,stopped.id);const bound=queued.at(-1)!;
  const unrelated=acceptJob(f.worker.id,{type:'user',text:'Other work'});const interrupts:any[]=[];w.configureWorkflowRuntime({enqueue,interrupt:(botId,expectedJobId)=>interrupts.push({botId,expectedJobId})});w.controlWorkflow(f.userId,stopped.id,'stop');
  assert.equal((db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(bound.jobId) as any).state,'cancelled');assert.equal((db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(unrelated.id) as any).state,'queued');assert.equal(interrupts.length,0);assert.ok(db.prepare('SELECT 1 FROM bots WHERE id=?').get(f.worker.id));
@@ -133,4 +134,58 @@ test('daily report coverage requires actual artifact delivery, preserves exact s
  db.prepare("UPDATE artifact_deliveries SET status='delivered' WHERE id=?").run('delivery-'+seq);reports.reconcileReportCoverage();assert.equal(reports.dailySynopsisContext(f.userId,period).sources.find(s=>s.kind==='routine')!.covered,true);
  reports.reconcileReportCoverage();assert.equal((db.prepare('SELECT COUNT(*) n FROM coordination_reports WHERE user_id=?').get(f.userId) as any).n,1);
  db.prepare('UPDATE routines SET name=? WHERE id=?').run('Changed report','routine-'+seq);assert.equal(reports.dailySynopsisContext(f.userId,period).sources.find(s=>s.kind==='routine')!.covered,false);
+});
+
+test('request admission survives a fresh process and crash rollback without duplicate jobs',()=>{
+ const f=fixture(),id=request(f),before=c.getInternalRequest(f.userId,id);
+ const program=`const {db}=await import('./server/src/db.ts');const c=await import('./server/src/coordination/index.ts');c.configureCoordinationRuntime({enqueue(){throw Error('Existing admission must not enqueue again')},interrupt(){}});const r=await import('./server/src/coordination/requests.ts');r.recoverInternalRequests();const receipt=c.getInternalRequest(${JSON.stringify(f.userId)},${JSON.stringify(id)});if(receipt.jobId!==${JSON.stringify(before.jobId)}||receipt.status!=='admitted')throw Error('Admission changed');db.close();`;
+ const child=spawnSync(process.execPath,['--import','tsx','--input-type=module','-e',program],{cwd:process.cwd(),env:process.env,encoding:'utf8'});assert.equal(child.status,0,child.stderr);
+ const second=fixture();c.configureCoordinationRuntime({enqueue:(botId,trigger)=>{acceptJob(botId,trigger);throw new Error('Failure after durable admission before receipt');},interrupt:()=>{}});
+ const pending=request(second);assert.equal(c.getInternalRequest(second.userId,pending).status,'deferred');assert.equal((db.prepare('SELECT COUNT(*) n FROM agent_jobs WHERE user_id=?').get(second.userId) as any).n,0);
+ c.configureCoordinationRuntime({enqueue,interrupt:()=>{}});c.drainInternalRequests();assert.equal(c.getInternalRequest(second.userId,pending).status,'admitted');
+});
+test('explicit idempotency keys are bound to immutable sender, recipient and content',()=>{
+ const f=fixture();request(f);assert.throws(()=>c.enqueueInternalMessage(f.chief.id,f.worker.id,'Different assignment',0,{idempotencyKey:'one'}),/already bound/);
+});
+test('bounded reply ancestry ignores caller attempts to reset depth',()=>{
+ const f=fixture();let id=request(f);let from=f.worker.id,to=f.chief.id;
+ for(let i=1;i<=4;i++){id=c.enqueueInternalMessage(from,to,'Reply '+i,0,{parentRequestId:id,idempotencyKey:'reply-'+i});assert.equal(c.getInternalRequest(f.userId,id).depth,i);[from,to]=[to,from];}
+ assert.throws(()=>c.enqueueInternalMessage(from,to,'Unbounded reply',0,{parentRequestId:id}),/limit/);
+});
+test('Quinn review coalesces changed state, survives missing completion hook, and does not wake on transcript chatter',()=>{
+ const f=fixture();c.reviewCoordination();const wake=db.prepare("SELECT * FROM coordination_wakes WHERE user_id=? AND status='admitted'").get(f.userId) as any;assert.ok(wake);
+ const first=queued.find(q=>q.jobId===wake.job_id)!;settle(f,first);const count=queued.filter(q=>q.botId===f.chief.id).length;
+ appendRow(f.chief.id,'message',{type:'message',role:'assistant',text:'Internal supervision note'});c.reviewCoordination();assert.equal(queued.filter(q=>q.botId===f.chief.id).length,count);
+ // Force a new operational revision while chief is occupied; state revisions coalesce.
+ db.prepare('UPDATE coordination_supervision SET last_review_at=NULL WHERE user_id=?').run(f.userId);const busy=acceptJob(f.chief.id,{type:'user',text:'Busy'});
+ db.prepare('UPDATE bot_setups SET revision=revision+1 WHERE bot_id=?').run(f.worker.id);c.reviewCoordination();db.prepare('UPDATE bot_setups SET revision=revision+1 WHERE bot_id=?').run(f.worker.id);c.reviewCoordination();
+ assert.equal((db.prepare("SELECT COUNT(*) n FROM coordination_wakes WHERE user_id=? AND status='pending'").get(f.userId) as any).n,1);
+ db.prepare("UPDATE agent_jobs SET state='completed' WHERE id=?").run(busy.id);c.reviewCoordination();const next=db.prepare("SELECT * FROM coordination_wakes WHERE user_id=? AND status='admitted'").get(f.userId) as any;assert.ok(next);beginJob(next.job_id);finishJob(next.job_id,true);c.reviewCoordination();assert.equal((db.prepare('SELECT status FROM coordination_wakes WHERE id=?').get(next.id) as any).status,'failed');
+});
+test('team HTTP contracts authenticate, isolate, paginate and reject invalid cursors',async()=>{
+ const {Hono}=await import('hono');const {coordinationApi}=await import('../server/src/routes-coordination.js');const app=new Hono().route('/api/team',coordinationApi);
+ assert.equal((await app.request('/api/team/state')).status,401);const f=fixture(),other=fixture();request(f);c.enqueueInternalMessage(f.chief.id,f.worker.id,'Second request',0,{idempotencyKey:'second'});
+ const token='team-api-'+seq;db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES(session_hash(?),?,?,?)').run(token,f.userId,Date.now(),Date.now()+60000);const headers={cookie:'swarm_session='+token};
+ const state=await (await app.request('/api/team/state',{headers})).json() as any;assert.equal(state.state.userId,f.userId);assert.equal(state.state.agents.length,2);assert.ok(!JSON.stringify(state).includes(other.userId));
+ const page=await (await app.request('/api/team/requests?limit=1',{headers})).json() as any;assert.equal(page.requests.length,1);assert.equal(page.hasMore,true);assert.ok(page.nextCursor>0);
+ const events=await (await app.request('/api/team/events?limit=1',{headers})).json() as any;assert.equal(events.events.length,1);assert.ok(events.nextCursor>0);assert.equal(events.events[0].userId,f.userId);
+ assert.equal((await app.request('/api/team/events?after=-1',{headers})).status,400);assert.equal((await app.request('/api/team/requests?limit=101',{headers})).status,400);
+});
+test('report text and unrelated delivered artifacts cannot consume source coverage',()=>{
+ const f=fixture();db.prepare('INSERT INTO routines(id,bot_id,name,prompt,schedule,created_at) VALUES(?,?,?,?,?,?)').run('uncovered-'+seq,f.worker.id,'Unreported routine','Current','0 9 * * *',Date.now());
+ const job=acceptJob(f.chief.id,{type:'system',text:'Report'}),period='2026-11-12';reports.bindReportIntent(f.userId,job.id,period);beginJob(job.id);finishJob(job.id,true);
+ const a=awaitImportArtifacts.recordArtifact({userId:f.userId,botId:f.chief.id,jobId:job.id,filename:'unrelated.txt',content:'Unrelated output with no exact coverage references'});
+ db.prepare("INSERT INTO artifact_deliveries(id,user_id,artifact_id,channel,target_json,status,created_at,updated_at) VALUES(?,?,?,'library','{}','delivered',?,?)").run('unrelated-delivery-'+seq,f.userId,a.id,Date.now(),Date.now());reports.reconcileReportCoverage();
+ assert.equal((db.prepare('SELECT COUNT(*) n FROM coordination_reports WHERE user_id=?').get(f.userId) as any).n,0);assert.equal(reports.dailySynopsisContext(f.userId,period).sources.find(s=>s.id==='routine:uncovered-'+seq)!.covered,false);
+});
+test('held migration owners remain unchanged while independent owners recover',async()=>{
+ const held=fixture('usr_coordination_held_0001'),active=fixture();refuse=true;const heldId=request(held),activeId=request(active);refuse=false;
+ const {holdLegacyDatabase,assertLegacyDatabaseFences}=await import('../server/src/platform/legacy-database-fence.js');holdLegacyDatabase(db,held.userId,'coordination-migration-test','1');
+ const snapshot=c.getInternalRequest(held.userId,heldId);r.recoverInternalRequests();c.reviewCoordination();reports.reconcileReportCoverage();assert.deepEqual(c.getInternalRequest(held.userId,heldId),snapshot);assert.equal(c.getInternalRequest(active.userId,activeId).status,'admitted');assert.throws(()=>request(held,'forbidden'),/migrat/);assertLegacyDatabaseFences(db);
+});
+
+test('worker activation is revalidated before queued execution and task changes publish durable versions',()=>{
+ const f=fixture(),wf=w.createWorkflow(f.userId,f.chief.id,{title:'Activation fence',tasks:[task(f.worker.id)]});w.startWorkflow(f.userId,wf.id);const job=queued.at(-1)!;beginJob(job.jobId);
+ db.prepare("UPDATE bot_setups SET onboarding_status='interviewing' WHERE bot_id=?").run(f.worker.id);assert.equal(w.workflowPreTurn({userId:f.userId,botId:f.worker.id,jobId:job.jobId}).allowed,false);
+ const event=db.prepare("SELECT * FROM native_events WHERE user_id=? AND source_type='workflow_task' ORDER BY seq DESC LIMIT 1").get(f.userId) as any;assert.ok(event);assert.ok(Number(event.source_revision)>=2);assert.equal(JSON.parse(event.data).status,'queued');
 });

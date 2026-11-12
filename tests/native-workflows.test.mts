@@ -14,7 +14,7 @@ const {acceptJob,beginJob,finishJob}=await import('../server/src/agent/jobs.js')
 const {initSubagents}=await import('../server/src/agent/subagents.js');
 const {appendRow}=await import('../server/src/store.js');
 initSubagents();
-db.exec(`CREATE TABLE IF NOT EXISTS usage_events(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id TEXT,bot_id TEXT,kind TEXT,input_tokens INTEGER DEFAULT 0,output_tokens INTEGER DEFAULT 0,token_fields TEXT,usage_status TEXT DEFAULT 'complete',cost_usd REAL,cost_source TEXT)`);
+db.exec(`CREATE TABLE IF NOT EXISTS usage_events(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id TEXT,bot_id TEXT,job_id TEXT,review_id TEXT,kind TEXT,input_tokens INTEGER DEFAULT 0,output_tokens INTEGER DEFAULT 0,token_fields TEXT,usage_status TEXT DEFAULT 'complete',cost_usd REAL,cost_source TEXT)`);
 after(()=>{db.close();fs.rmSync(root,{recursive:true,force:true});});
 let sequence=0;
 const queued:{botId:string;jobId:string;trigger:any}[]=[],interrupted:string[]=[],interruptionCalls:{botId:string;expectedJobId?:string}[]=[];
@@ -39,8 +39,8 @@ async function finish(ctx:ReturnType<typeof admit>,finalText='{"summary":"verifi
   await workflows.workflowAfterTurn({...ctx,status,finalText,usage:{tokens:5,costUsd:0.01}});finishJob(ctx.jobId,status!=='failed'&&status!=='interrupted');
 }
 function usage(f:ReturnType<typeof fixture>,botId:string,extra:{tokens?:number;cost?:number|null;source?:string;unavailable?:boolean}={}) {
-  db.prepare(`INSERT INTO usage_events(user_id,bot_id,kind,input_tokens,output_tokens,token_fields,usage_status,cost_usd,cost_source) VALUES(?,?,'chat',?,?,?, ?,?,?)`)
-    .run(f.userId,botId,extra.tokens??3,0,extra.unavailable?'[]':null,extra.unavailable?'unavailable':'complete',extra.cost===undefined?0.01:extra.cost,extra.source??'provider');
+  db.prepare(`INSERT INTO usage_events(user_id,bot_id,job_id,kind,input_tokens,output_tokens,token_fields,usage_status,cost_usd,cost_source) VALUES(?,?,?,'chat',?,?,?, ?,?,?)`)
+    .run(f.userId,botId,(db.prepare("SELECT id FROM agent_jobs WHERE bot_id=? AND state='running' ORDER BY started_at DESC LIMIT 1").get(botId) as any)?.id??null,extra.tokens??3,0,extra.unavailable?'[]':null,extra.unavailable?'unavailable':'complete',extra.cost===undefined?0.01:extra.cost,extra.source??'provider');
 }
 
 test('graph port rejects dependency/hierarchy cycles and malformed graphs atomically',()=>{
