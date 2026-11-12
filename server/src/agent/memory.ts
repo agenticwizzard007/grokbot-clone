@@ -291,12 +291,12 @@ Read the recent conversation and extract only durable facts worth remembering fo
 - facts about the user (role, company, team, location, time zone, important people, accounts and tools they use)
 - preferences and standing instructions (tone, formats, schedules, what to always or never do)
 - lasting facts about ongoing projects
-Skip: one-off requests, small talk, temporary states, anything the Bot said about itself, passwords or secrets, and exact facts already covered by EXISTING MEMORIES. If the user corrects an existing fact, return the corrected fact with its new sources; do not discard a correction as a duplicate.
+Skip: one-off requests, small talk, temporary states, anything the Bot said about itself, passwords or secrets, and exact facts already covered by EXISTING MEMORIES. If the user corrects an existing fact, return the corrected fact with its new sources and set replacesMemoryId to its existing id; do not discard a correction as a duplicate. For new facts use replacesMemoryId:null.
 Write each memory as one short standalone sentence in the third person (e.g. "Prefers bullet-point summaries."), under 200 characters. Return at most 8. Return an empty list when nothing qualifies. Every fact MUST cite one or more sourceIds printed before actual user messages, in generation:seq form. Never cite assistant or bot/routine messages as evidence for a user fact.`;
 
 const SCHEMA = {
   type: 'object',
-  properties: { memories: { type: 'array', items: { type: 'object', properties: { text: { type: 'string' }, sourceIds: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 12 } }, required: ['text', 'sourceIds'], additionalProperties: false } } },
+  properties: { memories: { type: 'array', items: { type: 'object', properties: { text: { type: 'string' }, sourceIds: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 12 },replacesMemoryId:{type:['string','null']} }, required: ['text', 'sourceIds','replacesMemoryId'], additionalProperties: false } } },
   required: ['memories'],
   additionalProperties: false,
 };
@@ -337,7 +337,8 @@ async function consolidateBotInContext(botId: string, opts: { upTo?: number }): 
   }
   const transcript = msgs.map((m) => `[source ${m.sourceId}] ` + (m.role === 'user' ? (m.from && !isHumanUserMessage(m) ? `${m.from.kind === 'bot' ? `Bot ${m.from.name}` : `Routine ${m.from.name}`}: ` : 'User: ') : `${bot.name} (Bot): `) + String(m.text)).join('\n');
 
-  const existing = listMemories(bot.user_id, botId).map(m => m.text);
+  const existingMemories=listMemories(bot.user_id,botId);
+  const existing=existingMemories.map(m=>`[${m.id} revision ${m.revision}] ${m.text}`);
   const res: any = await llm().responses.create({
     model: defaultModel(),
     input: [
@@ -349,7 +350,7 @@ async function consolidateBotInContext(botId: string, opts: { upTo?: number }): 
     store: false,
   } as any);
   await recordModelUsage({ botId, kind: 'memory', model: defaultModel(), response: res });
-  let parsedOk=false;let proposed: { text: string; sourceIds?: string[] }[] = [];
+  let parsedOk=false;let proposed: { text: string; sourceIds?: string[];replacesMemoryId?:string|null }[] = [];
   try {
     const parsed = JSON.parse(String(res.output_text ?? '{}')).memories;
     if (Array.isArray(parsed)) {parsedOk=true;proposed = parsed.filter(m => typeof m?.text === 'string' && (m.sourceIds === undefined || Array.isArray(m.sourceIds)));}
@@ -383,7 +384,7 @@ async function consolidateBotInContext(botId: string, opts: { upTo?: number }): 
         refs.push({ botId, generation: row.generation, seq: row.seq });
       }
       if (!refs.length || added.some(e => e===text)) { skipped++; continue; }
-      const result = learnMemory(bot.user_id, botId, { text, evidence: refs });
+      const result = learnMemory(bot.user_id, botId, { text, evidence: refs,replacesMemoryId:candidate.replacesMemoryId??undefined });
       if (result.skipped) skipped++; else added.push(text);
     }
     mark({ added: added.length, skipped, at: now() }, lastAt);

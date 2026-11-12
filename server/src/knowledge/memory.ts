@@ -33,7 +33,7 @@ export function listMemories(userId: string, botId: string, includeInactive = fa
   return (db.prepare(`SELECT * FROM memories WHERE bot_id=? ${includeInactive ? '' : "AND status='active'"} ORDER BY created_at DESC,id DESC LIMIT 1000`).all(botId) as any[]).map(view);
 }
 function record(m: any, action: string, userId: string) {
-  db.prepare('INSERT INTO knowledge_memory_events(memory_id,bot_id,action,snapshot,actor,created_at) VALUES(?,?,?,?,?,?)').run(m.id, m.bot_id, action, JSON.stringify(view(m)), userId, now());
+  db.prepare('INSERT INTO knowledge_memory_events(memory_id,bot_id,action,snapshot,actor,created_at) VALUES(?,?,?,?,?,?)').run(m.id, m.bot_id, action, JSON.stringify(view(m)), managementContext()?`${managementContext()!.actor}:${userId}`:userId, now());
   publishNativeEvent({userId,botId:m.bot_id,kind:'knowledge.memory.changed',sourceType:'memory',sourceId:m.id,sourceRevision:m.revision,data:{action}});
 }
 function suppress(m: any) {
@@ -122,6 +122,7 @@ export function stageMemoryChange(userId:string,botId:string,input:MemoryMutatio
   if(!['add','replace','remove'].includes(input.action)||input.action!=='add'&&!cur||input.action==='add'&&cur)throw new KnowledgeError('Invalid memory action');
   expectedRevision(cur?.revision??0,input.expectedRevision);
   const evidence=refsOnly(validateEvidence(userId,botId,input.evidence,input.action!=='remove'));
+  if(cur&&input.target!==undefined&&input.target!==cur.target)throw new KnowledgeError('Replacement must keep its memory target',409);
   const text=input.action==='remove'?null:boundedText(input.text,'Memory',1000);const target=input.target??cur?.target??'user';
   if(!['user','environment'].includes(target))throw new KnowledgeError('Invalid target');
   if(target==='user'&&validateEvidence(userId,botId,evidence,false).some(e=>!isHumanUserMessage(e)))throw new KnowledgeError('User memory requires human evidence',422);
@@ -157,19 +158,21 @@ export function manageMemory(userId:string,botId:string,input:MemoryMutation){
   if(cur&&(cur.bot_id!==botId||cur.status!=='active'))throw new KnowledgeError('Memory not active in this agent',404);
   if(!['add','replace','remove'].includes(input.action)||input.action!=='add'&&!cur||input.action==='add'&&cur)throw new KnowledgeError('Invalid memory action');
   expectedRevision(cur?.revision??0,input.expectedRevision);
+  if(cur&&input.target!==undefined&&input.target!==cur.target)throw new KnowledgeError('Replacement must keep its memory target',409);
   validateEvidence(userId,bot.id,input.evidence,input.action!=='remove');
   if(ctx?.unattended&&input.action!=='add')return{change:stageMemoryChange(userId,botId,input),activated:false};
   if(input.action==='remove'){forgetMemory(userId,cur.id,input.expectedRevision);return{deleted:true,activated:true};}
   if(input.action==='replace')return{memory:correctMemory(userId,cur.id,{text:input.text!,expectedRevision:input.expectedRevision,evidence:input.evidence,runId:input.runId}),activated:true};
-  return {...saveMemory(userId,botId,{...input,text:input.text!}),activated:true};
+  return {...saveMemory(userId,botId,{...input,text:input.text!,source:ctx&&ctx.actor!=='foreground'?'learned':'chat'}),activated:true};
  })();
 }
 /** Passive extraction recognizes changed high-overlap facts instead of treating
  * changed values/negations as duplicates. Only exact normalized facts dedupe. */
-export function learnMemory(userId:string,botId:string,input:{text:string;evidence:MessageRef[];runId?:string;target?:'user'|'environment'}){
+export function learnMemory(userId:string,botId:string,input:{text:string;evidence:MessageRef[];runId?:string;target?:'user'|'environment';replacesMemoryId?:string}){
  const text=boundedText(input.text,'Memory',1000);const current=listMemories(userId,botId).filter(m=>m.target===(input.target??'user'));
  if(current.some(m=>normalize(m.text)===normalize(text)))return{memory:null,skipped:'duplicate'};
- const prior=current.find(m=>similar(m.text,text));
+ const prior=input.replacesMemoryId?current.find(m=>m.id===input.replacesMemoryId):current.find(m=>similar(m.text,text));
+ if(input.replacesMemoryId&&!prior)throw new KnowledgeError('Correction target is no longer active',409);
  if(prior){const pending=listMemoryChanges(userId,botId).find(c=>c.status==='pending'&&c.memoryId===prior.id&&normalize(c.text??'')===normalize(text));return{change:pending??stageMemoryChange(userId,botId,{action:'replace',memoryId:prior.id,expectedRevision:prior.revision,...input}),skipped:null};}
  return saveMemory(userId,botId,{...input,source:'learned'});
 }

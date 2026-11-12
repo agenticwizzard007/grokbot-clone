@@ -5,7 +5,7 @@ import {learningSettings,patchLearningSettings} from './knowledge/settings.js';
 import {listMemoryChanges,resolveMemoryChange,setMemoryScope} from './knowledge/memory.js';
 import {getSkill,listSkills,updateSkill,deleteSkill,setSkillScope,resources} from './knowledge/skills.js';
 import {curateSkills} from './knowledge/curator.js';
-import {listLearningReviews,refineLearning,cancelLearningReview,learningContext} from './agent/learning.js';
+import {listLearningReviews,refineLearning,cancelLearningReview,learningContext,curateLearning} from './agent/learning.js';
 export const learningApi=new Hono<AuthVars>();
 learningApi.use('*',requireUser);
 learningApi.use('*',async(c,next)=>{c.header('Cache-Control','no-store');await next();});
@@ -24,4 +24,4 @@ learningApi.patch('/skills/:id',async c=>{const b=await body(c);const allowed=['
 learningApi.post('/skills/:id/archive',async c=>{const b=await body(c);return c.json({skill:deleteSkill(c.get('user').id,c.req.param('id'),b.expectedRevision)});});
 learningApi.patch('/:kind/:id/scope',async c=>{const b=await body(c);const kind=c.req.param('kind');if(!['skills','memories'].includes(kind))throw new KnowledgeError('Not found',404);return c.json({item:kind==='skills'?setSkillScope(c.get('user').id,c.req.param('id'),b):setMemoryScope(c.get('user').id,c.req.param('id'),b)});});
 learningApi.get('/bots/:botId/context',c=>c.json({context:learningContext(c.get('user').id,c.req.param('botId'))}));
-learningApi.post('/bots/:botId/curate',async c=>{await body(c);return c.json(curateSkills(c.get('user').id,c.req.param('botId')));});
+learningApi.post('/bots/:botId/curate',async c=>{await body(c);return c.json(curateLearning(c.get('user').id,c.req.param('botId')));});

@@ -136,3 +136,35 @@ test('curator defers first run, uses upstream idle/stale/archive defaults and pr
  const first=Date.now();assert.equal(curator.curateSkills('owner','alpha',first).deferred,true);const stale=curator.curateSkills('owner','alpha',first+15*86400000);assert.deepEqual(stale.stale,[archive.id]);const result=curator.curateSkills('owner','alpha',first+31*86400000);assert.deepEqual(result.archived,[archive.id]);for(const s of[pinned,locked,routine])assert.equal(skills.getSkill('owner',s.id).deleted,false);
  assert.equal(skills.rollbackSkill('owner',archive.id,1,2).deleted,false);
 });
+
+test('shared knowledge revision/revocation during a review cancels its next publication',async()=>{
+ const shared=skills.createSkill('owner','beta',seed);skills.setSkillScope('owner',shared.id,{expectedRevision:1,scope:'account'});message('Always cite current sources.');patch({memoryTurnInterval:1});const review=turn()!;
+ learning.configureLearningModelExecutor(async()=>{skills.setSkillScope('owner',shared.id,{expectedRevision:2,scope:'private'});return call('manage_skill',{action:'create',expected_revision:0,name:'Unsafe new workflow',description:'Stale shared source',body:'Do something',reason:'stale',evidence:[]});});
+ const result=await learning.runLearningReview(review.id);assert.equal(result?.status,'cancelled');assert.match(result?.error??'',/sharing grant/);assert.equal(skills.listSkills('owner','alpha').length,0);
+});
+test('curator can consolidate only managed unprotected packages and archive with full recovery',()=>{
+ const now=Date.now();const source=skills.createSkill('owner','alpha',{...seed,name:'Old narrow research'});db.prepare('UPDATE skills SET created_at=? WHERE id=?').run(now-40*86400000,source.id);const pinned=skills.createSkill('owner','alpha',{...seed,name:'Protected research',pinned:true});
+ access.withManagement({...management(),actor:'curator'},()=>{skills.readSkillForBot('owner','alpha',source.id);const archived=skills.manageSkill('owner','alpha',{action:'archive',skillId:source.id,expectedRevision:1,reason:'Absorbed into class workflow',evidence:[]});assert.equal(archived.skill?.deleted,true);skills.readSkillForBot('owner','alpha',pinned.id);assert.throws(()=>skills.manageSkill('owner','alpha',{action:'update',skillId:pinned.id,expectedRevision:1,body:'Changed',reason:'unsafe',evidence:[]}),/protected/);});
+ assert.equal(skills.rollbackSkill('owner',source.id,1,2).deleted,false);
+});
+test('new ownership starts fresh counters while stale prior owner review settles cancelled',async()=>{
+ message('Always verify sources.');patch({memoryTurnInterval:1});const review=turn()!;
+ learning.configureLearningModelExecutor(async()=>{db.prepare('UPDATE bots SET user_id=\'other\' WHERE id=\'alpha\'').run();return final();});assert.equal((await learning.runLearningReview(review.id))?.status,'cancelled');await learning.beforeForegroundTurn('other','alpha');assert.equal((db.prepare('SELECT user_id,memory_turns FROM knowledge_learning_state WHERE bot_id=\'alpha\'').get()as any).user_id,'other');
+});
+
+test('completion outbox failures propagate and roll back marker/counters, while stale epochs consume without review',async()=>{
+ const evidence=[message('Always verify citations.')];patch({memoryTurnInterval:1});
+ db.exec("CREATE TRIGGER fail_learning_enqueue BEFORE INSERT ON knowledge_learning_reviews BEGIN SELECT RAISE(ABORT,'injected_enqueue_failure'); END");
+ assert.throws(()=>turn(),/injected_enqueue_failure/);assert.equal((db.prepare('SELECT count(*) n FROM knowledge_learning_turns').get()as any).n,0);db.exec('DROP TRIGGER fail_learning_enqueue');
+ const epoch=learning.learningForegroundEpoch('owner','alpha');await learning.beforeForegroundTurn('owner','alpha');assert.equal(turn({foregroundEpoch:epoch}),undefined);assert.equal(learning.listLearningReviews('owner').reviews.length,0);
+ const sourceSnapshot=learning.learningSourceSnapshot('alpha',1);db.prepare('UPDATE rows SET body=? WHERE bot_id=? AND seq=?').run(JSON.stringify({type:'message',role:'user',text:'Edited source'}),'alpha',evidence[0].seq);assert.equal(turn({sourceSnapshot}),undefined);
+});
+test('model-directed passive corrections handle low-overlap changed values without adding contradictory active facts',()=>{
+ const evidence=[message('Timezone is EST now; remember this.')];const original=memory.saveMemory('owner','alpha',{text:'Timezone is PST.',evidence}).memory!;const learned=memory.learnMemory('owner','alpha',{text:'Timezone is EST.',evidence,replacesMemoryId:original.id});assert.ok('change'in learned);assert.equal(memory.listMemories('owner','alpha').length,1);assert.equal(memory.listMemoryChanges('owner','alpha')[0].memoryId,original.id);
+});
+
+test('explicit refine preempts an automatic review and runs attended direct memory replacement',async()=>{
+ const evidence=[message('Always prefer concise reports.')];const saved=memory.saveMemory('owner','alpha',{text:'User prefers detailed reports.',evidence}).memory!;patch({memoryTurnInterval:1});const automatic=turn()!;
+ db.prepare('INSERT INTO llm_items(bot_id,generation,idx,item) VALUES(?,1,0,?)').run('alpha',JSON.stringify({role:'system',content:'Native fixture system; evidence only, no real sends.'}));const refine=learning.refineLearning('owner','alpha');assert.notEqual(automatic.id,refine.id);assert.equal(learning.listLearningReviews('owner').reviews.find(r=>r.id===automatic.id)?.status,'cancelled');
+ let n=0;learning.configureLearningModelExecutor(async()=>++n===1?call('manage_memory',{action:'replace',memory_id:saved.id,expected_revision:1,text:'User prefers concise reports.',evidence}):final());assert.equal((await learning.runLearningReview(refine.id))?.status,'completed');assert.equal(memory.listMemoryChanges('owner','alpha').length,0);assert.equal(memory.listMemories('owner','alpha')[0].text,'User prefers concise reports.');
+});

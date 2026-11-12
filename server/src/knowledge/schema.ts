@@ -132,3 +132,6 @@ CREATE TABLE IF NOT EXISTS knowledge_use_receipts (
 CREATE TRIGGER IF NOT EXISTS knowledge_receipt_immutable BEFORE UPDATE ON knowledge_use_receipts
  BEGIN SELECT RAISE(ABORT,'Knowledge receipts are immutable'); END;
 `);
+
+column('knowledge_learning_reviews','knowledge_snapshot',"TEXT NOT NULL DEFAULT '[]'");
+db.exec(`CREATE TRIGGER IF NOT EXISTS knowledge_receipt_no_delete BEFORE DELETE ON knowledge_use_receipts WHEN EXISTS(SELECT 1 FROM bots WHERE id=OLD.bot_id) BEGIN SELECT RAISE(ABORT,'Knowledge receipts are immutable'); END;`);
