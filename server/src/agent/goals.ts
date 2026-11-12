@@ -196,14 +196,14 @@ export function usageCursor(): number {
   return (db.prepare('SELECT COALESCE(MAX(id),0) id FROM usage_events').get() as any).id;
 }
 export interface TurnUsage { tokens: number | null; costUsd: number | null }
-export function hasObservedTurnUsage(userId: string, botId: string, cursor: number) {
+export function hasObservedTurnUsage(userId: string, botId: string, cursor: number, jobId?: string) {
   return !!db.prepare("SELECT 1 FROM sqlite_master WHERE name='usage_events'").get() && !!db.prepare(`SELECT 1 FROM usage_events
-    WHERE id>? AND user_id=? AND bot_id=? AND kind IN ('chat','compaction','memory','other') LIMIT 1`).get(cursor,userId,botId);
+    WHERE id>? AND user_id=? AND bot_id=? AND kind IN ('chat','compaction','memory','other') AND (? IS NULL OR job_id=?) LIMIT 1`).get(cursor,userId,botId,jobId??null,jobId??null);
 }
-export function observedTurnUsage(userId: string, botId: string, cursor: number): TurnUsage {
+export function observedTurnUsage(userId: string, botId: string, cursor: number, jobId?: string): TurnUsage {
   if (!db.prepare("SELECT 1 FROM sqlite_master WHERE name='usage_events'").get()) return { tokens: null, costUsd: null };
   const rows = db.prepare(`SELECT input_tokens,output_tokens,token_fields,usage_status,cost_usd,cost_source FROM usage_events
-    WHERE id>? AND user_id=? AND bot_id=? AND kind IN ('chat','compaction','memory','other')`).all(cursor, userId, botId) as any[];
+    WHERE id>? AND user_id=? AND bot_id=? AND kind IN ('chat','compaction','memory','other') AND (? IS NULL OR job_id=?)`).all(cursor, userId, botId,jobId??null,jobId??null) as any[];
   if (!rows.length) return { tokens: null, costUsd: null };
   let tokens = 0, costUsd = 0, knownTokens = true, knownSpend = true;
   for (const r of rows) {
@@ -241,7 +241,7 @@ export function settleGoalTurn(userId: string, jobId: string, usage?: TurnUsage)
   return db.transaction(() => {
     const r = db.prepare(`SELECT t.* FROM native_goal_turns t JOIN native_goals g ON g.id=t.goal_id WHERE t.job_id=? AND g.user_id=?`).get(jobId, userId) as any;
     if (!r || r.status !== 'running') return r ? getGoal(userId, r.goal_id) : null;
-    const u = usage ?? observedTurnUsage(userId, r.bot_id, r.usage_start);
+    const u = usage ?? observedTurnUsage(userId, r.bot_id, r.usage_start, jobId);
     if (u.tokens !== null && (!Number.isSafeInteger(u.tokens) || u.tokens < 0) || u.costUsd !== null && (!Number.isFinite(u.costUsd) || u.costUsd < 0)) throw new WorkflowError('Invalid measured usage.');
     db.prepare("UPDATE native_goal_turns SET status='settled',tokens=?,cost_usd=?,finished_at=? WHERE job_id=? AND status='running'").run(u.tokens, u.costUsd, now(), jobId);
     db.prepare(`UPDATE native_goals SET tokens_used=tokens_used+?,spend_usd=spend_usd+?,

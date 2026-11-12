@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS code_steps (
   state TEXT NOT NULL CHECK(state IN ('dispatching','waiting','completed','failed','unknown')),
   output TEXT, PRIMARY KEY(run_id,step));`);
 
+const MAX_PROGRAM_IO_BYTES = 4_000_000;
 const hash = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
 export const programSchema = z.object({
   code: z.string().min(1).max(64000), inputs: z.record(z.string(), z.unknown()).default({}),
@@ -78,6 +79,7 @@ export async function runProgram(options: {
   const worker = new Worker(PROGRAM_WORKER, { eval: true, workerData: { ...args, timeoutMs: remaining, maxCalls: args.max_tool_calls, createdAt, seed: parseInt(hash(options.callId).slice(0, 8), 16) },
     resourceLimits: { maxOldGenerationSizeMb: 128, maxYoungGenerationSizeMb: 16, stackSizeMb: 4 } });
   let stdout = '', nextStep = 0, closed = false;
+  let exchangedBytes=Buffer.byteLength(JSON.stringify(args.inputs));
   const checkDispatch = () => {
     options.signal?.throwIfAborted();
     if (closed || performance.now() - started >= remaining) throw new Error('Program stopped before this action could be dispatched.');
@@ -106,6 +108,8 @@ export async function runProgram(options: {
       const task = (async () => {
         options.signal?.throwIfAborted();
         if (!allowed.has(message.name)) throw new Error('This tool was not included in the program allowlist.');
+        exchangedBytes+=Buffer.byteLength(message.args);
+        if(exchangedBytes>MAX_PROGRAM_IO_BYTES)throw new Error('Aggregate program input/output limit exceeded.');
         const callArgs = JSON.parse(message.args);
         const definition = (await options.catalog()).find((t: FunctionSchema) => t.type === 'function' && t.name === message.name);
         checkDispatch();
@@ -117,6 +121,8 @@ export async function runProgram(options: {
         if (stored && stored.binding !== stepBinding) throw new Error('Program replay diverged from its recorded actions. No further actions ran.');
         if (stored && ['dispatching', 'unknown', 'failed'].includes(stored.state)) throw new Error('A prior program action has an uncertain or failed outcome and cannot be replayed.');
         if (stored?.state === 'completed') {
+          exchangedBytes+=Buffer.byteLength(stored.output??'');
+          if(exchangedBytes>MAX_PROGRAM_IO_BYTES)throw new Error('Aggregate program input/output limit exceeded.');
           if (!closed) worker.postMessage({ id: step, value: stored.output });
           return;
         }
@@ -134,6 +140,8 @@ export async function runProgram(options: {
         let value = outcome.output;
         if (typeof value === 'string') { try { value = JSON.parse(value); } catch { /* plain tool text */ } }
         const output = JSON.stringify(value ?? null);
+        exchangedBytes+=Buffer.byteLength(output);
+        if(exchangedBytes>MAX_PROGRAM_IO_BYTES)throw new Error('Aggregate program input/output limit exceeded.');
         if (Buffer.byteLength(output) > 1_000_000) throw new Error('Tool result exceeds the program limit.');
         db.prepare('UPDATE code_steps SET state=?,output=? WHERE run_id=? AND step=?').run(outcome.isError ? 'failed' : 'completed', output, options.callId, step);
         if (!closed) worker.postMessage(outcome.isError ? { id: step, error: `Tool failed: ${output.slice(0, 1000)}` } : { id: step, value: output });

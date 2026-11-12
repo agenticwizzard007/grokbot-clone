@@ -28,6 +28,7 @@ import { APP_CONNECTION_TOOLS } from './app-connections.js';
 import { appToolLabel } from '../tool-activity.js';
 import { DISCOVERY_TOOLS } from './tool-catalog.js';
 import { PROGRAM_TOOLS } from './programs.js';
+import { LEARNING_TOOLS } from './learning-tools.js';
 import { KNOWLEDGE_TOOLS } from './knowledge-tools.js';
 import { WORKFLOW_TOOLS } from './workflow-tools.js';
 import { DELIVERABLE_TOOLS } from './deliverable-tools.js';
@@ -36,9 +37,10 @@ import { recordArtifact } from '../deliverables/index.js';
 export interface ToolCtx {
   userId: string;
   botId: string;
-  enqueueBotMessage: (fromBotId: string, toBotId: string, text: string, depth: number) => void;
+  enqueueBotMessage: (fromBotId: string, toBotId: string, text: string, depth: number) => string | void;
   depth: number;
   jobId?: string;
+  learningIteration?: number;
   /** Pin automatically allowed app reads to fresh read-only provider metadata at dispatch. */
   readOnlyApps?: boolean;
   recovery?: BrowserRecovery;
@@ -101,6 +103,7 @@ export const TOOLS: ToolDef[] = [
   ...DISCOVERY_TOOLS,
   ...PROGRAM_TOOLS,
   ...KNOWLEDGE_TOOLS,
+  ...LEARNING_TOOLS,
   ...WORKFLOW_TOOLS,
   ...DELIVERABLE_TOOLS,
   {
@@ -387,8 +390,8 @@ export const TOOLS: ToolDef[] = [
       if (target.id === ctx.botId) return { output: 'That is you.' };
       if (target.kind === 'room') return { output: `"${target.name}" is a group chat; use post_to_group instead.` };
       if (ctx.depth >= 3) return { output: 'Too many hops between bots; answer the user directly instead.' };
-      ctx.enqueueBotMessage(ctx.botId, target.id, String(a.message), ctx.depth + 1);
-      return { output: `Sent to ${target.name}. Their reply will come back to you as a message.`, summary: `Messaged ${target.name}` };
+      const requestId = ctx.enqueueBotMessage(ctx.botId, target.id, String(a.message), ctx.depth + 1);
+      return { output: `Request recorded for ${target.name}${requestId ? ` (${requestId})` : ""}. Execution may be deferred; a correlated result will return automatically.`, summary: `Requested ${target.name}` };
     },
   },
   {

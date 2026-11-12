@@ -38,7 +38,7 @@
     "test:rename": "node --import tsx --test tests/rename-compat.test.mts",
     "test:deployment": "node --import tsx --test tests/deployment.test.mts tests/admin-access.test.mts",
     "test:isolation": "node scripts/test-isolation.mjs",
-    "test:hermes-native": "npm run typecheck && node --import tsx --test --test-concurrency=1 tests/native-knowledge.test.mts tests/native-tool-discovery.test.mts tests/native-programs.test.mts tests/native-workflows.test.mts tests/native-deliverables.test.mts tests/native-runtime.test.mts && npm run build && node tests/native-ui.mjs"
+    "test:hermes-native": "npm run typecheck && node --import tsx --test --test-concurrency=1 tests/native-knowledge.test.mts tests/native-tool-discovery.test.mts tests/native-programs.test.mts tests/native-workflows.test.mts tests/native-deliverables.test.mts tests/native-runtime.test.mts tests/native-learning-coverage.test.mts tests/native-learning-lifecycle.test.mts tests/native-coordination.test.mts tests/native-coordination-boundaries.test.mts tests/native-coordination-lifecycle.test.mts tests/native-events.test.mts tests/native-job-completions.test.mts tests/native-delivery-reliability.test.mts tests/native-context-refresh.test.mts tests/native-programs-aggregate.test.mts tests/native-review-subscription.test.mts && npm run build && node tests/native-ui.mjs && node tests/hermes-experience-ui.mjs"
   },
   "engines": {
     "node": ">=22"

@@ -19,7 +19,7 @@ export function acceptJob(botId: string, trigger: unknown) {
     const bot = db.prepare('SELECT user_id FROM bots WHERE id=?').get(botId) as { user_id: string } | undefined;
     if (!bot) throw new Error('Agent not found.'); assertTenant(bot.user_id);
     if (!selectedCli(bot.user_id)) {
-      const n = (db.prepare("SELECT count(*) n FROM agent_jobs WHERE user_id=? AND state IN ('queued','running')").get(bot.user_id) as { n: number }).n;
+      const n = (db.prepare("SELECT count(*) n FROM agent_jobs WHERE user_id=? AND state IN ('queued','running') AND json_extract(trigger,'$.type')!='learning-review'").get(bot.user_id) as { n: number }).n;
       if (n >= 64) throw new Error('Your task queue is full. Wait for running tasks to finish.');
     }
     const payload = JSON.stringify(trigger);
@@ -34,9 +34,9 @@ export function finishJob(id: string, successful: boolean) { db.prepare("UPDATE 
 export function recoverJobs() {
   // Running work may have issued an external write. Never silently re-execute it on restart.
   const jobs = legacyWritableRows(db, 'agent_jobs'), dispatches = legacyWritableRows(db, 'tool_dispatches');
-  db.prepare(`UPDATE agent_jobs SET state='uncertain',finished_at=? WHERE state='running' AND (${jobs})`).run(now());
+  db.prepare(`UPDATE agent_jobs SET state='uncertain',finished_at=? WHERE state='running' AND json_extract(trigger,'$.type')!='learning-review' AND (${jobs})`).run(now());
   db.prepare(`UPDATE tool_dispatches SET state='uncertain' WHERE state='dispatching' AND (${dispatches})`).run();
-  return db.prepare(`SELECT id,user_id,bot_id,trigger FROM agent_jobs WHERE state='queued' AND (${jobs}) ORDER BY created_at,id`).all() as { id: string; user_id: string; bot_id: string; trigger: string }[];
+  return db.prepare(`SELECT id,user_id,bot_id,trigger FROM agent_jobs WHERE state='queued' AND json_extract(trigger,'$.type')!='learning-review' AND (${jobs}) ORDER BY created_at,id`).all() as { id: string; user_id: string; bot_id: string; trigger: string }[];
 }
 export function beginTool(botId: string, callId: string, tool: string, binding: string) {
   return db.prepare("INSERT OR IGNORE INTO tool_dispatches(bot_id,call_id,tool,arguments_hash,state,created_at) VALUES(?,?,?,?,'dispatching',?)").run(botId, callId, tool, binding, now()).changes === 1;

@@ -39,7 +39,11 @@ import { loadSettings } from './settings.js';
 import { defaultModel, openrouterModels } from './lib/llm.js';
 import { mcpApi } from './mcp/routes.js';
 import { resumeThisComputer } from './computers/this-computer.js';
-import { startMemoryConsolidation } from './agent/memory.js';
+import { startDeliveryRuntime } from './deliverables/index.js';
+import { startLearningRuntime } from './agent/learning.js';
+import { startCoordinationRuntime } from './coordination/index.js';
+import { learningApi } from './routes-learning.js';
+import { coordinationApi } from './routes-coordination.js';
 import { initMessaging, inkboxWebhook, messagingApi, messagingPublic } from './messaging/index.js';
 
 if (!desSelfTest()) throw new Error('DES self-test failed');
@@ -89,6 +93,8 @@ app.route('/api/rooms', roomsApi);
 app.route('/api', knowledgeApi);
 app.route('/api/workflows', workflowApi);
 app.route('/api/deliverables', deliverablesApi);
+app.route('/api/learning',learningApi);
+app.route('/api/team',coordinationApi);
 app.route('/api', api);
 app.route('/api', configApi);
 app.route('/api/usage', usageApi);
@@ -116,6 +122,9 @@ if (env.llmProvider === 'openrouter') void openrouterModels().catch(() => {});
 // SWARM_NO_SCHEDULER=1 for extra dev/test servers sharing a database copy, so routines and triggers don't fire twice.
 if (process.env.SWARM_NO_SCHEDULER !== '1') {
   initDurableJobs();
+  startLearningRuntime();
+  startCoordinationRuntime();
+  startDeliveryRuntime();
   initRoutines(enqueue);
   void initTriggers(enqueue);
   initProactive(enqueue);
@@ -125,6 +134,6 @@ initMessaging({ process: process.env.SWARM_NO_SCHEDULER !== '1' });
 computers.start?.();
 startVmMeter();
 if (computers.kind === 'local') resumeThisComputer();
-startMemoryConsolidation();
+
 
 if (isTenant) { await startTenantTunnel(env.port); initRuntimeEvents(); }

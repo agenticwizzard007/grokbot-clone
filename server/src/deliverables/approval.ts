@@ -1,5 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
+import { db } from '../db.js';
+import { assertLegacyWorkOpen } from '../security/legacy-work.js';
 import { env } from '../env.js';
 import { getArtifact } from './artifacts.js';
 import { getDelivery, getDeliveryTarget, targetIdentity, type DeliveryTarget, type DeliveryTransport } from './delivery.js';
@@ -13,7 +15,12 @@ export const deliverArtifactArgs = z.object({ artifact_id: z.string().min(1), ch
 export const retryDeliveryArgs = z.object({ delivery_id: z.string().min(1), destination: deliveryDestinationSchema.optional() }).strict();
 
 function signature(userId: string, botId: string, name: string, artifactId: string, sha: string, deliveryId: string | null, target: DeliveryTarget) {
-  return createHmac('sha256', env.sessionSecret).update(JSON.stringify([userId, botId, name, artifactId, sha, deliveryId, targetIdentity(target)])).digest('hex');
+  assertLegacyWorkOpen(userId);
+  // Persist the current signing key per account: pending approvals survive host
+  // restart and tenant export without depending on an ephemeral session secret.
+  db.prepare('INSERT OR IGNORE INTO artifact_delivery_keys(user_id,secret) VALUES(?,?)').run(userId,env.sessionSecret);
+  const {secret}=db.prepare('SELECT secret FROM artifact_delivery_keys WHERE user_id=?').get(userId) as {secret:string};
+  return createHmac('sha256', secret).update(JSON.stringify([userId, botId, name, artifactId, sha, deliveryId, targetIdentity(target)])).digest('hex');
 }
 function sameProof(actual: string, expected: string) {
   const a = Buffer.from(actual), b = Buffer.from(expected);

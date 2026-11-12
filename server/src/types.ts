@@ -84,6 +84,7 @@ export interface Bot {
 
 /** A transcript row. `seq` orders rows; `updatedSeq` is a per-bot revision counter (rows are rewritten while streaming). */
 export interface Row {
+  audience?: 'user'|'internal';
   botId: string;
   generation: number;
   seq: number;
@@ -95,12 +96,12 @@ export interface Row {
 
 export type RowKind = 'message' | 'tool-call' | 'card' | 'event' | 'notice';
 
-export type RowBody =
+export type RowBody = (
   | MessageBody
   | ToolCallBody
   | CardBody
   | EventBody
-  | NoticeBody;
+  | NoticeBody) & { audience?: 'user'|'internal' };
 
 export interface MessageBody {
   type: 'message';
@@ -205,6 +206,7 @@ export type ActivityKind =
   | 'waiting_for_you' | 'drafting_file' | 'remembering';
 
 export interface LiveState {
+  audience?: 'user'|'internal';
   botId: string;
   isRunning: boolean;
   activity: { kind: ActivityKind; detail?: string; since: number } | null;
@@ -245,6 +247,7 @@ export interface Toolkit {
 
 /** Server-sent events on GET /api/events */
 export type ServerEvent =
+  | { type: 'native'; cursor: number }
   | { type: 'hello'; serverTime: number }
   | { type: 'rows'; botId: string; generation: number; rows: Row[] }
   | { type: 'cleared'; botId: string; generation: number }

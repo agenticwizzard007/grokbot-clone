@@ -1,7 +1,7 @@
 import { recordModelUsage, withUsage } from '../usage.js';
 import { selectedCli } from '../cli/store.js';
 import { withNativeTools, type NativeToolHandler } from '../cli/native-tools.js';
-import { llmClient, modelFor, withFast, modelInfo, prepareInput, textOnlyInput, providerFields, serverTools, tagOutput } from '../lib/llm.js';
+import { llmClient, llmProvider, modelFor, withFast, modelInfo, prepareInput, textOnlyInput, providerFields, serverTools, tagOutput } from '../lib/llm.js';
 import { db, now } from '../db.js';
 import { env } from '../env.js';
 import { newId, sha256 } from '../lib/ids.js';
@@ -19,7 +19,7 @@ import { mcpSchemas, runMcpTool } from '../mcp/client.js';
 import { findMcpTool } from '../mcp/store.js';
 import { latency } from '../lib/latency.js';
 import { localAccess } from '../computers/local-access.js';
-import { currentComputerRevision } from '../usage-context.js';
+import { currentComputerRevision, executionAudience } from '../usage-context.js';
 import { approvalBinding } from '../security/approval.js';
 import { acceptJob, beginJob, finishJob, recoverJobs, beginTool, finishTool } from './jobs.js';
 import { BrowserRecovery } from './browser-recovery.js';
@@ -27,6 +27,10 @@ import { assembleToolCatalog, resolveToolCall, validateToolArguments } from './t
 import { runProgram, isProgramResumable, recoverPrograms, cancelProgram } from './programs.js';
 import { configureWorkflowRuntime, workflowPreTurn, checkWorkflowBudget, workflowToolGate, workflowAfterTurn, recoverWorkflows } from './workflows.js';
 import { onJobStarted, onJobFinished, recoverDeliverables, drainDeliveries } from '../deliverables/index.js';
+import {contextRevision} from './context-refresh.js';
+import {recordJobCompletion,pendingJobCompletions,acknowledgeJobCompletion} from '../native/job-completions.js';
+import { beforeForegroundTurn, onLearningTurn, learningForegroundEpoch, learningSourceSnapshot } from './learning.js';
+import { configureCoordinationRuntime, recordCoordinationJobOutcome, enqueueInternalMessage, onCoordinationJobFinished, coordinationPreTurn } from '../coordination/index.js';
 import { prepareDeliveryAction } from '../deliverables/approval.js';
 
 const llm = () => llmClient(360_000);
@@ -38,7 +42,7 @@ export type Trigger = (
   | { type: 'bot'; fromBotId: string; fromName: string; text: string; depth: number }
   | { type: 'system'; text: string; connectionCardSeq?: number }
   | { type: 'native-tool'; name: 'SWARM_APPS_EXECUTE'; args: Record<string, unknown>; callId: string; requireApproval?: boolean; readOnly?: boolean }
-  | { type: 'resume' }) & { parentJobId?: string };
+  | { type: 'resume' }) & { parentJobId?: string; audience?: 'internal'; coordinationRequestId?:string; coordinationWakeId?:string; workflowId?:string;taskId?:string;goalId?:string;proactiveSlotKey?:string;coordinationReportPeriod?:string };
 
 interface PendingState {
   /** A native voice invocation resumes the exact tool without asking a text model to re-plan it. */
@@ -68,6 +72,8 @@ const queues = new Map<string, Promise<void>>();
 const aborts = new Map<string, AbortController>();
 const running = new Map<string, Trigger>();
 const activeJobs = new Map<string, string>();
+const completions = new Map<string, {status:string;finalText:string;iterations:number;generation:number;model:string;provider:string;messagesSnapshot:any[];systemPrompt?:string;contextWindow?:number;temporary:boolean;foregroundEpoch:number;sourceSnapshot:ReturnType<typeof learningSourceSnapshot>}>();
+const modelSnapshots = new WeakMap<ToolCtx,{systemPrompt:string;contextWindow?:number;model:string;provider:string;contextRevision:string}>();
 const userQueues = new Map<string, Promise<void>>();
 const scheduledJobs = new Set<string>();
 /** Drain accepted work before orderly shutdown or test storage teardown. */
@@ -78,22 +84,31 @@ export async function settleAgentJobs() { while (queues.size) await Promise.allS
 export const currentTrigger = (botId: string): Trigger | undefined => running.get(botId);
 
 export function enqueue(botId: string, trigger: Trigger) {
+  const admitted=db.transaction(()=>{
   // Questions and approvals end one run before their continuation starts. Preserve the
   // lineage so observers track the assignment instead of mistaking that pause for completion.
   let question: ReturnType<typeof getRow> = null;
   if (trigger.type === 'resume') {
     const pending = db.prepare('SELECT state FROM pending_turns WHERE bot_id=?').get(botId) as { state: string } | undefined;
     const parentJobId = pending ? (JSON.parse(pending.state) as PendingState).jobId : undefined;
-    if (parentJobId) trigger = { ...trigger, parentJobId };
+    if (parentJobId) {
+      const prior=db.prepare("SELECT id,user_id FROM agent_jobs WHERE bot_id=? AND json_extract(trigger,'$.parentJobId')=? AND json_extract(trigger,'$.type')='resume' AND state IN ('queued','running') ORDER BY created_at DESC LIMIT 1").get(botId,parentJobId) as {id:string;user_id:string}|undefined;
+      if(prior)return {job:{id:prior.id,userId:prior.user_id},trigger:{...trigger,parentJobId}};
+      trigger={...trigger,parentJobId};
+    }
   } else if (trigger.type === 'user' && !trigger.voiceAssignment) {
     const bot = getBotRow(botId);
     const pending = bot && db.prepare("SELECT seq FROM rows WHERE bot_id=? AND generation=? AND kind='card' AND json_extract(body,'$.card')='question' AND json_extract(body,'$.status') IN ('pending','answered') AND json_extract(body,'$.jobId') IS NOT NULL AND json_extract(body,'$.answerJobId') IS NULL ORDER BY seq DESC LIMIT 1").get(botId, bot.generation) as { seq: number } | undefined;
     question = pending ? getRow(botId, pending.seq) : null;
     if (question?.body.type === 'card' && question.body.card === 'question' && question.body.jobId) trigger = { ...trigger, parentJobId: question.body.jobId };
-  } else if (trigger.type === 'system') {
+  } else if (trigger.type === 'system' && !independentTrigger(trigger)) {
     const bot = getBotRow(botId);
     if (trigger.connectionCardSeq !== undefined) {
       const candidate = bot ? getRow(botId, trigger.connectionCardSeq) : null;
+      if(candidate?.body.type==='card'&&candidate.body.card==='connect'&&candidate.body.answerJobId) {
+        const prior=db.prepare('SELECT id,user_id,trigger FROM agent_jobs WHERE id=? AND bot_id=?').get(candidate.body.answerJobId,botId) as any;
+        if(prior)return {job:{id:prior.id,userId:prior.user_id},trigger:JSON.parse(prior.trigger) as Trigger};
+      }
       if (candidate?.body.type === 'card' && candidate.body.card === 'connect' && ['connected', 'skipped'].includes(candidate.body.status) && !candidate.body.answerJobId) question = candidate;
     } else {
       const resolved = bot && db.prepare("SELECT seq FROM rows WHERE bot_id=? AND generation=? AND kind='card' AND json_extract(body,'$.card')='connect' AND json_extract(body,'$.status') IN ('connected','skipped') AND json_extract(body,'$.jobId') IS NOT NULL AND json_extract(body,'$.answerJobId') IS NULL ORDER BY seq DESC LIMIT 1").get(botId, bot.generation) as { seq: number } | undefined;
@@ -101,20 +116,29 @@ export function enqueue(botId: string, trigger: Trigger) {
     }
     if (question?.body.type === 'card' && question.body.card === 'connect' && question.body.jobId) trigger = { ...trigger, parentJobId: question.body.jobId };
   }
+  if (trigger.parentJobId) {
+    const parent = db.prepare('SELECT trigger FROM agent_jobs WHERE id=? AND bot_id=?').get(trigger.parentJobId,botId) as {trigger:string}|undefined;
+    if (parent) { const t = JSON.parse(parent.trigger); trigger = { ...trigger, audience:t.audience, coordinationRequestId:t.coordinationRequestId, coordinationWakeId:t.coordinationWakeId,workflowId:t.workflowId,taskId:t.taskId,goalId:t.goalId,proactiveSlotKey:t.proactiveSlotKey,coordinationReportPeriod:t.coordinationReportPeriod }; }
+  }
   const job = acceptJob(botId, trigger);
+  void beforeForegroundTurn(job.userId,botId).catch(()=>console.error('[learning] foreground admission fence failed'));
   if (question?.body.type === 'card' && question.body.card === 'question' && trigger.type === 'user') {
     updateRow(botId, question.seq, { ...question.body, status: 'answered', answer: question.body.answer ?? trigger.text, answerJobId: job.id });
   } else if (question?.body.type === 'card' && question.body.card === 'connect' && trigger.type === 'system') {
     updateRow(botId, question.seq, { ...question.body, answerJobId: job.id });
   }
-  scheduleJob(job.id, job.userId, botId, trigger);
-  return job.id;
+  return {job,trigger};
+  })();
+  scheduleJob(admitted.job.id,admitted.job.userId,botId,admitted.trigger);
+  return admitted.job.id;
 }
 
 // Independent voice assignments and legacy native invocations share one durable FIFO.
 // Answers, corrections and approval/connection continuations must be able to bypass it.
-const independentJobSql = `(json_extract(trigger,'$.type')='native-tool' OR
+const independentJobSql = `(json_extract(trigger,'$.type') IN ('native-tool','bot','routine') OR
+  (json_extract(trigger,'$.type')='system' AND (json_extract(trigger,'$.audience')='internal' OR json_extract(trigger,'$.workflowId') IS NOT NULL OR json_extract(trigger,'$.proactiveSlotKey') IS NOT NULL)) OR
   (json_extract(trigger,'$.type')='user' AND json_extract(trigger,'$.voiceAssignment')=1))`;
+function independentTrigger(t:Trigger) { return !t.parentJobId && (t.type==='native-tool' || t.type==='bot' || t.type==='routine' || t.type==='user' && t.voiceAssignment===true || t.type==='system' && (t.audience==='internal' || !!t.workflowId || !!t.proactiveSlotKey)); }
 function hasPendingDecision(botId: string) {
   // A card can resolve before its answer/callback runs; that continuation still
   // takes priority over independent work already scheduled on this bot.
@@ -138,15 +162,20 @@ function scheduleJob(jobId: string, userId: string, botId: string, trigger: Trig
   const next = Promise.all([prev, userPrev]).then(async () => {
     // Independent work cannot replace an unresolved approval or answer a question.
     // Release the serial queue while it waits so another agent or a follow-up can run.
-    if ((trigger.type === 'native-tool' || trigger.type === 'user' && trigger.voiceAssignment === true) && (
+    if (independentTrigger(trigger) && (
       hasPendingDecision(botId) ||
       db.prepare(`SELECT 1 FROM agent_jobs WHERE bot_id=? AND state='queued' AND ${independentJobSql}
         AND rowid < (SELECT rowid FROM agent_jobs WHERE id=?) LIMIT 1`).get(botId, jobId)
     )) return;
     if (!beginJob(jobId)) return;
     latency('queue', queuedAt, { botId });
-    try { await withUsage({ botId, kind: 'chat' }, () => runTurn(botId, trigger, jobId)); finishJob(jobId, true); }
-    catch { finishJob(jobId, false); }
+    try {
+      await beforeForegroundTurn(userId,botId);
+      await withUsage({ userId,botId,jobId,reviewId:null,kind:'chat',audience:trigger.audience??(trigger.type==='bot'?'internal':'user') }, () => runTurn(botId,trigger,jobId));
+      db.transaction(()=>{finishJob(jobId,true);const c=completions.get(jobId);if(c){recordCoordinationJobOutcome({userId,botId,jobId,status:c.status,finalText:c.finalText,trigger});recordJobCompletion({userId,botId,jobId,trigger,completion:c});}})();
+    } catch { db.transaction(()=>{finishJob(jobId,false);const c=completions.get(jobId);if(c){recordCoordinationJobOutcome({userId,botId,jobId,status:c.status,finalText:c.finalText,trigger});recordJobCompletion({userId,botId,jobId,trigger,completion:c});}})(); }
+    completions.delete(jobId);
+    await dispatchJobCompletions(jobId);
   }).catch(() => { finishJob(jobId, false); });
   if (!subscription) userQueues.set(userId, next);
   queues.set(botId, next);
@@ -162,15 +191,36 @@ function scheduleJob(jobId: string, userId: string, botId: string, trigger: Trig
     }
   });
 }
+export async function dispatchJobCompletions(jobId?:string) {
+ for(const item of pendingJobCompletions(jobId)) {
+  const {userId,botId,jobId:sourceJobId,trigger,completion}=item.input;
+  if(!item.coordinationDone)try {
+   await onCoordinationJobFinished({userId,botId,jobId:sourceJobId,status:completion.status,finalText:completion.finalText,trigger});
+   acknowledgeJobCompletion(userId,sourceJobId,'coordination');
+  }catch{console.error('[coordination] completion deferred for recovery');}
+  if(!item.learningDone)try {
+   await withUsage({userId,botId,jobId:sourceJobId,kind:'background_review'},()=>onLearningTurn({userId,botId,jobId:sourceJobId,triggerType:trigger.workflowId?'workflow':trigger.proactiveSlotKey?'checkin':trigger.type,depth:trigger.type==='bot'?trigger.depth:0,...completion} as Parameters<typeof onLearningTurn>[0]));
+   acknowledgeJobCompletion(userId,sourceJobId,'learning');
+  }catch{console.error('[learning] completion deferred for recovery');}
+ }
+}
+let completionTimer:ReturnType<typeof setInterval>|undefined;
 export function initDurableJobs() {
   recoverPrograms();
   recoverWorkflows();
   const jobs = recoverJobs();
   recoverDeliverables();
+  void dispatchJobCompletions().catch(()=>console.error('[native] completion recovery deferred'));
+  completionTimer ??= setInterval(()=>void dispatchJobCompletions().catch(()=>console.error('[native] completion recovery deferred')),2000);
+  completionTimer.unref();
   void drainDeliveries().catch(() => console.error('[deliverables] pending delivery drain failed'));
   for (const job of jobs) scheduleJob(job.id, job.user_id, job.bot_id, JSON.parse(job.trigger));
 }
 configureWorkflowRuntime({ enqueue, interrupt });
+configureCoordinationRuntime({ enqueue:(botId,t)=>{
+  if(t.type==='bot'&&(!t.fromBotId||!t.fromName||t.depth===undefined))throw new Error('Internal sender identity is required.');
+  return enqueue(botId,t as Trigger);
+}, interrupt });
 
 /** The running turn's abort signal (aborted when the user stops the Bot). */
 export const turnSignal = (botId: string): AbortSignal | undefined => aborts.get(botId)?.signal;
@@ -206,9 +256,7 @@ export function runInBotQueue<T>(botId: string, job: () => Promise<T>): Promise<
 export const isBotBusy = (botId: string) => queues.has(botId);
 
 function enqueueBotMessage(fromBotId: string, toBotId: string, text: string, depth: number) {
-  const from = getBotRow(fromBotId);
-  appendRow(toBotId, 'message', { type: 'message', role: 'user', text, from: { kind: 'bot', id: fromBotId, name: from.name } });
-  enqueue(toBotId, { type: 'bot', fromBotId, fromName: from.name, text, depth });
+  return enqueueInternalMessage(fromBotId,toBotId,text,depth);
 }
 
 // ---------- history helpers ----------
@@ -240,7 +288,7 @@ function triggerItem(t: Trigger): any | null {
       return { role: 'user', content: [{ type: 'input_text', text }, ...t.images.map((url) => ({ type: 'input_image', image_url: url, detail: 'auto' }))] };
     }
     case 'routine': return { role: 'user', content: `[Routine "${t.name}" is running now. Do this:]\n${t.prompt}` };
-    case 'bot': return { role: 'user', content: `[Message from ${t.fromName}, another Bot on the team. Reply to them with send_to_bot if they asked you something.]\n${t.text}` };
+    case 'bot': return { role: 'user', content: `[Message from ${t.fromName}, another Bot on the team. Your final result is returned automatically to the originating request; do not create a redundant reply request.]\n${t.text}` };
     case 'system': return { role: 'user', content: `[System notice] ${t.text}` };
     case 'resume':
     case 'native-tool': return null;
@@ -262,6 +310,8 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
   const toolRows: number[] = [];
   let outcome: 'completed' | 'waiting' | 'interrupted' | 'failed' = 'completed';
   let finalText = '';
+  let iterations = 0;
+  const foregroundEpoch=learningForegroundEpoch(userId,botId);
   let admitted = false;
   let routineStarted = false;
 
@@ -276,10 +326,12 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
     // Settle a superseded approval before adopting the new job into a goal.
     // The old run may block its goal; that must not capture the replacement chat.
     const pendingRow = db.prepare('SELECT state FROM pending_turns WHERE bot_id=?').get(botId) as any;
-    if (pendingRow && trigger.type !== 'resume') {
+    if (pendingRow && trigger.type !== 'resume' && !independentTrigger(trigger)) {
       const st = JSON.parse(pendingRow.state) as PendingState;
       await finishPending(ctx, st, 'denied-by-new-message');
     }
+    const authority = coordinationPreTurn({userId,botId,jobId,trigger});
+    if (!authority.allowed) throw new Error(authority.reason??'Coordination authority changed.');
     const gate = workflowPreTurn({ userId, botId, jobId });
     if (!gate.allowed) throw new Error(gate.reason ?? 'Workflow cannot continue.');
     admitted = true;
@@ -290,14 +342,17 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
     if (trigger.type === 'resume') {
       if (!pendingRow) return;
       const st = JSON.parse(pendingRow.state) as PendingState;
+      const pausedJobId=st.jobId;
       st.jobId = jobId;
       toolRows.push(...st.calls.map(c => c.rowSeq));
       if ((st.computerRevision ?? 0) !== localAccess(userId).revision) {
-        await finishPending(ctx, st, 'computer-changed');
+        outcome='interrupted';
+        await finishPending(ctx, {...st,jobId:pausedJobId}, 'computer-changed');
         appendRow(botId, 'notice', { type: 'notice', text: 'Your selected computer changed. The previous approval and its remaining actions were cancelled. Send a new request to continue on the selected computer.', tone: 'info' });
         return;
       }
       depth = st.depth;
+      ctx.depth=st.depth;
       ctx.readOnlyApps = st.nativeReadOnly;
       const paused = await processCalls(ctx, st);
       if (paused) return;
@@ -334,7 +389,7 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
       const budget = checkWorkflowBudget({ userId, botId, jobId });
       if (!budget.allowed) throw new Error(budget.reason ?? 'Workflow budget exhausted.');
       ctx.remainingTokens = budget.remainingTokens;
-      let nativeBoundary: 'approval' | 'end' | 'replan' | 'budget' | undefined;
+      let nativeBoundary: 'approval' | 'end' | 'replan' | 'checkpoint' | 'budget' | undefined;
       const nativeCall: NativeToolHandler = async call => {
         ctrl.signal.throwIfAborted();
         if (nativeBoundary) return { output: 'This turn has paused. No further actions were executed.', stop: true };
@@ -342,9 +397,15 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
           nativeBoundary = 'budget';
           return { output: 'The tool step limit was reached. Stop and report the completed work.', stop: true };
         }
+        if(modelSnapshots.get(ctx)?.contextRevision!==contextRevision(userId,botId)){
+          nativeBoundary='checkpoint';
+          return {output:'Authorized knowledge or instructions changed. This action was not executed. Reload current context and choose the next action again.',isError:true,stop:true};
+        }
         const available = await ctx.availableTools!();
         if (!available.some(tool => tool.type === 'function' && tool.name === call.name)) throw new Error('This tool is unavailable to the current agent.');
         nativeCount++;
+        iterations++;
+        ctx.learningIteration=iterations;
         // Never trust a runner-provided ID as a durable dispatch identifier.
         // The adapter deduplicates its IDs within this generation; Swarm owns
         // the history, journal and approval IDs across all generations.
@@ -365,12 +426,16 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
           isError: getRow(botId, row.seq)?.body.type === 'tool-call' && ['error', 'denied'].includes((getRow(botId, row.seq)!.body as ToolCallBody).status),
           ...(nativeBoundary ? { stop: true } : {}) };
       };
+      iterations++;
+      ctx.learningIteration=iterations;
       const result = await withNativeTools(userId, nativeCall, () => callModel(ctx, tools, ctrl.signal));
       appendHistory(botId, result.output);
       finalText = result.output.filter((item: any) => item.type === 'message').flatMap((item: any) => item.content ?? []).filter((part: any) => part.type === 'output_text').map((part: any) => part.text).join('\n');
       if (nativeBoundary === 'budget') throw new Error('The tool step limit was reached. Review the completed steps before continuing.');
       if (nativeBoundary === 'approval' || nativeBoundary === 'end') return;
-      if (nativeBoundary === 'replan') continue;
+      // Tool results are already persisted. A fresh generation consumes them;
+      // it never replays the completed calls just to continue the same job.
+      if (nativeBoundary === 'replan' || nativeBoundary === 'checkpoint') continue;
       const calls = result.output.filter((o: any) => o.type === 'function_call');
       if (!calls.length) break;
 
@@ -428,6 +493,7 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
         }
         setLive(botId, { isRunning: false, activity: null, awaiting: null, startedAt: null });
       }
+      completions.set(jobId,{status:outcome,finalText,iterations,generation:bot.generation,model:modelFor(bot.model),provider:llmProvider(),messagesSnapshot:loadHistory(botId),temporary:!!bot.parent_bot_id,foregroundEpoch,sourceSnapshot:learningSourceSnapshot(botId,bot.generation),...modelSnapshots.get(ctx)});
       emitBot(botId);
     }
   }
@@ -436,13 +502,29 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
 /** Run function calls in order. Returns true if the turn paused for approval. */
 async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: boolean; signal?: AbortSignal; onPause?: (state: PendingState) => void } = {}): Promise<boolean> {
   const { botId, userId } = ctx;
+  const invalidateStaleContext=()=>{
+    const loadedContext=modelSnapshots.get(ctx);
+    if(loadedContext&&loadedContext.contextRevision!==contextRevision(userId,botId)){
+      st.replan=true;
+      for(const remaining of st.calls.splice(0)){
+        const previous=getRow(botId,remaining.rowSeq);
+        if(previous)updateRow(botId,remaining.rowSeq,{...(previous.body as ToolCallBody),status:'denied',summary:'Context changed; replan required'});
+        st.outputs.push({type:'function_call_output',call_id:remaining.call_id,output:'Not executed: authorized knowledge or instructions changed. Inspect current context before choosing the next action.'});
+      }
+      return true;
+    }
+    return false;
+  };
   while (st.calls.length) {
     turnSignal(botId)?.throwIfAborted();
     options.signal?.throwIfAborted();
     if (ctx.jobId) {
+      const authority=coordinationPreTurn({userId,botId,jobId:ctx.jobId,trigger:currentTrigger(botId)});
+      if(!authority.allowed) throw new Error(authority.reason??'Coordination authority changed.');
       const budget = checkWorkflowBudget({ userId, botId, jobId: ctx.jobId });
       if (!budget.allowed) throw new Error(budget.reason ?? 'Workflow cannot continue.');
     }
+    if(invalidateStaleContext())break;
     let c = st.calls[0];
     let args = safeParse(c.arguments) ?? {};
     const row = getRow(botId, c.rowSeq);
@@ -490,6 +572,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
     const pol = await executionPolicyFor(userId, c.name, args, botId);
     turnSignal(botId)?.throwIfAborted();
     options.signal?.throwIfAborted();
+    if(invalidateStaleContext())break;
     let decision = pol.decision;
     if (st.nativeRequireApproval && decision === 'allow') decision = 'ask';
     if (ap && ap.call_id === c.call_id) {
@@ -611,11 +694,16 @@ async function finishPending(ctx: ToolCtx, st: PendingState, reason: string) {
     const row = getRow(botId, c.rowSeq);
     if (row) updateRow(botId, c.rowSeq, { ...(row.body as ToolCallBody), status: 'denied', summary: 'Skipped' });
   }
-  appendHistory(botId, st.outputs.map(({ __endTurn, ...o }: any) => o));
-  db.prepare('DELETE FROM pending_turns WHERE bot_id=?').run(botId);
+  db.transaction(()=>{
+    appendHistory(botId, st.outputs.map(({ __endTurn, ...o }: any) => o));
+    db.prepare("DELETE FROM pending_turns WHERE bot_id=? AND (? IS NULL OR json_extract(state,'$.jobId')=?)").run(botId,st.jobId??null,st.jobId??null);
+    if(st.jobId)recordCoordinationJobOutcome({userId:ctx.userId,botId,jobId:st.jobId,status:'interrupted',finalText:''});
+  })();
   if (st.jobId) {
     await workflowAfterTurn({ userId: ctx.userId, botId, jobId: st.jobId, status: 'interrupted' });
     onJobFinished({ jobId: st.jobId, botId, status: 'cancelled' });
+    const origin=db.prepare('SELECT trigger FROM agent_jobs WHERE id=? AND bot_id=?').get(st.jobId,botId) as {trigger:string}|undefined;
+    if(origin) onCoordinationJobFinished({userId:ctx.userId,botId,jobId:st.jobId,status:'interrupted',finalText:'',trigger:JSON.parse(origin.trigger)});
   }
 }
 
@@ -628,14 +716,17 @@ function publishNativeResult(botId: string, state: PendingState) {
 // ---------- model call with streaming into a message row ----------
 
 const imageWarnings = new WeakSet<ToolCtx>();
-async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: AbortSignal): Promise<{ output: any[] }> {
+async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: AbortSignal, refreshes=0): Promise<{ output: any[] }> {
   const { botId, userId } = ctx;
   const bot = getBotRow(botId);
   const prepareStart = performance.now();
+  const preparedRevision=contextRevision(userId,botId);
   const model = modelFor(bot.model);
   const checkModelBudget = () => {
     signal.throwIfAborted();
     if (ctx.jobId) {
+      const authority=coordinationPreTurn({userId,botId,jobId:ctx.jobId,trigger:currentTrigger(botId)});
+      if(!authority.allowed) throw new Error(authority.reason??'Coordination authority changed.');
       const budget = checkWorkflowBudget({ userId, botId, jobId: ctx.jobId });
       if (!budget.allowed) throw new Error(budget.reason ?? 'Workflow budget exhausted.');
       ctx.remainingTokens = budget.remainingTokens;
@@ -646,13 +737,18 @@ async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: Abo
   // Runs inside the bot's serial queue, so compaction can't race a turn.
   const [history, prompt, info, allTools] = await Promise.all([
     maybeCompact(botId, loadHistory(botId), { beforeModel: checkModelBudget }).catch(() => loadHistory(botId)),
-    systemPrompt(userId, botId),
+    systemPrompt(userId, botId, ctx.jobId),
     modelInfo(model, bot.model === model, signal),
     ctx.availableTools?.() ?? toolsPromise,
   ]);
   // Compaction can consume the remaining budget. Its usage is persisted before
   // returning, so check again before issuing the primary model request.
   checkModelBudget();
+  if(preparedRevision!==contextRevision(userId,botId)){
+    if(refreshes>=3)throw new Error('Knowledge changed repeatedly while preparing context. Retry with the latest version.');
+    return callModel(ctx,toolsPromise,signal,refreshes+1);
+  }
+  modelSnapshots.set(ctx,{systemPrompt:prompt,contextWindow:info?.context,model,provider:llmProvider(),contextRevision:preparedRevision});
   const { tools, manifest } = assembleToolCatalog(allTools);
   // The model is only called when no approval is pending, so every orphaned call can be repaired.
   let input = [{ role: 'system', content: prompt + (ctx.workflowPrompt ? `\n\n${ctx.workflowPrompt}` : '') + (manifest ? `\n\n## Available tools\n${manifest}` : '') }, ...prepareInput(pruneImages(deduplicateBrowserSnapshots(repairHistory(history))), model)];
@@ -747,7 +843,7 @@ async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: Abo
             // finalize this message; a later message in the same response gets its own row
             const citations = (ev.item.content ?? []).flatMap((c: any) => (c.annotations ?? []).filter((a: any) => a.url).map((a: any) => ({ url: a.url, title: a.title })));
             updateRow(botId, msgSeq, { type: 'message', role: 'assistant', text, streaming: false, citations: citations.length ? citations : undefined });
-            db.prepare('UPDATE bots SET unread = unread + 1 WHERE id=?').run(botId);
+            if(executionAudience(botId)!=='internal')db.prepare('UPDATE bots SET unread = unread + 1 WHERE id=?').run(botId);
             msgSeq = null;
             text = '';
           }
@@ -791,6 +887,8 @@ function describeArgs(args: any): string {
 
 /** Resolve an approval card from the UI. */
 export function resolveApproval(userId: string, approvalId: string, decision: 'allow' | 'always' | 'deny') {
+  return db.transaction(()=>{
+  if(!['allow','always','deny'].includes(decision))throw new Error('Invalid approval decision.');
   const ap = db.prepare('SELECT a.*, b.user_id FROM approvals a JOIN bots b ON b.id=a.bot_id WHERE a.id=?').get(approvalId) as any;
   if (!ap || ap.user_id !== userId) throw new Error('not found');
   if (ap.status !== 'pending') return;
@@ -800,4 +898,5 @@ export function resolveApproval(userId: string, approvalId: string, decision: 'a
   const card = getRow(ap.bot_id, ap.row_seq);
   if (card && card.body.type === 'card' && card.body.card === 'approval') updateRow(ap.bot_id, ap.row_seq, { ...card.body, status });
   enqueue(ap.bot_id, { type: 'resume' });
+  })();
 }

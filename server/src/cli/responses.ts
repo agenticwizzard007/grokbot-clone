@@ -32,7 +32,7 @@ export function prepareCliRequest(body: any, nativeMcp = false) {
   });
   const tools = (body.tools ?? []).filter((t: any) => t.type === 'function');
   const outputSchema = body.text?.format?.schema;
-  const useMcp = nativeMcp && !outputSchema && tools.length > 0;
+  const useMcp = nativeMcp && body.swarm_management_review !== true && !outputSchema && tools.length > 0;
   const names = [...new Set<string>(tools.map((tool: any) => tool.name))];
   const actionSchema = {
     ...envelopeSchema,

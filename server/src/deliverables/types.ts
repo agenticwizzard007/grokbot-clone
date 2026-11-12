@@ -19,6 +19,8 @@ export interface DeliveryAttempt {
 export interface ArtifactDelivery {
   id: string; artifactId: string; channel: DeliveryChannel; status: DeliveryStatus;
   error: string | null; createdAt: number; updatedAt: number; attempts: DeliveryAttempt[];
+  acknowledgement?: 'provider'|'owner'|'library'|null;
+  reconciliations?: {id:string;outcome:'delivered'|'not_sent';evidence:string;attemptId:string;createdAt:number}[];
 }
 export class DeliverableError extends Error {
   constructor(message: string, readonly status: 400 | 404 | 409 | 413 | 503 = 400) { super(message); }

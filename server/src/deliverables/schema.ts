@@ -46,3 +46,25 @@ CREATE TABLE IF NOT EXISTS artifact_delivery_attempts (
 );
 CREATE INDEX IF NOT EXISTS artifact_delivery_pending ON artifact_deliveries(status,created_at);
 `);
+
+// Account-owned durable approval key and idempotent HTTP command receipts.
+db.exec(`
+CREATE TABLE IF NOT EXISTS artifact_delivery_keys (
+ user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, secret TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS artifact_delivery_commands (
+ user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, key TEXT NOT NULL,
+ delivery_id TEXT NOT NULL REFERENCES artifact_deliveries(id) ON DELETE CASCADE,
+ fingerprint TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(user_id,key)
+);
+CREATE TABLE IF NOT EXISTS artifact_delivery_reconciliations (
+ id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ delivery_id TEXT NOT NULL REFERENCES artifact_deliveries(id) ON DELETE CASCADE,
+ attempt_id TEXT NOT NULL REFERENCES artifact_delivery_attempts(id) ON DELETE CASCADE,
+ outcome TEXT NOT NULL CHECK(outcome IN ('delivered','not_sent')), evidence TEXT NOT NULL,
+ created_at INTEGER NOT NULL, UNIQUE(delivery_id,attempt_id)
+);`);
+
+const deliveryColumns=new Set((db.prepare('PRAGMA table_info(artifact_deliveries)').all() as {name:string}[]).map(c=>c.name));
+if(!deliveryColumns.has('next_attempt_at'))db.exec('ALTER TABLE artifact_deliveries ADD COLUMN next_attempt_at INTEGER NOT NULL DEFAULT 0');
+if(!deliveryColumns.has('drain_failures'))db.exec('ALTER TABLE artifact_deliveries ADD COLUMN drain_failures INTEGER NOT NULL DEFAULT 0');

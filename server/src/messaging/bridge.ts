@@ -301,6 +301,7 @@ export function startBridge() {
 }
 
 function onRow(userId: string, row: Row, isNew: boolean) {
+  if (row.audience === 'internal' || row.body.audience === 'internal') return;
   if (legacyWorkHeld(userId)) return;
   const bot = getBotRow(row.botId);
   if (!bot || bot.hidden) return;

@@ -14,7 +14,7 @@ import { computerByDay, computerByUser, computerCsvRows, computerTotals, type Co
  * context (withUsage) set around each Bot turn and each signed-in API request fills them in.
  */
 
-export type UsageKind = 'chat' | 'compaction' | 'memory' | 'voice' | 'voice_summary' | 'transcription' | 'speech' | 'other';
+export type UsageKind = 'background_review' | 'chat' | 'compaction' | 'memory' | 'voice' | 'voice_summary' | 'transcription' | 'speech' | 'other';
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS usage_events (
@@ -48,6 +48,9 @@ const usageColumns = new Set((db.prepare('PRAGMA table_info(usage_events)').all(
 if (!usageColumns.has('usage_status')) db.exec("ALTER TABLE usage_events ADD COLUMN usage_status TEXT NOT NULL DEFAULT 'complete'");
 if (!usageColumns.has('token_fields')) db.exec('ALTER TABLE usage_events ADD COLUMN token_fields TEXT');
 
+for (const column of ['job_id','review_id']) if (!usageColumns.has(column)) db.exec(`ALTER TABLE usage_events ADD COLUMN ${column} TEXT`);
+db.exec('CREATE INDEX IF NOT EXISTS usage_job ON usage_events(user_id,job_id,id)');
+
 // ---------- recording ----------
 
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : Number(v) || 0);
@@ -67,6 +70,8 @@ export interface RecordOpts {
   userId?: string | null;
   botId?: string | null;
   kind?: UsageKind;
+  jobId?: string | null;
+  reviewId?: string | null;
   model: string;
   provider?: string;
 }
@@ -110,7 +115,7 @@ export async function recordModelUsage(opts: RecordOpts & { response: any }): Pr
       if (p && (input || output)) { cost = (input * p.input + output * p.output) / 1e6; source = 'estimate'; }
     }
     insert({
-      userId: who.userId, botId: who.botId, kind: who.kind, provider: opts.provider ?? opts.response?.provider ?? llmProvider(), model: opts.response?.billing === 'subscription' && typeof opts.response.model === 'string' ? opts.response.model : opts.model,
+      userId: who.userId, botId: who.botId, kind: who.kind, jobId: who.jobId, reviewId: who.reviewId, provider: opts.provider ?? opts.response?.provider ?? llmProvider(), model: opts.response?.billing === 'subscription' && typeof opts.response.model === 'string' ? opts.response.model : opts.model,
       input, cached, output, reasoning, tools, units: null, unit: null, cost, source,
       byok: typeof u.is_byok === 'boolean' ? (u.is_byok ? 1 : 0) : null, requestId: typeof opts.response?.id === 'string' ? opts.response.id : null,
       usageStatus, tokenFields,
@@ -125,7 +130,7 @@ export function recordUnits(opts: RecordOpts & { units: number; unit: string; co
   try {
     const who = attribution(opts);
     insert({
-      userId: who.userId, botId: who.botId, kind: who.kind, provider: opts.provider ?? llmProvider(), model: opts.model,
+      userId: who.userId, botId: who.botId, kind: who.kind, jobId: who.jobId, reviewId: who.reviewId, provider: opts.provider ?? llmProvider(), model: opts.model,
       input: 0, cached: 0, output: 0, reasoning: 0, tools: 0, units: opts.units, unit: opts.unit,
       cost: opts.costUsd ?? null, source: opts.costUsd != null ? 'provider' : null, byok: null, requestId: opts.requestId ?? null,
       usageStatus: 'complete', tokenFields: null,
@@ -136,14 +141,14 @@ export function recordUnits(opts: RecordOpts & { units: number; unit: string; co
 }
 
 function insert(r: {
-  userId: string | null; botId: string | null; kind: string; provider: string; model: string;
+  userId: string | null; botId: string | null; kind: string; jobId: string|null; reviewId: string|null; provider: string; model: string;
   input: number; cached: number; output: number; reasoning: number; tools: number;
   units: number | null; unit: string | null; cost: number | null; source: string | null; byok: number | null; requestId: string | null;
   usageStatus: 'complete' | 'partial' | 'unavailable'; tokenFields: string[] | null;
 }) {
-  db.prepare(`INSERT INTO usage_events(user_id,bot_id,kind,provider,model,input_tokens,cached_tokens,output_tokens,reasoning_tokens,tool_calls,units,unit,cost_usd,cost_source,byok,request_id,usage_status,token_fields,created_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-    .run(r.userId, r.botId, r.kind, r.provider, r.model, r.input, r.cached, r.output, r.reasoning, r.tools, r.units, r.unit, r.cost, r.source, r.byok, r.requestId, r.usageStatus, r.tokenFields === null ? null : JSON.stringify(r.tokenFields), now());
+  db.prepare(`INSERT INTO usage_events(user_id,bot_id,kind,provider,model,input_tokens,cached_tokens,output_tokens,reasoning_tokens,tool_calls,units,unit,cost_usd,cost_source,byok,request_id,usage_status,token_fields,created_at,job_id,review_id)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(r.userId, r.botId, r.kind, r.provider, r.model, r.input, r.cached, r.output, r.reasoning, r.tools, r.units, r.unit, r.cost, r.source, r.byok, r.requestId, r.usageStatus, r.tokenFields === null ? null : JSON.stringify(r.tokenFields), now(), r.jobId, r.reviewId);
 }
 
 // ---------- reporting ----------
@@ -165,7 +170,7 @@ export function rangeBounds(range: UsageRange, at = Date.now()): { from: number;
 }
 
 const KIND_LABEL: Record<string, string> = {
-  chat: 'Bot conversations', compaction: 'Memory: compacting history', memory: 'Memory: learning facts', voice: 'Voice calls',
+  background_review: 'Background learning reviews', chat: 'Bot conversations', compaction: 'Memory: compacting history', memory: 'Memory: learning facts', voice: 'Voice calls',
   voice_summary: 'Voice call summaries', transcription: 'Voice notes & dictation', speech: 'Spoken replies', other: 'Other',
 };
 

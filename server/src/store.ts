@@ -1,13 +1,14 @@
 import { db, now } from './db.js';
 import { hub } from './lib/hub.js';
 import type { Bot, LiveState, Row, RowBody, RowKind, Routine, Task } from './types.js';
+import { executionAudience } from './usage-context.js';
 import { Cron } from 'croner';
 
 // ---------- bots ----------
 
 export function toBot(r: any): Bot {
   const last = db
-    .prepare("SELECT body, created_at FROM rows WHERE bot_id=? AND generation=? AND kind IN ('message','card','event') ORDER BY seq DESC LIMIT 1")
+    .prepare("SELECT body, created_at FROM rows WHERE bot_id=? AND generation=? AND kind IN ('message','card','event') AND COALESCE(json_extract(body,'$.audience'),'user')!='internal' AND COALESCE(json_extract(body,'$.from.kind'),'')!='bot' ORDER BY seq DESC LIMIT 1")
     .get(r.id, r.generation) as any;
   let lastPreview: string | null = null;
   if (last) {
@@ -70,7 +71,7 @@ function notifyRow(userId: string, row: Row, isNew: boolean) {
 }
 
 function toRow(r: any): Row {
-  return { botId: r.bot_id, generation: r.generation, seq: r.seq, updatedSeq: r.updated_seq, kind: r.kind, body: JSON.parse(r.body), createdAt: r.created_at };
+  return { botId: r.bot_id, generation: r.generation, seq: r.seq, updatedSeq: r.updated_seq, kind: r.kind, audience: JSON.parse(r.body).audience, body: JSON.parse(r.body), createdAt: r.created_at };
 }
 
 function bumpRev(botId: string): number {
@@ -80,6 +81,7 @@ function bumpRev(botId: string): number {
 
 /** Append a new row. Returns its seq. */
 export function appendRow(botId: string, kind: RowKind, body: RowBody): Row {
+  body = { ...body, audience: body.type === 'card' ? 'user' : body.audience ?? executionAudience(botId) };
   const tx = db.transaction(() => {
     const b = db.prepare('SELECT user_id, generation, next_seq FROM bots WHERE id=?').get(botId) as any;
     const seq = b.next_seq;
@@ -87,7 +89,7 @@ export function appendRow(botId: string, kind: RowKind, body: RowBody): Row {
     const rev = bumpRev(botId);
     const t = now();
     db.prepare('INSERT INTO rows(bot_id,generation,seq,updated_seq,kind,body,created_at) VALUES (?,?,?,?,?,?,?)').run(botId, b.generation, seq, rev, kind, JSON.stringify(body), t);
-    return { userId: b.user_id as string, row: { botId, generation: b.generation, seq, updatedSeq: rev, kind, body, createdAt: t } as Row };
+    return { userId: b.user_id as string, row: { botId, generation: b.generation, seq, updatedSeq: rev, kind, audience: body.audience, body, createdAt: t } as Row };
   });
   const { userId, row } = tx();
   hub.emit(userId, { type: 'rows', botId, generation: row.generation, rows: [row] });
@@ -101,9 +103,10 @@ export function updateRow(botId: string, seq: number, body: RowBody): Row | null
     const b = db.prepare('SELECT user_id, generation FROM bots WHERE id=?').get(botId) as any;
     const existing = db.prepare('SELECT * FROM rows WHERE bot_id=? AND generation=? AND seq=?').get(botId, b.generation, seq) as any;
     if (!existing) return null;
+    body = { ...body, audience: body.type === 'card' ? 'user' : body.audience ?? JSON.parse(existing.body).audience ?? executionAudience(botId) };
     const rev = bumpRev(botId);
     db.prepare('UPDATE rows SET body=?, updated_seq=? WHERE bot_id=? AND generation=? AND seq=?').run(JSON.stringify(body), rev, botId, b.generation, seq);
-    return { userId: b.user_id as string, row: { ...toRow(existing), body, updatedSeq: rev } as Row };
+    return { userId: b.user_id as string, row: { ...toRow(existing), body, audience: body.audience, updatedSeq: rev } as Row };
   });
   const res = tx();
   if (!res) return null;
@@ -162,7 +165,7 @@ export function getLive(botId: string): LiveState {
 }
 
 export function setLive(botId: string, patch: Partial<LiveState>) {
-  const next = { ...getLive(botId), ...patch, botId };
+  const next = { ...getLive(botId), ...patch, botId, audience: patch.awaiting || patch.activity?.kind === 'waiting_for_you' ? 'user' as const : patch.audience ?? executionAudience(botId) };
   live.set(botId, next);
   const b = getBotRow(botId);
   if (b) hub.emit(b.user_id, { type: 'live', state: next });

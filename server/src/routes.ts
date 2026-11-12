@@ -17,7 +17,7 @@ import { runRoutine, scheduleRoutine, unscheduleRoutine } from './routines.js';
 import { deleteEventTrigger } from './triggers.js';
 import { dispatchRoomMessage } from './agent/rooms.js';
 import { voiceApi } from './voice.js';
-import { createBot } from './bots.js';
+import { createBot, assertPrimaryRemovalAllowed, transferPrimary } from './bots.js';
 import { activateSetup, beginSetupInterview, briefSchema, emitSetup, getSetup, removeSetupFiles, setupFiles, setupView, writeSetupFiles } from './bot-setup.js';
 import { importTeammate, provisionTeammate } from './agent/teammates.js';
 import type { Toolkit } from './types.js';
@@ -228,11 +228,15 @@ api.patch('/bots/:id', async (c) => {
 api.delete('/bots/:id', (c) => {
   const b = ownBot(c.get('user').id, c.req.param('id'));
   if (!b) return c.json({ error: 'not found' }, 404);
-  for (const r of listRoutines(b.id)) unscheduleRoutine(r.id);
-  // Close the Bot's browser/screen so the next Bot to get it doesn't inherit its windows.
-  void computers.resetScreen(c.get('user').id, b.id).catch(() => {});
-  db.prepare('DELETE FROM screens WHERE bot_id=?').run(b.id);
-  db.prepare('DELETE FROM bots WHERE id=?').run(b.id);
+  const routines=listRoutines(b.id);
+  try { db.transaction(()=>{
+    assertPrimaryRemovalAllowed(c.get('user').id,b.id);
+    interrupt(b.id);
+    db.prepare('DELETE FROM screens WHERE bot_id=?').run(b.id);
+    db.prepare('DELETE FROM bots WHERE id=?').run(b.id);
+  })(); } catch(e) { return c.json({error:(e as Error).message},409); }
+  for(const r of routines) unscheduleRoutine(r.id);
+  void computers.resetScreen(c.get('user').id,b.id).catch(()=>{});
   removeSetupFiles(b.id);
   hub.emit(c.get('user').id, { type: 'roster' });
   return c.json({ ok: true });
@@ -242,7 +246,16 @@ api.post('/bots/:id/primary', (c) => {
   const user = c.get('user');
   const b = ownBot(user.id, c.req.param('id'));
   if (!b) return c.json({ error: 'not found' }, 404);
-  db.prepare('UPDATE bots SET is_primary = (id = ?) WHERE user_id=?').run(b.id, user.id);
+  if (!b.is_primary) {
+    const primary=db.prepare('SELECT id FROM bots WHERE user_id=? AND is_primary=1 LIMIT 1').get(user.id) as {id:string}|undefined;
+    try { if(primary) transferPrimary(user.id,primary.id,b.id);
+      else {
+        const eligible=db.prepare("SELECT 1 FROM bots b JOIN bot_setups s ON s.bot_id=b.id WHERE b.id=? AND b.user_id=? AND COALESCE(b.hidden,0)=0 AND b.parent_bot_id IS NULL AND COALESCE(b.kind,'agent')!='room' AND s.onboarding_status='active'").get(b.id,user.id);
+        if(!eligible) return c.json({error:'Activate a permanent teammate before choosing a primary.'},409);
+        db.prepare('UPDATE bots SET is_primary=1 WHERE id=? AND user_id=?').run(b.id,user.id);
+      }
+    } catch(e) { return c.json({error:(e as Error).message},409); }
+  }
   hub.emit(user.id, { type: 'roster' });
   return c.json({ ok: true });
 });
@@ -305,10 +318,30 @@ api.post('/bots/:id/cards/:seq/answer', async (c) => {
   const row = getRow(b.id, Number(c.req.param('seq')));
   const { answer } = await c.req.json<{ answer: string }>();
   if (!row || row.body.type !== 'card' || row.body.card !== 'question') return c.json({ error: 'not a question' }, 400);
-  updateRow(b.id, row.seq, { ...row.body, status: 'answered', answer });
-  appendRow(b.id, 'message', { type: 'message', role: 'user', text: answer });
-  enqueue(b.id, { type: 'user', text: `[Answer to "${row.body.question}"] ${answer}` });
-  return c.json({ ok: true });
+  if(typeof answer!=='string'||!answer.trim()||answer.length>100000)return c.json({error:'Invalid answer'},400);
+  if(row.body.answerJobId) {
+    if(row.body.answer!==answer)return c.json({error:'This question already has an admitted answer.'},409);
+    return c.json({ok:true,jobId:row.body.answerJobId});
+  }
+  if(!['pending','answered'].includes(row.body.status))return c.json({error:'This question is no longer pending.'},409);
+  try {
+    const jobId=db.transaction(()=>{
+      const current=getRow(b.id,row.seq);
+      if(!current||current.body.type!=='card'||current.body.card!=='question')throw new Error('Question changed. Reload before answering.');
+      const questionBody=current.body;
+      if(questionBody.answerJobId){
+        if(questionBody.answer!==answer)throw new Error('This question already has an admitted answer.');
+        return questionBody.answerJobId;
+      }
+      if(!['pending','answered'].includes(questionBody.status))throw new Error('This question is no longer pending.');
+      updateRow(b.id,row.seq,{...questionBody,status:'answered',answer});
+      const id=enqueue(b.id,{type:'user',text:`[Answer to "${questionBody.question}"] ${answer}`});
+      appendRow(b.id,'message',{type:'message',role:'user',text:answer});
+      return id;
+    })();
+    return c.json({ok:true,jobId});
+  }catch(e){return c.json({error:(e as Error).message},409);}
+
 });
 
 api.post('/bots/:id/cards/:seq/dismiss', (c) => {
@@ -316,9 +349,10 @@ api.post('/bots/:id/cards/:seq/dismiss', (c) => {
   if (!b) return c.json({ error: 'not found' }, 404);
   const row = getRow(b.id, Number(c.req.param('seq')));
   if (!row || row.body.type !== 'card') return c.json({ error: 'not a card' }, 400);
+  if(row.body.status!=='pending')return c.json({ok:true});
   const body: any = { ...row.body, status: row.body.card === 'connect' ? 'skipped' : 'dismissed' };
   updateRow(b.id, row.seq, body);
-  if (row.body.card === 'connect') enqueue(b.id, { type: 'system', text: `The user skipped connecting ${row.body.toolkitName}. Continue without it.` });
+  if (row.body.card === 'connect') enqueue(b.id, { type: 'system', connectionCardSeq:row.seq,text: `The user skipped connecting ${row.body.toolkitName}. Continue without it.` });
   return c.json({ ok: true });
 });
 

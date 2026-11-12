@@ -4,6 +4,7 @@ import { newId } from '../lib/ids.js';
 import { getArtifact, readArtifact } from './artifacts.js';
 import { ownerAlive, ownerBirth, writeOwner } from './ownership.js';
 import { DeliverableError, DeliveryNotSentError, type Artifact, type ArtifactDelivery, type DeliveryAttempt, type DeliveryChannel, type DeliveryStatus } from './types.js';
+import { publishNativeEvent } from '../native/events.js';
 import { legacyWritableRows } from '../platform/legacy-database-fence.js';
 
 export interface DeliveryTarget { channel: DeliveryChannel; transport?: string; phone?: string | null; chatRef?: string | null; revision?: string }
@@ -19,6 +20,8 @@ const viewAttempt = (r: AttemptRow): DeliveryAttempt => ({ id: r.id, number: r.n
 const row = (id: string) => db.prepare('SELECT * FROM artifact_deliveries WHERE id=?').get(id) as DeliveryRow | undefined;
 const view = (r: DeliveryRow): ArtifactDelivery => ({ id: r.id, artifactId: r.artifact_id, channel: r.channel,
   status: r.status, error: r.error, createdAt: r.created_at, updatedAt: r.updated_at,
+  acknowledgement:r.status!=='delivered'?null:r.channel==='library'?'library':db.prepare("SELECT 1 FROM artifact_delivery_reconciliations WHERE delivery_id=? AND outcome='delivered'").get(r.id)?'owner':'provider',
+  reconciliations:(db.prepare('SELECT id,outcome,evidence,attempt_id AS attemptId,created_at AS createdAt FROM artifact_delivery_reconciliations WHERE delivery_id=? ORDER BY created_at,id').all(r.id) as any[]),
   attempts: (db.prepare('SELECT * FROM artifact_delivery_attempts WHERE delivery_id=? ORDER BY number').all(r.id) as AttemptRow[]).map(viewAttempt) });
 async function transport(): Promise<DeliveryTransport> { return (await import('./messaging.js')).messagingDeliveryTransport; }
 
@@ -106,7 +109,11 @@ export async function sendDelivery(userId: string, deliveryId: string, adapter?:
   db.transaction(() => {
     const changed = db.prepare("UPDATE artifact_delivery_attempts SET status=?,error=?,external_id=?,finished_at=? WHERE id=? AND status='sending'")
       .run(status, error, externalId, now(), claimed.attemptId).changes;
-    if (changed) db.prepare("UPDATE artifact_deliveries SET status=?,error=?,updated_at=? WHERE id=? AND status='sending'").run(status, error, now(), deliveryId);
+    if (changed) {
+      db.prepare("UPDATE artifact_deliveries SET status=?,error=?,updated_at=? WHERE id=? AND status='sending'").run(status,error,now(),deliveryId);
+      const artifact=getArtifact(userId,r.artifact_id);
+      publishNativeEvent({userId,botId:artifact.botId,kind:status==='delivered'?'delivery.acknowledged':'delivery.'+status,sourceType:'delivery',sourceId:deliveryId,sourceRevision:claimed.attemptId,jobId:artifact.jobId,data:{status,acknowledgement:status==='delivered'?(r.channel==='library'?'library':'provider'):null}});
+    }
   })();
   return getDelivery(userId, deliveryId);
 }
@@ -140,12 +147,53 @@ export function recoverDeliveries() {
 export async function drainDeliveries(limit = 20, adapter?: DeliveryTransport) {
   // Exclude held owners BEFORE applying the batch limit, so their frozen oldest
   // deliveries cannot starve another account. Recheck after each awaited send.
-  const pending = db.prepare(`SELECT id,user_id FROM artifact_deliveries WHERE status='pending' AND ${legacyWritableRows(db, 'artifact_deliveries')} ORDER BY created_at,id LIMIT ?`).all(Math.max(0, Math.min(limit, 100))) as { id: string; user_id: string }[];
+  const pending = db.prepare(`SELECT id,user_id FROM artifact_deliveries WHERE status='pending' AND next_attempt_at<=? AND ${legacyWritableRows(db, 'artifact_deliveries')} ORDER BY created_at,id LIMIT ?`).all(now(),Math.max(0, Math.min(limit, 100))) as { id: string; user_id: string }[];
   let count = 0;
   for (const r of pending) {
     if (!db.prepare(`SELECT 1 FROM artifact_deliveries WHERE id=? AND status='pending' AND ${legacyWritableRows(db, 'artifact_deliveries')}`).get(r.id)) continue;
-    await sendDelivery(r.user_id, r.id, adapter);
-    count++;
+    try { await sendDelivery(r.user_id,r.id,adapter); count++; }
+    catch {
+      // Back off a pre-claim/storage failure so a full oldest batch cannot
+      // permanently starve newer accepted deliveries. Unknown sends never enter this queue.
+      try{db.prepare(`UPDATE artifact_deliveries SET next_attempt_at=?+MIN(30000,1000*(1<<MIN(drain_failures,5))),drain_failures=drain_failures+1 WHERE id=? AND status='pending' AND ${legacyWritableRows(db,'artifact_deliveries')}`).run(now(),r.id);}catch{}
+      console.error('[deliverables] pending delivery could not advance',r.id);
+    }
   }
   return count;
+}
+
+export function deliveryByKey(userId:string,key:string) {
+ const r=db.prepare('SELECT id FROM artifact_deliveries WHERE user_id=? AND idempotency_key=?').get(userId,key) as {id:string}|undefined;
+ return r?getDelivery(userId,r.id):null;
+}
+export function deliveryCommand(userId:string,key:string,fingerprint:string) {
+ const r=db.prepare('SELECT * FROM artifact_delivery_commands WHERE user_id=? AND key=?').get(userId,key) as any;
+ if(!r)return null;
+ if(r.fingerprint!==fingerprint)throw new DeliverableError('Idempotency key already belongs to another action.',409);
+ return getDelivery(userId,r.delivery_id);
+}
+export function recordDeliveryCommand(userId:string,key:string,fingerprint:string,deliveryId:string) {
+ const d=getDelivery(userId,deliveryId);writeOwner(userId,getArtifact(userId,d.artifactId).botId);
+ db.prepare('INSERT INTO artifact_delivery_commands(user_id,key,delivery_id,fingerprint,created_at) VALUES(?,?,?,?,?)').run(userId,key,deliveryId,fingerprint,now());
+}
+export function reconcileDelivery(userId:string,deliveryId:string,input:{outcome:'delivered'|'not_sent';evidence:string;expectedAttemptId:string}) {
+ return db.transaction(()=>{
+  const d=getDelivery(userId,deliveryId),a=getArtifact(userId,d.artifactId);writeOwner(userId,a.botId);
+  const latest=d.attempts.at(-1);
+  if(d.status!=='unknown'||!latest||latest.id!==input.expectedAttemptId)throw new DeliverableError('Delivery or latest attempt changed. Reload before reconciling.',409);
+  if(!input.evidence.trim()||input.evidence.length>4000)throw new DeliverableError('Describe the provider or recipient evidence.');
+  db.prepare('INSERT INTO artifact_delivery_reconciliations(id,user_id,delivery_id,attempt_id,outcome,evidence,created_at) VALUES(?,?,?,?,?,?,?)').run(newId('reconcile'),userId,deliveryId,latest.id,input.outcome,input.evidence.trim(),now());
+  db.prepare('UPDATE artifact_deliveries SET status=?,error=?,updated_at=? WHERE id=?').run(input.outcome==='delivered'?'delivered':'failed',input.outcome==='not_sent'?'Owner verified this attempt was not sent. Explicit retry is available.':null,now(),deliveryId);
+  // Keep the original attempt unknown: this is an owner attestation, not a fabricated provider receipt.
+  publishNativeEvent({userId,botId:a.botId,kind:'delivery.reconciled',sourceType:'delivery',sourceId:deliveryId,sourceRevision:latest.id,jobId:a.jobId,data:{outcome:input.outcome,actor:'owner'}});
+  return getDelivery(userId,deliveryId);
+ })();
+}
+let stopDeliveryRuntime:(()=>void)|undefined;
+export function startDeliveryRuntime(adapter?:DeliveryTransport,intervalMs=1000) {
+ if(stopDeliveryRuntime)return stopDeliveryRuntime;
+ let stopped=false,busy=false;
+ const tick=async()=>{if(stopped||busy)return;busy=true;try{recoverDeliveries();await drainDeliveries(100,adapter);}catch{console.error('[deliverables] backlog tick failed');}finally{busy=false;}};
+ const timer=setInterval(()=>void tick(),intervalMs);timer.unref();void tick();
+ stopDeliveryRuntime=()=>{stopped=true;clearInterval(timer);stopDeliveryRuntime=undefined;};return stopDeliveryRuntime;
 }
