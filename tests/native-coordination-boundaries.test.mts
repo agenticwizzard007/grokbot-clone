@@ -3,9 +3,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { after, mock, test } from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
+const serverRoot = process.env.HERMES_SERVER_ROOT ?? path.resolve(import.meta.dirname, '..');
+const native = (file: string) => import(pathToFileURL(path.join(serverRoot, 'server/src', file)).href);
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'quinn-boundaries-'));
 Object.assign(process.env, {
   SWARM_ROLE: 'standalone', SWARM_NO_SCHEDULER: '1', NODE_ENV: 'test',
@@ -14,18 +17,18 @@ Object.assign(process.env, {
   DIRECT_API_KEY: 'fixture', DIRECT_BASE_URL: 'http://127.0.0.1:9/v1',
   LLM_PROVIDER: 'direct', COMPOSIO_API_KEY: '', ADMIN_EMAILS: '', INKBOX_TUNNEL: '0',
 });
-const { db } = await import('../server/src/db.js');
-const { initSubagents } = await import('../server/src/agent/subagents.js'); initSubagents();
-const { initRooms } = await import('../server/src/agent/rooms.js'); initRooms();
-const { createBot } = await import('../server/src/bots.js');
-const { appendRow } = await import('../server/src/store.js');
-const { enqueue, settleAgentJobs } = await import('../server/src/agent/loop.js');
-const { acceptJob } = await import('../server/src/agent/jobs.js');
-const { llmClient } = await import('../server/src/lib/llm.js');
-const { withUsage } = await import('../server/src/usage.js');
-const { saveMcpServer, mcpToolName } = await import('../server/src/mcp/store.js');
-const { testMcpServer, closeMcpSessions } = await import('../server/src/mcp/client.js');
-const { initProactive, fireCheckin } = await import('../server/src/proactive.js');
+const { db } = await native('db.ts');
+const { initSubagents } = await native('agent/subagents.ts'); initSubagents();
+const { initRooms } = await native('agent/rooms.ts'); initRooms();
+const { createBot } = await native('bots.ts');
+const { appendRow } = await native('store.ts');
+const { enqueue, settleAgentJobs } = await native('agent/loop.ts');
+const { acceptJob } = await native('agent/jobs.ts');
+const { llmClient } = await native('lib/llm.ts');
+const { withUsage } = await native('usage.ts');
+const { saveMcpServer, mcpToolName } = await native('mcp/store.ts');
+const { testMcpServer, closeMcpSessions } = await native('mcp/client.ts');
+const { initProactive, fireCheckin } = await native('proactive.ts');
 let sequence = 0;
 let model: (body: any) => any[] = () => [];
 const message = (text: string) => ({ type: 'message', id: `msg_${++sequence}`, role: 'assistant', content: [{ type: 'output_text', text }] });
@@ -103,8 +106,8 @@ test('internal messages cannot suppress Quinn check-ins as recent human activity
 test('deleting the only primary requires a replacement', async () => {
   const f = fixture('primary');
   const { Hono } = await import('hono');
-  const { api } = await import('../server/src/routes.js');
-  const { computers } = await import('../server/src/computers/index.js');
+  const { api } = await native('routes.ts');
+  const { computers } = await native('computers/index.ts');
   mock.method(computers, 'resetScreen', async () => {});
   const token = 'audit-primary-session';
   db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES(session_hash(?),?,?,?)').run(token, f.userId, Date.now(), Date.now() + 60000);

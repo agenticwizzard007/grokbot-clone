@@ -3,8 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { after, mock, test } from 'node:test';
 
+const serverRoot = process.env.HERMES_SERVER_ROOT ?? path.resolve(import.meta.dirname, '..');
+const native = (file: string) => import(pathToFileURL(path.join(serverRoot, 'server/src', file)).href);
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'quinn-learning-audit-'));
 Object.assign(process.env, {
   DB_PATH: path.join(root, 'audit.db'), FILES_DIR: path.join(root, 'files'),
@@ -13,11 +16,11 @@ Object.assign(process.env, {
   INKBOX_TUNNEL: '0', DIRECT_API_KEY: 'fixture', LLM_PROVIDER: 'direct',
 });
 mock.method(globalThis, 'fetch', async () => { throw new Error('Audit must not call the network'); });
-const { db } = await import('../server/src/db.js');
-await import('../server/src/db-config.js');
-const { saveMemory, listMemories } = await import('../server/src/knowledge/memory.js');
-const { consolidateBot } = await import('../server/src/agent/memory.js');
-const { llmClient } = await import('../server/src/lib/llm.js');
+const { db } = await native('db.ts');
+await native('db-config.ts');
+const { saveMemory, listMemories } = await native('knowledge/memory.ts');
+const { consolidateBot } = await native('agent/memory.ts');
+const { llmClient } = await native('lib/llm.ts');
 db.prepare('INSERT INTO users(id,email,name,created_at) VALUES(?,?,?,?)').run('owner', 'audit@example.test', 'Audit', 1);
 const model = mock.method(llmClient(300000).responses, 'create', async (_body: any) => ({ output_text: '{"memories":[]}' }));
 function bot(id: string) {
@@ -64,7 +67,7 @@ test('bounded reviews do not permanently checkpoint sources omitted from the mod
 
 
 test('passive preference correction stages replacement and preserves the active fact', async () => {
-  const { listMemoryChanges } = await import('../server/src/knowledge/memory.js');
+  const { listMemoryChanges } = await native('knowledge/memory.ts');
   bot('changed-preference');
   const old = message('changed-preference', 1, 1001, 'I prefer weekly pipeline reports with named owners and source links.');
   const original = saveMemory('owner', 'changed-preference', { text: 'Prefers weekly pipeline reports with named owners and source links.', evidence: [old] }).memory!;

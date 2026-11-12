@@ -19,9 +19,9 @@ export function KnowledgeScopeControl({ kind, item, onChange }: { kind: 'skills'
   return <div>
     <button type="button" className="cfg-btn cfg-btn--secondary" aria-expanded={open} onClick={() => setOpen(v => !v)}>Sharing: {item.scope === 'account' ? 'Account' : item.scope === 'project' ? `Project ${item.projectId ?? ''}` : 'Private to this Bot'}</button>
     {open && <form className="knowledge-scope" onSubmit={e => { e.preventDefault(); void save(); }}>
-      <label>Knowledge visibility<select value={scope} onChange={e => setScope(e.currentTarget.value as KnowledgeScope)}><option value="private">Private to this Bot</option><option value="project">Selected Bots in a project</option><option value="account">All Bots in this account</option></select></label>
+      <label>Knowledge visibility<select aria-label="Knowledge visibility" value={scope} onChange={e => setScope(e.currentTarget.value as KnowledgeScope)}><option value="private">Private to this Bot</option><option value="project">Selected Bots in a project</option><option value="account">All Bots in this account</option></select></label>
       <p className="native-meta">{scope === 'private' ? 'Revokes shared access for future context and reads.' : scope === 'account' ? 'Publishes this knowledge to all current and future Bots in this account.' : 'Publishes this knowledge only to the explicitly selected Bots. Select the complete replacement grant list.'} Sharing knowledge does not publish private conversations.</p>
-      {scope === 'project' && <><label>Project identifier<input required value={project} onChange={e => setProject(e.currentTarget.value)} /></label><label>Bots with project access<select multiple required value={botIds} onChange={e => setBotIds(Array.from(e.currentTarget.selectedOptions, o => o.value))}>{bots.filter(b => b.kind !== 'room').map(b => <option key={b.id} value={b.id}>{b.name}{b.id === item.botId ? ' (owner)' : ''}</option>)}</select></label></>}
+      {scope === 'project' && <><label>Project identifier<input required value={project} onChange={e => setProject(e.currentTarget.value)} /></label><label>Bots with project access<select aria-label="Bots with project access" multiple required value={botIds} onChange={e => setBotIds(Array.from(e.currentTarget.selectedOptions, o => o.value))}>{bots.filter(b => b.kind !== 'room').map(b => <option key={b.id} value={b.id}>{b.name}{b.id === item.botId ? ' (owner)' : ''}</option>)}</select></label></>}
       {error && <p role="alert" className="cfg-error">{error}</p>}
       <div className="learning-actions"><button className="cfg-btn cfg-btn--primary" disabled={busy || (scope === 'project' && (!project.trim() || !botIds.length))} type="submit">{busy ? 'Saving…' : 'Save sharing'}</button><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setOpen(false)}>Cancel</button></div>
     </form>}
@@ -34,7 +34,7 @@ export function SkillPackageControls({ skillId, revision, onChange }: { skillId:
   const [attempt, setAttempt] = useState(0), [archive, setArchive] = useState(false);
   useEffect(() => {
     if (!open) return;
-    let active = true; setError(''); setSkill(null);
+    let active = true; setError('');
     learningApi.skill(skillId).then(r => { if (active) { setSkill(r.skill); setResources(Object.entries(r.skill.resources).map(([path, text]) => ({ path, text }))); } }).catch(e => { if (active) setError(e.message); });
     return () => { active = false; };
   }, [open, skillId, revision, attempt]);
