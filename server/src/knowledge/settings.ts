@@ -1,3 +1,4 @@
+import {publishNativeEvent} from '../native/events.js';
 import { db, now } from '../db.js';
 import { expectedRevision, KnowledgeError, ownedBot } from './common.js';
 import { assertWritable } from './access.js';
@@ -51,6 +52,7 @@ export function patchLearningSettings(userId: string, input: {
             next[k] = v;
         }
         db.prepare('INSERT INTO knowledge_learning_settings(user_id,bot_id,revision,settings,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(user_id,bot_id) DO UPDATE SET revision=excluded.revision,settings=excluded.settings,updated_at=excluded.updated_at').run(userId, input.botId ?? '', cur.revision + 1, JSON.stringify(next), now());
+        publishNativeEvent({userId,botId:input.botId,kind:'learning.settings.changed',sourceType:'learning-settings',sourceId:input.botId??userId,sourceRevision:cur.revision+1,data:{keys:Object.keys(input.settings)}});
         return learningSettings(userId, input.botId);
     })();
 }

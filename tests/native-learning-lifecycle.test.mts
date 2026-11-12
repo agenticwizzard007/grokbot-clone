@@ -325,6 +325,7 @@ test('curator defers first run, uses upstream idle/stale/archive defaults and pr
     assert.deepEqual(stale.stale, [archive.id]);
     const result = curator.curateSkills('owner', 'alpha', first + 31 * 86400000);
     assert.deepEqual(result.archived, [archive.id]);
+    assert.match(skills.listSkillHistory('owner',archive.id)[0].actor,/^curator:/);
     for (const s of [pinned, locked, routine])
         assert.equal(skills.getSkill('owner', s.id).deleted, false);
     assert.equal(skills.rollbackSkill('owner', archive.id, 1, 2).deleted, false);
@@ -523,4 +524,41 @@ test('attended refinement batches complete after direct replacements and removal
     assert.equal((await learning.runLearningReview(review.id))?.status, 'completed');
     assert.equal(memory.listMemories('owner', 'alpha').length, 1);
     assert.equal(memory.listMemoryChanges('owner', 'alpha').length, 0);
+});
+test('subscription reviews retain the parent route and return each management round to the detached loop', async () => {
+    const { selectCli } = await import('../server/src/cli/store.js');
+    selectCli('owner', 'codex');
+    try {
+        message('Always verify sources.');
+        patch({ memoryTurnInterval: 1 });
+        const review = turn({ model: 'codex/default', provider: 'codex-cli' })!;
+        let calls = 0;
+        learning.configureLearningModelExecutor(async (body) => { assert.equal(body.model, 'codex/default'); assert.equal(body.swarm_management_review, true); assert.equal(body.tools.some((t: any) => t.name === 'send_to_bot'), false); return ++calls === 1 ? { ...call('list_skills', {}), billing: 'subscription', usage_status: 'complete' } : { ...final(), billing: 'subscription', usage_status: 'complete' }; });
+        const result = await learning.runLearningReview(review.id);
+        assert.equal(result?.status, 'completed');
+        assert.equal(result?.provider, 'codex-cli');
+        assert.equal(calls, 2);
+    }
+    finally {
+        selectCli('owner', null);
+    }
+});
+test('CLI management envelope disables native MCP dispatch and permits validated Responses-style tool calls', async () => {
+    const { prepareCliRequest } = await import('../server/src/cli/responses.js');
+    const body = { model: 'codex/default', input: [{ role: 'user', content: 'Review sourced knowledge.' }], tools: [{ type: 'function', name: 'read_skill', description: 'Read current skill', parameters: { type: 'object', properties: { skill_id: { type: 'string' } }, required: ['skill_id'] } }] };
+    const normal = prepareCliRequest(body, true);
+    assert.equal(normal.nativeTools?.[0].name, 'read_skill');
+    const review = prepareCliRequest({ ...body, swarm_management_review: true }, true);
+    assert.equal(review.nativeTools, undefined);
+    assert.deepEqual(review.actionNames, ['read_skill']);
+    assert.equal(review.schema.properties.tool_calls.maxItems, 32);
+    assert.match(review.prompt, /JSON tool_calls/);
+});
+test('routed dialogue digest preserves originating system instructions separately', () => {
+    const history = [{ role: 'system', content: 'Preserve the native owner and policy context.' }, ...Array.from({ length: 40 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: `Dialogue ${i}` }))];
+    const digest = learning.digestReviewHistory(history);
+    assert.equal(digest[0].role, 'system');
+    assert.equal(digest[0].content, history[0].content);
+    assert.match(digest[1].content, /Earlier conversation digest/);
+    assert.equal(history.length, 41);
 });

@@ -227,7 +227,12 @@ export function refineLearning(userId: string, botId: string) {
     });
 }
 export function reviewInputBudget(settings: LearningSettings, contextWindow?: number | null) { return settings.maxInputTokens !== null ? Math.max(0, settings.maxInputTokens) : Number.isFinite(contextWindow) && contextWindow! > 0 ? Math.min(600000, Math.floor(contextWindow! * .75)) : 120000; }
-export function digestReviewHistory(history: any[], tail = 24) {
+export function digestReviewHistory(history: any[], tail = 24): any[] {
+    // The routed digest replaces dialogue replay, not the originating system
+    // instructions (upstream keeps its system prompt outside the message list).
+    const systems = history.filter(m => m.role === 'system');
+    if (systems.length)
+        return [...structuredClone(systems), ...digestReviewHistory(history.filter(m => m.role !== 'system'), tail)];
     while (history.length > tail && (history[history.length - tail]?.role === 'tool' || history[history.length - tail]?.type === 'function_call_output'))
         tail++;
     if (history.length <= tail)

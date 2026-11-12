@@ -1,5 +1,6 @@
 import { db, now } from '../db.js';
-import { assertWritable } from './access.js';
+import {publishNativeEvent} from '../native/events.js';
+import { assertWritable,withManagement } from './access.js';
 import { ownedBot } from './common.js';
 import { learningSettings } from './settings.js';
 import { deleteSkill, listSkills } from './skills.js';
@@ -17,7 +18,7 @@ export function curatorProtected(botId: string, skill: {
     managed: boolean;
 }) { return !skill.managed || skill.locked || skill.pinned || routineProtectsSkill(botId, skill.id, skill.name); }
 export function curateSkills(userId: string, botId: string, at = now()) {
-    return db.transaction(() => {
+    return withManagement({userId,botId,actor:'curator',unattended:true,reads:new Map()},()=>db.transaction(() => {
         assertWritable(userId, botId);
         ownedBot(userId, botId);
         const settings = learningSettings(userId, botId).settings;
@@ -52,11 +53,14 @@ export function curateSkills(userId: string, botId: string, at = now()) {
             else if (days >= settings.curatorStaleDays) {
                 db.prepare("UPDATE skills SET lifecycle='stale' WHERE id=?").run(s.id);
                 result.stale.push(s.id);
+                if(row.lifecycle!=='stale')publishNativeEvent({userId,botId,kind:'knowledge.skill.lifecycle',sourceType:'skill',sourceId:s.id,sourceRevision:s.revision,data:{lifecycle:'stale',actor:'curator'}});
             }
-            else
+            else {
                 db.prepare("UPDATE skills SET lifecycle='active' WHERE id=?").run(s.id);
+                if(row.lifecycle!=='active')publishNativeEvent({userId,botId,kind:'knowledge.skill.lifecycle',sourceType:'skill',sourceId:s.id,sourceRevision:s.revision,data:{lifecycle:'active',actor:'curator'}});
+            }
         }
         db.prepare('UPDATE knowledge_learning_state SET curator_last_at=? WHERE bot_id=?').run(at, botId);
         return result;
-    })();
+    })());
 }
