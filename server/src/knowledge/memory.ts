@@ -1,3 +1,4 @@
+import {publishNativeEvent} from '../native/events.js';
 import { assertWritable,canRead,managementContext,setGrants,type Scope } from './access.js';
 import { learningSettings } from './settings.js';
 import crypto from 'node:crypto';
@@ -33,6 +34,7 @@ export function listMemories(userId: string, botId: string, includeInactive = fa
 }
 function record(m: any, action: string, userId: string) {
   db.prepare('INSERT INTO knowledge_memory_events(memory_id,bot_id,action,snapshot,actor,created_at) VALUES(?,?,?,?,?,?)').run(m.id, m.bot_id, action, JSON.stringify(view(m)), userId, now());
+  publishNativeEvent({userId,botId:m.bot_id,kind:'knowledge.memory.changed',sourceType:'memory',sourceId:m.id,sourceRevision:m.revision,data:{action}});
 }
 function suppress(m: any) {
   db.prepare('INSERT OR IGNORE INTO knowledge_memory_suppressions(bot_id,fingerprint,text,evidence,created_at) VALUES(?,?,?,?,?)').run(m.bot_id, fingerprint(m.text), m.text, m.evidence, now());
@@ -45,8 +47,8 @@ export function saveMemory(userId: string, botId: string, input: { text: string;
     assertWritable(userId,botId); const text = boundedText(input.text, 'Memory', 1000);
     const validated=validateEvidence(userId,botId,input.evidence);const evidence=refsOnly(validated);
     const target=input.target??'user';if(!['user','environment'].includes(target))throw new KnowledgeError('Invalid memory target');
-    const evidenceKind=input.evidenceKind??(validated.every(e=>e.role==='tool')?'tool':'human');
-    if(evidenceKind==='hypothesis'||target==='user'&&(!validated.every(e=>isHumanUserMessage(e))||evidenceKind!=='human'))throw new KnowledgeError('User memory requires human evidence; hypotheses are not durable facts',422);
+    const evidenceKind=input.evidenceKind??(validated.some(e=>e.role==='tool')?'tool':'human');
+    if(evidenceKind==='hypothesis'||validated.some(e=>e.role!=='tool'&&!isHumanUserMessage(e))||target==='user'&&(!validated.every(e=>isHumanUserMessage(e))||evidenceKind!=='human'))throw new KnowledgeError('User memory requires human evidence; hypotheses are not durable facts',422);
     const runId = checkedRun(userId, botId, input.runId);
     if (isSuppressed(botId, text, evidence)) return { memory: null, skipped: 'suppressed' as const };
     const existing = listMemories(userId, botId).find(m => m.target===target&&similar(m.text, text));
@@ -59,6 +61,7 @@ export function saveMemory(userId: string, botId: string, input: { text: string;
 }
 export function correctMemory(userId: string, id: string, input: { text: string; expectedRevision: number; evidence?: MessageRef[]; runId?: string }): MemoryView {
   return db.transaction(() => {
+    if(managementContext()?.unattended)throw new KnowledgeError('Unattended replacements must stage through manageMemory',409);
     const cur = ownMemory(userId, id);assertWritable(userId,cur.bot_id); expectedRevision(cur.revision, input.expectedRevision);
     if (cur.status !== 'active') throw new KnowledgeError('Memory is no longer active', 409);
     const text = boundedText(input.text, 'Correction', 1000);
@@ -81,6 +84,7 @@ export function correctMemory(userId: string, id: string, input: { text: string;
 }
 export function forgetMemory(userId: string, id: string, expected?: number): void {
   db.transaction(() => {
+    if(managementContext()?.unattended)throw new KnowledgeError('Unattended removals must stage through manageMemory',409);
     const cur = ownMemory(userId, id);assertWritable(userId,cur.bot_id);
     if (expected !== undefined) expectedRevision(cur.revision, expected);
     if (cur.status === 'deleted') return;
@@ -123,6 +127,7 @@ export function stageMemoryChange(userId:string,botId:string,input:MemoryMutatio
   if(target==='user'&&validateEvidence(userId,botId,evidence,false).some(e=>!isHumanUserMessage(e)))throw new KnowledgeError('User memory requires human evidence',422);
   checkedRun(userId,botId,input.runId);
   const id=newId('mch');db.prepare('INSERT INTO knowledge_memory_changes(id,user_id,bot_id,memory_id,base_revision,generation,action,text,target,evidence,run_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(id,userId,botId,cur?.id??null,input.expectedRevision,bot.generation,input.action,text,target,JSON.stringify(evidence),input.runId??null,now());
+  publishNativeEvent({userId,botId,kind:'knowledge.memory.proposed',sourceType:'memory-change',sourceId:id,jobId:input.runId,data:{action:input.action}});
   return listMemoryChanges(userId,botId).find(c=>c.id===id)!;
  })();
 }
@@ -141,6 +146,7 @@ export function resolveMemoryChange(userId:string,id:string,decision:'approve'|'
    else memory=saveMemory(userId,p.bot_id,{text:p.text,evidence,target:p.target,runId:p.run_id}).memory;
   }
   db.prepare('UPDATE knowledge_memory_changes SET status=?,resolved_at=? WHERE id=?').run(decision==='approve'?'approved':'rejected',now(),id);
+  publishNativeEvent({userId,botId:p.bot_id,kind:'knowledge.memory.change-reviewed',sourceType:'memory-change',sourceId:id,data:{decision}});
   return {status:decision==='approve'?'approved':'rejected',memory};
  })();
 }

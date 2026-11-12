@@ -17,7 +17,7 @@ export function patchLearningSettings(userId:string,input:{botId?:string;expecte
     else {const bots=db.prepare('SELECT id FROM bots WHERE user_id=?').all(userId) as any[];for(const b of bots)assertWritable(userId,b.id);}
     const cur=learningSettings(userId,input.botId);expectedRevision(cur.revision,input.expectedRevision);
     if(!input.settings||typeof input.settings!=='object'||Array.isArray(input.settings))throw new KnowledgeError('settings must be an object');
-    const next:Record<string,unknown>=input.botId?{...cur.overrides}: {...cur.account};
+    const next:Record<string,unknown>=input.botId?(Object.keys(input.settings).length?{...cur.overrides}:{}): {...cur.account};
     for(const [k,v] of Object.entries(input.settings)){
       if(!(k in LEARNING_DEFAULTS))throw new KnowledgeError(`Unknown setting ${k}`);
       if(v===null && input.botId && !['maxInputTokens','auxiliaryModel','auxiliaryProvider'].includes(k)){delete next[k];continue;}

@@ -32,4 +32,4 @@ knowledgeApi.delete('/memories/:id', c => {
   return c.json({ ok: true });
 });
 knowledgeApi.get('/bots/:id/conversation-search', c => c.json(searchMessages(c.get('user').id, c.req.param('id'), c.req.query('q') ?? '', { limit: c.req.query('limit') ? Number(c.req.query('limit')) : undefined, offset: c.req.query('offset') ? Number(c.req.query('offset')) : undefined, generation: c.req.query('generation') ? Number(c.req.query('generation')) : undefined, role: c.req.query('role') })));
-knowledgeApi.get('/bots/:id/messages/:generation/:seq', c => c.json({ messages: readMessageWindow(c.get('user').id, c.req.param('id'), { botId: c.req.param('id'), generation: Number(c.req.param('generation')), seq: Number(c.req.param('seq')), contentHash: c.req.query('contentHash') }, 3) }));
+knowledgeApi.get('/bots/:id/messages/:generation/:seq', c => c.json({ messages: readMessageWindow(c.get('user').id, c.req.param('id'), { botId: c.req.param('id'), generation: Number(c.req.param('generation')), seq: Number(c.req.param('seq')), contentHash: c.req.query('contentHash'),kind:c.req.query('kind')==='tool'?'tool':undefined }, 3) }));

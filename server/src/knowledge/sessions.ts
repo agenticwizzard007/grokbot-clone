@@ -81,7 +81,7 @@ export function searchMessages(userId: string, botId: string, query = '', opts: 
 export function readMessageWindow(userId: string, botId: string, ref: MessageRef, window = 3): MessageEvidence[] {
   const bot = ownedBot(userId, botId); validateEvidence(userId, botId, [ref]);
   const n = Math.max(0, Math.min(10, Number.isSafeInteger(window) ? window : 3));
-  return (db.prepare(`SELECT * FROM rows WHERE bot_id=? AND generation=? AND seq BETWEEN ? AND ? AND kind='message'
-    AND json_valid(body) AND json_extract(body,'$.type')='message' AND coalesce(json_extract(body,'$.streaming'),0)=0 ORDER BY seq LIMIT 21`)
+  return (db.prepare(`SELECT * FROM rows WHERE bot_id=? AND generation=? AND seq BETWEEN ? AND ? AND kind IN ('message','tool-call')
+    AND json_valid(body) AND (json_extract(body,'$.type')='message' AND coalesce(json_extract(body,'$.streaming'),0)=0 OR json_extract(body,'$.type')='tool-call' AND json_extract(body,'$.status')='done') ORDER BY seq LIMIT 21`)
     .all(botId, ref.generation, ref.seq - n, ref.seq + n) as any[]).map(r => shape(r, bot.generation));
 }

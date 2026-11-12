@@ -1,3 +1,4 @@
+import {recordContextReceipt} from '../native/events.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import { db, now } from '../db.js';
@@ -20,6 +21,7 @@ export function recordRead(userId:string,botId:string,kind:string,id:string,revi
   const ctx=managementContext(); const digest=hash(value);
   ctx?.reads.set(`${kind}:${id}:${resource}`,`${revision}:${digest}`);
   const runId=jobId??ctx?.jobId;
+  if(runId&&db.prepare('SELECT 1 FROM agent_jobs WHERE id=? AND bot_id=? AND user_id=?').get(runId,botId,userId))recordContextReceipt({userId,botId,jobId:runId,kind,sourceId:id,revision,hash:digest});
   if (runId) db.prepare('INSERT OR IGNORE INTO knowledge_use_receipts(user_id,bot_id,job_id,kind,source_id,revision,resource,hash,actor,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(userId,botId,runId,kind,id,revision,resource,digest,ctx?.actor??'foreground',now());
 }
 export function requireRead(kind:string,id:string,revision:number,value:string,resource='') {
@@ -39,4 +41,16 @@ export function setGrants(userId:string,sourceBotId:string,kind:string,id:string
   for (const bot of botIds) ownedBot(userId,bot);
   db.prepare('DELETE FROM knowledge_grants WHERE kind=? AND source_id=? AND user_id=?').run(kind,id,userId);
   if (scope==='project') for (const bot of new Set(botIds)) db.prepare('INSERT INTO knowledge_grants(user_id,bot_id,source_bot_id,kind,source_id,project_id) VALUES(?,?,?,?,?,?)').run(userId,bot,sourceBotId,kind,id,projectId);
+}
+
+// A foreground job's fresh reads survive tool calls but never grant authority
+// across jobs. Content + revision comparison invalidates a read after any edit.
+const foregroundReads=new Map<string,Map<string,string>>();
+export function toolManagement(input:{userId:string;botId:string;jobId?:string;depth:number}):ManagementContext {
+ const current=managementContext();if(current)return current;
+ const key=`${input.userId}:${input.botId}:${input.jobId??'no-job'}`;
+ let reads=foregroundReads.get(key);if(!reads){reads=new Map();if(foregroundReads.size>=256)foregroundReads.delete(foregroundReads.keys().next().value!);foregroundReads.set(key,reads);}
+ // Calls without a durable job cannot borrow prior reads.
+ if(!input.jobId)reads=new Map();
+ return{...input,unattended:input.depth>0,actor:'foreground',reads};
 }

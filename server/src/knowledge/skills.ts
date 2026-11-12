@@ -1,3 +1,5 @@
+import {curatorProtected} from './curator.js';
+import {publishNativeEvent} from '../native/events.js';
 import { assertWritable, canRead, managementContext, recordRead, requireRead, setGrants, type Scope } from './access.js';
 import { learningSettings } from './settings.js';
 import { db, now } from '../db.js';
@@ -5,10 +7,10 @@ import { newId } from '../lib/ids.js';
 import { boundedText, checkedRun, expectedRevision, KnowledgeError, ownedBot } from './common.js';
 import { refsOnly, validateEvidence, type MessageRef } from './sessions.js';
 
-export interface SkillContent { name: string; description: string; body: string; resources?:Record<string,string>; locked?:boolean; pinned?:boolean; managed?:boolean; scope?:Scope; projectId?:string|null }
+export interface SkillContent { name: string; description: string; body: string; resources?:Record<string,string>; locked?:boolean; pinned?:boolean; managed?:boolean; scope?:Scope; projectId?:string|null;deleted?:boolean }
 export interface SkillView extends SkillContent { id: string; botId: string; revision: number; createdAt: number; updatedAt: number; deleted: boolean; resources:Record<string,string>;locked:boolean;pinned:boolean;managed:boolean;scope:Scope;projectId:string|null;lastUsedAt:number|null }
 function content(value: any): SkillContent {
-  return { name: boundedText(value?.name, 'Name', 80), description: boundedText(value?.description ?? '', 'Description', 300, true), body: boundedText(value?.body, 'Skill steps', 20000),resources:resources(value?.resources??{}),locked:!!value?.locked,pinned:!!value?.pinned,managed:value?.managed!==false,scope:value?.scope??'private',projectId:value?.projectId??value?.project_id??null };
+  return { name: boundedText(value?.name, 'Name', 80), description: boundedText(value?.description ?? '', 'Description', 300, true), body: boundedText(value?.body, 'Skill steps', 20000),resources:resources(value?.resources??{}),locked:!!value?.locked,pinned:!!value?.pinned,managed:value?.managed!==false,scope:value?.scope??'private',projectId:value?.projectId??value?.project_id??null,deleted:!!value?.deleted };
 }
 function view(s: any): SkillView { return { id: s.id, botId: s.bot_id, name: s.name, description: s.description, body: s.body, revision: s.revision, createdAt: s.created_at, updatedAt: s.updated_at ?? s.created_at, deleted: s.deleted_at !== null,resources:JSON.parse(s.resources??'{}'),locked:!!s.locked,pinned:!!s.pinned,managed:!!s.managed,scope:s.scope??'private',projectId:s.project_id??null,lastUsedAt:s.last_used_at??null }; }
 function ownSkill(userId: string, id: string): any {
@@ -35,6 +37,7 @@ function append(skill: any, value: SkillContent, action: string, actor: string, 
   db.prepare('UPDATE skills SET name=?,description=?,body=?,revision=?,deleted_at=?,updated_at=? WHERE id=?')
     .run(value.name, value.description, value.body, revision, deleted ? at : null, at, skill.id);
   db.prepare('UPDATE skills SET resources=?,locked=?,pinned=?,managed=?,scope=?,project_id=?,lifecycle=? WHERE id=?').run(JSON.stringify(value.resources??{}),Number(value.locked??!!skill.locked),Number(value.pinned??!!skill.pinned),Number(value.managed??!!skill.managed),value.scope??skill.scope??'private',value.projectId??null,deleted?'archived':'active',skill.id);
+  publishNativeEvent({userId:actor,botId:skill.bot_id,kind:'knowledge.skill.changed',sourceType:'skill',sourceId:skill.id,sourceRevision:revision,jobId:runId,data:{action,deleted}});
   return view(ownSkill(actor, skill.id));
 }
 function create(userId: string, botId: string, id: string, value: SkillContent, evidence: MessageRef[] = [], runId: string | null = null) {
@@ -44,6 +47,7 @@ function create(userId: string, botId: string, id: string, value: SkillContent, 
   db.prepare('UPDATE skills SET resources=?,locked=?,pinned=?,managed=?,scope=?,project_id=? WHERE id=?').run(JSON.stringify(value.resources??{}),Number(value.locked??false),Number(value.pinned??false),Number(value.managed??true),value.scope??'private',value.projectId??null,id);
   db.prepare('INSERT INTO knowledge_skill_revisions(skill_id,bot_id,revision,snapshot,action,actor,evidence,run_id,created_at) VALUES(?,?,1,?,?,?,?,?,?)')
     .run(id, botId, JSON.stringify({ ...value, deleted: false }), 'create', userId, JSON.stringify(evidence), runId, at);
+  publishNativeEvent({userId,botId,kind:'knowledge.skill.changed',sourceType:'skill',sourceId:id,sourceRevision:1,jobId:runId,data:{action:'create'}});
   return view(ownSkill(userId, id));
 }
 export function createSkill(userId: string, botId: string, value: SkillContent): SkillView {
@@ -71,7 +75,7 @@ export function rollbackSkill(userId: string, id: string, targetRevision: number
     const target = db.prepare('SELECT * FROM knowledge_skill_revisions WHERE skill_id=? AND revision=?').get(id, targetRevision) as any;
     if (!target) throw new KnowledgeError('Revision not found', 404);
     const saved = JSON.parse(target.snapshot);
-    return append(cur, content(saved), `rollback:${targetRevision}`, userId, JSON.parse(target.evidence), target.run_id, saved.deleted);
+    return append(cur, content({...saved,scope:cur.scope,projectId:cur.project_id}), `rollback:${targetRevision}`, userId, JSON.parse(target.evidence), target.run_id, saved.deleted);
   })();
 }
 function render(value: SkillContent | null) { return value ? `# ${value.name}\n${value.description}\n\n${value.body}\n` : ''; }
@@ -89,12 +93,14 @@ export function stageSkillProposal(userId: string, botId: string, input: { skill
     const cur = input.skillId ? ownSkill(userId, input.skillId) : null;
     if (cur && cur.bot_id !== botId) throw new KnowledgeError('Not found', 404);
     if (cur && cur.deleted_at !== null) throw new KnowledgeError('Skill is deleted', 409);
+    if(cur?.locked&&managementContext())throw new KnowledgeError('Skill is locked',409);
     expectedRevision(cur?.revision ?? 0, input.expectedRevision);
     const value = content(input.content); const reason = boundedText(input.reason, 'Reason', 1000);
     const evidence = refsOnly(validateEvidence(userId, botId, input.evidence));
     const runId = checkedRun(userId, botId, input.runId); const id = newId('skp'); const skillId = cur?.id ?? newId('skl');
     db.prepare('INSERT INTO knowledge_skill_proposals(id,bot_id,skill_id,base_revision,generation,snapshot,reason,evidence,run_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)')
       .run(id, botId, skillId, input.expectedRevision, bot.generation, JSON.stringify(value), reason, JSON.stringify(evidence), runId, now());
+    publishNativeEvent({userId,botId,kind:'knowledge.skill.proposed',sourceType:'skill-proposal',sourceId:id,jobId:runId,data:{skillId}});
     return { id, skillId, baseRevision: input.expectedRevision, status: 'pending', diff: skillDiff(cur, value) };
   })();
 }
@@ -120,9 +126,10 @@ export function resolveSkillProposal(userId: string, id: string, decision: 'appr
       checkedRun(userId, p.bot_id, p.run_id);
       const cur = db.prepare('SELECT * FROM skills WHERE id=? AND bot_id=?').get(p.skill_id, p.bot_id) as any;
       expectedRevision(cur?.revision ?? 0, p.base_revision);
-      skill = cur ? append(cur, content(JSON.parse(p.snapshot)), 'learned', userId, evidence, p.run_id) : create(userId, p.bot_id, p.skill_id, content(JSON.parse(p.snapshot)), evidence, p.run_id);
+      skill = cur ? append(cur, content(JSON.parse(p.snapshot)), 'learned', userId, evidence, p.run_id,!!JSON.parse(p.snapshot).deleted) : create(userId, p.bot_id, p.skill_id, content(JSON.parse(p.snapshot)), evidence, p.run_id);
     }
     db.prepare('UPDATE knowledge_skill_proposals SET status=?,resolved_at=?,resolved_by=? WHERE id=?').run(decision === 'approve' ? 'approved' : 'rejected', now(), userId, id);
+    publishNativeEvent({userId,botId:p.bot_id,kind:'knowledge.skill.proposal-reviewed',sourceType:'skill-proposal',sourceId:id,data:{decision}});
     return { status: decision === 'approve' ? 'approved' : 'rejected', skill };
   })();
 }
@@ -145,13 +152,13 @@ export function readSkillForBot(userId:string,botId:string,id:string,opts:{jobId
  if(text===undefined)throw new KnowledgeError('Supporting file not found',404);
  recordRead(userId,botId,'skill',id,skill.revision,text,opts.jobId,path);
  // Review reads do not make unused skills look useful to the curator.
- if(!opts.review&&!managementContext()?.unattended) db.prepare("UPDATE skills SET last_used_at=?,lifecycle='active' WHERE id=?").run(now(),id);
+ if(!opts.review&&(!managementContext()||managementContext()?.actor==='foreground')) db.prepare("UPDATE skills SET last_used_at=?,lifecycle='active' WHERE id=?").run(now(),id);
  return path?{skillId:id,revision:skill.revision,filePath:path,content:text}:{skill};
 }
 export function setSkillScope(userId:string,id:string,input:{expectedRevision:number;scope:Scope;projectId?:string;botIds?:string[]}) {
  return db.transaction(()=>{const cur=ownSkill(userId,id);expectedRevision(cur.revision,input.expectedRevision);setGrants(userId,cur.bot_id,'skills',id,input.scope,input.projectId,input.botIds);return append(cur,content({...view(cur),scope:input.scope,projectId:input.scope==='project'?input.projectId:null}),'scope',userId);})();
 }
-export interface SkillMutation { action:'create'|'update'|'patch'|'write_file'|'remove_file'|'delete';skillId?:string;expectedRevision:number;name?:string;description?:string;body?:string;resources?:Record<string,string>;filePath?:string;fileContent?:string;oldText?:string;newText?:string;reason:string;evidence:MessageRef[];runId?:string }
+export interface SkillMutation { action:'create'|'update'|'patch'|'write_file'|'remove_file'|'delete'|'archive';skillId?:string;expectedRevision:number;name?:string;description?:string;body?:string;resources?:Record<string,string>;filePath?:string;fileContent?:string;oldText?:string;newText?:string;reason:string;evidence:MessageRef[];runId?:string }
 export function manageSkill(userId:string,botId:string,input:SkillMutation) {
  return db.transaction(()=>{
   assertWritable(userId,botId);const ctx=managementContext();
@@ -160,8 +167,11 @@ export function manageSkill(userId:string,botId:string,input:SkillMutation) {
   if(cur&&(cur.bot_id!==botId||cur.deleted_at!==null))throw new KnowledgeError('Not found',404);
   expectedRevision(cur?.revision??0,input.expectedRevision);
   if(cur?.locked)throw new KnowledgeError('Skill is locked; do not recreate it under another name',409);
-  if(!['create','update','patch','write_file','remove_file','delete'].includes(input.action))throw new KnowledgeError('Invalid skill action');
+  if(!['create','update','patch','write_file','remove_file','delete','archive'].includes(input.action))throw new KnowledgeError('Invalid skill action');
   if(input.action==='create'&&cur||input.action!=='create'&&!cur)throw new KnowledgeError('Invalid skill target');
+  if(input.action==='archive'&&ctx.actor!=='curator')throw new KnowledgeError('Use owner archive controls',409);
+  if(ctx.actor==='curator'&&cur&&curatorProtected(botId,view(cur)))throw new KnowledgeError('Curator cannot modify protected skills',409);
+  if(ctx.actor==='curator'&&input.action==='archive'&&!cur.last_used_at&&now()-cur.created_at<30*86400000)throw new KnowledgeError('Never-used skills younger than 30 days cannot be archived',409);
   if(ctx.unattended&&input.action==='delete')throw new KnowledgeError('Reviewers cannot delete skills',409);
   const value=cur?view(cur):null;let next:SkillContent;
   if(cur){
@@ -181,12 +191,14 @@ export function manageSkill(userId:string,botId:string,input:SkillMutation) {
     if(input.resources!==undefined){for(const [path,text] of Object.entries(value!.resources))if(input.resources[path]!==text)requireRead('skill',cur.id,cur.revision,text,path);next.resources=input.resources;}
    }
   }else next=content(input);
-  next=content(next);const evidence=refsOnly(validateEvidence(userId,botId,input.evidence));const runId=checkedRun(userId,botId,input.runId??ctx.jobId);
+  if(input.action==='archive')next.deleted=true;
+  next=content(next);boundedText(input.reason,'Reason',1000);const evidence=refsOnly(validateEvidence(userId,botId,input.evidence,ctx.actor!=='curator'));const runId=checkedRun(userId,botId,input.runId??ctx.jobId);
+  db.prepare('UPDATE knowledge_learning_state SET skill_iterations=0 WHERE bot_id=? AND user_id=?').run(botId,userId);
   if(learningSettings(userId,botId).settings.skillApproval){
    if(input.action==='delete')throw new KnowledgeError('Archive through owner controls when approval is required',409);
    return {proposal:stageSkillProposal(userId,botId,{skillId:cur?.id,expectedRevision:input.expectedRevision,content:next,reason:input.reason,evidence,runId:runId??undefined}),activated:false};
   }
-  const skill=cur?append(cur,next,'learned',userId,evidence,runId,input.action==='delete'):create(userId,botId,newId('skl'),next,evidence,runId);
+  const skill=cur?append(cur,next,'learned',userId,evidence,runId,input.action==='delete'||input.action==='archive'):create(userId,botId,newId('skl'),next,evidence,runId);
   return {skill,activated:true};
  })();
 }
