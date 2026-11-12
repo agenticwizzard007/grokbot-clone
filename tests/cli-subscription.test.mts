@@ -777,13 +777,17 @@ test('a real queued Bot turn routes to its owner bridge and enters the existing 
     { name: 'write_note', description: 'Write a note', inputSchema: { type: 'object', properties: { message: { type: 'string' } }, required: ['message'] } },
   ]), Date.now(), mcp.id);
   const name = mcpToolName(mcp, 'write_note');
-  a.generate = () => result('', [{ name, arguments: '{"message":"owner-approved work"}' }]);
+  const { toolSchemaHash } = await import('../server/src/agent/tool-catalog.js');
+  const { mcpSchemas } = await import('../server/src/mcp/client.js');
+  const schema = mcpSchemas(alice, bot.id).find(tool => tool.name === name)!;
+  a.generate = () => result('', [{ name: 'tool_call', arguments: JSON.stringify({ tool_name: name, arguments: { message: 'owner-approved work' }, schema_hash: toolSchemaHash(schema) }) }]);
   withUsage({ userId: bob }, () => enqueue(bot.id, { type: 'user', text: 'Please write a note.' }));
   await runInBotQueue(bot.id, async () => {});
   assert.equal(a.generations.length, 1);
   assert.equal(b.generations.length, 0, 'an inherited foreign HTTP context must not choose its CLI');
   assert.equal(a.generations[0].params.provider, 'codex');
-  assert.ok(a.generations[0].params.nativeTools.some((tool: any) => tool.name === name), 'the available app tool reaches the bridge as a native MCP definition');
+  assert.ok(a.generations[0].params.nativeTools.some((tool: any) => tool.name === 'tool_call'), 'deferred execution reaches the bridge as a native tool');
+  assert.ok(!a.generations[0].params.nativeTools.some((tool: any) => tool.name === name), 'additional schemas are loaded on demand');
   const approval = db.prepare('SELECT * FROM approvals WHERE bot_id=?').get(bot.id) as any;
   assert.ok(approval, 'the CLI action must enter the normal app approval loop');
   assert.equal(approval.tool, `${name}:bot:${bot.id}`);
@@ -799,7 +803,7 @@ test('a real queued Bot turn routes to its owner bridge and enters the existing 
   assert.equal(card.toolkitName, 'Approval fixture');
   assert.equal(card.status, 'pending');
   assert.ok(db.prepare('SELECT 1 FROM pending_turns WHERE bot_id=?').get(bot.id));
-  assert.ok(loadHistory(bot.id).some(item => item.type === 'function_call' && item.name === name));
+  assert.ok(loadHistory(bot.id).some(item => item.type === 'function_call' && item.name === 'tool_call'));
   const [event] = events(alice);
   assert.equal(event.user_id, alice);
   assert.equal(event.bot_id, bot.id);

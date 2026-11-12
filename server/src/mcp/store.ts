@@ -34,10 +34,9 @@ export const mcpConfigSchema = z.object({
 export type McpConfig = z.infer<typeof mcpConfigSchema>;
 export interface McpTool { name: string; description?: string; inputSchema: Record<string, unknown> }
 export interface McpServer { id: string; userId: string; config: McpConfig; tools: McpTool[]; revision: number; checkedAt: number | null; error: string | null }
-// The single-file CLI runner accepts 512 native tools. Reserve 64 slots for
-// Swarm's built-ins and app wrappers; test the source-derived union against this
-// reserve so discovery cannot save a configuration that breaks subscription chat.
-export const MAX_CUSTOM_MCP_TOOLS = 448;
+// The model/CLI receives a bounded deferred catalog, not every schema. Keep a
+// separate storage/search ceiling and validate the projected manifest in tests.
+export const MAX_CUSTOM_MCP_TOOLS = 4096;
 export function assertMcpToolCount(count: number) {
   if (count > MAX_CUSTOM_MCP_TOOLS) throw new Error(`An agent has ${count} custom MCP tools; the limit is ${MAX_CUSTOM_MCP_TOOLS}. Disable an MCP server or assign fewer servers to that agent, then test the connection again.`);
 }

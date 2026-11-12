@@ -117,7 +117,7 @@ async function testAdmittedServer(s: McpServer) {
       assertLegacyWorkOpen(s.userId);
       const result = await client.listTools(cursor ? { cursor } : undefined, { timeout: CONNECT_MS });
       for (const tool of result.tools) if (!tools.some(t => t.name === tool.name)) tools.push(tool);
-      if (tools.length > 200) throw new Error('This server exposes over 200 tools. Configure a smaller tool set on the MCP server.');
+      if (tools.length > 1000 || Buffer.byteLength(JSON.stringify(tools)) > 8 * 1024 * 1024) throw new Error('This server exceeds the catalog limit of 1000 tools or 8 MB. Configure a smaller tool set.');
       cursor = result.nextCursor;
       if (cursor && (seen.has(cursor) || seen.size >= 20)) throw new Error('The MCP server returned invalid tool pagination.');
       if (cursor) seen.add(cursor);

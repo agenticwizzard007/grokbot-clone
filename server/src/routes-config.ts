@@ -4,7 +4,6 @@ import { verifyVoiceKey } from './settings.js';
 import { Hono } from 'hono';
 import { db, now } from './db.js';
 import './db-config.js';
-import { newId } from './lib/ids.js';
 import { requireUser, userFromCookieHeader, type AuthVars } from './lib/auth.js';
 import { getBotRow, listRoutines, listTasks } from './store.js';
 import fs from 'node:fs';
@@ -24,7 +23,9 @@ import { runInBotQueue } from './agent/loop.js';
 import { consolidateBot, historySize, maybeCompact, memoryConfig } from './agent/memory.js';
 import { idleConfig, viewerCount } from './idle.js';
 import { loadHistory } from './store.js';
-import type { Memory, Skill } from './types.js';
+import { KnowledgeError } from './knowledge/common.js';
+import { listSkills as ownedSkills, createSkill, updateSkill, deleteSkill, getSkill } from './knowledge/skills.js';
+import { listMemories } from './knowledge/memory.js';
 import { getSetup, setupFiles } from './bot-setup.js';
 import { localAccess } from './computers/local-access.js';
 import { localComputerApi, localComputerStatus } from './computers/local-routes.js';
@@ -45,9 +46,7 @@ const ownBot = (userId: string, id: string) => {
   return b && b.user_id === userId ? b : null;
 };
 
-const toMemory = (m: any): Memory => ({ id: m.id, botId: m.bot_id, text: m.text, createdAt: m.created_at, source: m.source === 'learned' ? 'learned' : 'chat' });
-const toSkill = (s: any): Skill => ({ id: s.id, botId: s.bot_id, name: s.name, description: s.description ?? '', body: s.body, createdAt: s.created_at, updatedAt: s.updated_at ?? s.created_at });
-const listSkills = (botId: string) => (db.prepare('SELECT * FROM skills WHERE bot_id=? ORDER BY created_at ASC').all(botId) as any[]).map(toSkill);
+configApi.onError((e, c) => c.json({ error: e instanceof KnowledgeError ? e.message : 'Configuration operation failed' }, e instanceof KnowledgeError ? e.status : 500));
 
 // A read-only preview from the same builder used for model requests. It does not
 // start an agent, read exported files, or call a model. Prompt content is private.
@@ -72,12 +71,12 @@ configApi.get('/bots/:id/instructions', async (c) => {
 configApi.get('/bots/:id/settings', (c) => {
   const b = ownBot(c.get('user').id, c.req.param('id'));
   if (!b) return c.json({ error: 'not found' }, 404);
-  const memories = (db.prepare('SELECT * FROM memories WHERE bot_id=? ORDER BY created_at DESC').all(b.id) as any[]).map(toMemory);
+  const memories = listMemories(c.get('user').id, b.id);
   const job = db.prepare('SELECT last_consolidated_at, last_result FROM memory_jobs WHERE bot_id=?').get(b.id) as any;
   const lastCompaction = db.prepare('SELECT method, items_before, items_after, chars_before, chars_after, created_at FROM compactions WHERE bot_id=? ORDER BY id DESC LIMIT 1').get(b.id) as any;
   return c.json({
     memories,
-    skills: listSkills(b.id),
+    skills: ownedSkills(c.get('user').id, b.id),
     routines: listRoutines(b.id),
     tasks: listTasks(b.id),
     memory: {
@@ -91,53 +90,22 @@ configApi.get('/bots/:id/settings', (c) => {
 
 // ---------- skills ----------
 
-function cleanSkill(p: any, partial = false): { name?: string; description?: string; body?: string } | string {
-  const out: { name?: string; description?: string; body?: string } = {};
-  if (p.name !== undefined || !partial) {
-    const name = String(p.name ?? '').trim();
-    if (!name) return 'Give the skill a name';
-    out.name = name.slice(0, 80);
-  }
-  if (p.body !== undefined || !partial) {
-    const body = String(p.body ?? '').trim();
-    if (!body) return 'Write the steps for this skill';
-    out.body = body.slice(0, 20_000);
-  }
-  if (p.description !== undefined) out.description = String(p.description).trim().slice(0, 300);
-  return out;
-}
-
-configApi.get('/bots/:id/skills', (c) => {
-  const b = ownBot(c.get('user').id, c.req.param('id'));
-  return b ? c.json({ skills: listSkills(b.id) }) : c.json({ error: 'not found' }, 404);
-});
+configApi.get('/bots/:id/skills', (c) => c.json({ skills: ownedSkills(c.get('user').id, c.req.param('id')) }));
 
 configApi.post('/bots/:id/skills', async (c) => {
-  const b = ownBot(c.get('user').id, c.req.param('id'));
-  if (!b) return c.json({ error: 'not found' }, 404);
-  const s = cleanSkill(await c.req.json().catch(() => ({})));
-  if (typeof s === 'string') return c.json({ error: s }, 400);
-  const id = newId('skl');
-  db.prepare('INSERT INTO skills(id,bot_id,name,body,description,created_at,updated_at) VALUES (?,?,?,?,?,?,?)').run(id, b.id, s.name, s.body, s.description ?? '', now(), now());
-  return c.json({ skill: toSkill(db.prepare('SELECT * FROM skills WHERE id=?').get(id)) });
+  const value = await c.req.json().catch(() => { throw new KnowledgeError('Invalid JSON body'); });
+  return c.json({ skill: createSkill(c.get('user').id, c.req.param('id'), value) });
 });
 
-const ownSkill = (userId: string, id: string) =>
-  db.prepare('SELECT s.* FROM skills s JOIN bots b ON b.id=s.bot_id WHERE s.id=? AND b.user_id=?').get(id, userId) as any;
-
 configApi.patch('/skills/:id', async (c) => {
-  const cur = ownSkill(c.get('user').id, c.req.param('id'));
-  if (!cur) return c.json({ error: 'not found' }, 404);
-  const s = cleanSkill(await c.req.json().catch(() => ({})), true);
-  if (typeof s === 'string') return c.json({ error: s }, 400);
-  db.prepare('UPDATE skills SET name=?, body=?, description=?, updated_at=? WHERE id=?').run(s.name ?? cur.name, s.body ?? cur.body, s.description ?? cur.description ?? '', now(), cur.id);
-  return c.json({ skill: toSkill(db.prepare('SELECT * FROM skills WHERE id=?').get(cur.id)) });
+  const value = await c.req.json().catch(() => { throw new KnowledgeError('Invalid JSON body'); });
+  const cur = getSkill(c.get('user').id, c.req.param('id'));
+  const patch = { name: value.name ?? cur.name, description: value.description ?? cur.description, body: value.body ?? cur.body };
+  return c.json({ skill: updateSkill(c.get('user').id, cur.id, patch, value.expectedRevision) });
 });
 
 configApi.delete('/skills/:id', (c) => {
-  const cur = ownSkill(c.get('user').id, c.req.param('id'));
-  if (!cur) return c.json({ error: 'not found' }, 404);
-  db.prepare('DELETE FROM skills WHERE id=?').run(cur.id);
+  deleteSkill(c.get('user').id, c.req.param('id'), Number(c.req.query('expectedRevision')));
   return c.json({ ok: true });
 });
 

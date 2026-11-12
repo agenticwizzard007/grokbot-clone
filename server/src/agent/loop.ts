@@ -23,13 +23,18 @@ import { currentComputerRevision } from '../usage-context.js';
 import { approvalBinding } from '../security/approval.js';
 import { acceptJob, beginJob, finishJob, recoverJobs, beginTool, finishTool } from './jobs.js';
 import { BrowserRecovery } from './browser-recovery.js';
+import { assembleToolCatalog, resolveToolCall, validateToolArguments } from './tool-catalog.js';
+import { runProgram, isProgramResumable, recoverPrograms, cancelProgram } from './programs.js';
+import { configureWorkflowRuntime, workflowPreTurn, checkWorkflowBudget, workflowToolGate, workflowAfterTurn, recoverWorkflows } from './workflows.js';
+import { onJobStarted, onJobFinished, recoverDeliverables, drainDeliveries } from '../deliverables/index.js';
+import { prepareDeliveryAction } from '../deliverables/approval.js';
 
 const llm = () => llmClient(360_000);
 
 export type Trigger = (
   /** channel: where the user wrote it (a text channel via the messaging bridge; absent = the web app). */
   | { type: 'user'; text: string; channel?: 'imessage' | 'sms' | 'whatsapp'; images?: string[]; voice?: boolean; quote?: string; voiceAssignment?: boolean }
-  | { type: 'routine'; routineId: string; name: string; prompt: string }
+  | { type: 'routine'; routineId: string; routineRunId?: string; name: string; prompt: string }
   | { type: 'bot'; fromBotId: string; fromName: string; text: string; depth: number }
   | { type: 'system'; text: string; connectionCardSeq?: number }
   | { type: 'native-tool'; name: 'SWARM_APPS_EXECUTE'; args: Record<string, unknown>; callId: string; requireApproval?: boolean; readOnly?: boolean }
@@ -62,6 +67,7 @@ const KEEP_IMAGES = 3;
 const queues = new Map<string, Promise<void>>();
 const aborts = new Map<string, AbortController>();
 const running = new Map<string, Trigger>();
+const activeJobs = new Map<string, string>();
 const userQueues = new Map<string, Promise<void>>();
 const scheduledJobs = new Set<string>();
 /** Drain accepted work before orderly shutdown or test storage teardown. */
@@ -157,14 +163,34 @@ function scheduleJob(jobId: string, userId: string, botId: string, trigger: Trig
   });
 }
 export function initDurableJobs() {
-  for (const job of recoverJobs()) scheduleJob(job.id, job.user_id, job.bot_id, JSON.parse(job.trigger));
+  recoverPrograms();
+  recoverWorkflows();
+  const jobs = recoverJobs();
+  recoverDeliverables();
+  void drainDeliveries().catch(() => console.error('[deliverables] pending delivery drain failed'));
+  for (const job of jobs) scheduleJob(job.id, job.user_id, job.bot_id, JSON.parse(job.trigger));
 }
+configureWorkflowRuntime({ enqueue, interrupt });
 
 /** The running turn's abort signal (aborted when the user stops the Bot). */
 export const turnSignal = (botId: string): AbortSignal | undefined => aborts.get(botId)?.signal;
 
-export function interrupt(botId: string) {
-  aborts.get(botId)?.abort();
+export function interrupt(botId: string, expectedJobId?: string) {
+  // Workflow controls target a durable job. Cancelling queued work must not
+  // abort an unrelated chat that currently owns this Bot's serial queue.
+  const matchesActive = expectedJobId === undefined || activeJobs.get(botId) === expectedJobId;
+  if (matchesActive) aborts.get(botId)?.abort();
+  if (!aborts.has(botId) || !matchesActive) {
+    const pending = db.prepare('SELECT state FROM pending_turns WHERE bot_id=?').get(botId) as { state: string } | undefined;
+    const bot = getBotRow(botId);
+    const state = pending ? JSON.parse(pending.state) as PendingState : undefined;
+    if (state && bot && (expectedJobId === undefined || state.jobId === expectedJobId)) {
+      void finishPending({ userId: bot.user_id, botId, enqueueBotMessage, depth: 0 }, state, 'stopped')
+        .catch(() => console.error('[agent] pending cancellation failed', botId));
+      if (!aborts.has(botId)) setLive(botId, { isRunning: false, activity: null, awaiting: null, startedAt: null });
+      emitBot(botId);
+    }
+  }
 }
 
 /** Run a job in the bot's serial queue, after any running turn (e.g. a manual compaction). */
@@ -231,19 +257,36 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
   const ctrl = new AbortController();
   aborts.set(botId, ctrl);
   running.set(botId, trigger);
+  activeJobs.set(botId, jobId);
   let depth = trigger.type === 'bot' ? trigger.depth : 0;
   const toolRows: number[] = [];
+  let outcome: 'completed' | 'waiting' | 'interrupted' | 'failed' = 'completed';
+  let finalText = '';
+  let admitted = false;
+  let routineStarted = false;
 
   const ctx: ToolCtx = { userId, botId, jobId, enqueueBotMessage, depth, recovery: new BrowserRecovery() };
+  ctx.availableTools = async () => [
+    ...functionSchemas(botId), ...mcpSchemas(userId, botId), ...await composioTools(userId),
+    ...(isConfiguring(botId) ? [] : serverTools()),
+  ];
   setLive(botId, { isRunning: true, activity: { kind: 'thinking', since: now() }, awaiting: null, startedAt: now() });
 
   try {
-    // A new user message supersedes any pending approval: deny it.
+    // Settle a superseded approval before adopting the new job into a goal.
+    // The old run may block its goal; that must not capture the replacement chat.
     const pendingRow = db.prepare('SELECT state FROM pending_turns WHERE bot_id=?').get(botId) as any;
     if (pendingRow && trigger.type !== 'resume') {
       const st = JSON.parse(pendingRow.state) as PendingState;
       await finishPending(ctx, st, 'denied-by-new-message');
     }
+    const gate = workflowPreTurn({ userId, botId, jobId });
+    if (!gate.allowed) throw new Error(gate.reason ?? 'Workflow cannot continue.');
+    admitted = true;
+    ctx.workflowPrompt = gate.prompt;
+    ctx.remainingTokens = gate.remainingTokens;
+    onJobStarted({ jobId, botId, trigger });
+    routineStarted = true;
     if (trigger.type === 'resume') {
       if (!pendingRow) return;
       const st = JSON.parse(pendingRow.state) as PendingState;
@@ -278,12 +321,7 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
 
     const toolsStart = performance.now();
     const tools = (async () => {
-      const schemas = [
-        ...functionSchemas(botId),
-        ...mcpSchemas(userId, botId),
-        ...await composioTools(userId),
-        ...(isConfiguring(botId) ? [] : serverTools()),
-      ];
+      const schemas = await ctx.availableTools!();
       latency('tools_prepare', toolsStart, { botId });
       return schemas;
     })();
@@ -293,6 +331,9 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
     let nativeCount = 0;
     for (let step = 0; step < maxSteps; step++) {
       if (ctrl.signal.aborted) throw new Error('interrupted');
+      const budget = checkWorkflowBudget({ userId, botId, jobId });
+      if (!budget.allowed) throw new Error(budget.reason ?? 'Workflow budget exhausted.');
+      ctx.remainingTokens = budget.remainingTokens;
       let nativeBoundary: 'approval' | 'end' | 'replan' | 'budget' | undefined;
       const nativeCall: NativeToolHandler = async call => {
         ctrl.signal.throwIfAborted();
@@ -301,7 +342,7 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
           nativeBoundary = 'budget';
           return { output: 'The tool step limit was reached. Stop and report the completed work.', stop: true };
         }
-        const available = await tools;
+        const available = await ctx.availableTools!();
         if (!available.some(tool => tool.type === 'function' && tool.name === call.name)) throw new Error('This tool is unavailable to the current agent.');
         nativeCount++;
         // Never trust a runner-provided ID as a durable dispatch identifier.
@@ -326,6 +367,7 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
       };
       const result = await withNativeTools(userId, nativeCall, () => callModel(ctx, tools, ctrl.signal));
       appendHistory(botId, result.output);
+      finalText = result.output.filter((item: any) => item.type === 'message').flatMap((item: any) => item.content ?? []).filter((part: any) => part.type === 'output_text').map((part: any) => part.text).join('\n');
       if (nativeBoundary === 'budget') throw new Error('The tool step limit was reached. Review the completed steps before continuing.');
       if (nativeBoundary === 'approval' || nativeBoundary === 'end') return;
       if (nativeBoundary === 'replan') continue;
@@ -349,8 +391,10 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
       const paused = await processCalls(ctx, st);
       if (paused) return;
       if (st.outputs.some((o: any) => o.__endTurn)) break;
+      if (step === maxSteps - 1) throw new Error('The tool step limit was reached. Review completed work before continuing.');
     }
   } catch (e: any) {
+    outcome = ctrl.signal.aborted ? 'interrupted' : 'failed';
     const msg = ctrl.signal.aborted ? 'Stopped.' : `Something went wrong: ${e?.message ?? e}`;
     appendRow(botId, 'notice', { type: 'notice', text: msg, tone: ctrl.signal.aborted ? 'info' : 'error' });
     if (!ctrl.signal.aborted) console.error('[agent] turn failed', botId);
@@ -359,29 +403,78 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
     latency('turn', turnStart, { botId });
     aborts.delete(botId);
     running.delete(botId);
+    activeJobs.delete(botId);
     const stillPending = db.prepare('SELECT 1 FROM pending_turns WHERE bot_id=?').get(botId);
-    if (!stillPending) {
-      for (const seq of toolRows) {
-        const row = getRow(botId, seq);
-        if (row?.body.type === 'tool-call' && ['queued', 'running'].includes(row.body.status)) {
-          updateRow(botId, seq, { ...row.body, status: 'denied', summary: ctrl.signal.aborted ? 'Stopped' : 'Not executed', completedAt: now() });
-        }
+    const decisionPending = db.prepare(`SELECT 1 FROM rows WHERE bot_id=? AND generation=? AND kind='card'
+      AND json_extract(body,'$.jobId')=? AND json_extract(body,'$.status')='pending'
+      AND json_extract(body,'$.card') IN ('question','approval','connect') LIMIT 1`).get(botId, bot.generation, jobId);
+    if (outcome === 'completed' && (stillPending || decisionPending)) outcome = 'waiting';
+    try {
+      try {
+        if (admitted) await workflowAfterTurn({ userId, botId, jobId, status: outcome, finalText });
+      } catch (error) {
+        outcome = 'failed';
+        throw error;
+      } finally {
+        if (routineStarted) onJobFinished({ jobId, botId, status: outcome === 'interrupted' ? 'cancelled' : outcome === 'failed' ? 'unknown' : outcome });
       }
-      setLive(botId, { isRunning: false, activity: null, awaiting: null, startedAt: null });
+    } finally {
+      if (!stillPending) {
+        for (const seq of toolRows) {
+          const row = getRow(botId, seq);
+          if (row?.body.type === 'tool-call' && ['queued', 'running'].includes(row.body.status)) {
+            updateRow(botId, seq, { ...row.body, status: 'denied', summary: ctrl.signal.aborted ? 'Stopped' : 'Not executed', completedAt: now() });
+          }
+        }
+        setLive(botId, { isRunning: false, activity: null, awaiting: null, startedAt: null });
+      }
+      emitBot(botId);
     }
-    emitBot(botId);
   }
 }
 
 /** Run function calls in order. Returns true if the turn paused for approval. */
-async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
+async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: boolean; signal?: AbortSignal; onPause?: (state: PendingState) => void } = {}): Promise<boolean> {
   const { botId, userId } = ctx;
   while (st.calls.length) {
     turnSignal(botId)?.throwIfAborted();
-    const c = st.calls[0];
-    const args = safeParse(c.arguments) ?? {};
+    options.signal?.throwIfAborted();
+    if (ctx.jobId) {
+      const budget = checkWorkflowBudget({ userId, botId, jobId: ctx.jobId });
+      if (!budget.allowed) throw new Error(budget.reason ?? 'Workflow cannot continue.');
+    }
+    let c = st.calls[0];
+    let args = safeParse(c.arguments) ?? {};
     const row = getRow(botId, c.rowSeq);
     let body = (row?.body ?? {}) as ToolCallBody;
+    try {
+      if (c.name === 'tool_call') {
+        const resolved = await resolveToolCall(await ctx.availableTools!(), args);
+        c = { ...c, name: resolved.name, arguments: JSON.stringify(resolved.args) };
+        args = resolved.args;
+        body = { ...body, name: c.name, args };
+      }
+      if (ctx.availableTools) {
+        const definition = (await ctx.availableTools()).find(t => t.type === 'function' && t.name === c.name);
+        if (!definition) throw new Error('This tool is no longer available to this Bot.');
+        await validateToolArguments(definition, args);
+      }
+      turnSignal(botId)?.throwIfAborted();
+      options.signal?.throwIfAborted();
+      const workflowGate = workflowToolGate(ctx, c.name);
+      if (!workflowGate.allowed) throw new Error(workflowGate.reason ?? 'This action is outside the current workflow.');
+      if (c.name === 'deliver_artifact' || c.name === 'retry_delivery') {
+        args = await prepareDeliveryAction(userId, botId, c.name, args);
+        c = { ...c, arguments: JSON.stringify(args) };
+        st.calls[0] = c;
+        body = { ...body, name: c.name, args };
+      }
+    } catch (error: any) {
+        updateRow(botId, c.rowSeq, { ...body, status: 'denied', summary: String(error.message).slice(0, 200) });
+        st.outputs.push({ type: 'function_call_output', call_id: c.call_id, output: `Tool not executed: ${error.message}` });
+        st.approvalId = '';
+        st.calls.shift(); continue;
+    }
 
     // Enforce the interview boundary even if a model fabricates a tool call or an old
     // pending call is resumed. Configuring an agent must not launch operational work.
@@ -396,6 +489,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
     const ap = st.approvalId ? (db.prepare('SELECT * FROM approvals WHERE id=?').get(st.approvalId) as any) : null;
     const pol = await executionPolicyFor(userId, c.name, args, botId);
     turnSignal(botId)?.throwIfAborted();
+    options.signal?.throwIfAborted();
     let decision = pol.decision;
     if (st.nativeRequireApproval && decision === 'allow') decision = 'ask';
     if (ap && ap.call_id === c.call_id) {
@@ -414,7 +508,8 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
       db.prepare('INSERT INTO approvals(id,bot_id,row_seq,call_id,tool,status,created_at,binding_hash) VALUES (?,?,?,?,?,?,?,?)').run(approvalId, botId, card.seq, c.call_id, pol.key, 'pending', now(), approvalBinding(userId, botId, c.call_id, c.name, args));
       updateRow(botId, c.rowSeq, { ...body, status: 'awaiting-approval' });
       st.approvalId = approvalId;
-      db.prepare('INSERT OR REPLACE INTO pending_turns(bot_id,state) VALUES (?,?)').run(botId, JSON.stringify(st));
+      if (options.onPause) options.onPause(st);
+      else db.prepare('INSERT OR REPLACE INTO pending_turns(bot_id,state) VALUES (?,?)').run(botId, JSON.stringify(st));
       setLive(botId, { isRunning: false, activity: { kind: 'waiting_for_you', since: now() }, awaiting: { reason: humanizeSlug(pol.key), since: now() } });
       hub.emit(userId, { type: 'tasks', botId });
       return true;
@@ -432,9 +527,31 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
       setLive(botId, { isRunning: true, activity: { kind: c.name === 'send_to_bot' ? 'messaging_named' : act.kind, detail, since: now() }, awaiting: null });
       const toolStart = performance.now();
       try {
-        if (!beginTool(botId, c.call_id, c.name, approvalBinding(userId, botId, c.call_id, c.name, args))) throw new Error('This action has already been dispatched. Reconcile its outcome before requesting another action.');
+        if (!beginTool(botId, c.call_id, c.name, approvalBinding(userId, botId, c.call_id, c.name, args))
+          && !(c.name === 'execute_code' && isProgramResumable(c.call_id, botId))) throw new Error('This action has already been dispatched. Reconcile its outcome before requesting another action.');
         const impl = toolMap.get(c.name);
-        res = impl ? await impl.impl(args, { ...ctx, depth: st.depth })
+        if (c.name === 'execute_code') {
+          const program = await runProgram({ userId, botId, jobId: ctx.jobId, callId: c.call_id, args,
+            catalog: ctx.availableTools!, signal: turnSignal(botId), dispatch: async action => {
+              const existing = db.prepare("SELECT seq FROM rows WHERE bot_id=? AND generation=? AND kind='tool-call' AND json_extract(body,'$.callId')=? ORDER BY seq DESC LIMIT 1").get(botId, getBotRow(botId).generation, action.callId) as { seq: number } | undefined;
+              const innerRow = existing ?? appendRow(botId, 'tool-call', { type: 'tool-call', callId: action.callId, name: action.name, args: action.args, label: activityFor(action.name, action.args).label, status: 'queued' });
+              const inner: PendingState = { jobId: ctx.jobId, computerRevision: st.computerRevision, calls: [{ call_id: action.callId, name: action.name, arguments: JSON.stringify(action.args), rowSeq: innerRow.seq }], outputs: [], approvalId: action.approvalId ?? '', depth: st.depth };
+              const paused = await processCalls(ctx, inner, { nested: true, signal: action.signal, onPause: pending => {
+                st.approvalId = pending.approvalId;
+                db.prepare('INSERT OR REPLACE INTO pending_turns(bot_id,state) VALUES (?,?)').run(botId, JSON.stringify(st));
+              } });
+              const status = (getRow(botId, innerRow.seq)?.body as ToolCallBody)?.status;
+              return { paused, approvalId: inner.approvalId, output: inner.outputs[0]?.output, isError: status === 'error' || status === 'denied' };
+            } });
+          if (program.status === 'waiting') {
+            st.approvalId = program.approval_id ?? '';
+            db.prepare('INSERT OR REPLACE INTO pending_turns(bot_id,state) VALUES (?,?)').run(botId, JSON.stringify(st));
+            updateRow(botId, c.rowSeq, { ...body, status: 'awaiting-approval', summary: 'Program paused for an action approval' });
+            return true;
+          }
+          st.approvalId = '';
+          res = { output: JSON.stringify(program), summary: program.status === 'completed' ? 'Data processed' : program.status, isError: program.status !== 'completed' };
+        } else res = impl ? await impl.impl(args, { ...ctx, depth: st.depth })
           : c.name.startsWith('mcp_') ? await runMcpTool(userId, botId, c.name, args)
           : await runComposioTool({ ...ctx, readOnlyApps: ctx.readOnlyApps === true || pol.readOnlyApps }, c.name, args);
         const successful = res.isError !== true && res.summary !== 'failed';
@@ -466,8 +583,10 @@ async function processCalls(ctx: ToolCtx, st: PendingState): Promise<boolean> {
     }
   }
   // Batch complete: persist outputs (strip internal markers).
-  appendHistory(botId, st.outputs.map(({ __endTurn, ...o }: any) => o));
-  db.prepare('DELETE FROM pending_turns WHERE bot_id=?').run(botId);
+  if (!options.nested) {
+    appendHistory(botId, st.outputs.map(({ __endTurn, ...o }: any) => o));
+    db.prepare('DELETE FROM pending_turns WHERE bot_id=?').run(botId);
+  }
   setLive(botId, { isRunning: true, activity: { kind: 'thinking', since: now() }, awaiting: null });
   return false;
 }
@@ -484,14 +603,20 @@ async function finishPending(ctx: ToolCtx, st: PendingState, reason: string) {
     }
   }
   for (const c of st.calls) {
+    cancelProgram(c.call_id, botId);
     st.outputs.push({ type: 'function_call_output', call_id: c.call_id, output: reason === 'computer-changed'
       ? 'Skipped: the selected computer changed after these actions were planned. Do not retry unless the user sends a new request.'
+      : reason === 'stopped' ? 'Skipped: the user stopped this work. Do not retry unless they ask.'
       : 'Skipped: the user sent a new message before approving this. Do not retry unless they ask.' });
     const row = getRow(botId, c.rowSeq);
     if (row) updateRow(botId, c.rowSeq, { ...(row.body as ToolCallBody), status: 'denied', summary: 'Skipped' });
   }
   appendHistory(botId, st.outputs.map(({ __endTurn, ...o }: any) => o));
   db.prepare('DELETE FROM pending_turns WHERE bot_id=?').run(botId);
+  if (st.jobId) {
+    await workflowAfterTurn({ userId: ctx.userId, botId, jobId: st.jobId, status: 'interrupted' });
+    onJobFinished({ jobId: st.jobId, botId, status: 'cancelled' });
+  }
 }
 
 /** Publish native execution results to the normal transcript and live voice feed. */
@@ -508,16 +633,29 @@ async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: Abo
   const bot = getBotRow(botId);
   const prepareStart = performance.now();
   const model = modelFor(bot.model);
+  const checkModelBudget = () => {
+    signal.throwIfAborted();
+    if (ctx.jobId) {
+      const budget = checkWorkflowBudget({ userId, botId, jobId: ctx.jobId });
+      if (!budget.allowed) throw new Error(budget.reason ?? 'Workflow budget exhausted.');
+      ctx.remainingTokens = budget.remainingTokens;
+    }
+    return ctx.remainingTokens;
+  };
   setLive(botId, { activity: { kind: 'thinking', detail: 'Preparing model context', since: now() } });
   // Runs inside the bot's serial queue, so compaction can't race a turn.
-  const [history, prompt, info, tools] = await Promise.all([
-    maybeCompact(botId, loadHistory(botId)).catch(() => loadHistory(botId)),
+  const [history, prompt, info, allTools] = await Promise.all([
+    maybeCompact(botId, loadHistory(botId), { beforeModel: checkModelBudget }).catch(() => loadHistory(botId)),
     systemPrompt(userId, botId),
     modelInfo(model, bot.model === model, signal),
-    toolsPromise,
+    ctx.availableTools?.() ?? toolsPromise,
   ]);
+  // Compaction can consume the remaining budget. Its usage is persisted before
+  // returning, so check again before issuing the primary model request.
+  checkModelBudget();
+  const { tools, manifest } = assembleToolCatalog(allTools);
   // The model is only called when no approval is pending, so every orphaned call can be repaired.
-  let input = [{ role: 'system', content: prompt }, ...prepareInput(pruneImages(deduplicateBrowserSnapshots(repairHistory(history))), model)];
+  let input = [{ role: 'system', content: prompt + (ctx.workflowPrompt ? `\n\n${ctx.workflowPrompt}` : '') + (manifest ? `\n\n## Available tools\n${manifest}` : '') }, ...prepareInput(pruneImages(deduplicateBrowserSnapshots(repairHistory(history))), model)];
 
   const discloseImages = (omitted: number) => {
     if (omitted && !imageWarnings.has(ctx)) {
@@ -536,6 +674,7 @@ async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: Abo
     tools,
     store: false,
     stream: true,
+    ...(ctx.remainingTokens !== undefined ? { max_output_tokens: Math.max(1, ctx.remainingTokens) } : {}),
     ...providerFields({
       effort: bot.effort ?? 'medium',
       reasoning: info?.reasoning ?? true,
@@ -630,7 +769,7 @@ async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: Abo
   if (!final) throw new Error('model stream ended without a response');
   latency('model_complete', modelStart, { botId, model });
   if (final.usage?.input_tokens) noteUsage(botId, final.usage.input_tokens, history.length);
-  void recordModelUsage({ userId, botId, kind: 'chat', model, response: final });
+  await recordModelUsage({ userId, botId, kind: 'chat', model, response: final });
   return { output: tagOutput(final.output ?? [], model) };
 }
 

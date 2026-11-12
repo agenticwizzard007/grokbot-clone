@@ -26,6 +26,12 @@ import { findMcpTool } from '../mcp/store.js';
 import { platformState } from './platform-state.js';
 import { APP_CONNECTION_TOOLS } from './app-connections.js';
 import { appToolLabel } from '../tool-activity.js';
+import { DISCOVERY_TOOLS } from './tool-catalog.js';
+import { PROGRAM_TOOLS } from './programs.js';
+import { KNOWLEDGE_TOOLS } from './knowledge-tools.js';
+import { WORKFLOW_TOOLS } from './workflow-tools.js';
+import { DELIVERABLE_TOOLS } from './deliverable-tools.js';
+import { recordArtifact } from '../deliverables/index.js';
 
 export interface ToolCtx {
   userId: string;
@@ -36,6 +42,10 @@ export interface ToolCtx {
   /** Pin automatically allowed app reads to fresh read-only provider metadata at dispatch. */
   readOnlyApps?: boolean;
   recovery?: BrowserRecovery;
+  /** Re-read authorized schemas at dispatch; discovery never grants permission. */
+  availableTools?: () => Promise<any[]>;
+  workflowPrompt?: string;
+  remainingTokens?: number;
 }
 
 export interface ToolResult {
@@ -52,7 +62,7 @@ export interface ToolResult {
 
 type Impl = (args: any, ctx: ToolCtx) => Promise<ToolResult>;
 
-interface ToolDef {
+export interface ToolDef {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
@@ -88,6 +98,11 @@ function botByName(userId: string, name: string) {
 
 export const TOOLS: ToolDef[] = [
   ...APP_CONNECTION_TOOLS,
+  ...DISCOVERY_TOOLS,
+  ...PROGRAM_TOOLS,
+  ...KNOWLEDGE_TOOLS,
+  ...WORKFLOW_TOOLS,
+  ...DELIVERABLE_TOOLS,
   {
     name: 'get_platform_state',
     description: 'Read authoritative Swarm configuration: this agent’s text model and provider, separate voice model, subscription CLI connection, recorded usage and optionally the model catalog or fresh connected-service status (include_connections). Use this for questions about this app; never browse Swarm or ask for a browser login to inspect its own configuration. Unknown subscription tiers or remaining provider allowance must not be guessed.',
@@ -101,7 +116,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'save_agent_setup',
     description: 'Save your own agent specification during the setup interview. Incorporate the user’s answers into the brief, working style, workflows and boundaries. Save after each substantive answer. Use stage review only when the specification is complete and open_questions is empty. The user activates it in Configuration; you cannot activate yourself.',
-    parameters: (() => { const { $schema, ...schema } = z.toJSONSchema(setupDraftSchema); return schema; })(),
+    parameters: (() => { const { $schema, ...schema } = z.toJSONSchema(setupDraftSchema, { io: 'input' }); return schema; })(),
     activity: 'working', label: 'Updating agent configuration',
     impl: async (a, ctx) => {
       const result = saveSetupDraft(ctx.botId, ctx.userId, a);
@@ -192,15 +207,15 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'save_file',
-    description: "Save a deliverable (report, notes, CSV, code, markdown) to your Library so the user can open and download it. Saved under /root/swarm/files/<your id>/ on your computer.",
+    description: 'Save a report, notes, CSV, code or markdown as an immutable Library artifact. Returns its ID and authenticated download URL for the user or deliver_artifact.',
     parameters: obj({ filename: { type: 'string', description: 'e.g. briefing-2026-11-09.md' }, content: { type: 'string' } }, ['filename', 'content']),
     activity: 'drafting_file',
     label: 'Saving notes',
     impl: async (a, ctx) => {
       let name = String(a.filename).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
       if (!name || /^\.+$/.test(name)) name = 'file.txt';
-      const path = await computers.files.save(ctx.userId, ctx.botId, name, String(a.content));
-      return { output: JSON.stringify({ ok: true, path }), summary: `Saved ${name}` };
+      const artifact = recordArtifact({ userId: ctx.userId, botId: ctx.botId, jobId: ctx.jobId, filename: name, content: String(a.content) });
+      return { output: JSON.stringify({ ok: true, artifact }), summary: `Saved ${name}` };
     },
   },
   {
@@ -215,30 +230,6 @@ export const TOOLS: ToolDef[] = [
       const r = await screen.shell(String(a.command), Math.min(Math.max(a.timeout_seconds ?? 120, 1), 290));
       const out = (r.output ?? '').slice(-20000);
       return { output: JSON.stringify({ exit_code: r.exit_code, output: out }), summary: `exit ${r.exit_code}` };
-    },
-  },
-  {
-    name: 'remember',
-    description: 'Save a durable memory about the user, their preferences, or your job, so you remember it in future conversations.',
-    parameters: obj({ text: { type: 'string' } }, ['text']),
-    activity: 'remembering',
-    label: 'Saving notes',
-    impl: async (a, ctx) => {
-      db.prepare('INSERT INTO memories(id,bot_id,text,created_at) VALUES (?,?,?,?)').run(newId('mem'), ctx.botId, String(a.text), now());
-      return { output: 'Saved to memory.', summary: 'Saved a memory' };
-    },
-  },
-  {
-    name: 'recall',
-    description: 'Search your saved memories.',
-    parameters: obj({ query: { type: 'string' } }, ['query']),
-    activity: 'remembering',
-    label: 'Searching memory',
-    impl: async (a, ctx) => {
-      const words = String(a.query).toLowerCase().split(/\W+/).filter((w) => w.length > 2);
-      const all = db.prepare('SELECT text, created_at FROM memories WHERE bot_id=? ORDER BY created_at DESC').all(ctx.botId) as any[];
-      const hits = all.filter((m) => !words.length || words.some((w) => m.text.toLowerCase().includes(w))).slice(0, 20);
-      return { output: JSON.stringify(hits.map((h) => h.text)) };
     },
   },
   {
@@ -376,6 +367,9 @@ export const TOOLS: ToolDef[] = [
     activity: 'working',
     label: 'Updating a task',
     impl: async (a, ctx) => {
+      if (db.prepare('SELECT 1 FROM native_workflow_tasks w JOIN tasks t ON t.id=w.task_id WHERE w.task_id=? AND t.bot_id=?').get(a.task_id, ctx.botId)) {
+        return { output: 'This task belongs to a verified workflow. Use complete_workflow_task with evidence, or control_workflow to change its execution state.', isError: true };
+      }
       db.prepare('UPDATE tasks SET state=?, note=COALESCE(?, note), updated_at=? WHERE id=? AND bot_id=?').run(a.state, a.note ?? null, now(), a.task_id, ctx.botId);
       hub.emit(ctx.userId, { type: 'tasks', botId: ctx.botId });
       return { output: 'Updated.' };
@@ -400,7 +394,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'create_bot',
     description: 'Create a permanent teammate directly from the master chat. Build a focused, self-contained brief from the user’s specifications and corrections. Saves identity, AGENTS.md, context, resources, handoffs and a portable setup, then prepares its separate browser/screen. Only the current primary Bot can create teammates. Use this for durable Bots; spawn_subagent is temporary.',
-    parameters: (() => { const { $schema, ...schema } = z.toJSONSchema(creationSchema); return schema; })(),
+    parameters: (() => { const { $schema, ...schema } = z.toJSONSchema(creationSchema, { io: 'input' }); return schema; })(),
     activity: 'working',
     label: 'Creating a teammate',
     impl: createTeammate,
@@ -647,6 +641,11 @@ export function functionSchemas(botId?: string) {
 export type Decision = 'allow' | 'ask' | 'block';
 
 export function policyFor(userId: string, toolName: string, args: any, botId?: string): { decision: Decision; key: string; toolkit?: string; title: string } {
+  if (toolName === 'deliver_artifact' || toolName === 'retry_delivery') {
+    const key = `${toolName}:bot:${botId ?? ''}`;
+    const policy = db.prepare('SELECT mode FROM policies WHERE user_id=? AND tool=?').get(userId, key) as { mode: string } | undefined;
+    return { decision: policy?.mode === 'blocked' ? 'block' : toolName === 'deliver_artifact' && args?.channel === 'library' || policy?.mode === 'always_allow' ? 'allow' : 'ask', key, title: toolName === 'retry_delivery' ? 'retry delivery of the saved report' : `deliver the saved report via ${String(args?.channel ?? 'messaging')}` };
+  }
   if (toolName.startsWith('mcp_')) {
     const match = botId ? findMcpTool(userId, toolName, botId) : undefined;
     const key = `${toolName}:bot:${botId ?? ''}`;

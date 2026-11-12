@@ -1,4 +1,7 @@
 import { withUsage } from '../usage-context.js';
+import { createHash } from 'node:crypto';
+import { DeliverableError, DeliveryNotSentError } from '../deliverables/types.js';
+import { targetIdentity, type DeliveryTarget } from '../deliverables/delivery.js';
 import { assertLegacyWorkOpen, legacyWorkHeld, withLegacyWork } from '../security/legacy-work.js';
 import { db, now } from '../db.js';
 import { env } from '../env.js';
@@ -80,11 +83,59 @@ export interface ChannelAdapter {
   /** Send a voice note (an audio attachment); returns its external id. Only where `canSendAudio`. */
   sendAudio?(link: Link, audio: NonNullable<OutMessage['audio']>): Promise<string | null>;
   canSendAudio?(link: Link): boolean;
+  /** Controlled report delivery only; callers journal the send before invoking it. */
+  sendAttachment?(link: Link, file: { data: Buffer; mime: string; filename: string }): Promise<string | null>;
+  canSendAttachment?(link: Link): boolean;
+  /** True only when send addresses the exact supplied Link, rather than resolving a mutable remote route. */
+  supportsPinnedDelivery?: boolean;
+  prepareControlledDelivery?(link: Link): Promise<DeliveryTarget>;
+  sendControlledDelivery?(link: Link, input: { dispatchId: string; target: DeliveryTarget; text: string }): Promise<string | null>;
 }
 
 const adapters = new Map<Transport, ChannelAdapter>();
 export const registerAdapter = (a: ChannelAdapter) => adapters.set(a.transport, a);
 const adapterFor = (link: Link) => adapters.get(link.transport);
+
+/** Snapshot an exact linked destination. Delivery retries never fall back to another channel/person. */
+export async function controlledDeliveryTarget(userId: string, channel: 'imessage' | 'sms' | 'whatsapp'): Promise<DeliveryTarget> {
+  const link = getLink(userId, channel);
+  if (!link) throw new DeliverableError('Connect this messaging channel before delivering a report.', 409);
+  if (!adapterFor(link)?.supportsPinnedDelivery) throw new DeliverableError('This messaging adapter does not yet support approval-bound report destinations. The report remains available in Library.', 503);
+  const adapter = adapterFor(link)!;
+  if (adapter.prepareControlledDelivery) return adapter.prepareControlledDelivery(link);
+  const row = db.prepare('SELECT created_at FROM messaging_links WHERE user_id=? AND channel=?').get(userId, channel) as { created_at: number };
+  const revision = createHash('sha256').update(JSON.stringify([link.transport, link.phone, link.chatRef, row.created_at])).digest('hex');
+  return { channel, transport: link.transport, phone: link.phone, chatRef: link.chatRef, revision };
+}
+
+/** One journal-owned send, with no legacy catch-and-queue behavior. Errors after dispatch are uncertain. */
+export async function sendControlledDeliverable(input: { userId: string; botId: string; artifactId: string; dispatchId: string; target: DeliveryTarget;
+  file: { data: Buffer; mime: string; filename: string }; downloadUrl: string }): Promise<string> {
+  const channel = input.target.channel;
+  if (channel === 'library') throw new DeliveryNotSentError('Library does not need messaging.');
+  const bot = getBotRow(input.botId), link = getLink(input.userId, channel);
+  const adapter = link && adapterFor(link);
+  if (!bot || bot.user_id !== input.userId || legacyWorkHeld(input.userId) || !link || !adapter || !adapter.ready(link)
+    || !adapter.supportsPinnedDelivery) {
+    throw new DeliveryNotSentError('The original messaging destination is unavailable.');
+  }
+  try {
+    if (targetIdentity(await controlledDeliveryTarget(input.userId, channel)) !== targetIdentity(input.target)) throw new Error('Destination changed.');
+  } catch { throw new DeliveryNotSentError('The approved messaging destination changed or is unavailable.'); }
+  return withLegacyWork(input.userId, async () => {
+    // All remaining failures are conservatively unknown: provider response loss is not proof of no send.
+    assertLegacyWorkOpen(input.userId);
+    const text = adapter.format(`Saved report: ${input.file.filename}\n${input.downloadUrl}`, link);
+    const id = adapter.sendControlledDelivery
+      ? await adapter.sendControlledDelivery(link, { dispatchId: input.dispatchId, target: input.target, text })
+      : adapter.sendAttachment && adapter.canSendAttachment?.(link)
+      ? await adapter.sendAttachment(link, input.file)
+      : await adapter.send(link, { text });
+    if (!id) throw new Error('Messaging provider did not acknowledge delivery.');
+    logMessage(input.userId, { channel, waId: id, botId: input.botId, kind: 'notice', ref: input.artifactId, status: 'sent' });
+    return id;
+  });
+}
 
 // ---------- sending ----------
 

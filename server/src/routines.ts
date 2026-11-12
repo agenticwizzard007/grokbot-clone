@@ -3,13 +3,18 @@ import { db, now } from './db.js';
 import { appendRow } from './store.js';
 import type { Routine } from './types.js';
 import { isEventSchedule, setEventRoutineEnabled } from './triggers.js';
-import { checkRoutineRun, noteSkipped, trackRun, type RunCheck } from './routine-limits.js';
+import { checkRoutineRun, noteSkipped, type RunCheck } from './routine-limits.js';
 import { legacyWorkHeld } from './security/legacy-work.js';
+import { bindRoutineJob, reserveRoutineRun } from './deliverables/runs.js';
+import { DeliverableError } from './deliverables/types.js';
+import { newId } from './lib/ids.js';
+export { onJobStarted, onJobFinished } from './deliverables/runs.js';
+export { recordArtifact } from './deliverables/artifacts.js';
 
 const jobs = new Map<string, Cron>();
-let enqueueFn: ((botId: string, t: any) => void) | null = null;
+let enqueueFn: ((botId: string, t: any) => string | void) | null = null;
 
-export function initRoutines(enqueue: (botId: string, t: any) => void) {
+export function initRoutines(enqueue: (botId: string, t: any) => string | void) {
   enqueueFn = enqueue;
   const all = db.prepare("SELECT * FROM routines WHERE enabled=1 AND schedule NOT LIKE 'event:%'").all() as any[];
   for (const r of all) scheduleRoutine({ id: r.id, botId: r.bot_id, name: r.name, prompt: r.prompt, schedule: r.schedule, timezone: r.timezone } as Routine);
@@ -20,7 +25,9 @@ export function scheduleRoutine(r: Pick<Routine, 'id' | 'botId' | 'name' | 'prom
   if (isEventSchedule(r.schedule)) { void setEventRoutineEnabled(r.id, true); return; }
   unscheduleRoutine(r.id);
   try {
-    const job = new Cron(r.schedule, { timezone: r.timezone || 'UTC', protect: true }, () => { runRoutine(r.id, 'schedule'); });
+    const job = new Cron(r.schedule, { timezone: r.timezone || 'UTC', protect: true }, () => {
+      runRoutine(r.id, 'schedule', { fireKey: `schedule:${job.previousRun()?.getTime() ?? Date.now()}` });
+    });
     jobs.set(r.id, job);
   } catch (e) {
     console.warn('[routines] bad schedule', r.id, r.schedule, (e as Error).message);
@@ -35,16 +42,37 @@ export function unscheduleRoutine(id: string) {
 }
 
 /** Run a routine now (on its schedule, or "run now" from the app), within the guardrails in routine-limits.ts. */
-export function runRoutine(id: string, kind: 'schedule' | 'manual' = 'manual'): RunCheck {
+export function runRoutine(id: string, kind: 'schedule' | 'manual' = 'manual', options: { fireKey?: string } = {}): RunCheck & { runId?: string; jobId?: string } {
   const r = db.prepare('SELECT * FROM routines WHERE id=?').get(id) as any;
   if (!r || !enqueueFn) return { ok: false, reason: 'routine not found' };
   const owner = (db.prepare('SELECT user_id FROM bots WHERE id=?').get(r.bot_id) as { user_id: string } | undefined)?.user_id;
   if (legacyWorkHeld(owner)) return { ok: false, reason: 'account migration in progress' };
-  const check = checkRoutineRun(r, kind);
-  if (!check.ok) { noteSkipped(r, check.reason); return check; }
-  db.prepare('UPDATE routines SET last_run_at=? WHERE id=?').run(now(), id);
-  appendRow(r.bot_id, 'event', { type: 'event', event: 'routine-run', text: `Running routine: ${r.name}`, ref: id });
-  enqueueFn(r.bot_id, { type: 'routine', routineId: id, name: r.name, prompt: r.prompt });
-  trackRun(id, r.bot_id);
-  return check;
+  if (!owner || (kind === 'schedule' && !r.enabled)) return { ok: false, reason: 'routine is disabled or unavailable' };
+  try {
+    const result = db.transaction(() => {
+      const reserved = reserveRoutineRun({ userId: owner, botId: r.bot_id, routineId: id, name: r.name, kind,
+        fireKey: options.fireKey ?? (kind === 'schedule' ? `schedule:${Math.floor(now() / 60_000)}` : newId('manual')) });
+      if (!reserved.created) return { ok: true as const, runId: reserved.run.id, jobId: reserved.run.jobId ?? undefined, created: false };
+      const check = checkRoutineRun(r, kind);
+      if (!check.ok) throw new DeliverableError(check.reason, 409);
+      db.prepare('UPDATE routines SET last_run_at=? WHERE id=?').run(now(), id);
+      const jobId = enqueueFn!(r.bot_id, { type: 'routine', routineId: id, routineRunId: reserved.run.id, name: r.name, prompt: r.prompt });
+      if (jobId) bindRoutineJob(owner, reserved.run.id, jobId);
+      return { ok: true as const, runId: reserved.run.id, jobId: jobId || undefined, created: true };
+    })();
+    if (result.created) appendRow(r.bot_id, 'event', { type: 'event', event: 'routine-run', text: `Running routine: ${r.name}`, ref: id });
+    if (result.created && !result.jobId) {
+      // Compatibility for embedded/legacy enqueue callbacks without durable receipts.
+      // Queue drain is not proof of successful execution, so retain an unknown outcome.
+      void import('./agent/loop.js').then(({ runInBotQueue }) => runInBotQueue(r.bot_id, async () => {
+        db.prepare("UPDATE routine_executions SET status='unknown',error='Legacy queue returned no durable job receipt.',finished_at=? WHERE id=? AND job_id IS NULL AND status='queued'")
+          .run(now(), result.runId);
+      })).catch(() => {});
+    }
+    return { ok: true, runId: result.runId, jobId: result.jobId };
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : 'Routine could not be queued.';
+    noteSkipped(r, reason);
+    return { ok: false, reason };
+  }
 }

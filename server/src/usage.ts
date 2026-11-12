@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS usage_events (
 CREATE INDEX IF NOT EXISTS usage_user_time ON usage_events(user_id, created_at);
 CREATE INDEX IF NOT EXISTS usage_time ON usage_events(created_at);
 `);
-// Existing databases keep their recorded counters; new partial subscription
+// Existing databases keep their recorded counters; new partial model
 // records identify exactly which counters were observed, without a table rebuild.
 const usageColumns = new Set((db.prepare('PRAGMA table_info(usage_events)').all() as { name: string }[]).map(column => column.name));
 if (!usageColumns.has('usage_status')) db.exec("ALTER TABLE usage_events ADD COLUMN usage_status TEXT NOT NULL DEFAULT 'complete'");
@@ -79,34 +79,33 @@ export async function recordModelUsage(opts: RecordOpts & { response: any }): Pr
   try {
     const subscription = opts.response?.billing === 'subscription';
     const suppliedUsage = opts.response?.usage;
-    const u = suppliedUsage && typeof suppliedUsage === 'object' && !Array.isArray(suppliedUsage) ? suppliedUsage : subscription ? {} : null;
-    if (!u) return;
+    const u = suppliedUsage && typeof suppliedUsage === 'object' && !Array.isArray(suppliedUsage) ? suppliedUsage : {};
     const observed = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
     const tokenValues: Record<string, unknown> = {
-      input_tokens: u.input_tokens, cached_tokens: u.input_tokens_details?.cached_tokens,
-      output_tokens: u.output_tokens, reasoning_tokens: u.output_tokens_details?.reasoning_tokens,
+      input_tokens: u.input_tokens ?? u.prompt_tokens, cached_tokens: u.input_tokens_details?.cached_tokens ?? u.prompt_tokens_details?.cached_tokens,
+      output_tokens: u.output_tokens ?? u.completion_tokens, reasoning_tokens: u.output_tokens_details?.reasoning_tokens ?? u.completion_tokens_details?.reasoning_tokens,
     };
-    let tokenFields = subscription ? Object.keys(tokenValues).filter(key => observed(tokenValues[key])) : null;
+    let tokenFields = Object.keys(tokenValues).filter(key => observed(tokenValues[key]));
     const suppliedStatus = opts.response?.usage_status;
-    const usageStatus: 'complete' | 'partial' | 'unavailable' = !subscription ? 'complete'
-      : suppliedStatus === 'complete' || suppliedStatus === 'partial' || suppliedStatus === 'unavailable' ? suppliedStatus
-      : !tokenFields?.length ? 'unavailable' : opts.response.stopped || !observed(u.input_tokens) || !observed(u.output_tokens) ? 'partial' : 'complete';
+    const usageStatus: 'complete' | 'partial' | 'unavailable' = subscription && (suppliedStatus === 'complete' || suppliedStatus === 'partial' || suppliedStatus === 'unavailable') ? suppliedStatus
+      : !tokenFields.length ? 'unavailable'
+      : subscription && opts.response.stopped || !observed(tokenValues.input_tokens) || !observed(tokenValues.output_tokens) ? 'partial' : 'complete';
     // Keep the request even when its provider counters are unknown. Storage
     // zeros are placeholders behind this explicit mask, never measurements.
     if (usageStatus === 'unavailable') tokenFields = [];
     const who = attribution(opts);
-    const count = (field: string, fallback: unknown) => subscription ? tokenFields!.includes(field) ? tokenValues[field] as number : 0 : num(fallback);
-    const input = count('input_tokens', u.input_tokens ?? u.prompt_tokens);
-    const cached = count('cached_tokens', u.input_tokens_details?.cached_tokens ?? u.prompt_tokens_details?.cached_tokens);
-    const output = count('output_tokens', u.output_tokens ?? u.completion_tokens);
-    const reasoning = count('reasoning_tokens', u.output_tokens_details?.reasoning_tokens ?? u.completion_tokens_details?.reasoning_tokens);
+    const count = (field: string) => tokenFields.includes(field) ? tokenValues[field] as number : 0;
+    const input = count('input_tokens');
+    const cached = count('cached_tokens');
+    const output = count('output_tokens');
+    const reasoning = count('reasoning_tokens');
     const tools = num(u.num_server_side_tools_used) || countSearchItems(opts.response?.output);
     let cost: number | null = null;
     let source: 'provider' | 'estimate' | 'subscription' | null = null;
     if (subscription) { cost = 0; source = 'subscription'; }
     else if (typeof u.cost === 'number' && Number.isFinite(u.cost)) { cost = u.cost; source = 'provider'; }
     else if (u.cost_in_usd_ticks != null && Number.isFinite(Number(u.cost_in_usd_ticks))) { cost = Number(u.cost_in_usd_ticks) / 1e10; source = 'provider'; }
-    else {
+    else if (tokenFields.includes('input_tokens') && tokenFields.includes('output_tokens')) {
       const p = await priceFor(opts.model);
       if (p && (input || output)) { cost = (input * p.input + output * p.output) / 1e6; source = 'estimate'; }
     }

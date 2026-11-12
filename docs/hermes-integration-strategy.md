@@ -1,5 +1,7 @@
 # Improving Swarm with Hermes Agent
 
+> Implementation update: the native integration is now implemented in Swarm’s existing runtime. See [Native Hermes-derived capabilities](hermes-native-implementation.md) for code mapping, behavior and validation. The research and alternatives below describe the earlier assessment, not a separate runtime requirement.
+
 **Product and engineering assessment · 11 November 2026**
 
 **Recommendation: bring Hermes’s learning, retrieval, and workflow mechanisms into Swarm’s existing runtime. Start with reusable skills, source-linked recall, and on-demand context. Evaluate a separate Hermes worker only after those improvements have measurable results.**
