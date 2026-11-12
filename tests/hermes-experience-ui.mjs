@@ -1,0 +1,161 @@
+// Real native APIs/server + mocked model provider, exercised through existing UI.
+// HERMES_SERVER_ROOT can point at the integration checkout before cherry-picking.
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import net from 'node:net';
+import { spawn } from 'node:child_process';
+import { chromium } from 'playwright';
+
+const experienceRoot = process.cwd(), serverRoot = process.env.HERMES_SERVER_ROOT ?? experienceRoot;
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-experience-'));
+const evidenceDir = process.env.HERMES_EVIDENCE_DIR ?? path.join(serverRoot, '.context/hermes-build/experience-shots');
+fs.mkdirSync(evidenceDir, { recursive: true });
+const children = [], logs = []; let browser;
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function port() { const server = net.createServer(); await new Promise(r => server.listen(0, '127.0.0.1', r)); const value = server.address().port; await new Promise(r => server.close(r)); return value; }
+const apiPort = await port(), uiPort = await port(), mockPort = await port();
+const base = `http://127.0.0.1:${uiPort}`, apiBase = `http://127.0.0.1:${apiPort}`;
+const fixtureFile = path.join(temp, 'fixture.json');
+const env = { ...process.env, HERMES_SERVER_ROOT: serverRoot, HERMES_FIXTURE_FILE: fixtureFile, SWARM_ROLE: 'standalone', NODE_ENV: 'test', DB_PATH: path.join(temp, 'app.db'), FILES_DIR: path.join(temp, 'files'), SESSION_SECRET: 'hermes-experience-test-only', COMPUTER_PROVIDER: 'local', DEV_LOGIN: '1', PORT: String(apiPort), APP_URL: base, SERVER_URL: base, DIRECT_API_KEY: 'mock-key', DIRECT_BASE_URL: `http://127.0.0.1:${mockPort}/v1`, OPENROUTER_API_KEY: '', COMPOSIO_API_KEY: '', LLM_PROVIDER: 'direct', SWARM_NO_SCHEDULER: '1', WHATSAPP_DISABLED: '1', ADMIN_EMAILS: '', ADMIN_PHONES: '', INKBOX_TUNNEL: '0' };
+function start(args, cwd = experienceRoot, extra = {}) { const child = spawn(process.execPath, args, { cwd, env: { ...env, ...extra }, stdio: ['ignore', 'pipe', 'pipe'] }); children.push(child); for (const stream of [child.stdout, child.stderr]) stream.on('data', d => logs.push(String(d))); return child; }
+async function until(fn, label = 'condition') { for (let i = 0; i < 240; i++) { if (await fn()) return; await sleep(100); } throw new Error(`Timed out waiting for ${label}`); }
+const cookie = 'swarm_session=experience-owner-token';
+async function api(url, method = 'GET', body, auth = cookie, expected) {
+  const response = await fetch(apiBase + '/api' + url, { method, headers: { cookie: auth, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const text = await response.text();
+  assert.ok(expected ? response.status === expected : response.ok, `${method} ${url}: ${response.status} ${text}`);
+  return text ? JSON.parse(text) : null;
+}
+try {
+  const seed = start(['--import', 'tsx', 'tests/fixtures/hermes-experience.seed.mts']);
+  assert.equal(await new Promise(resolve => seed.on('exit', resolve)), 0, 'canonical fixtures seeded');
+  const fixture = JSON.parse(fs.readFileSync(fixtureFile, 'utf8'));
+  start(['tests/mock-provider.mjs', String(mockPort)]);
+  start(['--import', 'tsx', path.join(serverRoot, 'server/src/index.ts')], serverRoot);
+  await until(() => fetch(apiBase + '/api/health').then(r => r.ok).catch(() => false), 'real server');
+  start([path.join(experienceRoot, 'web/node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', String(uiPort)], path.join(experienceRoot, 'web'), { SWARM_API: apiBase });
+  await until(() => fetch(base).then(r => r.ok).catch(() => false), 'web UI');
+  const initial = await api('/learning/settings');
+  assert.equal(initial.settings.skillApproval, false);
+  assert.equal((await api(`/bots/${fixture.quinn.id}/skill-proposals`)).proposals.find(p => p.id === fixture.legacyProposal.id).status, 'pending');
+  assert.equal((await api(`/bots/${fixture.quinn.id}/memories`)).memories[0].text, fixture.memory.text);
+  for (const url of [`/learning/bots/${fixture.quinn.id}/memory-changes`, `/learning/skills/${fixture.skill.id}`, `/deliverables/artifacts/${fixture.artifact.id}/download`]) await api(url, 'GET', undefined, 'swarm_session=experience-other-token', 404);
+  const foreignState = (await api('/team/state', 'GET', undefined, 'swarm_session=experience-other-token')).state;
+  assert.ok(!foreignState.agents.some(a => a.botId === fixture.quinn.id));
+  browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  await context.addCookies([{ name: 'swarm_session', value: 'experience-owner-token', url: base }]);
+  const page = await context.newPage(), errors = [];
+  page.on('pageerror', e => errors.push(String(e))); page.setDefaultTimeout(15000);
+  await page.goto(base + '/#settings/learning');
+  const appSettings = page.getByRole('dialog', { name: 'Settings', exact: true });
+  await appSettings.getByRole('heading', { name: 'Learning', exact: true }).waitFor();
+  const approval = appSettings.getByRole('checkbox', { name: /Require approval for skill changes/ });
+  assert.equal(await approval.isChecked(), false);
+  await approval.check(); await appSettings.getByRole('button', { name: 'Save learning settings', exact: true }).click();
+  await appSettings.getByText('Learning settings saved.', { exact: true }).waitFor();
+  assert.equal((await api('/learning/settings')).settings.skillApproval, true);
+  await approval.uncheck(); await appSettings.getByRole('button', { name: 'Save learning settings', exact: true }).click();
+  await until(async () => !(await api('/learning/settings')).settings.skillApproval, 'approval off');
+  assert.equal((await api(`/bots/${fixture.quinn.id}/skill-proposals`)).proposals.find(p => p.id === fixture.legacyProposal.id).status, 'pending');
+  await page.screenshot({ path: path.join(evidenceDir, 'learning-settings-desktop.png'), animations: 'disabled' });
+  await appSettings.getByRole('button', { name: 'Close settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Bot settings', exact: true }).click();
+  const botSettings = page.getByRole('dialog', { name: 'Quinn settings', exact: true });
+  await botSettings.getByRole('button', { name: 'Learning', exact: true }).click();
+  await botSettings.getByLabel('Memory review interval (turns)', { exact: true }).fill('11');
+  await botSettings.getByRole('button', { name: 'Save Bot overrides', exact: true }).click();
+  await until(async () => (await api(`/learning/settings?botId=${fixture.quinn.id}`)).overrides?.memoryTurnInterval === 11, 'Bot override');
+  await botSettings.getByRole('button', { name: 'Use account defaults', exact: true }).click();
+  await until(async () => Object.keys((await api(`/learning/settings?botId=${fixture.quinn.id}`)).overrides ?? {}).length === 0, 'override reset');
+  await botSettings.getByRole('button', { name: 'Refine now', exact: true }).click();
+  await until(async () => (await api(`/learning/reviews?botId=${fixture.quinn.id}`)).reviews.some(r => r.reason === 'refine' && r.status === 'completed'), 'explicit review completion');
+  await botSettings.getByRole('button', { name: 'Refresh reviews', exact: true }).click();
+  await botSettings.getByRole('button', { name: /^Skills/ }).click();
+  await botSettings.getByRole('button', { name: 'Package resources and protections', exact: true }).click();
+  await botSettings.getByRole('button', { name: 'Add resource', exact: true }).click();
+  await botSettings.getByLabel('Resource path', { exact: true }).fill('templates/report.md');
+  await botSettings.getByLabel('Resource content', { exact: true }).fill('# Daily report\nOwner: {{owner}}\nSource: {{source}}');
+  await botSettings.getByRole('button', { name: 'Save resources', exact: true }).click();
+  await until(async () => !!(await api(`/learning/skills/${fixture.skill.id}`)).skill.resources['templates/report.md'], 'resource revision');
+  await botSettings.getByRole('button', { name: 'Pin package', exact: true }).click();
+  await botSettings.getByRole('button', { name: 'Unpin package', exact: true }).waitFor();
+  await botSettings.getByRole('button', { name: 'Lock agent edits', exact: true }).click();
+  await botSettings.getByRole('button', { name: 'Unlock agent edits', exact: true }).waitFor();
+  await botSettings.getByRole('button', { name: 'Sharing: Private to this Bot', exact: true }).click();
+  await botSettings.getByLabel('Knowledge visibility', { exact: true }).selectOption('account');
+  await botSettings.getByRole('button', { name: 'Save sharing', exact: true }).click();
+  await botSettings.getByRole('button', { name: 'Sharing: Account', exact: true }).waitFor();
+  assert.match((await api(`/learning/bots/${fixture.nia.id}/context`)).context, /Sourced report/);
+  await botSettings.getByRole('button', { name: 'Sharing: Account', exact: true }).click();
+  await botSettings.getByLabel('Knowledge visibility', { exact: true }).selectOption('private');
+  await botSettings.getByRole('button', { name: 'Save sharing', exact: true }).click();
+  await botSettings.getByRole('button', { name: 'Sharing: Private to this Bot', exact: true }).waitFor();
+  assert.doesNotMatch((await api(`/learning/bots/${fixture.nia.id}/context`)).context, /Sourced report/);
+  await page.screenshot({ path: path.join(evidenceDir, 'skill-package-desktop.png'), animations: 'disabled' });
+  await botSettings.getByRole('button', { name: /^Memories/ }).click();
+  await botSettings.getByText(/replace preference · pending/).click();
+  await botSettings.getByRole('link', { name: `Source ${fixture.daily.generation}:${fixture.daily.seq}`, exact: true }).click();
+  await botSettings.getByText('I now prefer daily pipeline reports with named owners and source links.', { exact: true }).waitFor();
+  await botSettings.getByRole('button', { name: 'Close sources', exact: true }).click();
+  await botSettings.getByRole('button', { name: 'Approve memory change', exact: true }).click();
+  await until(async () => (await api(`/bots/${fixture.quinn.id}/memories`)).memories.some(m => m.text.startsWith('Prefers daily')), 'staged memory approval');
+  await page.screenshot({ path: path.join(evidenceDir, 'memory-review-desktop.png'), animations: 'disabled' });
+  await botSettings.getByRole('button', { name: 'Close', exact: true }).click();
+  assert.equal(await page.getByText('INTERNAL_NARRATIVE_MUST_NOT_LEAK', { exact: true }).count(), 0);
+  assert.equal(await page.getByText('INTERNAL_ASSISTANT_MUST_NOT_LEAK', { exact: true }).count(), 0);
+  // The first approved library send succeeds at the real server, but its response
+  // is dropped. Reload and repeat the identical saved operation.
+  let lost = false; const sends = [];
+  await page.route('**/api/deliverables/artifacts/*/deliveries', async route => {
+    sends.push({ key: route.request().headers()['idempotency-key'], body: route.request().postData() });
+    if (!lost) { lost = true; const response = await route.fetch(); assert.equal(response.status(), 200); await route.abort('connectionreset'); } else await route.continue();
+  });
+  const saved = page.getByRole('region', { name: 'Saved reports', exact: true });
+  await saved.getByRole('button', { name: 'Review delivery destination', exact: true }).click();
+  await saved.getByText('Confirm delivery to Library', { exact: true }).waitFor();
+  await saved.getByRole('button', { name: 'Confirm delivery', exact: true }).click();
+  await saved.getByRole('button', { name: 'Resume saved request', exact: true }).waitFor();
+  await page.reload();
+  await saved.getByRole('button', { name: 'Resume saved request', exact: true }).click();
+  await until(async () => (await saved.getByRole('button', { name: 'Resume saved request', exact: true }).count()) === 0, 'saved delivery resolution');
+  assert.equal(sends.length, 2); assert.deepEqual(sends[0], sends[1]); assert.ok(sends[0].key);
+  const deliveries = (await api(`/deliverables/bots/${fixture.quinn.id}`)).artifacts.find(a => a.id === fixture.artifact.id).deliveries;
+  const library = deliveries.filter(d => d.channel === 'library'); assert.equal(library.length, 1); assert.equal(library[0].attempts.length, 1); assert.equal(library[0].status, 'delivered');
+  await saved.getByText('Verify uncertain outcome', { exact: true }).click();
+  await saved.getByLabel('Verified outcome', { exact: true }).selectOption('not_sent');
+  await saved.getByLabel('Verification evidence', { exact: true }).fill('Mock provider audit confirms no send; test transport performed no external write.');
+  await saved.getByRole('button', { name: 'Record verification (does not send)', exact: true }).click();
+  await until(async () => (await api(`/deliverables/deliveries/${fixture.uncertain.id}`)).delivery.status === 'failed', 'unknown verification');
+  assert.equal((await api(`/deliverables/deliveries/${fixture.uncertain.id}`)).delivery.attempts.length, 1, 'verification must not send');
+  await page.locator('.sidebar').getByRole('button', { name: 'Tasks', exact: true }).click();
+  const workflows = page.getByRole('region', { name: 'Goals and workflows', exact: true });
+  await workflows.getByRole('button', { name: 'New workflow', exact: true }).click();
+  await workflows.getByLabel('Workflow name', { exact: true }).fill('Research to report');
+  await workflows.getByRole('group', { name: 'Task 1', exact: true }).getByLabel('Title', { exact: true }).fill('Research sources');
+  await workflows.getByRole('group', { name: 'Task 1', exact: true }).getByLabel('Instructions', { exact: true }).fill('Research original evidence and return named source links.');
+  await workflows.getByRole('group', { name: 'Task 1', exact: true }).getByLabel('Worker', { exact: true }).selectOption(fixture.nia.id);
+  await workflows.getByRole('button', { name: 'Add task', exact: true }).click();
+  const second = workflows.getByRole('group', { name: 'Task 2', exact: true });
+  await second.getByLabel('Title', { exact: true }).fill('Write report'); await second.getByLabel('Instructions', { exact: true }).fill('Write a concise report grounded in the research.');
+  await second.getByLabel('Worker', { exact: true }).selectOption(fixture.ellis.id); await second.getByLabel('Wait for', { exact: true }).selectOption('step-1');
+  await workflows.getByRole('button', { name: 'Create workflow', exact: true }).click();
+  await workflows.getByRole('heading', { name: 'Research to report', exact: true }).waitFor();
+  const created = (await api('/workflows')).workflows.find(w => w.title === 'Research to report');
+  assert.equal(created.tasks[0].workerBotId, fixture.nia.id); assert.equal(created.tasks[1].workerBotId, fixture.ellis.id); assert.deepEqual(created.tasks[1].dependsOn, [created.tasks[0].id]);
+  await page.getByRole('button', { name: 'Refresh board', exact: true }).click();
+  await page.getByRole('region', { name: /board$/ }).getByRole('heading', { name: /Research to report/ }).waitFor();
+  await page.screenshot({ path: path.join(evidenceDir, 'team-board-desktop.png'), animations: 'disabled' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.locator('.tasks-view__scroll').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'team/workflow view fits mobile');
+  await page.screenshot({ path: path.join(evidenceDir, 'team-board-mobile.png'), animations: 'disabled' });
+  assert.deepEqual(errors, []);
+  fs.writeFileSync(path.join(evidenceDir, 'result.json'), JSON.stringify({ status: 'passed', serverRoot, checks: ['defaults and existing proposals', 'Bot overrides/reset', 'explicit refinement', 'package resources/pin/lock/share/revoke', 'memory review/source links', 'internal audience', 'response loss/reload/idempotency', 'unknown reconciliation without send', 'permanent workers/dependencies', 'account isolation', 'desktop/mobile'], screenshots: fs.readdirSync(evidenceDir).filter(f => f.endsWith('.png')) }, null, 2));
+  console.log('PASS native Hermes experience: real APIs/server, stable delivery recovery, review controls, account isolation, desktop/mobile.');
+} catch (error) {
+  const page = browser?.contexts()[0]?.pages()[0];
+  if (page) { await page.screenshot({ path: path.join(evidenceDir, 'failure.png') }).catch(() => {}); fs.writeFileSync(path.join(evidenceDir, 'failure.html'), await page.content()); }
+  fs.writeFileSync(path.join(evidenceDir, 'server.log'), logs.join('')); console.error(logs.join('').slice(-7000)); throw error;
+} finally { await browser?.close(); for (const child of children) child.kill(); await sleep(300); fs.rmSync(temp, { recursive: true, force: true }); }

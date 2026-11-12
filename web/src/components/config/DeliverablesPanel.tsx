@@ -1,3 +1,4 @@
+import { ApiError } from '../../lib/api';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { deliverablesApi, type ArtifactDelivery, type DeliveryChannel, type SavedDeliverable } from '../../lib/deliverablesApi';
 import { deliveryJournalKey, persistDeliveryAction, readDeliveryActions, resolveDeliveryAction, type DeliveryAction, type DeliveryDestination } from '../../lib/deliveryActions';
@@ -33,7 +34,14 @@ export function DeliverablesPanel({ botId }: { botId: string }) {
       await deliverablesApi.execute(request);
       resolveDeliveryAction(journal, request.key);
       if (currentBot.current === botId) { setPending(readDeliveryActions(journal)); setPreview(null); await load(); }
-    } catch (e) { if (currentBot.current === botId) setError(`${(e as Error).message} The saved request retains its approved body and send identity. Resume it to resolve the outcome.`); }
+    } catch (e) {
+      const definitive = e instanceof ApiError && [400, 404, 409, 422].includes(e.status);
+      if (definitive) {
+        try { resolveDeliveryAction(journal, request.key); if (currentBot.current === botId) { setPending(readDeliveryActions(journal)); setPreview(null); } }
+        catch (storage) { if (currentBot.current === botId) setStorageError((storage as Error).message); }
+      }
+      if (currentBot.current === botId) setError(`${(e as Error).message} ${definitive ? 'The server rejected this request. Review the current state and approve a fresh destination if needed.' : 'The saved request retains its approved body and send identity. Resume it to resolve the outcome.'}`);
+    }
     finally { action.current = false; if (currentBot.current === botId) setBusy(null); }
   };
   const inspect = async (file: SavedDeliverable, retry?: ArtifactDelivery) => {
