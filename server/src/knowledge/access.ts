@@ -65,6 +65,47 @@ export function setGrants(userId: string, sourceBotId: string, kind: string, id:
 // A foreground job's fresh reads survive tool calls but never grant authority
 // across jobs. Content + revision comparison invalidates a read after any edit.
 const foregroundReads = new Map<string, Map<string, string>>();
+function unattendedJob(userId: string, botId: string, jobId: string): boolean {
+    const seen = new Set<string>();
+    while (seen.size < 256) {
+        if (seen.has(jobId))
+            return true;
+        seen.add(jobId);
+        const row = db.prepare('SELECT j.trigger FROM agent_jobs j JOIN bots b ON b.id=j.bot_id AND b.user_id=j.user_id WHERE j.id=? AND j.user_id=? AND j.bot_id=?').get(jobId, userId, botId) as { trigger: string } | undefined;
+        if (!row)
+            return true;
+        let trigger: any;
+        try { trigger = JSON.parse(row.trigger); }
+        catch { return true; }
+        if (!trigger || typeof trigger !== 'object' || Array.isArray(trigger))
+            return true;
+        if (trigger.type === 'user')
+            return false;
+        if (trigger.audience === 'internal' || trigger.workflowId || trigger.taskId || trigger.goalId || trigger.proactiveSlotKey || trigger.coordinationRequestId || trigger.coordinationWakeId)
+            return true;
+        if (typeof trigger.parentJobId !== 'string' || !trigger.parentJobId)
+            return true;
+        if (trigger.type === 'system') {
+            // A system job may also be independent goal/workflow work. Only a
+            // persisted connection answer inherits the original job's attendance.
+            const seq = trigger.connectionCardSeq;
+            if (seq !== undefined && (!Number.isSafeInteger(seq) || seq < 1))
+                return true;
+            if (!db.prepare(`SELECT 1 FROM rows WHERE bot_id=? AND kind='card'
+                AND json_extract(body,'$.card')='connect'
+                AND json_extract(body,'$.status') IN ('connected','skipped')
+                AND json_extract(body,'$.jobId')=? AND json_extract(body,'$.answerJobId')=?
+                AND (? IS NULL OR seq=?) LIMIT 1`).get(botId, trigger.parentJobId, jobId, seq ?? null, seq ?? null))
+                return true;
+        }
+        else if (trigger.type !== 'resume')
+            return true;
+        jobId = trigger.parentJobId;
+    }
+    // Invalid, foreign, cyclic or excessively long ancestry cannot authorize a
+    // direct destructive write. The owner can still review the staged change.
+    return true;
+}
 export function toolManagement(input: {
     userId: string;
     botId: string;
@@ -86,5 +127,5 @@ export function toolManagement(input: {
     // Calls without a durable job cannot borrow prior reads.
     if (!input.jobId)
         reads = new Map();
-    return { ...input, iteration: input.learningIteration, unattended: input.depth > 0, actor: 'foreground', reads };
+    return { ...input, iteration: input.learningIteration, unattended: input.jobId ? unattendedJob(input.userId, input.botId, input.jobId) : input.depth > 0, actor: 'foreground', reads };
 }

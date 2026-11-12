@@ -279,6 +279,71 @@ test('unattended batches stage destructive changes atomically, while attended re
     access.withManagement(management(false), () => memory.manageMemory('owner', 'alpha', { action: 'replace', memoryId: first.id, expectedRevision: 1, text: 'User prefers brief reports.', evidence }));
     assert.equal(memory.listMemories('owner', 'alpha').some(m => m.text === 'User prefers brief reports.'), true);
 });
+function connectionJob(parentJobId: string, explicitSeq = true) {
+    const cardSeq = ++seq;
+    const job = jobs.acceptJob('alpha', { type: 'system', text: 'Connection resolved; continue.', parentJobId, ...(explicitSeq ? { connectionCardSeq: cardSeq } : {}) });
+    db.prepare("INSERT INTO rows(bot_id,generation,seq,updated_seq,kind,body,created_at) VALUES('alpha',1,?,?,'card',?,?)").run(cardSeq, cardSeq, JSON.stringify({ type: 'card', card: 'connect', status: 'connected', jobId: parentJobId, answerJobId: job.id }), Date.now());
+    return job.id;
+}
+const attendanceCases: { name: string; create: () => string; unattended: boolean; depth?: number; refine?: boolean }[] = [
+    { name: 'depth-zero routine', create: () => jobs.acceptJob('alpha', { type: 'routine', routineId: 'daily', name: 'Daily', prompt: 'Review' }).id, unattended: true },
+    { name: 'depth-zero bot delegation', create: () => jobs.acceptJob('alpha', { type: 'bot', fromBotId: 'beta', text: 'Review', depth: 0 }).id, unattended: true },
+    { name: 'depth-zero native tool job', create: () => jobs.acceptJob('alpha', { type: 'native-tool', name: 'SWARM_APPS_EXECUTE', args: {}, callId: 'native' }).id, unattended: true },
+    { name: 'depth-zero system workflow', create: () => jobs.acceptJob('alpha', { type: 'system', text: 'Work', workflowId: 'workflow' }).id, unattended: true },
+    { name: 'system goal with human parent', create: () => jobs.acceptJob('alpha', { type: 'system', text: 'Continue goal', parentJobId: jobs.acceptJob('alpha', { type: 'user', text: 'Start goal' }).id }).id, unattended: true },
+    { name: 'resumed internal system', create: () => jobs.acceptJob('alpha', { type: 'resume', parentJobId: jobs.acceptJob('alpha', { type: 'system', audience: 'internal', text: 'Internal work' }).id }).id, unattended: true },
+    { name: 'nested resumed routine', create: () => jobs.acceptJob('alpha', { type: 'resume', parentJobId: jobs.acceptJob('alpha', { type: 'resume', parentJobId: jobs.acceptJob('alpha', { type: 'routine', routineId: 'daily' }).id }).id }).id, unattended: true },
+    { name: 'human job despite nonzero depth', create: () => jobs.acceptJob('alpha', { type: 'user', text: 'Correct my memories' }).id, unattended: false, depth: 1 },
+    { name: 'resumed human despite nonzero depth', create: () => jobs.acceptJob('alpha', { type: 'resume', parentJobId: jobs.acceptJob('alpha', { type: 'user', text: 'Correct my memories' }).id }).id, unattended: false, depth: 1 },
+    { name: 'human connection continuation', create: () => connectionJob(jobs.acceptJob('alpha', { type: 'user', text: 'Correct my memories' }).id), unattended: false },
+    { name: 'human connection continuation without explicit card seq', create: () => connectionJob(jobs.acceptJob('alpha', { type: 'user', text: 'Correct my memories' }).id, false), unattended: false },
+    { name: 'internal connection continuation', create: () => connectionJob(jobs.acceptJob('alpha', { type: 'system', audience: 'internal', text: 'Work' }).id), unattended: true },
+    { name: 'missing resume parent', create: () => jobs.acceptJob('alpha', { type: 'resume', parentJobId: 'missing' }).id, unattended: true },
+    { name: 'foreign Bot resume parent', create: () => jobs.acceptJob('alpha', { type: 'resume', parentJobId: jobs.acceptJob('beta', { type: 'user', text: 'Other Bot' }).id }).id, unattended: true },
+    { name: 'foreign owner resume parent', create: () => {
+        const parent = jobs.acceptJob('alpha', { type: 'user', text: 'Prior owner' });
+        db.prepare('UPDATE agent_jobs SET user_id=? WHERE id=?').run('other', parent.id);
+        return jobs.acceptJob('alpha', { type: 'resume', parentJobId: parent.id }).id;
+    }, unattended: true },
+    { name: 'cyclic resume ancestry', create: () => {
+        const first = jobs.acceptJob('alpha', { type: 'resume' });
+        const second = jobs.acceptJob('alpha', { type: 'resume', parentJobId: first.id });
+        db.prepare('UPDATE agent_jobs SET trigger=? WHERE id=?').run(JSON.stringify({ type: 'resume', parentJobId: second.id }), first.id);
+        return second.id;
+    }, unattended: true },
+    { name: 'invalid resume ancestor', create: () => jobs.acceptJob('alpha', { type: 'resume', parentJobId: jobs.acceptJob('alpha', []).id }).id, unattended: true },
+    { name: 'explicit attended refine context overrides routine origin', create: () => jobs.acceptJob('alpha', { type: 'routine', routineId: 'daily' }).id, unattended: false, refine: true },
+];
+for (const scenario of attendanceCases) test(`legacy memory tools respect durable attendance: ${scenario.name}`, async () => {
+    const evidence = [message('User prefers concise reports and works in London.')];
+    const first = memory.saveMemory('owner', 'alpha', { text: 'User prefers detailed reports.', evidence }).memory!;
+    const second = memory.saveMemory('owner', 'alpha', { text: 'User works in London.', evidence }).memory!;
+    const jobId = scenario.create();
+    const ctx = { ...jobCtx(jobId), depth: scenario.depth ?? 0 };
+    const invoke = async () => {
+        const correction = await KNOWLEDGE_TOOLS.find(t => t.name === 'correct_memory')!.impl({ memory_id: first.id, expected_revision: 1, text: 'User prefers concise reports.', evidence }, ctx);
+        const removal = await KNOWLEDGE_TOOLS.find(t => t.name === 'forget_memory')!.impl({ memory_id: second.id, expected_revision: 1 }, ctx);
+        assert.equal(correction.isError, undefined, correction.output);
+        assert.equal(removal.isError, undefined, removal.output);
+    };
+    if (scenario.refine)
+        await access.withManagement({ ...management(false), actor: 'refine', jobId }, invoke);
+    else
+        await invoke();
+    const changes = memory.listMemoryChanges('owner', 'alpha');
+    const active = memory.listMemories('owner', 'alpha');
+    if (scenario.unattended) {
+        assert.deepEqual(changes.map(c => c.action).sort(), ['remove', 'replace']);
+        assert.ok(changes.every(c => c.status === 'pending' && c.runId === jobId));
+        assert.deepEqual(active.map(m => m.id).sort(), [first.id, second.id].sort());
+        assert.equal(active.find(m => m.id === first.id)?.text, first.text);
+    }
+    else {
+        assert.equal(changes.length, 0);
+        assert.deepEqual(active.map(m => m.text), ['User prefers concise reports.']);
+        assert.ok(active.every(m => m.id !== first.id && m.id !== second.id));
+    }
+});
 test('memory approval rejects stale source/base and never revives forgotten facts', () => {
     const evidence = [message('User prefers concise reports.')];
     const m = memory.saveMemory('owner', 'alpha', { text: 'User prefers detailed reports.', evidence }).memory!;
