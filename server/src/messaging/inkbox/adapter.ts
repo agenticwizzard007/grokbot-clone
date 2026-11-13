@@ -26,6 +26,7 @@ const sentAsCarrierSms = (sent: Awaited<ReturnType<typeof ib.sendIMessage>>) => 
 
 export const inkboxAdapter: ChannelAdapter = {
   transport: 'inkbox',
+  supportsPinnedDelivery: true,
   ready: (link) => inkboxConfigured() && link.status === 'connected' && (!!link.chatRef || !!link.phone),
   format: (md) => toPlainText(md),
   maxChars: (link) => link.channel === 'whatsapp' ? WHATSAPP_MAX : link.channel === 'sms' ? SMS_MAX : IMESSAGE_MAX,
@@ -44,6 +45,16 @@ export const inkboxAdapter: ChannelAdapter = {
   },
   // Voice notes: iMessage only (SMS gets the text). Arrives as an audio attachment that plays in the thread.
   canSendAudio: (link) => link.channel === 'imessage' && (!!link.chatRef || !!link.phone),
+  canSendAttachment: (link) => link.channel === 'imessage' && (!!link.chatRef || !!link.phone),
+  async sendAttachment(link, file) {
+    assertLegacyWorkOpen(link.userId);
+    const key = env.inkboxIdentityKey;
+    const url = await ib.uploadMedia(key, { data: file.data, filename: file.filename, contentType: file.mime });
+    assertLegacyWorkOpen(link.userId);
+    const sent = await ib.sendIMessage(key, { conversationId: link.chatRef ?? undefined, to: link.chatRef ? undefined : `+${link.phone}`, mediaUrls: [url] });
+    if (sentAsCarrierSms(sent)) throw new Error('Inkbox downgraded this iMessage to carrier SMS.');
+    return sent.id;
+  },
   async sendAudio(link: Link, audio) {
     assertLegacyWorkOpen(link.userId);
     const key = env.inkboxIdentityKey;

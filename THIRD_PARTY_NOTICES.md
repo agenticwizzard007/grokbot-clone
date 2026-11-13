@@ -59,3 +59,36 @@ Swarms UI artwork includes bot silhouettes and eyes (`web/artwork/` and `web/src
 App logos supplied at runtime by Composio also remain the property of their respective owners. The Google sign-in mark is a trademark of Google LLC.
 
 Swarms bundles the OpenAI knot (`web/public/assets/providers/openai.svg`) for monochrome display and the Claude Code pixel mascot (`web/public/assets/providers/claude-code.svg`). These provider marks remain the property of OpenAI and Anthropic respectively and identify the corresponding sign-in provider.
+
+## Hermes Agent
+
+Parts of Swarm's native skills, memory retrieval, tool discovery, workflow coordination,
+delivery lifecycle and programmatic tool execution are adapted from Hermes Agent:
+https://github.com/NousResearch/hermes-agent
+
+Source revision: `f0e7b68e439f8c1962fcf9dcb0341aadf1e2a898`.
+Individual source files identify the upstream modules they adapt. The adaptations run
+within Swarm's TypeScript/SQLite runtime and preserve Swarm's identity and permission
+boundaries. Swarm does not launch the Hermes agent runtime.
+
+MIT License
+
+Copyright (c) 2025 Nous Research
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

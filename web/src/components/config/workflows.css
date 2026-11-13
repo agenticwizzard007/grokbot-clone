@@ -1,0 +1,15 @@
+.workflows-panel{display:grid;gap:16px;margin:20px 0;color:var(--text-primary,inherit)}
+.workflows-panel>header,.workflow-card>header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.workflows-panel h2,.workflows-panel h3{margin:0;font-size:16px}.workflows-panel h2{font-size:20px}
+.workflows-panel p{margin:8px 0;line-height:1.5}.workflows-panel small{display:block;opacity:.72;line-height:1.5}
+.workflow-card,.workflow-create{padding:18px;border:1px solid var(--border,#80808035);border-radius:14px;background:var(--surface,transparent)}
+.workflow-actions{display:flex;gap:8px;flex-wrap:wrap}.workflows-panel button{cursor:pointer;border:1px solid var(--border,#80808050);border-radius:8px;padding:7px 11px;background:var(--surface-raised,transparent);color:inherit;font:inherit}
+.workflows-panel button:disabled{opacity:.5;cursor:wait}.workflow-create,.workflow-evidence{display:grid;gap:12px}
+.workflows-panel label{display:grid;gap:5px;font-size:13px}.workflows-panel input,.workflows-panel textarea,.workflows-panel select{box-sizing:border-box;width:100%;min-width:0;padding:9px;border:1px solid var(--border,#80808060);border-radius:8px;background:var(--surface,transparent);color:inherit;font:inherit}
+.workflows-panel textarea{min-height:80px;resize:vertical}.workflows-panel fieldset{display:grid;gap:10px;border:1px solid var(--border,#80808040);border-radius:9px;padding:12px}
+.workflows-panel .workflow-checkbox{display:flex;align-items:center}.workflow-checkbox input{width:auto}
+.workflow-status{display:inline-block;font-size:12px;border:1px solid currentColor;border-radius:20px;padding:2px 9px;opacity:.8;text-transform:capitalize}
+.workflow-status.is-completed{color:#168b62}.workflow-status.is-blocked,.workflow-status.is-paused{color:#aa7309}
+.workflow-task-list{display:grid;gap:12px;padding-left:20px}.workflow-task-list>li{padding:10px 0;border-top:1px solid var(--border,#80808035)}
+.workflow-task-list>li>div{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.workflow-task-list pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;overflow:auto;font-size:12px}
+.workflow-evidence{margin-top:14px;padding-top:12px;border-top:1px solid var(--border,#80808040)}.workflow-error{color:#b84335}.workflow-error button{margin-left:10px}.workflow-empty{opacity:.7}

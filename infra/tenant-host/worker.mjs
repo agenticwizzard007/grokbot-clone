@@ -95,7 +95,7 @@ input.on('line', async line => {
       if (message.params?.provider !== message.provider) throw new Error('Provider mismatch.');
       generationActive = true;
       const timeout = Number.isSafeInteger(message.params.timeoutMs) && message.params.timeoutMs > 0 ? Math.min(message.params.timeoutMs, 900_000) : 900_000;
-      generationTimer = setTimeout(() => controller.abort(), timeout);
+      generationTimer = message.params.timeoutMs === 0 ? undefined : setTimeout(() => controller.abort(), timeout);
       const native = Array.isArray(message.params.nativeTools) && message.params.nativeTools.length > 0;
       try { result = await runner.runGeneration(message.params, { ...options, ...(native ? { onToolCall } : {}) }); }
       finally { closeTools(); }

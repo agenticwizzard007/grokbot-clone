@@ -6,8 +6,8 @@ import { enterChatPane, useStore } from './store';
 /** UI state for bot settings, app settings, the Tasks view and the theme. Kept apart from store.ts on purpose. */
 
 export type Theme = 'system' | 'light' | 'dark';
-export type BotSettingsTab = 'general' | 'skills' | 'memories' | 'routines' | 'analytics';
-export type AppSection = 'general' | 'keys' | 'usage' | 'computer' | 'messaging' | 'permissions' | 'apps' | 'mcp' | 'account' | 'subscriptions';
+export type BotSettingsTab = 'general' | 'skills' | 'memories' | 'routines' | 'analytics' | 'learning';
+export type AppSection = 'general' | 'keys' | 'usage' | 'computer' | 'messaging' | 'permissions' | 'apps' | 'mcp' | 'account' | 'subscriptions' | 'learning';
 
 interface ConfigUI {
   botSettings: { botId: string; tab: BotSettingsTab } | null;
@@ -33,7 +33,7 @@ const readTheme = (): Theme => {
 };
 
 /** Deep link: /#settings/<section> (e.g. #settings/messaging, or just #messaging) opens Settings there. */
-const SECTIONS_LINKABLE: AppSection[] = ['general', 'keys', 'computer', 'messaging', 'permissions', 'apps', 'mcp', 'account', 'subscriptions'];
+const SECTIONS_LINKABLE: AppSection[] = ['general', 'keys', 'computer', 'messaging', 'permissions', 'apps', 'mcp', 'account', 'subscriptions', 'learning', 'usage'];
 /** Old links that now open a different section. */
 const SECTION_ALIASES: Record<string, AppSection> = { whatsapp: 'messaging' };
 const linkedSection = (): AppSection | null => {

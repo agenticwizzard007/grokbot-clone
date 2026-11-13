@@ -96,7 +96,7 @@ const ACTIVITY_WORDS: Partial<Record<ActivityKind, string>> = {
 };
 
 function messageText(body: RowBody): { role: 'user' | 'assistant'; text: string; via?: string } | null {
-  if (body.type !== 'message' || body.streaming) return null;
+  if (body.audience === 'internal' || body.type !== 'message' || body.streaming) return null;
   const via = body.from ? (body.from.kind === 'voice' ? 'said on a call' : body.from.kind === 'routine' ? `routine ${body.from.name}` : `from ${body.from.name}`) : undefined;
   return { role: body.role, text: body.text, via };
 }
@@ -108,6 +108,7 @@ function recentMessages(botId: string, count: number) {
   const out: { seq: number; at: number; who: string; text: string }[] = [];
   for (const r of rows) {
     const body = JSON.parse(r.body) as RowBody;
+    if (body.audience === 'internal') continue;
     const m = messageText(body);
     if (m) out.push({ seq: r.seq, at: r.created_at, who: m.role === 'user' ? `User${m.via ? ` (${m.via})` : ''}` : b.name, text: m.text });
     else if (body.type === 'event' && body.event === 'voice-call' && body.call?.phase === 'ended') out.push({ seq: r.seq, at: r.created_at, who: 'Call record', text: body.text });
@@ -130,6 +131,7 @@ function activitySnapshot(botId: string) {
     .map((r) => JSON.parse(r.body)).filter((b: any) => b.status === 'pending');
   const lines: string[] = [];
   if (live.awaiting) lines.push(`Paused, waiting for the user: ${live.awaiting.reason} (since ${ago(live.awaiting.since)}).`);
+  else if (live.audience === 'internal' && live.isRunning) lines.push('Working on an internal team assignment.');
   else if (live.isRunning) lines.push(`Busy right now: ${ACTIVITY_WORDS[live.activity?.kind ?? 'working'] ?? 'working'}${live.activity?.detail ? ` (${live.activity.detail})` : ''}, started ${live.startedAt ? ago(live.startedAt) : 'recently'}.`);
   else lines.push('Idle: not working on anything right now.');
   if (tasks.length) lines.push(`Open tasks:\n${tasks.map((t) => `- ${t.title} [${t.state === 'needs_input' ? 'needs input' : 'in progress'}]${t.note ? `: ${clip(t.note, 120)}` : ''}`).join('\n')}`);
@@ -333,6 +335,7 @@ function pushUpdate(call: ActiveCall, update: Omit<TeamUpdate, 'id'>) {
 // messages are excluded; a reply is evidence, never an assertion that a particular task succeeded.
 onRowChange((userId, row) => {
   const body = row.body;
+  if (row.audience === 'internal' || body.audience === 'internal') return;
   let kind: TeamUpdate['kind'], text: string;
   if (body.type === 'message' && !body.streaming && body.role === 'assistant') { kind = 'message'; text = body.text; }
   else if (body.type === 'message' && body.role === 'user' && body.from?.kind === 'bot') { kind = 'input'; text = `From ${body.from.name}: ${body.text}`; }
@@ -577,6 +580,7 @@ async function runVoiceTool(call: ActiveCall, bot: any, name: string, a: Record<
       const ql = q.toLowerCase();
       for (const r of rows) {
         const body = JSON.parse(r.body) as RowBody;
+    if (body.audience === 'internal') continue;
         let text = '';
         let who = '';
         if (body.type === 'message' && !body.streaming) { text = body.text; who = body.role === 'user' ? 'User' : r.bot_name; }

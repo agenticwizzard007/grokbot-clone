@@ -173,7 +173,7 @@ for (const provider of ['claude', 'codex'] as const) for (const runtime of ['ser
     const response = await withUsage({ userId: owner, botId: bot.id, kind: 'chat' }, async () => {
       const revision = currentComputerRevision();
       return withNativeTools(owner, async call => {
-        assert.deepEqual(attribution(), { userId: owner, botId: bot.id, kind: 'chat' });
+        assert.deepEqual(attribution(), { userId: owner, botId: bot.id, kind: 'chat', jobId: null, reviewId: null });
         assert.equal(currentComputerRevision(), revision, `${call.name}: computer context lost`);
         assert.equal(ids.has(call.id), false, `${call.name}: duplicate execution`); ids.add(call.id);
         const tool = expected.get(call.name);

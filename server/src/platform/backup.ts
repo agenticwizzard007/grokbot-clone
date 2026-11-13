@@ -19,6 +19,26 @@ const keyFor = (master: Buffer, tenant: string, id: string) => {
 };
 interface Entry { path: string; blob: string; size: number; hash: string; iv: string; tag: string }
 interface Manifest { version: 1 | 2; tenant: string; id: string; createdAt: string; scope?: 'database'|'environment'; entries: Entry[]; directories?: string[] }
+
+/** A rollback snapshot is not a frozen migration: pending work may have executed
+ * after the snapshot. Keep bytes/history, but never resurrect delivery, code or
+ * autonomous workflow execution. Called inside the restore transaction only.
+ */
+function sanitizeRestoredNativeRuntime(database: Database.Database) {
+  const has = (table: string) => !!database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table);
+  const at = Date.now(), reason = 'Backup restored; outcome requires reconciliation before further execution.';
+  if (has('routine_executions')) database.prepare("UPDATE routine_executions SET status='unknown',error=?,finished_at=? WHERE status IN ('queued','running','waiting')").run(reason, at);
+  if (has('artifact_deliveries')) database.prepare("UPDATE artifact_deliveries SET status='unknown',error=?,updated_at=? WHERE status IN ('pending','sending')").run(reason, at);
+  if (has('artifact_delivery_attempts')) database.prepare("UPDATE artifact_delivery_attempts SET status='unknown',error=?,finished_at=? WHERE status='sending'").run(reason, at);
+  if (has('code_runs')) database.prepare("UPDATE code_runs SET state='unknown',updated_at=? WHERE state IN ('running','waiting')").run(at);
+  if (has('code_steps')) database.exec("UPDATE code_steps SET state='unknown' WHERE state IN ('dispatching','waiting')");
+  if (has('native_workflow_runs')) database.prepare("UPDATE native_workflow_runs SET status='interrupted',finished_at=? WHERE status IN ('queued','running','waiting')").run(at);
+  if (has('native_goal_turns')) database.prepare("UPDATE native_goal_turns SET status='unknown',finished_at=? WHERE status IN ('queued','running','waiting')").run(at);
+  if (has('native_workflow_tasks')) database.prepare("UPDATE native_workflow_tasks SET status='blocked',reason=? WHERE status IN ('waiting','ready','queued','running')").run(reason);
+  if (has('native_workflows')) database.prepare("UPDATE native_workflows SET status='blocked',reason=?,updated_at=? WHERE status='active'").run(reason, at);
+  if (has('native_goals')) database.prepare("UPDATE native_goals SET status='blocked',reason=?,updated_at=? WHERE status='active'").run(reason, at);
+  if (has('native_workflow_tasks') && has('tasks')) database.prepare("UPDATE tasks SET state='needs_input',note=?,updated_at=? WHERE id IN (SELECT task_id FROM native_workflow_tasks WHERE status='blocked') AND state!='done'").run(reason, at);
+}
 function owner(database: string, tenant: string) {
   const db = new Database(database, { readonly: true, fileMustExist: true });
   try {
@@ -138,6 +158,7 @@ export async function restoreEnvironment(bundle: string, destination: string, te
         // preserve it for reconciliation instead of replaying it automatically.
         if(has('agent_jobs'))restored.prepare("UPDATE agent_jobs SET state='uncertain',finished_at=? WHERE state IN ('queued','running')").run(Date.now());
         if(has('tool_dispatches'))restored.prepare("UPDATE tool_dispatches SET state='uncertain',finished_at=? WHERE state='dispatching'").run(Date.now());
+        sanitizeRestoredNativeRuntime(restored);
         if(has('approvals'))restored.prepare("UPDATE approvals SET status='denied',resolved_at=? WHERE status='pending'").run(Date.now());
         if(has('messaging_inbox'))restored.exec("UPDATE messaging_inbox SET status='uncertain',error='recovery_requires_reconciliation' WHERE status='pending'");
         if(has('messaging_messages'))restored.exec("UPDATE messaging_messages SET status='uncertain' WHERE status IN ('sending','queued')");

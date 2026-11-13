@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import Database from 'better-sqlite3';
-import { holdLegacyDatabase, assertLegacyDatabaseFences, registerLegacyFenceFunctions, legacyAccountHeld } from '../server/src/platform/legacy-database-fence.js';
+import { holdLegacyDatabase, assertLegacyDatabaseFences, registerLegacyFenceFunctions, legacyAccountHeld, legacyWritableRows } from '../server/src/platform/legacy-database-fence.js';
 import { LegacyActivityGate } from '../server/src/security/legacy-activity.js';
 const a='usr_aaaaaaaa',b='usr_bbbbbbbb',operation='migration-operation-111';
 function fixture(t:any){
@@ -127,6 +127,20 @@ test('unmapped extension schemas are refused atomically, even when currently emp
  assert.equal(legacyAccountHeld(db,a),false);
 });
 
+test('unknown virtual tables and spoofed native derived schemas fail closed before installing a hold',t=>{
+ const {db}=fixture(t);
+ for(const [sql,pattern] of [
+  ['CREATE VIRTUAL TABLE unknown_search USING fts5(text,bot_id UNINDEXED)',/virtual tables/],
+  ['CREATE VIRTUAL TABLE knowledge_messages_fts USING fts5(text,bot_id UNINDEXED)',/derived search schema/],
+  ['CREATE TABLE knowledge_migrations(name TEXT PRIMARY KEY)',/derived search schema/],
+ ] as const){
+  db.exec(sql);assert.throws(()=>holdLegacyDatabase(db,a,operation,'1'),pattern);
+  assert.equal(legacyAccountHeld(db,a),false);
+  assert.equal((db.prepare("SELECT count(*) n FROM sqlite_master WHERE type='trigger'").get() as any).n,0);
+  db.exec(`DROP TABLE ${sql.split(' ')[sql.includes('VIRTUAL')?3:2].split('(')[0]}`);
+ }
+});
+
 test('the current application schema can hold one account and refuses its existing sessions',async t=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'swarm-source-app-fence-'));
  Object.assign(process.env,{DB_PATH:path.join(root,'app.db'),FILES_DIR:path.join(root,'files'),SESSION_SECRET:'legacy-fence-tests-only',COMPUTER_PROVIDER:'local',COMPOSIO_API_KEY:'',SWARM_NO_SCHEDULER:'1'});
@@ -138,17 +152,108 @@ test('the current application schema can hold one account and refuses its existi
  const {createBot}=await import('../server/src/bots.js');
  const {userFromToken}=await import('../server/src/lib/auth.js');
  const {exportTenantDatabase}=await import('../server/src/platform/migration.js');
+ const {createSkill}=await import('../server/src/knowledge/skills.js');
+ const {searchMessages}=await import('../server/src/knowledge/sessions.js');
+ const {createGoal}=await import('../server/src/agent/goals.js');
+ const {createWorkflow}=await import('../server/src/agent/workflows.js');
+ const {acceptJob}=await import('../server/src/agent/jobs.js');
+ await import('../server/src/deliverables/index.js');await import('../server/src/agent/programs.js');
  t.after(()=>{db.close();fs.rmSync(root,{recursive:true,force:true});});
  for(const owner of [a,b]){
   db.prepare('INSERT INTO users(id,email,name,created_at) VALUES(?,?,?,?)').run(owner,owner+'@example.test',owner,Date.now());
   db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES(session_hash(?),?,?,?)').run(owner,owner,Date.now(),Date.now()+60000);
  }
  const owned=createBot(a,{name:'Migrating',isPrimary:true}),other=createBot(b,{name:'Active',isPrimary:true});
+ const message=(botId:string,seq:number,text:string)=>db.prepare("INSERT INTO rows(bot_id,generation,seq,updated_seq,kind,body,created_at) VALUES(?,1,?,?,'message',?,1)")
+  .run(botId,seq,seq,JSON.stringify({type:'message',role:'assistant',text}));
+ message(owned.id,100,'heldsearch private source');message(other.id,100,'unheldsearch private source');
+ type Seed={job:string;task:string;skill:string;rows:{table:string;key:string;value:string|number;field:string}[]};
+ function seed(userId:string,botId:string):Seed{
+  const rows:Seed['rows']=[];
+  const add=(table:string,values:Record<string,string|number|null>,key:string,field=key)=>{
+   const columns=Object.keys(values);db.prepare(`INSERT INTO ${table}(${columns.join(',')}) VALUES(${columns.map(()=>'?').join(',')})`).run(...Object.values(values));
+   rows.push({table,key,value:values[key]!,field});
+  };
+  const job=acceptJob(botId,{type:'user',text:'native fence fixture'}).id;
+  const goal=createGoal(userId,botId,{title:'Fence goal',criteria:[{description:'Verified',kind:'result'}]});
+  rows.push({table:'native_goals',key:'id',value:goal.id,field:'reason'});
+  const workflow=createWorkflow(userId,botId,{title:'Fence workflow',goalId:goal.id,tasks:[
+   {key:'first',title:'First',instructions:'Verify',criteria:[{description:'Verified',kind:'result'}]},
+   {key:'next',title:'Next',instructions:'Verify',parentKey:'first',dependsOn:['first'],criteria:[{description:'Verified',kind:'result'}]},
+  ]});
+  rows.push({table:'native_workflows',key:'id',value:workflow.id,field:'reason'},
+   {table:'native_workflow_tasks',key:'task_id',value:workflow.tasks[0].id,field:'reason'},
+   {table:'native_workflow_edges',key:'task_id',value:workflow.tasks[1].id,field:'task_id'});
+  add('native_goal_turns',{job_id:job,goal_id:goal.id,bot_id:botId,status:'running',created_at:1},'job_id','status');
+  add('native_workflow_runs',{job_id:job,workflow_id:workflow.id,task_id:workflow.tasks[0].id,goal_id:goal.id,bot_id:botId,status:'running',created_at:1},'job_id','status');
+  add('native_workflow_delegations',{task_id:workflow.tasks[1].id,parent_bot_id:botId,child_bot_id:botId,parent_task_id:workflow.tasks[0].id,created_at:1},'task_id','created_at');
+  const skill=createSkill(userId,botId,{name:'Fence skill',description:'',body:'Preserve history'});
+  add('knowledge_skill_proposals',{id:`proposal-${userId}`,bot_id:botId,skill_id:skill.id,base_revision:1,generation:1,snapshot:'{}',reason:'test',evidence:'[]',created_at:1},'id','reason');
+  add('knowledge_memory_suppressions',{bot_id:botId,fingerprint:userId,text:'suppressed',evidence:'[]',created_at:1},'bot_id','text');
+  add('memories',{id:`memory-${userId}`,bot_id:botId,text:'fact',created_at:1},'id','text');
+  add('knowledge_memory_events',{id:userId===a?100:200,memory_id:`memory-${userId}`,bot_id:botId,action:'create',snapshot:'{}',actor:userId,created_at:1},'id','snapshot');
+  add('code_runs',{id:`code-${userId}`,user_id:userId,bot_id:botId,job_id:job,binding:'hash',state:'running',created_at:1,updated_at:1},'id','updated_at');
+  add('code_steps',{run_id:`code-${userId}`,step:0,call_id:`call-${userId}`,tool:'read',binding:'hash',state:'dispatching'},'run_id','state');
+  add('routine_executions',{id:`routine-${userId}`,user_id:userId,bot_id:botId,routine_id:`routine-${userId}`,routine_name:'Report',fire_key:'scheduled:1',kind:'schedule',job_id:job,status:'running',created_at:1},'id','status');
+  add('routine_execution_jobs',{job_id:job,run_id:`routine-${userId}`},'job_id','run_id');
+  add('output_artifacts',{id:`artifact-${userId}`,user_id:userId,bot_id:botId,run_id:`routine-${userId}`,job_id:job,filename:'report.txt',mime_type:'text/plain',size:0,sha256:'hash',source_key:'one',created_at:1},'id','filename');
+  add('artifact_deliveries',{id:`delivery-${userId}`,user_id:userId,artifact_id:`artifact-${userId}`,channel:'library',target_json:'{}',status:'pending',created_at:1,updated_at:1},'id','updated_at');
+  add('artifact_delivery_attempts',{id:`attempt-${userId}`,delivery_id:`delivery-${userId}`,number:1,status:'sending',started_at:1,owner_pid:1,owner_birth:'fixture'},'id','status');
+  return {job,task:workflow.tasks[0].id,skill:skill.id,rows};
+ }
+ const held=seed(a,owned.id),active=seed(b,other.id);
+ await t.test('native index recognition requires exact maintenance triggers and rejects unknown extensions',async()=>{
+  const snapshot=path.join(root,'derived-probe.db');await db.backup(snapshot);
+  let sequence=0;const copy=()=>{const file=path.join(root,`derived-probe-${++sequence}.db`);fs.copyFileSync(snapshot,file);return new Database(file);};
+  const clone=copy();try{
+   clone.exec('DROP TRIGGER knowledge_messages_delete');
+   assert.throws(()=>holdLegacyDatabase(clone,a,operation,'1'),/derived search schema/);
+   assert.equal(legacyAccountHeld(clone,a),false);
+  }finally{clone.close();}
+  for(const ddl of ['CREATE VIRTUAL TABLE extra_fts USING fts5(text)',
+   'CREATE TABLE knowledge_messages_fts_unreviewed(payload TEXT)']){
+   const clone=copy();try{clone.exec(ddl);
+    assert.throws(()=>holdLegacyDatabase(clone,a,operation,'1'),/virtual tables|ownership mapping/);
+    assert.equal(legacyAccountHeld(clone,a),false);
+   }finally{clone.close();}
+  }
+ });
  assert.equal(userFromToken(a)!.id,a);
  holdLegacyDatabase(db,a,operation,'1');assertLegacyDatabaseFences(db);
  assert.equal(userFromToken(a),null);assert.equal(userFromToken(b)!.id,b);
  assert.throws(()=>db.prepare('UPDATE bots SET instructions=? WHERE id=?').run('late task',owned.id),/migration_hold/);
  db.prepare('UPDATE bots SET instructions=? WHERE id=?').run('other account works',other.id);
+ await t.test('held canonical messages stay immutable while another owner updates the shared derived index',()=>{
+  assert.throws(()=>message(owned.id,101,'late held message'),/migration_hold/);
+  assert.throws(()=>db.prepare('UPDATE rows SET body=? WHERE bot_id=? AND seq=100').run('{}',owned.id),/migration_hold/);
+  assert.throws(()=>db.prepare('DELETE FROM rows WHERE bot_id=? AND seq=100').run(owned.id),/migration_hold/);
+  assert.throws(()=>db.prepare('UPDATE rows SET bot_id=? WHERE bot_id=? AND seq=100').run(owned.id,other.id),/migration_hold/);
+  message(other.id,101,'unheldsearch new report');
+  assert.equal(searchMessages(a,owned.id,'heldsearch').messages.length,1);
+  assert.equal(searchMessages(b,other.id,'unheldsearch').messages.length,2);
+  assert.throws(()=>searchMessages(b,owned.id,'heldsearch'),/Not found/);
+  db.prepare('UPDATE rows SET body=? WHERE bot_id=? AND seq=101').run(JSON.stringify({type:'message',role:'assistant',text:'updatedsearch report'}),other.id);
+  assert.equal(searchMessages(b,other.id,'updatedsearch').messages.length,1);
+  db.prepare('DELETE FROM rows WHERE bot_id=? AND seq=101').run(other.id);
+  assert.equal(searchMessages(b,other.id,'updatedsearch').messages.length,0);
+  assert.throws(()=>db.exec("INSERT INTO knowledge_migrations VALUES('unexpected')"),/migration_hold/);
+  assert.throws(()=>db.exec("UPDATE knowledge_migrations SET name='changed'"),/migration_hold/);
+  assert.throws(()=>db.exec('DELETE FROM knowledge_migrations'),/migration_hold/);
+  assert.throws(()=>legacyWritableRows(db,'knowledge_messages_fts_content'),/not legacy housekeeping/);
+ });
+ await t.test('all native authoritative tables fence direct and nested ownership without blocking the active owner',()=>{
+  for(const row of held.rows){
+   const update=db.prepare(`UPDATE ${row.table} SET ${row.field}=${row.field} WHERE ${row.key}=?`);
+   assert.throws(()=>update.run(row.value),/migration_hold/,row.table);
+   assert.equal(update.run(active.rows.find(r=>r.table===row.table)!.value).changes,1,row.table);
+  }
+  const appendRevision=db.prepare("INSERT INTO knowledge_skill_revisions(skill_id,bot_id,revision,snapshot,action,actor,created_at) VALUES(?,?,2,'{}','import',?,1)");
+  assert.throws(()=>appendRevision.run(held.skill,owned.id,a),/migration_hold/);
+  appendRevision.run(active.skill,other.id,b);
+  assert.throws(()=>db.prepare('UPDATE native_workflow_tasks SET parent_task_id=? WHERE task_id=?').run(held.task,active.task),/migration_hold/);
+  assert.throws(()=>db.prepare('UPDATE native_workflow_tasks SET active_job_id=? WHERE task_id=?').run(held.job,active.task),/migration_hold/);
+  assert.throws(()=>db.prepare('UPDATE code_runs SET job_id=? WHERE id=?').run(held.job,`code-${b}`),/migration_hold/);
+ });
  const snapshot=path.join(root,'checkpoint.db'),destination=path.join(root,'export.db');
  await db.backup(snapshot);
  await exportTenantDatabase(snapshot,destination,a,'new_volume');
@@ -157,5 +262,6 @@ test('the current application schema can hold one account and refuses its existi
   assert.deepEqual(exported.prepare('SELECT id FROM users').all(),[{id:a}]);
   assert.equal((exported.prepare('SELECT count(*) n FROM legacy_owner_fences').get() as any).n,0);
   assert.equal((exported.prepare("SELECT count(*) n FROM sqlite_master WHERE type='trigger' AND name LIKE 'swarm_legacy_fence_%'").get() as any).n,0);
+  assert.deepEqual(exported.prepare("SELECT name FROM sqlite_master WHERE name LIKE 'knowledge_messages_fts%' OR name='knowledge_migrations'").all(),[]);
  }finally{exported.close();}
 });

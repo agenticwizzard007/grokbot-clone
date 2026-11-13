@@ -7,6 +7,8 @@ import { signupPolicy } from './signup.js';
 
 export type PhoneChannel = 'imessage' | 'whatsapp' | 'sms';
 export class MessagingNotFound extends Error {}
+export class MessagingDestinationChanged extends Error {}
+export interface MessagingDeliveryTarget { phone: string; conversation: string | null; revision: string }
 export class MessagingAdmissionError extends Error {
   constructor(message: string, readonly needInvite = false) { super(message); }
 }
@@ -51,6 +53,14 @@ export class MessagingOwnership {
     if (receipt && !(await this.directory.pool.query('SELECT 1 FROM messaging_receipts WHERE tenant_id=$1 AND id=$2 AND channel=$3 AND revision=$4',[tenant,receipt,channel,revision])).rowCount) throw new MessagingNotFound();
     return route;
   }
+  async validateDeliveryTarget(tenant: string, channel: PhoneChannel, expected: MessagingDeliveryTarget) {
+    const route = await this.route(tenant, channel);
+    if (!route || route.phone !== expected.phone || route.conversation_id !== expected.conversation || String(route.revision) !== expected.revision) throw new MessagingDestinationChanged('Approved destination changed.');
+    return route;
+  }
+  async dispatchState(tenant: string, id: string): Promise<string | undefined> {
+    return (await this.directory.pool.query('SELECT state FROM messaging_dispatches WHERE tenant_id=$1 AND id=$2', [tenant, id])).rows[0]?.state;
+  }
   async accept(tenant: string, event: Parsed) {
     return this.directory.transaction(async client => {
       await this.lock(client,tenant);
@@ -66,18 +76,20 @@ export class MessagingOwnership {
       return true;
     });
   }
-  async begin(tenant: string, channel: PhoneChannel, id: string, quote?: string, authorize?: RuntimeAuthorization) {
+  async begin(tenant: string, channel: PhoneChannel, id: string, quote?: string, authorize?: RuntimeAuthorization, expected?: MessagingDeliveryTarget) {
     return this.directory.transaction(async client => {
       await this.lock(client,tenant);
       await authorize?.(client);
+      if (expected && (await client.query('SELECT 1 FROM messaging_dispatches WHERE tenant_id=$1 AND id=$2', [tenant, id])).rowCount) return null;
       const route=await this.route(tenant,channel,client);
       if(!route)throw new MessagingNotFound();
+      if (expected && (route.phone !== expected.phone || route.conversation_id !== expected.conversation || String(route.revision) !== expected.revision)) throw new MessagingDestinationChanged('Approved destination changed.');
       if(quote && !(await client.query('SELECT 1 FROM messaging_receipts WHERE tenant_id=$1 AND id=$2 AND channel=$3 AND revision=$4',[tenant,quote,channel,route.revision])).rowCount)throw new MessagingNotFound();
       const inserted=await client.query("INSERT INTO messaging_dispatches(tenant_id,id,channel,revision,state) VALUES($1,$2,$3,$4,'dispatching') ON CONFLICT DO NOTHING RETURNING id",[tenant,id,channel,route.revision]);
       return inserted.rowCount ? route : null;
     });
   }
-  async finish(tenant: string, id: string, state: 'completed' | 'uncertain', receipt?: string | null) {
+  async finish(tenant: string, id: string, state: 'completed' | 'uncertain' | 'not_sent', receipt?: string | null) {
     await this.directory.transaction(async client=>{
       const r=(await client.query('UPDATE messaging_dispatches SET state=$3 WHERE tenant_id=$1 AND id=$2 RETURNING channel,revision',[tenant,id,state])).rows[0];
       if(receipt&&r)await client.query('INSERT INTO messaging_receipts(tenant_id,id,channel,revision) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING',[tenant,receipt,r.channel,r.revision]);

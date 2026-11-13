@@ -16,7 +16,7 @@ export function initSubagents() {
   }
 }
 
-export function createSubagent(parentId: string, goal: string, label?: string) {
+export function createSubagent(parentId: string, goal: string, label?: string, options: { structured?: boolean } = {}) {
   const p = db.prepare('SELECT * FROM bots WHERE id=?').get(parentId) as any;
   if (!p) throw new Error('parent not found');
   if (!selectedCli(p.user_id)) {
@@ -27,12 +27,15 @@ export function createSubagent(parentId: string, goal: string, label?: string) {
   const name = `${p.name} · ${(label || goal).replace(/\s+/g, ' ').slice(0, 32)}`;
   const instructions =
     `You are a subagent of ${p.name}, working on one delegated goal:\n${goal}\n\n` +
-    `Work independently with your own tools and computer. When you finish (or get blocked), call send_to_bot with bot_name "${p.name}" and a concise result, then stop. Do not message the user directly.` +
+    (options.structured
+      ? 'Work on the assigned native workflow task. Follow its OUTPUT CONTRACT and return the final result to the native workflow validator. Do not send a free-text completion message or message the user directly. Report a blocker when concrete acceptance evidence is unavailable.'
+      : `Work independently with your own tools and computer. When you finish (or get blocked), call send_to_bot with bot_name "${p.name}" and a concise result, then stop. Do not message the user directly.`) +
     (p.instructions ? `\n\nYour parent's standing instructions:\n${p.instructions}` : '');
   db.prepare(
     `INSERT INTO bots(id,user_id,name,label,description,instructions,avatar_shape,avatar_color,mode,is_primary,effort,parent_bot_id,hidden,created_at,updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,0,?,?,1,?,?)`,
   ).run(id, p.user_id, name, 'Subagent', `Subagent of ${p.name}`, instructions, p.avatar_shape, p.avatar_color, p.mode, p.effort, parentId, now(), now());
+  if (options.structured && p.model) db.prepare('UPDATE bots SET model=? WHERE id=?').run(p.model, id);
   return { id, name, parentName: p.name as string, userId: p.user_id as string };
 }
 

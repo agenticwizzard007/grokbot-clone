@@ -7,6 +7,8 @@ import { relativeShort } from '../../lib/time';
 import { useConfigUI, useVersion } from '../../configStore';
 import { backToList, useStore } from '../../store';
 import { Glyph } from './glyphs';
+import { TeamBoard } from './TeamBoard';
+import { WorkflowsPanel } from './WorkflowsPanel';
 import './ui';
 import '@fontsource-variable/instrument-sans/wght.css';
 import '../../styles/tasks.css';
@@ -109,6 +111,8 @@ export function TasksView() {
       </header>
       <div className="tasks-view__scroll">
         <div className="tasks-view__inner">
+          <TeamBoard botId={selectedBot?.id} />
+          <WorkflowsPanel botId={selectedBot?.id} />
           {error && <TaskError retry={retry} stale={tasks !== null} />}
           {tasks !== null && <div className={`tasks-attention${counts.needs_input ? '' : ' is-clear'}`}>
             <span className="tasks-attention__icon" aria-hidden="true">{counts.needs_input ? <CircleHelp size={20} /> : <Check size={20} />}</span>
@@ -170,6 +174,6 @@ export function BotTasks({ bot }: { bot: Bot }) {
       <div className="section-label section-label--row"><span>Tasks</span><button type="button" className="link-btn link-btn--small" onClick={() => useConfigUI.getState().setView('tasks')}>See all</button></div>
       {error && <TaskError retry={retry} stale={tasks !== null} />}
       {tasks === null ? (!error && <div className="panel-card"><div className="panel-empty" role="status">Loading…</div></div>) : sorted.length === 0 ? <div className="panel-card"><div className="panel-empty">No tasks yet. Ask {bot.name} for a few things at once and they’ll be tracked here.</div></div> : <div className="bot-task-cards">{sorted.map((t) => <TaskCard key={t.id} task={t} bot={bot} compact />)}</div>}
-    </section></div>
+    </section><WorkflowsPanel botId={bot.id} /></div>
   );
 }

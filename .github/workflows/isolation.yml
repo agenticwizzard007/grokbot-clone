@@ -33,7 +33,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run typecheck && npm run build
+      - name: Validate native skills, memory, workflows and execution
+        run: npm run test:hermes-native
       - run: npm run test:deployment
       - run: npm run test:isolation
       - run: npm run test:cli

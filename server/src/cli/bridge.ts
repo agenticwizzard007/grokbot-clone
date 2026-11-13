@@ -11,7 +11,7 @@ import { hasNativeTools, ToolCallbacks } from './tool-callback.js';
 export interface CliAuthStatus { installed: boolean; authenticated: boolean; subscription: boolean; error?: string }
 export type CliProviders = Record<CliProvider, CliAuthStatus>;
 interface Pending { finish: (error?: Error, value?: unknown) => void; toolCall: (call: unknown) => void }
-interface Connection { ws: WebSocket; device: string; nativeMcp: boolean; providers: CliProviders; pending: Map<string, Pending> }
+interface Connection { ws: WebSocket; device: string; nativeMcp: boolean; noGenerationDeadline: boolean; providers: CliProviders; pending: Map<string, Pending> }
 const connections = new Map<string, Connection>();
 const missing = (): CliProviders => ({
   codex: { installed: false, authenticated: false, subscription: false },
@@ -44,6 +44,9 @@ function admittedRequest(userId: string, method: 'status' | 'generate' | 'catalo
   if (cliRuntime(userId) === 'server') return method === 'status' ? refreshHosted(userId, signal) : method === 'catalog' ? hostedCatalog(userId, params, signal) : hostedGenerate(userId, params, signal, onToolCall);
   const c = connections.get(userId);
   if (!c || c.ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error(CLI_OFFLINE));
+  if (method === 'generate' && timeoutMs === 0 && !c.noGenerationDeadline) {
+    return Promise.reject(new Error('Your subscription CLI bridge needs an update for long-running tasks. Reconnect it in Settings → Subscriptions using a freshly downloaded bridge script.'));
+  }
   if (method === 'generate' && hasNativeTools(params)) {
     if (!c.nativeMcp) return Promise.reject(new Error('Your subscription CLI bridge needs an update for native tools. Reconnect it in Settings → Subscriptions using a freshly downloaded bridge script.'));
     if (!onToolCall) return Promise.reject(new Error('Native CLI tool callback is unavailable.'));
@@ -56,7 +59,8 @@ function admittedRequest(userId: string, method: 'status' | 'generate' | 'catalo
       try { if (c.ws.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ method: 'cancel', id })); } catch { /* already disconnected */ }
     };
     const abort = () => { cancel(); finish(new Error('CLI request cancelled.')); };
-    const timer = setTimeout(() => { cancel(); finish(new Error('CLI request timed out. No API fallback was used.')); }, timeoutMs);
+    const timer = method === 'generate' && timeoutMs === 0 ? undefined
+      : setTimeout(() => { cancel(); finish(new Error('CLI request timed out. No API fallback was used.')); }, timeoutMs);
     const finish = (error?: Error, value?: unknown) => {
       if (!c.pending.delete(id)) return;
       callbacks.close();
@@ -118,7 +122,7 @@ export function attachCliSocket(server: Server) {
           if (!userId || legacyWorkHeld(userId)) return ws.close(4401, 'invalid or expired pairing token');
           clearTimeout(handshake);
           disconnectCli(userId);
-          connection = { ws, device: String(msg.device ?? 'My computer').slice(0, 100), nativeMcp: msg.nativeMcp === true, providers: missing(), pending: new Map() };
+          connection = { ws, device: String(msg.device ?? 'My computer').slice(0, 100), nativeMcp: msg.nativeMcp === true, noGenerationDeadline: msg.noGenerationDeadline === true, providers: missing(), pending: new Map() };
           connections.set(userId, connection);
           ws.send(JSON.stringify({ type: 'welcome' }));
           void refreshCli(userId).catch(() => {});

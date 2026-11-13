@@ -1,3 +1,4 @@
+import { userFacingLive } from '../lib/audience';
 import { useMemo, useState } from 'react';
 import { ChevronLeft } from 'lucide-react';
 import { BotAvatarFor } from '../avatar/BotAvatar';
@@ -14,7 +15,7 @@ import { VoiceCallBar } from './VoiceCallBar';
 export function ChatView() {
   const bot = useSelectedBot();
   const transcript = useStore((s) => (bot ? s.transcripts[bot.id] : undefined));
-  const live = useStore((s) => (bot ? s.live[bot.id] : undefined));
+  const live = userFacingLive(useStore((s) => (bot ? s.live[bot.id] : undefined)));
   const detailsOpen = useStore((s) => s.detailsOpen);
   const mobile = useStore((s) => s.mobile);
   // Unread messages from the other Bots, shown on the phone's back button.
