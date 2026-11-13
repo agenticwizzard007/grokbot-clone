@@ -167,6 +167,18 @@ test('structured children cannot create independent goal/workflow scopes even in
   const graph=await WORKFLOW_TOOLS.find(t=>t.name==='create_workflow')!.impl({title:'Escape graph',tasks:[task('a')]},ctx);
   assert.equal(goal.isError,true);assert.equal(graph.isError,true);assert.equal(goals.listGoals(f.userId,child.botId).length,0);assert.equal(workflows.listWorkflows(f.userId,child.botId).length,0);
 });
+test('new goals continue past ten turns by default and still stop when requested',async()=>{
+  const f=fixture(),g=goals.createGoal(f.userId,f.botId,{title:'Long objective',criteria:[{description:'Proof',kind:'row'}]});
+  assert.equal(g.maxTurns,0);
+  workflows.startGoalExecution(f.userId,g.id);
+  for(let i=0;i<12;i++)await finish(admit(f));
+  const continued=goals.getGoal(f.userId,g.id);
+  assert.equal(continued.status,'active');assert.equal(continued.turnsUsed,12);
+  assert.equal(queued.length,13);assert.match(goals.goalContext(continued),/12\/unlimited turns/);
+  goals.controlGoal(f.userId,g.id,'stop');
+  assert.equal(goals.getGoal(f.userId,g.id).status,'cancelled');
+  assert.equal((db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(queued.at(-1)!.jobId) as any).state,'cancelled');
+});
 test('finite turns reserve idempotently, include real user turns, and pause without replay',async()=>{
   const f=fixture(),g=goals.createGoal(f.userId,f.botId,{title:'Bounded',maxTurns:1,criteria:[{description:'Proof',kind:'row'}]});
   workflows.startGoalExecution(f.userId,g.id);const ctx=admit(f);

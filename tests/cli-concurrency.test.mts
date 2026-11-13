@@ -144,7 +144,7 @@ async function selectedBridge(provider: Provider) {
   assert.ok(secret);
   const bridge = new HeldBridge();
   await once(bridge.ws, 'open');
-  bridge.ws.send(JSON.stringify({ type: 'hello', version: 1, nativeMcp: true, token: secret, device: 'Held concurrency fixture' }));
+  bridge.ws.send(JSON.stringify({ type: 'hello', version: 1, nativeMcp: true, noGenerationDeadline: true, token: secret, device: 'Held concurrency fixture' }));
   await until(() => bridge.welcome, 'bridge authenticates');
   await refreshCli(owner);
   const selected = await request('/cli', 'PUT', { provider });

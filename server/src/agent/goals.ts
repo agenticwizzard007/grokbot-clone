@@ -42,7 +42,7 @@ export const evidenceSchema = z.object({
 export const goalInputSchema = z.object({
   title: z.string().trim().min(1).max(500),
   criteria: z.array(criterionSchema).min(1).max(30),
-  maxTurns: z.number().int().min(1).max(1000).default(10),
+  maxTurns: z.number().int().min(0).max(1000).default(0).describe('Optional turn budget requested by the user. Zero or omitted means no turn limit.'),
   maxTokens: z.number().int().min(1).max(1_000_000_000).nullable().optional(),
   maxSpendUsd: z.number().positive().max(1_000_000).nullable().optional(),
 }).strict();
@@ -104,7 +104,7 @@ export function listGoals(userId: string, botId?: string): Goal[] {
 let effects: { control?: (goal: Goal, action: string) => void; verified?: (goal: Goal) => void } = {};
 export function configureGoalEffects(value: typeof effects) { effects = value; }
 export function goalBudgetReason(g: Goal): string | null {
-  if (g.turnsUsed >= g.maxTurns) return 'Turn budget exhausted.';
+  if (g.maxTurns > 0 && g.turnsUsed >= g.maxTurns) return 'Turn budget exhausted.';
   if (g.maxTokens !== null && g.unknownTokenTurns) return 'Token accounting unavailable; review the budget before continuing.';
   if (g.maxSpendUsd !== null && g.unknownSpendTurns) return 'Spend accounting unavailable; review the budget before continuing.';
   if (g.maxTokens !== null && g.tokensUsed >= g.maxTokens) return 'Token budget exhausted.';
@@ -208,7 +208,10 @@ export function observedTurnUsage(userId: string, botId: string, cursor: number,
   let tokens = 0, costUsd = 0, knownTokens = true, knownSpend = true;
   for (const r of rows) {
     const fields = r.token_fields === null ? null : JSON.parse(r.token_fields) as string[];
-    if (r.usage_status === 'unavailable' || fields && (!fields.includes('input_tokens') || !fields.includes('output_tokens'))) knownTokens = false;
+    // A stopped CLI generation can report both counters as a lower bound.
+    // Keep those observations for reporting, but never use partial usage as an
+    // exact remaining allowance for an explicitly finite token budget.
+    if (r.usage_status === 'unavailable' || r.usage_status === 'partial' || fields && (!fields.includes('input_tokens') || !fields.includes('output_tokens'))) knownTokens = false;
     else tokens += r.input_tokens + r.output_tokens;
     // Estimates are useful reporting, but cannot be presented as actual spend enforcement.
     if (r.cost_usd === null || !['provider', 'subscription'].includes(r.cost_source)) knownSpend = false;
@@ -251,5 +254,5 @@ export function settleGoalTurn(userId: string, jobId: string, usage?: TurnUsage)
   })();
 }
 export function goalContext(g: Goal) {
-  return `Persistent goal ${g.id}: ${g.title}\nAcceptance criteria (must cite concrete evidence via verify_goal):\n${g.criteria.map(c => `${c.id}: ${c.description} [${c.kind}${c.contains ? `, contains ${JSON.stringify(c.contains)}` : ''}]`).join('\n')}\nBudget: ${g.turnsUsed}/${g.maxTurns} turns; ${g.tokensUsed}/${g.maxTokens ?? 'unlimited'} observed tokens; $${g.spendUsd}/${g.maxSpendUsd ?? 'unlimited'} actual spend. If blocked, report the reason; never assert completion without verified evidence.`;
+  return `Persistent goal ${g.id}: ${g.title}\nAcceptance criteria (must cite concrete evidence via verify_goal):\n${g.criteria.map(c => `${c.id}: ${c.description} [${c.kind}${c.contains ? `, contains ${JSON.stringify(c.contains)}` : ''}]`).join('\n')}\nBudget: ${g.turnsUsed}/${g.maxTurns || 'unlimited'} turns; ${g.tokensUsed}/${g.maxTokens ?? 'unlimited'} observed tokens; $${g.spendUsd}/${g.maxSpendUsd ?? 'unlimited'} actual spend. If blocked, report the reason; never assert completion without verified evidence.`;
 }

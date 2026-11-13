@@ -60,6 +60,21 @@ async function programBot(name: string, withGoal = false) {
   return { bot, approval, server: s, goal };
 }
 
+test('API agent work completes more than 150 tool rounds without an implicit turn cutoff', { timeout: 60000 }, async t => {
+  const { toolMap } = await import('../server/src/agent/tools.js');
+  const bot = createBot('owner', { name: 'Long task', isPrimary: true });
+  let executed = 0;
+  t.mock.method(toolMap.get('list_app_connections')!, 'impl', async () => ({ output: `completed-${++executed}` }));
+  model = () => executed < 165 ? [call('list_app_connections', {})] : [message('All 165 actions completed.')];
+  const jobId = enqueue(bot.id, { type: 'user', text: 'Complete 165 actions.' });
+  await settleAgentJobs();
+  assert.equal(executed, 165);
+  assert.equal((db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(jobId) as any).state, 'completed');
+  const history = loadHistory(bot.id);
+  assert.equal(history.filter(item => item.type === 'function_call_output').length, 165);
+  assert.ok(listRows(bot.id).some(row => row.body.type === 'message' && row.body.role === 'assistant' && row.body.text === 'All 165 actions completed.'));
+});
+
 test('the real dispatcher resumes a program approval without repeating completed calls', async () => {
   actions.length = 0;
   const { bot, approval } = await programBot('Program');

@@ -147,6 +147,7 @@ class FakeBridge {
     });
   }
   async deliver(rpc: Rpc, reply: any) {
+    reply = await reply;
     // Existing model fixtures express desired actions as envelopes. Simulate the
     // native MCP exchange when the application enables it for a queued Bot.
     let parsed: any;
@@ -163,7 +164,7 @@ class FakeBridge {
   get generations() { return this.requests.filter(request => request.method === 'generate'); }
   async hello(secret: string) {
     await once(this.ws, 'open');
-    this.ws.send(JSON.stringify({ type: 'hello', version: 1, nativeMcp: true, token: secret, device: `Computer of ${this.userId}` }));
+    this.ws.send(JSON.stringify({ type: 'hello', version: 1, nativeMcp: true, noGenerationDeadline: true, token: secret, device: `Computer of ${this.userId}` }));
   }
 }
 
@@ -621,6 +622,85 @@ test('a setup agent discovers and verifies GitHub through MCP in one Claude sess
   assert.equal(db.prepare('SELECT 1 FROM approvals WHERE bot_id=?').get(bot.id), undefined);
 });
 
+test('subscription agent deadline override survives long waits without changing API or housekeeping deadlines', { timeout: 15000 }, async t => {
+  const api = withUsage({ userId: alice }, () => llmClient(1234, { subscriptionTimeoutMs: 0 }));
+  assert.equal((api as any).timeout, 1234, 'API requests retain their configured deadline');
+  const bridge = await connect(alice);
+  selectCli(alice, 'claude');
+  await withUsage({ userId: alice }, () => llmClient(1234).responses.create({ model: 'claude/default', ...requestBody() }));
+  assert.equal(bridge.generations[0].params.timeoutMs, 1234, 'background/housekeeping callers keep finite deadlines');
+  bridge.generate = () => HOLD;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const controller = new AbortController();
+  let settled = false;
+  const pending = withUsage({ userId: alice }, () => llmClient(360_000, { subscriptionTimeoutMs: 0 }).responses.create({ model: 'claude/default', ...requestBody() }, { signal: controller.signal }));
+  void pending.then(() => { settled = true; }, () => { settled = true; });
+  try {
+    while (bridge.generations.length < 2) await new Promise(resolve => setImmediate(resolve));
+    assert.equal(bridge.generations[1].params.timeoutMs, 0);
+    t.mock.timers.tick(40 * 60_000);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(settled, false, 'the adapter must not convert zero to a one-second transport deadline');
+    bridge.respond(bridge.generations[1].id, result('finished after a long task'));
+    assert.equal((await pending).output_text, 'finished after a long task');
+  } finally { controller.abort(); t.mock.timers.reset(); await pending.catch(() => {}); }
+});
+
+for (const provider of ['claude', 'codex'] as const) test(`${provider}: a long agent job checkpoints twice and completes without replaying tool actions`, { timeout: 60000 }, async t => {
+  const { toolMap } = await import('../server/src/agent/tools.js');
+  const bridge = await connect(alice); await choose(alice, provider);
+  const bot = newBot(alice);
+  let executed = 0;
+  t.mock.method(toolMap.get('list_app_connections')!, 'impl', async () => ({ output: `checkpoint-result-${++executed}` }));
+  const generationStarts: number[] = [];
+  bridge.generate = async rpc => {
+    generationStarts.push(executed);
+    if (executed) assert.ok(rpc.params.prompt.includes(`checkpoint-result-${executed}`), 'continuation receives the last completed tool result');
+    while (executed < 125) {
+      const value = await bridge.toolCall(rpc.id, { id: `action-${executed + 1}`, name: 'list_app_connections', arguments: {} });
+      if (value.stop) return { ...result(''), stopped: true };
+    }
+    return result('All 125 actions completed.');
+  };
+  const jobId = enqueue(bot.id, { type: 'user', text: 'Complete a long task with 125 actions.' });
+  await runInBotQueue(bot.id, async () => {});
+  assert.equal(executed, 125);
+  assert.deepEqual(generationStarts, [0, 60, 120]);
+  assert.equal((db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(jobId) as any).state, 'completed');
+  const calls = loadHistory(bot.id).filter(item => item.type === 'function_call');
+  const outputs = loadHistory(bot.id).filter(item => item.type === 'function_call_output');
+  assert.equal(calls.length, 125); assert.equal(outputs.length, 125);
+  assert.equal(new Set(calls.map(item => item.call_id)).size, 125);
+  assert.ok(listRows(bot.id).some(row => row.body.type === 'message' && row.body.role === 'assistant' && row.body.text === 'All 125 actions completed.'));
+  assert.ok(!listRows(bot.id).some(row => row.body.type === 'notice' && row.body.tone === 'error'));
+});
+
+test('Stop still cancels a continuation after a tool checkpoint', { timeout: 45000 }, async t => {
+  const { toolMap } = await import('../server/src/agent/tools.js');
+  const bridge = await connect(alice); await choose(alice, 'claude');
+  const bot = newBot(alice); let executed = 0, continued = false;
+  t.mock.method(toolMap.get('list_app_connections')!, 'impl', async () => ({ output: `completed-${++executed}` }));
+  bridge.generate = rpc => {
+    if (executed === 60) { continued = true; return HOLD; }
+    return (async () => {
+      for (let i = 0; i < 60; i++) {
+        const value = await bridge.toolCall(rpc.id, { id: `action-${i}`, name: 'list_app_connections', arguments: {} });
+        if (value.stop) return { ...result(''), stopped: true };
+      }
+      return result('Unexpectedly finished before continuing.');
+    })();
+  };
+  enqueue(bot.id, { type: 'user', text: 'Continue working until stopped.' });
+  const expires = Date.now() + 30000;
+  while (!continued && Date.now() < expires) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(continued, true);
+  interrupt(bot.id);
+  await runInBotQueue(bot.id, async () => {});
+  assert.equal(executed, 60);
+  await until(() => bridge.requests.some(request => request.method === 'cancel' && request.id === bridge.generations[1].id), 'Stop reaches the continued generation');
+  assert.ok(listRows(bot.id).some(row => row.body.type === 'notice' && row.body.text === 'Stopped.'));
+});
+
 test('cancelled AbortSignal sends a cancel RPC for exactly the pending generation and permits later requests', async () => {
   const bridge = await connect(alice);
   bridge.generate = () => HOLD;
@@ -786,6 +866,7 @@ test('a real queued Bot turn routes to its owner bridge and enters the existing 
   assert.equal(a.generations.length, 1);
   assert.equal(b.generations.length, 0, 'an inherited foreign HTTP context must not choose its CLI');
   assert.equal(a.generations[0].params.provider, 'codex');
+  assert.equal(a.generations[0].params.timeoutMs, 0, 'agent turns have no total CLI generation deadline');
   assert.ok(a.generations[0].params.nativeTools.some((tool: any) => tool.name === 'tool_call'), 'deferred execution reaches the bridge as a native tool');
   assert.ok(!a.generations[0].params.nativeTools.some((tool: any) => tool.name === name), 'additional schemas are loaded on demand');
   const approval = db.prepare('SELECT * FROM approvals WHERE bot_id=?').get(bot.id) as any;

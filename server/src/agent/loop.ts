@@ -33,7 +33,9 @@ import { beforeForegroundTurn, onLearningTurn, learningForegroundEpoch, learning
 import { configureCoordinationRuntime, recordCoordinationJobOutcome, enqueueInternalMessage, onCoordinationJobFinished, coordinationPreTurn } from '../coordination/index.js';
 import { prepareDeliveryAction } from '../deliverables/approval.js';
 
-const llm = () => llmClient(360_000);
+// A native CLI generation can span the entire agent workflow, including tool
+// calls. Let it finish or be cancelled; an API request keeps its own deadline.
+const llm = () => llmClient(360_000, { subscriptionTimeoutMs: 0 });
 
 export type Trigger = (
   /** channel: where the user wrote it (a text channel via the messaging bridge; absent = the web app). */
@@ -62,8 +64,9 @@ interface PendingState {
   depth: number;
 }
 
-const MAX_STEPS = 60;
-const ULTRACODE_STEPS = 150;
+// Rotate native CLI generations so replay caches and model context stay bounded.
+// This is a checkpoint interval, not a limit on the task's total tool calls.
+const CLI_TOOL_CHECKPOINT_INTERVAL = 60;
 const KEEP_IMAGES = 3;
 
 // ---------- per-bot serial queue ----------
@@ -381,22 +384,16 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
       return schemas;
     })();
 
-    // Ultracode: a longer budget for long, careful runs.
-    const maxSteps = getBotRow(botId)?.effort === 'ultracode' ? ULTRACODE_STEPS : MAX_STEPS;
-    let nativeCount = 0;
-    for (let step = 0; step < maxSteps; step++) {
+    while (true) {
       if (ctrl.signal.aborted) throw new Error('interrupted');
       const budget = checkWorkflowBudget({ userId, botId, jobId });
       if (!budget.allowed) throw new Error(budget.reason ?? 'Workflow budget exhausted.');
       ctx.remainingTokens = budget.remainingTokens;
-      let nativeBoundary: 'approval' | 'end' | 'replan' | 'checkpoint' | 'budget' | undefined;
+      let nativeCount = 0;
+      let nativeBoundary: 'approval' | 'end' | 'replan' | 'checkpoint' | undefined;
       const nativeCall: NativeToolHandler = async call => {
         ctrl.signal.throwIfAborted();
         if (nativeBoundary) return { output: 'This turn has paused. No further actions were executed.', stop: true };
-        if (nativeCount >= maxSteps) {
-          nativeBoundary = 'budget';
-          return { output: 'The tool step limit was reached. Stop and report the completed work.', stop: true };
-        }
         if(modelSnapshots.get(ctx)?.contextRevision!==contextRevision(userId,botId)){
           nativeBoundary='checkpoint';
           return {output:'Authorized knowledge or instructions changed. This action was not executed. Reload current context and choose the next action again.',isError:true,stop:true};
@@ -421,6 +418,7 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
         if (paused) nativeBoundary = 'approval';
         else if (state.outputs.some(value => value.__endTurn)) nativeBoundary = 'end';
         else if (state.replan) nativeBoundary = 'replan';
+        else if (nativeCount >= CLI_TOOL_CHECKPOINT_INTERVAL) nativeBoundary = 'checkpoint';
         if (!nativeBoundary) setLive(botId, { activity: { kind: 'thinking', detail: selectedCli(userId) === 'claude' ? 'Waiting for Claude' : 'Waiting for Codex', since: now() } });
         return { output: output ?? 'Waiting for user approval. This action has not executed.',
           isError: getRow(botId, row.seq)?.body.type === 'tool-call' && ['error', 'denied'].includes((getRow(botId, row.seq)!.body as ToolCallBody).status),
@@ -431,7 +429,6 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
       const result = await withNativeTools(userId, nativeCall, () => callModel(ctx, tools, ctrl.signal));
       appendHistory(botId, result.output);
       finalText = result.output.filter((item: any) => item.type === 'message').flatMap((item: any) => item.content ?? []).filter((part: any) => part.type === 'output_text').map((part: any) => part.text).join('\n');
-      if (nativeBoundary === 'budget') throw new Error('The tool step limit was reached. Review the completed steps before continuing.');
       if (nativeBoundary === 'approval' || nativeBoundary === 'end') return;
       // Tool results are already persisted. A fresh generation consumes them;
       // it never replays the completed calls just to continue the same job.
@@ -456,7 +453,6 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
       const paused = await processCalls(ctx, st);
       if (paused) return;
       if (st.outputs.some((o: any) => o.__endTurn)) break;
-      if (step === maxSteps - 1) throw new Error('The tool step limit was reached. Review completed work before continuing.');
     }
   } catch (e: any) {
     outcome = ctrl.signal.aborted ? 'interrupted' : 'failed';
@@ -502,6 +498,16 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
 /** Run function calls in order. Returns true if the turn paused for approval. */
 async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: boolean; signal?: AbortSignal; onPause?: (state: PendingState) => void } = {}): Promise<boolean> {
   const { botId, userId } = ctx;
+  const assertTurnCanContinue = () => {
+    turnSignal(botId)?.throwIfAborted();
+    options.signal?.throwIfAborted();
+    if (ctx.jobId) {
+      const authority = coordinationPreTurn({ userId, botId, jobId: ctx.jobId, trigger: currentTrigger(botId) });
+      if (!authority.allowed) throw new Error(authority.reason ?? 'Coordination authority changed.');
+      const budget = checkWorkflowBudget({ userId, botId, jobId: ctx.jobId });
+      if (!budget.allowed) throw new Error(budget.reason ?? 'Workflow cannot continue.');
+    }
+  };
   const invalidateStaleContext=()=>{
     const loadedContext=modelSnapshots.get(ctx);
     if(loadedContext&&loadedContext.contextRevision!==contextRevision(userId,botId)){
@@ -516,14 +522,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
     return false;
   };
   while (st.calls.length) {
-    turnSignal(botId)?.throwIfAborted();
-    options.signal?.throwIfAborted();
-    if (ctx.jobId) {
-      const authority=coordinationPreTurn({userId,botId,jobId:ctx.jobId,trigger:currentTrigger(botId)});
-      if(!authority.allowed) throw new Error(authority.reason??'Coordination authority changed.');
-      const budget = checkWorkflowBudget({ userId, botId, jobId: ctx.jobId });
-      if (!budget.allowed) throw new Error(budget.reason ?? 'Workflow cannot continue.');
-    }
+    assertTurnCanContinue();
     if(invalidateStaleContext())break;
     let c = st.calls[0];
     let args = safeParse(c.arguments) ?? {};
@@ -570,8 +569,10 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
     // Was this call just approved/denied?
     const ap = st.approvalId ? (db.prepare('SELECT * FROM approvals WHERE id=?').get(st.approvalId) as any) : null;
     const pol = await executionPolicyFor(userId, c.name, args, botId);
-    turnSignal(botId)?.throwIfAborted();
-    options.signal?.throwIfAborted();
+    // A sibling can spend the shared budget or revoke authority while tool
+    // discovery, validation or policy lookup is awaiting. Fence the actual
+    // approval/dispatch boundary with the current durable state.
+    assertTurnCanContinue();
     if(invalidateStaleContext())break;
     let decision = pol.decision;
     if (st.nativeRequireApproval && decision === 'allow') decision = 'ask';

@@ -265,7 +265,7 @@ export type ServerEvent =
 
 /**
  * How hard the model thinks. The OpenRouter levels, plus 'ultracode': the model's highest level,
- * a longer step budget and an instruction to plan and verify. Each model accepts a subset; the
+ * and an instruction to plan and verify. Each model accepts a subset; the
  * server snaps to the nearest one the model supports.
  */
 export type Effort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultracode';

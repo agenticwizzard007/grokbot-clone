@@ -26,7 +26,7 @@ const EFFORT_HINT: Record<Bot['effort'], string> = {
   high: 'Thinks longer before acting. Better for tricky, multi-step work.',
   xhigh: 'Thinks for a long time. For the hardest problems.',
   max: 'The deepest thinking this model offers. Slowest.',
-  ultracode: 'Max effort, a 2.5× longer step budget, and an instruction to plan and verify every step. For big, careful jobs.',
+  ultracode: 'Max effort and an instruction to plan and verify every step. For big, careful jobs.',
 };
 
 export function BotSettingsModal() {

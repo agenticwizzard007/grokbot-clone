@@ -23,11 +23,11 @@ export const llmProvider = (): LlmProvider => {
   return cli ? `${cli}-cli` : usesPersonalOpenRouter(currentUserId()) ? 'openrouter' : env.llmProvider;
 };
 
-/** A Responses API client for the active provider (rebuilt when keys change in Settings). */
-export function llmClient(timeout: number): OpenAI | ReturnType<typeof cliResponsesClient> {
+/** A Responses API client for the active provider. subscriptionTimeoutMs: 0 opts agent work out of a total CLI deadline. */
+export function llmClient(timeout: number, options: { subscriptionTimeoutMs?: number } = {}): OpenAI | ReturnType<typeof cliResponsesClient> {
   const userId = currentUserId();
   const cli = selectedCli(userId);
-  if (cli && userId) return cliResponsesClient(userId, cli, timeout);
+  if (cli && userId) return cliResponsesClient(userId, cli, options.subscriptionTimeoutMs ?? timeout);
   if (isTenant) { if (!userId) throw new Error(NO_LLM_KEY); assertTenant(userId); }
   const p = llmProvider();
   const personal = userId && usesPersonalOpenRouter(userId);

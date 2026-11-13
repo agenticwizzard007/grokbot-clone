@@ -128,6 +128,37 @@ async function fixture(provider: Provider) {
 }
 
 for (const provider of ['claude', 'codex'] as const) {
+  test(`${provider}: production reviewer keeps its five-minute deadline after an unbounded foreground request`, { timeout: 10000 }, async () => {
+    const f = await fixture(provider);
+    const { acceptJob, beginJob, finishJob } = await import('../server/src/agent/jobs.js');
+    const { onLearningTurn, runLearningReview } = await import('../server/src/agent/learning.js');
+    const { learningSettings, patchLearningSettings } = await import('../server/src/knowledge/settings.js');
+    await withUsage({ userId: f.userId, botId: f.botId, kind: 'chat' }, () =>
+      llmClient(360_000, { subscriptionTimeoutMs: 0 }).responses.create({ ...f.body, swarm_management_review: false } as any));
+    assert.equal(f.bridge.generations[0].params.timeoutMs, 0);
+
+    const current = learningSettings(f.userId, f.botId);
+    patchLearningSettings(f.userId, { botId: f.botId, expectedRevision: current.revision, settings: { memoryTurnInterval: 1 } });
+    const parent = acceptJob(f.botId, { type: 'user', text: 'Complete the sourced task.' });
+    assert.equal(beginJob(parent.id), true); finishJob(parent.id, true);
+    const { generation } = db.prepare('SELECT generation FROM bots WHERE id=?').get(f.botId) as { generation: number };
+    const review = onLearningTurn({ userId: f.userId, botId: f.botId, jobId: parent.id,
+      triggerType: 'user', depth: 0, generation, model: f.body.model, provider: `${provider}-cli`,
+      finalText: 'The sourced task is complete.', iterations: 1, status: 'completed',
+      messagesSnapshot: f.body.input, contextWindow: 100000 });
+    assert.ok(review, 'the completed parent should create a real detached review');
+    // Keep the production executor intact: inspect the request it actually sends.
+    const result = await runLearningReview(review.id);
+    assert.equal(result?.status, 'completed', result?.error ?? 'review did not complete');
+    assert.equal(f.bridge.generations.length, 2);
+    const request = f.bridge.generations[1];
+    assert.equal(request.params.timeoutMs, 300_000);
+    assert.equal(request.params.provider, provider);
+    assert.equal(Object.hasOwn(request.params, 'nativeTools'), false);
+    assert.ok(request.params.actionNames.includes('manage_memory'));
+    assert.deepEqual(paidRequests, []);
+  });
+
   test(`${provider}: management envelope returns calls to Swarm and continues on the same selected route in exactly two requests`, { timeout: 10000 }, async () => {
     const f = await fixture(provider); let nativeCallbacks = 0, dispatched = 0;
     const client = cliResponsesClient(f.userId, provider, 2000);

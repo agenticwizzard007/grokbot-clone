@@ -95,7 +95,7 @@ export function cliResponsesClient(userId: string, provider: CliProvider, timeou
         const session = request.nativeTools && handler ? nativeToolSession(request.nativeTools.map((tool: any) => tool.name), handler, options?.signal) : undefined;
         let result: any;
         try {
-          result = await cliRequest(userId, 'generate', { provider, ...request, model: selectedModel, ...(effort ? { effort } : {}), timeoutMs }, timeoutMs + 1000, options?.signal, session?.call);
+          result = await cliRequest(userId, 'generate', { provider, ...request, model: selectedModel, ...(effort ? { effort } : {}), timeoutMs }, timeoutMs === 0 ? 0 : timeoutMs + 1000, options?.signal, session?.call);
         } finally { session?.close(); await session?.drain(); }
         if (result?.stopped && !session?.stopped) throw new Error('The CLI stopped without a Swarm turn boundary.');
         if (session?.stopped) result = { ...result, text: JSON.stringify({ text: '', tool_calls: [] }) };

@@ -39,12 +39,14 @@ async function until(check: () => boolean) {
 }
 const server = createServer(), wss = new WebSocketServer({ server });
 const sessions: { ws: WebSocket; route: string | undefined; frames: any[]; closed: boolean }[] = [];
+let replyReady = true;
 wss.on('connection', (ws, request) => {
+  const readyForConnection = replyReady;
   const session = { ws, route: request.url, frames: [] as any[], closed: false }; sessions.push(session);
   ws.on('error', () => {}); ws.on('close', () => { session.closed = true; });
   ws.on('message', raw => {
     session.frames.push(JSON.parse(raw.toString()));
-    if (session.frames.length === 1) ws.send(JSON.stringify({ type: 'ready' }));
+    if (session.frames.length === 1 && readyForConnection) ws.send(JSON.stringify({ type: 'ready' }));
   });
 });
 server.listen(socketPath); await once(server, 'listening');
@@ -112,6 +114,75 @@ test('isolated catalog never executes a supplied native callback', async () => {
   await rejected; assert.equal(executed, 0);
 });
 
+test('zero generation timeout retains the isolated startup deadline and permits a fresh request', { timeout: 15000 }, async t => {
+  const index = sessions.length, controller = new AbortController();
+  let settled = false, executed = 0;
+  replyReady = false;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const job = isolatedRunner.runGeneration({ ...params, timeoutMs: 0 }, { ...options, signal: controller.signal,
+    onToolCall: async () => { executed++; return { output: 'unexpected' }; } });
+  void job.then(() => { settled = true; }, () => { settled = true; });
+  const rejected = assert.rejects(job, /Subscription runner did not start/);
+  try {
+    while (!sessions[index]?.frames.length) await new Promise(resolve => setImmediate(resolve));
+    assert.equal(sessions[index].frames[0].operation, 'generate');
+    assert.equal(sessions[index].frames[0].params.timeoutMs, 0);
+    t.mock.timers.tick(11_999);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(settled, false, 'zero must not cause an immediate timeout');
+    t.mock.timers.tick(1);
+    await rejected;
+    while (!sessions[index].closed) await new Promise(resolve => setImmediate(resolve));
+    assert.equal(executed, 0); assert.equal(sessions[index].frames.length, 1);
+  } finally {
+    replyReady = true; controller.abort();
+    await Promise.allSettled([job, rejected]);
+    t.mock.timers.reset();
+  }
+
+  const nextIndex = sessions.length;
+  const next = isolatedRunner.runGeneration({ ...params, timeoutMs: 0 }, { ...options,
+    onToolCall: async () => { executed++; return { output: 'fresh generation' }; } });
+  await until(() => sessions[nextIndex]?.frames.length > 0);
+  send(nextIndex, { type: 'tool_call', call: call() });
+  await until(() => sessions[nextIndex].frames.length === 2);
+  assert.equal(sessions[nextIndex].frames[1].result.output, 'fresh generation');
+  send(nextIndex, { type: 'result', result: { text: 'recovered' } });
+  assert.deepEqual(await next, { text: 'recovered' });
+  await until(() => sessions[nextIndex].closed);
+  assert.equal(executed, 1);
+});
+
+for (const ending of ['complete', 'cancel', 'disconnect'] as const) test(`unbounded isolated generation survives elapsed time and ${ending} still settles it`, { timeout: 15000 }, async t => {
+  const index = sessions.length, controller = new AbortController();
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let settled = false, failure: unknown;
+  const job = isolatedRunner.runGeneration({ ...params, timeoutMs: 0 }, { ...options, signal: controller.signal, onToolCall: async () => ({ output: 'working' }) });
+  void job.then(() => { settled = true; }, error => { settled = true; failure = error; });
+  try {
+    while (!sessions[index]?.frames.length) await new Promise(resolve => setImmediate(resolve));
+    // A tool reply proves ready was consumed before advancing past startup.
+    send(index, { type: 'tool_call', call: call('before-clock') });
+    while (sessions[index].frames.length < 2) await new Promise(resolve => setImmediate(resolve));
+    t.mock.timers.tick(40 * 60_000);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(settled, false, String(failure));
+    send(index, { type: 'tool_call', call: call() });
+    while (sessions[index].frames.length < 3) await new Promise(resolve => setImmediate(resolve));
+    assert.equal(sessions[index].frames[2].result.output, 'working');
+    if (ending === 'complete') { send(index, { type: 'result', result: { text: 'finished' } }); assert.deepEqual(await job, { text: 'finished' }); }
+    else {
+      const rejected = assert.rejects(job, /cancelled|disconnected/);
+      if (ending === 'cancel') controller.abort(); else sessions[index].ws.terminate();
+      await rejected;
+    }
+  } finally {
+    controller.abort(); await job.catch(() => {});
+    while (!sessions[index]?.closed) await new Promise(resolve => setImmediate(resolve));
+    t.mock.timers.reset();
+  }
+});
+
 test('isolated status rejects tool callbacks even when a handler was supplied', async () => {
   const index = sessions.length; let executed = 0;
   const job = isolatedRunner.checkProviders({ ...options, onToolCall: async () => { executed++; return { output: 'forbidden' }; } });
@@ -153,8 +224,16 @@ export async function runGeneration(params, options) {
   } catch (error) { return { cancelled: options.signal.aborted, error: error.message }; }
 }
 `);
-function worker(t: any, extra = {}) {
-  const child = spawn(process.execPath, [path.join(temp, 'infra/tenant-host/worker.mjs'), 'cli'], { stdio: ['pipe', 'pipe', 'pipe'] });
+const clockLoader = path.join(temp, 'clock.mjs');
+fs.writeFileSync(clockLoader, `
+import { mock } from 'node:test';
+mock.timers.enable({ apis: ['setTimeout'] });
+process.on('message', ms => { mock.timers.tick(ms); process.send('advanced'); });
+`);
+function worker(t: any, extra = {}, fakeClock = false) {
+  const child = spawn(process.execPath, [...(fakeClock ? ['--import', clockLoader] : []), path.join(temp, 'infra/tenant-host/worker.mjs'), 'cli'], {
+    stdio: ['pipe', 'pipe', 'pipe', 'ipc'], env: { ...process.env, NODE_NO_WARNINGS: '1' },
+  });
   const frames: any[] = [], errors: string[] = [];
   const lines = createInterface({ input: child.stdout });
   lines.on('line', line => frames.push(JSON.parse(line))); child.stderr.on('data', data => errors.push(data.toString()));
@@ -162,8 +241,23 @@ function worker(t: any, extra = {}) {
   t.after(() => { child.kill('SIGKILL'); lines.close(); });
   const send = (message: unknown) => child.stdin.write(JSON.stringify(message) + '\n');
   send({ operation: 'generate', provider: 'codex', params: { ...params, ...extra } });
-  return { child, frames, errors, send, done };
+  const advance = async (ms: number) => { const ack = once(child, 'message'); child.send(ms); await ack; };
+  return { child, frames, errors, send, done, advance };
 }
+
+for (const ending of ['complete', 'cancel'] as const) test(`worker has no fallback lifetime for unbounded generation and supports ${ending}`, { timeout: 15000 }, async t => {
+  const w = worker(t, { timeoutMs: 0 }, true);
+  await until(() => w.frames.some(frame => frame.type === 'tool_call'));
+  await w.advance(40 * 60_000);
+  assert.equal(w.frames.some(frame => frame.type === 'result'), false);
+  if (ending === 'cancel') w.send({ type: 'cancel' });
+  else w.send({ type: 'tool_result', id: w.frames.find(frame => frame.type === 'tool_call').call.id, result: { output: 'completed after the old deadline' } });
+  await w.done;
+  const result = w.frames.find(frame => frame.type === 'result').result;
+  if (ending === 'cancel') assert.equal(result.cancelled, true);
+  else assert.equal(JSON.parse(result.text).a.output, 'completed after the old deadline');
+  assert.deepEqual(w.errors, []);
+});
 
 test('worker sends one tool_call for duplicate callbacks, ignores unknown/duplicate results and preserves stop', async t => {
   const w = worker(t);

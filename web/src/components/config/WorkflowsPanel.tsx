@@ -24,7 +24,7 @@ function EvidenceForm({criteria,onSubmit,busy,sourceBotId}:{criteria:Criterion[]
 export function WorkflowsPanel({botId}:{botId?:string}) {
   const bots=useStore(s=>s.bots),connected=useStore(s=>s.sseConnected),version=useVersion('tasks');
   const [state,setState]=useState<State>({goals:[],workflows:[]}),[scope,setScope]=useState(botId??''),[error,setError]=useState(''),[busy,setBusy]=useState(false),[revision,setRevision]=useState(0);
-  const [create,setCreate]=useState<'goal'|'workflow'|null>(null),[title,setTitle]=useState(''),[criteria,setCriteria]=useState(''),[turns,setTurns]=useState(10);
+  const [create,setCreate]=useState<'goal'|'workflow'|null>(null),[title,setTitle]=useState(''),[criteria,setCriteria]=useState(''),[turns,setTurns]=useState('');
   const [steps,setSteps]=useState([{title:'',instructions:'',dependsOn:[] as string[],delegate:false,workerBotId:''}]);
   const [team,setTeam]=useState<TeamState|null>(null);
   useEffect(()=>{let active=true;teamApi.state().then(r=>{if(active)setTeam(r.state);}).catch(()=>{if(active)setTeam(null);});return()=>{active=false;};},[revision,connected]);
@@ -41,9 +41,9 @@ export function WorkflowsPanel({botId}:{botId?:string}) {
   const control=(kind:'goal'|'workflow',id:string,action:string)=>mutate(`${kind==='goal'?'/goals':''}/${encodeURIComponent(id)}/control`,{action});
   const submit=async(e:React.FormEvent)=>{
     e.preventDefault();if(!activeBot)return;
-    const ok=create==='goal'?await mutate('/goals',{botId:activeBot,title,maxTurns:turns,criteria:criteria.split('\n').map(s=>s.trim()).filter(Boolean).map((text,i)=>({id:`criterion-${i+1}`,description:text,kind:'row',contains:text}))})
+    const ok=create==='goal'?await mutate('/goals',{botId:activeBot,title,maxTurns:turns ? Number(turns) : 0,criteria:criteria.split('\n').map(s=>s.trim()).filter(Boolean).map((text,i)=>({id:`criterion-${i+1}`,description:text,kind:'row',contains:text}))})
       :await mutate('',{botId:activeBot,title,tasks:steps.map((s,i)=>({key:`step-${i+1}`,title:s.title,instructions:s.instructions,dependsOn:s.dependsOn,delegate:s.delegate,...(s.workerBotId?{workerBotId:s.workerBotId}:{}),criteria:[{id:'result',description:'A nonempty, schema-validated summary of the completed work',kind:'result'}],outputSchema:{type:'object',properties:{summary:{type:'string',minLength:1}},required:['summary'],additionalProperties:false}}))});
-    if(ok){setCreate(null);setTitle('');setCriteria('');setSteps([{title:'',instructions:'',dependsOn:[],delegate:false,workerBotId:''}]);}
+    if(ok){setCreate(null);setTitle('');setCriteria('');setTurns('');setSteps([{title:'',instructions:'',dependsOn:[],delegate:false,workerBotId:''}]);}
   };
   const controls=(kind:'goal'|'workflow',item:{id:string;status:string})=>['completed','cancelled'].includes(item.status)?null:<div className="workflow-actions">
     {kind==='workflow'&&item.status==='draft'?<button type="button" disabled={busy} onClick={()=>mutate(`/${item.id}/start`,{})}>Start</button>
@@ -57,7 +57,7 @@ export function WorkflowsPanel({botId}:{botId?:string}) {
       <h3>{create==='goal'?'New persistent goal':'New workflow'}</h3>
       {!botId&&<label>Agent<select required value={activeBot??''} onChange={e=>setScope(e.target.value)}>{bots.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label>}
       <label>{create==='goal'?'Goal':'Workflow name'}<input required maxLength={500} value={title} onChange={e=>setTitle(e.target.value)}/></label>
-      {create==='goal'?<><label>Acceptance checks<textarea required value={criteria} onChange={e=>setCriteria(e.target.value)} placeholder="One expected phrase per line. Completion will require existing assistant or tool output containing each phrase."/></label><label>Maximum turns<input type="number" min={1} max={1000} required value={turns} onChange={e=>setTurns(Number(e.target.value))}/></label></>:<>
+      {create==='goal'?<><label>Acceptance checks<textarea required value={criteria} onChange={e=>setCriteria(e.target.value)} placeholder="One expected phrase per line. Completion will require existing assistant or tool output containing each phrase."/></label><label>Maximum turns (optional)<input type="number" min={1} max={1000} placeholder="No limit" value={turns} onChange={e=>setTurns(e.target.value)}/></label></>:<>
         {steps.map((step,i)=><fieldset key={i}><legend>Task {i+1}</legend><label>Title<input required value={step.title} onChange={e=>updateStep(i,{title:e.currentTarget.value})}/></label><label>Instructions<textarea required value={step.instructions} onChange={e=>updateStep(i,{instructions:e.currentTarget.value})}/></label>
           {i>0&&<label>Wait for<select aria-label="Wait for" multiple value={step.dependsOn} onChange={e=>updateStep(i,{dependsOn:Array.from(e.currentTarget.selectedOptions,o=>o.value)})}>{steps.slice(0,i).map((s,n)=><option key={n} value={`step-${n+1}`}>{s.title||`Task ${n+1}`}</option>)}</select></label>}
           <label>Worker<select aria-label="Worker" value={step.workerBotId || (step.delegate?'temporary':'')} onChange={e=>updateStep(i,{workerBotId:e.currentTarget.value==='temporary'?'':e.currentTarget.value,delegate:!!e.currentTarget.value})}><option value="">Workflow coordinator</option><option value="temporary">Temporary helper</option>{team?.agents.filter(a=>a.setupStatus==='active').map(a=><option key={a.botId} value={a.botId}>{a.name}</option>)}</select></label>
@@ -67,7 +67,7 @@ export function WorkflowsPanel({botId}:{botId?:string}) {
       </>}
       <div className="workflow-actions"><button className="btn btn--primary" disabled={busy||!activeBot} type="submit">{create==='goal'?'Create and start':'Create workflow'}</button><button type="button" onClick={()=>setCreate(null)}>Cancel</button></div>
     </form>}
-    {state.goals.map(g=><article className="workflow-card" key={g.id}><header><h3>{g.title}</h3><span className={`workflow-status is-${g.status}`}>{g.status}</span></header><p>{g.turnsUsed} / {g.maxTurns} turns{g.maxTokens!==null?` · ${g.tokensUsed} / ${g.maxTokens} tokens`:''}{g.maxSpendUsd!==null?` · $${g.spendUsd.toFixed(3)} / $${g.maxSpendUsd} spent`:''}</p>{g.reason&&<p>{g.reason}</p>}{!!(g.unknownTokenTurns||g.unknownSpendTurns)&&<small>Some usage measurements are unavailable.</small>}<ul>{g.criteria.map(c=><li key={c.id}>{c.description}</li>)}</ul>{controls('goal',g)}
+    {state.goals.map(g=><article className="workflow-card" key={g.id}><header><h3>{g.title}</h3><span className={`workflow-status is-${g.status}`}>{g.status}</span></header><p>{g.maxTurns > 0 ? `${g.turnsUsed} / ${g.maxTurns} turns` : `${g.turnsUsed} turns · No turn limit`}{g.maxTokens!==null?` · ${g.tokensUsed} / ${g.maxTokens} tokens`:''}{g.maxSpendUsd!==null?` · $${g.spendUsd.toFixed(3)} / $${g.maxSpendUsd} spent`:''}</p>{g.reason&&<p>{g.reason}</p>}{!!(g.unknownTokenTurns||g.unknownSpendTurns)&&<small>Some usage measurements are unavailable.</small>}<ul>{g.criteria.map(c=><li key={c.id}>{c.description}</li>)}</ul>{controls('goal',g)}
       {!['completed','cancelled'].includes(g.status)&&<button type="button" onClick={()=>setShowEvidence(showEvidence===g.id?null:g.id)}>Add completion evidence</button>}
       {showEvidence===g.id&&<EvidenceForm busy={busy} sourceBotId={g.botId} criteria={g.criteria} onSubmit={evidence=>{void mutate(`/goals/${g.id}/verify`,{evidence});}}/>}
     </article>)}

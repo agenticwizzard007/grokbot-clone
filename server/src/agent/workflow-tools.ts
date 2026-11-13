@@ -31,7 +31,7 @@ function parentGoal(ctx:ToolCtx,goalId:string) {
   const g=getGoal(ctx.userId,goalId);if(g.botId!==ctx.botId)throw new WorkflowError('Goal not found for this agent.',404);return g;
 }
 export const WORKFLOW_TOOLS:ToolDef[]=[
-  define('create_goal','Create a persistent native goal with concrete acceptance criteria and a finite turn budget. Work continues through the existing queue until verified, paused, blocked or budget-limited. Completion requires existing evidence, never a boolean.',goalInputSchema, (a,c)=>{
+  define('create_goal','Create an explicitly requested persistent goal with concrete acceptance criteria. Only set budgets when requested by the user; omitted or zero maxTurns means no turn limit. Work continues through the existing queue until verified, paused, blocked or explicitly budget-limited. Completion requires existing evidence, never a boolean.',goalInputSchema, (a,c)=>{
     const goal=createGoal(c.userId,c.botId,a);startGoalExecution(c.userId,goal.id,c.jobId);return goal;
   }),
   define('control_goal','Pause, resume, block with a reason, or stop a persistent goal. Stop propagates to workflow children. Exhausted budgets cannot be resumed silently.',z.object({goal_id:id,action,reason:z.string().max(2000).optional()}).strict(),(a,c)=>{
