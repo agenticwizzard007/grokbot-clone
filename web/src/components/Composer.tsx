@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { PhoneOff, TextCursorInput } from 'lucide-react';
 import type { Bot } from '@shared/types';
 import { api } from '../lib/api';
 import { displayName, useStore } from '../store';
@@ -23,6 +24,9 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const moreRef = useRef<HTMLButtonElement>(null);
+  const dictationCancelRef = useRef<HTMLButtonElement>(null);
+  const dictationRange = useRef<{ text: string; start: number; end: number } | null>(null);
   const setModal = useStore((s) => s.setModal);
 
   // Per-bot drafts.
@@ -97,19 +101,49 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   // Dictation: insert the transcript at the cursor.
   const insertText = (t: string) => {
     const el = ref.current;
+    const range = dictationRange.current;
+    dictationRange.current = null;
     setText((cur) => {
-      const start = el && document.activeElement === el ? el.selectionStart : cur.length;
-      const end = el && document.activeElement === el ? el.selectionEnd : cur.length;
+      const start = range?.text === cur ? range.start : el && document.activeElement === el ? el.selectionStart : cur.length;
+      const end = range?.text === cur ? range.end : el && document.activeElement === el ? el.selectionEnd : cur.length;
       const before = cur.slice(0, start);
       const after = cur.slice(end);
       const pre = before && !/\s$/.test(before) ? ' ' : '';
       const post = after && !/^\s/.test(after) ? ' ' : '';
-      requestAnimationFrame(() => { if (el) { const pos = before.length + pre.length + t.length; el.focus(); el.setSelectionRange(pos, pos); } });
+      requestAnimationFrame(() => { if (el) { const pos = before.length + pre.length + t.length; if (!mobile) el.focus(); else moreRef.current?.focus(); el.setSelectionRange(pos, pos); } });
       return before + pre + t + post + after;
     });
   };
-  const dictation = useDictation(insertText, setError, bot.voiceLanguage);
-  const inCall = useVoice((s) => isCallActive(s) && s.botId === bot.id);
+  const anyCall = useVoice((s) => isCallActive(s));
+  const callBotId = useVoice((s) => s.botId);
+  const inCall = anyCall && callBotId === bot.id;
+  const switchingCall = anyCall && !inCall;
+  const dictation = useDictation(insertText, setError, bot.voiceLanguage, {
+    contextKey: `${bot.id}:${bot.generation}`, enabled: !anyCall,
+  });
+  const voiceLabel = inCall ? `End call with ${bot.name}` : switchingCall ? `Switch call to ${bot.name}` : `Start live voice with ${bot.name}`;
+  const wasDictating = useRef(false);
+  useEffect(() => {
+    const active = dictation.state !== 'idle';
+    if (active && (!wasDictating.current || document.activeElement === document.body)) dictationCancelRef.current?.focus();
+    // Only restore focus when the removed dictation controls held it. A new call
+    // or another chat may already have placed focus where the user needs it.
+    if (!active && wasDictating.current && document.activeElement === document.body) moreRef.current?.focus();
+    wasDictating.current = active;
+  }, [dictation.state]);
+  const dictate = () => {
+    const el = ref.current;
+    dictationRange.current = el ? { text: el.value, start: el.selectionStart, end: el.selectionEnd } : null;
+    setError(null);
+    dictation.start();
+  };
+  const voice = () => {
+    // Keep AudioContext creation inside the user gesture; cancellation is synchronous.
+    dictation.cancel();
+    setError(null);
+    try { if (inCall) endCall(); else startCall(bot.id); }
+    catch (e) { setError((e as Error).message || 'Could not start live voice'); }
+  };
 
   const hasText = text.trim().length > 0;
   const multiline = text.includes('\n') || (ref.current?.scrollHeight ?? 0) > 44;
@@ -118,6 +152,15 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
     <div className="composer-area" ref={area}>
       {error && <div className="composer__error">{error} <button type="button" className="link-btn" onClick={() => setError(null)}>Dismiss</button></div>}
       <UsageModeBubble />
+      {dictation.state !== 'idle' && (
+        <div className="composer__dictation">
+          <span role="status">{dictation.state === 'starting' ? 'Opening microphone…' : dictation.state === 'recording' ? 'Dictating a message…' : 'Transcribing message…'}</span>
+          <div className="composer__dictation-actions">
+            {dictation.state === 'recording' && <button type="button" className="link-btn" onClick={dictation.stop} aria-label="Use transcript · stop dictation">Use transcript</button>}
+            <button ref={dictationCancelRef} type="button" className="link-btn" onClick={dictation.cancel} aria-label="Cancel dictation">Cancel</button>
+          </div>
+        </div>
+      )}
       <div className={`composer-shell effort-motion${flare ? ' is-flaring' : ''}`} data-effort={effort ?? undefined}>
       {animated && <span className="composer__glow" aria-hidden />}
       <div className={`composer${multiline ? ' is-multiline' : ''}${animated ? ' has-effort' : ''}${ultra ? ' is-ultracode' : ''}`}>
@@ -136,7 +179,7 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
         <div className="composer__bar">
         <div className="composer__left">
           <span className="composer__plus-anchor">
-            <button type="button" className="composer__btn" onClick={() => setMenu(!menu)} aria-label="More actions" aria-expanded={menu}>
+            <button ref={moreRef} type="button" className="composer__btn" onClick={() => setMenu(!menu)} aria-label="More actions" aria-expanded={menu}>
               <Icon name="composer_plus" opacity={0.56} />
             </button>
             {menu && (
@@ -146,6 +189,7 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
                 items={[
                   { label: 'New conversation', onSelect: fresh },
                   { label: 'Connect apps', onSelect: () => setModal('apps') },
+                  ...(!anyCall && dictation.state === 'idle' ? [{ label: 'Dictate a message', hint: 'Text only', icon: TextCursorInput, onSelect: dictate }] : []),
                 ]}
               />
             )}
@@ -155,38 +199,31 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
         <div className="composer__right">
           <button
             type="button"
-            className={`composer__btn${dictation.state === 'recording' ? ' is-recording' : dictation.state === 'transcribing' ? ' is-transcribing' : ''}`}
-            aria-label={dictation.state === 'recording' ? 'Stop dictation' : 'Dictate'}
-            aria-pressed={dictation.state === 'recording'}
-            title={dictation.state === 'recording' ? 'Release or click to stop · Esc cancels' : dictation.state === 'transcribing' ? 'Transcribing…' : 'Hold to dictate, or click to start'}
-            disabled={dictation.state === 'transcribing'}
-            onPointerDown={dictation.onPointerDown}
-            onPointerUp={dictation.onPointerUp}
-            onKeyDown={dictation.onKeyDown}
-            onContextMenu={(e) => e.preventDefault()}
+            className={`${hasText || running ? 'composer__btn' : 'composer__cta'} composer__voice${inCall ? ' is-in-call' : ''}`}
+            aria-label={voiceLabel}
+            aria-pressed={inCall}
+            title={switchingCall ? `End the current call and talk to ${bot.name}` : inCall ? 'End the call; agent work continues in chat' : `Talk to ${bot.name} live to coordinate work and hear results`}
+            onClick={voice}
           >
-            <Icon name="mic" opacity={0.56} />
+            {inCall ? <PhoneOff size={16} aria-hidden /> : <Icon name="mic" />}
+            <span>{inCall ? 'End call' : switchingCall ? 'Switch call' : 'Live voice'}</span>
           </button>
-          {inCall && !hasText ? (
-            <button type="button" className="composer__cta is-in-call" onClick={endCall} aria-label="End voice call" title="End voice call">
-              <Icon name="voice_a" size={16} />
-            </button>
-          ) : running && !hasText ? (
+          {running && !hasText ? (
             <button type="button" className="composer__cta" onClick={stop} aria-label="Stop" title="Stop">
               <Icon name="stop" size={14} />
             </button>
-          ) : (
+          ) : hasText ? (
             <button
               type="button"
               className="composer__cta"
-              onClick={hasText ? send : () => startCall(bot.id)}
-              disabled={hasText && sending}
-              aria-label={hasText ? 'Send' : `Start voice chat with ${bot.name}`}
-              title={hasText ? 'Send (Enter)' : 'Start voice chat'}
+              onClick={send}
+              disabled={sending}
+              aria-label="Send"
+              title="Send (Enter)"
             >
-              <Icon name={hasText ? 'arrow_up' : 'voice_a'} size={16} />
+              <Icon name="arrow_up" size={16} />
             </button>
-          )}
+          ) : null}
         </div>
         </div>
       </div>

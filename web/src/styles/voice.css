@@ -82,12 +82,16 @@
 .vcall__connection-hint { font-size: 12px; line-height: 16px; color: #FFFFFFAD; }
 .vcall__connection-error { font-size: 12px; line-height: 16px; color: #FF8A93; overflow-wrap: anywhere; }
 
-/* ---------- composer: dictation + call button states ---------- */
-.composer__btn.is-recording { background: var(--color-danger); color: #FFFFFF; animation: breathe 1.2s ease-in-out infinite; }
-.composer__btn.is-recording > * { opacity: 1 !important; }
-.composer__btn.is-transcribing { animation: breathe 0.9s ease-in-out infinite; }
-.composer__cta.is-in-call { background: var(--color-danger); }
-.composer__cta.is-in-call:hover:not(:disabled) { background: #C82532; }
+/* ---------- composer: live voice is the main microphone entry ---------- */
+.composer__voice { width: auto; min-height: 34px; padding: 0 10px; gap: 6px; border-radius: 18px; font-size: 12px; font-weight: var(--font-weight-medium); white-space: nowrap; }
+.composer__voice.is-in-call { background: var(--color-danger); color: #FFFFFF; }
+.composer__voice.is-in-call:hover:not(:disabled) { background: #C82532; }
+.composer__voice:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
+.composer__dictation { max-width: 960px; margin: 0 auto 8px; padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; border-radius: 12px; background: var(--color-bg-tertiary); font-size: 13px; line-height: 18px; color: var(--color-text-secondary); }
+.composer__dictation-actions { display: flex; gap: 12px; }
+@media (max-width: 767px) {
+  .composer__right .composer__voice { width: auto; }
+}
 
 /* ---------- details panel: voice settings ---------- */
 .mini-select--native { position: relative; cursor: pointer; }

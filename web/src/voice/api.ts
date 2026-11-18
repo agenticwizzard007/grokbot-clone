@@ -81,12 +81,12 @@ export const voiceApi = {
     const buf = await res.arrayBuffer();
     return new Int16Array(buf, 0, buf.byteLength >> 1);
   },
-  async transcribe(blob: Blob, language?: string): Promise<string> {
+  async transcribe(blob: Blob, language?: string, signal?: AbortSignal): Promise<string> {
     const fd = new FormData();
     if (language) fd.append('language', language);
     const ext = blob.type.includes('ogg') ? 'ogg' : blob.type.includes('mp4') ? 'm4a' : 'webm';
     fd.append('file', blob, `dictation.${ext}`);
-    const res = await fetch('/api/voice/stt', { method: 'POST', credentials: 'include', body: fd });
+    const res = await fetch('/api/voice/stt', { method: 'POST', credentials: 'include', body: fd, signal });
     if (!res.ok) {
       let msg = 'Transcription failed';
       try { msg = ((await res.json()) as { error?: string }).error ?? msg; } catch { /* not json */ }
