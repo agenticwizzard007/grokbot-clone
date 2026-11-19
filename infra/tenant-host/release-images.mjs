@@ -57,7 +57,7 @@ export function main(args=process.argv.slice(2),environment=process.env){
       run('trivy',['image','--image-src','docker','--scanners','vuln','--severity','HIGH,CRITICAL','--exit-code','0','--format','json','--output',`${reportDir}/${name}.json`,image]);
       if(gate(`${reportDir}/${name}.json`,name).violations.length)throw Error(`Vulnerability gate failed for ${name}`);
     }
-    catch(error){if(mode==='publish')throw error;failedScans.push(name);console.error(`Dry-run scan failed for ${name}; collecting remaining evidence, final result will fail.`);}
+    catch(error){if(mode==='publish')throw error;failedScans.push(name);console.error(`Dry-run scan failed for ${name} (${error.message}); collecting remaining evidence, final result will fail.`);}
   };
   const inspected=image=>JSON.parse(read('docker',['image','inspect',image]))[0];
   const publish=image=>{

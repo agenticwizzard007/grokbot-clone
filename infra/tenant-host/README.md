@@ -15,8 +15,9 @@ and checksums for Trivy and cosign. Updates are reviewed source changes; the pip
   util-linux mount/umount with `--no-canonicalize`, iptables/ip6tables, shell, tar, gzip, sha256sum and CA certificates.
   Docker 25+ supports the existing `bind-recursive=disabled` folder mounts. The daemon listens only on its Unix socket.
 - `scan-gate.mjs` and `scan-exceptions.json`: the HIGH/CRITICAL vulnerability gate (owner decision D2). Findings with an
-  upstream fix always block; findings without one need an exact CVE/package exception with a reachability note, approved
-  for at most 30 days. Every image scan and the verified component check use this gate.
+  upstream fix always block; findings without one need an exception for the exact CVE, package and image (`app` covers the
+  shared app/runner/MCP image) with a reachability note for that image, active only from its approval date and for at most
+  30 days. Missing or malformed Trivy reports fail closed. Every image scan and the verified component check use this gate.
 - `DesktopBase.Dockerfile`: Chrome, Xvfb, xfwm4, xdotool, Python, Node 22, and the lockfile-installed
   `@playwright/mcp` **0.0.85**. UID/GID 10001, no sudo, no runtime package-manager bootstrap or executable download.
   `Desktop.Dockerfile` adds the exact checked-out companion. Browser sandboxing stays enabled.
