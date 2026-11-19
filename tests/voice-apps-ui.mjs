@@ -102,7 +102,7 @@ try {
         await page.waitForFunction(() => typeof window.swarmStartMainVoice === 'function');
         const id = randomUUID();
         await waitFor(async () => await page.evaluate(id => window.swarmStartMainVoice(id), id) === 'started');
-      } else await page.getByRole('button', { name: 'Start voice chat with Main agent', exact: true }).click();
+      } else await page.getByRole('button', { name: 'Start live voice with Main agent', exact: true }).click();
       await page.locator('.vcall.is-live').waitFor();
     }
     await start();
