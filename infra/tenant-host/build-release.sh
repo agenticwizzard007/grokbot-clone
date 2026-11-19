@@ -13,7 +13,10 @@ if [[ $mode == verified ]]; then
     if [[ ${checked[$ref]+present} ]]; then continue; fi
     checked[$ref]=1
     cosign verify --key "$IMAGE_VERIFICATION_KEY" "${!name}" >/dev/null
-    trivy image --exit-code 1 --scanners vuln --severity HIGH,CRITICAL "${!name}"
+    scan_report=$(mktemp)
+    trivy image --exit-code 0 --scanners vuln --severity HIGH,CRITICAL --format json --output "$scan_report" "${!name}"
+    node infra/tenant-host/scan-gate.mjs "$scan_report" "$name" || { rm -f "$scan_report"; exit 1; }
+    rm -f "$scan_report"
     docker pull "${!name}" >/dev/null
   done
 fi

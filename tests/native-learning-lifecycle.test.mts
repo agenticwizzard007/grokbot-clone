@@ -137,6 +137,93 @@ test('approval-on skill management stages, existing proposals stay pending when 
     assert.equal(skills.listSkillProposals('owner', 'alpha')[0].status, 'pending');
     assert.equal(skills.resolveSkillProposal('owner', proposal.id, 'approve', 1).skill?.revision, 2);
 });
+
+for (const native of [false, true]) test(`background ${native ? 'native callback' : 'model response'} validates proposal schema before dispatch`, async () => {
+    const evidence = [message('Keep this procedure private until I share it.')];
+    patch({ memoryTurnInterval: 1, skillIterationInterval: 1 });
+    const review = turn()!;
+    const valid = { ...seed, expected_revision: 0, reason: 'Learned procedure', evidence };
+    const injected = { ...valid, scope: 'account', locked: true, pinned: true, managed: false };
+    let rounds = 0;
+    learning.configureLearningModelExecutor(async body => {
+        if (native) {
+            const { nativeToolHandler } = await import('../server/src/cli/native-tools.js');
+            const handler = nativeToolHandler('owner')!;
+            const refused = await handler({ id: 'unsafe', name: 'propose_skill', arguments: injected });
+            assert.equal(refused.isError, true);
+            assert.match(String(refused.output), /validat|additional propert/i);
+            assert.equal(skills.listSkillProposals('owner', 'alpha').length, 0);
+            assert.equal((await handler({ id: 'valid', name: 'propose_skill', arguments: valid })).isError, undefined);
+            return final();
+        }
+        if (++rounds === 1) return call('propose_skill', injected);
+        if (rounds === 2) {
+            assert.match(body.input.at(-1).output, /validat|additional propert/i);
+            assert.equal(skills.listSkillProposals('owner', 'alpha').length, 0);
+            return call('propose_skill', valid);
+        }
+        assert.equal(JSON.parse(body.input.at(-1).output).ok, true);
+        return final();
+    });
+    assert.equal((await learning.runLearningReview(review.id))?.status, 'completed');
+    const proposals = skills.listSkillProposals('owner', 'alpha');
+    assert.equal(proposals.length, 1);
+    const approved = skills.resolveSkillProposal('owner', proposals[0].id, 'approve', 0).skill!;
+    assert.equal(approved.scope, 'private'); assert.equal(approved.pinned, false); assert.equal(approved.managed, true);
+    assert.equal(skills.authorizedSkills('owner', 'beta').some(s => s.id === approved.id), false);
+});
+
+test('review cancellation during schema validation prevents dispatch', async () => {
+    const evidence = [message('Record this procedure only while the review remains authorized.')];
+    patch({ memoryTurnInterval: 1, skillIterationInterval: 1 });
+    const review = turn()!;
+    const index = KNOWLEDGE_TOOLS.findIndex(t => t.name === 'propose_skill');
+    const original = KNOWLEDGE_TOOLS[index];
+    let armed = false, validations = 0, dispatches = 0;
+    KNOWLEDGE_TOOLS[index] = { ...original,
+        get parameters() {
+            if (armed) { armed = false; validations++; queueMicrotask(() => learning.cancelLearningReview('owner', review.id)); }
+            return original.parameters;
+        },
+        impl: async (...args) => { dispatches++; return original.impl(...args); },
+    };
+    try {
+        learning.configureLearningModelExecutor(async () => {
+            armed = true;
+            return call('propose_skill', { ...seed, expected_revision: 0, reason: 'Cancelled proposal', evidence });
+        });
+        assert.equal((await learning.runLearningReview(review.id))?.status, 'cancelled');
+        assert.equal(validations, 1); assert.equal(dispatches, 0);
+        assert.equal(skills.listSkillProposals('owner', 'alpha').length, 0);
+    } finally { KNOWLEDGE_TOOLS[index] = original; }
+});
+
+test('native dispatch executes the detached arguments that were schema-validated', async () => {
+    const evidence = [message('Preserve the validated procedure exactly.')];
+    patch({ memoryTurnInterval: 1, skillIterationInterval: 1 });
+    const review = turn()!;
+    const index = KNOWLEDGE_TOOLS.findIndex(t => t.name === 'propose_skill');
+    const original = KNOWLEDGE_TOOLS[index];
+    let incoming: any, detached = false;
+    KNOWLEDGE_TOOLS[index] = { ...original,
+        get parameters() {
+            if (incoming && !detached) { detached = true; incoming.body = 'Changed while validator awaited'; }
+            return original.parameters;
+        },
+    };
+    try {
+        learning.configureLearningModelExecutor(async () => {
+            const { nativeToolHandler } = await import('../server/src/cli/native-tools.js');
+            incoming = { ...seed, expected_revision: 0, reason: 'Original input', evidence };
+            const result = await nativeToolHandler('owner')!({ id: 'original', name: 'propose_skill', arguments: incoming });
+            assert.equal(result.isError, undefined);
+            return final();
+        });
+        assert.equal((await learning.runLearningReview(review.id))?.status, 'completed');
+        assert.equal(detached, true);
+        assert.equal(skills.listSkillProposals('owner', 'alpha')[0].content.body, seed.body);
+    } finally { KNOWLEDGE_TOOLS[index] = original; }
+});
 test('dispatcher denies business actions and fresh-read guards reject transcript-only or stale reads', async () => {
     const evidence = [message('Always check sources.')];
     const skill = skills.createSkill('owner', 'alpha', seed);
@@ -189,6 +276,7 @@ for (const skillReview of [true, false]) test(`procedure dispatch is ${skillRevi
     // interpreter, whose implementation and evaluation fixtures live elsewhere.
     const fixture = {
         ...KNOWLEDGE_TOOLS.find(t => t.name === 'read_skill')!, name: 'apply_procedure',
+        parameters: { type: 'object', properties: {}, additionalProperties: false },
         impl: async (_args: any, ctx: any) => {
             dispatched++;
             assert.equal(ctx.jobId, review.jobId);

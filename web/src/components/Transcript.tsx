@@ -11,8 +11,12 @@ import { Icon } from './Icon';
 import { Markdown } from './Markdown';
 import { appToolLabel } from '@shared/tool-activity';
 import { ElapsedTimer, fmtElapsed } from './BrailleSpinner';
+import { AgentExchangeGroup } from './AgentExchangeGroup';
+import { groupExchanges, type ExchangeGroup } from '../lib/agentExchanges';
+import { useAgentExchanges } from '../lib/useAgentExchanges';
 
 type Item =
+  | { kind: 'exchange'; key: string; group: ExchangeGroup }
   | { kind: 'divider'; key: string; ts: number }
   | { kind: 'group'; key: string; side: 'left' | 'right'; from?: MessageBody['from']; rows: Row[] }
   | { kind: 'steps'; key: string; rows: Row[] }
@@ -22,12 +26,16 @@ const DIVIDER_GAP = 60 * 60 * 1000;
 const GROUP_GAP = 5 * 60 * 1000;
 
 /** Turns rows into render items: date dividers, grouped bubbles, collapsed tool-call steps, cards, events. */
-function buildItems(rows: Row[]): Item[] {
+function buildItems(rows: Row[], exchanges: ExchangeGroup[]): Item[] {
   const items: Item[] = [];
   let prevTs = 0;
-  for (const row of rows) {
-    if (!prevTs || row.createdAt - prevTs > DIVIDER_GAP) items.push({ kind: 'divider', key: `d${row.seq}`, ts: row.createdAt });
-    prevTs = row.createdAt;
+  const entries = [...rows.map(row => ({ at: row.createdAt, row, exchange: null as ExchangeGroup | null })), ...exchanges.map(exchange => ({ at: exchange.createdAt, row: null as Row | null, exchange }))].sort((a, b) => a.at - b.at);
+  for (const entry of entries) {
+    const key = entry.row ? `r${entry.row.seq}` : `e${entry.exchange!.id}`;
+    if (!prevTs || entry.at - prevTs > DIVIDER_GAP) items.push({ kind: 'divider', key: `d${key}`, ts: entry.at });
+    prevTs = entry.at;
+    if (entry.exchange) { items.push({ kind: 'exchange', key, group: entry.exchange }); continue; }
+    const row = entry.row!;
     const last = items[items.length - 1];
     const b = row.body;
     if (b.type === 'tool-call') {
@@ -148,8 +156,12 @@ export const Transcript = memo(function Transcript({ bot, rows, live, loaded }: 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const [showJump, setShowJump] = useState(false);
+  const generation = useStore(s => s.transcripts[bot.id]?.generation ?? bot.generation);
+  const connected = useStore(s => s.sseConnected);
+  const exchanges = useAgentExchanges(bot.id, generation, loaded && bot.kind !== 'room', connected);
   const visibleRows = useMemo(() => rows.filter(r => !isInternalRow(r)), [rows]);
-  const items = useMemo(() => buildItems(visibleRows), [visibleRows]);
+  const groups = useMemo(() => groupExchanges(exchanges.exchanges, visibleRows), [exchanges.exchanges, visibleRows]);
+  const items = useMemo(() => buildItems(visibleRows, groups), [visibleRows, groups]);
   live = userFacingLive(live);
 
   const running = !!live?.isRunning;
@@ -162,7 +174,7 @@ export const Transcript = memo(function Transcript({ bot, rows, live, loaded }: 
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [rows, live, loaded, bot.id]);
+  }, [rows, live, loaded, bot.id, exchanges.exchanges]);
   // Jump to bottom when switching bots.
   useLayoutEffect(() => {
     stick.current = true;
@@ -186,9 +198,13 @@ export const Transcript = memo(function Transcript({ bot, rows, live, loaded }: 
     <div className="transcript-wrap">
     <div className="transcript" ref={scrollRef} onScroll={onScroll}>
       <div className="transcript__col">
-        {loaded && visibleRows.length === 0 && <EmptyChat bot={bot} />}
+        {loaded && visibleRows.length === 0 && groups.length === 0 && <EmptyChat bot={bot} />}
+        {exchanges.more && <button type="button" className="agent-exchange__more" disabled={exchanges.loading} onClick={exchanges.loadMore}>Earlier agent conversations</button>}
+        {exchanges.error && <p className="agent-exchange__error" role="status">Couldn’t refresh agent conversations. <button type="button" onClick={exchanges.retry}>Retry</button></p>}
         {items.map((it) => {
           switch (it.kind) {
+            case 'exchange':
+              return <AgentExchangeGroup key={`${bot.id}:${generation}:${it.key}`} group={it.group} botId={bot.id} generation={generation} />;
             case 'divider':
               return <div key={it.key} className="divider">{dividerLabel(it.ts)}</div>;
             case 'steps':

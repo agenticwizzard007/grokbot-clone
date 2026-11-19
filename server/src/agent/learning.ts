@@ -18,6 +18,7 @@ import { LEARNING_TOOLS } from './learning-tools.js';
 import { MEMORY_REVIEW_PROMPT, SKILL_REVIEW_PROMPT, COMBINED_REVIEW_PROMPT, CURATOR_REVIEW_PROMPT } from './learning-prompts.js';
 import { publishNativeEvent, recordContextReceipt } from '../native/events.js';
 import type { ToolResult } from './tools.js';
+import { validateToolArguments } from './tool-catalog.js';
 export interface LearningTurn {
     userId: string;
     botId: string;
@@ -336,11 +337,24 @@ export async function runLearningReview(id: string): Promise<Review | undefined>
                 guard();
                 if (!allowed.has(name))
                     return { output: 'Tool denied: background reviews may only manage knowledge.', isError: true };
-                if (r.reason === 'curator' && name === 'list_skills')
-                    return { output: JSON.stringify({ ok: true, skills: authorizedSkills(r.user_id, r.bot_id).filter(s => s.botId === r.bot_id && !curatorProtected(r.bot_id, s)).map(({ id, name, description, revision }) => ({ id, name, description, revision })), nextOffset: null }) };
                 const tool = tools.find(t => t.name === name);
                 if (!tool)
                     return { output: 'Tool not available.', isError: true };
+                let invalid: string | undefined;
+                try {
+                    // Validate and execute the same detached input, including
+                    // native callbacks that do not pass through the main loop.
+                    args = structuredClone(args);
+                    await validateToolArguments({ type: 'function', name: tool.name, parameters: tool.parameters }, args);
+                } catch (error) {
+                    invalid = `Tool argument validation failed: ${error instanceof Error ? error.message.slice(0, 1000) : 'Invalid arguments'}`;
+                }
+                // Ownership/settings/source state can change while a bounded
+                // validation worker runs. Never dispatch on the earlier check.
+                guard();
+                if (invalid) return { output: invalid, isError: true };
+                if (r.reason === 'curator' && name === 'list_skills')
+                    return { output: JSON.stringify({ ok: true, skills: authorizedSkills(r.user_id, r.bot_id).filter(s => s.botId === r.bot_id && !curatorProtected(r.bot_id, s)).map(({ id, name, description, revision }) => ({ id, name, description, revision })), nextOffset: null }) };
                 if (r.reason === 'curator' && name === 'manage_skill' && args.skill_id) {
                     const skill = authorizedSkills(r.user_id, r.bot_id).find(s => s.id === args.skill_id);
                     if (skill && curatorProtected(r.bot_id, skill))

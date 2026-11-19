@@ -85,7 +85,13 @@ export function listInternalRequests(userId:string,after=0,limit=50,botId?:strin
  WHERE r.user_id=? AND seq>? ${botId?'AND (from_bot_id=? OR to_bot_id=?)':''} ORDER BY seq LIMIT ?`).all(userId,after,...(botId?[botId,botId]:[]),limit+1) as any[];
  const requests=rows.slice(0,limit).map(view);return {requests,nextCursor:requests.at(-1)?.seq??after,hasMore:rows.length>limit};
 }
-function event(r:any,kind:string) {publishNativeEvent({userId:r.user_id,botId:r.to_bot_id,kind,sourceType:'coordination_request',sourceId:r.id,sourceRevision:r.revision,jobId:r.job_id??undefined,correlationId:r.correlation_id,audience:'internal',data:{status:r.status,fromBotId:r.from_bot_id,toBotId:r.to_bot_id,kind:r.kind}});}
+function event(r:any,kind:string) {
+ const generations = kind === 'coordination.requested' ? {
+  fromGeneration: (db.prepare('SELECT generation FROM bots WHERE id=? AND user_id=?').get(r.from_bot_id,r.user_id) as {generation:number}).generation,
+  toGeneration: (db.prepare('SELECT generation FROM bots WHERE id=? AND user_id=?').get(r.to_bot_id,r.user_id) as {generation:number}).generation,
+ } : {};
+ publishNativeEvent({userId:r.user_id,botId:r.to_bot_id,kind,sourceType:'coordination_request',sourceId:r.id,sourceRevision:r.revision,jobId:r.job_id??undefined,correlationId:r.correlation_id,audience:'internal',data:{status:r.status,fromBotId:r.from_bot_id,toBotId:r.to_bot_id,kind:r.kind,...generations}});
+}
 function createRequest(userId:string,from:string,to:string,text:string,depth:number,key:string,parent?:any,kind='request',helperAssignment=false) {
  const existing=db.prepare('SELECT * FROM coordination_requests WHERE user_id=? AND idempotency_key=?').get(userId,key) as any;
  if(existing){if(existing.from_bot_id!==from||existing.to_bot_id!==to||existing.text!==text||existing.kind!==kind)throw new Error('Idempotency key is already bound to another request.');return existing.id as string;}
