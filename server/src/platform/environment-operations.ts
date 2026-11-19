@@ -49,9 +49,12 @@ export async function queueEnvironmentOperation(directory:Directory,plan:Environ
       ||(await client.query("SELECT 1 FROM migration_runs WHERE tenant_id=$1 AND phase!='active'",[plan.tenant])).rowCount)throw new Error('Source operations require reconciliation.');
     if(plan.kind==='restore')await validateBackups(client,plan.tenant,plan.fullBackup,plan.databaseBackup);
     if(plan.capacity){await assertCapacityQualified(client,plan.image);await validateCapacityChange(client,plan.capacity,plan);}
+    // Samples are admission input only. The bounded evidence reference and
+    // source/target policy are sufficient for the durable execution journal.
+    const capacity=plan.capacity?(({samples,...journal})=>journal)(plan.capacity):null;
     const id=randomBytes(16).toString('hex'),generation=String(BigInt(plan.generation)+1n);
     await client.query(`INSERT INTO environment_operations(id,tenant_id,kind,source_generation,target_generation,source_machine,source_volume,source_image,image_digest,region,full_backup,database_backup,capacity_change,source_guest,source_volume_gb,created_at)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,clock_timestamp())`,[id,plan.tenant,plan.kind,plan.generation,generation,plan.machine,plan.volume,plan.sourceImage,plan.image,plan.region,plan.fullBackup??null,plan.databaseBackup??null,plan.capacity??null,plan.capacity?.source.guest??null,plan.capacity?.source.volumeGb??null]);
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,clock_timestamp())`,[id,plan.tenant,plan.kind,plan.generation,generation,plan.machine,plan.volume,plan.sourceImage,plan.image,plan.region,plan.fullBackup??null,plan.databaseBackup??null,capacity,plan.capacity?.source.guest??null,plan.capacity?.source.volumeGb??null]);
     // Revoke routing/runtime authority before any slow cloud operation. User
     // sessions survive this maintenance; no tenant process receives a Fly key.
     await client.query("UPDATE tenants SET state='suspended',generation=$2 WHERE id=$1",[plan.tenant,generation]);
@@ -189,7 +192,7 @@ export class EnvironmentWorker {
           if(!current||current.encrypted!==true||current.region!==operation.region)throw new Error('The source volume is unavailable or foreign.');
           volume=operation.source_volume;
         }
-        const capacity:CapacityChange|undefined=operation.capacity_change??undefined;
+        const capacity:Omit<CapacityChange,'samples'>|undefined=operation.capacity_change??undefined;
         if(capacity&&capacity.target.volumeGb>capacity.source.volumeGb){
           // Retry must inspect the absolute target, never repeat an increment.
           await this.fly.extendVolume(app,tenant,volume,operation.region,capacity.source.volumeGb,capacity.target.volumeGb,operations,beforeCreate('volume-growth'));await guard();

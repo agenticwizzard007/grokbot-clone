@@ -11,12 +11,14 @@ import { verifyHostContainment } from './host-preflight.js';
 import { HostActivation } from './host-activation.js';
 import { confirmApplicationReady as confirmReady, reportApplicationRunning } from './application-readiness.js';
 import { RuntimeRefreshStore } from './refresh-state.js';
+import {HostUsageCollector,hostUsageTransport,usageCollectionEnabled,usageIntervalMs} from './host-usage.js';
 import {HostInstaller,hostInstallTransport} from './install-environment.js';
 import {HostCheckpoint,hostCheckpointTransport} from './checkpoints.js';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 const exec=promisify(execFile);
 const tenant=process.env.SWARM_TENANT_ID!,machine=process.env.FLY_MACHINE_ID!,volume=process.env.SWARM_VOLUME_ID!,generation=process.env.SWARM_RUNTIME_GENERATION!;
+const collectUsage=usageCollectionEnabled(process.env.TENANT_USAGE_COLLECTION);
 if(!/^usr_[A-Za-z0-9_-]{8,100}$/.test(tenant)||!machine||!volume||!generation)throw new Error('Missing immutable machine identity.');
 const release=JSON.parse(await fs.readFile('/opt/swarm/release.json','utf8'));
 for(const key of ['appImage','runnerImage','mcpImage','desktopImage']){
@@ -138,6 +140,14 @@ async function confirmApplicationReady(){
   workloadsStarted=true;
 }
 try{await confirmApplicationReady();}catch{await failClosed();}
+if(collectUsage){
+  const usage=new HostUsageCollector(volume,()=>!stopping&&workloadsStarted?workloadEpoch:undefined,
+    hostUsageTransport(process.env.PLATFORM_URL!,'/run/swarm-host/host-token'));
+  // Collection never starts workloads or dispatches a capacity change. Failure
+  // discards the window; it must not take a healthy tenant offline.
+  const tick=()=>{void usage.tick().catch(()=>{console.warn('Host usage unavailable; waiting for a fresh window.');});};
+  tick();setInterval(tick,usageIntervalMs).unref();
+}
 let checkingActivation=false;
 setInterval(()=>{
   if(stopping||checkingActivation)return;checkingActivation=true;
