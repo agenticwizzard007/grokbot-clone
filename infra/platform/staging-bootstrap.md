@@ -42,11 +42,36 @@ Only create missing resources from the approved inventory; an existing setup mus
    rules for aborted uploads and old versions; an IAM user limited to those KMS actions and to the
    `swarm-backups/` prefix. It writes `~/.swarm-staging-aws.env` (mode 0600) with `TENANT_KMS_KEY_ID`,
    `AWS_REGION`, `BACKUP_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`.
-3. Verify the real key with the platform's exact envelope contract (same tenant decrypts, another tenant is refused):
+3. An optional `swarm-admin` run of `verify-kms.mjs` checks **key/envelope mechanics only**. Same-context decrypt
+   and different-tenant refusal demonstrate ciphertext/context binding, not restrictions on the runtime principal.
+   Before importing credentials, run the following with the **actual restricted staging access key** written by setup
+   (not the admin profile or attached machine identity). The clean environment below prevents ambient AWS credentials
+   or profiles from replacing that protected file. Record the principal ARN from the approved inventory and confirm
+   this is the same access key imported into the serving apps. Node 22 is required.
    ```sh
-   AWS_PROFILE=swarm-admin node infra/platform/aws/verify-kms.mjs "$(grep TENANT_KMS_KEY_ID ~/.swarm-staging-aws.env | cut -d= -f2)"
+   umask 077
+   env -i PATH="$PATH" HOME="$HOME" AWS_EC2_METADATA_DISABLED=true \
+     AWS_CONFIG_FILE=/dev/null AWS_SHARED_CREDENTIALS_FILE=/dev/null \
+     node --env-file="$HOME/.swarm-staging-aws.env" infra/platform/aws/verify-kms.mjs \
+     > /secure/staging-runtime-kms.json
+   node --input-type=module - /secure/staging-runtime-kms.json <<'JS'
+   import fs from 'node:fs';
+   const r=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+   if(r.ok!==true || r.generate?.plaintextBytes!==32 || r.decryptSameTenant!=='matches'
+      || !/^refused \(InvalidCiphertextException\)$/.test(r.decryptOtherTenant)
+      || r.wrongPurpose!=='refused (AccessDeniedException)') {
+     throw new Error('Restricted runtime KMS contract failed; do not import these credentials.');
+   }
+   console.log('Restricted runtime envelope mechanics and wrong-purpose denial verified.');
+   JS
    ```
-4. Import `~/.swarm-staging-aws.env` into the platform, provisioner and gateway apps in step 4 below, then shred it.
+   Require both commands to succeed. The existing verifier can print `ok:true` with `wrongPurpose=ACCEPTED` and exit
+   zero; that is **not** qualification. A timeout/throttle is not IAM denial. Missing DescribeKey permission or any
+   other failed positive check also stops this procedure for policy review; do not substitute an admin credential
+   to make it green. This verifies purpose restriction for the shared platform principal; it does not assert that
+   IAM gives each tenant its own principal. Archive sanitized results with the exact principal/key/image provenance.
+4. Only after that restricted-principal check, import `~/.swarm-staging-aws.env` into the platform, provisioner and
+   gateway apps in step 4 below, then remove the local protected copy under the approved secret-handling policy.
 Cost: KMS $1/month per key plus $0.03 per 10,000 requests; S3 cents per GB.
 
 ## 1. Postgres **[$ Basic $38/month + $0.28/GB storage]**
@@ -54,7 +79,7 @@ Cost: KMS $1/month per key plus $0.03 per 10,000 requests; S3 cents per GB.
 ```sh
 flyctl mpg create --org <staging-org> --name swarm-staging-pg --region iad --plan basic
 ```
-Create two roles: a schema owner (for `MIGRATION_DATABASE_URL`) and an application role (for `DATABASE_URL`).
+Create two roles in a dedicated staging database: `directory_owner` (schema owner, for `MIGRATION_DATABASE_URL`) and `app_runtime` (application login, for `DATABASE_URL`). The application role must be NOSUPERUSER, NOCREATEDB, NOCREATEROLE, NOREPLICATION, NOBYPASSRLS and not a member of the owner/admin role. Use the same role names in step 6 or substitute your reviewed names consistently.
 Use the direct or **session-pooled** endpoint for `DATABASE_URL`: the platform keeps one `LISTEN` connection per
 replica and transaction pooling breaks it.
 
@@ -146,6 +171,100 @@ step 7 builds its own APP/RUNNER/MCP artifact with locked base inputs; do not su
 Create `swarm-migrate-staging`, import the base64 schema-owner URL with `flyctl secrets import --stage` from a protected
 file, run the job with `--file-secret` so the credential is read only by that process, verify the mounted file by hash
 without printing it, then unset the secret. Never pass it with `-e` or on argv, and never store it on a serving role.
+
+### 6a. Serving-role grants, including future schema objects
+
+After the owner migration, apply this contract as `directory_owner` or the database administrator in the **dedicated
+staging database**. The example uses the default `public` schema and a protected libpq service named
+`swarm-staging-owner` in a mode-0600 service/passfile. Do not pass a credential-bearing URL on argv. The schema and
+all migration-created objects must actually be owned by `directory_owner`; default privileges only apply to objects
+created by the named role. If the migration job uses another login, `SET ROLE directory_owner` for its DDL or apply
+matching default privileges for the actual creating role before proceeding. Serving roles must never inherit it.
+
+```sh
+psql 'service=swarm-staging-owner' -X -v ON_ERROR_STOP=1 <<'SQL'
+BEGIN;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+REVOKE ALL ON SCHEMA public FROM app_runtime;
+GRANT USAGE ON SCHEMA public TO app_runtime;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_runtime;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_runtime;
+ALTER DEFAULT PRIVILEGES FOR ROLE directory_owner IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_runtime;
+ALTER DEFAULT PRIVILEGES FOR ROLE directory_owner IN SCHEMA public
+  GRANT USAGE, SELECT ON SEQUENCES TO app_runtime;
+COMMIT;
+SQL
+```
+
+Also grant `CONNECT` on the selected database to `app_runtime` if not already permitted. These are shared trusted
+platform-service DML privileges, not tenant permissions: no tenant receives this connection. They intentionally
+exclude schema ownership, CREATE, TRIGGER, TRUNCATE and grant options. The current trigger functions run with invoker
+rights and call built-in `pg_notify`; no application SECURITY DEFINER grant is needed. If your database has revoked
+built-in function execution, explicitly verify the notification smoke below. Review object privileges again after
+each migration. Do not use a schema-owner serving URL to work around a missing grant.
+
+### 6b. Smoke the actual restricted serving connection before deploying roles
+
+Put only the intended restricted `DATABASE_URL` in `/secure/staging-runtime-db.env` (0600, outside the repository).
+Use the same direct/session-pooled endpoint and identity that the serving apps will import. Run from the reviewed
+checkout with Node 22 and its locked dependencies. The smoke uses two restricted connections, rolls back its test
+record, checks DML privileges on all current tables and sequence privileges, and requires a real LISTEN notification
+on a private random test channel. It creates no tenant VM, operation, provider call or release-gate receipt.
+
+```sh
+env -u DATABASE_URL node --env-file=/secure/staging-runtime-db.env --input-type=module <<'JS'
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+import {Client} from 'pg';
+const listener=new Client({connectionString:process.env.DATABASE_URL});
+const writer=new Client({connectionString:process.env.DATABASE_URL});
+try {
+  await listener.connect();await writer.connect();
+  for(const client of [listener,writer]) {
+    const r=(await client.query(`SELECT current_user AS name,rolsuper,rolcreatedb,rolcreaterole,rolreplication,rolbypassrls,
+      pg_has_role(current_user,'directory_owner','MEMBER') AS owner_member,
+      has_schema_privilege(current_user,'public','CREATE') AS can_create
+      FROM pg_roles WHERE rolname=current_user`)).rows[0];
+    assert.equal(r.name,'app_runtime');
+    for(const key of ['rolsuper','rolcreatedb','rolcreaterole','rolreplication','rolbypassrls','owner_member','can_create'])assert.equal(r[key],false,key);
+  }
+  const missing=(await writer.query(`SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='public' AND (c.relkind IN ('r','p') AND NOT (
+      has_table_privilege(c.oid,'SELECT') AND has_table_privilege(c.oid,'INSERT')
+      AND has_table_privilege(c.oid,'UPDATE') AND has_table_privilege(c.oid,'DELETE'))
+      OR c.relkind='S' AND NOT (has_sequence_privilege(c.oid,'USAGE') AND has_sequence_privilege(c.oid,'SELECT')))`)).rows;
+  assert.deepEqual(missing,[]);
+  const id='usr_smoke_'+randomUUID().replaceAll('-','');
+  await writer.query('BEGIN');
+  await writer.query("INSERT INTO tenants(id,display_name,composio_user_id) VALUES($1,'restricted-role smoke',$1)",[id]);
+  assert.equal((await writer.query('SELECT id FROM tenants WHERE id=$1',[id])).rowCount,1);
+  assert.equal((await writer.query("UPDATE tenants SET display_name='smoke update' WHERE id=$1",[id])).rowCount,1);
+  assert.equal((await writer.query('DELETE FROM tenants WHERE id=$1',[id])).rowCount,1);
+  await writer.query('ROLLBACK');
+  const channel='swarm_role_smoke_'+randomUUID().replaceAll('-','');
+  const pid=(await listener.query('SELECT pg_backend_pid() pid')).rows[0].pid;
+  await listener.query(`LISTEN ${channel}`);
+  let timer;
+  const notification=new Promise((resolve,reject)=>{
+    listener.on('notification',m=>{if(m.channel===channel&&m.payload===id){clearTimeout(timer);resolve();}});
+    timer=setTimeout(()=>reject(new Error('LISTEN timed out: verify grants and session pooling')),5000);
+  });
+  try{await writer.query('SELECT pg_notify($1,$2)',[channel,id]);await notification;}finally{clearTimeout(timer);}
+  assert.equal((await listener.query('SELECT pg_backend_pid() pid')).rows[0].pid,pid);
+  await listener.query('UNLISTEN *');
+  console.log('Restricted role: DML, current-object privileges and session LISTEN passed.');
+} finally {
+  await writer.query('ROLLBACK').catch(()=>{});
+  await Promise.allSettled([listener.end(),writer.end()]);
+}
+JS
+```
+
+A passing smoke is necessary, not proof of session-pool behavior under load or runtime readiness. Preserve its
+nonsecret results and the endpoint/role/schema identity; still exercise reconnect and revocation during qualification.
+Stop before role deployment if grants, role checks or LISTEN fail. This document has not executed these commands
+against staging or approved infrastructure.
 
 ## 7. Tenant host image **[$ build machine while running]**
 

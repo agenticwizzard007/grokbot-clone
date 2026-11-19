@@ -4,6 +4,10 @@ This is a reviewable execution plan, not a record of passing infrastructure test
 
 Reconciled against source `8da5c8f` on 2026-11-19. Live infrastructure, provider credentials and qualification results were not re-verified for this revision. Use the [staging runbook](../infra/platform/staging-bootstrap.md) for role/image setup, subject to the unresolved bootstrap contract below.
 
+Before role deployment, complete the [restricted database-role grants and read/write/LISTEN smoke](../infra/platform/staging-bootstrap.md#6a-serving-role-grants-including-future-schema-objects). A successful schema-owner migration or database attachment does not grant a distinct serving login access. Grant current and future table/sequence privileges under the actual migration owner and verify using the same restricted serving connection.
+
+For KMS, an administrator's same-tenant decrypt/different-context refusal proves envelope mechanics only. Run the [restricted runtime-principal check](../infra/platform/staging-bootstrap.md#0b-aws-key-service-and-backup-bucket-about-10-minutes-of-the-owners-time-then-one-command) with the actual credentials to be imported. Require positive generate/decrypt and an explicit wrong-purpose `AccessDeniedException`; the current script's `ok:true` or exit zero alone is insufficient. Neither local mocks nor an administrator identity qualify runtime IAM.
+
 ## Historical inventory and current verification boundary
 
 The initial 2026-11-11 read-only inventory found only personal-org applications and no dedicated staging services. Later coordinator reports recorded staging apps and Managed Postgres creation. Neither report establishes their current state or a qualified isolated deployment. Before executing, reconcile the approved inventory against actual app, machine, network, volume, database, key and bucket identities, owners and costs. Record what already exists; do not recreate resources from an old checklist. Never copy production credentials or data into staging.
