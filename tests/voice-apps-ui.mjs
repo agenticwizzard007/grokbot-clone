@@ -66,6 +66,7 @@ try {
       if (path === '/api/auth/me') body = { user: { id: 'test-user', name: 'Alex', email: 'alex@example.test' }, devLogin: true };
       else if (path === '/api/bots') body = { bots: [bot, { ...bot, id: 'research', name: 'Research agent', isPrimary: false }], live: [] };
       else if (path.endsWith('/rows')) body = { generation: 1, rows: [] };
+      else if (path.endsWith('/coworker-setups')) body = { setups: [] };
       else if (path.endsWith('/routines')) body = { routines: [] };
       else if (path.endsWith('/tasks')) body = { tasks: [] };
       else if (path === '/api/settings') body = { settings: {}, computer: { provider: 'cloudvm' } };
@@ -120,10 +121,15 @@ try {
   }
 
   const web = await fixture();
-  web.snapshot({ connectionRequests: [connection, { ...connection, seq: 20 }, { ...connection, botId: 'main', seq: 18 }], approvals: [approval] });
+  web.snapshot({ connectionRequests: [connection, { ...connection, botId: 'main', seq: 18 }], approvals: [approval] });
+  await waitFor(async () => await web.page.locator('.vcall__connection').count() === 2);
+  // The server chooses current requests; the client preserves distinct callback
+  // identities and only deduplicates repeat deliveries of the same request.
+  web.snapshot({ connectionRequests: [connection, { ...connection }, { ...connection }], approvals: [approval] });
   await web.tool();
+  await waitFor(async () => await web.page.locator('.vcall__connection').count() === 1);
   await web.page.getByRole('button', { name: 'Connect Gmail', exact: true }).waitFor();
-  assert.equal(await web.page.locator('.vcall__connection').count(), 1, 'duplicate pending cards for one service appear once');
+  assert.equal(await web.page.locator('.vcall__connection').count(), 1, 'duplicate deliveries of one authoritative request appear once');
   await web.page.getByRole('button', { name: 'Allow', exact: true }).waitFor();
   assert.deepEqual(await web.popups(), [], 'tool output URL never opens automatically; chat cards require a user gesture');
   await waitFor(() => web.frames.length > 0);

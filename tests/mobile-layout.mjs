@@ -41,6 +41,9 @@ try {
       if (url.pathname === '/api/auth/me') body = { user: { id: 'user-a', name: 'Alex', email: 'alex@example.com' }, devLogin: false, googleLogin: true };
       else if (url.pathname === '/api/bots') body = { bots: [bot], live: [] };
       else if (url.pathname.endsWith('/rows')) body = { generation: 1, rows };
+      else if (url.pathname.endsWith('/coworker-setups')) body = { setups: [] };
+      else if (url.pathname === '/api/checkins') body = { enabled: false, times: ['09:00'], timezone: 'UTC', timezoneSource: 'utc_fallback', quietHours: [] };
+      else if (url.pathname === '/api/checkins/reports') body = { reports: [], nextCursor: 0, hasMore: false };
       else if (url.pathname.endsWith('/routines')) body = { routines: [] };
       else if (url.pathname.endsWith('/tasks')) body = { tasks: [] };
       else if (url.pathname === '/api/computer') body = { computer: { status: 'absent', screens: [] } };
