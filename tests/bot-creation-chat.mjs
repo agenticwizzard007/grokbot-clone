@@ -74,6 +74,15 @@ try {
   const harnessTab = page.getByRole('tab',{name:'Harness',exact:true});
   const filesTab = page.getByRole('tab',{name:'Files',exact:true});
   const responsibilitiesTab = page.getByRole('tab',{name:'Responsibilities',exact:true});
+  // Crossing into phone width (PHONE_QUERY, max-width 760px) intentionally closes the
+  // details column after the media-query change. Wait for that layout to settle before
+  // checking what is open, so the test never acts on a column that is about to close.
+  const resize = async (width, height = 900) => {
+    const wasPhone = page.viewportSize().width <= 760, phone = width <= 760;
+    await page.setViewportSize({width,height});
+    await page.locator(phone ? '.app.is-mobile' : '.app:not(.is-mobile)').waitFor();
+    if (phone && !wasPhone) await page.locator('aside.details').waitFor({state:'detached'});
+  };
   let previewCalls = 0;
   page.on('request', req => { if(req.url().endsWith(`/bots/${teammate.id}/instructions`)) previewCalls++; });
   await harnessTab.click();
@@ -163,7 +172,7 @@ try {
   await page.locator('aside.details').screenshot({path:'.context/shots/agent-configuration-harness.png'});
   // Narrow layouts retain readable controls and do not introduce horizontal scrolling.
   for (const width of [320,375,390,430,768,1024]) {
-    await page.setViewportSize({width,height:900});
+    await resize(width);
     if (!await page.locator('aside.details').isVisible()) {
       const botRow = page.locator('.bot-row').filter({hasText:'Nia · LinkedIn Research'});
       if (await botRow.isVisible()) await botRow.click();
@@ -195,7 +204,7 @@ try {
 
     }
   }
-  await page.setViewportSize({width:390,height:900});
+  await resize(390);
   if (!await page.locator('aside.details').isVisible()) {
     const botRow = page.locator('.bot-row').filter({hasText:'Nia · LinkedIn Research'});
     if (await botRow.isVisible()) await botRow.click();
@@ -217,7 +226,7 @@ try {
   await page.evaluate(()=>document.documentElement.dataset.theme='dark');
   await page.screenshot({path:'.context/shots/agent-configuration-mobile-dark.png',animations:'disabled'});
   await page.evaluate(()=>document.documentElement.dataset.theme='light');
-  await page.setViewportSize({width:1440,height:1000});
+  await resize(1440,1000);
   if (!await config.isVisible()) await page.getByRole('button',{name:'Show details',exact:true}).click();
   await config.click();
   await responsibilitiesTab.click();
@@ -227,9 +236,22 @@ try {
   const modelRequests=requests.filter((r)=>r.body.input?.[0]?.content?.startsWith('You are Nia,'));
   assert.ok(modelRequests.length); assert.match(modelRequests.at(-1).body.input[0].content,/Do not send outreach/);
   assert.ok(modelRequests.at(-1).body.input[0].content.includes(standing),'saved instructions reach the next actual model request');
-  assert.ok(!modelRequests.at(-1).body.tools.some((t)=>t.name==='create_bot'));
+  // Large catalogs send only core schemas eagerly and list the rest for
+  // tool_search/tool_describe, so a tool is offered if it is in either place.
+  const offered=(r)=>{
+    const names=new Set(r.body.tools.map((t)=>t.name));
+    const manifest=r.body.input[0].content.split('\n## Available tools\n')[1];
+    if(manifest) for(const [,name] of manifest.matchAll(/^- ([A-Za-z0-9_]+):/gm)) names.add(name);
+    return names;
+  };
+  assert.ok(!offered(modelRequests.at(-1)).has('create_bot'),'a teammate is not offered create_bot');
   const masterRequests=requests.filter((r)=>r.body.input?.[0]?.content?.startsWith('You are Quinn,'));
-  assert.ok(masterRequests.some((r)=>r.body.tools.some((t)=>t.name==='create_bot')));
+  assert.ok(masterRequests.length&&masterRequests.some((r)=>offered(r).has('create_bot')),'Quinn is offered create_bot');
+  // The deferred path must enforce the same split, not only the listing.
+  const describeCreateBot=async(id)=>(await chat(id,'mock: tool_describe {"tool_name":"create_bot"} | say {last}')).rows.find((r)=>r.body.name==='tool_describe').body;
+  const teammateDescribe=await describeCreateBot(teammate.id);
+  assert.equal(teammateDescribe.status,'error'); assert.equal(teammateDescribe.summary,'Tool not available.');
+  assert.equal((await describeCreateBot(primary.id)).status,'done');
   await chat(primary.id,'mock: replicate_bot {"bot_name":"Nia","new_name":"Nia Replica"} | say Replicated.');
   const replica=(await api('/bots')).bots.find((b)=>b.name==='Nia Replica'); assert.ok(replica); assert.notEqual(replica.id,teammate.id);
   assert.deepEqual((await api(`/bots/${replica.id}/setup`)).manifest.brief,(await api(`/bots/${teammate.id}/setup`)).manifest.brief);
