@@ -227,9 +227,22 @@ try {
   const modelRequests=requests.filter((r)=>r.body.input?.[0]?.content?.startsWith('You are Nia,'));
   assert.ok(modelRequests.length); assert.match(modelRequests.at(-1).body.input[0].content,/Do not send outreach/);
   assert.ok(modelRequests.at(-1).body.input[0].content.includes(standing),'saved instructions reach the next actual model request');
-  assert.ok(!modelRequests.at(-1).body.tools.some((t)=>t.name==='create_bot'));
+  // Large catalogs send only core schemas eagerly and list the rest for
+  // tool_search/tool_describe, so a tool is offered if it is in either place.
+  const offered=(r)=>{
+    const names=new Set(r.body.tools.map((t)=>t.name));
+    const manifest=r.body.input[0].content.split('\n## Available tools\n')[1];
+    if(manifest) for(const [,name] of manifest.matchAll(/^- ([A-Za-z0-9_]+):/gm)) names.add(name);
+    return names;
+  };
+  assert.ok(!offered(modelRequests.at(-1)).has('create_bot'),'a teammate is not offered create_bot');
   const masterRequests=requests.filter((r)=>r.body.input?.[0]?.content?.startsWith('You are Quinn,'));
-  assert.ok(masterRequests.some((r)=>r.body.tools.some((t)=>t.name==='create_bot')));
+  assert.ok(masterRequests.length&&masterRequests.some((r)=>offered(r).has('create_bot')),'Quinn is offered create_bot');
+  // The deferred path must enforce the same split, not only the listing.
+  const describeCreateBot=async(id)=>(await chat(id,'mock: tool_describe {"tool_name":"create_bot"} | say {last}')).rows.find((r)=>r.body.name==='tool_describe').body;
+  const teammateDescribe=await describeCreateBot(teammate.id);
+  assert.equal(teammateDescribe.status,'error'); assert.equal(teammateDescribe.summary,'Tool not available.');
+  assert.equal((await describeCreateBot(primary.id)).status,'done');
   await chat(primary.id,'mock: replicate_bot {"bot_name":"Nia","new_name":"Nia Replica"} | say Replicated.');
   const replica=(await api('/bots')).bots.find((b)=>b.name==='Nia Replica'); assert.ok(replica); assert.notEqual(replica.id,teammate.id);
   assert.deepEqual((await api(`/bots/${replica.id}/setup`)).manifest.brief,(await api(`/bots/${teammate.id}/setup`)).manifest.brief);
