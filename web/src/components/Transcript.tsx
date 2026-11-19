@@ -1,3 +1,5 @@
+import { isInternalRow, userFacingLive } from '../lib/audience';
+import { CoworkerSetupCards } from './CoworkerSetupCards';
 import { Fragment, memo, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Bot, LiveState, MessageBody, Row, ToolCallBody } from '@shared/types';
 import { BotAvatar, BotAvatarFor } from '../avatar/BotAvatar';
@@ -146,11 +148,13 @@ export const Transcript = memo(function Transcript({ bot, rows, live, loaded }: 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const [showJump, setShowJump] = useState(false);
-  const items = useMemo(() => buildItems(rows), [rows]);
+  const visibleRows = useMemo(() => rows.filter(r => !isInternalRow(r)), [rows]);
+  const items = useMemo(() => buildItems(visibleRows), [visibleRows]);
+  live = userFacingLive(live);
 
   const running = !!live?.isRunning;
   const waiting = !running && (!!live?.awaiting || live?.activity?.kind === 'waiting_for_you');
-  const last = rows[rows.length - 1];
+  const last = visibleRows[visibleRows.length - 1];
   const streamingNow = last?.body.type === 'message' && last.body.role === 'assistant' && !!last.body.streaming;
   const showActivity = (running && !streamingNow) || waiting;
 
@@ -182,7 +186,7 @@ export const Transcript = memo(function Transcript({ bot, rows, live, loaded }: 
     <div className="transcript-wrap">
     <div className="transcript" ref={scrollRef} onScroll={onScroll}>
       <div className="transcript__col">
-        {loaded && rows.length === 0 && <EmptyChat bot={bot} />}
+        {loaded && visibleRows.length === 0 && <EmptyChat bot={bot} />}
         {items.map((it) => {
           switch (it.kind) {
             case 'divider':
@@ -202,7 +206,8 @@ export const Transcript = memo(function Transcript({ bot, rows, live, loaded }: 
               );
           }
         })}
-        {showActivity && live && <ActivityLine bot={bot} live={live} rows={rows} />}
+        {bot.isPrimary && <CoworkerSetupCards key={bot.id} coordinator={bot} />}
+        {showActivity && live && <ActivityLine bot={bot} live={live} rows={visibleRows} />}
       </div>
     </div>
       {showJump && (

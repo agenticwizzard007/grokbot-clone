@@ -5,6 +5,9 @@ import { createHash } from 'node:crypto';
 import { parseEvent } from '../messaging/inkbox/events.js';
 const quote=(s:string)=>`"${s.replaceAll('"','""')}"`;
 const OMIT=new Set(['server_settings','auth_sessions','login_attempts','google_oidc_attempts','apple_login_attempts','openrouter_login_attempts','native_login_attempts','composio_sessions','companion_tokens','cli_pairings','mcp_oauth_attempts','account_roles','tenant_identity','legacy_owner_fences','phone_logins','login_tokens','messaging_codes','messaging_claims','local_computer_access','vms','computers','screens','provision_jobs']);
+// Search indexes contain cross-account derived text. Rebuild from the exported
+// owned rows on first startup; never copy FTS shadow pages or its backfill marker.
+const DERIVED=new Set(['knowledge_migrations','knowledge_messages_fts','knowledge_messages_fts_data','knowledge_messages_fts_idx','knowledge_messages_fts_content','knowledge_messages_fts_docsize','knowledge_messages_fts_config']);
 interface Table {name:string;sql:string;columns:{name:string;pk:number}[];foreign:{table:string;from:string;to:string}[]}
 /** Offline export from an operator-created snapshot. Unknown ownership is an error, never a copy-all default. */
 export async function exportTenantDatabase(sourceFile:string,destination:string,tenant:string,volumeId:string) {
@@ -15,6 +18,7 @@ export async function exportTenantDatabase(sourceFile:string,destination:string,
   try{
     if(!source.prepare('SELECT 1 FROM users WHERE id=?').get(tenant))throw new Error('Tenant does not exist.');
     const tables=(source.prepare("SELECT name,sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as {name:string;sql:string}[])
+      .filter(t=>!DERIVED.has(t.name))
       .map(t=>({...t,columns:source.prepare(`PRAGMA table_info(${quote(t.name)})`).all() as Table['columns'],foreign:source.prepare(`PRAGMA foreign_key_list(${quote(t.name)})`).all() as Table['foreign']}));
     const selected=new Map<string,Record<string,any>[]>() ,pending=new Set(tables.filter(t=>!OMIT.has(t.name)).map(t=>t.name));
     let changed=true;
@@ -37,7 +41,7 @@ export async function exportTenantDatabase(sourceFile:string,destination:string,
         else if(t.columns.some(c=>c.name==='user_id'))rows=source.prepare(`SELECT * FROM ${quote(t.name)} WHERE user_id=?`).all(tenant) as any[];
         else if(t.columns.some(c=>c.name==='bot_id')&&selected.has('bots')){
           const ids=selected.get('bots')!.map(r=>r.id);rows=ids.length?source.prepare(`SELECT * FROM ${quote(t.name)} WHERE bot_id IN (${ids.map(()=>'?').join(',')})`).all(...ids) as any[]:[];
-        }else if(t.foreign.length&&t.foreign.every(f=>selected.has(f.table)||OMIT.has(f.table))){
+        }else if(t.foreign.length&&t.foreign.every(f=>selected.has(f.table)||OMIT.has(f.table)||f.table===t.name)){
           const parents=t.foreign.filter(f=>selected.has(f.table));
           const all=source.prepare(`SELECT * FROM ${quote(t.name)}`).all() as any[];
           rows=all.filter(row=>parents.some(f=>row[f.from]!==null&&selected.get(f.table)!.some(parent=>parent[f.to||'id']===row[f.from])));
@@ -98,7 +102,7 @@ export async function exportTenantDatabase(sourceFile:string,destination:string,
         const columns=t.columns.map(c=>c.name),insert=target!.prepare(`INSERT INTO ${quote(t.name)}(${columns.map(quote)}) VALUES(${columns.map(()=>'?').join(',')})`);
         for(const row of rows)insert.run(...columns.map(c=>row[c]));
       }
-      for(const entry of source.prepare("SELECT sql FROM sqlite_master WHERE type='index' AND sql IS NOT NULL").all() as {sql:string}[])target!.exec(entry.sql);
+      for(const entry of source.prepare("SELECT tbl_name,sql FROM sqlite_master WHERE type='index' AND sql IS NOT NULL").all() as {tbl_name:string;sql:string}[])if(!DERIVED.has(entry.tbl_name))target!.exec(entry.sql);
       target!.exec('CREATE TABLE IF NOT EXISTS tenant_identity(singleton INTEGER PRIMARY KEY CHECK(singleton=1),tenant_id TEXT NOT NULL)');
       target!.prepare('INSERT INTO tenant_identity VALUES(1,?)').run(tenant);
     })();

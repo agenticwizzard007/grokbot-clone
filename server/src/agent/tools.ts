@@ -15,27 +15,41 @@ import { scheduleRoutine, unscheduleRoutine } from '../routines.js';
 import { createEventRoutine, deleteEventTrigger, describeEvent, listTriggerTypes } from '../triggers.js';
 import { getCheckins, setCheckins } from '../proactive.js';
 import { updateProfile } from '../accounts.js';
-import { createSubagent, deleteSubagent, listSubagents } from './subagents.js';
+import { createSubagent, deleteSubagent, listSubagents, subagentTree } from './subagents.js';
+import { selectedCli } from '../cli/store.js';
 import { createRoom, postToRoom } from './rooms.js';
 import type { ActivityKind } from '../types.js';
 import { Cron } from 'croner';
 import { creationSchema, isConfiguring, saveSetupDraft, setupDraftSchema } from '../bot-setup.js';
-import { createTeammate, replicateTeammate, retryTeammate } from './teammates.js';
+import { createTeammate, replicateTeammate, retryTeammate, CENTRAL_SETUP_TOOLS } from './teammates.js';
+import { COORDINATION_TOOLS } from './coordination-tools.js';
 import { z } from 'zod';
 import { findMcpTool } from '../mcp/store.js';
 import { platformState } from './platform-state.js';
 import { APP_CONNECTION_TOOLS } from './app-connections.js';
 import { appToolLabel } from '../tool-activity.js';
+import { DISCOVERY_TOOLS } from './tool-catalog.js';
+import { PROGRAM_TOOLS } from './programs.js';
+import { LEARNING_TOOLS } from './learning-tools.js';
+import { KNOWLEDGE_TOOLS } from './knowledge-tools.js';
+import { WORKFLOW_TOOLS } from './workflow-tools.js';
+import { DELIVERABLE_TOOLS } from './deliverable-tools.js';
+import { recordArtifact } from '../deliverables/index.js';
 
 export interface ToolCtx {
   userId: string;
   botId: string;
-  enqueueBotMessage: (fromBotId: string, toBotId: string, text: string, depth: number) => void;
+  enqueueBotMessage: (fromBotId: string, toBotId: string, text: string, depth: number) => string | void;
   depth: number;
   jobId?: string;
+  learningIteration?: number;
   /** Pin automatically allowed app reads to fresh read-only provider metadata at dispatch. */
   readOnlyApps?: boolean;
   recovery?: BrowserRecovery;
+  /** Re-read authorized schemas at dispatch; discovery never grants permission. */
+  availableTools?: () => Promise<any[]>;
+  workflowPrompt?: string;
+  remainingTokens?: number;
 }
 
 export interface ToolResult {
@@ -52,7 +66,7 @@ export interface ToolResult {
 
 type Impl = (args: any, ctx: ToolCtx) => Promise<ToolResult>;
 
-interface ToolDef {
+export interface ToolDef {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
@@ -87,7 +101,15 @@ function botByName(userId: string, name: string) {
 }
 
 export const TOOLS: ToolDef[] = [
+  ...COORDINATION_TOOLS,
+  ...CENTRAL_SETUP_TOOLS,
   ...APP_CONNECTION_TOOLS,
+  ...DISCOVERY_TOOLS,
+  ...PROGRAM_TOOLS,
+  ...KNOWLEDGE_TOOLS,
+  ...LEARNING_TOOLS,
+  ...WORKFLOW_TOOLS,
+  ...DELIVERABLE_TOOLS,
   {
     name: 'get_platform_state',
     description: 'Read authoritative Swarm configuration: this agent’s text model and provider, separate voice model, subscription CLI connection, recorded usage and optionally the model catalog or fresh connected-service status (include_connections). Use this for questions about this app; never browse Swarm or ask for a browser login to inspect its own configuration. Unknown subscription tiers or remaining provider allowance must not be guessed.',
@@ -101,7 +123,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'save_agent_setup',
     description: 'Save your own agent specification during the setup interview. Incorporate the user’s answers into the brief, working style, workflows and boundaries. Save after each substantive answer. Use stage review only when the specification is complete and open_questions is empty. The user activates it in Configuration; you cannot activate yourself.',
-    parameters: (() => { const { $schema, ...schema } = z.toJSONSchema(setupDraftSchema); return schema; })(),
+    parameters: (() => { const { $schema, ...schema } = z.toJSONSchema(setupDraftSchema, { io: 'input' }); return schema; })(),
     activity: 'working', label: 'Updating agent configuration',
     impl: async (a, ctx) => {
       const result = saveSetupDraft(ctx.botId, ctx.userId, a);
@@ -192,15 +214,15 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'save_file',
-    description: "Save a deliverable (report, notes, CSV, code, markdown) to your Library so the user can open and download it. Saved under /root/swarm/files/<your id>/ on your computer.",
+    description: 'Save a report, notes, CSV, code or markdown as an immutable Library artifact. Returns its ID and authenticated download URL for the user or deliver_artifact.',
     parameters: obj({ filename: { type: 'string', description: 'e.g. briefing-2026-11-09.md' }, content: { type: 'string' } }, ['filename', 'content']),
     activity: 'drafting_file',
     label: 'Saving notes',
     impl: async (a, ctx) => {
       let name = String(a.filename).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
       if (!name || /^\.+$/.test(name)) name = 'file.txt';
-      const path = await computers.files.save(ctx.userId, ctx.botId, name, String(a.content));
-      return { output: JSON.stringify({ ok: true, path }), summary: `Saved ${name}` };
+      const artifact = recordArtifact({ userId: ctx.userId, botId: ctx.botId, jobId: ctx.jobId, filename: name, content: String(a.content) });
+      return { output: JSON.stringify({ ok: true, artifact }), summary: `Saved ${name}` };
     },
   },
   {
@@ -215,30 +237,6 @@ export const TOOLS: ToolDef[] = [
       const r = await screen.shell(String(a.command), Math.min(Math.max(a.timeout_seconds ?? 120, 1), 290));
       const out = (r.output ?? '').slice(-20000);
       return { output: JSON.stringify({ exit_code: r.exit_code, output: out }), summary: `exit ${r.exit_code}` };
-    },
-  },
-  {
-    name: 'remember',
-    description: 'Save a durable memory about the user, their preferences, or your job, so you remember it in future conversations.',
-    parameters: obj({ text: { type: 'string' } }, ['text']),
-    activity: 'remembering',
-    label: 'Saving notes',
-    impl: async (a, ctx) => {
-      db.prepare('INSERT INTO memories(id,bot_id,text,created_at) VALUES (?,?,?,?)').run(newId('mem'), ctx.botId, String(a.text), now());
-      return { output: 'Saved to memory.', summary: 'Saved a memory' };
-    },
-  },
-  {
-    name: 'recall',
-    description: 'Search your saved memories.',
-    parameters: obj({ query: { type: 'string' } }, ['query']),
-    activity: 'remembering',
-    label: 'Searching memory',
-    impl: async (a, ctx) => {
-      const words = String(a.query).toLowerCase().split(/\W+/).filter((w) => w.length > 2);
-      const all = db.prepare('SELECT text, created_at FROM memories WHERE bot_id=? ORDER BY created_at DESC').all(ctx.botId) as any[];
-      const hits = all.filter((m) => !words.length || words.some((w) => m.text.toLowerCase().includes(w))).slice(0, 20);
-      return { output: JSON.stringify(hits.map((h) => h.text)) };
     },
   },
   {
@@ -376,6 +374,9 @@ export const TOOLS: ToolDef[] = [
     activity: 'working',
     label: 'Updating a task',
     impl: async (a, ctx) => {
+      if (db.prepare('SELECT 1 FROM native_workflow_tasks w JOIN tasks t ON t.id=w.task_id WHERE w.task_id=? AND t.bot_id=?').get(a.task_id, ctx.botId)) {
+        return { output: 'This task belongs to a verified workflow. Use complete_workflow_task with evidence, or control_workflow to change its execution state.', isError: true };
+      }
       db.prepare('UPDATE tasks SET state=?, note=COALESCE(?, note), updated_at=? WHERE id=? AND bot_id=?').run(a.state, a.note ?? null, now(), a.task_id, ctx.botId);
       hub.emit(ctx.userId, { type: 'tasks', botId: ctx.botId });
       return { output: 'Updated.' };
@@ -392,15 +393,15 @@ export const TOOLS: ToolDef[] = [
       if (!target) return { output: `No bot named "${a.bot_name}". Team: ${(db.prepare('SELECT name FROM bots WHERE user_id=?').all(ctx.userId) as any[]).map((b) => b.name).join(', ')}` };
       if (target.id === ctx.botId) return { output: 'That is you.' };
       if (target.kind === 'room') return { output: `"${target.name}" is a group chat; use post_to_group instead.` };
-      if (ctx.depth >= 3) return { output: 'Too many hops between bots; answer the user directly instead.' };
-      ctx.enqueueBotMessage(ctx.botId, target.id, String(a.message), ctx.depth + 1);
-      return { output: `Sent to ${target.name}. Their reply will come back to you as a message.`, summary: `Messaged ${target.name}` };
+      if (!selectedCli(ctx.userId) && ctx.depth >= 3) return { output: 'Internal request depth reached. Return this blocker to the current requester; keep internal output internal.' };
+      const requestId = ctx.enqueueBotMessage(ctx.botId, target.id, String(a.message), ctx.depth + 1);
+      return { output: `Request recorded for ${target.name}${requestId ? ` (${requestId})` : ""}. Execution may be deferred; a correlated result will return automatically.`, summary: `Requested ${target.name}` };
     },
   },
   {
     name: 'create_bot',
     description: 'Create a permanent teammate directly from the master chat. Build a focused, self-contained brief from the user’s specifications and corrections. Saves identity, AGENTS.md, context, resources, handoffs and a portable setup, then prepares its separate browser/screen. Only the current primary Bot can create teammates. Use this for durable Bots; spawn_subagent is temporary.',
-    parameters: (() => { const { $schema, ...schema } = z.toJSONSchema(creationSchema); return schema; })(),
+    parameters: (() => { const { $schema, ...schema } = z.toJSONSchema(creationSchema, { io: 'input' }); return schema; })(),
     activity: 'working',
     label: 'Creating a teammate',
     impl: createTeammate,
@@ -419,16 +420,20 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'spawn_subagent',
-    description: 'Start a subagent: a helper copy of you with its own context and its own computer screen, to work on one goal in parallel (e.g. research one company each). It reports back to you as a message when done. API billing allows up to 4 helpers; subscription connections have no fixed helper-count limit.',
-    parameters: obj({ goal: { type: 'string', description: 'Self-contained task with everything the subagent needs to know' }, label: { type: 'string', description: 'Short name, e.g. "Acme research"' } }, ['goal']),
+    description: 'Start a temporary helper with its own context and computer to work on an independent part of the task in parallel. Include the relevant context, ownership boundaries and expected evidence. Use merge_instructions to explain how its result will combine with the other work; consolidate required results before claiming completion. Subscription helpers can delegate again with no fixed helper-count or nesting-depth limit. API billing retains its helper and depth limits. Native goal/workflow runs use structured workflow delegation to preserve their budgets.',
+    parameters: obj({ goal: { type: 'string', description: 'Self-contained task with everything the subagent needs to know' }, label: { type: 'string', description: 'Short name, e.g. "Acme research"' }, merge_instructions: { type: 'string', description: 'Expected result, evidence and how the parent should combine it with its own work or other helpers. Does not authorize publishing or a Git merge.' } }, ['goal']),
     activity: 'messaging_named',
     label: 'Starting a helper',
     impl: async (a, ctx) => {
-      if (ctx.depth >= 2) return { output: 'Subagents cannot start more subagents. Do the work yourself.' };
+      if (!selectedCli(ctx.userId) && ctx.depth >= 2) return { output: 'Subagents cannot start more subagents. Do the work yourself.' };
       try {
-        const sub = createSubagent(ctx.botId, String(a.goal), a.label);
-        ctx.enqueueBotMessage(ctx.botId, sub.id, String(a.goal), ctx.depth + 1);
-        return { output: JSON.stringify({ ok: true, subagent_id: sub.id, name: sub.name, note: 'It will report back to you as a message. Continue with other work or end your turn.' }), summary: `Started ${sub.name}` };
+        const assignment = String(a.goal) + (a.merge_instructions ? `\n\nResult consolidation instructions:\n${a.merge_instructions}` : '');
+        const sub = db.transaction(() => {
+          const helper = createSubagent(ctx.botId, assignment, a.label);
+          ctx.enqueueBotMessage(ctx.botId, helper.id, assignment, ctx.depth + 1);
+          return helper;
+        })();
+        return { output: JSON.stringify({ ok: true, subagent_id: sub.id, name: sub.name, note: 'Work on your independent part in parallel. Gather the required helper results and reconcile them with your own work before claiming the overall task is complete. End your turn while waiting; results will arrive through your ordered queue.' }), summary: `Started ${sub.name}` };
       } catch (e: any) {
         return { output: String(e?.message ?? e) };
       }
@@ -457,7 +462,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'stop_subagent',
-    description: 'Stop and remove one of your subagents (do this once you have its result).',
+    description: 'Stop and remove one of your temporary helpers and all of its nested helpers. Keep needed results before removing the subtree.',
     parameters: obj({ subagent_id: { type: 'string' } }, ['subagent_id']),
     activity: 'working',
     label: 'Wrapping up a helper',
@@ -466,7 +471,7 @@ export const TOOLS: ToolDef[] = [
       const id = String(a.subagent_id);
       const child = db.prepare('SELECT id FROM bots WHERE id=? AND parent_bot_id=? AND user_id=?').get(id, ctx.botId, ctx.userId);
       if (!child) return { output: 'No such subagent.' };
-      interrupt(id);
+      for (const descendantId of subagentTree(ctx.botId, id)) interrupt(descendantId);
       return { output: deleteSubagent(ctx.botId, id) ? 'Stopped and removed.' : 'No such subagent.' };
     },
   },
@@ -634,7 +639,7 @@ export function functionSchemas(botId?: string) {
   const bot = botId ? getBotRow(botId) : null;
   const canCreate = !!bot?.is_primary && !bot.hidden && bot.kind !== 'room';
   return TOOLS.filter((t) => (!botId || allowedDuringSetup(botId, t.name)) && (t.name !== 'save_agent_setup' || !!botId && isConfiguring(botId)))
-    .filter((t) => (!['create_bot', 'replicate_bot', 'retry_bot_setup', 'update_profile'].includes(t.name) || canCreate)).filter((t) => t.name !== 'shell' || computers.capabilities.shell).filter((t) => !t.name.startsWith('browser_') || computers.capabilities.browser).map((t) => ({
+    .filter((t) => (!['create_bot', 'replicate_bot', 'retry_bot_setup', 'update_profile', 'inspect_teammate_setup', 'prepare_teammate_setup', 'get_team_state', 'get_team_records', 'read_team_source', 'read_team_job'].includes(t.name) || canCreate)).filter((t) => t.name !== 'shell' || computers.capabilities.shell).filter((t) => !t.name.startsWith('browser_') || computers.capabilities.browser).map((t) => ({
     type: 'function',
     name: t.name,
     description: computers.toolDescriptions?.[t.name] ?? t.description,
@@ -647,6 +652,11 @@ export function functionSchemas(botId?: string) {
 export type Decision = 'allow' | 'ask' | 'block';
 
 export function policyFor(userId: string, toolName: string, args: any, botId?: string): { decision: Decision; key: string; toolkit?: string; title: string } {
+  if (toolName === 'deliver_artifact' || toolName === 'retry_delivery') {
+    const key = `${toolName}:bot:${botId ?? ''}`;
+    const policy = db.prepare('SELECT mode FROM policies WHERE user_id=? AND tool=?').get(userId, key) as { mode: string } | undefined;
+    return { decision: policy?.mode === 'blocked' ? 'block' : toolName === 'deliver_artifact' && args?.channel === 'library' || policy?.mode === 'always_allow' ? 'allow' : 'ask', key, title: toolName === 'retry_delivery' ? 'retry delivery of the saved report' : `deliver the saved report via ${String(args?.channel ?? 'messaging')}` };
+  }
   if (toolName.startsWith('mcp_')) {
     const match = botId ? findMcpTool(userId, toolName, botId) : undefined;
     const key = `${toolName}:bot:${botId ?? ''}`;

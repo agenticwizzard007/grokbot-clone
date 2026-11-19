@@ -15,6 +15,9 @@ import { env } from './env.js';
 import { cliApi } from './cli/routes.js';
 import { attachCliSocket } from './cli/bridge.js';
 import { api } from './routes.js';
+import { knowledgeApi } from './routes-knowledge.js';
+import { workflowApi } from './routes-workflows.js';
+import { deliverablesApi } from './routes-deliverables.js';
 import { attachComputerSockets, computers } from './computers/index.js';
 import { tenantDesktopReadiness } from './computers/tenant-readiness.js';
 import { initRoutines } from './routines.js';
@@ -36,7 +39,11 @@ import { loadSettings } from './settings.js';
 import { defaultModel, openrouterModels } from './lib/llm.js';
 import { mcpApi } from './mcp/routes.js';
 import { resumeThisComputer } from './computers/this-computer.js';
-import { startMemoryConsolidation } from './agent/memory.js';
+import { startDeliveryRuntime } from './deliverables/index.js';
+import { startLearningRuntime } from './agent/learning.js';
+import { startCoordinationRuntime } from './coordination/index.js';
+import { learningApi } from './routes-learning.js';
+import { coordinationApi } from './routes-coordination.js';
 import { initMessaging, inkboxWebhook, messagingApi, messagingPublic } from './messaging/index.js';
 
 if (!desSelfTest()) throw new Error('DES self-test failed');
@@ -64,6 +71,13 @@ app.use('/api/*', async (c, next) => {
 // Usage attribution: model calls made while handling a signed-in request are billed to that account.
 app.use('/api/*', (c, next) => withUsage({ resolveUser: () => userFromCookieHeader(c.req.header('cookie'))?.id }, () => next()));
 app.get('/api/health', (c) => c.json({ ok: true, provider: env.llmProvider, model: defaultModel(), computers: computers.kind, desktop: env.localDesktop, direct: !!env.directKey, openrouter: !!env.openrouterKey, apps: env.composioEnabled, features: { botCreation: true, botSetupVersion: 2, guidedSetup: true, messaging: true } }));
+const releaseManifest = new URL('./release-manifest.json', import.meta.url);
+app.get('/api/version', (c) => {
+  c.header('Cache-Control', 'no-store');
+  if (!fs.existsSync(releaseManifest)) return c.json({ revision: null }, 503);
+  const { revision, builtAt, frontendSha256, serverSha256 } = JSON.parse(fs.readFileSync(releaseManifest, 'utf8'));
+  return c.json({ revision, builtAt, frontendSha256, serverSha256 });
+});
 // The companion program for local computers (public: it holds no secrets; the pairing token does).
 const companionScript = new URL('../../companion/swarm-companion.mjs', import.meta.url);
 app.get('/api/companion/script', (c) => {
@@ -83,6 +97,11 @@ app.route('/api', messagingPublic);
 app.route('/api/messaging', messagingApi);
 app.route('/api/checkins', checkinsApi);
 app.route('/api/rooms', roomsApi);
+app.route('/api', knowledgeApi);
+app.route('/api/workflows', workflowApi);
+app.route('/api/deliverables', deliverablesApi);
+app.route('/api/learning',learningApi);
+app.route('/api/team',coordinationApi);
 app.route('/api', api);
 app.route('/api', configApi);
 app.route('/api/usage', usageApi);
@@ -92,6 +111,10 @@ app.route('/api/mcp/servers', mcpApi);
 // Serve the built web app in production.
 const webDist = path.resolve(new URL('.', import.meta.url).pathname, '../../web/dist');
 if (fs.existsSync(webDist)) {
+  app.use('/*', async (c, next) => {
+    await next();
+    if (c.res.headers.get('Content-Type')?.includes('text/html') || c.req.path === '/build.json') c.header('Cache-Control', 'no-cache');
+  });
   app.use('/assets/*', async (c, next) => {
     await next();
     // Only Vite's fingerprinted bundles are immutable (not icons with stable names).
@@ -110,6 +133,9 @@ if (env.llmProvider === 'openrouter') void openrouterModels().catch(() => {});
 // SWARM_NO_SCHEDULER=1 for extra dev/test servers sharing a database copy, so routines and triggers don't fire twice.
 if (process.env.SWARM_NO_SCHEDULER !== '1') {
   initDurableJobs();
+  startLearningRuntime();
+  startCoordinationRuntime();
+  startDeliveryRuntime();
   initRoutines(enqueue);
   void initTriggers(enqueue);
   initProactive(enqueue);
@@ -119,6 +145,6 @@ initMessaging({ process: process.env.SWARM_NO_SCHEDULER !== '1' });
 computers.start?.();
 startVmMeter();
 if (computers.kind === 'local') resumeThisComputer();
-startMemoryConsolidation();
+
 
 if (isTenant) { await startTenantTunnel(env.port); initRuntimeEvents(); }

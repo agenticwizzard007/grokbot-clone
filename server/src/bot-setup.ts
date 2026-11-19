@@ -1,10 +1,49 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { db, now } from './db.js';
 import { env } from './env.js';
 import { appendHistory, appendRow, getBotRow } from './store.js';
 import { hub } from './lib/hub.js';
+import { publishNativeEvent } from './native/events.js';
+import { assertLegacyWorkOpen } from './security/legacy-work.js';
+
+db.exec(`CREATE TABLE IF NOT EXISTS coworker_setup_handoffs (
+ bot_id TEXT PRIMARY KEY REFERENCES bots(id) ON DELETE CASCADE,
+ job_id TEXT NOT NULL UNIQUE, approved_revision INTEGER NOT NULL, created_at INTEGER NOT NULL
+)`);
+type SetupHandoffEnqueue = (botId: string, trigger: { type: 'system'; audience: 'internal'; text: string }) => string;
+let enqueueSetupHandoff: SetupHandoffEnqueue | undefined;
+
+/** Runtime injects its existing durable admission path; this module never starts a second executor. */
+export function bindSetupHandoffRuntime(enqueue: SetupHandoffEnqueue) { enqueueSetupHandoff = enqueue; }
+
+export function releaseSetupHandoff(botId: string): string | null {
+  return db.transaction(() => {
+    const b = getBotRow(botId);
+    if (!b || b.hidden || b.parent_bot_id || b.kind === 'room') return null;
+    assertLegacyWorkOpen(b.user_id);
+    const prior = db.prepare('SELECT job_id FROM coworker_setup_handoffs WHERE bot_id=?').get(botId) as { job_id: string } | undefined;
+    if (prior) return prior.job_id;
+    const s = db.prepare('SELECT * FROM bot_setups WHERE bot_id=?').get(botId) as any;
+    if (!s || s.onboarding_status !== 'active' || s.computer_status !== 'ready' || !s.pending_handoff || !enqueueSetupHandoff) return null;
+    const jobId = enqueueSetupHandoff(botId, { type: 'system', audience: 'internal', text: `Your setup has been confirmed by the user. Handle this initial assignment from your approved creation brief:\n${s.pending_handoff}` });
+    if (!db.prepare('SELECT 1 FROM agent_jobs WHERE id=? AND bot_id=? AND user_id=?').get(jobId, botId, b.user_id)) throw new Error('Setup handoff was not durably admitted.');
+    const activation = db.prepare("SELECT data FROM native_events WHERE bot_id=? AND kind='setup.activated' ORDER BY seq DESC LIMIT 1").get(botId) as { data: string } | undefined;
+    const approvedRevision = activation ? JSON.parse(activation.data).approvedRevision : s.revision - 1;
+    db.prepare('INSERT INTO coworker_setup_handoffs(bot_id,job_id,approved_revision,created_at) VALUES(?,?,?,?)').run(botId, jobId, approvedRevision, now());
+    db.prepare('UPDATE bot_setups SET pending_handoff=NULL WHERE bot_id=?').run(botId);
+    publishNativeEvent({ userId: b.user_id, botId, jobId, kind: 'setup.handoff_admitted', sourceType: 'setup', sourceId: botId, sourceRevision: s.revision, data: { jobId } });
+    return jobId;
+  })();
+}
+
+/** Retry admission after restart/capacity recovery without replaying an existing job. */
+export function releaseReadySetupHandoffs() {
+  const rows = db.prepare("SELECT bot_id FROM bot_setups WHERE onboarding_status='active' AND computer_status='ready' AND pending_handoff IS NOT NULL").all() as { bot_id: string }[];
+  for (const row of rows) { try { releaseSetupHandoff(row.bot_id); } catch { /* Retain the assignment for the next admission attempt. */ } }
+}
 
 const text = (max: number) => z.string().trim().min(1).max(max);
 const list = z.array(text(2000)).max(30);
@@ -29,9 +68,29 @@ export interface SetupSource {
   generation?: number;
   messages: { seq: number; text: string }[];
   interviewMessages?: { generation: number; seq: number; text: string }[];
+  sourceRefs?: SetupAnswer[];
+}
+
+export const setupSourceRefSchema = z.object({ botId: text(200), generation: z.number().int().positive(), seq: z.number().int().positive(), contentHash: z.string().regex(/^[a-f0-9]{64}$/).optional() });
+export interface SetupAnswer { botId: string; generation: number; seq: number; contentHash: string; text: string }
+
+/** Read the original record, including archived generations; never synthesize a local answer. */
+export function setupAnswers(userId: string, refs: z.infer<typeof setupSourceRefSchema>[]): SetupAnswer[] {
+  return refs.map(ref => {
+    const row = db.prepare("SELECT r.body FROM rows r JOIN bots b ON b.id=r.bot_id WHERE b.user_id=? AND r.bot_id=? AND r.generation=? AND r.seq=? AND r.kind='message'").get(userId, ref.botId, ref.generation, ref.seq) as { body: string } | undefined;
+    const body = row && JSON.parse(row.body);
+    if (!body || body.type !== 'message' || body.role !== 'user' || body.streaming || typeof body.text !== 'string' || !body.text.trim() || body.audience === 'internal' || body.from && !['voice', 'imessage', 'sms', 'whatsapp'].includes(body.from.kind)) throw new Error('Setup sources must reference original human answers owned by this account.');
+    const contentHash = createHash('sha256').update(body.text).digest('hex');
+    // Team source reads hash the full text; existing session references hash
+    // the serialized message. Validate both established reference formats.
+    const bodyHash = createHash('sha256').update(row!.body).digest('hex');
+    if (ref.contentHash && ref.contentHash !== contentHash && ref.contentHash !== bodyHash) throw new Error('Source message changed. Read the original answer again.');
+    return { ...ref, contentHash, text: body.text };
+  });
 }
 
 export const creationSchema = briefSchema.extend({
+  creation_request_id: text(200).optional().describe('Stable identity for this creation request. Reuse exactly on retries, even after the coworker is renamed or edited.'),
   name: text(60).refine((v) => !/[\r\n\t]/.test(v), 'Name must be a single line'),
   label: z.string().trim().max(40).default(''),
   instructions: z.string().trim().max(8000).default(''),
@@ -136,7 +195,7 @@ export function setupFiles(botId: string): Record<string, string> {
     'IDENTITY.md': `# ${b.name}\n\nRole: ${b.label}\n\n${s.purpose}\n`,
     'SOUL.md': `# Working style\n\n${soulMarkdown(s)}\n`,
     'WORKFLOWS.md': `# Workflows\n\n${workflowMarkdown(s)}\n`,
-    'CONTEXT.md': `# Context\n\n${s.context_summary}\n\n## Selected user messages\n${source.messages.map((m) => `### Message ${m.seq}\n${m.text}`).join('\n\n') || 'Created from a supplied specification.'}\n\n## Setup interview\n${(source.interviewMessages ?? []).map((m) => `### Conversation ${m.generation}, message ${m.seq}\n${m.text}`).join('\n\n')}\n`,
+    'CONTEXT.md': `# Context\n\n${s.context_summary}\n\n## Selected user messages\n${source.messages.map((m) => `### Message ${m.seq}\n${m.text}`).join('\n\n') || 'Created from a supplied specification.'}\n\n## Setup interview\n${(source.interviewMessages ?? []).map((m) => `### Conversation ${m.generation}, message ${m.seq}\n${m.text}`).join('\n\n')}\n\n## Original setup answers\n${(source.sourceRefs ?? []).map(m => `### Bot ${m.botId}, conversation ${m.generation}, message ${m.seq}\nHash: ${m.contentHash}\n\n${m.text}`).join('\n\n')}\n`,
     'RESOURCES.md': `# Shared resources\n\n${bullets(s.shared_resources)}\n`,
     'HANDOFFS.md': `# Handoffs\n\n${bullets(s.handoff_notes, 'Report results and blockers to the assigning Bot using send_to_bot.')}\n`,
     'bot-setup.json': JSON.stringify(manifest, null, 2) + '\n',
@@ -233,25 +292,87 @@ export function saveSetupDraft(botId: string, userId: string, input: unknown) {
     const result = db.prepare('UPDATE bot_setups SET brief=?, source=?, onboarding_status=?, revision=revision+1, confirmed_at=NULL, updated_at=? WHERE bot_id=? AND revision=?').run(JSON.stringify(brief), JSON.stringify(source), a.stage, now(), botId, a.revision);
     if (!result.changes) throw new Error('The configuration changed. Read the latest revision and retry.');
     db.prepare('UPDATE bots SET instructions=?, description=?, updated_at=? WHERE id=?').run(a.instructions, brief.purpose.slice(0, 300), now(), botId);
+    publishNativeEvent({ userId, botId, kind: 'setup.prepared', sourceType: 'setup', sourceId: botId, sourceRevision: a.revision + 1, data: { stage: a.stage } });
     writeSetupFiles(botId);
   })();
   emitSetup(botId);
   return setupView(botId)!;
 }
 
+export function assertSetupCoordinator(userId: string, coordinatorId: string) {
+  assertLegacyWorkOpen(userId);
+  const b = getBotRow(coordinatorId);
+  const primaries = db.prepare('SELECT id FROM bots WHERE user_id=? AND is_primary=1').all(userId) as { id: string }[];
+  if (!b || b.user_id !== userId || !b.is_primary || b.hidden || b.parent_bot_id || b.kind === 'room' || primaries.length !== 1 || primaries[0].id !== coordinatorId) throw new Error('Only this user’s current primary Bot can prepare teammate setup.');
+  return b;
+}
+
+export function coworkerSetup(userId: string, coordinatorId: string, botId: string) {
+  assertSetupCoordinator(userId, coordinatorId);
+  const b = getBotRow(botId);
+  if (!b || b.user_id !== userId || b.id === coordinatorId || b.is_primary || b.hidden || b.parent_bot_id || b.kind === 'room') throw new Error('Coworker setup not found.');
+  const setup = setupView(botId);
+  if (!setup) throw new Error('Coworker setup not found.');
+  return { botId, ...setup };
+}
+
+export function coworkerSetups(userId: string, coordinatorId: string) {
+  assertSetupCoordinator(userId, coordinatorId);
+  const bots = db.prepare("SELECT b.id FROM bots b JOIN bot_setups s ON s.bot_id=b.id WHERE b.user_id=? AND b.is_primary=0 AND COALESCE(b.hidden,0)=0 AND b.parent_bot_id IS NULL AND COALESCE(b.kind,'agent')!='room' AND s.onboarding_status!='active' ORDER BY s.updated_at DESC,b.id").all(userId) as { id: string }[];
+  return bots.map(b => coworkerSetup(userId, coordinatorId, b.id));
+}
+
+export const centralSetupDraftSchema = briefSchema.extend({
+  bot_id: text(200), revision: z.number().int().positive(), stage: z.enum(['interviewing', 'review']), instructions: z.string().max(8000),
+  source_refs: z.array(setupSourceRefSchema).min(1).max(30).describe('Original human answers, including Quinn’s conversation. Use stable botId, generation and seq; never copy them into the specialist chat.'),
+}).strict();
+
+export function prepareCoworkerSetup(userId: string, coordinatorId: string, input: unknown) {
+  const a = centralSetupDraftSchema.parse(input);
+  return db.transaction(() => {
+    const view = coworkerSetup(userId, coordinatorId, a.bot_id);
+    const pendingCard = db.prepare("SELECT 1 FROM rows r JOIN bots b ON b.id=r.bot_id AND b.generation=r.generation WHERE r.bot_id=? AND r.kind='card' AND json_extract(r.body,'$.card') IN ('question','approval','connect') AND json_extract(r.body,'$.status')='pending' LIMIT 1").get(a.bot_id);
+    if (pendingCard || db.prepare('SELECT 1 FROM pending_turns WHERE bot_id=?').get(a.bot_id) || db.prepare("SELECT 1 FROM approvals WHERE bot_id=? AND status='pending'").get(a.bot_id)) throw new Error('Resolve the coworker’s pending decision before changing its setup.');
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='agent_jobs'").get() && db.prepare("SELECT 1 FROM agent_jobs WHERE bot_id=? AND state IN ('queued','running')").get(a.bot_id)) throw new Error('Wait for the coworker’s current work before changing its setup.');
+    const prior = getSetup(a.bot_id)!;
+    if (view.onboarding.revision !== a.revision) throw new Error('The configuration changed. Read the latest revision and retry.');
+    const answers = setupAnswers(userId, a.source_refs);
+    const evidence = new Map((prior.source.sourceRefs ?? []).map(m => [`${m.botId}:${m.generation}:${m.seq}`, m]));
+    for (const m of answers) evidence.set(`${m.botId}:${m.generation}:${m.seq}`, m);
+    const brief = briefSchema.parse(a);
+    if (a.stage === 'review' && setupMissing(brief).length) throw new Error(`Finish the brief before requesting review: ${setupMissing(brief).join('; ')}`);
+    const source = { ...prior.source, sourceRefs: [...evidence.values()] };
+    const changed = db.prepare('UPDATE bot_setups SET brief=?,source=?,onboarding_status=?,revision=revision+1,confirmed_at=NULL,updated_at=? WHERE bot_id=? AND revision=?').run(JSON.stringify(brief), JSON.stringify(source), a.stage, now(), a.bot_id, a.revision);
+    if (!changed.changes) throw new Error('The configuration changed. Read the latest revision and retry.');
+    db.prepare('UPDATE bots SET instructions=?,description=?,updated_at=? WHERE id=? AND user_id=?').run(a.instructions, brief.purpose.slice(0, 300), now(), a.bot_id, userId);
+    publishNativeEvent({ userId, botId: a.bot_id, kind: 'setup.prepared', sourceType: 'setup', sourceId: a.bot_id, sourceRevision: a.revision + 1, data: { coordinatorId, stage: a.stage, sourceRefs: answers.map(({ text, ...ref }) => ref) } });
+    writeSetupFiles(a.bot_id);
+    emitSetup(a.bot_id);
+    return coworkerSetup(userId, coordinatorId, a.bot_id);
+  })();
+}
+
 export function activateSetup(botId: string, revision: number) {
-  const s = getSetup(botId);
-  if (!s || s.onboarding.status !== 'review') throw new Error('Finish the setup interview before activating this agent.');
-  if (setupMissing(s.brief).length) throw new Error('The specification has unresolved questions.');
-  const result = db.prepare("UPDATE bot_setups SET onboarding_status='active', confirmed_at=?, revision=revision+1, updated_at=? WHERE bot_id=? AND revision=? AND onboarding_status='review'").run(now(), now(), botId, revision);
-  if (!result.changes) throw new Error('The specification changed. Review the latest version before activating.');
-  const pending = db.prepare('SELECT pending_handoff FROM bot_setups WHERE bot_id=?').get(botId) as { pending_handoff: string | null };
-  db.prepare('UPDATE bot_setups SET pending_handoff=NULL WHERE bot_id=?').run(botId);
-  const text = 'Your setup is confirmed. I’ll follow the agreed responsibilities, workflows and working style.';
-  appendRow(botId, 'message', { type: 'message', role: 'assistant', text });
-  appendHistory(botId, [{ role: 'assistant', content: text }]);
-  emitSetup(botId);
-  return pending.pending_handoff;
+  return db.transaction(() => {
+    const b = getBotRow(botId);
+    if (!b) throw new Error('Agent not found.');
+    assertLegacyWorkOpen(b.user_id);
+    const s = getSetup(botId);
+    if (!s || s.onboarding.status !== 'review') throw new Error('Finish the setup interview before activating this agent.');
+    if (setupMissing(s.brief).length) throw new Error('The specification has unresolved questions.');
+    const result = db.prepare("UPDATE bot_setups SET onboarding_status='active', confirmed_at=?, revision=revision+1, updated_at=? WHERE bot_id=? AND revision=? AND onboarding_status='review'").run(now(), now(), botId, revision);
+    if (!result.changes) throw new Error('The specification changed. Review the latest version before activating.');
+    const pending = db.prepare('SELECT pending_handoff FROM bot_setups WHERE bot_id=?').get(botId) as { pending_handoff: string | null };
+    publishNativeEvent({ userId: b.user_id, botId, kind: 'setup.activated', sourceType: 'setup', sourceId: botId, sourceRevision: revision + 1, audience: 'user', data: { approvedRevision: revision } });
+    const text = 'Your setup is confirmed. I’ll follow the agreed responsibilities, workflows and working style.';
+    appendRow(botId, 'message', { type: 'message', role: 'assistant', text });
+    appendHistory(botId, [{ role: 'assistant', content: text }]);
+    emitSetup(botId);
+    // Provisioning can finish later. Keep the original assignment until one
+    // durable job and its receipt commit together. Legacy callers may inspect it.
+    try { releaseSetupHandoff(botId); } catch { /* Human activation remains committed; retry durable admission when capacity returns. */ }
+    return s.computer.status === 'ready' ? pending.pending_handoff : null;
+  })();
 }
 
 export function removeSetupFiles(botId: string) {
@@ -261,7 +382,8 @@ export function removeSetupFiles(botId: string) {
 /** Only actual user messages (typed, spoken on a call, or texted) can be cited as the creation brief. */
 export function creationContext(botId: string) {
   const b = getBotRow(botId);
-  const rows = db.prepare("SELECT seq,body FROM rows WHERE bot_id=? AND generation=? AND kind='message' AND json_extract(body,'$.role')='user' AND (json_extract(body,'$.from.kind') IS NULL OR json_extract(body,'$.from.kind') IN ('voice','imessage','sms','whatsapp')) ORDER BY seq DESC LIMIT 100").all(botId, b.generation) as { seq: number; body: string }[];
+  if (!b) return [];
+  const rows = db.prepare("SELECT seq,body FROM rows WHERE bot_id=? AND generation=? AND kind='message' AND json_extract(body,'$.role')='user' AND COALESCE(json_extract(body,'$.audience'),'user')!='internal' AND COALESCE(json_extract(body,'$.streaming'),0)=0 AND (json_extract(body,'$.from.kind') IS NULL OR json_extract(body,'$.from.kind') IN ('voice','imessage','sms','whatsapp')) ORDER BY seq DESC LIMIT 100").all(botId, b.generation) as { seq: number; body: string }[];
   return rows.flatMap((r) => {
     const m = JSON.parse(r.body);
     return m.role === 'user' && (!m.from || m.from.kind === 'voice' || m.from.kind === 'imessage' || m.from.kind === 'sms' || m.from.kind === 'whatsapp') ? [{ seq: r.seq, text: String(m.text) }] : [];

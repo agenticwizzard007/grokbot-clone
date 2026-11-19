@@ -1,4 +1,4 @@
-import type { AgentInstructionPreview, AgentSetupView, Bot, ComputerState, LibraryFile, Memory, Routine, Skill, Task, Toolkit } from '@shared/types';
+import type { AgentInstructionPreview, AgentSetupView, CoworkerSetupView, Bot, ComputerState, LibraryFile, Memory, Routine, Skill, Task, Toolkit } from '@shared/types';
 import { ApiError } from './api';
 import type { McpServerInput, McpServerView } from '@shared/types';
 
@@ -17,9 +17,18 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
   return res.json() as Promise<T>;
 }
 
+export interface MessageSource { botId: string; generation: number; seq: number; contentHash?: string; kind?: 'tool' }
+export interface SourceMessage extends MessageSource { text: string; role: string; from?: { kind: string; id: string; name: string }; createdAt: number; archived: boolean; sourceKey: string }
+export interface KnowledgeSkill extends Skill { revision: number; deleted: boolean }
+export interface KnowledgeMemory extends Memory { scope?: 'private' | 'project' | 'account'; projectId?: string | null; target?: 'user' | 'environment'; evidenceKind?: 'human' | 'tool' | 'hypothesis'; revision: number; status: string; evidence: MessageSource[]; runId: string | null; supersedes: string | null }
+export interface SkillEvaluation {id:string;status:string;reason:string;policyRevision:number;settingsRevision:string;candidateHash:string;sourceHash:string;baseHash:string;evaluator:string;results:{id:string;category:string;expected:string;baselineExpected:string;actual:string;baseline:string;passed:boolean}[]}
+export interface SkillPromotion {actor:string;policyRevision:number;evaluationId:string;revision?:number;rollback:{revision:number;hash:string};evaluations?:SkillEvaluation[]}
+export interface SkillRevision { resources?: Record<string,string>; locked?: boolean; pinned?: boolean; scope?: string; projectId?: string | null; revision: number; name: string; description: string; body: string; deleted: boolean; action: string; actor: string; evidence: MessageSource[]; runId: string | null; createdAt: number;promotion?:SkillPromotion|null }
+export interface SkillProposal { id: string; skillId: string; baseRevision: number; content: Pick<Skill, 'name' | 'description' | 'body'>; reason: string; evidence: MessageSource[]; runId: string | null; status: 'pending' | 'approved' | 'rejected'; createdAt: number; diff: string;evaluations?:SkillEvaluation[];promotion?:SkillPromotion|null }
+
 export interface BotSettingsBundle {
-  memories: Memory[];
-  skills: Skill[];
+  memories: KnowledgeMemory[];
+  skills: KnowledgeSkill[];
   routines: Routine[];
   tasks: Task[];
   memory: { lastConsolidatedAt: number | null; historyChars: number; compactAtChars: number; lastCompaction: { method: string; created_at: number } | null };
@@ -160,9 +169,10 @@ export const configApi = {
   authorizeMcpServer: (id: string) => req<{ redirectUrl: string }>('POST', `/mcp/servers/${id}/oauth`),
   deleteMcpServer: (id: string) => req<{ ok: true }>('DELETE', `/mcp/servers/${id}`),
   agentSetup: (botId: string) => req<AgentSetupView>('GET', `/bots/${botId}/setup`),
+  coworkerSetups: (coordinatorId: string) => req<{ setups: CoworkerSetupView[] }>('GET', `/bots/${coordinatorId}/coworker-setups`),
   agentInstructions: (botId: string) => req<AgentInstructionPreview>('GET', `/bots/${botId}/instructions`),
   startSetupInterview: (botId: string) => req<AgentSetupView>('POST', `/bots/${botId}/setup/interview`),
-  activateSetup: (botId: string, revision: number) => req<AgentSetupView>('POST', `/bots/${botId}/setup/activate`, { revision }),
+  activateSetup: (botId: string, revision: number, coordinatorId?: string) => req<AgentSetupView>('POST', `/bots/${botId}/setup/activate`, { revision, ...(coordinatorId ? { coordinatorId } : {}) }),
   settings: (botId: string) => req<BotSettingsBundle>('GET', `/bots/${botId}/settings`),
   updateBot: (botId: string, p: BotPatch) => req<{ bot: Bot }>('PATCH', `/bots/${botId}`, p),
   botAnalytics: (botId: string, range: '7d' | '30d' | '90d') => req<BotAnalytics>('GET', `/bots/${botId}/analytics?range=${range}`),
@@ -170,11 +180,21 @@ export const configApi = {
   makePrimary: (botId: string) => req<{ ok: true }>('POST', `/bots/${botId}/primary`),
   fresh: (botId: string) => req<{ ok: true }>('POST', `/bots/${botId}/fresh`),
 
-  deleteMemory: (id: string) => req<{ ok: true }>('DELETE', `/memories/${id}`),
+  deleteMemory: (id: string, revision?: number) => req<{ ok: true }>('DELETE', `/memories/${id}${revision === undefined ? '' : `?expectedRevision=${revision}`}`),
 
-  createSkill: (botId: string, s: Pick<Skill, 'name' | 'description' | 'body'>) => req<{ skill: Skill }>('POST', `/bots/${botId}/skills`, s),
-  updateSkill: (id: string, s: Partial<Pick<Skill, 'name' | 'description' | 'body'>>) => req<{ skill: Skill }>('PATCH', `/skills/${id}`, s),
-  deleteSkill: (id: string) => req<{ ok: true }>('DELETE', `/skills/${id}`),
+  createSkill: (botId: string, s: Pick<Skill, 'name' | 'description' | 'body'>) => req<{ skill: KnowledgeSkill }>('POST', `/bots/${botId}/skills`, s),
+  updateSkill: (id: string, s: Partial<Pick<Skill, 'name' | 'description' | 'body'>> & { expectedRevision: number }) => req<{ skill: KnowledgeSkill }>('PATCH', `/skills/${id}`, s),
+  deleteSkill: (id: string, revision: number) => req<{ ok: true }>('DELETE', `/skills/${id}?expectedRevision=${revision}`),
+  skillProposals: (botId: string) => req<{ proposals: SkillProposal[] }>('GET', `/bots/${botId}/skill-proposals`),
+  skillArchive: (botId: string) => req<{ skills: KnowledgeSkill[] }>('GET', `/bots/${botId}/skill-archive`),
+  skillHistory: (id: string) => req<{ revisions: SkillRevision[] }>('GET', `/skills/${id}/history`),
+  reviewSkill: (id: string, decision: 'approve' | 'reject', expectedBaseRevision: number) => req<{ status: string; skill?: KnowledgeSkill }>('POST', `/skill-proposals/${id}/review`, { decision, expectedBaseRevision }),
+  rollbackSkill: (id: string, targetRevision: number, expectedRevision: number) => req<{ skill: KnowledgeSkill }>('POST', `/skills/${id}/rollback`, { targetRevision, expectedRevision }),
+  knowledgeMemories: (botId: string, history = false) => req<{ memories: KnowledgeMemory[] }>('GET', `/bots/${botId}/memories${history ? '?history=1' : ''}`),
+  correctMemory: (id: string, text: string, expectedRevision: number) => req<{ memory: KnowledgeMemory }>('PATCH', `/memories/${id}`, { text, expectedRevision }),
+  memoryHistory: (id: string) => req<{ events: { action: string; actor: string; memory: KnowledgeMemory; createdAt: number }[] }>('GET', `/memories/${id}/history`),
+  sourceMessages: (ref: MessageSource) => req<{ messages: SourceMessage[] }>('GET', `/bots/${ref.botId}/messages/${ref.generation}/${ref.seq}?${new URLSearchParams({ ...(ref.contentHash ? { contentHash: ref.contentHash } : {}), ...(ref.kind ? { kind: ref.kind } : {}) })}`),
+  searchConversations: (botId: string, query: string, offset = 0) => req<{ messages: SourceMessage[]; nextOffset: number | null }>('GET', `/bots/${botId}/conversation-search?q=${encodeURIComponent(query)}&offset=${offset}`),
 
   setRoutine: (id: string, enabled: boolean) => req<{ routine: Routine }>('PATCH', `/routines/${id}`, { enabled }),
   runRoutine: (id: string) => req<{ ok: true }>('POST', `/routines/${id}/run`),

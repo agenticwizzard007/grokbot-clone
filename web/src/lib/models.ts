@@ -81,7 +81,7 @@ export const EFFORT_LABEL: Record<Effort, string> = {
   none: 'No thinking', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max', ultracode: 'Ultracode',
 };
 export const EFFORT_DESC: Record<Effort, string> = {
-  ultracode: 'Max effort, runs 2.5× longer', max: 'Deepest thinking', xhigh: 'For the hardest problems', high: 'Thinks it through',
+  ultracode: 'Max effort with planning and verification', max: 'Deepest thinking', xhigh: 'For the hardest problems', high: 'Thinks it through',
   medium: 'Balanced', low: 'Fastest replies', minimal: 'Barely stops to think', none: 'Answers straight away',
 };
 

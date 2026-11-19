@@ -6,6 +6,7 @@ import { toPlainText } from '../messaging/format.js';
 import { registerInboxHandler } from '../messaging/inbox.js';
 import { upsertLink } from '../messaging/store.js';
 import { publicFetch } from '../security/network.js';
+import { DeliveryNotSentError } from '../deliverables/types.js';
 export class MessagingError extends Error { constructor(readonly status:number){super(`Messaging operation refused (${status}).`);} }
 
 export async function messagingRequest(operation:string,input:Record<string,unknown>={}){
@@ -18,8 +19,30 @@ export async function messagingRequest(operation:string,input:Record<string,unkn
   try{while(true){const r=await reader.read();if(r.done)break;size+=r.value.length;if(size>1024*1024)throw new MessagingError(503);chunks.push(r.value);}}finally{await reader.cancel();}
   return JSON.parse(Buffer.concat(chunks).toString());
 }
+/** Injectable HTTP seam for protocol tests; production uses the runtime-audience authenticated request. */
+export function controlledMessagingMethods(request: typeof messagingRequest = messagingRequest): Pick<ChannelAdapter, 'prepareControlledDelivery' | 'sendControlledDelivery'> { return {
+  async prepareControlledDelivery(link) {
+    assertTenant(link.userId);
+    const result = await request('delivery-target', { channel: link.channel });
+    const target = result?.target;
+    if (!target || target.channel !== link.channel || target.transport !== 'platform' || typeof target.phone !== 'string' || !/^\d{8,15}$/.test(target.phone)
+      || typeof target.revision !== 'string' || !/^\d{1,30}$/.test(target.revision) || !(target.chatRef === null || typeof target.chatRef === 'string' && target.chatRef.length <= 1000)) throw new MessagingError(503);
+    return { channel: link.channel, transport: 'platform', phone: target.phone, chatRef: target.chatRef, revision: target.revision };
+  },
+  async sendControlledDelivery(link, input) {
+    assertTenant(link.userId);
+    if (input.target.channel !== link.channel || input.target.transport !== 'platform' || !input.target.phone || !input.target.revision) throw new DeliveryNotSentError('Invalid approved destination.');
+    const result = await request('deliver', { channel: link.channel, id: input.dispatchId, text: input.text,
+      expected: { phone: input.target.phone, conversation: input.target.chatRef ?? null, revision: input.target.revision } });
+    if (result?.outcome === 'not_sent') throw new DeliveryNotSentError('Approved messaging destination is unavailable.');
+    if (result?.outcome !== 'delivered' || typeof result.id !== 'string' || !result.id) throw new Error('Controlled send outcome is unknown.');
+    return result.id;
+  },
+}; }
 export const privateMessagingAdapter:ChannelAdapter={
   transport:'inkbox',ready:link=>link.userId===tenantId&&link.status==='connected',format:toPlainText,
+  supportsPinnedDelivery: true,
+  ...controlledMessagingMethods(),
   maxChars:link=>link.channel==='whatsapp'?4000:link.channel==='sms'?1200:1500,
   async send(link,message){assertTenant(link.userId);return (await messagingRequest('send',{id:randomUUID(),channel:link.channel,text:message.text,quote:message.quote})).id;},
   canSendAudio:link=>link.userId===tenantId&&link.channel==='imessage'&&link.status==='connected',

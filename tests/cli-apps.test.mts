@@ -198,7 +198,7 @@ async function connect(provider: Provider) {
   assert.ok(token);
   const bridge = new ScriptedBridge();
   await once(bridge.ws, 'open');
-  bridge.ws.send(JSON.stringify({ type: 'hello', version: 1, nativeMcp: true, token, device: 'CLI connected-app fixture' }));
+  bridge.ws.send(JSON.stringify({ type: 'hello', version: 1, nativeMcp: true, noGenerationDeadline: true, token, device: 'CLI connected-app fixture' }));
   await until(() => bridge.welcome, 'CLI handshake completes');
   await refreshCli(owner);
   const selected = await request('/cli', 'PUT', { provider });

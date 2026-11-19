@@ -12,7 +12,7 @@ import { issuePlatformSession } from './cookies.js';
 import { parseEvent, type Parsed } from '../messaging/inkbox/events.js';
 import * as ib from '../messaging/inkbox/client.js';
 import { env } from '../env.js';
-import { MessagingOwnership, MessagingNotFound, MessagingAdmissionError } from './messaging-store.js';
+import { MessagingOwnership, MessagingNotFound, MessagingAdmissionError, MessagingDestinationChanged, type MessagingDeliveryTarget } from './messaging-store.js';
 import { noteVerifiedWaiter, signupPolicy } from './signup.js';
 
 type Channel = 'imessage' | 'whatsapp' | 'sms';
@@ -257,8 +257,8 @@ export function platformMessaging(directory:Directory,envelopes:TenantEnvelopes,
     const authorize=async(client?:PoolClient)=>{try{return await runtime.verify(token,'swarm-runtime',client);}catch{throw new MessagingNotFound();}};
     let owner;try{owner=await authorize();}catch{return c.json({error:'Unauthenticated runtime.'},401);}
     const b=await c.req.json();
-    if(!b||!['imessage','whatsapp','sms'].includes(b.channel)||!['send','audio','typing','disconnect','status','validate','login-link','invite'].includes(b.operation))return c.json({error:'Invalid messaging operation.'},400);
-    const allowed=b.operation==='send'?['operation','channel','text','quote','id']:b.operation==='audio'?['operation','channel','audio','id']:b.operation==='validate'?['operation','channel','revision','receipt']:['operation','channel'];
+    if(!b||!['imessage','whatsapp','sms'].includes(b.channel)||!['send','audio','typing','disconnect','status','validate','login-link','invite','delivery-target','deliver'].includes(b.operation))return c.json({error:'Invalid messaging operation.'},400);
+    const allowed=b.operation==='deliver'?['operation','channel','text','id','expected']:b.operation==='send'?['operation','channel','text','quote','id']:b.operation==='audio'?['operation','channel','audio','id']:b.operation==='validate'?['operation','channel','revision','receipt']:['operation','channel'];
     if(Object.keys(b).some(k=>!allowed.includes(k)))return c.json({error:'Invalid messaging operation.'},400);
     await authorize();
     if(b.operation==='status'){const line=await messenger.line(),policy=await signupPolicy(directory.pool);await authorize();return c.json({line,memberInvites:policy.memberInvites});}
@@ -266,6 +266,56 @@ export function platformMessaging(directory:Directory,envelopes:TenantEnvelopes,
     if(b.operation==='validate'){await ownership.validate(owner.tenant,b.channel,b.revision,b.receipt);await authorize();return c.json({ok:true});}
     if(b.operation==='login-link'){await sendLogin(owner.tenant,b.channel,undefined,authorize);return c.json({ok:true});}
     if(b.operation==='invite')return c.json(await ownership.memberInvite(owner.tenant,authorize));
+    if (b.operation === 'delivery-target') {
+      const route = await ownership.route(owner.tenant, b.channel);
+      if (!route) throw new MessagingNotFound();
+      await authorize();
+      return c.json({ target: { channel: b.channel, transport: 'platform', phone: route.phone, chatRef: route.conversation_id, revision: String(route.revision) } });
+    }
+    if (b.operation === 'deliver') {
+      const expected = b.expected as MessagingDeliveryTarget | undefined;
+      if (typeof b.id !== 'string' || !/^[A-Za-z0-9_-]{16,100}$/.test(b.id) || typeof b.text !== 'string' || !b.text || b.text.length > 4000
+        || !expected || Array.isArray(expected) || typeof expected !== 'object' || Object.keys(expected).some(k => !['phone','conversation','revision'].includes(k))
+        || typeof expected.phone !== 'string' || !/^\d{8,15}$/.test(expected.phone) || typeof expected.revision !== 'string' || !/^\d{1,30}$/.test(expected.revision)
+        || !(expected.conversation === null || typeof expected.conversation === 'string' && expected.conversation.length <= 1000)) return c.json({ error: 'Invalid controlled delivery.' }, 400);
+      const notSent = () => c.json({ outcome: 'not_sent', error: 'Approved destination is unavailable or changed. No message was sent.' });
+      const unknown = () => c.json({ outcome: 'unknown', error: 'Message outcome is unknown. Do not automatically resend.' });
+      // A duplicate dispatch is never proof that nothing was sent. Only a persisted
+      // not_sent outcome can authorize a fresh *attempt* at the tenant boundary.
+      const previous = await ownership.dispatchState(owner.tenant, b.id);
+      if (previous) return previous === 'not_sent' ? notSent() : unknown();
+      if (!messenger.ready()) return notSent();
+      let route;
+      try {
+        route = await ownership.begin(owner.tenant, b.channel, b.id, undefined, authorize, expected);
+      } catch (error) {
+        if (error instanceof MessagingDestinationChanged || error instanceof MessagingNotFound) return notSent();
+        throw error;
+      }
+      if (!route) return unknown();
+      try {
+        await authorize();
+        await ownership.validateDeliveryTarget(owner.tenant, b.channel, expected);
+      } catch {
+        await ownership.finish(owner.tenant, b.id, 'not_sent');
+        return notSent();
+      }
+      let dispatchAllowed = false;
+      try {
+        const id = await messenger.send(b.channel, { phone: route.phone, conversation: route.conversation_id ?? undefined }, { text: b.text }, b.id, async () => {
+          try { await authorize(); await ownership.validateDeliveryTarget(owner.tenant, b.channel, expected); }
+          catch { throw new MessagingDestinationChanged('Approved route changed before provider dispatch.'); }
+          dispatchAllowed = true;
+        });
+        if (!id) throw new Error('Provider did not acknowledge delivery.');
+        await ownership.finish(owner.tenant, b.id, 'completed', id);
+        return c.json({ outcome: 'delivered', id });
+      } catch (error) {
+        const state = error instanceof MessagingDestinationChanged && !dispatchAllowed ? 'not_sent' : 'uncertain';
+        await ownership.finish(owner.tenant, b.id, state);
+        return state === 'not_sent' ? notSent() : unknown();
+      }
+    }
     if(b.operation==='typing'){
       const route=await ownership.route(owner.tenant,b.channel);if(!route)throw new MessagingNotFound();
       if(!await rate(`typing:${owner.tenant}`,3000))return c.json({error:'Typing rate exceeded.'},429);

@@ -74,6 +74,42 @@ for (const provider of ['codex', 'claude']) test(`${provider}: official MCP clie
   await assert.rejects(fetch(started.config.url));
 });
 
+for (const provider of ['codex', 'claude']) for (const ending of ['complete', 'cancel']) test(`${provider}: no generation deadline between native tool rounds, with ${ending}`, { timeout: 15000 }, async t => {
+  const f = await fixture(t, provider), controller = new AbortController();
+  const gates: ((value: any) => void)[] = [];
+  let settled = false;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const job = runGeneration(request(provider, { timeoutMs: 0 }), { ...f.options, signal: controller.signal,
+    onToolCall: () => new Promise(resolve => gates.push(resolve)) });
+  void job.then(() => { settled = true; }, () => { settled = true; });
+  try {
+    while (!gates.length && !settled) await new Promise(resolve => setImmediate(resolve));
+    assert.equal(settled, false, 'generation reached its first native tool');
+    for (let i = 0; i < 2; i++) {
+      t.mock.timers.tick(20 * 60_000);
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(settled, false, 'elapsed task time does not terminate the process');
+      if (ending === 'cancel' && i === 1) {
+        const rejected = assert.rejects(job, /cancelled/); controller.abort(); await rejected;
+        gates[i]({ output: 'late output' });
+        break;
+      }
+      gates[i]({ output: `step-${i}` });
+      if (i === 0) while (gates.length < 2 && !settled) await new Promise(resolve => setImmediate(resolve));
+    }
+    if (ending === 'complete') {
+      const result = await job;
+      assert.deepEqual(JSON.parse(JSON.parse(result.text).text).map((output: any) => output.content[0].text), ['step-0', 'step-1']);
+    }
+  } finally { controller.abort(); t.mock.timers.reset(); await job.catch(() => {}); }
+  const started = (await f.events()).find(e => e.kind === 'start');
+  // The per-tool deadline is separate; zero must not turn it into an immediate timeout.
+  if (provider === 'claude') assert.equal(started.config.timeout, 900_000);
+  else assert.match(started.args.find((arg: string) => arg.startsWith('mcp_servers=')), /tool_timeout_sec=900,/);
+  await assert.rejects(stat(started.cwd), { code: 'ENOENT' });
+  await assert.rejects(fetch(started.config.url));
+});
+
 for (const provider of ['codex', 'claude']) test(`${provider}: final usage remains unavailable or partial until valid totals are reported`, async t => {
   for (const [raw, expected] of [
     [undefined, { usage_status: 'unavailable' }],

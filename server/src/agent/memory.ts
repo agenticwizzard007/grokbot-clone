@@ -4,7 +4,11 @@ import { recordModelUsage } from '../usage.js';
 import { db, now } from '../db.js';
 import '../db-config.js';
 import { env } from '../env.js';
+import { authorizedMemories, learnMemory, applyExplicitPreferenceCorrections } from '../knowledge/memory.js';
+import { assertWritable, hash } from '../knowledge/access.js';
+import { learningSettings, settingsVersion } from '../knowledge/settings.js';
 import { newId } from '../lib/ids.js';
+import { inferUserEvidence, isHumanUserMessage, type MessageRef } from '../knowledge/sessions.js';
 import { hub } from '../lib/hub.js';
 import { getBotRow, getLive } from '../store.js';
 
@@ -156,23 +160,42 @@ export function renderTranscript(items: any[], maxChars = 200_000): string {
   return out;
 }
 
-async function compactWithDirect(botId: string, old: any[]): Promise<any[]> {
+type BeforeCompactionModel = () => number | undefined;
+class CompactionGuardError extends Error {
+  constructor(readonly rejection: unknown) { super('Compaction model guard rejected the request.'); }
+}
+
+/** Recheck immediately before each provider invocation, including summary fallback. */
+function compactionOutputLimit(beforeModel?: BeforeCompactionModel): { max_output_tokens?: number } {
+  if (!beforeModel) return {};
+  try {
+    const remaining = beforeModel();
+    if (remaining === undefined) return {};
+    if (!Number.isSafeInteger(remaining) || remaining < 1) throw new Error('Compaction output token budget must be a positive safe integer.');
+    return { max_output_tokens: remaining };
+  } catch (error) { throw new CompactionGuardError(error); }
+}
+
+async function compactWithDirect(botId: string, old: any[], beforeModel?: BeforeCompactionModel): Promise<any[]> {
+  // /responses/compact has no max_output_tokens parameter; guard admission only.
+  compactionOutputLimit(beforeModel);
   const res: any = await llm().post('/responses/compact', { body: { model: defaultModel(), input: old } });
-  void recordModelUsage({ botId, kind: 'compaction', model: defaultModel(), response: res });
+  await recordModelUsage({ botId, kind: 'compaction', model: defaultModel(), response: res });
   const out = (res?.output ?? []) as any[];
   if (!out.length || !out.some((o) => o?.type === 'compaction' || o?.encrypted_content || o?.role)) throw new Error('compact returned no items');
   return out;
 }
 
-async function compactWithSummary(botId: string, old: any[]): Promise<any[]> {
+async function compactWithSummary(botId: string, old: any[], beforeModel?: BeforeCompactionModel): Promise<any[]> {
   const transcript = renderTranscript(old);
   const res: any = await llm().responses.create({
     model: defaultModel(),
     input: [{ role: 'system', content: SUMMARY_PROMPT }, { role: 'user', content: transcript }],
     store: false,
     ...lowEffort(),
+    ...compactionOutputLimit(beforeModel),
   } as any);
-  void recordModelUsage({ botId, kind: 'compaction', model: defaultModel(), response: res });
+  await recordModelUsage({ botId, kind: 'compaction', model: defaultModel(), response: res });
   const text = String(res.output_text ?? '').trim();
   if (!text) throw new Error('summary was empty');
   // Earlier direct provider compaction items can't be read back as text, so carry them over unchanged.
@@ -187,7 +210,7 @@ const compactCooldown = new Map<string, number>();
  * (it is called from the agent loop before each model call), so it never races a turn.
  * Returns the history to send.
  */
-export async function maybeCompact(botId: string, items: any[], opts: { force?: boolean } = {}): Promise<any[]> {
+export async function maybeCompact(botId: string, items: any[], opts: { force?: boolean; beforeModel?: BeforeCompactionModel } = {}): Promise<any[]> {
   const limit = memoryConfig.compactChars;
   const before = historySize(botId, items);
   if (!opts.force && before <= limit) return items;
@@ -212,13 +235,16 @@ export async function maybeCompact(botId: string, items: any[], opts: { force?: 
   try {
     if (memoryConfig.compactMethod === 'summary') throw new Error('direct provider compaction disabled by SWARM_COMPACT_METHOD=summary');
     if (llmProvider() !== 'direct') throw new Error('compaction endpoint is direct provider-only; using a summary');
-    replaced = await compactWithDirect(botId, old);
+    replaced = await compactWithDirect(botId, old, opts.beforeModel);
   } catch (e: any) {
+    // Budget/abort rejection is control flow, not a provider failure to work around.
+    if (e instanceof CompactionGuardError) throw e.rejection;
     console.warn(`[memory] compact via /responses/compact failed for ${botId}: ${e?.message ?? e}; falling back to a summary`);
     method = 'summary';
     try {
-      replaced = await compactWithSummary(botId, old);
+      replaced = await compactWithSummary(botId, old, opts.beforeModel);
     } catch (e2: any) {
+      if (e2 instanceof CompactionGuardError) throw e2.rejection;
       console.error(`[memory] summary fallback failed for ${botId}: ${e2?.message ?? e2}`);
       compactCooldown.set(botId, now() + 10 * 60_000);
       return items;
@@ -267,12 +293,12 @@ Read the recent conversation and extract only durable facts worth remembering fo
 - facts about the user (role, company, team, location, time zone, important people, accounts and tools they use)
 - preferences and standing instructions (tone, formats, schedules, what to always or never do)
 - lasting facts about ongoing projects
-Skip: one-off requests, small talk, temporary states, anything the Bot said about itself, passwords or secrets, and anything already covered by EXISTING MEMORIES (even if worded differently).
-Write each memory as one short standalone sentence in the third person (e.g. "Prefers bullet-point summaries."), under 200 characters. Return at most 8. Return an empty list when nothing qualifies.`;
+Skip: one-off requests, small talk, temporary states, anything the Bot said about itself, passwords or secrets, and exact facts already covered by EXISTING MEMORIES. If the user corrects an existing fact, return the corrected fact with its new sources and set replacesMemoryId to its existing id; do not discard a correction as a duplicate. For new facts use replacesMemoryId:null.
+Write each memory as one short standalone sentence in the third person (e.g. "Prefers bullet-point summaries."), under 200 characters. Return at most 8. Return an empty list when nothing qualifies. Every fact MUST cite one or more sourceIds printed before actual user messages, in generation:seq form. Never cite assistant or bot/routine messages as evidence for a user fact.`;
 
 const SCHEMA = {
   type: 'object',
-  properties: { memories: { type: 'array', items: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'], additionalProperties: false } } },
+  properties: { memories: { type: 'array', items: { type: 'object', properties: { text: { type: 'string' }, sourceIds: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 12 },replacesMemoryId:{type:['string','null']} }, required: ['text', 'sourceIds','replacesMemoryId'], additionalProperties: false } } },
   required: ['memories'],
   additionalProperties: false,
 };
@@ -287,26 +313,46 @@ export function consolidateBot(botId: string, opts: { upTo?: number } = {}): Pro
 async function consolidateBotInContext(botId: string, opts: { upTo?: number }): Promise<ConsolidateResult> {
   const bot = getBotRow(botId);
   if (!bot) return { added: [], skipped: 0, considered: 0 };
-  const job = db.prepare('SELECT last_consolidated_at FROM memory_jobs WHERE bot_id=?').get(botId) as any;
+  const job = db.prepare('SELECT * FROM memory_jobs WHERE bot_id=?').get(botId) as any;
   const since = job?.last_consolidated_at ?? 0;
   const upTo = opts.upTo ?? now();
-  const rows = (db.prepare("SELECT body, created_at FROM rows WHERE bot_id=? AND kind='message' AND created_at>? AND created_at<=? ORDER BY created_at DESC LIMIT 60").all(botId, since, upTo) as any[]).reverse();
-  const mark = (result: unknown, at: number) =>
-    db.prepare('INSERT INTO memory_jobs(bot_id,last_consolidated_at,last_result) VALUES (?,?,?) ON CONFLICT(bot_id) DO UPDATE SET last_consolidated_at=excluded.last_consolidated_at, last_result=excluded.last_result')
-      .run(botId, at, JSON.stringify(result));
-  const lastAt = rows.length ? rows[rows.length - 1].created_at : upTo;
-
-  const msgs = rows.map((r) => JSON.parse(r.body)).filter((b) => b?.type === 'message' && b.text && !b.streaming);
-  if (!msgs.some((m) => m.role === 'user' && !m.from)) {
+  assertWritable(bot.user_id,botId);
+  const policyVersion=settingsVersion(bot.user_id,botId);
+  const learning=learningSettings(bot.user_id,botId).settings;
+  if(!learning.enabled||!learning.memoryReview)return {added:[],skipped:0,considered:0};
+  const candidates = db.prepare(`SELECT body,generation,seq,created_at FROM rows WHERE bot_id=? AND kind='message'
+    AND (created_at>? OR (created_at=? AND (generation>? OR generation=? AND seq>?))) AND created_at<=?
+    ORDER BY created_at,generation,seq LIMIT 60`).all(botId,since,since,job?.cursor_generation??0,job?.cursor_generation??0,job?.cursor_seq??0,upTo) as any[];
+  // Review a contiguous prefix, fragmenting oversized messages at durable offsets.
+  // Only a completed source advances the main cursor; fragments retain its hash.
+  const rows:any[]=[];let chars=0;
+  for(const r of candidates){let b:any;try{b=JSON.parse(r.body);}catch{rows.push(r);continue;}
+    if(b.streaming)break;
+    const text=String(b.text??'');const digest=hash(r.body);
+    const start=job?.fragment_generation===r.generation&&job?.fragment_seq===r.seq&&job?.fragment_hash===digest?job.fragment_offset:0;
+    const remaining=20000-chars-150;if(remaining<=0)break;
+    const end=Math.min(text.length,start+Math.min(16000,remaining));
+    rows.push({...r,fragmentStart:start,fragmentEnd:end,complete:end===text.length,hash:digest});chars+=end-start+150;
+    if(end<text.length)break;
+  }
+  if(!rows.length)return {added:[],skipped:0,considered:0};
+  const last=rows[rows.length-1];const lastComplete=rows.filter(r=>r.complete!==false).at(-1);const lastAt=lastComplete?.created_at??since;
+  const mark=(result:unknown,_at:number)=>db.transaction(()=>{
+   db.prepare(`INSERT INTO memory_jobs(bot_id,last_consolidated_at,cursor_generation,cursor_seq,last_result,fragment_generation,fragment_seq,fragment_offset,fragment_hash) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(bot_id) DO UPDATE SET last_consolidated_at=excluded.last_consolidated_at,cursor_generation=excluded.cursor_generation,cursor_seq=excluded.cursor_seq,last_result=excluded.last_result,fragment_generation=excluded.fragment_generation,fragment_seq=excluded.fragment_seq,fragment_offset=excluded.fragment_offset,fragment_hash=excluded.fragment_hash`).run(botId,lastAt,lastComplete?.generation??job?.cursor_generation??0,lastComplete?.seq??job?.cursor_seq??0,JSON.stringify(result),last.complete===false?last.generation:null,last.complete===false?last.seq:null,last.complete===false?last.fragmentEnd:0,last.complete===false?last.hash:null);
+   db.prepare('INSERT INTO knowledge_memory_reviews(id,bot_id,sources,result,created_at) VALUES(?,?,?,?,?)').run(newId('mrv'),botId,JSON.stringify(rows.map(r=>({generation:r.generation,seq:r.seq,hash:r.hash??hash(r.body),start:r.fragmentStart??0,end:r.fragmentEnd??0,complete:r.complete!==false}))),JSON.stringify(result),now());
+  })();
+  const msgs = rows.map((r) => {try{const b=JSON.parse(r.body);return {...b,text:String(b.text??'').slice(r.fragmentStart??0,r.fragmentEnd),fragment:r.complete===false||r.fragmentStart>0?` [fragment ${r.fragmentStart}-${r.fragmentEnd}]`:'',sourceId:`${r.generation}:${r.seq}`};}catch{return null;}}).filter((b) => b?.type === 'message' && b.text && !b.streaming);
+  const sourceRows = new Map(rows.map(r => [`${r.generation}:${r.seq}`, r]));
+  const explicitRefs=rows.filter(r=>{try{return isHumanUserMessage(JSON.parse(r.body));}catch{return false;}}).slice(-12).map(r=>({botId,generation:r.generation,seq:r.seq,contentHash:hash(r.body)}));
+  if(explicitRefs.length)applyExplicitPreferenceCorrections(bot.user_id,botId,explicitRefs);
+  if (!msgs.some(isHumanUserMessage)) {
     mark({ added: 0, at: now(), note: 'no user messages' }, lastAt);
     return { added: [], skipped: 0, considered: msgs.length };
   }
-  let transcript = msgs
-    .map((m) => (m.role === 'user' ? (m.from ? `${m.from.kind === 'bot' ? `Bot ${m.from.name}` : `Routine ${m.from.name}`}: ` : 'User: ') : `${bot.name} (Bot): `) + String(m.text).slice(0, 2000))
-    .join('\n');
-  if (transcript.length > 24_000) transcript = transcript.slice(-24_000);
+  const transcript = msgs.map((m) => `[source ${m.sourceId}]${m.fragment} ` + (m.role === 'user' ? (m.from && !isHumanUserMessage(m) ? `${m.from.kind === 'bot' ? `Bot ${m.from.name}` : `Routine ${m.from.name}`}: ` : 'User: ') : `${bot.name} (Bot): `) + String(m.text)).join('\n');
 
-  const existing = (db.prepare('SELECT text FROM memories WHERE bot_id=? ORDER BY created_at DESC LIMIT 200').all(botId) as any[]).map((m) => m.text as string);
+  const existingMemories=authorizedMemories(bot.user_id,botId).filter(m=>m.botId===botId);
+  let existingChars=0;const existing=existingMemories.flatMap(m=>{const line=`[${m.id} revision ${m.revision}] ${m.text}`;existingChars+=line.length;return existingChars<=6000?[line]:[];});
   const res: any = await llm().responses.create({
     model: defaultModel(),
     input: [
@@ -316,21 +362,49 @@ async function consolidateBotInContext(botId: string, opts: { upTo?: number }): 
     text: { format: { type: 'json_schema', name: 'memories', schema: SCHEMA, strict: true } },
     ...lowEffort(),
     store: false,
+    max_output_tokens:2048,
   } as any);
-  void recordModelUsage({ botId, kind: 'memory', model: defaultModel(), response: res });
-  let proposed: string[] = [];
-  try { proposed = (JSON.parse(String(res.output_text ?? '{}')).memories ?? []).map((m: any) => String(m.text ?? '').trim()).filter(Boolean); } catch { /* bad json → nothing */ }
+  await recordModelUsage({ botId, kind: 'memory', model: defaultModel(), response: res });
+  let parsedOk=false;let proposed: { text: string; sourceIds?: string[];replacesMemoryId?:string|null }[] = [];
+  try {
+    const parsed = JSON.parse(String(res.output_text ?? '{}')).memories;
+    if (Array.isArray(parsed)) {parsedOk=true;proposed = parsed.filter(m => typeof m?.text === 'string' && (m.sourceIds === undefined || Array.isArray(m.sourceIds)));}
+  } catch { /* bad model output publishes nothing */ }
 
+  if(!parsedOk)throw new Error('Memory extraction returned invalid JSON; coverage retained for retry');
   const added: string[] = [];
   let skipped = 0;
-  const ins = db.prepare("INSERT INTO memories(id,bot_id,text,created_at,source) VALUES (?,?,?,?,'learned')");
-  for (const text of proposed.slice(0, 8)) {
-    const t = text.slice(0, 300);
-    if ([...existing, ...added].some((e) => similar(e, t))) { skipped++; continue; }
-    ins.run(newId('mem'), botId, t, now());
-    added.push(t);
-  }
-  mark({ added: added.length, skipped, at: now() }, lastAt);
+  // The model call runs outside a transaction. Revalidate conversation generation
+  // and source contents under the same transaction as publication; deleted bots,
+  // resets, edited sources and owner changes cannot publish stale learning.
+  db.transaction(() => {
+    assertWritable(bot.user_id,botId);
+    if(settingsVersion(bot.user_id,botId)!==policyVersion)return;
+    const latestCursor=db.prepare('SELECT * FROM memory_jobs WHERE bot_id=?').get(botId) as any;
+    if((latestCursor?.last_consolidated_at??0)!==since||(latestCursor?.cursor_generation??0)!==(job?.cursor_generation??0)||(latestCursor?.cursor_seq??0)!==(job?.cursor_seq??0)||(latestCursor?.fragment_offset??0)!==(job?.fragment_offset??0)){skipped=proposed.length;return;}
+    const current = getBotRow(botId);
+    if (!current || current.user_id !== bot.user_id || current.generation !== bot.generation) { skipped = proposed.length; return; }
+    for (const row of rows) {
+      const latest = db.prepare('SELECT body FROM rows WHERE bot_id=? AND generation=? AND seq=?').get(botId, row.generation, row.seq) as any;
+      if (!latest || latest.body !== row.body) { skipped = proposed.length; return; }
+    }
+    for (const candidate of proposed.slice(0, 8)) {
+      const text = candidate.text.trim();
+      const legacyRefs = candidate.sourceIds === undefined ? inferUserEvidence(text, rows.filter(r => { const m = JSON.parse(r.body); return isHumanUserMessage(m) && !m.streaming; }).map(r => ({ ref: { botId, generation: r.generation, seq: r.seq }, text: JSON.parse(r.body).text }))) : [];
+      const sourceIds = candidate.sourceIds ?? legacyRefs.map(r => `${r.generation}:${r.seq}`);
+      if (!text || text.length > 300 || sourceIds.length < 1 || sourceIds.length > 12) { skipped++; continue; }
+      const refs: MessageRef[] = [];
+      for (const id of sourceIds) {
+        const row = sourceRows.get(id); const message = row && JSON.parse(row.body);
+        if (!row || !isHumanUserMessage(message)) { refs.length = 0; break; }
+        refs.push({ botId, generation: row.generation, seq: row.seq });
+      }
+      if (!refs.length || added.some(e => e===text)) { skipped++; continue; }
+      const result = learnMemory(bot.user_id, botId, { text, evidence: refs,replacesMemoryId:candidate.replacesMemoryId??undefined });
+      if (result.skipped) skipped++; else added.push(text);
+    }
+    mark({ added: added.length, skipped, at: now() }, lastAt);
+  })();
   if (added.length) {
     console.log(`[memory] consolidated ${bot.name} (${botId}): +${added.length} (skipped ${skipped} duplicates)`);
     hub.emit(bot.user_id, { type: 'memories', botId });
@@ -348,7 +422,7 @@ export function botsDueForConsolidation(idleMs: number, at = now()): { botId: st
     WHERE r.kind = 'message'
     GROUP BY r.bot_id
   `).all() as any[];
-  return rows.filter((r) => r.last_at > r.done_at && at - r.last_at >= idleMs).map((r) => ({ botId: r.bot_id, lastAt: r.last_at }));
+  return rows.filter((r) => db.prepare(`SELECT 1 FROM rows x LEFT JOIN memory_jobs j ON j.bot_id=x.bot_id WHERE x.bot_id=? AND x.kind='message' AND (x.created_at>coalesce(j.last_consolidated_at,0) OR x.created_at=coalesce(j.last_consolidated_at,0) AND (x.generation>coalesce(j.cursor_generation,0) OR x.generation=coalesce(j.cursor_generation,0) AND x.seq>coalesce(j.cursor_seq,0))) LIMIT 1`).get(r.bot_id) && at - r.last_at >= idleMs).map((r) => ({ botId: r.bot_id, lastAt: r.last_at }));
 }
 
 export function startMemoryConsolidation() {
@@ -375,9 +449,10 @@ export function startMemoryConsolidation() {
 
 /** Most relevant (keyword overlap with recent user messages) and most recent memories, within a character budget. */
 export function memoriesForPrompt(botId: string, budget = memoryConfig.promptMemoryChars): { lines: string[]; omitted: number } {
-  const all = db.prepare('SELECT text, created_at FROM memories WHERE bot_id=? ORDER BY created_at DESC LIMIT 500').all(botId) as any[];
-  if (!all.length) return { lines: [], omitted: 0 };
   const bot = getBotRow(botId);
+  if (!bot) return { lines: [], omitted: 0 };
+  const all = authorizedMemories(bot.user_id, botId).filter(m=>m.botId===botId).slice(0, 500).map(m => ({ text: m.text, created_at: m.createdAt, id: m.id }));
+  if (!all.length) return { lines: [], omitted: 0 };
   const recent = (db.prepare("SELECT body FROM rows WHERE bot_id=? AND generation=? AND kind='message' ORDER BY seq DESC LIMIT 12").all(botId, bot.generation) as any[])
     .map((r) => JSON.parse(r.body))
     .filter((b) => b.role === 'user')
@@ -400,5 +475,5 @@ export function memoriesForPrompt(botId: string, budget = memoryConfig.promptMem
     used += len;
   }
   picked.sort((a, b) => a.created_at - b.created_at);
-  return { lines: picked.map((m) => `- ${m.text}`), omitted: all.length - picked.length };
+  return { lines: picked.map((m) => `- [${m.id}] ${m.text}`), omitted: all.length - picked.length };
 }

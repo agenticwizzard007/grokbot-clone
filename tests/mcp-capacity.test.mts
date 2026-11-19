@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { after, afterEach, beforeEach, mock, test } from 'node:test';
+import { assembleToolCatalog } from '../server/src/agent/tool-catalog.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-mcp-capacity-'));
@@ -39,56 +40,58 @@ afterEach(async () => { await closeMcpSessions(); mock.restoreAll(); });
 after(() => { db.close(); fs.rmSync(root, { recursive: true, force: true }); });
 
 test('discovery accepts the per-agent budget and rejects growth before replacing a working manifest', async () => {
-  assert.equal((await discover(server(), 200)).error, null);
-  assert.equal((await discover(server(), 200)).error, null);
-  const last = await discover(server(), 48);
+  assert.equal((await discover(server(), 1000)).error, null);
+  assert.equal((await discover(server(), 1000)).error, null);
+  await discover(server(), 1000);
+  await discover(server(), 1000);
+  const last = await discover(server(), 96);
   assert.equal(last.error, null);
-  assert.equal(mcpSchemas('owner', a.id).length, 448);
-  const rejected = await discover(last, 49);
-  assert.match(rejected.error!, /449.*448/);
+  assert.equal(mcpSchemas('owner', a.id).length, 4096);
+  const rejected = await discover(last, 97);
+  assert.match(rejected.error!, /4097.*4096/);
   assert.match(rejected.error!, /agent|server/i);
   assert.deepEqual(rejected.tools, last.tools, 'failed rediscovery preserves the last accepted manifest');
   assert.equal(rejected.revision, last.revision);
-  assert.equal(mcpSchemas('owner', a.id).length, 448);
+  assert.equal(mcpSchemas('owner', a.id).length, 4096);
 });
 
 test('capacity applies to overlapping assignments, including all-agent servers, rather than the whole account', async () => {
-  for (const bot of [a, b]) for (let n = 0; n < 2; n++) assert.equal((await discover(server([bot.id]), 200)).error, null);
-  assert.equal(mcpSchemas('owner', a.id).length, 400);
-  assert.equal(mcpSchemas('owner', b.id).length, 400);
-  const wildcard = await discover(server(null), 49);
-  assert.match(wildcard.error!, /449.*448/);
+  for (const bot of [a, b]) for (let n = 0; n < 4; n++) assert.equal((await discover(server([bot.id]), 1000)).error, null);
+  assert.equal(mcpSchemas('owner', a.id).length, 4000);
+  assert.equal(mcpSchemas('owner', b.id).length, 4000);
+  const wildcard = await discover(server(null), 97);
+  assert.match(wildcard.error!, /4097.*4096/);
   assert.equal(wildcard.tools.length, 0);
-  assert.equal((await discover(wildcard, 48)).error, null);
-  assert.equal(mcpSchemas('owner', a.id).length, 448);
-  assert.equal(mcpSchemas('owner', b.id).length, 448);
+  assert.equal((await discover(wildcard, 96)).error, null);
+  assert.equal(mcpSchemas('owner', a.id).length, 4096);
+  assert.equal(mcpSchemas('owner', b.id).length, 4096);
 });
 
 test('unassigned and disabled servers consume no budget until enabled, assigned and rediscovered', async () => {
-  for (let n = 0; n < 2; n++) await discover(server(), 200);
+  for (let n = 0; n < 4; n++) await discover(server(), 1000);
   const unassigned = await discover(server([]), 200);
   const disabled = await discover(server([a.id], false), 200);
   assert.equal(unassigned.error, null); assert.equal(disabled.error, null);
-  assert.equal(mcpSchemas('owner', a.id).length, 400);
+  assert.equal(mcpSchemas('owner', a.id).length, 4000);
   for (const previous of [unassigned, disabled]) {
     const assigned = saveMcpServer('owner', { botIds: [a.id], enabled: true }, previous);
     assert.equal(assigned.tools.length, 0);
-    assert.match((await discover(assigned, 200)).error!, /600.*448/);
+    assert.match((await discover(assigned, 200)).error!, /4200.*4096/);
   }
 });
 
 test('legacy oversized configurations give an actionable error and can be repaired by disabling a server', () => {
-  const saved = [server(), server(), server()];
-  for (const s of saved) db.prepare('UPDATE mcp_servers SET tools=? WHERE id=?').run(JSON.stringify(tools(200)), s.id);
-  assert.throws(() => mcpSchemas('owner', a.id), /600.*448/);
+  const saved = [server(), server(), server(), server(), server()];
+  for (const s of saved) db.prepare('UPDATE mcp_servers SET tools=? WHERE id=?').run(JSON.stringify(tools(1000)), s.id);
+  assert.throws(() => mcpSchemas('owner', a.id), /5000.*4096/);
   const current = getMcpServer('owner', saved[2].id)!;
   saveMcpServer('owner', { enabled: false }, current);
-  assert.equal(mcpSchemas('owner', a.id).length, 400);
+  assert.equal(mcpSchemas('owner', a.id).length, 4000);
 });
 
 test('the custom-tool budget leaves room for the complete built-in and app wrapper union', async () => {
   const { MAX_CUSTOM_MCP_TOOLS } = await import('../server/src/mcp/store.js');
-  const staticCount = TOOLS.length + (await composioTools('owner')).length;
-  assert.equal(MAX_CUSTOM_MCP_TOOLS, 448);
-  assert.ok(staticCount + MAX_CUSTOM_MCP_TOOLS <= 512, 'adjust the custom budget if the built-in union exceeds reserved capacity');
+  const full = [...TOOLS.map(t => ({ type: 'function', ...t })), ...(await composioTools('owner')), ...tools(MAX_CUSTOM_MCP_TOOLS).map(t => ({ type: 'function', name: 'mcp_' + t.name, parameters: t.inputSchema }))];
+  assert.equal(MAX_CUSTOM_MCP_TOOLS, 4096);
+  assert.ok(assembleToolCatalog(full).tools.length <= 512, 'deferred schemas must fit both native CLI transports');
 });

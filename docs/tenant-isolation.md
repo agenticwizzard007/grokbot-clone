@@ -55,7 +55,7 @@ Composio mapping is `immutable tenant → private Composio user identity → spe
 
 Remote MCP uses HTTPS, destination validation on the actual connection path, private/reserved/IPv6/rebinding defenses, bounded responses and no credential-bearing redirect following. OAuth uses PKCE and resource/audience validation. Private-network endpoints are disabled. Local stdio commands go through the host supervisor only; there is no shared-process fallback. MCP tools/results/metadata remain untrusted data. Sampling, unsolicited elicitation and executable extensions are disabled.
 
-MCP ownership covers tenant, Bot, connection, revision and permission. New connections default to no Bots and require approvals. Configuration/revision changes invalidate discovery, sessions and approvals. Initial limits are 20 connections, 200 tools per connection, 12-second handshakes, 60-second calls and five-minute idle cleanup. Foreign IDs have the same not-found behavior as unknown IDs.
+MCP ownership covers tenant, Bot, connection, revision and permission. New connections default to no Bots and require approvals. Configuration/revision changes invalidate discovery, sessions and approvals. Initial limits are 20 connections, 1,000 tools per connection (4,096 assigned per Bot), 12-second handshakes, 60-second calls and five-minute idle cleanup. Foreign IDs have the same not-found behavior as unknown IDs.
 
 ## Messaging and durable work
 

@@ -129,6 +129,7 @@ try {
       else if (path === '/api/bots') body = { bots: [bot], live: [] };
       else if (path === '/api/models') body = { models: [], defaultModel: null };
       else if (path.endsWith('/rows')) body = { generation: 1, rows: [] };
+      else if (path.endsWith('/coworker-setups')) body = { setups: [] };
       else if (path.endsWith('/routines')) body = { routines: [] };
       else if (path.endsWith('/tasks')) body = { tasks: [] };
       else if (path === '/api/settings') body = { settings: {}, computer: { provider: 'cloudvm' } };

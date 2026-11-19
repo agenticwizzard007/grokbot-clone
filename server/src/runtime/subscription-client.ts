@@ -18,8 +18,9 @@ function connect(options: RunnerOptions, message: Record<string, unknown>) {
   let settled = false;
   const done = new Promise<any>((resolve, reject) => {
     const requestedTimeout = (message.params as any)?.timeoutMs;
+    const unboundedGeneration = message.operation === 'generate' && requestedTimeout === 0;
     const timeout = message.operation === 'generate' && Number.isFinite(requestedTimeout) && requestedTimeout > 0 ? Math.min(requestedTimeout, 16 * 60_000) : 16 * 60_000;
-    const timer = setTimeout(() => fail(new Error('Subscription runner timed out.')), timeout);
+    const timer = unboundedGeneration ? undefined : setTimeout(() => fail(new Error('Subscription runner timed out.')), timeout);
     const startTimer = setTimeout(() => fail(new Error('Subscription runner did not start.')), 12_000);
     const finish = (error?: Error, value?: unknown) => {
       if (settled) return; settled = true; clearTimeout(timer); clearTimeout(startTimer);

@@ -591,6 +591,12 @@ test('a model HTTP400 retries without custom MCP schemas while retaining all nat
   const server = saveMcpServer('alice', { name: 'Invalid custom schema fixture', transport: 'http', url: 'https://mcp.example.test', botIds: [bot.id] });
   db.prepare('UPDATE mcp_servers SET tools=?,checked_at=? WHERE id=?').run(JSON.stringify([{ name: 'bad_tool', inputSchema: { type: 'object' } }]), Date.now(), server.id);
   const customName = mcpToolName(server, 'bad_tool');
+  // Exercise the eager-schema retry branch explicitly. The production catalog
+  // now defers large manifests, where this custom schema is never sent at all.
+  const { TOOLS } = await import('../server/src/agent/tools.js');
+  const originalTools = TOOLS.slice();
+  const nativeNames = ['list_app_connections','search_apps','request_app_connection','SWARM_APPS_SEARCH','SWARM_APPS_EXECUTE'];
+  TOOLS.splice(0,TOOLS.length,...originalTools.filter(t=>nativeNames.includes(t.name)));
   activeScenario = { slug: 'GITHUB_GET_REPOSITORY', step: 0, calls: [], results: [] };
   rejectNextModelRequest = true;
   const before = executed.length;
@@ -606,6 +612,7 @@ test('a model HTTP400 retries without custom MCP schemas while retaining all nat
   } finally {
     activeScenario = undefined; modelBodies.length = 0;
     db.prepare('DELETE FROM mcp_servers WHERE id=?').run(server.id);
+    TOOLS.splice(0,TOOLS.length,...originalTools);
   }
 });
 

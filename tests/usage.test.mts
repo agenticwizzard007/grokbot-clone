@@ -89,14 +89,79 @@ test('no reported cost: estimated from the OpenRouter price list, else left unkn
   assert.ok(Math.abs(r.totals.estimatedUsd - 0.0045) < 1e-12);
 });
 
-test('attribution: a Bot context bills its owner; a request without usage is ignored', async () => {
+test('attribution: a Bot context bills its owner; missing API usage remains a counted unknown request', async () => {
   clear();
   await usage.withUsage({ botId: botOf(owner), kind: 'memory' }, () => usage.recordModelUsage({ model: 'x-ai/grok-4.7', response: { usage: { input_tokens: 5, output_tokens: 5, cost: 0.001 } } }));
   await usage.recordModelUsage({ userId: owner, model: 'x', response: {} });
   const rows = events(owner);
-  assert.equal(rows.length, 1);
+  assert.equal(rows.length, 2);
   assert.equal(rows[0].bot_id, botOf(owner));
   assert.equal(rows[0].kind, 'memory');
+  assert.equal(rows[1].usage_status, 'unavailable');
+  assert.deepEqual(JSON.parse(rows[1].token_fields), []);
+  assert.equal(rows[1].cost_usd, null);
+});
+
+test('API missing or malformed usage persists unavailable accounting without consulting prices', async () => {
+  clear();
+  let priceReads = 0;
+  const fetch = testMock.method(globalThis, 'fetch', async () => { priceReads++; throw new Error('Unknown token counts cannot be priced'); });
+  try {
+    for (const [index, response] of [{}, { usage: null }, { usage: [] }, { usage: {} }].entries()) {
+      await usage.recordModelUsage({ userId: member, botId: botOf(member), model: 'gpt-4.1', response: { id: `api-unavailable-${index}`, ...response } });
+    }
+  } finally { fetch.mock.restore(); }
+  const rows = events(member);
+  assert.equal(rows.length, 4); assert.equal(priceReads, 0);
+  for (const row of rows) {
+    assert.equal(row.usage_status, 'unavailable'); assert.deepEqual(JSON.parse(row.token_fields), []);
+    assert.equal(row.cost_usd, null); assert.equal(row.cost_source, null);
+  }
+  const report = usage.usageReport(member, 'today');
+  assert.equal(report.totals.requests, 4); assert.equal(report.totals.unavailableUsageRequests, 4);
+  assert.equal(report.totals.knownTokenRequests, 0); assert.equal(report.totals.unpricedRequests, 4);
+});
+
+test('API partial counters retain observed fields and provider cost, without fabricating an estimate', async () => {
+  clear();
+  let priceReads = 0;
+  const fetch = testMock.method(globalThis, 'fetch', async () => { priceReads++; throw new Error('Incomplete token counts cannot be priced'); });
+  try {
+    for (const [id, supplied] of [
+      ['input-only', { input_tokens: 7, input_tokens_details: { cached_tokens: 2 } }],
+      ['output-only', { completion_tokens: 3, completion_tokens_details: { reasoning_tokens: 1 }, cost: 0.02 }],
+      ['invalid-output', { input_tokens: 0, output_tokens: '12', input_tokens_details: { cached_tokens: Infinity } }],
+      ['cost-only', { cost_in_usd_ticks: 100000000 }],
+    ] as const) await usage.recordModelUsage({ userId: member, botId: botOf(member), model: 'gpt-4.1', response: { id, usage: supplied } });
+  } finally { fetch.mock.restore(); }
+  const rows = events(member);
+  assert.equal(priceReads, 0);
+  assert.deepEqual(rows.map(row => row.usage_status), ['partial', 'partial', 'partial', 'unavailable']);
+  assert.deepEqual(rows.map(row => JSON.parse(row.token_fields)), [['input_tokens', 'cached_tokens'], ['output_tokens', 'reasoning_tokens'], ['input_tokens'], []]);
+  assert.deepEqual(rows.map(row => row.cost_usd), [null, 0.02, null, 0.01]);
+  assert.deepEqual(rows.map(row => row.cost_source), [null, 'provider', null, 'provider']);
+  // A stale placeholder must never turn into a measured output count.
+  db.prepare("UPDATE usage_events SET output_tokens=999 WHERE request_id='input-only'").run();
+  const report = usage.usageReport(member, 'today');
+  assert.equal(report.totals.inputTokens, 7); assert.equal(report.totals.outputTokens, 3);
+  assert.equal(report.totals.partialUsageRequests, 3); assert.equal(report.totals.unavailableUsageRequests, 1);
+  assert.equal(report.totals.knownInputRequests, 2); assert.equal(report.totals.knownOutputRequests, 1);
+  const [header, ...csv] = usage.usageCsv(member, 'today').trim().split('\n').map(line => line.split(','));
+  const cell = (row: string[], key: string) => row[header.indexOf(key)];
+  assert.equal(cell(csv[0], 'input_tokens'), '7'); assert.equal(cell(csv[0], 'output_tokens'), '');
+  assert.equal(cell(csv[1], 'input_tokens'), ''); assert.equal(cell(csv[1], 'output_tokens'), '3');
+  assert.equal(cell(csv[2], 'input_tokens'), '0'); assert.equal(cell(csv[2], 'output_tokens'), '');
+});
+
+test('API Chat Completions aliases normalize counters and preserve measured zero', async () => {
+  clear();
+  await usage.recordModelUsage({ userId: member, model: 'gpt-4.1', response: { usage: {
+    prompt_tokens: 10, completion_tokens: 0, prompt_tokens_details: { cached_tokens: 3 }, completion_tokens_details: { reasoning_tokens: 0 }, cost: 0,
+  } } });
+  const [row] = events(member);
+  assert.equal(row.usage_status, 'complete');
+  assert.deepEqual(JSON.parse(row.token_fields), ['input_tokens', 'cached_tokens', 'output_tokens', 'reasoning_tokens']);
+  assert.deepEqual([row.input_tokens, row.cached_tokens, row.output_tokens, row.reasoning_tokens, row.cost_usd], [10, 3, 0, 0, 0]);
 });
 
 test('unavailable subscription requests remain counted with an empty mask and never consult API prices', async () => {

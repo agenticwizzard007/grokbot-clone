@@ -192,7 +192,10 @@ test('cloud drain stops an exact owned desktop, observes stopped state and prese
   t.mock.method(cloud.driver, 'list', async () => [info()]);
   t.mock.method(cloud.driver, 'get', async () => info());
   t.mock.method(cloud.driver, 'stop', async () => { stops++; stopped = true; });
-  const result = await stopLegacyCloud(receipt, async () => {}, 1000);
+  // Full owner-fence validation now covers the native learning/coordination
+  // tables before every provider effect. This success test is not a 1s SLA;
+  // dedicated timeout cases below still exercise refusal at the deadline.
+  const result = await stopLegacyCloud(receipt, async () => {}, 5000);
   assert.equal(result.state, 'stopped'); assert.equal(result.boundary, 'legacy-desktop-only');
   assert.equal(stops, 1); assert.ok(!('filesFrozen' in result));
   assert.equal(cloud.vmFor(owner.id)?.status, 'suspended'); // source database remains frozen

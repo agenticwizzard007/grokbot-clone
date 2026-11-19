@@ -1,10 +1,15 @@
 import { useModels, effortsFor, effectiveEffort, EFFORT_LABEL } from '../../lib/models';
 import { BotModelField } from './BotModelField';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { AvatarColor, AvatarShape, Bot, Memory, Routine, Skill } from '@shared/types';
+import type { AvatarColor, AvatarShape, Bot, Routine } from '@shared/types';
 import { BotAvatar, BotAvatarFor, PICKER_SHAPES } from '../../avatar/BotAvatar';
 import { COLOR_ORDER, botVars, palette } from '../../lib/colors';
-import { configApi, type BotSettingsBundle } from '../../lib/configApi';
+import { KnowledgeScopeControl, PendingMemoryChanges, SkillPackageControls } from './KnowledgeManagement';
+import { learningApi } from '../../lib/learningApi';
+import { LearningSettingsPanel } from './LearningSettings';
+import { configApi, type BotSettingsBundle, type KnowledgeSkill, type KnowledgeMemory } from '../../lib/configApi';
+import { SkillHistory, SkillReview, MemoryEvidence, ConversationSearch, MemoryArchive } from './KnowledgePanels';
+import { RoutineHistory } from './RoutineHistory';
 import { useConfigUI, useVersion, type BotSettingsTab } from '../../configStore';
 import { useStore } from '../../store';
 import { Icon } from '../Icon';
@@ -21,7 +26,7 @@ const EFFORT_HINT: Record<Bot['effort'], string> = {
   high: 'Thinks longer before acting. Better for tricky, multi-step work.',
   xhigh: 'Thinks for a long time. For the hardest problems.',
   max: 'The deepest thinking this model offers. Slowest.',
-  ultracode: 'Max effort, a 2.5× longer step budget, and an instruction to plan and verify every step. For big, careful jobs.',
+  ultracode: 'Max effort and an instruction to plan and verify every step. For big, careful jobs.',
 };
 
 export function BotSettingsModal() {
@@ -53,6 +58,7 @@ export function BotSettingsModal() {
     { id: 'memories', label: 'Memories', count: data?.memories.length },
     { id: 'routines', label: 'Routines', count: (routines ?? data?.routines)?.length },
     { id: 'analytics', label: 'Analytics' },
+    { id: 'learning', label: 'Learning' },
   ];
 
   return (
@@ -80,6 +86,7 @@ export function BotSettingsModal() {
           {target.tab === 'memories' && <MemoriesTab bot={bot} data={data} onChange={reload} />}
           {target.tab === 'routines' && <RoutinesTab bot={bot} routines={routines ?? data?.routines} />}
           {target.tab === 'analytics' && <BotAnalyticsTab bot={bot} />}
+          {target.tab === 'learning' && <LearningSettingsPanel key={bot.id} botId={bot.id} />}
         </div>
       </div>
     </Modal>
@@ -258,7 +265,7 @@ function LookPicker({ shape, color, onShape, onColor }: { shape: AvatarShape; co
 
 // ---------------------------------------------------------------------------
 
-function SkillsTab({ bot, skills, onChange }: { bot: Bot; skills: Skill[] | undefined; onChange: () => void }) {
+function SkillsTab({ bot, skills, onChange }: { bot: Bot; skills: KnowledgeSkill[] | undefined; onChange: () => void }) {
   const [editing, setEditing] = useState<string | 'new' | null>(null);
   return (
     <div className="cfg-page">
@@ -269,6 +276,7 @@ function SkillsTab({ bot, skills, onChange }: { bot: Bot; skills: Skill[] | unde
         </div>
         {editing !== 'new' && <button type="button" className="cfg-btn cfg-btn--primary" onClick={() => setEditing('new')}><Icon name="plus" size={12} /> New skill</button>}
       </div>
+      <SkillReview botId={bot.id} version={(skills ?? []).map(s => `${s.id}:${s.revision}`).join(',')} onChange={onChange} />
       {editing === 'new' && <SkillEditor botId={bot.id} onDone={() => { setEditing(null); onChange(); }} />}
       {!skills ? <div className="cfg-empty">Loading…</div> : skills.length === 0 && editing !== 'new' ? (
         <div className="cfg-empty">
@@ -284,10 +292,11 @@ function SkillsTab({ bot, skills, onChange }: { bot: Bot; skills: Skill[] | unde
               <div className="cfg-item__text">
                 <div className="cfg-item__title">{s.name}</div>
                 <div className="cfg-item__sub">{s.description || s.body.split('\n')[0]}</div>
+                <SkillHistory skill={s} onChange={onChange} /><SkillPackageControls skillId={s.id} revision={s.revision} onChange={onChange} />
               </div>
               <div className="cfg-item__actions">
                 <button type="button" className="cfg-icon-btn" onClick={() => setEditing(s.id)} aria-label={`Edit ${s.name}`} title="Edit"><Icon name="edit" size={14} /></button>
-                <ConfirmButton className="cfg-icon-btn" title="Delete" onConfirm={async () => { await configApi.deleteSkill(s.id); onChange(); }}><Glyph name="trash" size={14} /></ConfirmButton>
+                <ConfirmButton className="cfg-icon-btn" title="Delete" onConfirm={async () => { await configApi.deleteSkill(s.id, s.revision); onChange(); }}><Glyph name="trash" size={14} /></ConfirmButton>
               </div>
             </div>
           ))}
@@ -297,7 +306,7 @@ function SkillsTab({ bot, skills, onChange }: { bot: Bot; skills: Skill[] | unde
   );
 }
 
-function SkillEditor({ botId, skill, onDone }: { botId: string; skill?: Skill; onDone: () => void }) {
+function SkillEditor({ botId, skill, onDone }: { botId: string; skill?: KnowledgeSkill; onDone: () => void }) {
   const [name, setName] = useState(skill?.name ?? '');
   const [description, setDescription] = useState(skill?.description ?? '');
   const [body, setBody] = useState(skill?.body ?? '');
@@ -308,7 +317,7 @@ function SkillEditor({ botId, skill, onDone }: { botId: string; skill?: Skill; o
     if (!can) return;
     setBusy(true); setError(null);
     try {
-      if (skill) await configApi.updateSkill(skill.id, { name, description, body });
+      if (skill) await learningApi.updateSkill(skill.id, { name, description, body, expectedRevision: skill.revision });
       else await configApi.createSkill(botId, { name, description, body });
       onDone();
     } catch (e) { setError((e as Error).message); setBusy(false); }
@@ -332,10 +341,11 @@ function SkillEditor({ botId, skill, onDone }: { botId: string; skill?: Skill; o
 function MemoriesTab({ bot, data, onChange }: { bot: Bot; data: BotSettingsBundle | null; onChange: () => void }) {
   const [q, setQ] = useState('');
   const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [memoryError, setMemoryError] = useState('');
   const memories = useMemo(() => (data?.memories ?? []).filter((m) => !hidden.has(m.id) && (!q || m.text.toLowerCase().includes(q.toLowerCase()))), [data, hidden, q]);
-  const remove = async (m: Memory) => {
+  const remove = async (m: KnowledgeMemory) => {
     setHidden((h) => new Set(h).add(m.id));
-    try { await configApi.deleteMemory(m.id); onChange(); } catch { setHidden((h) => { const n = new Set(h); n.delete(m.id); return n; }); }
+    try { setMemoryError(''); await configApi.deleteMemory(m.id, m.revision); onChange(); } catch (e) { setMemoryError((e as Error).message); setHidden((h) => { const n = new Set(h); n.delete(m.id); return n; }); }
   };
   const fill = data ? Math.min(100, Math.round((data.memory.historyChars / data.memory.compactAtChars) * 100)) : 0;
   return (
@@ -346,6 +356,9 @@ function MemoriesTab({ bot, data, onChange }: { bot: Bot; data: BotSettingsBundl
           <div className="cfg-page__sub">What {bot.name} remembers about you. It saves things when you share them, and picks up more on its own once a chat goes quiet.</div>
         </div>
       </div>
+      {memoryError && <div className="cfg-error" role="alert">{memoryError}</div>}
+      <PendingMemoryChanges key={bot.id} botId={bot.id} onChange={onChange} />
+      <ConversationSearch botId={bot.id} />
       {(data?.memories.length ?? 0) > 6 && (
         <input className="text-input" placeholder="Search memories" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search memories" />
       )}
@@ -361,6 +374,7 @@ function MemoriesTab({ bot, data, onChange }: { bot: Bot; data: BotSettingsBundl
                   {m.source === 'learned' ? <span className="cfg-chip">Picked up</span> : <span className="cfg-chip cfg-chip--muted">Saved in chat</span>}
                   <span>{shortDate(m.createdAt)}</span>
                 </div>
+                <div className="native-meta">{m.target === 'environment' ? 'Environment fact' : 'User preference'}{m.evidenceKind ? ` · ${m.evidenceKind} evidence` : ''}</div><MemoryEvidence memory={m} onChange={onChange} /><KnowledgeScopeControl kind="memories" item={m} onChange={onChange} />
               </div>
               <div className="cfg-item__actions">
                 <button type="button" className="cfg-icon-btn" onClick={() => remove(m)} aria-label="Forget this" title="Forget"><Glyph name="trash" size={14} /></button>
@@ -369,6 +383,7 @@ function MemoriesTab({ bot, data, onChange }: { bot: Bot; data: BotSettingsBundl
           ))}
         </div>
       )}
+      <MemoryArchive botId={bot.id} version={(data?.memories ?? []).map(m => `${m.id}:${m.revision}`).join(',')} />
       {data && (
         <div className="cfg-meter" title="Older messages are summarized automatically when this fills up.">
           <div className="cfg-meter__label"><span>Conversation memory</span><span>{fill}% full</span></div>
@@ -404,6 +419,7 @@ function RoutinesTab({ bot, routines }: { bot: Bot; routines: Routine[] | undefi
           {routines.map((r) => <RoutineItem key={r.id} r={r} onFlash={say} />)}
         </div>
       )}
+      <RoutineHistory botId={bot.id} />
     </div>
   );
 }

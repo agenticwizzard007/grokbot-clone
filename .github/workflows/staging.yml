@@ -1,0 +1,122 @@
+name: Deploy Fly staging
+on:
+  push:
+    branches: [main, agenticwizzard007/hermes-integration-strategy]
+  workflow_dispatch:
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: swarm-team-staging
+  cancel-in-progress: false
+jobs:
+  release:
+    if: github.repository == 'agenticwizzard007/grokbot-clone' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/agenticwizzard007/hermes-integration-strategy')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Check source and protect the deployed feature set
+        id: preflight
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p .context/staging-release
+          node --test tests/staging-release.test.mjs
+          node scripts/staging-preflight.mjs | tee .context/staging-release/preflight.json
+      - name: Qualify the complete source checkout
+        if: steps.preflight.outputs.deploy == 'true'
+        run: |
+          npm ci --no-audit --no-fund
+          npm run test:hermes-native
+          npm run test:deployment
+          npm run test:voice-entry
+      - uses: superfly/flyctl-actions/setup-flyctl@98172f70657cb3e15db199af139be99bd3e61200
+        if: steps.preflight.outputs.deploy == 'true'
+        with:
+          version: 0.5.6
+      - name: Build and inspect the exact release image
+        if: steps.preflight.outputs.deploy == 'true'
+        env:
+          IMAGE: registry.fly.io/swarm-team:git-${{ github.sha }}
+        run: |
+          git diff --exit-code HEAD
+          docker build --platform linux/amd64 --build-arg SWARM_BUILD_REVISION="$GITHUB_SHA" -t "$IMAGE" .
+          docker run --rm -i --entrypoint node -e EXPECTED_REVISION="$GITHUB_SHA" "$IMAGE" --input-type=module < scripts/verify-image-contents.mjs | tee .context/staging-release/image-verification.json
+          container_id=$(docker create "$IMAGE")
+          docker cp "$container_id:/app/server/dist/release-manifest.json" .context/staging-release/manifest.json
+          docker rm "$container_id"
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          const tested = JSON.parse(fs.readFileSync('server/dist/release-manifest.json'));
+          const image = JSON.parse(fs.readFileSync('.context/staging-release/manifest.json'));
+          assert.equal(image.revision, process.env.GITHUB_SHA);
+          assert.deepEqual(image.server, tested.server);
+          const assets = m => Object.fromEntries(Object.entries(m.frontend).filter(([file]) => file !== 'build.json'));
+          assert.deepEqual(assets(image), assets(tested));
+          NODE
+      - name: Recheck the latest branch before publishing
+        if: steps.preflight.outputs.deploy == 'true'
+        id: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/staging-preflight.mjs | tee .context/staging-release/prepublish.json
+      - name: Publish image and back up staging
+        if: steps.publish.outputs.deploy == 'true'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_STAGING_DEPLOY_TOKEN }}
+          IMAGE: registry.fly.io/swarm-team:git-${{ github.sha }}
+        run: |
+          test -n "$FLY_API_TOKEN" || { echo 'Missing FLY_STAGING_DEPLOY_TOKEN repository secret'; exit 1; }
+          flyctl status -a swarm-team --json > .context/staging-release/before.json
+          flyctl auth docker
+          docker push "$IMAGE"
+          published_image=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE")
+          echo "$published_image" > .context/staging-release/published-image.txt
+          docker manifest inspect "$published_image" > .context/staging-release/registry-manifest.json
+          node scripts/resolve-staging-image.mjs "$published_image" .context/staging-release/registry-manifest.json > .context/staging-release/image.txt
+          node scripts/snapshot-staging-volume.mjs
+      - name: Check for newer changes immediately before deployment
+        if: steps.publish.outputs.deploy == 'true'
+        id: deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/staging-preflight.mjs | tee .context/staging-release/predeploy.json
+      - name: Deploy immutable image and verify published files
+        if: steps.deploy.outputs.deploy == 'true'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_STAGING_DEPLOY_TOKEN }}
+        run: |
+          image=$(cat .context/staging-release/image.txt)
+          [[ "$image" =~ ^registry\.fly\.io/swarm-team@sha256:[a-f0-9]{64}$ ]]
+          flyctl deploy --config fly.toml --app swarm-team --image "$image" --ha=false
+          flyctl status -a swarm-team --json > .context/staging-release/after.json
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          const status = JSON.parse(fs.readFileSync('.context/staging-release/after.json'));
+          const digest = fs.readFileSync('.context/staging-release/image.txt', 'utf8').trim().split('@')[1];
+          assert.equal(status.Machines.length, 1);
+          assert.equal(status.Machines[0].state, 'started');
+          assert.equal(status.Machines[0].image_ref.digest, digest);
+          NODE
+          node scripts/verify-deployment.mjs https://swarm-team.fly.dev .context/staging-release/manifest.json | tee .context/staging-release/verification.json
+          echo "Verified https://swarm-team.fly.dev at $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+      - name: Save release and rollback evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: staging-release-${{ github.sha }}-${{ github.run_attempt }}
+          path: .context/staging-release/
+          include-hidden-files: true
+          retention-days: 30

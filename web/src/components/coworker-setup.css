@@ -1,0 +1,13 @@
+.coworker-setups { display: grid; gap: 12px; margin: 20px 0; }
+.coworker-setup { border: 1px solid var(--border, #d6d6d6); border-radius: 16px; padding: 18px; overflow-wrap: anywhere; font-size: 14px; line-height: 1.55; }
+.coworker-setup__heading { display: flex; gap: 8px; justify-content: space-between; flex-wrap: wrap; }
+.coworker-setup__heading span, .coworker-setup__readiness, .coworker-setup small { opacity: .7; }
+.coworker-setup button, .coworker-setups > p button { border: 1px solid var(--border, #c8c8c8); border-radius: 9px; padding: 8px 12px; background: transparent; color: inherit; cursor: pointer; margin: 10px 8px 0 0; font: inherit; }
+.coworker-setup button:disabled { opacity: .5; cursor: default; }
+.coworker-setup button:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.coworker-setup dt { font-weight: 600; margin-top: 12px; }
+.coworker-setup dd { margin: 4px 0; white-space: pre-wrap; }
+.coworker-setup p { margin: 8px 0; white-space: pre-wrap; }
+.coworker-setup ul, .coworker-setup ol { margin: 6px 0; padding-left: 22px; }
+.coworker-setup blockquote { margin: 12px 0; border-left: 2px solid var(--border, #c8c8c8); padding-left: 12px; }
+.coworker-setup summary { cursor: pointer; margin-top: 12px; }

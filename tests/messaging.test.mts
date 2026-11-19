@@ -722,7 +722,7 @@ test('shared xAI transcribes real iMessage CAF and WhatsApp OGG once while text 
         reply({ text: JSON.stringify({ text: 'Shared platform voice note accepted', tool_calls: [] }), usage: { input_tokens: 20, output_tokens: 8 } });
       }
     });
-    ws.once('open', () => ws.send(JSON.stringify({ type: 'hello', version: 1, nativeMcp: true, token: secret, device: 'Voice-note test bridge' })));
+    ws.once('open', () => ws.send(JSON.stringify({ type: 'hello', version: 1, nativeMcp: true, noGenerationDeadline: true, token: secret, device: 'Voice-note test bridge' })));
   });
   const prefs = store.getPrefs(alice);
   const bot = (db.prepare('SELECT id FROM bots WHERE user_id=? AND is_primary=1').get(alice) as any).id;

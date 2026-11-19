@@ -5,6 +5,7 @@ import type { Toolkit } from '@shared/types';
 import { BotAvatarFor } from '../../avatar/BotAvatar';
 import { configApi, type ComputerDetails, type KeysResponse, type KeyStatus, type Pairing } from '../../lib/configApi';
 import { ModelPicker, refreshModels } from './ModelPicker';
+import { LearningSettingsPanel } from './LearningSettings';
 import { UsageSection } from './UsageSection';
 import { relativeShort } from '../../lib/time';
 import { useConfigUI, type AppSection, type Theme } from '../../configStore';
@@ -35,6 +36,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
     { id: 'usage', label: 'Usage', icon: Gauge, keywords: 'cost spend money dollars tokens requests billing limits' },
   ] },
   { group: 'Bots', items: [
+    { id: 'learning', label: 'Learning', icon: Blocks, keywords: 'hermes memory skills review approval refine history maintenance' },
     { id: 'computer', label: 'Computer', icon: Monitor, keywords: 'vm cloud browser screen desktop pc companion sleep wake reset device access accessibility recording files automation' },
     { id: 'permissions', label: 'Permissions', icon: ShieldCheck, keywords: 'approvals always allow ask again tools device access accessibility recording files automation' },
   ] },
@@ -147,6 +149,7 @@ export function AppSettings() {
             {section === 'general' && <GeneralSection />}
             {section === 'keys' && <KeysSection />}
             {section === 'usage' && <UsageSection />}
+            {section === 'learning' && <LearningSettingsPanel />}
             {section === 'computer' && <ComputerSection />}
             {section === 'messaging' && <MessagingSettings />}
             {section === 'permissions' && <PermissionsSection />}

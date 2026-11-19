@@ -81,7 +81,7 @@ export function attachSupervisor(server: http.Server, policy: HostPolicy, driver
         await cleanup();
         if (!closed && ws.readyState === WebSocket.OPEN) ws.send(line, { binary: false }, () => ws.close());
       };
-      let deadline = setTimeout(stopQuietly, 12_000);
+      let deadline: ReturnType<typeof setTimeout> | undefined = setTimeout(stopQuietly, 12_000);
       ws.on('error', stopQuietly); ws.on('close', stopQuietly);
       ws.on('message', async raw => {
         try {
@@ -144,7 +144,8 @@ export function attachSupervisor(server: http.Server, policy: HostPolicy, driver
               if (!ready) {
                 try { if (JSON.parse(line.toString()).type !== 'ready') throw new Error(); } catch { stopQuietly(); return; }
                 ready = true; clearTimeout(deadline);
-                deadline = setTimeout(stopQuietly, workload.kind === 'cli' ? 16 * 60_000 : 30 * 60_000);
+                const unboundedGeneration = workload.kind === 'cli' && message.operation === 'generate' && message.params?.timeoutMs === 0;
+                deadline = unboundedGeneration ? undefined : setTimeout(stopQuietly, workload.kind === 'cli' ? 16 * 60_000 : 30 * 60_000);
               }
               if (ws.bufferedAmount > MAX || closed) { stopQuietly(); return; }
               if (workload.kind === 'cli') {

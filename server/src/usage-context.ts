@@ -4,7 +4,7 @@ import type { UsageKind } from './usage.js';
 import { localAccess } from './computers/local-access.js';
 import { LegacyActivityGate } from './security/legacy-activity.js';
 
-interface UsageCtx { userId?: string | null; botId?: string | null; kind?: UsageKind; resolveUser?: () => string | null | undefined; computerRevision?: number }
+interface UsageCtx { jobId?: string | null; reviewId?: string | null; audience?: 'user' | 'internal'; userId?: string | null; botId?: string | null; kind?: UsageKind; resolveUser?: () => string | null | undefined; computerRevision?: number }
 const als = new AsyncLocalStorage<UsageCtx>();
 const legacyActivities = new LegacyActivityGate(db);
 /** Only one part of migration quiescence; subprocesses, VM jobs and files need separate fences. */
@@ -23,7 +23,7 @@ export function withUsage<T>(ctx: UsageCtx, fn: () => T): T {
   return legacyActivities.run(owner, () => als.run(merged, fn));
 }
 
-export function attribution(explicit: { userId?: string | null; botId?: string | null; kind?: UsageKind } = {}) {
+export function attribution(explicit: { userId?: string | null; botId?: string | null; kind?: UsageKind; jobId?: string | null; reviewId?: string | null } = {}) {
   const store = als.getStore() ?? {};
   const botId = explicit.botId ?? store.botId ?? null;
   // A queued Bot job can inherit the request of another user; the Bot's owner is authoritative.
@@ -32,8 +32,11 @@ export function attribution(explicit: { userId?: string | null; botId?: string |
   if (!userId && store.resolveUser) {
     try { userId = store.resolveUser() ?? null; } catch { userId = null; }
   }
-  return { userId, botId, kind: explicit.kind ?? store.kind ?? 'other' };
+  return { userId, botId, kind: explicit.kind ?? store.kind ?? 'other', jobId: explicit.jobId ?? store.jobId ?? null, reviewId: explicit.reviewId ?? store.reviewId ?? null };
 }
 
 export const currentUserId = () => attribution().userId;
 export const currentComputerRevision = () => als.getStore()?.computerRevision;
+
+export const executionAudience = (botId: string): 'user'|'internal' => als.getStore()?.botId === botId ? als.getStore()?.audience ?? 'user' : 'user';
+export const currentJobId = () => als.getStore()?.jobId;

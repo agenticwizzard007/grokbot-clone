@@ -99,6 +99,29 @@ test('cancelling one overlapping request does not stop its sibling requests', as
   assert.equal(b.frames.at(-1).result.text, 'second'); assert.equal(c.frames.at(-1).result.text, 'third');
 });
 
+test('unbounded CLI containers outlive the old ceiling; bounded operations and cleanup still terminate', { timeout: 15000 }, async t => {
+  const f = await fixture(t);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const a = await f.connect({ params: { provider: 'codex', timeoutMs: 0 } });
+    const b = await f.connect({ params: { provider: 'codex', timeoutMs: 0 } });
+    const status = await f.connect({ operation: 'status', params: { timeoutMs: 0 } });
+    while (![a, b, status].every(c => c.frames.some(v => v.type === 'ready'))) await new Promise(resolve => setImmediate(resolve));
+    t.mock.timers.tick(40 * 60_000);
+    await status.closed;
+    assert.equal(f.workers[0].killed, false);
+    assert.equal(f.workers[1].killed, false);
+    assert.equal(f.workers[2].killed, true, 'zero only disables deadlines for generation');
+    a.ws.close(); await a.closed;
+    while (!f.workers[0].killed) await new Promise(resolve => setImmediate(resolve));
+    assert.equal(f.workers[1].killed, false);
+    f.workers[1].reply({ type: 'result', result: { text: 'long task completed' } });
+    await b.closed;
+    assert.equal(b.frames.at(-1).result.text, 'long task completed');
+    assert.equal(f.removed.length, 3);
+  } finally { t.mock.timers.reset(); }
+});
+
 test('supervisor carries native callback frames only between their existing generation socket and worker', async t => {
   const f = await fixture(t);
   const a = await f.connect(), b = await f.connect();

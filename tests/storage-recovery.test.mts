@@ -10,6 +10,59 @@ import { backupEnvironment, restoreEnvironment } from '../server/src/platform/ba
 import { exportTenantDatabase } from '../server/src/platform/migration.js';
 import { openOwnedFile, validateArchiveEntry } from '../server/src/security/files.js';
 
+test('backup rollback fences pending native delivery/code work and blocks autonomous workflow state', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-native-restore-')), source = path.join(root, 'source'), bundle = path.join(root, 'bundle');
+  const tenant = 'usr_aaaaaaaa', master = randomBytes(32);
+  t.after(() => { master.fill(0); fs.rmSync(root, { recursive: true, force: true }); });
+  fs.mkdirSync(path.join(source, 'app'), { recursive: true });
+  fs.mkdirSync(path.join(source, 'files/bot/Deliverables/report'), { recursive: true });
+  fs.writeFileSync(path.join(source, 'files/bot/Deliverables/report/report.md'), 'immutable snapshot');
+  fs.writeFileSync(path.join(source, 'tenant-manifest.json'), JSON.stringify({ tenantId: tenant, volumeId: 'vol_before' }));
+  const database = new Database(path.join(source, 'app/swarm.db'));
+  database.exec(`CREATE TABLE tenant_identity(singleton INTEGER PRIMARY KEY,tenant_id TEXT);INSERT INTO tenant_identity VALUES(1,'${tenant}');
+    CREATE TABLE users(id TEXT PRIMARY KEY);INSERT INTO users VALUES('${tenant}');
+    CREATE TABLE routine_executions(id TEXT,status TEXT,error TEXT,finished_at INTEGER);
+    INSERT INTO routine_executions VALUES('waiting','waiting',NULL,NULL),('queued','queued',NULL,NULL),('done','completed',NULL,1);
+    CREATE TABLE artifact_deliveries(id TEXT,status TEXT,error TEXT,updated_at INTEGER);
+    INSERT INTO artifact_deliveries VALUES('pending-send','pending',NULL,1),('in-flight','sending',NULL,1),('done','delivered',NULL,1);
+    CREATE TABLE artifact_delivery_attempts(id TEXT,status TEXT,error TEXT,finished_at INTEGER);
+    INSERT INTO artifact_delivery_attempts VALUES('in-flight','sending',NULL,NULL),('done','delivered',NULL,1);
+    CREATE TABLE code_runs(id TEXT,state TEXT,updated_at INTEGER);INSERT INTO code_runs VALUES('running','running',1),('waiting','waiting',1),('done','completed',1);
+    CREATE TABLE code_steps(id TEXT,state TEXT);INSERT INTO code_steps VALUES('dispatching','dispatching'),('waiting','waiting'),('done','completed');
+    CREATE TABLE native_workflow_runs(id TEXT,status TEXT,finished_at INTEGER);INSERT INTO native_workflow_runs VALUES('waiting','waiting',NULL),('queued','queued',NULL),('done','completed',1);
+    CREATE TABLE native_goal_turns(id TEXT,status TEXT,finished_at INTEGER);INSERT INTO native_goal_turns VALUES('running','running',NULL),('done','completed',1);
+    CREATE TABLE native_workflow_tasks(task_id TEXT,status TEXT,reason TEXT);INSERT INTO native_workflow_tasks VALUES('task','queued',''),('done','completed','');
+    CREATE TABLE tasks(id TEXT,state TEXT,note TEXT,updated_at INTEGER);INSERT INTO tasks VALUES('task','working','',1),('done','done','',1);
+    CREATE TABLE native_workflows(id TEXT,status TEXT,reason TEXT,updated_at INTEGER);INSERT INTO native_workflows VALUES('active','active','',1),('done','completed','',1);
+    CREATE TABLE native_goals(id TEXT,status TEXT,reason TEXT,updated_at INTEGER);INSERT INTO native_goals VALUES('active','active','',1),('paused','paused','',1),('done','completed','',1);`);
+  database.close();
+  const saved = await backupEnvironment(source, bundle, tenant, master);
+  // The live source can finish after a snapshot: old pending rows are no longer safe to replay.
+  const progressed = new Database(path.join(source, 'app/swarm.db'));
+  progressed.exec("UPDATE artifact_deliveries SET status='delivered' WHERE id='pending-send'"); progressed.close();
+  const destination = path.join(root, 'restored');
+  await restoreEnvironment(bundle, destination, tenant, saved.id, 'vol_after', master);
+  const restored = new Database(path.join(destination, 'app/swarm.db'));
+  try {
+    const state = (table: string, column: string, id: string, key = 'id') => (restored.prepare(`SELECT ${column} value FROM ${table} WHERE ${key}=?`).get(id) as any).value;
+    for (const id of ['pending-send', 'in-flight']) assert.equal(state('artifact_deliveries', 'status', id), 'unknown');
+    assert.equal(state('artifact_delivery_attempts', 'status', 'in-flight'), 'unknown');
+    assert.equal(state('artifact_deliveries', 'status', 'done'), 'delivered');
+    for (const id of ['running', 'waiting']) assert.equal(state('code_runs', 'state', id), 'unknown');
+    for (const id of ['dispatching', 'waiting']) assert.equal(state('code_steps', 'state', id), 'unknown');
+    assert.equal(state('code_runs', 'state', 'done'), 'completed');
+    for (const id of ['waiting', 'queued']) {
+      assert.equal(state('routine_executions', 'status', id), 'unknown');
+      assert.equal(state('native_workflow_runs', 'status', id), 'interrupted');
+    }
+    assert.equal(state('native_workflow_tasks', 'status', 'task', 'task_id'), 'blocked');
+    assert.equal(state('tasks', 'state', 'task'), 'needs_input');
+    for (const table of ['native_goals', 'native_workflows']) { assert.equal(state(table, 'status', 'active'), 'blocked'); assert.equal(state(table, 'status', 'done'), 'completed'); }
+    assert.equal(state('native_goals', 'status', 'paused'), 'paused');
+    assert.equal(fs.readFileSync(path.join(destination, 'files/bot/Deliverables/report/report.md'), 'utf8'), 'immutable snapshot');
+  } finally { restored.close(); }
+});
+
 test('filesystem boundary refuses traversal, symlink escapes and special files',()=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'swarm-files-'));try{
     const inside=path.join(root,'inside');fs.mkdirSync(inside);fs.writeFileSync(path.join(root,'secret'),'private');fs.symlinkSync(root,path.join(inside,'escape'));

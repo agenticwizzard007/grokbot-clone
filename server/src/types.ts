@@ -40,11 +40,13 @@ export interface AgentBrief {
 }
 
 export interface AgentSetupView {
-  manifest: { format: string; version: number; brief: AgentBrief; bot: { name: string; label: string; instructions: string } };
+  manifest: { format: string; version: number; brief: AgentBrief; bot: { name: string; label: string; instructions: string }; source?: { creatorBotId?: string; generation?: number; messages: { seq: number; text: string }[]; sourceRefs?: { botId: string; generation: number; seq: number; contentHash: string; text: string }[] } };
   computer: { status: 'pending' | 'ready'; error: string | null };
   onboarding: { status: 'interviewing' | 'review' | 'active'; revision: number; confirmedAt: number | null; missing: string[] };
   files: Record<string, string>;
 }
+
+export interface CoworkerSetupView extends AgentSetupView { botId: string }
 
 export interface AgentInstructionPreview {
   instructions: string;
@@ -84,6 +86,7 @@ export interface Bot {
 
 /** A transcript row. `seq` orders rows; `updatedSeq` is a per-bot revision counter (rows are rewritten while streaming). */
 export interface Row {
+  audience?: 'user'|'internal';
   botId: string;
   generation: number;
   seq: number;
@@ -95,12 +98,12 @@ export interface Row {
 
 export type RowKind = 'message' | 'tool-call' | 'card' | 'event' | 'notice';
 
-export type RowBody =
+export type RowBody = (
   | MessageBody
   | ToolCallBody
   | CardBody
   | EventBody
-  | NoticeBody;
+  | NoticeBody) & { audience?: 'user'|'internal' };
 
 export interface MessageBody {
   type: 'message';
@@ -108,7 +111,7 @@ export interface MessageBody {
   text: string;
   streaming?: boolean;
   /** Set when a message came from another bot, a routine, a voice call or a text message rather than the user typing in the app. */
-  from?: { kind: 'bot' | 'routine' | 'voice' | 'imessage' | 'sms' | 'whatsapp'; id: string; name: string };
+  from?: { kind: 'bot' | 'routine' | 'voice' | 'imessage' | 'sms' | 'whatsapp'; id: string; name: string; utteranceId?: string };
   citations?: { url: string; title?: string }[];
 }
 
@@ -205,6 +208,7 @@ export type ActivityKind =
   | 'waiting_for_you' | 'drafting_file' | 'remembering';
 
 export interface LiveState {
+  audience?: 'user'|'internal';
   botId: string;
   isRunning: boolean;
   activity: { kind: ActivityKind; detail?: string; since: number } | null;
@@ -245,6 +249,7 @@ export interface Toolkit {
 
 /** Server-sent events on GET /api/events */
 export type ServerEvent =
+  | { type: 'native'; cursor: number }
   | { type: 'hello'; serverTime: number }
   | { type: 'rows'; botId: string; generation: number; rows: Row[] }
   | { type: 'cleared'; botId: string; generation: number }
@@ -262,7 +267,7 @@ export type ServerEvent =
 
 /**
  * How hard the model thinks. The OpenRouter levels, plus 'ultracode': the model's highest level,
- * a longer step budget and an instruction to plan and verify. Each model accepts a subset; the
+ * and an instruction to plan and verify. Each model accepts a subset; the
  * server snaps to the nearest one the model supports.
  */
 export type Effort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultracode';

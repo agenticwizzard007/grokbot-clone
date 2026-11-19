@@ -53,6 +53,7 @@ try {
         const botId = path.match(/\/bots\/([^/]+)\/tasks/)?.[1];
         body = { tasks: botId ? tasks.filter((t) => t.botId === botId) : tasks };
       } else if (path.endsWith('/rows')) body = { generation: 1, rows: [] };
+      else if (path.endsWith('/coworker-setups')) body = { setups: [] };
       else if (path.endsWith('/routines')) body = { routines: [] };
       else if (path === '/api/events') return route.fulfill({ contentType: 'text/event-stream', body: 'data: {"type":"hello"}\n\n' });
       else if (path === '/api/computer') body = { computer: { status: 'absent', screens: [] } };

@@ -13,6 +13,8 @@ import { createServer } from 'node:http';
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const MAX_TIMEOUT_MS = 15 * 60_000;
+// An unbounded generation still bounds each individual native MCP operation.
+const nativeToolTimeout = params => params.timeoutMs || MAX_TIMEOUT_MS;
 const AUTH_TIMEOUT_MS = 15_000;
 const LABEL = { codex: 'Codex', claude: 'Claude' };
 const CLAUDE_PLANS = new Set(['pro', 'max', 'ultra', 'team', 'enterprise']);
@@ -47,7 +49,9 @@ async function deadline(signal, timeoutMs, work) {
   const controller = new AbortController();
   const onAbort = () => controller.abort(signal.reason instanceof RunnerError ? signal.reason : cancelled());
   signal?.addEventListener('abort', onAbort, { once: true });
-  const timer = setTimeout(() => controller.abort(new RunnerError('CLI request timed out.', 'timeout')), timeoutMs);
+  // Zero is an explicit opt-out for agent generations; auth/catalog/login
+  // operations still use their bounded deadlines and cancellation always works.
+  const timer = timeoutMs === 0 ? undefined : setTimeout(() => controller.abort(new RunnerError('CLI request timed out.', 'timeout')), timeoutMs);
   try { return await work(controller.signal); }
   finally { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); }
 }
@@ -320,7 +324,7 @@ function validateParams(params) {
   if (!params || typeof params !== 'object' || !Object.hasOwn(LABEL, params.provider)) throw new RunnerError('Provider must be codex or claude.');
   if (typeof params.prompt !== 'string' || !params.prompt.trim()) throw new RunnerError('A nonempty prompt is required.');
   if (!params.schema || typeof params.schema !== 'object' || Array.isArray(params.schema)) throw new RunnerError('A JSON Schema object is required.');
-  if (!Number.isSafeInteger(params.timeoutMs) || params.timeoutMs < 1 || params.timeoutMs > MAX_TIMEOUT_MS) throw new RunnerError('timeoutMs must be an integer from 1 to 900000.');
+  if (!Number.isSafeInteger(params.timeoutMs) || params.timeoutMs < 0 || params.timeoutMs > MAX_TIMEOUT_MS) throw new RunnerError('timeoutMs must be 0 (no generation deadline) or an integer from 1 to 900000.');
   if (params.model !== undefined && !modelId(params.model)) throw new RunnerError('Invalid CLI model.');
   if (params.effort !== undefined && !EFFORTS.has(params.effort)) throw new RunnerError('Invalid CLI effort.');
   if (params.actionNames !== undefined && (!Array.isArray(params.actionNames) || params.actionNames.some(name => typeof name !== 'string' || !/^[A-Za-z0-9_-]{1,256}$/.test(name)))) throw new RunnerError('Invalid Swarm action manifest.');
@@ -565,7 +569,7 @@ async function generateCodex(params, options, cwd, signal) {
   const args = ['exec', '--json', '--output-schema', schemaFile, '--output-last-message', outputFile,
     '--ignore-user-config', '--ignore-rules', '--skip-git-repo-check', '--ephemeral', '--sandbox', 'read-only',
     '-c', 'forced_login_method="chatgpt"', '-c', 'model_provider="openai"', '-c', 'web_search="disabled"',
-    '-c', options.nativeMcp ? `mcp_servers={swarm={url=${JSON.stringify(options.nativeMcp.url)},http_headers={Authorization=${JSON.stringify('Bearer ' + options.nativeMcp.token)}},enabled_tools=${JSON.stringify(params.nativeTools.map(tool => tool.name))},tool_timeout_sec=${Math.ceil(params.timeoutMs / 1000)},required=true,default_tools_approval_mode="auto"}}` : 'mcp_servers={}', '-c', 'notify=[]', '-c', 'approval_policy="never"'];
+    '-c', options.nativeMcp ? `mcp_servers={swarm={url=${JSON.stringify(options.nativeMcp.url)},http_headers={Authorization=${JSON.stringify('Bearer ' + options.nativeMcp.token)}},enabled_tools=${JSON.stringify(params.nativeTools.map(tool => tool.name))},tool_timeout_sec=${Math.ceil(nativeToolTimeout(params) / 1000)},required=true,default_tools_approval_mode="auto"}}` : 'mcp_servers={}', '-c', 'notify=[]', '-c', 'approval_policy="never"'];
   if (options.fileCredentials === true) args.push('-c', 'cli_auth_credentials_store="file"');
   // shell_tool is the supported command-execution gate. unified_exec alone is
   // insufficient (newer releases ignore user opt-outs for that feature).
@@ -605,7 +609,7 @@ async function generateClaude(params, options, cwd, signal) {
   // Observe complete assistant events so Swarm actions accidentally emitted as native
   // tool_use blocks can return to the app before Claude loops on "No such tool" errors.
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--json-schema', params.schema, '--tools', '',
-    '--strict-mcp-config', '--mcp-config', options.nativeMcp ? JSON.stringify({ mcpServers: { swarm: { type: 'http', url: options.nativeMcp.url, headers: { Authorization: 'Bearer ' + options.nativeMcp.token }, alwaysLoad: true, timeout: params.timeoutMs } } }) : '{"mcpServers":{}}', '--setting-sources', '', '--permission-mode', 'dontAsk',
+    '--strict-mcp-config', '--mcp-config', options.nativeMcp ? JSON.stringify({ mcpServers: { swarm: { type: 'http', url: options.nativeMcp.url, headers: { Authorization: 'Bearer ' + options.nativeMcp.token }, alwaysLoad: true, timeout: nativeToolTimeout(params) } } }) : '{"mcpServers":{}}', '--setting-sources', '', '--permission-mode', 'dontAsk',
     '--no-session-persistence', '--disable-slash-commands', options.nativeMcp ? '--restricted' : '--safe-mode', '--settings', options.nativeMcp ? '{"disableAllHooks":true,"forceLoginMethod":"claudeai","autoMemoryEnabled":false,"enabledPlugins":{}}' : '{"disableAllHooks":true,"forceLoginMethod":"claudeai"}',
     '--system-prompt', options.nativeMcp
       ? 'You are the stateless reasoning engine for Swarm. Follow the supplied conversation roles. Use the registered Swarm MCP tools for all actions and consume their results in this generation. Only application tool results establish execution outcomes. Return the requested final JSON schema with text and an empty tool_calls array.'
@@ -1118,7 +1122,7 @@ async function connection(url, options) {
     socket.addEventListener('open', () => {
       if (closed) { try { socket.close(); } catch {} return; }
       clearTimeout(handshake); openedAt = Date.now();
-      send({ type: 'hello', token: options.token, version: 1, device: hostname(), nativeMcp: true });
+      send({ type: 'hello', token: options.token, version: 1, device: hostname(), nativeMcp: true, noGenerationDeadline: true });
     });
     socket.addEventListener('message', receive);
     socket.addEventListener('close', (event) => {

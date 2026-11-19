@@ -12,6 +12,7 @@ import { MembersCard } from './MembersCard';
 import { useConfigUI } from '../configStore';
 import { Glyph } from './config/glyphs';
 import { LibraryTab } from './config/LibraryTab';
+import { DeliverablesPanel } from './config/DeliverablesPanel';
 import { BotTasks } from './config/TasksView';
 import { AgentConfiguration } from './config/AgentConfiguration';
 
@@ -205,7 +206,7 @@ export function DetailsPanel() {
               </>
             )}
           </div>
-        ) : tab === 'tasks' ? <BotTasks bot={bot} /> : isConfiguration ? <AgentConfiguration key={bot.id} bot={bot} /> : <LibraryTab bot={bot} />}
+        ) : tab === 'tasks' ? <BotTasks bot={bot} /> : isConfiguration ? <AgentConfiguration key={bot.id} bot={bot} /> : <><DeliverablesPanel key={bot.id} botId={bot.id} /><LibraryTab bot={bot} /></>}
       </div>
     </aside>
   );

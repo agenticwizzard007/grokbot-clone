@@ -23,6 +23,7 @@ const { createTeammate, replicateTeammate, retryTeammate, importTeammate } = awa
 const { setupFiles, setupDirectory, getSetup, setupManifest, saveSetupDraft, activateSetup } = await import('../server/src/bot-setup.js');
 const { systemPrompt } = await import('../server/src/agent/prompt.js');
 const { functionSchemas } = await import('../server/src/agent/tools.js');
+const { KNOWLEDGE_TOOLS } = await import('../server/src/agent/knowledge-tools.js');
 const { computers } = await import('../server/src/computers/index.js');
 const { Hono } = await import('hono');
 const { api } = await import('../server/src/routes.js');
@@ -244,7 +245,13 @@ test('instruction preview returns actual setup and active prompts, with only its
     if (stage === 'active') {
       assert.doesNotMatch(body.instructions, /You are the setup consultant/);
       assert.match(body.instructions, /persistent charter \(AGENTS.md\)/);
-      assert.match(body.instructions, /PREVIEW_ACTIVE_SKILL_BODY/);
+      assert.match(body.instructions, /Preview skill ACTIVE/);
+      assert.match(body.instructions, /read_skill/);
+      assert.doesNotMatch(body.instructions, /PREVIEW_ACTIVE_SKILL_BODY/);
+      const readSkill = KNOWLEDGE_TOOLS.find(tool => tool.name === 'read_skill')!;
+      const loaded = await readSkill.impl({ skill_id: 'preview-skill-ACTIVE' }, { ...ctx, botId: bot.id });
+      assert.equal(loaded.isError, undefined);
+      assert.equal(JSON.parse(loaded.output as string).skill.body, 'PREVIEW_ACTIVE_SKILL_BODY');
       assert.match(body.instructions, /PREVIEW_ACTIVE_MEMORY_BODY/);
     } else {
       assert.match(body.instructions, /You are the setup consultant/);

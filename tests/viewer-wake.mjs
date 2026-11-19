@@ -86,6 +86,7 @@ try {
       if (path === '/api/auth/me') body = { user: { id: 'wake-user', name: 'Alex', email: 'wake@example.com' } };
       else if (path === '/api/bots') body = { bots: [bot], live: [] };
       else if (path.endsWith('/rows')) body = { generation: 1, rows: [] };
+      else if (path.endsWith('/coworker-setups')) body = { setups: [] };
       else if (path.endsWith('/routines')) body = { routines: [] };
       else if (path.endsWith('/tasks')) body = { tasks: [] };
       else if (path === '/api/voice/options') body = { voices: [], languages: [], speeds: [], configured: false };

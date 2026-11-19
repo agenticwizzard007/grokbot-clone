@@ -65,6 +65,7 @@ try {
       if (path === '/api/auth/me') body = { user: { id: 'test-owner', name: 'Alex', email: 'alex@example.test' }, devLogin: true };
       else if (path === '/api/bots') body = { bots, live: running ? [{ botId: 'main', isRunning: true, activity: { kind: 'working' }, startedAt: Date.now() }] : [] };
       else if (path.endsWith('/rows')) body = { generation: 1, rows: [] };
+      else if (path.endsWith('/coworker-setups')) body = { setups: [] };
       else if (path.endsWith('/routines')) body = { routines: [] };
       else if (path.endsWith('/tasks')) body = { tasks: [] };
       else if (path === '/api/settings') body = { settings: {}, computer: { provider: 'cloudvm' } };

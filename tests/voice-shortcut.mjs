@@ -40,6 +40,7 @@ try {
       else if (path === '/api/auth/dev') { loggedIn = true; body = { ok: true }; }
       else if (path === '/api/bots') { await rosterReady; body = { bots: main ? bots : [bots[0]], live: [] }; }
       else if (path.endsWith('/rows')) body = { generation: 1, rows: [] };
+      else if (path.endsWith('/coworker-setups')) body = { setups: [] };
       else if (path.endsWith('/routines')) body = { routines: [] };
       else if (path.endsWith('/tasks')) body = { tasks: [] };
       else if (path === '/api/settings') body = { settings: {}, computer: { provider: 'cloudvm' } };
