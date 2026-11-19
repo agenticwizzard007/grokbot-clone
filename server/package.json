@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "tsx watch --env-file=../.env src/index.ts",
     "start": "node --env-file=../.env dist/index.js",
-    "build": "tsc -p tsconfig.json",
+    "build": "node --input-type=module -e \"import {rmSync} from 'node:fs'; rmSync('dist', {recursive:true,force:true});\" && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
