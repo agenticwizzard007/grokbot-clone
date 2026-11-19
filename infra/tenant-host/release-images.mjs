@@ -79,7 +79,7 @@ export function main(args=process.argv.slice(2),environment=process.env){
     }
     const common={NODE_IMAGE:lock.nodeImage,DEBIAN_SNAPSHOT:lock.debianSnapshot,ZLIB_VERSION:lock.zlibVersion};
     const images={
-      app:build('app','Dockerfile',{...common,NPM_VERSION:lock.npmVersion,NPM_INTEGRITY:lock.npmIntegrity}),
+      app:build('app','Dockerfile',{...common,NPM_VERSION:lock.npmVersion,NPM_INTEGRITY:lock.npmIntegrity,SWARM_BUILD_REVISION:source}),
       hostBase:build('host-base','infra/tenant-host/HostBase.Dockerfile',{...common,DOCKER_IMAGE:lock.dockerImage,DOCKER_VERSION:lock.dockerVersion,DOCKER_STATIC_SHA256:lock.dockerStaticSha256,
         GO_IMAGE:lock.goImage,CONTAINERD_VERSION:lock.runtimeBuild.containerdVersion,CONTAINERD_COMMIT:lock.runtimeBuild.containerdCommit,
         RUNC_VERSION:lock.runtimeBuild.runcVersion,RUNC_COMMIT:lock.runtimeBuild.runcCommit,LIBPATHRS_VERSION:lock.runtimeBuild.libpathrsVersion,

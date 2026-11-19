@@ -103,6 +103,8 @@ test('complete dry pipeline strips inherited secrets, builds host, emits no regi
   assert.equal(result.status,0,result.stderr);
   const calls=f.calls();assert.ok(calls.every(c=>c.secret===null));assert.ok(!calls.some(c=>c.tool==='cosign'||['push','login','pull'].includes(c.args[0])));
   assert.match(fs.readFileSync(output,'utf8'),/^host_image_digest=\nhost_image_id=sha256:/);
+  const appBuild=calls.find(c=>c.tool==='docker'&&c.args[0]==='build'&&c.args.includes('Dockerfile'));
+  assert.ok(appBuild.args.includes(`SWARM_BUILD_REVISION=${source}`),'app image is built with the exact source revision');
   const record=JSON.parse(fs.readFileSync(path.join(f.root,'.context/tenant-release/reports/images.json')));
   assert.equal(record.liveInfrastructureQualified,false);assert.equal(record.mode,'dry-run');
 });
