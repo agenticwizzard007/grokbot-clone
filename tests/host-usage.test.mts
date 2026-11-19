@@ -6,15 +6,19 @@ import path from 'node:path';
 import {randomBytes,randomUUID,createHash} from 'node:crypto';
 import {setTimeout as delay} from 'node:timers/promises';
 import {Pool} from 'pg';
+import {Hono} from 'hono';
 import {generateKeyPair,exportPKCS8,exportSPKI,decodeJwt} from 'jose';
 import {HostUsageCollector,cpuCounters,memoryPressure,volumeUsedBytes,intervalUsage,hostUsageTransport,usageCollectionEnabled,type UsageSnapshot,type HostUsageReport} from '../server/src/runtime/host-usage.js';
 import {HostUsage,hostUsageRoutes,exportHostUsage,pruneHostUsage} from '../server/src/platform/host-usage.js';
 import {Directory} from '../server/src/platform/directory.js';
 import {RuntimeIdentity} from '../server/src/platform/runtime-identity.js';
-import {HostControl,setHostIntent} from '../server/src/platform/host-control.js';
+import {HostControl,hostControlRoutes,setHostIntent} from '../server/src/platform/host-control.js';
 import {capacityCommand} from '../server/src/platform/capacity-cli.js';
-import {recommendCapacity,type CapacityPolicy} from '../server/src/platform/tenant-capacity.js';
+import {recommendCapacity,setCapacityPolicy,type CapacityPolicy} from '../server/src/platform/tenant-capacity.js';
 import {FlyTenants} from '../server/src/platform/fly-tenants.js';
+
+import {planEnvironmentOperation,queueEnvironmentOperation} from '../server/src/platform/environment-operations.js';
+import {infrastructureGates} from '../server/src/platform/release-policy.js';
 
 const snapshot=(at:number):UsageSnapshot=>({at,monotonic:at,cpu:[at,0,0,at,0,0,0,0],memory:.5,usedBytes:1024});
 const report=():HostUsageReport=>({version:1,volume:'vol_a',stream:randomUUID(),sequence:1,at:Date.now()-100,intervalMs:30000,cpu:.9,memory:.5,usedBytes:2*1024**3});
@@ -85,6 +89,9 @@ test('authenticated, bounded host usage collection with real PostgreSQL',{skip:!
   const keys=await generateKeyPair('EdDSA',{extractable:true}),identity=new RuntimeIdentity(directory,await exportPKCS8(keys.privateKey),await exportSPKI(keys.publicKey));
   const usage=new HostUsage(directory,identity),app=hostUsageRoutes(usage,identity,true),control=new HostControl(directory);
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'host-usage-'));
+  Object.assign(process.env,{SESSION_SECRET:'collector-test-only',DB_PATH:path.join(root,'app.db'),FILES_DIR:path.join(root,'files'),COMPUTER_PROVIDER:'local',SWARM_NO_SCHEDULER:'1',COMPOSIO_API_KEY:''});
+  const {platformRequestMiddleware}=await import('../server/src/platform/server.js');
+  const stack=(enabled:boolean)=>{const h=new Hono();platformRequestMiddleware(h);h.route('/internal/host/usage',hostUsageRoutes(usage,identity,enabled));return h;};
   t.after(async()=>{fs.rmSync(root,{recursive:true,force:true});await directory.pool.end();await admin.query(`DROP SCHEMA ${schema} CASCADE`);await admin.end();});
   async function fixture(){
     const tenant=await directory.identity('google',randomUUID(),{name:'Usage fixture'}),machine=`machine_${randomBytes(4).toString('hex')}`,volume=`vol_${randomBytes(4).toString('hex')}`;
@@ -92,6 +99,8 @@ test('authenticated, bounded host usage collection with real PostgreSQL',{skip:!
     const owner={tenant,machine,generation:'1'};
     await directory.transaction(c=>setHostIntent(c,owner,'run'));await control.report(owner,{revision:'1',state:'running'});
     const sign=(audience='swarm-host',lifetime='5m')=>identity.sign({sub:tenant,machine,generation:'1'},audience,lifetime);
+    // Model an already-running host; no production clock/admission override.
+    await directory.pool.query("UPDATE host_policies SET usage_not_before=clock_timestamp()-interval '2 hours' WHERE tenant_id=$1",[tenant]);
     const token=await sign(),input={...report(),volume};
     const post=(body:unknown=input,bearer=token)=>app.request('/',{method:'POST',headers:{authorization:`Bearer ${bearer}`,'content-type':'application/json'},body:JSON.stringify(body)});
     const rows=async()=>(await directory.pool.query('SELECT * FROM host_usage_samples WHERE tenant_id=$1 ORDER BY at',[tenant])).rows;
@@ -108,6 +117,8 @@ test('authenticated, bounded host usage collection with real PostgreSQL',{skip:!
     });
   }
   async function historicalWindow(f:Awaited<ReturnType<typeof fixture>>,count=5){
+    f.input.at=Date.now()-100;
+    await directory.pool.query("UPDATE host_policies SET usage_not_before=clock_timestamp()-interval '2 hours' WHERE tenant_id=$1",[f.tenant]);
     await usage.accept(f.token,f.input);
     for(let n=1;n<count;n++){
       await ageWindow(f.tenant);
@@ -147,6 +158,77 @@ test('authenticated, bounded host usage collection with real PostgreSQL',{skip:!
     const response=await app.request('/',{method:'POST',headers:{authorization:`Bearer ${g.token}`,'content-type':'application/json'},body:stalled,duplex:'half'} as any);
     assert.equal(response.status,400);assert.ok(cancelled);assert.ok(performance.now()-start>=1900&&performance.now()-start<5000);assert.equal((await g.rows()).length,0);
   });
+  await t.test('production middleware rejects disabled/unauthorized chunked usage before consuming the body',async()=>{
+    for(const enabled of [false,true]){
+      let release!:()=>void;
+      const body=new ReadableStream<Uint8Array>({start(c){c.enqueue(Buffer.from('{'));release=()=>c.close();}});
+      let timer:ReturnType<typeof setTimeout>|undefined;
+      try{
+        const result=await Promise.race([stack(enabled).request('/internal/host/usage',{method:'POST',headers:{'content-type':'application/json'},body,duplex:'half'} as any),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error('outer middleware buffered the unclosed stream')),500);})]);
+        assert.equal(result.status,enabled?401:404);
+      }finally{clearTimeout(timer);release();}
+    }
+    const f=await fixture();assert.equal((await stack(true).request('/internal/host/usage',{method:'POST',headers:{authorization:`Bearer ${f.token}`,'content-type':'application/json'},body:'x'.repeat(2049)})).status,400);
+    assert.equal((await stack(true).request('/ordinary',{method:'POST',headers:{'content-length':String(11*1024**2)},body:'x'})).status,413);
+  });
+  await t.test('readiness held/error reports expiring during a correlated policy lock wait change nothing',async()=>{
+    const route=hostControlRoutes(control,identity);
+    for(const state of ['held','running'] as const){
+      const f=await fixture();await historicalWindow(f);
+      const prior=(await directory.pool.query('SELECT * FROM host_policies WHERE tenant_id=$1',[f.tenant])).rows[0],samples=await f.rows();
+      const lock=await directory.pool.connect();let pending:Promise<Response>|undefined;
+      try{
+        await lock.query('BEGIN');const pid=(await lock.query('SELECT pg_backend_pid() pid')).rows[0].pid;
+        await lock.query('SELECT tenant_id FROM host_policies WHERE tenant_id=$1 FOR UPDATE',[f.tenant]);
+        const token=await f.sign('swarm-host','2s');
+        pending=route.request('/state',{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({revision:'1',state,...(state==='running'?{error:'host_requires_reconciliation'}:{})})});
+        await waitBlocked(pid);await delay(Math.max(0,decodeJwt(token).exp!*1000-Date.now()+50));
+        assert.ok(Date.now()>=decodeJwt(token).exp!*1000);
+        await lock.query('COMMIT');assert.equal((await pending).status,409);
+        assert.deepEqual((await directory.pool.query('SELECT * FROM host_policies WHERE tenant_id=$1',[f.tenant])).rows[0],prior);assert.deepEqual(await f.rows(),samples);
+      }finally{await lock.query('ROLLBACK');lock.release();await pending;}
+    }
+  });
+  await t.test('hold/resume at the same revision rejects delayed pre-hold intervals and accepts fresh ones',async()=>{
+    const f=await fixture(),delayed={...f.input};await usage.accept(f.token,f.input);
+    await control.report(f.owner,{revision:'1',state:'held'});assert.equal((await f.rows()).length,0);
+    await control.report(f.owner,{revision:'1',state:'running'});
+    const boundary=(await directory.pool.query('SELECT usage_not_before FROM host_policies WHERE tenant_id=$1',[f.tenant])).rows[0].usage_not_before;
+    await assert.rejects(usage.accept(f.token,delayed),/readiness or freshness/);assert.equal((await f.rows()).length,0);
+    await control.report(f.owner,{revision:'1',state:'running'});
+    assert.equal((await directory.pool.query('SELECT usage_not_before FROM host_policies WHERE tenant_id=$1',[f.tenant])).rows[0].usage_not_before.getTime(),boundary.getTime());
+    await delay(Math.max(0,boundary.getTime()+15100-Date.now()));
+    let fresh={...f.input,stream:randomUUID(),at:Date.now()-1,intervalMs:15000};
+    await usage.accept(f.token,fresh);
+    for(let sequence=2;sequence<=3;sequence++){
+      await delay(15100);const at=Date.now()-1;
+      fresh={...fresh,sequence,at,intervalMs:at-fresh.at};await usage.accept(f.token,fresh);
+    }
+    assert.equal((await exportHostUsage(directory,f.tenant)).length,3);
+  });
+  await t.test('queued capacity journals omit raw samples and old copies are erased on revoke, prune and upgrade',async()=>{
+    const image=`registry.test/host@sha256:${'a'.repeat(64)}`;
+    for(const name of [...infrastructureGates,'tenant-capacity-resize'])await directory.pool.query('INSERT INTO release_gates(name,evidence_uri,image_digest,approved_at) VALUES($1,$2,$3,now()) ON CONFLICT DO NOTHING',[name,'test-fixture://local-only',image]);
+    for(const cleanup of ['revoke','prune','migrate']){
+      const f=await fixture();await historicalWindow(f);
+      await directory.pool.query("UPDATE tenants SET image_digest=$2,region='iad',fly_app=id WHERE id=$1",[f.tenant,image]);
+      const policy:CapacityPolicy={version:1,enabled:true,tiers:[{cpu_kind:'shared',cpus:2,memory_mb:4096},{cpu_kind:'shared',cpus:4,memory_mb:8192}],maxVolumeGb:40,volumeStepGb:10,cpuThreshold:.8,memoryThreshold:.85,diskThreshold:.8,reserveGb:2,windowSeconds:120,cooldownSeconds:300};
+      await directory.transaction(c=>setCapacityPolicy(c,f.tenant,policy));const samples=await exportHostUsage(directory,f.tenant),source={guest:policy.tiers[0],volumeGb:10};
+      const capacity={policyRevision:'1',source,target:recommendCapacity(policy,source,samples,{...f.owner,volume:f.volume}),samples,evidence:{uri:'https://evidence.test/usage',sha256:'a'.repeat(64),reviewer:'fixture'},maintenanceAcknowledged:true as const};
+      const plan=await planEnvironmentOperation(directory,{tenant:f.tenant,kind:'update',image,capacity}),queued=await queueEnvironmentOperation(directory,plan);
+      const get=async()=>(await directory.pool.query('SELECT * FROM environment_operations WHERE id=$1',[queued.id])).rows[0];
+      const original=await get();assert.equal('samples' in original.capacity_change,false);assert.deepEqual(original.capacity_change.evidence,capacity.evidence);
+      // Simulate an operation admitted by an older replica before rollout.
+      await directory.pool.query('UPDATE environment_operations SET capacity_change=$2 WHERE id=$1',[queued.id,capacity]);
+      if(cleanup==='revoke')await directory.revokeTenant(f.tenant);
+      else if(cleanup==='prune'){
+        await directory.pool.query("UPDATE host_usage_samples SET received_at=clock_timestamp()-interval '2 hours' WHERE tenant_id=$1",[f.tenant]);await pruneHostUsage(directory);
+      }else {await directory.migrate();await directory.migrate();}
+      const after=await get();assert.equal('samples' in after.capacity_change,false);assert.deepEqual(after.capacity_change,original.capacity_change);
+      assert.equal(after.id,original.id);assert.equal(after.source_volume,original.source_volume);
+      if(cleanup!=='migrate')assert.equal((await f.rows()).length,0);
+    }
+  });
   await t.test('duplicate, concurrent and skipped samples do not inflate a usage window',async()=>{
     const f=await fixture();const results=await Promise.all([f.post(),f.post()]);assert.deepEqual(results.map(r=>r.status).sort(),[204,409]);
     assert.equal((await f.post({...f.input,sequence:2})).status,409);
@@ -169,7 +251,7 @@ test('authenticated, bounded host usage collection with real PostgreSQL',{skip:!
       const f=await fixture();await historicalWindow(f);await directory.pool.query(`UPDATE tenants SET ${update} WHERE id=$1`,[f.tenant]);
       assert.ok([401,409].includes((await f.post()).status));await assert.rejects(exportHostUsage(directory,f.tenant));
     }
-    for(const update of ["desired='hold'","observed='held'","acknowledged_revision=NULL","error_code='host_requires_reconciliation'","reported_at=now()-interval '5 minutes'"]){
+    for(const update of ["usage_not_before=clock_timestamp()","desired='hold'","observed='held'","acknowledged_revision=NULL","error_code='host_requires_reconciliation'","reported_at=now()-interval '5 minutes'"]){
       const f=await fixture();await historicalWindow(f);await directory.pool.query(`UPDATE host_policies SET ${update} WHERE tenant_id=$1`,[f.tenant]);
       assert.equal((await f.post()).status,409);await assert.rejects(exportHostUsage(directory,f.tenant));
     }

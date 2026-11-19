@@ -25,6 +25,18 @@ import { startOperationsMetrics } from './operations-metrics.js';
 import {HostUsage,hostUsageRoutes} from './host-usage.js';
 import {usageCollectionEnabled} from '../runtime/host-usage.js';
 
+/** Shared production middleware; bounded host streams authenticate before reading. */
+export function platformRequestMiddleware(app:Hono){
+  const ordinaryBodyLimit=bodyLimit({maxSize:10*1024*1024});
+  app.use('*',(c,next)=>(c.req.method==='POST'&&c.req.path==='/internal/host/usage')
+    ||(c.req.method==='PUT'&&/^\/internal\/host\/backups\/[a-f0-9]{32}\/(?:manifest|\d{1,6})\.bin$/.test(c.req.path))?next():ordinaryBodyLimit(c,next));
+  app.use('*',async(c,next)=>{
+    c.header('Cache-Control','no-store');c.header('X-Content-Type-Options','nosniff');c.header('Referrer-Policy','no-referrer');
+    if(c.req.path==='/api/auth/apple/callback')return next();
+    return requestBoundary(c,next);
+  });
+}
+
 export async function startPlatform() {
   const collectUsage=usageCollectionEnabled(process.env.TENANT_USAGE_COLLECTION);
   const directory=new Directory(),origin=process.env.PLATFORM_URL!;
@@ -33,13 +45,7 @@ export async function startPlatform() {
   const notifications=new SessionNotifications(directory,event=>event.scope ? broker.revokeCompanions(event.tenant,event.scope) : broker.revoke(event.tenant,event.session),ready=>broker.setDirectoryReady(ready));
   await notifications.start();
   const app=new Hono();
-  const ordinaryBodyLimit=bodyLimit({maxSize:10*1024*1024});
-  app.use('*',(c,next)=>c.req.method==='PUT'&&/^\/internal\/host\/backups\/[a-f0-9]{32}\/(?:manifest|\d{1,6})\.bin$/.test(c.req.path)?next():ordinaryBodyLimit(c,next));
-  app.use('*',async(c,next)=>{
-    c.header('Cache-Control','no-store');c.header('X-Content-Type-Options','nosniff');c.header('Referrer-Policy','no-referrer');
-    if(c.req.path==='/api/auth/apple/callback')return next();
-    return requestBoundary(c,next);
-  });
+  platformRequestMiddleware(app);
   app.onError((_e,c)=>c.json({error:'The platform could not complete this request.'},503));
   app.get('/api/health',c=>c.json({ok:broker.ready,role:'platform'},broker.ready?200:503));
   for (const [route, file] of [['companion','swarm-companion.mjs'],['cli','cli-bridge.mjs']]) {

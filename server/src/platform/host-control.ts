@@ -14,7 +14,7 @@ export async function setHostIntent(client:PoolClient,owner:HostOwner,desired:'h
   if(desired==='run'&&(await client.query("SELECT 1 FROM host_checkpoints WHERE tenant_id=$1 AND state!='cancelled'",[owner.tenant])).rowCount)throw new Error('A reconciled checkpoint still requires its writer hold.');
   const result=await client.query(`INSERT INTO host_policies(tenant_id,generation,machine_id,desired) VALUES($1,$2,$3,$4)
     ON CONFLICT(tenant_id) DO UPDATE SET generation=excluded.generation,machine_id=excluded.machine_id,desired=excluded.desired,
-      revision=host_policies.revision+1,acknowledged_revision=NULL,observed=NULL,reported_at=NULL,error_code=NULL
+      revision=host_policies.revision+1,acknowledged_revision=NULL,observed=NULL,reported_at=NULL,error_code=NULL,usage_not_before=clock_timestamp()
     WHERE host_policies.generation!=excluded.generation OR host_policies.machine_id!=excluded.machine_id OR host_policies.desired!=excluded.desired OR $5
     RETURNING revision`,[owner.tenant,owner.generation,owner.machine,desired,restart]);
   if(result.rowCount)await client.query('DELETE FROM host_usage_samples WHERE tenant_id=$1',[owner.tenant]);
@@ -29,10 +29,17 @@ export class HostControl {
     // Missing explicit policy is a hold, never implicit permission to start.
     return {...owner,revision:result?String(result.revision):'0',desired:result?.desired??'hold'};
   }
-  async report(owner:HostOwner,input:{revision:string;state:'held'|'running';error?:string}){
+  // Direct calls are trusted control-plane operations; HTTP supplies fresh JWT
+  // verification inside the same transaction after both ordered locks.
+  async report(owner:HostOwner,input:{revision:string;state:'held'|'running';error?:string},authorize?:(client:PoolClient)=>Promise<HostOwner>){
     if(Object.keys(input).some(k=>!['revision','state','error'].includes(k))||!/^\d+$/.test(input.revision)||!['held','running'].includes(input.state)||input.error!==undefined&&input.error!=='host_requires_reconciliation')throw new Error('Invalid host readiness report.');
     await this.directory.transaction(async client=>{
-      const result=await client.query(`UPDATE host_policies p SET acknowledged_revision=p.revision,observed=$5,error_code=$6,reported_at=now()
+      await client.query('SELECT id FROM tenants WHERE id=$1 FOR UPDATE',[owner.tenant]);
+      await client.query('SELECT tenant_id FROM host_policies WHERE tenant_id=$1 FOR UPDATE',[owner.tenant]);
+      if(authorize){const current=await authorize(client);if(current.tenant!==owner.tenant||current.generation!==owner.generation||current.machine!==owner.machine)throw new Error('Host readiness authorization changed.');}
+      const result=await client.query(`UPDATE host_policies p SET acknowledged_revision=p.revision,observed=$5,error_code=$6,reported_at=clock_timestamp(),
+      usage_not_before=CASE WHEN $5='held' OR $6::text IS NOT NULL OR p.observed IS DISTINCT FROM 'running'
+        OR p.error_code IS NOT NULL OR p.acknowledged_revision IS DISTINCT FROM p.revision THEN clock_timestamp() ELSE p.usage_not_before END
       FROM tenants t WHERE p.tenant_id=$1 AND p.generation=$2 AND p.machine_id=$3 AND p.revision=$4 AND t.id=p.tenant_id
       AND t.generation=p.generation AND t.machine_id=p.machine_id AND t.state IN ('active','provisioning')
       AND (p.desired='run' AND $5='running' OR $5='held') RETURNING p.tenant_id`,[owner.tenant,owner.generation,owner.machine,input.revision,input.state,input.error??null]);
@@ -53,6 +60,6 @@ export function hostControlRoutes(control:HostControl,runtime:RuntimeIdentity){
   });
   app.onError((_error,c)=>c.json({error:'Host readiness changed or requires retry.'},409));
   app.get('/policy',async c=>c.json(await control.policy(c.get('owner'))));
-  app.post('/state',async c=>{await control.report(c.get('owner'),await c.req.json());return c.json({ok:true});});
+  app.post('/state',async c=>{const token=(c.req.header('authorization')??'').replace(/^Bearer /,'');await control.report(c.get('owner'),await c.req.json(),client=>runtime.verify(token,'swarm-host',client));return c.json({ok:true});});
   return app;
 }

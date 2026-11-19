@@ -53,6 +53,7 @@ export class Directory {
           desired text NOT NULL CHECK(desired IN ('hold','run')), revision bigint NOT NULL DEFAULT 1,
           acknowledged_revision bigint, observed text CHECK(observed IN ('held','running')),
           reported_at timestamptz, error_code text);
+        ALTER TABLE host_policies ADD COLUMN IF NOT EXISTS usage_not_before timestamptz NOT NULL DEFAULT clock_timestamp();
         CREATE TABLE IF NOT EXISTS companion_routes (
           hash text PRIMARY KEY, tenant_id text NOT NULL REFERENCES tenants(id), scope text NOT NULL,
           generation bigint NOT NULL, expires_at timestamptz NOT NULL DEFAULT now()+interval '30 days',
@@ -167,6 +168,7 @@ export class Directory {
         ALTER TABLE environment_operations ADD COLUMN IF NOT EXISTS source_guest jsonb;
         ALTER TABLE environment_operations ADD COLUMN IF NOT EXISTS source_volume_gb integer;
         ALTER TABLE environment_operations ADD COLUMN IF NOT EXISTS capacity_change jsonb;
+        UPDATE environment_operations SET capacity_change=capacity_change-'samples' WHERE capacity_change ? 'samples';
         CREATE TABLE IF NOT EXISTS tenant_capacity_policies (
           tenant_id text PRIMARY KEY REFERENCES tenants(id),policy jsonb NOT NULL,
           revision bigint NOT NULL DEFAULT 1,updated_at timestamptz NOT NULL DEFAULT now());
@@ -321,6 +323,7 @@ export class Directory {
       await client.query('UPDATE runtime_credentials SET revoked_at=now() WHERE tenant_id=$1', [tenant]);
       await client.query('DELETE FROM companion_routes WHERE tenant_id=$1', [tenant]);
       await client.query('DELETE FROM host_usage_samples WHERE tenant_id=$1', [tenant]);
+      await client.query("UPDATE environment_operations SET capacity_change=capacity_change-'samples' WHERE tenant_id=$1 AND capacity_change ? 'samples'",[tenant]);
       await client.query("UPDATE messaging_routes SET state='revoked',revision=revision+1 WHERE tenant_id=$1", [tenant]);
       await client.query('DELETE FROM messaging_tokens WHERE tenant_id=$1', [tenant]);
       await client.query("UPDATE lifecycle_jobs SET state='cancelled',fence=fence+1,lease_until=NULL WHERE tenant_id=$1 AND operation!='delete' AND state!='completed'", [tenant]);

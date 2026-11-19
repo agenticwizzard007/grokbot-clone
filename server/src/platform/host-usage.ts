@@ -27,12 +27,12 @@ export class HostUsage {
       // read it in a fresh statement: a locking WHERE can be evaluated before a wait.
       await client.query('SELECT tenant_id FROM host_policies WHERE tenant_id=$1 FOR UPDATE',[owner.tenant]);
       await this.runtime.verify(token,'swarm-host',client);
-      const current=(await client.query(`SELECT t.volume_id,p.revision,extract(epoch FROM clock_timestamp())*1000 AS now
+      const current=(await client.query(`SELECT t.volume_id,p.revision,extract(epoch FROM p.usage_not_before)*1000 AS not_before,extract(epoch FROM clock_timestamp())*1000 AS now
         FROM tenants t JOIN host_policies p ON p.tenant_id=t.id WHERE t.id=$1 AND t.state='active'
         AND p.generation=t.generation AND p.machine_id=t.machine_id AND p.desired='run' AND p.observed='running'
         AND p.acknowledged_revision=p.revision AND p.error_code IS NULL AND p.reported_at>clock_timestamp()-interval '4 minutes'`,[owner.tenant])).rows[0];
       const now=Number(current?.now);
-      if(!current||current.volume_id!==input.volume||input.at>now||now-input.at>15000)throw new Error('Usage ownership, readiness or freshness changed.');
+      if(!current||current.volume_id!==input.volume||input.at>now||now-input.at>15000||input.at-input.intervalMs<Number(current.not_before))throw new Error('Usage ownership, readiness or freshness changed.');
       const last=(await client.query('SELECT * FROM host_usage_samples WHERE tenant_id=$1 ORDER BY at DESC LIMIT 1',[owner.tenant])).rows[0];
       const continuation=last&&last.stream===input.stream&&String(last.generation)===owner.generation&&last.machine_id===owner.machine&&last.volume_id===input.volume&&String(last.host_revision)===String(current.revision);
       if(last&&(input.at<=Number(last.at)||now-new Date(last.received_at).getTime()<15000))throw new Error('Usage is duplicate, out of order or too frequent.');
@@ -60,6 +60,7 @@ export async function exportHostUsage(directory:Directory,tenant:string):Promise
       WHERE t.id=$1 AND t.state='active' AND s.generation=t.generation AND s.machine_id=t.machine_id AND s.volume_id=t.volume_id
       AND p.generation=t.generation AND p.machine_id=t.machine_id AND s.host_revision=p.revision AND p.desired='run'
       AND p.observed='running' AND p.acknowledged_revision=p.revision AND p.error_code IS NULL AND p.reported_at>clock_timestamp()-interval '4 minutes'
+      AND s.at-s.interval_ms>=extract(epoch FROM p.usage_not_before)*1000
       AND s.at>=extract(epoch FROM clock_timestamp())*1000-3600000 ORDER BY s.at DESC LIMIT 120`,[tenant])).rows.reverse();
     if(rows.length<3||Number(rows.at(-1).now)-Number(rows.at(-1).at)>60000)throw new Error('No fresh complete host usage window.');
     if(rows.some((r,i)=>r.stream!==rows[0].stream||i&&(Number(r.sequence)!==Number(rows[i-1].sequence)+1||Number(r.at)-Number(rows[i-1].at)!==r.interval_ms)))throw new Error('Host usage window is incomplete.');
@@ -67,6 +68,9 @@ export async function exportHostUsage(directory:Directory,tenant:string):Promise
   });
 }
 export async function pruneHostUsage(directory:Directory){
+  // Separate atomic cleanup statements avoid holding sample locks while waiting
+  // on a maintenance journal (workers/revocation already have their own locks).
+  await directory.pool.query("UPDATE environment_operations SET capacity_change=capacity_change-'samples' WHERE capacity_change ? 'samples'");
   await directory.pool.query(`DELETE FROM host_usage_samples s USING tenants t WHERE s.tenant_id=t.id
     AND (s.received_at<clock_timestamp()-interval '1 hour' OR t.state IN ('deleting','deleted') OR s.generation!=t.generation OR s.machine_id IS DISTINCT FROM t.machine_id OR s.volume_id IS DISTINCT FROM t.volume_id)`);
 }
