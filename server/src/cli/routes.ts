@@ -24,6 +24,16 @@ function mutationAuthorization(c: Context<AuthVars>, recent: boolean) {
   if (userFromSessionHash(currentSessionHash())?.id !== c.get('user').id) return c.json({ error: 'unauthenticated' }, 401);
   if (recent && !recentlyAuthenticated(c)) return c.json({ error: 'Sign in again to continue.', code: 'reauth_required' }, 401);
 }
+function accountIntent(c: Context<AuthVars>, expectedUserId: unknown) {
+  if (typeof expectedUserId !== 'string' || !expectedUserId) return c.json({ error: 'Confirm the account for this request.' }, 400);
+  if (expectedUserId !== c.get('user').id) return c.json({ error: 'Your account changed. Reload this page before changing a connection.', code: 'account_changed' }, 409);
+}
+// Navigation back from sign-in is not proof of fresh authentication for the initiating account.
+cliApi.post('/reauth', requireRecentAuth, async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const denied = mutationAuthorization(c, true) ?? accountIntent(c, body?.expectedUserId);
+  return denied ?? c.json({ ok: true });
+});
 function withAuthorizedMutation<T>(c: Context<AuthVars>, recent: boolean, action: () => Promise<T>) {
   return withCliMutation(c.get('user').id, async () => {
     // Middleware may have authorized this request before another mutation held
@@ -125,7 +135,12 @@ cliApi.post('/pair', requireRecentAuth, async (c) => {
 // Start over: remove everything a login or pairing created, for both providers, then re-probe.
 cliApi.post('/reset', requireRecentAuth, async (c) => {
   const userId = c.get('user').id;
+  const body = await c.req.json().catch(() => null);
+  const wrongAccount = accountIntent(c, body?.expectedUserId);
+  if (wrongAccount) return wrongAccount;
   return withAuthorizedMutation(c, true, async () => {
+    const wrongAccount = accountIntent(c, body?.expectedUserId);
+    if (wrongAccount) return wrongAccount;
     await cancelUserLogins(userId);
     const denied = mutationAuthorization(c, true);
     if (denied) return denied;

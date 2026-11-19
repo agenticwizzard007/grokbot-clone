@@ -688,7 +688,7 @@ test('reset removes both saved logins, the bridge pairing, a pending sign-in and
   setCliRuntime(alice, 'server');
   const pending = await start(alice, 'codex');
   const pid = audit().findLast(value => value.kind === 'login' && value.env.HOME === ownHome).pid;
-  const response = await req(alice, '/reset', 'POST');
+  const response = await req(alice, '/reset', 'POST', { expectedUserId: alice });
   assert.equal(response.status, 200, await response.clone().text());
   const status = await response.json();
   assert.equal(status.runtime, 'server');
@@ -716,6 +716,38 @@ test('reset removes both saved logins, the bridge pairing, a pending sign-in and
   assert.equal(reconnected.billing, 'subscription');
 });
 
+test('reset rejects a stale displayed account before touching either account or its active terminal', async () => {
+  await login(alice, 'codex');
+  await login(bob, 'claude');
+  createCliPairing(bob);
+  setCliRuntime(bob, 'server');
+  const terminal = await start(bob, 'codex');
+  const beforeAlice = mutationState(alice), beforeBob = mutationState(bob);
+  const wrong = await req(bob, '/reset', 'POST', { expectedUserId: alice });
+  assert.equal(wrong.status, 409);
+  assert.equal((await wrong.json()).code, 'account_changed');
+  assert.equal((await req(bob, '/reset', 'POST')).status, 400, 'an absent account intent cannot reset the cookie account');
+  assert.deepEqual(mutationState(alice), beforeAlice);
+  assert.deepEqual(mutationState(bob), beforeBob);
+  assert.equal((await (await req(bob, `/login/${terminal.id}`)).json()).state, 'running');
+  db.prepare('UPDATE auth_sessions SET authenticated_at=? WHERE token=session_hash(?)').run(Date.now() - 11 * 60_000, bob);
+  assert.equal((await req(bob, '/reset', 'POST', { expectedUserId: bob })).status, 401);
+  assert.deepEqual(mutationState(bob), beforeBob, 'a step-up rejection must not cancel the terminal or reset credentials');
+});
+
+test('reauth verification requires fresh authentication for the initiating account and never mutates credentials', async () => {
+  const beforeAlice = mutationState(alice), beforeBob = mutationState(bob);
+  assert.equal((await req(alice, '/reauth', 'POST', { expectedUserId: alice })).status, 200);
+  assert.equal((await req(bob, '/reauth', 'POST', { expectedUserId: alice })).status, 409);
+  assert.equal((await req(alice, '/reauth', 'POST')).status, 400);
+  db.prepare('UPDATE auth_sessions SET authenticated_at=? WHERE token=session_hash(?)').run(Date.now() - 11 * 60_000, alice);
+  const old = await req(alice, '/reauth', 'POST', { expectedUserId: alice });
+  assert.equal(old.status, 401);
+  assert.equal((await old.json()).code, 'reauth_required');
+  assert.deepEqual(mutationState(alice), beforeAlice);
+  assert.deepEqual(mutationState(bob), beforeBob);
+});
+
 const credentialMutations = [
   { name: 'login', route: '/login', method: 'POST', body: { provider: 'claude', cols: 80, rows: 24 }, recent: true },
   { name: 'pair creation', route: '/pair', method: 'POST', body: undefined, recent: true },
@@ -736,7 +768,7 @@ async function queuedMutation(userId: string, mutation: CredentialMutation, whil
   const oldSeen = Date.now() - 120_000;
   db.prepare('UPDATE auth_sessions SET last_seen_at=? WHERE token=session_hash(?)').run(oldSeen, userId);
   let settled = false;
-  const pending = req(userId, mutation.route, mutation.method, mutation.body).finally(() => { settled = true; });
+  const pending = req(userId, mutation.route, mutation.method, mutation.route === '/reset' ? { expectedUserId: userId } : mutation.body).finally(() => { settled = true; });
   try {
     await until(() => (db.prepare('SELECT last_seen_at FROM auth_sessions WHERE token=session_hash(?)').get(userId) as any)?.last_seen_at > oldSeen,
       'the request authenticates before its session changes');

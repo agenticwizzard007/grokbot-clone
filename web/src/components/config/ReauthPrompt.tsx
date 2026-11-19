@@ -14,17 +14,17 @@ import '../../styles/messaging.css';
  * Credential changes need a Swarm sign-in from the last few minutes. The session itself is still valid,
  * so this re-runs the normal sign-in in place and returns to `resume` when a provider leaves the page.
  */
-export function ReauthPrompt({ accountEmail, reason, resume, onSignedIn, onCancel }: {
+export function ReauthPrompt({ accountEmail, reason, resume, retryLabel, terminalActive, onCancel }: {
   accountEmail: string;
   reason: string;
-  resume: ResumeTarget;
-  onSignedIn: () => void;
+  resume: Omit<ResumeTarget, 'expiresAt'>;
+  retryLabel: string;
+  terminalActive: boolean;
   onCancel: () => void;
 }) {
   const devLogin = useStore((s) => s.devLogin);
   const googleLogin = useStore((s) => s.googleLogin);
   const appleLogin = useStore((s) => s.appleLogin);
-  const checkAuth = useStore((s) => s.checkAuth);
   const [email, setEmail] = useState(accountEmail.endsWith('@openrouter.invalid') ? '' : accountEmail);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +33,7 @@ export function ReauthPrompt({ accountEmail, reason, resume, onSignedIn, onCance
   useEffect(() => {
     planResume(resume);
     return () => cancelResume();
-  }, [resume.section, resume.provider]);
+  }, [resume.section, resume.provider, resume.accountId, resume.action]);
 
   const dev = async (event: FormEvent) => {
     event.preventDefault();
@@ -41,8 +41,11 @@ export function ReauthPrompt({ accountEmail, reason, resume, onSignedIn, onCance
     setBusy(true); setError(null);
     try {
       await api.devLogin(email.trim());
-      await checkAuth();
-      onSignedIn();
+      // Reload account-scoped shell data as well as settings, including after an account switch.
+      const url = new URL(window.location.href);
+      url.searchParams.delete('login'); url.searchParams.delete('openrouter');
+      history.replaceState(history.state, '', url.pathname + url.search + `#settings/${resume.section}`);
+      window.location.reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign-in failed. Try again.');
       setBusy(false);
@@ -57,7 +60,8 @@ export function ReauthPrompt({ accountEmail, reason, resume, onSignedIn, onCance
           <h3 id="subscription-reauth-title">Confirm it’s you</h3>
         </div>
         <p role="alert">{reason}</p>
-        <p>Sign in again the way you usually do for <strong>{accountEmail.endsWith('@openrouter.invalid') ? 'this account' : accountEmail}</strong>. You’ll come straight back here, then choose Login once more.</p>
+        <p>Sign in again the way you usually do for <strong>{accountEmail.endsWith('@openrouter.invalid') ? 'this account' : accountEmail}</strong>. You’ll come straight back here, then choose {retryLabel} again. This request has not been applied.</p>
+        {terminalActive && <p>Your current terminal stays open. Signing in again may end that terminal session.</p>}
         <div className="subscription-reauth__providers">
           <PhoneAuth mode="signin" />
           <OpenRouterSignIn label="Continue with OpenRouter" />

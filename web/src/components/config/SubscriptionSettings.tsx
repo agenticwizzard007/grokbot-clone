@@ -9,7 +9,7 @@ import { needsReauth } from '../../lib/api';
 import { SwarmMark } from '../SwarmMark';
 import { ProviderMark } from '../ProviderMark';
 import { useStore } from '../../store';
-import { useConfigUI } from '../../configStore';
+import { useConfigUI, type ResumeAction } from '../../configStore';
 import '../../styles/subscriptions.css';
 
 const PROVIDERS: { id: CliProvider; name: string; plan: string; install: string; login: string; docs: string }[] = [
@@ -43,16 +43,18 @@ type Action = 'load' | 'pair' | 'refresh' | 'codex' | 'claude' | 'api' | 'revoke
 export function SubscriptionSettings() {
   const user = useStore((state) => state.user);
   // Never retain a previous account's status, terminal or secret pairing command.
-  return user ? <AccountSubscriptionSettings key={user.id} accountEmail={user.email} /> : null;
+  return user ? <AccountSubscriptionSettings key={user.id} accountId={user.id} accountEmail={user.email} /> : null;
 }
 
-function AccountSubscriptionSettings({ accountEmail }: { accountEmail: string }) {
+function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: string; accountEmail: string }) {
   const modelCatalog = useModels();
   // A sign-in round trip (OAuth redirect or phone verification) returns here with the tab it left from.
-  const resumed = useConfigUI.getState().resume?.section === 'subscriptions' ? useConfigUI.getState().resume : null;
+  const resume = useConfigUI.getState().resume?.section === 'subscriptions' ? useConfigUI.getState().resume : null;
+  const resumed = resume?.accountId === accountId && resume.expiresAt > Date.now() ? resume : null;
   const [providerTab, setProviderTab] = useState<CliProvider>(resumed?.provider ?? 'claude');
-  const [reauth, setReauth] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(resumed ? 'signed-in' : null);
+  const [reauth, setReauth] = useState<{ reason: string; action: ResumeAction } | null>(null);
+  const [verifyingResume, setVerifyingResume] = useState(!!resumed);
+  const [notice, setNotice] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [authMethod, setAuthMethod] = useState<'cli' | 'api'>('cli');
   const [loginProvider, setLoginProvider] = useState<CliProvider | null>(null);
@@ -73,31 +75,66 @@ function AccountSubscriptionSettings({ accountEmail }: { accountEmail: string })
   const working = useRef(false);
   const mounted = useRef(false);
   const polling = useRef<AbortController | null>(null);
+  const statusEpoch = useRef(0);
+  const authLocked = !!reauth || verifyingResume;
+  const authLockedRef = useRef(authLocked);
+  authLockedRef.current = authLocked;
+  const invalidateStatus = () => {
+    polling.current?.abort(); polling.current = null;
+    return ++statusEpoch.current;
+  };
+  const current = (epoch: number) => mounted.current && epoch === statusEpoch.current;
+  const retryLabel = (action: ResumeAction) => ({ login: 'Login', reset: 'Reset connection', pair: 'Generate connect command', revoke: 'Disconnect subscription or Revoke bridge' })[action];
+  const requestReauth = (action: ResumeAction, reason: string) => {
+    invalidateStatus(); authLockedRef.current = true;
+    setNotice(null); setReauth({ action, reason });
+  };
 
   useEffect(() => {
     if (status) refreshModels();
     if (status?.selected && !tabPicked.current) setProviderTab(status.selected);
   }, [status?.selected, status?.runtime, status?.connected]);
 
-  useEffect(() => { if (resumed) useConfigUI.getState().clearResume(); }, []);
+  useEffect(() => {
+    if (!resume) return;
+    useConfigUI.getState().clearResume();
+    if (!resumed) { setError('The previous sign-in request expired or belongs to another account. Choose your connection action again.'); return; }
+    const controller = new AbortController();
+    invalidateStatus();
+    const callback = new URLSearchParams(window.location.search);
+    if (callback.has('login') || (callback.has('openrouter') && callback.get('openrouter') !== 'connected')) {
+      requestReauth(resumed.action, 'Sign-in did not complete. Try again to continue.');
+      setVerifyingResume(false);
+      return;
+    }
+    void cliApi.verifyAuth(accountId, controller.signal).then(() => {
+      if (!controller.signal.aborted) setNotice(`You’re signed in again. Choose ${retryLabel(resumed.action)}${resumed.action === 'login' ? ` to continue connecting ${providerName(resumed.provider ?? 'claude')}` : ' again to continue'}.`);
+    }).catch((err: unknown) => {
+      if (controller.signal.aborted) return;
+      if (needsReauth(err)) requestReauth(resumed.action, err.message);
+      else setError(err instanceof Error ? err.message : 'Could not verify your sign-in. Reload and try again.');
+    }).finally(() => { if (!controller.signal.aborted) setVerifyingResume(false); });
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     mounted.current = true;
     let initial = true;
     const load = () => {
-      if (document.visibilityState !== 'visible' || working.current || loginActive.current || polling.current) return;
+      if (document.visibilityState !== 'visible' || working.current || loginActive.current || polling.current || authLockedRef.current) return;
       const controller = new AbortController();
+      const epoch = statusEpoch.current;
       polling.current = controller;
       cliApi.status(controller.signal).then((result) => {
-        if (!controller.signal.aborted) update(result);
+        if (!controller.signal.aborted) update(result, epoch);
       }).catch((err: unknown) => {
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && current(epoch)) {
           setReadError(err instanceof Error ? err.message : 'Could not load subscription status.');
           setStale(true);
         }
       }).finally(() => {
         if (polling.current === controller) polling.current = null;
-        if (!controller.signal.aborted && initial) { initial = false; setBusy(null); }
+        if (!controller.signal.aborted && current(epoch) && initial) { initial = false; setBusy(null); }
       });
     };
     const visibility = () => {
@@ -109,7 +146,7 @@ function AccountSubscriptionSettings({ accountEmail }: { accountEmail: string })
     document.addEventListener('visibilitychange', visibility);
     return () => {
       mounted.current = false;
-      polling.current?.abort(); polling.current = null;
+      invalidateStatus();
       clearInterval(interval);
       document.removeEventListener('visibilitychange', visibility);
     };
@@ -121,18 +158,18 @@ function AccountSubscriptionSettings({ accountEmail }: { accountEmail: string })
     return () => clearTimeout(timeout);
   }, [copied]);
 
-  const run = async (action: Action, task: () => Promise<void>) => {
-    if (working.current || loginActive.current) return;
+  const run = async (action: Action, task: (epoch: number) => Promise<void>) => {
+    if (working.current || authLockedRef.current || (loginActive.current && action !== 'reset')) return;
     working.current = true;
-    polling.current?.abort(); polling.current = null;
+    const epoch = invalidateStatus();
     setBusy(action);
-    setError(null);
+    setError(null); setNotice(null);
     setConfirmRevoke(false);
     setConfirmReset(false);
-    try { await task(); }
+    try { await task(epoch); }
     catch (err) {
       if (!mounted.current) return;
-      if (needsReauth(err)) { setReauth(err.message); return; }
+      if (needsReauth(err)) { requestReauth(action === 'reset' || action === 'pair' || action === 'revoke' ? action : 'login', err.message); return; }
       setError(err instanceof Error ? err.message : 'Subscription request failed. Try again.');
       setStale(true);
     } finally {
@@ -141,53 +178,57 @@ function AccountSubscriptionSettings({ accountEmail }: { accountEmail: string })
     }
   };
 
-  const update = (result: CliStatus) => {
-    if (!mounted.current) return;
+  const update = (result: CliStatus, epoch: number) => {
+    if (!current(epoch)) return;
     setStatus(result);
     setStale(false);
     setReadError(null);
   };
-  const refresh = () => run('refresh', async () => { update(await cliApi.refresh()); });
-  const select = (provider: CliProvider | null) => run(provider ?? 'api', async () => {
+  const readStatus = async () => {
+    const epoch = statusEpoch.current;
+    update(await cliApi.status(), epoch);
+  };
+  const refresh = () => run('refresh', async (epoch) => { update(await cliApi.refresh(), epoch); });
+  const select = (provider: CliProvider | null) => run(provider ?? 'api', async (epoch) => {
     await cliApi.select(provider);
     refreshModels();
     // Selection responses need no body. Reflect the saved mode even if the subsequent GET fails.
-    if (mounted.current) {
+    if (current(epoch)) {
       setAuthMethod(provider ? 'cli' : 'api');
       setStatus((current) => current ? { ...current, selected: provider } : current);
     }
-    update(await cliApi.status());
+    update(await cliApi.status(), epoch);
   });
-  const generate = () => run('pair', async () => {
+  const generate = () => run('pair', async (epoch) => {
     setCommand(null); setCopied(false); setCopyError(false);
     const result = await cliApi.pair();
-    if (mounted.current) {
+    if (current(epoch)) {
       setCommand(result.command);
       setStatus((current) => current ? { ...current, runtime: 'bridge', connected: false, device: null } : current);
     }
-    update(await cliApi.status());
+    update(await cliApi.status(), epoch);
   });
-  const revoke = () => run('revoke', async () => {
+  const revoke = () => run('revoke', async (epoch) => {
     await cliApi.revoke();
-    if (mounted.current) {
+    if (current(epoch)) {
       closeLogin();
       setCommand(null); setCopied(false); setCopyError(false);
       // Revocation deliberately keeps the selected subscription, including while offline.
       setStatus((current) => current ? { ...current, connected: false, device: null } : current);
     }
-    update(await cliApi.status());
+    update(await cliApi.status(), epoch);
   });
   // Start over for both providers: saved server logins, bridge pairing, pending sign-in and cached status.
   const reset = () => {
-    closeLogin();
-    void run('reset', async () => {
-      const result = await cliApi.reset();
-      if (mounted.current) {
+    void run('reset', async (epoch) => {
+      const result = await cliApi.reset(accountId);
+      if (current(epoch)) {
+        closeLogin();
         setCommand(null); setCopied(false); setCopyError(false);
         setAuthMethod('cli');
-        setNotice('reset');
+        setNotice('Connection reset. Both CLIs are signed out on your Swarm server. Choose Login to connect Claude Code or Codex again.');
       }
-      update(result);
+      update(result, epoch);
       refreshModels();
     });
   };
@@ -208,12 +249,12 @@ function AccountSubscriptionSettings({ accountEmail }: { accountEmail: string })
   const provider = PROVIDERS.find((item) => item.id === providerTab)!;
   const health = status?.providers[providerTab];
   const serverReady = runtime === 'server' && !!status?.connected && !!health && ready(health) && !stale;
-  const disabled = !!busy || loginRunning || !status || stale;
+  const disabled = !!busy || loginRunning || !status || stale || authLocked;
   const loginLabel = runtime === 'bridge' ? 'Use server login' : health?.authenticated ? 'Log in again' : 'Login';
   const startLogin = () => {
     if (disabled || loginActive.current) return;
     tabPicked.current = true;
-    polling.current?.abort(); polling.current = null;
+    invalidateStatus();
     setBusy(null); setError(null); setReauth(null); setNotice(null); setConfirmReset(false); dismiss();
     loginActive.current = true; setLoginRunning(true);
     setAuthMethod('cli'); setLoginAttempt((current) => current + 1); setLoginProvider(providerTab);
@@ -232,7 +273,7 @@ function AccountSubscriptionSettings({ accountEmail }: { accountEmail: string })
 
       <div className="subscription-settings__tabs" role="tablist" aria-label="CLI provider">
         {(['claude', 'codex'] as const).map((id) => (
-          <button key={id} id={`subscription-tab-${id}`} role="tab" type="button" aria-selected={providerTab === id} aria-controls="subscription-auth-panel" tabIndex={providerTab === id ? 0 : -1} disabled={loginRunning} onClick={() => { tabPicked.current = true; setProviderTab(id); setAuthMethod('cli'); }} onKeyDown={(event) => {
+          <button key={id} id={`subscription-tab-${id}`} role="tab" type="button" aria-selected={providerTab === id} aria-controls="subscription-auth-panel" tabIndex={providerTab === id ? 0 : -1} disabled={authLocked || loginRunning} onClick={() => { tabPicked.current = true; setProviderTab(id); setAuthMethod('cli'); }} onKeyDown={(event) => {
             if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft' && event.key !== 'Home' && event.key !== 'End') return;
             event.preventDefault();
             const next = event.key === 'Home' ? 'claude' : event.key === 'End' ? 'codex' : id === 'claude' ? 'codex' : 'claude';
@@ -262,8 +303,8 @@ function AccountSubscriptionSettings({ accountEmail }: { accountEmail: string })
         <div className="subscription-settings__status-row">
           <span className="subscription-settings__status" role="status"><span className={`subscription-settings__status-dot${serverReady ? ' is-connected' : ''}`} aria-hidden />{busy === 'load' ? 'Checking status…' : !status ? 'Status unavailable' : stale ? 'Status unverified' : runtime === 'bridge' ? status.connected ? 'Computer bridge connected' : 'Computer bridge offline' : serverReady ? 'Connected' : 'Login required'}</span>
           <div className="subscription-settings__actions">
-            <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy || loginRunning} onClick={() => void refresh()}><RefreshCw size={14} aria-hidden />{busy === 'refresh' ? 'Refreshing…' : 'Refresh status'}</button>
-            <button type="button" className={`cfg-btn ${confirmReset ? 'cfg-btn--danger' : 'cfg-btn--ghost-danger'}`} disabled={!!busy} onClick={() => confirmReset ? reset() : setConfirmReset(true)}>{busy === 'reset' ? 'Resetting…' : confirmReset ? 'Confirm reset' : 'Reset connection'}</button>
+            <button type="button" className="cfg-btn cfg-btn--secondary" disabled={authLocked || !!busy || loginRunning} onClick={() => void refresh()}><RefreshCw size={14} aria-hidden />{busy === 'refresh' ? 'Refreshing…' : 'Refresh status'}</button>
+            <button type="button" className={`cfg-btn ${confirmReset ? 'cfg-btn--danger' : 'cfg-btn--ghost-danger'}`} disabled={authLocked || !!busy} onClick={() => confirmReset ? reset() : setConfirmReset(true)}>{busy === 'reset' ? 'Resetting…' : confirmReset ? 'Confirm reset' : 'Reset connection'}</button>
             {confirmReset && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setConfirmReset(false)}>Cancel</button>}
           </div>
         </div>
@@ -277,7 +318,8 @@ function AccountSubscriptionSettings({ accountEmail }: { accountEmail: string })
         </dl>
         {blocked && <p className="subscription-settings__blocked">The selected subscription is blocked until its login is ready. There is no automatic fallback to API providers.</p>}
         {(error || readError) && <div className="cfg-error" role="alert">{error || readError}</div>}
-        {notice && !reauth && <p className="subscription-settings__notice" role="status">{notice === 'reset' ? 'Connection reset. Both CLIs are signed out on your Swarm server. Choose Login to connect Claude Code or Codex again.' : `You’re signed in again. Choose Login to continue connecting ${provider.name}.`}</p>}
+        {verifyingResume && <p role="status">Verifying your sign-in…</p>}
+        {notice && !reauth && <p className="subscription-settings__notice" role="status">{notice}</p>}
         {authMethod === 'cli' && <div className="subscription-settings__login-row">
           <div>
             <div className="cfg-row__title">One login. Every Bot.</div>
@@ -298,13 +340,13 @@ function AccountSubscriptionSettings({ accountEmail }: { accountEmail: string })
         </div>
       </section>
 
-      {reauth && <ReauthPrompt accountEmail={accountEmail} reason={reauth} resume={{ section: 'subscriptions', provider: providerTab }}
-        onSignedIn={() => { setReauth(null); setNotice('signed-in'); }} onCancel={() => setReauth(null)} />}
+      {reauth && <ReauthPrompt accountEmail={accountEmail} reason={reauth.reason} resume={{ section: 'subscriptions', provider: providerTab, accountId, action: reauth.action }}
+        retryLabel={retryLabel(reauth.action)} terminalActive={!!loginProvider} onCancel={() => { invalidateStatus(); setReauth(null); }} />}
 
-      {loginProvider && <CliLoginTerminal key={loginAttempt} provider={loginProvider} onClose={closeLogin} onReauthRequired={() => { closeLogin(); setReauth('Sign in again to continue connecting your subscription.'); }} onStateChange={(next) => {
+      {loginProvider && <CliLoginTerminal key={loginAttempt} provider={loginProvider} onClose={closeLogin} onReauthRequired={() => { closeLogin(); requestReauth('login', 'Sign in again to continue connecting your subscription.'); }} onStateChange={(next) => {
         const running = next === 'running' || next === 'verifying';
         loginActive.current = running; setLoginRunning(running);
-        if (next === 'failed' || next === 'cancelled') void cliApi.status().then(update).catch(() => {});
+        if ((next === 'failed' || next === 'cancelled') && !working.current) void readStatus().catch(() => {});
       }} onConnected={() => { refreshModels(); void refresh(); }} />}
 
       <details className="subscription-settings__advanced">
@@ -322,10 +364,10 @@ function AccountSubscriptionSettings({ accountEmail }: { accountEmail: string })
             </div>
           </div>
           <div className="subscription-settings__actions subscription-settings__inset">
-            <button type="button" className="cfg-btn cfg-btn--primary" disabled={!!busy || loginRunning || !!command} onClick={() => void generate()}>
+            <button type="button" className="cfg-btn cfg-btn--primary" disabled={authLocked || !!busy || loginRunning || !!command} onClick={() => void generate()}>
               {busy === 'pair' ? 'Generating…' : 'Generate connect command'}
             </button>
-            <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy || loginRunning} onClick={() => void refresh()}>
+            <button type="button" className="cfg-btn cfg-btn--secondary" disabled={authLocked || !!busy || loginRunning} onClick={() => void refresh()}>
               <RefreshCw size={14} aria-hidden />{busy === 'refresh' ? 'Refreshing…' : 'Refresh status'}
             </button>
           </div>
@@ -346,7 +388,7 @@ function AccountSubscriptionSettings({ accountEmail }: { accountEmail: string })
           {runtime === 'bridge' && <div className="subscription-settings__revoke">
             <p>Revoking disconnects the bridge and invalidates its pairing. A selected subscription stays selected and blocked until you reconnect or choose API providers.</p>
             <div className="subscription-settings__actions">
-              <button type="button" className={`cfg-btn ${confirmRevoke ? 'cfg-btn--danger' : 'cfg-btn--ghost-danger'}`} disabled={!!busy || loginRunning} onClick={() => confirmRevoke ? void revoke() : setConfirmRevoke(true)}>
+              <button type="button" className={`cfg-btn ${confirmRevoke ? 'cfg-btn--danger' : 'cfg-btn--ghost-danger'}`} disabled={authLocked || !!busy || loginRunning} onClick={() => confirmRevoke ? void revoke() : setConfirmRevoke(true)}>
                 {busy === 'revoke' ? 'Revoking…' : confirmRevoke ? 'Confirm revoke bridge' : 'Revoke bridge'}
               </button>
               {confirmRevoke && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setConfirmRevoke(false)}>Cancel</button>}
@@ -380,7 +422,7 @@ function AccountSubscriptionSettings({ accountEmail }: { accountEmail: string })
                 <pre tabIndex={0}><code>{provider.login}</code></pre>
                 {provider.id === 'codex' && <p>For device sign-in, use <code>codex login --device-auth</code>.</p>}
                 <div className="subscription-settings__actions">
-                  <button type="button" className={`cfg-btn ${isSelected ? 'cfg-btn--secondary' : 'cfg-btn--primary'}`} disabled={!!busy || loginRunning || isSelected || !available} aria-pressed={isSelected} onClick={() => void select(provider.id)}>
+                  <button type="button" className={`cfg-btn ${isSelected ? 'cfg-btn--secondary' : 'cfg-btn--primary'}`} disabled={authLocked || !!busy || loginRunning || isSelected || !available} aria-pressed={isSelected} onClick={() => void select(provider.id)}>
                     {busy === provider.id ? 'Selecting…' : isSelected ? 'Selected' : `Use ${provider.id === 'codex' ? 'ChatGPT' : 'Claude'}`}
                   </button>
                   <a href={provider.docs} target="_blank" rel="noreferrer">Official auth docs <ExternalLink size={12} aria-hidden /></a>

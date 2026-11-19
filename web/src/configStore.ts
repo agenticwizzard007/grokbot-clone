@@ -10,7 +10,8 @@ export type BotSettingsTab = 'general' | 'skills' | 'memories' | 'routines' | 'a
 export type AppSection = 'general' | 'keys' | 'usage' | 'computer' | 'messaging' | 'permissions' | 'apps' | 'mcp' | 'account' | 'subscriptions' | 'learning';
 
 /** Where to continue after a sign-in that leaves the page (provider redirects, phone verification). */
-export interface ResumeTarget { section: AppSection; provider?: 'codex' | 'claude' }
+export type ResumeAction = 'login' | 'reset' | 'pair' | 'revoke';
+export interface ResumeTarget { section: AppSection; provider?: 'codex' | 'claude'; accountId: string; action: ResumeAction; expiresAt: number }
 
 interface ConfigUI {
   botSettings: { botId: string; tab: BotSettingsTab } | null;
@@ -52,8 +53,8 @@ const linkedSection = (): AppSection | null => {
 const SS_RESUME = 'swarm.resume';
 const SESSION_PROVIDERS = ['codex', 'claude'] as const;
 /** Remember where to return once a sign-in that reloads or redirects the page completes. */
-export function planResume(target: ResumeTarget) {
-  try { sessionStorage.setItem(SS_RESUME, JSON.stringify(target)); } catch { /* ignore */ }
+export function planResume(target: Omit<ResumeTarget, 'expiresAt'>) {
+  try { sessionStorage.setItem(SS_RESUME, JSON.stringify({ ...target, expiresAt: Date.now() + 10 * 60_000 })); } catch { /* ignore */ }
 }
 export function cancelResume() {
   try { sessionStorage.removeItem(SS_RESUME); } catch { /* ignore */ }
@@ -65,11 +66,25 @@ const takeResume = (): ResumeTarget | null => {
     sessionStorage.removeItem(SS_RESUME);
     const parsed = JSON.parse(raw) as Partial<ResumeTarget> | null;
     if (!parsed || !SECTIONS_LINKABLE.includes(parsed.section as AppSection)) return null;
+    if (typeof parsed.accountId !== 'string' || !parsed.accountId || parsed.accountId.length > 128) return null;
+    if (!['login', 'reset', 'pair', 'revoke'].includes(parsed.action ?? '')) return null;
+    if (typeof parsed.expiresAt !== 'number' || parsed.expiresAt <= Date.now() || parsed.expiresAt > Date.now() + 10 * 60_000) return null;
     const provider = SESSION_PROVIDERS.find((p) => p === parsed.provider);
-    return { section: parsed.section as AppSection, ...(provider ? { provider } : {}) };
+    return { section: parsed.section as AppSection, accountId: parsed.accountId, action: parsed.action as ResumeAction, expiresAt: parsed.expiresAt, ...(provider ? { provider } : {}) };
   } catch { return null; }
 };
 const resumed = takeResume();
+const initialSection = (): AppSection | null => {
+  const linked = linkedSection();
+  // OpenRouter callbacks link to keys on both success and denial. A planned
+  // sign-in returns to its saved destination for verification or retry.
+  const code = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('openrouter');
+  if (resumed && linked === 'keys' && (code === 'connected' || code?.startsWith('openrouter_'))) {
+    window.history?.replaceState(window.history.state, '', window.location.pathname + window.location.search + `#settings/${resumed.section}`);
+    return resumed.section;
+  }
+  return linked ?? resumed?.section ?? null;
+};
 
 const darkQuery = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
 
@@ -81,7 +96,7 @@ export function applyTheme(t: Theme) {
 
 export const useConfigUI = create<ConfigUI>((set, get) => ({
   botSettings: null,
-  appSettings: linkedSection() ?? resumed?.section ?? null,
+  appSettings: initialSection(),
   resume: resumed,
   appSettingsHome: false,
   view: 'chat',
