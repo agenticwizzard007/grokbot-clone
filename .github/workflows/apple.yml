@@ -1,4 +1,5 @@
-name: Apple apps
+name: Shared app checks
+# Native Mac/iPhone builds are paused. Local scripts and manual Mac releases remain available.
 on:
   pull_request:
     paths: ['apple/**', 'web/**', 'server/src/auth/**', 'server/src/accounts.ts', 'server/src/native-auth.ts', 'server/src/routes.ts', 'server/src/lib/auth.ts', 'tests/apple-auth.test.mts', 'tests/native-auth.test.mts', 'tests/composio.test.mts', 'tests/mobile-layout.mjs', 'tests/device-access-ui.mjs', 'tests/voice-shortcut.mjs', 'tests/voice-entry-ui.mjs', 'tests/dictation-lifecycle.test.mts', 'package*.json', 'scripts/apple.sh', 'scripts/stage-apple-mac.mjs', 'scripts/package-apple-mac.sh', 'companion/swarm-companion.mjs', 'server/src/computers/**', 'server/src/usage-context.ts', 'server/src/agent/loop.ts', 'server/src/routes-config.ts', 'tests/native-computer.test.mts', 'tests/rename-compat.test.mts', 'tests/latency.test.mts', 'tests/viewer-ready.test.mts', 'companion/tests/**', '.github/workflows/apple.yml']
@@ -36,58 +37,3 @@ jobs:
           sudo apt-get install -y --no-install-recommends xvfb xdotool imagemagick
       - name: Test companion policies and lifecycle
         run: node --test companion/tests/*.test.mjs
-  build:
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install XcodeGen
-        run: brew install xcodegen
-      - name: Build iOS simulator app
-        run: bash scripts/apple.sh ios
-      # The test scheme also builds the Debug Mac app; avoid a separate duplicate build.
-      - name: Test native authentication, consent and process lifecycle policies
-        run: bash scripts/apple.sh test
-      - name: Test inline native device settings and isolated WebKit placement
-        run: python3 apple/MacControl/test_settings.py
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: apple/MacControl/package-lock.json
-      - name: Select the runner's Mac payload architecture
-        shell: bash
-        run: |
-          case "$(uname -m)" in
-            arm64) echo 'SWARM_PACKAGE_ARCH=arm64' >> "$GITHUB_ENV" ;;
-            x86_64) echo 'SWARM_PACKAGE_ARCH=x64' >> "$GITHUB_ENV" ;;
-            *) echo 'Unsupported Mac runner architecture' >&2; exit 1 ;;
-          esac
-      - uses: actions/cache@v4
-        with:
-          path: apple/build/runtime-cache
-          key: mac-control-node-${{ runner.arch }}-${{ hashFiles('apple/MacControl/node-runtimes.json') }}
-      - name: Stage the pinned Node and Playwright payload
-        run: bash scripts/package-apple-mac.sh stage --arch "$SWARM_PACKAGE_ARCH"
-      - name: Build the packaged Mac app
-        run: bash scripts/package-apple-mac.sh build "$SWARM_PACKAGE_ARCH"
-      - name: Verify the bundled runtime without requesting Mac permissions
-        shell: bash
-        run: |
-          payload="$PWD/apple/build-distribution/Build/Products/Release/Swarm.app/Contents/Resources/MacControl"
-          node scripts/stage-apple-mac.mjs --check --arch "$SWARM_PACKAGE_ARCH" --output "$payload"
-          host="$payload/$SWARM_PACKAGE_ARCH/control-host"
-          runtime="$payload/$SWARM_PACKAGE_ARCH/node"
-          test -x "$host"
-          test -x "$runtime"
-          "$host" "$runtime" --version
-          "$host" "$runtime" "$payload/companion/swarm-companion.mjs" --help > /dev/null
-          "$host" "$runtime" "$payload/playwright/node_modules/@playwright/mcp/cli.js" --help > /dev/null
-      - name: Preserve app bundle permissions in development archives
-        shell: bash
-        run: |
-          tar -czf apple/build/Swarm-macOS-development.tgz -C apple/build-distribution/Build/Products/Release Swarm.app
-          tar -czf apple/build/Swarm-iOS-development.tgz -C apple/build/Build/Products/Debug-iphonesimulator Swarm.app
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Swarm-development-apps
-          path: apple/build/Swarm-*-development.tgz
