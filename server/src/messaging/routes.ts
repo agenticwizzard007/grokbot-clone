@@ -89,7 +89,7 @@ messagingPublic.post('/auth/phone/start', async (c) => {
   const { phone } = await c.req.json<{ phone?: string }>().catch(() => ({} as { phone?: string }));
   const r = await startPhoneLogin(String(phone ?? ''), { ip: clientIp(c) });
   if (!r.ok) return c.json({ error: r.error }, r.status as 400);
-  return c.json({ id: r.id, line: await publicLine() });
+  return c.json({ id: r.id, delivery: r.delivery, textNumber: r.textNumber, line: await publicLine() });
 });
 
 messagingPublic.post('/auth/phone/verify', async (c) => {
@@ -173,7 +173,7 @@ messagingApi.post('/phone/start', async (c) => {
   const { phone } = await c.req.json<{ phone?: string }>().catch(() => ({} as { phone?: string }));
   const r = await startPhoneLogin(String(phone ?? ''), { ip: clientIp(c), attachTo: c.get('user').id });
   if (!r.ok) return c.json({ error: r.error }, r.status as 400);
-  return c.json({ id: r.id, line: await publicLine() });
+  return c.json({ id: r.id, delivery: r.delivery, textNumber: r.textNumber, line: await publicLine() });
 });
 
 messagingApi.post('/phone/verify', async (c) => {

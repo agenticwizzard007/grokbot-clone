@@ -5,8 +5,10 @@ import { saveSetting } from '../../settings.js';
 import { handleInbound, type ChannelAdapter, type Inbound } from '../bridge.js';
 import { chunk, toPlainText } from '../format.js';
 import { accept, registerInboxHandler } from '../inbox.js';
+import { replyWithCode } from '../phone-auth.js';
 import { frontDesk, type Sender } from '../signup.js';
-import { digits, hostLinkByPhone, type Channel, type Link } from '../store.js';
+import { digits, hostLinkByPhone, updateLink, type Channel, type Link } from '../store.js';
+import { now } from '../../db.js';
 import * as ib from './client.js';
 import { startTunnel, tunnelEnabled, tunnelStatus, tunnelWebhookUrl } from './tunnel.js';
 
@@ -106,12 +108,17 @@ async function onEvent(p: any) {
   assertLegacyWorkOpen(legacyPhoneOwner(e.phone));
   const link = hostLinkByPhone('inkbox', e.channel, e.phone);
   let userId = link?.userId ?? null;
+  const sender: Sender = { phone: e.phone, channel: e.channel, transport: 'inkbox', chatRef: e.conversationId ?? null, name: e.name ?? null, text: e.text };
   if (!userId) {
     if (e.reaction) return;
-    const sender: Sender = { phone: e.phone, channel: e.channel, transport: 'inkbox', chatRef: e.conversationId ?? null, name: e.name ?? null, text: e.text };
     const r = await frontDesk(sender, (text) => rawReply(e, text));
     if (!r?.continueWith) return;
     userId = r.userId;
+  } else if (!e.reaction && (await replyWithCode(sender, (text) => rawReply(e, text), { linked: true }))) {
+    // Someone is signing in with this (already connected) number in a browser and the line couldn't text first:
+    // this text proves they hold the phone, so the code goes back to it. Keep the thread current for later sends.
+    updateLink(userId, e.channel, { lastInboundAt: now(), ...(e.conversationId ? { chatRef: e.conversationId } : {}) });
+    return;
   }
   const audio = e.media.find((m) => m.mime.startsWith('audio/'));
   const image = e.media.find((m) => m.mime.startsWith('image/'));
@@ -222,17 +229,30 @@ export async function isConnectedToLine(phone: string): Promise<boolean> {
   return list.some((a) => digits(a.remoteNumber) === digits(phone) && a.status === 'active');
 }
 
-/** Text a number that just connected (no conversation id yet). Returns false if Inkbox won't allow it yet. */
-export async function textNewlyConnected(phone: string, text: string): Promise<boolean> {
+/**
+ * Inkbox refuses to text a number that connected on the shared line but hasn't written to it yet (409
+ * imessage_awaiting_inbound). Its message names the line number that person must text (not the router).
+ */
+export function awaitingInbound(e: unknown): { awaiting: boolean; textNumber: string | null } {
+  const msg = e instanceof Error ? e.message : String(e ?? '');
+  const code = e instanceof ib.InkboxError ? e.code : undefined;
+  const awaiting = code === 'imessage_awaiting_inbound' || /hasn't sent a message or reaction yet/i.test(msg);
+  return { awaiting, textNumber: awaiting ? msg.match(/must text (\+\d{8,15})/)?.[1] ?? null : null };
+}
+
+export type FirstText = { sent: true } | { sent: false; textNumber: string | null };
+
+/** Text a number that just connected (no conversation id yet). Not sent when Inkbox wants them to write first. */
+export async function textNewlyConnected(phone: string, text: string): Promise<FirstText> {
   return withLegacyWork(legacyPhoneOwner(phone), () => textNewlyConnectedOpen(phone, text));
 }
-async function textNewlyConnectedOpen(phone: string, text: string): Promise<boolean> {
+async function textNewlyConnectedOpen(phone: string, text: string): Promise<FirstText> {
   try {
     const sent = await ib.sendIMessage(env.inkboxIdentityKey, { to: `+${digits(phone)}`, text: toPlainText(text) });
-    return !sentAsCarrierSms(sent);
+    return sentAsCarrierSms(sent) ? { sent: false, textNumber: null } : { sent: true };
   } catch (e: any) {
     console.warn('[inkbox] first text to a newly connected number failed:', e?.code ?? '', e?.message ?? e);
-    return false;
+    return { sent: false, textNumber: awaitingInbound(e).textNumber };
   }
 }
 

@@ -64,7 +64,7 @@ async function greetConnectionOpen(phone: string): Promise<string> {
 
   if (admitted && signupsToday() < cfg.signupsPerDay) {
     // Say hello first: if Inkbox won't let the line text first, create nothing and let their next text do it.
-    if (!(await textNewlyConnected(p, welcomeText()))) { markGreeted(p, 'deferred'); return 'deferred'; }
+    if (!(await textNewlyConnected(p, welcomeText())).sent) { markGreeted(p, 'deferred'); return 'deferred'; }
     markGreeted(p, 'joined');
     if (invite) {
       db.prepare('UPDATE messaging_invites SET uses=uses+1 WHERE code=?').run(invite.code);
@@ -79,7 +79,7 @@ async function greetConnectionOpen(phone: string): Promise<string> {
     : admitted
       ? "Thanks for connecting to Swarm! 👋 We're at capacity for today, so you're on the waitlist. I'll text you here when you're in."
       : "Welcome to Swarm! 👋 It's invite-only for now. Reply with your invite code to join, or send anything else to join the waitlist.";
-  const ok = await textNewlyConnected(p, text);
+  const ok = (await textNewlyConnected(p, text)).sent;
   markGreeted(p, ok ? `told-${cfg.mode}` : 'deferred');
   return ok ? `told-${cfg.mode}` : 'deferred';
 }
