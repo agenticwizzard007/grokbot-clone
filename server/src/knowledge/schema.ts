@@ -1,7 +1,7 @@
 import { db } from '../db.js';
 import '../db-config.js';
 import '../agent/jobs.js';
-import { legacyWritableRows } from '../platform/legacy-database-fence.js';
+import { assertLegacyDatabaseFences, legacyWritableRows } from '../platform/legacy-database-fence.js';
 
 function column(table: string, name: string, ddl: string) {
   if (!(db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some(c => c.name === name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${ddl}`);
@@ -137,7 +137,21 @@ CREATE TRIGGER IF NOT EXISTS knowledge_receipt_immutable BEFORE UPDATE ON knowle
 `);
 
 column('knowledge_learning_reviews','knowledge_snapshot',"TEXT NOT NULL DEFAULT '[]'");
-db.exec(`CREATE TRIGGER IF NOT EXISTS knowledge_receipt_no_delete BEFORE DELETE ON knowledge_use_receipts WHEN EXISTS(SELECT 1 FROM bots WHERE id=OLD.bot_id) BEGIN SELECT RAISE(ABORT,'Knowledge receipts are immutable'); END;`);
+// Receipts cascade directly from both users and bots. During account deletion
+// SQLite may delete receipts before bots, but the user has already been removed.
+// Only parent erasure may bypass immutability; ordinary receipt deletion cannot.
+// Replace the definition on existing volumes too, atomically with no unguarded
+// interval for another connection and no changes to the recorded evidence.
+db.transaction(() => {
+  db.exec('DROP TRIGGER IF EXISTS knowledge_receipt_no_delete');
+  db.exec(`CREATE TRIGGER knowledge_receipt_no_delete BEFORE DELETE ON knowledge_use_receipts
+    WHEN EXISTS(SELECT 1 FROM users WHERE id=OLD.user_id)
+      AND EXISTS(SELECT 1 FROM bots WHERE id=OLD.bot_id)
+    BEGIN SELECT RAISE(ABORT,'Knowledge receipts are immutable'); END;`);
+  // A source held for tenant migration binds its exact schema. Refuse an old
+  // held schema and roll this replacement back; never invalidate that boundary.
+  assertLegacyDatabaseFences(db);
+}).immediate();
 column('knowledge_learning_state','skill_reset_job_id','TEXT');
 column('knowledge_learning_state','skill_reset_iteration','INTEGER');
 column('knowledge_skill_proposals','actor',"TEXT NOT NULL DEFAULT 'legacy'");
