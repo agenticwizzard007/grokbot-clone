@@ -162,15 +162,15 @@ class FakeBridge {
     this.respond(rpc.id, reply);
   }
   get generations() { return this.requests.filter(request => request.method === 'generate'); }
-  async hello(secret: string) {
+  async hello(secret: string, noGenerationDeadline: boolean | 'omit' = true) {
     await once(this.ws, 'open');
-    this.ws.send(JSON.stringify({ type: 'hello', version: 1, nativeMcp: true, noGenerationDeadline: true, token: secret, device: `Computer of ${this.userId}` }));
+    this.ws.send(JSON.stringify({ type: 'hello', version: 1, nativeMcp: true, ...(noGenerationDeadline === 'omit' ? {} : { noGenerationDeadline }), token: secret, device: `Computer of ${this.userId}` }));
   }
 }
 
-async function connect(userId: string, secret = createCliPairing(userId)) {
+async function connect(userId: string, secret = createCliPairing(userId), noGenerationDeadline: boolean | 'omit' = true) {
   const bridge = new FakeBridge(userId);
-  await bridge.hello(secret);
+  await bridge.hello(secret, noGenerationDeadline);
   await until(() => bridge.welcome, 'bridge handshake should finish');
   await refreshCli(userId);
   return bridge;
@@ -1017,8 +1017,8 @@ for (const provider of ['codex', 'claude'] as const) {
     assert.deepEqual([event.input_tokens, event.cached_tokens, event.output_tokens], [100, 30, 20]);
     assert.equal(events(bob).length, 0);
   });
-  test(`${provider}: a queued Bot with a saved default alias keeps high effort and owner attribution`, async () => {
-    const ownerBridge = await connect(alice), otherBridge = await connect(bob);
+  for (const deadlineCapability of [true, 'omit'] as const) test(`${provider}: a queued Bot with a saved default alias keeps high effort and owner attribution (deadline capability ${deadlineCapability})`, async () => {
+    const ownerBridge = await connect(alice, undefined, deadlineCapability), otherBridge = await connect(bob);
     await choose(alice, provider);
     await choose(bob, provider === 'codex' ? 'claude' : 'codex');
     const bot = newBot(alice);
@@ -1033,6 +1033,8 @@ for (const provider of ['codex', 'claude'] as const) {
     assert.equal(params.provider, provider);
     assert.equal(params.model, 'account-model');
     assert.equal(params.effort, 'high');
+    assert.equal(params.timeoutMs, deadlineCapability === true ? 0 : 360_000);
+    assert.ok(params.nativeTools.length > 0, 'the real Bot path still registers native tools');
     assert.match(params.prompt, /Reply using my saved default and high effort/);
     assert.ok(listRows(bot.id).some(row => row.body.type === 'message' && row.body.role === 'assistant' && row.body.text === 'Saved default turn completed.' && !row.body.streaming));
     assert.equal(getLive(bot.id).isRunning, false);

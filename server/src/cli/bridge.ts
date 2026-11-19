@@ -13,6 +13,7 @@ export type CliProviders = Record<CliProvider, CliAuthStatus>;
 interface Pending { finish: (error?: Error, value?: unknown) => void; toolCall: (call: unknown) => void }
 interface Connection { ws: WebSocket; device: string; nativeMcp: boolean; noGenerationDeadline: boolean; providers: CliProviders; pending: Map<string, Pending> }
 const connections = new Map<string, Connection>();
+const LEGACY_GENERATION_TIMEOUT_MS = 360_000;
 const missing = (): CliProviders => ({
   codex: { installed: false, authenticated: false, subscription: false },
   claude: { installed: false, authenticated: false, subscription: false },
@@ -45,7 +46,10 @@ function admittedRequest(userId: string, method: 'status' | 'generate' | 'catalo
   const c = connections.get(userId);
   if (!c || c.ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error(CLI_OFFLINE));
   if (method === 'generate' && timeoutMs === 0 && !c.noGenerationDeadline) {
-    return Promise.reject(new Error('Your subscription CLI bridge needs an update for long-running tasks. Reconnect it in Settings → Subscriptions using a freshly downloaded bridge script.'));
+    // Previously downloaded bridges reject zero. Preserve their original turn
+    // deadline and transport grace; only an explicit capability opts out.
+    params = { ...(params as Record<string, unknown>), timeoutMs: LEGACY_GENERATION_TIMEOUT_MS };
+    timeoutMs = LEGACY_GENERATION_TIMEOUT_MS + 1000;
   }
   if (method === 'generate' && hasNativeTools(params)) {
     if (!c.nativeMcp) return Promise.reject(new Error('Your subscription CLI bridge needs an update for native tools. Reconnect it in Settings → Subscriptions using a freshly downloaded bridge script.'));
