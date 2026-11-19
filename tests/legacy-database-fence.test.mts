@@ -245,7 +245,7 @@ test('the current application schema can hold one account and refuses its existi
    }finally{edit.close();}
    await assert.rejects(exportTenantDatabase(snapshot,destination,a,'new_volume'),/ambiguous JSON/);
   });
-  for(const table of ['knowledge_skill_proposals','knowledge_skill_revisions','knowledge_memory_changes','memories'])for(const direction of ['outgoing','incoming','history'])await t.test(`${table} run_id ${direction}`,async()=>{
+  for(const table of ['knowledge_skill_proposals','knowledge_skill_revisions','knowledge_memory_changes','memories','agent_evolution'])for(const direction of ['outgoing','incoming','history'])await t.test(`${table} run_id ${direction}`,async()=>{
    const snapshot=path.join(root,`reference-${++n}.db`),destination=path.join(root,`reference-export-${n}.db`);fs.copyFileSync(baseline,snapshot);
    const bot=direction==='incoming'?other.id:owned.id,user=direction==='incoming'?b:a,skill=direction==='incoming'?active.skill:held.skill;
    const run=direction==='outgoing'?active.job:direction==='incoming'?held.job:'historical-non-job';
@@ -253,6 +253,7 @@ test('the current application schema can hold one account and refuses its existi
     if(table==='knowledge_skill_revisions')edit.prepare("INSERT INTO knowledge_skill_revisions(skill_id,bot_id,revision,snapshot,action,actor,run_id,created_at) VALUES(?,?,99,'{}','update','fixture',?,1)").run(skill,bot,run);
     else if(table==='knowledge_memory_changes')edit.prepare("INSERT INTO knowledge_memory_changes(id,user_id,bot_id,base_revision,generation,action,target,evidence,run_id,created_at) VALUES('change',?,?,1,1,'create','user','[]',?,1)").run(user,bot,run);
     else if(table==='knowledge_skill_proposals')edit.prepare("INSERT INTO knowledge_skill_proposals(id,bot_id,skill_id,base_revision,generation,snapshot,reason,evidence,run_id,created_at) VALUES('run-proposal',?,?,1,1,'{}','test','[]',?,1)").run(bot,skill,run);
+    else if(table==='agent_evolution')edit.prepare("INSERT INTO agent_evolution(user_id,bot_id,version,source_key,kind,source_id,action,run_id,occurred_at,recorded_at,origin) SELECT ?,?,COALESCE(MAX(version),0)+1,'migration-run-probe','memory','fixture-memory','edit',?,1,1,'historical' FROM agent_evolution WHERE bot_id=?").run(user,bot,run,bot);
     else edit.prepare('UPDATE memories SET run_id=? WHERE bot_id=?').run(run,bot);
    }finally{edit.close();}
    if(direction==='history'){

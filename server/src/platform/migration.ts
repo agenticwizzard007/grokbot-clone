@@ -66,7 +66,7 @@ export async function exportTenantDatabase(sourceFile:string,destination:string,
     // unresolved history, while refusing any ID that resolves to a foreign job.
     const requiredJobs:Record<string,readonly string[]>={code_runs:['job_id'],native_workflow_runs:['parent_job_id']};
     // These run_id columns denote agent jobs, unlike code_steps/routine run IDs.
-    const knowledgeJobTables=new Set(['memories','knowledge_skill_proposals','knowledge_skill_revisions','knowledge_memory_changes']);
+    const knowledgeJobTables=new Set(['memories','knowledge_skill_proposals','knowledge_skill_revisions','knowledge_memory_changes','agent_evolution']);
     const phone=selected.get('users')?.[0]?.phone;
     if(phone&&Number((source.prepare('SELECT count(*) n FROM users WHERE phone=?').get(phone) as {n:number}).n)!==1)throw new Error('Ambiguous legacy phone ownership.');
     for(const t of tables){
