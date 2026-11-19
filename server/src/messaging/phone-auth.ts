@@ -5,7 +5,7 @@ import { adminPhones } from '../settings.js';
 import { deliver } from './bridge.js';
 import { signupConfig, startAccount, takeInvite } from './signup.js';
 import { digits, getLink, isLive, upsertLink, type Channel, type Transport } from './store.js';
-import { inkboxConfigured, isConnectedToLine, textNewlyConnected } from './inkbox/adapter.js';
+import { awaitingInbound, inkboxConfigured, isConnectedToLine, textNewlyConnected } from './inkbox/adapter.js';
 
 /**
  * "Continue with your phone number" in the browser, and "Connect your phone" for signed-in users.
@@ -13,6 +13,8 @@ import { inkboxConfigured, isConnectedToLine, textNewlyConnected } from './inkbo
  * The line can only text people who have texted it first (Inkbox), so a code reaches the phone one of two ways:
  * - the number is already connected over iMessage: Swarm texts the code right away;
  * - it isn't: the person connects or messages the iMessage line and the line replies with the code.
+ * Inkbox's shared line can't text a number that connected but never wrote to it (a reconnect resets this), so a
+ * "connected" number may still have to text first; start says which, and names the line number to text when known.
  * Typing the code back in the same browser proves the person holds the phone. It signs them in (creating the account
  * if needed, under the server's sign-up rules) or attaches the number to the signed-in account, and connects it.
  */
@@ -33,12 +35,13 @@ db.exec(`CREATE TABLE IF NOT EXISTS phone_logins (
   used_at INTEGER
 )`);
 
-if (!(db.prepare('PRAGMA table_info(phone_logins)').all() as { name: string }[]).some((c) => c.name === 'code_sent')) {
-  db.exec('ALTER TABLE phone_logins ADD COLUMN code_sent INTEGER NOT NULL DEFAULT 0');
-}
+const loginColumns = () => (db.prepare('PRAGMA table_info(phone_logins)').all() as { name: string }[]).map((c) => c.name);
+if (!loginColumns().includes('code_sent')) db.exec('ALTER TABLE phone_logins ADD COLUMN code_sent INTEGER NOT NULL DEFAULT 0');
+if (!loginColumns().includes('text_number')) db.exec('ALTER TABLE phone_logins ADD COLUMN text_number TEXT');
 
 const TTL = 10 * 60_000;
 const MAX_ATTEMPTS = 5;
+export const EXISTING_ACCOUNT = 'An account with this number already exists. Sign out, then continue with this phone number to use that account.';
 const hash = (id: string, code: string) => crypto.createHash('sha256').update(`${id}:${code}`).digest('hex');
 const hits = new Map<string, number[]>();
 
@@ -54,14 +57,25 @@ function limited(key: string, max: number, windowMs: number) {
 const pendingFor = (phone: string) =>
   db.prepare('SELECT * FROM phone_logins WHERE phone=? AND used_at IS NULL AND expires_at>? ORDER BY created_at DESC LIMIT 1').get(phone, now()) as any;
 
+export type StartResult =
+  /** `sent`: the code is on its way. `text-first`: it goes out when the phone texts the line (`textNumber` when known). */
+  | { ok: true; id: string; delivery: 'sent' | 'text-first'; textNumber: string | null }
+  | { ok: false; status: number; error: string };
+
 /**
  * Start: make a code for this number. If the number already reaches Swarm, text it now.
  * Answers the same either way, so nobody learns whether a number has an account.
  */
-export async function startPhoneLogin(phone: string, opts: { ip: string; attachTo?: string }): Promise<{ ok: true; id: string } | { ok: false; status: number; error: string }> {
+export async function startPhoneLogin(phone: string, opts: { ip: string; attachTo?: string }): Promise<StartResult> {
   const p = digits(phone);
   if (p.length < 8 || p.length > 15) return { ok: false, status: 400, error: 'Enter your full number with country code, like +1 415 555 0100.' };
   if (limited(`ip:${opts.ip}`, 10, 10 * 60_000) || limited(`phone:${p}`, 5, 10 * 60_000)) return { ok: false, status: 429, error: 'Too many tries. Wait a few minutes and try again.' };
+  // Connecting a number to a signed-in account: a number that belongs to another account is refused up front, before
+  // any code is texted (verify checks again). Only signed-in, rate-limited callers learn this; sign-in never does.
+  if (opts.attachTo) {
+    const holder = accountByPhone(p);
+    if (holder && holder.id !== opts.attachTo) return { ok: false, status: 409, error: EXISTING_ACCOUNT };
+  }
   const id = crypto.randomBytes(16).toString('base64url');
   // A plain 6-digit code (people type it from a text).
   const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
@@ -69,10 +83,29 @@ export async function startPhoneLogin(phone: string, opts: { ip: string; attachT
   db.prepare('INSERT INTO phone_logins(id,phone,code_hash,attach_user_id,created_at,expires_at) VALUES (?,?,?,?,?,?)').run(id, p, hash(id, code), opts.attachTo ?? null, now(), now() + TTL);
   pendingCodes.set(id, code);
   const acct = accountByPhone(p);
-  if (acct && isLive(getLink(acct.id, 'imessage'))) await deliver(acct.id, { text: codeText(code, !!opts.attachTo) }, { kind: 'system', channel: 'imessage' });
-  else if (acct && isLive(getLink(acct.id, 'whatsapp'))) await deliver(acct.id, { text: codeText(code, !!opts.attachTo) }, { kind: 'system', channel: 'whatsapp' });
-  else watchForConnect(id, p, code, !!opts.attachTo);
-  return { ok: true, id };
+  const channel = acct && (['imessage', 'whatsapp'] as const).find((ch) => isLive(getLink(acct.id, ch)));
+  if (acct && channel) {
+    const r = await textCode(acct.id, channel, codeText(code, !!opts.attachTo));
+    if (r.sent) { db.prepare('UPDATE phone_logins SET code_sent=1 WHERE id=?').run(id); return { ok: true, id, delivery: 'sent', textNumber: null }; }
+    db.prepare('UPDATE phone_logins SET text_number=? WHERE id=?').run(r.textNumber, id);
+    return { ok: true, id, delivery: 'text-first', textNumber: r.textNumber };
+  }
+  watchForConnect(id, p, code, !!opts.attachTo);
+  return { ok: true, id, delivery: 'text-first', textNumber: null };
+}
+
+/**
+ * Text the code to a connected number and say whether it went out. Inkbox won't text a number that (re)connected
+ * on the shared line without writing to it; then the code waits for their text (replyWithCode), and the person is
+ * told which number to text when Inkbox names it.
+ */
+async function textCode(userId: string, channel: 'imessage' | 'whatsapp', text: string): Promise<{ sent: true } | { sent: false; textNumber: string | null }> {
+  const result: { outcome: 'sent' | 'queued' | 'failed' | 'dropped'; error?: unknown } = { outcome: 'dropped' };
+  await deliver(userId, { text }, { kind: 'system', channel, onOutcome: (outcome, error) => Object.assign(result, { outcome, error }) });
+  if (result.outcome === 'sent') return { sent: true };
+  const hint = awaitingInbound(result.error);
+  if (hint.awaiting) console.log(`[phone-auth] code waits for the phone to text the line first${hint.textNumber ? ` (${hint.textNumber})` : ''}`);
+  return { sent: false, textNumber: hint.textNumber };
 }
 
 /**
@@ -88,7 +121,9 @@ function watchForConnect(id: string, phone: string, code: string, attach: boolea
     if (!row || row.used_at || row.expires_at < now() || row.chat_ref || row.code_sent) return;
     try {
       if (await isConnectedToLine(phone)) {
-        if (await textNewlyConnected(phone, codeText(code, attach))) db.prepare('UPDATE phone_logins SET code_sent=1 WHERE id=?').run(id);
+        const r = await textNewlyConnected(phone, codeText(code, attach));
+        if (r.sent) db.prepare('UPDATE phone_logins SET code_sent=1 WHERE id=?').run(id);
+        else db.prepare('UPDATE phone_logins SET text_number=? WHERE id=?').run(r.textNumber, id);
         return; // sent, or Inkbox wants them to write first: either way stop polling
       }
     } catch (e) { console.warn('[phone-auth] connect check failed:', (e as Error).message); }
@@ -104,17 +139,21 @@ const codeText = (code: string, attach: boolean) =>
   `🔑 Your Swarm ${attach ? 'code to connect this number' : 'sign-in code'} is ${code}. It expires in 10 minutes. Didn't ask for it? Ignore this.`;
 
 /**
- * The front desk calls this for a text from a number with no link yet: if that number has a pending phone login,
- * reply with its code (and remember where they wrote, to connect the number on success).
+ * A text from a number with a pending phone login: reply with its code (and remember where they wrote, to connect
+ * the number on success). The front desk calls this for numbers with no link yet, and answers every text until the
+ * code is used. For a number that is already linked (`linked`), only a code the line couldn't text at start is
+ * answered, and once: after that the person's texts reach their Bots as usual.
  */
-export async function replyWithCode(s: { phone: string; channel: Channel; transport: Transport; chatRef?: string | null; name?: string | null }, reply: (text: string) => Promise<void>): Promise<boolean> {
+export async function replyWithCode(s: { phone: string; channel: Channel; transport: Transport; chatRef?: string | null; name?: string | null }, reply: (text: string) => Promise<void>, opts: { linked?: boolean } = {}): Promise<boolean> {
   const row = pendingFor(digits(s.phone));
   if (!row) return false;
-  if (s.channel === 'sms') return true;
+  if (s.channel === 'sms') return !opts.linked;
+  if (opts.linked && row.code_sent) return false;
   const code = pendingCodes.get(row.id);
   if (!code) return false; // server restarted since the code was made: they can ask for a new one
   db.prepare('UPDATE phone_logins SET channel=?, transport=?, chat_ref=?, name=? WHERE id=?').run(s.channel, s.transport, s.chatRef ?? null, s.name ?? null, row.id);
   await reply(codeText(code, !!row.attach_user_id));
+  db.prepare('UPDATE phone_logins SET code_sent=1 WHERE id=?').run(row.id);
   return true;
 }
 
@@ -149,7 +188,7 @@ export async function verifyPhoneLogin(id: string, code: string, opts: { inviteC
   };
 
   if (opts.attachTo) {
-    if (existing && existing.id !== opts.attachTo) return { ok: false, status: 409, error: 'This number already has its own Swarm account. Sign in with it instead.' };
+    if (existing && existing.id !== opts.attachTo) return { ok: false, status: 409, error: EXISTING_ACCOUNT };
     const me = getAccount(opts.attachTo);
     if (!me) return { ok: false, status: 404, error: 'Account not found.' };
     if (!me.phone) db.prepare('UPDATE users SET phone=? WHERE id=?').run(phone, opts.attachTo);

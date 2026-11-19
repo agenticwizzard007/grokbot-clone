@@ -91,7 +91,8 @@ export interface MessagingOwner {
 }
 export type VoiceReplies = 'voice-in' | 'always' | 'off';
 export interface InkboxProfile { displayName: string | null; description: string | null; hasAvatar: boolean }
-export interface PhoneStart { id: string; line: MessagingLine | null }
+/** `sent`: the code was texted. `text-first`: it arrives once the phone texts the line (`textNumber` when Inkbox named it). */
+export interface PhoneStart { id: string; delivery: 'sent' | 'text-first'; textNumber: string | null; line: MessagingLine | null }
 export interface MessagingStatus {
   account: { phone: string | null; email: string | null; signupSource: 'web' | 'text' };
   links: MessagingLink[];

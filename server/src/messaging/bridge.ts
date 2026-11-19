@@ -155,7 +155,11 @@ function serial(userId: string, job: () => Promise<void>): Promise<void> {
 /** Wait for everything queued for a user to go out (tests, shutdown). */
 export const drain = async (userId: string) => { while (chains.get(userId)) await chains.get(userId); };
 
-interface Meta { botId?: string | null; kind: MsgKind; ref?: string | null; token?: string | null; slot?: number | null; channel?: Channel | null }
+interface Meta {
+  botId?: string | null; kind: MsgKind; ref?: string | null; token?: string | null; slot?: number | null; channel?: Channel | null;
+  /** Told what became of this message (a sign-in code needs to know whether it actually went out). */
+  onOutcome?: (outcome: 'sent' | 'queued' | 'failed' | 'dropped', error?: unknown) => void;
+}
 const TYPING_HEARTBEAT_MS = Math.max(5_000, Number(process.env.MESSAGING_TYPING_HEARTBEAT_MS ?? 20_000));
 const TYPING_HEARTBEAT_MAX_MS = Math.max(TYPING_HEARTBEAT_MS, Number(process.env.MESSAGING_TYPING_HEARTBEAT_MAX_MS ?? 2 * 60 * 60_000));
 const PROGRESS_FIRST_MS = Math.max(TYPING_HEARTBEAT_MS, Number(process.env.MESSAGING_PROGRESS_FIRST_MS ?? 25_000));
@@ -184,15 +188,18 @@ export function deliver(userId: string, msg: OutMessage, meta: Meta): Promise<vo
     const a = link && adapterFor(link);
     if (!link || !a) {
       if (meta.slot) markMessage(meta.slot, { status: 'dropped' });
+      meta.onOutcome?.('dropped');
       return;
     }
-    if (!a.ready(link)) return queue(userId, link.channel, msg, meta);
+    if (!a.ready(link)) { queue(userId, link.channel, msg, meta); meta.onOutcome?.('queued'); return; }
     try {
       await sendParts(link, a, msg, meta);
+      meta.onOutcome?.('sent');
     } catch (e) {
-      if (legacyWorkHeld(userId)) return;
+      if (legacyWorkHeld(userId)) { meta.onOutcome?.('failed', e); return; }
       console.warn(`[messaging] ${link.channel} send failed`, (e as Error).message);
       if (meta.slot) markMessage(meta.slot, { status: 'failed' });
+      meta.onOutcome?.('failed', e);
     }
   });
 }
