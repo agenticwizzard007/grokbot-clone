@@ -50,7 +50,7 @@ jobs:
           IMAGE: registry.fly.io/swarm-team:git-${{ github.sha }}
         run: |
           git diff --exit-code HEAD
-          docker build --build-arg SWARM_BUILD_REVISION="$GITHUB_SHA" -t "$IMAGE" .
+          docker build --platform linux/amd64 --build-arg SWARM_BUILD_REVISION="$GITHUB_SHA" -t "$IMAGE" .
           docker run --rm -i --entrypoint node -e EXPECTED_REVISION="$GITHUB_SHA" "$IMAGE" --input-type=module < scripts/verify-image-contents.mjs | tee .context/staging-release/image-verification.json
           container_id=$(docker create "$IMAGE")
           docker cp "$container_id:/app/server/dist/release-manifest.json" .context/staging-release/manifest.json
@@ -81,7 +81,10 @@ jobs:
           flyctl status -a swarm-team --json > .context/staging-release/before.json
           flyctl auth docker
           docker push "$IMAGE"
-          docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE" > .context/staging-release/image.txt
+          published_image=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE")
+          echo "$published_image" > .context/staging-release/published-image.txt
+          docker manifest inspect "$published_image" > .context/staging-release/registry-manifest.json
+          node scripts/resolve-staging-image.mjs "$published_image" .context/staging-release/registry-manifest.json > .context/staging-release/image.txt
           node scripts/snapshot-staging-volume.mjs
       - name: Check for newer changes immediately before deployment
         if: steps.publish.outputs.deploy == 'true'

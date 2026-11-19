@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { checkRelease } from '../scripts/staging-preflight.mjs';
+import { runtimeImage } from '../scripts/resolve-staging-image.mjs';
 const candidate = 'a'.repeat(40), main = 'b'.repeat(40), live = 'c'.repeat(40);
 function fixture(overrides = {}) {
   const calls = [];
@@ -46,4 +47,24 @@ test('manual dispatch from unrelated branches or a symbolic revision is rejected
   const { input } = fixture();
   await assert.rejects(checkRelease({ ...input, branch: 'experimental' }), /Only integration\/main/);
   await assert.rejects(checkRelease({ ...input, revision: 'HEAD' }), /exact source revision/);
+});
+
+const indexRef = 'registry.fly.io/swarm-team@sha256:' + '1'.repeat(64);
+const amd64 = { digest: 'sha256:' + '2'.repeat(64), platform: { os: 'linux', architecture: 'amd64' } };
+test('OCI provenance indexes resolve to the exact image Fly actually runs', () => {
+  const manifest = { schemaVersion: 2, manifests: [
+    { digest: 'sha256:' + '3'.repeat(64), platform: { os: 'unknown', architecture: 'unknown' } },
+    { digest: 'sha256:' + '4'.repeat(64), platform: { os: 'linux', architecture: 'arm64' } },
+    amd64,
+  ] };
+  assert.equal(runtimeImage(indexRef, manifest), 'registry.fly.io/swarm-team@' + amd64.digest);
+});
+test('single-platform manifests preserve their immutable reference', () => {
+  assert.equal(runtimeImage(indexRef, { schemaVersion: 2, config: { digest: 'sha256:' + '5'.repeat(64) }, layers: [] }), indexRef);
+});
+test('missing or ambiguous platform images and foreign registries are rejected', () => {
+  assert.throws(() => runtimeImage(indexRef, { schemaVersion: 2, manifests: [] }), /exactly one/);
+  assert.throws(() => runtimeImage(indexRef, { schemaVersion: 2, manifests: [amd64, amd64] }), /exactly one/);
+  assert.throws(() => runtimeImage(indexRef.replace('swarm-team', 'other-app'), { schemaVersion: 2 }));
+  assert.throws(() => runtimeImage(indexRef, { schemaVersion: 2 }), /not an image/);
 });
