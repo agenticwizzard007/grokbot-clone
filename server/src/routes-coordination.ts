@@ -6,11 +6,24 @@ import { listInternalRequests } from './coordination/requests.js';
 import { listNativeEvents } from './native/events.js';
 import { setCoordinationEnabled } from './coordination/supervision.js';
 import { getTeamRecords, TEAM_RECORD_KINDS } from './coordination/records.js';
+import { ExchangeUnavailable, listAgentExchanges, readAgentExchange } from './coordination/exchanges.js';
 
 export const coordinationApi=new Hono<AuthVars>();
 coordinationApi.use('*',requireUser);
-coordinationApi.onError((err,c)=>{if(err instanceof z.ZodError)return c.json({error:'Invalid coordination request.'},400);console.error('[coordination-api]',err);return c.json({error:err.message},400);});
+coordinationApi.onError((err,c)=>{if(err instanceof ExchangeUnavailable)return c.json({error:err.message},404);if(err instanceof z.ZodError)return c.json({error:'Invalid coordination request.'},400);console.error('[coordination-api]',err);return c.json({error:err.message},400);});
 const page=z.object({after:z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0),limit:z.coerce.number().int().min(1).max(100).default(50)});
+const cursor=z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
+const exchangeScope=z.object({botId:z.string().min(1).max(200),generation:cursor.min(1)});
+coordinationApi.get('/exchanges',c=>{
+ const a=exchangeScope.extend({before:cursor.optional(),limit:cursor.min(1).max(50).optional()}).parse(c.req.query());
+ c.header('Cache-Control','no-store');
+ return c.json(listAgentExchanges(c.get('user').id,a.botId,a.generation,a.before,a.limit));
+});
+coordinationApi.get('/exchanges/:id',c=>{
+ const a=exchangeScope.extend({after:cursor.optional(),through:cursor.optional(),limit:cursor.min(1).max(50).optional()}).parse(c.req.query());
+ c.header('Cache-Control','no-store');
+ return c.json(readAgentExchange(c.get('user').id,a.botId,a.generation,c.req.param('id'),a.after,a.through,a.limit));
+});
 coordinationApi.get('/state',c=>c.json({state:teamState(c.get('user').id)}));
 coordinationApi.get('/records',c=>{const a=z.object({kind:z.enum(TEAM_RECORD_KINDS),after:z.coerce.number().int().min(0).default(0),limit:z.coerce.number().int().min(1).max(100).default(50),through:z.coerce.number().int().min(0).optional()}).parse(c.req.query());return c.json(getTeamRecords(c.get('user').id,a));});
 coordinationApi.get('/requests',c=>{const a=page.parse(c.req.query());return c.json(listInternalRequests(c.get('user').id,a.after,a.limit,c.req.query('botId')));});
