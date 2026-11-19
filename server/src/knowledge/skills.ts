@@ -14,6 +14,19 @@ function content(value: any): SkillContent {
   return { name: boundedText(value?.name, 'Name', 80), description: boundedText(value?.description ?? '', 'Description', 300, true), body: boundedText(value?.body, 'Skill steps', 20000),resources:resources(value?.resources??{}),locked:!!value?.locked,pinned:!!value?.pinned,managed:value?.managed!==false,scope:value?.scope??'private',projectId:value?.projectId??value?.project_id??null,deleted:!!value?.deleted };
 }
 function view(s: any): SkillView { return { id: s.id, botId: s.bot_id, name: s.name, description: s.description, body: s.body, revision: s.revision, createdAt: s.created_at, updatedAt: s.updated_at ?? s.created_at, deleted: s.deleted_at !== null,resources:JSON.parse(s.resources??'{}'),locked:!!s.locked,pinned:!!s.pinned,managed:!!s.managed,scope:s.scope??'private',projectId:s.project_id??null,lastUsedAt:s.last_used_at??null,lifecycle:s.lifecycle??'active' }; }
+/** Proposals change content, never the owner's sharing/protection choices.
+ * Recheck at approval too: already-persisted snapshots may predate this guard.
+ * Preserve absent fields on text-only edits, including supporting files. */
+function proposalContent(value: SkillContent, current: any | null): SkillContent {
+  const prior = current ? view(current) : null;
+  const supplied = Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined));
+  const next = content({ ...prior, ...supplied });
+  const controls = prior ?? { scope: 'private', projectId: null, locked: false, pinned: false, managed: true };
+  for (const key of ['scope', 'projectId', 'locked', 'pinned', 'managed'] as const) {
+    if (next[key] !== controls[key]) throw new KnowledgeError('Skill proposals cannot change sharing or protection settings. Use owner controls; reject old conflicting proposals and request a fresh proposal.', 409);
+  }
+  return next;
+}
 function ownSkill(userId: string, id: string): any {
   const row = db.prepare('SELECT s.* FROM skills s JOIN bots b ON b.id=s.bot_id WHERE s.id=? AND b.user_id=?').get(id, userId);
   if (!row) throw new KnowledgeError('Not found', 404);
@@ -82,7 +95,7 @@ export function rollbackSkill(userId: string, id: string, targetRevision: number
     return append(cur, content({...saved,scope:cur.scope,projectId:cur.project_id}), `rollback:${targetRevision}`, userId, JSON.parse(target.evidence), target.run_id, saved.deleted);
   })();
 }
-function render(value: SkillContent | null) { return value ? `# ${value.name}\n${value.description}\n\n${value.body}\n${Object.entries(value.resources??{}).sort(([a],[b])=>a.localeCompare(b)).map(([path,text])=>`\n## ${path}\n${text}\n`).join('')}${value.deleted?'\n[ARCHIVE]\n':''}` : ''; }
+function render(value: SkillContent | null) { return value ? `# ${value.name}\n${value.description}\n\n${value.body}\n${Object.entries(value.resources??{}).sort(([a],[b])=>a.localeCompare(b)).map(([path,text])=>`\n## ${path}\n${text}\n`).join('')}\nSharing scope: ${value.scope??'private'}\nProject: ${value.projectId??'none'}\nLocked: ${!!value.locked}\nPinned: ${!!value.pinned}\nManaged: ${value.managed!==false}\n${value.deleted?'\n[ARCHIVE]\n':''}` : ''; }
 // Native translation of Hermes tools/write_approval.py:74-129,305-345 at
 // f0e7b68e439f8c1962fcf9dcb0341aadf1e2a898 (MIT). Explicit proposals always stage;
 // Swarm additionally compares base revision and generation before replay.
@@ -99,7 +112,7 @@ export function stageSkillProposal(userId: string, botId: string, input: { skill
     if (cur && cur.deleted_at !== null) throw new KnowledgeError('Skill is deleted', 409);
     if(cur?.locked&&managementContext())throw new KnowledgeError('Skill is locked',409);
     expectedRevision(cur?.revision ?? 0, input.expectedRevision);
-    const value = content(input.content);
+    const value = proposalContent(input.content, cur);
     if(cur&&managementContext()){if(value.body!==cur.body||value.name!==cur.name||value.description!==cur.description)requireRead('skill',cur.id,cur.revision,cur.body);for(const[path,text]of Object.entries(view(cur).resources))if(value.resources?.[path]!==text)requireRead('skill',cur.id,cur.revision,text,path);}
     const reason = boundedText(input.reason, 'Reason', 1000);
     const evidence = refsOnly(validateEvidence(userId, botId, input.evidence,managementContext()?.actor!=='curator'));
@@ -109,7 +122,7 @@ export function stageSkillProposal(userId: string, botId: string, input: { skill
     db.prepare('INSERT INTO knowledge_skill_proposals(id,bot_id,skill_id,base_revision,generation,snapshot,reason,evidence,run_id,created_at,actor,source_versions,settings_revision,policy_revision,base_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(id, botId, skillId, input.expectedRevision, bot.generation, JSON.stringify(value), reason, JSON.stringify(evidence), runId, now(),actor,JSON.stringify(sourceVersions),settingsVersion(userId,botId),cur?promotionPolicy(userId,skillId)?.revision??0:0,cur?baseSnapshotHash(skillId,cur.revision):'');
     publishNativeEvent({userId,botId,kind:'knowledge.skill.proposed',sourceType:'skill-proposal',sourceId:id,jobId:runId,data:{skillId}});
-    return { id, skillId, baseRevision: input.expectedRevision, status: 'pending', diff: skillDiff(cur, value) };
+    return { id, skillId, baseRevision: input.expectedRevision, status: 'pending', diff: skillDiff(cur ? view(cur) : null, value) };
   })();
 }
 export function listSkillProposals(userId: string, botId: string) {
@@ -138,7 +151,8 @@ export function resolveSkillProposal(userId: string, id: string, decision: 'appr
 
       const cur = db.prepare('SELECT * FROM skills WHERE id=? AND bot_id=?').get(p.skill_id, p.bot_id) as any;
       expectedRevision(cur?.revision ?? 0, p.base_revision);
-      skill = cur ? append(cur, content(JSON.parse(p.snapshot)), 'learned', userId, evidence, p.run_id,!!JSON.parse(p.snapshot).deleted) : create(userId, p.bot_id, p.skill_id, content(JSON.parse(p.snapshot)), evidence, p.run_id);
+      const proposed = proposalContent(JSON.parse(p.snapshot), cur);
+      skill = cur ? append(cur, proposed, 'learned', userId, evidence, p.run_id,!!proposed.deleted) : create(userId, p.bot_id, p.skill_id, proposed, evidence, p.run_id);
     }
     db.prepare('UPDATE knowledge_skill_proposals SET status=?,resolved_at=?,resolved_by=? WHERE id=?').run(decision === 'approve' ? 'approved' : 'rejected', now(), userId, id);
     publishNativeEvent({userId,botId:p.bot_id,kind:'knowledge.skill.proposal-reviewed',sourceType:'skill-proposal',sourceId:id,data:{decision}});

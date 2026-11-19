@@ -145,6 +145,70 @@ test('learned skill remains staged, includes a diff and only approved revision b
   fails(() => skills.resolveSkillProposal('owner', proposal.id, 'approve', 0), 409);
 });
 
+test('proposals cannot change sharing or owner protections through raw domain inputs', () => {
+  const evidence = [message('Keep the procedure private until I share it.')];
+  for (const extra of [{ scope: 'account' }, { scope: 'project', projectId: 'private-project' }, { locked: true }, { pinned: true }, { managed: false }]) {
+    fails(() => skills.stageSkillProposal('owner', 'alpha', { expectedRevision: 0, content: { ...seedContent, ...extra } as any, reason: 'Learned procedure', evidence }), 409);
+  }
+  assert.equal(skills.listSkillProposals('owner', 'alpha').length, 0);
+});
+
+test('direct propose_skill calls project advertised content and never persist hidden authority fields', async () => {
+  const { withManagement } = await import('../server/src/knowledge/access.js');
+  const evidence = [message('Save the weekly reporting procedure.')];
+  const tool = KNOWLEDGE_TOOLS.find(t => t.name === 'propose_skill')!;
+  const result = await withManagement({ userId: 'owner', botId: 'alpha', unattended: true, actor: 'background_review', reads: new Map() }, () => tool.impl({
+    ...seedContent, expected_revision: 0, reason: 'Learned procedure', evidence,
+    scope: 'account', project_id: 'injected', locked: true, pinned: true, managed: false,
+  }, { userId: 'owner', botId: 'alpha', depth: 0, enqueueBotMessage() {} }));
+  assert.equal(result.isError, undefined);
+  const proposal = JSON.parse(result.output as string).proposal;
+  const approved = skills.resolveSkillProposal('owner', proposal.id, 'approve', 0).skill!;
+  assert.equal(approved.scope, 'private'); assert.equal(approved.projectId, null);
+  assert.equal(approved.locked, false); assert.equal(approved.pinned, false); assert.equal(approved.managed, true);
+  assert.equal(skills.authorizedSkills('owner', 'sibling').some(s => s.id === approved.id), false);
+  fails(() => skills.readSkillForBot('other', 'foreign', approved.id), 404);
+});
+
+for (const scope of ['account', 'project'] as const) test(`text-only proposals preserve ${scope} sharing, grants, protections and supporting files`, async () => {
+  const { withManagement } = await import('../server/src/knowledge/access.js');
+  const original = skills.createSkill('owner', 'alpha', { ...seedContent, pinned: true, managed: false, resources: { 'references/source.md': 'Owner-maintained reference' } });
+  const shared = skills.setSkillScope('owner', original.id, { expectedRevision: 1, scope, ...(scope === 'project' ? { projectId: 'reports', botIds: ['sibling'] } : {}) });
+  const grants = db.prepare('SELECT * FROM knowledge_grants WHERE source_id=?').all(shared.id);
+  const evidence = [message('Improve the wording without changing sharing.')];
+  const result = await withManagement({ userId: 'owner', botId: 'alpha', unattended: true, actor: 'background_review', reads: new Map() }, async () => {
+    skills.readSkillForBot('owner', 'alpha', shared.id, { review: true });
+    return KNOWLEDGE_TOOLS.find(t => t.name === 'propose_skill')!.impl({ ...seedContent, body: 'Improved wording', skill_id: shared.id, expected_revision: 2, reason: 'Wording only', evidence }, { userId: 'owner', botId: 'alpha', depth: 0, enqueueBotMessage() {} });
+  });
+  assert.equal(result.isError, undefined, String(result.output));
+  const approved = skills.resolveSkillProposal('owner', JSON.parse(result.output as string).proposal.id, 'approve', 2).skill!;
+  assert.equal(approved.scope, shared.scope); assert.equal(approved.projectId, shared.projectId);
+  assert.equal(approved.pinned, true); assert.equal(approved.managed, false); assert.equal(approved.locked, shared.locked);
+  assert.deepEqual(approved.resources, shared.resources); assert.equal(approved.body, 'Improved wording');
+  assert.deepEqual(db.prepare('SELECT * FROM knowledge_grants WHERE source_id=?').all(shared.id), grants);
+  assert.equal(skills.authorizedSkills('owner', 'sibling').some(s => s.id === shared.id), true);
+});
+
+test('historical unsafe snapshots stay immutable and cannot widen or reset authority on approval', () => {
+  const evidence = [message('Improve this reporting procedure.')];
+  const existing = skills.createSkill('owner', 'alpha', { ...seedContent, pinned: true, managed: false });
+  const shared = skills.setSkillScope('owner', existing.id, { expectedRevision: 1, scope: 'account' });
+  for (const [id, skillId, revision, snapshot] of [
+    ['old-new', 'never-created', 0, { ...seedContent, scope: 'account', locked: true, pinned: true, managed: false }],
+    ['old-edit', shared.id, 2, { ...seedContent, body: 'Wording change', scope: 'private', pinned: false, locked: false, managed: true }],
+  ] as const) {
+    db.prepare(`INSERT INTO knowledge_skill_proposals(id,bot_id,skill_id,base_revision,generation,snapshot,reason,evidence,actor,created_at)
+      VALUES(?,'alpha',?,?,1,?,'Old pending proposal',?,'background_review',1)`).run(id, skillId, revision, JSON.stringify(snapshot), JSON.stringify(evidence));
+    const before = db.prepare('SELECT * FROM knowledge_skill_proposals WHERE id=?').get(id);
+    fails(() => skills.resolveSkillProposal('owner', id, 'approve', revision), 409);
+    assert.deepEqual(db.prepare('SELECT * FROM knowledge_skill_proposals WHERE id=?').get(id), before);
+    assert.match(skills.listSkillProposals('owner', 'alpha').find(p => p.id === id)!.diff, /Sharing scope/);
+    assert.equal(skills.resolveSkillProposal('owner', id, 'reject', revision).status, 'rejected');
+  }
+  assert.deepEqual(skills.getSkill('owner', shared.id), shared);
+  assert.equal(db.prepare("SELECT 1 FROM skills WHERE id='never-created'").get(), undefined);
+});
+
 test('stale approvals never overwrite an owner edit and stale proposals can be rejected', () => {
   const ref = message('Please add a verification step.'); const s = skills.createSkill('owner', 'alpha', seedContent);
   const p = skills.stageSkillProposal('owner', 'alpha', { skillId: s.id, expectedRevision: 1, content: { ...seedContent, body: 'Proposed verification' }, reason: 'Learning', evidence: [ref] });
