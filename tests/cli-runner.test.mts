@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { appendFile, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -51,9 +51,21 @@ if (probe) {
     NODE_OPTIONS: '--definitely-not-a-node-option', BASH_ENV: '/untrusted/startup', CLAUDE_CODE_SIMPLE: '1',
   };
   const options = { [`${provider}Path`]: executable, env };
-  const audit = async () => (await readFile(auditFile, 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
+  // Concurrent children can append while readFile is taking its snapshot. Only
+  // newline-terminated records are complete; a trailing fragment is read next poll.
+  const audit = async () => (await readFile(auditFile, 'utf8')).split('\n').slice(0, -1).map((line) => JSON.parse(line));
   return { root, executable, auditFile, options, audit };
 }
+
+test('audit polling waits for complete appended records and still rejects malformed records', async (t) => {
+  const f = await fixture(t);
+  await writeFile(f.auditFile, '{"kind":"auth"}\n{"kind":');
+  assert.deepEqual(await f.audit(), [{ kind: 'auth' }]);
+  await appendFile(f.auditFile, '"generate"}\n');
+  assert.deepEqual(await f.audit(), [{ kind: 'auth' }, { kind: 'generate' }]);
+  await appendFile(f.auditFile, '{invalid}\n');
+  await assert.rejects(f.audit(), SyntaxError);
+});
 
 test('status recognizes only official auth and never exposes auth diagnostics', async (t) => {
   for (const [provider, auth, expected] of [
