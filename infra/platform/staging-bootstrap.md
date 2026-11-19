@@ -42,34 +42,56 @@ Only create missing resources from the approved inventory; an existing setup mus
    rules for aborted uploads and old versions; an IAM user limited to those KMS actions and to the
    `swarm-backups/` prefix. It writes `~/.swarm-staging-aws.env` (mode 0600) with `TENANT_KMS_KEY_ID`,
    `AWS_REGION`, `BACKUP_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`.
-3. An optional `swarm-admin` run of `verify-kms.mjs` checks **key/envelope mechanics only**. Same-context decrypt
-   and different-tenant refusal demonstrate ciphertext/context binding, not restrictions on the runtime principal.
-   Before importing credentials, run the following with the **actual restricted staging access key** written by setup
-   (not the admin profile or attached machine identity). The clean environment below prevents ambient AWS credentials
-   or profiles from replacing that protected file. Record the principal ARN from the approved inventory and confirm
-   this is the same access key imported into the serving apps. Node 22 is required.
+3. An optional administrator run of `verify-kms.mjs` checks **key/envelope mechanics only**, including DescribeKey:
+   ```sh
+   env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN AWS_PROFILE=swarm-admin \
+     node infra/platform/aws/verify-kms.mjs '<reviewed staging key ARN>'
+   ```
+   Different-tenant refusal demonstrates ciphertext/context binding, not restrictions on the runtime principal.
+   Do not run that verifier under the restricted principal: its unconditional DescribeKey call is not permitted by
+   the current context-conditioned policies and is not part of the application's runtime contract.
+
+   Before importing credentials, run this **generate/decrypt-only** probe with the actual restricted staging access
+   key written by setup (not the admin profile or attached machine identity). The clean environment prevents ambient
+   AWS credentials or profiles from replacing that protected file. Record the principal ARN from the approved inventory
+   and confirm this is the same access key imported into the serving apps. Node 22 and locked dependencies are required.
    ```sh
    umask 077
    env -i PATH="$PATH" HOME="$HOME" AWS_EC2_METADATA_DISABLED=true \
      AWS_CONFIG_FILE=/dev/null AWS_SHARED_CREDENTIALS_FILE=/dev/null \
-     node --env-file="$HOME/.swarm-staging-aws.env" infra/platform/aws/verify-kms.mjs \
-     > /secure/staging-runtime-kms.json
-   node --input-type=module - /secure/staging-runtime-kms.json <<'JS'
-   import fs from 'node:fs';
-   const r=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
-   if(r.ok!==true || r.generate?.plaintextBytes!==32 || r.decryptSameTenant!=='matches'
-      || !/^refused \(InvalidCiphertextException\)$/.test(r.decryptOtherTenant)
-      || r.wrongPurpose!=='refused (AccessDeniedException)') {
-     throw new Error('Restricted runtime KMS contract failed; do not import these credentials.');
-   }
-   console.log('Restricted runtime envelope mechanics and wrong-purpose denial verified.');
+     node --env-file="$HOME/.swarm-staging-aws.env" --input-type=module \
+     > /secure/staging-runtime-kms.json <<'JS'
+   import {randomUUID} from 'node:crypto';
+   import {KMSClient,GenerateDataKeyCommand,DecryptCommand} from '@aws-sdk/client-kms';
+   const kms=new KMSClient({}),KeyId=process.env.TENANT_KMS_KEY_ID;
+   if(!KeyId)throw new Error('Missing reviewed staging KMS key.');
+   const context={tenant:'usr_probe_'+randomUUID(),purpose:'swarm-tenant-master-v1'};
+   let generated,decrypted;
+   try {
+     generated=await kms.send(new GenerateDataKeyCommand({KeyId,KeySpec:'AES_256',EncryptionContext:context}));
+     decrypted=await kms.send(new DecryptCommand({KeyId,CiphertextBlob:generated.CiphertextBlob,EncryptionContext:context}));
+     const result={generateBytes:generated.Plaintext.length,sameTenant:Buffer.from(generated.Plaintext).equals(Buffer.from(decrypted.Plaintext))};
+     try {
+       const unexpected=await kms.send(new DecryptCommand({KeyId,CiphertextBlob:generated.CiphertextBlob,EncryptionContext:{...context,tenant:'usr_other_probe'}}));
+       unexpected.Plaintext?.fill(0);result.otherTenant='ACCEPTED';
+     } catch(error) {result.otherTenant=error.name;}
+     try {
+       const unexpected=await kms.send(new GenerateDataKeyCommand({KeyId,KeySpec:'AES_256',EncryptionContext:{...context,purpose:'wrong-purpose'}}));
+       unexpected.Plaintext?.fill(0);result.wrongPurpose='ACCEPTED';
+     } catch(error) {result.wrongPurpose=error.name;}
+     const ok=result.generateBytes===32 && result.sameTenant
+       && result.otherTenant==='InvalidCiphertextException' && result.wrongPurpose==='AccessDeniedException';
+     console.log(JSON.stringify({ok,...result}));
+     if(!ok)process.exitCode=1;
+   } finally {generated?.Plaintext?.fill(0);decrypted?.Plaintext?.fill(0);kms.destroy();}
    JS
    ```
-   Require both commands to succeed. The existing verifier can print `ok:true` with `wrongPurpose=ACCEPTED` and exit
-   zero; that is **not** qualification. A timeout/throttle is not IAM denial. Missing DescribeKey permission or any
-   other failed positive check also stops this procedure for policy review; do not substitute an admin credential
-   to make it green. This verifies purpose restriction for the shared platform principal; it does not assert that
-   IAM gives each tenant its own principal. Archive sanitized results with the exact principal/key/image provenance.
+   Require the command to exit zero with `ok:true`, 32 generated bytes, matching same-tenant decrypt, explicit
+   `otherTenant:InvalidCiphertextException` and `wrongPurpose:AccessDeniedException`. A timeout/throttle is not an IAM
+   denial. The optional administrator verifier can print `ok:true` even when wrong-purpose access is accepted; that
+   output alone is **not** qualification. Never substitute an administrator credential to make the restricted probe
+   green. This verifies purpose restriction for the shared platform principal; it does not assert that IAM gives each
+   tenant its own principal. Archive sanitized results with the exact principal/key/image provenance.
 4. Only after that restricted-principal check, import `~/.swarm-staging-aws.env` into the platform, provisioner and
    gateway apps in step 4 below, then remove the local protected copy under the approved secret-handling policy.
 Cost: KMS $1/month per key plus $0.03 per 10,000 requests; S3 cents per GB.
