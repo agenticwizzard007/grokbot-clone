@@ -177,6 +177,7 @@ export class Directory {
           cpu double precision NOT NULL CHECK(cpu BETWEEN 0 AND 1),memory double precision NOT NULL CHECK(memory BETWEEN 0 AND 1),
           used_bytes bigint NOT NULL CHECK(used_bytes BETWEEN 0 AND 10737418240000),received_at timestamptz NOT NULL DEFAULT clock_timestamp(),
           PRIMARY KEY(tenant_id,at));
+        ALTER TABLE host_usage_samples ADD COLUMN IF NOT EXISTS filesystems jsonb;
         CREATE TABLE IF NOT EXISTS retired_volumes (
           tenant_id text NOT NULL REFERENCES tenants(id),volume_id text NOT NULL,operation_id text NOT NULL REFERENCES environment_operations(id),
           delete_after timestamptz NOT NULL,state text NOT NULL DEFAULT 'pending',error_code text,PRIMARY KEY(tenant_id,volume_id));

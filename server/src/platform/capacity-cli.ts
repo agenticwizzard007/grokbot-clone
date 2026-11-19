@@ -8,7 +8,7 @@ import {Directory} from './directory.js';
 import {FlyTenants} from './fly-tenants.js';
 import {recommendCapacity,setCapacityPolicy,type CapacityChange,type CapacitySample} from './tenant-capacity.js';
 import {planEnvironmentOperation} from './environment-operations.js';
-import {exportHostUsage} from './host-usage.js';
+import {exportHostUsage,exportHostPressure} from './host-usage.js';
 
 function readJson(file:string){
   const fd=fs.openSync(file,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);
@@ -19,9 +19,9 @@ export async function capacityCommand(args:string[],directory:Directory,fly?:Pic
   for(let n=0;n<rest.length;n+=2){const flag=rest[n];if(!/^--[a-z][a-z0-9-]*$/.test(flag)||!rest[n+1]||rest[n+1].startsWith('--')||Object.hasOwn(options,flag.slice(2)))throw new Error('Invalid capacity command options.');options[flag.slice(2)]=rest[n+1];}
   const only=(allowed:string[])=>{if(Object.keys(options).some(k=>!allowed.includes(k)))throw new Error('Unknown capacity command option.');};
   if(!/^usr_[A-Za-z0-9_-]{8,100}$/.test(options.tenant??''))throw new Error('A tenant identity is required.');
-  if(command==='export-usage'){
+  if(command==='export-usage'||command==='export-pressure'){
     only(['tenant','output']);if(!options.output)throw new Error('A new private output file is required.');
-    const samples=await exportHostUsage(directory,options.tenant),bytes=JSON.stringify(samples,null,2)+'\n';
+    const samples=await (command==='export-usage'?exportHostUsage:exportHostPressure)(directory,options.tenant),bytes=JSON.stringify(samples,null,2)+'\n';
     fs.writeFileSync(options.output,bytes,{flag:'wx',mode:0o600});
     return {tenant:options.tenant,usageFile:options.output,samples:samples.length,sha256:createHash('sha256').update(bytes).digest('hex'),queued:false};
   }
@@ -45,7 +45,7 @@ export async function capacityCommand(args:string[],directory:Directory,fly?:Pic
     fs.writeFileSync(options.output,JSON.stringify(plan,null,2)+'\n',{flag:'wx',mode:0o600});
     return {tenant:tenant.id,planFile:options.output,source,target:capacity.target,queued:false};
   }
-  throw new Error('Use export-usage, set-policy or plan; queue a reviewed plan with environment-cli.');
+  throw new Error('Use export-usage, export-pressure, set-policy or plan; queue a reviewed plan with environment-cli.');
 }
 if(process.argv[1]&&fileURLToPath(import.meta.url)===process.argv[1]){
   const directory=new Directory();
