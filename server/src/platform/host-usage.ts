@@ -2,17 +2,24 @@ import {Hono} from 'hono';
 import type {Directory} from './directory.js';
 import type {RuntimeIdentity} from './runtime-identity.js';
 import type {HostUsageReport} from '../runtime/host-usage.js';
+import {validateFilesystems} from '../runtime/host-usage.js';
+import type {PoolClient} from 'pg';
 import type {CapacitySample} from './tenant-capacity.js';
 
 function validateReport(value:unknown):asserts value is HostUsageReport {
   const keys=['version','volume','stream','sequence','at','intervalMs','cpu','memory','usedBytes'];
+  if(value&&typeof value==='object'&&(value as {version?:unknown}).version===2)keys.push('filesystems');
   if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).length!==keys.length||Object.keys(value).some(k=>!keys.includes(k)))throw new Error('Invalid usage report fields.');
   const v=value as HostUsageReport;
   const integer=(n:number,min:number,max:number)=>Number.isSafeInteger(n)&&n>=min&&n<=max;
-  if(v.version!==1||typeof v.volume!=='string'||!/^vol_[A-Za-z0-9]{1,100}$/.test(v.volume)
+  if(![1,2].includes(v.version)||typeof v.volume!=='string'||!/^vol_[A-Za-z0-9]{1,100}$/.test(v.volume)
     ||typeof v.stream!=='string'||!/^([a-f0-9]{8}-){1}[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(v.stream)
     ||!integer(v.sequence,1,Number.MAX_SAFE_INTEGER)||!integer(v.at,1,Number.MAX_SAFE_INTEGER)||!integer(v.intervalMs,15000,60000)
     ||![v.cpu,v.memory].every(n=>typeof n==='number'&&Number.isFinite(n)&&n>=0&&n<=1)||!integer(v.usedBytes,0,10000*1024**3))throw new Error('Invalid usage report values.');
+  if(v.version===2){
+    validateFilesystems(v.filesystems);
+    if(v.usedBytes!==v.filesystems.data.totalBytes-v.filesystems.data.availableBytes)throw new Error('Inconsistent tenant volume usage.');
+  }
 }
 
 export class HostUsage {
@@ -20,7 +27,7 @@ export class HostUsage {
   async accept(token:string,value:unknown){
     validateReport(value);
     // Copy before any await; a caller cannot mutate the admitted sample during a lock wait.
-    const input={...value};
+    const input=structuredClone(value);
     return this.directory.transaction(async client=>{
       const owner=await this.runtime.verify(token,'swarm-host',client);
       // All lifecycle writers lock tenants first. Lock policy separately, then
@@ -42,8 +49,8 @@ export class HostUsage {
         if(input.sequence!==1)throw new Error('A fresh host usage window is required.');
         await client.query('DELETE FROM host_usage_samples WHERE tenant_id=$1',[owner.tenant]);
       }
-      await client.query(`INSERT INTO host_usage_samples(tenant_id,generation,machine_id,volume_id,host_revision,stream,sequence,at,interval_ms,cpu,memory,used_bytes)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,[owner.tenant,owner.generation,owner.machine,input.volume,current.revision,input.stream,input.sequence,input.at,input.intervalMs,input.cpu,input.memory,input.usedBytes]);
+      await client.query(`INSERT INTO host_usage_samples(tenant_id,generation,machine_id,volume_id,host_revision,stream,sequence,at,interval_ms,cpu,memory,used_bytes,filesystems)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,[owner.tenant,owner.generation,owner.machine,input.volume,current.revision,input.stream,input.sequence,input.at,input.intervalMs,input.cpu,input.memory,input.usedBytes,input.version===2?input.filesystems:null]);
       await client.query(`DELETE FROM host_usage_samples WHERE tenant_id=$1 AND (at<$2 OR at NOT IN
         (SELECT at FROM host_usage_samples WHERE tenant_id=$1 ORDER BY at DESC LIMIT 120))`,[owner.tenant,Math.floor(now)-3600000]);
     });
@@ -51,21 +58,32 @@ export class HostUsage {
 }
 
 /** Trusted operator export only; no browser/tenant route. No reviewer or gate is fabricated. */
+async function currentHostUsage(client:PoolClient,tenant:string){
+  await client.query('SELECT id FROM tenants WHERE id=$1 FOR UPDATE',[tenant]);
+  await client.query('SELECT tenant_id FROM host_policies WHERE tenant_id=$1 FOR UPDATE',[tenant]);
+  const rows=(await client.query(`SELECT s.*,extract(epoch FROM clock_timestamp())*1000 AS now FROM host_usage_samples s
+    JOIN tenants t ON t.id=s.tenant_id JOIN host_policies p ON p.tenant_id=t.id
+    WHERE t.id=$1 AND t.state='active' AND s.generation=t.generation AND s.machine_id=t.machine_id AND s.volume_id=t.volume_id
+    AND p.generation=t.generation AND p.machine_id=t.machine_id AND s.host_revision=p.revision AND p.desired='run'
+    AND p.observed='running' AND p.acknowledged_revision=p.revision AND p.error_code IS NULL AND p.reported_at>clock_timestamp()-interval '4 minutes'
+    AND s.at-s.interval_ms>=extract(epoch FROM p.usage_not_before)*1000
+    AND s.at>=extract(epoch FROM clock_timestamp())*1000-3600000 ORDER BY s.at DESC LIMIT 120`,[tenant])).rows.reverse();
+  if(rows.length<3||Number(rows.at(-1).now)-Number(rows.at(-1).at)>60000)throw new Error('No fresh complete host usage window.');
+  if(rows.some((r,i)=>r.stream!==rows[0].stream||i&&(Number(r.sequence)!==Number(rows[i-1].sequence)+1||Number(r.at)-Number(rows[i-1].at)!==r.interval_ms)))throw new Error('Host usage window is incomplete.');
+  return rows;
+}
+const capacitySample=(r:any):CapacitySample=>({tenant:r.tenant_id,generation:String(r.generation),machine:r.machine_id,volume:r.volume_id,at:Number(r.at),cpu:r.cpu,memory:r.memory,usedBytes:Number(r.used_bytes)});
 export async function exportHostUsage(directory:Directory,tenant:string):Promise<CapacitySample[]>{
-  return directory.transaction(async client=>{
-    await client.query('SELECT id FROM tenants WHERE id=$1 FOR UPDATE',[tenant]);
-    await client.query('SELECT tenant_id FROM host_policies WHERE tenant_id=$1 FOR UPDATE',[tenant]);
-    const rows=(await client.query(`SELECT s.*,extract(epoch FROM clock_timestamp())*1000 AS now FROM host_usage_samples s
-      JOIN tenants t ON t.id=s.tenant_id JOIN host_policies p ON p.tenant_id=t.id
-      WHERE t.id=$1 AND t.state='active' AND s.generation=t.generation AND s.machine_id=t.machine_id AND s.volume_id=t.volume_id
-      AND p.generation=t.generation AND p.machine_id=t.machine_id AND s.host_revision=p.revision AND p.desired='run'
-      AND p.observed='running' AND p.acknowledged_revision=p.revision AND p.error_code IS NULL AND p.reported_at>clock_timestamp()-interval '4 minutes'
-      AND s.at-s.interval_ms>=extract(epoch FROM p.usage_not_before)*1000
-      AND s.at>=extract(epoch FROM clock_timestamp())*1000-3600000 ORDER BY s.at DESC LIMIT 120`,[tenant])).rows.reverse();
-    if(rows.length<3||Number(rows.at(-1).now)-Number(rows.at(-1).at)>60000)throw new Error('No fresh complete host usage window.');
-    if(rows.some((r,i)=>r.stream!==rows[0].stream||i&&(Number(r.sequence)!==Number(rows[i-1].sequence)+1||Number(r.at)-Number(rows[i-1].at)!==r.interval_ms)))throw new Error('Host usage window is incomplete.');
-    return rows.map(r=>({tenant:r.tenant_id,generation:String(r.generation),machine:r.machine_id,volume:r.volume_id,at:Number(r.at),cpu:r.cpu,memory:r.memory,usedBytes:Number(r.used_bytes)}));
-  });
+  return directory.transaction(async client=>(await currentHostUsage(client,tenant)).map(capacitySample));
+}
+/** Diagnostic window only. Root disk/inodes never become tenant-volume growth input. */
+export async function exportHostPressure(directory:Directory,tenant:string){
+  return directory.transaction(async client=>(await currentHostUsage(client,tenant)).map(row=>{
+    if(row.filesystems===null)throw new Error('Host filesystem measurements are unavailable; upgrade the host and collect a new window.');
+    validateFilesystems(row.filesystems);
+    if(Number(row.used_bytes)!==row.filesystems.data.totalBytes-row.filesystems.data.availableBytes)throw new Error('Inconsistent stored filesystem usage.');
+    return {...capacitySample(row),filesystems:row.filesystems};
+  }));
 }
 export async function pruneHostUsage(directory:Directory){
   // Separate atomic cleanup statements avoid holding sample locks while waiting

@@ -8,8 +8,8 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {Pool} from 'pg';
 import {Hono} from 'hono';
 import {generateKeyPair,exportPKCS8,exportSPKI,decodeJwt} from 'jose';
-import {HostUsageCollector,cpuCounters,memoryPressure,volumeUsedBytes,intervalUsage,hostUsageTransport,usageCollectionEnabled,type UsageSnapshot,type HostUsageReport} from '../server/src/runtime/host-usage.js';
-import {HostUsage,hostUsageRoutes,exportHostUsage,pruneHostUsage} from '../server/src/platform/host-usage.js';
+import {HostUsageCollector,cpuCounters,memoryPressure,volumeUsedBytes,filesystemUsage,validateFilesystems,readHostUsage,intervalUsage,hostUsageTransport,usageCollectionEnabled,type UsageSnapshot,type HostUsageReport,type HostFilesystems} from '../server/src/runtime/host-usage.js';
+import {HostUsage,hostUsageRoutes,exportHostUsage,exportHostPressure,pruneHostUsage} from '../server/src/platform/host-usage.js';
 import {Directory} from '../server/src/platform/directory.js';
 import {RuntimeIdentity} from '../server/src/platform/runtime-identity.js';
 import {HostControl,hostControlRoutes,setHostIntent} from '../server/src/platform/host-control.js';
@@ -20,7 +20,11 @@ import {FlyTenants} from '../server/src/platform/fly-tenants.js';
 import {planEnvironmentOperation,queueEnvironmentOperation} from '../server/src/platform/environment-operations.js';
 import {infrastructureGates} from '../server/src/platform/release-policy.js';
 
-const snapshot=(at:number):UsageSnapshot=>({at,monotonic:at,cpu:[at,0,0,at,0,0,0,0],memory:.5,usedBytes:1024});
+const filesystems=(usedBytes=2*1024**3):HostFilesystems=>({
+  root:{totalBytes:30*1024**3,availableBytes:1024,totalInodes:10000,freeInodes:1},
+  data:{totalBytes:10*1024**3,availableBytes:10*1024**3-usedBytes,totalInodes:100000,freeInodes:90000},
+});
+const snapshot=(at:number):UsageSnapshot=>({at,monotonic:at,cpu:[at,0,0,at,0,0,0,0],memory:.5,usedBytes:1024,filesystems:filesystems(1024)});
 const report=():HostUsageReport=>({version:1,volume:'vol_a',stream:randomUUID(),sequence:1,at:Date.now()-100,intervalMs:30000,cpu:.9,memory:.5,usedBytes:2*1024**3});
 const deferred=()=>{let resolve!:()=>void;const promise=new Promise<void>(r=>{resolve=r;});return {promise,resolve};};
 
@@ -35,12 +39,42 @@ test('whole-VM measurements exclude guest double counting and account for reserv
   for(const current of [snapshot(1001),snapshot(62000),{...snapshot(31000),monotonic:35000},{...snapshot(31000),cpu:[0,0,0,0,0,0,0,0]}])assert.throws(()=>intervalUsage(snapshot(1000),current));
 });
 
+test('filesystem counters preserve actual zero free inodes and distinguish unsupported accounting',()=>{
+  const disk={blocks:100,bfree:40,bavail:30,bsize:4096,files:1000,ffree:0};
+  assert.deepEqual(filesystemUsage(disk),{totalBytes:409600,availableBytes:122880,totalInodes:1000,freeInodes:0});
+  assert.deepEqual(filesystemUsage({...disk,files:0}),{totalBytes:409600,availableBytes:122880,totalInodes:null,freeInodes:null});
+  for(const changed of [{files:0,ffree:1},{ffree:-1},{ffree:1001},{files:1.5},{blocks:Number.MAX_SAFE_INTEGER},{bavail:41}])assert.throws(()=>filesystemUsage({...disk,...changed}));
+  const absent=filesystems();absent.root.totalInodes=null;absent.root.freeInodes=null;validateFilesystems(absent);
+  for(const changed of [{freeInodes:null},{totalInodes:0},{availableBytes:31*1024**3},{totalInodes:'10000'},{path:'/host'}])assert.throws(()=>validateFilesystems({...filesystems(),root:{...filesystems().root,...changed}}));
+});
+
+test('production reader measures fixed root/data paths and refuses unsupported Docker mount layouts',async()=>{
+  let dataDev=2,dockerDev=1,symlink=false,failRoot=false;
+  const calls:string[]=[],rootDisk={blocks:100,bfree:1,bavail:0,bsize:4096,files:1000,ffree:0};
+  const dataDisk={blocks:200,bfree:100,bavail:80,bsize:4096,files:2000,ffree:1500};
+  const io={
+    async readFile(file:string){calls.push(file);if(file==='/proc/stat')return 'cpu 10 0 0 10 0 0 0 0';assert.equal(file,'/proc/meminfo');return 'MemTotal: 1000 kB\nMemAvailable: 500 kB';},
+    async lstat(file:string){calls.push(file);assert.ok(['/data','/var/lib/docker'].includes(file));return {dev:file==='/data'?dataDev:dockerDev,isDirectory:()=>true,isSymbolicLink:()=>symlink};},
+    async stat(file:string){calls.push(file);assert.equal(file,'/');return {dev:1};},
+    async statfs(file:string){calls.push(file);assert.ok(['/','/data'].includes(file));if(failRoot&&file==='/')throw Error('unavailable');return file==='/'?rootDisk:dataDisk;},
+  };
+  const sample=await readHostUsage(io);
+  assert.deepEqual(sample.filesystems,{root:filesystemUsage(rootDisk),data:filesystemUsage(dataDisk)});
+  assert.equal(sample.usedBytes,120*4096);assert.equal(sample.filesystems.root.freeInodes,0);assert.equal(sample.filesystems.root.availableBytes,0);
+  assert.deepEqual(calls.sort(),['/proc/stat','/proc/meminfo','/data','/','/var/lib/docker','/data','/'].sort());
+  dataDev=1;await assert.rejects(readHostUsage(io),/mounted tenant volume/);dataDev=2;
+  dockerDev=3;await assert.rejects(readHostUsage(io),/Docker data/);dockerDev=1;
+  symlink=true;await assert.rejects(readHostUsage(io));symlink=false;
+  failRoot=true;await assert.rejects(readHostUsage(io),/unavailable/);
+});
+
 test('collector serializes ticks and discards windows across epoch changes, pauses and failures',async()=>{
   let epoch:number|undefined=1,at=1000,fail=false;
   const sent:HostUsageReport[]=[];
   const collector=new HostUsageCollector('vol_a',()=>epoch,async v=>{if(fail)throw Error('lost acknowledgement');sent.push(v);},async()=>snapshot(at));
   await collector.tick();at+=30000;await collector.tick();at+=30000;await collector.tick();
   assert.deepEqual(sent.map(s=>s.sequence),[1,2]);assert.equal(sent[0].stream,sent[1].stream);
+  assert.equal(sent[0].version,2);assert.deepEqual(sent[0].version===2&&sent[0].filesystems,filesystems(1024));
   epoch=undefined;at+=30000;await collector.tick();epoch=2;at+=30000;await collector.tick();at+=30000;await collector.tick();
   assert.equal(sent[2].sequence,1);assert.notEqual(sent[2].stream,sent[0].stream);
   fail=true;at+=30000;await assert.rejects(collector.tick());fail=false;at+=30000;await collector.tick();at+=30000;await collector.tick();
@@ -116,13 +150,13 @@ test('authenticated, bounded host usage collection with real PostgreSQL',{skip:!
       await c.query("UPDATE host_usage_samples SET at=-at-30000,received_at=received_at-interval '30 seconds' WHERE tenant_id=$1",[tenant]);
     });
   }
-  async function historicalWindow(f:Awaited<ReturnType<typeof fixture>>,count=5){
-    f.input.at=Date.now()-100;
+  async function historicalWindow(f:Awaited<ReturnType<typeof fixture>>,count=5,input:HostUsageReport=f.input){
+    input.at=Date.now()-100;
     await directory.pool.query("UPDATE host_policies SET usage_not_before=clock_timestamp()-interval '2 hours' WHERE tenant_id=$1",[f.tenant]);
-    await usage.accept(f.token,f.input);
+    await usage.accept(f.token,input);
     for(let n=1;n<count;n++){
       await ageWindow(f.tenant);
-      await usage.accept(f.token,{...f.input,sequence:n+1});
+      await usage.accept(f.token,{...input,sequence:n+1});
     }
   }
   async function waitBlocked(pid:number){
@@ -143,6 +177,28 @@ test('authenticated, bounded host usage collection with real PostgreSQL',{skip:!
     const row=(await f.rows())[0];assert.equal(row.tenant_id,f.tenant);assert.equal(row.machine_id,f.machine);assert.equal(row.volume_id,f.volume);assert.equal(row.generation,'1');
     assert.equal((await other.rows()).length,0);
     assert.equal((await directory.pool.query("SELECT 1 FROM environment_operations WHERE tenant_id=$1",[f.tenant])).rowCount,0);
+  });
+  await t.test('version two reports strictly validate nested filesystem counters, preserve legacy absence and re-run migrations safely',async()=>{
+    const f=await fixture(),v2={...f.input,version:2 as const,filesystems:filesystems()};
+    const invalid=[{...v2,version:3},{...v2,filesystems:undefined},{...v2,version:1},
+      {...v2,usedBytes:1},{...v2,filesystems:{...v2.filesystems,extra:1}},
+      ...[{freeInodes:-1},{freeInodes:10001},{totalInodes:null},{availableBytes:31*1024**3},{totalBytes:'1000'},{device:'/dev/vda'}].map(root=>({...v2,filesystems:{...v2.filesystems,root:{...v2.filesystems.root,...root}}}))];
+    for(const input of invalid)assert.equal((await f.post(input)).status,409);
+    assert.equal((await f.rows()).length,0);
+    assert.ok(Buffer.byteLength(JSON.stringify(v2))<2048);assert.equal((await f.post(v2)).status,204);
+    assert.deepEqual((await f.rows())[0].filesystems,v2.filesystems);
+    const legacy=await fixture();assert.equal((await legacy.post()).status,204);assert.equal((await legacy.rows())[0].filesystems,null);
+    await directory.migrate();await directory.migrate();
+    assert.deepEqual((await f.rows())[0].filesystems,v2.filesystems);assert.equal((await legacy.rows())[0].filesystems,null);
+  });
+  await t.test('old-schema rows upgrade to explicitly unknown filesystem data without losing the usage window',async()=>{
+    // Exercise the actual migration from PR55's table shape in a disposable schema.
+    const before=await fixture();await historicalWindow(before);
+    await directory.pool.query('ALTER TABLE host_usage_samples DROP COLUMN filesystems');
+    await directory.migrate();
+    assert.equal((await before.rows()).length,5);assert.ok((await before.rows()).every(r=>r.filesystems===null));
+    assert.equal((await exportHostUsage(directory,before.tenant)).length,5);
+    await assert.rejects(exportHostPressure(directory,before.tenant),/unavailable/);
   });
   await t.test('actual body read is bounded and rechecks identity after awaiting the body',async()=>{
     const f=await fixture(),entered=deferred(),verify=identity.verify.bind(identity);
@@ -286,6 +342,47 @@ test('authenticated, bounded host usage collection with real PostgreSQL',{skip:!
       const input={...f.input},pending=usage.accept(f.token,input);await waitBlocked(pid);input.memory=0;input.volume='vol_other';
       await lock.query('COMMIT');await pending;assert.equal((await f.rows())[0].memory,.5);
     }finally{await lock.query('ROLLBACK');lock.release();}
+  });
+  await t.test('nested measurements are detached before a correlated PostgreSQL lock wait',async()=>{
+    const f=await fixture(),lock=await directory.pool.connect();
+    try{
+      await lock.query('BEGIN');const pid=(await lock.query('SELECT pg_backend_pid() pid')).rows[0].pid;
+      await lock.query('SELECT id FROM tenants WHERE id=$1 FOR UPDATE',[f.tenant]);
+      const input={...f.input,version:2 as const,filesystems:filesystems()},pending=usage.accept(f.token,input);
+      await waitBlocked(pid);input.filesystems.root.availableBytes=input.filesystems.root.totalBytes;input.filesystems.data.freeInodes=0;
+      await lock.query('COMMIT');await pending;
+      assert.deepEqual((await f.rows())[0].filesystems,filesystems());
+    }finally{await lock.query('ROLLBACK');lock.release();}
+  });
+  await t.test('private pressure export keeps root exhaustion out of volume recommendations and refuses stale or foreign windows',async()=>{
+    const f=await fixture(),other=await fixture(),v2={...f.input,version:2 as const,filesystems:filesystems()};
+    await historicalWindow(f,5,v2);
+    const output=path.join(root,'pressure.json');let cloudReads=0;
+    const result=await capacityCommand(['export-pressure','--tenant',f.tenant,'--output',output],directory,{async capacity(){cloudReads++;throw Error('Unexpected cloud read.');}});
+    assert.equal(cloudReads,0);assert.equal(result.queued,false);assert.equal(fs.statSync(output).mode&0o777,0o600);
+    const bytes=fs.readFileSync(output),samples=JSON.parse(bytes.toString());
+    assert.equal((result as any).sha256,createHash('sha256').update(bytes).digest('hex'));assert.equal(samples.length,5);
+    assert.ok(samples.every((s:any)=>s.tenant===f.tenant&&s.machine===f.machine&&s.volume===f.volume));
+    assert.deepEqual(samples[0].filesystems,filesystems());
+    await assert.rejects(capacityCommand(['export-pressure','--tenant',f.tenant,'--output',output],directory),/EEXIST/);
+    await assert.rejects(exportHostPressure(directory,other.tenant));
+    const usageSamples=await exportHostUsage(directory,f.tenant);assert.ok(usageSamples.every(s=>!Object.hasOwn(s,'filesystems')));
+    const policy:CapacityPolicy={version:1,enabled:true,tiers:[{cpu_kind:'shared',cpus:2,memory_mb:4096},{cpu_kind:'shared',cpus:4,memory_mb:8192}],maxVolumeGb:40,volumeStepGb:10,cpuThreshold:.8,memoryThreshold:.85,diskThreshold:.8,reserveGb:2,windowSeconds:120,cooldownSeconds:300};
+    assert.equal(recommendCapacity(policy,{guest:policy.tiers[0],volumeGb:10},usageSamples,{...f.owner,volume:f.volume}).volumeGb,10);
+    assert.equal((await directory.pool.query('SELECT 1 FROM environment_operations WHERE tenant_id=$1',[f.tenant])).rowCount,0);
+    assert.equal((await directory.pool.query('SELECT 1 FROM tenant_capacity_policies WHERE tenant_id=$1',[f.tenant])).rowCount,0);
+    await directory.pool.query('UPDATE host_usage_samples SET at=at-61000 WHERE tenant_id=$1',[f.tenant]);await assert.rejects(exportHostPressure(directory,f.tenant));
+  });
+  await t.test('legacy and partial pressure windows never fabricate missing filesystem measurements',async()=>{
+    const f=await fixture();await historicalWindow(f);await assert.rejects(exportHostPressure(directory,f.tenant),/unavailable/);
+    await ageWindow(f.tenant);
+    await usage.accept(f.token,{...f.input,version:2,sequence:6,filesystems:filesystems()});
+    await assert.rejects(exportHostPressure(directory,f.tenant),/unavailable/);
+    await ageWindow(f.tenant);
+    const unknown=filesystems();unknown.root.totalInodes=null;unknown.root.freeInodes=null;
+    await historicalWindow(f,3,{...f.input,version:2,stream:randomUUID(),filesystems:unknown});
+    const samples=await exportHostPressure(directory,f.tenant);assert.ok(samples.every(s=>s.filesystems.root.freeInodes===null));
+    await control.report(f.owner,{revision:'1',state:'held'});await assert.rejects(exportHostPressure(directory,f.tenant));assert.equal((await f.rows()).length,0);
   });
   await t.test('private export feeds the existing policy recommender without queueing or granting approval',async()=>{
     const f=await fixture();await historicalWindow(f);
