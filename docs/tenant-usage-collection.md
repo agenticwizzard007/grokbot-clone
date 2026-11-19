@@ -1,0 +1,47 @@
+# Trusted tenant host measurements
+
+The tenant host can collect CPU, memory and persistent-volume pressure for the existing [operator capacity path](tenant-capacity-operations.md). Collection is **off by default**. It supplies measurements; it does not approve a policy, queue an operation, change a machine, grow a volume, or declare a release qualified. Nothing in a model response, tenant browser, app container or MCP result enables it.
+
+## Operator enablement
+
+1. Review the collector and build a new signed/scanned tenant-host image. The containment preparation tool binds both `runtime/host-usage.ts` and its installed JavaScript. Existing image qualification does not transfer to the new image.
+2. Apply the directory migration through the separate schema-owner job (`SWARM_ROLE=platform node server/dist/platform/migrate.js`, using `MIGRATION_DATABASE_URL`). This adds `host_usage_samples`; runtime services never run DDL. Run the migration before updating the platform, provisioner or any host-control callers.
+3. Set `TENANT_USAGE_COLLECTION=1` in the trusted **platform and provisioner** deployments only after staging approval. Unset or `0` disables it; other values fail configuration validation. The provisioner puts `TENANT_USAGE_COLLECTION=1` in newly created host Machines. It is not forwarded into app, desktop, runner or MCP containers. Existing Machines are not changed in place: use the reviewed image-update lifecycle to replace them. A replacement created with collection disabled omits the variable.
+4. Verify the current host reports running, wait for a complete usage window, and export using the trusted directory operator credential. An initial provisioning host is not accepted until its tenant is active. No provider credential is required just to export.
+
+```sh
+node server/dist/platform/capacity-cli.js export-usage \
+  --tenant usr_exampletenant --output trusted-usage.json
+```
+
+The command writes an exclusive mode-0600 JSON file and prints its SHA-256, sample count and `queued:false`. It refuses an existing destination, incomplete/currently held environment, or stale window. It has no public HTTP equivalent. Archive and inspect the file under your approved evidence policy; record the real evidence URI, digest and reviewer when running `plan`. Export does not create a reviewer, release-gate receipt or approval. Re-export if the newest sample is more than 60 seconds old when planning/queueing. The file itself is sensitive per-user operational metadata; protect it and its archive and apply the approved deletion policy.
+
+Set platform `TENANT_USAGE_COLLECTION=0` to stop accepting measurements immediately. Running hosts will discard refused windows and retry on the bounded cadence; use the normal image-update path with the provisioner setting disabled to stop their collector. Disabling collection does not revoke an already reviewed maintenance operation or capacity policy. Follow the existing reconciliation procedure for that operation. No new approval or budget is created by either setting.
+
+## What is measured
+
+- **CPU:** deltas of the first eight aggregate `/proc/stat` counters, normalized to the VM's available CPU time. Linux guest counters are not counted twice. Idle and I/O-wait time are excluded; stolen time remains pressure on the allocation. This is not a measurement of runnable queue depth, API latency, provider quotas, cost, or CPU seconds billed.
+- **Memory:** `(MemTotal - MemAvailable) / MemTotal` from host `/proc/meminfo`. This includes host and all workload memory. Each report is an instantaneous gauge; the capacity policy weights gauges by interval. It is not an RSS sum or proof of peak/OOM headroom.
+- **Persistent disk:** `(blocks - bavail) * bsize` from host `statfs('/data')`, counting reserved blocks as unavailable to an unprivileged tenant. `/data` must be a nonsymlink directory on a separate device from `/`. This covers the actual filesystem containing application data, profiles, restored environments, retained data and backup staging. The existing owner manifest and runtime exchange bind the mounted volume to the tenant. It does not assert that a provider-side extension has expanded the guest filesystem.
+
+The production entrypoint uses Docker `--data-root=/var/lib/docker` on the **root disk**, not `/data`. Images, Docker metadata and root-disk overhead are not measured by this volume gauge. Container root filesystems remain read-only, and tmpfs use is part of memory pressure. Root-disk capacity, inode exhaustion, backup interruption and peak temporary storage still need separate measurements during qualification. A fuller capacity scheduler must account for those signals before claiming automatic scaling.
+
+The collector runs only in the trusted VM host and reads its root-only `/run/swarm-host/host-token` for each HTTPS request. It sends no filenames, contents, prompts, provider payloads or credentials in the body. The platform rejects runtime-audience tokens, foreign/stale identity, a mismatched volume, unknown fields and invalid counters. Ownership comes from the verified host identity plus the current directory, never from a body-supplied user ID.
+
+## Bounds, lifecycle and failure handling
+
+Sampling is serial at a nominal 30-second cadence; each tick has at most one request with a 5-second HTTP deadline, no redirects and no response-body dependency. There is no backlog and no immediate retry. A failed read/delivery, CPU counter reset, interval outside 15–60 seconds, or wall/monotonic clock discrepancy over 2 seconds discards the local window. A backup pause, workload epoch change, stop or restart starts a new stream with a fresh baseline. Collection failure does not stop a healthy tenant.
+
+The platform allows at most 32 in-flight telemetry requests per serving process and returns 503 for excess requests before opening a body reader or database request. It accepts at most a 2 KiB JSON body with a 2-second read deadline. It verifies the host token before reading, then again in a transaction after acquiring the current tenant and host-policy locks. A new statement checks actual wall-clock time after lock waits. A sample must not be in the future or more than 15 seconds old at admission, and accepted receipts must be at least 15 seconds apart. Keep host/platform clocks synchronized. Late clocks or congested delivery produce gaps, not invented measurements.
+
+The tenant must be active, with matching generation/machine/volume and a current, error-free acknowledged running policy. Strict sequence/interval checks reject duplicates, replays and missing reports within a stream; a fresh stream replaces the previous window. Held/error readiness reports and changed run/hold intentions erase the stored window. Account revocation erases it transactionally. The host collector resets locally across backup epochs even when the host-policy revision stays the same.
+
+At most 120 samples and one hour of measured history per tenant are kept on admission. The provisioner's existing minute retention loop also removes samples received over an hour ago and stale/deleted identities; retention failures contribute to its existing failure metric. Expired rows can persist while that loop is unavailable, but export never treats them as fresh evidence. Export returns at least three samples from the current acknowledged environment, newest no older than 60 seconds. It never stitches old streams, machines, generations or volumes together.
+
+Choose a reviewed capacity window that fits the retained sample count. At a 30-second cadence, 120 points span about 3,570 seconds, so a policy requiring a full 3,600 seconds will normally be refused as too short. The example 120-second window needs five accepted samples, plus the initial baseline interval; pauses/failures may extend the wait. There is no fallback to a shorter policy window or stale evidence.
+
+## Validation and remaining gates
+
+`tests/host-usage.test.mts` uses real disposable PostgreSQL, signed host/runtime tokens, actual Hono requests and correlated PostgreSQL blocking PIDs. It covers body delays, expiry/hold changes across row-lock waits, concurrent/replayed samples, ownership/volume changes, private export into the existing recommender, lifecycle erasure, retention and host counter/epoch behavior. `test:isolation` includes it. Qualification's actual source/installed-byte declarations also include the new runtime implementation.
+
+These deterministic tests do not measure a Fly host. Before enabling in staging, verify `/proc` and mounted-volume values against independent host/provider observations; exercise suspend/resume, backup pause, token rotation, clock skew, network loss and filesystem expansion on the exact reviewed image. Measure collection overhead and directory load. Collection alone closes neither image containment, automatic scheduling, fleet budget/quota, migration cutover nor the 1,000-user ramp/soak gates. The initial 4,096 MiB guest and container ceilings are unchanged; one runner brings nominal container ceilings to 3,840 MiB before host overhead, which still needs measurement.

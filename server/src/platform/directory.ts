@@ -170,6 +170,13 @@ export class Directory {
         CREATE TABLE IF NOT EXISTS tenant_capacity_policies (
           tenant_id text PRIMARY KEY REFERENCES tenants(id),policy jsonb NOT NULL,
           revision bigint NOT NULL DEFAULT 1,updated_at timestamptz NOT NULL DEFAULT now());
+        CREATE TABLE IF NOT EXISTS host_usage_samples (
+          tenant_id text NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,generation bigint NOT NULL,machine_id text NOT NULL,volume_id text NOT NULL,
+          host_revision bigint NOT NULL,stream uuid NOT NULL,sequence bigint NOT NULL CHECK(sequence>0),at bigint NOT NULL,
+          interval_ms integer NOT NULL CHECK(interval_ms BETWEEN 15000 AND 60000),
+          cpu double precision NOT NULL CHECK(cpu BETWEEN 0 AND 1),memory double precision NOT NULL CHECK(memory BETWEEN 0 AND 1),
+          used_bytes bigint NOT NULL CHECK(used_bytes BETWEEN 0 AND 10737418240000),received_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+          PRIMARY KEY(tenant_id,at));
         CREATE TABLE IF NOT EXISTS retired_volumes (
           tenant_id text NOT NULL REFERENCES tenants(id),volume_id text NOT NULL,operation_id text NOT NULL REFERENCES environment_operations(id),
           delete_after timestamptz NOT NULL,state text NOT NULL DEFAULT 'pending',error_code text,PRIMARY KEY(tenant_id,volume_id));
@@ -313,6 +320,7 @@ export class Directory {
       await client.query('DELETE FROM sessions WHERE tenant_id=$1', [tenant]);
       await client.query('UPDATE runtime_credentials SET revoked_at=now() WHERE tenant_id=$1', [tenant]);
       await client.query('DELETE FROM companion_routes WHERE tenant_id=$1', [tenant]);
+      await client.query('DELETE FROM host_usage_samples WHERE tenant_id=$1', [tenant]);
       await client.query("UPDATE messaging_routes SET state='revoked',revision=revision+1 WHERE tenant_id=$1", [tenant]);
       await client.query('DELETE FROM messaging_tokens WHERE tenant_id=$1', [tenant]);
       await client.query("UPDATE lifecycle_jobs SET state='cancelled',fence=fence+1,lease_until=NULL WHERE tenant_id=$1 AND operation!='delete' AND state!='completed'", [tenant]);

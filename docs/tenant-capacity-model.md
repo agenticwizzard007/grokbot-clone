@@ -55,11 +55,13 @@ Model/API spend, Composio, Inkbox and egress ($0.02/GB) are additional.
 ## 4. Scaling with usage (PR #21 design, operator path)
 - Resize = fenced same-volume compute replacement with preserved guest sizing across later image updates and
   restores; volume growth = durable absolute extend journaled before the Fly call, with unknown-outcome
-  reconciliation; one lifecycle operation per tenant at a time; plan/queue is operator-only until the trusted
-  production collector and unattended scheduler exist.
-- Signals that still have to be built: a trusted host-side collector reporting tenant memory pressure and disk usage
-  (the runtime refresh does not report pressure today; `usage-vm.ts` meters legacy SQLite computer rows, not tenant
-  hosts), an idle-suspension schedule for the isolated lifecycle worker (`SWARM_IDLE_SUSPEND_MIN` is a legacy
+  reconciliation; one lifecycle operation per tenant at a time; plan/queue remains operator-only.
+- The [trusted host collector](tenant-usage-collection.md) supplies whole-VM CPU/memory and tenant-volume usage,
+  authenticates the current host identity and exports a bounded window into the reviewed capacity path. It is disabled
+  by default and needs real-host qualification. Root-disk, inode, peak/OOM and runnable-queue signals remain uncovered.
+  `usage-vm.ts` still meters legacy SQLite computer rows, not tenant hosts.
+- Engineering still required: an unattended scheduler with approved budgets/maintenance admission, an idle-suspension
+  schedule for the isolated lifecycle worker (`SWARM_IDLE_SUSPEND_MIN` is a legacy
   cloud-VM setting and is not wired into it), backup health and size, and hung-tick metrics from the operations
   exporter (which exposes state and delay gauges, not an error-rate ratio).
 - Before enabling: the `tenant-capacity-resize` gate must record actual Fly resize, volume extend and guest

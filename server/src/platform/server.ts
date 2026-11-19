@@ -22,8 +22,11 @@ import { runtimeOperations } from './runtime-operations.js';
 import { signupAdminRoutes } from './signup-routes.js';
 import { SessionNotifications } from './session-notifications.js';
 import { startOperationsMetrics } from './operations-metrics.js';
+import {HostUsage,hostUsageRoutes} from './host-usage.js';
+import {usageCollectionEnabled} from '../runtime/host-usage.js';
 
 export async function startPlatform() {
+  const collectUsage=usageCollectionEnabled(process.env.TENANT_USAGE_COLLECTION);
   const directory=new Directory(),origin=process.env.PLATFORM_URL!;
   const identity=new RuntimeIdentity(directory,fs.readFileSync(process.env.PLATFORM_PRIVATE_KEY_FILE!,'utf8'),fs.readFileSync(process.env.PLATFORM_PUBLIC_KEY_FILE!,'utf8'));
   const envelopes=new TenantEnvelopes(directory),broker=new TunnelBroker(directory,identity,[new URL(origin).origin],process.env.SESSION_SECRET!);
@@ -49,6 +52,7 @@ export async function startPlatform() {
   app.route('/internal/host/backups',backupRoutes(new BackupCatalog(directory,backupStorage),identity));
   app.route('/internal/host/checkpoints',hostCheckpointRoutes(new HostCheckpoints(directory),identity));
   app.route('/internal/host/installations',hostInstallationRoutes(new HostInstallations(directory,backupStorage),identity));
+  app.route('/internal/host/usage',hostUsageRoutes(new HostUsage(directory,identity),identity,collectUsage));
   app.route('/internal/host',hostControlRoutes(new HostControl(directory),identity));
   app.post('/internal/runtime/exchange',async c=>{
     const b=await c.req.json();

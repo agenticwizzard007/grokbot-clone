@@ -17,6 +17,7 @@ export async function setHostIntent(client:PoolClient,owner:HostOwner,desired:'h
       revision=host_policies.revision+1,acknowledged_revision=NULL,observed=NULL,reported_at=NULL,error_code=NULL
     WHERE host_policies.generation!=excluded.generation OR host_policies.machine_id!=excluded.machine_id OR host_policies.desired!=excluded.desired OR $5
     RETURNING revision`,[owner.tenant,owner.generation,owner.machine,desired,restart]);
+  if(result.rowCount)await client.query('DELETE FROM host_usage_samples WHERE tenant_id=$1',[owner.tenant]);
   return String(result.rows[0]?.revision??(await client.query('SELECT revision FROM host_policies WHERE tenant_id=$1',[owner.tenant])).rows[0].revision);
 }
 export class HostControl {
@@ -30,11 +31,14 @@ export class HostControl {
   }
   async report(owner:HostOwner,input:{revision:string;state:'held'|'running';error?:string}){
     if(Object.keys(input).some(k=>!['revision','state','error'].includes(k))||!/^\d+$/.test(input.revision)||!['held','running'].includes(input.state)||input.error!==undefined&&input.error!=='host_requires_reconciliation')throw new Error('Invalid host readiness report.');
-    const result=await this.directory.pool.query(`UPDATE host_policies p SET acknowledged_revision=p.revision,observed=$5,error_code=$6,reported_at=now()
+    await this.directory.transaction(async client=>{
+      const result=await client.query(`UPDATE host_policies p SET acknowledged_revision=p.revision,observed=$5,error_code=$6,reported_at=now()
       FROM tenants t WHERE p.tenant_id=$1 AND p.generation=$2 AND p.machine_id=$3 AND p.revision=$4 AND t.id=p.tenant_id
       AND t.generation=p.generation AND t.machine_id=p.machine_id AND t.state IN ('active','provisioning')
       AND (p.desired='run' AND $5='running' OR $5='held') RETURNING p.tenant_id`,[owner.tenant,owner.generation,owner.machine,input.revision,input.state,input.error??null]);
-    if(!result.rowCount)throw new Error('Host readiness authorization changed.');
+      if(!result.rowCount)throw new Error('Host readiness authorization changed.');
+      if(input.state==='held'||input.error)await client.query('DELETE FROM host_usage_samples WHERE tenant_id=$1',[owner.tenant]);
+    });
   }
   async ready(owner:HostOwner){
     return !!(await this.directory.pool.query(`SELECT 1 FROM host_policies p WHERE tenant_id=$1 AND generation=$2 AND machine_id=$3 AND desired='run'
