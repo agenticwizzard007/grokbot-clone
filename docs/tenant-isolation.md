@@ -1,5 +1,7 @@
 # Tenant isolation implementation and release boundaries
 
+> The ordered plan for enabling this platform and reaching a fully working isolated product is the [master development spec](tenant-isolation-master-spec.md), approved by the owner on 19 November 2026.
+
 This implementation is not qualified for production or 1,000 concurrent users. The Mac-only PR16 is separate. Production startup requires an explicit `SWARM_ROLE`: the existing shared service sets `SWARM_ROLE=standalone` (see `fly.toml`), and the isolated platform uses the other roles; a process whose role is unset is refused so a tenant image never starts as a shared server by accident. Migration is not wired to production adapters.
 
 ## Deployment model
