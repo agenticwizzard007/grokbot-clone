@@ -12,6 +12,21 @@ This describes implemented migration components and the remaining integration. I
 
 Coordinator and transfer metadata now use tenant-before-migration lock ordering. Lease/owner state is checked in a fresh statement after lock waits using `clock_timestamp()`. Expiration or account revocation while waiting cannot publish prepared/cutover metadata. This is covered by real PostgreSQL lock-race tests.
 
+Export also checks native job relationships stored without SQL foreign keys. `code_runs.job_id`,
+`native_workflow_tasks.active_job_id`, `native_workflow_runs.parent_job_id`, and the root `parentJobId` in
+`agent_jobs.trigger` must resolve to an exported job of the same account. A missing parent requires reconciliation, except an unresolved `active_job_id` on a completed or cancelled task: ordinary helper deletion leaves that historical value behind. Nonterminal tasks still require reconciliation, and even terminal references that resolve to another owner are refused;
+a foreign row pointing into an owned job is also refused, rather than silently omitted. Job columns in historical
+receipts or other audit records may contain correlation IDs that never had an `agent_jobs` row: those opaque values
+are preserved, but a value that resolves to a known foreign job still blocks export. The `job_id`, `parent_job_id`,
+`active_job_id` and `skill_reset_job_id` columns receive this known-owner check. The exporter does not inspect arbitrary
+message text or recursively reinterpret user JSON as relationships. The job-valued `run_id` fields in `memories`, `knowledge_skill_proposals`, `knowledge_skill_revisions` and `knowledge_memory_changes` receive the same known-owner check; unrelated code/routine run IDs keep their own meaning. Duplicate root `parentJobId` keys or disagreement between JavaScript and SQLite interpretations are refused.
+
+These checks run before creating the export database. The temporary `.partial` file is claimed exclusively, only this invocation's temporary file is cleaned up on failure, and publication refuses an existing destination. Pre-existing partial/output files are preserved. They neither repair the source nor delete immutable history.
+When an export refuses a link, inspect the account/job provenance in an offline staging copy and record an approved
+reconciliation; do not blank the ID or relabel another user's job merely to make the export pass. Current-schema tests
+exercise both directions of these links and verify source bytes are unchanged on refusal. Passing this ownership
+check does not prove process/file quiescence or supply a source-freeze receipt.
+
 ## Encrypted package transfer
 
 `server/src/platform/migration-transfer.ts` is trusted maintenance code. It has no browser, model, runtime or public upload endpoint. A qualified source adapter must already supply the complete frozen checkpoint; the database-only/current-process/desktop drain functions do not satisfy it.

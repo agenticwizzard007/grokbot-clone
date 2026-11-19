@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {createHash} from 'node:crypto';
 import { test } from 'node:test';
 import Database from 'better-sqlite3';
 import { holdLegacyDatabase, assertLegacyDatabaseFences, registerLegacyFenceFunctions, legacyAccountHeld, legacyWritableRows } from '../server/src/platform/legacy-database-fence.js';
@@ -202,6 +203,104 @@ test('the current application schema can hold one account and refuses its existi
   return {job,task:workflow.tasks[0].id,skill:skill.id,rows};
  }
  const held=seed(a,owned.id),active=seed(b,other.id);
+ await t.test('migration rejects outgoing and incoming native job links, including trigger ancestry',async t=>{
+  const baseline=path.join(root,'reference-source.db');await db.backup(baseline);let n=0;
+  const cases=[
+   ['code job','UPDATE code_runs SET job_id=? WHERE id=?',held.job,active.job,`code-${a}`,`code-${b}`],
+   ['active workflow job','UPDATE native_workflow_tasks SET active_job_id=? WHERE task_id=?',held.job,active.job,held.task,active.task],
+   ['workflow parent job','UPDATE native_workflow_runs SET parent_job_id=? WHERE job_id=?',held.job,active.job,held.job,active.job],
+   ['trigger parent job',"UPDATE agent_jobs SET trigger=json_set(trigger,'$.parentJobId',?) WHERE id=?",held.job,active.job,held.job,active.job],
+  ];
+  for(const [name,sql,ownedJob,foreignJob,ownedKey,foreignKey] of cases)for(const direction of ['outgoing','incoming','missing'])await t.test(`${name} ${direction}`,async()=>{
+   const snapshot=path.join(root,`reference-${++n}.db`),destination=path.join(root,`reference-export-${n}.db`);fs.copyFileSync(baseline,snapshot);
+   const edit=new Database(snapshot);try{assert.equal(edit.prepare(sql).run(direction==='outgoing'?foreignJob:direction==='incoming'?ownedJob:'job_missing',direction==='incoming'?foreignKey:ownedKey).changes,1);}finally{edit.close();}
+   const before=createHash('sha256').update(fs.readFileSync(snapshot)).digest('hex');
+   await assert.rejects(exportTenantDatabase(snapshot,destination,a,'new_volume'),/Foreign|unproven|ownership/);
+   assert.equal(createHash('sha256').update(fs.readFileSync(snapshot)).digest('hex'),before);
+   assert.equal(fs.existsSync(destination),false);assert.equal(fs.existsSync(`${destination}.partial`),false);
+  });
+  for(const direction of ['outgoing','incoming'])await t.test(`historical receipt resolves to a foreign job (${direction})`,async()=>{
+   const snapshot=path.join(root,`reference-${++n}.db`),destination=path.join(root,`reference-export-${n}.db`);fs.copyFileSync(baseline,snapshot);
+   const edit=new Database(snapshot);try{
+    edit.prepare("INSERT INTO knowledge_use_receipts(user_id,bot_id,job_id,kind,source_id,revision,hash,actor,created_at) VALUES(?,?,?,'skill',?,1,'hash','foreground',1)")
+     .run(direction==='outgoing'?a:b,direction==='outgoing'?owned.id:other.id,direction==='outgoing'?active.job:held.job,direction==='outgoing'?held.skill:active.skill);
+   }finally{edit.close();}
+   await assert.rejects(exportTenantDatabase(snapshot,destination,a,'new_volume'),/Foreign.*job ownership/);
+   assert.equal(fs.existsSync(destination),false);
+  });
+  for(const trigger of ['[]',JSON.stringify({type:'user',parentJobId:42})])await t.test(`malformed job ancestry ${trigger}`,async()=>{
+   const snapshot=path.join(root,`reference-${++n}.db`),destination=path.join(root,`reference-export-${n}.db`);fs.copyFileSync(baseline,snapshot);
+   const edit=new Database(snapshot);try{edit.prepare('UPDATE agent_jobs SET trigger=? WHERE id=?').run(trigger,held.job);}finally{edit.close();}
+   await assert.rejects(exportTenantDatabase(snapshot,destination,a,'new_volume'),/Unproven.*ownership/);
+   assert.equal(fs.existsSync(destination),false);
+  });
+  for(const reversed of [false,true])await t.test(`duplicate root parentJobId is refused (${reversed})`,async()=>{
+   const snapshot=path.join(root,`reference-${++n}.db`),destination=path.join(root,`reference-export-${n}.db`);fs.copyFileSync(baseline,snapshot);
+   const first=reversed?held.job:active.job,last=reversed?active.job:held.job;
+   const raw=`{"parentJobId":"${first}","parentJobId":"${last}"}`;
+   const edit=new Database(snapshot);try{
+    assert.equal(JSON.parse(raw).parentJobId,last);
+    assert.equal((edit.prepare("SELECT json_extract(?,'$.parentJobId') p").get(raw) as any).p,first);
+    edit.prepare('UPDATE agent_jobs SET trigger=? WHERE id=?').run(raw,held.job);
+   }finally{edit.close();}
+   await assert.rejects(exportTenantDatabase(snapshot,destination,a,'new_volume'),/ambiguous JSON/);
+  });
+  for(const table of ['knowledge_skill_proposals','knowledge_skill_revisions','knowledge_memory_changes','memories','agent_evolution'])for(const direction of ['outgoing','incoming','history'])await t.test(`${table} run_id ${direction}`,async()=>{
+   const snapshot=path.join(root,`reference-${++n}.db`),destination=path.join(root,`reference-export-${n}.db`);fs.copyFileSync(baseline,snapshot);
+   const bot=direction==='incoming'?other.id:owned.id,user=direction==='incoming'?b:a,skill=direction==='incoming'?active.skill:held.skill;
+   const run=direction==='outgoing'?active.job:direction==='incoming'?held.job:'historical-non-job';
+   const edit=new Database(snapshot);try{
+    if(table==='knowledge_skill_revisions')edit.prepare("INSERT INTO knowledge_skill_revisions(skill_id,bot_id,revision,snapshot,action,actor,run_id,created_at) VALUES(?,?,99,'{}','update','fixture',?,1)").run(skill,bot,run);
+    else if(table==='knowledge_memory_changes')edit.prepare("INSERT INTO knowledge_memory_changes(id,user_id,bot_id,base_revision,generation,action,target,evidence,run_id,created_at) VALUES('change',?,?,1,1,'create','user','[]',?,1)").run(user,bot,run);
+    else if(table==='knowledge_skill_proposals')edit.prepare("INSERT INTO knowledge_skill_proposals(id,bot_id,skill_id,base_revision,generation,snapshot,reason,evidence,run_id,created_at) VALUES('run-proposal',?,?,1,1,'{}','test','[]',?,1)").run(bot,skill,run);
+    else if(table==='agent_evolution')edit.prepare("INSERT INTO agent_evolution(user_id,bot_id,version,source_key,kind,source_id,action,run_id,occurred_at,recorded_at,origin) SELECT ?,?,COALESCE(MAX(version),0)+1,'migration-run-probe','memory','fixture-memory','edit',?,1,1,'historical' FROM agent_evolution WHERE bot_id=?").run(user,bot,run,bot);
+    else edit.prepare('UPDATE memories SET run_id=? WHERE bot_id=?').run(run,bot);
+   }finally{edit.close();}
+   if(direction==='history'){
+    await exportTenantDatabase(snapshot,destination,a,'new_volume');const result=new Database(destination);
+    try{assert.ok(result.prepare(`SELECT 1 FROM ${table} WHERE run_id=?`).get(run));}finally{result.close();}
+   }else await assert.rejects(exportTenantDatabase(snapshot,destination,a,'new_volume'),/Foreign.*job ownership/);
+  });
+  await t.test('unrelated partial output survives ownership refusal and output collisions',async()=>{
+   const destination=path.join(root,'sentinel-export.db'),partial=`${destination}.partial`,sentinel='unrelated partial bytes';
+   fs.writeFileSync(partial,sentinel);
+   await assert.rejects(exportTenantDatabase(baseline,destination,'missing-user','new_volume'),/Tenant does not exist/);
+   assert.equal(fs.readFileSync(partial,'utf8'),sentinel);
+   await assert.rejects(exportTenantDatabase(baseline,destination,a,'new_volume'),/EEXIST/);
+   assert.equal(fs.readFileSync(partial,'utf8'),sentinel);assert.equal(fs.existsSync(destination),false);
+   fs.writeFileSync(destination,'existing output');
+   await assert.rejects(exportTenantDatabase(baseline,destination,a,'new_volume'),/already exists/);
+   assert.equal(fs.readFileSync(destination,'utf8'),'existing output');assert.equal(fs.readFileSync(partial,'utf8'),sentinel);
+  });
+  await t.test('owned links and opaque historical knowledge receipts retain their exact data',async()=>{
+   const snapshot=path.join(root,'reference-owned.db'),destination=path.join(root,'reference-owned-export.db');fs.copyFileSync(baseline,snapshot);
+   const edit=new Database(snapshot);try{
+    edit.prepare('UPDATE native_workflow_tasks SET active_job_id=? WHERE task_id=?').run(held.job,held.task);
+    edit.prepare("INSERT INTO knowledge_use_receipts(user_id,bot_id,job_id,kind,source_id,revision,hash,actor,created_at) VALUES(?,?,?,'skill',?,1,'hash','foreground',1)").run(a,owned.id,'historical-correlation-without-job',held.skill);
+   }finally{edit.close();}
+   await exportTenantDatabase(snapshot,destination,a,'new_volume');
+   const result=new Database(destination);try{
+    assert.equal((result.prepare('SELECT active_job_id FROM native_workflow_tasks WHERE task_id=?').get(held.task) as any).active_job_id,held.job);
+    assert.deepEqual(result.prepare('SELECT id FROM agent_jobs').all(),[{id:held.job}]);
+    assert.equal((result.prepare('SELECT job_id FROM knowledge_use_receipts').get() as any).job_id,'historical-correlation-without-job');
+   }finally{result.close();}
+  });
+ });
+ await t.test('a cancelled delegated workflow exports after ordinary helper deletion',async()=>{
+  const {configureWorkflowRuntime,startWorkflow,controlWorkflow}=await import('../server/src/agent/workflows.js');
+  configureWorkflowRuntime({enqueue:(bot,trigger)=>acceptJob(bot,trigger).id,interrupt:()=>{}});
+  const workflow=createWorkflow(a,owned.id,{title:'Terminal helper',tasks:[{key:'helper',title:'Helper',instructions:'Local fixture only',delegate:true,criteria:[{description:'done',kind:'result'}]}]});
+  const started=startWorkflow(a,workflow.id),task=started.tasks[0];assert.ok(task.activeJobId);assert.ok(task.assignedBotId);assert.notEqual(task.assignedBotId,owned.id);
+  const cancelled=controlWorkflow(a,workflow.id,'stop');assert.equal(cancelled.tasks[0].status,'cancelled');
+  const {api}=await import('../server/src/routes.js');
+  const response=await api.request(`/bots/${task.assignedBotId}`,{method:'DELETE',headers:{cookie:`swarm_session=${a}`}});
+  assert.equal(response.status,200,await response.text());
+  assert.equal(db.prepare('SELECT 1 FROM agent_jobs WHERE id=?').get(task.activeJobId),undefined);
+  assert.equal((db.prepare('SELECT active_job_id FROM native_workflow_tasks WHERE task_id=?').get(task.id) as any).active_job_id,task.activeJobId);
+  const snapshot=path.join(root,'deleted-helper.db'),destination=path.join(root,'deleted-helper-export.db');await db.backup(snapshot);
+  await exportTenantDatabase(snapshot,destination,a,'new_volume');const result=new Database(destination);
+  try{assert.deepEqual(result.prepare('SELECT status,active_job_id FROM native_workflow_tasks WHERE task_id=?').get(task.id),{status:'cancelled',active_job_id:task.activeJobId});}finally{result.close();}
+ });
  await t.test('native index recognition requires exact maintenance triggers and rejects unknown extensions',async()=>{
   const snapshot=path.join(root,'derived-probe.db');await db.backup(snapshot);
   let sequence=0;const copy=()=>{const file=path.join(root,`derived-probe-${++sequence}.db`);fs.copyFileSync(snapshot,file);return new Database(file);};
