@@ -11,7 +11,10 @@ import { isHumanUserMessage } from './knowledge/sessions.js';
 
 export function toBot(r: any): Bot {
   const last = db
-    .prepare("SELECT body, created_at FROM rows WHERE bot_id=? AND generation=? AND kind IN ('message','card','event') AND COALESCE(json_extract(body,'$.audience'),'user')!='internal' AND COALESCE(json_extract(body,'$.from.kind'),'')!='bot' ORDER BY seq DESC LIMIT 1")
+    .prepare(`SELECT body, created_at FROM rows WHERE bot_id=? AND generation=? AND kind IN ('message','card','event')
+      AND COALESCE(json_extract(body,'$.audience'),'user')!='internal'
+      AND (json_extract(body,'$.audience')='user' OR COALESCE(json_extract(body,'$.from.kind'),'')!='bot')
+      ORDER BY seq DESC LIMIT 1`)
     .get(r.id, r.generation) as any;
   let lastPreview: string | null = null;
   if (last) {
