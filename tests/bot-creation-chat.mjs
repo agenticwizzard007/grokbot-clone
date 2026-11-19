@@ -74,6 +74,15 @@ try {
   const harnessTab = page.getByRole('tab',{name:'Harness',exact:true});
   const filesTab = page.getByRole('tab',{name:'Files',exact:true});
   const responsibilitiesTab = page.getByRole('tab',{name:'Responsibilities',exact:true});
+  // Crossing into phone width (PHONE_QUERY, max-width 760px) intentionally closes the
+  // details column after the media-query change. Wait for that layout to settle before
+  // checking what is open, so the test never acts on a column that is about to close.
+  const resize = async (width, height = 900) => {
+    const wasPhone = page.viewportSize().width <= 760, phone = width <= 760;
+    await page.setViewportSize({width,height});
+    await page.locator(phone ? '.app.is-mobile' : '.app:not(.is-mobile)').waitFor();
+    if (phone && !wasPhone) await page.locator('aside.details').waitFor({state:'detached'});
+  };
   let previewCalls = 0;
   page.on('request', req => { if(req.url().endsWith(`/bots/${teammate.id}/instructions`)) previewCalls++; });
   await harnessTab.click();
@@ -163,7 +172,7 @@ try {
   await page.locator('aside.details').screenshot({path:'.context/shots/agent-configuration-harness.png'});
   // Narrow layouts retain readable controls and do not introduce horizontal scrolling.
   for (const width of [320,375,390,430,768,1024]) {
-    await page.setViewportSize({width,height:900});
+    await resize(width);
     if (!await page.locator('aside.details').isVisible()) {
       const botRow = page.locator('.bot-row').filter({hasText:'Nia · LinkedIn Research'});
       if (await botRow.isVisible()) await botRow.click();
@@ -195,7 +204,7 @@ try {
 
     }
   }
-  await page.setViewportSize({width:390,height:900});
+  await resize(390);
   if (!await page.locator('aside.details').isVisible()) {
     const botRow = page.locator('.bot-row').filter({hasText:'Nia · LinkedIn Research'});
     if (await botRow.isVisible()) await botRow.click();
@@ -217,7 +226,7 @@ try {
   await page.evaluate(()=>document.documentElement.dataset.theme='dark');
   await page.screenshot({path:'.context/shots/agent-configuration-mobile-dark.png',animations:'disabled'});
   await page.evaluate(()=>document.documentElement.dataset.theme='light');
-  await page.setViewportSize({width:1440,height:1000});
+  await resize(1440,1000);
   if (!await config.isVisible()) await page.getByRole('button',{name:'Show details',exact:true}).click();
   await config.click();
   await responsibilitiesTab.click();
