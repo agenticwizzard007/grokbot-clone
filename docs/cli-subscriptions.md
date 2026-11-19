@@ -13,7 +13,7 @@ Use a ChatGPT account eligible for Codex, or a Claude account eligible for Claud
 
 Your phone, desktop, and messaging identity must belong to the **same Swarm account**. Link your number in Messaging settings before using iMessage, SMS, or WhatsApp. Messaging transport still needs its own configured integration. Each Bot keeps its conversations and approvals; all Bots share the subscription's allowance and rate limits.
 
-You can authenticate both providers and choose which saved connection the account uses. **Disconnect subscription** stops pending login and generation processes and deletes both saved CLI profiles for the account. It leaves the selected subscription blocked; changing to API billing always requires **API providers**.
+You can authenticate both providers and choose which saved connection the account uses. **Disconnect subscription** stops pending login and generation processes and deletes both saved CLI profiles for the account. It leaves the selected subscription blocked; changing to API billing always requires **API providers**. **Reset connection** goes further and is always available: it cancels a sign-in in progress, deletes both saved CLI profiles, revokes any computer bridge pairing, returns the account to server login, clears cached status and re-checks both CLIs, so you can log in again with Claude Code or Codex from a clean state. It also keeps the selected subscription blocked rather than switching to API billing.
 
 ## Server architecture and deployment
 
@@ -103,6 +103,8 @@ Use this connection for the account holder's trusted Swarm installation. The ser
 - **Browser login on another device:** open the link from the embedded terminal on that device, complete authorization, and return to the terminal. Paste the provider's code when requested. Codex device authorization may need to be enabled in the provider account.
 - **CLI missing on a bridge:** install the current official CLI and restart the bridge with the CLI on its `PATH`.
 - **Wrong authentication:** run `codex login status` or `claude auth status` in your terminal. Sign out and back in with your subscription account if necessary. The bridge removes API-key and alternate-provider environment settings from child CLI processes and rejects unknown or API authentication modes. Claude Code must also report a recognized subscription plan; update older CLIs that cannot confirm it.
+- **“Sign in again to continue”:** Login, Generate connect command and Disconnect replace saved credentials, so they require a Swarm sign-in from the last 10 minutes even though the session itself stays valid for days. The Subscriptions page shows a *Confirm it’s you* panel; sign in the usual way, you return to Subscriptions, then choose Login again. Older releases showed a failed empty terminal here with no way to recover short of signing out.
+- **Stuck or half-connected state:** use **Reset connection** on the Subscriptions page. It requires a recent sign-in like the other credential changes, then returns both providers to “not signed in” so Login works again.
 - **Server restarted:** refresh the status to discover saved logins. If the profile volume was not persisted, sign in again.
 - **Bridge offline:** restart the bridge with its existing command, or generate a replacement pairing command. Scheduled work also requires the bridge computer to be awake and connected.
 - **Usage limit:** wait for your allowance to reset or manage your plan with the provider. Swarm will not silently charge an API key.

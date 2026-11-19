@@ -74,7 +74,7 @@ test('status recognizes only official auth and never exposes auth diagnostics', 
     const result = await checkProviders({ codexPath: '/missing/swarm-codex', claudePath: '/missing/swarm-claude', ...f.options });
     assert.equal(result[provider].installed, true);
     assert.equal(result[provider].subscription, expected, `${provider}: ${auth}`);
-    if (provider === 'claude' && !expected) assert.match(result[provider].error, /Update the official Claude CLI and sign in with a subscription account/);
+    if (!expected) assert.match(result[provider].error, result[provider].authenticated ? (provider === 'claude' ? /Update the official Claude CLI and sign in with a subscription account/ : /official ChatGPT subscription login/) : /not signed in here yet/, `${provider}: ${auth}`);
     assert.doesNotMatch(JSON.stringify(result), /auth-secret-sentinel|private@example/);
     assert.deepEqual((await f.audit())[0].files, [], 'auth runs in an empty temporary cwd');
   }

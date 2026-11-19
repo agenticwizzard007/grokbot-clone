@@ -7,6 +7,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
+import Database from 'better-sqlite3';
 
 const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'swarm-cli-login-ui-'));
 const screenshots = path.resolve('.context/cli-login-ui');
@@ -155,8 +156,56 @@ try {
   assert.deepEqual(writes, ['claude-fake-code#verified\r', 'codex-fake-code#verified\r', 'NOAUTH\r'], 'each button/Enter submission sends exactly one trimmed code and Enter');
   const received = (await fs.readFile(auditFile, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   assert.deepEqual(received, [{ provider: 'claude', code: 'claude-fake-code#verified' }, { provider: 'codex', code: 'codex-fake-code#verified' }, { provider: 'codex', code: 'NOAUTH' }]);
+
+  // Credential changes need a sign-in from the last 10 minutes. An aged session must get a way to
+  // sign in again in place instead of an empty failed terminal.
+  const db = new Database(path.join(temp, 'app.db'));
+  db.prepare('UPDATE auth_sessions SET authenticated_at=?').run(Date.now() - 11 * 60_000);
+  db.close();
+  // The unverified login above signed Codex out, so the primary action reads Login again.
+  await page.getByRole('button', { name: 'Login', exact: true }).click();
+  const reauth = page.getByRole('region', { name: 'Confirm it’s you', exact: true });
+  await reauth.waitFor();
+  assert.equal(await terminal.count(), 0, 'no dead terminal while a fresh sign-in is required');
+  assert.equal(await page.getByText(/Close this terminal and try Login again/).count(), 0);
+  await reauth.screenshot({ path: path.join(screenshots, 'reauth-prompt.png') });
+  assert.equal(await reauth.getByLabel('Dev sign-in email', { exact: true }).inputValue(), 'cli-login-ui@example.test');
+  await reauth.getByRole('button', { name: 'Continue with email', exact: true }).click();
+  await page.getByText(/You’re signed in again\. Choose Login to continue connecting ChatGPT via Codex/).waitFor();
+  assert.equal(await reauth.count(), 0);
+  await page.getByRole('button', { name: 'Login', exact: true }).click();
+  await until(() => terminal.getByLabel('Authorization code', { exact: true }).isEnabled());
+  assert.equal(await page.getByText(/signed in again/).count(), 0, 'the notice clears once a login starts');
+  await terminal.getByRole('button', { name: 'Cancel login and close terminal', exact: true }).click();
+  assert.equal(await terminal.count(), 0);
+
+  // Provider sign-ins leave the page; a planned resume reopens Subscriptions on the same tab.
+  await page.evaluate(() => sessionStorage.setItem('swarm.resume', JSON.stringify({ section: 'subscriptions', provider: 'claude' })));
+  await page.goto(`${base}/`);
+  await page.getByText(/You’re signed in again\. Choose Login to continue connecting Claude via Claude Code/).waitFor();
+  assert.equal(await page.getByRole('tab', { name: 'Claude Code', exact: true }).getAttribute('aria-selected'), 'true');
+  assert.equal(await page.evaluate(() => sessionStorage.getItem('swarm.resume')), null, 'a resume target is consumed once');
+  await page.goto(`${base}/#settings/subscriptions`);
+  await page.reload();
+  await page.getByRole('tab', { name: 'Claude Code', exact: true }).waitFor();
+  assert.equal(await page.getByText(/signed in again/).count(), 0, 'a later visit does not repeat the notice');
+
+  // Reset starts over for both providers and leaves the page ready to log in again.
+  await page.getByRole('button', { name: 'Reset connection', exact: true }).click();
+  await page.getByText(/removes the saved Claude Code and Codex logins/).waitFor();
+  await page.getByRole('button', { name: 'Confirm reset', exact: true }).click();
+  await page.getByText(/Connection reset\. Both CLIs are signed out/).waitFor();
+  const afterReset = await (await context.request.get(`${base}/api/cli`)).json();
+  assert.equal(afterReset.selected, 'codex', 'reset keeps the selection blocked rather than enabling API billing');
+  assert.equal(afterReset.providers.claude.authenticated, false);
+  assert.equal(afterReset.providers.codex.authenticated, false);
+  await page.screenshot({ path: path.join(screenshots, 'after-reset.png'), fullPage: false });
+  await page.getByRole('button', { name: 'Login', exact: true }).click();
+  await until(() => terminal.getByLabel('Authorization code', { exact: true }).isEnabled());
+  assert.equal(await page.getByText(/Connection reset/).count(), 0, 'the reset notice clears once a login starts');
+  await terminal.getByRole('button', { name: 'Cancel login and close terminal', exact: true }).click();
   assert.deepEqual(errors, []);
-  console.log('CLI login UI passed: real clipboard paste, show/hide code, button/Enter submission, real PTY with echo disabled, verified success/Done, desktop/mobile, and rejection of unverified login.');
+  console.log('CLI login UI passed: real clipboard paste, show/hide code, button/Enter submission, real PTY with echo disabled, verified success/Done, desktop/mobile, rejection of unverified login, in-place re-sign-in, resume after a sign-in round trip, and reset of both providers.');
 } catch (error) {
   console.error(logs.slice(-4000));
   if (page) { console.error((await page.locator('body').innerText()).slice(-4000)); await page.screenshot({ path: path.join(screenshots, 'failure.png'), fullPage: true }); }

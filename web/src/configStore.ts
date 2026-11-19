@@ -9,9 +9,14 @@ export type Theme = 'system' | 'light' | 'dark';
 export type BotSettingsTab = 'general' | 'skills' | 'memories' | 'routines' | 'analytics' | 'learning';
 export type AppSection = 'general' | 'keys' | 'usage' | 'computer' | 'messaging' | 'permissions' | 'apps' | 'mcp' | 'account' | 'subscriptions' | 'learning';
 
+/** Where to continue after a sign-in that leaves the page (provider redirects, phone verification). */
+export interface ResumeTarget { section: AppSection; provider?: 'codex' | 'claude' }
+
 interface ConfigUI {
   botSettings: { botId: string; tab: BotSettingsTab } | null;
   appSettings: AppSection | null;
+  /** Consumed once by the section it names, after a sign-in round trip planned with planResume(). */
+  resume: ResumeTarget | null;
   /** Settings was opened without a section (e.g. ⌘, or the account menu), so phones start on the section list. */
   appSettingsHome: boolean;
   view: 'chat' | 'tasks';
@@ -22,6 +27,7 @@ interface ConfigUI {
   closeBotSettings(): void;
   openAppSettings(section?: AppSection): void;
   closeAppSettings(): void;
+  clearResume(): void;
   setView(v: 'chat' | 'tasks'): void;
   setTheme(t: Theme): void;
   bump(key: string): void;
@@ -43,6 +49,28 @@ const linkedSection = (): AppSection | null => {
   return SECTIONS_LINKABLE.includes(h) ? h : null;
 };
 
+const SS_RESUME = 'swarm.resume';
+const SESSION_PROVIDERS = ['codex', 'claude'] as const;
+/** Remember where to return once a sign-in that reloads or redirects the page completes. */
+export function planResume(target: ResumeTarget) {
+  try { sessionStorage.setItem(SS_RESUME, JSON.stringify(target)); } catch { /* ignore */ }
+}
+export function cancelResume() {
+  try { sessionStorage.removeItem(SS_RESUME); } catch { /* ignore */ }
+}
+const takeResume = (): ResumeTarget | null => {
+  try {
+    const raw = sessionStorage.getItem(SS_RESUME);
+    if (!raw) return null;
+    sessionStorage.removeItem(SS_RESUME);
+    const parsed = JSON.parse(raw) as Partial<ResumeTarget> | null;
+    if (!parsed || !SECTIONS_LINKABLE.includes(parsed.section as AppSection)) return null;
+    const provider = SESSION_PROVIDERS.find((p) => p === parsed.provider);
+    return { section: parsed.section as AppSection, ...(provider ? { provider } : {}) };
+  } catch { return null; }
+};
+const resumed = takeResume();
+
 const darkQuery = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
 
 export function applyTheme(t: Theme) {
@@ -53,7 +81,8 @@ export function applyTheme(t: Theme) {
 
 export const useConfigUI = create<ConfigUI>((set, get) => ({
   botSettings: null,
-  appSettings: linkedSection(),
+  appSettings: linkedSection() ?? resumed?.section ?? null,
+  resume: resumed,
   appSettingsHome: false,
   view: 'chat',
   theme: readTheme(),
@@ -65,6 +94,7 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
     if (linkedSection()) history.replaceState(history.state, '', window.location.pathname + window.location.search);
     set({ appSettings: null, appSettingsHome: false });
   },
+  clearResume: () => set({ resume: null }),
   setView: (view) => {
     if (view === 'tasks') enterChatPane(); // phones: Tasks replaces the list, like a chat
     set({ view });

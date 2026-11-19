@@ -672,6 +672,48 @@ test('credential replacement requires recent authentication', async () => {
   db.prepare('UPDATE auth_sessions SET authenticated_at=? WHERE token=session_hash(?)').run(Date.now()-11*60000,alice);
   assert.equal((await req(alice,'/login','POST',{provider:'codex',cols:80,rows:24})).status,401);
   assert.equal((await req(alice,'/pair','POST',{})).status,401);
+  assert.equal((await req(alice,'/reset','POST')).status,401);
+});
+
+test('reset removes both saved logins, the bridge pairing, a pending sign-in and cached status, keeps the selection and leaves the other account intact', async () => {
+  await login(alice, 'codex');
+  await login(alice, 'claude');
+  await login(bob, 'claude');
+  const ownHome = profilePath(alice), otherHome = profilePath(bob);
+  assert.equal(fs.readFileSync(path.join(ownHome, 'codex-fake-auth'), 'utf8'), 'subscription');
+  assert.equal(fs.readFileSync(path.join(ownHome, 'claude-fake-auth'), 'utf8'), 'subscription');
+  assert.equal(selectedCli(alice), 'claude');
+  createCliPairing(alice);
+  assert.equal(cliRuntime(alice), 'bridge');
+  setCliRuntime(alice, 'server');
+  const pending = await start(alice, 'codex');
+  const pid = audit().findLast(value => value.kind === 'login' && value.env.HOME === ownHome).pid;
+  const response = await req(alice, '/reset', 'POST');
+  assert.equal(response.status, 200, await response.clone().text());
+  const status = await response.json();
+  assert.equal(status.runtime, 'server');
+  assert.equal(status.selected, 'claude', 'a reset must not silently restore API mode');
+  assert.equal(status.connected, true, 'reset re-probes the empty server profile');
+  for (const provider of ['codex', 'claude'] as const) {
+    assert.equal(status.providers[provider].installed, true);
+    assert.equal(status.providers[provider].authenticated, false, `${provider} is signed out after reset`);
+    assert.equal(status.providers[provider].subscription, false);
+  }
+  assert.equal(fs.existsSync(path.join(ownHome, 'codex-fake-auth')), false);
+  assert.equal(fs.existsSync(path.join(ownHome, 'claude-fake-auth')), false);
+  assert.equal(db.prepare('SELECT 1 FROM cli_pairings WHERE user_id=?').get(alice), undefined, 'reset revokes the bridge pairing');
+  assert.equal(cliRuntime(alice), 'server');
+  assert.equal((await req(alice, `/login/${pending.id}`)).status, 404, 'reset cancels the pending sign-in');
+  await until(() => { try { process.kill(pid, 0); return false; } catch { return true; } }, 'reset reaps the pending login process');
+  await assert.rejects(withUsage({ userId: alice }, () => llmClient(3000).responses.create({ model: defaultModel(), input: 'must reject after reset' })), /subscription|sign in/i);
+  assert.equal(fs.readFileSync(path.join(otherHome, 'claude-fake-auth'), 'utf8'), 'subscription');
+  assert.equal(selectedCli(bob), 'claude');
+  // The account can reconnect either provider straight away.
+  await login(alice, 'codex');
+  assert.equal(selectedCli(alice), 'codex');
+  const reconnected: any = await withUsage({ userId: alice }, () => llmClient(3000).responses.create({ model: defaultModel(), input: 'reconnected after reset' }));
+  assert.equal(reconnected.provider, 'codex-cli');
+  assert.equal(reconnected.billing, 'subscription');
 });
 
 const credentialMutations = [
@@ -681,6 +723,7 @@ const credentialMutations = [
   // Selecting API mode would remove the existing subscription without an auth
   // refresh, so it also exercises the mutation's initial authorization boundary.
   { name: 'provider selection', route: '', method: 'PUT', body: { provider: null }, recent: false },
+  { name: 'reset', route: '/reset', method: 'POST', body: undefined, recent: true },
 ] as const;
 type CredentialMutation = typeof credentialMutations[number];
 

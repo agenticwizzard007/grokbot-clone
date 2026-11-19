@@ -2,8 +2,10 @@ import type { Bot, ComputerState, LiveState, Routine, Row, Toolkit, User } from 
 import { isNativeApp } from './native';
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) { super(message); }
+  constructor(public status: number, message: string, public code?: string) { super(message); }
 }
+/** The session is valid, but this change needs a sign-in from the last few minutes. */
+export const needsReauth = (err: unknown): err is ApiError => err instanceof ApiError && err.status === 401 && err.code === 'reauth_required';
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`/api${path}`, {
@@ -13,9 +15,9 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
-    let msg = res.statusText;
-    try { msg = ((await res.json()) as { error?: string }).error ?? msg; } catch { /* not json */ }
-    throw new ApiError(res.status, msg);
+    let msg = res.statusText, code: string | undefined;
+    try { const body = (await res.json()) as { error?: string; code?: string }; msg = body.error ?? msg; code = body.code; } catch { /* not json */ }
+    throw new ApiError(res.status, msg, code);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;

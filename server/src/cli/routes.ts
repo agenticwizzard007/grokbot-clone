@@ -3,7 +3,7 @@ import { Hono, type Context } from 'hono';
 import { env } from '../env.js';
 import { requireUser, requireRecentAuth, recentlyAuthenticated, userFromSessionHash, type AuthVars } from '../lib/auth.js';
 import { cliStatus, disconnectCli, refreshCli } from './bridge.js';
-import { cliRuntime, createCliPairing, isCliProvider, revokeCliPairing, selectCli } from './store.js';
+import { cliRuntime, createCliPairing, isCliProvider, revokeCliPairing, selectCli, setCliRuntime } from './store.js';
 import { deleteHostedProfile, hostedStatus, serverLoginAvailable, stopHostedJobs } from './hosted.js';
 import { cancelLoginSession, cancelUserLogins, CliLoginError, readLoginSession, resizeLoginSession, startLoginSession, writeLoginSession } from './login.js';
 import { withCliMutation } from './lock.js';
@@ -120,6 +120,26 @@ cliApi.post('/pair', requireRecentAuth, async (c) => {
     }
     const server = env.serverUrl.replace(/\/+$/, '');
     return c.json({ command: `curl -fsSL ${quote(`${server}/api/cli/script`)} -o swarm-cli-bridge.mjs && node swarm-cli-bridge.mjs --server ${quote(server)} --token ${quote(secret)}` });
+  });
+});
+// Start over: remove everything a login or pairing created, for both providers, then re-probe.
+cliApi.post('/reset', requireRecentAuth, async (c) => {
+  const userId = c.get('user').id;
+  return withAuthorizedMutation(c, true, async () => {
+    await cancelUserLogins(userId);
+    const denied = mutationAuthorization(c, true);
+    if (denied) return denied;
+    // Saved Claude and Codex credentials live in one private profile; a bridge pairing and its socket go too.
+    await deleteHostedProfile(userId);
+    revokeCliPairing(userId);
+    disconnectCli(userId);
+    await registerCompanion('cli');
+    setCliRuntime(userId, 'server');
+    // Retain the subscription selection: a reset must never silently enable API billing.
+    const noLongerAuthorized = mutationAuthorization(c, true);
+    if (noLongerAuthorized) return noLongerAuthorized;
+    try { return c.json(await refreshCli(userId)); }
+    catch { return c.json(cliStatus(userId)); }
   });
 });
 cliApi.delete('/pair', requireRecentAuth, async (c) => {

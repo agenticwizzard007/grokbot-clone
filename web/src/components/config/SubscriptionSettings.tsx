@@ -4,6 +4,8 @@ import { Check, ChevronDown, Copy, ExternalLink, KeyRound, RefreshCw, Terminal }
 import { cliApi, type CliProvider, type CliProviderStatus, type CliStatus } from '../../lib/cliApi';
 import { refreshModels } from './ModelPicker';
 import { CliLoginTerminal } from './CliLoginTerminal';
+import { ReauthPrompt } from './ReauthPrompt';
+import { needsReauth } from '../../lib/api';
 import { SwarmMark } from '../SwarmMark';
 import { ProviderMark } from '../ProviderMark';
 import { useStore } from '../../store';
@@ -36,7 +38,7 @@ function providerState(provider: CliProviderStatus | undefined, connected: boole
   return 'Ready';
 }
 
-type Action = 'load' | 'pair' | 'refresh' | 'codex' | 'claude' | 'api' | 'revoke';
+type Action = 'load' | 'pair' | 'refresh' | 'codex' | 'claude' | 'api' | 'revoke' | 'reset';
 
 export function SubscriptionSettings() {
   const user = useStore((state) => state.user);
@@ -46,13 +48,18 @@ export function SubscriptionSettings() {
 
 function AccountSubscriptionSettings({ accountEmail }: { accountEmail: string }) {
   const modelCatalog = useModels();
-  const [providerTab, setProviderTab] = useState<CliProvider>('claude');
+  // A sign-in round trip (OAuth redirect or phone verification) returns here with the tab it left from.
+  const resumed = useConfigUI.getState().resume?.section === 'subscriptions' ? useConfigUI.getState().resume : null;
+  const [providerTab, setProviderTab] = useState<CliProvider>(resumed?.provider ?? 'claude');
+  const [reauth, setReauth] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(resumed ? 'signed-in' : null);
+  const [confirmReset, setConfirmReset] = useState(false);
   const [authMethod, setAuthMethod] = useState<'cli' | 'api'>('cli');
   const [loginProvider, setLoginProvider] = useState<CliProvider | null>(null);
   const [loginAttempt, setLoginAttempt] = useState(0);
   const [loginRunning, setLoginRunning] = useState(false);
   const loginActive = useRef(false);
-  const tabPicked = useRef(false);
+  const tabPicked = useRef(!!resumed?.provider);
   const [status, setStatus] = useState<CliStatus | null>(null);
   const [busy, setBusy] = useState<Action | null>('load');
   const [error, setError] = useState<string | null>(null);
@@ -71,6 +78,8 @@ function AccountSubscriptionSettings({ accountEmail }: { accountEmail: string })
     if (status) refreshModels();
     if (status?.selected && !tabPicked.current) setProviderTab(status.selected);
   }, [status?.selected, status?.runtime, status?.connected]);
+
+  useEffect(() => { if (resumed) useConfigUI.getState().clearResume(); }, []);
 
   useEffect(() => {
     mounted.current = true;
@@ -119,12 +128,13 @@ function AccountSubscriptionSettings({ accountEmail }: { accountEmail: string })
     setBusy(action);
     setError(null);
     setConfirmRevoke(false);
+    setConfirmReset(false);
     try { await task(); }
     catch (err) {
-      if (mounted.current) {
-        setError(err instanceof Error ? err.message : 'Subscription request failed. Try again.');
-        setStale(true);
-      }
+      if (!mounted.current) return;
+      if (needsReauth(err)) { setReauth(err.message); return; }
+      setError(err instanceof Error ? err.message : 'Subscription request failed. Try again.');
+      setStale(true);
     } finally {
       working.current = false;
       if (mounted.current) setBusy(null);
@@ -167,6 +177,20 @@ function AccountSubscriptionSettings({ accountEmail }: { accountEmail: string })
     }
     update(await cliApi.status());
   });
+  // Start over for both providers: saved server logins, bridge pairing, pending sign-in and cached status.
+  const reset = () => {
+    closeLogin();
+    void run('reset', async () => {
+      const result = await cliApi.reset();
+      if (mounted.current) {
+        setCommand(null); setCopied(false); setCopyError(false);
+        setAuthMethod('cli');
+        setNotice('reset');
+      }
+      update(result);
+      refreshModels();
+    });
+  };
   const dismiss = () => { setCommand(null); setCopied(false); setCopyError(false); };
   const copy = async () => {
     if (!command) return;
@@ -190,7 +214,7 @@ function AccountSubscriptionSettings({ accountEmail }: { accountEmail: string })
     if (disabled || loginActive.current) return;
     tabPicked.current = true;
     polling.current?.abort(); polling.current = null;
-    setBusy(null); setError(null); dismiss();
+    setBusy(null); setError(null); setReauth(null); setNotice(null); setConfirmReset(false); dismiss();
     loginActive.current = true; setLoginRunning(true);
     setAuthMethod('cli'); setLoginAttempt((current) => current + 1); setLoginProvider(providerTab);
   };
@@ -237,8 +261,13 @@ function AccountSubscriptionSettings({ accountEmail }: { accountEmail: string })
         <div className="subscription-settings__connection">
         <div className="subscription-settings__status-row">
           <span className="subscription-settings__status" role="status"><span className={`subscription-settings__status-dot${serverReady ? ' is-connected' : ''}`} aria-hidden />{busy === 'load' ? 'Checking status…' : !status ? 'Status unavailable' : stale ? 'Status unverified' : runtime === 'bridge' ? status.connected ? 'Computer bridge connected' : 'Computer bridge offline' : serverReady ? 'Connected' : 'Login required'}</span>
-          <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy || loginRunning} onClick={() => void refresh()}><RefreshCw size={14} aria-hidden />{busy === 'refresh' ? 'Refreshing…' : 'Refresh status'}</button>
+          <div className="subscription-settings__actions">
+            <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy || loginRunning} onClick={() => void refresh()}><RefreshCw size={14} aria-hidden />{busy === 'refresh' ? 'Refreshing…' : 'Refresh status'}</button>
+            <button type="button" className={`cfg-btn ${confirmReset ? 'cfg-btn--danger' : 'cfg-btn--ghost-danger'}`} disabled={!!busy} onClick={() => confirmReset ? reset() : setConfirmReset(true)}>{busy === 'reset' ? 'Resetting…' : confirmReset ? 'Confirm reset' : 'Reset connection'}</button>
+            {confirmReset && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setConfirmReset(false)}>Cancel</button>}
+          </div>
         </div>
+        {confirmReset && <p role="note">Reset removes the saved Claude Code and Codex logins from your Swarm server, revokes any computer bridge, cancels a sign-in in progress and clears cached status, then checks both CLIs again. Your selected subscription stays selected and blocked until you log in again or choose API providers.</p>}
         <dl className="subscription-settings__details">
           <div><dt>Swarm account</dt><dd>{accountEmail.endsWith('@openrouter.invalid') ? 'Your OpenRouter sign-in' : accountEmail}</dd></div>
           <div><dt>Provider</dt><dd>{provider.name}</dd></div>
@@ -248,6 +277,7 @@ function AccountSubscriptionSettings({ accountEmail }: { accountEmail: string })
         </dl>
         {blocked && <p className="subscription-settings__blocked">The selected subscription is blocked until its login is ready. There is no automatic fallback to API providers.</p>}
         {(error || readError) && <div className="cfg-error" role="alert">{error || readError}</div>}
+        {notice && !reauth && <p className="subscription-settings__notice" role="status">{notice === 'reset' ? 'Connection reset. Both CLIs are signed out on your Swarm server. Choose Login to connect Claude Code or Codex again.' : `You’re signed in again. Choose Login to continue connecting ${provider.name}.`}</p>}
         {authMethod === 'cli' && <div className="subscription-settings__login-row">
           <div>
             <div className="cfg-row__title">One login. Every Bot.</div>
@@ -268,7 +298,10 @@ function AccountSubscriptionSettings({ accountEmail }: { accountEmail: string })
         </div>
       </section>
 
-      {loginProvider && <CliLoginTerminal key={loginAttempt} provider={loginProvider} onClose={closeLogin} onStateChange={(next) => {
+      {reauth && <ReauthPrompt accountEmail={accountEmail} reason={reauth} resume={{ section: 'subscriptions', provider: providerTab }}
+        onSignedIn={() => { setReauth(null); setNotice('signed-in'); }} onCancel={() => setReauth(null)} />}
+
+      {loginProvider && <CliLoginTerminal key={loginAttempt} provider={loginProvider} onClose={closeLogin} onReauthRequired={() => { closeLogin(); setReauth('Sign in again to continue connecting your subscription.'); }} onStateChange={(next) => {
         const running = next === 'running' || next === 'verifying';
         loginActive.current = running; setLoginRunning(running);
         if (next === 'failed' || next === 'cancelled') void cliApi.status().then(update).catch(() => {});
