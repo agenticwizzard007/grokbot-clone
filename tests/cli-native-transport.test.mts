@@ -30,7 +30,7 @@ async function until(check: () => boolean) {
   assert.ok(check(), 'transport condition should settle');
 }
 let sequence = 0;
-async function bridge(t: any, nativeMcp = true, existingUser?: string, noGenerationDeadline: boolean | 'omit' = true) {
+async function bridge(t: any, nativeMcp: boolean | 'omit' = true, existingUser?: string, noGenerationDeadline: boolean | 'omit' | 'true' = true) {
   const userId = existingUser ?? `usr_native_transport_${sequence++}`;
   if (!existingUser) db.prepare('INSERT INTO users(id,email,name,created_at) VALUES(?,?,?,?)').run(userId, `${userId}@example.test`, userId, Date.now());
   const token = createCliPairing(userId);
@@ -42,7 +42,7 @@ async function bridge(t: any, nativeMcp = true, existingUser?: string, noGenerat
       claude: { installed: true, authenticated: true, subscription: true }, codex: { installed: true, authenticated: true, subscription: true },
     } }));
   });
-  const hello = { type: 'hello', version: 1, token, nativeMcp, ...(noGenerationDeadline === 'omit' ? {} : { noGenerationDeadline }) };
+  const hello = { type: 'hello', version: 1, token, ...(nativeMcp === 'omit' ? {} : { nativeMcp }), ...(noGenerationDeadline === 'omit' ? {} : { noGenerationDeadline }) };
   await once(ws, 'open'); ws.send(JSON.stringify(hello));
   await until(() => frames.some(frame => frame.type === 'welcome'));
   t.after(() => { disconnectCli(userId); ws.terminate(); });
@@ -56,19 +56,49 @@ after(async () => {
 });
 
 test('old personal bridge fails native requests closed and still completes legacy requests', async t => {
-  const b = await bridge(t, false);
-  await assert.rejects(cliRequest(b.userId, 'generate', params, 1000, undefined, async () => ({ output: 'unexpected' })), /update.*native tools.*Settings/s);
+  const b = await bridge(t, 'omit', undefined, 'omit');
+  assert.equal(Object.hasOwn(b.hello, 'nativeMcp'), false);
+  await assert.rejects(cliRequest(b.userId, 'generate', { ...params, timeoutMs: 0 }, 0, undefined, async () => ({ output: 'unexpected' })), /update.*native tools.*Settings/s);
   assert.equal(b.calls().length, 0);
-  const legacy = cliRequest(b.userId, 'generate', {}, 1000);
+  const legacy = cliRequest(b.userId, 'generate', { timeoutMs: 0 }, 0);
   await until(() => b.calls().length === 1);
+  assert.equal(b.calls()[0].params.timeoutMs, 360_000);
   b.send({ id: b.calls()[0].id, result: { text: 'legacy works' } });
   assert.deepEqual(await legacy, { text: 'legacy works' });
 });
 
-test('a bridge without deadline opt-out support must be updated before long-running agent work', async t => {
-  const b = await bridge(t, true, undefined, false);
-  await assert.rejects(cliRequest(b.userId, 'generate', { ...params, timeoutMs: 0 }, 0, undefined, async () => ({ output: 'unused' })), /update for long-running tasks/);
-  assert.equal(b.calls().length, 0);
+for (const capability of ['omit', false, 'true'] as const) test(`bridge capability ${capability} preserves the legacy wire and transport deadlines`, { timeout: 15000 }, async t => {
+  const b = await bridge(t, true, undefined, capability);
+  const original = Object.freeze({ ...params, model: 'chosen-model', effort: 'high', timeoutMs: 0 });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let settled = false, executed = 0;
+  const job = cliRequest(b.userId, 'generate', original, 0, undefined, async () => { executed++; return { output: 'working' }; });
+  void job.then(() => { settled = true; }, () => { settled = true; });
+  const rejected = assert.rejects(job, /timed out.*No API fallback/);
+  void rejected.catch(() => {});
+  try {
+    while (!b.calls().length && !settled) await new Promise(resolve => setImmediate(resolve));
+    assert.equal(b.calls().length, 1, 'an old bridge must receive generation instead of an update rejection');
+    const id = b.calls()[0].id;
+    assert.deepEqual(b.calls()[0].params, { ...original, timeoutMs: 360_000 });
+    assert.equal(original.timeoutMs, 0, 'negotiation must not mutate caller input');
+    t.mock.timers.tick(360_000);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(settled, false, 'allow the old runner to return its own six-minute deadline result');
+    b.send({ id, type: 'tool_call', call: call() });
+    while (!b.replies().length) await new Promise(resolve => setImmediate(resolve));
+    assert.equal(executed, 1);
+    t.mock.timers.tick(1000);
+    await rejected;
+    while (!b.frames.some(frame => frame.method === 'cancel')) await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(b.frames.filter(frame => frame.method === 'cancel'), [{ method: 'cancel', id }]);
+    b.send({ id, type: 'tool_call', call: call('after-timeout') });
+    b.send({ id, result: { text: 'late result' } });
+    t.mock.timers.reset();
+    await delay(20);
+    assert.equal(executed, 1, 'late tools cannot execute after timeout');
+    assert.equal(b.calls().length, 1, 'timeout must not replay generation');
+  } finally { t.mock.timers.reset(); }
 });
 
 test('an omitted deadline capability preserves finite requests and upgrading the bridge enables unbounded work', { timeout: 15000 }, async t => {
@@ -76,19 +106,24 @@ test('an omitted deadline capability preserves finite requests and upgrading the
   assert.equal(Object.hasOwn(legacy.hello, 'noGenerationDeadline'), false, 'send the actual old-style hello');
   let executed = 0;
   const handler = async () => ({ output: `action-${++executed}` });
-  await assert.rejects(cliRequest(legacy.userId, 'generate', { ...params, timeoutMs: 0 }, 0, undefined, handler), /update for long-running tasks/);
-  assert.equal(legacy.calls().length, 0); assert.equal(executed, 0);
+  const compatible = cliRequest(legacy.userId, 'generate', { ...params, timeoutMs: 0 }, 0, undefined, handler);
+  await until(() => legacy.calls().length === 1);
+  assert.equal(legacy.calls()[0].params.timeoutMs, 360_000);
+  legacy.send({ id: legacy.calls()[0].id, result: { text: 'existing pairing works' } });
+  assert.deepEqual(await compatible, { text: 'existing pairing works' });
+  assert.equal(executed, 0);
 
   const status = await cliRequest(legacy.userId, 'status', {}, 2000);
-  assert.equal(status.claude.subscription, true, 'rejection must not poison the old connection');
+  assert.equal(status.claude.subscription, true);
   const catalog = cliRequest(legacy.userId, 'catalog', { provider: 'claude' }, 2000);
   await until(() => legacy.frames.some(frame => frame.method === 'catalog'));
   legacy.send({ id: legacy.frames.find(frame => frame.method === 'catalog').id, result: { models: ['legacy-model'] } });
   assert.deepEqual(await catalog, { models: ['legacy-model'] });
 
   const finite = cliRequest(legacy.userId, 'generate', { ...params, timeoutMs: 2000 }, 3000, undefined, handler);
-  await until(() => legacy.calls().length === 1);
-  const finiteId = legacy.calls()[0].id;
+  await until(() => legacy.calls().length === 2);
+  assert.equal(legacy.calls()[1].params.timeoutMs, 2000, 'explicit finite deadlines remain unchanged');
+  const finiteId = legacy.calls()[1].id;
   legacy.send({ id: finiteId, type: 'tool_call', call: call() });
   await until(() => legacy.replies().length === 1);
   assert.equal(legacy.replies()[0].result.output, 'action-1');
@@ -101,6 +136,7 @@ test('an omitted deadline capability preserves finite requests and upgrading the
   assert.equal(upgraded.hello.noGenerationDeadline, true);
   const unbounded = cliRequest(upgraded.userId, 'generate', { ...params, timeoutMs: 0 }, 0, undefined, handler);
   await until(() => upgraded.calls().length === 1);
+  assert.equal(upgraded.calls()[0].params.timeoutMs, 0, 'the new connection opts out without retaining the old deadline');
   const unboundedId = upgraded.calls()[0].id;
   assert.notEqual(unboundedId, finiteId);
   upgraded.send({ id: unboundedId, type: 'tool_call', call: call() });
