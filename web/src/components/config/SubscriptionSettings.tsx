@@ -87,7 +87,10 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
   const retryLabel = (action: ResumeAction) => ({ login: 'Login', reset: 'Reset connection', pair: 'Generate connect command', revoke: 'Disconnect subscription or Revoke bridge' })[action];
   const requestReauth = (action: ResumeAction, reason: string) => {
     invalidateStatus(); authLockedRef.current = true;
-    setNotice(null); setReauth({ action, reason });
+    setNotice(null); setStale(true); setReauth({ action, reason });
+    // A late authorization check can follow partial reset effects. Reconcile
+    // the current state without assuming that the failed request did nothing.
+    void readStatus().catch(() => {});
   };
 
   useEffect(() => {
@@ -113,7 +116,12 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
       if (controller.signal.aborted) return;
       if (needsReauth(err)) requestReauth(resumed.action, err.message);
       else setError(err instanceof Error ? err.message : 'Could not verify your sign-in. Reload and try again.');
-    }).finally(() => { if (!controller.signal.aborted) setVerifyingResume(false); });
+    }).finally(() => {
+      if (!controller.signal.aborted) {
+        setVerifyingResume(false);
+        void readStatus().catch(() => {});
+      }
+    });
     return () => controller.abort();
   }, []);
 
@@ -186,7 +194,13 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
   };
   const readStatus = async () => {
     const epoch = statusEpoch.current;
-    update(await cliApi.status(), epoch);
+    try { update(await cliApi.status(), epoch); }
+    catch (err) {
+      if (current(epoch)) { setStale(true); setReadError(err instanceof Error ? err.message : 'Could not load subscription status.'); }
+      throw err;
+    } finally {
+      if (current(epoch)) setBusy((value) => value === 'load' ? null : value);
+    }
   };
   const refresh = () => run('refresh', async (epoch) => { update(await cliApi.refresh(), epoch); });
   const select = (provider: CliProvider | null) => run(provider ?? 'api', async (epoch) => {

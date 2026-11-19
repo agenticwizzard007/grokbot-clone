@@ -893,3 +893,31 @@ test('revocation during async CLI auth refresh cannot select a verified provider
     await cancelUserLogins(alice);
   }
 });
+
+
+test('late reset authentication expiry preserves its denial after cancelling a real PTY', async () => {
+  const source = fs.readFileSync(fakeCli, 'utf8');
+  fs.writeFileSync(fakeCli, source.replace('if (login) {', `if (login) {
+    process.on('SIGTERM', () => { audit({ kind: 'reset-stop-observed' }); setTimeout(() => process.exit(0), 500); });
+  `));
+  const session = await start(alice, 'codex');
+  const realNow = Date.now;
+  try {
+    const pending = req(alice, '/reset', 'POST', { expectedUserId: alice });
+    await until(() => audit().some(value => value.kind === 'reset-stop-observed'), 'reset has cancelled the real fake-CLI process');
+    // Simulate crossing the existing 10-minute recency cutoff while the already
+    // cancelled PTY is shutting down; the account session itself remains valid.
+    Date.now = () => realNow() + 11 * 60_000;
+    const response = await pending;
+    const body = await response.json();
+    Date.now = realNow;
+    const terminal = await req(alice, `/login/${session.id}`);
+    assert.equal(response.status, 401);
+    assert.equal(body.code, 'reauth_required');
+    assert.equal(terminal.status, 404);
+    console.log(JSON.stringify({ reproduction: 'late-reset-recency', resetStatus: response.status, resetCode: body.code, terminalAfterReset: terminal.status, cancellationObservedBeforeExpiry: true, providers: 'fake-only', paidApiRequests: apiRequests.length }));
+  } finally {
+    Date.now = realNow;
+    fs.writeFileSync(fakeCli, source);
+  }
+});

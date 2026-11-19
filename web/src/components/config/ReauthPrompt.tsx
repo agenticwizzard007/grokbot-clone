@@ -60,8 +60,9 @@ export function ReauthPrompt({ accountEmail, reason, resume, retryLabel, termina
           <h3 id="subscription-reauth-title">Confirm it’s you</h3>
         </div>
         <p role="alert">{reason}</p>
-        <p>Sign in again the way you usually do for <strong>{accountEmail.endsWith('@openrouter.invalid') ? 'this account' : accountEmail}</strong>. You’ll come straight back here, then choose {retryLabel} again. This request has not been applied.</p>
-        {terminalActive && <p>Your current terminal stays open. Signing in again may end that terminal session.</p>}
+        <p>Sign in again the way you usually do for <strong>{accountEmail.endsWith('@openrouter.invalid') ? 'this account' : accountEmail}</strong>. You’ll come straight back here, then choose {retryLabel} again.</p>
+        {resume.action === 'reset' && <p>Reset may already have stopped login sessions or removed saved connections. Review the refreshed connection status before retrying.</p>}
+        {terminalActive && <p>A reset or new sign-in can end the terminal session shown below.</p>}
         <div className="subscription-reauth__providers">
           <PhoneAuth mode="signin" />
           <OpenRouterSignIn label="Continue with OpenRouter" />

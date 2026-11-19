@@ -297,6 +297,28 @@ try {
   assert.equal(await page.getByRole('button', { name: 'Log in again', exact: true }).count(), 0, 'an older ready snapshot cannot revive the reset connection');
   await page.unroute(`${base}/api/cli`);
 
+  // A late auth denial can arrive after real reset effects. Reconcile instead of promising no change.
+  await page.getByRole('button', { name: 'Login', exact: true }).click();
+  await until(() => terminal.getByLabel('Authorization code', { exact: true }).isEnabled());
+  await terminal.getByLabel('Authorization code', { exact: true }).fill('unsent-late-reset');
+  await page.route(`${base}/api/cli/reset`, async route => {
+    const applied = await route.fetch();
+    assert.equal(applied.status(), 200, 'the real server first stops the terminal and clears the profile');
+    await route.fulfill({ status: 401, json: { error: 'Sign in again to continue.', code: 'reauth_required' } });
+  });
+  const resetCount = resetBodies.length;
+  await page.getByRole('button', { name: 'Reset connection', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm reset', exact: true }).click();
+  await reauth.getByText(/Reset may already have stopped login sessions or removed saved connections/).waitFor();
+  await terminal.getByText('Failed', { exact: true }).waitFor();
+  await page.getByText('ChatGPT via Codex · Blocked', { exact: true }).waitFor();
+  assert.equal(await page.getByText(/This request has not been applied|Your current terminal stays open/).count(), 0);
+  assert.equal(resetBodies.length, resetCount + 1, 'late denial must not replay reset automatically');
+  assert.equal((await (await context.request.get(`${base}/api/cli`)).json()).providers.codex.authenticated, false);
+  await page.unroute(`${base}/api/cli/reset`);
+  await reauth.getByRole('button', { name: 'Not now', exact: true }).click();
+  await terminal.getByRole('button', { name: 'Close login terminal', exact: true }).click();
+
   // The cookie can change in another tab while this view still displays the initiating account.
   await context.request.post(`${base}/api/auth/dev`, { data: { email: 'cli-login-other@example.test' } });
   const resetResponse = page.waitForResponse(response => response.url() === `${base}/api/cli/reset` && response.request().method() === 'POST');
