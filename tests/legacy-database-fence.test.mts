@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {createHash} from 'node:crypto';
 import { test } from 'node:test';
 import Database from 'better-sqlite3';
 import { holdLegacyDatabase, assertLegacyDatabaseFences, registerLegacyFenceFunctions, legacyAccountHeld, legacyWritableRows } from '../server/src/platform/legacy-database-fence.js';
@@ -202,6 +203,51 @@ test('the current application schema can hold one account and refuses its existi
   return {job,task:workflow.tasks[0].id,skill:skill.id,rows};
  }
  const held=seed(a,owned.id),active=seed(b,other.id);
+ await t.test('migration rejects outgoing and incoming native job links, including trigger ancestry',async t=>{
+  const baseline=path.join(root,'reference-source.db');await db.backup(baseline);let n=0;
+  const cases=[
+   ['code job','UPDATE code_runs SET job_id=? WHERE id=?',held.job,active.job,`code-${a}`,`code-${b}`],
+   ['active workflow job','UPDATE native_workflow_tasks SET active_job_id=? WHERE task_id=?',held.job,active.job,held.task,active.task],
+   ['workflow parent job','UPDATE native_workflow_runs SET parent_job_id=? WHERE job_id=?',held.job,active.job,held.job,active.job],
+   ['trigger parent job',"UPDATE agent_jobs SET trigger=json_set(trigger,'$.parentJobId',?) WHERE id=?",held.job,active.job,held.job,active.job],
+  ];
+  for(const [name,sql,ownedJob,foreignJob,ownedKey,foreignKey] of cases)for(const direction of ['outgoing','incoming','missing'])await t.test(`${name} ${direction}`,async()=>{
+   const snapshot=path.join(root,`reference-${++n}.db`),destination=path.join(root,`reference-export-${n}.db`);fs.copyFileSync(baseline,snapshot);
+   const edit=new Database(snapshot);try{assert.equal(edit.prepare(sql).run(direction==='outgoing'?foreignJob:direction==='incoming'?ownedJob:'job_missing',direction==='incoming'?foreignKey:ownedKey).changes,1);}finally{edit.close();}
+   const before=createHash('sha256').update(fs.readFileSync(snapshot)).digest('hex');
+   await assert.rejects(exportTenantDatabase(snapshot,destination,a,'new_volume'),/Foreign|unproven|ownership/);
+   assert.equal(createHash('sha256').update(fs.readFileSync(snapshot)).digest('hex'),before);
+   assert.equal(fs.existsSync(destination),false);assert.equal(fs.existsSync(`${destination}.partial`),false);
+  });
+  for(const direction of ['outgoing','incoming'])await t.test(`historical receipt resolves to a foreign job (${direction})`,async()=>{
+   const snapshot=path.join(root,`reference-${++n}.db`),destination=path.join(root,`reference-export-${n}.db`);fs.copyFileSync(baseline,snapshot);
+   const edit=new Database(snapshot);try{
+    edit.prepare("INSERT INTO knowledge_use_receipts(user_id,bot_id,job_id,kind,source_id,revision,hash,actor,created_at) VALUES(?,?,?,'skill',?,1,'hash','foreground',1)")
+     .run(direction==='outgoing'?a:b,direction==='outgoing'?owned.id:other.id,direction==='outgoing'?active.job:held.job,direction==='outgoing'?held.skill:active.skill);
+   }finally{edit.close();}
+   await assert.rejects(exportTenantDatabase(snapshot,destination,a,'new_volume'),/Foreign.*job ownership/);
+   assert.equal(fs.existsSync(destination),false);
+  });
+  for(const trigger of ['[]',JSON.stringify({type:'user',parentJobId:42})])await t.test(`malformed job ancestry ${trigger}`,async()=>{
+   const snapshot=path.join(root,`reference-${++n}.db`),destination=path.join(root,`reference-export-${n}.db`);fs.copyFileSync(baseline,snapshot);
+   const edit=new Database(snapshot);try{edit.prepare('UPDATE agent_jobs SET trigger=? WHERE id=?').run(trigger,held.job);}finally{edit.close();}
+   await assert.rejects(exportTenantDatabase(snapshot,destination,a,'new_volume'),/Unproven.*ownership/);
+   assert.equal(fs.existsSync(destination),false);
+  });
+  await t.test('owned links and opaque historical knowledge receipts retain their exact data',async()=>{
+   const snapshot=path.join(root,'reference-owned.db'),destination=path.join(root,'reference-owned-export.db');fs.copyFileSync(baseline,snapshot);
+   const edit=new Database(snapshot);try{
+    edit.prepare('UPDATE native_workflow_tasks SET active_job_id=? WHERE task_id=?').run(held.job,held.task);
+    edit.prepare("INSERT INTO knowledge_use_receipts(user_id,bot_id,job_id,kind,source_id,revision,hash,actor,created_at) VALUES(?,?,?,'skill',?,1,'hash','foreground',1)").run(a,owned.id,'historical-correlation-without-job',held.skill);
+   }finally{edit.close();}
+   await exportTenantDatabase(snapshot,destination,a,'new_volume');
+   const result=new Database(destination);try{
+    assert.equal((result.prepare('SELECT active_job_id FROM native_workflow_tasks WHERE task_id=?').get(held.task) as any).active_job_id,held.job);
+    assert.deepEqual(result.prepare('SELECT id FROM agent_jobs').all(),[{id:held.job}]);
+    assert.equal((result.prepare('SELECT job_id FROM knowledge_use_receipts').get() as any).job_id,'historical-correlation-without-job');
+   }finally{result.close();}
+  });
+ });
  await t.test('native index recognition requires exact maintenance triggers and rejects unknown extensions',async()=>{
   const snapshot=path.join(root,'derived-probe.db');await db.backup(snapshot);
   let sequence=0;const copy=()=>{const file=path.join(root,`derived-probe-${++sequence}.db`);fs.copyFileSync(snapshot,file);return new Database(file);};

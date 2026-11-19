@@ -54,20 +54,41 @@ export async function exportTenantDatabase(sourceFile:string,destination:string,
     // JSON rather than foreign keys. Validate both outgoing and incoming edges;
     // omitting a foreign row that points into this account would conceal damage.
     const ownedBots=new Set((selected.get('bots')??[]).map(row=>row.id));
+    const ownedJobs=new Set((selected.get('agent_jobs')??[]).map(row=>row.id));
+    const knownJobs=new Set(tables.some(t=>t.name==='agent_jobs')?(source.prepare('SELECT id FROM agent_jobs').all() as {id:string}[]).map(row=>row.id):[]);
     const userRefs=['user_id','provisional_user_id','link_user_id','attach_user_id','created_by'];
     const botRefs=['bot_id','parent_bot_id','active_bot_id','from_bot_id','to_bot_id'];
+    const jobRefs=['job_id','parent_job_id','active_job_id','skill_reset_job_id'];
+    // These native links drive execution/ancestry but were historically stored
+    // without SQL foreign keys. Missing parents require reconciliation too.
+    // Other job_id columns can be immutable historical correlation IDs; preserve
+    // unresolved history, while refusing any ID that resolves to a foreign job.
+    const requiredJobs:Record<string,readonly string[]>={code_runs:['job_id'],native_workflow_tasks:['active_job_id'],native_workflow_runs:['parent_job_id']};
     const phone=selected.get('users')?.[0]?.phone;
     if(phone&&Number((source.prepare('SELECT count(*) n FROM users WHERE phone=?').get(phone) as {n:number}).n)!==1)throw new Error('Ambiguous legacy phone ownership.');
     for(const t of tables){
       if(OMIT.has(t.name))continue;
       const included=new Set((selected.get(t.name)??[]).map(row=>JSON.stringify(row)));
       const users=userRefs.filter(name=>t.columns.some(c=>c.name===name)),bots=botRefs.filter(name=>t.columns.some(c=>c.name===name));
+      const jobs=jobRefs.filter(name=>t.columns.some(c=>c.name===name));
       const rooms=t.name==='bots'&&t.columns.some(c=>c.name==='members');
-      if(!users.length&&!bots.length&&!rooms)continue;
+      const trigger=t.name==='agent_jobs'&&t.columns.some(c=>c.name==='trigger');
+      if(!users.length&&!bots.length&&!jobs.length&&!rooms&&!trigger)continue;
       for(const row of source.prepare(`SELECT * FROM ${quote(t.name)}`).iterate() as Iterable<Record<string,any>>){
         const selectedRow=included.has(JSON.stringify(row));
         const userValues=users.map(name=>row[name]).filter(value=>value!==null&&value!==undefined&&value!=='');
         const botValues=bots.map(name=>row[name]).filter(value=>value!==null&&value!==undefined&&value!=='');
+        const jobValues=jobs.filter(name=>row[name]!==null&&row[name]!==undefined&&row[name]!=='')
+          .map(name=>({value:row[name],required:requiredJobs[t.name]?.includes(name)??false}));
+        if(trigger){
+          let payload:unknown;try{payload=JSON.parse(row.trigger);}catch{throw new Error('Unproven legacy job trigger ownership.');}
+          if(!payload||typeof payload!=='object'||Array.isArray(payload))throw new Error('Unproven legacy job trigger ownership.');
+          const parent=(payload as Record<string,unknown>).parentJobId;
+          if(parent!==undefined&&parent!==null&&parent!==''){
+            if(typeof parent!=='string')throw new Error('Unproven legacy job parent ownership.');
+            jobValues.push({value:parent,required:true});
+          }
+        }
         if(rooms&&row.members!==null&&row.members!==undefined){
           let members:unknown;try{members=JSON.parse(row.members);}catch{throw new Error('Invalid legacy room membership.');}
           if(!Array.isArray(members)||members.some(id=>typeof id!=='string'||!id)||new Set(members).size!==members.length)throw new Error('Invalid legacy room membership.');
@@ -75,6 +96,8 @@ export async function exportTenantDatabase(sourceFile:string,destination:string,
         }
         if(selectedRow&&(userValues.some(value=>value!==tenant)||botValues.some(value=>!ownedBots.has(value))))throw new Error(`Foreign or unproven implicit relationship in ${t.name}`);
         if(!selectedRow&&(userValues.includes(tenant)||botValues.some(value=>ownedBots.has(value))))throw new Error(`Foreign or ambiguous implicit relationship in ${t.name}`);
+        if(selectedRow&&jobValues.some(({value,required})=>!ownedJobs.has(value)&&(required||knownJobs.has(value))))throw new Error(`Foreign or unproven job ownership in ${t.name}`);
+        if(!selectedRow&&jobValues.some(({value})=>ownedJobs.has(value)))throw new Error(`Foreign or ambiguous incoming job ownership in ${t.name}`);
       }
     }
     // A join row can refer to an owned room and a foreign bot. Selecting only by
