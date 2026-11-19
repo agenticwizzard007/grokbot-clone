@@ -1,10 +1,10 @@
 # Master development spec: full per-tenant isolation and a fully working isolated Swarm
 
-**Status: PENDING owner approval · Written 19 November 2026 against `main` at `1cb61bb` · Owner: workspace owner · Coordinator: release coordinator session**
+**Status: APPROVED by the workspace owner on 19 November 2026 · Written 19 November 2026 against `main` at `1cb61bb` · Owner: workspace owner · Coordinator: release coordinator session**
 
 This is the single guideline every agent follows to take Swarm from today's shared server to a fully working, per-account isolated platform. It does not replace the detailed design documents; it sequences them, names the gaps, and defines when the work is finished. Where this spec and an older plan disagree about *order or scope*, this spec wins. Where they disagree about *security behaviour*, the stricter rule wins until the isolation owner and reviewer resolve it.
 
-Until the owner approves this spec, existing holds stay in force. In particular, isolation PRs #55 and #56 remain draft and review-only.
+The owner approved this spec on 19 November 2026, together with decisions D1, D2 and D4 (section 4). Isolation PRs #55 and #56 keep their review-only hold until the owner lifts it explicitly.
 
 Detailed references: [isolation design](tenant-isolation.md) · [qualification plan](tenant-qualification.md) · [infrastructure decisions](tenant-infrastructure-decisions.md) · [staging bootstrap runbook](../infra/platform/staging-bootstrap.md) · [tenant host images](../infra/tenant-host/README.md) · [containment qualification](../infra/tenant-host/qualification/README.md) · [capacity model](tenant-capacity-model.md) · [capacity operations](tenant-capacity-operations.md) · [recovery operations](tenant-recovery-operations.md) · [monitoring](tenant-monitoring.md) · [legacy migration](legacy-migration-implementation.md) · [connected-app isolation](connections-isolation.md) · [shared-server releases](staging-release.md).
 
@@ -254,18 +254,18 @@ Status values: PENDING, IN PROGRESS, BLOCKED (with reason), IN REVIEW, DONE (wit
 
 | ID | Item | Status | Owner | PR / evidence |
 |---|---|---|---|---|
-| WS0 | Spec approved; decisions recorded | PENDING | Coordinator | this PR |
-| D1 | Key service | BLOCKED: owner AWS account | Owner | |
-| D2 | Image vulnerability policy | BLOCKED: owner decision | Owner | |
+| WS0 | Spec approved; decisions recorded | DONE (approved 2026-11-19) | Coordinator | #59 |
+| D1 | Key service | DECIDED 2026-11-19: AWS KMS as designed. BLOCKED: owner creates the AWS account and admin profile | Owner | |
+| D2 | Image vulnerability policy | DECIDED 2026-11-19: fix fixable; time-boxed (30-day) exceptions for unfixable; libxml2 CRITICAL needs explicit owner sign-off in the exceptions PR | Owner | |
 | D3 | Composio staging project | BLOCKED: owner input | Owner | |
-| D4 | Signing key and staging spend | BLOCKED: owner decision | Owner | |
+| D4 | Signing key and staging spend | DECIDED 2026-11-19: signing key in GitHub `tenant-image-release`; staging spend approved (~$119/month + ~$27/month per running test tenant) | Owner | |
 | D5 | Existing users policy | BLOCKED: owner decision | Owner | |
 | D6 | Fly staging org and limits | BLOCKED: owner decision | Owner | |
 | D7 | Alert destination | BLOCKED: owner input | Owner | |
 | D8 | Test identities | BLOCKED: owner input | Owner | |
 | D9 | Production domains | PENDING | Owner | |
 | D10 | Scaling policy | PENDING | Owner | |
-| WS1 | Images secure, signed, published | PENDING (fixable findings work can start now) | Image owner | run 43862578772 |
+| WS1 | Images secure, signed, published | IN PROGRESS | Image owner | run 43862578772 |
 | WS2 | Cloud foundations | BLOCKED: D1, D6 | Isolation owner | |
 | WS3 | Platform roles in staging | BLOCKED: WS1, WS2, D3 | Isolation owner | |
 | WS4 | Containment and two-tenant tests | BLOCKED: WS1, WS3 | Isolation owner, reviewer | |
