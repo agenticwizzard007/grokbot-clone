@@ -35,6 +35,10 @@ test('preparation binds the extracted readiness source and hashes its installed 
   const compiled = '/fixture/server/dist/runtime/application-readiness.js';
   assert.ok(reads.includes(compiled));
   assert.equal(bindings.hostFiles['/app/server/dist/runtime/application-readiness.js'], sha256(`compiled-fixture:${compiled}`));
+  assert.ok(bindings.sourceFiles.includes('server/src/runtime/host-usage.ts'));
+  const usage='/fixture/server/dist/runtime/host-usage.js';
+  assert.ok(reads.includes(usage));
+  assert.equal(bindings.hostFiles['/app/server/dist/runtime/host-usage.js'],sha256(`compiled-fixture:${usage}`));
 });
 
 test('machine has bounded lifetime, no service/volume, performance-2x iad, and an immutable image', () => {

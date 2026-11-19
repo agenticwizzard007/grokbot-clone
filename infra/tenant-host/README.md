@@ -10,9 +10,14 @@ qualify Fly containment, provider logins, private networking or capacity.
 version/checksum, the patched npm tarball integrity, zlib's fixed package version, FFmpeg source/signing identity/configuration,
 and checksums for Trivy and cosign. Updates are reviewed source changes; the pipeline never resolves a floating base tag.
 
-- `HostBase.Dockerfile`: Node 22, Docker 29.9.3 daemon/CLI, matching standalone containerd/runc/docker-init,
+- `HostBase.Dockerfile`: Node 22, Docker 29.10.0 daemon/CLI and docker-init; containerd, its runc shim and runc rebuilt from pinned
+  upstream release commits with the Go module upgrades in `images.lock.json` (`runtimeBuild`); `ctr` is not shipped;
   util-linux mount/umount with `--no-canonicalize`, iptables/ip6tables, shell, tar, gzip, sha256sum and CA certificates.
   Docker 25+ supports the existing `bind-recursive=disabled` folder mounts. The daemon listens only on its Unix socket.
+- `scan-gate.mjs` and `scan-exceptions.json`: the HIGH/CRITICAL vulnerability gate (owner decision D2). Findings with an
+  upstream fix always block; findings without one need an exception for the exact CVE, package and image (`app` covers the
+  shared app/runner/MCP image) with a reachability note for that image, active only from its approval date and for at most
+  30 days. Missing or malformed Trivy reports fail closed. Every image scan and the verified component check use this gate.
 - `DesktopBase.Dockerfile`: Chrome, Xvfb, xfwm4, xdotool, Python, Node 22, and the lockfile-installed
   `@playwright/mcp` **0.0.85**. UID/GID 10001, no sudo, no runtime package-manager bootstrap or executable download.
   `Desktop.Dockerfile` adds the exact checked-out companion. Browser sandboxing stays enabled.

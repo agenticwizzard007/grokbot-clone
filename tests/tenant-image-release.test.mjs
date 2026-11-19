@@ -7,6 +7,7 @@ import {spawnSync} from 'node:child_process';
 import {createHash,generateKeyPairSync} from 'node:crypto';
 import {validateInputs,publicKey} from '../infra/tenant-host/release-inputs.mjs';
 import {validatePipeline} from '../infra/tenant-host/release-images.mjs';
+import {evaluateScan,validateExceptions,imageScope,MAX_EXCEPTION_DAYS} from '../infra/tenant-host/scan-gate.mjs';
 import {assertChromeSandbox} from '../infra/tenant-host/sandbox-evidence.mjs';
 import {assertBootableRelease} from '../infra/tenant-host/validate-release.mjs';
 const source='a'.repeat(40),digest='b'.repeat(64),image=`registry.fly.io/test@sha256:${digest}`;
@@ -32,6 +33,9 @@ test('publishing requires pinned upstream inputs and a bounded registry app',()=
   for(const field of ['nodeImage','dockerImage'])assert.throws(()=>validatePipeline('publish',source,'approved-app',{...lock,[field]:'node:latest'}),/Unpinned/);
   assert.throws(()=>validatePipeline('publish',source,'x;echo bad',lock),/REGISTRY_APP/);
   assert.throws(()=>validatePipeline('publish',source,'approved-app',{...lock,npmIntegrity:'unverified'}),/checksums/);
+  assert.throws(()=>validatePipeline('publish',source,'approved-app',{...lock,goImage:'golang:latest'}),/Unpinned goImage/);
+  assert.throws(()=>validatePipeline('publish',source,'approved-app',{...lock,runtimeBuild:{...lock.runtimeBuild,runcCommit:'main'}}),/runtime source pins/);
+  assert.throws(()=>validatePipeline('publish',source,'approved-app',{...lock,runtimeBuild:{...lock.runtimeBuild,goModuleUpgrades:['golang.org/x/net@latest']}}),/Go module upgrades/);
 });
 function manifest(){return {buildMode:'verified',sourceCommit:source,desktopSeccompSha256:createHash('sha256').update(profile).digest('hex'),appImage:image,runnerImage:image,mcpImage:image,desktopImage:image,imageIds:Object.fromEntries(['appImage','runnerImage','mcpImage','desktopImage'].map(k=>[k,`sha256:${digest}`]))};}
 test('unverified hosts and a substituted desktop sandbox profile cannot boot',()=>{
@@ -51,7 +55,7 @@ const fs=require('node:fs'),path=require('node:path');const a=process.argv.slice
 fs.appendFileSync(process.env.MOCK_LOG,JSON.stringify({tool,args:a,secret:process.env.FLY_IMAGE_PUSH_TOKEN??null})+'\\n');
 if(tool==='git'){if(a[0]==='rev-parse')console.log(process.env.MOCK_SOURCE);process.exit(0);}
 if(tool==='cosign'){if(a[0]==='public-key')console.log(process.env.MOCK_PUBLIC_KEY);process.exit(process.env.MOCK_SIGNATURE_FAIL==='1'?1:0);}
-if(tool==='trivy'){const p=a[a.indexOf('--output')+1];if(a.includes('--output'))fs.writeFileSync(p,'{}');process.exit(process.env.MOCK_SCAN_FAIL==='1'?1:0);}
+if(tool==='trivy'){const p=a[a.indexOf('--output')+1];if(a.includes('--output'))fs.writeFileSync(p,process.env.MOCK_SCAN_REPORT?fs.readFileSync(process.env.MOCK_SCAN_REPORT):JSON.stringify({SchemaVersion:2,ArtifactName:'fixture',Results:[{Target:'fixture (debian 13)',Class:'os-pkgs'}]}));process.exit(process.env.MOCK_SCAN_FAIL==='1'?1:0);}
 if(tool==='docker'){
  if(a[0]==='image'&&a[1]==='inspect'){
   if(process.env.MOCK_MISSING_BASE==='1'&&a[2].includes('host-base'))process.exit(1);
@@ -99,6 +103,8 @@ test('complete dry pipeline strips inherited secrets, builds host, emits no regi
   assert.equal(result.status,0,result.stderr);
   const calls=f.calls();assert.ok(calls.every(c=>c.secret===null));assert.ok(!calls.some(c=>c.tool==='cosign'||['push','login','pull'].includes(c.args[0])));
   assert.match(fs.readFileSync(output,'utf8'),/^host_image_digest=\nhost_image_id=sha256:/);
+  const appBuild=calls.find(c=>c.tool==='docker'&&c.args[0]==='build'&&c.args.includes('Dockerfile'));
+  assert.ok(appBuild.args.includes(`SWARM_BUILD_REVISION=${source}`),'app image is built with the exact source revision');
   const record=JSON.parse(fs.readFileSync(path.join(f.root,'.context/tenant-release/reports/images.json')));
   assert.equal(record.liveInfrastructureQualified,false);assert.equal(record.mode,'dry-run');
 });
@@ -142,4 +148,77 @@ test('Chrome sandbox evidence accepts the modern status table and refuses missin
   assert.throws(()=>assertChromeSandbox('<html>new tab</html>'),/namespace AND seccomp/);
   assert.throws(()=>assertChromeSandbox(rows+'<tr><td>PID namespaces</td><td>Yes</td></tr>'),/namespace AND seccomp/);
   assert.throws(()=>assertChromeSandbox(rows.replace('<tr><td>Network namespaces</td><td>Yes</td></tr>','')),/namespace AND seccomp/);
+});
+
+const finding=(id,pkg,severity,fixed='')=>({VulnerabilityID:id,PkgName:pkg,Severity:severity,InstalledVersion:'1',FixedVersion:fixed});
+const report=(...v)=>({SchemaVersion:2,ArtifactName:'fixture',Results:[{Target:'image',Vulnerabilities:v}]});
+const exception=(over={})=>({id:'CVE-2026-6653',package:'libxml2',image:'desktop',severity:'CRITICAL',reachability:'Pulled in by GTK; not called by Swarm code; confined desktop container.',approvedBy:'agenticwizzard7',approved:'2026-11-19',expires:'2026-12-19',...over});
+const now=Date.parse('2026-11-20T00:00:00Z');
+test('scan gate blocks fixable findings even when an exception exists',()=>{
+  const r=evaluateScan(report(finding('CVE-2026-6653','libxml2','CRITICAL','2.9.1')),{exceptions:[exception()]},now,'desktop');
+  assert.equal(r.violations.length,1);assert.match(r.violations[0].reason,/fix available/);
+});
+test('scan gate accepts only unexpired exceptions for the exact CVE, package and severity',()=>{
+  assert.equal(evaluateScan(report(finding('CVE-2026-6653','libxml2','CRITICAL')),{exceptions:[exception()]},now,'desktop').violations.length,0);
+  assert.match(evaluateScan(report(finding('CVE-2026-6653','libxml2','CRITICAL')),{exceptions:[]},now,'desktop').violations[0].reason,/no exception/);
+  assert.match(evaluateScan(report(finding('CVE-2026-6653','libxml2-utils','CRITICAL')),{exceptions:[exception()]},now,'desktop').violations[0].reason,/no exception/);
+  assert.match(evaluateScan(report(finding('CVE-2026-6653','libxml2','CRITICAL')),{exceptions:[exception({severity:'HIGH'})]},now,'desktop').violations[0].reason,/HIGH only/);
+  assert.match(evaluateScan(report(finding('CVE-2026-6653','libxml2','CRITICAL')),{exceptions:[exception()]},Date.parse('2026-12-19T00:00:00Z'),'desktop').violations[0].reason,/expired/);
+  assert.equal(evaluateScan(report(finding('CVE-2026-1','x','MEDIUM')),{exceptions:[]},now,'desktop').total,0);
+});
+test('exceptions are bounded, explained and attributable',()=>{
+  assert.equal(MAX_EXCEPTION_DAYS,30);
+  assert.throws(()=>validateExceptions({exceptions:[exception({expires:'2026-12-20'})]}),/exceeds 30 days/);
+  assert.throws(()=>validateExceptions({exceptions:[exception({reachability:'ok'})]}),/reachability/);
+  assert.throws(()=>validateExceptions({exceptions:[exception({approvedBy:''})]}),/approvedBy/);
+  assert.throws(()=>validateExceptions({exceptions:[exception(),exception()]}),/Duplicate/);
+  assert.throws(()=>validateExceptions({exceptions:[exception({id:'*'})]}),/id/);
+  validateExceptions(JSON.parse(fs.readFileSync(new URL('../infra/tenant-host/scan-exceptions.json',import.meta.url))));
+});
+test('a fixable finding fails the dry pipeline for every image without publishing',t=>{
+  const f=fixture(t),output=path.join(f.root,'output'),scan=path.join(f.root,'scan.json');
+  fs.writeFileSync(scan,JSON.stringify(report(finding('CVE-2026-78661','golang.org/x/net','HIGH','0.62.0'))));
+  const result=f.run(process.execPath,['infra/tenant-host/release-images.mjs','--dry-run'],{MOCK_SCAN_REPORT:scan,GITHUB_OUTPUT:output});
+  assert.notEqual(result.status,0);assert.match(result.stderr,/fix available/);assert.equal(fs.existsSync(output),false);
+  const record=JSON.parse(fs.readFileSync(path.join(f.root,'.context/tenant-release/reports/images.json')));
+  assert.equal(record.failedScans.length,5);assert.match(record.scanExceptionsSha256,/^[a-f0-9]{64}$/);
+});
+
+test('exceptions apply only from their approval date until expiry, with real calendar dates',()=>{
+  const crit=report(finding('CVE-2026-6653','libxml2','CRITICAL'));
+  assert.match(evaluateScan(crit,{exceptions:[exception({approved:'2027-01-01',expires:'2027-01-31'})]},now,'desktop').violations[0].reason,/not yet approved/);
+  assert.equal(evaluateScan(crit,{exceptions:[exception({approved:'2026-11-20',expires:'2026-12-20'})]},now,'desktop').violations.length,0,'approval day is inclusive');
+  assert.match(evaluateScan(crit,{exceptions:[exception({approved:'2026-10-21',expires:'2026-11-20'})]},now,'desktop').violations[0].reason,/expired/,'expiry day is exclusive');
+  assert.throws(()=>validateExceptions({exceptions:[exception({approved:'2026-02-30',expires:'2026-03-15'})]}),/real approved/);
+});
+test('an exception for one image never clears another; app/runner/MCP share the app scope explicitly',()=>{
+  const crit=report(finding('CVE-2026-6653','libxml2','CRITICAL')),appOnly={exceptions:[exception({image:'app'})]};
+  assert.match(evaluateScan(crit,appOnly,now,'desktop').violations[0].reason,/no exception for image desktop/);
+  assert.match(evaluateScan(crit,appOnly,now,'DESKTOP_IMAGE').violations[0].reason,/no exception for image desktop/);
+  assert.match(evaluateScan(crit,appOnly,now,'desktopBase').violations[0].reason,/no exception/);
+  for(const label of ['app','APP_IMAGE','RUNNER_IMAGE','MCP_IMAGE'])assert.equal(evaluateScan(crit,appOnly,now,label).violations.length,0,label);
+  assert.equal(imageScope('HOST_BASE'),'hostBase');
+  assert.throws(()=>imageScope('unknown'),/Unknown scan image/);assert.throws(()=>evaluateScan(crit,appOnly,now),/Unknown scan image/);
+  assert.throws(()=>validateExceptions({exceptions:[exception({image:undefined})]}),/must name one image/);
+});
+test('missing or malformed scan reports fail closed; a valid empty report is clean',()=>{
+  for(const bad of [{},null,[],{SchemaVersion:1,ArtifactName:'x',Results:[]},{SchemaVersion:2,Results:[]},{SchemaVersion:2,ArtifactName:'x'},
+    {SchemaVersion:2,ArtifactName:'x',Results:[{}]},{SchemaVersion:2,ArtifactName:'x',Results:[{Target:'t',Vulnerabilities:{}}]},
+    {SchemaVersion:2,ArtifactName:'x',Results:[{Target:'t',Vulnerabilities:[{PkgName:'p',Severity:'HIGH'}]}]},
+    {SchemaVersion:2,ArtifactName:'x',Results:[{Target:'t',Vulnerabilities:[{VulnerabilityID:'CVE-2026-1',PkgName:'p',Severity:'SEVERE'}]}]}])
+    assert.throws(()=>evaluateScan(bad,{exceptions:[]},now,'app'),/Scan report|Scan result|schema/,JSON.stringify(bad));
+  assert.deepEqual(evaluateScan({SchemaVersion:2,ArtifactName:'x',Results:[]},{exceptions:[]},now,'app').violations,[]);
+});
+test('a malformed scan report blocks dry output and publication before any sign or push',t=>{
+  const f=fixture(t),output=path.join(f.root,'output'),scan=path.join(f.root,'scan.json');fs.writeFileSync(scan,'{}');
+  let result=f.run(process.execPath,['infra/tenant-host/release-images.mjs','--dry-run'],{MOCK_SCAN_REPORT:scan,GITHUB_OUTPUT:output});
+  assert.notEqual(result.status,0);assert.match(result.stderr,/Unsupported scan report schema/);assert.equal(fs.existsSync(output),false);
+  fs.writeFileSync(f.log,'');
+  result=f.run(process.execPath,['infra/tenant-host/release-images.mjs','--publish'],{...publishEnv,MOCK_SCAN_REPORT:scan,GITHUB_OUTPUT:output});
+  assert.notEqual(result.status,0);assert.ok(!f.calls().some(c=>['push','sign'].includes(c.args[0])));assert.equal(fs.existsSync(output),false);
+});
+test('verified component checks map component names to image scopes and refuse a malformed report',t=>{
+  const f=fixture(t),scan=path.join(f.root,'scan.json');fs.writeFileSync(scan,'{}');
+  const result=f.run('bash',['infra/tenant-host/build-release.sh'],{...inputs,PLATFORM_PUBLIC_KEY_FILE:f.env.PLATFORM_PUBLIC_KEY_FILE,IMAGE_VERIFICATION_KEY:f.env.PLATFORM_PUBLIC_KEY_FILE,MOCK_SCAN_REPORT:scan});
+  assert.notEqual(result.status,0);assert.match(result.stderr,/APP_IMAGE: Unsupported scan report schema/);assert.ok(!f.calls().some(c=>['pull','create','build'].includes(c.args[0])));
 });

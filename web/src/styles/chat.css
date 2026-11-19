@@ -35,6 +35,23 @@
 .transcript__col { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; max-width: 960px; margin: 0 auto; min-height: 100%; justify-content: flex-end; }
 .transcript__col > * { max-width: 100%; }
 
+/* Quiet, centered agent conversation summaries, matching the chat dividers. */
+.agent-exchange { width: 100%; display: flex; flex-direction: column; align-items: center; padding: 4px 0; }
+.agent-exchange__toggle { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 8px 4px; border: 0; background: transparent; color: var(--color-text-secondary); font-size: 12px; font-weight: 400; line-height: 16px; cursor: pointer; border-radius: 6px; }
+.agent-exchange__toggle:hover { color: var(--color-ink); }
+.agent-exchange__toggle:focus-visible { outline: 2px solid var(--color-text-secondary); outline-offset: 3px; }
+.agent-exchange__avatars { display: inline-flex; align-items: center; padding: 0 3px; }
+.agent-exchange__avatars .bot-avatar + .bot-avatar { margin-left: -4px; }
+.agent-exchange__panel { width: 100%; max-width: 560px; padding: 12px; margin-top: 8px; border: 1px solid var(--color-border-tertiary); border-radius: 12px; font-size: 12px; color: var(--color-text-secondary); }
+.agent-exchange__participants { margin: 0 0 12px; overflow-wrap: anywhere; }
+.agent-exchange__messages { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 16px; }
+.agent-exchange__meta { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 10px; font-size: 11px; }
+.agent-exchange__meta strong { color: var(--color-ink); font-weight: 500; overflow-wrap: anywhere; }
+.agent-exchange__messages p { color: var(--color-ink); margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.agent-exchange__more, .agent-exchange__error { align-self: center; font-size: 12px; color: var(--color-text-secondary); }
+.agent-exchange__more { margin: 8px 0; padding: 6px 10px; border-radius: 6px; }
+.agent-exchange__panel button, .agent-exchange__error button { text-decoration: underline; }
+
 .group { display: flex; flex-direction: column; gap: 4px; width: 100%; }
 .group.is-right { align-items: flex-end; padding-top: 4px; }
 .group.is-left { align-items: flex-start; }

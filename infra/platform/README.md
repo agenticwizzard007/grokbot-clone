@@ -81,6 +81,10 @@ lacks SHA-256 or reviewer, so `list` shows such rows as `incomplete` and release
 `tenant-capacity-resize` gate records staging qualification of Fly machine resize, volume extend and guest filesystem
 growth for an image; it is never required for ordinary provisioning.
 
+The optional [host usage collector](../../docs/tenant-usage-collection.md) is disabled by default. Its runbook
+describes the directory migration, `TENANT_USAGE_COLLECTION=1` on platform/provisioner, replacement-host rollout,
+private evidence export and real-host qualification. Enabling collection does not enable unattended resizing.
+
 ## Secrets as files
 
 Fly mounts a secret as a file with `[[files]] guest_path/secret_name`; the manifests use that for the Ed25519

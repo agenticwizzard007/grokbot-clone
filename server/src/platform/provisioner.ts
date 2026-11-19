@@ -10,8 +10,11 @@ import {assertQualifiedImage} from './release-policy.js';
 import {pruneSignupMetadata} from './signup.js';
 import {pruneSessionMetadata} from './tenant-sessions.js';
 import {startOperationsMetrics,OperationsActivity} from './operations-metrics.js';
+import {pruneHostUsage} from './host-usage.js';
+import {usageCollectionEnabled} from '../runtime/host-usage.js';
 export {infrastructureGates} from './release-policy.js';
 export async function startProvisioner() {
+  usageCollectionEnabled(process.env.TENANT_USAGE_COLLECTION);
   const directory=new Directory(),fly=new FlyTenants(),envelopes=new TenantEnvelopes(directory);
   const backups=new BackupCatalog(directory,new S3BackupStorage());
   const image=pinnedImage(process.env.TENANT_HOST_IMAGE??'');
@@ -33,7 +36,7 @@ export async function startProvisioner() {
     }
   },1000);
   let pruning:Promise<unknown>|undefined;
-  const retention=setInterval(()=>{if(pruning||closing)return;pruning=Promise.allSettled([backups.prune(),environments.pruneRetiredVolumes(),pruneSignupMetadata(directory),pruneSessionMetadata(directory)])
+  const retention=setInterval(()=>{if(pruning||closing)return;pruning=Promise.allSettled([backups.prune(),environments.pruneRetiredVolumes(),pruneSignupMetadata(directory),pruneSessionMetadata(directory),pruneHostUsage(directory)])
     .then(results=>{const failures=results.filter(result=>result.status==='rejected').length;retentionFailures+=failures;if(!failures)retentionLastSuccess=Date.now()/1000;})
     .finally(()=>{pruning=undefined;});},60000);
   return {close:async()=>{closing=true;clearInterval(interval);clearInterval(retention);await Promise.allSettled([...running,...(pruning?[pruning]:[]),...(metrics?[metrics.close()]:[])]);},directory};

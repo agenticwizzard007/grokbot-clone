@@ -1,0 +1,4 @@
+{
+  "policy": "Owner decision D2 (2026-11-19): HIGH/CRITICAL findings with an upstream fix always block. Findings without a fix need a reviewed exception for the exact CVE and package, with a reachability note, valid for at most 30 days from approval. CRITICAL findings need an exception approved at CRITICAL severity.",
+  "exceptions": []
+}

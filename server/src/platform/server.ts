@@ -22,21 +22,30 @@ import { runtimeOperations } from './runtime-operations.js';
 import { signupAdminRoutes } from './signup-routes.js';
 import { SessionNotifications } from './session-notifications.js';
 import { startOperationsMetrics } from './operations-metrics.js';
+import {HostUsage,hostUsageRoutes} from './host-usage.js';
+import {usageCollectionEnabled} from '../runtime/host-usage.js';
+
+/** Shared production middleware; bounded host streams authenticate before reading. */
+export function platformRequestMiddleware(app:Hono){
+  const ordinaryBodyLimit=bodyLimit({maxSize:10*1024*1024});
+  app.use('*',(c,next)=>(c.req.method==='POST'&&c.req.path==='/internal/host/usage')
+    ||(c.req.method==='PUT'&&/^\/internal\/host\/backups\/[a-f0-9]{32}\/(?:manifest|\d{1,6})\.bin$/.test(c.req.path))?next():ordinaryBodyLimit(c,next));
+  app.use('*',async(c,next)=>{
+    c.header('Cache-Control','no-store');c.header('X-Content-Type-Options','nosniff');c.header('Referrer-Policy','no-referrer');
+    if(c.req.path==='/api/auth/apple/callback')return next();
+    return requestBoundary(c,next);
+  });
+}
 
 export async function startPlatform() {
+  const collectUsage=usageCollectionEnabled(process.env.TENANT_USAGE_COLLECTION);
   const directory=new Directory(),origin=process.env.PLATFORM_URL!;
   const identity=new RuntimeIdentity(directory,fs.readFileSync(process.env.PLATFORM_PRIVATE_KEY_FILE!,'utf8'),fs.readFileSync(process.env.PLATFORM_PUBLIC_KEY_FILE!,'utf8'));
   const envelopes=new TenantEnvelopes(directory),broker=new TunnelBroker(directory,identity,[new URL(origin).origin],process.env.SESSION_SECRET!);
   const notifications=new SessionNotifications(directory,event=>event.scope ? broker.revokeCompanions(event.tenant,event.scope) : broker.revoke(event.tenant,event.session),ready=>broker.setDirectoryReady(ready));
   await notifications.start();
   const app=new Hono();
-  const ordinaryBodyLimit=bodyLimit({maxSize:10*1024*1024});
-  app.use('*',(c,next)=>c.req.method==='PUT'&&/^\/internal\/host\/backups\/[a-f0-9]{32}\/(?:manifest|\d{1,6})\.bin$/.test(c.req.path)?next():ordinaryBodyLimit(c,next));
-  app.use('*',async(c,next)=>{
-    c.header('Cache-Control','no-store');c.header('X-Content-Type-Options','nosniff');c.header('Referrer-Policy','no-referrer');
-    if(c.req.path==='/api/auth/apple/callback')return next();
-    return requestBoundary(c,next);
-  });
+  platformRequestMiddleware(app);
   app.onError((_e,c)=>c.json({error:'The platform could not complete this request.'},503));
   app.get('/api/health',c=>c.json({ok:broker.ready,role:'platform'},broker.ready?200:503));
   for (const [route, file] of [['companion','swarm-companion.mjs'],['cli','cli-bridge.mjs']]) {
@@ -49,6 +58,7 @@ export async function startPlatform() {
   app.route('/internal/host/backups',backupRoutes(new BackupCatalog(directory,backupStorage),identity));
   app.route('/internal/host/checkpoints',hostCheckpointRoutes(new HostCheckpoints(directory),identity));
   app.route('/internal/host/installations',hostInstallationRoutes(new HostInstallations(directory,backupStorage),identity));
+  app.route('/internal/host/usage',hostUsageRoutes(new HostUsage(directory,identity),identity,collectUsage));
   app.route('/internal/host',hostControlRoutes(new HostControl(directory),identity));
   app.post('/internal/runtime/exchange',async c=>{
     const b=await c.req.json();
