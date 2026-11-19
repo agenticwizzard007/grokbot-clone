@@ -29,7 +29,7 @@
     "test:openrouter": "node --import tsx --test tests/openrouter.test.mts && npm run build -w web && node tests/openrouter-ui.mjs",
     "test:native-auth": "node --import tsx --test tests/native-auth.test.mts",
     "test:voice-shortcut": "node tests/voice-shortcut.mjs",
-    "test:voice-entry": "node --import tsx --test tests/dictation-lifecycle.test.mts && node tests/voice-entry-ui.mjs",
+    "test:voice-entry": "node --import tsx --test tests/dictation-lifecycle.test.mts tests/voice-results-client.test.mts && node tests/voice-entry-ui.mjs",
     "test:mobile": "node tests/mobile-layout.mjs",
     "test:google-auth": "node --import tsx --test tests/google-auth.test.mts tests/google-composio-auth.test.mts",
     "test:apple-auth": "node --import tsx --test tests/apple-auth.test.mts",
