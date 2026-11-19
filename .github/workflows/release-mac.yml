@@ -32,16 +32,8 @@ on:
         required: true
         default: true
         type: boolean
-  pull_request:
-    paths:
-      - '.github/workflows/release-mac.yml'
-      - 'scripts/mac-release/**'
-      - 'scripts/apple.sh'
-      - 'scripts/package-apple-mac.sh'
-      - 'scripts/stage-apple-mac.mjs'
-      - 'apple/**'
-      - 'companion/swarm-companion.mjs'
-      - 'docs/mac-distribution.md'
+
+# Native app work is deferred: builds/releases run only when explicitly dispatched.
 
 permissions:
   contents: read

@@ -2,7 +2,7 @@
 
 Swarm for Mac is distributed from the website as a **Developer ID signed, hardened-runtime, notarized app**, outside the Mac App Store. The iOS app is the App Store client. The Mac app pairs the user's computer so they can drive it from their phone. Signing does not bypass macOS permissions: terminal/browser access, existing-browser attachment, Accessibility, Screen Recording, Automation and microphone access remain subject to the app's consent controls and macOS approval.
 
-`.github/workflows/release-mac.yml` builds on GitHub `macos-15` runners. It runs native policy tests, stages pinned Node/Playwright dependencies, builds the complete app, checks its native-code inventory, signs nested executables before the app, notarizes, staples, verifies and publishes versioned assets. No user Mac or development signing identity is needed for the build. A ZIP is the supported installer container; no DMG or automatic updater is provided.
+`.github/workflows/release-mac.yml` runs only by manual dispatch on GitHub `macos-15` runners. Automatic native builds on pull requests are paused while app work is deferred. When dispatched, it runs native policy tests, stages pinned Node/Playwright dependencies, builds the complete app, checks its native-code inventory, signs nested executables before the app, notarizes, staples, verifies and publishes versioned assets. No user Mac or development signing identity is needed for the build. A ZIP is the supported installer container; no DMG or automatic updater is provided.
 
 ## Owner setup
 
@@ -25,11 +25,11 @@ The owner also chooses:
 - The approved **HTTPS server origin**, initially `https://swarm-team.fly.dev`, later the isolated-platform origin. Do not include a path, query, credentials or fragment. Building a client does not deploy or qualify that backend.
 - The website's Mac download location and the previous compatible release to retain for rollback.
 
-No real credentials are required for PR validation. Real Developer ID issuance, Sign in with Apple distribution authentication and notarization still require an owner-operated credentialed release; passing the dry run is not evidence of these services working.
+No real credentials are required for a manual dry run. Real Developer ID issuance, Sign in with Apple distribution authentication and notarization still require an owner-operated credentialed release; passing the dry run is not evidence of these services working.
 
-## PR and manual dry runs
+## Manual dry runs
 
-Every PR touching the workflow, release helper/tests, native app or packaging inputs builds a **universal** Mac app and ad-hoc signs it. Signing secrets are never loaded for a PR or an explicitly selected dry run. The native runner's slice executes Node, the launcher, companion help and Playwright help; the other slice's architecture and signatures are inspected. Runtime smoke runs in a separate credential-free step after signing material is removed. Signing helper subprocesses also receive an environment with all six credential variables removed. This does not replace testing on an Intel Mac and an Apple silicon Mac.
+A manually dispatched dry run builds the selected Mac architectures (default **universal**) and ad-hoc signs the app. Signing secrets are never loaded for a dry run. The native runner's slice executes Node, the launcher, companion help and Playwright help; the other slice's architecture and signatures are inspected. Runtime smoke runs in a separate credential-free step after signing material is removed. Signing helper subprocesses also receive an environment with all six credential variables removed. This does not replace testing on an Intel Mac and an Apple silicon Mac.
 
 For a manual dry run, choose **Actions → Mac direct download → Run workflow**, select the reviewed pipeline branch, set `ref` to the desired commit, supply version/build/origin/architectures, and leave `dry_run` enabled. Download the `mac-distribution-<run-id>-<attempt>` Actions artifact. Its archive is named `Swarm-<version>-macos-ADHOC-DO-NOT-DISTRIBUTE.zip`. It has no provisioning profile or Apple sign-in entitlement; it is neither notarized nor published as a GitHub Release. Do not put it on the website or weaken Gatekeeper to distribute it.
 
@@ -41,7 +41,7 @@ Local policy tests require only Python 3.9+:
 python3 -m unittest discover -s scripts/mac-release -p 'test_*.py' -v
 ```
 
-Native builds and signing are tested on GitHub's macOS runners. Existing development archives in the Apple apps workflow are separate from public distribution assets.
+Native builds and signing are tested when this workflow is manually dispatched. Pull requests do not schedule native builds or produce new Apple development archives.
 
 ## Release procedure
 
