@@ -71,6 +71,13 @@ app.use('/api/*', async (c, next) => {
 // Usage attribution: model calls made while handling a signed-in request are billed to that account.
 app.use('/api/*', (c, next) => withUsage({ resolveUser: () => userFromCookieHeader(c.req.header('cookie'))?.id }, () => next()));
 app.get('/api/health', (c) => c.json({ ok: true, provider: env.llmProvider, model: defaultModel(), computers: computers.kind, desktop: env.localDesktop, direct: !!env.directKey, openrouter: !!env.openrouterKey, apps: env.composioEnabled, features: { botCreation: true, botSetupVersion: 2, guidedSetup: true, messaging: true } }));
+const releaseManifest = new URL('./release-manifest.json', import.meta.url);
+app.get('/api/version', (c) => {
+  c.header('Cache-Control', 'no-store');
+  if (!fs.existsSync(releaseManifest)) return c.json({ revision: null }, 503);
+  const { revision, builtAt, frontendSha256, serverSha256 } = JSON.parse(fs.readFileSync(releaseManifest, 'utf8'));
+  return c.json({ revision, builtAt, frontendSha256, serverSha256 });
+});
 // The companion program for local computers (public: it holds no secrets; the pairing token does).
 const companionScript = new URL('../../companion/swarm-companion.mjs', import.meta.url);
 app.get('/api/companion/script', (c) => {
@@ -104,6 +111,10 @@ app.route('/api/mcp/servers', mcpApi);
 // Serve the built web app in production.
 const webDist = path.resolve(new URL('.', import.meta.url).pathname, '../../web/dist');
 if (fs.existsSync(webDist)) {
+  app.use('/*', async (c, next) => {
+    await next();
+    if (c.res.headers.get('Content-Type')?.includes('text/html') || c.req.path === '/build.json') c.header('Cache-Control', 'no-cache');
+  });
   app.use('/assets/*', async (c, next) => {
     await next();
     // Only Vite's fingerprinted bundles are immutable (not icons with stable names).

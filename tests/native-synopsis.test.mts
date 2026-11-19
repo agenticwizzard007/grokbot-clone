@@ -38,7 +38,12 @@ function rows(f:F){return db.prepare('SELECT * FROM coordination_synopses WHERE 
 async function materialize(f:F,id:string){await reports.materializeSynopsis(f.userId,id);return reports.getSynopsis(f.userId,id);}
 async function complete(f:F,id:string){await materialize(f,id);await reports.dispatchSynopsis(f.userId,id);return reports.getSynopsis(f.userId,id);}
 function schedule(f:F,time:string,settings:Parameters<typeof p.setCheckins>[1]={}) {p.setCheckins(f.userId,{enabled:true,times:['09:00'],timezone:'UTC',...settings},at(time));}
-async function tick(time:string){p.tickProactive(at(time));await p.settleProactive();}
+async function tick(time:string){
+ // Discovery and the final delivery guard must observe the same fixture clock.
+ // The latter deliberately rechecks wall time after async materialization.
+ const clock=mock.method(Date,'now',()=>at(time));
+ try{p.tickProactive(at(time));await p.settleProactive();}finally{clock.mock.restore();}
+}
 function artifactPath(f:F,id:string){const a=artifacts.getArtifact(f.userId,id);return path.join(storage,'files',f.bot.id,'Deliverables',a.id,a.filename);}
 after(async()=>{reports.configureSynopsisNarrator();await p.settleProactive();mock.restoreAll();db.close();fs.rmSync(storage,{recursive:true,force:true});});
 

@@ -18,7 +18,8 @@ COPY server/package.json server/
 COPY web/package.json web/
 RUN npm ci --no-audit --no-fund
 COPY . .
-RUN npm run build -w web && npm run build -w server \
+ARG SWARM_BUILD_REVISION=""
+RUN SWARM_BUILD_REVISION="$SWARM_BUILD_REVISION" npm run build \
  && npm prune --omit=dev --no-audit --no-fund
 
 FROM ${NODE_IMAGE}
