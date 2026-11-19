@@ -88,7 +88,16 @@ const bundle = await build({
         await settle();
       },
       async reply(index = requests.length - 1, text = 'dictated text') {
-        requests[index].resolve(Response.json({ text })); await settle();
+        // The client parses the reply with res.json(), which reads the body stream in
+        // browser tasks rather than microtasks. Wait for that parse to finish instead of
+        // assuming it completes within the single task that settle() waits for.
+        const response = Response.json({ text }), parse = response.json.bind(response);
+        let parsed;
+        response.json = () => (parsed = parse());
+        requests[index].resolve(response);
+        await new Promise(resolve => realSetTimeout(resolve, 0)); // the client reaches res.json() through microtasks only
+        await parsed?.catch(() => {});
+        await settle();
       },
       async reject(index = requests.length - 1) { requests[index].reject(new Error('STT failed')); await settle(); },
       async maxDuration() { now += 120000; for (const fn of [...timers.values()]) fn(); await settle(); },
