@@ -142,3 +142,15 @@
   .subscription-settings .cli-login-terminal__header > .cfg-icon-btn { margin-left: auto; }
   .subscription-settings .cli-login-terminal__state { order: 1; margin-left: 32px; }
 }
+.subscription-reauth__body { display: flex; flex-direction: column; gap: 12px; padding: 16px var(--settings-inset, 20px); }
+.subscription-reauth__head { display: flex; align-items: center; gap: 8px; color: var(--subscription-accent); }
+.subscription-reauth__head h3 { margin: 0; font-size: 15px; line-height: 20px; font-weight: 600; color: var(--color-text-primary); }
+.subscription-reauth__providers { display: flex; flex-direction: column; gap: 8px; max-width: 400px; }
+.subscription-reauth__dev { display: flex; flex-direction: column; gap: 6px; max-width: 400px; font-size: 12px; line-height: 16px; color: var(--color-text-secondary); }
+.subscription-reauth__dev-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.subscription-reauth__dev-row .text-input { flex: 1 1 200px; min-width: 0; }
+.subscription-settings__notice { padding: 8px 10px; border-radius: 8px; background: var(--subscription-accent-bg); color: var(--color-text-primary); }
+/* Provider sign-in links inside the re-sign-in panel keep the shared auth button look, not the page's small doc links. */
+.subscription-settings .subscription-reauth__providers a.auth-button { display: flex; align-self: stretch; font-size: 15px; line-height: 20px; color: var(--color-on-primary); text-decoration: none; }
+.subscription-settings .subscription-reauth__providers a.auth-button:hover { color: var(--color-on-primary); text-decoration: none; }
+.subscription-reauth__providers .phone-auth__hint { display: none; }

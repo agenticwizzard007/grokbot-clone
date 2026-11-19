@@ -17,6 +17,10 @@ const MAX_TIMEOUT_MS = 15 * 60_000;
 const nativeToolTimeout = params => params.timeoutMs || MAX_TIMEOUT_MS;
 const AUTH_TIMEOUT_MS = 15_000;
 const LABEL = { codex: 'Codex', claude: 'Claude' };
+const SUBSCRIPTION_REQUIRED = {
+  codex: 'Codex requires an official ChatGPT subscription login. API and unknown authentication methods are disabled.',
+  claude: 'Claude requires an official claude.ai subscription login with a recognized subscriptionType. Update the official Claude CLI and sign in with a subscription account. API and unverified billing are disabled.',
+};
 const CLAUDE_PLANS = new Set(['pro', 'max', 'ultra', 'team', 'enterprise']);
 // auth status uses machine values ("max"), while initialize can return a
 // display label ("Claude Ultra"). Accept only those same known subscription
@@ -173,9 +177,10 @@ async function providerStatus(provider, options, cwd, signal) {
       const plan = status && Object.hasOwn(status, 'subscriptionType') && CLAUDE_PLANS.has(status.subscriptionType);
       result.subscription = result.authenticated && status.authMethod === 'claude.ai' && plan;
     }
-    if (!result.subscription) result.error = provider === 'claude'
-      ? 'Claude requires an official claude.ai subscription login with a recognized subscriptionType. Update the official Claude CLI and sign in with a subscription account. API and unverified billing are disabled.'
-      : 'Codex requires an official ChatGPT subscription login. API and unknown authentication methods are disabled.';
+    // A missing login is the common case after a server profile is created; only a
+    // present-but-unrecognized login indicates the wrong account or an outdated CLI.
+    if (!result.subscription) result.error = result.authenticated ? SUBSCRIPTION_REQUIRED[provider]
+      : `${LABEL[provider]} is not signed in here yet. Use Login to sign in with your ${provider === 'claude' ? 'Claude' : 'ChatGPT'} subscription account.`;
   } catch (error) {
     aborted(signal);
     result.installed = !(error instanceof RunnerError && error.code === 'unavailable');
@@ -701,7 +706,8 @@ export async function runGeneration(params, options = {}) {
       if (signal.aborted) abort();
       const status = await providerStatus(valid.provider, options, cwd, signal);
       aborted(signal);
-      if (!status.subscription) throw new RunnerError(status.error ?? 'Official subscription login required.', 'auth');
+      // Generation fails closed with the policy wording whatever the probe's user-facing hint says.
+      if (!status.subscription) throw new RunnerError(status.installed && status.authenticated ? status.error : SUBSCRIPTION_REQUIRED[valid.provider], 'auth');
       if (valid.nativeTools.length) mcp = await nativeMcp(valid, options, controller);
       const result = await (valid.provider === 'codex' ? generateCodex : generateClaude)(valid, { ...options, nativeMcp: mcp, nativeUsage }, cwd, controller.signal);
       mcp?.ready();

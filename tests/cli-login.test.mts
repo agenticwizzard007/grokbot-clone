@@ -672,6 +672,80 @@ test('credential replacement requires recent authentication', async () => {
   db.prepare('UPDATE auth_sessions SET authenticated_at=? WHERE token=session_hash(?)').run(Date.now()-11*60000,alice);
   assert.equal((await req(alice,'/login','POST',{provider:'codex',cols:80,rows:24})).status,401);
   assert.equal((await req(alice,'/pair','POST',{})).status,401);
+  assert.equal((await req(alice,'/reset','POST')).status,401);
+});
+
+test('reset removes both saved logins, the bridge pairing, a pending sign-in and cached status, keeps the selection and leaves the other account intact', async () => {
+  await login(alice, 'codex');
+  await login(alice, 'claude');
+  await login(bob, 'claude');
+  const ownHome = profilePath(alice), otherHome = profilePath(bob);
+  assert.equal(fs.readFileSync(path.join(ownHome, 'codex-fake-auth'), 'utf8'), 'subscription');
+  assert.equal(fs.readFileSync(path.join(ownHome, 'claude-fake-auth'), 'utf8'), 'subscription');
+  assert.equal(selectedCli(alice), 'claude');
+  createCliPairing(alice);
+  assert.equal(cliRuntime(alice), 'bridge');
+  setCliRuntime(alice, 'server');
+  const pending = await start(alice, 'codex');
+  const pid = audit().findLast(value => value.kind === 'login' && value.env.HOME === ownHome).pid;
+  const response = await req(alice, '/reset', 'POST', { expectedUserId: alice });
+  assert.equal(response.status, 200, await response.clone().text());
+  const status = await response.json();
+  assert.equal(status.runtime, 'server');
+  assert.equal(status.selected, 'claude', 'a reset must not silently restore API mode');
+  assert.equal(status.connected, true, 'reset re-probes the empty server profile');
+  for (const provider of ['codex', 'claude'] as const) {
+    assert.equal(status.providers[provider].installed, true);
+    assert.equal(status.providers[provider].authenticated, false, `${provider} is signed out after reset`);
+    assert.equal(status.providers[provider].subscription, false);
+  }
+  assert.equal(fs.existsSync(path.join(ownHome, 'codex-fake-auth')), false);
+  assert.equal(fs.existsSync(path.join(ownHome, 'claude-fake-auth')), false);
+  assert.equal(db.prepare('SELECT 1 FROM cli_pairings WHERE user_id=?').get(alice), undefined, 'reset revokes the bridge pairing');
+  assert.equal(cliRuntime(alice), 'server');
+  assert.equal((await req(alice, `/login/${pending.id}`)).status, 404, 'reset cancels the pending sign-in');
+  await until(() => { try { process.kill(pid, 0); return false; } catch { return true; } }, 'reset reaps the pending login process');
+  await assert.rejects(withUsage({ userId: alice }, () => llmClient(3000).responses.create({ model: defaultModel(), input: 'must reject after reset' })), /subscription|sign in/i);
+  assert.equal(fs.readFileSync(path.join(otherHome, 'claude-fake-auth'), 'utf8'), 'subscription');
+  assert.equal(selectedCli(bob), 'claude');
+  // The account can reconnect either provider straight away.
+  await login(alice, 'codex');
+  assert.equal(selectedCli(alice), 'codex');
+  const reconnected: any = await withUsage({ userId: alice }, () => llmClient(3000).responses.create({ model: defaultModel(), input: 'reconnected after reset' }));
+  assert.equal(reconnected.provider, 'codex-cli');
+  assert.equal(reconnected.billing, 'subscription');
+});
+
+test('reset rejects a stale displayed account before touching either account or its active terminal', async () => {
+  await login(alice, 'codex');
+  await login(bob, 'claude');
+  createCliPairing(bob);
+  setCliRuntime(bob, 'server');
+  const terminal = await start(bob, 'codex');
+  const beforeAlice = mutationState(alice), beforeBob = mutationState(bob);
+  const wrong = await req(bob, '/reset', 'POST', { expectedUserId: alice });
+  assert.equal(wrong.status, 409);
+  assert.equal((await wrong.json()).code, 'account_changed');
+  assert.equal((await req(bob, '/reset', 'POST')).status, 400, 'an absent account intent cannot reset the cookie account');
+  assert.deepEqual(mutationState(alice), beforeAlice);
+  assert.deepEqual(mutationState(bob), beforeBob);
+  assert.equal((await (await req(bob, `/login/${terminal.id}`)).json()).state, 'running');
+  db.prepare('UPDATE auth_sessions SET authenticated_at=? WHERE token=session_hash(?)').run(Date.now() - 11 * 60_000, bob);
+  assert.equal((await req(bob, '/reset', 'POST', { expectedUserId: bob })).status, 401);
+  assert.deepEqual(mutationState(bob), beforeBob, 'a step-up rejection must not cancel the terminal or reset credentials');
+});
+
+test('reauth verification requires fresh authentication for the initiating account and never mutates credentials', async () => {
+  const beforeAlice = mutationState(alice), beforeBob = mutationState(bob);
+  assert.equal((await req(alice, '/reauth', 'POST', { expectedUserId: alice })).status, 200);
+  assert.equal((await req(bob, '/reauth', 'POST', { expectedUserId: alice })).status, 409);
+  assert.equal((await req(alice, '/reauth', 'POST')).status, 400);
+  db.prepare('UPDATE auth_sessions SET authenticated_at=? WHERE token=session_hash(?)').run(Date.now() - 11 * 60_000, alice);
+  const old = await req(alice, '/reauth', 'POST', { expectedUserId: alice });
+  assert.equal(old.status, 401);
+  assert.equal((await old.json()).code, 'reauth_required');
+  assert.deepEqual(mutationState(alice), beforeAlice);
+  assert.deepEqual(mutationState(bob), beforeBob);
 });
 
 const credentialMutations = [
@@ -681,6 +755,7 @@ const credentialMutations = [
   // Selecting API mode would remove the existing subscription without an auth
   // refresh, so it also exercises the mutation's initial authorization boundary.
   { name: 'provider selection', route: '', method: 'PUT', body: { provider: null }, recent: false },
+  { name: 'reset', route: '/reset', method: 'POST', body: undefined, recent: true },
 ] as const;
 type CredentialMutation = typeof credentialMutations[number];
 
@@ -693,7 +768,7 @@ async function queuedMutation(userId: string, mutation: CredentialMutation, whil
   const oldSeen = Date.now() - 120_000;
   db.prepare('UPDATE auth_sessions SET last_seen_at=? WHERE token=session_hash(?)').run(oldSeen, userId);
   let settled = false;
-  const pending = req(userId, mutation.route, mutation.method, mutation.body).finally(() => { settled = true; });
+  const pending = req(userId, mutation.route, mutation.method, mutation.route === '/reset' ? { expectedUserId: userId } : mutation.body).finally(() => { settled = true; });
   try {
     await until(() => (db.prepare('SELECT last_seen_at FROM auth_sessions WHERE token=session_hash(?)').get(userId) as any)?.last_seen_at > oldSeen,
       'the request authenticates before its session changes');
@@ -816,5 +891,33 @@ test('revocation during async CLI auth refresh cannot select a verified provider
     fs.rmSync(hold, { force: true });
     await pending;
     await cancelUserLogins(alice);
+  }
+});
+
+
+test('late reset authentication expiry preserves its denial after cancelling a real PTY', async () => {
+  const source = fs.readFileSync(fakeCli, 'utf8');
+  fs.writeFileSync(fakeCli, source.replace('if (login) {', `if (login) {
+    process.on('SIGTERM', () => { audit({ kind: 'reset-stop-observed' }); setTimeout(() => process.exit(0), 500); });
+  `));
+  const session = await start(alice, 'codex');
+  const realNow = Date.now;
+  try {
+    const pending = req(alice, '/reset', 'POST', { expectedUserId: alice });
+    await until(() => audit().some(value => value.kind === 'reset-stop-observed'), 'reset has cancelled the real fake-CLI process');
+    // Simulate crossing the existing 10-minute recency cutoff while the already
+    // cancelled PTY is shutting down; the account session itself remains valid.
+    Date.now = () => realNow() + 11 * 60_000;
+    const response = await pending;
+    const body = await response.json();
+    Date.now = realNow;
+    const terminal = await req(alice, `/login/${session.id}`);
+    assert.equal(response.status, 401);
+    assert.equal(body.code, 'reauth_required');
+    assert.equal(terminal.status, 404);
+    console.log(JSON.stringify({ reproduction: 'late-reset-recency', resetStatus: response.status, resetCode: body.code, terminalAfterReset: terminal.status, cancellationObservedBeforeExpiry: true, providers: 'fake-only', paidApiRequests: apiRequests.length }));
+  } finally {
+    Date.now = realNow;
+    fs.writeFileSync(fakeCli, source);
   }
 });

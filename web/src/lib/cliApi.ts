@@ -39,9 +39,9 @@ async function request(method: string, path = '', body?: unknown, signal?: Abort
     keepalive,
   });
   if (!response.ok) {
-    let message = response.statusText || 'Subscription request failed.';
-    try { message = ((await response.json()) as { error?: string }).error || message; } catch { /* Not a JSON error. */ }
-    throw new ApiError(response.status, message);
+    let message = response.statusText || 'Subscription request failed.', code: string | undefined;
+    try { const body = (await response.json()) as { error?: string; code?: string }; message = body.error || message; code = body.code; } catch { /* Not a JSON error. */ }
+    throw new ApiError(response.status, message, code);
   }
   return response;
 }
@@ -52,6 +52,8 @@ export const cliApi = {
   select: async (provider: CliProvider | null): Promise<void> => { await request('PUT', '', { provider }); },
   refresh: async (): Promise<CliStatus> => (await request('POST', '/refresh')).json(),
   revoke: async (): Promise<void> => { await request('DELETE', '/pair'); },
+  reset: async (expectedUserId: string): Promise<CliStatus> => (await request('POST', '/reset', { expectedUserId })).json(),
+  verifyAuth: async (expectedUserId: string, signal?: AbortSignal): Promise<void> => { await request('POST', '/reauth', { expectedUserId }, signal); },
   startLogin: async (provider: CliProvider, cols: number, rows: number): Promise<LoginSession> => (await request('POST', '/login', { provider, cols, rows })).json(),
   login: async (id: string, cursor: number, signal?: AbortSignal): Promise<LoginSession> => (await request('GET', `/login/${encodeURIComponent(id)}?cursor=${cursor}`, undefined, signal)).json(),
   loginInput: async (id: string, data: string, signal?: AbortSignal): Promise<void> => { await request('POST', `/login/${encodeURIComponent(id)}/input`, { data }, signal); },

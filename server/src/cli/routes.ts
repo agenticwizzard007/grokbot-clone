@@ -3,7 +3,7 @@ import { Hono, type Context } from 'hono';
 import { env } from '../env.js';
 import { requireUser, requireRecentAuth, recentlyAuthenticated, userFromSessionHash, type AuthVars } from '../lib/auth.js';
 import { cliStatus, disconnectCli, refreshCli } from './bridge.js';
-import { cliRuntime, createCliPairing, isCliProvider, revokeCliPairing, selectCli } from './store.js';
+import { cliRuntime, createCliPairing, isCliProvider, revokeCliPairing, selectCli, setCliRuntime } from './store.js';
 import { deleteHostedProfile, hostedStatus, serverLoginAvailable, stopHostedJobs } from './hosted.js';
 import { cancelLoginSession, cancelUserLogins, CliLoginError, readLoginSession, resizeLoginSession, startLoginSession, writeLoginSession } from './login.js';
 import { withCliMutation } from './lock.js';
@@ -24,6 +24,16 @@ function mutationAuthorization(c: Context<AuthVars>, recent: boolean) {
   if (userFromSessionHash(currentSessionHash())?.id !== c.get('user').id) return c.json({ error: 'unauthenticated' }, 401);
   if (recent && !recentlyAuthenticated(c)) return c.json({ error: 'Sign in again to continue.', code: 'reauth_required' }, 401);
 }
+function accountIntent(c: Context<AuthVars>, expectedUserId: unknown) {
+  if (typeof expectedUserId !== 'string' || !expectedUserId) return c.json({ error: 'Confirm the account for this request.' }, 400);
+  if (expectedUserId !== c.get('user').id) return c.json({ error: 'Your account changed. Reload this page before changing a connection.', code: 'account_changed' }, 409);
+}
+// Navigation back from sign-in is not proof of fresh authentication for the initiating account.
+cliApi.post('/reauth', requireRecentAuth, async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const denied = mutationAuthorization(c, true) ?? accountIntent(c, body?.expectedUserId);
+  return denied ?? c.json({ ok: true });
+});
 function withAuthorizedMutation<T>(c: Context<AuthVars>, recent: boolean, action: () => Promise<T>) {
   return withCliMutation(c.get('user').id, async () => {
     // Middleware may have authorized this request before another mutation held
@@ -120,6 +130,31 @@ cliApi.post('/pair', requireRecentAuth, async (c) => {
     }
     const server = env.serverUrl.replace(/\/+$/, '');
     return c.json({ command: `curl -fsSL ${quote(`${server}/api/cli/script`)} -o swarm-cli-bridge.mjs && node swarm-cli-bridge.mjs --server ${quote(server)} --token ${quote(secret)}` });
+  });
+});
+// Start over: remove everything a login or pairing created, for both providers, then re-probe.
+cliApi.post('/reset', requireRecentAuth, async (c) => {
+  const userId = c.get('user').id;
+  const body = await c.req.json().catch(() => null);
+  const wrongAccount = accountIntent(c, body?.expectedUserId);
+  if (wrongAccount) return wrongAccount;
+  return withAuthorizedMutation(c, true, async () => {
+    const wrongAccount = accountIntent(c, body?.expectedUserId);
+    if (wrongAccount) return wrongAccount;
+    await cancelUserLogins(userId);
+    const denied = mutationAuthorization(c, true);
+    if (denied) return denied;
+    // Saved Claude and Codex credentials live in one private profile; a bridge pairing and its socket go too.
+    await deleteHostedProfile(userId);
+    revokeCliPairing(userId);
+    disconnectCli(userId);
+    await registerCompanion('cli');
+    setCliRuntime(userId, 'server');
+    // Retain the subscription selection: a reset must never silently enable API billing.
+    const noLongerAuthorized = mutationAuthorization(c, true);
+    if (noLongerAuthorized) return noLongerAuthorized;
+    try { return c.json(await refreshCli(userId)); }
+    catch { return c.json(cliStatus(userId)); }
   });
 });
 cliApi.delete('/pair', requireRecentAuth, async (c) => {
