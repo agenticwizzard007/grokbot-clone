@@ -5,11 +5,11 @@ import { runtimeImage } from '../scripts/resolve-staging-image.mjs';
 const candidate = 'a'.repeat(40), main = 'b'.repeat(40), live = 'c'.repeat(40);
 function fixture(overrides = {}) {
   const calls = [];
-  return { calls, input: { revision: candidate, branch: 'agenticwizzard007/hermes-integration-strategy',
+  return { calls, input: { revision: candidate, branch: 'main',
     github: async endpoint => {
       calls.push(endpoint);
-      if (endpoint === 'git/ref/heads/main') return { object: { sha: main } };
-      if (endpoint.startsWith('git/ref/heads/')) return { object: { sha: overrides.head ?? candidate } };
+      // Candidates are main pushes: the branch head is the candidate unless a newer push superseded it.
+      if (endpoint === 'git/ref/heads/main') return { object: { sha: overrides.head ?? candidate } };
       if (endpoint.startsWith(`compare/${main}`)) return { status: overrides.mainStatus ?? 'ahead' };
       if (endpoint.startsWith(`compare/${live}`)) return { status: overrides.liveStatus ?? 'ahead' };
       throw Error('Unexpected request: ' + endpoint);
@@ -18,8 +18,7 @@ function fixture(overrides = {}) {
 }
 test('release retains both the latest main and previously deployed feature work', async () => {
   const { calls, input } = fixture();
-  assert.deepEqual(await checkRelease(input), { deploy: true, revision: candidate, main, previousRevision: live });
-  assert.ok(calls.includes(`compare/${main}...${candidate}`));
+  assert.deepEqual(await checkRelease(input), { deploy: true, revision: candidate, main: candidate, previousRevision: live });
   assert.ok(calls.includes(`compare/${live}...${candidate}`));
 });
 test('superseded queued pushes never deploy', async () => {
@@ -27,11 +26,25 @@ test('superseded queued pushes never deploy', async () => {
   assert.equal((await checkRelease(input)).deploy, false);
   assert.equal(calls.length, 1);
 });
-test('a branch missing newer main changes cannot release', async () => {
-  await assert.rejects(checkRelease(fixture({ mainStatus: 'diverged' }).input), /omits main changes/);
+test('a candidate that is no longer the main head never releases', async () => {
+  const { calls, input } = fixture({ head: main });
+  assert.deepEqual(await checkRelease(input), { deploy: false, revision: candidate, reason: 'Superseded by a newer branch push' });
+  assert.equal(calls.length, 1);
 });
 test('an older main or divergent branch cannot remove live features', async () => {
   for (const liveStatus of ['behind', 'diverged']) await assert.rejects(checkRelease(fixture({ liveStatus }).input), /omits live changes/);
+});
+test('only main may release: feature and personal branches are refused before any comparison', async () => {
+  for (const branch of ['agenticwizzard007/hermes-integration-strategy', 'feature/x']) {
+    const { calls, input } = fixture(); input.branch = branch;
+    await assert.rejects(checkRelease(input), /Only main may deploy/);
+    assert.equal(calls.length, 0);
+  }
+});
+test('an off-main live revision is replaced only with the explicit dispatch override, and main changes are still required', async () => {
+  await assert.rejects(checkRelease(fixture({ liveStatus: 'diverged' }).input), /allow_live_replacement/);
+  const { input } = fixture({ liveStatus: 'diverged' }); input.allowLiveReplacement = true;
+  assert.equal((await checkRelease(input)).deploy, true);
 });
 test('merged main may release when it retains the live revision', async () => {
   const { input } = fixture();input.branch = 'main';input.revision = main;
@@ -45,7 +58,7 @@ test('missing release identity and failed live reads stop deployment', async () 
 });
 test('manual dispatch from unrelated branches or a symbolic revision is rejected', async () => {
   const { input } = fixture();
-  await assert.rejects(checkRelease({ ...input, branch: 'experimental' }), /Only integration\/main/);
+  await assert.rejects(checkRelease({ ...input, branch: 'experimental' }), /Only main may deploy/);
   await assert.rejects(checkRelease({ ...input, revision: 'HEAD' }), /exact source revision/);
 });
 

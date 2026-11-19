@@ -17,6 +17,12 @@ let revision = process.env.SWARM_BUILD_REVISION || null;
 if (!revision) {
   try { revision = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { /* Source archives may not have Git metadata. */ }
 }
+// A release without an exact revision cannot be identified by /api/version, and once such an image is live the
+// deployment preflight refuses every later candidate. Fail the build instead of recording null.
+if (!/^[a-f0-9]{40}$/.test(revision ?? '')) {
+  console.error('write-release-manifest: no exact source revision. Build from a Git checkout or pass SWARM_BUILD_REVISION=<40-hex commit>.');
+  process.exit(1);
+}
 const frontend = inventory('web/dist', ['build.json']);
 const server = inventory('server/dist', ['release-manifest.json']);
 const build = { revision, builtAt: new Date().toISOString(), frontendSha256: hash(JSON.stringify(frontend)), serverSha256: hash(JSON.stringify(server)) };

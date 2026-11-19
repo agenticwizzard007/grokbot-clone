@@ -36,7 +36,8 @@ try {
   assert.equal(created.rows.find((r)=>r.body.name==='create_bot').body.status,'done');
   const teammate=(await api('/bots')).bots.find((b)=>b.name==='Nia'); assert.ok(teammate);
   assert.equal((await api(`/bots/${teammate.id}/setup`)).computer.status,'ready');
-  assert.ok((await api(`/bots/${teammate.id}/rows`)).rows.some((r)=>r.body.role==='assistant'&&r.body.text.includes('configure Nia')));
+  // Coworkers are prepared centrally from the primary conversation; the teammate chat records the handoff event instead of a setup interview.
+  assert.ok((await api(`/bots/${teammate.id}/rows`)).rows.some((r)=>r.body.event==='bot-message'&&r.body.text.includes('prepared this coworker')));
   const listing = await api(`/bots/${teammate.id}/files?path=Setup`); assert.equal(listing.files.length,8);
   const charter = await (await fetch(`${base}/api/bots/${teammate.id}/setup/AGENTS.md`,{headers:{cookie}})).text(); assert.match(charter,/Do not send outreach/);
   await chat(primary.id, 'mock: computer_screenshot {} | say My browser is ready.');
@@ -154,7 +155,8 @@ try {
   await settings.getByRole('button',{name:'Add skill',exact:true}).click();
   await settings.getByText('Evidence checklist',{exact:true}).waitFor();
   await settings.getByRole('button',{name:'Close',exact:true}).click();
-  await until(async () => (await page.getByLabel('Assembled system instructions').innerText()).includes('Check each source before presenting the lead summary.'));
+  // Skills are loaded on demand: the assembled instructions carry the skill index (name), not the steps.
+  await until(async () => (await page.getByLabel('Assembled system instructions').innerText()).includes('Evidence checklist'));
 
   await page.locator('summary').filter({hasText:'Preview assembled instructions'}).click();
   await page.locator('.details__scroll').evaluate(el=>el.scrollTop=180);

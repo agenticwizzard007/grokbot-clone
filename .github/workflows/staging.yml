@@ -1,8 +1,13 @@
 name: Deploy Fly staging
 on:
   push:
-    branches: [main, agenticwizzard007/hermes-integration-strategy]
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      allow_live_replacement:
+        description: Deploy main even if the live revision is not an ancestor (only after a reviewed manual release left production off main)
+        type: boolean
+        default: false
 permissions:
   contents: read
 defaults:
@@ -13,7 +18,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   release:
-    if: github.repository == 'agenticwizzard007/grokbot-clone' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/agenticwizzard007/hermes-integration-strategy')
+    if: github.repository == 'agenticwizzard007/grokbot-clone' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -29,6 +34,7 @@ jobs:
         id: preflight
         env:
           GH_TOKEN: ${{ github.token }}
+          ALLOW_LIVE_REPLACEMENT: ${{ inputs.allow_live_replacement == true && 'true' || 'false' }}
         run: |
           mkdir -p .context/staging-release
           node --test tests/staging-release.test.mjs
@@ -70,6 +76,7 @@ jobs:
         id: publish
         env:
           GH_TOKEN: ${{ github.token }}
+          ALLOW_LIVE_REPLACEMENT: ${{ inputs.allow_live_replacement == true && 'true' || 'false' }}
         run: node scripts/staging-preflight.mjs | tee .context/staging-release/prepublish.json
       - name: Publish image and back up staging
         if: steps.publish.outputs.deploy == 'true'
@@ -91,6 +98,7 @@ jobs:
         id: deploy
         env:
           GH_TOKEN: ${{ github.token }}
+          ALLOW_LIVE_REPLACEMENT: ${{ inputs.allow_live_replacement == true && 'true' || 'false' }}
         run: node scripts/staging-preflight.mjs | tee .context/staging-release/predeploy.json
       - name: Deploy immutable image and verify published files
         if: steps.deploy.outputs.deploy == 'true'
