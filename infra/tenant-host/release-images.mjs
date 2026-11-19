@@ -2,13 +2,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
-import {generateKeyPairSync} from 'node:crypto';
+import {createHash,generateKeyPairSync} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {publicKey} from './release-inputs.mjs';
+import {gate} from './scan-gate.mjs';
 export function validatePipeline(mode,source,app,lock){
   if(!['dry-run','publish'].includes(mode)||!/^[a-f0-9]{40}$/.test(source))throw Error('Expected --dry-run or --publish and an exact RELEASE_SOURCE_SHA');
   if(mode==='publish'&&!/^[a-z][a-z0-9-]{2,60}$/.test(app??''))throw Error('REGISTRY_APP must name the approved Fly registry app');
-  for(const name of ['nodeImage','dockerImage'])if(!/^docker\.io\/library\/[a-z]+@sha256:[a-f0-9]{64}$/.test(lock[name]??''))throw Error(`Unpinned ${name}`);
+  for(const name of ['nodeImage','dockerImage','goImage'])if(!/^docker\.io\/library\/[a-z]+@sha256:[a-f0-9]{64}$/.test(lock[name]??''))throw Error(`Unpinned ${name}`);
+  const rt=lock.runtimeBuild;
+  if(!/^v\d+\.\d+\.\d+$/.test(rt?.containerdVersion??'')||!/^[a-f0-9]{40}$/.test(rt?.containerdCommit??'')||!/^v\d+\.\d+\.\d+$/.test(rt?.runcVersion??'')||!/^[a-f0-9]{40}$/.test(rt?.runcCommit??'')||!/^\d+\.\d+\.\d+$/.test(rt?.libpathrsVersion??''))throw Error('Invalid container runtime source pins');
+  if(!Array.isArray(rt.goModuleUpgrades)||!rt.goModuleUpgrades.length||!rt.goModuleUpgrades.every(m=>/^[a-z0-9.-]+(\/[A-Za-z0-9._-]+)+@v\d+\.\d+\.\d+$/.test(m)))throw Error('Invalid Go module upgrades');
   if(lock.platform!=='linux/amd64'||!/^\d{8}T\d{6}Z$/.test(lock.debianSnapshot)||!/^\d+\.\d+\.\d+\.\d+-\d+$/.test(lock.chromeVersion)||!/^[a-f0-9]{64}$/.test(lock.chromeSha256))throw Error('Invalid locked platform/package inputs');
   if(!/^\d+\.\d+\.\d+$/.test(lock.dockerVersion)||!/^[a-f0-9]{64}$/.test(lock.dockerStaticSha256)||!/^\d+\.\d+\.\d+$/.test(lock.npmVersion)||!/^sha512-[A-Za-z0-9+/]{86}==$/.test(lock.npmIntegrity))throw Error('Invalid Docker/npm release checksums');
   if(!/^[0-9a-zA-Z:.+~-]+$/.test(lock.zlibVersion??''))throw Error('Invalid zlib package version');
@@ -49,8 +53,11 @@ export function main(args=process.argv.slice(2),environment=process.env){
   };
   const failedScans=[];
   const scan=(name,image)=>{
-    try{run('trivy',['image','--image-src','docker','--scanners','vuln','--severity','HIGH,CRITICAL','--exit-code','1','--format','json','--output',`${reportDir}/${name}.json`,image]);}
-    catch(error){if(mode==='publish')throw error;failedScans.push(name);console.error(`Dry-run scan failed for ${name}; collecting remaining evidence, final result will fail.`);}
+    try{
+      run('trivy',['image','--image-src','docker','--scanners','vuln','--severity','HIGH,CRITICAL','--exit-code','0','--format','json','--output',`${reportDir}/${name}.json`,image]);
+      if(gate(`${reportDir}/${name}.json`,name).violations.length)throw Error(`Vulnerability gate failed for ${name}`);
+    }
+    catch(error){if(mode==='publish')throw error;failedScans.push(name);console.error(`Dry-run scan failed for ${name} (${error.message}); collecting remaining evidence, final result will fail.`);}
   };
   const inspected=image=>JSON.parse(read('docker',['image','inspect',image]))[0];
   const publish=image=>{
@@ -72,8 +79,11 @@ export function main(args=process.argv.slice(2),environment=process.env){
     }
     const common={NODE_IMAGE:lock.nodeImage,DEBIAN_SNAPSHOT:lock.debianSnapshot,ZLIB_VERSION:lock.zlibVersion};
     const images={
-      app:build('app','Dockerfile',{...common,NPM_VERSION:lock.npmVersion,NPM_INTEGRITY:lock.npmIntegrity}),
-      hostBase:build('host-base','infra/tenant-host/HostBase.Dockerfile',{...common,DOCKER_IMAGE:lock.dockerImage,DOCKER_VERSION:lock.dockerVersion,DOCKER_STATIC_SHA256:lock.dockerStaticSha256}),
+      app:build('app','Dockerfile',{...common,NPM_VERSION:lock.npmVersion,NPM_INTEGRITY:lock.npmIntegrity,SWARM_BUILD_REVISION:source}),
+      hostBase:build('host-base','infra/tenant-host/HostBase.Dockerfile',{...common,DOCKER_IMAGE:lock.dockerImage,DOCKER_VERSION:lock.dockerVersion,DOCKER_STATIC_SHA256:lock.dockerStaticSha256,
+        GO_IMAGE:lock.goImage,CONTAINERD_VERSION:lock.runtimeBuild.containerdVersion,CONTAINERD_COMMIT:lock.runtimeBuild.containerdCommit,
+        RUNC_VERSION:lock.runtimeBuild.runcVersion,RUNC_COMMIT:lock.runtimeBuild.runcCommit,LIBPATHRS_VERSION:lock.runtimeBuild.libpathrsVersion,
+        GO_MODULE_UPGRADES:lock.runtimeBuild.goModuleUpgrades.join(' ')}),
     };
     for(const [name,image] of Object.entries(images))scan(name,image);
     // Both bases are scanned/signed before a publish build references their immutable registry digests.
@@ -95,6 +105,7 @@ export function main(args=process.argv.slice(2),environment=process.env){
     const release=JSON.parse(fs.readFileSync('.context/tenant-release/release.json','utf8'));
     const record={mode,sourceCommit:source,lockedInputs:lock,components:refs,runner:refs.app,mcp:refs.app,hostImage:host,
       desktopSeccompSha256:release.desktopSeccompSha256,ffmpeg:release.ffmpeg,failedScans,
+      scanExceptionsSha256:createHash('sha256').update(fs.readFileSync('infra/tenant-host/scan-exceptions.json')).digest('hex'),
       liveInfrastructureQualified:false};
     fs.writeFileSync(`${reportDir}/images.json`,JSON.stringify(record,null,2)+'\n');
     if(mode==='publish')fs.copyFileSync(verifyFile,`${reportDir}/cosign.pub`);
