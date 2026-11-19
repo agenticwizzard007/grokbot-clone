@@ -1,6 +1,7 @@
 import { db } from '../db.js';
 import '../db-config.js';
 import '../agent/jobs.js';
+import { installEvolutionHistory } from './evolution-schema.js';
 import { assertLegacyDatabaseFences, legacyWritableRows } from '../platform/legacy-database-fence.js';
 
 function column(table: string, name: string, ddl: string) {
@@ -205,3 +206,5 @@ for (const table of ['knowledge_promotion_policies','knowledge_skill_evaluations
  CREATE TRIGGER IF NOT EXISTS ${table}_no_delete BEFORE DELETE ON ${table} WHEN EXISTS(SELECT 1 FROM bots WHERE id=OLD.bot_id) BEGIN SELECT RAISE(ABORT,'Learning evidence is immutable'); END;`);
 }
 db.exec(`CREATE TRIGGER IF NOT EXISTS knowledge_review_inputs_frozen BEFORE UPDATE OF user_id,bot_id,parent_job_id,reason,review_memory,review_skills,model,provider,settings_revision,foreground_epoch,generation,snapshot,source_snapshot,settings,knowledge_snapshot,context_window,created_at ON knowledge_learning_reviews WHEN OLD.status!='queued' BEGIN SELECT RAISE(ABORT,'Executed learning inputs are immutable'); END;`);
+
+installEvolutionHistory(db);

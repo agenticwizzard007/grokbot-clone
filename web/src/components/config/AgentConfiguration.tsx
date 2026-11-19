@@ -8,6 +8,7 @@ import { useVersion } from '../../configStore';
 import { useStore } from '../../store';
 import { Markdown } from '../Markdown';
 import { AgentHarness } from './AgentHarness';
+import { AgentHistory } from './AgentHistory';
 import { Icon } from '../Icon';
 
 const normalized = (s: string) => s.trim().toLowerCase().replace(/[.!]+$/, '').replace(/\s+/g, ' ');
@@ -42,7 +43,7 @@ export function AgentConfiguration({ bot }: { bot: Bot }) {
   const [absent, setAbsent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
-  const [tab, setTab] = useState<'responsibilities' | 'harness' | 'files'>('responsibilities');
+  const [tab, setTab] = useState<'responsibilities' | 'harness' | 'files' | 'history'>('responsibilities');
   const [selectedFile, setSelectedFile] = useState('AGENTS.md');
   const fileList = useRef<HTMLDivElement>(null);
   const fileReader = useRef<HTMLElement>(null);
@@ -90,6 +91,7 @@ export function AgentConfiguration({ bot }: { bot: Bot }) {
     <p className="agent-config__muted">Define its job, expected results and the decisions it should bring to you.</p>
     <button type="button" className="cfg-btn cfg-btn--secondary" onClick={interview} disabled={busy || running}>{busy ? 'Starting…' : 'Start setup interview'}</button>
     {error && <p className="cfg-error" role="alert">{error}</p>}
+    <AgentHistory key={bot.id} botId={bot.id}/>
   </div>;
   if (!data) return <div className="details__sections"><p className="cfg-error" role="alert">{error || 'Configuration unavailable.'}</p><button type="button" className="link-btn" onClick={() => setRefresh((v) => v + 1)}>Retry</button></div>;
   const { brief } = data.manifest;
@@ -100,7 +102,7 @@ export function AgentConfiguration({ bot }: { bot: Bot }) {
   const boundaries = usefulItems([brief.action_boundaries])[0];
   const exclusions = usefulItems(brief.out_of_scope, boundaries ? [boundaries] : []);
   const questions = usefulItems(brief.open_questions);
-  const tabs = ['responsibilities', 'harness', 'files'] as const;
+  const tabs = ['responsibilities', 'harness', 'files', 'history'] as const;
   const file = Object.hasOwn(data.files, selectedFile) ? selectedFile : Object.keys(data.files)[0];
   return <div className="details__sections agent-config">
     <section className={`agent-config__status is-${status}`} aria-label="Setup status">
@@ -114,7 +116,7 @@ export function AgentConfiguration({ bot }: { bot: Bot }) {
       {tabs.map((value, i) => <button type="button" key={value} role="tab" id={`config-${bot.id}-${value}`} aria-controls={`config-${bot.id}-${value}-panel`} aria-selected={tab === value} tabIndex={tab === value ? 0 : -1} onClick={() => setTab(value)} onKeyDown={(e) => {
         const next = e.key === 'ArrowRight' ? (i + 1) % tabs.length : e.key === 'ArrowLeft' ? (i + tabs.length - 1) % tabs.length : e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : null;
         if (next !== null) { e.preventDefault(); setTab(tabs[next]); document.getElementById(`config-${bot.id}-${tabs[next]}`)?.focus(); }
-      }}>{value === 'responsibilities' ? 'Responsibilities' : value === 'harness' ? 'Harness' : 'Files'}</button>)}
+      }}>{value === 'responsibilities' ? 'Responsibilities' : value === 'harness' ? 'Harness' : value === 'history' ? 'History' : 'Files'}</button>)}
     </div>
     <div className="agent-config__content" role="tabpanel" id={`config-${bot.id}-responsibilities-panel`} aria-labelledby={`config-${bot.id}-responsibilities`} tabIndex={0} hidden={tab !== 'responsibilities'}>
       {purpose || responsibilities.length ? <section className="agent-config__section"><h3>Mission & responsibilities</h3>{purpose && <p className="agent-config__mission">{purpose}</p>}{!!responsibilities.length && <ul>{responsibilities.map((item, i) => <li key={i}>{item}</li>)}</ul>}</section> : <p className="agent-config__muted">No specific job defined yet. Describe what you want this agent to handle in chat.</p>}
@@ -142,6 +144,9 @@ export function AgentConfiguration({ bot }: { bot: Bot }) {
         <div className="agent-config__row"><h3>{file}</h3><a className="cfg-btn cfg-btn--secondary" href={`/api/bots/${bot.id}/setup/${encodeURIComponent(file)}`} download={file}><Icon name="arrow_down" size={14} />Download</a></div>
         {file.endsWith('.json') ? <pre tabIndex={0}>{data.files[file]}</pre> : <Markdown text={data.files[file]} />}
       </section>}
+    </div>
+    <div className="agent-config__content" role="tabpanel" id={`config-${bot.id}-history-panel`} aria-labelledby={`config-${bot.id}-history`} tabIndex={0} hidden={tab !== 'history'}>
+      {tab==='history'&&<AgentHistory key={bot.id} botId={bot.id}/>}
     </div>
   </div>;
 }

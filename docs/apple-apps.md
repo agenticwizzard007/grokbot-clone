@@ -26,7 +26,7 @@ npm run apple:test    # run the native URL/authentication policy tests on Mac
 
 The scripts use unsigned builds so CI needs no developer credentials. For a runnable Mac development build, run through Xcode with local development/ad-hoc signing. The Mac target is unsandboxed with hardened runtime for optional local computer control; iOS remains unchanged. The resulting apps are under `apple/build/Build/Products/Debug/Swarm.app` (Mac) and `Debug-iphonesimulator/Swarm.app` (simulator). Simulator apps cannot be installed on a physical phone.
 
-The `Apple apps` GitHub Actions workflow builds both platforms and runs native policy tests on a Mac runner. Its artifacts are development builds, not distribution packages.
+Automatic native Mac and iPhone CI builds are paused while app work is deferred. The `Shared app checks` workflow still runs the shared web, voice, authentication and companion checks on Linux. Use the local commands above for native development; the separate `Mac direct download` workflow remains available by manual dispatch.
 
 ## Server configuration
 

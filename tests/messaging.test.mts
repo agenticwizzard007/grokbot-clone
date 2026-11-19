@@ -29,6 +29,8 @@ const platformStt: { filename: string; mime: string; data: Buffer }[] = [];
 // ---------- fake Inkbox ----------
 const ib = {
   assignments: [] as string[],
+  /** Numbers Inkbox refuses to text first (connected on the shared line, never wrote to it): 409 imessage_awaiting_inbound. */
+  awaiting: [] as string[],
   reactions: [] as any[],
   sent: [] as any[],
   uploads: [] as { type: string; bytes: number }[],
@@ -78,6 +80,8 @@ const inkbox = http.createServer((req, res) => {
     const p = url.replace(/^\/api\/v1/, '');
     if (p === '/imessage/messages' && req.method === 'POST') {
       if (key !== 'idkey') return json(401, { detail: 'bad key' });
+      const target = String(body.to ?? String(body.conversation_id ?? '').replace(/^conv_/, '+')).replace(/\D/g, '');
+      if (ib.awaiting.includes(target)) return json(409, { detail: { error: 'imessage_awaiting_inbound', address: `+${target}`, message: `+${target} is connected to this agent but hasn't sent a message or reaction yet. They must text +12547360578, not the router, before the agent can reply.` } });
       ib.sent.push(body);
       return json(200, { message: { id: `im_out_${ib.sent.length}`, conversation_id: body.conversation_id } });
     }
@@ -644,7 +648,11 @@ test('phone verification does not send codes through carrier SMS', async () => {
 test('phone sign-in: a connected iMessage number gets its code texted right away', async () => {
   ib.sent.length = 0;
   const start = await (await post('/api/auth/phone/start', { phone: '+15550002222' })).json() as any;
+  assert.equal(start.delivery, 'sent');
   const msg = await sentTo('15550002222', /sign-in code is \d{6}/);
+  await text('15550002222', 'hello team');
+  await sentTo('15550002222', /Got it: "\[via iMessage\] hello team"/);
+  assert.equal(ib.sent.filter((m) => m.conversation_id === conv('15550002222') && /sign-in code is \d{6}/.test(m.text ?? '')).length, 1, 'a code that was texted is not repeated when they write');
   for (let i = 0; i < 5; i++) await post('/api/auth/phone/verify', { id: start.id, code: '111111' });
   assert.equal((await post('/api/auth/phone/verify', { id: start.id, code: codeIn(msg.text) })).status, 429, 'five wrong codes lock it');
   const again = await (await post('/api/auth/phone/start', { phone: '+15550002222' })).json() as any;
@@ -654,13 +662,44 @@ test('phone sign-in: a connected iMessage number gets its code texted right away
   assert.equal(((await r.json()) as any).created, false);
 });
 
+test('a connected number Inkbox will not text first gets its code by replying in the Swarm thread', async () => {
+  // Reconnecting on the shared line resets Inkbox's "they wrote first" state: the number is connected, has an account
+  // and a conversation, yet every send is refused until the phone texts the line's number (not the router).
+  const phone = '15550004747';
+  const me = createAccount({ phone, name: 'Reconnected', source: 'text' }).id;
+  store.upsertLink(me, 'imessage', 'inkbox', { status: 'connected', phone, chatRef: conv(phone), lastInboundAt: Date.now() - 86_400_000 });
+  ib.sent.length = 0;
+  ib.awaiting.push(phone);
+  try {
+    const start = await (await post('/api/auth/phone/start', { phone: `+${phone}` })).json() as any;
+    assert.equal(start.delivery, 'text-first', 'the page is told the code is not on its way');
+    assert.equal(start.textNumber, '+12547360578', 'and which number to text, from Inkbox');
+    assert.equal(ib.sent.find((m) => /sign-in code/.test(m.text ?? '')), undefined);
+    // Their text unlocks the line; the code goes back in that thread, and the greeting does not reach their Bots.
+    ib.awaiting.length = 0;
+    await text(phone, 'hi');
+    const msg = await sentTo(phone, /sign-in code is \d{6}/);
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(ib.sent.find((m) => m.conversation_id === conv(phone) && /Got it:/.test(m.text ?? '')), undefined, 'a text that asked for the code is not a Bot message');
+    assert.equal(store.getLink(me, 'imessage')!.chatRef, conv(phone), 'the thread they wrote from is kept');
+    const ok = await post('/api/auth/phone/verify', { id: start.id, code: codeIn(msg.text) });
+    assert.equal(ok.status, 200);
+    assert.equal(((await ok.json()) as any).created, false);
+    // Afterwards their texts reach their Bots as usual.
+    await text(phone, 'hello team');
+    await sentTo(phone, /Got it: "\[via iMessage\] hello team"/);
+  } finally { ib.awaiting.length = 0; }
+});
+
 test('connect a phone to a signed-in account; a number with its own account is refused', async () => {
   const web = createAccount({ email: 'attach@example.com', name: 'Attach' }).id;
   const cookie = cookieFor(web);
-  const conflict = await (await post('/api/messaging/phone/start', { phone: '+15550002222' }, cookie)).json() as any;
-  const m = await sentTo('15550002222', /code to connect this number is \d{6}/);
-  const no = await post('/api/messaging/phone/verify', { id: conflict.id, code: codeIn(m.text) }, cookie);
-  assert.equal(no.status, 409);
+  ib.sent.length = 0;
+  const conflict = await post('/api/messaging/phone/start', { phone: '+15550002222' }, cookie);
+  assert.equal(conflict.status, 409, 'refused before any code is texted');
+  assert.match(((await conflict.json()) as any).error, /An account with this number already exists/);
+  assert.equal(ib.sent.find((m) => /code to connect this number/.test(m.text ?? '')), undefined);
+  assert.equal((await post('/api/auth/phone/start', { phone: '+15550002222' })).status, 200, 'signing in with that number is the normal path');
 
   const start = await (await post('/api/messaging/phone/start', { phone: '+15550009999' }, cookie)).json() as any;
   await text('15550009999', 'connect @swarm');

@@ -7,6 +7,7 @@ import { getSkill, listSkills, updateSkill, deleteSkill, setSkillScope, resource
 import { curateSkills } from './knowledge/curator.js';
 import { listLearningReviews, refineLearning, cancelLearningReview, learningContext, curateLearning } from './agent/learning.js';
 import { promotionPolicy, setPromotionPolicy, listSkillEvaluations, evaluateSkillProposal } from './knowledge/evaluation.js';
+import { evolutionHistory, evolutionChange } from './knowledge/evolution.js';
 export const learningApi = new Hono<AuthVars>();
 learningApi.use('*', requireUser);
 learningApi.use('*', async (c, next) => { c.header('Cache-Control', 'no-store'); await next(); });
@@ -25,6 +26,11 @@ catch {
     throw new KnowledgeError('Invalid JSON body');
 } }
 learningApi.get('/settings', c => c.json(learningSettings(c.get('user').id, c.req.query('botId'))));
+learningApi.get('/bots/:botId/history', c => {
+    const number=(name:string)=>c.req.query(name)===undefined?undefined:Number(c.req.query(name));
+    return c.json(evolutionHistory(c.get('user').id,c.req.param('botId'),{before:number('before'),through:number('through'),limit:number('limit')}));
+});
+learningApi.get('/bots/:botId/history/:version', c => c.json(evolutionChange(c.get('user').id,c.req.param('botId'),Number(c.req.param('version')))));
 learningApi.patch('/settings', async (c) => c.json(patchLearningSettings(c.get('user').id, await body(c))));
 learningApi.get('/reviews', c => c.json(listLearningReviews(c.get('user').id, { botId: c.req.query('botId'), before: c.req.query('before') ? Number(c.req.query('before')) : undefined, limit: c.req.query('limit') ? Number(c.req.query('limit')) : undefined })));
 learningApi.post('/bots/:botId/refine', async (c) => { await body(c); return c.json({ review: refineLearning(c.get('user').id, c.req.param('botId')) }, 202); });
