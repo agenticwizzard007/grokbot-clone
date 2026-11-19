@@ -234,6 +234,43 @@ test('the current application schema can hold one account and refuses its existi
    await assert.rejects(exportTenantDatabase(snapshot,destination,a,'new_volume'),/Unproven.*ownership/);
    assert.equal(fs.existsSync(destination),false);
   });
+  for(const reversed of [false,true])await t.test(`duplicate root parentJobId is refused (${reversed})`,async()=>{
+   const snapshot=path.join(root,`reference-${++n}.db`),destination=path.join(root,`reference-export-${n}.db`);fs.copyFileSync(baseline,snapshot);
+   const first=reversed?held.job:active.job,last=reversed?active.job:held.job;
+   const raw=`{"parentJobId":"${first}","parentJobId":"${last}"}`;
+   const edit=new Database(snapshot);try{
+    assert.equal(JSON.parse(raw).parentJobId,last);
+    assert.equal((edit.prepare("SELECT json_extract(?,'$.parentJobId') p").get(raw) as any).p,first);
+    edit.prepare('UPDATE agent_jobs SET trigger=? WHERE id=?').run(raw,held.job);
+   }finally{edit.close();}
+   await assert.rejects(exportTenantDatabase(snapshot,destination,a,'new_volume'),/ambiguous JSON/);
+  });
+  for(const table of ['knowledge_skill_proposals','knowledge_skill_revisions','knowledge_memory_changes','memories'])for(const direction of ['outgoing','incoming','history'])await t.test(`${table} run_id ${direction}`,async()=>{
+   const snapshot=path.join(root,`reference-${++n}.db`),destination=path.join(root,`reference-export-${n}.db`);fs.copyFileSync(baseline,snapshot);
+   const bot=direction==='incoming'?other.id:owned.id,user=direction==='incoming'?b:a,skill=direction==='incoming'?active.skill:held.skill;
+   const run=direction==='outgoing'?active.job:direction==='incoming'?held.job:'historical-non-job';
+   const edit=new Database(snapshot);try{
+    if(table==='knowledge_skill_revisions')edit.prepare("INSERT INTO knowledge_skill_revisions(skill_id,bot_id,revision,snapshot,action,actor,run_id,created_at) VALUES(?,?,99,'{}','update','fixture',?,1)").run(skill,bot,run);
+    else if(table==='knowledge_memory_changes')edit.prepare("INSERT INTO knowledge_memory_changes(id,user_id,bot_id,base_revision,generation,action,target,evidence,run_id,created_at) VALUES('change',?,?,1,1,'create','user','[]',?,1)").run(user,bot,run);
+    else if(table==='knowledge_skill_proposals')edit.prepare("INSERT INTO knowledge_skill_proposals(id,bot_id,skill_id,base_revision,generation,snapshot,reason,evidence,run_id,created_at) VALUES('run-proposal',?,?,1,1,'{}','test','[]',?,1)").run(bot,skill,run);
+    else edit.prepare('UPDATE memories SET run_id=? WHERE bot_id=?').run(run,bot);
+   }finally{edit.close();}
+   if(direction==='history'){
+    await exportTenantDatabase(snapshot,destination,a,'new_volume');const result=new Database(destination);
+    try{assert.ok(result.prepare(`SELECT 1 FROM ${table} WHERE run_id=?`).get(run));}finally{result.close();}
+   }else await assert.rejects(exportTenantDatabase(snapshot,destination,a,'new_volume'),/Foreign.*job ownership/);
+  });
+  await t.test('unrelated partial output survives ownership refusal and output collisions',async()=>{
+   const destination=path.join(root,'sentinel-export.db'),partial=`${destination}.partial`,sentinel='unrelated partial bytes';
+   fs.writeFileSync(partial,sentinel);
+   await assert.rejects(exportTenantDatabase(baseline,destination,'missing-user','new_volume'),/Tenant does not exist/);
+   assert.equal(fs.readFileSync(partial,'utf8'),sentinel);
+   await assert.rejects(exportTenantDatabase(baseline,destination,a,'new_volume'),/EEXIST/);
+   assert.equal(fs.readFileSync(partial,'utf8'),sentinel);assert.equal(fs.existsSync(destination),false);
+   fs.writeFileSync(destination,'existing output');
+   await assert.rejects(exportTenantDatabase(baseline,destination,a,'new_volume'),/already exists/);
+   assert.equal(fs.readFileSync(destination,'utf8'),'existing output');assert.equal(fs.readFileSync(partial,'utf8'),sentinel);
+  });
   await t.test('owned links and opaque historical knowledge receipts retain their exact data',async()=>{
    const snapshot=path.join(root,'reference-owned.db'),destination=path.join(root,'reference-owned-export.db');fs.copyFileSync(baseline,snapshot);
    const edit=new Database(snapshot);try{
@@ -247,6 +284,21 @@ test('the current application schema can hold one account and refuses its existi
     assert.equal((result.prepare('SELECT job_id FROM knowledge_use_receipts').get() as any).job_id,'historical-correlation-without-job');
    }finally{result.close();}
   });
+ });
+ await t.test('a cancelled delegated workflow exports after ordinary helper deletion',async()=>{
+  const {configureWorkflowRuntime,startWorkflow,controlWorkflow}=await import('../server/src/agent/workflows.js');
+  configureWorkflowRuntime({enqueue:(bot,trigger)=>acceptJob(bot,trigger).id,interrupt:()=>{}});
+  const workflow=createWorkflow(a,owned.id,{title:'Terminal helper',tasks:[{key:'helper',title:'Helper',instructions:'Local fixture only',delegate:true,criteria:[{description:'done',kind:'result'}]}]});
+  const started=startWorkflow(a,workflow.id),task=started.tasks[0];assert.ok(task.activeJobId);assert.ok(task.assignedBotId);assert.notEqual(task.assignedBotId,owned.id);
+  const cancelled=controlWorkflow(a,workflow.id,'stop');assert.equal(cancelled.tasks[0].status,'cancelled');
+  const {api}=await import('../server/src/routes.js');
+  const response=await api.request(`/bots/${task.assignedBotId}`,{method:'DELETE',headers:{cookie:`swarm_session=${a}`}});
+  assert.equal(response.status,200,await response.text());
+  assert.equal(db.prepare('SELECT 1 FROM agent_jobs WHERE id=?').get(task.activeJobId),undefined);
+  assert.equal((db.prepare('SELECT active_job_id FROM native_workflow_tasks WHERE task_id=?').get(task.id) as any).active_job_id,task.activeJobId);
+  const snapshot=path.join(root,'deleted-helper.db'),destination=path.join(root,'deleted-helper-export.db');await db.backup(snapshot);
+  await exportTenantDatabase(snapshot,destination,a,'new_volume');const result=new Database(destination);
+  try{assert.deepEqual(result.prepare('SELECT status,active_job_id FROM native_workflow_tasks WHERE task_id=?').get(task.id),{status:'cancelled',active_job_id:task.activeJobId});}finally{result.close();}
  });
  await t.test('native index recognition requires exact maintenance triggers and rejects unknown extensions',async()=>{
   const snapshot=path.join(root,'derived-probe.db');await db.backup(snapshot);
