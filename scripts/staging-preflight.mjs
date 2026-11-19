@@ -32,7 +32,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   assert.equal(execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), revision, 'Checkout is not the requested revision');
   execFileSync('git', ['diff', '--exit-code', 'HEAD'], { stdio: 'inherit' });
   const result = await checkRelease({ revision, branch,
-    github: async endpoint => JSON.parse(execFileSync('gh', ['api', `repos/${repository}/${endpoint}`], { encoding: 'utf8', timeout: 30000 })),
+    // Compare responses include entire patches; select metadata inside gh so
+    // large integrations cannot exhaust the child-process output buffer.
+    github: async endpoint => JSON.parse(execFileSync('gh', ['api', `repos/${repository}/${endpoint}`, '--jq', '{object: {sha: .object.sha}, status: .status}'], { encoding: 'utf8', timeout: 30000 })),
     liveVersion: async () => {
       const response = await fetch(`${stagingOrigin}/api/version`, { headers: { 'cache-control': 'no-cache' }, signal: AbortSignal.timeout(30000) });
       assert.equal(response.status, 200, 'Live version endpoint is unavailable');
