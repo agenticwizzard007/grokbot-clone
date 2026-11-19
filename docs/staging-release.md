@@ -2,7 +2,28 @@
 
 Staging is https://swarm-team.fly.dev. The application serves the API and built web app from one image. A healthy `/api/health` response does not establish which features were released.
 
-The November 19 reconciliation found release 35 deployed from `main` at `1fd91e1`, while native workflows, learning, coordination and Quinn updates were on `agenticwizzard007/hermes-integration-strategy` and in uncommitted workspace files. Rebuilding `main` alone omitted those changes. The staging branch now includes that `main` revision and the completed workspace implementation. Keep using this integrated branch until PR #48 lands in `main`; do not overwrite staging with an older `main` build.
+The November 19 reconciliation found release 35 deployed from `main` at `1fd91e1`, while native workflows, learning, coordination and Quinn updates were on `agenticwizzard007/hermes-integration-strategy` and in uncommitted workspace files. Rebuilding `main` alone omitted those changes. The staging branch now includes that `main` revision and the completed workspace implementation.
+
+## Automatic deployment
+
+`.github/workflows/staging.yml` runs on every push to the integration branch above or `main`, including changes only to tests/docs. Work developed on other branches must first be merged into one of these release branches; unrelated or unfinished branches are not combined automatically. Uncommitted local files cannot be deployed by GitHub Actions.
+
+The workflow requires the repository Actions secret `FLY_STAGING_DEPLOY_TOKEN`, containing a Fly deploy token scoped only to `swarm-team`. An administrator can configure it without printing the token:
+
+```sh
+flyctl tokens create deploy -a swarm-team --name github-staging --expiry 8760h |
+  gh secret set FLY_STAGING_DEPLOY_TOKEN --repo agenticwizzard007/grokbot-clone
+```
+
+Rotate this credential before its one-year expiry. Credentials are loaded only into publication/deployment steps, after qualification. The workflow does not run on pull-request or arbitrary feature-branch events.
+
+Every candidate must contain both the latest `main` commit and the currently deployed commit. This prevents an older main build from removing unmerged live features. Until PR #48 is merged, the integration branch is the eligible release source. After the merge, main can deploy normally. Superseded queued commits are skipped, checks repeat before deployment, and a single concurrency group serializes rollouts without cancelling an in-progress deployment.
+
+The workflow runs the native test/browser suite, deployment tests and voice entry tests; builds one complete frontend/backend image; compares its files with the tested outputs; creates and waits for a volume snapshot; publishes the image; deploys by immutable digest; and verifies every published frontend file and the running image identity. A missing credential, failed test, missing ancestor, failed backup or mismatched build causes an explicit failed run. Release/rollback evidence is retained as a GitHub Actions artifact. Failed verification is not reported as a successful release, and database migrations are not blindly reversed.
+
+Account learning/supervision choices are persisted in the volume and are not reset by deployments. All current staging accounts were explicitly enabled by the owner; new accounts inherit enabled defaults.
+
+## Manual release and recovery
 
 Before release:
 
