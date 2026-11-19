@@ -36,7 +36,9 @@ export function TeamBoard({ botId }: { botId?: string }) {
     {state && <>
       <div className="native-meta">Snapshot {new Date(state.generatedAt).toLocaleTimeString()} · Runtime: {state.health.runtime}{state.health.lastTickAt ? ` · Last check ${new Date(state.health.lastTickAt).toLocaleTimeString()}` : ' · No runtime check recorded'}</div>
       {state.health.lastError && <p className="cfg-error" role="alert">Coordination: {state.health.lastError}</p>}
-      <div className="team-roster">{state.agents.filter(a => !botId || a.botId === botId).map(a => <button type="button" key={a.botId} onClick={() => openBot(a.botId)}><strong>{a.name}</strong><span>{a.pendingDecision ? 'Waiting for your decision' : a.status}{a.isPrimary ? ' · Coordinator' : ''}</span></button>)}</div>
+      {!!state.humanSources?.pending && <p className="native-meta">{state.humanSources.pending} user update(s) waiting for coordinator review.</p>}
+      {Object.values(state.coverage??{}).some(c=>c.omitted>0) && <p className="native-meta">This overview shows a selection of records. Complete work history is available below.</p>}
+      <div className="team-roster">{state.agents.filter(a => !botId || a.botId === botId).map(a => <button type="button" key={a.botId} onClick={() => openBot(a.botId)}><strong>{a.name}</strong><span>{a.pendingDecision ? 'Waiting for your decision' : a.status}{a.isPrimary ? ' · Coordinator' : ''}{a.observation==='no_recent_progress_observed'?' · No recent progress recorded':''}</span></button>)}</div>
       {!workflows.length && <p className="native-meta">No workflows in this view. Create one below to assign work and prerequisites.</p>}
       {workflows.map(w => <article className="team-workflow" key={w.id}>
         <h3>{w.title} <span className="cfg-chip">{w.status}</span></h3><p className="native-meta">Coordinator: {name(w.botId)}{w.reason ? ` · ${w.reason}` : ''}</p>
@@ -50,8 +52,17 @@ export function TeamBoard({ botId }: { botId?: string }) {
       {!!state.artifacts.length && <details><summary>Saved artifacts and delivery ({state.artifacts.length})</summary>{state.artifacts.filter(a => !botId || a.botId === botId).map(a => <div className="native-history" key={a.id}><a href={`/api/deliverables/artifacts/${encodeURIComponent(a.id)}/download`}>{a.title}</a><span>{a.status} · {name(a.botId)}</span>{state.deliveries.filter(d => d.artifactId === a.id).map(d => <span key={d.id}>Delivery: {d.status}</span>)}</div>)}</details>}
       <details><summary>Snapshot sources</summary><p className="native-meta">Event cursor {state.eventCursor}. Records may change after this snapshot.</p><pre>{JSON.stringify(state.sourceVersions, null, 2)}</pre></details>
       <InternalActivity botId={botId} />
+      <WorkHistory name={name} />
     </>}
   </section>;
+}
+function WorkHistory({name}:{name:(id:string|null)=>string}) {
+  const [open,setOpen]=useState(false),[page,setPage]=useState<Awaited<ReturnType<typeof teamApi.records>>|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
+  const load=async()=>{setBusy(true);try{const next=await teamApi.records('jobs',page?.nextCursor??0,page?.through);setPage(previous=>({...next,records:[...(previous?.records??[]),...next.records]}));setError('');}catch(e){setError(e instanceof Error?e.message:'Unable to read work history');}finally{setBusy(false);}};
+  return <details open={open} onToggle={e=>{setOpen(e.currentTarget.open);if(e.currentTarget.open&&!page&&!busy)void load();}}><summary>Complete team work history</summary>
+    {error&&<p role="alert" className="cfg-error">{error}</p>}{page?.records.map(r=><div className="native-history" key={r.id}><span>{name(r.bot_id??null)} · {r.state}</span><small>{r.created_at?new Date(r.created_at).toLocaleString():''}</small></div>)}
+    {(!page||page.hasMore)&&<button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={()=>void load()}>{busy?'Loading…':'Load more work'}</button>}
+  </details>;
 }
 function InternalActivity({ botId }: { botId?: string }) {
   const [open, setOpen] = useState(false), [pages, setPages] = useState(1);

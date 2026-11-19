@@ -3,6 +3,9 @@ import { hub } from './lib/hub.js';
 import type { Bot, LiveState, Row, RowBody, RowKind, Routine, Task } from './types.js';
 import { executionAudience } from './usage-context.js';
 import { Cron } from 'croner';
+import { recordHumanSource } from './coordination/sources.js';
+import { applyExplicitPreferenceCorrections } from './knowledge/memory.js';
+import { isHumanUserMessage } from './knowledge/sessions.js';
 
 // ---------- bots ----------
 
@@ -79,6 +82,15 @@ function bumpRev(botId: string): number {
   return (db.prepare('SELECT rev FROM bots WHERE id=?').get(botId) as any).rev;
 }
 
+/** Source and correction share the row transaction, before observers can start work. */
+function recordMessageSource(userId: string, botId: string, generation: number, seq: number, revision: number, body: RowBody) {
+  recordHumanSource(userId, botId, generation, seq, revision, body);
+  if (body.type === 'message' && body.audience === 'user' && isHumanUserMessage(body) && !body.streaming && body.text.trim()) {
+    return applyExplicitPreferenceCorrections(userId, botId, [{ botId, generation, seq }]).length > 0;
+  }
+  return false;
+}
+
 /** Append a new row. Returns its seq. */
 export function appendRow(botId: string, kind: RowKind, body: RowBody): Row {
   body = { ...body, audience: body.type === 'card' ? 'user' : body.audience ?? executionAudience(botId) };
@@ -89,9 +101,11 @@ export function appendRow(botId: string, kind: RowKind, body: RowBody): Row {
     const rev = bumpRev(botId);
     const t = now();
     db.prepare('INSERT INTO rows(bot_id,generation,seq,updated_seq,kind,body,created_at) VALUES (?,?,?,?,?,?,?)').run(botId, b.generation, seq, rev, kind, JSON.stringify(body), t);
-    return { userId: b.user_id as string, row: { botId, generation: b.generation, seq, updatedSeq: rev, kind, audience: body.audience, body, createdAt: t } as Row };
+    const memoryChanged = kind === 'message' && recordMessageSource(b.user_id, botId, b.generation, seq, rev, body);
+    return { userId: b.user_id as string, memoryChanged, row: { botId, generation: b.generation, seq, updatedSeq: rev, kind, audience: body.audience, body, createdAt: t } as Row };
   });
-  const { userId, row } = tx();
+  const { userId, row, memoryChanged } = tx();
+  if (memoryChanged) hub.emit(userId, { type: 'memories', botId });
   hub.emit(userId, { type: 'rows', botId, generation: row.generation, rows: [row] });
   notifyRow(userId, row, true);
   return row;
@@ -106,10 +120,12 @@ export function updateRow(botId: string, seq: number, body: RowBody): Row | null
     body = { ...body, audience: body.type === 'card' ? 'user' : body.audience ?? JSON.parse(existing.body).audience ?? executionAudience(botId) };
     const rev = bumpRev(botId);
     db.prepare('UPDATE rows SET body=?, updated_seq=? WHERE bot_id=? AND generation=? AND seq=?').run(JSON.stringify(body), rev, botId, b.generation, seq);
-    return { userId: b.user_id as string, row: { ...toRow(existing), body, audience: body.audience, updatedSeq: rev } as Row };
+    const memoryChanged = existing.kind === 'message' && recordMessageSource(b.user_id, botId, b.generation, seq, rev, body);
+    return { userId: b.user_id as string, memoryChanged, row: { ...toRow(existing), body, audience: body.audience, updatedSeq: rev } as Row };
   });
   const res = tx();
   if (!res) return null;
+  if (res.memoryChanged) hub.emit(res.userId, { type: 'memories', botId });
   hub.emit(res.userId, { type: 'rows', botId, generation: res.row.generation, rows: [res.row] });
   notifyRow(res.userId, res.row, false);
   return res.row;

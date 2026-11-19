@@ -16,10 +16,11 @@ import { coordinationPrompt } from '../coordination/index.js';
 import { platformContext } from './platform-state.js';
 
 export async function systemPrompt(userId: string, botId: string, jobId?:string): Promise<string> {
-  const nativeState = [platformContext(userId, botId),coordinationPrompt(userId,botId,jobId),learningContext(userId,botId,jobId)].filter(Boolean).join('\n\n');
   const bot = getBotRow(botId);
   const user = db.prepare('SELECT * FROM users WHERE id=?').get(userId) as any;
   const setup = getSetup(botId);
+  const nativeState = [platformContext(userId, botId),coordinationPrompt(userId,botId,jobId),
+    setup && setup.onboarding.status !== 'active' ? '' : learningContext(userId,botId,jobId)].filter(Boolean).join('\n\n');
   if (setup && setup.onboarding.status !== 'active') {
     return `You are the setup consultant for ${bot.name}${bot.label ? ` (${bot.label})` : ''}, working with ${user?.name ?? 'the user'} to define this agent’s exact job. This is a temporary onboarding role in the agent’s own chat.
 
@@ -86,9 +87,11 @@ ${env.composioEnabled ? `- Prefer connected apps over the browser when an app is
 ${textingLine(userId)}${bot.is_primary ? `- You CAN create permanent teammates directly in this chat using create_bot. This is an available capability now, even if earlier messages claimed otherwise. Do not send the user to the sidebar or tell them that creation is unavailable.
 - When the user asks for a new Bot, use their full brief and corrections in this conversation (and relevant recalled facts) to prepare its mission, concrete responsibilities, boundaries, deliverables, success criteria, shared resources, and handoff rules. Keep its remit narrow. The new Bot cannot read your chat: include all relevant context in context_summary. Cite the relevant user message numbers with source_message_seqs. Do not copy unrelated private context or invent access, schedules, credentials, or responsibilities.
 - If the job is already clear, call create_bot now. Ask one focused question only when the actual responsibility is missing or conflicting; do not ask the user to repeat specifications they have already given you. For a bare “create a bot” without a prior brief, ask what it should own.
-- create_bot writes a draft setup, preserves the selected user brief, adds the Bot to the team, and starts its own setup-consultant interview. Tell the user to open the new Bot’s chat to specify its exact functions, then review and activate it in Configuration. It has AGENTS.md, SOUL.md and workflow files. Operational work and any initial assignment wait until activation. Report computer status separately. If computer setup is pending, use retry_bot_setup after the connection is restored. Never create another Bot just to retry setup.
+- create_bot writes a draft setup and preserves the selected user brief. Keep setup in this primary conversation. Use a stable creation_request_id for retries of the same user request. Inspect the coworker with inspect_teammate_setup, then prepare_teammate_setup using source_refs {botId,generation,seq,contentHash?} from the original human messages here. Preserve missing decisions in open_questions; never invent answers. The user reviews and activates the exact revision using its conversation review card; there is no agent activation tool. Operational work waits until activation. Report computer provisioning separately and use retry_bot_setup on the existing Bot after recovery.
 - Use replicate_bot to reproduce an existing teammate’s saved role with a fresh browser. Use handoff_message only for an initial assignment the user requested.` : `- To create a permanent teammate, send the complete user brief to ${primary?.name ?? 'the current primary Bot'} using send_to_bot. You can coordinate with teammates directly across chats.`}
 - Use spawn_subagent only for temporary parallel helpers that disappear after the task. Do not describe subagents as real team Bots.
+- When independent parts of the current task benefit from parallel work, use spawn_subagent with a self-contained goal and merge_instructions describing the expected result, evidence and integration with your own work. Subscription helpers may spawn further helpers. Delegate relevant work, retain responsibility for the requested outcome, and avoid assigning overlapping writes without explicit ownership.
+- Keep working on your independent part while helpers run. Inspect list_subagents when needed; end your turn while waiting instead of polling. Before claiming the overall task is complete, gather the required results, resolve conflicts and verify the combined outcome. A progress report or a finished CLI call is not proof that a delegated task is complete. Use workflow dependencies for a strict wait-for-all merge step; native goal/workflow work must keep its existing budget and stop lifecycle. Combining results does not itself authorize publishing, deployment or a Git merge.
 
 ## Work efficiently
 - Match the work to the request. For a capability or connection question, inspect the relevant connection and, when needed, one small read; do not audit an entire workspace.

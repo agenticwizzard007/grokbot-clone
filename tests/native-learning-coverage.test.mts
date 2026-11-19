@@ -66,7 +66,7 @@ test('bounded reviews do not permanently checkpoint sources omitted from the mod
 });
 
 
-test('passive preference correction stages replacement and preserves the active fact', async () => {
+test('original regression: explicit weekly-to-daily correction supersedes the active preference', async () => {
   const { listMemoryChanges } = await native('knowledge/memory.ts');
   bot('changed-preference');
   const old = message('changed-preference', 1, 1001, 'I prefer weekly pipeline reports with named owners and source links.');
@@ -76,12 +76,11 @@ test('passive preference correction stages replacement and preserves the active 
     text: 'Prefers daily pipeline reports with named owners and source links.', sourceIds: ['1:2'],
   }] }) }));
   await consolidateBot('changed-preference', { upTo: 2000 });
-  assert.deepEqual(listMemories('owner', 'changed-preference').map(m => m.text), [original.text], 'unattended replacement must not activate');
-  const pending = listMemoryChanges('owner', 'changed-preference').filter(c => c.status === 'pending');
-  assert.equal(pending.length, 1, 'changed preference must be staged rather than discarded as a duplicate');
-  assert.equal(pending[0].memoryId, original.id);
-  assert.equal(pending[0].baseRevision, original.revision);
-  assert.equal(pending[0].action, 'replace');
-  assert.equal(pending[0].text, 'Prefers daily pipeline reports with named owners and source links.');
-  assert.equal(pending[0].evidence[0].seq, 2);
+  const active=listMemories('owner','changed-preference');
+  assert.deepEqual(active.map(m=>m.text),['Prefers daily pipeline reports with named owners and source links.']);
+  assert.equal(active[0].supersedes,original.id);
+  assert.equal(active[0].supersededRevision,1);
+  assert.equal(active[0].evidence[0].seq,2);
+  assert.equal(active[0].effectiveAt,1002);
+  assert.equal(listMemoryChanges('owner','changed-preference').filter(c=>c.status==='pending').length,0);
 });

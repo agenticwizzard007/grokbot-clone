@@ -13,7 +13,7 @@ const experienceRoot = process.cwd(), serverRoot = process.env.HERMES_SERVER_ROO
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-experience-'));
 const evidenceDir = process.env.HERMES_EVIDENCE_DIR ?? path.join(serverRoot, '.context/hermes-build/experience-shots');
 fs.mkdirSync(evidenceDir, { recursive: true });
-for (const file of ['failure.png', 'failure.html', 'result.json', 'server.log']) fs.rmSync(path.join(evidenceDir, file), { force: true });
+for (const file of ['failure.png', 'failure.html', 'failure-state.json', 'result.json', 'server.log']) fs.rmSync(path.join(evidenceDir, file), { force: true });
 const children = [], logs = []; let browser;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function port() { const server = net.createServer(); await new Promise(r => server.listen(0, '127.0.0.1', r)); const value = server.address().port; await new Promise(r => server.close(r)); return value; }
@@ -42,6 +42,7 @@ try {
   await until(() => fetch(base).then(r => r.ok).catch(() => false), 'web UI');
   const initial = await api('/learning/settings');
   assert.equal(initial.settings.skillApproval, false);
+  assert.equal(initial.settings.maxInputTokens, 32000, 'unattended reviews have a bounded default');
   assert.equal((await api(`/bots/${fixture.quinn.id}/skill-proposals`)).proposals.find(p => p.id === fixture.legacyProposal.id).status, 'pending');
   assert.equal((await api(`/bots/${fixture.quinn.id}/memories`)).memories[0].text, fixture.memory.text);
   for (const url of [`/learning/bots/${fixture.quinn.id}/memory-changes`, `/learning/skills/${fixture.skill.id}`, `/deliverables/artifacts/${fixture.artifact.id}/download`]) await api(url, 'GET', undefined, 'swarm_session=experience-other-token', 404);
@@ -57,9 +58,13 @@ try {
   await appSettings.getByRole('heading', { name: 'Learning', exact: true }).waitFor();
   const approval = appSettings.getByRole('checkbox', { name: /Require approval for skill changes/ });
   assert.equal(await approval.isChecked(), false);
+  // This multi-call qualification uses the full coordinator prompt. The owner
+  // explicitly grants a larger finite budget; native budget admission stays on.
+  await appSettings.getByLabel('Aggregate input token limit', { exact: false }).fill('128000');
   await approval.check(); await appSettings.getByRole('button', { name: 'Save learning settings', exact: true }).click();
   await appSettings.getByText('Learning settings saved.', { exact: true }).waitFor();
   assert.equal((await api('/learning/settings')).settings.skillApproval, true);
+  assert.equal((await api('/learning/settings')).settings.maxInputTokens, 128000);
   await approval.uncheck(); await appSettings.getByRole('button', { name: 'Save learning settings', exact: true }).click();
   await until(async () => !(await api('/learning/settings')).settings.skillApproval, 'approval off');
   assert.equal((await api(`/bots/${fixture.quinn.id}/skill-proposals`)).proposals.find(p => p.id === fixture.legacyProposal.id).status, 'pending');
@@ -131,7 +136,7 @@ try {
   await botSettings.getByRole('button', { name: /^Memories/ }).click();
   await botSettings.getByText(/replace preference · pending/).click();
   await botSettings.getByRole('link', { name: `Source ${fixture.daily.generation}:${fixture.daily.seq}`, exact: true }).click();
-  await botSettings.getByText('I now prefer daily pipeline reports with named owners and source links.', { exact: true }).waitFor();
+  await botSettings.getByText(fixture.dailySourceText, { exact: true }).waitFor();
   await botSettings.getByRole('button', { name: 'Close sources', exact: true }).click();
   await page.screenshot({ path: path.join(evidenceDir, 'memory-review-desktop.png'), animations: 'disabled' });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -212,21 +217,23 @@ try {
   await api(`/bots/${fixture.nia.id}/messages`, 'POST', { text: 'I now prefer daily research reports with named owners and source links. mock: say Research correction recorded.' });
   await until(async () => (await api(`/learning/reviews?botId=${fixture.nia.id}`)).reviews.some(r => r.reason === 'automatic' && r.status === 'completed'), 'automatic multi-step review');
   const researchReview = (await api(`/learning/reviews?botId=${fixture.nia.id}`)).reviews.find(r => r.reason === 'automatic');
-  assert.ok(researchReview.iterations >= 4, 'review must read, update skill, stage memory and finish');
+  assert.ok(researchReview.iterations >= 5, 'review must read, propose a skill, recall, correct memory and finish');
   const learned = (await api(`/learning/skills/${fixture.researchSkill.id}`)).skill;
-  assert.match(learned.body, /daily/); assert.ok(learned.revision > fixture.researchSkill.revision, 'approval-off skill activated directly');
-  assert.equal((await api(`/bots/${fixture.nia.id}/memories`)).memories.find(m => m.id === fixture.researchMemory.id).text, fixture.researchMemory.text, 'unattended replacement retains old active memory');
-  const stagedMemory = (await api(`/learning/bots/${fixture.nia.id}/memory-changes`)).changes.find(c => c.status === 'pending' && c.memoryId === fixture.researchMemory.id);
-  assert.ok(stagedMemory, 'automatic reviewer stages destructive memory update');
+  assert.equal(learned.revision, fixture.researchSkill.revision, 'approval-off prose without independent evaluation remains inactive');
+  const unevaluated = (await api(`/bots/${fixture.nia.id}/skill-proposals`)).proposals.find(p => p.status === 'pending' && p.skillId === learned.id);
+  assert.equal(unevaluated.evaluations[0].status, 'insufficient');
+  const correctedMemory = (await api(`/bots/${fixture.nia.id}/memories`)).memories.find(m => m.supersedes === fixture.researchMemory.id);
+  assert.equal(correctedMemory.text, 'Prefers daily research reports with named owners and source links.', 'complete explicit same-scope preference correction takes effect');
   researchSettings = await api(`/learning/settings?botId=${fixture.nia.id}`);
   await api('/learning/settings', 'PATCH', { botId: fixture.nia.id, expectedRevision: researchSettings.revision, settings: { skillApproval: true } });
   await api(`/bots/${fixture.nia.id}/messages`, 'POST', { text: 'Always verify source links in the daily research report. mock: say Verification correction recorded.' });
   await until(async () => (await api(`/learning/reviews?botId=${fixture.nia.id}`)).reviews.filter(r => r.reason === 'automatic' && r.status === 'completed').length >= 2, 'approval-enabled review');
   const approvalReview = (await api(`/learning/reviews?botId=${fixture.nia.id}`)).reviews.find(r => r.reason === 'automatic' && r.status === 'completed' && r.id !== researchReview.id);
-  assert.ok(approvalReview.iterations >= 4, 'approval-enabled review must also read, update skill, stage memory and finish');
+  assert.ok(approvalReview.iterations >= 5, 'approval-enabled review reads, proposes, recalls, stages inferred memory and finishes');
   assert.equal((await api(`/learning/skills/${fixture.researchSkill.id}`)).skill.revision, learned.revision, 'approval-enabled revision must stay inactive');
-  const stagedSkill = (await api(`/bots/${fixture.nia.id}/skill-proposals`)).proposals.find(p => p.status === 'pending' && p.skillId === fixture.researchSkill.id);
+  const stagedSkill = (await api(`/bots/${fixture.nia.id}/skill-proposals`)).proposals.find(p => p.status === 'pending' && p.skillId === fixture.researchSkill.id && p.runId === approvalReview.jobId);
   assert.ok(stagedSkill, 'equivalent guarded skill update is pending when approval enabled');
+  assert.ok((await api(`/learning/bots/${fixture.nia.id}/memory-changes`)).changes.some(c => c.status === 'pending' && c.memoryId === correctedMemory.id), 'inferred wider preference changes remain pending');
   await api(`/skill-proposals/${stagedSkill.id}/review`, 'POST', { decision: 'approve', expectedBaseRevision: stagedSkill.baseRevision });
   const approvedSkill = (await api(`/learning/skills/${fixture.researchSkill.id}`)).skill;
   assert.ok(approvedSkill.revision > learned.revision);
@@ -239,13 +246,79 @@ try {
     assert.ok(receipt, 'fresh foreground work must record the exact approved package revision');
     assert.ok(evidenceDb.prepare('SELECT 1 FROM native_context_receipts WHERE job_id=? AND source_id=? AND revision=?').get(receipt.job_id, fixture.researchSkill.id, String(approvedSkill.revision)), 'exact read must also appear in the native context ledger');
   } finally { evidenceDb.close(); }
-  console.log('PASS automatic multi-step direct/staged learning, owner approval and fresh revision receipts');
+  console.log('PASS unevaluated prose stays staged, explicit preference correction applies, inferred replacement stages, owner approval and fresh revision receipts');
+
+  // Save independent frozen expectations through the owner UI. The mock model
+  // proposes only the rule change; native evaluation decides promotion.
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.locator('.sidebar .bot-row').filter({ has: page.getByText('Ellis', { exact: true }) }).click();
+  await page.getByRole('button', { name: 'Show details', exact: true }).click();
+  await page.getByRole('button', { name: 'Bot settings', exact: true }).click();
+  const ellisSettings = page.getByRole('dialog', { name: 'Ellis settings', exact: true });
+  await ellisSettings.getByRole('button', { name: /^Skills/ }).click();
+  const procedureCard = ellisSettings.locator('.cfg-item').filter({ has: page.getByText('Frozen report triage', { exact: true }) });
+  await procedureCard.getByRole('button', { name: 'History · revision 1', exact: true }).click();
+  await procedureCard.locator('summary').filter({ hasText: /^Automatic improvement policy/ }).click();
+  const policyEditor = procedureCard.getByLabel('Standing policy and frozen cases', { exact: true });
+  await policyEditor.fill(JSON.stringify(fixture.evaluationPolicy, null, 2));
+  await procedureCard.getByRole('button', { name: 'Save standing policy', exact: true }).click();
+  await procedureCard.getByText('Standing policy saved. Existing candidates require a fresh review.', { exact: true }).waitFor();
+  const savedPolicy = (await api(`/learning/skills/${fixture.evaluationSkill.id}/promotion-policy`)).standingPolicy;
+  assert.equal(savedPolicy.revision, 1); assert.deepEqual(savedPolicy.policy.cases, fixture.evaluationPolicy.cases);
+  assert.equal((await api(`/learning/skills/${fixture.evaluationSkill.id}`)).skill.revision, 1, 'saving a policy alone cannot activate a candidate');
+  await page.screenshot({ path: path.join(evidenceDir, 'owner-promotion-policy-desktop.png'), animations: 'disabled' });
+  await ellisSettings.getByRole('button', { name: 'Close', exact: true }).click();
+  const evalSettings = await api(`/learning/settings?botId=${fixture.ellis.id}`);
+  await api('/learning/settings', 'PATCH', { botId: fixture.ellis.id, expectedRevision: evalSettings.revision, settings: { automaticReview: true, memoryTurnInterval: 1, skillIterationInterval: 1, skillApproval: false } });
+  await api(`/bots/${fixture.ellis.id}/messages`, 'POST', { text: 'Improve urgent classification under my frozen report-triage policy. mock: say Decision-table review requested.' });
+  await until(async () => (await api(`/learning/reviews?botId=${fixture.ellis.id}`)).reviews.some(r => r.reason === 'automatic' && r.status === 'completed'), 'native frozen evaluation and promotion');
+  const promoted = (await api(`/bots/${fixture.ellis.id}/skill-proposals`)).proposals.find(p => p.skillId === fixture.evaluationSkill.id && p.promotion);
+  assert.ok(promoted, 'native service, not fixture assertions, must promote the evaluated candidate');
+  assert.equal(promoted.evaluations[0].status, 'passed'); assert.equal(promoted.evaluations[0].results.length, 5);
+  assert.ok(promoted.evaluations[0].results.every(r => r.passed)); assert.equal(promoted.promotion.actor, 'automatic:background_review');
+  assert.equal(promoted.promotion.rollback.revision, 1); assert.equal(promoted.promotion.policyRevision, 1);
+  await page.getByRole('button', { name: 'Bot settings', exact: true }).click();
+  await ellisSettings.getByRole('button', { name: /^Skills/ }).click();
+  await procedureCard.getByRole('button', { name: 'History · revision 2', exact: true }).click();
+  await procedureCard.locator('summary').filter({ hasText: /^Revision 2 · automatic-promotion/ }).click();
+  await procedureCard.getByText('Automatically promoted under policy revision 1. Rollback target: revision 1.', { exact: true }).waitFor();
+  await procedureCard.locator('summary').filter({ hasText: 'Evaluation: passed · 5 frozen cases' }).click();
+  for (const c of fixture.evaluationPolicy.cases) await procedureCard.getByText(new RegExp(`${c.id} \\(${c.category}\\): passed`)).waitFor();
+  assert.ok((await procedureCard.innerText()).includes(promoted.evaluations[0].candidateHash), 'immutable candidate digest is visible');
+  assert.ok((await procedureCard.innerText()).includes(promoted.evaluations[0].sourceHash), 'immutable source digest is visible');
+  await page.screenshot({ path: path.join(evidenceDir, 'evaluated-promotion-desktop.png'), animations: 'disabled' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await ellisSettings.locator('.cfg-content').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'evaluation provenance fits mobile');
+  await page.screenshot({ path: path.join(evidenceDir, 'evaluated-promotion-mobile.png'), animations: 'disabled' });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+
+  // An owner-provided changed expectation establishes a regression; make the
+  // baseline incompatible as well, so native recheck must suspend, not roll back.
+  await procedureCard.locator('summary').filter({ hasText: /^Automatic improvement policy/ }).click();
+  const regressionPolicy = { ...fixture.evaluationPolicy, cases: fixture.evaluationPolicy.cases.map(c => c.id === 'urgent' ? { ...c, expected: 'standard', baselineExpected: 'priority' } : c) };
+  await policyEditor.fill(JSON.stringify(regressionPolicy, null, 2));
+  await procedureCard.getByRole('button', { name: 'Save standing policy', exact: true }).click();
+  await until(async () => (await api(`/learning/skills/${fixture.evaluationSkill.id}/promotion-policy`)).standingPolicy.revision === 2, 'owner policy revision');
+  await procedureCard.getByRole('button', { name: 'Check current procedure', exact: true }).click();
+  await procedureCard.getByText('Procedure check: suspended.', { exact: true }).waitFor();
+  const suspended = (await api(`/learning/skills/${fixture.evaluationSkill.id}`)).skill;
+  assert.equal(suspended.lifecycle, 'suspended'); assert.equal(suspended.revision, 2, 'invalid rollback target cannot be restored');
+  assert.doesNotMatch((await api(`/learning/bots/${fixture.ellis.id}/context`)).context, /Frozen report triage/, 'suspended procedure is absent from runtime retrieval');
+  await procedureCard.getByRole('button', { name: 'Package resources and protections', exact: true }).click();
+  await procedureCard.getByText(/Revision 2 · Suspended/).waitFor();
+  await page.screenshot({ path: path.join(evidenceDir, 'suspended-procedure-desktop.png'), animations: 'disabled' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await ellisSettings.locator('.cfg-content').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'suspension and policy controls fit mobile');
+  await page.screenshot({ path: path.join(evidenceDir, 'suspended-procedure-mobile.png'), animations: 'disabled' });
+  console.log('PASS browser owner policy, native five-case promotion, evaluation/provenance inspection and incompatible-baseline suspension');
   const usage = await api('/usage?range=30d');
   assert.ok(usage.byKind?.some(k => k.key === 'background_review' && k.requests > 0), 'background review usage is separately attributed');
   assert.deepEqual(errors, []);
-  fs.writeFileSync(path.join(evidenceDir, 'result.json'), JSON.stringify({ status: 'passed', serverRoot, learningReviews: { direct: researchReview, approval: approvalReview }, checks: ['defaults and existing proposals', 'Bot overrides/reset', 'explicit refinement', 'package resources/pin/lock/project/account/revoke/archive/rollback', 'memory review/source links', 'internal audience', 'response loss/reload/idempotency', 'unknown reconciliation without send', 'permanent workers/dependencies/validated artifacts', 'automatic multi-step direct/staged review', 'owner approval and exact fresh-read receipts', 'background usage attribution', 'account isolation', 'desktop/mobile'], screenshots: fs.readdirSync(evidenceDir).filter(f => f.endsWith('.png')) }, null, 2));
+  fs.writeFileSync(path.join(evidenceDir, 'result.json'), JSON.stringify({ status: 'passed', serverRoot, learningReviews: { staged: researchReview, approval: approvalReview }, evaluatedPromotion: promoted, suspension: { skillId: suspended.id, revision: suspended.revision, lifecycle: suspended.lifecycle, policyRevision: 2 }, checks: ['defaults and existing proposals', 'Bot overrides/reset', 'explicit refinement', 'package resources/pin/lock/project/account/revoke/archive/rollback', 'memory review/source links', 'internal audience', 'response loss/reload/idempotency', 'unknown reconciliation without send', 'permanent workers/dependencies/validated artifacts', 'unevaluated automatic prose stays pending', 'explicit same-scope correction and staged inference', 'owner approval and exact fresh-read receipts', 'owner-authored frozen policy through UI', 'real native five-case automatic promotion', 'visible evaluation cases/hashes/automatic actor/rollback provenance', 'current-policy regression suspends incompatible baseline', 'suspension excluded from runtime retrieval', 'background usage attribution', 'account isolation', 'desktop/mobile'], screenshots: fs.readdirSync(evidenceDir).filter(f => f.endsWith('.png')) }, null, 2));
   console.log('PASS native Hermes experience: real APIs/server, stable delivery recovery, review controls, account isolation, desktop/mobile.');
 } catch (error) {
+  const stateDb = new Database(env.DB_PATH, { readonly: true });
+  try { fs.writeFileSync(path.join(evidenceDir, 'failure-state.json'), JSON.stringify({ reviews: stateDb.prepare('SELECT id,bot_id,reason,status,error,iterations,budget_input_tokens FROM knowledge_learning_reviews').all(), jobs: stateDb.prepare("SELECT bot_id,state,trigger FROM agent_jobs WHERE state IN ('queued','running')").all() }, null, 2)); } finally { stateDb.close(); }
   const page = browser?.contexts()[0]?.pages()[0];
   if (page) { await page.screenshot({ path: path.join(evidenceDir, 'failure.png') }).catch(() => {}); fs.writeFileSync(path.join(evidenceDir, 'failure.html'), await page.content()); }
   fs.writeFileSync(path.join(evidenceDir, 'server.log'), logs.join('')); console.error(logs.join('').slice(-7000)); throw error;

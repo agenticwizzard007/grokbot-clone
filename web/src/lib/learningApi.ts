@@ -27,7 +27,7 @@ export type KnowledgeScope = 'private' | 'project' | 'account';
 export interface ScopedKnowledge { scope: KnowledgeScope; projectId: string | null }
 export interface LearningSkill extends KnowledgeSkill, ScopedKnowledge {
   resources: Record<string, string>; locked: boolean; pinned: boolean; managed: boolean; lastUsedAt: number | null;
-  lifecycle: 'active' | 'stale' | 'archived';
+  lifecycle: 'active' | 'stale' | 'archived' | 'suspended';
 }
 export interface LearningMemory extends Omit<KnowledgeMemory, 'scope' | 'projectId'>, ScopedKnowledge {
   target: 'user' | 'environment'; evidenceKind: 'human' | 'tool' | 'hypothesis';
@@ -49,6 +49,9 @@ export async function nativeRequest<T>(path: string, method = 'GET', body?: unkn
 }
 const id = encodeURIComponent;
 export const learningApi = {
+  promotionPolicy:(skillId:string)=>nativeRequest<{standingPolicy:{revision:number;policy:Record<string,unknown>}|null}>(`/learning/skills/${id(skillId)}/promotion-policy`),
+  savePromotionPolicy:(skillId:string,expectedRevision:number,policy:Record<string,unknown>)=>nativeRequest<{standingPolicy:{revision:number;policy:Record<string,unknown>}}>(`/learning/skills/${id(skillId)}/promotion-policy`,'PUT',{expectedRevision,policy}),
+  recheck:(skillId:string,expectedRevision:number)=>nativeRequest<{action:string}>(`/learning/skills/${id(skillId)}/recheck`,'POST',{expectedRevision}),
   settings: (botId?: string) => nativeRequest<LearningSettingsView>(`/learning/settings${botId ? `?botId=${id(botId)}` : ''}`),
   saveSettings: (expectedRevision: number, settings: Partial<LearningSettings>, botId?: string) => nativeRequest<LearningSettingsView>('/learning/settings', 'PATCH', { expectedRevision, settings, ...(botId ? { botId } : {}) }),
   reviews: (botId?: string, before?: number) => nativeRequest<{ reviews: LearningReview[]; nextBefore: number | null }>(`/learning/reviews?limit=20${botId ? `&botId=${id(botId)}` : ''}${before === undefined ? '' : `&before=${before}`}`),

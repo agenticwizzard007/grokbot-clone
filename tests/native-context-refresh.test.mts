@@ -179,10 +179,15 @@ test('DB instruction, generation and setup revisions invalidate even without a f
 });
 
 test('the native loop rejects a stale action, reloads revoked context and executes only the fresh action', async () => {
-  const f = fixture('native-restart');
+  const team = fixture('native-restart');
+  // A specialist loses the revoked grant. The primary coordinator separately
+  // retains authorized team-conversation sources under the awareness contract.
+  const f = { ...team, receiver: team.excluded };
   const secret = 'The approved dispatch code is MARIGOLD-7281.';
   const m = fact(f, f.source.id, secret);
   const shared = memory.setMemoryScope(f.userId, m.id, { expectedRevision: m.revision, scope: 'account' });
+  const freshSource=appendRow(f.receiver.id,'message',{type:'message',role:'user',text:'I prefer concise summaries.'});
+  const evidence=[{botId:f.receiver.id,generation:freshSource.generation,seq:freshSource.seq}];
   let generations = 0;
   model = async body => {
     generations++;
@@ -194,29 +199,29 @@ test('the native loop rejects a stale action, reloads revoked context and execut
     if (generations === 1) {
       assert.ok(prompt.includes(secret), 'First generation must load the authorized source');
       memory.setMemoryScope(f.userId, m.id, { expectedRevision: shared.revision, scope: 'private' });
-      const rejected = await handler({ id: 'stale-profile', name: 'update_profile', arguments: { name: 'STALE ACTION EXECUTED' } });
+      const rejected = await handler({ id: 'stale-profile', name: 'remember', arguments: { text: 'STALE ACTION EXECUTED',evidence } });
       assert.equal(rejected.stop, true);
       assert.equal(rejected.isError, true);
       assert.match(String(rejected.output), /not executed.*Reload current context/);
-      assert.equal((db.prepare('SELECT name FROM users WHERE id=?').get(f.userId) as any).name, 'native-restart');
-      const again = await handler({ id: 'after-stale', name: 'update_profile', arguments: { name: 'SECOND STALE ACTION' } });
+      assert.equal(memory.listMemories(f.userId,f.receiver.id).length,0);
+      const again = await handler({ id: 'after-stale', name: 'remember', arguments: { text: 'SECOND STALE ACTION',evidence } });
       assert.equal(again.stop, true);
       assert.equal((db.prepare("SELECT COUNT(*) n FROM rows WHERE bot_id=? AND kind='tool-call'").get(f.receiver.id) as any).n, 0);
       return [];
     }
     assert.ok(!prompt.includes(secret), 'Restarted generation must exclude the revoked source');
-    const accepted = await handler({ id: 'fresh-profile', name: 'update_profile', arguments: { name: 'Fresh authorized action' } });
+    const accepted = await handler({ id: 'fresh-profile', name: 'remember', arguments: { text: 'User prefers concise summaries.',evidence } });
     assert.notEqual(accepted.isError, true, String(accepted.output));
     return [{ type: 'message', id: 'fresh-message', role: 'assistant', content: [{ type: 'output_text', text: 'Completed with current context.' }] }];
   };
   const jobId = enqueue(f.receiver.id, { type: 'user', text: 'Perform the authorized fixture action.' });
   await settleAgentJobs();
   assert.equal(generations, 2);
-  assert.equal((db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(jobId) as any).state, 'completed');
-  assert.equal((db.prepare('SELECT name FROM users WHERE id=?').get(f.userId) as any).name, 'Fresh authorized action');
+  assert.equal((db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(jobId) as any).state, 'completed',JSON.stringify(db.prepare('SELECT kind,body FROM rows WHERE bot_id=? ORDER BY seq').all(f.receiver.id)));
+  assert.deepEqual(memory.listMemories(f.userId,f.receiver.id).map(m=>m.text),['User prefers concise summaries.']);
   const calls = db.prepare("SELECT body FROM rows WHERE bot_id=? AND kind='tool-call'").all(f.receiver.id) as any[];
   assert.equal(calls.length, 1, 'Rejected callbacks must not be journaled as admitted actions');
-  assert.equal(JSON.parse(calls[0].body).args.name, 'Fresh authorized action');
+  assert.equal(JSON.parse(calls[0].body).args.text, 'User prefers concise summaries.');
 });
 
 test('a DB instruction revision arriving during async schema validation fences dispatch and restarts the generation', async () => {

@@ -13,6 +13,7 @@ const { appendRow } = await moduleAt('store.ts');
 const { getSetup, saveSetupDraft, activateSetup } = await moduleAt('bot-setup.ts');
 const skills = await moduleAt('knowledge/skills.ts');
 const memories = await moduleAt('knowledge/memory.ts');
+const { PROCEDURE_BODY, PROCEDURE_FILE } = await moduleAt('knowledge/evaluation.ts');
 const { patchLearningSettings } = await moduleAt('knowledge/settings.ts');
 const { recordArtifact, requestDelivery, sendDelivery } = await moduleAt('deliverables/index.ts');
 for (const id of ['experience-owner', 'experience-other']) {
@@ -36,9 +37,21 @@ const researchDaily = appendRow(nia.id, 'message', { type: 'message', role: 'use
 const researchEvidence = (row: any) => ({ botId: row.botId, generation: row.generation, seq: row.seq });
 const researchMemory = memories.saveMemory(owner, nia.id, { text: 'Prefers weekly research reports with named owners and source links.', evidence: [researchEvidence(researchWeekly)] }).memory;
 const researchSkill = skills.createSkill(owner, nia.id, { name: 'Research procedure', description: 'Prepare sourced research with named owners.', body: 'Inspect original sources and save a weekly research report with owners.' });
+// The owner supplies frozen expectations; the model fixture can only propose a
+// rule change. The browser must save this policy through authenticated UI first.
+const evaluationSkill = skills.createSkill(owner, ellis.id, { name: 'Frozen report triage', description: 'Classify frozen observations without external effects.', body: PROCEDURE_BODY, resources: { [PROCEDURE_FILE]: JSON.stringify({ version: 1, responsibility: 'report_triage', rules: [{ when: { urgent: true }, outcome: 'standard' }], fallback: 'standard' }) } });
+const evaluationSource = appendRow(ellis.id, 'message', { type: 'message', role: 'user', text: 'Classify urgent report observations as priority. Other reports remain standard. A label never authorizes sending or changing a schedule.' });
+const evaluationPolicy = { enabled: true, responsibility: 'report_triage', allowedOutcomes: ['priority', 'standard', 'failure', 'out_of_scope'], cases: [
+  { id: 'urgent', category: 'trigger', input: { scope: 'report_triage', facts: { urgent: true } }, expected: 'priority', baselineExpected: 'standard' },
+  { id: 'normal', category: 'existing', input: { scope: 'report_triage', facts: { urgent: false } }, expected: 'standard', baselineExpected: 'standard' },
+  { id: 'unknown', category: 'existing', input: { scope: 'report_triage', facts: { document: 'other' } }, expected: 'standard', baselineExpected: 'standard' },
+  { id: 'outside', category: 'out_of_scope', input: { scope: 'another_responsibility', facts: { urgent: true } }, expected: 'out_of_scope', baselineExpected: 'out_of_scope' },
+  { id: 'invalid', category: 'failure', input: null, expected: 'failure', baselineExpected: 'failure' },
+] };
 const foreign = createBot('experience-other', { name: 'Other account', isPrimary: true });
 const weekly = appendRow(quinn.id, 'message', { type: 'message', role: 'user', text: 'I prefer weekly pipeline reports with named owners and source links.' });
-const daily = appendRow(quinn.id, 'message', { type: 'message', role: 'user', text: 'I now prefer daily pipeline reports with named owners and source links.' });
+const dailySourceText = 'A daily pipeline report may be useful, but keep my weekly standing preference until I confirm the change.';
+const daily = appendRow(quinn.id, 'message', { type: 'message', role: 'user', text: dailySourceText });
 const ref = (row: any) => ({ botId: row.botId, generation: row.generation, seq: row.seq });
 const memory = memories.saveMemory(owner, quinn.id, { text: 'Prefers weekly pipeline reports with named owners and source links.', evidence: [ref(weekly)] }).memory;
 const pendingMemory = memories.stageMemoryChange(owner, quinn.id, { action: 'replace', memoryId: memory.id, expectedRevision: memory.revision, text: 'Prefers daily pipeline reports with named owners and source links.', evidence: [ref(daily)] });
@@ -52,5 +65,5 @@ await sendDelivery(owner, uncertain.id, { prepare: async () => ({ channel: 'sms'
 appendRow(quinn.id, 'message', { type: 'message', role: 'user', text: 'INTERNAL_NARRATIVE_MUST_NOT_LEAK', from: { kind: 'bot', id: nia.id, name: 'Nia' }, audience: 'internal' });
 appendRow(quinn.id, 'message', { type: 'message', role: 'assistant', text: 'INTERNAL_ASSISTANT_MUST_NOT_LEAK', audience: 'internal' });
 patchLearningSettings(owner, { expectedRevision: 0, settings: { automaticReview: false } });
-fs.writeFileSync(process.env.HERMES_FIXTURE_FILE!, JSON.stringify({ owner, quinn, nia, ellis, foreign, researchSkill, researchMemory, researchDaily: researchEvidence(researchDaily), memory, pendingMemory, skill, legacyProposal, artifact, uncertain, weekly: ref(weekly), daily: ref(daily) }));
+fs.writeFileSync(process.env.HERMES_FIXTURE_FILE!, JSON.stringify({ owner, quinn, nia, ellis, foreign, researchSkill, researchMemory, researchDaily: researchEvidence(researchDaily), evaluationSkill, evaluationSource: ref(evaluationSource), evaluationPolicy, procedureFile: PROCEDURE_FILE, dailySourceText, memory, pendingMemory, skill, legacyProposal, artifact, uncertain, weekly: ref(weekly), daily: ref(daily) }));
 db.close();

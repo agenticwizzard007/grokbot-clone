@@ -10,7 +10,7 @@ const flags: { key: keyof Settings; label: string; hint: string }[] = [
   { key: 'automaticReview', label: 'Automatic reviews', hint: 'Review eligible finished turns in the background.' },
   { key: 'memoryReview', label: 'Review memories', hint: 'Learn durable preferences and environment facts.' },
   { key: 'skillReview', label: 'Review skills', hint: 'Improve reusable procedures and their resources.' },
-  { key: 'skillApproval', label: 'Require approval for skill changes', hint: 'Off by default: validated changes activate directly with history and undo. Existing pending proposals stay pending.' },
+  { key: 'skillApproval', label: 'Require approval for skill changes', hint: 'Off allows automatic improvements only under a standing scope policy after independent frozen evaluations. Other unattended changes wait for review.' },
 ];
 export function LearningSettingsPanel({ botId }: { botId?: string }) {
   const [view, setView] = useState<LearningSettingsView | null>(null), [draft, setDraft] = useState<Settings | null>(null);
@@ -39,19 +39,19 @@ export function LearningSettingsPanel({ botId }: { botId?: string }) {
     {draft && view && <form className="learning-fields" onSubmit={e => { e.preventDefault(); void save(); }}>
       {botId && <div className="native-meta">{view.overrides && Object.keys(view.overrides).length ? `Bot overrides: ${Object.keys(view.overrides).join(', ')}` : 'All values inherited from account settings.'} · Settings revision {view.revision}</div>}
       <div className="cfg-card learning-fields">{flags.map(f => <label className="native-check" key={f.key}><input type="checkbox" checked={draft[f.key] as boolean} onChange={e => set(f.key, e.currentTarget.checked)} /><span><strong>{f.label}</strong><small style={{ display: 'block' }}>{f.hint}</small></span></label>)}
-        <p className="native-meta">Unattended memory replacements and removals always wait for your review. New knowledge stays private to its Bot until you explicitly share it.</p>
+        <p className="native-meta">Explicit source-backed corrections can update a preference in the same scope. Inferred replacements and removals wait for review. New knowledge stays private until you share it.</p>
       </div>
       <div className="learning-grid">
         {numberField('memoryTurnInterval', 'Memory review interval (turns)', 1)}
         {numberField('skillIterationInterval', 'Skill review interval (tool iterations)', 1)}
         {numberField('maxIterations', 'Review step limit', 1, 128)}
-        <label>Aggregate input token limit<input type="number" value={draft.maxInputTokens ?? ''} placeholder="Derive from model context" onChange={e => set('maxInputTokens', e.currentTarget.value === '' ? null : e.currentTarget.valueAsNumber)} /><small>Blank uses the model’s context budget. Zero disables the budget.</small></label>
+        <label>Aggregate input token limit<input type="number" value={draft.maxInputTokens ?? ''} placeholder="32,000 tokens by default" onChange={e => set('maxInputTokens', e.currentTarget.value === '' ? null : e.currentTarget.valueAsNumber)} /><small>Blank uses a bounded limit of at most 32,000 tokens. Zero explicitly disables the input limit.</small></label>
       </div>
       <details><summary>Review model route</summary><p className="native-meta">Blank uses the originating model and provider. An auxiliary route requires a currently connected adapter.</p><div className="learning-grid"><label>Auxiliary model<input value={draft.auxiliaryModel ?? ''} onChange={e => set('auxiliaryModel', e.currentTarget.value || null)} /></label><label>Auxiliary provider<input value={draft.auxiliaryProvider ?? ''} onChange={e => set('auxiliaryProvider', e.currentTarget.value || null)} /></label></div></details>
       <details><summary>Skill maintenance</summary><div className="learning-fields">
         <label className="native-check"><input type="checkbox" checked={draft.curatorEnabled} onChange={e => set('curatorEnabled', e.currentTarget.checked)} />Enable periodic maintenance</label>
         <div className="learning-grid">{numberField('curatorIntervalHours', 'Maintenance interval (hours)', 1)}{numberField('curatorMinIdleHours', 'Minimum idle time (hours)', 0)}{numberField('curatorStaleDays', 'Mark stale after (days)', 1)}{numberField('curatorArchiveDays', 'Archive after (days)', 1)}</div>
-        <label className="native-check"><input type="checkbox" checked={draft.curatorConsolidate} onChange={e => set('curatorConsolidate', e.currentTarget.checked)} />Allow model-driven consolidation (off by default)</label>
+        <label className="native-check"><input type="checkbox" checked={draft.curatorConsolidate} onChange={e => set('curatorConsolidate', e.currentTarget.checked)} />Propose consolidation for review (off by default)</label>
         <p className="native-meta">Pinned, locked and routine-referenced packages are protected. Archived packages retain recoverable history.</p>
       </div></details>
       <div className="learning-actions"><button className="cfg-btn cfg-btn--primary" disabled={busy || JSON.stringify(draft) === JSON.stringify(view.settings)} type="submit">{busy ? 'Saving…' : botId ? 'Save Bot overrides' : 'Save learning settings'}</button>{botId && <button className="cfg-btn cfg-btn--secondary" disabled={busy || !Object.keys(view.overrides ?? {}).length} type="button" onClick={() => void save(true)}>Use account defaults</button>}</div>

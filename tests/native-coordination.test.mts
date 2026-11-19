@@ -16,7 +16,7 @@ const r=await import('../server/src/coordination/requests.js');
 const reports=await import('../server/src/coordination/reports.js');
 const w=await import('../server/src/agent/workflows.js');
 const {createBot,assertPrimaryRemovalAllowed,transferPrimary}=await import('../server/src/bots.js');
-const {initProactive,fireCheckin,setCheckins,tickProactive}=await import('../server/src/proactive.js');
+const {initProactive,fireCheckin,setCheckins,tickProactive,settleProactive}=await import('../server/src/proactive.js');
 await import('../server/src/deliverables/schema.js');
 const awaitImportArtifacts=await import('../server/src/deliverables/artifacts.js');
 let seq=0;
@@ -86,12 +86,13 @@ test('actual human activity suppresses check-ins; bot chatter does not',()=>{
  assert.ok(fireCheckin(f.userId));assert.equal(queued.length,1);assert.match(queued[0].trigger.proactiveSlotKey,/^manual:/);db.prepare("UPDATE agent_jobs SET state='completed' WHERE user_id=?").run(f.userId);
  appendRow(f.worker.id,'message',{type:'message',role:'user',text:'A human asks'});assert.equal(fireCheckin(f.userId),undefined);stop();
 });
-test('proactive due slots survive refusal and elapsed discovery window until admission',()=>{
- const f=fixture(),stop=initProactive(enqueue);setCheckins(f.userId,{enabled:true,times:['00:01'],timezone:'UTC'});refuse=true;tickProactive(Date.parse('2026-11-12T00:02:00Z'));
- assert.equal((db.prepare('SELECT status FROM proactive_due_slots WHERE user_id=?').get(f.userId) as any).status,'pending');
- assert.equal((db.prepare('SELECT last_fired FROM proactivity WHERE user_id=?').get(f.userId) as any).last_fired,null);
- refuse=false;tickProactive(Date.parse('2026-11-12T00:20:00Z'));assert.equal((db.prepare('SELECT status FROM proactive_due_slots WHERE user_id=?').get(f.userId) as any).status,'admitted');
- const n=queued.filter(q=>q.botId===f.chief.id).length;tickProactive(Date.parse('2026-11-12T00:21:00Z'));assert.equal(queued.filter(q=>q.botId===f.chief.id).length,n);stop();
+test('scheduled daily synopsis survives agent queue refusal without consuming a model job',async()=>{
+ const f=fixture(),stop=initProactive(enqueue);setCheckins(f.userId,{enabled:true,times:['00:01'],timezone:'UTC'},Date.parse('2026-11-12T00:00:00Z'));refuse=true;tickProactive(Date.parse('2026-11-12T00:02:00Z'));await settleProactive();
+ const slot=db.prepare('SELECT * FROM proactive_due_slots WHERE user_id=?').get(f.userId) as any;assert.equal(slot.status,'admitted');assert.ok(slot.report_id);assert.equal(slot.job_id,null);
+ assert.equal(queued.filter(q=>q.botId===f.chief.id).length,0);
+ const report=reports.getSynopsis(f.userId,slot.report_id);assert.equal(report.delivery?.status,'delivered');
+ tickProactive(Date.parse('2026-11-12T00:21:00Z'));await settleProactive();assert.equal((db.prepare('SELECT COUNT(*) n FROM coordination_synopses WHERE user_id=?').get(f.userId) as any).n,1);
+ setCheckins(f.userId,{enabled:false});refuse=false;stop();
 });
 test('sole primary is guarded; transfer requires owned activated permanent worker',()=>{
  const f=fixture(),other=fixture();assert.throws(()=>assertPrimaryRemovalAllowed(f.userId,f.chief.id),/Transfer/);assert.throws(()=>transferPrimary(f.userId,f.chief.id,other.worker.id),/activated/);
@@ -152,6 +153,68 @@ test('bounded reply ancestry ignores caller attempts to reset depth',()=>{
  const f=fixture();let id=request(f);let from=f.worker.id,to=f.chief.id;
  for(let i=1;i<=4;i++){id=c.enqueueInternalMessage(from,to,'Reply '+i,0,{parentRequestId:id,idempotencyKey:'reply-'+i});assert.equal(c.getInternalRequest(f.userId,id).depth,i);[from,to]=[to,from];}
  assert.throws(()=>c.enqueueInternalMessage(from,to,'Unbounded reply',0,{parentRequestId:id}),/limit/);
+});
+
+test('subscription peer loops remain bounded and fresh helper delegation cannot reset their hop budget',async()=>{
+ const {selectCli}=await import('../server/src/cli/store.js');
+ const {createSubagent}=await import('../server/src/agent/subagents.js');
+ const f=fixture();selectCli(f.userId,'claude');let id=request(f);let from=f.worker.id,to=f.chief.id;
+ for(let i=1;i<=4;i++){id=c.enqueueInternalMessage(from,to,'Subscription peer '+i,0,{parentRequestId:id,idempotencyKey:'subscription-peer-'+i});assert.equal(c.getInternalRequest(f.userId,id).depth,i);[from,to]=[to,from];}
+ assert.throws(()=>c.enqueueInternalMessage(from,to,'Peer loop',0,{parentRequestId:id}),/limit/);
+ const helper=createSubagent(from,'Delegated continuation');
+ const down=c.enqueueInternalMessage(from,helper.id,'Fresh helper after four peer hops',0,{parentRequestId:id,idempotencyKey:'fresh-after-four'});
+ assert.equal(c.getInternalRequest(f.userId,down).depth,5);
+ assert.equal(c.enqueueInternalMessage(from,helper.id,'Fresh helper after four peer hops',0,{parentRequestId:id,idempotencyKey:'fresh-after-four'}),down,'retry does not become an extra peer hop');
+ assert.throws(()=>c.enqueueInternalMessage(helper.id,to,'Laundered peer loop',0,{parentRequestId:down}),/limit/);
+ const result=c.enqueueInternalMessage(helper.id,from,'Return evidence to the bound parent',0,{parentRequestId:down});
+ assert.equal(c.getInternalRequest(f.userId,result).kind,'result');assert.equal(c.getInternalRequest(f.userId,result).depth,6);
+ assert.throws(()=>c.enqueueInternalMessage(from,helper.id,'Repeat parent-child request loop',0,{parentRequestId:result}),/limit/);
+ const other=fixture();selectCli(other.userId,'codex');
+ assert.throws(()=>c.enqueueInternalMessage(from,other.worker.id,'Cross tenant',0),/not found/);
+});
+
+for(const removeLeaf of [false,true])test(`late nested consolidation returns once after durable recovery${removeLeaf?' even when its completed leaf is removed':''}`,async()=>{
+ const {selectCli}=await import('../server/src/cli/store.js');
+ const {createSubagent}=await import('../server/src/agent/subagents.js');
+ const {toolMap}=await import('../server/src/agent/tools.js');
+ await import('../server/src/agent/loop.js');
+ c.configureCoordinationRuntime({enqueue,interrupt:()=>{}});w.configureWorkflowRuntime({enqueue,interrupt:()=>{}});
+ const f=fixture();selectCli(f.userId,'codex');
+ const prefix=removeLeaf?c.enqueueInternalMessage(f.worker.id,f.chief.id,'Existing peer ancestry',1):undefined;
+ const middle=createSubagent(f.chief.id,'Coordinate two relevant branches');
+ const outer=c.enqueueInternalMessage(f.chief.id,middle.id,'Consolidate both branches',1,prefix?{parentRequestId:prefix}:{});
+ const initial=queued.find(q=>q.jobId===c.getInternalRequest(f.userId,outer).jobId)!;beginJob(initial.jobId);
+ const leaf=createSubagent(middle.id,'Produce source evidence');
+ const inner=c.enqueueInternalMessage(middle.id,leaf.id,'Find source evidence',2);
+ const leafJob=queued.find(q=>q.jobId===c.getInternalRequest(f.userId,inner).jobId)!;
+ settle(f,initial,'completed','Independent work finished; waiting for branch evidence.');
+ settle(f,leafJob,'completed','Late concrete branch evidence');
+ const incoming=c.listInternalRequests(f.userId).requests.find(r=>r.kind==='result'&&r.parentRequestId===inner)!;
+ const consolidation=queued.find(q=>q.jobId===c.getInternalRequest(f.userId,incoming.id).jobId)!;
+ beginJob(consolidation.jobId);
+ if(removeLeaf) {
+  const stopped=await toolMap.get('stop_subagent')!.impl({subagent_id:leaf.id},{userId:f.userId,botId:middle.id,jobId:consolidation.jobId,depth:incoming.depth,enqueueBotMessage:()=>{throw new Error('Unexpected send');}});
+  assert.match(stopped.output as string,/Stopped and removed/);
+  assert.equal(db.prepare('SELECT 1 FROM bots WHERE id=?').get(leaf.id),undefined);
+  assert.equal(db.prepare('SELECT 1 FROM coordination_requests WHERE id=?').get(incoming.id),undefined,'the active receipt source really was removed');
+ }
+ db.transaction(()=>{finishJob(consolidation.jobId,true);c.recordCoordinationJobOutcome({userId:f.userId,botId:middle.id,jobId:consolidation.jobId,status:'completed',finalText:'Combined parent work with late concrete branch evidence',trigger:consolidation.trigger});})();
+ // No completion hook ran. Recover in a fresh process before admitting any
+ // parent follow-up, using only the committed assignment and outcome records.
+ const program=`const {db}=await import('./server/src/db.ts');const r=await import('./server/src/coordination/requests.ts');r.recoverInternalRequests();db.close();`;
+ const child=spawnSync(process.execPath,['--import','tsx','--input-type=module','-e',program],{cwd:process.cwd(),env:process.env,encoding:'utf8'});assert.equal(child.status,0,child.stderr);
+ r.recoverInternalRequests();r.recoverInternalRequests();
+ const forwarded=c.listInternalRequests(f.userId).requests.filter(r=>r.text.includes('Combined parent work with late concrete branch evidence'));
+ assert.equal(forwarded.length,1);assert.equal(forwarded[0].fromBotId,middle.id);assert.equal(forwarded[0].toBotId,f.chief.id);
+ assert.equal(forwarded[0].kind,'result');assert.equal(forwarded[0].parentRequestId,removeLeaf?null:incoming.id);assert.equal(forwarded[0].correlationId,prefix??outer);assert.equal(forwarded[0].depth,removeLeaf?5:4);
+ assert.equal(c.listInternalRequests(f.userId).requests.filter(r=>r.toBotId===leaf.id).length,removeLeaf?0:1,'consolidation does not reply back to the leaf');
+ if(removeLeaf) {
+  const snapshot=db.prepare('SELECT receipt,settled FROM coordination_helper_receipts WHERE source_request_id=?').get(incoming.id) as any;
+  assert.equal(snapshot.settled,1);assert.equal(JSON.parse(snapshot.receipt).id,incoming.id);
+  let id=forwarded[0].id,from=f.chief.id,to=f.worker.id;
+  for(let hop=2;hop<=4;hop++){id=c.enqueueInternalMessage(from,to,'Remaining peer hop '+hop,0,{parentRequestId:id});[from,to]=[to,from];}
+  assert.throws(()=>c.enqueueInternalMessage(from,to,'Cannot erase peer budget by deleting the leaf',0,{parentRequestId:id}),/limit/);
+ }
 });
 test('Quinn review coalesces changed state, survives missing completion hook, and does not wake on transcript chatter',()=>{
  const f=fixture();c.reviewCoordination();const wake=db.prepare("SELECT * FROM coordination_wakes WHERE user_id=? AND status='admitted'").get(f.userId) as any;assert.ok(wake);

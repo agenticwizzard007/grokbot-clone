@@ -8,7 +8,10 @@ import { deleteSkill, listSkills } from './skills.js';
 export function routineProtectsSkill(botId: string, id: string, name: string): boolean {
     const bot = db.prepare('SELECT user_id FROM bots WHERE id=?').get(botId) as any;
     const routines = db.prepare('SELECT r.* FROM routines r JOIN bots b ON b.id=r.bot_id WHERE b.user_id=?').all(bot?.user_id ?? '');
-    return name.toLowerCase() === 'plan' || routines.some(r => { const text = JSON.stringify(r).toLowerCase(); return text.includes(id.toLowerCase()) || text.includes(name.toLowerCase()); });
+    const mentions=(r:unknown)=>{const text=JSON.stringify(r).toLowerCase();return text.includes(id.toLowerCase())||text.includes(name.toLowerCase());};
+    const workflows=db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='native_workflow_tasks'").get()?db.prepare("SELECT t.* FROM native_workflow_tasks t JOIN native_workflows w ON w.id=t.workflow_id WHERE w.user_id=? AND w.status NOT IN ('completed','cancelled') AND t.status NOT IN ('completed','cancelled')").all(bot?.user_id??''):[];
+    const inUse=db.prepare("SELECT 1 FROM knowledge_use_receipts r JOIN agent_jobs j ON j.id=r.job_id WHERE r.kind='skill' AND r.source_id=? AND j.state IN ('queued','running') AND json_extract(j.trigger,'$.type')!='learning-review' LIMIT 1").get(id);
+    return name.toLowerCase() === 'plan' || !!inUse || routines.some(mentions)||workflows.some(mentions);
 }
 export function curatorProtected(botId: string, skill: {
     id: string;
@@ -16,7 +19,8 @@ export function curatorProtected(botId: string, skill: {
     locked: boolean;
     pinned: boolean;
     managed: boolean;
-}) { return !skill.managed || skill.locked || skill.pinned || routineProtectsSkill(botId, skill.id, skill.name); }
+    lifecycle?:string;
+}) { return !skill.managed || skill.locked || skill.pinned || skill.lifecycle==='suspended'|| routineProtectsSkill(botId, skill.id, skill.name); }
 export function curateSkills(userId: string, botId: string, at = now()) {
     return withManagement({userId,botId,actor:'curator',unattended:true,reads:new Map()},()=>db.transaction(() => {
         assertWritable(userId, botId);

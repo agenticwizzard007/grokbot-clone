@@ -49,7 +49,7 @@ export function isProgramResumable(callId: string, botId: string) {
   return !!db.prepare("SELECT 1 FROM code_runs WHERE id=? AND bot_id=? AND state='waiting'").get(callId, botId);
 }
 function permittedProgramTool(name: string) {
-  return name.startsWith('mcp_') || ['SWARM_APPS_SEARCH', 'SWARM_APPS_EXECUTE', 'save_file', 'read_skill', 'list_skills', 'search_skills', 'session_search', 'search_history', 'read_history', 'recall'].includes(name);
+  return name.startsWith('mcp_') || ['SWARM_APPS_SEARCH', 'SWARM_APPS_EXECUTE', 'save_file', 'read_skill', 'apply_procedure', 'list_skills', 'search_skills', 'session_search', 'search_history', 'read_history', 'recall'].includes(name);
 }
 
 export async function runProgram(options: {

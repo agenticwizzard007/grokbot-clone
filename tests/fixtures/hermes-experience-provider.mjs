@@ -19,7 +19,7 @@ const server = http.createServer(async (request, response) => {
     // Identify detached review by its real restricted management manifest. The
     // native evidence trailer may be an anchor list or a bounded source index;
     // prompt wording is not the identity of a review, nor executable fixture text.
-    const reviewTools = new Set(['session_search', 'list_skills', 'read_skill', 'manage_skill', 'propose_skill', 'recall', 'remember', 'correct_memory', 'forget_memory', 'manage_memory']);
+    const reviewTools = new Set(['session_search', 'list_skills', 'read_skill', 'apply_procedure', 'manage_skill', 'propose_skill', 'recall', 'remember', 'correct_memory', 'forget_memory', 'manage_memory']);
     const toolNames = (body.tools ?? []).map(tool => tool.type === 'function' ? tool.name : '');
     const managementReview = body.store === false && body.parallel_tool_calls === false && toolNames.length > 0
       && toolNames.every(name => reviewTools.has(name)) && toolNames.some(name => name === 'manage_skill' || name === 'manage_memory');
@@ -42,6 +42,19 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if (request.url?.startsWith('/v1/responses') && managementReview) {
+      if (text.includes(fixture.evaluationSkill.id)) {
+        const outputs = items.slice(lastUserIndex + 1).filter(i => i.type === 'function_call_output');
+        const call = (name, args) => ({ type: 'function_call', call_id: `evaluation_review_${++seq}`, name, arguments: JSON.stringify(args) });
+        let item;
+        if (outputs.length === 0) item = call('read_skill', { skill_id: fixture.evaluationSkill.id, file_path: fixture.procedureFile });
+        else if (outputs.length === 1) {
+          const read = JSON.parse(outputs[0].output), table = JSON.parse(read.content);
+          table.rules[0].outcome = 'priority';
+          item = call('manage_skill', { action: 'write_file', skill_id: fixture.evaluationSkill.id, expected_revision: read.revision, file_path: fixture.procedureFile, file_content: JSON.stringify(table), reason: 'Correct urgent observation classification under the owner-frozen expectations.', evidence: [fixture.evaluationSource] });
+        } else item = { type: 'message', id: `evaluation_message_${++seq}`, role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Recorded the candidate; native frozen evaluations decide whether promotion is permitted.', annotations: [] }] };
+        const result = { id: `evaluation_response_${++seq}`, object: 'response', status: 'completed', model: body.model, output: [item], usage: { input_tokens: 120, output_tokens: 30, total_tokens: 150 } };
+        response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify(result)); return;
+      }
       const research = text.includes(fixture.researchSkill.id), skill = research ? fixture.researchSkill : fixture.skill;
       const outputs = items.slice(lastUserIndex + 1).filter(i => i.type === 'function_call_output');
       let item;
@@ -50,7 +63,11 @@ const server = http.createServer(async (request, response) => {
       else if (outputs.length === 1) {
         const read = JSON.parse(outputs[0].output).skill;
         item = call('manage_skill', { action: 'update', skill_id: skill.id, expected_revision: read.revision, body: `${read.body.replace(/weekly/g, 'daily')}\nVerify original source links before reporting.`, reason: 'Encode the user’s durable correction in the existing procedure.', evidence: [research ? fixture.researchDaily : fixture.daily] });
-      } else if (research && outputs.length === 2) item = call('manage_memory', { action: 'replace', memory_id: fixture.researchMemory.id, expected_revision: fixture.researchMemory.revision, text: 'Prefers daily research reports with named owners and source links.', target: 'user', evidence: [fixture.researchDaily] });
+      } else if (research && outputs.length === 2) item = call('recall', { query: 'research' });
+      else if (research && outputs.length === 3) {
+        const memory = JSON.parse(outputs[2].output).memories[0];
+        item = call('manage_memory', { action: 'replace', memory_id: memory.id, expected_revision: memory.revision, text: memory.text.includes('weekly') ? 'Prefers daily research reports with named owners and source links.' : 'Prefers daily research reports with named owners, source links and risk summaries.', target: 'user', evidence: [fixture.researchDaily] });
+      }
       else item = { type: 'message', id: `review_message_${++seq}`, role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Reviewed source evidence and current skill; recorded the guarded knowledge changes.', annotations: [] }] };
       const result = { id: `review_response_${++seq}`, object: 'response', status: 'completed', model: body.model, output: [item], usage: { input_tokens: 120, output_tokens: 30, total_tokens: 150 } };
       response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify(result)); return;

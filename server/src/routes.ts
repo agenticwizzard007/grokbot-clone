@@ -18,7 +18,7 @@ import { deleteEventTrigger } from './triggers.js';
 import { dispatchRoomMessage } from './agent/rooms.js';
 import { voiceApi } from './voice.js';
 import { createBot, assertPrimaryRemovalAllowed, transferPrimary } from './bots.js';
-import { activateSetup, beginSetupInterview, briefSchema, emitSetup, getSetup, removeSetupFiles, setupFiles, setupView, writeSetupFiles } from './bot-setup.js';
+import { activateSetup, beginSetupInterview, briefSchema, emitSetup, getSetup, removeSetupFiles, setupFiles, setupView, writeSetupFiles, coworkerSetups, coworkerSetup } from './bot-setup.js';
 import { importTeammate, provisionTeammate } from './agent/teammates.js';
 import type { Toolkit } from './types.js';
 import { compareAppPriority, matchesAppCategory } from './app-catalog.js';
@@ -158,6 +158,11 @@ api.get('/bots/:id/setup', (c) => {
   return c.json(view);
 });
 
+api.get('/bots/:id/coworker-setups', (c) => {
+  try { return c.json({ setups: coworkerSetups(c.get('user').id, c.req.param('id')) }); }
+  catch { return c.json({ error: 'Coordinator not found.' }, 404); }
+});
+
 api.post('/bots/:id/setup/interview', async (c) => {
   const b = ownBot(c.get('user').id, c.req.param('id'));
   if (!b || b.kind === 'room' || b.hidden) return c.json({ error: 'not found' }, 404);
@@ -168,11 +173,13 @@ api.post('/bots/:id/setup/interview', async (c) => {
 api.post('/bots/:id/setup/activate', async (c) => {
   const b = ownBot(c.get('user').id, c.req.param('id'));
   if (!b) return c.json({ error: 'not found' }, 404);
-  const { revision } = await c.req.json();
+  const { revision, coordinatorId } = await c.req.json();
   if (!Number.isInteger(revision)) return c.json({ error: 'A configuration revision is required.' }, 400);
   try {
-    const pending = await runInBotQueue(b.id, async () => activateSetup(b.id, revision));
-    if (pending) enqueue(b.id, { type: 'system', text: `Your setup has been confirmed by the user. Now handle this initial assignment from your creation brief:\n${pending}` });
+    await runInBotQueue(b.id, async () => {
+      if (coordinatorId !== undefined) coworkerSetup(c.get('user').id, coordinatorId, b.id);
+      return activateSetup(b.id, revision);
+    });
     return c.json(setupView(b.id));
   } catch (e: any) { return c.json({ error: String(e?.message ?? e) }, 409); }
 });

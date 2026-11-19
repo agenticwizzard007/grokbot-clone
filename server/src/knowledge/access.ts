@@ -51,6 +51,7 @@ export function canRead(userId: string, botId: string, kind: 'skills' | 'memorie
 }
 export function setGrants(userId: string, sourceBotId: string, kind: string, id: string, scope: Scope, projectId?: string, botIds: string[] = []) {
     assertWritable(userId, sourceBotId);
+    if(managementContext()?.unattended)throw new KnowledgeError('Background learning cannot expand knowledge scope',409);
     if (!['private', 'project', 'account'].includes(scope))
         throw new KnowledgeError('Invalid scope');
     if (scope === 'project' && (typeof projectId !== 'string' || !projectId.trim() || projectId.length > 100 || !Array.isArray(botIds) || !botIds.length || botIds.length > 200))

@@ -19,11 +19,11 @@ function child(code:string){return spawnSync(process.execPath,['--import','tsx',
 const imports="const {db}=await import('./server/src/db.ts');await import('./server/src/agent/jobs.ts');const o=await import('./server/src/native/job-completions.ts');";
 
 test('job settlement, completion intent and native event roll back as one transaction',()=>{
- const f=fixture();assert.throws(()=>db.transaction(()=>{finishJob(f.jobId,true);outbox.recordJobCompletion(f);throw new Error('Injected crash before commit');})(),/Injected/);assert.equal((db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(f.jobId) as any).state,'running');assert.equal(outbox.pendingJobCompletions(f.jobId).length,0);assert.equal(listNativeEvents(f.userId).length,0);
+ const f=fixture(),beforeEvents=listNativeEvents(f.userId);assert.throws(()=>db.transaction(()=>{finishJob(f.jobId,true);outbox.recordJobCompletion(f);throw new Error('Injected crash before commit');})(),/Injected/);assert.equal((db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(f.jobId) as any).state,'running');assert.equal(outbox.pendingJobCompletions(f.jobId).length,0);assert.deepEqual(listNativeEvents(f.userId),beforeEvents);
  commit(f);assert.equal((db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(f.jobId) as any).state,'completed');assert.equal(outbox.pendingJobCompletions(f.jobId).length,1);assert.equal(listNativeEvents(f.userId).filter(e=>e.kind==='job.execution_finished').length,1);
 });
 test('completion identity is immutable and idempotent; unsettled and mismatched jobs are rejected',()=>{
- const f=fixture(),other=fixture();assert.throws(()=>outbox.recordJobCompletion(f),/settled owned job/);commit(f);outbox.recordJobCompletion(f);assert.equal(outbox.pendingJobCompletions(f.jobId).length,1);assert.equal(listNativeEvents(f.userId).length,1);assert.throws(()=>outbox.recordJobCompletion({...f,completion:{...f.completion,finalText:'Changed result'}}),/identity changed/);assert.throws(()=>outbox.recordJobCompletion({...f,userId:other.userId}),/settled owned job/);assert.throws(()=>outbox.recordJobCompletion({...f,botId:other.botId}),/settled owned job/);
+ const f=fixture(),other=fixture();assert.throws(()=>outbox.recordJobCompletion(f),/settled owned job/);commit(f);outbox.recordJobCompletion(f);assert.equal(outbox.pendingJobCompletions(f.jobId).length,1);assert.equal(listNativeEvents(f.userId).filter(e=>e.kind==='job.execution_finished').length,1);assert.throws(()=>outbox.recordJobCompletion({...f,completion:{...f.completion,finalText:'Changed result'}}),/identity changed/);assert.throws(()=>outbox.recordJobCompletion({...f,userId:other.userId}),/settled owned job/);assert.throws(()=>outbox.recordJobCompletion({...f,botId:other.botId}),/settled owned job/);
  const sibling='bot_completion_sibling_'+(++sequence);db.prepare('INSERT INTO bots(id,user_id,name,created_at,updated_at) VALUES(?,?,?,?,?)').run(sibling,f.userId,'Sibling',Date.now(),Date.now());assert.throws(()=>outbox.recordJobCompletion({...f,botId:sibling}),/settled owned job/);
 });
 test('consumer acknowledgement rolls back with its effect and remains independent of other consumers',()=>{
@@ -32,7 +32,7 @@ test('consumer acknowledgement rolls back with its effect and remains independen
  db.transaction(()=>{db.prepare('UPDATE bots SET name=? WHERE id=?').run('Committed consumer effect',f.botId);outbox.acknowledgeJobCompletion(f.userId,f.jobId,'coordination');})();let pending=outbox.pendingJobCompletions(f.jobId);assert.equal(pending.length,1);assert.equal(pending[0].coordinationDone,true);assert.equal(pending[0].learningDone,false);outbox.acknowledgeJobCompletion(f.userId,f.jobId,'coordination');outbox.acknowledgeJobCompletion(f.userId,f.jobId,'learning');assert.equal(outbox.pendingJobCompletions(f.jobId).length,0);
 });
 test('process loss before settlement commit leaves the original job running and no completion intent',()=>{
- const f=fixture();const result=child(imports+`const j=await import('./server/src/agent/jobs.ts');db.transaction(()=>{j.finishJob(${JSON.stringify(f.jobId)},true);o.recordJobCompletion(${JSON.stringify(f)});process.exit(71);})();`);assert.equal(result.status,71,result.stderr);assert.equal((db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(f.jobId) as any).state,'running');assert.equal(outbox.pendingJobCompletions(f.jobId).length,0);assert.equal(listNativeEvents(f.userId).length,0);commit(f);assert.equal(outbox.pendingJobCompletions(f.jobId).length,1);
+ const f=fixture(),beforeEvents=listNativeEvents(f.userId);const result=child(imports+`const j=await import('./server/src/agent/jobs.ts');db.transaction(()=>{j.finishJob(${JSON.stringify(f.jobId)},true);o.recordJobCompletion(${JSON.stringify(f)});process.exit(71);})();`);assert.equal(result.status,71,result.stderr);assert.equal((db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(f.jobId) as any).state,'running');assert.equal(outbox.pendingJobCompletions(f.jobId).length,0);assert.deepEqual(listNativeEvents(f.userId),beforeEvents);commit(f);assert.equal(outbox.pendingJobCompletions(f.jobId).length,1);
 });
 test('restart replays only unfinished consumers and never repeats committed effects or business execution',()=>{
  const f=fixture();commit(f);const taskId='consumer_effect_'+(++sequence);
@@ -48,4 +48,22 @@ test('another account cannot acknowledge an owned completion',()=>{
 test('held owners retain completion intents while independent owners resume consumers after restart',()=>{
  const held=fixture('usr_completion_held_0001'),free=fixture();commit(held);commit(free);fences.holdLegacyDatabase(db,held.userId,'native-completion-migration-test','1');assert.equal(outbox.pendingJobCompletions(held.jobId).length,0);assert.throws(()=>outbox.acknowledgeJobCompletion(held.userId,held.jobId,'coordination'),/migrat/);
  const before=db.prepare('SELECT * FROM native_job_completions WHERE job_id=?').get(held.jobId);const result=child(imports+`const f=await import('./server/src/platform/legacy-database-fence.ts');f.assertLegacyDatabaseFences(db);const pending=o.pendingJobCompletions(${JSON.stringify(free.jobId)});if(pending.length!==1)throw Error('Missing free completion');o.acknowledgeJobCompletion(${JSON.stringify(free.userId)},${JSON.stringify(free.jobId)},'coordination');o.acknowledgeJobCompletion(${JSON.stringify(free.userId)},${JSON.stringify(free.jobId)},'learning');db.close();`);assert.equal(result.status,0,result.stderr);assert.equal(outbox.pendingJobCompletions(free.jobId).length,0);assert.deepEqual(db.prepare('SELECT * FROM native_job_completions WHERE job_id=?').get(held.jobId),before);fences.assertLegacyDatabaseFences(db);
+});
+
+test('poisoned learning receipts cannot starve independent coordination or healthy later learning',()=>{
+ const f=fixture();commit(f);outbox.acknowledgeJobCompletion(f.userId,f.jobId,'coordination');
+ const bad=[f.jobId];
+ for(let i=0;i<100;i++){
+  const jobId=acceptJob(f.botId,{type:'system',text:'Known result'}).id;beginJob(jobId);finishJob(jobId,true);
+  outbox.recordJobCompletion({...f,jobId});db.prepare('UPDATE native_job_completions SET created_at=? WHERE job_id=?').run(Date.now()+i+1,jobId);
+  if(i<99){outbox.acknowledgeJobCompletion(f.userId,jobId,'coordination');bad.push(jobId);}
+ }
+ let pending=outbox.pendingJobCompletions();
+ assert.equal(pending.filter(r=>r.coordinationReady&&r.input.userId===f.userId).length,1);
+ for(const jobId of bad)outbox.deferJobCompletion(f.userId,jobId,'learning');
+ pending=outbox.pendingJobCompletions();
+ assert.equal(pending.filter(r=>r.learningReady&&r.input.userId===f.userId).length,1);
+ assert.ok(pending.every(r=>!bad.includes(r.input.jobId)));
+ db.prepare('UPDATE native_job_completions SET learning_next_at=0 WHERE job_id=?').run(f.jobId);
+ assert.equal(outbox.pendingJobCompletions(f.jobId)[0].learningReady,true,'due retries remain recoverable');
 });

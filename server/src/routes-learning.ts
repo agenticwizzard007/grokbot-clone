@@ -3,9 +3,10 @@ import { requireUser, type AuthVars } from './lib/auth.js';
 import { KnowledgeError } from './knowledge/common.js';
 import { learningSettings, patchLearningSettings } from './knowledge/settings.js';
 import { listMemoryChanges, resolveMemoryChange, setMemoryScope } from './knowledge/memory.js';
-import { getSkill, listSkills, updateSkill, deleteSkill, setSkillScope, resources } from './knowledge/skills.js';
+import { getSkill, listSkills, updateSkill, deleteSkill, setSkillScope, resources, recheckSkillPromotion } from './knowledge/skills.js';
 import { curateSkills } from './knowledge/curator.js';
 import { listLearningReviews, refineLearning, cancelLearningReview, learningContext, curateLearning } from './agent/learning.js';
+import { promotionPolicy, setPromotionPolicy, listSkillEvaluations, evaluateSkillProposal } from './knowledge/evaluation.js';
 export const learningApi = new Hono<AuthVars>();
 learningApi.use('*', requireUser);
 learningApi.use('*', async (c, next) => { c.header('Cache-Control', 'no-store'); await next(); });
@@ -32,6 +33,11 @@ learningApi.get('/bots/:botId/memory-changes', c => c.json({ changes: listMemory
 learningApi.post('/memory-changes/:id/review', async (c) => { const b = await body(c); return c.json(resolveMemoryChange(c.get('user').id, c.req.param('id'), b.decision, b.expectedBaseRevision)); });
 learningApi.get('/bots/:botId/skills', c => c.json({ skills: listSkills(c.get('user').id, c.req.param('botId'), c.req.query('archive') === '1') }));
 learningApi.get('/skills/:id', c => c.json({ skill: getSkill(c.get('user').id, c.req.param('id')) }));
+learningApi.get('/skills/:id/promotion-policy', c => c.json({ standingPolicy: promotionPolicy(c.get('user').id,c.req.param('id')) }));
+learningApi.put('/skills/:id/promotion-policy', async c => c.json({ standingPolicy: setPromotionPolicy(c.get('user').id,c.req.param('id'),await body(c)) }));
+learningApi.post('/skills/:id/recheck', async c => {const b=await body(c);return c.json(recheckSkillPromotion(c.get('user').id,c.req.param('id'),b.expectedRevision));});
+learningApi.get('/skill-proposals/:id/evaluations', c => c.json({ evaluations:listSkillEvaluations(c.get('user').id,c.req.param('id')) }));
+learningApi.post('/skill-proposals/:id/evaluate', async c => {await body(c);return c.json({evaluation:evaluateSkillProposal(c.get('user').id,c.req.param('id'))});});
 learningApi.patch('/skills/:id', async (c) => { const b = await body(c); const allowed = ['expectedRevision', 'name', 'description', 'body', 'resources', 'locked', 'pinned', 'managed']; if (Object.keys(b).some(k => !allowed.includes(k)))
     throw new KnowledgeError('Unknown skill field'); for (const key of ['locked', 'pinned', 'managed'])
     if (b[key] !== undefined && typeof b[key] !== 'boolean')

@@ -21,13 +21,18 @@ try {
  assert.equal(login.status,200); const cookie=login.headers.get('set-cookie').split(';')[0];
  async function api(url,method='GET',body){const r=await fetch(base+'/api'+url,{method,headers:{cookie,'content-type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});const text=await r.text();assert.ok(r.ok,`${method} ${url}: ${r.status} ${text}`);return JSON.parse(text);}
  const bot=(await api('/bots')).bots.find(b=>b.isPrimary);
+ const learningDefaults=(await api('/learning/settings')).settings;
+ assert.equal(learningDefaults.skillApproval,false);
+ assert.equal(learningDefaults.maxInputTokens,32000,'background learning starts with a bounded input budget');
  const original=(await api(`/bots/${bot.id}/messages`,'POST',{text:'I prefer concise weekly reports with links to sources.'})).row;
  await until(async()=>(await api(`/bots/${bot.id}/rows`)).rows.some(r=>r.seq>original.seq&&r.body.role==='assistant'&&!r.body.streaming));
  const evidence=[{botId:bot.id,generation:original.generation,seq:original.seq}];
  const proposal={expected_revision:0,name:'Weekly report',description:'Create a concise weekly report with source links.',body:'1. Retrieve the original sources.\n2. Check the reported facts.\n3. Save a concise report with source links.',reason:'The user requested concise, sourced reports.',evidence};
  const message=(await api(`/bots/${bot.id}/messages`,'POST',{text:`mock: remember ${JSON.stringify({text:'Prefers concise weekly reports with source links.',evidence})} | propose_skill ${JSON.stringify(proposal)} | save_file ${JSON.stringify({filename:'weekly-report.md',content:'# Weekly report\n\nVerified sources and completed work.'})} | say Saved for review.`})).row;
  await until(async()=>(await api(`/bots/${bot.id}/rows`)).rows.some(r=>r.seq>message.seq&&r.body.role==='assistant'&&!r.body.streaming));
- assert.equal((await api(`/bots/${bot.id}/skill-proposals`)).proposals.length,1);
+ const staged=(await api(`/bots/${bot.id}/skill-proposals`)).proposals;
+ assert.equal(staged.length,1);assert.equal(staged[0].status,'pending');assert.equal(staged[0].promotion,null);
+ assert.equal((await api(`/learning/bots/${bot.id}/skills`)).skills.length,0,'proposed prose is inactive until the owner reviews it');
  assert.equal((await api(`/bots/${bot.id}/memories`)).memories.length,1);
  const artifact=(await api(`/deliverables/bots/${bot.id}`)).artifacts[0]; assert.ok(artifact);
  const download=await fetch(base+artifact.downloadUrl,{headers:{cookie}});assert.equal(download.status,200);assert.match(await download.text(),/Verified sources/);
@@ -43,9 +48,13 @@ try {
  await page.getByText('Learned skills awaiting review (1)',{exact:true}).waitFor();
  await page.getByText('Weekly report · New skill',{exact:true}).click();
  await page.getByLabel('Proposed skill diff').waitFor();
+ assert.ok(await settings.getByText('Review the proposed steps and sources before they become active.',{exact:true}).isVisible());
  fs.mkdirSync('.context/native-shots',{recursive:true});await page.screenshot({path:'.context/native-shots/skill-review.png',animations:'disabled'});
  await page.getByRole('button',{name:'Approve',exact:true}).click();
  await page.getByRole('button',{name:'History · revision 1',exact:true}).waitFor();
+ const approved=(await api(`/bots/${bot.id}/skill-proposals`)).proposals[0];
+ assert.equal(approved.status,'approved');assert.equal(approved.promotion,null,'owner approval must not be labeled automatic promotion');
+ assert.equal((await api(`/learning/bots/${bot.id}/skills`)).skills.length,1);
  await page.getByRole('button',{name:/^Memories/}).click();
  await page.getByRole('link',{name:`Source ${original.generation}:${original.seq}`,exact:true}).click();
  await settings.getByText('I prefer concise weekly reports with links to sources.',{exact:true}).waitFor();

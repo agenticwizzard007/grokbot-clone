@@ -6,6 +6,7 @@ import { useStore } from '../../store';
 import { relativeShort } from '../../lib/time';
 import { formatBytes } from './ui';
 import './native-learning.css';
+import { SynopsesPanel } from './SynopsesPanel';
 
 const outcome = (delivery: ArtifactDelivery) => ({ delivered: delivery.channel === 'library' ? 'Saved in Library' : 'Acknowledged', failed: 'Not sent', unknown: 'Unverified outcome', sending: 'Sending', pending: 'Waiting to send' }[delivery.status] ?? delivery.status);
 const latestAttempt = (d: ArtifactDelivery) => [...d.attempts].sort((a, b) => b.number - a.number)[0];
@@ -17,6 +18,7 @@ export function DeliverablesPanel({ botId }: { botId: string }) {
   const [busy, setBusy] = useState<string | null>(null), [channels, setChannels] = useState<Record<string, DeliveryChannel>>({});
   const [preview, setPreview] = useState<Preview | null>(null), [pending, setPending] = useState<DeliveryAction[]>([]), [storageError, setStorageError] = useState('');
   const userId = useStore(s => s.user?.id), journal = deliveryJournalKey(userId ?? 'signed-out', botId);
+  const isPrimary = useStore(s => s.bots.find(b => b.id === botId)?.isPrimary);
   const currentBot = useRef(botId), action = useRef(false);
   currentBot.current = botId;
   const load = useCallback(async () => {
@@ -57,6 +59,7 @@ export function DeliverablesPanel({ botId }: { botId: string }) {
     finally { action.current = false; if (currentBot.current === botId) setBusy(null); }
   };
   return <section aria-label="Saved reports">
+    {isPrimary && <SynopsesPanel key={userId} onUpdated={() => void load()} />}
     <div className="section-label section-label--row"><span>Saved reports</span><button type="button" className="link-btn link-btn--small" disabled={loading} onClick={() => { setError(null); void load(); }}>Refresh</button></div>
     {error && <p className="lib-err" role="alert">{error}</p>}{storageError && <p className="lib-err" role="alert">{storageError}</p>}
     {!!pending.length && <div className="panel-card" role="status"><p>Unresolved delivery requests</p><p className="panel-row__meta">Resuming reuses the saved destination, exact request and idempotency key. It does not create a new send identity.</p>{pending.map(p => <div className="panel-row" key={p.key}><span>{p.kind} · {files.find(f => f.id === p.artifactId)?.filename ?? 'Saved artifact'}</span><button type="button" className="link-btn link-btn--small" disabled={busy !== null || !!storageError} onClick={() => void execute(p)}>Resume saved request</button></div>)}</div>}

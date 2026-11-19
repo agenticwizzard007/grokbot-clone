@@ -45,11 +45,14 @@ const { enqueue, runInBotQueue, interrupt } = await import('../server/src/agent/
 const { acceptJob } = await import('../server/src/agent/jobs.js');
 const { getLive, listRows, loadHistory } = await import('../server/src/store.js');
 const { llmClient } = await import('../server/src/lib/llm.js');
+const { toolMap } = await import('../server/src/agent/tools.js');
+const { toolSchemaHash } = await import('../server/src/agent/tool-catalog.js');
+const { listInternalRequests, drainInternalRequests } = await import('../server/src/coordination/index.js');
 attachCliSocket(server);
 const app = new Hono().route('/api/cli', cliApi).route('/api', api);
 
 type Provider = 'codex' | 'claude';
-type Rpc = { id: string; method: 'status' | 'generate' | 'cancel'; params?: any };
+type Rpc = { id: string; method: 'status' | 'generate' | 'cancel'; params?: any; type?: string; callId?: string; result?: { output: string; isError?: boolean }; error?: string };
 type Job = { id: string; user_id: string; bot_id: string; trigger: string; state: string; started_at: number | null; finished_at: number | null };
 let owner: string, cookie: string, sequence = 0;
 const bots = new Set<string>();
@@ -120,6 +123,22 @@ class HeldBridge {
     });
   }
   get generations() { return this.requests.filter(rpc => rpc.method === 'generate'); }
+  async tool(rpc: Rpc, name: string, args: Record<string, unknown>) {
+    const tool = toolMap.get(name)!;
+    const callId = randomUUID();
+    this.ws.send(JSON.stringify({ id: rpc.id, type: 'tool_call', call: { id: callId, name: 'tool_call', arguments: {
+      tool_name: name, schema_hash: toolSchemaHash({ type: 'function', name, parameters: tool.parameters }), arguments: args,
+    } } }));
+    await until(() => this.requests.some(frame => frame.type === 'tool_result' && frame.callId === callId), `${name} returns through native MCP`);
+    const result = this.requests.find(frame => frame.type === 'tool_result' && frame.callId === callId)!;
+    assert.equal(result.error, undefined);
+    assert.ok(result.result && !result.result.isError, JSON.stringify(result));
+    return result.result.output;
+  }
+  async forAssignment(text: string) {
+    await until(() => this.generations.some(rpc => lastUserText(rpc).includes(text)), `generation starts for ${text}`);
+    return this.generations.find(rpc => lastUserText(rpc).includes(text))!;
+  }
   forText(text: string) {
     const rpc = this.generations.find(candidate => lastUserText(candidate) === text);
     assert.ok(rpc, `no generation for ${text}`);
@@ -242,6 +261,147 @@ test('API mode retains its four-helper admission limit', () => {
   for (let i = 0; i < 4; i++) bots.add(createSubagent(parent.id, `API task ${i}`).id);
   assert.throws(() => createSubagent(parent.id, 'API fifth helper'), /already has 4 subagents/);
   assert.equal(listSubagents(parent.id).length, 4);
+});
+
+for (const provider of ['codex', 'claude'] as const) test(`${provider}: native helpers spawn seven levels deep and return correlated results without a reply loop`, { timeout: 30_000 }, async () => {
+  const bridge = await selectedBridge(provider);
+  const root = newBot('Nested parent');
+  db.prepare('UPDATE bots SET instructions=? WHERE id=?').run('Keep source references in every result.', root.id);
+  await message(root.id, 'nested-root-assignment');
+  let current = await bridge.forAssignment('nested-root-assignment');
+  const chain = [{ id: root.id, name: root.name, rpc: current }];
+  for (let level = 1; level <= 7; level++) {
+    const text = `nested-assignment-${level}`;
+    const result = JSON.parse(await bridge.tool(current, 'spawn_subagent', {
+      goal: text, label: `Level ${level}`, merge_instructions: `Return evidence for branch ${level}; reconcile it with the parent result.`,
+    }));
+    assert.equal(result.ok, true, JSON.stringify(result));
+    bots.add(result.subagent_id);
+    current = await bridge.forAssignment(text);
+    chain.push({ id: result.subagent_id, name: result.name, rpc: current });
+    const child = db.prepare('SELECT * FROM bots WHERE id=?').get(result.subagent_id) as any;
+    assert.equal(child.parent_bot_id, chain[level - 1].id);
+    assert.match(child.instructions, /Keep source references/);
+    assert.match(child.instructions, new RegExp(`Return evidence for branch ${level}`));
+    if (level > 1) assert.ok(!child.instructions.includes(`nested-assignment-${level - 1}`), 'ancestor assignment is not inherited as a new task');
+  }
+  assert.equal(bridge.held.size, 8, 'all generations overlap without waiting for the parent');
+  let requests = listInternalRequests(owner).requests;
+  const assignments = requests.filter(r => r.kind === 'request');
+  assert.deepEqual(assignments.map(r => r.depth), [1, 2, 3, 4, 5, 6, 7]);
+  assert.ok(assignments.every(r => r.correlationId === assignments[0].id));
+  for (let level = 1; level < assignments.length; level++) assert.equal(assignments[level].parentRequestId, assignments[level - 1].id);
+
+  // The deepest helper can also send a later consolidated result through the
+  // actual native send_to_bot path, even though the old depth guard was three.
+  const sent = await bridge.tool(current, 'send_to_bot', { bot_name: chain[6].name, message: 'Deep consolidated evidence' });
+  assert.match(sent, /Request recorded/);
+  requests = listInternalRequests(owner).requests;
+  const deepReply = requests.find(r => r.text === 'Deep consolidated evidence')!;
+  assert.equal(deepReply.kind, 'result', 'an upward helper report is not a new work request');
+  assert.equal(deepReply.depth, 8);
+  assert.equal(deepReply.parentRequestId, assignments.at(-1)!.id);
+  assert.equal(deepReply.correlationId, assignments[0].id);
+  bridge.finish(current, 'Deep leaf final evidence');
+  await runInBotQueue(chain[7].id, async () => {});
+  const result = listInternalRequests(owner).requests.find(r => r.kind === 'result' && r.parentRequestId === assignments.at(-1)!.id && r.text.startsWith('[Internal result'))!;
+  assert.equal(result.depth, 8, 'subscription result lineage is not clamped to four');
+  assert.equal(result.toBotId, chain[6].id);
+  assert.equal(result.status, 'deferred', 'a helper result cannot interrupt its parent generation');
+  assert.match(result.text, /Deep leaf final evidence/);
+
+  bridge.releaseAll();
+  await until(() => { drainInternalRequests(); return jobs().every(j => j.state === 'completed'); }, 'all original turns and result receipts finish');
+  await drain();
+  requests = listInternalRequests(owner).requests;
+  for (const assignment of assignments) assert.equal(requests.filter(r => r.kind === 'result' && r.parentRequestId === assignment.id && r.text.startsWith('[Internal result')).length, 1, 'one automatic result per original assignment');
+  assert.ok(requests.filter(r => r.text.startsWith('[Consolidated helper result')).every(r => {
+    const source = db.prepare('SELECT parent_bot_id FROM bots WHERE id=?').get(r.fromBotId) as any;
+    return source.parent_bot_id === r.toBotId;
+  }), 'late consolidations only travel up the helper tree');
+  assert.ok(requests.every(r => r.status === 'completed'));
+  const count = bridge.generations.length;
+  drainInternalRequests(); await drain();
+  assert.equal(bridge.generations.length, count, 'settled results do not start an automatic conversation loop');
+});
+
+for (const provider of ['codex', 'claude'] as const) test(`${provider}: parent receives parallel branch results in order and can consolidate both`, { timeout: 25_000 }, async () => {
+  const bridge = await selectedBridge(provider), parent = newBot('Consolidating parent');
+  await message(parent.id, 'parent-consolidation-task');
+  const original = await bridge.forAssignment('parent-consolidation-task');
+  const children: { id: string; rpc: Rpc }[] = [];
+  for (const label of ['A', 'B']) {
+    const result = JSON.parse(await bridge.tool(original, 'spawn_subagent', {
+      goal: `independent-branch-${label}`, label, merge_instructions: 'Combine A and B after both return evidence. Resolve disagreements before finalizing.',
+    }));
+    assert.equal(result.ok, true); bots.add(result.subagent_id);
+    children.push({ id: result.subagent_id, rpc: await bridge.forAssignment(`independent-branch-${label}`) });
+  }
+  assert.equal(bridge.held.size, 3);
+  bridge.finish(original, 'My independent work is ready; waiting for both branches.');
+  await runInBotQueue(parent.id, async () => {});
+  bridge.finish(children[1].rpc, 'Branch B evidence');
+  const firstReturn = await bridge.forAssignment('Branch B evidence');
+  assert.ok(bridge.held.has(children[0].rpc.id), 'B returns while A is still working');
+  bridge.finish(firstReturn, 'B is available; A is still pending.');
+  await runInBotQueue(parent.id, async () => {});
+  bridge.finish(children[0].rpc, 'Branch A evidence');
+  const secondReturn = await bridge.forAssignment('Branch A evidence');
+  const history = JSON.stringify(conversation(secondReturn));
+  assert.match(history, /Branch B evidence/);
+  assert.match(history, /Branch A evidence/);
+  assert.match(history, /My independent work is ready/);
+  assert.match(history, /Combine A and B after both return evidence/);
+  bridge.finish(secondReturn, 'Combined outcome supported by A and B evidence.');
+  await until(() => jobs().every(j => j.state === 'completed'), 'both branches and ordered parent continuations complete');
+  await drain();
+  assert.ok(JSON.stringify(loadHistory(parent.id)).includes('Combined outcome supported by A and B evidence.'));
+  assert.equal(listInternalRequests(owner).requests.length, 4, 'two assignments and their two result receipts');
+});
+
+test('API depth guard still rejects nested spawn before writing a helper', async () => {
+  const parent = newBot('API nested control');
+  const result = await toolMap.get('spawn_subagent')!.impl({ goal: 'Forbidden nested API helper' }, {
+    userId: owner, botId: parent.id, depth: 2, enqueueBotMessage: () => { throw new Error('must not enqueue'); },
+  });
+  assert.match(result.output as string, /Subagents cannot start more/);
+  assert.equal(listSubagents(parent.id).length, 0);
+});
+
+test('failed helper dispatch rolls back the newly created bot', async () => {
+  await selectedBridge('claude');
+  const parent = newBot('Rejected assignment');
+  const result = await toolMap.get('spawn_subagent')!.impl({ goal: 'Reject this assignment' }, {
+    userId: owner, botId: parent.id, depth: 9, enqueueBotMessage: () => { throw new Error('Assignment admission refused'); },
+  });
+  assert.match(result.output as string, /Assignment admission refused/);
+  assert.equal(listSubagents(parent.id).length, 0);
+});
+
+test('stopping a helper cancels its entire running subtree and preserves parallel siblings', { timeout: 20_000 }, async () => {
+  const bridge = await selectedBridge('claude'), parent = newBot('Stop tree parent');
+  const child = createSubagent(parent.id, 'First branch'), sibling = createSubagent(parent.id, 'Unrelated sibling');
+  const grandchild = createSubagent(child.id, 'Nested branch'), leaf = createSubagent(grandchild.id, 'Deep branch');
+  for (const bot of [child, sibling, grandchild, leaf]) bots.add(bot.id);
+  for (const bot of [parent, child, sibling, grandchild, leaf]) enqueue(bot.id, { type: 'user', text: `tree-stop:${bot.id}` });
+  await until(() => bridge.held.size === 5, 'whole tree and sibling are working');
+  const queued = enqueue(leaf.id, { type: 'user', text: 'must-not-run-after-subtree-stop' });
+  assert.equal((db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(queued) as any).state, 'queued');
+  const cancelled = [child, grandchild, leaf].map(bot => bridge.forText(`tree-stop:${bot.id}`).id);
+  const siblingRequest = bridge.forText(`tree-stop:${sibling.id}`);
+  const result = await bridge.tool(bridge.forText(`tree-stop:${parent.id}`), 'stop_subagent', { subagent_id: child.id });
+  assert.match(result, /Stopped and removed/);
+  await until(() => cancelled.every(id => bridge.cancelled.includes(id)), 'every descendant CLI request is cancelled');
+  assert.deepEqual([...bridge.cancelled].sort(), [...cancelled].sort());
+  for (const bot of [child, grandchild, leaf]) assert.equal(db.prepare('SELECT id FROM bots WHERE id=?').get(bot.id), undefined);
+  assert.equal(db.prepare('SELECT id FROM agent_jobs WHERE id=?').get(queued), undefined);
+  // A cancelled CLI may still deliver a final frame; it cannot resurrect work.
+  bridge.ws.send(JSON.stringify({ id: cancelled.at(-1), result: { text: 'Late cancelled output' } }));
+  assert.ok(bridge.held.has(siblingRequest.id));
+  assert.ok(db.prepare('SELECT id FROM bots WHERE id=?').get(sibling.id));
+  bridge.releaseAll(); await drain();
+  assert.ok(jobs().every(job => job.state === 'completed'));
+  assert.ok(bridge.generations.every(rpc => lastUserText(rpc) !== 'must-not-run-after-subtree-stop'));
 });
 
 test('same-Bot turns stay ordered while another Bot runs and finishes alongside the first turn', { timeout: 20_000 }, async () => {

@@ -3,15 +3,16 @@ import crypto from 'node:crypto';
 import { KnowledgeError, ownedBot } from './common.js';
 
 export interface MessageRef { botId: string; generation: number; seq: number; contentHash?: string; kind?: 'tool' }
-export interface MessageEvidence extends MessageRef { role: string; text: string; from?: { kind: string; id: string; name: string }; createdAt: number; archived: boolean; sourceKey: string }
+export interface MessageEvidence extends MessageRef { role: string; text: string; truncated?:boolean; audience?:'user'|'internal'; from?: { kind: string; id: string; name: string }; createdAt: number; archived: boolean; sourceKey: string }
 export function isHumanUserMessage(body: any): boolean {
-  return body?.role === 'user' && (!body.from || ['voice', 'imessage', 'sms', 'whatsapp'].includes(body.from.kind));
+  return body?.role === 'user' && body.audience!=='internal' && (!body.from || ['human','user','voice', 'imessage', 'sms', 'whatsapp'].includes(body.from.kind));
 }
 const sourceKey = (s: MessageRef) => `${s.botId}:${s.generation}:${s.seq}`;
 function shape(row: any, generation: number): MessageEvidence {
   const body = JSON.parse(row.body);
   const ref = { botId: row.bot_id, generation: row.generation, seq: row.seq, ...(body.type==='tool-call'?{kind:'tool' as const}:{}), contentHash: crypto.createHash('sha256').update(row.body).digest('hex') };
-  return { ...ref, sourceKey: sourceKey(ref), role: body.type==='tool-call'?'tool':body.role, ...(body.from ? { from: body.from } : {}), text: String(body.type==='tool-call'?body.summary:body.text).slice(0, 4000), createdAt: row.created_at, archived: row.generation !== generation };
+  const text=String(body.type==='tool-call'?body.summary:body.text);
+  return { ...ref, sourceKey: sourceKey(ref), role: body.type==='tool-call'?'tool':body.role,...(text.length>4000?{truncated:true}:{}),...(body.audience?{audience:body.audience}:{}), ...(body.from ? { from: body.from } : {}), text: text.slice(0, 4000), createdAt: row.created_at, archived: row.generation !== generation };
 }
 export function validateEvidence(userId: string, botId: string, refs: unknown, required = true): MessageEvidence[] {
   const bot = ownedBot(userId, botId);
@@ -50,7 +51,7 @@ export function inferUserEvidence(text: string, candidates: { ref: MessageRef; t
 export function inferCurrentUserEvidence(userId: string, botId: string, text: string): MessageRef[] {
   const bot = ownedBot(userId, botId);
   const rows = db.prepare(`SELECT * FROM rows WHERE bot_id=? AND generation=? AND kind='message'
-    AND json_valid(body) AND json_extract(body,'$.role')='user' AND coalesce(json_extract(body,'$.from.kind'),'') IN ('','voice','imessage','sms','whatsapp')
+    AND json_valid(body) AND json_extract(body,'$.role')='user' AND coalesce(json_extract(body,'$.audience'),'user')!='internal' AND coalesce(json_extract(body,'$.from.kind'),'') IN ('','human','user','voice','imessage','sms','whatsapp')
     AND coalesce(json_extract(body,'$.streaming'),0)=0 ORDER BY seq DESC LIMIT 30`).all(botId, bot.generation) as any[];
   return inferUserEvidence(text, rows.map(r => ({ ref: refsOnly([shape(r, bot.generation)])[0], text: JSON.parse(r.body).text ?? '' })));
 }

@@ -188,7 +188,7 @@ test('the current application schema can hold one account and refuses its existi
   add('native_workflow_runs',{job_id:job,workflow_id:workflow.id,task_id:workflow.tasks[0].id,goal_id:goal.id,bot_id:botId,status:'running',created_at:1},'job_id','status');
   add('native_workflow_delegations',{task_id:workflow.tasks[1].id,parent_bot_id:botId,child_bot_id:botId,parent_task_id:workflow.tasks[0].id,created_at:1},'task_id','created_at');
   const skill=createSkill(userId,botId,{name:'Fence skill',description:'',body:'Preserve history'});
-  add('knowledge_skill_proposals',{id:`proposal-${userId}`,bot_id:botId,skill_id:skill.id,base_revision:1,generation:1,snapshot:'{}',reason:'test',evidence:'[]',created_at:1},'id','reason');
+  add('knowledge_skill_proposals',{id:`proposal-${userId}`,bot_id:botId,skill_id:skill.id,base_revision:1,generation:1,snapshot:'{}',reason:'test',evidence:'[]',created_at:1},'id','status');
   add('knowledge_memory_suppressions',{bot_id:botId,fingerprint:userId,text:'suppressed',evidence:'[]',created_at:1},'bot_id','text');
   add('memories',{id:`memory-${userId}`,bot_id:botId,text:'fact',created_at:1},'id','text');
   add('knowledge_memory_events',{id:userId===a?100:200,memory_id:`memory-${userId}`,bot_id:botId,action:'create',snapshot:'{}',actor:userId,created_at:1},'id','snapshot');

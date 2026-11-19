@@ -1,8 +1,8 @@
 import {publishNativeEvent} from '../native/events.js';
 import { db, now } from '../db.js';
 import { expectedRevision, KnowledgeError, ownedBot } from './common.js';
-import { assertWritable } from './access.js';
-export const LEARNING_DEFAULTS = { enabled: true, automaticReview: true, memoryReview: true, skillReview: true, memoryTurnInterval: 10, skillIterationInterval: 10, skillApproval: false, maxIterations: 16, maxInputTokens: null as number | null, auxiliaryModel: null as string | null, auxiliaryProvider: null as string | null, curatorEnabled: true, curatorIntervalHours: 168, curatorMinIdleHours: 2, curatorStaleDays: 14, curatorArchiveDays: 30, curatorConsolidate: false };
+import { assertWritable, managementContext } from './access.js';
+export const LEARNING_DEFAULTS = { enabled: true, automaticReview: true, memoryReview: true, skillReview: true, memoryTurnInterval: 10, skillIterationInterval: 10, skillApproval: false, maxIterations: 16, maxInputTokens: 32000 as number | null, auxiliaryModel: null as string | null, auxiliaryProvider: null as string | null, curatorEnabled: true, curatorIntervalHours: 168, curatorMinIdleHours: 2, curatorStaleDays: 14, curatorArchiveDays: 30, curatorConsolidate: false };
 export type LearningSettings = typeof LEARNING_DEFAULTS;
 export function learningSettings(userId: string, botId?: string) {
     if (botId)
@@ -19,6 +19,7 @@ export function patchLearningSettings(userId: string, input: {
     settings: Partial<LearningSettings>;
 }) {
     return db.transaction(() => {
+        if(managementContext()?.unattended)throw new KnowledgeError('Background learning cannot change its budget or policy',409);
         if (input.botId)
             assertWritable(userId, input.botId);
         else {
@@ -41,7 +42,7 @@ export function patchLearningSettings(userId: string, input: {
             const d = LEARNING_DEFAULTS[k as keyof LearningSettings];
             if (typeof d === 'boolean' && typeof v !== 'boolean')
                 throw new KnowledgeError(`${k} must be boolean`);
-            if (typeof d === 'number' && (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 100000 || k !== 'curatorMinIdleHours' && !Number.isSafeInteger(v)))
+            if (k !== 'maxInputTokens' && typeof d === 'number' && (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 100000 || k !== 'curatorMinIdleHours' && !Number.isSafeInteger(v)))
                 throw new KnowledgeError(`Invalid ${k}`);
             if (k === 'maxIterations' && (typeof v !== 'number' || v < 1 || v > 128))
                 throw new KnowledgeError('maxIterations must be 1–128');

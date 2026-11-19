@@ -13,6 +13,8 @@ column('memories', 'revision', 'INTEGER NOT NULL DEFAULT 1');
 column('memories', 'evidence', "TEXT NOT NULL DEFAULT '[]'");
 column('memories', 'run_id', 'TEXT');
 column('memories', 'supersedes', 'TEXT');
+column('memories', 'effective_at', 'INTEGER');
+column('memories', 'superseded_revision', 'INTEGER');
 
 // Native transactional translation of Hermes skill_ledger.py:298-322,502-550,
 // f0e7b68e439f8c1962fcf9dcb0341aadf1e2a898 (MIT). Snapshots are immutable and
@@ -81,6 +83,7 @@ for (const [name, ddl] of Object.entries({ resources: "TEXT NOT NULL DEFAULT '{}
 for (const [name, ddl] of Object.entries({ target: "TEXT NOT NULL DEFAULT 'user'", evidence_kind: "TEXT NOT NULL DEFAULT 'human'", scope: "TEXT NOT NULL DEFAULT 'private'", project_id: 'TEXT' })) column('memories', name, ddl);
 column('memory_jobs', 'cursor_generation', 'INTEGER NOT NULL DEFAULT 0');
 column('memory_jobs', 'cursor_seq', 'INTEGER NOT NULL DEFAULT 0');
+for(const [name,ddl] of Object.entries({fragment_generation:'INTEGER',fragment_seq:'INTEGER',fragment_offset:'INTEGER NOT NULL DEFAULT 0',fragment_hash:'TEXT'}))column('memory_jobs',name,ddl);
 db.exec(`
 CREATE TABLE IF NOT EXISTS knowledge_learning_settings (
  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -143,3 +146,48 @@ column('knowledge_learning_reviews','selected_model','TEXT');
 column('knowledge_learning_reviews','selected_provider','TEXT');
 column('knowledge_learning_reviews','budget_input_tokens','INTEGER NOT NULL DEFAULT 0');
 column('knowledge_learning_reviews','usage_status',"TEXT NOT NULL DEFAULT 'unavailable'");
+
+column('knowledge_skill_proposals','settings_revision',"TEXT NOT NULL DEFAULT ''");
+column('knowledge_skill_proposals','policy_revision','INTEGER NOT NULL DEFAULT 0');
+column('knowledge_skill_proposals','base_hash',"TEXT NOT NULL DEFAULT ''");
+db.exec(`
+CREATE TABLE IF NOT EXISTS knowledge_promotion_policies (
+ skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+ bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+ revision INTEGER NOT NULL, snapshot TEXT NOT NULL, actor TEXT NOT NULL,
+ created_at INTEGER NOT NULL, PRIMARY KEY(skill_id,revision));
+CREATE TABLE IF NOT EXISTS knowledge_skill_evaluations (
+ id TEXT PRIMARY KEY, bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+ proposal_id TEXT NOT NULL REFERENCES knowledge_skill_proposals(id) ON DELETE CASCADE,
+ candidate_hash TEXT NOT NULL, source_hash TEXT NOT NULL, base_hash TEXT NOT NULL,
+ policy_revision INTEGER NOT NULL, settings_revision TEXT NOT NULL,
+ evaluator TEXT NOT NULL, status TEXT NOT NULL, reason TEXT NOT NULL,
+ results TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS knowledge_evaluations_candidate ON knowledge_skill_evaluations(proposal_id,created_at);
+CREATE TABLE IF NOT EXISTS knowledge_skill_promotions (
+ id TEXT PRIMARY KEY, bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+ skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+ proposal_id TEXT NOT NULL REFERENCES knowledge_skill_proposals(id) ON DELETE CASCADE,
+ evaluation_id TEXT NOT NULL REFERENCES knowledge_skill_evaluations(id) ON DELETE CASCADE,
+ revision INTEGER NOT NULL, policy_revision INTEGER NOT NULL, actor TEXT NOT NULL,
+ rollback TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE(skill_id,revision));
+CREATE TABLE IF NOT EXISTS knowledge_memory_reviews (
+ id TEXT PRIMARY KEY,bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+ sources TEXT NOT NULL,result TEXT NOT NULL,created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS knowledge_procedure_applications (
+ id TEXT PRIMARY KEY,bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+ skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,revision INTEGER NOT NULL,
+ job_id TEXT, input_hash TEXT NOT NULL,output TEXT NOT NULL,created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS knowledge_skill_regressions (
+ id TEXT PRIMARY KEY,bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+ skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,revision INTEGER NOT NULL,
+ policy_revision INTEGER NOT NULL,checks TEXT NOT NULL,action TEXT NOT NULL,
+ rollback_revision INTEGER,reason TEXT NOT NULL,created_at INTEGER NOT NULL);
+CREATE TRIGGER IF NOT EXISTS knowledge_candidate_frozen BEFORE UPDATE OF bot_id,skill_id,base_revision,generation,snapshot,reason,evidence,run_id,created_at,actor,source_versions,settings_revision,policy_revision,base_hash ON knowledge_skill_proposals
+ BEGIN SELECT RAISE(ABORT,'Skill candidate inputs are immutable'); END;
+`);
+for (const table of ['knowledge_promotion_policies','knowledge_skill_evaluations','knowledge_skill_promotions','knowledge_memory_reviews','knowledge_procedure_applications','knowledge_skill_regressions']) {
+ db.exec(`CREATE TRIGGER IF NOT EXISTS ${table}_immutable BEFORE UPDATE ON ${table} BEGIN SELECT RAISE(ABORT,'Learning evidence is immutable'); END;
+ CREATE TRIGGER IF NOT EXISTS ${table}_no_delete BEFORE DELETE ON ${table} WHEN EXISTS(SELECT 1 FROM bots WHERE id=OLD.bot_id) BEGIN SELECT RAISE(ABORT,'Learning evidence is immutable'); END;`);
+}
+db.exec(`CREATE TRIGGER IF NOT EXISTS knowledge_review_inputs_frozen BEFORE UPDATE OF user_id,bot_id,parent_job_id,reason,review_memory,review_skills,model,provider,settings_revision,foreground_epoch,generation,snapshot,source_snapshot,settings,knowledge_snapshot,context_window,created_at ON knowledge_learning_reviews WHEN OLD.status!='queued' BEGIN SELECT RAISE(ABORT,'Executed learning inputs are immutable'); END;`);

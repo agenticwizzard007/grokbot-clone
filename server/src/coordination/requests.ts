@@ -6,6 +6,45 @@ import { assertTenant } from '../deployment.js';
 import { legacyWorkHeld, assertLegacyWorkOpen } from '../security/legacy-work.js';
 import { legacyWritableRows } from '../platform/legacy-database-fence.js';
 import { publishNativeEvent } from '../native/events.js';
+import { selectedCli } from '../cli/store.js';
+
+// Bind a temporary helper to its first assignment. The binding distinguishes
+// fresh downward delegation and upward results from arbitrary peer chatter.
+db.exec(`CREATE TABLE IF NOT EXISTS coordination_helper_bindings (
+ child_bot_id TEXT PRIMARY KEY REFERENCES bots(id) ON DELETE CASCADE,
+ user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ parent_bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+ request_id TEXT NOT NULL UNIQUE REFERENCES coordination_requests(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS coordination_request_peer_hops (
+ request_id TEXT PRIMARY KEY REFERENCES coordination_requests(id) ON DELETE CASCADE,
+ user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,hops INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS coordination_helper_receipts (
+ source_request_id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,receipt TEXT NOT NULL,settled INTEGER NOT NULL DEFAULT 0
+);`);
+
+function helperBinding(userId:string,childId:string) {
+ return db.prepare(`SELECT h.*,r.correlation_id FROM coordination_helper_bindings h
+ JOIN bots c ON c.id=h.child_bot_id AND c.user_id=h.user_id AND c.parent_bot_id=h.parent_bot_id AND c.hidden=1
+ JOIN bots p ON p.id=h.parent_bot_id AND p.user_id=h.user_id
+ JOIN coordination_requests r ON r.id=h.request_id AND r.user_id=h.user_id
+ WHERE h.user_id=? AND h.child_bot_id=?`).get(userId,childId) as {parent_bot_id:string;request_id:string;correlation_id:string}|undefined;
+}
+function peerHops(userId:string,parentId:string) {
+ const saved=db.prepare('SELECT hops FROM coordination_request_peer_hops WHERE request_id=? AND user_id=?').get(parentId,userId) as {hops:number}|undefined;
+ if(saved)return saved.hops;
+ // UNION terminates even if stored ancestry is damaged. Helper edges do not
+ // consume peer hops, but neither do they reset the peer hops already spent.
+ return (db.prepare(`WITH RECURSIVE lineage(id) AS (
+ SELECT id FROM coordination_requests WHERE id=? AND user_id=?
+ UNION SELECT r.parent_request_id FROM coordination_requests r JOIN lineage l ON l.id=r.id WHERE r.user_id=? AND r.parent_request_id IS NOT NULL
+ ) SELECT COALESCE(SUM(CASE WHEN r.parent_request_id IS NULL THEN r.depth ELSE 1 END),0) n FROM lineage l JOIN coordination_requests r ON r.id=l.id
+ WHERE r.user_id=? AND r.kind='request' AND NOT EXISTS (
+ SELECT 1 FROM coordination_helper_bindings h WHERE h.request_id=r.id AND h.user_id=r.user_id)
+ `).get(parentId,userId,userId,userId) as {n:number}).n;
+}
 
 export interface CoordinationTrigger {
  type:'bot'|'system';text:string;fromBotId?:string;fromName?:string;depth?:number;
@@ -47,11 +86,14 @@ export function listInternalRequests(userId:string,after=0,limit=50,botId?:strin
  const requests=rows.slice(0,limit).map(view);return {requests,nextCursor:requests.at(-1)?.seq??after,hasMore:rows.length>limit};
 }
 function event(r:any,kind:string) {publishNativeEvent({userId:r.user_id,botId:r.to_bot_id,kind,sourceType:'coordination_request',sourceId:r.id,sourceRevision:r.revision,jobId:r.job_id??undefined,correlationId:r.correlation_id,audience:'internal',data:{status:r.status,fromBotId:r.from_bot_id,toBotId:r.to_bot_id,kind:r.kind}});}
-function createRequest(userId:string,from:string,to:string,text:string,depth:number,key:string,parent?:any,kind='request') {
+function createRequest(userId:string,from:string,to:string,text:string,depth:number,key:string,parent?:any,kind='request',helperAssignment=false) {
  const existing=db.prepare('SELECT * FROM coordination_requests WHERE user_id=? AND idempotency_key=?').get(userId,key) as any;
  if(existing){if(existing.from_bot_id!==from||existing.to_bot_id!==to||existing.text!==text||existing.kind!==kind)throw new Error('Idempotency key is already bound to another request.');return existing.id as string;}
+ const parentId=parent?.id&&db.prepare('SELECT 1 FROM coordination_requests WHERE id=? AND user_id=?').get(parent.id,userId)?parent.id:null;
+ const hops=parent?(parent.peer_hops??peerHops(userId,parent.id))+(kind==='request'&&!helperAssignment?1:0):helperAssignment?0:depth;
  const id=newId('req');db.prepare(`INSERT INTO coordination_requests(id,user_id,from_bot_id,to_bot_id,text,kind,status,correlation_id,parent_request_id,depth,idempotency_key,created_at,updated_at)
- VALUES(?,?,?,?,?,?,'queued',?,?,?,?,?,?)`).run(id,userId,from,to,text,kind,parent?.correlation_id??id,parent?.id??null,depth,key,now(),now());
+ VALUES(?,?,?,?,?,?,'queued',?,?,?,?,?,?)`).run(id,userId,from,to,text,kind,parent?.correlation_id??id,parentId,depth,key,now(),now());
+ db.prepare('INSERT INTO coordination_request_peer_hops VALUES(?,?,?)').run(id,userId,hops);
  event(db.prepare('SELECT * FROM coordination_requests WHERE id=?').get(id),'coordination.requested');return id;
 }
 /** Fan-in from a verified permanent workflow task; no automatic reply to a result. */
@@ -65,17 +107,40 @@ export function recordWorkflowResult(input:{userId:string;fromBotId:string;toBot
 }
 export function enqueueInternalMessage(fromBotId:string,toBotId:string,text:string,depth:number,options:{idempotencyKey?:string;parentRequestId?:string}={}) {
  const from=db.prepare('SELECT * FROM bots WHERE id=?').get(fromBotId) as any;if(!from)throw new Error('Sender not found.');
- ownAgent(from.user_id,fromBotId);ownAgent(from.user_id,toBotId);assertLegacyWorkOpen(from.user_id);
+ ownAgent(from.user_id,fromBotId);const to=ownAgent(from.user_id,toBotId);assertLegacyWorkOpen(from.user_id);
  if(fromBotId===toBotId)throw new Error('Internal requests require a different agent.');
- if(!Number.isInteger(depth)||depth<0||depth>4)throw new Error('Internal reply chain limit reached (4).');
+ const subscription=!!selectedCli(from.user_id);
+ if(!Number.isSafeInteger(depth)||depth<0)throw new Error('Internal message depth must be a non-negative safe integer.');
+ if(!subscription&&depth>4)throw new Error('Internal reply chain limit reached (4).');
  if(!text.trim()||text.length>32000)throw new Error('Internal message must contain 1–32000 characters.');
  const active=db.prepare("SELECT id,trigger FROM agent_jobs WHERE bot_id=? AND state='running' ORDER BY started_at DESC LIMIT 1").get(fromBotId) as any;
- const parentId=options.parentRequestId??(active?JSON.parse(active.trigger).coordinationRequestId:undefined);
- const parent=parentId?db.prepare('SELECT * FROM coordination_requests WHERE id=? AND user_id=? AND to_bot_id=?').get(parentId,from.user_id,fromBotId) as any:undefined;
+ const binding=helperBinding(from.user_id,fromBotId);
+ const helperResult=subscription&&binding?.parent_bot_id===toBotId;
+ const freshHelper=!!to.hidden&&to.parent_bot_id===fromBotId
+   &&!db.prepare('SELECT 1 FROM coordination_requests WHERE to_bot_id=? AND user_id=? LIMIT 1').get(toBotId,from.user_id);
+ const activeRequest=active?requestForJob({userId:from.user_id,botId:fromBotId,jobId:active.id,status:'running'}):undefined;
+ const parentId=options.parentRequestId??activeRequest?.id??(subscription?binding?.request_id:undefined);
+ const parent=parentId?(db.prepare('SELECT * FROM coordination_requests WHERE id=? AND user_id=? AND to_bot_id=?').get(parentId,from.user_id,fromBotId)
+   ??helperReceipt(from.user_id,fromBotId,parentId)) as any:undefined;
  if(parentId&&!parent)throw new Error('Reply parent not found.');
- const actualDepth=parent?Math.max(depth,parent.depth+1):depth;if(actualDepth>4)throw new Error('Internal reply chain limit reached (4).');
  const key=options.idempotencyKey??sha256(`${active?.id??newId('send')}\0${toBotId}\0${text}`);
- const id=db.transaction(()=>createRequest(from.user_id,fromBotId,toBotId,text,actualDepth,key,parent))();
+ const prior=db.prepare('SELECT * FROM coordination_requests WHERE user_id=? AND idempotency_key=?').get(from.user_id,key) as any;
+ if(prior) {
+  if(prior.from_bot_id!==fromBotId||prior.to_bot_id!==toBotId||prior.text!==text||prior.kind!==(helperResult?'result':'request'))throw new Error('Idempotency key is already bound to another request.');
+  drainInternalRequests();return prior.id as string;
+ }
+ // Keep real ancestry through nested subscription work; never reset lineage to
+ // escape an API reply limit or lose correlation with the original assignment.
+ const actualDepth=parent?Math.max(depth,parent.depth+1):depth;
+ if(!Number.isSafeInteger(actualDepth))throw new Error('Internal message depth exceeds the supported integer range.');
+ if(!subscription&&actualDepth>4)throw new Error('Internal reply chain limit reached (4).');
+ if(subscription&&!freshHelper&&!helperResult&&(parent?(parent.peer_hops??peerHops(from.user_id,parent.id))+1:depth)>4)
+   throw new Error('Internal reply chain limit reached (4 peer requests).');
+ const id=db.transaction(()=>{
+  const id=createRequest(from.user_id,fromBotId,toBotId,text,actualDepth,key,parent,helperResult?'result':'request',freshHelper);
+  if(freshHelper)db.prepare('INSERT OR IGNORE INTO coordination_helper_bindings VALUES(?,?,?,?)').run(toBotId,from.user_id,fromBotId,id);
+  return id;
+ })();
  drainInternalRequests();return id;
 }
 /** Admission, job binding and receipt commit together. No transcript rows are written. */
@@ -94,6 +159,10 @@ export function drainInternalRequests() {
    if(reason){if(r.status!=='deferred'||r.reason!==reason){db.prepare("UPDATE coordination_requests SET status='deferred',reason=?,revision=revision+1,updated_at=? WHERE id=?").run(reason,now(),r.id);event({...r,status:'deferred',revision:r.revision+1},'coordination.deferred');}return;}
    const token=newId('claim');if(!db.prepare('UPDATE coordination_requests SET claim_token=?,claim_until=? WHERE id=? AND (claim_until IS NULL OR claim_until<=?)').run(token,now()+30000,r.id,now()).changes)return;
    const from=ownAgent(r.user_id,r.from_bot_id);
+   const returnBinding=r.kind==='result'&&selectedCli(r.user_id)?helperBinding(r.user_id,r.to_bot_id):undefined;
+   if(returnBinding&&returnBinding.parent_bot_id!==r.from_bot_id&&returnBinding.correlation_id===r.correlation_id)
+    db.prepare('INSERT OR IGNORE INTO coordination_helper_receipts(source_request_id,user_id,bot_id,receipt) VALUES(?,?,?,?)')
+     .run(r.id,r.user_id,r.to_bot_id,JSON.stringify({...r,status:'admitted',revision:r.revision+1,peer_hops:peerHops(r.user_id,r.id)}));
    const jobId=runtime!.enqueue(r.to_bot_id,{type:'bot',fromBotId:from.id,fromName:from.name,text:r.text,depth:r.depth,audience:'internal',coordinationRequestId:r.id});
    const job=db.prepare('SELECT user_id,bot_id FROM agent_jobs WHERE id=?').get(jobId) as any;
    if(!job||job.user_id!==r.user_id||job.bot_id!==r.to_bot_id)throw new Error('Queue did not return a durable owned job.');
@@ -115,16 +184,31 @@ export function recordCoordinationJobOutcome(input:CoordinationFinish) {
  db.prepare(`INSERT INTO coordination_job_outcomes(job_id,user_id,bot_id,status,final_text,created_at,updated_at) VALUES(?,?,?,?,?,?,?)
  ON CONFLICT(job_id) DO UPDATE SET status=excluded.status,final_text=excluded.final_text,updated_at=excluded.updated_at WHERE coordination_job_outcomes.status='waiting'`).run(input.jobId,input.userId,input.botId,input.status,(input.finalText??'').slice(0,32000),now(),now());
 }
+function helperReceipt(userId:string,botId:string,id:string) {
+ const saved=db.prepare('SELECT receipt,settled FROM coordination_helper_receipts WHERE source_request_id=? AND user_id=? AND bot_id=?').get(id,userId,botId) as any;
+ return saved?{...JSON.parse(saved.receipt),status:saved.settled?'completed':'admitted'}:undefined;
+}
 function requestForJob(input:CoordinationFinish) {
  const direct=db.prepare(`SELECT r.* FROM coordination_requests r JOIN agent_jobs j ON json_extract(j.trigger,'$.coordinationRequestId')=r.id
  WHERE j.id=? AND j.user_id=? AND j.bot_id=? AND r.user_id=j.user_id AND r.to_bot_id=j.bot_id`).get(input.jobId,input.userId,input.botId) as any;
  if(direct)return direct;
  // Decisions resume on a new durable job. Follow only same-owner/same-bot lineage.
- return db.prepare(`WITH RECURSIVE lineage(id,parent,depth) AS (
+ const ancestor=db.prepare(`WITH RECURSIVE lineage(id,parent,depth) AS (
  SELECT id,json_extract(trigger,'$.parentJobId'),0 FROM agent_jobs WHERE id=? AND user_id=? AND bot_id=?
  UNION ALL SELECT j.id,json_extract(j.trigger,'$.parentJobId'),l.depth+1 FROM agent_jobs j JOIN lineage l ON j.id=l.parent
  WHERE j.user_id=? AND j.bot_id=? AND l.depth<32)
  SELECT r.* FROM coordination_requests r JOIN lineage l ON l.id=r.job_id WHERE r.user_id=? ORDER BY l.depth LIMIT 1`).get(input.jobId,input.userId,input.botId,input.userId,input.botId,input.userId) as any;
+ if(ancestor)return ancestor;
+ // Removing a completed child cascades its live request rows, but must not
+ // erase the return address of the parent's already-admitted consolidation.
+ const saved=db.prepare(`WITH RECURSIVE lineage(id) AS (
+ SELECT id FROM agent_jobs WHERE id=? AND user_id=? AND bot_id=?
+ UNION SELECT p.id FROM lineage l JOIN agent_jobs j ON j.id=l.id JOIN agent_jobs p ON p.id=json_extract(j.trigger,'$.parentJobId')
+ WHERE p.user_id=? AND p.bot_id=?)
+ SELECT s.receipt,s.settled FROM lineage l JOIN agent_jobs j ON j.id=l.id
+ JOIN coordination_helper_receipts s ON s.source_request_id=json_extract(j.trigger,'$.coordinationRequestId')
+ WHERE s.user_id=? AND s.bot_id=? ORDER BY j.rowid DESC LIMIT 1`).get(input.jobId,input.userId,input.botId,input.userId,input.botId,input.userId,input.botId) as any;
+ return saved?{...JSON.parse(saved.receipt),status:saved.settled?'completed':'admitted'}:undefined;
 }
 function settle(r:any,status:string,text:string) {
  if(['completed','failed'].includes(r.status))return;
@@ -132,7 +216,18 @@ function settle(r:any,status:string,text:string) {
  db.prepare('UPDATE coordination_requests SET status=?,result=?,reason=?,revision=revision+1,updated_at=? WHERE id=?').run(succeeded?'completed':'failed',text.slice(0,32000),succeeded?'':status,now(),r.id);
  event({...r,status:succeeded?'completed':'failed',revision:r.revision+1},'coordination.result');
  // Result receipts never elicit another automatic result (bounded fan-in).
- if(r.kind==='request')createRequest(r.user_id,r.to_bot_id,r.from_bot_id,`[Internal result for request ${r.id}; ${succeeded?'execution finished; acceptance still requires evidence':status}]\n${text.slice(0,30000)}`,Math.min(4,r.depth+1),`result:${r.id}`,r,'result');
+ if(r.kind==='request')createRequest(r.user_id,r.to_bot_id,r.from_bot_id,`[Internal result for request ${r.id}; ${succeeded?'execution finished; acceptance still requires evidence':status}]\n${text.slice(0,30000)}`,selectedCli(r.user_id)?r.depth+1:Math.min(4,r.depth+1),`result:${r.id}`,r,'result');
+ else if(selectedCli(r.user_id)) {
+  // A helper may have ended its original turn while its descendants worked.
+  // Its later consolidation belongs to its bound parent, not back to the child
+  // that sent this result. Persist that upward intent in the same transaction
+  // as settlement so recovery cannot lose it or produce duplicate reports.
+  const binding=helperBinding(r.user_id,r.to_bot_id);
+  if(binding&&binding.parent_bot_id!==r.from_bot_id&&binding.correlation_id===r.correlation_id)
+   createRequest(r.user_id,r.to_bot_id,binding.parent_bot_id,`[Consolidated helper result for assignment ${binding.request_id}; ${succeeded?'execution finished; acceptance still requires evidence':status}]\n${text.slice(0,30000)}`,
+    r.depth+1,`helper-consolidation:${r.id}`,r,'result');
+ }
+ db.prepare('UPDATE coordination_helper_receipts SET settled=1 WHERE source_request_id=? AND user_id=? AND bot_id=?').run(r.id,r.user_id,r.to_bot_id);
 }
 export function onInternalJobFinished(input:CoordinationFinish) {
  assertTenant(input.userId);if(legacyWorkHeld(input.userId))return;
@@ -152,6 +247,17 @@ export function recoverInternalRequests() {
   SELECT o.* FROM coordination_job_outcomes o JOIN agent_jobs j ON j.id=o.job_id LEFT JOIN chain c ON c.id=o.job_id WHERE o.user_id=? AND o.bot_id=? AND (c.id IS NOT NULL OR json_extract(j.trigger,'$.coordinationRequestId')=?) AND o.status NOT IN ('waiting','queued','running') AND j.state IN ('completed','uncertain','cancelled') ORDER BY o.updated_at DESC,j.rowid DESC LIMIT 1`).get(r.job_id,r.user_id,r.to_bot_id,r.user_id,r.to_bot_id,r.id) as any;
   if(outcome){db.transaction(()=>settle(r,outcome.status,outcome.final_text))();continue;}
   db.transaction(()=>settle(r,r.job_state==='completed'?'result_unavailable_after_restart':r.job_state,'Execution outcome needs reconciliation after restart; no external action was replayed.'))();
+ }
+ // Recover consolidations whose child was cleaned up before the parent ended.
+ // The snapshot references the surviving parent, not the removed result source.
+ const detached=db.prepare(`SELECT s.* FROM coordination_helper_receipts s LEFT JOIN coordination_requests r ON r.id=s.source_request_id WHERE s.settled=0 AND r.id IS NULL`).all() as any[];
+ for(const saved of detached) {
+  if(legacyWorkHeld(saved.user_id)||pendingDecision(saved.bot_id))continue;
+  if(db.prepare("SELECT 1 FROM agent_jobs WHERE user_id=? AND bot_id=? AND json_extract(trigger,'$.coordinationRequestId')=? AND state IN ('queued','running') LIMIT 1").get(saved.user_id,saved.bot_id,saved.source_request_id))continue;
+  const outcome=db.prepare(`SELECT o.* FROM coordination_job_outcomes o JOIN agent_jobs j ON j.id=o.job_id
+   WHERE o.user_id=? AND o.bot_id=? AND json_extract(j.trigger,'$.coordinationRequestId')=?
+   AND o.status NOT IN ('waiting','queued','running') AND j.state IN ('completed','uncertain','cancelled') ORDER BY j.rowid DESC LIMIT 1`).get(saved.user_id,saved.bot_id,saved.source_request_id) as any;
+  if(outcome)db.transaction(()=>settle(JSON.parse(saved.receipt),outcome.status,outcome.final_text))();
  }
  drainInternalRequests();
 }

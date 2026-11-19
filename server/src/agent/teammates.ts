@@ -1,19 +1,42 @@
 import { z } from 'zod';
+import { createHash } from 'node:crypto';
 import { createBot, visibleAgentByName } from '../bots.js';
-import { beginSetupInterview, creationContext, creationSchema, emitSetup, getSetup, setupFiles, setupManifest, briefSchema, writeSetupFiles, type SetupSource } from '../bot-setup.js';
-import { computers } from '../computers/index.js';
+import {
+  beginSetupInterview, creationContext, creationSchema, emitSetup, getSetup, setupFiles, setupManifest,
+  briefSchema, writeSetupFiles, setupAnswers, setupMissing, setupView, assertSetupCoordinator,
+  coworkerSetup, centralSetupDraftSchema, prepareCoworkerSetup, releaseSetupHandoff, type SetupSource,
+} from '../bot-setup.js';
 import { reserveScreen } from '../computers/orgo-box.js';
 import { db, now } from '../db.js';
 import { appendRow, getBot, getBotRow } from '../store.js';
-import type { ToolCtx, ToolResult } from './tools.js';
+import { publishNativeEvent } from '../native/events.js';
+import type { ToolDef, ToolCtx, ToolResult } from './tools.js';
 
-function primary(ctx: ToolCtx) {
-  const b = getBotRow(ctx.botId);
-  if (!b || b.user_id !== ctx.userId || !b.is_primary || b.hidden || b.kind === 'room') {
-    throw new Error('Only this user’s current primary Bot can create or replicate teammates. Send the brief to the primary Bot.');
-  }
-  return b;
-}
+const primary = (ctx: ToolCtx) => assertSetupCoordinator(ctx.userId, ctx.botId);
+
+// Request identities survive renames, setup changes and deletion. A deleted
+// coworker is a tombstone, never a reason to silently repeat creation.
+db.exec(`CREATE TABLE IF NOT EXISTS coworker_creation_requests (
+ user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ request_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
+ bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL,
+ created_at INTEGER NOT NULL, PRIMARY KEY(user_id,request_id)
+)`);
+
+export const CENTRAL_SETUP_TOOLS: ToolDef[] = [
+  {
+    name: 'inspect_teammate_setup', description: 'Inspect a permanent coworker’s saved configuration, revision, unresolved decisions and original setup sources from the primary conversation. Does not start work or restart interviews.',
+    parameters: { type: 'object', properties: { bot_id: { type: 'string' } }, required: ['bot_id'], additionalProperties: false },
+    activity: 'working', label: 'Reading coworker setup',
+    impl: async (a, ctx) => ({ output: JSON.stringify(coworkerSetup(ctx.userId, ctx.botId, a.bot_id)) }),
+  },
+  {
+    name: 'prepare_teammate_setup', description: 'Prepare or revise a permanent coworker centrally from original human answers, including the primary conversation. Preserve unresolved decisions as open_questions; ask only material missing questions in the primary chat. Use the current revision. A complete draft can enter review, but only the human can activate its exact revision using the conversation review card. Does not grant app permissions or run the coworker.',
+    parameters: (() => { const { $schema, ...schema } = z.toJSONSchema(centralSetupDraftSchema, { io: 'input' }); return schema; })(),
+    activity: 'working', label: 'Preparing coworker setup',
+    impl: async (a, ctx) => ({ output: JSON.stringify(prepareCoworkerSetup(ctx.userId, ctx.botId, a)), summary: 'Coworker configuration prepared for human review' }),
+  },
+];
 
 /** A saved teammate survives computer failures; retry provisioning on the same id. */
 const provisioning = new Map<string, Promise<{ status: 'ready' | 'pending'; error: string | null }>>();
@@ -23,6 +46,9 @@ export function provisionTeammate(userId: string, botId: string) {
   const running = provisioning.get(botId);
   if (running) return running;
   const job = (async () => {
+    // Providers depend on the runtime idle watcher. Load them after tool
+    // definitions initialize so importing this module cannot cycle through tools.
+    const { computers } = await import('../computers/index.js');
     const release = reserveScreen(botId);
     try {
       writeSetupFiles(botId);
@@ -33,6 +59,7 @@ export function provisionTeammate(userId: string, botId: string) {
       if (computers.kind === 'orgo' && getSetup(botId)?.computer.status !== 'ready') await screen.openUrl('about:blank');
       await screen.screenshot();
       db.prepare("UPDATE bot_setups SET computer_status='ready', computer_error=NULL, updated_at=? WHERE bot_id=?").run(now(), botId);
+      try { releaseSetupHandoff(botId); } catch { /* Assignment remains pending until durable admission succeeds. */ }
       return { status: 'ready' as const, error: null };
     } catch (e: any) {
       const error = String(e?.message ?? e).slice(0, 1000);
@@ -49,34 +76,50 @@ export async function createTeammate(raw: unknown, ctx: ToolCtx): Promise<ToolRe
   const actor = primary(ctx);
   const a = creationSchema.parse(raw);
   a.name = a.name.replace(/\s+/g, ' ');
+  a.source_message_seqs = [...new Set(a.source_message_seqs)].sort((left, right) => left - right);
   const brief = briefSchema.parse(a);
-  const context = creationContext(ctx.botId);
-  const messages = [...new Set(a.source_message_seqs)].sort((a, b) => a - b).map((seq) => {
-    const m = context.find((m) => m.seq === seq);
-    if (!m) throw new Error(`Message ${seq} is not a user message in the current master chat. Use the message numbers in your creation context.`);
-    return m;
-  });
-  const source: SetupSource = { creatorBotId: ctx.botId, creatorName: actor.name, generation: actor.generation, messages };
-  let bot = visibleAgentByName(ctx.userId, a.name);
-  if (bot) {
-    const existing = getSetup(bot.id);
-    if (!existing || existing.source.creatorBotId !== actor.id || JSON.stringify(existing.brief) !== JSON.stringify(brief) || bot.instructions !== a.instructions) {
-      throw new Error(`A Bot named "${a.name}" already exists. Hand work to it or use a different name; no changes were made.`);
+  const fingerprint = createHash('sha256').update(JSON.stringify(a)).digest('hex');
+  const result = db.transaction(() => {
+    if (a.creation_request_id) {
+      const prior = db.prepare('SELECT * FROM coworker_creation_requests WHERE user_id=? AND request_id=?').get(ctx.userId, a.creation_request_id) as any;
+      if (prior) {
+        if (prior.fingerprint !== fingerprint) throw new Error('This creation request ID was already used with different parameters. Use a new request ID for a different coworker.');
+        const saved = prior.bot_id && getBotRow(prior.bot_id);
+        if (!saved || saved.user_id !== ctx.userId || saved.hidden || saved.parent_bot_id || saved.kind === 'room') throw new Error('The coworker created by this request is no longer available.');
+        return { bot: getBot(saved.id)!, alreadyCreated: true };
+      }
     }
-    // An identical retried call reuses the original teammate instead of creating a duplicate.
-    return { output: JSON.stringify({ ok: true, already_created: true, bot: getBot(bot.id), setup: `/api/bots/${bot.id}/setup`, computer: await provisionTeammate(ctx.userId, bot.id), handoff_sent: false }), summary: `${bot.name} already exists` };
-  }
-  const created = createBot(ctx.userId, { name: a.name, label: a.label, description: a.purpose, instructions: a.instructions, brief, source,
-    avatarShape: a.avatar_shape, avatarColor: a.avatar_color, mode: a.mode ?? actor.mode, effort: a.effort ?? actor.effort, model: actor.model });
-  appendRow(created.id, 'event', { type: 'event', event: 'bot-message', text: `${actor.name} created this teammate. Its setup consultant will help you define and review the role in this chat.` });
-  const handoff = a.handoff_message?.trim();
-  if (handoff) db.prepare('UPDATE bot_setups SET pending_handoff=? WHERE bot_id=?').run(handoff, created.id);
-  beginSetupInterview(created.id);
-  const computer = await provisionTeammate(ctx.userId, created.id);
-  return { output: JSON.stringify({ ok: true, bot: { id: created.id, name: created.name, label: created.label },
-    purpose: brief.purpose, responsibilities: brief.responsibilities, setup: `/api/bots/${created.id}/setup`, files: Object.keys(setupFiles(created.id)), computer,
-    onboarding: 'interviewing', handoff_sent: false, handoff_deferred: !!handoff,
-    note: `The teammate is created and its setup interview has started in its own chat. Direct the user there to define missing functionality and review the Configuration tab before activation. ${computer.status === 'ready' ? 'Its separate browser is ready.' : 'Computer setup is pending; retry_bot_setup can finish it after reconnecting.'}` }), summary: `Created ${created.name} · setup interview started` };
+    const context = creationContext(ctx.botId);
+    const messages = [...new Set(a.source_message_seqs)].sort((a, b) => a - b).map(seq => {
+      const m = context.find(m => m.seq === seq);
+      if (!m) throw new Error(`Message ${seq} is not a user message in the current master chat. Use the message numbers in your creation context.`);
+      return m;
+    });
+    const source: SetupSource = { creatorBotId: ctx.botId, creatorName: actor.name, generation: actor.generation, messages,
+      sourceRefs: setupAnswers(ctx.userId, messages.map(m => ({ botId: actor.id, generation: actor.generation, seq: m.seq }))) };
+    let bot = visibleAgentByName(ctx.userId, a.name);
+    const alreadyCreated = !!bot;
+    if (bot) {
+      const existing = getSetup(bot.id);
+      if (!existing || existing.source.creatorBotId !== actor.id || JSON.stringify(existing.brief) !== JSON.stringify(brief) || bot.instructions !== a.instructions) throw new Error(`A Bot named "${a.name}" already exists. Hand work to it or use a different name; no changes were made.`);
+    } else {
+      bot = createBot(ctx.userId, { name: a.name, label: a.label, description: a.purpose, instructions: a.instructions, brief, source,
+        avatarShape: a.avatar_shape, avatarColor: a.avatar_color, mode: a.mode ?? actor.mode, effort: a.effort ?? actor.effort, model: actor.model });
+      const stage = setupMissing(brief).length ? 'interviewing' : 'review';
+      db.prepare('UPDATE bot_setups SET onboarding_status=?,pending_handoff=? WHERE bot_id=?').run(stage, a.handoff_message?.trim() || null, bot.id);
+      appendRow(bot.id, 'event', { type: 'event', event: 'bot-message', text: `${actor.name} prepared this coworker. Review and activate its configuration in ${actor.name}’s conversation, or continue setup here.` });
+      publishNativeEvent({ userId: ctx.userId, botId: bot.id, kind: 'setup.prepared', sourceType: 'setup', sourceId: bot.id, sourceRevision: 1, data: { coordinatorId: actor.id, stage, creationRequestId: a.creation_request_id ?? null } });
+    }
+    if (a.creation_request_id) db.prepare('INSERT INTO coworker_creation_requests(user_id,request_id,fingerprint,bot_id,created_at) VALUES(?,?,?,?,?)').run(ctx.userId, a.creation_request_id, fingerprint, bot.id, now());
+    return { bot: getBot(bot.id)!, alreadyCreated };
+  })();
+  const { bot, alreadyCreated } = result;
+  const computer = await provisionTeammate(ctx.userId, bot.id);
+  const setup = setupView(bot.id)!;
+  return { output: JSON.stringify({ ok: true, already_created: alreadyCreated, bot,
+    purpose: setup.manifest.brief.purpose, responsibilities: setup.manifest.brief.responsibilities, setup: `/api/bots/${bot.id}/setup`, files: Object.keys(setup.files), computer,
+    onboarding: setup.onboarding.status, revision: setup.onboarding.revision, missing: setup.onboarding.missing, handoff_sent: false, handoff_deferred: !!a.handoff_message,
+    note: `Continue preparation here in the primary conversation using inspect_teammate_setup and prepare_teammate_setup. Ask the user only material missing decisions; cite their original messages. The user can review and activate the exact revision in this conversation. ${computer.status === 'ready' ? 'Its separate browser is ready.' : 'Computer setup is pending; retry_bot_setup reuses this coworker.'}` }), summary: `${alreadyCreated ? 'Reused' : 'Prepared'} ${bot.name} · ${setup.onboarding.status}` };
 }
 
 export const manifestSchema = z.object({
@@ -93,7 +136,8 @@ export async function importTeammate(userId: string, manifest: unknown, name?: s
   const m = manifestSchema.parse(manifest);
   const newName = z.string().trim().min(1).max(60).parse(name ?? m.bot.name);
   if (visibleAgentByName(userId, newName)) throw new Error(`A Bot named "${newName}" already exists. Choose a new name for the replica.`);
-  const bot = createBot(userId, { ...m.bot, name: newName, brief: m.brief, source: m.source });
+  // Imported source IDs are portable context, never authenticated local answers.
+  const bot = createBot(userId, { ...m.bot, name: newName, brief: m.brief, source: { ...m.source, sourceRefs: [] } });
   db.prepare('UPDATE bots SET voice=?, voice_speed=?, voice_language=? WHERE id=?').run(m.bot.voice, m.bot.voiceSpeed, m.bot.voiceLanguage, bot.id);
   beginSetupInterview(bot.id);
   return { bot: getBot(bot.id), computer: await provisionTeammate(userId, bot.id) };

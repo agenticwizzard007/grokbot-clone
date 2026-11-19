@@ -1,4 +1,5 @@
 import { isInternalRow, userFacingLive } from '../lib/audience';
+import { CoworkerSetupCards } from './CoworkerSetupCards';
 import { Fragment, memo, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Bot, LiveState, MessageBody, Row, ToolCallBody } from '@shared/types';
 import { BotAvatar, BotAvatarFor } from '../avatar/BotAvatar';
@@ -205,6 +206,7 @@ export const Transcript = memo(function Transcript({ bot, rows, live, loaded }: 
               );
           }
         })}
+        {bot.isPrimary && <CoworkerSetupCards key={bot.id} coordinator={bot} />}
         {showActivity && live && <ActivityLine bot={bot} live={live} rows={visibleRows} />}
       </div>
     </div>

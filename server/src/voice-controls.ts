@@ -1,18 +1,20 @@
 import { z } from 'zod';
-import { creationSchema, emitSetup, getSetup, isConfiguring, writeSetupFiles } from './bot-setup.js';
-import { createTeammate } from './agent/teammates.js';
+import { creationSchema, emitSetup, getSetup, isConfiguring, writeSetupFiles, assertSetupCoordinator } from './bot-setup.js';
+import { createTeammate, CENTRAL_SETUP_TOOLS } from './agent/teammates.js';
+import { COORDINATION_TOOLS } from './agent/coordination-tools.js';
+import { createHash } from 'node:crypto';
 import { interrupt, turnSignal } from './agent/loop.js';
 import { db, now } from './db.js';
 import { assertTenant } from './deployment.js';
 import { appendHistory, appendRow, emitBot, getBotRow, getLive, getRow, listRoutines, listTasks, setLive, updateRow } from './store.js';
 import { EFFORTS, type MessageBody, type ToolCallBody } from './types.js';
 
-export interface VoiceControlContext { userId: string; botId: string; callId: string }
+export interface VoiceControlContext { userId: string; botId: string; callId: string; spokenTranscript?: { id?: string; role: string; text: string }[] }
 
 const id = z.string().trim().min(1).max(200);
 const createSchema = creationSchema.omit({ source_message_seqs: true }).extend({
   user_request: z.string().min(1).max(32000).refine(text => !!text.trim(), 'A spoken user request is required.')
-    .describe('The user’s actual spoken creation request, including requirements and corrections. Saved as voice evidence in this chat; do not invent user authorization.'),
+    .describe('Summarize the user’s spoken creation request, preserving requirements and corrections. Original call transcript lines provide the source evidence; this model-authored summary never becomes a human answer.'),
 }).strict();
 const updateSchema = z.object({
   bot_id: id,
@@ -35,16 +37,18 @@ type ControlName = keyof typeof schemas;
 const descriptions: Record<ControlName, string> = {
   list_agents: 'List this user’s agents, including helpers, with IDs, roles, live state, tasks, model and setup status. Never returns other users or account credentials.',
   get_agent: 'Read an owned agent’s current details, recent messages, tasks, routines and setup revision by bot_id.',
-  create_bot: 'Current primary agent only: create a durable teammate from a complete spoken brief. Starts its setup interview; activation requires review. Retries reuse its identity and never enqueue operational work.',
-  update_agent: 'Current primary agent only: update an owned agent’s name, label, description, model or effort. Broader changes and setup activation go through text chat and Configuration.',
+  create_bot: 'Current primary agent only: prepare a durable coworker from the original spoken user brief. Continue setup centrally with inspect_teammate_setup and prepare_teammate_setup; the human reviews and activates the exact revision in the primary conversation. Reuse creation_request_id on retries. Never enqueue operational work.',
+  update_agent: 'Current primary agent only: update an owned agent’s name, label, description, model or effort. Prepare role changes centrally with prepare_teammate_setup; activation requires human review.',
   control_agent: 'Stop an agent’s active turn, cancel queued work and expire paused approvals without deleting the agent. The primary may stop any owned agent; other agents may stop only themselves. Routines remain scheduled.',
 };
 
 /** Realtime function schemas; runtime validation uses these same Zod schemas. */
-export const VOICE_CONTROL_TOOLS = (Object.keys(schemas) as ControlName[]).map(name => {
+const sharedControls = [...CENTRAL_SETUP_TOOLS, ...COORDINATION_TOOLS];
+const sharedNames = new Set(sharedControls.map(tool => tool.name));
+export const VOICE_CONTROL_TOOLS = [...(Object.keys(schemas) as ControlName[]).map(name => {
   const { $schema, ...parameters } = z.toJSONSchema(schemas[name], { io: 'input' });
   return { type: 'function' as const, name, description: descriptions[name], parameters };
-});
+}), ...sharedControls.map(({ name, description, parameters }) => ({ type: 'function' as const, name, description, parameters }))];
 
 const isPrimary = (bot: any) => !!bot?.is_primary && !bot.hidden && bot.kind !== 'room';
 
@@ -53,7 +57,7 @@ export function voiceControlTools(botId: string) {
   if (!bot || bot.kind === 'room') return [];
   assertTenant(bot.user_id);
   return VOICE_CONTROL_TOOLS.filter(tool =>
-    !['create_bot', 'update_agent'].includes(tool.name) || isPrimary(bot) && (tool.name !== 'create_bot' || !isConfiguring(botId)));
+    !['create_bot', 'update_agent', ...sharedNames].includes(tool.name) || isPrimary(bot) && (!['create_bot', ...CENTRAL_SETUP_TOOLS.map(t => t.name)].includes(tool.name) || !isConfiguring(botId)));
 }
 
 function ownedAgent(userId: string, botId: string) {
@@ -64,6 +68,29 @@ function ownedAgent(userId: string, botId: string) {
 
 function requirePrimary(bot: any) {
   if (!isPrimary(bot)) throw new Error('Only the current primary agent can create or update agents. Send this request to the primary agent.');
+  assertSetupCoordinator(bot.user_id, bot.id);
+}
+
+/** Call transcript ingestion uses authenticated call context, never model tool arguments. */
+export function recordVoiceSetupAnswers(ctx: VoiceControlContext) {
+  z.object({ userId: id, botId: id, callId: z.string().min(1).max(512) }).parse(ctx);
+  assertTenant(ctx.userId);
+  const actor = ownedAgent(ctx.userId, ctx.botId);
+  const lines = z.array(z.object({ id: z.string().min(1).max(200).optional(), role: z.string(), text: z.string().max(32000) })).max(200).parse(ctx.spokenTranscript ?? []);
+  return db.transaction(() => lines.filter(line => line.role === 'user' && line.text.trim()).map(line => {
+    const match = line.id === undefined
+      ? "json_extract(body,'$.from.utteranceId') IS NULL AND json_extract(body,'$.text')=?"
+      : "json_extract(body,'$.from.utteranceId')=?";
+    const existing = db.prepare(`SELECT seq,body FROM rows WHERE bot_id=? AND generation=? AND kind='message' AND json_extract(body,'$.role')='user' AND json_extract(body,'$.from.kind')='voice' AND json_extract(body,'$.from.id')=? AND ${match} ORDER BY seq DESC LIMIT 1`).get(actor.id, actor.generation, ctx.callId, line.id ?? line.text) as { seq: number; body: string } | undefined;
+    const from = { kind: 'voice' as const, id: ctx.callId, name: 'Voice call', ...(line.id === undefined ? {} : { utteranceId: line.id }) };
+    if (existing && JSON.parse(existing.body).text !== line.text) {
+      // Reuse the original identity. updateRow emits a newer source revision,
+      // invalidating reads/hashes of the superseded transcription.
+      updateRow(actor.id, existing.seq, { ...JSON.parse(existing.body), text: line.text, from, audience: 'user' });
+    }
+    const seq = existing?.seq ?? appendRow(actor.id, 'message', { type: 'message', role: 'user', text: line.text, from, audience: 'user' }).seq;
+    return { botId: actor.id, generation: actor.generation as number, seq };
+  }))();
 }
 
 // Explicit projections keep raw DB rows, provider credentials, tool arguments and approval bindings out of voice results.
@@ -141,13 +168,20 @@ function stopAgent(botId: string, userId: string) {
 
 /** Unknown names fall through to the caller. Known tools return errors as JSON tool output. */
 export async function runVoiceControl(name: string, args: unknown, ctx: VoiceControlContext): Promise<{ output: string } | null> {
-  if (!Object.hasOwn(schemas, name)) return null;
+  if (!Object.hasOwn(schemas, name) && !sharedNames.has(name)) return null;
   const output = (value: unknown) => ({ output: JSON.stringify(value) });
   try {
     z.object({ userId: id, botId: id, callId: z.string().min(1).max(512) }).parse(ctx);
     assertTenant(ctx.userId);
     const actor = ownedAgent(ctx.userId, ctx.botId);
     const raw = typeof args === 'string' ? JSON.parse(args) : args;
+    const shared = sharedControls.find(tool => tool.name === name);
+    if (shared) {
+      requirePrimary(actor);
+      if (CENTRAL_SETUP_TOOLS.some(t => t.name === name) && isConfiguring(actor.id)) throw new Error('Complete and review the primary agent’s setup before preparing teammates.');
+      const result = await shared.impl(raw, { userId: ctx.userId, botId: actor.id, depth: 0, enqueueBotMessage: () => { throw new Error('Voice inspection and setup cannot dispatch operational work.'); } });
+      return { output: String(result.output) };
+    }
     const tool = name as ControlName;
     if (tool === 'list_agents') {
       schemas.list_agents.parse(raw);
@@ -163,12 +197,12 @@ export async function runVoiceControl(name: string, args: unknown, ctx: VoiceCon
       requirePrimary(actor);
       if (isConfiguring(actor.id)) throw new Error('Complete and review the primary agent’s setup before creating teammates.');
       const { user_request, ...spec } = schemas.create_bot.parse(raw);
-      // A repeated provider call reuses its evidence row as well as the canonical
-      // teammate identity. Never cite generated summaries or enqueue a browser task.
-      const existing = db.prepare("SELECT seq FROM rows WHERE bot_id=? AND generation=? AND kind='message' AND json_extract(body,'$.role')='user' AND json_extract(body,'$.from.kind')='voice' AND json_extract(body,'$.from.id')=? AND json_extract(body,'$.text')=? ORDER BY seq DESC LIMIT 1")
-        .get(actor.id, actor.generation, ctx.callId, user_request) as { seq: number } | undefined;
-      const seq = existing?.seq ?? appendRow(actor.id, 'message', { type: 'message', role: 'user', text: user_request, from: { kind: 'voice', id: ctx.callId, name: 'Voice call' } }).seq;
-      const result = await createTeammate({ ...spec, source_message_seqs: [seq] }, {
+      // The model's user_request is a summary, not a human answer. Persist only
+      // original user utterances supplied by authenticated call ingestion.
+      const originals = recordVoiceSetupAnswers(ctx);
+      if (!originals.length) throw new Error('Original spoken user answers are required. Refresh the call transcript before preparing a coworker.');
+      const creation_request_id = spec.creation_request_id ?? `voice:${createHash('sha256').update(`${ctx.callId}\0${user_request}`).digest('hex')}`;
+      const result = await createTeammate({ ...spec, creation_request_id, source_message_seqs: originals.map(ref => ref.seq) }, {
         userId: ctx.userId, botId: actor.id, depth: 0,
         enqueueBotMessage: () => { throw new Error('Voice creation cannot enqueue operational work.'); },
       });

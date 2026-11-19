@@ -4,8 +4,10 @@ import { recordModelUsage } from '../usage.js';
 import { db, now } from '../db.js';
 import '../db-config.js';
 import { env } from '../env.js';
-import { listMemories, learnMemory } from '../knowledge/memory.js';
-import { assertWritable } from '../knowledge/access.js';
+import { authorizedMemories, learnMemory, applyExplicitPreferenceCorrections } from '../knowledge/memory.js';
+import { assertWritable, hash } from '../knowledge/access.js';
+import { learningSettings, settingsVersion } from '../knowledge/settings.js';
+import { newId } from '../lib/ids.js';
 import { inferUserEvidence, isHumanUserMessage, type MessageRef } from '../knowledge/sessions.js';
 import { hub } from '../lib/hub.js';
 import { getBotRow, getLive } from '../store.js';
@@ -315,30 +317,42 @@ async function consolidateBotInContext(botId: string, opts: { upTo?: number }): 
   const since = job?.last_consolidated_at ?? 0;
   const upTo = opts.upTo ?? now();
   assertWritable(bot.user_id,botId);
+  const policyVersion=settingsVersion(bot.user_id,botId);
+  const learning=learningSettings(bot.user_id,botId).settings;
+  if(!learning.enabled||!learning.memoryReview)return {added:[],skipped:0,considered:0};
   const candidates = db.prepare(`SELECT body,generation,seq,created_at FROM rows WHERE bot_id=? AND kind='message'
     AND (created_at>? OR (created_at=? AND (generation>? OR generation=? AND seq>?))) AND created_at<=?
     ORDER BY created_at,generation,seq LIMIT 60`).all(botId,since,since,job?.cursor_generation??0,job?.cursor_generation??0,job?.cursor_seq??0,upTo) as any[];
-  // Consume a contiguous prefix. Never trim the head and then checkpoint a tail.
-  // An oversized individual source is included whole rather than silently lost.
+  // Review a contiguous prefix, fragmenting oversized messages at durable offsets.
+  // Only a completed source advances the main cursor; fragments retain its hash.
   const rows:any[]=[];let chars=0;
   for(const r of candidates){let b:any;try{b=JSON.parse(r.body);}catch{rows.push(r);continue;}
     if(b.streaming)break;
-    const len=String(b.text??'').length+100;if(rows.length&&chars+len>24000)break;
-    rows.push(r);chars+=len;
+    const text=String(b.text??'');const digest=hash(r.body);
+    const start=job?.fragment_generation===r.generation&&job?.fragment_seq===r.seq&&job?.fragment_hash===digest?job.fragment_offset:0;
+    const remaining=20000-chars-150;if(remaining<=0)break;
+    const end=Math.min(text.length,start+Math.min(16000,remaining));
+    rows.push({...r,fragmentStart:start,fragmentEnd:end,complete:end===text.length,hash:digest});chars+=end-start+150;
+    if(end<text.length)break;
   }
   if(!rows.length)return {added:[],skipped:0,considered:0};
-  const last=rows[rows.length-1];const lastAt=last.created_at;
-  const mark=(result:unknown,_at:number)=>db.prepare(`INSERT INTO memory_jobs(bot_id,last_consolidated_at,cursor_generation,cursor_seq,last_result) VALUES(?,?,?,?,?) ON CONFLICT(bot_id) DO UPDATE SET last_consolidated_at=excluded.last_consolidated_at,cursor_generation=excluded.cursor_generation,cursor_seq=excluded.cursor_seq,last_result=excluded.last_result`).run(botId,lastAt,last.generation,last.seq,JSON.stringify(result));
-  const msgs = rows.map((r) => {try{return {...JSON.parse(r.body),sourceId:`${r.generation}:${r.seq}`};}catch{return null;}}).filter((b) => b?.type === 'message' && b.text && !b.streaming);
+  const last=rows[rows.length-1];const lastComplete=rows.filter(r=>r.complete!==false).at(-1);const lastAt=lastComplete?.created_at??since;
+  const mark=(result:unknown,_at:number)=>db.transaction(()=>{
+   db.prepare(`INSERT INTO memory_jobs(bot_id,last_consolidated_at,cursor_generation,cursor_seq,last_result,fragment_generation,fragment_seq,fragment_offset,fragment_hash) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(bot_id) DO UPDATE SET last_consolidated_at=excluded.last_consolidated_at,cursor_generation=excluded.cursor_generation,cursor_seq=excluded.cursor_seq,last_result=excluded.last_result,fragment_generation=excluded.fragment_generation,fragment_seq=excluded.fragment_seq,fragment_offset=excluded.fragment_offset,fragment_hash=excluded.fragment_hash`).run(botId,lastAt,lastComplete?.generation??job?.cursor_generation??0,lastComplete?.seq??job?.cursor_seq??0,JSON.stringify(result),last.complete===false?last.generation:null,last.complete===false?last.seq:null,last.complete===false?last.fragmentEnd:0,last.complete===false?last.hash:null);
+   db.prepare('INSERT INTO knowledge_memory_reviews(id,bot_id,sources,result,created_at) VALUES(?,?,?,?,?)').run(newId('mrv'),botId,JSON.stringify(rows.map(r=>({generation:r.generation,seq:r.seq,hash:r.hash??hash(r.body),start:r.fragmentStart??0,end:r.fragmentEnd??0,complete:r.complete!==false}))),JSON.stringify(result),now());
+  })();
+  const msgs = rows.map((r) => {try{const b=JSON.parse(r.body);return {...b,text:String(b.text??'').slice(r.fragmentStart??0,r.fragmentEnd),fragment:r.complete===false||r.fragmentStart>0?` [fragment ${r.fragmentStart}-${r.fragmentEnd}]`:'',sourceId:`${r.generation}:${r.seq}`};}catch{return null;}}).filter((b) => b?.type === 'message' && b.text && !b.streaming);
   const sourceRows = new Map(rows.map(r => [`${r.generation}:${r.seq}`, r]));
+  const explicitRefs=rows.filter(r=>{try{return isHumanUserMessage(JSON.parse(r.body));}catch{return false;}}).slice(-12).map(r=>({botId,generation:r.generation,seq:r.seq,contentHash:hash(r.body)}));
+  if(explicitRefs.length)applyExplicitPreferenceCorrections(bot.user_id,botId,explicitRefs);
   if (!msgs.some(isHumanUserMessage)) {
     mark({ added: 0, at: now(), note: 'no user messages' }, lastAt);
     return { added: [], skipped: 0, considered: msgs.length };
   }
-  const transcript = msgs.map((m) => `[source ${m.sourceId}] ` + (m.role === 'user' ? (m.from && !isHumanUserMessage(m) ? `${m.from.kind === 'bot' ? `Bot ${m.from.name}` : `Routine ${m.from.name}`}: ` : 'User: ') : `${bot.name} (Bot): `) + String(m.text)).join('\n');
+  const transcript = msgs.map((m) => `[source ${m.sourceId}]${m.fragment} ` + (m.role === 'user' ? (m.from && !isHumanUserMessage(m) ? `${m.from.kind === 'bot' ? `Bot ${m.from.name}` : `Routine ${m.from.name}`}: ` : 'User: ') : `${bot.name} (Bot): `) + String(m.text)).join('\n');
 
-  const existingMemories=listMemories(bot.user_id,botId);
-  const existing=existingMemories.map(m=>`[${m.id} revision ${m.revision}] ${m.text}`);
+  const existingMemories=authorizedMemories(bot.user_id,botId).filter(m=>m.botId===botId);
+  let existingChars=0;const existing=existingMemories.flatMap(m=>{const line=`[${m.id} revision ${m.revision}] ${m.text}`;existingChars+=line.length;return existingChars<=6000?[line]:[];});
   const res: any = await llm().responses.create({
     model: defaultModel(),
     input: [
@@ -348,6 +362,7 @@ async function consolidateBotInContext(botId: string, opts: { upTo?: number }): 
     text: { format: { type: 'json_schema', name: 'memories', schema: SCHEMA, strict: true } },
     ...lowEffort(),
     store: false,
+    max_output_tokens:2048,
   } as any);
   await recordModelUsage({ botId, kind: 'memory', model: defaultModel(), response: res });
   let parsedOk=false;let proposed: { text: string; sourceIds?: string[];replacesMemoryId?:string|null }[] = [];
@@ -364,8 +379,9 @@ async function consolidateBotInContext(botId: string, opts: { upTo?: number }): 
   // resets, edited sources and owner changes cannot publish stale learning.
   db.transaction(() => {
     assertWritable(bot.user_id,botId);
+    if(settingsVersion(bot.user_id,botId)!==policyVersion)return;
     const latestCursor=db.prepare('SELECT * FROM memory_jobs WHERE bot_id=?').get(botId) as any;
-    if((latestCursor?.last_consolidated_at??0)!==since||(latestCursor?.cursor_generation??0)!==(job?.cursor_generation??0)||(latestCursor?.cursor_seq??0)!==(job?.cursor_seq??0)){skipped=proposed.length;return;}
+    if((latestCursor?.last_consolidated_at??0)!==since||(latestCursor?.cursor_generation??0)!==(job?.cursor_generation??0)||(latestCursor?.cursor_seq??0)!==(job?.cursor_seq??0)||(latestCursor?.fragment_offset??0)!==(job?.fragment_offset??0)){skipped=proposed.length;return;}
     const current = getBotRow(botId);
     if (!current || current.user_id !== bot.user_id || current.generation !== bot.generation) { skipped = proposed.length; return; }
     for (const row of rows) {
@@ -435,7 +451,7 @@ export function startMemoryConsolidation() {
 export function memoriesForPrompt(botId: string, budget = memoryConfig.promptMemoryChars): { lines: string[]; omitted: number } {
   const bot = getBotRow(botId);
   if (!bot) return { lines: [], omitted: 0 };
-  const all = listMemories(bot.user_id, botId).slice(0, 500).map(m => ({ text: m.text, created_at: m.createdAt, id: m.id }));
+  const all = authorizedMemories(bot.user_id, botId).filter(m=>m.botId===botId).slice(0, 500).map(m => ({ text: m.text, created_at: m.createdAt, id: m.id }));
   if (!all.length) return { lines: [], omitted: 0 };
   const recent = (db.prepare("SELECT body FROM rows WHERE bot_id=? AND generation=? AND kind='message' ORDER BY seq DESC LIMIT 12").all(botId, bot.generation) as any[])
     .map((r) => JSON.parse(r.body))

@@ -226,7 +226,7 @@ export function refineLearning(userId: string, botId: string) {
         return enqueueReview({ userId, botId, reason: 'refine', memory: s.memoryReview, skills: s.skillReview, parentJobId: parent?.id, model: modelFor(bot.model), provider: llmProvider() });
     });
 }
-export function reviewInputBudget(settings: LearningSettings, contextWindow?: number | null) { return settings.maxInputTokens !== null ? Math.max(0, settings.maxInputTokens) : Number.isFinite(contextWindow) && contextWindow! > 0 ? Math.min(600000, Math.floor(contextWindow! * .75)) : 120000; }
+export function reviewInputBudget(settings: LearningSettings, contextWindow?: number | null) { return settings.maxInputTokens !== null ? Math.max(0, settings.maxInputTokens) : Number.isFinite(contextWindow) && contextWindow! > 0 ? Math.min(32000, Math.floor(contextWindow! * .75)) : 32000; }
 export function digestReviewHistory(history: any[], tail = 24): any[] {
     // The routed digest replaces dialogue replay, not the originating system
     // instructions (upstream keeps its system prompt outside the message list).
@@ -323,7 +323,7 @@ export async function runLearningReview(id: string): Promise<Review | undefined>
                         throw new KnowledgeError('Loaded knowledge revision or sharing grant changed', 409);
             };
             guard();
-            const allowed = new Set(['session_search', ...(r.review_skills ? ['list_skills', 'read_skill', 'manage_skill', 'propose_skill'] : []), ...(r.review_memory ? ['recall', 'remember', 'correct_memory', 'forget_memory', 'manage_memory'] : [])]);
+            const allowed = new Set(['session_search', ...(r.review_skills ? ['list_skills', 'read_skill', 'apply_procedure', 'manage_skill', 'propose_skill'] : []), ...(r.review_memory ? ['recall', 'remember', 'correct_memory', 'forget_memory', 'manage_memory'] : [])]);
             if (r.reason === 'curator')
                 allowed.delete('propose_skill');
             const tools = [...KNOWLEDGE_TOOLS, ...LEARNING_TOOLS].filter(t => allowed.has(t.name));
@@ -395,13 +395,15 @@ export async function runLearningReview(id: string): Promise<Review | undefined>
                     if (budget > 0 && budgetUsed >= budget)
                         throw new KnowledgeError('Review aggregate input budget exhausted', 409);
                     currentInputEstimate = Math.ceil(JSON.stringify({ input: history, tools: tools.map(t => ({ name: t.name, description: t.description, parameters: t.parameters })) }).length / 4);
-                    const response = await executeModel({ model, input: prepareInput(history, model), tools: tools.map(t => ({ type: 'function', name: t.name, description: t.description, parameters: t.parameters })), store: false, parallel_tool_calls: false, ...(provider.endsWith('-cli') ? { swarm_management_review: true } : {}) }, ctrl.signal);
+                    if (budget > 0 && budgetUsed + currentInputEstimate > budget)
+                        throw new KnowledgeError('Review request exceeds remaining input budget', 409);
+                    const response = await executeModel({ model, input: prepareInput(history, model), tools: tools.map(t => ({ type: 'function', name: t.name, description: t.description, parameters: t.parameters })), store: false, max_output_tokens: 2048, parallel_tool_calls: false, ...(provider.endsWith('-cli') ? { swarm_management_review: true } : {}) }, ctrl.signal);
                     iterations++;
                     const observedInput = response.usage?.input_tokens ?? response.usage?.prompt_tokens, observedOutput = response.usage?.output_tokens ?? response.usage?.completion_tokens;
                     const valid = (n: unknown) => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0;
                     if (valid(observedInput)) {
                         inputTokens += observedInput;
-                        budgetUsed += observedInput;
+                        budgetUsed += Math.max(observedInput, currentInputEstimate);
                         usageObserved = true;
                     }
                     else {

@@ -25,12 +25,22 @@ export function createSubagent(parentId: string, goal: string, label?: string, o
   }
   const id = newId('sub');
   const name = `${p.name} · ${(label || goal).replace(/\s+/g, ' ').slice(0, 32)}`;
+  // A helper's instructions also contain its particular assignment and return
+  // address. Inherit the original charter, not all ancestor assignments: those
+  // would tell a nested child to report to several different parents.
+  let charter = p;
+  const seen = new Set<string>([p.id]);
+  while (charter.parent_bot_id) {
+    const ancestor = db.prepare('SELECT * FROM bots WHERE id=? AND user_id=?').get(charter.parent_bot_id, p.user_id) as any;
+    if (!ancestor || seen.has(ancestor.id)) throw new Error('Invalid helper ancestry.');
+    seen.add(ancestor.id); charter = ancestor;
+  }
   const instructions =
     `You are a subagent of ${p.name}, working on one delegated goal:\n${goal}\n\n` +
     (options.structured
       ? 'Work on the assigned native workflow task. Follow its OUTPUT CONTRACT and return the final result to the native workflow validator. Do not send a free-text completion message or message the user directly. Report a blocker when concrete acceptance evidence is unavailable.'
-      : `Work independently with your own tools and computer. When you finish (or get blocked), call send_to_bot with bot_name "${p.name}" and a concise result, then stop. Do not message the user directly.`) +
-    (p.instructions ? `\n\nYour parent's standing instructions:\n${p.instructions}` : '');
+      : `Work independently with your own tools and computer. You may delegate relevant independent parts to helpers when the connection supports it. Consolidate their required results with your work before reporting completion. Your final response returns automatically to your immediate parent ${JSON.stringify(p.name)}; do not send a duplicate reply. With a subscription, later consolidation responses to descendant results also return automatically to that parent if you ended your initial turn while waiting. State clearly when required work is still pending. Do not message the user directly.`) +
+    (charter.instructions ? `\n\nInherited standing instructions (your current assignment and immediate return recipient are above):\n${charter.instructions}` : '');
   db.prepare(
     `INSERT INTO bots(id,user_id,name,label,description,instructions,avatar_shape,avatar_color,mode,is_primary,effort,parent_bot_id,hidden,created_at,updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,0,?,?,1,?,?)`,
@@ -54,10 +64,22 @@ export function listSubagents(parentId: string) {
   });
 }
 
+/** Only the owned temporary subtree, never siblings or another tenant's bots. */
+export function subagentTree(parentId: string, subId: string): string[] {
+  return (db.prepare(`WITH RECURSIVE tree(id,user_id) AS (
+    SELECT b.id,b.user_id FROM bots b JOIN bots p ON p.id=b.parent_bot_id AND p.user_id=b.user_id
+    WHERE b.id=? AND p.id=? AND b.hidden=1
+    UNION SELECT b.id,b.user_id FROM bots b JOIN tree t ON b.parent_bot_id=t.id AND b.user_id=t.user_id WHERE b.hidden=1
+  ) SELECT id FROM tree`).all(subId,parentId) as {id:string}[]).map(b => b.id);
+}
+
 export function deleteSubagent(parentId: string, subId: string) {
-  const s = db.prepare('SELECT user_id FROM bots WHERE id=? AND parent_bot_id=?').get(subId, parentId) as any;
-  if (!s) return false;
-  db.prepare('DELETE FROM screens WHERE bot_id=?').run(subId);
-  db.prepare('DELETE FROM bots WHERE id=?').run(subId);
-  return true;
+  return db.transaction(() => {
+    const ids = subagentTree(parentId, subId);
+    for (const id of ids.reverse()) {
+      db.prepare('DELETE FROM screens WHERE bot_id=?').run(id);
+      db.prepare('DELETE FROM bots WHERE id=?').run(id);
+    }
+    return ids.length > 0;
+  })();
 }

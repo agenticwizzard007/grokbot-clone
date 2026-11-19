@@ -92,7 +92,7 @@ test('finalization exclusions and explicit refinement bypass automatic counters 
     assert.equal(refine.reviewMemory, true);
     assert.equal(refine.reviewSkills, true);
 });
-test('multi-step detached reviewer applies guarded skills directly but stages unattended memory replacements', async () => {
+test('multi-step detached reviewer stages unevaluated skill changes and inferred memory replacements', async () => {
     const evidence = [message('Always verify the original source and prefer concise reports.')];
     const skill = skills.createSkill('owner', 'alpha', seed);
     const mem = memory.saveMemory('owner', 'alpha', { text: 'User prefers lengthy reports.', evidence }).memory!;
@@ -114,7 +114,8 @@ test('multi-step detached reviewer applies guarded skills directly but stages un
     const result = await learning.runLearningReview(review.id);
     assert.equal(result?.status, 'completed');
     assert.equal(n, 4);
-    assert.equal(skills.getSkill('owner', skill.id).revision, 2);
+    assert.equal(skills.getSkill('owner', skill.id).revision, 1);
+    assert.equal(skills.listSkillProposals('owner','alpha')[0].evaluations[0].status,'insufficient');
     assert.equal(memory.listMemories('owner', 'alpha')[0].text, mem.text);
     assert.equal(memory.listMemoryChanges('owner', 'alpha')[0].status, 'pending');
     assert.equal((db.prepare('SELECT count(*) n FROM knowledge_use_receipts WHERE job_id=? AND kind=\'skill\'').get(review.jobId) as any).n, 1);
@@ -159,7 +160,7 @@ test('dispatcher denies business actions and fresh-read guards reject transcript
     assert.equal((await learning.runLearningReview(review.id))?.status, 'completed');
     assert.equal(skills.getSkill('owner', skill.id).revision, 1);
     const ctx = management();
-    access.withManagement(ctx, () => { skills.readSkillForBot('owner', 'alpha', skill.id); skills.updateSkill('owner', skill.id, { body: 'Owner edit' }, 1); assert.throws(() => skills.manageSkill('owner', 'alpha', { action: 'update', skillId: skill.id, expectedRevision: 2, body: 'Stale read', reason: 'test', evidence }), /Read the current target/); });
+    access.withManagement(ctx, () => { skills.readSkillForBot('owner', 'alpha', skill.id); access.withManagement(undefined as any,()=>skills.updateSkill('owner', skill.id, { body: 'Owner edit' }, 1)); assert.throws(() => skills.manageSkill('owner', 'alpha', { action: 'update', skillId: skill.id, expectedRevision: 2, body: 'Stale read', reason: 'test', evidence }), /Read the current target/); });
 });
 test('foreground cancellation fences in-flight output and stale cleanup leaves newer foreground job intact', async () => {
     message('Always verify sources.');
@@ -178,6 +179,47 @@ test('foreground cancellation fences in-flight output and stale cleanup leaves n
     assert.equal((await pending)?.status, 'cancelled');
     assert.equal((db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(foreground.id) as any).state, 'running');
     assert.equal(skills.listSkills('owner', 'alpha').length, 0);
+});
+for (const skillReview of [true, false]) test(`procedure dispatch is ${skillReview ? 'available to skill' : 'denied to memory-only'} background reviews`, async () => {
+    message('Check the procedure against these observations.');
+    patch({ memoryTurnInterval: 1, skillIterationInterval: 1, skillReview });
+    const review = turn()!;
+    let dispatched = 0, rounds = 0;
+    // Probe the review dispatch boundary independently of the procedure
+    // interpreter, whose implementation and evaluation fixtures live elsewhere.
+    const fixture = {
+        ...KNOWLEDGE_TOOLS.find(t => t.name === 'read_skill')!, name: 'apply_procedure',
+        impl: async (_args: any, ctx: any) => {
+            dispatched++;
+            assert.equal(ctx.jobId, review.jobId);
+            assert.equal(access.managementContext()?.unattended, true);
+            assert.equal(access.managementContext()?.actor, 'background_review');
+            assert.throws(() => ctx.enqueueBotMessage(), /Business actions denied/);
+            return { output: JSON.stringify({ outcome: 'fixture_result' }) };
+        }
+    };
+    const index = KNOWLEDGE_TOOLS.findIndex(t => t.name === fixture.name);
+    const original = index < 0 ? undefined : KNOWLEDGE_TOOLS[index];
+    const slot = index < 0 ? KNOWLEDGE_TOOLS.push(fixture) - 1 : index;
+    KNOWLEDGE_TOOLS[slot] = fixture;
+    try {
+        learning.configureLearningModelExecutor(async body => {
+            rounds++;
+            assert.equal(body.tools.some((tool: any) => tool.name === 'apply_procedure'), skillReview);
+            if (rounds === 1) return call('apply_procedure', {});
+            const result = body.input.at(-1).output;
+            if (skillReview) assert.equal(JSON.parse(result).outcome, 'fixture_result');
+            else assert.match(result, /Tool denied/);
+            return final();
+        });
+        assert.equal((await learning.runLearningReview(review.id))?.status, 'completed');
+        assert.equal(rounds, 2);
+        assert.equal(dispatched, Number(skillReview));
+    }
+    finally {
+        if (original) KNOWLEDGE_TOOLS[slot] = original;
+        else KNOWLEDGE_TOOLS.splice(slot, 1);
+    }
 });
 test('source edits, settings edits, resets and ownership changes fence publication', async () => {
     for (const mutation of ['source', 'settings', 'generation', 'owner']) {
@@ -218,10 +260,10 @@ test('restart cancels abandoned running reviews without replay; queued intent su
     assert.equal(learning.listLearningReviews('owner').reviews[0].status, 'queued');
     assert.equal((await learning.runLearningReview(queued.id))?.status, 'completed');
 });
-test('review limits use upstream context fraction/cap/fallback and stop multi-step work', async () => {
-    assert.equal(learning.reviewInputBudget(settings.LEARNING_DEFAULTS, 1000000), 600000);
-    assert.equal(learning.reviewInputBudget(settings.LEARNING_DEFAULTS, 200000), 150000);
-    assert.equal(learning.reviewInputBudget(settings.LEARNING_DEFAULTS, null), 120000);
+test('review limits have bounded defaults and reject oversized requests before calling a model', async () => {
+    assert.equal(learning.reviewInputBudget(settings.LEARNING_DEFAULTS, 1000000), 32000);
+    assert.equal(learning.reviewInputBudget(settings.LEARNING_DEFAULTS, 200000), 32000);
+    assert.equal(learning.reviewInputBudget(settings.LEARNING_DEFAULTS, null), 32000);
     assert.equal(learning.reviewInputBudget({ ...settings.LEARNING_DEFAULTS, maxInputTokens: -1 }, 200000), 0);
     message('Always verify.');
     patch({ memoryTurnInterval: 1, maxInputTokens: 10 });
@@ -229,7 +271,7 @@ test('review limits use upstream context fraction/cap/fallback and stop multi-st
     let calls = 0;
     learning.configureLearningModelExecutor(async () => { calls++; return call('list_skills', {}); });
     const result = await learning.runLearningReview(review.id);
-    assert.equal(calls, 1);
+    assert.equal(calls, 0);
     assert.equal(result?.status, 'cancelled');
     assert.match(result?.error ?? '', /input budget/);
 });
@@ -250,10 +292,10 @@ test('auxiliary routing is explicit, digests only when changed and never falls b
     assert.equal(body.model, 'explicit-test-model');
     assert.match(body.input[0].content, /Earlier conversation digest/);
 });
-test('full package resources version atomically, exact file read guards, locks, pins and rollback', () => {
+test('foreground package resources version atomically, exact file read guards, locks, pins and rollback', () => {
     const evidence = [message('Use the report template.')];
     const skill = skills.createSkill('owner', 'alpha', { ...seed, resources: { 'templates/report.md': 'Old template', 'scripts/check.mjs': 'console.log(1)' } });
-    const ctx = management();
+    const ctx = {...management(false),actor:'foreground'};
     access.withManagement(ctx, () => { assert.throws(() => skills.manageSkill('owner', 'alpha', { action: 'write_file', skillId: skill.id, expectedRevision: 1, filePath: 'templates/report.md', fileContent: 'New template', reason: 'template', evidence }), /Read the current target/); skills.readSkillForBot('owner', 'alpha', skill.id, { filePath: 'templates/report.md' }); skills.manageSkill('owner', 'alpha', { action: 'write_file', skillId: skill.id, expectedRevision: 1, filePath: 'templates/report.md', fileContent: 'New template', reason: 'template', evidence }); });
     const restored = skills.rollbackSkill('owner', skill.id, 1, 2);
     assert.equal(restored.resources['templates/report.md'], 'Old template');
@@ -407,12 +449,15 @@ test('shared knowledge revision/revocation during a review cancels its next publ
     assert.match(result?.error ?? '', /sharing grant/);
     assert.equal(skills.listSkills('owner', 'alpha').length, 0);
 });
-test('curator can consolidate only managed unprotected packages and archive with full recovery', () => {
+test('model curator stages managed unprotected package archives and owner can recover', () => {
     const now = Date.now();
     const source = skills.createSkill('owner', 'alpha', { ...seed, name: 'Old narrow research' });
     db.prepare('UPDATE skills SET created_at=? WHERE id=?').run(now - 40 * 86400000, source.id);
     const pinned = skills.createSkill('owner', 'alpha', { ...seed, name: 'Protected research', pinned: true });
-    access.withManagement({ ...management(), actor: 'curator' }, () => { skills.readSkillForBot('owner', 'alpha', source.id); const archived = skills.manageSkill('owner', 'alpha', { action: 'archive', skillId: source.id, expectedRevision: 1, reason: 'Absorbed into class workflow', evidence: [] }); assert.equal(archived.skill?.deleted, true); skills.readSkillForBot('owner', 'alpha', pinned.id); assert.throws(() => skills.manageSkill('owner', 'alpha', { action: 'update', skillId: pinned.id, expectedRevision: 1, body: 'Changed', reason: 'unsafe', evidence: [] }), /protected/); });
+    access.withManagement({ ...management(), actor: 'curator' }, () => { skills.readSkillForBot('owner', 'alpha', source.id); const archived = skills.manageSkill('owner', 'alpha', { action: 'archive', skillId: source.id, expectedRevision: 1, reason: 'Absorbed into class workflow', evidence: [] }); assert.equal(archived.activated,false);assert.equal(archived.proposal?.status,'pending'); skills.readSkillForBot('owner', 'alpha', pinned.id); assert.throws(() => skills.manageSkill('owner', 'alpha', { action: 'update', skillId: pinned.id, expectedRevision: 1, body: 'Changed', reason: 'unsafe', evidence: [] }), /protected/); });
+    assert.equal(skills.getSkill('owner',source.id).deleted,false);
+    const proposal=skills.listSkillProposals('owner','alpha')[0];
+    skills.resolveSkillProposal('owner',proposal.id,'approve',1);
     assert.equal(skills.rollbackSkill('owner', source.id, 1, 2).deleted, false);
 });
 test('new ownership starts fresh counters while stale prior owner review settles cancelled', async () => {
@@ -488,7 +533,7 @@ test('curator proposals carry exact skill sources and approve without invented h
 });
 test('unavailable provider usage is distinct from estimated budget enforcement', async () => {
     message('Always verify.');
-    patch({ memoryTurnInterval: 1, maxInputTokens: 100 });
+    patch({ memoryTurnInterval: 1, maxInputTokens: 20000 });
     const review = turn()!;
     learning.configureLearningModelExecutor(async () => ({ output_text: 'Nothing to save.', output: [] }));
     const result = await learning.runLearningReview(review.id);
@@ -553,7 +598,7 @@ test('migration-held owners are excluded from learning dispatch, recovery and cu
         fs.rmSync(fixture, { recursive: true, force: true });
     }
 });
-test('opt-in curator executes the detached multi-step consolidation and recoverable archive lifecycle', async () => {
+test('opt-in model curator proposes consolidation and archive without unevaluated activation', async () => {
     const source = skills.createSkill('owner', 'alpha', { ...seed, name: 'Narrow citation workflow' });
     db.prepare('UPDATE skills SET created_at=? WHERE id=?').run(Date.now() - 40 * 86400000, source.id);
     patch({ curatorConsolidate: true, curatorIntervalHours: 0, curatorMinIdleHours: 0 });
@@ -575,9 +620,11 @@ test('opt-in curator executes the detached multi-step consolidation and recovera
         return final();
     });
     assert.equal((await learning.runLearningReview(review.id))?.status, 'completed');
-    assert.equal(skills.getSkill('owner', source.id).deleted, true);
-    assert.equal(skills.listSkills('owner', 'alpha').some(s => s.name === 'Research and citations'), true);
-    assert.equal(skills.rollbackSkill('owner', source.id, 1, 2).deleted, false);
+    assert.equal(skills.getSkill('owner', source.id).deleted, false);
+    assert.equal(skills.listSkills('owner', 'alpha').some(s => s.name === 'Research and citations'), false);
+    const proposals=skills.listSkillProposals('owner','alpha');
+    assert.equal(proposals.length,2);
+    for(const p of proposals)assert.equal(p.status,'pending');
 });
 test('attended refinement batches complete after direct replacements and removals', async () => {
     const evidence = [message('Always prefer concise reports and remove the old project.')];

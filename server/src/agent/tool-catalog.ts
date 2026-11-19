@@ -16,7 +16,7 @@ export interface FunctionSchema {
 }
 const BRIDGES = new Set(['tool_search', 'tool_describe', 'tool_call']);
 const CORE = new Set(['ask_user', 'get_platform_state', 'remember', 'recall', 'search_history',
-  'read_history', 'session_search', 'search_skills', 'read_skill', 'list_skills', 'propose_skill',
+  'read_history', 'session_search', 'search_skills', 'read_skill', 'apply_procedure', 'list_skills', 'propose_skill',
   'list_app_connections', 'search_apps', 'request_app_connection', 'SWARM_APPS_SEARCH',
   'SWARM_APPS_EXECUTE', 'save_file', 'execute_code', 'save_agent_setup']);
 export const TOOL_VALIDATION_LIMITS = Object.freeze({ schemaBytes: 256_000, argumentBytes: 1_000_000, depth: 32, nodes: 50_000, timeoutMs: 1500, concurrent: 4, queued: 64 });

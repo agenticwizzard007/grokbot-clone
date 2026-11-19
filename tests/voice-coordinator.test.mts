@@ -63,7 +63,7 @@ const { initSubagents } = await import('../server/src/agent/subagents.js');
 const { initRooms } = await import('../server/src/agent/rooms.js');
 initSubagents(); initRooms();
 const { createBot } = await import('../server/src/bots.js');
-const { appendRow, updateRow, loadHistory, clearConversation } = await import('../server/src/store.js');
+const { listRows, appendRow, updateRow, loadHistory, clearConversation } = await import('../server/src/store.js');
 const { runInBotQueue, settleAgentJobs, resolveApproval, enqueue } = await import('../server/src/agent/loop.js');
 const { voiceApi } = await import('../server/src/voice.js');
 const { requireUser } = await import('../server/src/lib/auth.js');
@@ -309,6 +309,17 @@ test('spoken context and cross-agent delegation are shared without replaying the
   assert.match(chiefHistory, /Already queued/);
   assert.match(chiefHistory, /Update from Researcher/);
   assert.ok(modelInputs.some(input => JSON.stringify(input).includes('copper-ledger') && JSON.stringify(input).includes('Research the totals')));
+  const {isHumanSource,listHumanSources,readHumanSource}=await import('../server/src/coordination/sources.js');
+  const {isHumanUserMessage}=await import('../server/src/knowledge/sessions.js');
+  const taskRow=listRows(researcher.id).find(row=>row.body.type==='message'&&row.body.text==='Research the totals.')!;
+  assert.equal((taskRow.body as any).from.kind,'bot');
+  assert.equal(isHumanSource(taskRow.body),false);
+  assert.equal(isHumanUserMessage(taskRow.body),false);
+  const original=listHumanSources('alice').sources.filter(ref=>ref.botId===chief.id)
+    .map(ref=>readHumanSource('alice',chief.id,ref.eventSeq));
+  assert.ok(original.some(ref=>ref.text===transcript[0].text));
+  assert.ok(!original.some(ref=>ref.text===transcript[1].text||ref.text==='Research the totals.'));
+
   const length = loadHistory(chief.id).length;
   assert.deepEqual(await (await post('alice', 'tool', payload)).json(), assigned);
   assert.equal(loadHistory(chief.id).length, length, 'transport replay cannot duplicate context or dispatch');
@@ -333,6 +344,10 @@ test('end-of-call speech is context for the next text turn, never an automatic t
   assert.match(note.content, /not a new task or approval/);
   assert.match(note.content, /"role":"user"/);
   assert.match(note.content, /"role":"assistant"/);
+  const originals=listRows(chief.id).filter(row=>row.body.type==='message'&&row.body.role==='user'&&row.body.from?.kind==='voice');
+  assert.ok(originals.some(row=>(row.body as any).text===transcript[0].text),'Final spoken user context is a genuine source even without a tool call');
+  assert.ok(!originals.some(row=>(row.body as any).text===transcript[1].text));
+
   await post('alice', 'end', { botId: chief.id, callId: call.callId, transcript });
   assert.equal(loadHistory(chief.id).length, history.length);
   enqueue(chief.id, { type: 'user', text: 'What report format did we agree on?' });

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { configApi, type KnowledgeMemory, type KnowledgeSkill, type MessageSource, type SkillProposal, type SkillRevision, type SourceMessage } from '../../lib/configApi';
+import { configApi, type KnowledgeMemory, type KnowledgeSkill, type MessageSource, type SkillProposal, type SkillRevision, type SourceMessage, type SkillEvaluation } from '../../lib/configApi';
 import { learningApi } from '../../lib/learningApi';
 import { shortDate } from './ui';
 
@@ -50,14 +50,26 @@ export function SkillHistory({ skill, onChange }: { skill: KnowledgeSkill; onCha
       {revisions.map(r => <details key={r.revision}>
         <summary>Revision {r.revision} · {r.action} · {shortDate(r.createdAt)}{r.deleted ? ' · Deleted' : ''}</summary>
         <div>{r.name} · {r.description}</div>
+        {r.promotion&&<div><p>Automatically promoted under policy revision {r.promotion.policyRevision}. Rollback target: revision {r.promotion.rollback.revision}.</p><EvaluationResults evaluations={r.promotion.evaluations??[]} /></div>}
         <pre style={{ whiteSpace: 'pre-wrap', maxHeight: 240, overflow: 'auto' }}>{r.body}</pre>
         {r.resources && Object.entries(r.resources).map(([path, content]) => <details key={path}><summary>{path}</summary><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{content}</pre></details>)}
         {(r.pinned || r.locked || r.scope) && <p className="cfg-field__hint">{r.pinned ? 'Pinned · ' : ''}{r.locked ? 'Locked · ' : ''}{r.scope ?? 'private'}</p>}
         <SourceMessages sources={r.evidence} />
         {r.revision !== skill.revision && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => void restore(r.revision)}>{busy ? 'Restoring…' : `Restore revision ${r.revision}`}</button>}
       </details>)}
+      <ProcedurePolicy skill={skill} onChange={onChange} />
     </div>}
   </div>;
+}
+
+function EvaluationResults({evaluations}:{evaluations:SkillEvaluation[]}) {
+ return <>{evaluations.map(e=><details key={e.id}><summary>Evaluation: {e.status} · {e.results.length} frozen cases</summary><p>{e.reason}</p><p className="cfg-field__hint">Policy {e.policyRevision} · Settings {e.settingsRevision} · {e.evaluator}</p>{e.results.map(r=><p key={r.id}>{r.id} ({r.category}): {r.passed?'passed':'failed'} · expected {r.expected}, observed {r.actual} · baseline {r.baseline}</p>)}<p className="cfg-field__hint" style={{overflowWrap:'anywhere'}}>Candidate {e.candidateHash}<br/>Sources {e.sourceHash}<br/>Rollback baseline {e.baseHash}</p></details>)}</>;
+}
+function ProcedurePolicy({skill,onChange}:{skill:KnowledgeSkill;onChange:()=>void}) {
+ const [view,setView]=useState<{revision:number;policy:Record<string,unknown>}|null>(null),[draft,setDraft]=useState(''),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false);
+ useEffect(()=>{let active=true;learningApi.promotionPolicy(skill.id).then(r=>{if(active){setView(r.standingPolicy);setDraft(r.standingPolicy?JSON.stringify(r.standingPolicy.policy,null,2):'');}}).catch(e=>{if(active)setError(e.message);});return()=>{active=false;};},[skill.id]);
+ const save=async()=>{setBusy(true);setError('');try{const r=await learningApi.savePromotionPolicy(skill.id,view?.revision??0,JSON.parse(draft));setView(r.standingPolicy);setNotice('Standing policy saved. Existing candidates require a fresh review.');}catch(e){setError((e as Error).message);}finally{setBusy(false);}};
+ return <details><summary>Automatic improvement policy{view?` · revision ${view.revision}`:' · owner review required'}</summary><p>Automatic improvements require an approved responsibility and at least five frozen cases covering the triggering defect, existing behavior, an out-of-scope case and a failure case. Only pure decision tables support automatic evaluation; prose changes wait for review.</p><p>Cases and allowed outcomes are owner decisions. Labels cannot change recipients, schedules, budgets, permissions or sharing.</p>{error&&<p role="alert" className="cfg-error">{error}</p>}{notice&&<p role="status">{notice}</p>}<label>Standing policy and frozen cases<textarea aria-label="Standing policy and frozen cases" className="text-input cfg-textarea" rows={12} value={draft} onChange={e=>setDraft(e.currentTarget.value)} placeholder={'{"enabled":false,"responsibility":"report_triage","allowedOutcomes":["review","failure","out_of_scope"],"cases":[]}'} /></label><button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy||!draft} onClick={()=>void save()}>Save standing policy</button>{view&&<button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={()=>{setBusy(true);learningApi.recheck(skill.id,skill.revision).then(r=>{setNotice(`Procedure check: ${r.action.replaceAll('_',' ')}.`);onChange();}).catch(e=>setError(e.message)).finally(()=>setBusy(false));}}>Check current procedure</button>}</details>;
 }
 
 export function SkillReview({ botId, version, onChange }: { botId: string; version: string; onChange: () => void }) {
@@ -87,6 +99,7 @@ export function SkillReview({ botId, version, onChange }: { botId: string; versi
       {proposals.map(p => <details key={p.id}>
         <summary>{p.content.name} · {p.baseRevision ? `Updates revision ${p.baseRevision}` : 'New skill'}</summary>
         <p>{p.reason}</p>
+        <EvaluationResults evaluations={p.evaluations??[]} />
         <pre aria-label="Proposed skill diff" style={{ whiteSpace: 'pre-wrap', maxHeight: 320, overflow: 'auto' }}>{p.diff}</pre>
         <SourceMessages sources={p.evidence} />
         <div className="cfg-editor__actions">

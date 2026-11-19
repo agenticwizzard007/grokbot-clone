@@ -1,5 +1,5 @@
 import {publishNativeEvent} from '../native/events.js';
-import { assertWritable,canRead,managementContext,setGrants,type Scope } from './access.js';
+import { assertWritable,canRead,managementContext,setGrants,withManagement,type Scope } from './access.js';
 import { learningSettings } from './settings.js';
 import crypto from 'node:crypto';
 import { db, now } from '../db.js';
@@ -7,8 +7,8 @@ import { newId } from '../lib/ids.js';
 import { boundedText, checkedRun, expectedRevision, KnowledgeError, ownedBot } from './common.js';
 import { refsOnly, validateEvidence, isHumanUserMessage, type MessageRef } from './sessions.js';
 
-export interface MemoryView { id: string; botId: string; text: string; createdAt: number; source: 'chat' | 'learned'; status: string; revision: number; evidence: MessageRef[]; runId: string | null; supersedes: string | null; target:'user'|'environment';evidenceKind:'human'|'tool'|'hypothesis';scope:Scope;projectId:string|null }
-function view(m: any): MemoryView { return { id: m.id, botId: m.bot_id, text: m.text, createdAt: m.created_at, source: m.source === 'learned' ? 'learned' : 'chat', status: m.status, revision: m.revision, evidence: JSON.parse(m.evidence), runId: m.run_id, supersedes: m.supersedes,target:m.target??'user',evidenceKind:m.evidence_kind??'human',scope:m.scope??'private',projectId:m.project_id??null }; }
+export interface MemoryView { id: string; botId: string; text: string; createdAt: number; effectiveAt:number; supersededRevision:number|null; source: 'chat' | 'learned'; status: string; revision: number; evidence: MessageRef[]; runId: string | null; supersedes: string | null; target:'user'|'environment';evidenceKind:'human'|'tool'|'hypothesis';scope:Scope;projectId:string|null }
+function view(m: any): MemoryView { return { id: m.id, botId: m.bot_id, text: m.text, createdAt: m.created_at,effectiveAt:m.effective_at??m.created_at,supersededRevision:m.superseded_revision??null, source: m.source === 'learned' ? 'learned' : 'chat', status: m.status, revision: m.revision, evidence: JSON.parse(m.evidence), runId: m.run_id, supersedes: m.supersedes,target:m.target??'user',evidenceKind:m.evidence_kind??'human',scope:m.scope??'private',projectId:m.project_id??null }; }
 function ownMemory(userId: string, id: string): any {
   const m = db.prepare('SELECT m.* FROM memories m JOIN bots b ON b.id=m.bot_id WHERE m.id=? AND b.user_id=?').get(id, userId);
   if (!m) throw new KnowledgeError('Not found', 404);
@@ -62,8 +62,8 @@ export function saveMemory(userId: string, botId: string, input: { text: string;
 }
 export function correctMemory(userId: string, id: string, input: { text: string; expectedRevision: number; evidence?: MessageRef[]; runId?: string }): MemoryView {
   return db.transaction(() => {
-    if(managementContext()?.unattended)throw new KnowledgeError('Unattended replacements must stage through manageMemory',409);
     const cur = ownMemory(userId, id);assertWritable(userId,cur.bot_id); expectedRevision(cur.revision, input.expectedRevision);
+    if(managementContext()?.unattended&&!explicitPreferenceCorrection(userId,view(cur),input.text,input.evidence??[]))throw new KnowledgeError('Unattended replacements require an explicit same-scope human correction',409);
     if (cur.status !== 'active') throw new KnowledgeError('Memory is no longer active', 409);
     const text = boundedText(input.text, 'Correction', 1000);
     if (normalize(text) === normalize(cur.text)) throw new KnowledgeError('Correction must change the fact');
@@ -79,6 +79,7 @@ export function correctMemory(userId: string, id: string, input: { text: string;
     const nextId = newId('mem');
     db.prepare('INSERT INTO memories(id,bot_id,text,created_at,source,evidence,run_id,supersedes) VALUES(?,?,?,?,?,?,?,?)').run(nextId, cur.bot_id, text, now(), 'chat', JSON.stringify(evidence), runId, id);
     db.prepare('UPDATE memories SET target=?,evidence_kind=?,scope=?,project_id=? WHERE id=?').run(cur.target,checked.some(e=>e.role==='tool')?'tool':'human',cur.scope,cur.project_id,nextId);
+    db.prepare('UPDATE memories SET effective_at=?,superseded_revision=? WHERE id=?').run(checked.length?Math.max(...checked.map(e=>e.createdAt)):now(),cur.revision,nextId);
     db.prepare("UPDATE knowledge_grants SET source_id=? WHERE kind='memories' AND source_id=?").run(nextId,id);
     const next = ownMemory(userId, nextId); record(next, 'correction', userId); return view(next);
   })();
@@ -103,14 +104,28 @@ export function memoryHistory(userId: string, id: string) {
   ownMemory(userId, id);
   return (db.prepare('SELECT * FROM knowledge_memory_events WHERE memory_id=? ORDER BY id DESC LIMIT 100').all(id) as any[]).map(e => ({ action: e.action, actor: e.actor, memory: JSON.parse(e.snapshot), createdAt: e.created_at }));
 }
+/** Runtime facts must still refer to the version that grounded them. Keep the
+ * owner list/history intact, including direct owner facts without evidence. */
+function validMemorySources(userId: string, memory: MemoryView): boolean {
+  try {
+    const sources = validateEvidence(userId, memory.botId, memory.evidence, false);
+    if (!memory.evidence.length) return memory.source === 'chat';
+    // A source locator alone cannot prove that the remembered text was derived
+    // from the current version. New writes always freeze the validated hash.
+    return memory.evidence.every(ref => typeof ref.contentHash === 'string' && /^[a-f0-9]{64}$/.test(ref.contentHash)) && sources.length === memory.evidence.length;
+  } catch (e) {
+    if (e instanceof KnowledgeError) return false;
+    throw e;
+  }
+}
 export function recallMemories(userId: string, botId: string, query = '', limit = 20): MemoryView[] {
   if (typeof query !== 'string' || query.length > 500) throw new KnowledgeError('Search query must be at most 500 characters');
   const terms = normalize(query).split(' ').filter(Boolean);
-  return listMemories(userId, botId).filter(m => terms.every(t => normalize(m.text).includes(t))).slice(0, Math.max(1, Math.min(50, limit)));
+  return listMemories(userId, botId).filter(m => terms.every(t => normalize(m.text).includes(t)) && validMemorySources(userId, m)).slice(0, Math.max(1, Math.min(50, limit)));
 }
 
 export function authorizedMemories(userId:string,botId:string):MemoryView[]{
- ownedBot(userId,botId);return(db.prepare("SELECT m.* FROM memories m JOIN bots b ON b.id=m.bot_id WHERE b.user_id=? AND m.status='active' ORDER BY m.created_at DESC,m.id").all(userId) as any[]).filter(m=>canRead(userId,botId,'memories',m)).map(view);
+ ownedBot(userId,botId);return(db.prepare("SELECT m.* FROM memories m JOIN bots b ON b.id=m.bot_id WHERE b.user_id=? AND m.status='active' ORDER BY m.created_at DESC,m.id").all(userId) as any[]).filter(m=>canRead(userId,botId,'memories',m)).map(view).filter(m=>validMemorySources(userId,m));
 }
 export function setMemoryScope(userId:string,id:string,input:{expectedRevision:number;scope:Scope;projectId?:string;botIds?:string[]}){
  return db.transaction(()=>{const cur=ownMemory(userId,id);expectedRevision(cur.revision,input.expectedRevision);if(cur.status!=='active')throw new KnowledgeError('Memory is inactive',409);setGrants(userId,cur.bot_id,'memories',id,input.scope,input.projectId,input.botIds);db.prepare('UPDATE memories SET scope=?,project_id=?,revision=revision+1 WHERE id=?').run(input.scope,input.scope==='project'?input.projectId:null,id);const next=ownMemory(userId,id);record(next,'scope',userId);return view(next);})();
@@ -161,7 +176,7 @@ export function manageMemory(userId:string,botId:string,input:MemoryMutation){
   expectedRevision(cur?.revision??0,input.expectedRevision);
   if(cur&&input.target!==undefined&&input.target!==cur.target)throw new KnowledgeError('Replacement must keep its memory target',409);
   validateEvidence(userId,bot.id,input.evidence,input.action!=='remove');
-  if(ctx?.unattended&&input.action!=='add')return{change:stageMemoryChange(userId,botId,input),activated:false};
+  if(ctx?.unattended&&input.action!=='add'&&!(input.action==='replace'&&explicitPreferenceCorrection(userId,view(cur),input.text!,input.evidence)))return{change:stageMemoryChange(userId,botId,input),activated:false};
   if(input.action==='remove'){forgetMemory(userId,cur.id,input.expectedRevision);return{deleted:true,activated:true};}
   if(input.action==='replace')return{memory:correctMemory(userId,cur.id,{text:input.text!,expectedRevision:input.expectedRevision,evidence:input.evidence,runId:input.runId}),activated:true};
   return {...saveMemory(userId,botId,{...input,text:input.text!,source:ctx&&ctx.actor!=='foreground'?'learned':'chat'}),activated:true};
@@ -174,6 +189,46 @@ export function learnMemory(userId:string,botId:string,input:{text:string;eviden
  if(current.some(m=>normalize(m.text)===normalize(text)))return{memory:null,skipped:'duplicate'};
  const prior=input.replacesMemoryId?current.find(m=>m.id===input.replacesMemoryId):current.find(m=>similar(m.text,text));
  if(input.replacesMemoryId&&!prior)throw new KnowledgeError('Correction target is no longer active',409);
- if(prior){const pending=listMemoryChanges(userId,botId).find(c=>c.status==='pending'&&c.memoryId===prior.id&&normalize(c.text??'')===normalize(text));return{change:pending??stageMemoryChange(userId,botId,{action:'replace',memoryId:prior.id,expectedRevision:prior.revision,...input}),skipped:null};}
+ if(prior){
+  const mutation={action:'replace' as const,memoryId:prior.id,expectedRevision:prior.revision,...input};
+  if(explicitPreferenceCorrection(userId,prior,text,input.evidence))return withManagement(managementContext()??{userId,botId,actor:'passive_correction',unattended:true,reads:new Map()},()=>({...manageMemory(userId,botId,mutation),skipped:null}));
+  const pending=listMemoryChanges(userId,botId).find(c=>c.status==='pending'&&c.memoryId===prior.id&&normalize(c.text??'')===normalize(text));return{change:pending??stageMemoryChange(userId,botId,mutation),skipped:null};}
  return saveMemory(userId,botId,{...input,source:'learned'});
+}
+
+// Deliberately small, deterministic grammar. This changes a remembered preference,
+// never a routine, recipient, permission or budget. Other interpretations stage.
+const PREFERENCE_VALUES = [['daily','weekly','monthly','quarterly','yearly'],['short','long'],['concise','detailed']];
+function preference(text:string):string|null {
+ const match=text.trim().match(/^(?:I (?:now )?prefer|From now on[ ,]+I prefer|(?:User )?prefers) ([^.?!;\n]+)[.!]?$/i);
+ if(!match||/\b(if|unless|starting|tomorrow|next|today|only|this|not|never|instead|and then)\b/i.test(match[1]))return null;
+ return normalize(match[1]);
+}
+export function explicitPreferenceCorrection(userId:string,prior:MemoryView,text:string,refs:MessageRef[]):boolean {
+ if(prior.target!=='user'||prior.status!=='active')return false;
+ const before=preference(prior.text),after=preference(text);
+ if(!before||!after||before===after)return false;
+ const a=before.split(' '),b=after.split(' ');if(a.length!==b.length)return false;
+ const changes=a.flatMap((word,i)=>word===b[i]?[]:[i]);if(changes.length!==1)return false;
+ const i=changes[0];if(!PREFERENCE_VALUES.some(values=>values.includes(a[i])&&values.includes(b[i])))return false;
+ let old:ReturnType<typeof validateEvidence>,sources:ReturnType<typeof validateEvidence>;
+ try{old=validateEvidence(userId,prior.botId,prior.evidence);sources=validateEvidence(userId,prior.botId,refs);}catch(e){if(e instanceof KnowledgeError)return false;throw e;}
+ return sources.length===1&&!sources[0].truncated&&isHumanUserMessage(sources[0])&&preference(sources[0].text)===after&&old.every(e=>sources[0].createdAt>=e.createdAt&&(sources[0].generation>e.generation||sources[0].generation===e.generation&&sources[0].seq>e.seq));
+}
+/** Called synchronously when a human message is persisted, including while idle
+ * learning is paused. It has no model call and makes no configuration writes. */
+export function applyExplicitPreferenceCorrections(userId:string,botId:string,refs:MessageRef[]) {
+ return db.transaction(()=>{
+  assertWritable(userId,botId);const sources=validateEvidence(userId,botId,refs);const changed:MemoryView[]=[];
+  for(const source of sources){if(!isHumanUserMessage(source)||!preference(source.text))continue;
+   for(const prior of listMemories(userId,botId)){
+    const payload=source.text.trim().replace(/^(?:I (?:now )?prefer|From now on[ ,]+I prefer|(?:User )?prefers) /i,'').replace(/[.!]$/,'');const text=`Prefers ${payload}.`;
+    if(explicitPreferenceCorrection(userId,prior,text,[source])){
+     try{changed.push(withManagement(managementContext()??{userId,botId,actor:'explicit_correction',unattended:true,reads:new Map()},()=>correctMemory(userId,prior.id,{text,evidence:[source],expectedRevision:prior.revision})));}
+     catch(e){if(!(e instanceof KnowledgeError))throw e;/* stale/forgotten facts never block saving a human message */}
+    }
+   }
+  }
+  return changed;
+ })();
 }

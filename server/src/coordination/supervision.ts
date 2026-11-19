@@ -6,6 +6,7 @@ import { legacyWorkHeld, assertLegacyWorkOpen } from '../security/legacy-work.js
 import { publishNativeEvent, readNativeCursor, advanceNativeCursor } from '../native/events.js';
 import { teamState, coordinationPrompt } from './state.js';
 import { botOccupied, coordinationRuntime, type CoordinationFinish } from './requests.js';
+import { settleHumanSources, requireCoordinator } from './sources.js';
 
 export function setCoordinationEnabled(userId:string,enabled:boolean) {
  assertTenant(userId);assertLegacyWorkOpen(userId);
@@ -27,7 +28,9 @@ export function reviewCoordination() {
  // No self-generated job/request chatter in the wake fingerprint. This avoids
  // supervisor turns perpetually waking themselves. Event cursor remains durable.
  const requestVersions=db.prepare("SELECT id,status,revision FROM coordination_requests WHERE user_id=? AND kind='request' ORDER BY seq").all(userId);
- const sourceVersion=sha256(JSON.stringify([state.sourceVersions.agents,state.sourceVersions.workflows,state.sourceVersions.artifacts,state.sourceVersions.deliveries,requestVersions]));
+ const sourceReviewAttempt=state.humanSources.pending?(db.prepare("SELECT COUNT(*) n FROM coordination_wakes WHERE user_id=? AND status IN ('completed','failed')").get(userId) as any).n:0;
+ const sourceVersion=sha256(JSON.stringify([state.sourceVersions.agents,state.sourceVersions.workflows,state.sourceVersions.artifacts,state.sourceVersions.deliveries,
+ state.sourceVersions.operational,state.sourceVersions.humanSources,state.sourceVersions.directJobs,sourceReviewAttempt,requestVersions]));
  const previousCursor=readNativeCursor(userId,'coordination');
  if(state.eventCursor>previousCursor&&!advanceNativeCursor(userId,'coordination',previousCursor,state.eventCursor))throw new Error('Coordination source cursor changed.');
  const admitted=db.prepare("SELECT * FROM coordination_wakes WHERE user_id=? AND status='admitted'").all(userId) as any[];
@@ -63,6 +66,7 @@ export function finishCoordinationReview(input:CoordinationFinish) {
  SELECT w.* FROM coordination_wakes w WHERE w.user_id=? AND w.status='admitted' AND (w.job_id IN (SELECT id FROM chain) OR w.id=(SELECT json_extract(trigger,'$.coordinationWakeId') FROM agent_jobs WHERE id=? AND user_id=? AND bot_id=?)) LIMIT 1`).get(input.jobId,input.userId,input.botId,input.userId,input.botId,input.userId,input.jobId,input.userId,input.botId) as any;
  if(!wake)return;
  db.transaction(()=>{
+ if(input.status==='completed')settleHumanSources(input.userId,wake.job_id);
  db.prepare('UPDATE coordination_wakes SET status=?,updated_at=? WHERE id=?').run(input.status==='completed'?'completed':'failed',now(),wake.id);
  db.prepare('UPDATE coordination_supervision SET last_review_at=?,source_cursor=MAX(source_cursor,?) WHERE user_id=?').run(now(),wake.source_cursor,input.userId);
  })();
@@ -75,7 +79,7 @@ export function coordinationPreTurn(input:{userId:string;botId:string;jobId:stri
  SELECT w.* FROM coordination_wakes w WHERE w.user_id=? AND (w.job_id IN (SELECT id FROM chain) OR w.id=(SELECT json_extract(trigger,'$.coordinationWakeId') FROM agent_jobs WHERE id=? AND user_id=? AND bot_id=?)) LIMIT 1`).get(input.jobId,input.userId,input.botId,input.userId,input.botId,input.userId,input.jobId,input.userId,input.botId) as any;
  if(!wake)return {allowed:true};
  const s=db.prepare('SELECT * FROM coordination_supervision WHERE user_id=?').get(input.userId) as any;
- const currentPrimary=db.prepare('SELECT 1 FROM bots WHERE id=? AND user_id=? AND is_primary=1').get(input.botId,input.userId);
+ let currentPrimary=false;try{requireCoordinator(input.userId,input.botId);currentPrimary=true;}catch{ /* changed or ambiguous authority */ }
  const valid=!!currentPrimary&&s?.enabled&&s.primary_bot_id===input.botId&&s.authority_revision===wake.authority_revision&&wake.status==='admitted';
  return valid?{allowed:true}:{allowed:false,reason:'Coordination authority changed.'};
 }

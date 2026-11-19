@@ -40,11 +40,13 @@ export interface AgentBrief {
 }
 
 export interface AgentSetupView {
-  manifest: { format: string; version: number; brief: AgentBrief; bot: { name: string; label: string; instructions: string } };
+  manifest: { format: string; version: number; brief: AgentBrief; bot: { name: string; label: string; instructions: string }; source?: { creatorBotId?: string; generation?: number; messages: { seq: number; text: string }[]; sourceRefs?: { botId: string; generation: number; seq: number; contentHash: string; text: string }[] } };
   computer: { status: 'pending' | 'ready'; error: string | null };
   onboarding: { status: 'interviewing' | 'review' | 'active'; revision: number; confirmedAt: number | null; missing: string[] };
   files: Record<string, string>;
 }
+
+export interface CoworkerSetupView extends AgentSetupView { botId: string }
 
 export interface AgentInstructionPreview {
   instructions: string;
@@ -109,7 +111,7 @@ export interface MessageBody {
   text: string;
   streaming?: boolean;
   /** Set when a message came from another bot, a routine, a voice call or a text message rather than the user typing in the app. */
-  from?: { kind: 'bot' | 'routine' | 'voice' | 'imessage' | 'sms' | 'whatsapp'; id: string; name: string };
+  from?: { kind: 'bot' | 'routine' | 'voice' | 'imessage' | 'sms' | 'whatsapp'; id: string; name: string; utteranceId?: string };
   citations?: { url: string; title?: string }[];
 }
 

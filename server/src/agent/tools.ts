@@ -15,12 +15,14 @@ import { scheduleRoutine, unscheduleRoutine } from '../routines.js';
 import { createEventRoutine, deleteEventTrigger, describeEvent, listTriggerTypes } from '../triggers.js';
 import { getCheckins, setCheckins } from '../proactive.js';
 import { updateProfile } from '../accounts.js';
-import { createSubagent, deleteSubagent, listSubagents } from './subagents.js';
+import { createSubagent, deleteSubagent, listSubagents, subagentTree } from './subagents.js';
+import { selectedCli } from '../cli/store.js';
 import { createRoom, postToRoom } from './rooms.js';
 import type { ActivityKind } from '../types.js';
 import { Cron } from 'croner';
 import { creationSchema, isConfiguring, saveSetupDraft, setupDraftSchema } from '../bot-setup.js';
-import { createTeammate, replicateTeammate, retryTeammate } from './teammates.js';
+import { createTeammate, replicateTeammate, retryTeammate, CENTRAL_SETUP_TOOLS } from './teammates.js';
+import { COORDINATION_TOOLS } from './coordination-tools.js';
 import { z } from 'zod';
 import { findMcpTool } from '../mcp/store.js';
 import { platformState } from './platform-state.js';
@@ -99,6 +101,8 @@ function botByName(userId: string, name: string) {
 }
 
 export const TOOLS: ToolDef[] = [
+  ...COORDINATION_TOOLS,
+  ...CENTRAL_SETUP_TOOLS,
   ...APP_CONNECTION_TOOLS,
   ...DISCOVERY_TOOLS,
   ...PROGRAM_TOOLS,
@@ -389,7 +393,7 @@ export const TOOLS: ToolDef[] = [
       if (!target) return { output: `No bot named "${a.bot_name}". Team: ${(db.prepare('SELECT name FROM bots WHERE user_id=?').all(ctx.userId) as any[]).map((b) => b.name).join(', ')}` };
       if (target.id === ctx.botId) return { output: 'That is you.' };
       if (target.kind === 'room') return { output: `"${target.name}" is a group chat; use post_to_group instead.` };
-      if (ctx.depth >= 3) return { output: 'Too many hops between bots; answer the user directly instead.' };
+      if (!selectedCli(ctx.userId) && ctx.depth >= 3) return { output: 'Internal request depth reached. Return this blocker to the current requester; keep internal output internal.' };
       const requestId = ctx.enqueueBotMessage(ctx.botId, target.id, String(a.message), ctx.depth + 1);
       return { output: `Request recorded for ${target.name}${requestId ? ` (${requestId})` : ""}. Execution may be deferred; a correlated result will return automatically.`, summary: `Requested ${target.name}` };
     },
@@ -416,16 +420,20 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'spawn_subagent',
-    description: 'Start a subagent: a helper copy of you with its own context and its own computer screen, to work on one goal in parallel (e.g. research one company each). It reports back to you as a message when done. API billing allows up to 4 helpers; subscription connections have no fixed helper-count limit.',
-    parameters: obj({ goal: { type: 'string', description: 'Self-contained task with everything the subagent needs to know' }, label: { type: 'string', description: 'Short name, e.g. "Acme research"' } }, ['goal']),
+    description: 'Start a temporary helper with its own context and computer to work on an independent part of the task in parallel. Include the relevant context, ownership boundaries and expected evidence. Use merge_instructions to explain how its result will combine with the other work; consolidate required results before claiming completion. Subscription helpers can delegate again with no fixed helper-count or nesting-depth limit. API billing retains its helper and depth limits. Native goal/workflow runs use structured workflow delegation to preserve their budgets.',
+    parameters: obj({ goal: { type: 'string', description: 'Self-contained task with everything the subagent needs to know' }, label: { type: 'string', description: 'Short name, e.g. "Acme research"' }, merge_instructions: { type: 'string', description: 'Expected result, evidence and how the parent should combine it with its own work or other helpers. Does not authorize publishing or a Git merge.' } }, ['goal']),
     activity: 'messaging_named',
     label: 'Starting a helper',
     impl: async (a, ctx) => {
-      if (ctx.depth >= 2) return { output: 'Subagents cannot start more subagents. Do the work yourself.' };
+      if (!selectedCli(ctx.userId) && ctx.depth >= 2) return { output: 'Subagents cannot start more subagents. Do the work yourself.' };
       try {
-        const sub = createSubagent(ctx.botId, String(a.goal), a.label);
-        ctx.enqueueBotMessage(ctx.botId, sub.id, String(a.goal), ctx.depth + 1);
-        return { output: JSON.stringify({ ok: true, subagent_id: sub.id, name: sub.name, note: 'It will report back to you as a message. Continue with other work or end your turn.' }), summary: `Started ${sub.name}` };
+        const assignment = String(a.goal) + (a.merge_instructions ? `\n\nResult consolidation instructions:\n${a.merge_instructions}` : '');
+        const sub = db.transaction(() => {
+          const helper = createSubagent(ctx.botId, assignment, a.label);
+          ctx.enqueueBotMessage(ctx.botId, helper.id, assignment, ctx.depth + 1);
+          return helper;
+        })();
+        return { output: JSON.stringify({ ok: true, subagent_id: sub.id, name: sub.name, note: 'Work on your independent part in parallel. Gather the required helper results and reconcile them with your own work before claiming the overall task is complete. End your turn while waiting; results will arrive through your ordered queue.' }), summary: `Started ${sub.name}` };
       } catch (e: any) {
         return { output: String(e?.message ?? e) };
       }
@@ -454,7 +462,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'stop_subagent',
-    description: 'Stop and remove one of your subagents (do this once you have its result).',
+    description: 'Stop and remove one of your temporary helpers and all of its nested helpers. Keep needed results before removing the subtree.',
     parameters: obj({ subagent_id: { type: 'string' } }, ['subagent_id']),
     activity: 'working',
     label: 'Wrapping up a helper',
@@ -463,7 +471,7 @@ export const TOOLS: ToolDef[] = [
       const id = String(a.subagent_id);
       const child = db.prepare('SELECT id FROM bots WHERE id=? AND parent_bot_id=? AND user_id=?').get(id, ctx.botId, ctx.userId);
       if (!child) return { output: 'No such subagent.' };
-      interrupt(id);
+      for (const descendantId of subagentTree(ctx.botId, id)) interrupt(descendantId);
       return { output: deleteSubagent(ctx.botId, id) ? 'Stopped and removed.' : 'No such subagent.' };
     },
   },
@@ -631,7 +639,7 @@ export function functionSchemas(botId?: string) {
   const bot = botId ? getBotRow(botId) : null;
   const canCreate = !!bot?.is_primary && !bot.hidden && bot.kind !== 'room';
   return TOOLS.filter((t) => (!botId || allowedDuringSetup(botId, t.name)) && (t.name !== 'save_agent_setup' || !!botId && isConfiguring(botId)))
-    .filter((t) => (!['create_bot', 'replicate_bot', 'retry_bot_setup', 'update_profile'].includes(t.name) || canCreate)).filter((t) => t.name !== 'shell' || computers.capabilities.shell).filter((t) => !t.name.startsWith('browser_') || computers.capabilities.browser).map((t) => ({
+    .filter((t) => (!['create_bot', 'replicate_bot', 'retry_bot_setup', 'update_profile', 'inspect_teammate_setup', 'prepare_teammate_setup', 'get_team_state', 'get_team_records', 'read_team_source', 'read_team_job'].includes(t.name) || canCreate)).filter((t) => t.name !== 'shell' || computers.capabilities.shell).filter((t) => !t.name.startsWith('browser_') || computers.capabilities.browser).map((t) => ({
     type: 'function',
     name: t.name,
     description: computers.toolDescriptions?.[t.name] ?? t.description,

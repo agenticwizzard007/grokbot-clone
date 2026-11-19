@@ -1,4 +1,4 @@
-import type { AgentInstructionPreview, AgentSetupView, Bot, ComputerState, LibraryFile, Memory, Routine, Skill, Task, Toolkit } from '@shared/types';
+import type { AgentInstructionPreview, AgentSetupView, CoworkerSetupView, Bot, ComputerState, LibraryFile, Memory, Routine, Skill, Task, Toolkit } from '@shared/types';
 import { ApiError } from './api';
 import type { McpServerInput, McpServerView } from '@shared/types';
 
@@ -21,8 +21,10 @@ export interface MessageSource { botId: string; generation: number; seq: number;
 export interface SourceMessage extends MessageSource { text: string; role: string; from?: { kind: string; id: string; name: string }; createdAt: number; archived: boolean; sourceKey: string }
 export interface KnowledgeSkill extends Skill { revision: number; deleted: boolean }
 export interface KnowledgeMemory extends Memory { scope?: 'private' | 'project' | 'account'; projectId?: string | null; target?: 'user' | 'environment'; evidenceKind?: 'human' | 'tool' | 'hypothesis'; revision: number; status: string; evidence: MessageSource[]; runId: string | null; supersedes: string | null }
-export interface SkillRevision { resources?: Record<string,string>; locked?: boolean; pinned?: boolean; scope?: string; projectId?: string | null; revision: number; name: string; description: string; body: string; deleted: boolean; action: string; actor: string; evidence: MessageSource[]; runId: string | null; createdAt: number }
-export interface SkillProposal { id: string; skillId: string; baseRevision: number; content: Pick<Skill, 'name' | 'description' | 'body'>; reason: string; evidence: MessageSource[]; runId: string | null; status: 'pending' | 'approved' | 'rejected'; createdAt: number; diff: string }
+export interface SkillEvaluation {id:string;status:string;reason:string;policyRevision:number;settingsRevision:string;candidateHash:string;sourceHash:string;baseHash:string;evaluator:string;results:{id:string;category:string;expected:string;baselineExpected:string;actual:string;baseline:string;passed:boolean}[]}
+export interface SkillPromotion {actor:string;policyRevision:number;evaluationId:string;revision?:number;rollback:{revision:number;hash:string};evaluations?:SkillEvaluation[]}
+export interface SkillRevision { resources?: Record<string,string>; locked?: boolean; pinned?: boolean; scope?: string; projectId?: string | null; revision: number; name: string; description: string; body: string; deleted: boolean; action: string; actor: string; evidence: MessageSource[]; runId: string | null; createdAt: number;promotion?:SkillPromotion|null }
+export interface SkillProposal { id: string; skillId: string; baseRevision: number; content: Pick<Skill, 'name' | 'description' | 'body'>; reason: string; evidence: MessageSource[]; runId: string | null; status: 'pending' | 'approved' | 'rejected'; createdAt: number; diff: string;evaluations?:SkillEvaluation[];promotion?:SkillPromotion|null }
 
 export interface BotSettingsBundle {
   memories: KnowledgeMemory[];
@@ -167,9 +169,10 @@ export const configApi = {
   authorizeMcpServer: (id: string) => req<{ redirectUrl: string }>('POST', `/mcp/servers/${id}/oauth`),
   deleteMcpServer: (id: string) => req<{ ok: true }>('DELETE', `/mcp/servers/${id}`),
   agentSetup: (botId: string) => req<AgentSetupView>('GET', `/bots/${botId}/setup`),
+  coworkerSetups: (coordinatorId: string) => req<{ setups: CoworkerSetupView[] }>('GET', `/bots/${coordinatorId}/coworker-setups`),
   agentInstructions: (botId: string) => req<AgentInstructionPreview>('GET', `/bots/${botId}/instructions`),
   startSetupInterview: (botId: string) => req<AgentSetupView>('POST', `/bots/${botId}/setup/interview`),
-  activateSetup: (botId: string, revision: number) => req<AgentSetupView>('POST', `/bots/${botId}/setup/activate`, { revision }),
+  activateSetup: (botId: string, revision: number, coordinatorId?: string) => req<AgentSetupView>('POST', `/bots/${botId}/setup/activate`, { revision, ...(coordinatorId ? { coordinatorId } : {}) }),
   settings: (botId: string) => req<BotSettingsBundle>('GET', `/bots/${botId}/settings`),
   updateBot: (botId: string, p: BotPatch) => req<{ bot: Bot }>('PATCH', `/bots/${botId}`, p),
   botAnalytics: (botId: string, range: '7d' | '30d' | '90d') => req<BotAnalytics>('GET', `/bots/${botId}/analytics?range=${range}`),

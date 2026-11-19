@@ -225,6 +225,127 @@ test('memory correction excludes old facts, preserves evidence, guards ownership
   assert.equal(memory.memoryHistory('owner', saved.id)[0].action, 'supersede');
 });
 
+for (const change of ['edited', 'deleted'] as const) {
+  test(`${change} evidence removes sourced memories from runtime reads while owner history stays inspectable`, async () => {
+    const { updateRow } = await import('../server/src/store.js');
+    const { memoriesForPrompt } = await import('../server/src/agent/memory.js');
+    const { learningContext } = await import('../server/src/agent/learning.js');
+    const { contextRevision } = await import('../server/src/agent/context-refresh.js');
+    const first = message('The original account owner lives in Boston.');
+    const second = message('The verified location is Boston.');
+    const saved = memory.saveMemory('owner', 'alpha', { text: 'Account owner lives in Boston.', evidence: [first, second], source: 'learned' }).memory!;
+    const shared = memory.setMemoryScope('owner', saved.id, { expectedRevision: saved.revision, scope: 'project', projectId: 'locations', botIds: ['sibling'] });
+    assert.deepEqual(memory.authorizedMemories('owner', 'alpha').map(m => m.id), [saved.id]);
+    assert.deepEqual(memory.authorizedMemories('owner', 'sibling').map(m => m.id), [saved.id]);
+    assert.deepEqual(memory.authorizedMemories('other', 'foreign'), []);
+    assert.equal(memory.recallMemories('owner', 'alpha', 'Boston')[0].id, saved.id);
+    assert.match(memoriesForPrompt('alpha').lines.join('\n'), /Boston/);
+    assert.match(learningContext('owner', 'sibling'), /Boston/);
+    const ownStamp = contextRevision('owner', 'alpha'), sharedStamp = contextRevision('owner', 'sibling');
+    if (change === 'edited') updateRow('alpha', first.seq, { type: 'message', role: 'user', text: 'The original caption was wrong; the owner lives in Paris.' });
+    else db.prepare('DELETE FROM rows WHERE bot_id=? AND generation=? AND seq=?').run('alpha', first.generation, first.seq);
+    assert.deepEqual(memory.authorizedMemories('owner', 'alpha'), []);
+    assert.deepEqual(memory.authorizedMemories('owner', 'sibling'), []);
+    assert.deepEqual(memory.recallMemories('owner', 'alpha', 'Boston'), []);
+    assert.deepEqual(memoriesForPrompt('alpha').lines, []);
+    assert.doesNotMatch(learningContext('owner', 'sibling'), /Boston/);
+    assert.notEqual(contextRevision('owner', 'alpha'), ownStamp);
+    assert.notEqual(contextRevision('owner', 'sibling'), sharedStamp);
+    const recalled = await KNOWLEDGE_TOOLS.find(t => t.name === 'recall')!.impl({ query: 'Boston' }, { userId: 'owner', botId: 'sibling', depth: 0, enqueueBotMessage() {} });
+    assert.deepEqual(JSON.parse(recalled.output as string).memories, []);
+    assert.equal(recalled.isError, undefined);
+    assert.deepEqual(memory.listMemories('owner', 'alpha'), [shared], 'runtime invalidation must not rewrite or hide owner-managed records');
+    assert.equal(memory.memoryHistory('owner', saved.id).length, 2);
+  });
+}
+
+test('correcting a finalized voice caption invalidates its learned memory without changing source identity', async () => {
+  const { recordVoiceSetupAnswers } = await import('../server/src/voice-controls.js');
+  const { memoriesForPrompt } = await import('../server/src/agent/memory.js');
+  const context = { userId: 'owner', botId: 'alpha', callId: 'memory-caption-correction' };
+  const evidence = recordVoiceSetupAnswers({ ...context, spokenTranscript: [{ id: 'caption-1', role: 'user', text: 'My office is in Boston.' }] });
+  const saved = memory.saveMemory('owner', 'alpha', { text: 'Office is in Boston.', evidence, source: 'learned' }).memory!;
+  assert.match(saved.evidence[0].contentHash!, /^[a-f0-9]{64}$/);
+  assert.equal(memory.authorizedMemories('owner', 'alpha')[0].id, saved.id);
+  const corrected = recordVoiceSetupAnswers({ ...context, spokenTranscript: [{ id: 'caption-1', role: 'user', text: 'My office is in Paris.' }] });
+  assert.deepEqual(corrected, evidence, 'voice correction updates the original row in place');
+  assert.deepEqual(memory.authorizedMemories('owner', 'alpha'), []);
+  assert.deepEqual(memory.recallMemories('owner', 'alpha'), []);
+  assert.deepEqual(memoriesForPrompt('alpha').lines, []);
+  assert.deepEqual(memory.listMemories('owner', 'alpha'), [saved]);
+  assert.equal(memory.memoryHistory('owner', saved.id)[0].memory.text, 'Office is in Boston.');
+  const replacement = memory.correctMemory('owner', saved.id, { text: 'Office is in Paris.', expectedRevision: saved.revision, evidence: corrected });
+  assert.notEqual(replacement.evidence[0].contentHash, saved.evidence[0].contentHash);
+  assert.equal(memory.authorizedMemories('owner', 'alpha')[0].id, replacement.id);
+});
+
+test('explicit owner facts without evidence remain retrievable after their prior sources are deleted', async () => {
+  const { memoriesForPrompt } = await import('../server/src/agent/memory.js');
+  const source = message('My office is in Boston.');
+  const saved = memory.saveMemory('owner', 'alpha', { text: 'Office is in Boston.', evidence: [source] }).memory!;
+  const manual = memory.correctMemory('owner', saved.id, { text: 'Office is in Paris.', expectedRevision: saved.revision });
+  assert.deepEqual(manual.evidence, []);
+  db.prepare('DELETE FROM rows WHERE bot_id=?').run('alpha');
+  assert.deepEqual(memory.authorizedMemories('owner', 'alpha'), [manual]);
+  assert.deepEqual(memory.recallMemories('owner', 'alpha'), [manual]);
+  assert.match(memoriesForPrompt('alpha').lines.join('\n'), /Office is in Paris/);
+});
+
+test('legacy source locators without frozen hashes stay inspectable but cannot prove a current runtime fact', () => {
+  const source = message('My office is in Boston.');
+  const saved = memory.saveMemory('owner', 'alpha', { text: 'Office is in Boston.', evidence: [source] }).memory!;
+  db.prepare('UPDATE memories SET evidence=? WHERE id=?').run(JSON.stringify([{ botId: source.botId, generation: source.generation, seq: source.seq }]), saved.id);
+  assert.deepEqual(memory.authorizedMemories('owner', 'alpha'), []);
+  assert.deepEqual(memory.recallMemories('owner', 'alpha'), []);
+  assert.equal(memory.listMemories('owner', 'alpha')[0].id, saved.id);
+});
+
+test('legacy learned facts without evidence remain inspectable but are not treated as manual owner facts', () => {
+  const source = message('My office is in Boston.');
+  const saved = memory.saveMemory('owner', 'alpha', { text: 'Office is in Boston.', evidence: [source], source: 'learned' }).memory!;
+  db.prepare("UPDATE memories SET evidence='[]' WHERE id=?").run(saved.id);
+  assert.deepEqual(memory.authorizedMemories('owner', 'alpha'), []);
+  assert.deepEqual(memory.recallMemories('owner', 'alpha'), []);
+  assert.equal(memory.listMemories('owner', 'alpha')[0].id, saved.id);
+});
+
+test('passive extraction does not present invalidated memories as current existing facts', async t => {
+  const { llmClient } = await import('../server/src/lib/llm.js');
+  const { consolidateBot } = await import('../server/src/agent/memory.js');
+  const source = message('The outdated office is in Boston.');
+  const saved = memory.saveMemory('owner', 'alpha', { text: 'Outdated office is in Boston.', evidence: [source], source: 'learned' }).memory!;
+  db.prepare('DELETE FROM rows WHERE bot_id=? AND generation=? AND seq=?').run('alpha', source.generation, source.seq);
+  message('Use my original source links in future reports.');
+  const create = t.mock.method(llmClient(300000).responses, 'create', async (input: any) => {
+    assert.match(input.input[1].content, /^EXISTING MEMORIES:\n\(none\)\n/);
+    assert.doesNotMatch(input.input[1].content, /Outdated office is in Boston/);
+    return { output_text: JSON.stringify({ memories: [] }) };
+  });
+  await consolidateBot('alpha', { upTo: 2000 });
+  assert.equal(create.mock.callCount(), 1);
+  assert.equal(memory.listMemories('owner', 'alpha')[0].id, saved.id);
+});
+
+test('runtime source validation propagates unexpected database failures instead of returning an empty memory set', async t => {
+  const { memoriesForPrompt } = await import('../server/src/agent/memory.js');
+  const { learningContext } = await import('../server/src/agent/learning.js');
+  const { contextRevision } = await import('../server/src/agent/context-refresh.js');
+  const source = message('My office is in Boston.');
+  const saved = memory.saveMemory('owner', 'alpha', { text: 'Office is in Boston.', evidence: [source] }).memory!;
+  const failure = new Error('Injected runtime memory evidence database failure');
+  const prepare = db.prepare.bind(db);
+  t.mock.method(db, 'prepare', (sql: string) => {
+    if (sql === 'SELECT * FROM rows WHERE bot_id=? AND generation=? AND seq=? AND kind=?') throw failure;
+    return prepare(sql);
+  });
+  for (const read of [() => memory.authorizedMemories('owner', 'alpha'), () => memory.recallMemories('owner', 'alpha'), () => memoriesForPrompt('alpha'), () => learningContext('owner', 'alpha'), () => contextRevision('owner', 'alpha')]) assert.throws(read, e => e === failure);
+  assert.equal(memory.listMemories('owner', 'alpha')[0].id, saved.id);
+  assert.equal(memory.memoryHistory('owner', saved.id).length, 1);
+  const recalled = await KNOWLEDGE_TOOLS.find(t => t.name === 'recall')!.impl({}, { userId: 'owner', botId: 'alpha', depth: 0, enqueueBotMessage() {} });
+  assert.equal(recalled.isError, true);
+  assert.equal(JSON.parse(recalled.output as string).status, 500, 'tool boundary surfaces a failure rather than a successful empty recall');
+});
+
 test('forget suppresses prior evidence and duplicate wording even when later messages repeat it', () => {
   const ref = message('Prefers short email summaries.');
   const m = memory.saveMemory('owner', 'alpha', { text: 'Prefers short email summaries.', evidence: [ref] }).memory!;

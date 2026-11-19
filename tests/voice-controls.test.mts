@@ -25,7 +25,7 @@ const { enqueue, runInBotQueue, settleAgentJobs, turnSignal, interrupt, resolveA
 const { acceptJob, beginJob } = await import('../server/src/agent/jobs.js');
 const { llmClient } = await import('../server/src/lib/llm.js');
 const { EFFORTS } = await import('../server/src/types.js');
-const { VOICE_CONTROL_TOOLS, voiceControlTools, runVoiceControl } = await import('../server/src/voice-controls.js');
+const { VOICE_CONTROL_TOOLS, voiceControlTools, runVoiceControl, recordVoiceSetupAnswers } = await import('../server/src/voice-controls.js');
 
 for (const user of ['owner', 'foreign']) db.prepare('INSERT INTO users(id,email,name,created_at) VALUES (?,?,?,?)').run(user, `${user}@example.com`, user, Date.now());
 let primary: any, secondary: any, helper: any, foreign: any, room: any;
@@ -34,7 +34,7 @@ const originalScreen = computers.screen;
 computers.screen = async (userId, botId) => { screenCalls.push(`${userId}:${botId}`); throw new Error('Computer offline'); };
 
 beforeEach(() => {
-  db.exec('DELETE FROM bots');
+  db.exec('DELETE FROM bots; DELETE FROM coworker_creation_requests');
   primary = createBot('owner', { name: 'Chief', isPrimary: true, model: 'test-model', effort: 'high' });
   secondary = createBot('owner', { name: 'Research', label: 'Researcher', instructions: 'Preserve sourced findings.' });
   helper = createSubagent(secondary.id, 'Check the sources', 'Source checker');
@@ -51,7 +51,8 @@ after(async () => {
 
 const context = (botId = primary.id, userId = 'owner', callId = 'voice-session') => ({ userId, botId, callId });
 async function run(name: string, args: unknown, ctx = context()) {
-  const result = await runVoiceControl(name, args, ctx);
+  const callContext = name === 'create_bot' && args && typeof args === 'object' && typeof (args as any).user_request === 'string' ? { ...ctx, spokenTranscript: [{ role: 'user', text: (args as any).user_request }] } : ctx;
+  const result = await runVoiceControl(name, args, callContext);
   assert.ok(result, `Expected ${name} to be native`);
   assert.equal(typeof result.output, 'string');
   return JSON.parse(result.output);
@@ -77,8 +78,8 @@ async function until(check: () => boolean) {
   assert.ok(check(), 'Expected local operation to complete');
 }
 
-test('exports only the five validated function schemas; voice evidence replaces text citations', () => {
-  assert.deepEqual(VOICE_CONTROL_TOOLS.map(tool => tool.name), ['list_agents', 'get_agent', 'create_bot', 'update_agent', 'control_agent']);
+test('exports validated controls and shared central setup/team inspection schemas without an activation tool', () => {
+  assert.deepEqual(VOICE_CONTROL_TOOLS.map(tool => tool.name), ['list_agents', 'get_agent', 'create_bot', 'update_agent', 'control_agent', 'inspect_teammate_setup', 'prepare_teammate_setup', 'get_team_state', 'get_team_records', 'read_team_source', 'read_team_job']);
   for (const tool of VOICE_CONTROL_TOOLS) {
     assert.equal(tool.type, 'function'); assert.ok(tool.description);
     assert.equal(tool.parameters.type, 'object'); assert.equal(tool.parameters.additionalProperties, false);
@@ -92,7 +93,8 @@ test('exports only the five validated function schemas; voice evidence replaces 
 });
 
 test('advertises primary-only capabilities dynamically and hides creation during setup', () => {
-  assert.equal(voiceControlTools(primary.id).length, 5);
+  assert.equal(voiceControlTools(primary.id).length, 11);
+  assert.ok(!VOICE_CONTROL_TOOLS.some(tool => /activate/.test(tool.name)));
   assert.deepEqual(voiceControlTools(secondary.id).map(tool => tool.name), ['list_agents', 'get_agent', 'control_agent']);
   assert.deepEqual(voiceControlTools(helper.id).map(tool => tool.name), ['list_agents', 'get_agent', 'control_agent']);
   assert.deepEqual(voiceControlTools(room.id), []); assert.deepEqual(voiceControlTools('missing'), []);
@@ -191,10 +193,10 @@ test('creates durable setup from the exact voice request, without enqueuing oper
   const bot = getBotRow(result.bot.id), setup = getSetup(bot.id)!;
   assert.equal(bot.user_id, 'owner'); assert.equal(bot.hidden, 0); assert.equal(bot.is_primary, 0);
   assert.equal(bot.model, 'test-model'); assert.equal(bot.effort, 'high');
-  assert.equal(setup.onboarding.status, 'interviewing'); assert.equal(setup.source.creatorBotId, primary.id);
+  assert.equal(setup.onboarding.status, 'review'); assert.equal(setup.source.creatorBotId, primary.id);
   assert.equal(setup.source.messages.length, 1); assert.equal(setup.source.messages[0].text, requested.user_request);
   const row = getRow(primary.id, setup.source.messages[0].seq)!;
-  assert.deepEqual(row.body, { type: 'message', role: 'user', text: requested.user_request, from: { kind: 'voice', id: 'voice-session', name: 'Voice call' } });
+  assert.deepEqual(row.body, { type: 'message', role: 'user', text: requested.user_request, audience: 'user', from: { kind: 'voice', id: 'voice-session', name: 'Voice call' } });
   assert.equal(setup.brief.context_summary, requested.context_summary); assert.deepEqual(setup.brief.workflows, requested.workflows);
   assert.equal(setup.brief.action_boundaries, requested.action_boundaries);
   const read = await run('get_agent', { bot_id: bot.id });
@@ -203,10 +205,10 @@ test('creates durable setup from the exact voice request, without enqueuing oper
   assert.ok(setupFiles(bot.id)['CONTEXT.md'].includes(requested.user_request));
   assert.ok(setupFiles(bot.id)['AGENTS.md'].includes('FINAL: cite every source.'));
   assert.equal((db.prepare('SELECT pending_handoff FROM bot_setups WHERE bot_id=?').get(bot.id) as any).pending_handoff, requested.handoff_message);
-  assert.ok(listRows(bot.id).some(row => row.body.type === 'message' && row.body.role === 'assistant'));
+  assert.ok(!listRows(bot.id).some(row => row.body.type === 'message'));
   assert.deepEqual(jobs(bot.id), []); assert.deepEqual(jobs(primary.id), []);
-  assert.equal(loadHistory(bot.id).length, 1, 'Only the canonical setup welcome enters model history');
-  assert.throws(() => activateSetup(bot.id, setup.onboarding.revision), /Finish the setup interview/);
+  assert.equal(loadHistory(bot.id).length, 0, 'Central preparation does not manufacture a specialist interview');
+  assert.equal(setup.onboarding.confirmedAt, null, 'Human activation is still required');
   assert.deepEqual(screenCalls, [`owner:${bot.id}`]);
 });
 
@@ -220,7 +222,7 @@ test('identical sequential and concurrent retries preserve one identity and one 
   assert.equal(getSetup(first.bot.id)!.source.messages.length, 1);
   assert.deepEqual(jobs(first.bot.id), []);
   const changed = await run('create_bot', { ...spec(), instructions: 'Conflicting replacement' });
-  assert.match(changed.error, /already exists/); assert.equal(botCount(), 6);
+  assert.match(changed.error, /different parameters/); assert.equal(botCount(), 6);
   assert.equal(getBotRow(first.bot.id).instructions, spec().instructions);
   assert.equal(listRows(primary.id).length, 1);
 });
@@ -344,4 +346,98 @@ test('stop expires paused approvals and denies remaining planned calls without g
   assert.deepEqual(getSetup(secondary.id), initialSetup);
   assert.ok(db.prepare('SELECT * FROM tasks WHERE id=?').get('paused-task'));
   assert.equal((db.prepare('SELECT enabled FROM routines WHERE id=?').get('paused-routine') as any).enabled, 1);
+});
+
+test('model-authored creation summaries cannot become synthetic spoken user answers', async () => {
+  const count = botCount(), rows = listRows(primary.id).length;
+  const response = await runVoiceControl('create_bot', spec(), context());
+  assert.match(JSON.parse(response!.output).error, /Original spoken user answers/);
+  assert.equal(botCount(), count); assert.equal(listRows(primary.id).length, rows); assert.deepEqual(screenCalls, []);
+});
+
+test('voice central setup uses original spoken sources and never activates or starts specialist work', async () => {
+  const creation = await run('create_bot', spec());
+  const botId = creation.bot.id;
+  const spoken = 'Correction: return exactly two leads. Do not send outreach or change the schedule.';
+  const callContext = { ...context(), spokenTranscript: [{ role: 'assistant', text: 'Invented answer from the assistant' }, { role: 'user', text: spoken }] };
+  const refs = recordVoiceSetupAnswers(callContext);
+  const sourcePage = await run('get_team_records', { kind: 'sources', limit: 100 });
+  const sourceEvent = sourcePage.records.find((s: any) => s.botId === primary.id && s.seq === refs[0].seq);
+  const original = await run('read_team_source', { eventSeq: sourceEvent.eventSeq });
+  const current = getSetup(botId)!;
+  const response = await run('prepare_teammate_setup', { ...current.brief, bot_id: botId, revision: current.onboarding.revision, stage: 'review', instructions: 'Exactly two sourced leads.', responsibilities: ['Research exactly two sourced leads'], success_criteria: ['Two faithful lead summaries'], source_refs: [original.source] }, callContext);
+  assert.equal(response.onboarding.status, 'review'); assert.equal(response.onboarding.confirmedAt, null);
+  assert.equal(response.manifest.source.sourceRefs.at(-1).text, spoken);
+  assert.equal(response.manifest.source.sourceRefs.some((s: any) => s.text === 'Invented answer from the assistant'), false);
+  assert.deepEqual(recordVoiceSetupAnswers(callContext), refs, 'repeated transcript ingest reuses the original source rows');
+  assert.equal(listRows(botId).filter(row => row.body.type === 'message' && row.body.role === 'user').length, 0);
+  assert.deepEqual(jobs(botId), []);
+  assert.match((await run('prepare_teammate_setup', { ...current.brief, bot_id: botId, revision: current.onboarding.revision, stage: 'review', instructions: '', source_refs: refs }, callContext)).error, /configuration changed/);
+});
+
+test('voice team inspection pages owned records and original sources without running a model or worker', async () => {
+  const spoken = 'Use the provided research guide, and ask me before external outreach.';
+  const refs = recordVoiceSetupAnswers({ ...context(), spokenTranscript: [{ role: 'user', text: spoken }] });
+  const beforeJobs = (db.prepare('SELECT COUNT(*) n FROM agent_jobs').get() as any).n;
+  const records = await run('get_team_records', { kind: 'agents', after: 0, limit: 1 });
+  assert.equal(records.records.length, 1); assert.equal(records.hasMore, true);
+  assert.equal(records.records.some((r: any) => r.id === foreign.id), false);
+  const sources = await run('get_team_records', { kind: 'sources', after: 0, limit: 100 });
+  const source = sources.records.find((r: any) => r.botId === primary.id && r.seq === refs[0].seq);
+  assert.ok(source);
+  const first = await run('read_team_source', { eventSeq: source.eventSeq, offset: 0, limit: 12 });
+  assert.equal(first.text, spoken.slice(0, 12)); assert.equal(first.complete, false); assert.equal(first.source.botId, primary.id);
+  const rest = await run('read_team_source', { eventSeq: source.eventSeq, offset: first.nextOffset, limit: 8000 });
+  assert.equal(first.text + rest.text, spoken); assert.equal(rest.complete, true);
+  const state = await runVoiceControl('get_team_state', {}, context());
+  assert.ok(state); assert.match(state.output, /team|coordination/i);
+  assert.equal((db.prepare('SELECT COUNT(*) n FROM agent_jobs').get() as any).n, beforeJobs); assert.deepEqual(screenCalls, []);
+});
+
+test('voice shared controls recheck current-primary identity and reject foreign evidence/targets', async () => {
+  for (const name of ['get_team_state', 'get_team_records', 'read_team_source', 'read_team_job', 'inspect_teammate_setup', 'prepare_teammate_setup']) {
+    const result = await run(name, {}, context(secondary.id)); assert.match(result.error, /current primary/);
+  }
+  assert.match((await run('inspect_teammate_setup', { bot_id: foreign.id })).error, /not found/);
+  const forbidden = appendRow(foreign.id, 'message', { type: 'message', role: 'user', text: 'Private source' });
+  const before = getSetup(secondary.id)!;
+  assert.match((await run('prepare_teammate_setup', { ...before.brief, bot_id: secondary.id, revision: before.onboarding.revision, stage: 'interviewing', instructions: '', source_refs: [{ botId: foreign.id, generation: 1, seq: forbidden.seq }] })).error, /original human/);
+  db.prepare('UPDATE bots SET is_primary=(id=?) WHERE user_id=?').run(secondary.id, 'owner');
+  assert.match((await run('get_team_state', {})).error, /current primary/);
+  assert.ok(!voiceControlTools(primary.id).some(t => t.name === 'get_team_state'));
+});
+
+test('spoken utterance IDs distinguish identical captions and deduplicate exact replays per call', () => {
+  const transcript = [{ id: 'utterance-a', role: 'user', text: 'Use three leads.' }, { id: 'utterance-b', role: 'user', text: 'Use three leads.' }];
+  const ctx = { ...context(), spokenTranscript: transcript };
+  const refs = recordVoiceSetupAnswers(ctx);
+  assert.equal(refs.length, 2); assert.notEqual(refs[0].seq, refs[1].seq);
+  assert.deepEqual(recordVoiceSetupAnswers(ctx), refs); assert.equal(listRows(primary.id).length, 2);
+  assert.equal((getRow(primary.id, refs[0].seq)!.body as any).from.utteranceId, 'utterance-a');
+  assert.equal((getRow(primary.id, refs[1].seq)!.body as any).from.utteranceId, 'utterance-b');
+  const otherCall = recordVoiceSetupAnswers({ ...ctx, callId: 'other-voice-session', spokenTranscript: [transcript[0]] });
+  assert.notEqual(otherCall[0].seq, refs[0].seq);
+});
+
+test('corrected spoken caption updates its original source and invalidates old team reads/setup hashes', async () => {
+  const { setupAnswers, prepareCoworkerSetup } = await import('../server/src/bot-setup.js');
+  const initial = recordVoiceSetupAnswers({ ...context(), spokenTranscript: [{ id: 'corrected-caption', role: 'user', text: 'Use five leads.' }] });
+  const originalRef = setupAnswers('owner', initial)[0];
+  const sourcePage = await run('get_team_records', { kind: 'sources', limit: 100 });
+  const source = sourcePage.records.find((s: any) => s.botId === primary.id && s.seq === initial[0].seq);
+  assert.equal((await run('read_team_source', { eventSeq: source.eventSeq })).text, 'Use five leads.');
+  const corrected = recordVoiceSetupAnswers({ ...context(), spokenTranscript: [{ id: 'corrected-caption', role: 'user', text: 'Correction: use three leads.' }] });
+  assert.deepEqual(corrected, initial); assert.equal(listRows(primary.id).length, 1);
+  assert.equal((getRow(primary.id, initial[0].seq)!.body as any).text, 'Correction: use three leads.');
+  assert.equal((await run('read_team_source', { eventSeq: source.eventSeq })).status, 'unavailable_or_superseded');
+  assert.throws(() => setupAnswers('owner', [originalRef]), /Source message changed/);
+  const before = getSetup(secondary.id)!;
+  const saved = prepareCoworkerSetup('owner', primary.id, { ...before.brief, bot_id: secondary.id, revision: before.onboarding.revision, stage: 'interviewing', instructions: '', source_refs: corrected });
+  assert.equal(saved.manifest.source.sourceRefs!.at(-1)!.text, 'Correction: use three leads.');
+});
+
+test('legacy spoken transcripts without utterance IDs retain text deduplication', () => {
+  const ctx = { ...context(), spokenTranscript: [{ role: 'user', text: 'Legacy spoken requirement.' }] };
+  assert.deepEqual(recordVoiceSetupAnswers(ctx), recordVoiceSetupAnswers(ctx));
+  assert.equal(listRows(primary.id).length, 1);
 });

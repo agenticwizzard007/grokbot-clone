@@ -28,10 +28,11 @@ import { runProgram, isProgramResumable, recoverPrograms, cancelProgram } from '
 import { configureWorkflowRuntime, workflowPreTurn, checkWorkflowBudget, workflowToolGate, workflowAfterTurn, recoverWorkflows } from './workflows.js';
 import { onJobStarted, onJobFinished, recoverDeliverables, drainDeliveries } from '../deliverables/index.js';
 import {contextRevision} from './context-refresh.js';
-import {recordJobCompletion,pendingJobCompletions,acknowledgeJobCompletion} from '../native/job-completions.js';
+import {recordJobCompletion,pendingJobCompletions,acknowledgeJobCompletion,deferJobCompletion} from '../native/job-completions.js';
 import { beforeForegroundTurn, onLearningTurn, learningForegroundEpoch, learningSourceSnapshot } from './learning.js';
 import { configureCoordinationRuntime, recordCoordinationJobOutcome, enqueueInternalMessage, onCoordinationJobFinished, coordinationPreTurn } from '../coordination/index.js';
 import { prepareDeliveryAction } from '../deliverables/approval.js';
+import { bindSetupHandoffRuntime, releaseReadySetupHandoffs } from '../bot-setup.js';
 
 // A native CLI generation can span the entire agent workflow, including tool
 // calls. Let it finish or be cancelled; an API request keeps its own deadline.
@@ -197,14 +198,14 @@ function scheduleJob(jobId: string, userId: string, botId: string, trigger: Trig
 export async function dispatchJobCompletions(jobId?:string) {
  for(const item of pendingJobCompletions(jobId)) {
   const {userId,botId,jobId:sourceJobId,trigger,completion}=item.input;
-  if(!item.coordinationDone)try {
+  if(item.coordinationReady)try {
    await onCoordinationJobFinished({userId,botId,jobId:sourceJobId,status:completion.status,finalText:completion.finalText,trigger});
    acknowledgeJobCompletion(userId,sourceJobId,'coordination');
-  }catch{console.error('[coordination] completion deferred for recovery');}
-  if(!item.learningDone)try {
+  }catch{deferJobCompletion(userId,sourceJobId,'coordination');console.error('[coordination] completion deferred for recovery');}
+  if(item.learningReady)try {
    await withUsage({userId,botId,jobId:sourceJobId,kind:'background_review'},()=>onLearningTurn({userId,botId,jobId:sourceJobId,triggerType:trigger.workflowId?'workflow':trigger.proactiveSlotKey?'checkin':trigger.type,depth:trigger.type==='bot'?trigger.depth:0,...completion} as Parameters<typeof onLearningTurn>[0]));
    acknowledgeJobCompletion(userId,sourceJobId,'learning');
-  }catch{console.error('[learning] completion deferred for recovery');}
+  }catch{deferJobCompletion(userId,sourceJobId,'learning');console.error('[learning] completion deferred for recovery');}
  }
 }
 let completionTimer:ReturnType<typeof setInterval>|undefined;
@@ -218,8 +219,10 @@ export function initDurableJobs() {
   completionTimer.unref();
   void drainDeliveries().catch(() => console.error('[deliverables] pending delivery drain failed'));
   for (const job of jobs) scheduleJob(job.id, job.user_id, job.bot_id, JSON.parse(job.trigger));
+  releaseReadySetupHandoffs();
 }
 configureWorkflowRuntime({ enqueue, interrupt });
+bindSetupHandoffRuntime((botId, trigger) => enqueue(botId, trigger as Trigger));
 configureCoordinationRuntime({ enqueue:(botId,t)=>{
   if(t.type==='bot'&&(!t.fromBotId||!t.fromName||t.depth===undefined))throw new Error('Internal sender identity is required.');
   return enqueue(botId,t as Trigger);
