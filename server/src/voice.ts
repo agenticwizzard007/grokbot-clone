@@ -16,6 +16,7 @@ import { appendHistory, appendRow, emitBot, getBotRow, getLive, listRoutines, li
 import { enqueue } from './agent/loop.js';
 import { platformContext, platformState } from './agent/platform-state.js';
 import { connectionState, type ConnectionState } from './agent/connection-state.js';
+import { authorizedMemories } from './knowledge/memory.js';
 import { refreshConnectionCards } from './agent/connection-cards.js';
 import { voiceControlTools, runVoiceControl, recordVoiceSetupAnswers } from './voice-controls.js';
 import { isConfiguring } from './bot-setup.js';
@@ -190,7 +191,7 @@ export const VOICE_TOOLS = [
 function voiceInstructions(userId: string, bot: any, language: string, connections: ConnectionState): string {
   const user = db.prepare('SELECT name, email FROM users WHERE id=?').get(userId) as any;
   const firstName = String(user?.name ?? '').split(/\s+/)[0] || 'the user';
-  const memories = (db.prepare('SELECT text FROM memories WHERE bot_id=? ORDER BY created_at DESC LIMIT 12').all(bot.id) as any[]).map((m) => `- ${clip(m.text, 200)}`).join('\n');
+  const memories = authorizedMemories(userId, bot.id).filter(m => m.botId === bot.id).slice(0, 12).map(m => `- ${clip(m.text, 200)}`).join('\n');
   const routines = listRoutines(bot.id).filter((r) => r.enabled).slice(0, 6).map((r) => `- ${r.name}: ${r.description}`).join('\n');
   const recent = recentMessages(bot.id, 14).map((m) => `[${ago(m.at)}] ${m.who}: ${clip(m.text.replace(/\s+/g, ' '), 400)}`).join('\n');
   const lang = language !== 'auto' ? langName(language) : null;
@@ -552,7 +553,7 @@ async function runVoiceTool(call: ActiveCall, bot: any, name: string, a: Record<
       // This request is the voice model's task summary. Only persisted original
       // transcript utterances may be treated as human setup/learning evidence.
       const from: MessageBody['from'] = { kind: 'bot', id: call.botId, name: `${bot.name} · voice task` };
-      const row = appendRow(target.id, 'message', { type: 'message', role: 'user', text: request, from });
+      const row = appendRow(target.id, 'message', { type: 'message', role: 'user', audience: 'user', text: request, from });
       const taskId = enqueue(target.id, {
         type: 'user',
         voiceAssignment: mode === 'task',

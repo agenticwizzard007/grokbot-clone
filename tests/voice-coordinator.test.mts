@@ -7,6 +7,7 @@ import { createServer } from 'node:http';
 import { after, mock, test } from 'node:test';
 import { Hono } from 'hono';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { isInternalRow } from '../web/src/lib/audience.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-voice-coordinator-'));
 let toolSequence = 0;
@@ -63,7 +64,7 @@ const { initSubagents } = await import('../server/src/agent/subagents.js');
 const { initRooms } = await import('../server/src/agent/rooms.js');
 initSubagents(); initRooms();
 const { createBot } = await import('../server/src/bots.js');
-const { listRows, appendRow, updateRow, loadHistory, clearConversation } = await import('../server/src/store.js');
+const { listRows, appendRow, updateRow, loadHistory, clearConversation, getBot } = await import('../server/src/store.js');
 const { runInBotQueue, settleAgentJobs, resolveApproval, enqueue } = await import('../server/src/agent/loop.js');
 const { voiceApi } = await import('../server/src/voice.js');
 const { requireUser } = await import('../server/src/lib/auth.js');
@@ -171,6 +172,10 @@ test('delegation targets any owned agent, is idempotent, and an unrelated reply 
     const result = await a.json();
     assert.deepEqual(await b.json(), result);
     assert.equal(result.taskBotId, researcher.id); assert.ok(result.taskId);
+    const requestRow = listRows(researcher.id).find(row => row.seq === result.taskSeq)!;
+    assert.equal(requestRow.audience, 'user');
+    assert.equal(isInternalRow(requestRow), false, 'the delegated voice request is visible in the specialist transcript');
+    assert.equal(getBot(researcher.id)?.lastPreview, args.request, 'the sidebar shows the pending voice request');
     assert.equal((db.prepare('SELECT COUNT(*) n FROM agent_jobs WHERE bot_id=?').get(researcher.id) as any).n, 1);
     assert.equal((await tool(call.callId, 'send_task', { ...args, request: 'Different' }, 'delegate-1')).status, 409);
     appendRow(researcher.id, 'message', { type: 'message', role: 'assistant', text: 'A reply to older work.' });
@@ -313,6 +318,7 @@ test('spoken context and cross-agent delegation are shared without replaying the
   const {isHumanUserMessage}=await import('../server/src/knowledge/sessions.js');
   const taskRow=listRows(researcher.id).find(row=>row.body.type==='message'&&row.body.text==='Research the totals.')!;
   assert.equal((taskRow.body as any).from.kind,'bot');
+  assert.equal(isInternalRow(taskRow),false,'visibility must not change the model-authored provenance');
   assert.equal(isHumanSource(taskRow.body),false);
   assert.equal(isHumanUserMessage(taskRow.body),false);
   const original=listHumanSources('alice').sources.filter(ref=>ref.botId===chief.id)
@@ -452,6 +458,68 @@ test('fresh calls omit historical connect cards and show one current request per
     assert.equal(requests.find((r: any) => r.toolkit === 'gmail').seq, gmail.seq);
     assert.ok(requests.every((r: any) => r.botId === target.id));
   } finally { await close(call.callId); clearConversation(target.id); }
+});
+
+test('explicit audience controls transcript and sidebar visibility without exposing legacy peer messages', () => {
+  const bot = createBot('alice', { name: 'Voice visibility fixture' });
+  const from = { kind: 'bot' as const, id: chief.id, name: 'Quinn · voice task' };
+  const visible = appendRow(bot.id, 'message', { type: 'message', role: 'user', text: 'Visible delegated voice request.', audience: 'user', from });
+  assert.equal(isInternalRow(visible), false);
+  assert.equal(isInternalRow({ ...visible, audience: undefined }), false, 'body audience is sufficient');
+  assert.equal(isInternalRow({ ...visible, body: { ...visible.body, audience: undefined } }), false, 'wire audience is sufficient');
+  assert.equal(isInternalRow({ ...visible, audience: 'internal' }), true, 'internal wire audience wins a conflict');
+  assert.equal(isInternalRow({ ...visible, body: { ...visible.body, audience: 'internal' } }), true, 'internal body audience wins a conflict');
+  const internal = appendRow(bot.id, 'message', { type: 'message', role: 'user', text: 'Private internal coordination.', audience: 'internal', from });
+  assert.equal(isInternalRow(internal), true);
+  const legacy = appendRow(bot.id, 'message', { type: 'message', role: 'user', text: 'Legacy internal coordination.', from });
+  db.prepare("UPDATE rows SET body=json_remove(body,'$.audience') WHERE bot_id=? AND generation=? AND seq=?").run(bot.id, legacy.generation, legacy.seq);
+  assert.equal(isInternalRow(listRows(bot.id).find(row => row.seq === legacy.seq)!), true);
+  assert.equal(getBot(bot.id)?.lastPreview, 'Visible delegated voice request.');
+});
+
+test('new voice sessions exclude forgotten and superseded memories and retain the correction', async () => {
+  const { correctMemory, forgetMemory } = await import('../server/src/knowledge/memory.js');
+  const bot = createBot('alice', { name: 'Voice memory fixture' });
+  const add = (id: string, text: string) => db.prepare('INSERT INTO memories(id,bot_id,text,created_at) VALUES(?,?,?,?)').run(id, bot.id, text, Date.now());
+  add('voice-memory-active', 'active-memory-sentinel');
+  add('voice-memory-forgotten', 'forgotten-memory-sentinel');
+  add('voice-memory-original', 'superseded-memory-sentinel');
+  const before = await session(bot.id);
+  for (const text of ['active-memory-sentinel', 'forgotten-memory-sentinel', 'superseded-memory-sentinel']) assert.ok(before.instructions.includes(text));
+  await post('alice', 'end', { botId: bot.id, callId: before.callId });
+  forgetMemory('alice', 'voice-memory-forgotten');
+  const corrected = correctMemory('alice', 'voice-memory-original', { text: 'corrected-memory-sentinel', expectedRevision: 1 });
+  assert.equal((db.prepare('SELECT status FROM memories WHERE id=?').get('voice-memory-forgotten') as any).status, 'deleted');
+  assert.equal((db.prepare('SELECT status FROM memories WHERE id=?').get('voice-memory-original') as any).status, 'superseded');
+  const after = await session(bot.id);
+  try {
+    assert.ok(after.instructions.includes('active-memory-sentinel'));
+    assert.ok(after.instructions.includes(corrected.text));
+    assert.ok(!after.instructions.includes('forgotten-memory-sentinel'));
+    assert.ok(!after.instructions.includes('superseded-memory-sentinel'));
+  } finally { await post('alice', 'end', { botId: bot.id, callId: after.callId }); }
+});
+
+test('voice memory context validates sources and ownership before taking the newest twelve active facts', async () => {
+  const { saveMemory } = await import('../server/src/knowledge/memory.js');
+  const bot = createBot('alice', { name: 'Bounded voice memory fixture' });
+  const add = (id: string, ownerBot: string, text: string, at: number, status = 'active') =>
+    db.prepare('INSERT INTO memories(id,bot_id,text,created_at,status) VALUES(?,?,?,?,?)').run(id, ownerBot, text, at, status);
+  const at = Date.now();
+  for (let i = 0; i < 14; i++) add(`voice-bound-active-${i}`, bot.id, `voice-valid-fact-${String(i).padStart(2, '0')}`, at + i);
+  for (let i = 0; i < 15; i++) add(`voice-bound-inactive-${i}`, bot.id, `voice-inactive-fact-${i}`, at + 100 + i, 'deleted');
+  add('voice-bound-sibling', researcher.id, 'voice-sibling-private-fact', at + 200);
+  add('voice-bound-foreign', foreign.id, 'voice-foreign-private-fact', at + 200);
+  const source = appendRow(bot.id, 'message', { type: 'message', role: 'user', text: 'An initial source for the fixture.' });
+  const stale = saveMemory('alice', bot.id, { text: 'voice-invalidated-source-fact', evidence: [{ botId: bot.id, generation: source.generation, seq: source.seq }] }).memory!;
+  updateRow(bot.id, source.seq, { type: 'message', role: 'user', text: 'The source was replaced.' });
+  assert.equal((db.prepare('SELECT status FROM memories WHERE id=?').get(stale.id) as any).status, 'active', 'source invalidation is separate from soft deletion');
+  const call = await session(bot.id);
+  try {
+    for (let i = 2; i < 14; i++) assert.ok(call.instructions.includes(`voice-valid-fact-${String(i).padStart(2, '0')}`));
+    assert.equal((call.instructions.match(/voice-valid-fact-/g) ?? []).length, 12);
+    for (const text of ['voice-valid-fact-00', 'voice-valid-fact-01', 'voice-inactive-fact-', 'voice-sibling-private-fact', 'voice-foreign-private-fact', stale.text]) assert.ok(!call.instructions.includes(text), text);
+  } finally { await post('alice', 'end', { botId: bot.id, callId: call.callId }); }
 });
 
 test('delegating to an agent exposes its existing connection blocker once, without creating another authorization', async () => {
