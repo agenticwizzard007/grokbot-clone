@@ -33,7 +33,7 @@ try {
   browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', headless: true,
     args: ['--no-sandbox', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required'] });
 
-  async function fixture({ width = 1280, running = false, plan = false, sessionGate } = {}) {
+  async function fixture({ width = 1280, running = false, plan = false, sessionGate, rows = [], selectedBot = 'main' } = {}) {
     const page = lastPage = await browser.newPage({ viewport: { width, height: width < 600 ? 844 : 900 } });
     page.setDefaultTimeout(10000);
     const errors = [], requests = [], frames = [], sockets = [];
@@ -44,8 +44,8 @@ try {
       model: modelId, voice: 'ara', voiceSpeed: 1, voiceLanguage: 'auto', generation: 1, unread: 0, lastPreview: '', lastActivityAt: 1, createdAt: 1 };
     const bots = [{ ...base, id: 'main' }, { ...base, id: 'research', name: 'Research agent', label: '', isPrimary: false }];
     page.on('pageerror', e => { errors.push(e.message); console.error('Browser error:', e.message); });
-    await page.addInitScript(() => {
-      localStorage.setItem('swarm.selectedBot', 'main');
+    await page.addInitScript(selectedBot => {
+      localStorage.setItem('swarm.selectedBot', selectedBot);
       localStorage.setItem('swarm.detailsOpen', '0');
       window.__streams = [];
       window.__denyMic = false;
@@ -56,7 +56,7 @@ try {
         window.__streams.push(stream);
         return stream;
       };
-    });
+    }, selectedBot);
     await page.route('**/api/**', async route => {
       const req = route.request(), path = new URL(req.url()).pathname;
       const bodyIn = req.headers()['content-type']?.includes('application/json') ? req.postDataJSON() : null;
@@ -64,7 +64,7 @@ try {
       let body = {};
       if (path === '/api/auth/me') body = { user: { id: 'test-owner', name: 'Alex', email: 'alex@example.test' }, devLogin: true };
       else if (path === '/api/bots') body = { bots, live: running ? [{ botId: 'main', isRunning: true, activity: { kind: 'working' }, startedAt: Date.now() }] : [] };
-      else if (path.endsWith('/rows')) body = { generation: 1, rows: [] };
+      else if (path.endsWith('/rows')) body = { generation: 1, rows };
       else if (path.endsWith('/coworker-setups')) body = { setups: [] };
       else if (path.endsWith('/routines')) body = { routines: [] };
       else if (path.endsWith('/tasks')) body = { tasks: [] };
@@ -94,8 +94,8 @@ try {
       });
     });
     await page.goto(origin);
-    if (width < 600) await page.getByRole('button', { name: /Quinn · Chief of Staff/ }).click();
-    await page.getByRole('textbox', { name: 'Message Quinn', exact: true }).waitFor();
+    if (width < 600) await page.getByRole('button', { name: selectedBot === 'main' ? /Quinn · Chief of Staff/ : 'Research agent' }).click();
+    await page.getByRole('textbox', { name: selectedBot === 'main' ? 'Message Quinn' : 'Message Research agent', exact: true }).waitFor();
     const count = path => requests.filter(r => r.path === path).length;
     const noChatAction = () => assert.equal(requests.filter(r => /\/(messages|fresh|interrupt)$/.test(r.path)).length, 0, 'voice start/end never submits, clears or interrupts chat');
     const start = () => page.getByRole('button', { name: 'Start live voice with Quinn', exact: true });
@@ -107,6 +107,26 @@ try {
     const close = async () => { assert.deepEqual(errors, []); await page.close(); };
     return { page, start, count, requests, frames, sockets, noChatAction, dictate, close, holdStt: gate => { sttGate = gate; }, holdSend: gate => { messageGate = gate; } };
   }
+
+  for (const width of [1280, 390]) {
+    const from = { kind: 'bot', id: 'main', name: 'Quinn · voice task' };
+    const rows = [
+      { type: 'message', role: 'user', text: 'Research three sources from the voice call.', audience: 'user', from },
+      { type: 'message', role: 'assistant', text: 'The three sources are ready.', audience: 'user' },
+      { type: 'message', role: 'user', text: 'Hidden internal coordination.', audience: 'internal', from },
+      { type: 'message', role: 'user', text: 'Hidden legacy peer message.', from },
+    ].map((body, i) => ({ botId: 'research', generation: 1, seq: i + 1, updatedSeq: i + 1, kind: 'message', audience: body.audience, body, createdAt: Date.now() + i }));
+    const visible = await fixture({ width, rows, selectedBot: 'research' });
+    const transcript = visible.page.locator('.transcript');
+    await transcript.getByText('Research three sources from the voice call.', { exact: true }).waitFor();
+    await transcript.getByText('From Quinn · voice task', { exact: true }).waitFor();
+    await transcript.getByText('The three sources are ready.', { exact: true }).waitFor();
+    assert.equal(await transcript.getByText('Hidden internal coordination.', { exact: true }).count(), 0);
+    assert.equal(await transcript.getByText('Hidden legacy peer message.', { exact: true }).count(), 0);
+    await visible.page.screenshot({ path: new URL(`voice-task-visible-${width}.png`, shots).pathname });
+    visible.noChatAction(); await visible.close();
+  }
+  console.log('PASS desktop/mobile delegated voice request and sender visible; internal and legacy peer messages hidden');
 
   const draft = await fixture();
   const area = draft.page.getByRole('textbox', { name: 'Message Quinn', exact: true });
