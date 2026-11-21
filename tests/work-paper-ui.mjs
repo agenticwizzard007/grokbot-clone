@@ -17,6 +17,12 @@ const tasks = [
 const criteria = [{ id: 'result', kind: 'result', description: 'Check result' }];
 const workflowTask = (id, title, extra = {}) => ({ id, key: id, title, instructions: title, status: 'ready', reason: '', dependsOn: [], assignedBotId: null, workerBotId: null, activeJobId: null, correctionCount: 0, result: null, resultValidated: false, criteria, evidence: [], ...extra });
 const workflow = { id: 'workflow', userId: 'fixture-owner', botId: 'quinn', title: 'Launch brief workflow', status: 'draft', reason: '', goalId: null, tasks: [workflowTask('gather', 'Gather launch notes', { status: 'completed', assignedBotId: 'nia', result: { summary: 'Notes saved' }, resultValidated: true, evidence: [{ kind: 'result', taskId: 'gather' }] }), workflowTask('risks', 'Review risks'), workflowTask('draft', 'Draft brief')] };
+const jobWorkflow = { id: 'job-workflow', botId: 'quinn', title: 'Assignment evidence workflow', status: 'active', reason: '', tasks: [
+  workflowTask('verified', 'Verified source notes', { status: 'completed', resultValidated: true }),
+  workflowTask('unverified', 'Unverified risk review', { status: 'completed', resultValidated: false }),
+  workflowTask('job-draft', 'Draft verified brief', { status: 'running', assignedBotId: 'nia', workerBotId: 'nia', activeJobId: 'actual-quinn-job', dependsOn: ['verified', 'unverified', 'missing-prerequisite'] }),
+] };
+const actualJob = { id: 'actual-quinn-job', botId: 'quinn', state: 'running', createdAt: now, workflowId: jobWorkflow.id, taskId: 'job-draft', parentJobId: null, goalId: null };
 const routine = { id: 'routine-1', botId: 'quinn', name: 'Morning check-in', prompt: 'Summarize work', schedule: '0 8 * * 1-5', timezone: 'UTC', enabled: true, nextRunAt: now + 7200000, lastRunAt: null, description: 'Weekdays at 08:00' };
 const run = { id: 'run-1', botId: 'quinn', routineId: routine.id, routineName: routine.name, jobId: null, kind: 'manual', status: 'completed', error: null, createdAt: now, startedAt: now, finishedAt: now };
 const sha = 'a'.repeat(64);
@@ -29,7 +35,7 @@ async function harness(viewport, colorScheme) {
   const page = await browser.newPage({ viewport, colorScheme, reducedMotion: 'reduce' });
   page.setDefaultTimeout(9000);
   const errors = [], requests = [], traffic = [];
-  const fixture = { goals: [], workflow: structuredClone(workflow), settings: structuredClone(fixtureSettings), routine: { ...routine }, artifact: structuredClone(file), enabled: true, taskError: false, failNextDelivery: true, withholdNia: null };
+  const fixture = { goals: [], workflow: structuredClone(workflow), settings: structuredClone(fixtureSettings), routine: { ...routine }, artifact: structuredClone(file), enabled: true, taskError: false, failNextDelivery: true, withholdNia: null, jobPresent: true };
   page.on('pageerror', error => errors.push(error.message));
   await page.route('**/*', async route => {
     const request = route.request(), url = new URL(request.url()), path = url.pathname, method = request.method();
@@ -53,7 +59,7 @@ async function harness(viewport, colorScheme) {
     if (/\/coworker-setups$/.test(path)) return done({ setups: [] });
     if (path === '/api/computer') return done({ computer: { status: 'absent', screens: [] } });
     if (path === '/api/voice/options') return done({ voices: [], languages: [], speeds: [], configured: false });
-    if (path === '/api/team/state') return done({ state: { userId, generatedAt: now, eventCursor: 9, primaryBotId: 'quinn', sourceVersions: { workflows: 'fixture' }, agents: bots.map(bot => ({ botId: bot.id, name: bot.name, isPrimary: bot.isPrimary, parentBotId: null, status: bot.id === 'ellis' ? 'idle' : 'waiting', pendingDecision: bot.id !== 'ellis', setupStatus: 'active', setupRevision: 1, activeJobIds: [], lastObservedAt: now, observation: 'observed' })), jobs: [], workflows: [fixture.workflow], goals: fixture.goals, artifacts: [{ id: file.id, botId: file.botId, title: file.filename, status: 'available' }], deliveries: [], requests: {}, coverage: {}, humanSources: { pending: 0 }, health: { runtime: fixture.enabled ? 'healthy' : 'disabled', lastTickAt: now, lastError: null, pendingWakes: 0 } } });
+    if (path === '/api/team/state') return done({ state: { userId, generatedAt: now, eventCursor: 9, primaryBotId: 'quinn', sourceVersions: { workflows: 'fixture' }, agents: bots.map(bot => ({ botId: bot.id, name: bot.name, isPrimary: bot.isPrimary, parentBotId: null, status: bot.id === 'ellis' ? 'idle' : 'waiting', pendingDecision: bot.id !== 'ellis', setupStatus: 'active', setupRevision: 1, activeJobIds: [], lastObservedAt: now, observation: 'observed' })), jobs: fixture.jobPresent ? [actualJob] : [], workflows: [fixture.workflow, jobWorkflow], goals: fixture.goals, artifacts: [{ id: file.id, botId: file.botId, title: file.filename, status: 'available' }], deliveries: [], requests: {}, coverage: {}, humanSources: { pending: 0 }, health: { runtime: fixture.enabled ? 'healthy' : 'disabled', lastTickAt: now, lastError: null, pendingWakes: 0 } } });
     if (path === '/api/team/settings' && method === 'PATCH') { fixture.enabled = body.enabled; return done({ enabled: fixture.enabled }); }
     if (path === '/api/team/records') return done({ records: [{ id: 'job-quinn', bot_id: 'quinn', state: 'completed', created_at: now }, { id: 'job-nia', bot_id: 'nia', state: 'queued', created_at: now }], nextCursor: 2, through: 2, hasMore: false });
     if (path === '/api/team/requests') return done({ requests: [], nextCursor: 0, hasMore: false });
@@ -127,6 +133,21 @@ try {
   const columns = await page.locator('.task-column').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().top));
   assert.equal(new Set(columns).size, 1);
   await tab('Team').click(); await page.getByText('Team snapshot', { exact: true }).waitFor(); await shot('work-team-desktop-light');
+  await submit('Current job');
+  const currentJob = page.getByRole('region', { name: 'Current job for Draft verified brief', exact: true });
+  await currentJob.getByText('Assignee: Quinn', { exact: true }).waitFor();
+  assert.equal(await currentJob.getByText('Assignee: Nia', { exact: true }).count(), 0, 'job assignee comes from the actual job, not the planned worker');
+  await currentJob.getByText('Status: Running', { exact: true }).waitFor();
+  await currentJob.getByText('Verified source notes · Completed · Verified result', { exact: true }).waitFor();
+  await currentJob.getByText('Unverified risk review · Completed · No validated result recorded', { exact: true }).waitFor();
+  await currentJob.getByText('missing-prerequisite · Not present in this snapshot', { exact: true }).waitFor();
+  await currentJob.getByText('Result: No validated result recorded.', { exact: true }).waitFor();
+  await shot('work-current-job-desktop-light');
+  fixture.jobPresent = false; await submit('Refresh board');
+  await currentJob.getByText('Not present in this snapshot. Assignee and status are unavailable.', { exact: true }).waitFor();
+  assert.equal(await currentJob.getByText('Assignee: Quinn', { exact: true }).count(), 0, 'missing job does not infer an assignee');
+  fixture.jobPresent = true; await submit('Refresh board');
+  await currentJob.getByText('Assignee: Quinn', { exact: true }).waitFor();
   await submit('Complete team work history'); await page.getByText('Quinn · Completed', { exact: true }).waitFor();
   const coordination = page.getByRole('switch', { name: 'Account coordination' });
   await coordination.click(); await page.getByText(/Runtime disabled/).waitFor();
@@ -271,9 +292,21 @@ try {
   await page.getByRole('button', { name: 'Show details', exact: true }).click();
   const details = page.getByRole('main', { name: 'Conversation details', exact: true });
   await details.getByRole('navigation', { name: 'Conversation details sections' }).getByRole('button', { name: 'Tasks', exact: true }).click();
-  await details.getByRole('button', { name: 'See all', exact: true }).click();
+  await details.getByRole('button', { name: 'Goals and workflows', exact: true }).click();
+  await page.getByRole('heading', { name: 'Goals and workflows', exact: true }).waitFor();
+  assert.ok(traffic.includes('GET /api/workflows?botId=nia'));
+  await submit('New goal');
+  assert.equal(await work.getByRole('combobox', { name: /^Agent/ }).count(), 0, 'bot Details Goals keeps the same bot');
+  await submit('Cancel');
+  await tab('Tasks').click();
   assert.equal(await scope.inputValue(), 'nia');
-  assert.equal(await work.locator('.task-filter.is-needs_input').getAttribute('aria-pressed'), 'true');
+  await work.getByRole('button', { name: 'Back to chat', exact: true }).click();
+  await page.locator('.chat__pill-name').getByText('Nia', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Show details', exact: true }).click();
+  await details.getByRole('navigation', { name: 'Conversation details sections' }).getByRole('button', { name: 'Tasks', exact: true }).click();
+  await details.getByRole('button', { name: 'See all tasks', exact: true }).click();
+  assert.equal(await scope.inputValue(), 'all', 'See all tasks opens the entire workspace');
+  assert.equal(await work.locator('.task-filter.is-all').getAttribute('aria-pressed'), 'true');
   await scope.selectOption('quinn'); await page.getByText('Review launch note', { exact: true }).waitFor();
   await work.getByRole('button', { name: 'Back to chat', exact: true }).click();
   await page.locator('.chat__pill-name').getByText('Nia', { exact: true }).waitFor();
@@ -288,6 +321,29 @@ try {
     if (width === 390) await phone.shot('work-tasks-phone-night');
     await phone.tab('Team').click(); await phone.page.getByText('Team snapshot', { exact: true }).waitFor(); await phone.checkFits();
     if (width === 390) await phone.shot('work-team-phone-night');
+    await phone.submit('Current job');
+    const phoneJob = phone.page.getByRole('region', { name: 'Current job for Draft verified brief', exact: true });
+    await phoneJob.getByText('Assignee: Quinn', { exact: true }).waitFor();
+    await phoneJob.getByText('Verified source notes · Completed · Verified result', { exact: true }).waitFor();
+    await phone.checkFits();
+    if (width === 390) await phone.shot('work-current-job-phone-night');
+    await phone.submit('Open Nia chat');
+    await phone.submit('Show details');
+    const phoneDetails = phone.page.getByRole('main', { name: 'Conversation details', exact: true });
+    await phoneDetails.getByRole('navigation', { name: 'Conversation details sections' }).getByRole('button', { name: 'Tasks', exact: true }).click();
+    await phoneDetails.getByRole('button', { name: 'Goals and workflows', exact: true }).click();
+    await phone.submit('New goal');
+    assert.equal(await phone.page.getByRole('combobox', { name: /^Agent/ }).count(), 0);
+    await phone.submit('Cancel'); await phone.tab('Tasks').click();
+    assert.equal(await phone.page.getByRole('combobox', { name: 'Filter tasks by bot' }).inputValue(), 'nia');
+    await phone.submit('Back to chat');
+    await phone.page.locator('.chat__pill-name').getByText('Nia', { exact: true }).waitFor();
+    await phone.submit('Show details');
+    await phoneDetails.getByRole('navigation', { name: 'Conversation details sections' }).getByRole('button', { name: 'Tasks', exact: true }).click();
+    await phoneDetails.getByRole('button', { name: 'See all tasks', exact: true }).click();
+    assert.equal(await phone.page.getByRole('combobox', { name: 'Filter tasks by bot' }).inputValue(), 'all');
+    await phone.page.getByText('2 tasks need your input', { exact: true }).waitFor();
+
     await phone.tab('Goals').click(); await phone.submit('New goal'); await phone.page.getByRole('heading', { name: 'New persistent goal', exact: true }).waitFor(); await phone.checkFits();
     if (width === 390) await phone.shot('work-goal-phone-night');
     await phone.tab('Reports').click(); await phone.submit('Daily synopses'); await phone.submit('Edit schedule'); await phone.checkFits();

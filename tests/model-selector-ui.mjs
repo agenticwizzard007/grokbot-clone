@@ -6,16 +6,24 @@ import { mkdir } from 'node:fs/promises';
 import http from 'node:http';
 const port = await new Promise(r=>{const s=http.createServer().listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>r(p));});});
 const origin=`http://127.0.0.1:${port}`;
-const vite=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port',String(port)],{cwd:`${process.cwd()}/web`,stdio:'pipe'});
+const vite=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port',String(port),'--strictPort'],{cwd:`${process.cwd()}/web`,stdio:'pipe'});
 let logs='';vite.stdout.on('data',d=>logs+=d);vite.stderr.on('data',d=>logs+=d);
-let browser;
+let browser, activePage, activeCase, activeRequests, activeErrors;
+function observe(page, label) {
+ activePage=page;activeCase=label;activeRequests=[];activeErrors=[];
+ const requests=activeRequests, errors=activeErrors;
+ page.on('pageerror',e=>errors.push(e.message));
+ page.on('requestfailed',r=>requests.push(`${r.method()} ${r.url()}: ${r.failure()?.errorText}`));
+ page.on('response',r=>{const url=new URL(r.url());if(url.origin===origin&&(url.pathname.startsWith('/api/')||!r.ok())) requests.push(`${r.status()} ${url.pathname}`);});
+ return errors;
+}
 try {
  await mkdir('.context/model-fix',{recursive:true});
  for(let i=0;i<100;i++){if(await fetch(origin).then(r=>r.ok,()=>false))break;await new Promise(r=>setTimeout(r,100));}
  browser=await chromium.launch({executablePath:'/usr/bin/google-chrome',headless:true,args:['--no-sandbox']});
  for(const width of [1440,390,320])for(const theme of ['light','dark']) {
   const page=await browser.newPage({viewport:{width,height:width===320?568:900},deviceScaleFactor:1});
-  const errors=[];page.on('pageerror',e=>{errors.push(e.message);console.error('BROWSER',e.message);});page.on('console',m=>{if(m.type()==='error')console.error(m.text());});
+  const errors=observe(page,`composer-${width}-${theme}`);
   let source='openrouter', unavailable=false;
   let bot={id:'model-test',name:'Quinn',model:'api/old',effort:'xhigh',fast:true};
   const patches=[];
@@ -32,22 +40,27 @@ try {
    if(url.pathname.includes('/models/icon/'))return route.fulfill({status:404});
    return route.fulfill({json:{}});
   });
-  await page.route('**/src/main.tsx',route=>route.fulfill({contentType:'application/javascript',body:`
+  await page.route(url => url.origin === origin && url.pathname === '/src/main.tsx',route=>route.fulfill({contentType:'application/javascript',body:`
 import React from '/node_modules/.vite/deps/react.js';
 import ReactDOM from '/node_modules/.vite/deps/react-dom_client.js';
 const {createRoot}=ReactDOM;
 import {ComposerModelMenu} from '/src/components/ComposerModelMenu.tsx';
 import {useStore} from '/src/store.ts';
 import {refreshModels} from '/src/components/config/ModelPicker.tsx';
-import '/src/styles/tokens.css';import '/src/styles/base.css';import '/src/styles/composer-models.css';import '/src/styles/mobile.css';
+import '/src/styles/tokens.css';import '/src/styles/base.css';import '/src/styles/composer-models.css';import '/src/styles/mobile.css';import '/src/styles/paper-core.css';
 document.documentElement.dataset.theme=${JSON.stringify(theme)};
 useStore.setState({mobile:innerWidth<760,bots:[${JSON.stringify(bot)}]});
 window.refreshModels=refreshModels;
-function Harness(){const bot=useStore(s=>s.bots[0]);return React.createElement('div',{style:{position:'fixed',left:'16px',right:'16px',bottom:'24px',maxWidth:'500px'}},React.createElement(ComposerModelMenu,{bot}));}
+function Harness(){const bot=useStore(s=>s.bots[0]);return React.createElement('div',{className:'app',style:{position:'fixed',left:'16px',right:'16px',bottom:'24px',maxWidth:'500px'}},React.createElement(ComposerModelMenu,{bot}));}
 createRoot(document.getElementById('root')).render(React.createElement(Harness));
 ` }));
   await page.goto(origin);
-  await page.locator('.model-pill .model-billing').getByText('API',{exact:true}).waitFor();
+  const pill=page.locator('.model-pill');
+  const picker=page.getByRole('dialog',{name:'Choose a model',exact:true});
+  const details=page.getByRole('dialog',{name:'Connection details',exact:true});
+  const planDetails=picker.getByRole('button',{name:'Plan & usage',exact:true});
+  await pill.getByText('API',{exact:true}).waitFor();
+  assert.equal(await page.locator('.usage-mode__trigger').count(),0);
   for(const provider of ['codex','claude']) {
    source=provider;await page.evaluate(()=>window.refreshModels());
    await page.locator('.model-pill .model-billing').getByText('Plan',{exact:true}).waitFor();
@@ -55,7 +68,13 @@ createRoot(document.getElementById('root')).render(React.createElement(Harness))
    await page.getByRole('dialog',{name:'Choose a model'}).waitFor();
    await page.locator('.mm-row__name').getByText('Account model',{exact:false}).waitFor();
    assert.equal(await page.locator('.mm-row__name').count(),1);
-   assert.match(await page.locator('.mm-plan-usage').innerText(),/39\.2% used/);
+   assert.equal(await page.locator('.mm-plan-usage').count(),0,'no duplicate Plan quota in the picker');
+   await planDetails.click();
+   await details.getByText('39.2% used',{exact:true}).waitFor();
+   assert.equal(await details.getByRole('progressbar',{name:'Weekly account window'}).getAttribute('value'),'39.2');
+   assert.equal(await picker.count(),0,'the details step replaces the picker');
+   await details.getByRole('button',{name:'Back to models',exact:true}).click();
+   await planDetails.and(page.locator(':focus')).waitFor();
    assert.equal(await page.getByText('API model',{exact:true}).count(),0);
    await page.locator('.mm-row__main').click();
    await page.waitForFunction(id=>document.querySelector('.model-pill__name')?.textContent==='Account model',`${provider}/account-special`);
@@ -72,9 +91,13 @@ createRoot(document.getElementById('root')).render(React.createElement(Harness))
    await page.keyboard.press('Escape');
   }
   unavailable=true;await page.locator('.model-pill').click();
-  await page.getByText('Plan usage unavailable from the CLI.',{exact:true}).waitFor();
-  assert.doesNotMatch(await page.locator('.mm-plan-usage').innerText(),/0% used/);
-  await page.keyboard.press('Escape');source='openrouter';await page.evaluate(()=>window.refreshModels());
+  await planDetails.click();
+  await details.getByText(/Usage isn’t available from your provider right now/).waitFor();
+  assert.doesNotMatch(await details.innerText(),/0% used/);
+  assert.equal(await details.getByRole('progressbar').count(),0);
+  await page.keyboard.press('Escape');await planDetails.and(page.locator(':focus')).waitFor();
+  await page.keyboard.press('Escape');await pill.and(page.locator(':focus')).waitFor();
+  source='openrouter';await page.evaluate(()=>window.refreshModels());
   await page.locator('.model-pill .model-billing').getByText('API',{exact:true}).waitFor();
   assert.equal(await page.locator('.model-pill__name').innerText(),'API model','returning to API mode shows its default, not the old CLI alias');
   assert.deepEqual(errors,[]);
@@ -83,7 +106,7 @@ createRoot(document.getElementById('root')).render(React.createElement(Harness))
  // Exercise Bot settings too: this path uses ModelPicker rather than ComposerModelMenu.
  for(const width of [1440,390,320])for(const theme of ['light','dark']) {
   const page=await browser.newPage({viewport:{width,height:width===320?568:900},deviceScaleFactor:1});
-  const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  const errors=observe(page,`bot-settings-${width}-${theme}`);
   let current='old', fail=false, holdNext=false, held=null, catalogRequests=0, explicitRequests=0;
   const catalog=(name=current, billing='plan')=>({billing,models:[{id:`${billing==='plan'?'codex':'api'}/${name}`,name:`Model ${name}`,billing,vision:true,reasoning:true,context:0,price:null}]});
   const until=async(check)=>{for(let i=0;i<100&&!check();i++)await new Promise(r=>setTimeout(r,25));assert.ok(check(),'expected held catalog request');};
@@ -102,7 +125,7 @@ createRoot(document.getElementById('root')).render(React.createElement(Harness))
    }
    return route.fulfill({json:{}});
   });
-  await page.route('**/src/main.tsx',route=>route.fulfill({contentType:'application/javascript',body:`
+  await page.route(url => url.origin === origin && url.pathname === '/src/main.tsx',route=>route.fulfill({contentType:'application/javascript',body:`
 import React from '/node_modules/.vite/deps/react.js';
 import ReactDOM from '/node_modules/.vite/deps/react-dom_client.js';
 import {BotModelField} from '/src/components/config/BotModelField.tsx';
@@ -182,4 +205,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
   assert.deepEqual(errors,[]);
   await page.close();console.log(`PASS Bot settings ${width}px ${theme}: fresh reopen, selection, failure recovery, response/account races, API/Plan labels, explicit provider, no overflow`);
  }
+} catch (error) {
+ console.error(`Failed ${activeCase ?? 'before browser setup'}`, { errors:activeErrors, requests:activeRequests, vite:logs.slice(-3000) });
+ if (activePage && !activePage.isClosed()) {
+  console.error('Visible text:',await activePage.locator('body').innerText({timeout:2000}).catch(()=>'<unavailable>'));
+  await activePage.screenshot({path:`.context/model-fix/failure-${activeCase}.png`,timeout:5000}).catch(()=>{});
+ }
+ throw error;
 } finally {await browser?.close();vite.kill();await new Promise(r=>vite.exitCode!==null?r():vite.once('exit',r));}

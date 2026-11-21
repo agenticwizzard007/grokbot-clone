@@ -58,7 +58,7 @@ function BotChat({ accountId, bot }: { accountId: string; bot: Bot }) {
       </button><span>Bots</span>
     </div>
     <header className="chat__header">
-      <BotAvatarFor bot={bot} size={32} />
+      <BotAvatarFor bot={bot} size={32} working={!!live?.isRunning && !live.awaiting} />
       <span className="chat__pill-anchor">
         <button type="button" className="chat__pill" onClick={() => setMenu(!menu)} aria-haspopup="menu" aria-expanded={menu}>
           <span className="chat__pill-name">{bot.name}</span><ChevronDown size={14} aria-hidden />

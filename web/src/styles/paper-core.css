@@ -38,7 +38,6 @@
 .app .model-pill__name { white-space: normal; overflow-wrap: anywhere; text-align: left; }
 .app .model-pill__effort { font-size: 12px; }
 .app .composer__error { max-width: 720px; padding: 10px 12px; }
-.app .composer-area > .usage-mode { max-width: 720px; }
 .app .vcall { width: 100%; max-width: 720px; margin: 8px auto; }
 .app .agent-exchange__panel { max-width: 100%; padding: 16px; border-radius: 16px; }
 .app .agent-exchange__toggle { min-height: 44px; font-size: 13px; line-height: 20px; }

@@ -101,8 +101,18 @@ export function TeamBoard({ botId, onGoals }: { botId?: string; onGoals?: () => 
           const job = state.jobs.find(record => record.id === task.activeJobId);
           return evidence || task.activeJobId ? <TeamDisclosure key={task.id} title={task.title} copy={copy} button={evidence ? 'Inspect evidence' : 'Current job'}>
             {evidence && <><SourceMessages sources={sources(task.evidence)} /><pre>{JSON.stringify(task.evidence, null, 2)}</pre></>}
-            {task.activeJobId && <p className="work-meta">Current job · {job ? label(job.state) : 'Not present in this snapshot'} · <code>{task.activeJobId}</code></p>}
-          </TeamDisclosure> : <div className="work-row" key={task.id}><h4>{task.title}</h4><p className="work-meta">{copy} · No validated evidence recorded.</p></div>;
+            {task.activeJobId && <section className="work-stack" aria-label={`Current job for ${task.title}`}>
+              <h4>Current job</h4>
+              {job ? <><p className="work-meta">Assignee: {name(job.botId)}</p><p className="work-meta">Status: {label(job.state)}</p></> : <p className="work-meta">Not present in this snapshot. Assignee and status are unavailable.</p>}
+              <p className="work-meta">Job <code>{task.activeJobId}</code></p>
+              <h4>Prerequisites</h4>
+              {task.dependsOn.length ? <ul>{task.dependsOn.map(id => {
+                const prerequisite = workflow.tasks.find(other => other.id === id);
+                return <li key={id}>{prerequisite ? `${prerequisite.title} · ${label(prerequisite.status)} · ${prerequisite.resultValidated ? 'Verified result' : 'No validated result recorded'}` : `${id} · Not present in this snapshot`}</li>;
+              })}</ul> : <p className="work-meta">No prerequisites.</p>}
+              <p className="work-meta">Result: {task.resultValidated ? 'Validated result recorded.' : 'No validated result recorded.'}</p>
+            </section>}
+          </TeamDisclosure> : <div className="work-row" key={task.id}><h4>{task.title}</h4><p className="work-meta">{copy} · No source evidence recorded.</p></div>;
         })}
       </article>)}
       {!workflows.length && <div className="work-row"><h3>Workflows</h3><p className="work-meta">No workflows in this view.</p></div>}

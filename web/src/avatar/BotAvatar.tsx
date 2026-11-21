@@ -3,6 +3,7 @@ import { palette } from '../lib/colors';
 import { FlockMark } from '../components/FlockMark';
 import { Icon } from '../components/Icon';
 import { SHAPES, type ShapeDef } from './shapes.gen';
+import './BotAvatar.css';
 
 /** Shapes without an exported SVG fall back to the closest silhouette we have. */
 const FALLBACK: Partial<Record<AvatarShape, string>> = {
@@ -27,11 +28,12 @@ interface Props {
   ring?: boolean;
   className?: string;
   title?: string;
+  working?: boolean;
 }
 
 const OVERDRAW = 55.2 / 36;
 
-export function BotAvatar({ shape, color, size, star, ring, className, title }: Props) {
+export function BotAvatar({ shape, color, size, star, ring, className, title, working }: Props) {
   const def = shapeDef(shape);
   const draw = size * OVERDRAW;
   const off = (draw - size) / 2;
@@ -40,13 +42,14 @@ export function BotAvatar({ shape, color, size, star, ring, className, title }: 
   const vbw = Number(def.viewBox.split(/\s+/)[2]);
   const px = vbw / draw;
   return (
-    <span className={`bot-avatar ${className ?? ''}`} style={{ width: size, height: size }} title={title} role="img" aria-label={title}>
+    <span className={`bot-avatar${working ? ' bot-avatar--working' : ''} ${className ?? ''}`} style={{ width: size, height: size }} title={title} role="img" aria-label={title}>
       <svg width={draw} height={draw} viewBox={def.viewBox} style={{ position: 'absolute', left: -off, top: -off, overflow: 'visible' }} aria-hidden>
         {ring && <path d={def.outline} fill="#1C1C1C3D" stroke="#1C1C1C3D" strokeWidth={px * 2 * 3.4} strokeLinejoin="round" />}
         {ring && <path d={def.outline} fill="#FFFFFF" stroke="#FFFFFF" strokeWidth={px * 2 * 2.4} strokeLinejoin="round" />}
         <path d={def.outline} fill="#FFFFFF" />
         <path d={def.d} fill={fill} fillRule="evenodd" />
       </svg>
+      {working && <FlockMark size={size} working />}
       {star && (
         <span className="bot-avatar__star" style={{ width: size * 0.2667, height: size * 0.2667 }}>
           <Icon name="star" size={size * 0.1333} color="#FFFFFF" />
@@ -56,7 +59,7 @@ export function BotAvatar({ shape, color, size, star, ring, className, title }: 
   );
 }
 
-export function BotAvatarFor({ bot, size, star, className }: { bot: Pick<Bot, 'avatarShape' | 'avatarColor' | 'name'> & { isPrimary?: boolean }; size: number; star?: boolean; className?: string }) {
-  if (bot.isPrimary) return <span className={`bot-avatar ${className ?? ''}`} style={{ width: size, height: size }} title={bot.name} role="img" aria-label={bot.name}><FlockMark size={size} /></span>;
-  return <BotAvatar shape={bot.avatarShape} color={bot.avatarColor} size={size} star={star} className={className} title={bot.name} />;
+export function BotAvatarFor({ bot, size, star, className, working }: { bot: Pick<Bot, 'avatarShape' | 'avatarColor' | 'name'> & { isPrimary?: boolean }; size: number; star?: boolean; className?: string; working?: boolean }) {
+  if (bot.isPrimary) return <span className={`bot-avatar ${className ?? ''}`} style={{ width: size, height: size }} title={bot.name} role="img" aria-label={bot.name}><FlockMark size={size} working={working} /></span>;
+  return <BotAvatar shape={bot.avatarShape} color={bot.avatarColor} size={size} star={star} className={className} title={bot.name} working={working} />;
 }

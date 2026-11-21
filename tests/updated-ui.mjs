@@ -1,4 +1,5 @@
 // Run the integrated Paper browser checks against one immutable built frontend.
+// Model component suites additionally use their isolated Vite harnesses.
 // Each suite isolates API fixtures and browser state; this runner never contacts providers.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -23,7 +24,7 @@ try {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   assert.ok(ready, `Built preview did not become ready: ${log}`);
-  for (const file of ['updated-ui-core.mjs', 'work-paper-ui.mjs', 'knowledge-paper-ui.mjs', 'access-settings-ui.mjs']) {
+  for (const file of ['updated-ui-core.mjs', 'work-paper-ui.mjs', 'knowledge-paper-ui.mjs', 'access-settings-ui.mjs', 'working-avatar-ui.mjs', 'usage-mode-ui.mjs', 'model-selector-ui.mjs']) {
     console.log(`Running ${file}`);
     const code = await new Promise((resolve, reject) => {
       active = spawn(process.execPath, [`tests/${file}`], { cwd: new URL('..', import.meta.url), env: { ...process.env, UI_ORIGIN: origin, WORK_ORIGIN: origin, ACCESS_UI_BASE: origin }, stdio: 'inherit' });
