@@ -69,7 +69,8 @@ try {
   await page.getByRole('link', { name: 'Continue with OpenRouter' }).click();
   await page.getByText('OpenRouter · Active', { exact: true }).waitFor();
   assert.equal(await page.getByRole('link', { name: 'Connect OpenRouter', exact: true }).count(), 0, 'OAuth signup must not ask to connect again');
-  assert.equal(await page.locator('.openrouter-settings .auth-button').count(), 0);
+  await page.getByRole('heading', { name: 'Your OpenRouter connection', exact: true, level: 1 }).waitFor();
+  assert.equal(await page.locator('.openrouter-settings__oauth').count(), 0);
   await page.screenshot({ path: path.join(screenshots, 'oauth-connected-desktop.png') });
   const first = (await (await context.request.get(`${base}/api/auth/me`)).json()).user;
   assert.ok(first.id);
@@ -100,7 +101,7 @@ try {
   assert.equal(status.connected, false); assert.equal(status.linked, true); assert.equal(status.active, true);
   await page.getByRole('link', { name: 'Reconnect OpenRouter', exact: true }).click();
   await page.getByText('OpenRouter · Active', { exact: true }).waitFor();
-  assert.equal(await page.locator('.openrouter-settings .auth-button').count(), 0, 'Successful reconnection removes the authorization prompt');
+  assert.equal(await page.locator('.openrouter-settings__oauth').count(), 0, 'Successful reconnection removes the authorization prompt');
   assert.equal((await (await context.request.get(`${base}/api/auth/me`)).json()).user.id, first.id);
   await context.request.post(`${base}/api/auth/logout`);
   await page.goto(base);
@@ -109,7 +110,7 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await page.getByRole('link', { name: 'Continue with OpenRouter' }).click();
   await page.getByText('OpenRouter · Active', { exact: true }).waitFor();
-  assert.equal(await page.locator('.openrouter-settings .auth-button').count(), 0, 'Repeat sign-in must preserve the connected UI');
+  assert.equal(await page.locator('.openrouter-settings__oauth').count(), 0, 'Repeat sign-in must preserve the connected UI');
   assert.equal((await (await context.request.get(`${base}/api/auth/me`)).json()).user.id, first.id);
   assert.deepEqual(errors, []);
   // A non-owner has an independent connection and can paste a key without OAuth.

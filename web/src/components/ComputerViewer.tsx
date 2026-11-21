@@ -7,7 +7,6 @@ import { botVars } from '../lib/colors';
 import { useSelectedBot, useStore } from '../store';
 import { computerStatusText } from './DetailsPanel';
 import { useConfigUI } from '../configStore';
-import { Icon } from './Icon';
 
 type Mode = 'watch' | 'control';
 type Conn = 'connecting' | 'connected' | 'disconnected' | 'error';
@@ -104,17 +103,19 @@ export function ComputerViewer() {
   if (!bot) return null;
   const busy = waking || computer?.status === 'starting' || computer?.status === 'resuming' || computer?.status === 'creating';
   const preparing = busy || (running && conn === 'connecting');
+  const lost = running && (conn === 'error' || conn === 'disconnected');
+  const openComputerSettings = () => { close(); useConfigUI.getState().openAppSettings('computer'); };
 
   return (
-    <div className={`viewer${preparing ? ' is-loading' : ''}`} role="dialog" aria-modal="true" aria-label={`${bot.name}'s computer`} style={botVars(bot.avatarColor)}>
+    <div className={`viewer${preparing ? ' is-loading' : ''}${lost ? ' is-disconnected' : ''}`} role="dialog" aria-modal="true" aria-label={`${bot.name}'s computer`} style={botVars(bot.avatarColor)}>
       <div className="viewer__scrim" onClick={mode === 'watch' ? close : undefined} />
       <div className="viewer__top">
         <div className="viewer__title">
           <BotAvatarFor bot={bot} size={24} />
           <span>{bot.name}'s computer</span>
-          <span className="viewer__status">{preparing && computer?.provider !== 'local' ? 'Agent waking up' : computerStatusText(computer)}</span>
+          {!lost && <span className="viewer__status">{preparing && computer?.provider !== 'local' ? 'Agent waking up' : computerStatusText(computer)}</span>}
         </div>
-        <button type="button" className="viewer__close" onClick={close} aria-label="Close computer"><Icon name="close" color="#FFFFFF" /></button>
+        <button type="button" className="viewer__close" onClick={close}>Close computer</button>
       </div>
 
       <div className="viewer__stage">
@@ -124,10 +125,7 @@ export function ComputerViewer() {
             {conn !== 'connected' && (
               <div className="viewer__overlay">
                 {conn === 'connecting' ? <WakeProgress local={computer?.provider === 'local'} detail={computer?.provider === 'cloudvm' ? 'Getting Chrome ready…' : 'Connecting to the screen…'} /> : (
-                  <>
-                    <span>{conn === 'error' ? 'Couldn’t reach the screen.' : 'Disconnected.'}</span>
-                    <button type="button" className="btn btn--light" onClick={() => setAttempt((n) => n + 1)}>Reconnect</button>
-                  </>
+                  <p className="viewer__connection-lost" role="status">Connection lost · Reconnect to see the current screen.</p>
                 )}
               </div>
             )}
@@ -137,8 +135,8 @@ export function ComputerViewer() {
             {!busy && <span className="viewer__sleep-face" aria-hidden="true"><i /><i /></span>}
             {computer?.provider === 'local' ? (
               <>
-                <span>Your PC isn’t connected.</span>
-                <button type="button" className="btn btn--light" onClick={() => { close(); useConfigUI.getState().openAppSettings('computer'); }}>Connect your PC</button>
+                <span>Your computer isn’t connected.</span>
+                <button type="button" className="btn btn--light" onClick={openComputerSettings}>Computer settings</button>
               </>
             ) : (
               <>
@@ -150,6 +148,8 @@ export function ComputerViewer() {
           </div>
         )}
       </div>
+
+      {lost && <div className="viewer__recovery"><div><strong>Disconnected</strong><p>Reconnect to see the current screen.</p></div><button type="button" className="btn btn--primary" onClick={() => setAttempt(value => value + 1)}>Reconnect</button></div>}
 
       {running && conn === 'connected' && (
         <div className={`viewer__bar${mode === 'control' ? ' is-control' : ''}`}>

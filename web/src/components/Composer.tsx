@@ -2,7 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { PhoneOff, TextCursorInput } from 'lucide-react';
 import type { Bot } from '@shared/types';
 import { api } from '../lib/api';
-import { displayName, useStore } from '../store';
+import { useConfigUI } from '../configStore';
+import { useStore } from '../store';
 import { Icon } from './Icon';
 import { Menu } from './Menu';
 import { ComposerModelMenu, cycleEffort, toggleFast } from './ComposerModelMenu';
@@ -10,18 +11,36 @@ import { modelSelection, useModels } from '../lib/models';
 import { UsageModeBubble } from './UsageModeBubble';
 import { endCall, isCallActive, startCall, useVoice } from '../voice/call';
 import { useDictation } from '../voice/dictation';
+import { hasOpenModal } from './modals/Modal';
 
 const MAX_H = 200;
 const drafts = new Map<string, string>();
+const pendingSends = new Map<string, symbol>();
+const sendErrors = new Map<string, string>();
+const draftListeners = new Set<(key: string) => void>();
+const notifyDraft = (key: string) => draftListeners.forEach(listener => listener(key));
+function isActiveComposer(accountId: string | undefined, botId: string) {
+  const state = useStore.getState();
+  const ui = useConfigUI.getState();
+  return !!accountId && state.user?.id === accountId && state.selectedBotId === botId && !state.modal && !state.detailsOpen && !state.viewerOpen
+    && !hasOpenModal() && ui.view === 'chat' && !ui.appSettings && !ui.botSettings && (!state.mobile || state.mobilePane === 'chat');
+}
+useStore.subscribe((state, previous) => {
+  if (state.user?.id !== previous.user?.id) { drafts.clear(); pendingSends.clear(); sendErrors.clear(); }
+});
 
 export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
+  const accountId = useStore(s => s.user?.id);
+  const draftKey = `${accountId}:${bot.id}`;
+  const active = useRef(true);
+  useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   // Phones: the short name keeps the placeholder on one line.
   const mobile = useStore((s) => s.mobile);
   // Phones hide the chat while the Bot list is showing; the box can only be measured once it's on screen.
   const onScreen = useStore((s) => !s.mobile || s.mobilePane === 'chat');
-  const [text, setText] = useState(() => drafts.get(bot.id) ?? '');
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [text, setText] = useState(() => drafts.get(draftKey) ?? '');
+  const [sending, setSending] = useState(() => pendingSends.has(draftKey));
+  const [error, setError] = useState<string | null>(() => sendErrors.get(draftKey) ?? null);
   const [menu, setMenu] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
   const moreRef = useRef<HTMLButtonElement>(null);
@@ -31,8 +50,17 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
 
   // Per-bot drafts.
   // Phones don't take focus on open: it would raise the keyboard over the conversation.
-  useEffect(() => { setText(drafts.get(bot.id) ?? ''); setError(null); if (!useStore.getState().mobile) ref.current?.focus(); }, [bot.id]);
-  useEffect(() => { drafts.set(bot.id, text); }, [bot.id, text]);
+  useEffect(() => {
+    const sync = (key: string) => {
+      if (key !== draftKey) return;
+      setText(drafts.get(key) ?? ''); setSending(pendingSends.has(key)); setError(sendErrors.get(key) ?? null);
+    };
+    sync(draftKey);
+    draftListeners.add(sync);
+    if (!useStore.getState().mobile && isActiveComposer(accountId, bot.id)) ref.current?.focus();
+    return () => { draftListeners.delete(sync); };
+  }, [draftKey, accountId, bot.id]);
+  useEffect(() => { drafts.set(draftKey, text); }, [draftKey, text]);
 
   // Auto-grow.
   useLayoutEffect(() => {
@@ -63,35 +91,40 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   const area = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || !area.current?.contains(document.activeElement)) return;
+      if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || !area.current?.contains(document.activeElement) || !isActiveComposer(accountId, bot.id)) return;
       const m = modelSelection(bot, useModels.getState()).current;
       if (e.code === 'Slash') { e.preventDefault(); cycleEffort(bot, m); }
       else if (e.code === 'KeyF' && useModels.getState().canFast) { e.preventDefault(); toggleFast(bot); }
     };
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
-  }, [bot]);
+  }, [accountId, bot]);
 
   // ⌘I focuses the prompt.
   useEffect(() => {
-    const k = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'i') { e.preventDefault(); ref.current?.focus(); } };
+    const k = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'i' && isActiveComposer(accountId, bot.id)) { e.preventDefault(); ref.current?.focus(); }
+    };
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
-  }, []);
+  }, [accountId, bot.id]);
 
   const send = async () => {
     const t = text.trim();
-    if (!t || sending) return;
+    if (!t || sending || pendingSends.has(draftKey) || !isActiveComposer(accountId, bot.id)) return;
+    const request = Symbol();
+    pendingSends.set(draftKey, request); sendErrors.delete(draftKey);
+    const current = () => useStore.getState().user?.id === accountId && pendingSends.get(draftKey) === request;
     setSending(true); setError(null);
     try {
       await api.send(bot.id, t);
-      setText('');
-      drafts.delete(bot.id);
+      // Notify any newly mounted composer for this bot, preserving drafts edited during the request.
+      if (current() && drafts.get(draftKey) === text) drafts.delete(draftKey);
     } catch (e) {
-      setError((e as Error).message || 'Message failed to send');
+      if (current()) sendErrors.set(draftKey, (e as Error).message || 'Message failed to send');
     } finally {
-      setSending(false);
-      ref.current?.focus();
+      if (current()) { pendingSends.delete(draftKey); notifyDraft(draftKey); }
+      if (active.current && isActiveComposer(accountId, bot.id)) ref.current?.focus();
     }
   };
 
@@ -150,7 +183,7 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
 
   return (
     <div className="composer-area" ref={area}>
-      {error && <div className="composer__error">{error} <button type="button" className="link-btn" onClick={() => setError(null)}>Dismiss</button></div>}
+      {error && <div className="composer__error" role="alert">{error} <button type="button" className="link-btn" onClick={() => { sendErrors.delete(draftKey); setError(null); }}>Dismiss</button></div>}
       <UsageModeBubble />
       {dictation.state !== 'idle' && (
         <div className="composer__dictation">
@@ -169,7 +202,7 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
           className="composer__input"
           rows={1}
           value={text}
-          placeholder={`Message ${mobile ? bot.name : displayName(bot)}`}
+          placeholder={`Message ${bot.name}`}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); }

@@ -126,6 +126,7 @@ try {
         return route.fulfill({ status: 500, json: { error: 'Unexpected mutation' } });
       }
       if (path === '/api/auth/me') body = { user: { id: 'cleanup-test-user', name: 'Alex', email: 'alex@example.test' }, devLogin: true };
+      else if (path === '/api/team/exchanges' && method === 'GET') body = { exchanges: [], nextBefore: null };
       else if (path === '/api/bots') body = { bots: [bot], live: [] };
       else if (path === '/api/models') body = { models: [], defaultModel: null };
       else if (path.endsWith('/rows')) body = { generation: 1, rows: [] };

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { randomBytes, createHash } from 'node:crypto';
 import { Pool } from 'pg';
 import { Hono } from 'hono';
-import { Directory } from '../server/src/platform/directory.js';
+import { Directory, hashToken } from '../server/src/platform/directory.js';
 
 const url=process.env.TEST_DATABASE_URL;
 test('platform native account linking keeps the initiating session and PKCE boundary',{skip:!url},async t=>{
@@ -89,11 +89,116 @@ test('platform native account linking keeps the initiating session and PKCE boun
   });
   await t.test('a delayed encrypted credential delivery cannot outlive its linking session',async()=>{
     const {TenantEnvelopes}=await import('../server/src/platform/envelopes.js');
-    const {hashToken}=await import('../server/src/platform/directory.js');
     session=await directory.createSession(owner,undefined,'Credential app');
     const actual=new TenantEnvelopes(directory,'fixture-key-no-network');
     actual.encrypt=async()=>{await directory.pool.query('DELETE FROM sessions WHERE tenant_id=$1',[owner]);return 'encrypted-test-payload';};
     await assert.rejects(actual.event(owner,'late-credential',{key:'test'},hashToken(session)),/reauth_required/);
     assert.equal((await directory.pool.query("SELECT 1 FROM wake_events WHERE tenant_id=$1 AND id='late-credential'",[owner])).rowCount,0);
+  });
+  await t.test('session revoke uses the request cookie rather than the listed current session', async () => {
+    const listed = await directory.createSession(other, undefined, 'Listed browser');
+    const rotated = await directory.createSession(other, undefined, 'Rotated browser');
+    const foreign = await directory.createSession(owner, undefined, 'Foreign browser');
+    const list = (raw: string) => app.request('/api/auth/sessions', { headers: { cookie: `swarm_session=${raw}` } });
+    const revoke = (raw: string) => app.request(`/api/auth/sessions/${hashToken(raw)}`, { method: 'DELETE', headers: { cookie: `swarm_session=${rotated}` } });
+    const snapshot = await (await list(listed)).json() as { sessions: { id: string; current: boolean }[] };
+    assert.equal(snapshot.sessions.find(session => session.id === hashToken(listed))?.current, true);
+    assert.equal(snapshot.sessions.find(session => session.id === hashToken(rotated))?.current, false);
+    const before = revocations.length;
+
+    const previous = await revoke(listed);
+    assert.equal(previous.status, 200);
+    assert.deepEqual(await previous.json(), { ok: true, revokedCurrent: false });
+    assert.deepEqual(previous.headers.getSetCookie(), []);
+    assert.equal((await list(listed)).status, 401);
+    assert.equal((await list(rotated)).status, 200);
+
+    const denied = await revoke(foreign);
+    assert.equal(denied.status, 404);
+    assert.deepEqual(denied.headers.getSetCookie(), []);
+    assert.equal((await list(foreign)).status, 200);
+
+    const current = await revoke(rotated);
+    assert.equal(current.status, 200);
+    assert.deepEqual(await current.json(), { ok: true, revokedCurrent: true });
+    assert.match(current.headers.getSetCookie().find(header => header.startsWith('swarm_session=')) ?? '', /^swarm_session=;.*Max-Age=0/i);
+    assert.equal((await list(rotated)).status, 401);
+    assert.deepEqual(revocations.slice(before), [[other, hashToken(listed)], [other, hashToken(rotated)]]);
+  });
+  await t.test('account DELETE binds confirmation to the recently authenticated tenant before revocation', async check => {
+    const { platformAccountRoutes } = await import('../server/src/platform/server.js');
+    const tenant = await directory.identity('google', 'account-delete', { name: 'Delete fixture' });
+    const raw = await directory.createSession(tenant, undefined, 'Delete browser');
+    const revoked = check.mock.fn();
+    const revokeTenant = check.mock.method(directory, 'revokeTenant');
+    const accounts = new Hono().route('/', platformAccountRoutes(directory, revoked));
+    const remove = (cookie: string, body: unknown) => accounts.request('/api/account', {
+      method: 'DELETE', headers: { cookie: `swarm_session=${cookie}`, 'content-type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const confirmed = { confirmation: 'DELETE', expectedUserId: tenant };
+    const state = async () => (await directory.pool.query('SELECT state,generation FROM tenants WHERE id=$1', [tenant])).rows[0];
+    const deletionJobs = async () => (await directory.pool.query("SELECT 1 FROM lifecycle_jobs WHERE tenant_id=$1 AND operation='delete'", [tenant])).rowCount;
+    const original = await state();
+    assert.equal((await remove('missing', confirmed)).status, 401);
+    assert.equal((await remove(raw, { confirmation: 'DELETE' })).status, 400);
+    assert.equal((await remove(raw, { expectedUserId: tenant })).status, 400);
+    const mismatch = await remove(raw, { ...confirmed, expectedUserId: other });
+    assert.equal(mismatch.status, 409);
+    assert.equal((await mismatch.json() as { code: string }).code, 'account_changed');
+    assert.equal(revokeTenant.mock.callCount(), 0);
+    assert.equal(revoked.mock.callCount(), 0);
+    assert.deepEqual(await state(), original);
+    assert.equal(await deletionJobs(), 0);
+    assert.equal((await directory.session(raw)).tenant_id, tenant);
+    assert.equal((await directory.session(otherSession)).tenant_id, other);
+
+    await directory.pool.query("UPDATE sessions SET authenticated_at=now()-interval '11 minutes' WHERE hash=$1", [hashToken(raw)]);
+    const stale = await remove(raw, confirmed);
+    assert.equal(stale.status, 401);
+    assert.equal((await stale.json() as { code: string }).code, 'reauth_required');
+    assert.equal(revokeTenant.mock.callCount(), 0);
+    assert.equal(revoked.mock.callCount(), 0);
+    assert.equal(await deletionJobs(), 0);
+
+    const fresh = await directory.createSession(tenant, raw, 'Fresh deletion browser');
+    const success = await remove(fresh, confirmed);
+    assert.equal(success.status, 202);
+    assert.deepEqual(await success.json(), { ok: true, state: 'deleting' });
+    assert.deepEqual(revokeTenant.mock.calls.map(call => call.arguments), [[tenant, { sessionHash: hashToken(fresh) }]]);
+    assert.deepEqual(revoked.mock.calls.map(call => call.arguments), [[tenant]]);
+    assert.equal((await state()).state, 'deleting');
+    assert.equal(await deletionJobs(), 1);
+    assert.equal(await directory.session(fresh), null);
+    assert.equal((await directory.session(otherSession)).tenant_id, other);
+  });
+  await t.test('hosted CLI denies a switched account before waking or forwarding to a suspended tenant', async check => {
+    const { platformRequestMiddleware, platformTenantRequest } = await import('../server/src/platform/server.js');
+    const suspended = await directory.identity('google', 'cli-wake-tenant', { name: 'Suspended CLI fixture' });
+    await directory.pool.query("UPDATE tenants SET state='suspended' WHERE id=$1", [suspended]);
+    const raw = await directory.createSession(suspended, undefined, 'Suspended tenant browser');
+    const forward = check.mock.fn(async (_request: Request, _session: { tenant_id: string }) => Response.json({ ok: true }));
+    const hosted = new Hono();
+    platformRequestMiddleware(hosted);
+    hosted.all('/api/*', platformTenantRequest(directory, { forward }));
+    const request = (route: string, cookie = raw) => hosted.request(route, { headers: { cookie: `swarm_session=${cookie}` } });
+    const wakeJobs = async () => (await directory.pool.query("SELECT tenant_id,state FROM lifecycle_jobs WHERE operation='wake' AND tenant_id=ANY($1::text[])", [[suspended, other]])).rows;
+
+    const mismatch = await request(`/api/cli?expectedUserId=${encodeURIComponent(other)}`);
+    assert.equal(mismatch.status, 409);
+    assert.equal((await mismatch.json() as { code: string }).code, 'account_changed');
+    assert.equal(mismatch.headers.get('cache-control'), 'no-store');
+    assert.equal((await request(`/api/cli/login/fixture?cursor=0&expectedUserId=${encodeURIComponent(other)}`)).status, 409);
+    assert.equal((await request('/api/cli?expectedUserId=')).status, 400);
+    assert.equal((await request(`/api/cli?expectedUserId=${encodeURIComponent(suspended)}`, 'unknown')).status, 401);
+    assert.deepEqual(await wakeJobs(), []);
+    assert.equal(forward.mock.callCount(), 0);
+
+    const matching = `/api/cli/login/fixture?cursor=0&expectedUserId=${encodeURIComponent(suspended)}`;
+    assert.equal((await request(matching)).status, 200);
+    assert.equal((await request('/api/cli')).status, 200);
+    assert.deepEqual(await wakeJobs(), [{ tenant_id: suspended, state: 'queued' }]);
+    assert.deepEqual(forward.mock.calls.map(({ arguments: [incoming, current] }) => [new URL(incoming.url).pathname + new URL(incoming.url).search, current.tenant_id]), [
+      [matching, suspended], ['/api/cli', suspended],
+    ]);
   });
 });

@@ -1,12 +1,51 @@
-import { useEffect, useId, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 import type { McpServerInput, McpServerView } from '@shared/types';
 import { configApi } from '../../lib/configApi';
+import { accessApi, verifyAccessAccount } from '../../lib/accessApi';
+import { needsReauth } from '../../lib/api';
 import { relativeShort } from '../../lib/time';
 import { useStore } from '../../store';
 import { ConfirmButton, Switch } from './ui';
+import { ReauthPrompt } from './ReauthPrompt';
+import { useAccessReauth } from './useAccessReauth';
 
 const blank = (): McpServerInput => ({ name: '', transport: 'http', url: '', command: '', args: [], cwd: '', folders: [], enabled: true, botIds: [], requireApproval: true, oauth: false });
+const editorValues = (server: McpServerView | null): McpServerInput => server ? { name: server.name, transport: server.transport, url: server.url, command: server.command, args: server.args, cwd: server.cwd, folders: server.folders ?? [], enabled: server.enabled, botIds: server.botIds, requireApproval: server.requireApproval, oauth: server.oauth ?? false } : blank();
+type SafeDraft = Pick<McpServerInput, 'name' | 'transport' | 'folders' | 'enabled' | 'botIds' | 'requireApproval' | 'oauth'> & { reenterEndpoint: boolean; credentialsChanged: boolean };
+type McpIntent = { action: 'save'; id: string | null; draft: SafeDraft } | { action: 'oauth'; id: string };
+const isStringList = (value: unknown): value is string[] => Array.isArray(value) && value.every(item => typeof item === 'string');
+
+function parseMcpIntent(value: unknown): McpIntent | null {
+  if (!value || typeof value !== 'object') return null;
+  const intent = value as Partial<McpIntent>;
+  if (intent.action === 'oauth' && typeof intent.id === 'string') return { action: 'oauth', id: intent.id };
+  if (intent.action !== 'save' || !(typeof intent.id === 'string' || intent.id === null)) return null;
+  const draft = intent.draft;
+  if (!draft || typeof draft.name !== 'string' || !['http', 'sse', 'stdio'].includes(draft.transport) || !isStringList(draft.folders) || !(draft.botIds === null || isStringList(draft.botIds)) || typeof draft.enabled !== 'boolean' || typeof draft.requireApproval !== 'boolean') return null;
+  return { action: 'save', id: intent.id, draft: {
+    name: draft.name, transport: draft.transport, folders: draft.folders, botIds: draft.botIds,
+    enabled: draft.enabled, requireApproval: draft.requireApproval, oauth: draft.oauth === true,
+    reenterEndpoint: draft.reenterEndpoint === true, credentialsChanged: draft.credentialsChanged === true,
+  } };
+}
+
+function safeDraft(input: McpServerInput, server: McpServerView | null): SafeDraft {
+  const { name, transport, folders, enabled, botIds, requireApproval, oauth } = input;
+  const before = editorValues(server);
+  return {
+    name, transport, folders: folders ?? before.folders ?? [], enabled, botIds, requireApproval, oauth,
+    reenterEndpoint: !server || transport !== before.transport || input.url !== before.url || input.command !== before.command || input.cwd !== before.cwd || JSON.stringify(input.args) !== JSON.stringify(before.args),
+    credentialsChanged: input.bearerToken !== undefined || !!input.headers || !!input.env,
+  };
+}
+
+function restoreDraft(server: McpServerView | null, recovered?: SafeDraft): McpServerInput {
+  const before = editorValues(server);
+  if (!recovered) return before;
+  const { reenterEndpoint, credentialsChanged: _, ...draft } = recovered;
+  return { ...before, ...draft, ...(reenterEndpoint ? { url: '', command: '', args: [], cwd: '' } : {}) };
+}
 function pairs(text: string, label: string): Record<string, string> | undefined {
   if (!text.trim()) return undefined;
   let value: unknown;
@@ -59,8 +98,8 @@ function FolderPicker({ selected, onChange }: { selected: string[]; onChange: (f
   </div></div>;
 }
 
-function McpEditor({ server, onSave, onCancel, onRemove }: { server: McpServerView | null; onSave: (input: McpServerInput) => Promise<void>; onCancel: () => void; onRemove?: () => Promise<void> }) {
-  const [draft, setDraft] = useState<McpServerInput>(server ? { name: server.name, transport: server.transport, url: server.url, command: server.command, args: server.args, cwd: server.cwd, folders: server.folders ?? [], enabled: server.enabled, botIds: server.botIds, requireApproval: server.requireApproval, oauth: server.oauth ?? false } : blank());
+function McpEditor({ server, recovered, locked, onSave, onCancel, onRemove }: { server: McpServerView | null; recovered?: SafeDraft; locked: boolean; onSave: (input: McpServerInput) => Promise<void>; onCancel: () => void; onRemove?: () => Promise<void> }) {
+  const [draft, setDraft] = useState(() => restoreDraft(server, recovered));
   const [token, setToken] = useState('');
   const [clearToken, setClearToken] = useState(false);
   const [headers, setHeaders] = useState('');
@@ -70,12 +109,20 @@ function McpEditor({ server, onSave, onCancel, onRemove }: { server: McpServerVi
   const bots = useStore(s => s.bots).filter(b => b.kind !== 'room');
   const set = <K extends keyof McpServerInput>(key: K, value: McpServerInput[K]) => setDraft(d => ({ ...d, [key]: value }));
   const stdio = draft.transport === 'stdio';
-  return <section className="cfg-section">
+  return <section className="cfg-section" hidden={locked}>
     <h2 className="cfg-section__label">{server ? `Edit ${server.name}` : 'New server'}</h2>
+    {recovered && <div className="access-callout" role="status">
+      You’re signed in again. Review your draft and choose Save &amp; test connection again.
+      {recovered.reenterEndpoint && ' Re-enter the connection URL or command and its arguments.'}
+      {recovered.credentialsChanged && ' Re-enter any credentials you want to change; they weren’t carried through sign-in.'}
+    </div>}
     <form className="cfg-card mcp-editor" aria-label={server ? 'Edit MCP server' : 'Add MCP server'} onSubmit={async e => {
-      e.preventDefault(); setBusy(true); setError('');
+      e.preventDefault(); if (busy || locked) return; setBusy(true); setError('');
       try { await onSave({ ...draft, folders: JSON.stringify(draft.folders) === JSON.stringify(server?.folders ?? []) ? undefined : draft.folders, bearerToken: clearToken ? '' : token || undefined, headers: pairs(headers, 'Headers'), env: pairs(env, 'Environment variables') }); }
-      catch (e) { setError((e as Error).message); }
+      catch (e) {
+        if (needsReauth(e)) { setToken(''); setClearToken(false); setHeaders(''); setEnv(''); }
+        else setError(e instanceof Error ? e.message : 'Couldn’t save this MCP server.');
+      }
       finally { setBusy(false); }
     }}>
       <fieldset disabled={busy} className="mcp-fields">
@@ -135,35 +182,102 @@ const summary = (s: McpServerView) => [transportText(s), accessText(s), `${s.too
   !s.enabled ? 'Disabled' : s.checkedAt ? `Verified ${ago(s.checkedAt)}` : 'Not tested'].join(' · ');
 
 export function McpSettings() {
+  const user = useStore(state => state.user);
+  return user && <AccountMcpSettings key={user.id} accountId={user.id} accountEmail={user.email} />;
+}
+
+function AccountMcpSettings({ accountId, accountEmail }: { accountId: string; accountEmail: string }) {
   const [servers, setServers] = useState<McpServerView[]>([]);
   const [canManage, setCanManage] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [reload, setReload] = useState(0);
   const [editing, setEditing] = useState<McpServerView | null | undefined>(undefined);
+  const [recovered, setRecovered] = useState<SafeDraft>();
+  const [recoveredOAuth, setRecoveredOAuth] = useState<string>();
+  const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const mounted = useRef(false);
+  const action = useRef(false);
+  const applied = useRef(false);
+  const reauth = useAccessReauth('mcp', accountId, parseMcpIntent);
+  const locked = !!reauth.pending || reauth.checking;
+  const current = () => mounted.current && useStore.getState().user?.id === accountId;
   const upsert = (server: McpServerView) => setServers(list => list.some(s => s.id === server.id) ? list.map(s => s.id === server.id ? server : s) : [...list, server]);
-  useEffect(() => { let alive = true; configApi.mcpServers().then(r => { if (alive) { setServers(r.servers ?? []); setCanManage(!!r.canManage); } }).catch(e => { if (alive) setError(e.message); }).finally(() => { if (alive) setLoading(false); }); return () => { alive = false; }; }, []);
-  async function act(id: string, work: () => Promise<void>) { setBusy(id); setError(''); try { await work(); } catch (e) { setError((e as Error).message); } finally { setBusy(null); } }
-  const test = (s: McpServerView) => act(s.id, async () => upsert((await configApi.testMcpServer(s.id)).server));
+  useEffect(() => {
+    mounted.current = true;
+    let alive = true;
+    setLoading(true); setLoadError(''); setCanManage(false); setServers([]);
+    void configApi.mcpServers().then(result => {
+      if (alive && current()) { setServers(result.servers ?? []); setCanManage(!!result.canManage); }
+    }).catch(err => { if (alive && current()) setLoadError(err.message); }).finally(() => { if (alive && current()) setLoading(false); });
+    return () => { alive = false; mounted.current = false; };
+  }, [accountId, reload]);
+
+  useEffect(() => {
+    const intent = reauth.returned;
+    if (!intent || loading || loadError || applied.current) return;
+    applied.current = true;
+    const server = intent.id === null ? null : servers.find(item => item.id === intent.id);
+    if (!canManage || server === undefined) { setNotice('The previous server is no longer available to edit. No changes were made.'); return; }
+    if (intent.action === 'save') { setEditing(server); setRecovered(intent.draft); }
+    else if (server?.oauth) setRecoveredOAuth(server.id);
+    else setNotice('OAuth is no longer available for this server. No connection was started.');
+  }, [canManage, loadError, loading, reauth.returned, servers]);
+
+  async function act(id: string, work: () => Promise<void>, intent?: McpIntent) {
+    if (locked || action.current || !current()) return;
+    action.current = true; setBusy(id); setError(''); setNotice('');
+    try { await verifyAccessAccount(accountId); if (current()) await work(); }
+    catch (err) {
+      if (!current()) return;
+      if (intent && needsReauth(err)) reauth.request(intent, err.message);
+      else setError(err instanceof Error ? err.message : 'Couldn’t update MCP settings.');
+    } finally { action.current = false; if (current()) setBusy(null); }
+  }
+
+  function edit(server: McpServerView | null | undefined) { setEditing(server); setRecovered(undefined); }
+
+  const test = (server: McpServerView) => act(server.id, async () => {
+    const result = await configApi.testMcpServer(server.id);
+    if (current()) upsert(result.server);
+  });
   return <>
-    <div className="app-settings__head app-settings__head--action">
-      <div><h1>MCP servers</h1><p>Connect custom tools and choose which Bots can use them.</p></div>
-      {canManage && editing === undefined && !loading && <button className="cfg-btn cfg-btn--primary" type="button" onClick={() => setEditing(null)}>Add MCP server</button>}
+    <div className="app-settings__head">
+      <h1>Manage MCP servers</h1><p>Allow Bots to use only the servers and tools they need.</p>
     </div>
     {error && <div className="cfg-error" role="alert">{error}</div>}
-    {loading ? <div className="cfg-empty cfg-empty--flat">Loading…</div> : <>
-      {editing !== undefined && <McpEditor key={editing?.id ?? 'new'} server={editing} onCancel={() => setEditing(undefined)}
-        onRemove={editing ? async () => { const id = editing.id; await act(id, async () => { await configApi.deleteMcpServer(id); setServers(list => list.filter(item => item.id !== id)); setEditing(undefined); }); } : undefined}
+    {reauth.error && <div className="cfg-error" role="alert">{reauth.error}</div>}
+    {reauth.checking && <div className="cfg-empty" role="status">Verifying your sign-in…</div>}
+    {reauth.pending && <ReauthPrompt reason={reauth.pending.reason} accountEmail={accountEmail} resume={{ section: 'mcp', action: 'login', accountId }} retryLabel={reauth.pending.intent.action === 'oauth' ? 'Connect account' : 'Save & test connection'} terminalActive={false} onCancel={() => { reauth.cancel(); edit(undefined); }} />}
+    {notice && <p className="access-callout" role="status">{notice}</p>}
+    {recoveredOAuth && !locked && <p className="access-callout" role="status">You’re signed in again. Select Connect account on the server to start authorization.</p>}
+    {!locked && loadError && <div><p className="cfg-error" role="alert">{loadError}</p><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setReload(value => value + 1)}>Try again</button></div>}
+    {!locked && loading && <div className="cfg-empty cfg-empty--flat" role="status">Loading MCP servers…</div>}
+    {!loading && !loadError && <>
+      {editing !== undefined && <McpEditor key={editing?.id ?? 'new'} server={editing} recovered={recovered} locked={locked} onCancel={() => edit(undefined)}
+        onRemove={editing ? async () => { const id = editing.id; await act(id, async () => { await configApi.deleteMcpServer(id); if (current()) { setServers(list => list.filter(item => item.id !== id)); edit(undefined); } }); } : undefined}
         onSave={async input => {
-          const { server } = editing ? await configApi.updateMcpServer(editing.id, input) : await configApi.createMcpServer(input);
-          upsert(server);
-          try { upsert((await configApi.testMcpServer(server.id)).server); }
-          catch (e) { setError(`Saved, but the connection test failed: ${(e as Error).message}`); }
-          setEditing(undefined);
+          if (locked || action.current || !current()) return;
+          action.current = true; setBusy(editing?.id ?? 'new'); setError('');
+          try {
+            await verifyAccessAccount(accountId);
+            if (!current()) return;
+            const { server } = editing ? await accessApi.updateMcpServer(editing.id, input) : await accessApi.createMcpServer(input);
+            if (!current()) return;
+            upsert(server);
+            try { const result = await configApi.testMcpServer(server.id); if (current()) upsert(result.server); }
+            catch (err) { if (current()) setError(`Saved, but the connection test failed: ${err instanceof Error ? err.message : 'Unknown error'}`); }
+            if (current()) edit(undefined);
+          } catch (err) {
+            if (current() && needsReauth(err)) reauth.request({ action: 'save', id: editing?.id ?? null, draft: safeDraft(input, editing) }, err.message);
+            throw err;
+          } finally { action.current = false; if (current()) setBusy(null); }
         }} />}
-      <section className="cfg-section">
+      {!locked && <section className="cfg-section access-mcp">
         <h2 className="cfg-section__label">Your servers</h2>
-        {!servers.length ? <div className="cfg-empty">No custom servers yet. Add a remote URL or a local MCP command.</div> : <div className="cfg-card">
+        {!servers.length ? <div className="cfg-empty">{canManage ? 'No custom servers yet. Add a remote URL or a local MCP command.' : 'No custom servers are available to this account.'}</div> : <div className="cfg-card">
           {servers.map(s => <section className="cfg-row mcp-server" key={s.id} aria-label={s.name}>
             <span className={`computer-status-dot is-${statusDot(s)}`} aria-hidden />
             <div className="cfg-row__text">
@@ -175,14 +289,15 @@ export function McpSettings() {
               {s.checkedAt && !s.error && !s.tools.length && <div className="cfg-row__sub">This server exposes no tools. MCP resources and prompt templates aren’t supported yet.</div>}
             </div>
             {canManage && <div className="mcp-server__actions">
-              {s.oauth && <button className="cfg-btn cfg-btn--secondary" disabled={!!busy} type="button" onClick={() => void act(s.id, async () => { const result = await configApi.authorizeMcpServer(s.id); window.location.assign(result.redirectUrl); })}>Connect account</button>}
-              <Switch label={`Enable ${s.name}`} on={s.enabled} disabled={!!busy} onChange={enabled => void act(s.id, async () => upsert((await configApi.updateMcpServer(s.id, { enabled })).server))} />
+              {s.oauth && <button className={`cfg-btn ${recoveredOAuth === s.id ? 'cfg-btn--primary' : 'cfg-btn--secondary'}`} disabled={!!busy} type="button" onClick={() => void act(s.id, async () => { const result = await accessApi.authorizeMcpServer(s.id); if (current()) window.location.assign(result.redirectUrl); }, { action: 'oauth', id: s.id })}>Connect account</button>}
+              <Switch label={`Enable ${s.name}`} on={s.enabled} disabled={!!busy} onChange={enabled => void act(s.id, async () => { const result = await accessApi.updateMcpServer(s.id, { enabled }); if (current()) upsert(result.server); })} />
               {(s.error || !s.checkedAt) && <button className="cfg-btn cfg-btn--secondary" disabled={!!busy} type="button" onClick={() => void test(s)}>{busy === s.id ? 'Testing…' : s.error ? 'Test again' : 'Test'}</button>}
               <button className="cfg-btn cfg-btn--secondary" disabled={!!busy || editing !== undefined} type="button" onClick={() => setEditing(s)}>Edit</button>
             </div>}
           </section>)}
         </div>}
-      </section>
+        {canManage && editing === undefined && <button className="cfg-btn cfg-btn--primary" type="button" disabled={!!busy} onClick={() => edit(null)}>Add MCP server</button>}
+      </section>}
     </>}
   </>;
 }

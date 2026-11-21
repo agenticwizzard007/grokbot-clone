@@ -52,15 +52,22 @@ interface State {
 }
 
 const LS_SELECTED = 'swarm.selectedBot';
-const LS_DETAILS = 'swarm.detailsOpen';
+
+type InlineSetup = 'create' | 'group';
+type SetupHistory = { page: InlineSetup; depth: 1 | 2; accountId: string; documentStart: number };
+const isInlineSetup = (modal: ModalKind): modal is InlineSetup => modal === 'create' || modal === 'group';
+let setupTraversal: 'back' | 'close' | undefined;
+
+function setupEntry(accountId: string | undefined): SetupHistory | undefined {
+  const entry = history.state?.swarmSetup as SetupHistory | undefined;
+  return accountId && entry?.accountId === accountId && entry.documentStart === performance.timeOrigin
+    && isInlineSetup(entry.page) && (entry.depth === 1 || entry.depth === 2) ? entry : undefined;
+}
 
 /** Same breakpoints as styles/mobile.css. */
 export const PHONE_QUERY = '(max-width: 760px)';
-/** Phones and tablets: the details panel covers the chat instead of taking a column. */
-const OVERLAY_QUERY = '(max-width: 1100px)';
 const matches = (q: string) => typeof window !== 'undefined' && window.matchMedia?.(q).matches === true;
 const IS_PHONE = () => matches(PHONE_QUERY);
-const DETAILS_OVERLAY = () => matches(OVERLAY_QUERY);
 const LS_SIDEBAR = 'swarm.sidebarCollapsed';
 const lsGet = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } };
@@ -82,8 +89,8 @@ export const useStore = create<State>((set, get) => ({
   computer: null,
   connectionsVersion: 0,
   sseConnected: false,
-  // Where the details panel covers the chat (phones, tablets) it starts closed, whatever the desktop preference.
-  detailsOpen: !DETAILS_OVERLAY() && lsGet(LS_DETAILS) !== '0',
+  // Setup now owns the main pane; the old side-column preference must not replace the initial chat.
+  detailsOpen: false,
   sidebarCollapsed: lsGet(LS_SIDEBAR) === '1',
   mobile: IS_PHONE(),
   mobilePane: 'list',
@@ -101,7 +108,10 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async loadBots() {
+    const accountId = get().user?.id;
+    if (!accountId) return;
     const { bots, live } = await api.bots();
+    if (get().user?.id !== accountId) return;
     const liveMap: Record<string, LiveState> = {};
     for (const l of live) liveMap[l.botId] = l;
     const sel = get().selectedBotId;
@@ -122,21 +132,26 @@ export const useStore = create<State>((set, get) => ({
 
   selectBot(id, opts = {}) {
     if (opts.open !== false) enterChatPane();
-    set({ selectedBotId: id });
+    set({ selectedBotId: id, ...(opts.open !== false ? { detailsOpen: false } : {}) });
     lsSet(LS_SELECTED, id);
     const t = get().transcripts[id];
-    if (!t?.loaded) get().loadRows(id).catch(console.error);
-    get().loadRoutines(id).catch(console.error);
     const bot = get().bots.find((b) => b.id === id);
+    if (!t?.loaded || (bot && t.generation < bot.generation)) get().loadRows(id).catch(console.error);
+    get().loadRoutines(id).catch(console.error);
     if (bot?.unread) api.markRead(id).catch(() => {});
   },
 
   async loadRows(id) {
+    const accountId = get().user?.id;
+    if (!accountId || !get().bots.some(bot => bot.id === id)) return;
     const { generation, rows } = await api.rows(id);
+    const state = get();
+    const bot = state.bots.find(candidate => candidate.id === id);
+    const prev = state.transcripts[id];
+    if (state.user?.id !== accountId || !bot || generation < (bot.generation ?? 0) || (prev && generation < prev.generation)) return;
     const bySeq: Record<number, Row> = {};
     for (const r of rows) bySeq[r.seq] = r;
     // Merge with anything that streamed in while we were fetching.
-    const prev = get().transcripts[id];
     if (prev && prev.generation === generation) {
       for (const r of Object.values(prev.bySeq)) if (!bySeq[r.seq] || bySeq[r.seq].updatedSeq < r.updatedSeq) bySeq[r.seq] = r;
     }
@@ -159,7 +174,8 @@ export const useStore = create<State>((set, get) => ({
   upsertRows(botId, generation, rows) {
     set((s) => {
       const prev = s.transcripts[botId];
-      if (prev && generation < prev.generation) return {};
+      const botGeneration = s.bots.find(bot => bot.id === botId)?.generation;
+      if (generation < (botGeneration ?? 0) || (prev && generation < prev.generation)) return {};
       const base: Transcript = !prev || generation > prev.generation ? { generation, bySeq: {}, loaded: prev?.loaded ?? false } : prev;
       const bySeq = { ...base.bySeq };
       for (const r of rows) {
@@ -180,7 +196,11 @@ export const useStore = create<State>((set, get) => ({
         s.upsertRows(ev.botId, ev.generation, ev.rows);
         return;
       case 'cleared':
-        set((st) => ({ transcripts: { ...st.transcripts, [ev.botId]: { generation: ev.generation, bySeq: {}, loaded: true } } }));
+        set((st) => {
+          const botGeneration = st.bots.find(bot => bot.id === ev.botId)?.generation;
+          if (ev.generation < (botGeneration ?? 0) || (st.transcripts[ev.botId]?.generation ?? -1) >= ev.generation) return {};
+          return { transcripts: { ...st.transcripts, [ev.botId]: { generation: ev.generation, bySeq: {}, loaded: true } } };
+        });
         return;
       case 'live':
         set((st) => ({ live: { ...st.live, [ev.state.botId]: ev.state } }));
@@ -215,11 +235,26 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  setModal(modal) { set({ modal }); },
+  setModal(modal) {
+    const state = get();
+    const accountId = state.user?.id;
+    const entry = setupEntry(accountId);
+    if (setupTraversal === 'back') return;
+    if (isInlineSetup(modal) && state.mobile && accountId && !setupTraversal) {
+      if (entry?.page === modal) { set({ modal }); return; }
+      if (entry?.page === 'group' && entry.depth === 2 && modal === 'create') { setupTraversal = 'back'; history.back(); return; }
+      const setup: SetupHistory = { page: modal, depth: entry?.page === 'create' ? 2 : 1, accountId, documentStart: performance.timeOrigin };
+      const next = { ...history.state, swarmSetup: setup };
+      if (entry && setup.depth === 1) history.replaceState(next, '');
+      else history.pushState(next, '');
+    } else if (!isInlineSetup(modal) && isInlineSetup(state.modal) && entry && !setupTraversal) {
+      setupTraversal = 'close';
+      history.go(-entry.depth);
+    }
+    set({ modal });
+  },
 
   set(p) {
-    // The phone/tablet details overlay is transient; don't let it change the desktop preference.
-    if (p.detailsOpen !== undefined && !DETAILS_OVERLAY()) lsSet(LS_DETAILS, p.detailsOpen ? '1' : '0');
     if (p.sidebarCollapsed !== undefined) lsSet(LS_SIDEBAR, p.sidebarCollapsed ? '1' : '0');
     set(p);
   },
@@ -229,14 +264,30 @@ export const useStore = create<State>((set, get) => ({
 export function enterChatPane() {
   const st = useStore.getState();
   if (!st.mobile || st.mobilePane === 'chat') return;
-  history.pushState({ swarmPane: 'chat' }, '');
+  if (setupTraversal !== 'close') history.pushState({ swarmPane: 'chat' }, '');
   st.set({ mobilePane: 'chat' });
+}
+
+export function restorePhoneSetup() {
+  const st = useStore.getState();
+  const traversal = setupTraversal;
+  setupTraversal = undefined;
+  if (traversal === 'close') {
+    if (st.mobile && st.mobilePane === 'chat' && history.state?.swarmPane !== 'chat') history.pushState({ swarmPane: 'chat' }, '');
+    if (isInlineSetup(st.modal) && st.mobile) st.setModal(st.modal);
+    return true;
+  }
+  if (!st.mobile && !traversal) return false;
+  const entry = setupEntry(st.user?.id);
+  if (!entry && !isInlineSetup(st.modal)) return false;
+  st.set({ modal: entry?.page ?? null, ...(st.mobile ? { mobilePane: history.state?.swarmPane === 'chat' ? 'chat' : 'list' } : {}) });
+  return true;
 }
 
 /** Phones: leave a chat (or Tasks) for the Bot list, as the system back gesture would. */
 export function backToList() {
   const st = useStore.getState();
-  if (history.state?.swarmPane === 'chat') history.back();
+  if (!setupTraversal && history.state?.swarmPane === 'chat') history.back();
   else st.set({ mobilePane: 'list', detailsOpen: false });
 }
 

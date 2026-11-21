@@ -31,7 +31,7 @@ export const api = {
   me: () => req<{ user: User | null; devLogin: boolean; googleLogin?: boolean; googleLinked?: boolean; appleLogin?: boolean; appleLinked?: boolean }>('GET', '/auth/me'),
   devLogin: (email: string, name?: string) => req<{ ok: true }>('POST', '/auth/dev', { email, name }),
   logout: () => req<{ ok: true }>('POST', '/auth/logout'),
-  deleteAccount: () => req<{ ok: true }>('DELETE', '/account', { confirmation: 'DELETE' }),
+  deleteAccount: (expectedUserId: string) => req<{ ok: true }>('DELETE', '/account', { confirmation: 'DELETE', expectedUserId }),
 
   bots: () => req<{ bots: Bot[]; live: LiveState[] }>('GET', '/bots'),
   createBot: (b: Pick<Bot, 'name' | 'avatarShape' | 'avatarColor' | 'mode'>) => req<{ bot: Bot }>('POST', '/bots', b),

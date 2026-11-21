@@ -142,9 +142,13 @@ try {
   page.on('request', request => { if (!['127.0.0.1', 'localhost'].includes(new URL(request.url()).hostname)) external.push(request.url()); });
   page.setDefaultTimeout(15000);
   await page.goto(base);
-  await page.locator('.sidebar').getByRole('button', { name: 'Tasks', exact: true }).click();
+  const openGoals = async () => {
+    await page.locator('.sidebar').getByRole('button', { name: 'Tasks', exact: true }).click();
+    await page.getByRole('navigation', { name: 'Work sections' }).getByRole('button', { name: 'Goals', exact: true }).click();
+  };
+  await openGoals();
   const panel = page.getByRole('region', { name: 'Goals and workflows', exact: true });
-  const card = title => panel.locator('.workflow-card').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
+  const card = title => panel.locator('.work-goal-row').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
   for (const existing of fixture.legacyGoals) {
     const goal = (await api('/workflows')).goals.find(g => g.id === existing.id);
     assert.equal(goal.maxTurns, existing.maxTurns);
@@ -186,13 +190,14 @@ try {
     await until(() => evidenceDb.prepare("SELECT 1 FROM native_workflow_runs WHERE goal_id=? AND status='waiting'").get(created.id), 'actual goal reaches real question tool');
     const saved = (await api('/workflows')).goals.find(g => g.id === created.id);
     assert.equal(saved.maxTurns, entry.expected); assert.equal(saved.turnsUsed, 1);
+    await panel.getByRole('button', { name: 'Back to goals', exact: true }).click();
     await card(entry.title).getByText(entry.expected ? /1 \/ 7 turns/ : /1 turns · No turn limit/).waitFor();
     apiEvidence.push({ source: entry.title, request: payload, response: created, saved, db: dbGoal(created.id) });
     console.log(`PASS UI ${entry.title}: request/API/DB/display maxTurns=${entry.expected}, actual runtime turn=1`);
   }
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.reload();
-  await page.locator('.sidebar').getByRole('button', { name: 'Tasks', exact: true }).click();
+  await openGoals();
   await panel.getByRole('heading', { name: cases[1].title, exact: true }).waitFor();
   await card(cases[1].title).getByText(/1 \/ 7 turns/).waitFor();
   await card(cases[2].title).getByText(/No turn limit/).waitFor();

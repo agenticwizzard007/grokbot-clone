@@ -1,21 +1,36 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Bot, CoworkerSetupView } from '@shared/types';
 import { configApi } from '../lib/configApi';
 import { useVersion } from '../configStore';
+import { useStore } from '../store';
 import './coworker-setup.css';
 
 /** Human review stays in the coordinator conversation; activation pins the visible revision. */
 export function CoworkerSetupCards({ coordinator }: { coordinator: Bot }) {
+  const userId = useStore(state => state.user?.id);
+  return <ScopedCoworkerSetups key={JSON.stringify([userId, coordinator.id, coordinator.generation])} coordinator={coordinator} userId={userId} />;
+}
+
+function ScopedCoworkerSetups({ coordinator, userId }: { coordinator: Bot; userId?: string }) {
   const version = useVersion(`setup:${coordinator.id}`);
   const [setups, setSetups] = useState<CoworkerSetupView[]>([]);
   const [refresh, setRefresh] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<string | null>(null);
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  const isCurrent = () => {
+    const state = useStore.getState();
+    return mounted.current && state.user?.id === userId && state.selectedBotId === coordinator.id && state.bots.find(bot => bot.id === coordinator.id)?.generation === coordinator.generation;
+  };
   useEffect(() => {
     let current = true;
-    configApi.coworkerSetups(coordinator.id).then(data => { if (current) { setSetups(data.setups); setError(null); } }).catch(e => { if (current) setError(e.message); });
+    configApi.coworkerSetups(coordinator.id).then(data => { if (current && isCurrent()) { setSetups(data.setups); setError(null); } }).catch(e => { if (current && isCurrent()) setError(e.message); });
     return () => { current = false; };
-  }, [coordinator.id, version, refresh]);
+  }, [coordinator.id, coordinator.generation, userId, version, refresh]);
   useEffect(() => {
     const update = (event: Event) => {
       const detail = (event as CustomEvent).detail;
@@ -28,24 +43,28 @@ export function CoworkerSetupCards({ coordinator }: { coordinator: Bot }) {
   return <section className="coworker-setups" aria-label="Coworker setup reviews">
     {confirmation && <p role="status">{confirmation}</p>}
     {error && <p role="alert">{error} <button type="button" onClick={() => setRefresh(v => v + 1)}>Retry coworker setups</button></p>}
-    {setups.map(setup => <CoworkerSetupCard key={setup.botId} coordinatorId={coordinator.id} setup={setup} onRefresh={() => setRefresh(v => v + 1)} onActivated={() => { setConfirmation(`${setup.manifest.bot.name} activated.`); setRefresh(v => v + 1); }} />)}
+    {setups.map(setup => <CoworkerSetupCard key={setup.botId} coordinatorId={coordinator.id} setup={setup} isCurrent={isCurrent} onRefresh={() => setRefresh(v => v + 1)} onActivated={() => { setConfirmation(`${setup.manifest.bot.name} activated.`); setRefresh(v => v + 1); }} />)}
   </section>;
 }
 
-function CoworkerSetupCard({ coordinatorId, setup, onRefresh, onActivated }: { coordinatorId: string; setup: CoworkerSetupView; onRefresh: () => void; onActivated: () => void }) {
+function CoworkerSetupCard({ coordinatorId, setup, isCurrent, onRefresh, onActivated }: { coordinatorId: string; setup: CoworkerSetupView; isCurrent: () => boolean; onRefresh: () => void; onActivated: () => void }) {
   const [review, setReview] = useState<CoworkerSetupView | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activated, setActivated] = useState(false);
+  const pending = useRef(false);
   const displayed = review ?? setup;
   const { brief, bot, source } = displayed.manifest;
   const stale = !!review && review.onboarding.revision !== setup.onboarding.revision;
   const activate = async () => {
-    if (!review) return;
-    setBusy(true); setError(null);
-    try { await configApi.activateSetup(setup.botId, review.onboarding.revision, coordinatorId); setActivated(true); onActivated(); }
-    catch (e) { setError((e as Error).message); onRefresh(); }
-    finally { setBusy(false); }
+    if (!review || stale || pending.current || !isCurrent()) return;
+    pending.current = true; setBusy(true); setError(null);
+    try {
+      await configApi.activateSetup(setup.botId, review.onboarding.revision, coordinatorId);
+      if (isCurrent()) { setActivated(true); onActivated(); }
+    } catch (failure) {
+      if (isCurrent()) { setError((failure as Error).message); onRefresh(); }
+    } finally { pending.current = false; if (isCurrent()) setBusy(false); }
   };
   if (activated) return <p role="status">{bot.name} activated.</p>;
   return <article className="coworker-setup" aria-label={`${bot.name} setup`}>

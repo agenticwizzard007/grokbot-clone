@@ -46,7 +46,7 @@ import {useConfigUI} from '/src/configStore.ts';
 import '/src/styles/tokens.css';import '/src/styles/base.css';import '/src/styles/chat.css';import '/src/styles/composer-models.css';import '/src/styles/mobile.css';
 document.documentElement.dataset.theme=${JSON.stringify(theme)};
 const bot={id:'usage-test',name:'Quinn',model:'claude/default',effort:'high',fast:false};
-useStore.setState({user:{id:'alice'},mobile:innerWidth<760,mobilePane:'chat',bots:[bot]});
+useStore.setState({user:{id:'alice'},mobile:innerWidth<760,mobilePane:'chat',selectedBotId:bot.id,bots:[bot]});
 window.refreshUsage=()=>useModels.getState().load(true);
 window.changeAccount=()=>useStore.setState({user:{id:'bob'}});
 window.settingsSection=()=>useConfigUI.getState().appSettings;

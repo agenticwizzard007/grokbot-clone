@@ -13,6 +13,16 @@ import { currentSessionHash } from '../security/request-context.js';
 export const cliApi = new Hono<AuthVars>();
 cliApi.use('*', requireUser);
 cliApi.use('*', async (c, next) => { c.header('Cache-Control', 'no-store'); await next(); });
+cliApi.use('*', async (c, next) => {
+  // Browser account intent is an additional constraint, never an authentication identity.
+  // Keep older direct clients compatible; the current web client binds every request.
+  const expected = c.req.query('expectedUserId');
+  if (expected !== undefined) {
+    const denied = accountIntent(c, expected);
+    if (denied) return denied;
+  }
+  await next();
+});
 cliApi.get('/', (c) => c.json(cliStatus(c.get('user').id)));
 cliApi.onError((error, c) => {
   if (error instanceof CliLoginError) return c.json({ error: error.message }, error.status);

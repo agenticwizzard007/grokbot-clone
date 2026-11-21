@@ -35,6 +35,8 @@ jobs:
       - run: npm ci
       - name: Validate native skills, memory, workflows and execution
         run: npm run test:hermes-native
+      - name: Validate integrated Paper navigation and recovery
+        run: npm run test:updated-ui
       - run: npm run test:deployment
       - run: npm run test:isolation
       - run: npm run test:cli

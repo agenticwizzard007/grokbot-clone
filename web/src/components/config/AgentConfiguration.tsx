@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import '@fontsource-variable/instrument-sans/wght.css';
 import '../../styles/agent-configuration.css';
 import type { AgentSetupView, Bot } from '@shared/types';
 import { configApi } from '../../lib/configApi';
+import { setupApi } from '../../lib/setupApi';
 import { ApiError } from '../../lib/api';
-import { useVersion } from '../../configStore';
+import { openConversation, useVersion } from '../../configStore';
 import { useStore } from '../../store';
 import { Markdown } from '../Markdown';
 import { AgentHarness } from './AgentHarness';
@@ -34,7 +35,12 @@ function Items({ label, items }: { label: string; items: string[] }) {
   return <section className="agent-config__section"><h3>{label}</h3><ul>{values.map((item, i) => <li key={i}>{item}</li>)}</ul></section>;
 }
 
-export function AgentConfiguration({ bot }: { bot: Bot }) {
+export function AgentConfiguration({ bot, navigation }: { bot: Bot; navigation?: ReactNode }) {
+  const userId = useStore(state => state.user?.id);
+  return <SetupConfiguration key={JSON.stringify([userId, bot.id])} bot={bot} navigation={navigation} userId={userId} />;
+}
+
+function SetupConfiguration({ bot, navigation, userId }: { bot: Bot; navigation?: ReactNode; userId?: string }) {
   const version = useVersion(`setup:${bot.id}`);
   const running = useStore((s) => s.live[bot.id]?.isRunning ?? false);
   const [data, setData] = useState<AgentSetupView | null>(null);
@@ -42,14 +48,30 @@ export function AgentConfiguration({ bot }: { bot: Bot }) {
   const [busy, setBusy] = useState(false);
   const [absent, setAbsent] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [writeError, setWriteError] = useState('');
+  const [review, setReview] = useState<AgentSetupView | null>(null);
+  const [activatedRevision, setActivatedRevision] = useState<number | null>(null);
+  const [downloadError, setDownloadError] = useState('');
+  const [downloading, setDownloading] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [tab, setTab] = useState<'responsibilities' | 'harness' | 'files' | 'history'>('responsibilities');
   const [selectedFile, setSelectedFile] = useState('AGENTS.md');
   const fileList = useRef<HTMLDivElement>(null);
   const fileReader = useRef<HTMLElement>(null);
+  const request = useRef(0);
+  const mounted = useRef(false);
+  const writing = useRef(false);
+  const downloadRequest = useRef<AbortController | null>(null);
+  const isCurrent = () => mounted.current && useStore.getState().user?.id === userId;
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; downloadRequest.current?.abort(); };
+  }, []);
 
   const readFile = (name: string) => {
     setSelectedFile(name);
+    downloadRequest.current?.abort(); downloadRequest.current = null;
+    setDownloadError(''); setDownloading(false);
     requestAnimationFrame(() => {
       fileReader.current?.scrollIntoView({ block: 'start' });
       fileReader.current?.focus({ preventScroll: true });
@@ -62,38 +84,73 @@ export function AgentConfiguration({ bot }: { bot: Bot }) {
   };
 
   useEffect(() => {
-    let current = true;
+    const version = ++request.current;
+    const current = () => version === request.current && useStore.getState().user?.id === userId;
     configApi.agentSetup(bot.id).then((value) => {
-      if (current) { setData(value); setAbsent(false); setError(null); }
+      if (current()) { setData(value); setAbsent(false); setError(null); }
     }).catch((e) => {
-      if (current) { if (e instanceof ApiError && e.status === 404) { setAbsent(true); setData(null); } else setError(e.message); }
-    }).finally(() => { if (current) setLoading(false); });
-    return () => { current = false; };
-  }, [bot.id, version, refresh]);
+      if (current()) { if (e instanceof ApiError && e.status === 404) { setAbsent(true); setData(null); } else setError(e.message); }
+    }).finally(() => { if (current()) setLoading(false); });
+    return () => { request.current += 1; };
+  }, [bot.id, version, refresh, userId]);
 
-  const interview = async () => {
-    setBusy(true); setError(null);
-    try { setData(await configApi.startSetupInterview(bot.id)); setAbsent(false); }
-    catch (e) { setError((e as Error).message); }
-    finally { setBusy(false); }
+  const mutate = async (run: () => Promise<void>) => {
+    if (writing.current) return;
+    writing.current = true; setBusy(true); setWriteError('');
+    try { await run(); }
+    catch (failure) { if (isCurrent()) setWriteError((failure as Error).message); }
+    finally {
+      writing.current = false;
+      if (isCurrent()) { setBusy(false); setRefresh(value => value + 1); }
+    }
   };
-  const activate = async () => {
-    if (!data) return;
-    setBusy(true); setError(null);
-    try { setData(await configApi.activateSetup(bot.id, data.onboarding.revision)); }
-    catch (e) { setError((e as Error).message); setRefresh((v) => v + 1); }
-    finally { setBusy(false); }
+  const interview = () => void mutate(async () => {
+    const next = await configApi.startSetupInterview(bot.id);
+    if (isCurrent()) { request.current += 1; setData(next); setAbsent(false); setReview(null); }
+  });
+  const activate = () => {
+    if (!review || !data || review.onboarding.revision !== data.onboarding.revision || data.onboarding.status !== 'review' || error || running) return;
+    void mutate(async () => {
+      const next = await configApi.activateSetup(bot.id, review.onboarding.revision);
+      if (!isCurrent()) return;
+      request.current += 1; setData(next); setReview(null);
+      if (next.onboarding.status === 'active') setActivatedRevision(next.onboarding.revision);
+    });
+  };
+  const retryComputer = () => void mutate(async () => {
+    const { computer } = await setupApi.retryComputer(bot.id);
+    if (isCurrent()) setData(previous => previous ? { ...previous, computer } : previous);
+  });
+  const downloadFile = async (file: string) => {
+    if (downloadRequest.current) return;
+    const controller = new AbortController();
+    downloadRequest.current = controller;
+    const current = () => isCurrent() && !controller.signal.aborted;
+    setDownloading(true); setDownloadError('');
+    try {
+      const contents = await setupApi.readFile(bot.id, file, controller.signal);
+      if (!current()) return;
+      const href = URL.createObjectURL(contents);
+      const anchor = document.createElement('a');
+      anchor.href = href; anchor.download = file; document.body.appendChild(anchor); anchor.click(); anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(href), 1000);
+    } catch (failure) { if (current()) setDownloadError((failure as Error).message); }
+    finally { if (current()) { downloadRequest.current = null; setDownloading(false); } }
   };
 
-  if (loading) return <div className="panel-empty" role="status">Loading configuration…</div>;
-  if (absent) return <div className="details__sections agent-config">
+  const detailsTitle = tab === 'harness' ? `${bot.name} · Harness` : tab === 'history' ? `${bot.name} · Agent history` : tab === 'files' ? 'Configuration files' : `${bot.name} · Setup`;
+  const header = <><h1 className="agent-config__title">{detailsTitle}</h1>
+    <p className="setup-paper__subtitle">{data ? `${data.onboarding.status === 'active' ? 'Active configuration' : data.onboarding.status === 'review' ? 'Ready for review' : 'Setup interview'} · Revision ${data.onboarding.revision}` : absent ? 'No saved configuration.' : 'Role, standing instructions, files, and recorded changes.'}</p>{navigation}</>;
+
+  if (loading) return <>{header}<p role="status">Loading configuration…</p></>;
+  if (absent) return <>{header}<div className="details__sections agent-config">
     <section className="agent-config__section"><h3>Current instructions</h3><p>{bot.instructions || bot.description || 'This agent does not have a saved setup yet.'}</p></section>
     <p className="agent-config__muted">Define its job, expected results and the decisions it should bring to you.</p>
     <button type="button" className="cfg-btn cfg-btn--secondary" onClick={interview} disabled={busy || running}>{busy ? 'Starting…' : 'Start setup interview'}</button>
-    {error && <p className="cfg-error" role="alert">{error}</p>}
-    <AgentHistory key={bot.id} botId={bot.id}/>
-  </div>;
-  if (!data) return <div className="details__sections"><p className="cfg-error" role="alert">{error || 'Configuration unavailable.'}</p><button type="button" className="link-btn" onClick={() => setRefresh((v) => v + 1)}>Retry</button></div>;
+    {writeError && <p className="cfg-error" role="alert">{writeError}</p>}
+    <AgentHistory botId={bot.id}/>
+  </div></>;
+  if (!data) return <>{header}<p className="cfg-error" role="alert">{error || 'Configuration unavailable.'}</p><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setRefresh((v) => v + 1)}>Retry</button></>;
   const { brief } = data.manifest;
   const status = data.onboarding.status;
   const purpose = usefulItems([brief.purpose])[0];
@@ -104,13 +161,8 @@ export function AgentConfiguration({ bot }: { bot: Bot }) {
   const questions = usefulItems(brief.open_questions);
   const tabs = ['responsibilities', 'harness', 'files', 'history'] as const;
   const file = Object.hasOwn(data.files, selectedFile) ? selectedFile : Object.keys(data.files)[0];
-  return <div className="details__sections agent-config">
-    <section className={`agent-config__status is-${status}`} aria-label="Setup status">
-      <div className="agent-config__row"><strong className="agent-config__status-title"><span className="agent-config__status-dot" aria-hidden />{status === 'active' ? 'Active configuration' : status === 'review' ? 'Ready for your review' : 'Setup interview'}</strong><span className="agent-config__revision">Revision {data.onboarding.revision}</span></div>
-      {status !== 'active' && <p>{status === 'review' ? 'Review the responsibilities and instructions, then activate.' : 'Define the job in chat. Your answers are saved here as a draft.'}</p>}
-      {status === 'review' && <button type="button" className="cfg-btn cfg-btn--primary" onClick={activate} disabled={busy || running || !!data.onboarding.missing.length}>{busy ? 'Activating…' : 'Activate agent'}</button>}
-      {status !== 'active' && <span className="agent-config__muted">Operational tools are restricted until activation.</span>}
-    </section>
+  const stale = review && (status !== 'review' || review.onboarding.revision !== data.onboarding.revision);
+  return <>{header}<div className="details__sections agent-config">
     {error && <p className="cfg-error" role="alert">{error} <button type="button" className="link-btn" onClick={() => setRefresh((v) => v + 1)}>Retry</button></p>}
     <div className="agent-config__tabs" role="tablist" aria-label="Agent configuration sections">
       {tabs.map((value, i) => <button type="button" key={value} role="tab" id={`config-${bot.id}-${value}`} aria-controls={`config-${bot.id}-${value}-panel`} aria-selected={tab === value} tabIndex={tab === value ? 0 : -1} onClick={() => setTab(value)} onKeyDown={(e) => {
@@ -119,6 +171,28 @@ export function AgentConfiguration({ bot }: { bot: Bot }) {
       }}>{value === 'responsibilities' ? 'Responsibilities' : value === 'harness' ? 'Harness' : value === 'history' ? 'History' : 'Files'}</button>)}
     </div>
     <div className="agent-config__content" role="tabpanel" id={`config-${bot.id}-responsibilities-panel`} aria-labelledby={`config-${bot.id}-responsibilities`} tabIndex={0} hidden={tab !== 'responsibilities'}>
+      {status !== 'active' && <section className="agent-config__review" aria-label="Setup status">
+        <p>{status === 'review' ? 'Review the responsibilities and instructions, then activate.' : 'Define the job in chat. Your answers are saved here as a draft.'}</p>
+        {data.onboarding.missing.length > 0 && <Items label="Decisions still needed" items={data.onboarding.missing} />}
+        <p className="agent-config__muted">Operational tools are restricted until activation.</p>
+        {status === 'interviewing' && <button type="button" className="cfg-btn cfg-btn--primary" onClick={() => openConversation(bot.id)}>Continue setup in chat</button>}
+        {status === 'review' && <button type="button" className="cfg-btn cfg-btn--primary" disabled={busy || !!error} onClick={() => { setReview(data); setWriteError(''); }}>Review {stale ? 'latest revision' : 'configuration'}</button>}
+        {review && <div className="agent-config__review-summary">
+          <h3>Review {bot.name}’s configuration · revision {review.onboarding.revision}</h3>
+          {stale && <p role="status">The configuration changed. Review the latest revision before activating.</p>}
+          <p>{review.manifest.brief.purpose}</p>
+          <Items label="Responsibilities" items={review.manifest.brief.responsibilities} />
+          <Items label="Expected results" items={review.manifest.brief.success_criteria} />
+          <p>{review.manifest.brief.action_boundaries}</p>
+          {review.manifest.bot.instructions && <section className="agent-config__section"><h3>Standing instructions</h3><p>{review.manifest.bot.instructions}</p></section>}
+          <div className="setup-paper__actions">
+            <button type="button" className="cfg-btn cfg-btn--primary" onClick={activate} disabled={busy || running || !!error || !!stale || !!review.onboarding.missing.length}>{busy ? 'Activating…' : `Activate agent · revision ${review.onboarding.revision}`}</button>
+            <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setReview(null)} disabled={busy}>Close review</button>
+          </div>
+        </div>}
+      </section>}
+      {activatedRevision !== null && status === 'active' && <p role="status">Activated configuration revision {activatedRevision}.</p>}
+      {writeError && <p className="cfg-error" role="alert">{writeError}</p>}
       {purpose || responsibilities.length ? <section className="agent-config__section"><h3>Mission & responsibilities</h3>{purpose && <p className="agent-config__mission">{purpose}</p>}{!!responsibilities.length && <ul>{responsibilities.map((item, i) => <li key={i}>{item}</li>)}</ul>}</section> : <p className="agent-config__muted">No specific job defined yet. Describe what you want this agent to handle in chat.</p>}
       <Items label="Expected results" items={outcomes.length ? outcomes : brief.workflows.map((w) => w.output)} />
       {(boundaries || exclusions.length > 0) && <section className="agent-config__section"><h3>Agreed limits</h3>{boundaries && <p>{boundaries}</p>}{!!exclusions.length && <ul>{exclusions.map((item, i) => <li key={i}>{item}</li>)}</ul>}<p className="agent-config__muted">These guide the agent. App access and approval settings are managed separately in Harness.</p></section>}
@@ -126,9 +200,14 @@ export function AgentConfiguration({ bot }: { bot: Bot }) {
       {!!brief.workflows.length && <section className="agent-config__section"><h3>Planned workflows</h3><p className="agent-config__muted">Saved steps for the agent to follow. Recurring work needs a registered routine.</p>{brief.workflows.map((w, i) => <details key={i} className="agent-config__workflow"><summary><span>{w.name}</span><Icon name="chev_right" className="agent-config__chevron" /></summary><div className="agent-config__disclosure-body"><p><b>Starts when:</b> {w.trigger}</p><ol>{w.steps.map((step, j) => <li key={j}>{step}</li>)}</ol><p><b>Produces:</b> {w.output}</p></div></details>)}</section>}
       <Items label="Resources" items={brief.shared_resources} />
       <Items label="Handoffs" items={brief.handoff_notes} />
+      {data.computer.status === 'pending' && <section className="agent-config__section agent-config__review" aria-label="Computer preparation">
+        <h3>Computer preparation pending</h3>
+        {data.computer.error && <p className="agent-config__muted">{data.computer.error}</p>}
+        <button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={retryComputer}>Retry computer preparation</button>
+      </section>}
       {status === 'active' && <section className="agent-config__section agent-config__refine">
-        <button type="button" className="cfg-btn cfg-btn--secondary" onClick={interview} disabled={busy || running}>{busy ? 'Starting…' : 'Refine setup'}</button>
         <p className="agent-config__muted">Change the role or workflows in chat, then review and activate again. Operational tools are restricted during refinement.</p>
+        <button type="button" className="cfg-btn cfg-btn--primary" onClick={interview} disabled={busy || running}>{busy ? 'Updating setup…' : 'Refine setup'}</button>
       </section>}
     </div>
     <div className="agent-config__content" role="tabpanel" id={`config-${bot.id}-harness-panel`} aria-labelledby={`config-${bot.id}-harness`} tabIndex={0} hidden={tab !== 'harness'}>
@@ -140,15 +219,17 @@ export function AgentConfiguration({ bot }: { bot: Bot }) {
         {Object.keys(data.files).map((name) => <button type="button" key={name} aria-pressed={file === name} onClick={() => readFile(name)}><span className="agent-config__file-icon"><Icon name="file" size={18} /></span><span className="agent-config__file-label"><strong>{name}</strong><span>{fileDescriptions[name] || 'Saved configuration'}</span></span><span className="agent-config__file-check">{file === name && <Icon name="check" size={16} />}</span></button>)}
       </div>
       {file && <section className="agent-config__file" ref={fileReader} tabIndex={-1} aria-label={`${file} contents`}>
-        <button type="button" className="link-btn agent-config__back" onClick={backToFiles}><Icon name="arrow_up" size={14} />Back to files</button>
-        <div className="agent-config__row"><h3>{file}</h3><a className="cfg-btn cfg-btn--secondary" href={`/api/bots/${bot.id}/setup/${encodeURIComponent(file)}`} download={file}><Icon name="arrow_down" size={14} />Download</a></div>
+        <h3>{file}</h3>
         {file.endsWith('.json') ? <pre tabIndex={0}>{data.files[file]}</pre> : <Markdown text={data.files[file]} />}
+        {downloadError && <p role="alert" className="cfg-error">{downloadError}</p>}
+        <div className="setup-paper__actions"><button type="button" className="cfg-btn cfg-btn--primary" disabled={downloading} onClick={() => void downloadFile(file)}>{downloading ? 'Preparing download…' : 'Download'}</button>
+          <button type="button" className="cfg-btn cfg-btn--secondary" onClick={backToFiles}>Back to files</button></div>
       </section>}
     </div>
     <div className="agent-config__content" role="tabpanel" id={`config-${bot.id}-history-panel`} aria-labelledby={`config-${bot.id}-history`} tabIndex={0} hidden={tab !== 'history'}>
       {tab==='history'&&<AgentHistory key={bot.id} botId={bot.id}/>}
     </div>
-  </div>;
+  </div></>;
 }
 
 const fileDescriptions: Record<string, string> = {

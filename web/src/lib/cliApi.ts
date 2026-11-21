@@ -1,4 +1,5 @@
 import { ApiError } from './api';
+import { useStore } from '../store';
 
 export type CliProvider = 'codex' | 'claude';
 
@@ -29,8 +30,15 @@ export interface LoginSession {
   exitCode?: number | null;
 }
 
-async function request(method: string, path = '', body?: unknown, signal?: AbortSignal, keepalive = false): Promise<Response> {
-  const response = await fetch(`/api/cli${path}`, {
+async function request(method: string, path = '', body?: unknown, signal?: AbortSignal, keepalive = false) {
+  // Bind the request itself to the rendered account; another tab can change the cookie.
+  const expectedUserId = useStore.getState().user?.id;
+  if (!expectedUserId) throw new ApiError(401, 'Sign in before changing a connection.', 'unauthenticated');
+  const current = () => {
+    if (useStore.getState().user?.id !== expectedUserId) throw new ApiError(409, 'Your account changed. Reload this page before changing a connection.', 'account_changed');
+  };
+  const intent = `${path.includes('?') ? '&' : '?'}expectedUserId=${encodeURIComponent(expectedUserId)}`;
+  const response = await fetch(`/api/cli${path}${intent}`, {
     method,
     credentials: 'include',
     headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
@@ -38,24 +46,33 @@ async function request(method: string, path = '', body?: unknown, signal?: Abort
     signal,
     keepalive,
   });
+  current();
   if (!response.ok) {
     let message = response.statusText || 'Subscription request failed.', code: string | undefined;
     try { const body = (await response.json()) as { error?: string; code?: string }; message = body.error || message; code = body.code; } catch { /* Not a JSON error. */ }
+    current();
     throw new ApiError(response.status, message, code);
   }
-  return response;
+  return { response, current };
+}
+
+async function jsonRequest<T>(...args: Parameters<typeof request>): Promise<T> {
+  const { response, current } = await request(...args);
+  const value = await response.json();
+  current();
+  return value as T;
 }
 
 export const cliApi = {
-  status: async (signal?: AbortSignal): Promise<CliStatus> => (await request('GET', '', undefined, signal)).json(),
-  pair: async (): Promise<{ command: string }> => (await request('POST', '/pair')).json(),
+  status: (signal?: AbortSignal): Promise<CliStatus> => jsonRequest('GET', '', undefined, signal),
+  pair: (): Promise<{ command: string }> => jsonRequest('POST', '/pair'),
   select: async (provider: CliProvider | null): Promise<void> => { await request('PUT', '', { provider }); },
-  refresh: async (): Promise<CliStatus> => (await request('POST', '/refresh')).json(),
+  refresh: (): Promise<CliStatus> => jsonRequest('POST', '/refresh'),
   revoke: async (): Promise<void> => { await request('DELETE', '/pair'); },
-  reset: async (expectedUserId: string): Promise<CliStatus> => (await request('POST', '/reset', { expectedUserId })).json(),
+  reset: (expectedUserId: string): Promise<CliStatus> => jsonRequest('POST', '/reset', { expectedUserId }),
   verifyAuth: async (expectedUserId: string, signal?: AbortSignal): Promise<void> => { await request('POST', '/reauth', { expectedUserId }, signal); },
-  startLogin: async (provider: CliProvider, cols: number, rows: number): Promise<LoginSession> => (await request('POST', '/login', { provider, cols, rows })).json(),
-  login: async (id: string, cursor: number, signal?: AbortSignal): Promise<LoginSession> => (await request('GET', `/login/${encodeURIComponent(id)}?cursor=${cursor}`, undefined, signal)).json(),
+  startLogin: (provider: CliProvider, cols: number, rows: number): Promise<LoginSession> => jsonRequest('POST', '/login', { provider, cols, rows }),
+  login: (id: string, cursor: number, signal?: AbortSignal): Promise<LoginSession> => jsonRequest('GET', `/login/${encodeURIComponent(id)}?cursor=${cursor}`, undefined, signal),
   loginInput: async (id: string, data: string, signal?: AbortSignal): Promise<void> => { await request('POST', `/login/${encodeURIComponent(id)}/input`, { data }, signal); },
   resizeLogin: async (id: string, cols: number, rows: number, signal?: AbortSignal): Promise<void> => { await request('POST', `/login/${encodeURIComponent(id)}/resize`, { cols, rows }, signal); },
   cancelLogin: async (id: string): Promise<void> => { await request('DELETE', `/login/${encodeURIComponent(id)}`, undefined, undefined, true); },

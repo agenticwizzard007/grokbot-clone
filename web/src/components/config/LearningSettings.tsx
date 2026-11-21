@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { learningApi, type LearningSettings as Settings, type LearningSettingsView, type LearningReview } from '../../lib/learningApi';
+import { useEffect, useRef, useState } from 'react';
+import { learningApi, type LearningSettings as Settings, type LearningSettingsView, type LearningReview, type SkillMaintenanceOutcome } from '../../lib/learningApi';
 import { useNativeRefresh } from '../../lib/useNativeRefresh';
 import { useConfigUI } from '../../configStore';
 import { useStore } from '../../store';
@@ -13,8 +13,14 @@ const flags: { key: keyof Settings; label: string; hint: string }[] = [
   { key: 'skillApproval', label: 'Require approval for skill changes', hint: 'Off allows automatic improvements only under a standing scope policy after independent frozen evaluations. Other unattended changes wait for review.' },
 ];
 export function LearningSettingsPanel({ botId }: { botId?: string }) {
+  const userId = useStore(state => state.user?.id);
+  return <LearningSettingsForm key={JSON.stringify([userId, botId])} botId={botId} />;
+}
+
+function LearningSettingsForm({ botId }: { botId?: string }) {
   const [view, setView] = useState<LearningSettingsView | null>(null), [draft, setDraft] = useState<Settings | null>(null);
   const [error, setError] = useState(''), [busy, setBusy] = useState(false), [notice, setNotice] = useState(''), [attempt, setAttempt] = useState(0);
+  const [showReviews, setShowReviews] = useState(false);
   useEffect(() => {
     let active = true; setView(null); setDraft(null); setNotice(''); setError('');
     learningApi.settings(botId).then(r => { if (active) { setView(r); setDraft(r.settings); } }).catch(e => { if (active) setError(e.message); });
@@ -32,45 +38,96 @@ export function LearningSettingsPanel({ botId }: { botId?: string }) {
   };
   const set = <K extends keyof Settings>(key: K, value: Settings[K]) => setDraft(s => s ? { ...s, [key]: value } : s);
   const numberField = (key: keyof Settings, label: string, min: number, max?: number) => <label key={key}>{label}<input type="number" min={min} max={max} required value={draft?.[key] as number ?? ''} onChange={e => set(key, e.currentTarget.valueAsNumber)} /></label>;
+  const overridden = Object.keys(view?.overrides ?? {});
   return <div className="cfg-page learning-settings native-panel">
-    <header><div><h2>Learning</h2><p>{botId ? 'Account defaults apply unless this Bot has an override.' : 'Account defaults for Hermes reviews, skill activation and maintenance.'}</p></div></header>
+    <header><div><h2>Learning</h2><p>{botId ? 'Account defaults apply unless this bot has an override.' : 'Account defaults for reviews, skill activation and maintenance.'}</p></div></header>
+    {!showReviews && <>
     {error && <div className="cfg-error" role="alert">{error} <button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setAttempt(n => n + 1)}>Reload settings</button></div>}
     {!draft && !error && <p role="status">Loading learning settings…</p>}
     {draft && view && <form className="learning-fields" onSubmit={e => { e.preventDefault(); void save(); }}>
-      {botId && <div className="native-meta">{view.overrides && Object.keys(view.overrides).length ? `Bot overrides: ${Object.keys(view.overrides).join(', ')}` : 'All values inherited from account settings.'} · Settings revision {view.revision}</div>}
-      <div className="cfg-card learning-fields">{flags.map(f => <label className="native-check" key={f.key}><input type="checkbox" checked={draft[f.key] as boolean} onChange={e => set(f.key, e.currentTarget.checked)} /><span><strong>{f.label}</strong><small style={{ display: 'block' }}>{f.hint}</small></span></label>)}
+      {botId && <div className="learning-inheritance"><strong>{overridden.length ? 'This bot has overrides' : 'Using account defaults'}</strong><p>{overridden.length ? 'Values without an override inherit the account defaults.' : 'All values are inherited from account settings.'} · Settings revision {view.revision}</p></div>}
+      <div className="learning-fields learning-flags">{flags.map(field => <label className="native-check" key={field.key}>
+        <input type="checkbox" checked={draft[field.key] as boolean} onChange={event => set(field.key, event.currentTarget.checked)} />
+        <span><strong>{field.label}</strong><small>{botId ? overridden.includes(field.key) ? 'Bot override.' : 'Inherited from the account.' : field.hint}</small></span>
+      </label>)}</div>
+      <details className="learning-disclosure"><summary><span><strong>Review limits and model route</strong><small>Set limits or override the review route.</small></span><span className="learning-disclosure__action">Review limits</span></summary>
+        <div className="learning-grid">
+          {numberField('memoryTurnInterval', 'Memory review interval (turns)', 1)}
+          {numberField('skillIterationInterval', 'Skill review interval (tool iterations)', 1)}
+          {numberField('maxIterations', 'Review step limit', 1, 128)}
+          <label>Aggregate input token limit<input type="number" value={draft.maxInputTokens ?? ''} placeholder="32,000 tokens by default" onChange={e => set('maxInputTokens', e.currentTarget.value === '' ? null : e.currentTarget.valueAsNumber)} /><small>Blank uses a bounded limit of at most 32,000 tokens. Zero explicitly disables the input limit.</small></label>
+          <label>Auxiliary model<input value={draft.auxiliaryModel ?? ''} onChange={e => set('auxiliaryModel', e.currentTarget.value || null)} /></label>
+          <label>Auxiliary provider<input value={draft.auxiliaryProvider ?? ''} onChange={e => set('auxiliaryProvider', e.currentTarget.value || null)} /></label>
+        </div>
+        <p className="native-meta">Blank uses the originating model and provider. An auxiliary route requires a currently connected adapter.</p>
         <p className="native-meta">Explicit source-backed corrections can update a preference in the same scope. Inferred replacements and removals wait for review. New knowledge stays private until you share it.</p>
-      </div>
-      <div className="learning-grid">
-        {numberField('memoryTurnInterval', 'Memory review interval (turns)', 1)}
-        {numberField('skillIterationInterval', 'Skill review interval (tool iterations)', 1)}
-        {numberField('maxIterations', 'Review step limit', 1, 128)}
-        <label>Aggregate input token limit<input type="number" value={draft.maxInputTokens ?? ''} placeholder="32,000 tokens by default" onChange={e => set('maxInputTokens', e.currentTarget.value === '' ? null : e.currentTarget.valueAsNumber)} /><small>Blank uses a bounded limit of at most 32,000 tokens. Zero explicitly disables the input limit.</small></label>
-      </div>
-      <details><summary>Review model route</summary><p className="native-meta">Blank uses the originating model and provider. An auxiliary route requires a currently connected adapter.</p><div className="learning-grid"><label>Auxiliary model<input value={draft.auxiliaryModel ?? ''} onChange={e => set('auxiliaryModel', e.currentTarget.value || null)} /></label><label>Auxiliary provider<input value={draft.auxiliaryProvider ?? ''} onChange={e => set('auxiliaryProvider', e.currentTarget.value || null)} /></label></div></details>
-      <details><summary>Skill maintenance</summary><div className="learning-fields">
+      </details>
+      <details className="learning-disclosure"><summary><span><strong>Skill maintenance</strong><small>Adjust the maintenance schedule and proposals.</small></span><span className="learning-disclosure__action">Skill maintenance</span></summary><div className="learning-fields">
         <label className="native-check"><input type="checkbox" checked={draft.curatorEnabled} onChange={e => set('curatorEnabled', e.currentTarget.checked)} />Enable periodic maintenance</label>
         <div className="learning-grid">{numberField('curatorIntervalHours', 'Maintenance interval (hours)', 1)}{numberField('curatorMinIdleHours', 'Minimum idle time (hours)', 0)}{numberField('curatorStaleDays', 'Mark stale after (days)', 1)}{numberField('curatorArchiveDays', 'Archive after (days)', 1)}</div>
         <label className="native-check"><input type="checkbox" checked={draft.curatorConsolidate} onChange={e => set('curatorConsolidate', e.currentTarget.checked)} />Propose consolidation for review (off by default)</label>
         <p className="native-meta">Pinned, locked and routine-referenced packages are protected. Archived packages retain recoverable history.</p>
+        {botId && <SkillMaintenance botId={botId} settings={view.settings} />}
       </div></details>
+      <div className="learning-disclosure learning-disclosure--row"><div><strong>Review history and activity</strong><small>{botId ? 'Only reviews for this bot.' : 'Reviews across this account.'}</small></div><button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setShowReviews(true)}>Review history</button></div>
       <div className="learning-actions"><button className="cfg-btn cfg-btn--primary" disabled={busy || JSON.stringify(draft) === JSON.stringify(view.settings)} type="submit">{busy ? 'Saving…' : botId ? 'Save Bot overrides' : 'Save learning settings'}</button>{botId && <button className="cfg-btn cfg-btn--secondary" disabled={busy || !Object.keys(view.overrides ?? {}).length} type="button" onClick={() => void save(true)}>Use account defaults</button>}</div>
       {notice && <p role="status">{notice}</p>}
     </form>}
-    <LearningReviews botId={botId} />
+    {!draft && error && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setShowReviews(true)}>Review history</button>}
+    </>}
+    {showReviews && <>
+      <button type="button" className="cfg-btn cfg-btn--secondary learning-back" onClick={() => setShowReviews(false)}>Back to learning settings</button>
+      <LearningReviews botId={botId} />
+    </>}
   </div>;
 }
 
+function SkillMaintenance({ botId, settings }: { botId: string; settings?: Settings }) {
+  const userId = useStore(state => state.user?.id);
+  const request = useRef<AbortController | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [outcome, setOutcome] = useState<{ result: SkillMaintenanceOutcome; paused: boolean } | null>(null);
+  useEffect(() => () => request.current?.abort(), []);
+
+  const run = async () => {
+    if (request.current) return;
+    const controller = new AbortController();
+    request.current = controller;
+    const current = () => !controller.signal.aborted && useStore.getState().user?.id === userId && request.current === controller;
+    setBusy(true); setError(''); setOutcome(null);
+    try {
+      const result = await learningApi.curate(botId, controller.signal);
+      if (current()) setOutcome({ result, paused: !!settings && (!settings.enabled || !settings.curatorEnabled) });
+    } catch (failure) { if (current()) setError((failure as Error).message); }
+    finally { if (current()) { request.current = null; setBusy(false); } }
+  };
+  const openSkills = () => useConfigUI.getState().openBotSettings(botId, 'skills');
+  return <section className="knowledge-maintenance" aria-label="Protected skill maintenance">
+    <h3>Protected skill maintenance</h3>
+    <p className="native-meta">Check eligible skills for staleness or archiving. Pinned, locked and routine-referenced skills stay protected. This is separate from Refine now.</p>
+    <div className="learning-actions">
+      <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => void run()} disabled={busy}>{busy ? 'Checking eligibility…' : error ? 'Retry maintenance' : 'Run maintenance now'}</button>
+      <button type="button" className="cfg-btn cfg-btn--secondary" onClick={openSkills}>Review skills and archive</button>
+    </div>
+    {error && <p className="cfg-error" role="alert">{error}</p>}
+    {outcome && <p role="status">{outcome.result.deferred ? outcome.paused
+      ? 'Maintenance deferred. Saved learning or maintenance settings are off.'
+      : 'Maintenance deferred. The bot may be busy or the required idle time or interval may not have elapsed.'
+      : `Maintenance completed. Archived: ${outcome.result.archived.length}. Reported stale: ${outcome.result.stale.length}.`}</p>}
+  </section>;
+}
+
 export function LearningReviews({ botId }: { botId?: string }) {
+  const userId = useStore(state => state.user?.id);
+  return <LearningReviewsPage key={JSON.stringify([userId, botId])} botId={botId} />;
+}
+
+function LearningReviewsPage({ botId }: { botId?: string }) {
   const [data, setData] = useState<{ reviews: LearningReview[]; nextBefore: number | null } | null>(null), [error, setError] = useState('');
   const [busy, setBusy] = useState(false), [notice, setNotice] = useState(''), [refineBot, setRefineBot] = useState(botId ?? '');
   const [revision, refresh] = useNativeRefresh();
   const bots = useStore(s => s.bots);
-  useEffect(() => {
-    let active = true; setData(null); setError(''); setNotice('');
-    learningApi.reviews(botId).then(r => { if (active) setData(r); }).catch(e => { if (active) setError(e.message); });
-    return () => { active = false; };
-  }, [botId]);
   useEffect(() => {
     let active = true;
     learningApi.reviews(botId).then(r => { if (active) { setData(old => ({ ...r, reviews: [...r.reviews, ...(old?.reviews ?? []).filter(x => !r.reviews.some(n => n.id === x.id))], nextBefore: old && old.reviews.length > 20 ? old.nextBefore : r.nextBefore })); setError(''); } }).catch(e => { if (active) setError(e.message); });
@@ -88,7 +145,7 @@ export function LearningReviews({ botId }: { botId?: string }) {
   const chosen = botId ?? refineBot;
   return <section className="native-panel" aria-label="Learning review history">
     <header><h3>Review history and activity</h3><button className="cfg-btn cfg-btn--secondary" type="button" onClick={refresh}>Refresh reviews</button></header>
-    <button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => { useConfigUI.getState().closeBotSettings(); useConfigUI.getState().openAppSettings('usage'); }}>View background learning usage</button>
+    <button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => useConfigUI.getState().openAppSettings('usage')}>View background learning usage</button>
     <p className="native-meta">Reviews use multiple management steps. A completed review can make no changes; active and pending changes appear in Skills and Memories. Review token usage is background work; pricing appears in Usage.</p>
     <div className="learning-actions">{!botId && <select aria-label="Bot to refine" value={refineBot} onChange={e => setRefineBot(e.currentTarget.value)}><option value="">Select a Bot</option>{bots.filter(b => b.kind !== 'room').map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select>}<button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy || !chosen} onClick={() => void action(async () => { const r = await learningApi.refine(chosen); setNotice(`Refinement ${r.review.status}. Review ${r.review.id}`); })}>{busy ? 'Updating…' : 'Refine now'}</button></div>
     {notice && <p role="status">{notice}</p>}{error && <p className="cfg-error" role="alert">{error}</p>}

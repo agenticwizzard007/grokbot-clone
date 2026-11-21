@@ -46,3 +46,25 @@
   .an-where__row { grid-template-columns: minmax(0, 1fr) auto; row-gap: 6px; }
   .an-where__bar { grid-column: 1 / -1; grid-row: 2; }
 }
+
+.bot-settings-page .an-page { --an-msg: var(--color-primary); --an-saved: var(--color-primary); }
+.bot-settings-page .an-range { align-items: flex-start; flex-direction: column; }
+.bot-settings-page .an-range .cfg-seg { padding: 0; border: 0; background: none; box-shadow: none; }
+.bot-settings-page .an-range .cfg-seg button { min-height: 36px; border-radius: 8px; }
+.bot-settings-page .an-range .cfg-seg button.is-active { background: var(--color-bg-active); box-shadow: none; }
+.bot-settings-page .an-cards { flex-direction: column; gap: 24px; }
+.bot-settings-page .an-card { flex: none; padding: 0; background: transparent; border: 0; }
+.bot-settings-page .an-card__value { padding: 0; }
+.bot-settings-page .an-card__unit { font-size: inherit; font-weight: inherit; color: inherit; }
+.bot-settings-page .an-chart { margin-top: 8px; }
+.bot-settings-page .an-line__area { fill-opacity: 0; }
+.bot-settings-page .an-actions { display: grid; gap: 7px; justify-items: start; }
+.bot-settings-page .an-actions > details { max-width: 100%; margin: 0; padding: 0; border: 0; }
+.bot-settings-page .an-actions > details > summary { display: inline-flex; justify-content: center; align-items: center; min-height: 40px; padding: 8px 12px; border-radius: 9px; background: var(--color-bg-active); list-style: none; cursor: pointer; }
+.bot-settings-page .an-actions > details:first-child > summary { background: var(--color-primary); color: var(--color-on-primary); }
+.bot-settings-page .an-table__scroll { overflow-x: auto; }
+@media (max-width: 760px) {
+  .bot-settings-page .an-range .cfg-seg button, .bot-settings-page .an-actions > details > summary { min-height: 44px; }
+  .bot-settings-page .an-actions { justify-items: stretch; }
+  .bot-settings-page .an-actions > details > summary { display: flex; }
+}

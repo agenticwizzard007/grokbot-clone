@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ShieldCheck } from 'lucide-react';
 import { api } from '../../lib/api';
 import { useStore } from '../../store';
@@ -28,12 +28,14 @@ export function ReauthPrompt({ accountEmail, reason, resume, retryLabel, termina
   const [email, setEmail] = useState(accountEmail.endsWith('@openrouter.invalid') ? '' : accountEmail);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
 
   // Provider sign-ins and phone verification reload the app. Come back here afterwards.
   useEffect(() => {
     planResume(resume);
     return () => cancelResume();
   }, [resume.section, resume.provider, resume.accountId, resume.action]);
+  useEffect(() => { heading.current?.focus(); }, []);
 
   const dev = async (event: FormEvent) => {
     event.preventDefault();
@@ -57,14 +59,17 @@ export function ReauthPrompt({ accountEmail, reason, resume, retryLabel, termina
       <div className="subscription-reauth__body">
         <div className="subscription-reauth__head">
           <ShieldCheck size={20} strokeWidth={1.75} aria-hidden />
-          <h3 id="subscription-reauth-title">Confirm it’s you</h3>
+          <h3 id="subscription-reauth-title" tabIndex={-1} ref={heading}>Confirm it’s you</h3>
         </div>
-        <p role="alert">{reason}</p>
-        <p>Sign in again the way you usually do for <strong>{accountEmail.endsWith('@openrouter.invalid') ? 'this account' : accountEmail}</strong>. You’ll come straight back here, then choose {retryLabel} again.</p>
-        {resume.action === 'reset' && <p>Reset may already have stopped login sessions or removed saved connections. Review the refreshed connection status before retrying.</p>}
+        <div className="access-reauth__notice">
+          <p role="alert">{reason}</p>
+          <p>Sign in again the way you usually do for <strong>{accountEmail.endsWith('@openrouter.invalid') ? 'this account' : accountEmail}</strong>. You’ll come straight back here, then choose {retryLabel} again.</p>
+        </div>
+        {resume.action === 'reset' && <p className="access-reauth__notice">Reset may already have stopped login sessions or removed saved connections. Review the refreshed connection status before retrying.</p>}
         {terminalActive && <p>A reset or new sign-in can end the terminal session shown below.</p>}
         <div className="subscription-reauth__providers">
-          <PhoneAuth mode="signin" />
+          <PhoneAuth mode="signin" reauth={resume.section !== 'subscriptions'} />
+          <div className="access-reauth__provider-title"><strong>Other sign-in options</strong><p>Use the same Swarm account.</p></div>
           <OpenRouterSignIn label="Continue with OpenRouter" />
           {appleLogin && <AppleSignIn />}
           {googleLogin && <AuthLink className="signin__google" href="/api/auth/google/start" icon={<GoogleG />}>Sign in with Google</AuthLink>}

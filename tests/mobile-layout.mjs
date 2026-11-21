@@ -83,11 +83,11 @@ try {
       await page.locator('.pinned__tile').click();
       await page.getByRole('button', { name: 'Show details', exact: true }).click();
       await checkWidth('.details');
-      await page.getByRole('button', { name: 'Close details', exact: true }).click();
+      await page.locator('.details .setup-paper__close').click();
       await toList();
       await page.getByRole('button', { name: 'New Bot', exact: true }).click();
-      await page.getByRole('dialog', { name: 'Create New Bot' }).waitFor();
-      await checkWidth('.create-modal');
+      await page.getByRole('main', { name: 'Create a bot' }).waitFor();
+      await checkWidth('.setup-create');
       await page.keyboard.press('Escape');
       await page.locator('.account__btn').click();
       await page.getByRole('menuitem', { name: /Settings/ }).click();
@@ -101,8 +101,8 @@ try {
       await page.getByRole('radio', { name: 'Dark' }).waitFor();
       await checkWidth('.app-settings__page');
       assert.ok(await page.locator('.app-settings__main').evaluate((el) => el.scrollWidth <= el.clientWidth + 1), 'settings section fits horizontally');
-      await page.getByRole('button', { name: 'Settings', exact: true }).click();
-      await page.getByRole('button', { name: 'Back to Bots' }).click();
+      await page.getByRole('button', { name: 'Back to Settings', exact: true }).click();
+      await page.getByRole('button', { name: 'Back to Bots', exact: true }).first().click();
       // The system back gesture also leaves a chat for the list.
       await page.locator('.pinned__tile').click();
       await page.locator('.composer__input').waitFor();

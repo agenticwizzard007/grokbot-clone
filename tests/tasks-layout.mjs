@@ -9,7 +9,7 @@ import { chromium } from 'playwright';
 const port = await new Promise((resolve) => {
   const s = http.createServer().listen(0, '127.0.0.1', () => { const port = s.address().port; s.close(() => resolve(port)); });
 });
-const vite = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', String(port)], { cwd: new URL('../web', import.meta.url), stdio: 'pipe' });
+const vite = spawn(process.execPath, ['node_modules/vite/bin/vite.js', ...(process.env.WORK_UI_DEV === '1' ? [] : ['preview']), '--host', '127.0.0.1', '--port', String(port)], { cwd: new URL('../web', import.meta.url), stdio: 'pipe' });
 const origin = `http://127.0.0.1:${port}`;
 let logs = '';
 vite.stdout.on('data', (s) => { logs += s; });
@@ -27,7 +27,7 @@ const sampleTasks = [
   ['done', 'Swarms Launch and Test', 'Build checks passed. Your launch summary is ready.', 2, 1],
   ['done', 'Connection and Preparation', 'Account setup and app connections are complete.', 0, 24],
 ].map(([state, title, note, bot, hours], i) => ({ id: `task-${i}`, botId: bots[bot].id, title, note, state, updatedAt: now - hours * 3600000 }));
-const screenshotDir = new URL('../.context/tasks/', import.meta.url);
+const screenshotDir = process.env.WORK_EVIDENCE ? new URL(`file://${process.env.WORK_EVIDENCE.replace(/\/$/, '')}/`) : new URL('../.context/tasks/', import.meta.url);
 await fs.mkdir(screenshotDir, { recursive: true });
 let browser;
 try {
@@ -89,15 +89,20 @@ try {
     assert.equal(await page.locator('.task-filter.is-needs_input').getAttribute('aria-pressed'), 'true');
     await checkFits();
     await page.mouse.move(0, 0);
-    await page.waitForFunction(() => getComputedStyle(document.querySelector('.task-filter.is-all')).color === 'rgb(28, 28, 28)');
+    await page.waitForFunction(() => {
+      const all = document.querySelector('.task-filter.is-all'), sync = document.querySelector('.tasks-sync');
+      return all?.getAttribute('aria-pressed') === 'false' && sync && getComputedStyle(all).color === getComputedStyle(sync).color;
+    });
     if (width === 390) await page.screenshot({ path: new URL('mobile-pending.png', screenshotDir).pathname });
     await page.getByRole('combobox', { name: 'Filter tasks by bot' }).selectOption('bot-1');
+    await page.waitForFunction(() => document.querySelectorAll('.task-card').length === 1);
     assert.equal(await page.locator('.task-card').count(), 1, 'bot and state filters combine');
     await page.getByRole('button', { name: /Done/ }).click();
     await page.getByRole('heading', { name: 'Nothing finished yet' }).waitFor();
     await page.getByRole('button', { name: 'See all tasks' }).click();
     assert.equal(await page.locator('.task-card').count(), 3, 'resetting state preserves the bot filter');
     await page.getByRole('combobox').selectOption('all');
+    await page.waitForFunction(() => document.querySelectorAll('.task-card').length === 9);
     await page.locator('.task-filter.is-needs_input').click();
     tasks[0].state = 'done';
     await changed();
@@ -118,9 +123,12 @@ try {
     await openTasks();
     await page.getByRole('alert').waitFor();
     assert.equal(await page.getByText('No tasks yet', { exact: true }).count(), 0, 'failed initial fetch never displays an empty success state');
+    assert.equal(await page.getByText('No pending tasks', { exact: true }).count(), 0, 'failed scoped fetch never displays an empty success state');
     failing = false;
     tasks = [];
     await page.getByRole('button', { name: 'Retry', exact: true }).click();
+    await page.getByRole('heading', { name: 'No pending tasks' }).waitFor();
+    await page.getByRole('button', { name: 'See all tasks', exact: true }).click();
     await page.getByRole('heading', { name: 'No tasks yet' }).waitFor();
     await page.locator('.task-filter.is-needs_input').click();
     await page.getByRole('heading', { name: 'No pending tasks' }).waitFor();

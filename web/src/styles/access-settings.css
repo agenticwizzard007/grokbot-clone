@@ -1,0 +1,130 @@
+.access-settings {
+  --settings-inset: 0px;
+  --access-divider: var(--color-border-secondary);
+}
+.access-settings--in-shell { left: var(--app-settings-rail-width, 272px); }
+.access-settings .app-settings__page { box-sizing: border-box; width: 100%; padding: 12px 32px 64px; gap: 28px; }
+.access-settings .app-settings__head h1,
+.access-settings .cfg-section__label,
+.access-nav--phone .settings-nav__label { font-family: 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack); }
+.access-settings .app-settings__head h1 { margin: 0; font-size: 32px; line-height: 1.2; letter-spacing: -.025em; }
+.access-settings .app-settings__head p { margin: 11px 0 0; font-size: 15px; line-height: 1.5; }
+.access-settings .cfg-section__label { font-size: 20px; line-height: 1.3; font-weight: 600; }
+.access-settings .cfg-section > p,
+.access-section-note { color: var(--color-text-secondary); font-size: 14px; line-height: 1.55; }
+.access-settings .cfg-card { border-width: 0; border-radius: 0; background: transparent; }
+.access-settings .cfg-row { min-height: 84px; padding: 18px 0; align-items: center; }
+.access-settings .cfg-card > .cfg-row,
+.access-settings .account-delete > .cfg-row { border-bottom: 1px solid var(--access-divider); }
+.access-settings :is(.cfg-row, .settings-field, .mcp-advanced) + :is(.cfg-row, .settings-field, .mcp-advanced)::before { display: none; }
+.access-settings .cfg-row__title { font-size: 15px; font-weight: 500; line-height: 1.45; }
+.access-settings .cfg-row__text { gap: 4px; }
+.access-settings .cfg-row__sub { font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
+.access-settings .cfg-btn { min-height: 44px; padding: 0 14px; border: 0; border-radius: 12px; font-size: 14px; font-weight: 500; white-space: normal; }
+.access-settings .cfg-btn--secondary { color: var(--color-text-primary); background: var(--color-bg-active); }
+.access-settings .cfg-btn--secondary:not(:disabled):hover { background: var(--color-bg-secondary-active); }
+.access-settings .cfg-row > .cfg-btn--secondary,
+.access-settings .cfg-row > .auth-button { flex: 0 0 min(176px, 38%); justify-content: center; text-align: center; }
+.access-settings .cfg-card > .cfg-empty { border-bottom: 1px solid var(--access-divider); }
+.access-settings .cfg-seg { gap: 4px; align-self: start; padding: 0; background: none; border: 0; box-shadow: none; }
+.access-settings .cfg-seg button { min-height: 44px; padding: 0 12px; border-radius: 12px; background: transparent; }
+.access-settings .cfg-seg button.is-active { background: var(--color-bg-active); color: var(--color-primary); box-shadow: none; }
+.access-settings .access-row { min-height: 100px; border-bottom: 1px solid var(--access-divider); }
+.access-row__actions { display: flex; flex-direction: column; align-items: stretch; gap: 8px; min-width: 0; flex: 0 0 min(176px, 42%); }
+.access-row__actions > :is(.cfg-btn, .auth-button) { align-self: stretch; justify-content: center; text-align: center; text-decoration: none; }
+.access-settings .subscription-settings a.cfg-btn { align-self: stretch; font-size: 14px; }
+.access-settings .subscription-settings__tabs { gap: 4px; border: 0; }
+.access-settings .subscription-settings__tabs > button { min-height: 44px; padding: 0 12px; border: 0; border-radius: 12px; }
+.access-settings .subscription-settings__tabs > button[aria-selected='true'] { color: var(--color-primary); background: var(--color-bg-active); }
+.access-settings .subscription-settings__auth { gap: 0; }
+.access-settings .subscription-settings__auth > :is(p, details, .cfg-error) { margin: 12px 0 0; }
+.subscription-settings__context > summary { cursor: pointer; color: var(--color-text-secondary); font-size: 14px; }
+.access-settings .subscription-settings__advanced { padding: 0 0 18px; border-top: 0; }
+.access-settings .subscription-settings__advanced > summary { color: var(--color-text-primary); font-size: 15px; }
+.subscription-settings__advanced > summary small { display: block; margin-top: 5px; color: var(--color-text-secondary); font-size: 14px; }
+.access-settings .subscription-settings__advanced > summary > .cfg-btn { flex: 0 0 min(176px, 42%); justify-content: center; }
+.access-settings .subscription-reauth { border: 0; background: transparent; }
+.access-settings .subscription-reauth__body { padding: 0; }
+.access-settings .subscription-reauth__head h3 { font-family: 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack); font-size: 24px; letter-spacing: -.02em; outline: none; }
+.access-settings .access-reauth__notice { display: grid; gap: 8px; margin: 0; padding: 14px 16px; border-radius: 12px; background: var(--color-warning-bg, var(--color-bg-active)); color: var(--color-warning-text, var(--color-text-primary)); }
+.access-settings .access-reauth__notice p { color: inherit; margin: 0; }
+.access-reauth__provider-title { font-size: 14px; }
+.access-reauth__provider-title p { margin: 4px 0 0; }
+.access-settings .subscription-reauth__providers > .auth-button { min-height: 44px; border-radius: 12px; }
+@media (max-width: 760px) {
+  .access-settings .access-row { min-height: 82px; }
+  .access-settings .access-row:has(.model-picker), .access-settings .access-row:has(.openrouter-settings__oauth) { align-items: stretch; flex-direction: column; gap: 10px; }
+  .access-settings .access-row:has(.model-picker, .openrouter-settings__oauth) .access-row__actions { width: 100%; }
+}
+
+.access-settings__bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 24px 40px 10px; min-height: 80px; }
+.access-settings__bar:focus,
+.account-delete h1:focus { outline: 0; }
+.access-settings__back { display: inline-flex; align-items: center; gap: 12px; min-height: 44px; color: var(--color-text-secondary); font-size: 14px; }
+.access-settings__bar-title { display: flex; align-items: center; gap: 10px; color: var(--color-text-primary); font-size: 14px; font-weight: 500; }
+.access-settings__bar-title .swarm-mark { color: var(--color-primary); }
+.access-settings__back:focus-visible,
+.access-nav button:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
+
+#app-settings-sidebar-slot:empty { display: none; }
+@media (min-width: 761px) { #app-settings-sidebar-slot:not(:empty) { min-height: 48px; flex: 0 1 206px; overflow: auto; scrollbar-width: thin; } }
+.access-nav:not(.access-nav--phone) { padding: 4px 20px 12px; }
+.access-nav:not(.access-nav--phone) .settings-nav__title { padding: 6px 10px; font-family: var(--font-stack); font-size: 14px; line-height: 22px; font-weight: 500; color: var(--color-text-secondary); }
+.access-nav:not(.access-nav--phone) .settings-nav__label { display: none; }
+.access-nav:not(.access-nav--phone) .settings-search { margin: 2px 0 4px; height: 36px; }
+.access-nav:not(.access-nav--phone) .settings-nav__item { display: flex; justify-content: start; min-height: 40px; width: 100%; text-align: left; border-radius: 12px; }
+.access-nav:not(.access-nav--phone) .settings-nav__item.is-active { background: var(--color-bg-active); color: var(--color-primary); }
+.access-nav.access-nav--collapsed { display: flex; padding: 0; justify-content: center; }
+.access-nav__expand { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; color: var(--color-primary); background: var(--color-bg-active); }
+
+.access-settings .settings-appearance > .cfg-section__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.access-settings .settings-shortcuts .cfg-row { flex-direction: column; align-items: flex-start; gap: 4px; min-height: 84px; }
+.access-settings .settings-shortcuts .cfg-row > .cfg-row__text { flex: initial; }
+.access-settings .settings-keys { gap: 4px; }
+.access-settings .settings-keys kbd { width: auto; min-width: 0; height: auto; padding: 0; background: none; box-shadow: none; font-size: 14px; }
+.access-settings .access-account .auth-button { min-height: 44px; height: auto; padding: 10px 14px; border-radius: 12px; background: var(--color-bg-active); color: var(--color-text-primary); font-size: 14px; }
+.access-account .auth-button__icon, .access-account .auth-button::after { display: none; }
+.access-settings .access-account > .cfg-btn, .access-settings .access-mcp > .cfg-btn { align-self: flex-start; margin-top: 8px; }
+.access-device-pair { align-self: start; margin-top: 12px; }
+.account-session__dates { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; font-size: 13px; line-height: 1.5; color: var(--color-text-secondary); }
+.account-session__dates dd { margin: 0; }
+.account-session__dates dt { color: var(--color-text-primary); }
+.access-row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.access-callout, .account-delete__warning { padding: 16px; border-radius: 12px; font-size: 14px; line-height: 1.55; }
+.access-callout { background: var(--color-bg-active); }
+.account-delete { display: grid; gap: 24px; }
+.account-delete__warning { background: var(--color-danger-bg); color: var(--color-danger-text); }
+.account-delete__warning p { margin: 6px 0 0; }
+.access-settings .mcp-editor .settings-field { border-bottom: 1px solid var(--access-divider); }
+.access-settings .mcp-server__actions { flex-wrap: wrap; min-width: 0; max-width: 100%; }
+.access-settings [hidden] { display: none !important; }
+
+@media (max-width: 760px) {
+  .access-settings .app-settings__page { padding: 24px 16px max(32px, env(safe-area-inset-bottom)); gap: 24px; }
+  .access-settings .app-settings__head h1 { font-size: 27px; }
+  .access-settings .app-settings__head p { margin-top: 10px; }
+  .access-settings .app-settings__main { background: var(--color-bg-pane); }
+  .access-settings.is-list .app-settings__main { background: var(--color-bg-pane); }
+  .access-settings__bar { position: sticky; z-index: 2; top: 0; min-height: 56px; padding: max(0px, env(safe-area-inset-top)) 8px 0; border-bottom: 1px solid var(--access-divider); background: var(--color-bg-pane); }
+  .access-settings__bar-title { flex: 1; }
+  .access-settings__back { flex: 0 0 36px; justify-content: center; }
+  .access-nav--phone { padding: 24px 16px max(32px, env(safe-area-inset-bottom)); }
+  .access-nav--phone .app-settings__head { margin-bottom: 24px; }
+  .access-nav__search-label { margin-bottom: 8px; font-size: 14px; font-weight: 500; }
+  .access-nav--phone .settings-search { height: 48px; margin: 0; padding: 0 14px; border: 1px solid var(--access-divider); border-radius: 12px; background: transparent; }
+  .access-nav__search-hint { margin: 10px 0 0; color: var(--color-text-secondary); font-size: 13px; }
+  .access-nav--phone .settings-nav__group { margin: 24px 0 0; }
+  .access-nav--phone .settings-nav__label { margin: 0 0 18px; padding: 0; color: var(--color-text-primary); font-size: 21px; font-weight: 600; }
+  .access-nav--phone .settings-nav__items { display: flex; flex-flow: row wrap; gap: 4px; margin: 0; border: 0; box-shadow: none; background: none; }
+  .access-settings .access-nav--phone .settings-nav__item { display: inline-flex; align-items: center; justify-content: center; width: auto; height: auto; min-height: 44px; padding: 0 12px; border-radius: 12px; box-shadow: none; font-size: 14px; }
+  .access-settings .access-nav--phone .settings-nav__item + .settings-nav__item::before { display: none; }
+  .access-nav--phone .settings-nav__item.is-active { color: var(--color-primary); }
+  .access-settings .access-nav__learning { flex-wrap: nowrap; border-bottom: 1px solid var(--access-divider); margin-bottom: 10px; }
+  .access-settings .access-nav__learning > .cfg-row__text { flex: 1 1 0; }
+  .access-settings .access-nav__learning > .cfg-btn { flex-basis: 116px; }
+  .access-nav__return { margin-top: 28px; }
+  .access-settings .cfg-row { min-height: 72px; padding: 16px 0; }
+  .access-settings .cfg-row > .cfg-btn--secondary, .access-settings .cfg-row > .auth-button { flex: 0 1 116px; }
+  .access-settings .account-delete .access-row-actions { flex-direction: column; align-items: stretch; }
+  .access-device-pair { width: 100%; }
+}

@@ -1,3 +1,8 @@
+/* Self-hosted fonts from the accepted Paper delivery. Licenses live with the assets. */
+@font-face { font-family: Inter; font-style: normal; font-weight: 400; font-display: swap; src: url('/assets/fonts/inter-400.ttf') format('truetype'); }
+@font-face { font-family: Inter; font-style: normal; font-weight: 500; font-display: swap; src: url('/assets/fonts/inter-500.ttf') format('truetype'); }
+@font-face { font-family: Inter; font-style: normal; font-weight: 600 900; font-display: swap; src: url('/assets/fonts/inter-600.ttf') format('truetype'); }
+@font-face { font-family: 'Instrument Sans'; font-style: normal; font-weight: 400 700; font-display: swap; src: url('/assets/fonts/instrument.woff2') format('woff2'); }
 *, *::before, *::after { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
 body {
@@ -41,7 +46,7 @@ a { color: inherit; }
 }
 .btn--sm { height: 32px; padding: 6px 12px; font-weight: 400; }
 .btn--grow { flex: 1 1 0; }
-.btn--primary { background: var(--color-primary); color: var(--color-bg-chrome); }
+.btn--primary { background: var(--color-primary); color: var(--color-on-primary); }
 .btn--primary:hover:not(:disabled) { background: var(--color-bg-primary-hover); }
 .btn--primary:disabled { background: var(--color-bg-primary-disabled); color: var(--color-text-quaternary); box-shadow: var(--color-border-tertiary) 0 0 0 0.5px inset; }
 .btn--secondary { background: var(--color-bg-tertiary); color: var(--color-ink); }
@@ -138,3 +143,8 @@ a { color: inherit; }
 .menu__item.is-danger:hover, .menu__item.is-danger:focus-visible { background: var(--color-danger-bg); }
 .menu__sep { height: 1px; margin: 4px 6px; background: var(--color-border-tertiary); }
 .menu:focus { outline: none; }
+
+.brand-image { display: block; object-fit: contain; }
+.brand-image--night { display: none; }
+:root[data-theme='dark'] .brand-image--light { display: none; }
+:root[data-theme='dark'] .brand-image--night { display: block; }

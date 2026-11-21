@@ -1,213 +1,156 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { Bot, ComputerState, Routine } from '@shared/types';
-import { BotAvatarFor } from '../avatar/BotAvatar';
 import { api, openPopup } from '../lib/api';
-import { usePageVisible } from '../lib/usePageVisible';
-import { botVars } from '../lib/colors';
+import { clearImportedSetup, hasImportedSetup } from '../lib/setupApi';
 import { displayName, useSelectedBot, useStore } from '../store';
-import { Icon } from './Icon';
-import { ToolkitLogo } from './ToolkitLogo';
+import { SetupPaperHeader } from './SetupPaperHeader';
 import { VoiceSettings } from './VoiceSettings';
 import { MembersCard } from './MembersCard';
 import { useConfigUI } from '../configStore';
-import { Glyph } from './config/glyphs';
 import { LibraryTab } from './config/LibraryTab';
 import { DeliverablesPanel } from './config/DeliverablesPanel';
 import { BotTasks } from './config/TasksView';
 import { AgentConfiguration } from './config/AgentConfiguration';
+import '../styles/setup-paper.css';
 
-export function computerStatusText(c: ComputerState | null): string {
-  if (c?.provider === 'local') return c.status === 'running' ? 'Connected' : 'Not connected';
-  switch (c?.status) {
+export function computerStatusText(computer: ComputerState | null): string {
+  if (computer?.provider === 'local') return computer.status === 'running' ? 'Connected' : 'Not connected';
+  switch (computer?.status) {
     case 'running': return 'Awake';
     case 'starting': case 'resuming': case 'creating': return 'Agent waking up';
     case 'suspending': return 'Going to sleep…';
     case 'error': return 'Unreachable';
-    case 'suspended': case 'stopped': case 'absent': case undefined: return 'Asleep';
     default: return 'Asleep';
   }
 }
 
-function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) {
-  return (
-    <button type="button" role="switch" aria-checked={on} aria-label={label} className={`toggle${on ? ' is-on' : ''}`} onClick={() => onChange(!on)}>
-      <span className="toggle__knob" />
-    </button>
-  );
+function DetailRow({ title, description, children }: { title: string; description?: string; children?: ReactNode }) {
+  return <div className="details-page__row"><div><strong>{title}</strong>{description && <p>{description}</p>}</div>{children}</div>;
 }
 
-function RoutineRow({ r }: { r: Routine }) {
-  const [enabled, setEnabled] = useState(r.enabled);
-  useEffect(() => setEnabled(r.enabled), [r.enabled]);
-  const toggle = async (v: boolean) => {
-    setEnabled(v);
-    try { await api.setRoutine(r.id, v); } catch { setEnabled(!v); }
+function RoutineRow({ routine }: { routine: Routine }) {
+  const userId = useStore(state => state.user?.id);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const toggle = async () => {
+    if (busy) return;
+    setBusy(true); setError('');
+    try {
+      const { routine: next } = await api.setRoutine(routine.id, !routine.enabled);
+      const state = useStore.getState();
+      if (state.user?.id === userId && state.routines[routine.botId]) state.set({
+        routines: { ...state.routines, [routine.botId]: state.routines[routine.botId].map(item => item.id === next.id ? next : item) },
+      });
+    }
+    catch (failure) { setError((failure as Error).message); }
+    finally { setBusy(false); }
   };
-  return (
-    <div className="panel-row panel-row--routine" title={r.prompt}>
-      <span className="panel-row__icon"><Icon name="clock" opacity={0.52} /></span>
-      <span className="panel-row__text">
-        <span className="panel-row__title">{r.name}</span>
-        <span className="panel-row__sub">{enabled ? r.description || r.schedule : 'Paused'}</span>
-      </span>
-      <Toggle on={enabled} onChange={toggle} label={`${r.name} ${enabled ? 'on' : 'off'}`} />
-    </div>
-  );
+  return <>
+    <DetailRow title={routine.name} description={routine.enabled ? routine.description || routine.schedule : 'Paused'}>
+      <button type="button" role="switch" aria-checked={routine.enabled} aria-label={routine.name} className={`toggle${routine.enabled ? ' is-on' : ''}`} onClick={() => void toggle()} disabled={busy}><span className="toggle__knob" /></button>
+    </DetailRow>
+    {error && <p className="cfg-error" role="alert">{error}</p>}
+  </>;
 }
 
-function ComputerCard({ bot }: { bot: Bot }) {
-  const computer = useStore((s) => s.computer);
-  const viewerOpen = useStore((s) => s.viewerOpen);
-  const set = useStore((s) => s.set);
-  const [shot, setShot] = useState<string | null>(null);
-  const visible = usePageVisible();
-  const running = computer?.status === 'running';
-
-  // One preview when shown or after closing the viewer. Never poll a VM just for a thumbnail.
-  useEffect(() => {
-    setShot(null);
-    if (!running || viewerOpen || !visible) return;
-    let alive = true;
-    let url: string | null = null;
-    const ctrl = new AbortController();
-    const load = async () => {
-      try {
-        const res = await fetch(`/api/bots/${bot.id}/screenshot`, { credentials: 'include', cache: 'no-store', signal: ctrl.signal });
-        if (!alive) return;
-        if (res.status === 204) { setShot(null); return; }
-        if (res.status === 200) {
-          const blob = await res.blob();
-          if (!alive) return;
-          const next = URL.createObjectURL(blob);
-          setShot(next);
-          if (url) URL.revokeObjectURL(url);
-          url = next;
-        }
-      } catch { /* keep last frame */ }
-    };
-    load();
-    return () => { alive = false; ctrl.abort(); if (url) URL.revokeObjectURL(url); };
-  }, [bot.id, running, viewerOpen, visible]);
-
-  const busy = computer?.status === 'starting' || computer?.status === 'resuming' || computer?.status === 'creating';
-  return (
-    <div className="panel-card">
-      <div className="panel-row panel-row--computer" role="button" tabIndex={0} onClick={() => set({ viewerOpen: true })} onKeyDown={(e) => { if (e.key === 'Enter') set({ viewerOpen: true }); }}>
-        <span className="panel-row__text">
-          <span className="panel-row__title">Bot's computer</span>
-          <span className="panel-row__meta">{computerStatusText(computer)}{computer?.error && computer.status === 'error' ? ` · ${computer.error}` : ''}</span>
-        </span>
-        <span className={`computer-thumb${shot ? ' has-shot' : ''}`}>
-          {shot ? <img src={shot} alt="Bot's screen" /> : running || busy ? (
-            <span className="computer-thumb__awake"><span className={`status-dot ${busy ? 'is-attention' : 'is-working'}`} /></span>
-          ) : (
-            <>
-              <span className="computer-thumb__face"><i /><i /></span>
-              <span className="computer-thumb__z1">z</span>
-              <span className="computer-thumb__z2">z</span>
-            </>
-          )}
-        </span>
+function ComputerRow() {
+  const computer = useStore(state => state.computer);
+  const [waking, setWaking] = useState(false);
+  const [error, setError] = useState('');
+  const wake = async () => {
+    setWaking(true); setError('');
+    try { await api.ensureComputer(); }
+    catch (failure) { setError((failure as Error).message); }
+    finally { setWaking(false); }
+  };
+  const offline = !computer || ['absent', 'stopped', 'suspended', 'error'].includes(computer.status);
+  return <>
+    <DetailRow title="Computer" description={computerStatusText(computer)}>
+      <div className="setup-paper__actions">
+        <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useStore.getState().set({ viewerOpen: true })}>Open computer</button>
+        {offline && (computer?.provider === 'local'
+          ? <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().openAppSettings('computer')}>Connect your PC</button>
+          : <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => void wake()} disabled={waking}>{waking ? 'Waking…' : 'Wake computer'}</button>)}
       </div>
-      {!running && !busy && (computer?.provider === 'local' ? (
-        <button type="button" className="panel-row panel-row--action" onClick={() => useConfigUI.getState().openAppSettings('computer')}>
-          <Icon name="monitor" size={14} opacity={0.56} /> Connect your PC
-        </button>
-      ) : (
-        <button type="button" className="panel-row panel-row--action" onClick={() => api.ensureComputer().catch(() => {})}>
-          <Icon name="monitor" size={14} opacity={0.56} /> Wake computer
-        </button>
-      ))}
-    </div>
-  );
+    </DetailRow>
+    {(error || computer?.error) && <p className="cfg-error" role="alert">{error || computer?.error}</p>}
+  </>;
 }
+
+const sections = [
+  { id: 'activity', label: 'Activity' }, { id: 'tasks', label: 'Tasks' }, { id: 'library', label: 'Files' }, { id: 'configuration', label: 'Setup' },
+] as const;
+type DetailTab = typeof sections[number]['id'];
 
 export function DetailsPanel() {
   const bot = useSelectedBot();
-  const routines = useStore((s) => (bot ? s.routines[bot.id] : undefined));
-  const set = useStore((s) => s.set);
-  const [tab, setTab] = useState<'activity' | 'tasks' | 'library' | 'configuration'>('activity');
+  const userId = useStore(state => state.user?.id);
+  return bot ? <ConversationDetails key={JSON.stringify([userId, bot.id])} bot={bot} userId={userId} /> : null;
+}
+
+function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
+  const routines = useStore(state => state.routines[bot.id]);
+  const [tab, setTab] = useState<DetailTab>(() => hasImportedSetup(userId, bot.id) ? 'configuration' : 'activity');
+  const [reports, setReports] = useState(false);
+  const [voice, setVoice] = useState(false);
+  const [slackBusy, setSlackBusy] = useState(false);
+  const [slackError, setSlackError] = useState('');
   const [hideSuggested, setHideSuggested] = useState(() => { try { return localStorage.getItem('swarm.hideSuggested') === '1'; } catch { return false; } });
-  if (!bot) return null;
-  const isConfiguration = tab === 'configuration' && bot.kind !== 'room';
-
+  useEffect(() => { clearImportedSetup(userId, bot.id); }, [userId, bot.id]);
+  const close = () => useStore.getState().set({ detailsOpen: false });
   const addSlack = async () => {
+    if (slackBusy) return;
+    setSlackBusy(true); setSlackError('');
     const popup = openPopup('about:blank');
-    try { const { redirectUrl } = await api.connect('slack'); if (popup) popup.location.href = redirectUrl; else window.open(redirectUrl, '_blank'); } catch { popup?.close(); }
+    try {
+      const { redirectUrl } = await api.connect('slack');
+      if (useStore.getState().user?.id !== userId || useStore.getState().selectedBotId !== bot.id) { popup?.close(); return; }
+      if (popup && !popup.closed) popup.location.href = redirectUrl;
+      else if (!window.open(redirectUrl, '_blank', 'noopener')) setSlackError('Allow pop-ups, then try again.');
+    } catch (failure) { popup?.close(); setSlackError((failure as Error).message); }
+    finally { setSlackBusy(false); }
   };
-
-  return (
-    <aside className={`details${isConfiguration ? ' details--configuration' : ''}`} style={botVars(bot.avatarColor)} aria-label="Conversation details">
-      <div className="details__top">
-        <button type="button" className="icon-btn icon-btn--bordered details__gear" onClick={() => useConfigUI.getState().openBotSettings(bot.id)} aria-label="Bot settings" title="Bot settings">
-          <Glyph name="gear" size={16} opacity={0.7} />
-        </button>
-        <button type="button" className="icon-btn icon-btn--bordered" onClick={() => set({ detailsOpen: false })} aria-label="Close details">
-          <Icon name="close" opacity={0.92} />
-        </button>
-      </div>
-      <div className="details__scroll">
-        <div className="details__identity">
-          <BotAvatarFor bot={bot} size={isConfiguration ? 40 : 64} />
-          <div className="details__name" title={displayName(bot)}>{displayName(bot)}</div>
-        </div>
-        <div className="details__tabs">
-          <div className="segmented">
-            <button type="button" className={tab === 'activity' ? 'is-active' : ''} onClick={() => setTab('activity')}>Activity</button>
-            <button type="button" className={tab === 'tasks' ? 'is-active' : ''} onClick={() => setTab('tasks')}>Tasks</button>
-            <button type="button" className={tab === 'library' ? 'is-active' : ''} onClick={() => setTab('library')}>Library</button>
-            {bot.kind !== 'room' && <button type="button" className={tab === 'configuration' ? 'is-active' : ''} onClick={() => setTab('configuration')}>Configuration</button>}
-          </div>
-        </div>
-        {tab === 'activity' ? (
-          <div className="details__sections">
-            <section>
-              <div className="section-label section-label--row">
-                <span>Upcoming</span>
-                <button type="button" className="link-btn link-btn--small" onClick={() => useConfigUI.getState().openBotSettings(bot.id, 'routines')}>Manage</button>
-              </div>
-              <div className="panel-card">
-                {routines?.length ? routines.map((r) => <RoutineRow key={r.id} r={r} />) : (
-                  <div className="panel-empty">Nothing scheduled. Try asking in chat, for example “send me a summary every weekday at 8am”.</div>
-                )}
-              </div>
-            </section>
-            {bot.kind === 'room' && (
-              <section>
-                <div className="section-label">Members</div>
-                <MembersCard room={bot} />
-              </section>
-            )}
-            {bot.kind !== 'room' && !hideSuggested && (
-              <section>
-                <div className="section-label section-label--row">
-                  <span>Suggested</span>
-                  <button type="button" className="link-btn link-btn--small" onClick={() => { setHideSuggested(true); try { localStorage.setItem('swarm.hideSuggested', '1'); } catch { /* ignore */ } }}>Hide</button>
-                </div>
-                <div className="panel-card">
-                  <button type="button" className="panel-row panel-row--link" onClick={addSlack}>
-                    <span className="panel-row__glyph"><ToolkitLogo slug="slack" name="Slack" size={16} variant="mark" /></span>
-                    <span className="panel-row__title" style={{ flex: 1 }}>Add to Slack</span>
-                    <Icon name="chev_right" size={12} opacity={0.56} />
-                  </button>
-                </div>
-              </section>
-            )}
-            {bot.kind !== 'room' && (
-              <>
-                <section>
-                  <div className="section-label">Computer</div>
-                  <ComputerCard bot={bot} />
-                </section>
-                <section>
-                  <div className="section-label">Voice chat</div>
-                  <VoiceSettings bot={bot} />
-                </section>
-              </>
-            )}
-          </div>
-        ) : tab === 'tasks' ? <BotTasks bot={bot} /> : isConfiguration ? <AgentConfiguration key={bot.id} bot={bot} /> : <><DeliverablesPanel key={bot.id} botId={bot.id} /><LibraryTab bot={bot} /></>}
-      </div>
-    </aside>
-  );
+  const hideSuggestion = () => {
+    setHideSuggested(true);
+    try { localStorage.setItem('swarm.hideSuggested', '1'); } catch { return; }
+  };
+  const openSettings = () => useConfigUI.getState().openBotSettings(bot.id);
+  const openRoutines = () => useConfigUI.getState().openBotSettings(bot.id, 'routines');
+  const title = displayName(bot);
+  const label = reports ? 'Saved reports' : sections.find(section => section.id === tab)?.label;
+  const navigation = <nav className="setup-paper__tabs details-page__tabs" aria-label="Conversation details sections">
+    {sections.filter(section => bot.kind !== 'room' || section.id !== 'configuration').map(section =>
+      <button key={section.id} type="button" aria-current={tab === section.id || undefined} onClick={() => { setTab(section.id); setReports(false); }}>{section.label}</button>)}
+  </nav>;
+  return <main className={`details details--page setup-paper${tab === 'configuration' ? ' details--configuration' : ''}`} aria-label="Conversation details">
+    <SetupPaperHeader backLabel={reports ? 'Back to files' : 'Back to chat'} title={label} onBack={reports ? () => setReports(false) : close} onClose={close} closeLabel="Close details" />
+    <div className="setup-paper__column details-page__column">
+      {tab !== 'configuration' && <div><h1>{reports ? 'Saved reports' : tab === 'activity' ? title : `${title} · ${label}`}</h1>
+        <p className="setup-paper__subtitle">{reports ? 'Review immutable saved artifacts and delivery attempts.' : tab === 'activity' ? 'Activity for this conversation.' : tab === 'library' ? `Files saved by ${title}` : 'Work assigned to this conversation.'}</p></div>}
+      {tab !== 'configuration' && navigation}
+      {tab === 'activity' && <>
+        <section aria-label="Upcoming activity" className="details-page__activity">
+          <h2>Upcoming</h2>
+          {routines?.length ? routines.map(routine => <RoutineRow key={routine.id} routine={routine} />) : <p className="setup-paper__subtitle">Nothing scheduled. Ask in chat or manage routines.</p>}
+          <DetailRow title="Routines"><button type="button" className="cfg-btn cfg-btn--secondary" onClick={openRoutines}>Manage routines</button></DetailRow>
+          {bot.kind === 'room' ? <section><h2>Members</h2><MembersCard room={bot} /></section> : <>
+            {!hideSuggested && <><DetailRow title="Suggested"><button type="button" className="cfg-btn cfg-btn--secondary" onClick={hideSuggestion}>Hide suggestion</button></DetailRow>
+              <DetailRow title="Slack"><button type="button" className="cfg-btn cfg-btn--secondary" disabled={slackBusy} onClick={() => void addSlack()}>{slackBusy ? 'Opening…' : 'Add to Slack'}</button></DetailRow></>}
+            {slackError && <p className="cfg-error" role="alert">{slackError}</p>}
+            <ComputerRow />
+            <DetailRow title="Voice chat"><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setVoice(!voice)} aria-expanded={voice}>{voice ? 'Hide voice settings' : 'Voice settings'}</button></DetailRow>
+            {voice && <VoiceSettings bot={bot} />}
+          </>}
+          <DetailRow title="Bot settings" description="General, analytics, and bot configuration."><button type="button" className="cfg-btn cfg-btn--secondary" onClick={openSettings}>Bot settings</button></DetailRow>
+        </section>
+        <div className="setup-paper__actions"><button type="button" className="cfg-btn cfg-btn--primary" onClick={close}>Close details</button></div>
+      </>}
+      {tab === 'tasks' && <BotTasks bot={bot} />}
+      {tab === 'configuration' && <AgentConfiguration bot={bot} navigation={navigation} />}
+      {tab === 'library' && (reports ? <DeliverablesPanel botId={bot.id} /> : <>
+        <DetailRow title="Saved reports"><button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setReports(true)}>Saved reports</button></DetailRow>
+        <LibraryTab bot={bot} onClose={close} />
+      </>)}
+    </div>
+  </main>;
 }

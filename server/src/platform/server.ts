@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Handler } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { getCookie } from 'hono/cookie';
 import { serve } from '@hono/node-server';
@@ -35,6 +35,41 @@ export function platformRequestMiddleware(app:Hono){
     if(c.req.path==='/api/auth/apple/callback')return next();
     return requestBoundary(c,next);
   });
+}
+
+export function platformAccountRoutes(directory: Directory, revoked: (tenant: string) => void) {
+  const app = new Hono();
+  app.delete('/api/account', async c => {
+    const session = await directory.session(getCookie(c, 'swarm_session'));
+    if (!session || new Date(session.authenticated_at).getTime() < Date.now() - 600_000) return c.json({ error: 'Sign in again to delete your account.', code: 'reauth_required' }, 401);
+    const body = await c.req.json().catch(() => null);
+    if (body?.confirmation !== 'DELETE') return c.json({ error: 'Confirm account deletion.' }, 400);
+    if (typeof body.expectedUserId !== 'string' || !body.expectedUserId) return c.json({ error: 'Confirm the account for this request.' }, 400);
+    if (body.expectedUserId !== session.tenant_id) return c.json({ error: 'Your account changed. Reload before deleting your account.', code: 'account_changed' }, 409);
+    try {
+      await directory.revokeTenant(session.tenant_id, { sessionHash: session.hash });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'reauth_required') return c.json({ error: 'Sign in again to delete your account.', code: 'reauth_required' }, 401);
+      throw error;
+    }
+    revoked(session.tenant_id);
+    return c.json({ ok: true, state: 'deleting' }, 202);
+  });
+  return app;
+}
+
+export function platformTenantRequest(directory: Directory, broker: Pick<TunnelBroker, 'forward'>): Handler {
+  return async c => {
+    const session = await directory.session(getCookie(c, 'swarm_session'));
+    if (!session) return c.json({ error: 'Unauthenticated.' }, 401);
+    if (c.req.path === '/api/cli' || c.req.path.startsWith('/api/cli/')) {
+      const expected = c.req.query('expectedUserId');
+      if (expected === '') return c.json({ error: 'Confirm the account for this request.' }, 400);
+      if (expected !== undefined && expected !== session.tenant_id) return c.json({ error: 'Your account changed. Reload this page before changing a connection.', code: 'account_changed' }, 409);
+    }
+    if (session.state === 'suspended') await directory.pool.query("INSERT INTO lifecycle_jobs(id,tenant_id,operation) VALUES(gen_random_uuid()::text,$1,'wake') ON CONFLICT(tenant_id,operation) DO UPDATE SET state='queued',retry_at=now() WHERE lifecycle_jobs.state='completed'", [session.tenant_id]);
+    return broker.forward(c.req.raw, session);
+  };
 }
 
 export async function startPlatform() {
@@ -76,20 +111,8 @@ export async function startPlatform() {
     const result=await fetch(target,{headers:{cookie:c.req.header('cookie')??''},redirect:'error',signal:AbortSignal.timeout(30_000)});
     return new Response(result.body,{status:result.status,headers:{'content-type':result.headers.get('content-type')??'text/plain','cache-control':'no-store','referrer-policy':'no-referrer'}});
   });
-  app.delete('/api/account',async c=>{
-    const session=await directory.session(getCookie(c,'swarm_session'));
-    if(!session||new Date(session.authenticated_at).getTime()<Date.now()-600_000)return c.json({error:'Sign in again to delete your account.',code:'reauth_required'},401);
-    const b=await c.req.json();if(b.confirmation!=='DELETE')return c.json({error:'Confirm account deletion.'},400);
-    try{await directory.revokeTenant(session.tenant_id,{sessionHash:session.hash});}
-    catch(error){if(error instanceof Error&&error.message==='reauth_required')return c.json({error:'Sign in again to delete your account.',code:'reauth_required'},401);throw error;}
-    broker.revoke(session.tenant_id);return c.json({ok:true,state:'deleting'},202);
-  });
-  app.all('/api/*',async c=>{
-    const session=await directory.session(getCookie(c,'swarm_session'));
-    if(!session)return c.json({error:'Unauthenticated.'},401);
-    if(session.state==='suspended')await directory.pool.query("INSERT INTO lifecycle_jobs(id,tenant_id,operation) VALUES(gen_random_uuid()::text,$1,'wake') ON CONFLICT(tenant_id,operation) DO UPDATE SET state='queued',retry_at=now() WHERE lifecycle_jobs.state='completed'",[session.tenant_id]);
-    return broker.forward(c.req.raw,session);
-  });
+  app.route('/', platformAccountRoutes(directory, tenant => broker.revoke(tenant)));
+  app.all('/api/*', platformTenantRequest(directory, broker));
   const webDist=path.resolve(new URL('.',import.meta.url).pathname,'../../../web/dist');
   if(fs.existsSync(webDist)){app.use('/*',serveStatic({root:path.relative(process.cwd(),webDist)}));app.get('*',c=>c.html(fs.readFileSync(path.join(webDist,'index.html'),'utf8')));}
   const metrics=await startOperationsMetrics(directory,'platform',{state:()=>({ready:broker.ready})})

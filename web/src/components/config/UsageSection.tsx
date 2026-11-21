@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { Download } from 'lucide-react';
 import { useStore } from '../../store';
+import { AccessRow } from './AccessRow';
 import { configApi, type ProviderUsage, type UsageCoverage, type UsageRange, type UsageReport, type UsageRow } from '../../lib/configApi';
 import '../../styles/usage.css';
 
@@ -12,8 +13,8 @@ import '../../styles/usage.css';
 
 const RANGES: { value: UsageRange; label: string }[] = [
   { value: 'today', label: 'Today' },
-  { value: '7d', label: '7 days' },
-  { value: '30d', label: '30 days' },
+  { value: '7d', label: 'Last 7 days' },
+  { value: '30d', label: 'Last 30 days' },
   { value: 'month', label: 'This month' },
 ];
 
@@ -58,28 +59,27 @@ export function niceTicks(max: number): number[] {
 // ---------- pieces ----------
 
 /** Title, with whose usage (owners) beside it. Phones swap the description for the dates covered. */
-function PageHead({ span, scope }: { span: string | null; scope?: ReactNode }) {
+function PageHead({ span }: { span: string | null }) {
   return (
     <div className="app-settings__head usage-head">
       <div className="usage-head__text">
-        <h1>Usage</h1>
-        <p className="usage-head__desc">What your Bots’ AI use costs: tokens, requests and dollars, as each provider reports them per request.</p>
+        <h1>Understand reported usage</h1>
+        <p>Filter the report before comparing charges or downloading a CSV.</p>
         {span && <p className="usage-head__span">{span}</p>}
       </div>
-      {scope}
     </div>
   );
 }
 
 /** The headline: what the period cost, and how it splits between AI and the computer. */
-function Hero({ ai, computer, days, sub }: { ai: number; computer: number | null; days: number; sub?: string }) {
+function Hero({ ai, computer, days, sub, unpriced }: { ai: number; computer: number | null; days: number; sub?: string; unpriced: boolean }) {
   const total = ai + (computer ?? 0);
   const parts = computer != null && total > 0 ? [['ai', ai], ['vm', computer]].filter(([, v]) => (v as number) > 0) as [string, number][] : [];
   return (
     <div className="usage-hero">
-      <div className="usage-hero__label">{computer != null ? 'Total cost' : 'Cost'}</div>
+      <div className="usage-hero__label">Recorded spend</div>
       <div className="usage-hero__row">
-        <span className="usage-hero__value">{fmtUsd(total)}</span>
+        <span className="usage-hero__value">{unpriced ? 'Not reported' : fmtUsd(total)}</span>
         {days > 1 && total > 0 && <span className="usage-hero__rate">{fmtUsd(total / days)} a day</span>}
       </div>
       {computer != null ? (
@@ -257,15 +257,6 @@ function DailyChart({ days, metric, withComputer }: { days: UsageReport['days'];
       <div className="usage-chart__xaxis" aria-hidden>
         {days.map((d, i) => <span key={d.day} className={i === days.length - 1 ? 'is-last' : ''}>{(i % labelEvery === 0 && days.length - i >= clearOfLast) || i === days.length - 1 ? dayLabel(d.day) : ''}</span>)}
       </div>
-      <details className="usage-table">
-        <summary>Show as a table</summary>
-        <table>
-          <thead><tr><th>Day (UTC)</th><th>{stacked ? 'AI cost' : 'Cost'}</th>{stacked && <th>Computer (est.)</th>}<th>Tokens</th><th>Requests</th></tr></thead>
-          <tbody>
-            {days.map((d) => <tr key={d.day}><td>{dayLabel(d.day)}</td><td>{fmtUsd(d.costUsd)}</td>{stacked && <td>{fmtUsd(d.computerUsd)}</td>}<td>{tokenFigure(d.tokens, d)}</td><td>{compact(d.requests)}</td></tr>)}
-          </tbody>
-        </table>
-      </details>
     </div>
   );
 }
@@ -376,10 +367,10 @@ function ProviderCard({ data }: { data: ProviderUsage }) {
               <Meter label="Key credit limit" used={Math.max(0, o.limit - o.limitRemaining)} limit={o.limit}
                 figure={`${fmtUsd(o.limitRemaining)} left of ${fmtUsd(o.limit)}`} note={o.limitReset ? `Resets ${o.limitReset}.` : undefined} />
             )}
-            {o.budgets.filter((b) => b.limitUsd != null).map((b, i) => (
-              <Meter key={i} label={`Budget${b.scope ? ` (${b.scope})` : ''}`} used={b.spendUsd ?? 0} limit={b.limitUsd!}
-                figure={`${fmtUsd(b.spendUsd)} of ${fmtUsd(b.limitUsd)}`} note={b.resetInterval ? `Resets ${b.resetInterval}.` : undefined} />
-            ))}
+            {o.budgets.filter(b => b.limitUsd != null).map((b, i) => b.spendUsd == null
+              ? <AccessRow key={i} title={`Budget${b.scope ? ` (${b.scope})` : ''}`} description="Spend not reported" status={`${fmtUsd(b.limitUsd)} limit`} />
+              : <Meter key={i} label={`Budget${b.scope ? ` (${b.scope})` : ''}`} used={b.spendUsd} limit={b.limitUsd!}
+                figure={`${fmtUsd(b.spendUsd)} of ${fmtUsd(b.limitUsd)}`} note={b.resetInterval ? `Resets ${b.resetInterval}.` : undefined} />)}
           </>
         ) : null}
         <div className="usage-card__note">{data.note}</div>
@@ -391,26 +382,41 @@ function ProviderCard({ data }: { data: ProviderUsage }) {
 // ---------- the page ----------
 
 export function UsageSection() {
-  const [range, setRange] = useState<UsageRange>('30d');
+  const accountId = useStore(s => s.user?.id);
+  return <AccountUsageReport key={accountId} />;
+}
+
+function AccountUsageReport() {
+  const [range, setRange] = useState<UsageRange>('7d');
   const [scope, setScope] = useState<'me' | 'all'>('me');
-  const [data, setData] = useState<UsageReport | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [report, setReport] = useState<{ range: UsageRange; scope: 'me' | 'all'; data: UsageReport } | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const [providerAttempt, setProviderAttempt] = useState(0);
+  const [reportView, setReportView] = useState<'chart' | 'table'>('chart');
+  const [breakdown, setBreakdown] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [provider, setProvider] = useState<ProviderUsage | null>(null);
+  const [providerError, setProviderError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
-    setLoading(true);
+    setError(null);
     configApi.usage(range, scope)
-      .then((d) => { if (alive) { setData(d); setError(null); } })
-      .catch((e) => { if (alive) setError((e as Error).message); })
-      .finally(() => { if (alive) setLoading(false); });
+      .then((d) => { if (alive) { if (d.scope !== scope) setScope(d.scope); setReport({ range, scope: d.scope, data: d }); } })
+      .catch((e) => { if (alive) { setReport(null); setError((e as Error).message); } });
     return () => { alive = false; };
-  }, [range, scope]);
+  }, [range, scope, attempt]);
 
-  const canSeeAll = !!data?.canSeeAll;
+  const data = report?.range === range && report.scope === scope ? report.data : null;
+  const canSeeAll = !!report?.data.canSeeAll;
   const canSeeProvider = data?.canSeeProvider ?? canSeeAll;
-  useEffect(() => { if (canSeeProvider && !provider) configApi.usageProvider().then(setProvider).catch(() => {}); }, [canSeeProvider, provider]);
+  useEffect(() => {
+    if (!canSeeProvider) { setProvider(null); setProviderError(null); return; }
+    let alive = true;
+    setProvider(null); setProviderError(null);
+    configApi.usageProvider().then(value => { if (alive) setProvider(value); }).catch(e => { if (alive) setProviderError((e as Error).message); });
+    return () => { alive = false; };
+  }, [canSeeProvider, providerAttempt]);
 
   const t = data?.totals;
   const vm = data?.computer;
@@ -427,8 +433,6 @@ export function UsageSection() {
   }, [t]);
   const limit = data?.limits.dailyMessages;
   // Phones: "Month" keeps all four periods on one full-width row.
-  const phone = useStore((s) => s.mobile);
-  const ranges = phone ? RANGES.map((r) => (r.value === 'month' ? { ...r, label: 'Month' } : r)) : RANGES;
   const days = data?.days ?? [];
   const span = days.length ? `${days.length > 1 ? `${dayLabel(days[0].day)} – ${dayLabel(days[days.length - 1].day)} · UTC days` : `${dayLabel(days[0].day)} · UTC`}` : null;
   const csv = `/api/usage/export.csv?range=${range}&scope=${scope}`;
@@ -437,28 +441,19 @@ export function UsageSection() {
 
   return (
     <div className="usage-page">
-      <PageHead span={span} scope={canSeeAll ? <Seg label="Whose usage" value={scope} options={[{ value: 'me', label: 'Me' }, { value: 'all', label: 'Everyone' }]} onChange={setScope} /> : undefined} />
+      <PageHead span={span} />
       <div className="usage-filters">
-        <Seg label="Period" value={range} options={ranges} onChange={setRange} />
-        <a className="cfg-btn cfg-btn--secondary usage-filters__csv" href={csv} download>Download CSV</a>
+        <label className="cfg-field"><span className="cfg-field__label">Report period</span><select className="text-input" value={range} onChange={event => setRange(event.target.value as UsageRange)}>{RANGES.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        <label className="cfg-field"><span className="cfg-field__label">Scope</span><select className="text-input" value={scope} onChange={event => setScope(event.target.value === 'all' ? 'all' : 'me')} disabled={!canSeeAll}><option value="me">Me</option>{canSeeAll && <option value="all">Everyone</option>}</select><span className="cfg-field__hint">Everyone is limited to eligible administrators.</span></label>
       </div>
 
-      {error && <div className="cfg-error">{error}</div>}
-      {!data && !error && <div className="cfg-empty cfg-empty--flat">Loading…</div>}
+      {error && <div role="alert" className="cfg-error">{error} <button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setAttempt(value => value + 1)}>Retry report</button></div>}
+      {!data && !error && <div className="cfg-empty cfg-empty--flat" role="status">Loading usage report…</div>}
 
       {data && t && (
-        <div className={`usage-root${loading ? ' is-loading' : ''}`}>
-          {limit && scope === 'me' && (
-            <section className="cfg-section">
-              <div className="cfg-section__label">Your plan</div>
-              <div className="usage-card">
-                <Meter label="Messages today" used={limit.used} limit={limit.limit} figure={`${compact(limit.used)} of ${compact(limit.limit)}`}
-                  note={`Resets at midnight UTC (${inHours(limit.resetsAt)}).`} />
-              </div>
-            </section>
-          )}
-
-          <Hero ai={t.costUsd} computer={hasComputer ? vm!.costUsd : null} days={days.length} sub={subCost} />
+        <div className="usage-root">
+          <Hero ai={t.costUsd} computer={hasComputer ? vm!.costUsd : null} days={days.length} sub={subCost} unpriced={!hasComputer && t.requests > 0 && t.unpricedRequests >= t.requests && t.costUsd === 0} />
+          <div className="usage-report__summary"><span>Reported requests and tokens</span><strong>{plural(t.requests, 'request')}{incomplete(t) > 0 ? ` · tokens not fully reported for ${plural(incomplete(t), 'request')}` : ''}</strong><p>Missing provider data isn’t counted as zero.</p></div>
           {incomplete(t) > 0 && <p className="usage-card__note" role="status">Token accounting is incomplete: {plural(t.partialUsageRequests ?? 0, 'request')} with partial usage and {plural(t.unavailableUsageRequests ?? 0, 'request')} with unavailable usage. Subscription requests with unavailable usage are counted; token totals include only reported counters.</p>}
           <div className="usage-tiles">
             <Tile label={incomplete(t) ? 'Known tokens' : 'Tokens'} value={tokenFigure(t.inputTokens + t.outputTokens, t)} sub={`${t.knownInputRequests === 0 && t.requests > 0 ? 'Unavailable' : compact(t.inputTokens)} in · ${t.knownOutputRequests === 0 && t.requests > 0 ? 'Unavailable' : compact(t.outputTokens)} out${t.cachedTokens ? ` · ${compact(t.cachedTokens)} cached` : ''}`} />
@@ -471,23 +466,38 @@ export function UsageSection() {
             <div className="cfg-empty cfg-empty--flat">No AI usage in this period yet.</div>
           ) : (
             <>
-              {data.days.length > 1 && <DailyChart days={data.days} metric={byCost ? 'cost' : 'tokens'} withComputer={hasComputer} />}
-              {hasComputer && scope === 'me' && <ComputerCard data={data} />}
-              {data.byUser && <RankedList title="By account" rows={data.byUser} byCost={byCost} />}
-              <RankedList title="By Bot" rows={data.byBot} byCost={byCost} />
-              <RankedList title="By model" rows={data.byModel} byCost={byCost} />
-              <RankedList title="By activity" rows={data.byKind} byCost={byCost} />
+              {days.length > 0 && <>
+                <Seg label="Report display" value={reportView} options={[{ value: 'chart', label: 'Chart' }, { value: 'table', label: 'Table' }]} onChange={setReportView} />
+                {reportView === 'chart' ? <DailyChart days={days} metric={byCost ? 'cost' : 'tokens'} withComputer={hasComputer} /> : <div className="usage-table" tabIndex={0} role="region" aria-label="Daily usage table">
+                  <table>
+                    <thead><tr><th>Day (UTC)</th><th>Recorded AI cost</th>{hasComputer && <th>Computer (est.)</th>}<th>Tokens</th><th>Requests</th></tr></thead>
+                    <tbody>{days.map(day => <tr key={day.day}><td>{dayLabel(day.day)}</td><td>{day.costUsd === 0 && t.unpricedRequests > 0 && day.requests > 0 ? 'No recorded cost' : fmtUsd(day.costUsd)}</td>{hasComputer && <td>{fmtUsd(day.computerUsd)}</td>}<td>{tokenFigure(day.tokens, day)}</td><td>{compact(day.requests)}</td></tr>)}</tbody>
+                  </table>
+                </div>}
+              </>}
+              <AccessRow title="Breakdown" description="Expand account, Bot, model and activity lists."><button type="button" className="cfg-btn cfg-btn--secondary" aria-expanded={breakdown} onClick={() => setBreakdown(value => !value)}>{breakdown ? 'Show less' : 'Show more'}</button></AccessRow>
+              {breakdown && <>
+                {hasComputer && scope === 'me' && <ComputerCard data={data} />}
+                {data.byUser && <RankedList title="By account" rows={data.byUser} byCost={byCost} />}
+                <RankedList title="By Bot" rows={data.byBot} byCost={byCost} />
+                <RankedList title="By model" rows={data.byModel} byCost={byCost} />
+                <RankedList title="By activity" rows={data.byKind} byCost={byCost} />
+              </>}
             </>
           )}
+          {scope === 'me' && (limit && limit.resetsAt > Date.now()
+            ? <div className="usage-card"><Meter label="Messages today" used={limit.used} limit={limit.limit} figure={`${compact(limit.used)} of ${compact(limit.limit)}`} note={`Resets at midnight UTC (${inHours(limit.resetsAt)}).`} /></div>
+            : <AccessRow title="Plan limits" description="No current daily message allowance reported." status="Not reported" />)}
         </div>
       )}
 
       {canSeeProvider && provider && <ProviderCard data={provider} />}
+      {canSeeProvider && !provider && (providerError ? <div className="cfg-error" role="alert">{providerError} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setProviderAttempt(value => value + 1)}>Retry provider usage</button></div> : <p className="usage-card__note" role="status">Checking provider usage…</p>)}
 
       {/* Phones: export sits at the end, with where the numbers come from. */}
       {data && (
         <div className="usage-foot">
-          <a className="usage-foot__csv" href={csv} download><Download size={16} strokeWidth={1.75} aria-hidden />Export CSV</a>
+          <a className="cfg-btn cfg-btn--primary" href={csv} download><Download size={16} strokeWidth={1.75} aria-hidden />Download CSV</a>
           <p className="usage-foot__note">{provenance}</p>
         </div>
       )}

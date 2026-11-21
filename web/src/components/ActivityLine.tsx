@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Bot, LiveState, Row } from '@shared/types';
-import { BotAvatarFor } from '../avatar/BotAvatar';
+import { FlockMark } from './FlockMark';
 import { activityPhrase } from '../lib/phrases';
 import { BrailleSpinner, ElapsedTimer, type SpinnerVariant } from './BrailleSpinner';
 import type { ActivityKind } from '@shared/types';
@@ -28,7 +28,7 @@ export function ActivityLine({ bot, live, rows }: { bot: Bot; live: LiveState; r
   const waiting = !live.isRunning && (live.awaiting || live.activity?.kind === 'waiting_for_you');
   return (
     <div className={`activity-line effort-motion${waiting ? ' is-waiting' : ''}`} data-effort={waiting ? undefined : effort ?? undefined} role="status" aria-live="polite">
-      <span className="activity-line__mark"><BotAvatarFor bot={bot} size={20} /></span>
+      <span className="activity-line__mark"><FlockMark size={32} working={!waiting} /></span>
       <span className="activity-line__text shimmer" key={phrase}>{phrase}</span>
       <span className="activity-timer" title={waiting ? 'Waiting for you' : 'Working'}>
         <BrailleSpinner variant={variantFor(live.activity?.kind, !!waiting)} />

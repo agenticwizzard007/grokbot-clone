@@ -1,9 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { configApi, type MessagingInvite, type PlatformSignupPolicy, type PlatformWaitlistEntry } from '../../lib/configApi';
-import { shortDate } from './ui';
+import { verifyAccessAccount } from '../../lib/accessApi';
+import { useStore } from '../../store';
+import { ConfirmButton, shortDate } from './ui';
 
 /** Platform administration is discovered independently of tenant server ownership. */
 export function PlatformSignupSettings({ version }: { version: number }) {
+  const accountId = useStore(s => s.user?.id);
   const [policy, setPolicy] = useState<PlatformSignupPolicy | null>(null);
   const [invites, setInvites] = useState<MessagingInvite[]>([]);
   const [waiting, setWaiting] = useState<PlatformWaitlistEntry[]>([]);
@@ -11,6 +14,10 @@ export function PlatformSignupSettings({ version }: { version: number }) {
   const [waitCursor, setWaitCursor] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const [loadError, setLoadError] = useState('');
+  const [loading, setLoading] = useState(true);
+  const running = useRef(false);
   const [inviteUses, setInviteUses] = useState('1');
   const [inviteDays, setInviteDays] = useState('7');
   async function loadInvites(more = false) {
@@ -23,6 +30,7 @@ export function PlatformSignupSettings({ version }: { version: number }) {
   }
   useEffect(() => {
     let live = true;
+    setLoading(true); setLoadError('');
     void configApi.platformSignup().then(async result => {
       if (!live) return;
       if (!result.admin || !result.settings) { setPolicy(null); return; }
@@ -30,15 +38,18 @@ export function PlatformSignupSettings({ version }: { version: number }) {
       const [i, w] = await Promise.all([configApi.platformInvites(), configApi.platformWaitlist()]);
       if (!live) return;
       setInvites(i.invites); setInviteCursor(i.next); setWaiting(w.waitlist); setWaitCursor(w.next);
-    }).catch(() => { if (live) setPolicy(null); });
+    }).catch(e => { if (live) setLoadError((e as Error).message); }).finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
-  }, [version]);
+  }, [version, attempt]);
   const act = async (work: () => Promise<void>) => {
+    if (!accountId || running.current) return;
+    running.current = true;
     setBusy(true); setError('');
-    try { await work(); } catch (e) { setError((e as Error).message); }
-    finally { setBusy(false); }
+    try { await verifyAccessAccount(accountId); if (useStore.getState().user?.id === accountId) await work(); } catch (e) { setError((e as Error).message); }
+    finally { running.current = false; setBusy(false); }
   };
-  if (!policy) return null;
+  if (loadError) return <div className="cfg-error" role="alert">Could not load signup administration: {loadError} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setAttempt(value => value + 1)}>Retry</button></div>;
+  if (!policy) return loading ? <p className="cfg-field__hint" role="status">Checking signup access…</p> : null;
   return <>
     <section className="cfg-section">
       <div className="cfg-section__label">Signup administration</div>
@@ -73,7 +84,7 @@ export function PlatformSignupSettings({ version }: { version: number }) {
         </form>
         {invites.map(invite => <div className="cfg-row" key={invite.code}>
           <div className="cfg-row__text"><div className="cfg-row__title"><a href={invite.url}>{invite.code}</a></div><div className="cfg-row__sub">{invite.uses} of {invite.maxUses} used · {invite.revoked ? 'Revoked' : invite.expiresAt ? `Expires ${shortDate(invite.expiresAt)}` : 'No expiry'}</div></div>
-          {!invite.revoked && <button className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => void act(async () => { await configApi.revokeInvite(invite.code); await loadInvites(); })}>Revoke</button>}
+          {!invite.revoked && <ConfirmButton className="cfg-btn cfg-btn--secondary" disabled={busy} confirmLabel="Revoke invite" onConfirm={() => act(async () => { await configApi.revokeInvite(invite.code); await loadInvites(); })}>Revoke</ConfirmButton>}
         </div>)}
         {inviteCursor && <button className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => void act(() => loadInvites(true))}>Load more invites</button>}
       </div>
@@ -82,7 +93,7 @@ export function PlatformSignupSettings({ version }: { version: number }) {
       <div className="cfg-section__label">Waitlist</div>
       <p className="cfg-field__hint">Approval lets this number join when they next verify their phone or message Swarm. Closing signups pauses all new phone accounts.</p>
       <div className="cfg-card">
-        {!waiting.length && <div className="cfg-empty cfg-empty--flat">Nobody is waiting.</div>}
+        {!waiting.length && <div className="cfg-empty cfg-empty--flat">{loading ? 'Loading waitlist…' : 'Nobody is waiting.'}</div>}
         {waiting.map(row => <div className="cfg-row" key={row.phone}>
           <div className="cfg-row__text"><div className="cfg-row__title">+{row.phone}</div><div className="cfg-row__sub">{row.channel} · {row.status} · {shortDate(row.createdAt)}</div></div>
           {row.status !== 'approved' && <button className="cfg-btn cfg-btn--primary" disabled={busy} onClick={() => void act(async () => { await configApi.decidePlatformWaitlist(row.phone, row.revision, 'approve'); await loadWaitlist(); })}>Approve</button>}

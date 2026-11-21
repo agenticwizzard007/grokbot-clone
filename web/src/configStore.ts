@@ -20,7 +20,7 @@ interface ConfigUI {
   resume: ResumeTarget | null;
   /** Settings was opened without a section (e.g. ⌘, or the account menu), so phones start on the section list. */
   appSettingsHome: boolean;
-  view: 'chat' | 'tasks';
+  view: 'chat' | 'tasks' | 'bots';
   theme: Theme;
   /** Bumped by server events (tasks, memories) so open views refetch. Keys: 'tasks', 'memories:<botId>'. */
   versions: Record<string, number>;
@@ -29,7 +29,7 @@ interface ConfigUI {
   openAppSettings(section?: AppSection): void;
   closeAppSettings(): void;
   clearResume(): void;
-  setView(v: 'chat' | 'tasks'): void;
+  setView(v: 'chat' | 'tasks' | 'bots'): void;
   setTheme(t: Theme): void;
   bump(key: string): void;
 }
@@ -146,3 +146,13 @@ useStore.subscribe((s, prev) => {
 });
 
 export const useVersion = (key: string) => useConfigUI((s) => s.versions[key] ?? 0);
+
+/** Canonical navigation from global bot lists/search: close panels from the previous caller. */
+export function openConversation(botId: string) {
+  const ui = useConfigUI.getState();
+  ui.closeAppSettings();
+  ui.closeBotSettings();
+  ui.setView('chat');
+  useStore.getState().setModal(null);
+  useStore.getState().selectBot(botId);
+}

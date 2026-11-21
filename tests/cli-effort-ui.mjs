@@ -53,7 +53,7 @@ import {useStore} from '/src/store.ts';
 import {useModels} from '/src/lib/models.ts';
 import '/src/styles/tokens.css';import '/src/styles/base.css';import '/src/styles/chat.css';import '/src/styles/composer-models.css';import '/src/styles/mobile.css';
 document.documentElement.dataset.theme=${JSON.stringify(theme)};
-useStore.setState({user:{id:'alice'},mobile:innerWidth<760,mobilePane:'chat',bots:[${JSON.stringify(bot)}]});
+useStore.setState({user:{id:'alice'},mobile:innerWidth<760,mobilePane:'chat',selectedBotId:${JSON.stringify(bot.id)},bots:[${JSON.stringify(bot)}]});
 window.refreshCatalog=()=>useModels.getState().load(true);
 window.setBot=bot=>useStore.setState({bots:[bot]});
 const live={isRunning:true,startedAt:Date.now(),activity:{kind:'thinking',since:Date.now()}};
@@ -63,6 +63,7 @@ function Harness(){const bot=useStore(s=>s.bots[0]);return React.createElement('
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(Harness));
 ` }));
     await page.goto(origin);
+    await page.waitForFunction(() => typeof window.setBot === 'function' && typeof window.refreshCatalog === 'function');
     const setBot = async patch => { bot = { ...bot, ...patch }; await page.evaluate(value => window.setBot(value), bot); };
     const open = async () => { await page.locator('.model-pill').click(); await page.locator('.mm-row__main').first().waitFor(); };
     const options = () => page.getByRole('listbox', { name: 'Effort', exact: true }).getByRole('option');

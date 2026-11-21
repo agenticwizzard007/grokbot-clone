@@ -1,5 +1,6 @@
 import type { AvatarColor, AvatarShape, Bot } from '@shared/types';
 import { palette } from '../lib/colors';
+import { FlockMark } from '../components/FlockMark';
 import { Icon } from '../components/Icon';
 import { SHAPES, type ShapeDef } from './shapes.gen';
 
@@ -56,5 +57,6 @@ export function BotAvatar({ shape, color, size, star, ring, className, title }: 
 }
 
 export function BotAvatarFor({ bot, size, star, className }: { bot: Pick<Bot, 'avatarShape' | 'avatarColor' | 'name'> & { isPrimary?: boolean }; size: number; star?: boolean; className?: string }) {
+  if (bot.isPrimary) return <span className={`bot-avatar ${className ?? ''}`} style={{ width: size, height: size }} title={bot.name} role="img" aria-label={bot.name}><FlockMark size={size} /></span>;
   return <BotAvatar shape={bot.avatarShape} color={bot.avatarColor} size={size} star={star} className={className} title={bot.name} />;
 }

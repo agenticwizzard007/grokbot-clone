@@ -137,3 +137,44 @@
 .msg-card__ph { display: grid; place-items: center; background: var(--color-bg-tertiary); color: var(--color-text-secondary); font-size: 34px; font-weight: 600; }
 .msg-card__upload { cursor: pointer; }
 .msg-card__fields { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 240px; }
+.join.access-invite { display: block; height: 100%; padding: 0; background: var(--color-bg-pane); }
+.access-invite .join__bar { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: env(safe-area-inset-top) 28px 0; border-bottom: 1px solid var(--color-border-secondary); }
+.access-invite .join__bar a { display: grid; place-items: center; min-height: 44px; width: 30px; color: var(--color-text-secondary); }
+.access-invite .join__bar .swarm-mark { color: var(--color-primary); }
+.access-invite .join__card { width: min(100%, 512px); align-items: stretch; margin-inline: auto; padding: 44px 16px 64px; text-align: left; background: transparent; border: 0; box-shadow: none; }
+.access-invite :is(h1, h2) { margin: 0; font-family: 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack); letter-spacing: -.025em; }
+.access-invite h1 { font-size: 32px; line-height: 1.2; }
+.access-invite h2 { margin-top: 14px; font-size: 21px; }
+.access-invite .join__pitch { margin-bottom: 24px; }
+.access-invite .join__copy, .access-invite .join__panel p { color: var(--color-text-secondary); font-size: 15px; line-height: 1.5; margin: 8px 0 0; }
+.access-invite .join__form { margin-top: 20px; }
+.access-invite .join__form label { font-size: 14px; }
+.access-invite .join__form .text-input { min-height: 48px; text-align: left; }
+.access-invite .join__hint { margin: 0 0 14px; font-size: 13px; color: var(--color-text-secondary); }
+.access-invite .btn { min-height: 44px; height: auto; border-radius: 12px; font-size: 14px; font-weight: 500; }
+.access-invite .join__signin { margin-top: 12px; background: var(--color-bg-active); }
+.access-invite .join__error { margin: 0 0 10px; }
+.access-invite .join__claimed { display: grid; gap: 5px; padding: 18px 0; margin-bottom: 24px; border-bottom: 1px solid var(--color-border-secondary); }
+.access-invite .join__claimed span { color: var(--color-text-secondary); font-size: 14px; }
+.access-invite .join__panel { margin-top: 16px; padding: 16px; border-radius: 14px; background: var(--color-bg-sidebar); }
+.access-invite .join__panel--hint { background: var(--color-bg-active); }
+.access-invite :is(.join__panel, .join__claimed) strong { font-weight: 500; color: var(--color-text-primary); }
+.access-invite .join__panel code { display: block; margin-top: 8px; overflow-wrap: anywhere; white-space: normal; }
+.access-invite .join__qr { display: block; margin: 12px 0 0; }
+@media (max-width: 760px) {
+  .access-invite .join__bar { padding-inline: 12px; }
+  .access-invite .join__card { padding-top: 24px; }
+  .access-invite h1 { font-size: 27px; }
+}
+.access-messaging { display: flex; flex-direction: column; gap: 22px; }
+.access-messaging > .cfg-section { gap: 0; }
+.access-messaging .access-messaging__account { gap: 14px; }
+.access-messaging__account .cfg-field .text-input { min-height: 48px; }
+.access-messaging__account .cfg-field > .cfg-btn { align-self: start; margin-top: 10px; }
+.access-messaging .cfg-key__foot, .access-messaging .msg-invite-form { padding-inline: 0; }
+.access-messaging .msg-whatsapp-row :is(.msg-wa-tile, .computer-status-dot) { display: none; }
+.access-messaging .msg-wa-tile + .cfg-row__text, .access-messaging .computer-status-dot + .cfg-row__text { min-width: 0; }
+@media (max-width: 760px) {
+  .access-messaging .cfg-card > .cfg-row:has(> button + button) { display: flex; flex-wrap: wrap; }
+  .access-messaging .cfg-card > .cfg-row:has(> button + button) > .cfg-row__text { flex: 1 0 calc(100% - 24px); }
+}
