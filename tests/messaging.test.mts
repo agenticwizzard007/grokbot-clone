@@ -494,15 +494,29 @@ test('durable inbox: duplicates handled once; pending events replay after a rest
   await waitFor(() => listRows(bot).some((r) => (r.body as any).text === 'saved before a crash'));
 });
 
-test('/web sign-in link works once and expires; sign-in by text answers the same for unknown numbers', async () => {
+test('/web sign-in link works once and expires; sign-in by text answers the same for unknown numbers', async (context) => {
   const phone = '15550002222';
+  const legacyToken = '_AbC_' + 'a'.repeat(27);
+  const tokenBytes = Buffer.from(legacyToken, 'base64url');
+  assert.equal(tokenBytes.length, 24);
+  assert.equal(tokenBytes.toString('base64url'), legacyToken);
+  const originalRandomBytes = crypto.randomBytes;
   ib.sent.length = 0;
-  await text(phone, '/web');
+  const randomBytes = context.mock.method(crypto, 'randomBytes', (size: number, callback?: (error: Error | null, bytes: Buffer) => void) => {
+    if (callback) return originalRandomBytes(size, callback);
+    return size === tokenBytes.length ? tokenBytes : originalRandomBytes(size);
+  });
+  try {
+    await text(phone, '/web');
+  } finally {
+    randomBytes.mock.restore();
+  }
   const msg = await sentTo(phone, /Open your Swarm in a browser/);
   const link = msg.text.match(/https:\/\/swarm\.swarms\.so(\/api\/auth\/text\?t=\S+)/)![1];
   const first = await app.request(link);
   assert.equal(first.status, 302);
   assert.match(first.headers.get('set-cookie') ?? '', /swarm_session=/);
+  assert.equal(link, `/api/auth/text?t=${tokenBytes.toString('hex')}`);
   const again = await app.request(link);
   assert.match(again.headers.get('location') ?? '', /login=expired/);
 
@@ -513,6 +527,14 @@ test('/web sign-in link works once and expires; sign-in by text answers the same
   assert.deepEqual(known, unknown);
   await sentTo(phone, /Sign in to Swarm/);
   assert.equal(ib.sent.filter((m) => /Sign in to Swarm/.test(m.text ?? '')).length, 1);
+
+  const legacyHash = crypto.createHash('sha256').update(legacyToken).digest('hex');
+  db.prepare('INSERT INTO login_tokens(token_hash,user_id,expires_at) VALUES (?,?,?)').run(legacyHash, alice, Date.now() + 60_000);
+  const legacyLink = `/api/auth/text?t=${encodeURIComponent(legacyToken)}`;
+  const legacyFirst = await app.request(legacyLink);
+  assert.equal(legacyFirst.status, 302);
+  assert.match(legacyFirst.headers.get('set-cookie') ?? '', /swarm_session=/);
+  assert.match((await app.request(legacyLink)).headers.get('location') ?? '', /login=expired/);
 });
 
 test('LINK <code> attaches a phone to an existing web account', async () => {

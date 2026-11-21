@@ -206,7 +206,7 @@ const hash = (t: string) => crypto.createHash('sha256').update(t).digest('hex');
 /** A link that signs this user into the web app once, within 10 minutes. */
 export function createLoginLink(userId: string): string {
   db.prepare(`DELETE FROM login_tokens WHERE expires_at<? AND ${legacyWritableRows(db, 'login_tokens')}`).run(now() - 24 * 3600_000);
-  const t = crypto.randomBytes(24).toString('base64url');
+  const t = crypto.randomBytes(24).toString('hex');
   db.prepare('INSERT INTO login_tokens(token_hash,user_id,expires_at) VALUES (?,?,?)').run(hash(t), userId, now() + LOGIN_TTL);
   return `${env.serverUrl.replace(/\/$/, '')}/api/auth/text?t=${encodeURIComponent(t)}`;
 }
