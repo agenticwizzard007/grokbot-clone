@@ -39,7 +39,7 @@ const BotRow = memo(function BotRow({ bot, selected, running, awaiting, onSelect
   return (
     <button type="button" className={`bot-row${selected ? ' is-selected' : ''}`} onClick={() => onSelect(bot.id)} aria-label={`${displayName(bot)}. ${previewFor(bot, running, awaiting)}`} aria-current={selected || undefined}>
       <span className="bot-row__avatar">
-        <BotAvatarFor bot={bot} size={36} />
+        <BotAvatarFor bot={bot} size={36} working={running} />
         {(running || awaiting || bot.unread > 0) && (
           <span className={`status-dot ${awaiting ? 'is-attention' : running ? 'is-working' : 'is-unread'}`} aria-label={awaiting ? 'Needs attention' : running ? 'Working' : 'Unread activity'} />
         )}
@@ -75,6 +75,8 @@ export function Sidebar() {
   const logout = async () => { await api.logout().catch(() => {}); location.reload(); };
 
   const primary = bots.find((b) => b.isPrimary);
+  const primaryLive = primary ? userFacingLive(live[primary.id]) : undefined;
+  const primaryWorking = !!primaryLive?.isRunning && !primaryLive.awaiting;
   const others = bots.filter((b) => !b.isPrimary).sort((a, b) => b.lastActivityAt - a.lastActivityAt);
 
   return (
@@ -106,23 +108,25 @@ export function Sidebar() {
           <div className="pinned">
             <button type="button" className={`pinned__tile${selectedBotId === primary.id ? ' is-selected' : ''}`} onClick={() => selectBot(primary.id)} aria-label={displayName(primary)} title={displayName(primary)}>
               <span className="pinned__avatar">
-                <BotAvatarFor bot={primary} size={40} star />
-                {userFacingLive(live[primary.id])?.isRunning && <span className="status-dot is-working pinned__dot" />}
+                <BotAvatarFor bot={primary} size={40} star working={primaryWorking} />
+                {primaryWorking && <span className="status-dot is-working pinned__dot" />}
               </span>
-              {!collapsed && <span className="pinned__text"><span className="pinned__label">{primary.name}</span><span className="bot-row__preview">{userFacingLive(live[primary.id])?.awaiting?.reason ?? (userFacingLive(live[primary.id])?.isRunning ? 'Working…' : primary.label || 'Your primary bot')}</span></span>}
+              {!collapsed && <span className="pinned__text"><span className="pinned__label">{primary.name}</span><span className="bot-row__preview">{primaryLive?.awaiting?.reason ?? (primaryWorking ? 'Working…' : primary.label || 'Your primary bot')}</span></span>}
             </button>
           </div>
         )}
         <div className="bot-list">
-          {others.map((b) =>
-            collapsed ? (
-              <button key={b.id} type="button" className={`bot-rail-item${selectedBotId === b.id ? ' is-selected' : ''}`} onClick={() => selectBot(b.id)} title={displayName(b)}>
-                <BotAvatarFor bot={b} size={36} />
+          {others.map((bot) => {
+            const botLive = userFacingLive(live[bot.id]);
+            const working = !!botLive?.isRunning && !botLive.awaiting;
+            return collapsed ? (
+              <button key={bot.id} type="button" className={`bot-rail-item${selectedBotId === bot.id ? ' is-selected' : ''}`} onClick={() => selectBot(bot.id)} title={displayName(bot)}>
+                <BotAvatarFor bot={bot} size={36} working={working} />
               </button>
             ) : (
-              <BotRow key={b.id} bot={b} selected={selectedBotId === b.id} running={!!userFacingLive(live[b.id])?.isRunning} awaiting={userFacingLive(live[b.id])?.awaiting?.reason ?? null} onSelect={selectBot} />
-            ),
-          )}
+              <BotRow key={bot.id} bot={bot} selected={selectedBotId === bot.id} running={working} awaiting={botLive?.awaiting?.reason ?? null} onSelect={selectBot} />
+            );
+          })}
         </div>
         <button type="button" className="sidebar__create" onClick={createBot} aria-label="New Bot" title="Create a bot">
           <Icon name="plus" size={20} opacity={0.66} />{!collapsed && <span>Create a bot</span>}

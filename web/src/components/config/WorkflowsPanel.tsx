@@ -158,7 +158,7 @@ function CreateWork({ kind, botId, workers, workerError, busy, cancel, onRefresh
     }
   };
   return <form className="work-form workflow-create" onSubmit={submit}>
-    <label className="work-field">Agent<select value={owner} onChange={event => setOwner(event.currentTarget.value)} disabled={busy || !!botId} required><option value="" disabled>Choose an agent</option>{bots.map(bot => <option key={bot.id} value={bot.id}>{bot.name}</option>)}</select><small>{goal ? 'Choose the agent that will own this goal.' : 'Choose the workflow coordinator.'}</small></label>
+    {botId ? <p className="work-meta">{goal ? 'Goal owner' : 'Workflow coordinator'}: {bots.find(bot => bot.id === botId)?.name ?? 'Unavailable agent'}</p> : <label className="work-field">Agent<select value={owner} onChange={event => setOwner(event.currentTarget.value)} disabled={busy} required><option value="" disabled>Choose an agent</option>{bots.map(bot => <option key={bot.id} value={bot.id}>{bot.name}</option>)}</select><small>{goal ? 'Choose the agent that will own this goal.' : 'Choose the workflow coordinator.'}</small></label>}
     <label className="work-field">{goal ? 'Goal' : 'Workflow name'}<input required aria-label={goal ? 'Goal' : 'Workflow name'} maxLength={500} value={title} onChange={event => setTitle(event.currentTarget.value)} /><small>{goal ? 'Required; use a clear outcome.' : 'Required.'}</small></label>
     {goal ? <>
       <label className="work-field">Acceptance checks<textarea required aria-label="Acceptance checks" value={criteria} onChange={event => setCriteria(event.currentTarget.value)} /><small>One required check per line. Completion requires saved evidence that matches each check.</small></label>

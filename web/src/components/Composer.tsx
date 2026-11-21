@@ -8,7 +8,6 @@ import { Icon } from './Icon';
 import { Menu } from './Menu';
 import { ComposerModelMenu, cycleEffort, toggleFast } from './ComposerModelMenu';
 import { modelSelection, useModels } from '../lib/models';
-import { UsageModeBubble } from './UsageModeBubble';
 import { endCall, isCallActive, startCall, useVoice } from '../voice/call';
 import { useDictation } from '../voice/dictation';
 import { hasOpenModal } from './modals/Modal';
@@ -184,7 +183,6 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   return (
     <div className="composer-area" ref={area}>
       {error && <div className="composer__error" role="alert">{error} <button type="button" className="link-btn" onClick={() => { sendErrors.delete(draftKey); setError(null); }}>Dismiss</button></div>}
-      <UsageModeBubble />
       {dictation.state !== 'idle' && (
         <div className="composer__dictation">
           <span role="status">{dictation.state === 'starting' ? 'Opening microphone…' : dictation.state === 'recording' ? 'Dictating a message…' : 'Transcribing message…'}</span>

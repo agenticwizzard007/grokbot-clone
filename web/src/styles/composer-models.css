@@ -91,7 +91,7 @@ button.mm-item:hover, .mm-item.is-open { background: var(--color-bg-hover); }
 .model-menu.is-sheet .mm-row, .model-menu.is-sheet .mm-item { height: 48px; }
 .model-menu.is-sheet .mm-row__effort, .model-menu.is-sheet .mm-effort { min-height: 44px; }
 .model-menu.is-sheet .mm-search input { font-size: 16px; }
-.mm-sheet-head { display: flex; align-items: center; height: 48px; padding: 0 8px; border-bottom: 0.5px solid var(--color-border-tertiary); }
+.mm-sheet-head { flex-shrink: 0; display: flex; align-items: center; height: 48px; padding: 0 8px; border-bottom: 0.5px solid var(--color-border-tertiary); }
 .mm-back { display: inline-flex; align-items: center; gap: 4px; height: 36px; padding: 0 8px; border-radius: 8px; font-size: 15px; font-weight: 600; color: var(--color-text-primary); }
 .mm-back { min-width: 0; max-width: 100%; }
 .mm-back > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -169,7 +169,4 @@ button.mm-item:hover, .mm-item.is-open { background: var(--color-bg-hover); }
 
 /* Billing source stays visible beside the selected model and every picker row. */
 .model-billing { display: inline-flex; align-items: center; flex-shrink: 0; border: 1px solid var(--color-border-primary); border-radius: 999px; padding: 1px 6px; font-size: 10px; line-height: 16px; font-weight: 500; color: var(--color-text-secondary); }
-.mm-plan-usage { max-height: min(160px, 24dvh); overflow-y: auto; flex-shrink: 0; padding: 10px 14px; border-top: 1px solid var(--color-border-primary); font-size: 12px; line-height: 18px; color: var(--color-text-secondary); overflow-wrap: anywhere; }
-.mm-plan-usage strong, .mm-plan-usage small { display: block; }
-.mm-plan-usage small { font-size: 11px; }
 .mm-row__resolved { display: block; font-size: 10px; line-height: 14px; font-weight: 400; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; }

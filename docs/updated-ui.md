@@ -2,6 +2,10 @@
 
 The accepted [Paper design directory](https://app.paper.design/file/01M7XRD50KB121YXVPQPK0VG7S/p-1-0) is implemented through the existing application routes and APIs. Chat, bot setup, Tasks, Team, Goals, Reports and account settings share the Light/Night theme, responsive navigation, self-hosted fonts and Swarms artwork. Setup and bot configuration occupy the main pane, with the caller preserved when visiting related settings. Phone pages use the device's real safe areas.
 
+The composer has one control for the current model, confirmed Plan/API route and supported effort. Its menu opens Plan & usage or API details; the desktop sidebar retains its passive usage summary. Unavailable or stale limits do not show a current meter. Public work animates the existing bird artwork in the chat header and the matching sidebar row, with a static reduced-motion equivalent. Waiting and internal-only work keep the idle identity.
+
+Bot Details → Tasks separates **Goals and workflows** for that bot from **See all tasks** for the whole workspace. Both preserve the originating chat for Back. Team current-job details show the assignee from the actual job record, each prerequisite's recorded state and verification, and whether the current task has a validated result. Missing records are identified explicitly.
+
 ## Consumer feature access
 
 The source audit identified these navigation and control gaps. The implementation exposes the existing authorized APIs; server eligibility and permissions remain authoritative.

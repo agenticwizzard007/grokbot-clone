@@ -204,11 +204,15 @@ export function TasksIsland() {
 export function BotTasks({ bot }: { bot: Bot }) {
   const { tasks, error, retry } = useTasks(bot.id);
   const sorted = useMemo(() => sortTasks(tasks ?? []), [tasks]);
+  const openWorkspace = (tab: WorkTab, botId?: string) => {
+    workContext = { tab, filter: 'all', botId, caller: bot.id };
+    useConfigUI.getState().setView('tasks');
+  };
   return (
     <div className="details__sections"><section>
-      <div className="section-label section-label--row"><span>Tasks</span><button type="button" className="link-btn link-btn--small" onClick={() => { workContext = { ...workContext, tab: 'Tasks', botId: bot.id, caller: bot.id, report: workContext.botId === bot.id ? workContext.report : undefined }; useConfigUI.getState().setView('tasks'); }}>See all</button></div>
+      <div className="section-label section-label--row"><span>Tasks</span><button type="button" className="link-btn link-btn--small" onClick={() => openWorkspace('Tasks')}>See all tasks</button></div>
       {error && <TaskError retry={retry} stale={tasks !== null} />}
       {tasks === null ? (!error && <div className="panel-card"><div className="panel-empty" role="status">Loading…</div></div>) : sorted.length === 0 ? <div className="panel-card"><div className="panel-empty">No tasks yet. Ask {bot.name} for a few things at once and they’ll be tracked here.</div></div> : <div className="bot-task-cards">{sorted.map((t) => <TaskCard key={t.id} task={t} bot={bot} compact />)}</div>}
-    </section><WorkflowsPanel botId={bot.id} /></div>
+    </section><section className="work-row"><h3>Goals and workflows</h3><p className="work-meta">Plan and review work for {bot.name}.</p><button type="button" className="work-button" onClick={() => openWorkspace('Goals', bot.id)}>Goals and workflows</button></section></div>
   );
 }

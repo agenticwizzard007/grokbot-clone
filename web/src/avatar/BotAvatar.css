@@ -1,0 +1,7 @@
+@media (prefers-reduced-motion: no-preference) {
+  .bot-avatar--working > svg { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bot-avatar--working > .flock-mark { display: none; }
+}
