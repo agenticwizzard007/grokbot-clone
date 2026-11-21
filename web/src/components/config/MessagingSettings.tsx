@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   configApi,
   type MessagingCode,
@@ -21,6 +21,9 @@ import { useStore } from '../../store';
 import { ConfirmButton, Segmented, Switch, shortDate } from './ui';
 import '../../styles/messaging.css';
 import { PlatformSignupSettings } from './PlatformSignupSettings';
+import { AccessRow } from './AccessRow';
+import { verifyAccessAccount } from '../../lib/accessApi';
+import { useAccessPanel } from './useAccessPanel';
 
 /** Settings → Messaging: run your Bots by iMessage, SMS or WhatsApp through the server's Inkbox line. */
 
@@ -60,19 +63,24 @@ type NoteState = { tone: 'ok' | 'error'; text: string } | null;
 
 export function MessagingSettings() {
   const accountId = useStore(s => s.user?.id);
-  return <AccountMessagingSettings key={accountId} />;
+  return accountId ? <AccountMessagingSettings key={accountId} accountId={accountId} /> : null;
 }
 
-function AccountMessagingSettings() {
+function AccountMessagingSettings({ accountId }: { accountId: string }) {
   const version = useVersion('messaging');
-  const [status, setStatus] = useState<MessagingStatus | null>(null);
+  const [status, setSnapshot] = useState<MessagingStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [code, setCode] = useState<MessagingCode | null>(null);
+  const [prefsOpen, setPrefsOpen] = useState(false);
+  const generation = useRef(0);
+  const setStatus = (value: MessagingStatus) => { generation.current++; setSnapshot(value); setError(null); };
 
   const load = useCallback(() => {
-    configApi.messaging().then((s) => { setStatus(s); setError(null); }).catch((e) => setError((e as Error).message));
-  }, []);
-  useEffect(() => { load(); }, [load, version]);
+    const request = ++generation.current;
+    const current = () => request === generation.current && useStore.getState().user?.id === accountId;
+    void configApi.messaging().then(s => { if (current()) { setSnapshot(s); setError(null); } }).catch(e => { if (current()) setError((e as Error).message); });
+  }, [accountId]);
+  useEffect(() => { load(); return () => { generation.current++; }; }, [load, version]);
 
   // While a link code is on screen, check every few seconds in case the event is missed.
   useEffect(() => {
@@ -80,23 +88,31 @@ function AccountMessagingSettings() {
     const t = setInterval(load, 5000);
     return () => clearInterval(t);
   }, [code, load]);
-  useEffect(() => { if (status?.links.length) setCode(null); }, [status?.links.length]);
+  const connectedLinks = status?.links.filter(link => link.status === 'connected').map(link => `${link.channel}:${link.phone}`).join(',') ?? '';
+  useEffect(() => { if (connectedLinks) setCode(null); }, [connectedLinks]);
 
-  const head = <PageHead title="Messaging" sub="Run your Bots by iMessage, SMS or WhatsApp. Text them like a friend, get their updates and approvals on your phone." />;
-  if (error && !status) return <>{head}<div className="cfg-error">{error}</div></>;
+  const head = <PageHead title="Text your Bots" sub="Manage the number and sign-in options for this account." />;
+  const retry = error && <div className="cfg-error" role="alert">{error} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={load}>Retry messaging status</button></div>;
+  if (error && !status) return <>{head}{retry}</>;
   if (!status) return <>{head}<div className="cfg-empty cfg-empty--flat">Loading…</div></>;
 
   return (
-    <>
+    <div className="access-messaging">
       {head}
+      {retry}
       <PhoneSection status={status} setStatus={setStatus} code={code} setCode={setCode} />
       <AccountSection status={status} setStatus={setStatus} />
-      {status.links.length > 0 && <PrefsSection status={status} setStatus={setStatus} />}
+      {status.links.length > 0 && <>
+        <AccessRow title="Message preferences" description="Choose which Bots reply and what reaches your phone.">
+          <button type="button" className="cfg-btn cfg-btn--secondary" aria-expanded={prefsOpen} onClick={() => setPrefsOpen(value => !value)}>{prefsOpen ? 'Hide preferences' : 'Manage preferences'}</button>
+        </AccessRow>
+        {prefsOpen && <PrefsSection status={status} setStatus={setStatus} />}
+      </>}
       {status.line && <InviteFriendsSection allowance={status.invites.allowance} />}
       {status.line && <CommandsSection />}
       {status.owner && <OwnerSections owner={status.owner} status={status} setStatus={setStatus} version={version} />}
       {!status.owner && <PlatformSignupSettings version={version} />}
-    </>
+    </div>
   );
 }
 
@@ -134,29 +150,49 @@ function LinkCodePanel({ code }: { code: MessagingCode }) {
 // Your phone
 
 function PhoneSection({ status, setStatus, code, setCode }: SectionProps & { code: MessagingCode | null; setCode: (c: MessagingCode | null) => void }) {
+  const accountId = useStore(s => s.user?.id);
+  const current = useAccessPanel(accountId);
   const [busy, setBusy] = useState<'code' | 'test' | null>(null);
   const [note, setNote] = useState<NoteState>(null);
   const hasWhatsApp = status.links.some((l) => l.channel === 'whatsapp');
   const canConnectWhatsApp = !!status.line?.whatsapp?.messageLink;
 
   const connect = async () => {
+    if (!accountId || !current()) return;
     setBusy('code'); setNote(null);
-    try { setCode(await configApi.messagingCode()); } catch (e) { setNote({ tone: 'error', text: (e as Error).message }); }
-    finally { setBusy(null); }
+    try {
+      await verifyAccessAccount(accountId);
+      if (!current()) return;
+      const next = await configApi.messagingCode();
+      if (current()) setCode(next);
+    } catch (e) { if (current()) setNote({ tone: 'error', text: (e as Error).message }); }
+    finally { if (current()) setBusy(null); }
   };
   const test = async () => {
+    if (!accountId || !current()) return;
     setBusy('test'); setNote(null);
-    try { await configApi.messagingTest(); setNote({ tone: 'ok', text: 'Sent. Check your phone.' }); } catch (e) { setNote({ tone: 'error', text: (e as Error).message }); }
-    finally { setBusy(null); }
+    try {
+      await verifyAccessAccount(accountId);
+      if (!current()) return;
+      await configApi.messagingTest();
+      if (current()) setNote({ tone: 'ok', text: 'Test message requested. Check your phone.' });
+    } catch (e) { if (current()) setNote({ tone: 'error', text: (e as Error).message }); }
+    finally { if (current()) setBusy(null); }
   };
   const unlink = async (l: MessagingLink) => {
+    if (!accountId || !current()) return;
     setNote(null);
-    try { setStatus(await configApi.messagingUnlink(l.channel)); } catch (e) { setNote({ tone: 'error', text: (e as Error).message }); }
+    try {
+      await verifyAccessAccount(accountId);
+      if (!current()) return;
+      const updated = await configApi.messagingUnlink(l.channel);
+      if (current()) setStatus(updated);
+    } catch (e) { if (current()) setNote({ tone: 'error', text: (e as Error).message }); }
   };
 
   return (
     <section className="cfg-section">
-      <div className="cfg-section__label">Your phone</div>
+      <h2 className="cfg-section__label">Your phone</h2>
       {status.links.length > 0 ? (
         <div className="cfg-card">
           {status.links.map((l) => (
@@ -231,83 +267,80 @@ function PhoneSection({ status, setStatus, code, setCode }: SectionProps & { cod
 
 function AccountSection({ status, setStatus }: SectionProps) {
   const { account } = status;
+  const accountId = useStore(s => s.user?.id);
+  const current = useAccessPanel(accountId);
   const googleLogin = useStore((s) => s.googleLogin);
   const connectionsVersion = useStore((s) => s.connectionsVersion);
   const setModal = useStore((s) => s.setModal);
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(account.email ?? '');
   const [busy, setBusy] = useState<'email' | 'gmail' | null>(null);
   const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
   const [note, setNote] = useState<NoteState>(null);
+  const [gmailError, setGmailError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const needsEmail = account.signupSource === 'text' || !account.email;
   useEffect(() => {
     let alive = true;
     setGmailConnected(null);
+    setGmailError(false);
     configApi.connectedApps()
       .then((r) => {
         if (!alive) return;
         setGmailConnected(r.connected.includes('gmail') || !!r.connectedApps?.some((a) => a.slug === 'gmail'));
       })
-      .catch(() => { if (alive) setGmailConnected(false); });
+      .catch(() => { if (alive) setGmailError(true); });
     return () => { alive = false; };
-  }, [connectionsVersion]);
+  }, [connectionsVersion, attempt]);
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!accountId || !current()) return;
     if (!email.includes('@')) { setNote({ tone: 'error', text: 'Enter an email address.' }); return; }
     setBusy('email'); setNote(null);
-    try { setStatus(await configApi.messagingEmail(email.trim())); setEmail(''); setNote({ tone: 'ok', text: 'Saved. Use this same email when you sign in with Google on web or desktop.' }); }
-    catch (err) { setNote({ tone: 'error', text: (err as Error).message }); }
-    finally { setBusy(null); }
+    try {
+      await verifyAccessAccount(accountId);
+      if (!current()) return;
+      const updated = await configApi.messagingEmail(email.trim());
+      if (!current()) return;
+      setStatus(updated); setEmail(updated.account.email ?? ''); setNote({ tone: 'ok', text: 'Saved. Use this same email when you sign in with Google on web or desktop.' });
+    } catch (err) { if (current()) setNote({ tone: 'error', text: (err as Error).message }); }
+    finally { if (current()) setBusy(null); }
   };
   const connectGmail = async () => {
+    if (!accountId || !current()) return;
     if (gmailConnected) { setModal('apps'); return; }
     const popup = openPopup('about:blank');
     setBusy('gmail'); setNote(null);
     try {
+      await verifyAccessAccount(accountId);
+      if (!current()) { popup?.close(); return; }
       const { redirectUrl } = await api.connect('gmail');
+      if (!current()) { popup?.close(); return; }
       if (popup) popup.location.href = redirectUrl; else window.open(redirectUrl, '_blank');
       setNote({ tone: 'ok', text: 'Finish the Google window. Gmail will show as connected here when it completes.' });
     } catch (err) {
       popup?.close();
-      setNote({ tone: 'error', text: (err as Error).message || 'Couldn’t start Gmail connection.' });
+      if (current()) setNote({ tone: 'error', text: (err as Error).message || 'Couldn’t start Gmail connection.' });
     } finally {
-      setBusy(null);
+      if (current()) setBusy(null);
     }
   };
   return (
-    <section className="cfg-section">
-      <div className="cfg-section__label">Account access</div>
-      <div className="cfg-card cfg-key">
-        <div className="cfg-row">
-          <div className="cfg-row__text">
-            <div className="cfg-row__title">{account.email ? 'Desktop sign-in email saved' : 'Add a desktop sign-in email'}</div>
-            <div className="cfg-row__sub">
-              {account.email ? `${account.email} should match the Google account you use on web or desktop.` : 'Save the Google or Gmail address you want to use when opening Swarm on desktop.'}
-              {account.phone ? ` Phone: ${fmtPhone(account.phone)}.` : ''}
-            </div>
-          </div>
-          <span className={`cfg-chip${account.email ? '' : ' cfg-chip--warn'}`}>{account.email ? 'Ready' : 'Recommended'}</span>
-        </div>
-        {needsEmail && (
-          <>
-            <form className="cfg-key__form" onSubmit={save}>
-              <input className="text-input cfg-key__input msg-input" type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} aria-label="Email for sign-in" />
-              <button type="submit" className="cfg-btn cfg-btn--primary" disabled={!!busy}>{busy === 'email' ? 'Saving…' : account.email ? 'Change email' : 'Save sign-in email'}</button>
-            </form>
-          </>
-        )}
-        <div className="cfg-row">
-          <div className="cfg-row__text">
-            <div className="cfg-row__title">Gmail</div>
-            <div className="cfg-row__sub">{gmailConnected ? 'Connected for Bots to read and send mail with your approval.' : 'Connect Gmail next so your Bots can help with email.'}</div>
-          </div>
-          <button type="button" className={gmailConnected ? 'cfg-btn cfg-btn--secondary' : 'cfg-btn cfg-btn--primary'} disabled={!!busy || !googleLogin || gmailConnected === null} onClick={() => void connectGmail()}>
+    <section className="cfg-section access-messaging__account">
+      <form className="cfg-field" onSubmit={save}>
+        <label htmlFor="messaging-desktop-email" className="cfg-field__label">Desktop sign-in email</label>
+        <input id="messaging-desktop-email" className="text-input" type="email" autoComplete="email" value={needsEmail ? email : account.email ?? ''} onChange={e => setEmail(e.target.value)} readOnly={!needsEmail} disabled={!!busy} />
+        <span className="cfg-field__hint">{needsEmail ? 'Use a Google email you can access.' : 'Use this email to sign in on web or desktop.'}</span>
+        {needsEmail && <button type="submit" className="cfg-btn cfg-btn--primary" disabled={!!busy || !email.trim() || email.trim() === account.email}>{busy === 'email' ? 'Saving…' : 'Save sign-in email'}</button>}
+      </form>
+      <AccessRow title="Gmail for your Bots" description={gmailConnected ? 'Connected for Bots to read and send mail with your approval.' : 'Connect Gmail separately from your phone identity.'}>
+          {gmailError ? <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setAttempt(value => value + 1)}>Retry Gmail status</button> : <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy || !googleLogin || gmailConnected === null} onClick={() => void connectGmail()}>
             {busy === 'gmail' ? 'Opening…' : gmailConnected === null ? 'Checking…' : gmailConnected ? 'Manage Gmail' : 'Connect Gmail'}
-          </button>
-        </div>
-        {!googleLogin && <div className="cfg-key__foot">Connected apps need a Composio project key from the server owner.</div>}
-        <div className="cfg-key__foot">{note ? <Note note={note} /> : account.email ? 'Gmail connection is separate from sign-in, so Bots only get app access after you connect it.' : 'Save your Google/Gmail address first, then connect Gmail so Bots can help with mail.'}</div>
-      </div>
+          </button>}
+      </AccessRow>
+      {gmailError && <div className="cfg-error" role="alert">Gmail connection status could not be loaded.</div>}
+      {!googleLogin && !gmailError && <p className="cfg-field__hint">Connected apps need a Composio project key from the server owner.</p>}
+      <Note note={note} />
     </section>
   );
 }
@@ -316,13 +349,23 @@ function AccountSection({ status, setStatus }: SectionProps) {
 // How it works
 
 function PrefsSection({ status, setStatus }: SectionProps) {
+  const accountId = useStore(s => s.user?.id);
+  const current = useAccessPanel(accountId);
+  const running = useRef(false);
   const bots = useStore((s) => s.bots).filter((b) => b.kind !== 'room');
   const primary = bots.find((b) => b.isPrimary);
   const [note, setNote] = useState<NoteState>(null);
   const patch = async (p: { forward?: 'all' | 'engaged'; activeBotId?: string | null; voiceReplies?: VoiceReplies; ttsVoice?: string | null }) => {
+    if (!accountId || running.current || !current()) return;
+    running.current = true;
     setNote(null);
-    try { setStatus(await configApi.messagingPrefs(p)); setNote({ tone: 'ok', text: 'Saved.' }); }
-    catch (e) { setNote({ tone: 'error', text: (e as Error).message }); }
+    try {
+      await verifyAccessAccount(accountId);
+      if (!current()) return;
+      const updated = await configApi.messagingPrefs(p);
+      if (current()) { setStatus(updated); setNote({ tone: 'ok', text: 'Saved.' }); }
+    } catch (e) { if (current()) setNote({ tone: 'error', text: (e as Error).message }); }
+    finally { running.current = false; }
   };
   const active = status.prefs.activeBot?.id ?? '';
   return (

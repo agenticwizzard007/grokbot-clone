@@ -200,21 +200,79 @@ test('bad native payloads and unsupported clients fail closed', async () => {
   assert.equal((await app.request('/api/auth/apple/native/complete', { method: 'POST', body: '{}' })).status, 400);
 });
 
-test('account deletion requires a session and explicit confirmation, and revokes Apple before deleting', async () => {
+test('account deletion requires recent auth and matching confirmation, and revokes Apple before deleting', async () => {
   const { api } = await import('../server/src/routes.js');
   const server = new Hono().route('/api', api);
   const cookie = account('delete-me', 'delete@example.com');
+  const otherCookie = account('keep-me', 'keep@example.com');
   const linking = await native('ios', cookie);
   assert.equal((await complete(linking, register(linking.row, 'delete-subject', 'delete@example.com'))).status, 200);
   const remove = (headers: Record<string, string>, body: unknown) => server.request('/api/account', { method: 'DELETE', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
-  assert.equal((await remove({}, { confirmation: 'DELETE' })).status, 401);
+  const confirmed = { confirmation: 'DELETE', expectedUserId: 'delete-me' };
+  assert.equal((await remove({}, confirmed)).status, 401);
   assert.equal((await remove({ cookie }, {})).status, 400);
-  assert.equal((await remove({ cookie, origin: 'https://evil.test' }, { confirmation: 'DELETE' })).status, 403);
+  assert.equal((await remove({ cookie }, { confirmation: 'DELETE' })).status, 400);
+  assert.equal((await remove({ cookie, origin: 'https://evil.test' }, confirmed)).status, 403);
+  const priorRevocations = revokeRequests;
+  const mismatch = await remove({ cookie }, { ...confirmed, expectedUserId: 'keep-me' });
+  assert.equal(mismatch.status, 409);
+  assert.equal((await mismatch.json() as { code: string }).code, 'account_changed');
+  assert.equal(revokeRequests, priorRevocations);
+  assert.equal(userFromCookieHeader(cookie)?.id, 'delete-me');
+  assert.equal(userFromCookieHeader(otherCookie)?.id, 'keep-me');
+  assert.ok(db.prepare('SELECT 1 FROM apple_refresh_tokens WHERE user_id=?').get('delete-me'));
+
+  db.prepare('UPDATE auth_sessions SET authenticated_at=? WHERE token=session_hash(?)').run(Date.now() - 11 * 60_000, 'delete-me');
+  const stale = await remove({ cookie }, confirmed);
+  assert.equal(stale.status, 401);
+  assert.equal((await stale.json() as { code: string }).code, 'reauth_required');
+  assert.equal(revokeRequests, priorRevocations);
+  assert.equal(userFromCookieHeader(cookie)?.id, 'delete-me');
+  db.prepare('UPDATE auth_sessions SET authenticated_at=? WHERE token=session_hash(?)').run(Date.now(), 'delete-me');
+
   rejectRevocation = true;
-  assert.equal((await remove({ cookie }, { confirmation: 'DELETE' })).status, 502);
+  assert.equal((await remove({ cookie }, confirmed)).status, 502);
   assert.ok(db.prepare('SELECT 1 FROM users WHERE id=?').get('delete-me'));
   rejectRevocation = false;
-  assert.equal((await remove({ cookie }, { confirmation: 'DELETE' })).status, 200);
+  assert.equal((await remove({ cookie }, confirmed)).status, 200);
   assert.equal(db.prepare('SELECT 1 FROM users WHERE id=?').get('delete-me'), undefined);
   assert.equal(db.prepare('SELECT 1 FROM apple_identities WHERE subject=?').get('delete-subject'), undefined);
+  assert.equal(userFromCookieHeader(otherCookie)?.id, 'keep-me');
+});
+
+test('session revocation uses the request cookie, rejects foreign hashes and expires the current cookie', async () => {
+  const { api } = await import('../server/src/routes.js');
+  const { sessionHash } = await import('../server/src/lib/auth.js');
+  const server = new Hono().route('/api', api);
+  const listed = account('session-owner', 'sessions@example.com');
+  const foreign = account('session-foreign', 'foreign-sessions@example.com');
+  const rotated = 'swarm_session=session-rotated';
+  const time = Date.now();
+  db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at,last_seen_at,authenticated_at) VALUES (?,?,?,?,?,?)')
+    .run(sessionHash('session-rotated'), 'session-owner', time, time + 3600000, time, time);
+  const list = (cookie: string) => server.request('/api/auth/sessions', { headers: { cookie } });
+  const revoke = (id: string, cookie = rotated) => server.request(`/api/auth/sessions/${id}`, { method: 'DELETE', headers: { cookie } });
+  const firstId = sessionHash('session-owner');
+  const rotatedId = sessionHash('session-rotated');
+  const snapshot = await (await list(listed)).json() as { sessions: { id: string; current: boolean }[] };
+  assert.equal(snapshot.sessions.find(session => session.id === firstId)?.current, true);
+  assert.equal(snapshot.sessions.find(session => session.id === rotatedId)?.current, false);
+
+  const previous = await revoke(firstId);
+  assert.equal(previous.status, 200);
+  assert.deepEqual(await previous.json(), { ok: true, revokedCurrent: false });
+  assert.deepEqual(previous.headers.getSetCookie(), []);
+  assert.equal((await list(listed)).status, 401);
+  assert.equal((await list(rotated)).status, 200);
+
+  const denied = await revoke(sessionHash('session-foreign'));
+  assert.equal(denied.status, 404);
+  assert.deepEqual(denied.headers.getSetCookie(), []);
+  assert.equal((await list(foreign)).status, 200);
+
+  const current = await revoke(rotatedId, 'swarm_session="session-rotated"');
+  assert.equal(current.status, 200);
+  assert.deepEqual(await current.json(), { ok: true, revokedCurrent: true });
+  assert.match(current.headers.getSetCookie().find(header => header.startsWith('swarm_session=')) ?? '', /^swarm_session=;.*Max-Age=0/i);
+  assert.equal((await list(rotated)).status, 401);
 });

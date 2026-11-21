@@ -1,4 +1,4 @@
-// Real server + existing Library surface; no provider/API credentials or model fixtures.
+// Real server + Reports work area; no provider/API credentials or model fixtures.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -7,7 +7,7 @@ import net from 'node:net';
 import {spawn} from 'node:child_process';
 import {chromium} from 'playwright';
 const root=process.cwd(),temp=fs.mkdtempSync(path.join(os.tmpdir(),'synopsis-browser-'));
-const evidence=path.join(root,'.context/quinn-synopsis-browser');fs.mkdirSync(evidence,{recursive:true});
+const evidence=process.env.SYNOPSIS_EVIDENCE_DIR??path.join(root,'.context/quinn-synopsis-browser');fs.mkdirSync(evidence,{recursive:true});
 for(const file of ['failure.png','server.log','result.json'])fs.rmSync(path.join(evidence,file),{force:true});
 const children=[],logs=[];let browser;
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -24,7 +24,12 @@ try{
  browser=await chromium.launch({executablePath:process.env.CHROME_PATH||'/usr/bin/google-chrome',args:['--no-sandbox']});
  const context=await browser.newContext({viewport:{width:1440,height:1000}});await context.addCookies([{name:'swarm_session',value:'synopsis-browser-token',url:base}]);
  const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(String(e)));page.setDefaultTimeout(15000);
- await page.goto(base);await page.locator('.details__tabs').getByRole('button',{name:'Library',exact:true}).click();
+ const openSynopses=async()=>{
+  await page.locator('.sidebar').getByRole('button',{name:'Tasks',exact:true}).click();
+  await page.getByRole('navigation',{name:'Work sections'}).getByRole('button',{name:'Reports',exact:true}).click();
+  await page.getByRole('button',{name:'Daily synopses',exact:true}).click();
+ };
+ await page.goto(base);await openSynopses();
  const panel=page.getByRole('region',{name:'Daily synopses',exact:true}),toggle=panel.getByRole('checkbox',{name:'Scheduled daily synopsis',exact:true});
  await toggle.waitFor();assert.equal(await toggle.isChecked(),false);await panel.getByText(/UTC fallback: account timezone unavailable/).waitFor();
  await toggle.click();await until(async()=>(await api('/checkins')).enabled&&await toggle.isChecked(),'schedule enabled');await toggle.click();await until(async()=>!(await api('/checkins')).enabled&&!await toggle.isChecked(),'schedule disabled');
@@ -34,8 +39,7 @@ try{
  await panel.getByRole('button',{name:'Prepare today’s synopsis',exact:true}).click();await sleep(200);assert.equal((await api('/checkins/reports')).reports.length,1);
  const report=await api('/checkins/reports/'+before.id);assert.match(report.report.content,/Quinn daily synopsis/);assert.ok(report.report.sha256);assert.equal(report.report.delivery.attempts.length,1);
  assert.equal((await api('/checkins')).enabled,false);await page.screenshot({path:path.join(evidence,'synopsis-desktop.png'),fullPage:true});
- await page.setViewportSize({width:390,height:844});await page.locator('button.pinned__tile[title="Quinn"]').click();
- await page.getByRole('button',{name:'Show details',exact:true}).click();await page.locator('.details__tabs').getByRole('button',{name:'Library',exact:true}).click();
+ await page.setViewportSize({width:390,height:844});await page.reload();await openSynopses();
  await panel.scrollIntoViewIfNeeded();assert.ok(await panel.evaluate(el=>el.scrollWidth<=el.clientWidth+1),'synopsis fits phone');
  await page.screenshot({path:path.join(evidence,'synopsis-mobile.png'),fullPage:true});assert.deepEqual(errors,[]);
  fs.writeFileSync(path.join(evidence,'result.json'),JSON.stringify({passed:true,reportId:before.id,attempts:report.report.delivery.attempts.length}));

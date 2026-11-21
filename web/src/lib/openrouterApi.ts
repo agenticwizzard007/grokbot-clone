@@ -28,12 +28,12 @@ export const OPENROUTER_ERRORS: Record<string, string> = {
 
 async function request(method: string, path = '', body?: unknown, signal?: AbortSignal): Promise<OpenRouterStatus> {
   const response = await fetch(`/api/providers/openrouter${path}`, {
-    method, credentials: 'include', signal,
+    method, credentials: 'include', signal, cache: 'no-store',
     headers: method !== 'GET' ? { 'Content-Type': 'application/json' } : undefined,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const data = await response.json();
-  if (!response.ok) throw new ApiError(response.status, data.error ?? 'Could not update OpenRouter.');
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data) throw new ApiError(response.status, data?.error ?? 'Could not update OpenRouter.', data?.code);
   return data;
 }
 export const openrouterApi = {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AgentInstructionPreview, AgentSetupView, Bot } from '@shared/types';
 import { configApi } from '../../lib/configApi';
 import { ApiError } from '../../lib/api';
@@ -9,25 +9,37 @@ import { Glyph } from './glyphs';
 import { ShieldCheck } from 'lucide-react';
 
 function StandingInstructions({ bot, running, onSave }: { bot: Bot; running: boolean; onSave: () => void }) {
+  const userId = useStore(state => state.user?.id);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(bot.instructions);
   const [original, setOriginal] = useState(bot.instructions);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const lifetime = useRef(false);
+  const pending = useRef(false);
+  useEffect(() => { lifetime.current = true; return () => { lifetime.current = false; }; }, []);
   const changedElsewhere = editing && bot.instructions !== original;
   const edit = () => { setOriginal(bot.instructions); setDraft(bot.instructions); setEditing(true); setSaved(false); setError(null); };
   const save = async () => {
-    setSaving(true); setError(null);
+    if (pending.current || running || changedElsewhere || draft === original || !userId) return;
+    const current = () => {
+      const state = useStore.getState();
+      return lifetime.current && state.user?.id === userId && state.selectedBotId === bot.id && state.bots.find(item => item.id === bot.id)?.generation === bot.generation;
+    };
+    if (!current()) return;
+    pending.current = true; setSaving(true); setError(null);
     try {
       const { bot: next } = await configApi.updateBot(bot.id, { instructions: draft, expectedInstructions: original });
+      if (!current()) return;
       useStore.setState((s) => ({ bots: s.bots.map((b) => b.id === next.id ? next : b) }));
       setEditing(false); setSaved(true); onSave();
     } catch (e) {
+      if (!current()) return;
       setError((e as Error).message);
       if (e instanceof ApiError && e.status === 409) await useStore.getState().loadBots().catch(() => {});
     }
-    finally { setSaving(false); }
+    finally { pending.current = false; if (lifetime.current) setSaving(false); }
   };
   return <section className="agent-config__section agent-config__instructions">
     <div className="agent-config__row"><h3>Standing instructions</h3>{!editing && <button type="button" className="cfg-btn cfg-btn--secondary agent-config__edit" aria-label="Edit instructions" onClick={edit}><Icon name="edit" size={14} />Edit</button>}</div>
@@ -58,7 +70,10 @@ function InstructionPreview({ botId, revision, version }: { botId: string; revis
     if (!open || settingsOpen) { setPreview(null); return; }
     let current = true;
     setLoading(true); setPreview(null); setError(null);
-    configApi.agentInstructions(botId).then((value) => { if (current) setPreview(value); })
+    configApi.agentInstructions(botId).then((value) => {
+      if (value.revision !== null && value.revision !== revision) throw new Error('Setup changed. Refresh the configuration before opening the preview.');
+      if (current) setPreview(value);
+    })
       .catch((e) => { if (current) setError(e.message); })
       .finally(() => { if (current) setLoading(false); });
     return () => { current = false; };

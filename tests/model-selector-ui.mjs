@@ -137,7 +137,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
 
   // A transient catalog error must not stick for the lifetime of the page.
   fail=true;await button.click();await page.getByText('Could not load models.',{exact:true}).waitFor();
-  assert.equal(await page.getByText('Add a model key in Settings → API keys first.',{exact:true}).count(),0);
+  assert.equal(await page.getByText('No models were reported. Check your connection in API keys.',{exact:true}).count(),0,'a transient error must not look like an empty catalog');
   assert.equal(await page.locator('.model-picker__button .model-billing').count(),0,'unknown billing is not mislabeled API');
   await page.keyboard.press('Escape');fail=false;current='recovered';
   await button.click();await page.getByRole('option').filter({hasText:'Model recovered'}).waitFor();
@@ -158,6 +158,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
   current='alice-private';holdNext=true;held=null;
   await button.click();await until(()=>held!==null);current='bob-current';
   await page.evaluate(()=>window.changeAccount());
+  await page.getByRole('listbox', { name: 'Bot model options' }).waitFor({ state: 'hidden' });
+  assert.equal(await page.getByRole('option').filter({hasText:'Model alice-private'}).count(),0,'account change closes the old account’s picker');
+  await button.click();
   await page.getByRole('option').filter({hasText:'Model bob-current'}).waitFor();
   response=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/models');
   await held.route.fulfill({json:held.data});await response;await settle();

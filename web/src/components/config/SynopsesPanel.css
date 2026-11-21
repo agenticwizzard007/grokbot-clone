@@ -1,8 +1,6 @@
-.synopsis-panel { padding: 12px; margin-bottom: 12px; min-width: 0; }
-.synopsis-panel .panel-row { align-items: flex-start; padding-inline: 0; }
-.synopsis-panel .panel-row > div { min-width: 0; width: 100%; }
-.synopsis-panel .panel-row__meta { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
-.synopsis-panel .section-label { padding-inline: 0; gap: 8px; }
-.synopsis-panel a, .synopsis-panel strong, .synopsis-panel summary { overflow-wrap: anywhere; }
-.synopsis-panel details { margin-top: 8px; }
-.synopsis-panel input { margin-right: 6px; }
+.synopsis-panel { min-width: 0; }
+.synopsis-panel:not(.work-ui .synopsis-panel) { margin-bottom: 24px; }
+.synopsis-time-row { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
+.synopsis-time-row .work-field { flex: 1 1 125px; }
+.synopsis-detail { padding-top: 14px; }
+.synopsis-detail pre { max-height: 360px; overflow: auto; margin: 0; }

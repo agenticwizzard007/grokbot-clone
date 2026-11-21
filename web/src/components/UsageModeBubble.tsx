@@ -4,6 +4,7 @@ import { BadgeCheck, ChevronDown, CreditCard, LoaderCircle, RefreshCw, TriangleA
 import { useModels, type ModelProvider } from '../lib/models';
 import { useStore } from '../store';
 import { useConfigUI } from '../configStore';
+import { useReportedPlanUsage } from '../lib/accessPlanUsage';
 import '@fontsource-variable/instrument-sans';
 import '../styles/usage-mode.css';
 
@@ -34,7 +35,7 @@ export function UsageModeBubble() {
   const name = known ? connectionName(catalog.provider, catalog.plan) : '';
   const label = loading ? 'Checking usage…' : failed ? 'Check connection' : !known ? 'Choose a connection' : planMode ? 'Subscription' : 'API credits';
   const Icon = loading ? LoaderCircle : failed ? TriangleAlert : planMode ? BadgeCheck : CreditCard;
-  const windows = catalog.usage?.available ? catalog.usage.windows.filter(w => Number.isFinite(w.usedPercent) && w.usedPercent >= 0 && w.usedPercent <= 100) : [];
+  const { windows, checkedAt, state: usageState } = useReportedPlanUsage(catalog.usage);
   const { load } = catalog;
 
   useEffect(() => { setOpen(false); void load(); }, [userId, load]);
@@ -96,8 +97,8 @@ export function UsageModeBubble() {
             <div className="usage-mode__window-title"><span>{w.label}</span><strong>{Number(w.usedPercent.toFixed(1))}% used</strong></div>
             <progress aria-label={w.label} max={100} value={w.usedPercent} />
             <span className="usage-mode__muted">{w.resetsAt !== null && Number.isFinite(w.resetsAt) ? `Resets ${dateLabel(w.resetsAt)}` : 'Reset time unavailable'}</span>
-          </div>) : <p className="usage-mode__empty">Usage isn’t available from your provider right now. Check your provider account for current limits.</p>}
-          {catalog.usage && Number.isFinite(catalog.usage.checkedAt) && <p className="usage-mode__muted">Checked {dateLabel(catalog.usage.checkedAt)} · Reported by {catalog.provider === 'claude-cli' ? 'Claude' : 'Codex'}</p>}
+          </div>) : <p className="usage-mode__empty">{usageState === 'stale' ? 'Usage needs a refresh. Previous limits may no longer be current.' : 'Usage isn’t available from your provider right now. Check your provider account for current limits.'}</p>}
+          {checkedAt !== null && <p className="usage-mode__muted">Last checked {dateLabel(checkedAt)} · {catalog.provider === 'claude-cli' ? 'Claude' : 'Codex'}</p>}
         </div> : <div className="usage-mode__api-note"><strong>Pay per use</strong><p>View recorded spending in Usage. Your provider manages key balances and budgets.</p></div>)}
         <p className="usage-mode__scope">Model usage only. Voice and other services have separate billing.</p>
         <footer className="usage-mode__actions">

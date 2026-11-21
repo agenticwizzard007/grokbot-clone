@@ -1,13 +1,13 @@
 import { useModels } from '../../lib/models';
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, Copy, ExternalLink, KeyRound, RefreshCw, Terminal } from 'lucide-react';
+import { Check, ChevronDown, Copy, ExternalLink, RefreshCw, Terminal } from 'lucide-react';
 import { cliApi, type CliProvider, type CliProviderStatus, type CliStatus } from '../../lib/cliApi';
 import { refreshModels } from './ModelPicker';
 import { CliLoginTerminal } from './CliLoginTerminal';
 import { ReauthPrompt } from './ReauthPrompt';
 import { needsReauth } from '../../lib/api';
-import { SwarmMark } from '../SwarmMark';
-import { ProviderMark } from '../ProviderMark';
+import { AccessRow } from './AccessRow';
+import { useReportedPlanUsage } from '../../lib/accessPlanUsage';
 import { useStore } from '../../store';
 import { useConfigUI, type ResumeAction } from '../../configStore';
 import '../../styles/subscriptions.css';
@@ -48,6 +48,7 @@ export function SubscriptionSettings() {
 
 function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: string; accountEmail: string }) {
   const modelCatalog = useModels();
+  const planUsage = useReportedPlanUsage(modelCatalog.usage);
   // A sign-in round trip (OAuth redirect or phone verification) returns here with the tab it left from.
   const resume = useConfigUI.getState().resume?.section === 'subscriptions' ? useConfigUI.getState().resume : null;
   const resumed = resume?.accountId === accountId && resume.expiresAt > Date.now() ? resume : null;
@@ -280,79 +281,23 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
   return (
     <div className="subscription-settings">
       <div className="app-settings__head">
-        <div className="subscription-settings__brand"><SwarmMark size={24} /><span>Your Swarm</span></div>
-        <h1>Subscriptions</h1>
-        <p>Connect ChatGPT or Claude once. Bring your plan to every Bot, on every device.</p>
+        <h1>Choose how models are billed</h1>
+        <p>Use an eligible plan through CLI authentication, or choose API billing.</p>
       </div>
 
       <div className="subscription-settings__tabs" role="tablist" aria-label="CLI provider">
-        {(['claude', 'codex'] as const).map((id) => (
+        {(['codex', 'claude'] as const).map((id) => (
           <button key={id} id={`subscription-tab-${id}`} role="tab" type="button" aria-selected={providerTab === id} aria-controls="subscription-auth-panel" tabIndex={providerTab === id ? 0 : -1} disabled={authLocked || loginRunning} onClick={() => { tabPicked.current = true; setProviderTab(id); setAuthMethod('cli'); }} onKeyDown={(event) => {
             if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft' && event.key !== 'Home' && event.key !== 'End') return;
             event.preventDefault();
-            const next = event.key === 'Home' ? 'claude' : event.key === 'End' ? 'codex' : id === 'claude' ? 'codex' : 'claude';
+            const next = event.key === 'Home' ? 'codex' : event.key === 'End' ? 'claude' : id === 'claude' ? 'codex' : 'claude';
             tabPicked.current = true; setProviderTab(next); setAuthMethod('cli');
             document.getElementById(`subscription-tab-${next}`)?.focus();
           }}>
-            <ProviderMark provider={id} />{id === 'claude' ? 'Claude Code' : 'Codex'}
+            {id === 'claude' ? 'Claude Code' : 'Codex'}
           </button>
         ))}
       </div>
-
-      <section className="cfg-section subscription-settings__auth" role="tabpanel" id="subscription-auth-panel" aria-labelledby={`subscription-tab-${providerTab}`}>
-        <h2 className="cfg-section__label">Authentication</h2>
-        <div className="subscription-settings__methods">
-          <button type="button" className={`subscription-settings__method${authMethod === 'cli' ? ' is-selected' : ''}`} aria-pressed={authMethod === 'cli'} disabled={disabled} onClick={() => setAuthMethod('cli')}>
-            {authMethod === 'cli' && <Check className="subscription-settings__method-check" size={16} aria-hidden />}
-            <span className="subscription-settings__method-icon"><Terminal size={22} strokeWidth={1.5} aria-hidden /></span>
-            <span className="subscription-settings__method-copy"><span>CLI authentication</span><small>Use your subscription</small></span>
-          </button>
-          <button type="button" className={`subscription-settings__method${authMethod === 'api' ? ' is-selected' : ''}`} aria-label="Use API providers" aria-pressed={authMethod === 'api'} disabled={disabled} onClick={() => void select(null)}>
-            {authMethod === 'api' && <Check className="subscription-settings__method-check" size={16} aria-hidden />}
-            <span className="subscription-settings__method-icon"><KeyRound size={22} strokeWidth={1.5} aria-hidden /></span>
-            <span className="subscription-settings__method-copy"><span>API providers</span><small>Pay per use</small></span>
-          </button>
-        </div>
-        <div className="subscription-settings__connection">
-        <div className="subscription-settings__status-row">
-          <span className="subscription-settings__status" role="status"><span className={`subscription-settings__status-dot${serverReady ? ' is-connected' : ''}`} aria-hidden />{busy === 'load' ? 'Checking status…' : !status ? 'Status unavailable' : stale ? 'Status unverified' : runtime === 'bridge' ? status.connected ? 'Computer bridge connected' : 'Computer bridge offline' : serverReady ? 'Connected' : 'Login required'}</span>
-          <div className="subscription-settings__actions">
-            <button type="button" className="cfg-btn cfg-btn--secondary" disabled={authLocked || !!busy || loginRunning} onClick={() => void refresh()}><RefreshCw size={14} aria-hidden />{busy === 'refresh' ? 'Refreshing…' : 'Refresh status'}</button>
-            <button type="button" className={`cfg-btn ${confirmReset ? 'cfg-btn--danger' : 'cfg-btn--ghost-danger'}`} disabled={authLocked || !!busy} onClick={() => confirmReset ? reset() : setConfirmReset(true)}>{busy === 'reset' ? 'Resetting…' : confirmReset ? 'Confirm reset' : 'Reset connection'}</button>
-            {confirmReset && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setConfirmReset(false)}>Cancel</button>}
-          </div>
-        </div>
-        {confirmReset && <p role="note">Reset removes the saved Claude Code and Codex logins from your Swarm server, revokes any computer bridge, cancels a sign-in in progress and clears cached status, then checks both CLIs again. Your selected subscription stays selected and blocked until you log in again or choose API providers.</p>}
-        <dl className="subscription-settings__details">
-          <div><dt>Swarm account</dt><dd>{accountEmail.endsWith('@openrouter.invalid') ? 'Your OpenRouter sign-in' : accountEmail}</dd></div>
-          <div><dt>Provider</dt><dd>{provider.name}</dd></div>
-          <div><dt>Eligible plan</dt><dd>{provider.plan}</dd></div>
-          <div><dt>Login location</dt><dd>{runtime === 'bridge' ? 'Your computer · advanced bridge' : 'Swarm server · private account profile'}</dd></div>
-          <div><dt>Current mode</dt><dd className={blocked ? 'subscription-settings__blocked' : ''}>{modeTitle}</dd></div>
-        </dl>
-        {blocked && <p className="subscription-settings__blocked">The selected subscription is blocked until its login is ready. There is no automatic fallback to API providers.</p>}
-        {(error || readError) && <div className="cfg-error" role="alert">{error || readError}</div>}
-        {verifyingResume && <p role="status">Verifying your sign-in…</p>}
-        {notice && !reauth && <p className="subscription-settings__notice" role="status">{notice}</p>}
-        {authMethod === 'cli' && <div className="subscription-settings__login-row">
-          <div>
-            <div className="cfg-row__title">One login. Every Bot.</div>
-            <p>{runtime === 'bridge' ? 'Choosing Use server login switches model requests for this account to your Swarm server. Your personal computer can then be off.' : 'Sign in below. Model requests run on your Swarm server, even when your personal computer is off.'}</p>
-          </div>
-          <div className="subscription-settings__actions">
-            {serverReady && selected !== providerTab && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={disabled} onClick={() => void select(providerTab)}>Use {providerTab === 'claude' ? 'Claude' : 'ChatGPT'}</button>}
-            <button type="button" className="cfg-btn cfg-btn--primary" disabled={disabled} onClick={startLogin}>{loginRunning ? 'Login in progress…' : loginLabel}</button>
-            {runtime === 'server' && (health?.authenticated || selected) && <button type="button" className={`cfg-btn ${confirmRevoke ? 'cfg-btn--danger' : 'cfg-btn--ghost-danger'}`} disabled={disabled} onClick={() => confirmRevoke ? void revoke() : setConfirmRevoke(true)}>{busy === 'revoke' ? 'Disconnecting…' : confirmRevoke ? 'Confirm disconnect' : 'Disconnect subscription'}</button>}
-            {confirmRevoke && runtime === 'server' && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setConfirmRevoke(false)}>Cancel</button>}
-          </div>
-        </div>}
-        <p>On your phone or iPad, sign in to this same Swarm account to use its saved subscription. Link messaging identities to this account in Messaging settings.</p>
-        {runtime === 'server' && confirmRevoke && <p>Disconnecting deletes saved CLI credentials and stops jobs for this account. Your selected provider stays selected and blocked until you log in again or explicitly choose API providers.</p>}
-        {status?.serverLoginAvailable === false && <p>Server login is currently unavailable. Try Login for the server’s instructions, or use the computer bridge under Advanced.</p>}
-        {health?.error && <div className="cfg-error">{health.error}</div>}
-        <a className="subscription-settings__docs" href={provider.docs} target="_blank" rel="noreferrer">Official authentication docs <ExternalLink size={12} aria-hidden /></a>
-        </div>
-      </section>
 
       {reauth && <ReauthPrompt accountEmail={accountEmail} reason={reauth.reason} resume={{ section: 'subscriptions', provider: providerTab, accountId, action: reauth.action }}
         retryLabel={retryLabel(reauth.action)} terminalActive={!!loginProvider} onCancel={() => { invalidateStatus(); setReauth(null); }} />}
@@ -363,8 +308,48 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
         if ((next === 'failed' || next === 'cancelled') && !working.current) void readStatus().catch(() => {});
       }} onConnected={() => { refreshModels(); void refresh(); }} />}
 
+      <section className="cfg-section subscription-settings__auth" role="tabpanel" id="subscription-auth-panel" aria-labelledby={`subscription-tab-${providerTab}`}>
+        <AccessRow title="CLI connection" description="Clear saved CLI sign-ins and start over.">
+            <button type="button" className={`cfg-btn ${confirmReset ? 'cfg-btn--danger' : 'cfg-btn--secondary'}`} disabled={authLocked || !!busy} onClick={() => confirmReset ? reset() : setConfirmReset(true)}>{busy === 'reset' ? 'Resetting…' : confirmReset ? 'Confirm reset' : 'Reset connection'}</button>
+            {confirmReset && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setConfirmReset(false)}>Cancel</button>}
+        </AccessRow>
+        {confirmReset && <p role="note">Reset removes the saved Claude Code and Codex logins from your Swarm server, revokes any computer bridge, cancels a sign-in in progress and clears cached status, then checks both CLIs again. Your selected subscription stays selected and blocked until you log in again or choose API providers.</p>}
+        <AccessRow title="CLI authentication" description="Use your subscription on the Swarm server or through an advanced bridge." status={authMethod === 'cli' && !selected ? 'Set up a plan below' : undefined}>
+          {authMethod === 'api' && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={disabled} onClick={() => setAuthMethod('cli')}>Set up CLI authentication</button>}
+        </AccessRow>
+        <AccessRow title="API providers" description="Pay per use through a connected API provider.">
+          <button type="button" className="cfg-btn cfg-btn--secondary" aria-pressed={authMethod === 'api'} disabled={disabled} onClick={() => void select(null)}>Use API providers</button>
+        </AccessRow>
+        <AccessRow title={providerTab === 'claude' ? 'Claude Code' : 'Codex'} description={modeTitle} status={<span role="status">{busy === 'load' ? 'Checking status…' : !status ? 'Status unavailable' : stale ? 'Status unverified' : runtime === 'bridge' ? status.connected ? 'Computer bridge connected' : 'Computer bridge offline' : serverReady ? 'Connected' : 'Login required'}</span>}>
+          {serverReady && selected !== providerTab && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={disabled} onClick={() => void select(providerTab)}>Use {providerTab === 'claude' ? 'Claude' : 'ChatGPT'}</button>}
+        </AccessRow>
+        <AccessRow title="Authorization status" description="Refresh after signing in or reconnecting.">
+          <button type="button" className="cfg-btn cfg-btn--secondary" disabled={authLocked || !!busy || loginRunning} onClick={() => void refresh()}>{busy === 'refresh' ? 'Refreshing…' : 'Refresh status'}</button>
+        </AccessRow>
+        <AccessRow title="Provider instructions" description="Review eligibility and official authentication steps.">
+          <a className="cfg-btn cfg-btn--secondary" href={provider.docs} target="_blank" rel="noreferrer">Official auth docs</a>
+        </AccessRow>
+        <details className="subscription-settings__context">
+          <summary>Account and login details</summary>
+          <dl className="subscription-settings__details">
+          <div><dt>Swarm account</dt><dd>{accountEmail.endsWith('@openrouter.invalid') ? 'Your OpenRouter sign-in' : accountEmail}</dd></div>
+          <div><dt>Provider</dt><dd>{provider.name}</dd></div>
+          <div><dt>Eligible plan</dt><dd>{provider.plan}</dd></div>
+          <div><dt>Login location</dt><dd>{runtime === 'bridge' ? 'Your computer · advanced bridge' : 'Swarm server · private account profile'}</dd></div>
+          <div><dt>Current mode</dt><dd className={blocked ? 'subscription-settings__blocked' : ''}>{modeTitle}</dd></div>
+          </dl>
+        </details>
+        {blocked && <p className="subscription-settings__blocked">The selected subscription is blocked until its login is ready. There is no automatic fallback to API providers.</p>}
+        {(error || readError) && <div className="cfg-error" role="alert">{error || readError}</div>}
+        {verifyingResume && <p role="status">Verifying your sign-in…</p>}
+        {notice && !reauth && <p className="subscription-settings__notice" role="status">{notice}</p>}
+        {runtime === 'server' && confirmRevoke && <p>Disconnecting deletes saved CLI credentials and stops jobs for this account. Your selected provider stays selected and blocked until you log in again or explicitly choose API providers.</p>}
+        {status?.serverLoginAvailable === false && <p>Server login is currently unavailable. Try Login for the server’s instructions, or use the computer bridge under Advanced.</p>}
+        {health?.error && <div className="cfg-error">{health.error}</div>}
+      </section>
+
       <details className="subscription-settings__advanced">
-        <summary>Advanced · connect your own computer <ChevronDown size={16} aria-hidden /></summary>
+        <summary><span>Connect your computer<small>Run the CLI on your computer only if you need the advanced bridge.</small></span><span className="cfg-btn cfg-btn--secondary">Advanced bridge <ChevronDown size={16} aria-hidden /></span></summary>
         <div className="subscription-settings__advanced-content">
       <section className="cfg-section" aria-labelledby="subscription-bridge-title">
         <h2 className="cfg-section__label" id="subscription-bridge-title">Computer bridge</h2>
@@ -451,14 +436,21 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
         </div>
       </details>
 
+      <AccessRow title="Manage device access" description="Pair or manage the separate computer your Bots work on.">
+        <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().openAppSettings('computer')}>Computer settings</button>
+      </AccessRow>
+      {authMethod === 'cli' && <div className="subscription-settings__actions">
+        <button type="button" className="cfg-btn cfg-btn--primary" disabled={disabled} onClick={startLogin}>{loginRunning ? 'Login in progress…' : loginLabel}</button>
+        {runtime === 'server' && (health?.authenticated || selected) && <button type="button" className={`cfg-btn ${confirmRevoke ? 'cfg-btn--danger' : 'cfg-btn--ghost-danger'}`} disabled={disabled} onClick={() => confirmRevoke ? void revoke() : setConfirmRevoke(true)}>{busy === 'revoke' ? 'Disconnecting…' : confirmRevoke ? 'Confirm disconnect' : 'Disconnect subscription'}</button>}
+        {confirmRevoke && runtime === 'server' && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setConfirmRevoke(false)}>Cancel</button>}
+      </div>}
       <section className="cfg-section subscription-settings__coverage" aria-labelledby="subscription-limits-title">
         <h2 className="cfg-section__label" id="subscription-limits-title">Usage and coverage</h2>
         <p>All your Bots share your plan across desktop, phone and linked iMessage or WhatsApp. Your provider’s usage limits and extra usage charges still apply.</p>
         <p>Browser and computer tools use the computer selected in Settings. Choose a server-hosted computer there to use those tools while your personal computer is off.</p>
-        <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().openAppSettings('computer')}>Computer settings</button>
         {status?.selected && modelCatalog.billing === 'plan' && <div className="cfg-card" aria-label="Connected plan usage">
           <p>{modelCatalog.plan ? `Reported plan: ${modelCatalog.plan}` : 'Plan name unavailable from the CLI.'}</p>
-          {modelCatalog.status === 'loading' ? <p>Checking plan usage…</p> : modelCatalog.usage?.available ? modelCatalog.usage.windows.map((w, i) => <p key={i}>{w.label}: {w.usedPercent}% used{w.resetsAt !== null ? ` · Resets ${new Date(w.resetsAt).toLocaleString()}` : ''}</p>) : <p>Plan usage unavailable from the CLI. Check your provider account for current limits.</p>}
+          {modelCatalog.status === 'loading' ? <p>Checking plan usage…</p> : planUsage.state === 'reported' ? planUsage.windows.map(w => <p key={w.label}>{w.label}: {w.usedPercent}% used{w.resetsAt !== null ? ` · Resets ${new Date(w.resetsAt).toLocaleString()}` : ''}</p>) : <p>{planUsage.state === 'stale' ? 'Reported usage has expired. ' : 'Usage limits were not reported. '}Check your provider account for current limits.</p>}
           {modelCatalog.usage && <p>Checked {new Date(modelCatalog.usage.checkedAt).toLocaleString()}</p>}
         </div>}
         <p>Your subscription covers model usage. Platform-provided voice and external services are separate and have their own billing.</p>

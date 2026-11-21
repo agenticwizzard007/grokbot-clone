@@ -7,7 +7,7 @@ import { db, now } from './db.js';
 import { env } from './env.js';
 import { newId } from './lib/ids.js';
 import { hub } from './lib/hub.js';
-import { createSession, destroySession, requireUser, requireRecentAuth, recentlyAuthenticated, userFromCookieHeader, revokeSession, sessionHash, sessionFromCookie, type AuthVars } from './lib/auth.js';
+import { clearSessionCookies, createSession, destroySession, requireUser, requireRecentAuth, recentlyAuthenticated, userFromCookieHeader, revokeSession, sessionHash, sessionFromCookie, type AuthVars } from './lib/auth.js';
 import { allLive, appendRow, clearConversation, emitBot, getBot, getBotRow, getRow, listBots, listRoutines, listRows, listTasks, toRoutine, updateRow } from './store.js';
 import { enqueue, interrupt, resolveApproval, runInBotQueue } from './agent/loop.js';
 import { computers } from './computers/index.js';
@@ -30,6 +30,7 @@ import { appleAvailableForAgent } from './auth/apple-provider.js';
 import { openrouterAuth } from './auth/openrouter.js';
 import { providerApi } from './providers/routes.js';
 import { googleAuth, googleLinked, googleSignInAvailable } from './auth/google.js';
+import { currentSessionHash } from './security/request-context.js';
 import { onSessionRevoked } from './security/session-lifecycle.js';
 import { isTenant } from './deployment.js';
 
@@ -63,14 +64,17 @@ api.post('/auth/dev', async (c) => {
 api.post('/auth/logout', requireUser, (c) => { destroySession(c); return c.json({ ok: true }); });
 
 api.get('/auth/sessions', requireUser, c => {
-  const current = sessionHash(sessionFromCookie(c.req.header('cookie')) ?? '');
+  const current = currentSessionHash();
   const sessions = (db.prepare('SELECT token,created_at,expires_at,last_seen_at FROM auth_sessions WHERE user_id=? AND expires_at>?').all(c.get('user').id, now()) as any[]).map(({ token, ...row }) => ({ ...row, id: token, current: token === current }));
   return c.json({ sessions });
 });
 api.delete('/auth/sessions/:id', requireUser, c => {
   const row = db.prepare('SELECT token FROM auth_sessions WHERE user_id=? AND token=?').get(c.get('user').id, c.req.param('id')) as { token: string } | undefined;
   if (!row) return c.json({ error: 'Session not found.' }, 404);
-  revokeSession(row.token); return c.json({ ok: true });
+  const revokedCurrent = row.token === currentSessionHash();
+  revokeSession(row.token);
+  if (revokedCurrent) clearSessionCookies(c);
+  return c.json({ ok: true, revokedCurrent });
 });
 
 // everything below requires a session
@@ -86,10 +90,13 @@ api.delete('/account', requireRecentAuth, async (c) => {
   if (origin && ![new URL(env.appUrl).origin, new URL(env.serverUrl).origin].includes(origin)) return c.json({ error: 'Invalid request origin.' }, 403);
   const body = await c.req.json().catch(() => null);
   if (body?.confirmation !== 'DELETE') return c.json({ error: 'Confirm account deletion first.' }, 400);
+  const userId = c.get('user').id;
+  if (typeof body.expectedUserId !== 'string' || !body.expectedUserId) return c.json({ error: 'Confirm the account for this request.' }, 400);
+  if (body.expectedUserId !== userId) return c.json({ error: 'Your account changed. Reload before deleting your account.', code: 'account_changed' }, 409);
   try {
     if(isTenant)return c.json({error:'Account deletion must be authorized by the platform.'},403);
-    await deleteAccount(c.get('user').id,()=>{
-      if(!recentlyAuthenticated(c)||userFromCookieHeader(c.req.header('cookie'))?.id!==c.get('user').id)throw new AccountAuthorizationChanged();
+    await deleteAccount(userId,()=>{
+      if(!recentlyAuthenticated(c)||userFromCookieHeader(c.req.header('cookie'))?.id!==userId)throw new AccountAuthorizationChanged();
     });
     destroySession(c);
     return c.json({ ok: true });
@@ -146,8 +153,13 @@ api.post('/bots', async (c) => {
 
 api.post('/bots/import', async (c) => {
   try {
-    const { manifest, name } = await c.req.json();
-    return c.json(await importTeammate(c.get('user').id, manifest, name));
+    const { manifest, name, expectedUserId } = await c.req.json();
+    const userId = c.get('user').id;
+    if (expectedUserId !== undefined) {
+      if (typeof expectedUserId !== 'string' || !expectedUserId) return c.json({ error: 'Confirm the account for this import.' }, 400);
+      if (expectedUserId !== userId) return c.json({ error: 'Your account changed. Reload before importing this setup.', code: 'account_changed' }, 409);
+    }
+    return c.json(await importTeammate(userId, manifest, name));
   } catch (e: any) { return c.json({ error: String(e?.message ?? e) }, 400); }
 });
 

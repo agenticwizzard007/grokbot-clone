@@ -30,7 +30,7 @@ try {
   await page.goto(base);
   await page.locator('.chat__pill-name').waitFor();
   const show=page.getByRole('button',{name:'Show details',exact:true});if(await show.isVisible())await show.click();
-  await page.getByRole('button',{name:'Configuration',exact:true}).click();
+  await page.getByRole('navigation',{name:'Conversation details sections'}).getByRole('button',{name:'Setup',exact:true}).click();
   await page.getByRole('tab',{name:'History',exact:true}).click();
   const history=page.getByRole('region',{name:'Agent change history',exact:true});
   await history.getByText(/skill proposal · pending/).click();
@@ -49,10 +49,12 @@ try {
   await history.getByRole('button',{name:'Refresh history',exact:true}).click();
   await history.getByText(/skill · edit · revision 37$/).click();
   await history.getByText('New accepted procedure after the history page opened.',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Back to chat',exact:true}).click();
   await page.setViewportSize({width:390,height:844});
-  await page.locator('button.pinned__tile[title="Quinn"]').click();
+  const pinned = page.locator('button.pinned__tile[title="Quinn"]');
+  if (await pinned.isVisible()) await pinned.click();
   await page.getByRole('button',{name:'Show details',exact:true}).click();
-  await page.getByRole('button',{name:'Configuration',exact:true}).click();
+  await page.getByRole('navigation',{name:'Conversation details sections'}).getByRole('button',{name:'Setup',exact:true}).click();
   await page.getByRole('tab',{name:'History',exact:true}).click();
   await history.getByText(/skill · edit · revision 37$/).click();
   await history.getByText('New accepted procedure after the history page opened.',{exact:true}).waitFor();

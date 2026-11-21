@@ -197,6 +197,41 @@ after(async () => {
   fs.rmSync(temp, { recursive: true, force: true });
 });
 
+test('browser account intent rejects a switched cookie before status, probes or CLI mutations', async () => {
+  createCliPairing(bob);
+  selectCli(bob, 'claude');
+  const pairing = db.prepare('SELECT * FROM cli_pairings WHERE user_id=?').get(bob);
+  const login = await start(bob, 'codex');
+  const before = audit().length;
+  for (const [route, method, body] of [
+    ['', 'GET', undefined],
+    ['/refresh', 'POST', undefined],
+    ['', 'PUT', { provider: null }],
+    ['/pair', 'POST', undefined],
+    ['/pair', 'DELETE', undefined],
+    ['/login', 'POST', { provider: 'claude', cols: 80, rows: 24 }],
+    [`/login/${login.id}?cursor=0`, 'GET', undefined],
+    [`/login/${login.id}/input`, 'POST', { data: 'OK\r' }],
+    [`/login/${login.id}/resize`, 'POST', { cols: 90, rows: 25 }],
+    [`/login/${login.id}`, 'DELETE', undefined],
+  ] as const) {
+    const response = await req(bob, `${route}${route.includes('?') ? '&' : '?'}expectedUserId=${encodeURIComponent(alice)}`, method, body);
+    assert.equal(response.status, 409, `${method} ${route}`);
+    assert.equal((await response.json()).code, 'account_changed');
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+  }
+  assert.equal((await read(bob, login.id)).state, 'running', 'mismatch cannot cancel or authenticate the existing terminal');
+  assert.equal(audit().length, before, 'mismatch cannot start a CLI or provider status probe');
+  assert.equal(selectedCli(bob), 'claude');
+  // Starting the real fixture terminal intentionally revokes a bridge; no denied request creates one.
+  assert.ok(pairing);
+  assert.equal(db.prepare('SELECT * FROM cli_pairings WHERE user_id=?').get(bob), undefined);
+  const matching = await req(bob, `?expectedUserId=${encodeURIComponent(bob)}`);
+  assert.equal(matching.status, 200);
+  const empty = await req(bob, '?expectedUserId=');
+  assert.equal(empty.status, 400);
+});
+
 test('login terminal endpoints require an unexpired signed-in cookie', async () => {
   db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES (session_hash(?),?,?,?)').run('expired-login-session', alice, Date.now() - 2000, Date.now() - 1);
   for (const credential of [null, 'unknown', 'expired-login-session']) {

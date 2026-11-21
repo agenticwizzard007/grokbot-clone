@@ -45,6 +45,9 @@ export function createSession(c: Context, userId: string) {
 export function destroySession(c: Context) {
   const raw = sessionFromCookie(c.req.header('cookie'));
   if (raw) revokeSession(sessionHash(raw));
+  clearSessionCookies(c);
+}
+export function clearSessionCookies(c: Context) {
   deleteCookie(c, COOKIE, { path: '/' });
   if (deploymentRole === 'standalone') deleteCookie(c, LEGACY_COOKIE, { path: '/' });
 }

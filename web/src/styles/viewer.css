@@ -36,3 +36,34 @@
 .viewer__bar-text { color: #FFFFFFB3; display: inline-flex; align-items: center; gap: 4px; }
 .viewer__bar-text b { color: #FFFFFF; font-weight: 500; }
 .viewer__live-dot { width: 8px; height: 8px; border-radius: 50%; background: #28C840; margin-right: 4px; animation: breathe 1.6s ease-in-out infinite; }
+
+.viewer { padding: 0 16px; overflow-y: auto; background: var(--color-bg-chrome); color: var(--color-text-primary); }
+.viewer .viewer__scrim { background: transparent; animation: none; }
+.viewer__top, .viewer__stage, .viewer__recovery { max-width: 1200px; width: 100%; }
+.viewer__top { height: auto; min-height: 88px; padding: 12px 0; gap: 10px; }
+.viewer__title { font-size: 16px; min-width: 0; flex-wrap: wrap; }
+.viewer__status { color: var(--color-text-secondary); }
+.viewer__close { width: auto; min-height: 44px; height: auto; padding: 8px 14px; border-radius: 12px; flex-shrink: 0; background: var(--color-bg-active); color: var(--color-text-primary); font-size: 14px; }
+.viewer__close:hover { background: var(--color-bg-secondary-active); }
+.viewer__stage { padding: 0; border: 1px solid var(--color-border-secondary); border-radius: 12px; background: var(--color-bg-sidebar); }
+.viewer.is-disconnected .viewer__stage { flex: 0 0 min(66svh, 590px); }
+.viewer__overlay { padding: 20px; text-align: center; color: var(--color-text-primary); }
+.viewer__connection-lost { margin: 0; color: var(--color-warn-text); }
+.viewer__recovery { position: relative; display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 24px 0; }
+.viewer__recovery strong { font-weight: 500; }
+.viewer__recovery p { margin: 4px 0 0; color: var(--color-text-secondary); font-size: 13px; }
+.viewer__recovery .btn { min-height: 44px; border-radius: 12px; }
+.viewer__sleep-face { background: var(--color-bg-active); }
+.viewer__sleep-face i { background: var(--color-text-secondary); }
+.viewer__wake { min-width: 0; background: var(--color-bg-pane); box-shadow: none; }
+.viewer__wake-title { color: var(--color-text-primary); }
+.viewer__wake-detail, .viewer__err { color: var(--color-text-secondary); }
+.viewer__wake-orbit::before { border-color: var(--color-border-secondary); border-top-color: var(--color-primary); }
+.viewer__wake-face { background: var(--color-bg-active); }
+.viewer__wake-face i { background: var(--color-primary); }
+@media (max-width: 760px) {
+  .viewer { padding-top: env(safe-area-inset-top); }
+  .viewer__top { min-height: 72px; }
+  .viewer.is-disconnected .viewer__stage { flex-basis: min(44svh, 370px); }
+  .viewer__top .viewer__status { display: none; }
+}

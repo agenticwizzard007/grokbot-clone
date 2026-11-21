@@ -44,6 +44,7 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           npm run test:hermes-native
+          npm run test:updated-ui
           npm run test:deployment
           npm run test:voice-entry
       - uses: superfly/flyctl-actions/setup-flyctl@98172f70657cb3e15db199af139be99bd3e61200

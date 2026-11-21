@@ -8,6 +8,7 @@ import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
 import Database from 'better-sqlite3';
+import { useAccessViteAssets } from './access-vite-assets.mjs';
 
 const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'swarm-cli-login-ui-'));
 const screenshots = path.resolve('.context/cli-login-ui');
@@ -23,6 +24,7 @@ const port = await new Promise(resolve => {
 });
 const base = `http://localhost:${port}`;
 let server, browser, page, logs = '';
+const errors = [];
 await fs.writeFile(executable, `#!${process.execPath}
 import fs from 'node:fs';
 import path from 'node:path';
@@ -91,16 +93,20 @@ try {
   await until(() => fetch(`${base}/api/health`).then(response => response.ok, () => false));
   browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox'] });
   const context = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+  await useAccessViteAssets(context, base);
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base });
   assert.equal((await context.request.post(`${base}/api/auth/dev`, { data: { email: 'cli-login-ui@example.test' } })).status(), 200);
   let accountId = (await (await context.request.get(`${base}/api/auth/me`)).json()).user.id;
   page = await context.newPage();
   const resumeAt = async (provider, action = 'login', expiresAt = Date.now() + 600_000) => page.evaluate(target => sessionStorage.setItem('swarm.resume', JSON.stringify(target)), { section: 'subscriptions', provider, accountId, action, expiresAt });
-  const errors = [], writes = [], deletes = [], resetBodies = [], botLoads = [];
+  const writes = [], deletes = [], resetBodies = [], botLoads = [];
+  const cliAccountIds = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('request', request => { if (/\/api\/cli\/login\/[^/]+\/input$/.test(new URL(request.url()).pathname)) writes.push(request.postDataJSON().data); });
   page.on('request', request => {
-    const pathname = new URL(request.url()).pathname;
+    const url = new URL(request.url());
+    const { pathname } = url;
+    if (pathname === '/api/cli' || pathname.startsWith('/api/cli/')) cliAccountIds.push(url.searchParams.get('expectedUserId'));
     if (request.method() === 'DELETE' && pathname.startsWith('/api/cli/login/')) deletes.push(pathname);
     if (request.method() === 'POST' && pathname === '/api/cli/reset') resetBodies.push(request.postDataJSON());
     if (pathname === '/api/bots') botLoads.push(pathname);
@@ -196,7 +202,7 @@ try {
   await terminal.getByRole('button', { name: 'Cancel login and close terminal', exact: true }).click();
   assert.equal(await terminal.count(), 0);
 
-  // Provider sign-ins leave the page; a planned resume reopens Subscriptions on the same tab.
+  // Provider sign-ins leave the page; a planned resume reopens Models & access on the same tab.
   await resumeAt('claude');
   await page.goto(`${base}/`);
   await page.getByText(/You’re signed in again\. Choose Login to continue connecting Claude via Claude Code/).waitFor();
@@ -213,11 +219,11 @@ try {
   // An ordinary keys deep link still wins over a pending resume, and a callback without a resume stays on keys.
   await resumeAt('claude');
   await page.goto(`${base}/#settings/keys`);
-  await page.getByRole('heading', { name: 'API keys', exact: true, level: 1 }).waitFor();
+  await page.getByRole('heading', { name: 'Your OpenRouter connection', exact: true, level: 1 }).waitFor();
   assert.equal(await page.getByRole('tab', { name: 'Claude Code', exact: true }).count(), 0);
   assert.equal(await page.evaluate(() => sessionStorage.getItem('swarm.resume')), null);
   await page.goto(`${base}/?openrouter=connected#settings/keys`);
-  await page.getByRole('heading', { name: 'API keys', exact: true, level: 1 }).waitFor();
+  await page.getByRole('heading', { name: 'Your OpenRouter connection', exact: true, level: 1 }).waitFor();
   assert.equal(await page.getByText(/signed in again/).count(), 0, 'a callback without a resume does not invent a reauthentication notice');
   await page.goto(`${base}/#settings/subscriptions`);
   await page.reload();
@@ -277,7 +283,8 @@ try {
   const heldStatus = new Promise(resolve => { releaseStatus = resolve; });
   const statusStarted = new Promise(resolve => { observedStatus = resolve; });
   let holdStatus = false;
-  await page.route(`${base}/api/cli`, async route => {
+  const cliStatusRoute = url => url.origin === base && url.pathname === '/api/cli';
+  await page.route(cliStatusRoute, async route => {
     if (holdStatus && route.request().method() === 'GET') {
       holdStatus = false; observedStatus(); await heldStatus;
       await route.fulfill({ json: readySnapshot }).catch(() => {});
@@ -295,13 +302,14 @@ try {
   releaseStatus();
   await pause(200);
   assert.equal(await page.getByRole('button', { name: 'Log in again', exact: true }).count(), 0, 'an older ready snapshot cannot revive the reset connection');
-  await page.unroute(`${base}/api/cli`);
+  await page.unroute(cliStatusRoute);
 
   // A late auth denial can arrive after real reset effects. Reconcile instead of promising no change.
   await page.getByRole('button', { name: 'Login', exact: true }).click();
   await until(() => terminal.getByLabel('Authorization code', { exact: true }).isEnabled());
   await terminal.getByLabel('Authorization code', { exact: true }).fill('unsent-late-reset');
-  await page.route(`${base}/api/cli/reset`, async route => {
+  const cliResetRoute = url => url.origin === base && url.pathname === '/api/cli/reset';
+  await page.route(cliResetRoute, async route => {
     const applied = await route.fetch();
     assert.equal(applied.status(), 200, 'the real server first stops the terminal and clears the profile');
     await route.fulfill({ status: 401, json: { error: 'Sign in again to continue.', code: 'reauth_required' } });
@@ -311,20 +319,23 @@ try {
   await page.getByRole('button', { name: 'Confirm reset', exact: true }).click();
   await reauth.getByText(/Reset may already have stopped login sessions or removed saved connections/).waitFor();
   await terminal.getByText('Failed', { exact: true }).waitFor();
-  await page.getByText('ChatGPT via Codex · Blocked', { exact: true }).waitFor();
+  await page.locator('.cfg-row__sub').getByText('ChatGPT via Codex · Blocked', { exact: true }).waitFor();
   assert.equal(await page.getByText(/This request has not been applied|Your current terminal stays open/).count(), 0);
   assert.equal(resetBodies.length, resetCount + 1, 'late denial must not replay reset automatically');
   assert.equal((await (await context.request.get(`${base}/api/cli`)).json()).providers.codex.authenticated, false);
-  await page.unroute(`${base}/api/cli/reset`);
+  await page.unroute(cliResetRoute);
   await reauth.getByRole('button', { name: 'Not now', exact: true }).click();
   await terminal.getByRole('button', { name: 'Close login terminal', exact: true }).click();
 
   // The cookie can change in another tab while this view still displays the initiating account.
   await context.request.post(`${base}/api/auth/dev`, { data: { email: 'cli-login-other@example.test' } });
-  const resetResponse = page.waitForResponse(response => response.url() === `${base}/api/cli/reset` && response.request().method() === 'POST');
+  const resetResponse = page.waitForResponse(response => cliResetRoute(new URL(response.url())) && response.request().method() === 'POST');
   await page.getByRole('button', { name: 'Reset connection', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm reset', exact: true }).click();
-  assert.equal((await resetResponse).status(), 409);
+  const mismatch = await resetResponse;
+  assert.equal(mismatch.status(), 409);
+  assert.equal(new URL(mismatch.url()).searchParams.get('expectedUserId'), accountId);
+  assert.ok(cliAccountIds.includes(accountId) && cliAccountIds.every(Boolean), 'UI CLI requests carry the rendered account ID');
   assert.equal(resetBodies.at(-1).expectedUserId, accountId, 'confirmation is bound to the displayed account');
   await page.getByText(/Your account changed\. Reload this page/).waitFor();
   await resumeAt('codex');
@@ -346,12 +357,18 @@ try {
   assert.equal(await page.getByText(/You’re signed in again/).count(), 0, 'switching accounts is not same-account reauthentication');
   assert.ok(botLoads.length > beforeDevReload, 'dev reauthentication reloads the account-scoped shell');
   await resumeAt('codex', 'login', Date.now() - 1);
+  const expiredResumeBoot = page.waitForResponse(response => new URL(response.url()).pathname === '/api/bots' && response.ok());
   await page.goto(`${base}/?fixture=expired-resume`);
-  assert.equal(await page.getByRole('heading', { name: 'Subscriptions', exact: true, level: 1 }).count(), 0, 'expired resume targets are discarded');
+  await expiredResumeBoot;
+  await page.getByRole('button', { name: 'Account & settings', exact: true }).waitFor();
+  assert.equal(await page.locator('.main-pane').getAttribute('hidden'), null, 'expired resume does not keep the application hidden behind Settings');
+  assert.equal(await page.getByRole('heading', { name: 'Choose how models are billed', exact: true, level: 1 }).count(), 0, 'expired resume targets are discarded');
+  assert.equal(await page.getByRole('tab', { name: 'Codex', exact: true }).count(), 0, 'expired resume does not reopen its provider tab');
   assert.deepEqual(errors, []);
   console.log('CLI login UI passed: real clipboard paste, show/hide code, button/Enter submission, real PTY with echo disabled, verified success/Done, desktop/mobile, rejection of unverified login, in-place re-sign-in, resume after a sign-in round trip, and reset of both providers.');
 } catch (error) {
   console.error(logs.slice(-4000));
+  if (errors.length) console.error('Browser errors:', errors);
   if (page) { console.error((await page.locator('body').innerText()).slice(-4000)); await page.screenshot({ path: path.join(screenshots, 'failure.png'), fullPage: true }); }
   throw error;
 } finally {

@@ -66,11 +66,12 @@ function cornerClass(i: number, n: number) {
   return ' is-mid';
 }
 
-const Bubble = memo(function Bubble({ row, side, pos }: { row: Row; side: 'left' | 'right'; pos: string }) {
+const Bubble = memo(function Bubble({ row, side, pos, botName }: { row: Row; side: 'left' | 'right'; pos: string; botName: string }) {
   const b = row.body as MessageBody;
   return (
     <div className={`bubble-wrap is-${side}`}>
       <div className={`bubble is-${side === 'right' ? 'user' : 'agent'}${pos}${b.streaming ? ' is-streaming' : ''}`}>
+        <div className="bubble__sender">{side === 'right' ? 'You' : b.from?.name || botName}</div>
         {side === 'right' ? <div className="bubble__plain">{b.text}</div> : <Markdown text={b.text || ' '} />}
         {b.citations && b.citations.length > 0 && (
           <div className="bubble__cites">
@@ -150,13 +151,12 @@ function SystemRow({ row }: { row: Row }) {
   return null;
 }
 
-interface Props { bot: Bot; rows: Row[]; live: LiveState | undefined; loaded: boolean }
+interface Props { bot: Bot; generation: number; rows: Row[]; live: LiveState | undefined; loaded: boolean }
 
-export const Transcript = memo(function Transcript({ bot, rows, live, loaded }: Props) {
+export const Transcript = memo(function Transcript({ bot, generation, rows, live, loaded }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const [showJump, setShowJump] = useState(false);
-  const generation = useStore(s => s.transcripts[bot.id]?.generation ?? bot.generation);
   const connected = useStore(s => s.sseConnected);
   const exchanges = useAgentExchanges(bot.id, generation, loaded && bot.kind !== 'room', connected);
   const visibleRows = useMemo(() => rows.filter(r => !isInternalRow(r)), [rows]);
@@ -216,7 +216,7 @@ export const Transcript = memo(function Transcript({ bot, rows, live, loaded }: 
                 <div key={it.key} className={`group is-${it.side}`}>
                   {it.from && <SenderLabel from={it.from} />}
                   {it.rows.map((r, i) => (
-                    <Fragment key={r.seq}><Bubble row={r} side={it.side} pos={cornerClass(i, it.rows.length)} /></Fragment>
+                    <Fragment key={r.seq}><Bubble row={r} side={it.side} botName={bot.name} pos={cornerClass(i, it.rows.length)} /></Fragment>
                   ))}
                 </div>
               );

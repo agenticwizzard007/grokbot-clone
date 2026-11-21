@@ -1,6 +1,6 @@
 import { useStore } from '../../store';
 import { useModels } from '../../lib/models';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { configApi, type ModelInfo } from '../../lib/configApi';
 
 type Provider = 'direct' | 'openrouter';
@@ -38,21 +38,25 @@ export function ModelPicker({ value, onChange, defaultLabel, disabled, label = '
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  const panelId = useId();
   const userId = useStore(s => s.user?.id);
   const [loaded, setLoaded] = useState<{ userId?: string; provider?: Provider; data: ModelCatalog } | null>(null);
   const data = loaded && loaded.userId === userId && loaded.provider === provider ? loaded.data : null;
   const box = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     let alive = true;
     setLoaded(null);
     loadModels(provider, open).then(data => { if (alive) setLoaded({ userId, provider, data }); });
     return () => { alive = false; };
-  }, [provider, userId, open]);
+  }, [provider, userId, open, attempt]);
+  useEffect(() => { setOpen(false); setQuery(''); }, [userId, provider]);
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && box.current?.contains(e.target as Node)) { e.stopPropagation(); setOpen(false); trigger.current?.focus(); } };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey, true);
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey, true); };
@@ -66,11 +70,14 @@ export function ModelPicker({ value, onChange, defaultLabel, disabled, label = '
     return list.slice(0, 200);
   }, [models, query]);
 
-  const pick = (id: string | null) => { onChange(id); setOpen(false); setQuery(''); };
+  const pick = (id: string | null) => {
+    if (disabled || useStore.getState().user?.id !== userId) return;
+    onChange(id); setOpen(false); setQuery(''); trigger.current?.focus();
+  };
 
   return (
     <div className="model-picker" ref={box}>
-      <button type="button" className="model-picker__button text-input" disabled={disabled} onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open} aria-label={label}>
+      <button ref={trigger} type="button" className="model-picker__button text-input" disabled={disabled} onClick={() => { setQuery(''); setOpen((o) => !o); }} aria-controls={open ? panelId : undefined} aria-expanded={open} aria-label={label}>
         <span className="model-picker__current">
           {value ? (selected?.name ?? value) : defaultLabel ? `Default · ${defaultLabel}` : 'Choose a model'}
         </span>
@@ -79,21 +86,29 @@ export function ModelPicker({ value, onChange, defaultLabel, disabled, label = '
         {selected && !selected.vision && <span className="cfg-chip cfg-chip--warn">No images</span>}
       </button>
       {open && (
-        <div className="model-picker__pop" role="listbox" aria-label={`${label} options`}>
-          <input className="text-input model-picker__search" autoFocus placeholder={`Search ${models.length} models…`} value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search models" />
-          <div className="model-picker__list">
+        <div className="model-picker__pop" id={panelId} onKeyDown={e => {
+          if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+          const options = [...e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="option"]')];
+          if (!options.length) return;
+          e.preventDefault();
+          const activeIndex = options.indexOf(document.activeElement as HTMLButtonElement);
+          const index = activeIndex < 0 ? e.key === 'ArrowDown' ? 0 : options.length - 1 : (activeIndex + (e.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length;
+          options[index]?.focus();
+        }}>
+          <input className="text-input model-picker__search" autoFocus placeholder={models.length ? `Search ${models.length} models…` : 'Search models…'} value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search models" />
+          {data?.error && <div className="model-picker__empty" role="alert"><span>{data.error}</span> <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setAttempt(value => value + 1)}>Retry</button></div>}
+          {!data && <div className="model-picker__empty" role="status">Loading models…</div>}
+          {data && !data.error && !shown.length && <div className="model-picker__empty" role="status">{models.length ? 'No matching models.' : data.billing === 'plan' ? 'No models were reported by this CLI connection. Check Models & access.' : 'No models were reported. Check your connection in API keys.'}</div>}
+          <div className="model-picker__list" role="listbox" aria-label={`${label} options`}>
             {defaultLabel && !query && (
               <button type="button" role="option" aria-selected={value === null} className={`model-picker__row${value === null ? ' is-selected' : ''}`} onClick={() => pick(null)}>
                 <span className="model-picker__name">Default</span>
                 <span className="model-picker__meta">{defaultLabel}</span>
               </button>
             )}
-            {data?.error && <div className="model-picker__empty">{data.error}</div>}
-            {!data && <div className="model-picker__empty">Loading models…</div>}
-            {data && !data.error && !shown.length && <div className="model-picker__empty">{models.length ? 'No match.' : data.billing === 'plan' ? 'No models are available from this CLI connection. Refresh it in Settings → Subscriptions.' : 'Add a model key in Settings → API keys first.'}</div>}
             {shown.map((m) => (
               <button type="button" role="option" aria-selected={m.id === value} key={m.id} className={`model-picker__row${m.id === value ? ' is-selected' : ''}`} onClick={() => pick(m.id)}>
-                <span className="model-picker__name">{m.name}<span className="model-billing">{m.billing === 'plan' ? 'Plan' : 'API'}</span>{!m.vision && <span className="cfg-chip cfg-chip--warn">No images</span>}</span>
+                <span className="model-picker__name">{m.name}{(m.billing ?? data?.billing) && <span className="model-billing">{(m.billing ?? data?.billing) === 'plan' ? 'Plan' : 'API'}</span>}{!m.vision && <span className="cfg-chip cfg-chip--warn">No images</span>}</span>
                 <span className="model-picker__meta">{m.id}{price(m) ? ` · ${price(m)}` : ''}</span>
               </button>
             ))}

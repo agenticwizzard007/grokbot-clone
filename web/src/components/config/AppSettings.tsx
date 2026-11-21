@@ -1,14 +1,14 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Blocks, ChevronLeft, ChevronRight, CircleUserRound, Gauge, KeyRound, MessageCircle, Monitor, Search, Server, Settings as SettingsIcon, ShieldCheck, Terminal, X, type LucideIcon } from 'lucide-react';
-import type { Toolkit } from '@shared/types';
+import { ChevronLeft, ChevronRight, PanelLeftOpen, X } from 'lucide-react';
+import type { Toolkit, User } from '@shared/types';
 import { BotAvatarFor } from '../../avatar/BotAvatar';
 import { configApi, type ComputerDetails, type KeysResponse, type KeyStatus, type Pairing } from '../../lib/configApi';
 import { ModelPicker, refreshModels } from './ModelPicker';
 import { LearningSettingsPanel } from './LearningSettings';
 import { UsageSection } from './UsageSection';
 import { relativeShort } from '../../lib/time';
-import { useConfigUI, type AppSection, type Theme } from '../../configStore';
+import { useConfigUI, useVersion, type AppSection, type Theme } from '../../configStore';
 import { useStore } from '../../store';
 import { computerStatusText } from '../DetailsPanel';
 import { ToolkitLogo } from '../ToolkitLogo';
@@ -20,31 +20,39 @@ import { OpenRouterSettings } from './OpenRouterSettings';
 import { PrivateKeysSettings } from './PrivateKeysSettings';
 import { AppleSignIn } from '../AppleSignIn';
 import { AuthLink } from '../AuthButton';
-import { api } from '../../lib/api';
+import { api, needsReauth } from '../../lib/api';
+import { verifyAccessAccount } from '../../lib/accessApi';
+import { ConnectAppsCatalog } from '../modals/ConnectAppsModal';
 import { useCompactLayout } from '../../lib/useCompactLayout';
 import { isNativeApp } from '../../lib/native';
 import { DeviceAccessSection } from './DeviceAccessSection';
+import { AccountSessions } from './AccountSessions';
+import { ReauthPrompt } from './ReauthPrompt';
+import { useAccessReauth } from './useAccessReauth';
+import { useAccessPanel } from './useAccessPanel';
+import { SwarmMark } from '../SwarmMark';
 import '../../styles/settings.css';
+import '../../styles/access-settings.css';
 
 // Swarms settings design for desktop, phone, Mac, and iPhone.
-type NavItem = { id: AppSection; label: string; icon: LucideIcon; keywords: string };
+type NavItem = { id: AppSection; label: string; keywords: string };
 const NAV: { group: string; items: NavItem[] }[] = [
   { group: 'Personal', items: [
-    { id: 'general', label: 'General', icon: SettingsIcon, keywords: 'theme dark light appearance layout sidebar details panel keyboard shortcuts' },
-    { id: 'account', label: 'Account', icon: CircleUserRound, keywords: 'profile name email sign out log out apple delete' },
-    { id: 'messaging', label: 'Messaging', icon: MessageCircle, keywords: 'imessage sms text phone number whatsapp voice replies invite friends contact' },
-    { id: 'usage', label: 'Usage', icon: Gauge, keywords: 'cost spend money dollars tokens requests billing limits' },
+    { id: 'general', label: 'General', keywords: 'theme dark light appearance layout sidebar details panel keyboard shortcuts' },
+    { id: 'account', label: 'Account', keywords: 'profile name email sign out log out apple delete sessions sign in' },
+    { id: 'messaging', label: 'Messaging', keywords: 'imessage sms text phone number whatsapp voice replies invite friends contact' },
+    { id: 'usage', label: 'Usage', keywords: 'cost spend money dollars tokens requests billing limits' },
   ] },
   { group: 'Bots', items: [
-    { id: 'learning', label: 'Learning', icon: Blocks, keywords: 'hermes memory skills review approval refine history maintenance' },
-    { id: 'computer', label: 'Computer', icon: Monitor, keywords: 'vm cloud browser screen desktop pc companion sleep wake reset device access accessibility recording files automation' },
-    { id: 'permissions', label: 'Permissions', icon: ShieldCheck, keywords: 'approvals always allow ask again tools device access accessibility recording files automation' },
+    { id: 'learning', label: 'Learning', keywords: 'hermes memory skills review approval refine history maintenance' },
+    { id: 'computer', label: 'Computer', keywords: 'vm cloud browser screen desktop pc companion sleep wake reset device access accessibility recording files automation' },
+    { id: 'permissions', label: 'Permissions', keywords: 'approvals always allow ask again tools' },
   ] },
   { group: 'Integrations', items: [
-    { id: 'apps', label: 'Connected apps', icon: Blocks, keywords: 'composio gmail google calendar slack notion integrations connect' },
-    { id: 'mcp', label: 'MCP servers', icon: Server, keywords: 'mcp custom tools server url command stdio headers token' },
-    { id: 'subscriptions', label: 'Subscriptions', icon: Terminal, keywords: 'chatgpt codex claude code cli bridge connect subscription plan login auth api' },
-    { id: 'keys', label: 'API keys', icon: KeyRound, keywords: 'openrouter model provider key composio default model platform voice xai admin' },
+    { id: 'apps', label: 'Connected apps', keywords: 'composio gmail google calendar slack notion integrations connect' },
+    { id: 'mcp', label: 'MCP servers', keywords: 'mcp custom tools server url command stdio headers token' },
+    { id: 'subscriptions', label: 'Models & access', keywords: 'chatgpt codex claude code cli bridge connect subscription plan login auth api' },
+    { id: 'keys', label: 'API keys', keywords: 'openrouter model provider key composio default model platform voice xai admin' },
   ] },
 ];
 const matches = (it: NavItem, q: string) => {
@@ -54,18 +62,41 @@ const matches = (it: NavItem, q: string) => {
 const THEME_LABEL: Record<Theme, string> = { system: 'System', light: 'Light', dark: 'Dark' };
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
+let settingsCaller: HTMLElement | null = null;
+const unsubscribeFocus = useConfigUI.subscribe((next, previous) => {
+  if (next.appSettings && !previous.appSettings) {
+    settingsCaller = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  }
+});
+import.meta.hot?.dispose(unsubscribeFocus);
+
+function restoreSettingsFocus(caller: HTMLElement | null) {
+  if (useConfigUI.getState().appSettings || (document.activeElement && document.activeElement !== document.body)) return;
+  const account = document.querySelector<HTMLElement>('.account__btn');
+  const pane = document.querySelector<HTMLElement>('.main-pane');
+  for (const target of [caller, account, pane]) {
+    if (!target?.isConnected || !target.getClientRects().length || target.closest('[hidden], [inert]')) continue;
+    if (target === pane && !target.hasAttribute('tabindex')) target.tabIndex = -1;
+    target.focus({ preventScroll: true });
+    if (document.activeElement === target) return;
+  }
+}
+
 /** Full-window settings, opened from the account menu or ⌘,. Phones get a section list that drills into each page. */
 export function AppSettings() {
   const section = useConfigUI((s) => s.appSettings);
   const home = useConfigUI((s) => s.appSettingsHome);
   const close = useConfigUI((s) => s.closeAppSettings);
   const open = useConfigUI((s) => s.openAppSettings);
-  const theme = useConfigUI((s) => s.theme);
-  const computer = useStore((s) => s.computer);
+  const collapsed = useStore((s) => s.sidebarCollapsed);
+  const view = useConfigUI(s => s.view);
   const compact = useCompactLayout();
   const [listView, setListView] = useState(home);
   const [query, setQuery] = useState('');
   const main = useRef<HTMLDivElement>(null);
+  const heading = useRef<HTMLElement>(null);
+  const desktopSlot = compact ? null : document.getElementById('app-settings-sidebar-slot');
+  const appRoot = desktopSlot?.closest('.app');
   const state = useRef({ query, compact, listView });
   state.current = { query, compact, listView };
 
@@ -81,13 +112,21 @@ export function AppSettings() {
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
   }, [close]);
+  useEffect(() => { setListView(home); setQuery(''); }, [home, section]);
   useEffect(() => { main.current?.scrollTo({ top: 0 }); }, [section, listView]);
+  useLayoutEffect(() => { heading.current?.focus({ preventScroll: true }); }, [appRoot, compact, listView, section]);
+  useLayoutEffect(() => {
+    const caller = settingsCaller;
+    return () => {
+      if (!useConfigUI.getState().appSettings) requestAnimationFrame(() => restoreSettingsFocus(caller));
+    };
+  }, []);
 
   if (!section) return null;
   const pick = (id: AppSection) => { open(id); setListView(false); setQuery(''); };
   const q = query.trim();
   const groups = q ? NAV.map((g) => ({ ...g, items: g.items.filter((it) => matches(it, q)) })).filter((g) => g.items.length) : NAV;
-  const valueFor = (id: AppSection) => (id === 'general' ? THEME_LABEL[theme] : id === 'computer' && computer ? computerStatusText(computer) : null);
+  const sectionLabel = section === 'mcp' ? 'Custom MCP' : NAV.flatMap(group => group.items).find(item => item.id === section)?.label;
   // Up/Down move between sections, like a native sidebar.
   const arrows = (e: ReactKeyboardEvent) => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
@@ -98,53 +137,49 @@ export function AppSettings() {
     items[at < 0 ? 0 : (at + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus();
   };
 
-  const nav = (
-    <nav className="settings-nav" aria-label="Settings sections" onKeyDown={arrows}>
-      <button type="button" className="settings-nav__back" onClick={close} aria-label="Back to Bots">
-        {compact ? <ChevronLeft size={24} strokeWidth={2} aria-hidden /> : <ArrowLeft size={16} strokeWidth={1.75} aria-hidden />}
-        <span>{compact ? 'Bots' : 'Back to Bots'}</span>
-      </button>
-      <h2 className="settings-nav__title">Settings</h2>
+  const nav = collapsed && desktopSlot ? <nav className="access-nav access-nav--collapsed" aria-label="Settings sections">
+    <button type="button" className="access-nav__expand" aria-label="Expand sidebar to browse settings" title="Expand sidebar to browse settings" onClick={() => useStore.getState().set({ sidebarCollapsed: false })}><PanelLeftOpen size={20} aria-hidden /></button>
+  </nav> : (
+    <nav className={`settings-nav access-nav${compact ? ' access-nav--phone' : ''}`} aria-label="Settings sections" onKeyDown={arrows}>
+      {compact ? <PageHead title={q ? 'Search settings' : 'Settings'} sub="Manage your Swarm workspace." /> : <h2 className="settings-nav__title">Settings</h2>}
+      {compact && <label className="access-nav__search-label" htmlFor="app-settings-search">Search settings</label>}
       <label className="settings-search">
-        <Search size={compact ? 18 : 16} strokeWidth={1.75} aria-hidden />
         <input
-          type="search" value={query} placeholder="Search settings" aria-label="Search settings" autoComplete="off" spellCheck={false} enterKeyHint="go"
+          id="app-settings-search" type="search" value={query} placeholder={compact ? undefined : 'Search settings'} aria-label="Search settings" autoComplete="off" spellCheck={false} enterKeyHint="go"
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && groups[0]) { e.preventDefault(); pick(groups[0].items[0].id); } }}
         />
       </label>
+      {compact && <p className="access-nav__search-hint">Search sections and related terms</p>}
       {groups.map((g) => (
         <div key={g.group} className="settings-nav__group" role="group" aria-label={g.group}>
-          <div className="settings-nav__label" aria-hidden>{g.group}</div>
+          <h3 className="settings-nav__label">{g.group}</h3>
+          {compact && g.group === 'Bots' && g.items.some(item => item.id === 'learning') && <div className="cfg-row access-nav__learning"><div className="cfg-row__text"><div className="cfg-row__title">Learning</div><p className="cfg-row__sub">Review how Bots improve skills and memories.</p></div><button type="button" className="cfg-btn cfg-btn--secondary settings-nav__item" onClick={() => pick('learning')}>Learning</button></div>}
           <div className="settings-nav__items">
-            {g.items.map((it) => {
-              const active = !compact && section === it.id;
-              const value = compact ? valueFor(it.id) : null;
-              return (
-                <button key={it.id} type="button" className={`cfg-nav__item settings-nav__item${active ? ' is-active' : ''}`} onClick={() => pick(it.id)} aria-current={active ? 'page' : undefined}>
-                  <it.icon className="settings-nav__icon" size={compact ? 20 : 18} strokeWidth={1.75} aria-hidden />
-                  <span className="settings-nav__text">{it.label}</span>
-                  {value && <span className="settings-nav__value">{value}</span>}
-                  {compact && <ChevronRight className="settings-nav__chev" size={16} strokeWidth={2} aria-hidden />}
-                </button>
-              );
-            })}
+            {g.items.filter(it => !compact || it.id !== 'learning').map(it => <button key={it.id} type="button" className={`cfg-nav__item settings-nav__item${section === it.id ? ' is-active' : ''}`} onClick={() => pick(it.id)} aria-current={section === it.id ? 'page' : undefined}>{it.label}</button>)}
           </div>
         </div>
       ))}
       {!groups.length && <div className="settings-nav__empty" role="status">No settings match “{q}”.</div>}
+      {compact && <button className="cfg-btn cfg-btn--primary access-nav__return" type="button" onClick={close}>Back to Bots</button>}
     </nav>
   );
 
   const showList = compact && listView;
-  return createPortal(
-    <div className={`app-settings${showList ? ' is-list' : ''}`} role="dialog" aria-modal="true" aria-label="Settings">
-      {!compact && <aside className="app-settings__nav">{nav}</aside>}
+  const backTitle = `Back to ${view === 'chat' ? 'chat' : view === 'bots' ? 'bots' : 'tasks'}`;
+  return <>
+    {desktopSlot && createPortal(nav, desktopSlot)}
+    {createPortal(<div className={`app-settings access-settings${appRoot ? ' access-settings--in-shell' : ''}${showList ? ' is-list' : ''}`} role={appRoot ? 'region' : 'dialog'} aria-modal={appRoot ? undefined : true} aria-label="Settings">
+      {!compact && !desktopSlot && <aside className="app-settings__nav">{nav}</aside>}
       <div className="app-settings__main" ref={main}>
+        <header className="access-settings__bar" tabIndex={-1} ref={heading}>
+          <button type="button" className="access-settings__back" onClick={compact && !showList ? () => setListView(true) : close} aria-label={compact ? (showList ? 'Back to Bots' : 'Back to Settings') : backTitle}>
+            <ChevronLeft size={18} strokeWidth={1.75} aria-hidden />{!compact && <span>{backTitle}</span>}
+          </button>
+          <span className="access-settings__bar-title">{compact && <SwarmMark size={24} />}{showList ? 'Settings' : sectionLabel}</span>
+          {compact && <button type="button" className="access-settings__back access-settings__dismiss" onClick={close} aria-label="Close settings"><X size={18} strokeWidth={1.75} aria-hidden /></button>}
+        </header>
         {showList ? nav : <>
-          {compact
-            ? <button type="button" className="settings-page-back" onClick={() => setListView(true)}><ChevronLeft size={24} strokeWidth={2} aria-hidden /><span>Settings</span></button>
-            : <button type="button" className="app-settings__close icon-btn" onClick={close} aria-label="Close settings" title="Close (Esc)"><X size={18} strokeWidth={1.75} aria-hidden /></button>}
           <div className="app-settings__page" key={section}>
             {section === 'general' && <GeneralSection />}
             {section === 'keys' && <KeysSection />}
@@ -160,9 +195,8 @@ export function AppSettings() {
           </div>
         </>}
       </div>
-    </div>,
-    document.body,
-  );
+    </div>, appRoot ?? document.body)}
+  </>;
 }
 
 function PageHead({ title, sub }: { title: string; sub?: string }) {
@@ -211,20 +245,15 @@ function GeneralSection() {
   ];
   return (
     <>
-      <PageHead title="General" />
-      <section className="cfg-section">
+      <PageHead title="General" sub="Appearance, layout, and keyboard shortcuts" />
+      <section className="cfg-section settings-appearance">
         <h2 className="cfg-section__label">Appearance</h2>
-        <div className="cfg-card">
-          <SettingRow title="Theme" sub="Match your device, or always use light or dark." wrap>
-            <Segmented label="Theme" value={theme} onChange={setTheme} options={(['system', 'light', 'dark'] as const).map((t) => ({ value: t, label: THEME_LABEL[t] }))} />
-          </SettingRow>
-        </div>
+        <Segmented label="Theme" value={theme} onChange={setTheme} options={(['system', 'light', 'dark'] as const).map((t) => ({ value: t, label: THEME_LABEL[t] }))} />
       </section>
       {!compact && (
         <section className="cfg-section">
-          <h2 className="cfg-section__label">Layout</h2>
-          <div className="cfg-card">
-            <SettingRow title="Bot details panel" sub="Show a Bot’s tasks, files and settings next to the chat.">
+          <div className="cfg-card" aria-label="Layout">
+            <SettingRow title="Bot details panel" sub="Show activity, tasks, files, and setup beside the chat.">
               <Switch label="Bot details panel" on={detailsOpen} onChange={(v) => useStore.getState().set({ detailsOpen: v })} />
             </SettingRow>
             <SettingRow title="Compact sidebar" sub="Show only Bot avatars in the sidebar to give chats more room.">
@@ -236,10 +265,10 @@ function GeneralSection() {
       {!compact && (
         <section className="cfg-section">
           <h2 className="cfg-section__label">Keyboard shortcuts</h2>
+          {IS_MAC && !isNativeApp && <div className="cfg-field__hint">On Windows and Linux, use Ctrl instead of ⌘.</div>}
           <div className="cfg-card settings-shortcuts">
             {shortcuts.map(([label, keys]) => <SettingRow key={label} title={label}><Keys keys={keys} /></SettingRow>)}
           </div>
-          {IS_MAC && !isNativeApp && <div className="cfg-field__hint">On Windows and Linux, use Ctrl instead of ⌘.</div>}
         </section>
       )}
     </>
@@ -306,14 +335,26 @@ function KeyCard({ name, title, what, link, status, canEdit, required, onChange 
 }
 
 function KeysSection() {
+  const user = useStore(s => s.user);
+  return user ? <AccountKeysSection key={user.id} accountId={user.id} accountEmail={user.email} /> : null;
+}
+
+const credentialIntent = (value: unknown) => value === 'verify-credentials' ? value : null;
+
+function AccountKeysSection({ accountId, accountEmail }: { accountId: string; accountEmail: string }) {
+  const reauth = useAccessReauth('keys', accountId, credentialIntent);
+  const onReauth = (error: Error) => reauth.request('verify-credentials', error.message);
   return <>
-    <PageHead title="API keys" sub="Manage your model and voice connections." />
-    <OpenRouterSettings />
-    <ServerKeysSection />
+    {reauth.pending && <ReauthPrompt accountEmail={accountEmail} reason={reauth.pending.reason} resume={{ section: 'keys', accountId, action: 'login' }} retryLabel="the credential action" terminalActive={false} onCancel={reauth.cancel} />}
+    {reauth.checking && <p role="status">Verifying your sign-in…</p>}
+    {reauth.returned && <p role="status">You’re signed in again. Review your credentials and retry the change.</p>}
+    {reauth.error && <p className="cfg-error" role="alert">{reauth.error}</p>}
+    <OpenRouterSettings onReauth={onReauth} />
+    <ServerKeysSection accountId={accountId} onReauth={onReauth} />
   </>;
 }
 
-function ServerKeysSection() {
+function ServerKeysSection({ accountId, onReauth }: { accountId: string; onReauth: (error: Error) => void }) {
   const [keys, setKeys] = useState<KeysResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
@@ -329,7 +370,7 @@ function ServerKeysSection() {
 
   if (error) return <div className="cfg-error">Could not load server defaults: {error}</div>;
   if (!keys) return <div className="cfg-empty cfg-empty--flat">Loading server defaults…</div>;
-  if (keys.isolated) return <PrivateKeysSettings />;
+  if (keys.isolated) return <PrivateKeysSettings accountId={accountId} onReauth={onReauth} />;
   const running = keys.provider.value;
   const chosen = keys.provider.chosen ?? running;
   const keyFor = (p: 'direct' | 'openrouter') => (p === 'openrouter' ? keys.openrouter.set : keys.direct.set);
@@ -397,13 +438,22 @@ function ServerKeysSection() {
 const screenLabel = (id: string) => (id === 'default' ? 'Main screen' : `Screen ${Number(id.replace('screen-', '')) - 98 || id}`);
 
 function ComputerSection() {
+  const accountId = useStore(s => s.user?.id);
+  const version = useVersion('access-computer');
   const computer = useStore((s) => s.computer);
   const bots = useStore((s) => s.bots);
   const [details, setDetails] = useState<ComputerDetails | null>(null);
+  const [detailsError, setDetailsError] = useState('');
+  const detailsEpoch = useRef(0);
   const [busy, setBusy] = useState<'wake' | 'sleep' | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  const load = useCallback(() => { configApi.computerDetails().then(setDetails).catch(() => {}); }, []);
-  useEffect(() => { load(); }, [load, computer?.status, computer?.screens.length, computer?.provider, computer?.device?.name]);
+  const load = useCallback(() => {
+    const epoch = ++detailsEpoch.current;
+    const current = () => detailsEpoch.current === epoch && useStore.getState().user?.id === accountId;
+    setDetailsError('');
+    void configApi.computerDetails().then(result => { if (current()) setDetails(result); }).catch(err => { if (current()) setDetailsError(err.message); });
+  }, [accountId]);
+  useEffect(() => { load(); return () => { detailsEpoch.current++; }; }, [load, version, computer?.status, computer?.screens.length, computer?.provider, computer?.device?.name]);
 
   const status = computer?.status ?? details?.computer.status;
   const running = status === 'running';
@@ -416,11 +466,11 @@ function ComputerSection() {
   };
   const byId = new Map(bots.map((b) => [b.id, b]));
 
-  if ((computer ?? details?.computer)?.provider === 'local') return <LocalComputerSection details={details} reload={load} />;
+  if ((computer ?? details?.computer)?.provider === 'local') return <LocalComputerSection key={accountId} details={details} detailsError={detailsError} reload={load} />;
 
   return (
     <>
-      <PageHead title="Computer" sub="Choose where agents work and manage access to your device." />
+      <PageHead title="Computer" sub="Manage where Bots work and which device they can use." />
       <DeviceAccessSection />
       <section className="cfg-section">
         <h2 className="cfg-section__label">Status</h2>
@@ -447,7 +497,7 @@ function ComputerSection() {
       <section className="cfg-section">
         <h2 className="cfg-section__label">Screens in use</h2>
         <div className="cfg-card">
-          {!details ? <div className="cfg-empty cfg-empty--flat">Loading…</div> : details.screens.length === 0 ? (
+          {detailsError ? <div className="cfg-error" role="alert">{detailsError} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={load}>Try again</button></div> : !details ? <div className="cfg-empty cfg-empty--flat" role="status">Loading…</div> : details.screens.length === 0 ? (
             <div className="cfg-empty cfg-empty--flat">No Bot has used the computer yet.</div>
           ) : details.screens.map((s) => {
             const bot = byId.get(s.botId);
@@ -478,76 +528,116 @@ function ComputerSection() {
 }
 
 /** Local computers: Bots use a Chrome browser on the user's own PC through the companion program. */
-function LocalComputerSection({ details, reload }: { details: ComputerDetails | null; reload: () => void }) {
+let computerRefresh = 0;
+function LocalComputerSection({ details, detailsError, reload }: { details: ComputerDetails | null; detailsError: string; reload: () => void }) {
+  const accountId = useStore(s => s.user?.id);
+  const current = useAccessPanel(accountId);
   const computer = useStore((s) => s.computer) ?? details?.computer ?? null;
   const bots = useStore((s) => s.bots);
   const [pairing, setPairing] = useState<Pairing | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<'stop' | 'disconnect' | null>(null);
   const connected = computer?.status === 'running';
   const nativeMac = !!details?.localComputer?.enabled;
   const paired = !!details?.pairing?.paired;
   const here = details?.thisComputer;
+  const refresh = () => {
+    if (useStore.getState().user?.id !== accountId) return;
+    const request = ++computerRefresh;
+    useConfigUI.getState().bump('access-computer');
+    void api.computer().then(({ computer: updated }) => {
+      if (request === computerRefresh && useStore.getState().user?.id === accountId) useStore.getState().set({ computer: updated });
+    }).catch(() => {});
+  };
   const useHere = async () => {
+    if (!accountId || !current()) return;
     setBusy(true); setNote(null);
-    try { await configApi.useThisComputer(); setPairing(null); reload(); }
-    catch (e) { setNote((e as Error).message); }
-    finally { setBusy(false); }
+    try {
+      await verifyAccessAccount(accountId);
+      if (!current()) return;
+      try { await configApi.useThisComputer(); } finally { refresh(); }
+      if (current()) setPairing(null);
+    } catch (e) { if (current()) setNote((e as Error).message); }
+    finally { if (current()) setBusy(false); }
   };
   const byId = new Map(bots.map((b) => [b.id, b]));
   const desktop = !!computer?.desktop;
+  const connectOnly = !!details && !connected && !nativeMac && !paired && !here?.available;
 
   // Once the PC connects, the one-time command has done its job.
   useEffect(() => { if (connected) setPairing(null); }, [connected]);
 
   const pair = async () => {
+    if (!accountId || !current()) return;
     setBusy(true); setNote(null); setCopied(false);
-    try { setPairing(await configApi.pairPc()); reload(); }
-    catch (e) { setNote((e as Error).message); }
-    finally { setBusy(false); }
+    try {
+      await verifyAccessAccount(accountId);
+      if (!current()) return;
+      try {
+        const result = await configApi.pairPc();
+        if (current()) setPairing(result);
+      } finally { refresh(); }
+    } catch (e) { if (current()) setNote((e as Error).message); }
+    finally { if (current()) setBusy(false); }
   };
   const copy = async () => {
     if (!pairing) return;
     try { await navigator.clipboard.writeText(pairing.command); setCopied(true); } catch { setNote('Couldn’t copy. Select the command and copy it yourself.'); }
   };
+  const changeConnection = async () => {
+    if (!confirm || busy || nativeMac || !accountId || !current()) return;
+    setBusy(true); setNote(null);
+    try {
+      await verifyAccessAccount(accountId);
+      if (!current()) return;
+      try {
+        if (confirm === 'stop') await configApi.stopThisComputer();
+        else await configApi.unpairPc();
+      } finally { refresh(); }
+      if (!current()) return;
+      if (confirm === 'disconnect') setPairing(null);
+      setConfirm(null);
+    } catch (err) { if (current()) setNote(err instanceof Error ? err.message : 'Couldn’t change the computer connection.'); }
+    finally { if (current()) setBusy(false); }
+  };
 
   return (
     <>
-      <PageHead title="Computer" sub={nativeMac ? 'Manage this Mac’s device access and connection for your account.' : desktop
+      <PageHead title={connectOnly ? 'Connect your PC' : 'Computer'} sub={connectOnly ? 'Pair a computer to give your Bots access.' : nativeMac ? 'Manage this Mac’s device access and connection for your account.' : desktop
         ? 'Your Bots use your own computer: its full desktop and apps, your default browser, and a shell. They take turns, one Bot at a time.'
         : 'Your Bots use a Chrome browser on your own PC. Each Bot gets its own browser profile there, separate from yours.'} />
-      <DeviceAccessSection />
+      {!connectOnly && <DeviceAccessSection />}
+      {detailsError && <div className="cfg-error" role="alert">{detailsError} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={reload}>Try again</button></div>}
       <section className="cfg-section">
-        <h2 className="cfg-section__label">Status</h2>
+        {!connectOnly && <h2 className="cfg-section__label">Status</h2>}
         <div className="cfg-card">
           <div className="cfg-row">
             <span className={`computer-status-dot is-${connected ? 'on' : 'off'}`} aria-hidden />
             <div className="cfg-row__text">
-              <div className="cfg-row__title">{nativeMac ? 'Your Mac' : 'Your PC'} · {computerStatusText(computer)}</div>
+              <div className="cfg-row__title">{nativeMac ? 'Your Mac' : 'Your PC'}</div>
               <div className="cfg-row__sub">
                 {connected
                   ? `${computer?.device?.name ?? 'PC'}${computer?.device?.platform ? ` · ${computer.device.platform}` : ''} · ${desktop ? 'Your Bots can use this desktop now.' : 'Your Bots can browse now.'}`
-                  : nativeMac ? 'Use the device access controls above in the Swarm Mac app to connect. Tasks stay on this Mac while it is offline.' : paired ? 'Paired, but the companion isn’t running. Start it again on your PC, or connect a new one.' : desktop ? 'Connect a PC so your Bots can use its desktop.' : 'Connect a PC so your Bots can use a browser.'}
+                  : nativeMac ? 'Use the Swarm Mac app to connect. Tasks wait while this Mac is offline.' : paired ? 'Paired, but the companion isn’t running. Start it again on your PC, or connect a new one.' : 'No companion PC is connected.'}
               </div>
+              <div className="cfg-row__sub">{connectOnly ? 'Not connected' : computerStatusText(computer)}</div>
             </div>
-            {!nativeMac && <div className="settings-row__actions">
+            {!nativeMac && details && !connectOnly && <div className="settings-row__actions">
               {!connected && here?.available && !here.active && <button type="button" className="cfg-btn cfg-btn--primary" disabled={busy} onClick={useHere}>{busy ? 'Starting…' : 'Use this computer'}</button>}
               {!connected && here?.active && <span className="cfg-row__sub">Starting…</span>}
               {!connected && !here?.active && <button type="button" className={`cfg-btn ${here?.available ? 'cfg-btn--secondary' : 'cfg-btn--primary'}`} disabled={busy} onClick={pair}>{busy ? 'Preparing…' : here?.available ? 'Connect another PC' : paired ? 'New connect command' : 'Connect your PC'}</button>}
-              {connected && here?.active && (
-                <ConfirmButton className="cfg-btn cfg-btn--secondary" confirmLabel="Stop using it" onConfirm={async () => { try { await configApi.stopThisComputer(); reload(); } catch (e) { setNote((e as Error).message); } }}>
-                  Stop
-                </ConfirmButton>
-              )}
-              {paired && (
-                <ConfirmButton className="cfg-btn cfg-btn--secondary" confirmLabel="Disconnect PC" onConfirm={async () => { try { await configApi.unpairPc(); setPairing(null); reload(); } catch (e) { setNote((e as Error).message); } }}>
-                  Disconnect
-                </ConfirmButton>
-              )}
+              {here?.active && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => setConfirm('stop')}>Stop</button>}
+              {paired && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => setConfirm('disconnect')}>Disconnect</button>}
             </div>}
           </div>
-          {nativeMac && <div className="cfg-field__hint">Manage access, Stop, or Disconnect above in the Swarm Mac app. Terminal commands run as your Mac user. Playwright uses managed Chrome; desktop controls can use your existing browser windows.</div>}
+          {nativeMac && <div className="access-callout">Manage approvals in the Swarm Mac app. Stop keeps this Mac selected but offline. Disconnect revokes device access and returns Bots to the server’s default computer.</div>}
+          {confirm && <div className="access-callout" role="group" aria-label={confirm === 'stop' ? 'Stop this computer?' : 'Disconnect this PC?'}>
+            <strong>{confirm === 'stop' ? 'Stop this computer?' : 'Disconnect this PC?'}</strong>
+            <p>{confirm === 'stop' ? 'Stop the companion process on this computer. Its pairing is kept.' : 'Revoke this account’s PC pairing. To use the computer again, start a new pairing.'}</p>
+            <div className="access-row-actions"><button type="button" className="cfg-btn cfg-btn--danger" disabled={busy} onClick={() => void changeConnection()}>{busy ? 'Working…' : confirm === 'stop' ? 'Stop this computer' : 'Disconnect PC'}</button><button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => setConfirm(null)}>Cancel</button></div>
+          </div>}
           {pairing && !connected && (
             <div className="cfg-pair">
               <div className="cfg-pair__step">On your PC (needs <b>Node.js 22+</b>{desktop ? <> on macOS or Linux</> : <> and <b>Google Chrome</b></>}), run this in a terminal and keep it running:</div>
@@ -560,11 +650,12 @@ function LocalComputerSection({ details, reload }: { details: ComputerDetails | 
                 : <div className="cfg-field__hint">It contains a private token: anyone who has it can connect their PC as your Bots’ browser. Add <code className="cfg-code">--headed</code> to see the browser windows on your PC. Waiting for your PC to connect…</div>}
             </div>
           )}
-          {note && <div className="cfg-error cfg-error--inset">{note}</div>}
+          {note && <div className="cfg-error cfg-error--inset" role="alert">{note}</div>}
         </div>
+        {connectOnly && !pairing && <button type="button" className="cfg-btn cfg-btn--primary access-device-pair" disabled={busy} onClick={pair}>{busy ? 'Preparing…' : 'Connect your PC'}</button>}
       </section>
 
-      <section className="cfg-section">
+      {!connectOnly && <section className="cfg-section">
         <h2 className="cfg-section__label">{desktop ? 'Bots using the desktop' : 'Browsers in use'}</h2>
         <div className="cfg-card">
           {!details ? <div className="cfg-empty cfg-empty--flat">Loading…</div> : details.screens.length === 0 ? (
@@ -594,7 +685,7 @@ function LocalComputerSection({ details, reload }: { details: ComputerDetails | 
         {desktop
           ? <div className="cfg-field__hint">Bots act as you: they can open any app, read and change your files, and run shell commands. You can watch or take over any time from a Bot’s screen. Press <b>Stop</b> (or Ctrl+C in the companion) to cut them off.</div>
           : <div className="cfg-field__hint">Bots only get a browser on your PC: no files and no shell. Local-network addresses are blocked unless you start the companion with <code className="cfg-code">--allow-private-network</code>.</div>}
-      </section>
+      </section>}
     </>
   );
 }
@@ -657,6 +748,11 @@ type SettingsAppConnection = {
 };
 
 function AppsSection() {
+  const accountId = useStore(s => s.user?.id);
+  return accountId ? <AccountAppsSection key={accountId} accountId={accountId} /> : null;
+}
+
+function AccountAppsSection({ accountId }: { accountId: string }) {
   const version = useStore((s) => s.connectionsVersion);
   const [connections, setConnections] = useState<SettingsAppConnection[] | null>(null);
   const [apps, setApps] = useState<Toolkit[] | null>(null);
@@ -665,6 +761,7 @@ function AppsSection() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [catalog, setCatalog] = useState(false);
   const connectionsRequest = useRef(0);
   const appsRequest = useRef(0);
   const managing = useRef(false);
@@ -710,6 +807,7 @@ function AppsSection() {
     setBusy(true);
     setError('');
     try {
+      await verifyAccessAccount(accountId);
       const suffix = action === 'default' ? '/default' : action === 'remove-expired' ? '/expired' : '';
       const r = await fetch(`/api/apps/connections/${encodeURIComponent(id)}${suffix}`, {
         method: action === 'default' ? 'POST' : 'DELETE', credentials: 'include',
@@ -747,7 +845,8 @@ function AppsSection() {
       </div>
     </div>
   );
-  const openApps = () => { useConfigUI.getState().closeAppSettings(); useStore.getState().setModal('apps'); };
+  const openApps = () => setCatalog(true);
+  if (catalog) return <ConnectAppsCatalog inline onClose={() => setCatalog(false)} />;
   return (
     <>
       <PageHead title="Connected apps" sub="Apps your Bots can use for you, like email, calendar and docs." />
@@ -826,60 +925,90 @@ function AppsSection() {
 
 function AccountSection() {
   const user = useStore((s) => s.user);
+  return user && <AccountSettings key={user.id} user={user} />;
+}
+
+const deleteAccountIntent = (value: unknown) => value === 'delete-account' ? 'delete-account' : null;
+
+function AccountSettings({ user }: { user: User }) {
   const appleLogin = useStore((s) => s.appleLogin);
   const appleLinked = useStore((s) => s.appleLinked);
   const googleLogin = useStore((s) => s.googleLogin);
   const googleLinked = useStore((s) => s.googleLinked);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const initials = (user?.name ?? user?.email ?? '?').trim().split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
+  const [deleting, setDeleting] = useState(false);
+  const [busy, setBusy] = useState<'signout' | 'delete' | null>(null);
+  const action = useRef(false);
+  const mounted = useRef(false);
+  const deleteHeading = useRef<HTMLHeadingElement>(null);
+  const reauth = useAccessReauth('account', user.id, deleteAccountIntent);
+  const email = user.email.endsWith('@openrouter.invalid') ? 'OpenRouter account' : user.email;
+  const current = () => mounted.current && useStore.getState().user?.id === user.id;
+
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => { if (reauth.returned) setDeleting(true); }, [reauth.returned]);
+  useEffect(() => { if (deleting) deleteHeading.current?.focus(); }, [deleting, reauth.pending]);
+
+  async function act(kind: 'signout' | 'delete') {
+    if (action.current || !current() || reauth.pending || reauth.checking) return;
+    action.current = true; setBusy(kind); setError(null);
+    try {
+      await verifyAccessAccount(user.id);
+      if (!current()) return;
+      await (kind === 'delete' ? api.deleteAccount(user.id) : api.logout());
+      if (useStore.getState().user?.id === user.id) window.location.replace('/');
+    } catch (err) {
+      if (!current()) return;
+      if (kind === 'delete' && needsReauth(err)) reauth.request('delete-account', err.message);
+      else setError(err instanceof Error ? err.message : 'The account action failed.');
+    } finally {
+      action.current = false;
+      if (current()) setBusy(null);
+    }
+  }
+
+  if (reauth.checking) return <><PageHead title="Your account" /><p role="status">Verifying your sign-in…</p></>;
+  if (reauth.pending) return <>
+    <PageHead title="Delete your Swarm account?" />
+    <ReauthPrompt accountEmail={user.email} reason={reauth.pending.reason} resume={{ section: 'account', accountId: user.id, action: 'login' }} retryLabel="Delete my account" terminalActive={false} onCancel={() => { reauth.cancel(); setDeleting(false); }} />
+  </>;
+  if (deleting) return <div className="account-delete">
+    <div className="app-settings__head"><h1 ref={deleteHeading} tabIndex={-1}>Delete your Swarm account?</h1><p>This permanently removes your account, Bots and conversations. Apple access is revoked if linked.</p></div>
+    {reauth.returned && <p role="status" className="access-section-note">You’re signed in again. Nothing has been deleted.</p>}
+    <div className="account-delete__warning"><strong>This can’t be undone</strong><p>Deleting your account is different from signing out or clearing local data.</p></div>
+    <SettingRow title="Account to delete" sub={email} />
+    <section className="cfg-section">
+      <h2 className="cfg-section__label">Before you continue</h2>
+      <p>Cancel to keep your account and return to Account settings.</p>
+      {error && <div className="cfg-error" role="alert">{error}</div>}
+      <div className="access-row-actions">
+        <button type="button" className="cfg-btn cfg-btn--danger" disabled={!!busy} onClick={() => void act('delete')}>{busy ? 'Deleting…' : 'Delete my account'}</button>
+        <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => { setDeleting(false); setError(null); }}>Cancel</button>
+      </div>
+    </section>
+  </div>;
+
   return (
     <>
-      <PageHead title="Account" />
-      <section className="cfg-section">
-        <h2 className="cfg-section__label">Profile</h2>
+      <PageHead title="Your account" sub="Review the identity and sign-in methods for this Swarm account." />
+      <section className="cfg-section access-account" aria-label="Profile and sign-in methods">
+        {reauth.error && <div className="cfg-error" role="alert">{reauth.error}</div>}
         <div className="cfg-card">
-          <div className="cfg-row">
-            <span className="account__initials">{initials}</span>
-            <div className="cfg-row__text">
-              <div className="cfg-row__title">{user?.name}</div>
-              <div className="cfg-row__sub">{user?.email.endsWith('@openrouter.invalid') ? 'Signed up with OpenRouter' : user?.email}</div>
-            </div>
-            <button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={async () => { setBusy(true); await configApi.logout().catch(() => {}); location.reload(); }}>
-              {busy ? 'Signing out…' : 'Sign out'}
-            </button>
-          </div>
-        </div>
-      </section>
-      {(appleLogin || appleLinked || googleLogin || googleLinked) && (
-        <section className="cfg-section">
-          <h2 className="cfg-section__label">Sign-in methods</h2>
-          <div className="cfg-card">
-            {(googleLogin || googleLinked) && (
-              <SettingRow title="Sign in with Google" sub={googleLinked ? 'Connected. Use it to sign in to this account on the web or the apps.' : 'Connect Google to sign in to this same account. Google sign-in uses Composio and requests Gmail access to verify your address.'} wrap={!googleLinked}>
-                {googleLinked ? <span className="cfg-chip">Connected</span> : <AuthLink className="signin__google" href="/api/auth/google/start?intent=link">Connect Google</AuthLink>}
-              </SettingRow>
-            )}
-            {(appleLogin || appleLinked) && (
-              <SettingRow title="Sign in with Apple" sub={appleLinked ? 'Connected. Use it to sign in to this account on your iPhone, iPad, Mac or the web.' : 'Connect Apple to sign in to this same account on your iPhone, iPad, Mac or the web.'} wrap={!appleLinked}>
-                {appleLinked ? <span className="cfg-chip">Connected</span> : <AppleSignIn link />}
-              </SettingRow>
-            )}
-          </div>
-        </section>
-      )}
-      <section className="cfg-section">
-        <h2 className="cfg-section__label">Delete account</h2>
-        <div className="cfg-card">
-          <SettingRow title="Delete your account" sub="Permanently deletes your account, Bots and conversations. Apple sign-in access is revoked too.">
-            <ConfirmButton confirmLabel="Permanently delete my account" onConfirm={async () => {
-              setError(null);
-              try { await api.deleteAccount(); location.href = '/'; } catch (err) { setError((err as Error).message); }
-            }}>Delete account…</ConfirmButton>
+          <div className="cfg-row"><div className="cfg-row__text"><div className="cfg-row__title">{user.name || 'Swarm member'}</div><div className="cfg-row__sub">{email}</div><div className="cfg-row__sub">Signed in</div></div></div>
+          {(appleLogin || appleLinked) && <SettingRow title="Sign in with Apple" sub={appleLinked ? 'Connected. Use it to sign in to this account on the web or in the Swarm app.' : 'Use your Apple account on the web or in the Swarm app.'}>
+            {appleLinked ? <span className="cfg-chip">Connected</span> : <AppleSignIn link />}
+          </SettingRow>}
+          {(googleLogin || googleLinked) && <SettingRow title="Sign in with Google" sub={googleLinked ? 'Connected. Use it to sign in to this account on the web or in the Swarm app.' : 'Google sign-in uses Composio and requests Gmail access to verify your email address.'}>
+            {googleLinked ? <span className="cfg-chip">Connected</span> : <AuthLink className="signin__google" href="/api/auth/google/start?intent=link">Connect Google</AuthLink>}
+          </SettingRow>}
+          <SettingRow title="Delete your account" sub="Permanently removes your account, Bots and conversations.">
+            <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => { setError(null); setDeleting(true); }}>Delete account…</button>
           </SettingRow>
-          {error && <div className="cfg-error cfg-error--inset" role="alert">{error}</div>}
         </div>
+        <button type="button" className="cfg-btn cfg-btn--primary" disabled={!!busy} onClick={() => void act('signout')}>{busy ? 'Signing out…' : 'Sign out'}</button>
+        {error && <div className="cfg-error" role="alert">{error}</div>}
       </section>
+      <AccountSessions accountId={user.id} />
     </>
   );
 }

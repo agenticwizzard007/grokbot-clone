@@ -163,6 +163,48 @@ test('replication/import reproduce the brief and settings with a distinct identi
   await assert.rejects(replicateTeammate({ bot_name: 'Foreign', new_name: 'Leak' }, ctx), /No saved setup/);
 });
 
+test('saved-manifest import rejects a switched cookie before persisting or provisioning', async () => {
+  const changedCookie = 'changed-import-session';
+  const time = Date.now();
+  db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at,authenticated_at,last_seen_at) VALUES (session_hash(?),?,?,?,?,?)')
+    .run(changedCookie, 'other', time, time + 60_000, time, time);
+  const manifest = JSON.parse(setupFiles(teammate.id)['bot-setup.json']);
+  const request = (session: string, body: unknown, origin?: string) => app.request('/api/bots/import', {
+    method: 'POST', headers: { cookie: `swarm_session=${session}`, 'content-type': 'application/json', ...(origin && { origin }) }, body: JSON.stringify(body),
+  });
+  const confirmed = { manifest, name: 'Bound import', expectedUserId: 'owner' };
+  const snapshot = () => ({
+    bots: db.prepare('SELECT id,user_id FROM bots ORDER BY id').all(),
+    setups: db.prepare('SELECT bot_id FROM bot_setups ORDER BY bot_id').all(),
+    setupDirectories: fs.readdirSync(path.dirname(setupDirectory(teammate.id))).sort(),
+    provisions: [...calls],
+  });
+  const before = snapshot();
+  const mismatch = await request(changedCookie, confirmed);
+  assert.equal(mismatch.status, 409);
+  assert.equal((await mismatch.json()).code, 'account_changed');
+  assert.equal((await request(cookie, { ...confirmed, expectedUserId: null })).status, 400);
+  assert.equal((await request('not-signed-in', confirmed)).status, 401);
+  assert.equal((await request(cookie, confirmed, 'https://other-origin.example')).status, 403);
+  assert.deepEqual(snapshot(), before);
+
+  const result = await request(cookie, confirmed);
+  assert.equal(result.status, 200);
+  const { bot, computer } = await result.json();
+  assert.equal(getBotRow(bot.id).user_id, 'owner');
+  assert.deepEqual(setupManifest(bot.id)?.brief, manifest.brief);
+  assert.deepEqual(setupManifest(bot.id)?.source.sourceRefs ?? [], []);
+  assert.equal(getSetup(bot.id)?.onboarding.status, 'interviewing');
+  assert.equal(computer.status, 'ready');
+  assert.deepEqual(calls.slice(before.provisions.length), [`owner:${bot.id}`]);
+
+  const legacy = await request(changedCookie, { manifest, name: 'Legacy import' });
+  assert.equal(legacy.status, 200);
+  const { bot: legacyBot } = await legacy.json();
+  assert.equal(getBotRow(legacyBot.id).user_id, 'other');
+  assert.equal(calls.at(-1), `other:${legacyBot.id}`);
+});
+
 test('authenticated Library/API serve setup while offline and reject another owner', async () => {
   const request = (url: string, init: any = {}) => app.request(url, { ...init, headers: { cookie: `swarm_session=${cookie}`, 'content-type': 'application/json', ...init.headers } });
   const listing = await request(`/api/bots/${teammate.id}/files?path=Setup`);

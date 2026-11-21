@@ -1,14 +1,44 @@
 /* Paper: Sign in · Web & Mobile. Keep provider buttons on shared auth.css. */
-.signin {
-  font-family: 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack);
-  font-weight: 550;
-}
 .signin__brand { display: flex; width: 200px; height: 32.62px; flex-shrink: 0; }
 .signin__brand img { display: block; width: 100%; height: 100%; }
 .signin__brand .signin__brand-dark { display: none; }
 :root[data-theme='dark'] .signin__brand-light { display: none; }
 :root[data-theme='dark'] .signin__brand .signin__brand-dark { display: block; }
-/* Keep the provider name on one line on small phones; retain the full accessible name. */
-@media (max-width: 360px) {
-  .signin .openrouter-signin__prefix { display: none; }
+.access-signin.signin { display: block; height: 100%; padding: 68px 16px 64px; background: var(--color-bg-pane); font-family: var(--font-stack); }
+.access-signin .signin__card { display: flex; flex-direction: column; align-items: stretch; gap: 28px; width: min(100%, 480px); max-width: none; margin: 0 auto; padding: 0; text-align: left; background: transparent; border: 0; box-shadow: none; }
+.access-signin .signin__header { align-items: stretch; gap: 50px; }
+.access-signin .signin__intro { margin: 0; text-align: left; }
+.access-signin .signin__brand { align-self: center; }
+.access-signin :is(h1, h2, .phone-auth__signup strong) { margin: 0; font-family: 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack); font-weight: 600; letter-spacing: -.025em; }
+.access-signin .signin__title { font-size: 32px; line-height: 1.2; }
+.access-signin .signin__sub { margin: 10px 0 0; font-size: 15px; line-height: 1.55; }
+.access-signin h2, .access-signin .phone-auth__signup strong { font-size: 21px; line-height: 1.3; color: var(--color-text-primary); }
+.access-signin .phone-auth { align-items: stretch; gap: 10px; }
+.access-signin .phone-auth__field { gap: 8px; }
+.access-signin .phone-auth__label { color: var(--color-text-primary); font-size: 14px; }
+.access-signin .phone-auth__input { height: 48px; border: 1px solid var(--color-border-secondary); border-radius: 12px; background: transparent; font-size: 16px; }
+.phone-auth__input-hint { color: var(--color-text-secondary); font-size: 13px; line-height: 1.5; }
+.access-signin .phone-auth__signup { margin: 22px 0 0; text-align: left; }
+.access-signin .phone-auth__signup p { margin: 8px 0 0; color: var(--color-text-secondary); font-size: 15px; line-height: 1.5; }
+.access-signin .signin__providers { margin: 10px 0 0; gap: 0; }
+.access-signin .access-signin__provider { display: flex; align-items: center; justify-content: space-between; gap: 20px; min-height: 114px; padding: 20px 0; border-bottom: 1px solid var(--color-border-secondary); }
+.access-signin .access-signin__provider strong { font-size: 15px; font-weight: 500; }
+.access-signin .access-signin__provider p { margin: 4px 0 0; font-size: 14px; line-height: 1.55; color: var(--color-text-secondary); }
+.access-signin .auth-button { justify-content: center; align-self: start; width: auto; min-height: 44px; height: auto; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.55; letter-spacing: 0; }
+.access-signin .auth-button__icon, .access-signin .auth-button::after { display: none; }
+.access-signin .phone-auth > .auth-button { margin-top: 16px; }
+.access-signin .access-signin__provider > .auth-button { align-self: center; flex: 0 0 176px; background: var(--color-bg-active); color: var(--color-text-primary); }
+.access-signin .access-signin__provider > .auth-button:hover { background: var(--color-bg-secondary-active); }
+.access-signin__phone-bar { display: none; }
+@media (max-width: 760px) {
+  .access-signin.signin { padding: 0 0 max(24px, env(safe-area-inset-bottom)); }
+  .access-signin .signin__card { width: min(100%, 480px); padding: 24px 16px 0; }
+  .access-signin .signin__brand { display: none; }
+  .access-signin .signin__title { font-size: 27px; }
+  .access-signin__phone-bar { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: max(0px, env(safe-area-inset-top)) 16px 0; border-bottom: 1px solid var(--color-border-secondary); font-size: 15px; }
+  .access-signin__phone-bar .swarm-mark { color: var(--color-primary); }
+  .access-signin .phone-auth > .auth-button { width: 100%; }
+  .access-signin .access-signin__provider > .auth-button { flex-basis: 116px; }
+  .access-signin .access-signin__provider--primary { display: grid; gap: 14px; }
+  .access-signin .access-signin__provider--primary > .auth-button { width: 100%; }
 }

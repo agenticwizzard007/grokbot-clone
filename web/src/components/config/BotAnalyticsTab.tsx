@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
-import { Info } from 'lucide-react';
 import type { Bot } from '@shared/types';
 import { configApi, type BotAnalytics } from '../../lib/configApi';
 import { niceTicks } from './UsageSection';
@@ -24,50 +23,46 @@ export function BotAnalyticsTab({ bot }: { bot: Bot }) {
   const [range, setRange] = useState<Range>('7d');
   const [data, setData] = useState<BotAnalytics | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showInfo, setShowInfo] = useState(false);
+  const [retry, setRetry] = useState(0);
+  const [inspectDay, setInspectDay] = useState('');
+  const changeRange = (next: Range) => { if (next !== range) { setData(null); setError(null); setInspectDay(''); setRange(next); } };
   useEffect(() => {
     let alive = true;
     configApi.botAnalytics(bot.id, range).then((d) => { if (alive) { setData(d); setError(null); } }).catch((e) => alive && setError((e as Error).message));
     return () => { alive = false; };
-  }, [bot.id, range]);
+  }, [bot.id, range, retry]);
 
-  if (error) return <div className="cfg-page"><div className="cfg-error">{error}</div></div>;
-  if (!data) return <div className="cfg-page"><div className="cfg-empty cfg-empty--flat">Loading…</div></div>;
+  const rangePicker = <Segmented label="Period" value={range} options={RANGES} onChange={changeRange} />;
+  if (error) return <div className="cfg-page an-page">{rangePicker}<p className="cfg-error" role="alert">{error}</p><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => { setError(null); setRetry(value => value + 1); }}>Retry analytics</button></div>;
+  if (!data || data.range !== range) return <div className="cfg-page an-page">{rangePicker}<p role="status">Loading analytics…</p></div>;
   const days = data.days;
+  if (!days.length) return <div className="cfg-page an-page">{rangePicker}<p>No analytics available for this period.</p></div>;
   const hoursTotal = data.totals.minutesSaved / 60;
   const r = data.rates;
   const method = `Estimated from what ${bot.name} did: about ${r.pageRead} minutes per page it read, ${r.webSearch} per web search or app action, ${r.command} per command, ${r.computerStep * 60} seconds per computer step, and writing at ${r.wordsPerMinute} words a minute.`;
   const maxBreak = Math.max(...data.breakdown.map((b) => b.minutes), 1);
+  const selectedDay = days.find(day => day.day === inspectDay) ?? days[days.length - 1];
 
   return (
     <div className="cfg-page an-page">
       <div className="an-range">
-        <span className="an-range__span">{span(days[0].day, days[days.length - 1].day)}</span>
-        <Segmented label="Period" value={range} options={RANGES} onChange={setRange} />
+        <span className="an-range__span">{span(days[0].day, days[days.length - 1].day)} · UTC</span>
+        {rangePicker}
       </div>
       <div className="an-cards">
         <section className="an-card" aria-label="Messages">
           <div className="an-card__label">Messages</div>
           <div className="an-card__value">{data.totals.messages.toLocaleString('en-US')}</div>
+          <div className="an-card__label">Messages per day</div>
           <BarChart days={days} />
         </section>
-        <section className="an-card is-saved" aria-label="Hours saved">
-          <div className="an-card__label">
-            Hours saved
-            <button type="button" className="an-info" aria-label="How hours saved is estimated" aria-expanded={showInfo} onClick={() => setShowInfo(!showInfo)}><Info size={14} strokeWidth={1.75} /></button>
-          </div>
-          {showInfo && <div className="an-info__pop" role="note">{method}</div>}
+        <section className="an-card is-saved" aria-label="Estimated time saved">
+          <div className="an-card__label">Estimated time saved</div>
           <div className="an-card__value">{hoursTotal < 1 ? Math.round(data.totals.minutesSaved) : Math.round(hoursTotal * 10) / 10}<span className="an-card__unit">{hoursTotal < 1 ? 'minutes' : 'hours'}</span></div>
+          <div className="an-card__label">Cumulative time saved</div>
           <CumulativeChart days={days} />
         </section>
       </div>
-      <details className="usage-table an-table">
-        <summary>Show as a table</summary>
-        <table>
-          <thead><tr><th>Day (UTC)</th><th>Messages</th><th>Time saved</th></tr></thead>
-          <tbody>{days.map((d) => <tr key={d.day}><td>{dayLabel(d.day)}</td><td>{d.messages}</td><td>{d.minutesSaved ? fmtHours(d.minutesSaved) : '—'}</td></tr>)}</tbody>
-        </table>
-      </details>
       {data.breakdown.length > 0 && (
         <section className="an-where" aria-label="Where the time went">
           <div className="an-where__head"><span>Where the time went</span><span className="an-where__note">Estimated</span></div>
@@ -82,7 +77,17 @@ export function BotAnalyticsTab({ bot }: { bot: Bot }) {
           </ul>
         </section>
       )}
-      <p className="an-method">{method}</p>
+      <div className="an-actions">
+        <details className="usage-table an-table">
+          <summary>Show as a table</summary>
+          <div className="an-table__scroll"><table>
+            <thead><tr><th>Day (UTC)</th><th>Messages</th><th>Time saved</th></tr></thead>
+            <tbody>{days.map(day => <tr key={day.day}><td>{dayLabel(day.day)}</td><td>{day.messages}</td><td>{day.minutesSaved ? fmtHours(day.minutesSaved) : '—'}</td></tr>)}</tbody>
+          </table></div>
+        </details>
+        <details><summary>Inspect a day</summary><label>Day (UTC) <select aria-label="Day (UTC)" value={selectedDay.day} onChange={event => setInspectDay(event.target.value)}>{days.map(day => <option key={day.day} value={day.day}>{dayLabel(day.day)}</option>)}</select></label><p>{selectedDay.messages} messages · {fmtHours(selectedDay.minutesSaved)} estimated time saved</p></details>
+        <details><summary>How time saved is estimated</summary><p className="an-method">{method}</p></details>
+      </div>
     </div>
   );
 }

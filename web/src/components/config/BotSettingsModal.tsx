@@ -1,8 +1,8 @@
 import { useModels, effortsFor, effectiveEffort, EFFORT_LABEL } from '../../lib/models';
 import { BotModelField } from './BotModelField';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AvatarColor, AvatarShape, Bot, Routine } from '@shared/types';
-import { BotAvatar, BotAvatarFor, PICKER_SHAPES } from '../../avatar/BotAvatar';
+import { BotAvatar, PICKER_SHAPES } from '../../avatar/BotAvatar';
 import { COLOR_ORDER, botVars, palette } from '../../lib/colors';
 import { KnowledgeScopeControl, PendingMemoryChanges, SkillPackageControls } from './KnowledgeManagement';
 import { learningApi } from '../../lib/learningApi';
@@ -13,10 +13,12 @@ import { RoutineHistory } from './RoutineHistory';
 import { useConfigUI, useVersion, type BotSettingsTab } from '../../configStore';
 import { useStore } from '../../store';
 import { Icon } from '../Icon';
+import { SetupPaperHeader } from '../SetupPaperHeader';
 import { Modal } from '../modals/Modal';
 import { BotAnalyticsTab } from './BotAnalyticsTab';
 import { Glyph } from './glyphs';
 import { ConfirmButton, Field, Segmented, Switch, nextRunLabel, shortDate } from './ui';
+import '../../styles/setup-paper.css';
 
 const EFFORT_HINT: Record<Bot['effort'], string> = {
   none: 'Answers straight away, without thinking first.',
@@ -29,68 +31,87 @@ const EFFORT_HINT: Record<Bot['effort'], string> = {
   ultracode: 'Max effort and an instruction to plan and verify every step. For big, careful jobs.',
 };
 
-export function BotSettingsModal() {
+export function BotSettingsModal({ inline = false }: { inline?: boolean } = {}) {
   const target = useConfigUI((s) => s.botSettings);
   const close = useConfigUI((s) => s.closeBotSettings);
-  const setTab = (tab: BotSettingsTab) => target && useConfigUI.setState({ botSettings: { ...target, tab } });
   const bot = useStore((s) => s.bots.find((b) => b.id === target?.botId));
-  const routines = useStore((s) => (target ? s.routines[target.botId] : undefined));
-  const memVersion = useVersion(`memories:${target?.botId ?? ''}`);
+  const userId = useStore(state => state.user?.id);
+  useEffect(() => { if (target && !bot && useStore.getState().bots.length) close(); }, [bot, target, close]);
+  return target && bot ? <BotSettingsPage key={JSON.stringify([userId, bot.id])} bot={bot} tab={target.tab} inline={inline} userId={userId} /> : null;
+}
+
+function BotSettingsPage({ bot, tab, inline, userId }: { bot: Bot; tab: BotSettingsTab; inline: boolean; userId?: string }) {
+  const close = useConfigUI(state => state.closeBotSettings);
+  const detailsOpen = useStore(state => state.detailsOpen && state.selectedBotId === bot.id);
+  const setTab = (next: BotSettingsTab) => useConfigUI.getState().openBotSettings(bot.id, next);
+  const routines = useStore(state => state.routines[bot.id]);
+  const memVersion = useVersion(`memories:${bot.id}`);
   const [data, setData] = useState<BotSettingsBundle | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [showSources, setShowSources] = useState(false);
+  const request = useRef(0);
   const onClose = useCallback(() => close(), [close]);
 
   const reload = useCallback(() => {
-    if (!target) return;
-    configApi.settings(target.botId).then((d) => { setData(d); setLoadError(null); }).catch((e) => setLoadError(e.message));
-  }, [target?.botId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => { reload(); }, [reload, memVersion]);
-  useEffect(() => { if (target) useStore.getState().loadRoutines(target.botId).catch(() => {}); }, [target?.botId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Bot deleted while open (or bad id): close.
-  useEffect(() => { if (target && !bot && useStore.getState().bots.length) close(); }, [bot, target, close]);
-  if (!target || !bot) return null;
+    const version = ++request.current;
+    const isCurrent = () => version === request.current && useStore.getState().user?.id === userId;
+    configApi.settings(bot.id).then(value => { if (isCurrent()) { setData(value); setLoadError(null); } })
+      .catch(failure => { if (isCurrent()) setLoadError(failure.message); });
+  }, [bot.id, userId]);
+  useEffect(() => { reload(); return () => { request.current += 1; }; }, [reload, memVersion]);
+  useEffect(() => { void useStore.getState().loadRoutines(bot.id).catch(() => {}); }, [bot.id]);
 
   const tabs: { id: BotSettingsTab; label: string; count?: number }[] = [
     { id: 'general', label: 'General' },
     { id: 'skills', label: 'Skills', count: data?.skills.length },
     { id: 'memories', label: 'Memories', count: data?.memories.length },
     { id: 'routines', label: 'Routines', count: (routines ?? data?.routines)?.length },
-    { id: 'analytics', label: 'Analytics' },
     { id: 'learning', label: 'Learning' },
+    { id: 'analytics', label: 'Analytics' },
   ];
-
-  return (
-    <Modal onClose={onClose} className="bot-settings" label={`${bot.name} settings`}>
-      <div className="modal__header">
-        <div className="bot-settings__title">
-          <BotAvatarFor bot={bot} size={24} />
-          <span className="modal__title">{bot.name}</span>
-        </div>
-        <button type="button" className="modal__close" onClick={onClose} aria-label="Close"><Icon name="close" size={14} opacity={0.68} /></button>
-      </div>
-      <div className="bot-settings__body" style={botVars(bot.avatarColor)}>
-        <nav className="cfg-nav" aria-label="Bot settings sections">
+  const label = tabs.find(item => item.id === tab)?.label;
+  const sourcesOpen = tab === 'memories' && showSources;
+  useEffect(() => {
+    if (!inline) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || useConfigUI.getState().appSettings || document.querySelector('.modal-root') || useStore.getState().modal === 'create') return;
+      event.preventDefault();
+      if (sourcesOpen) setShowSources(false);
+      else onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [inline, onClose, sourcesOpen]);
+  const headings: Partial<Record<BotSettingsTab, string>> = {
+    general: 'Identity, chat model, and settings for this bot.', skills: 'Saved procedures and changes that need your review.',
+    memories: 'Review preferences and facts, including where they came from.', routines: 'Schedules and run history for this bot.', learning: 'Review learning activity, settings, and protected maintenance.',
+  };
+  const content = <>
+      <SetupPaperHeader backLabel={sourcesOpen ? 'Back to memories' : detailsOpen ? 'Back to details' : 'Back to chat'} title={label} onBack={sourcesOpen ? () => setShowSources(false) : onClose} onClose={onClose} />
+      <div className="setup-paper__column bot-settings-page__column" style={botVars(bot.avatarColor)}>
+        <h1>{sourcesOpen ? 'Conversation sources' : `${bot.name} · ${label}`}</h1>
+        {headings[tab] && <p className="setup-paper__subtitle">{sourcesOpen ? 'Find evidence in current or archived chats.' : headings[tab]}</p>}
+        <nav className="setup-paper__tabs" aria-label="Bot settings sections">
           {tabs.map((t) => (
-            <button key={t.id} type="button" className={`cfg-nav__item${target.tab === t.id ? ' is-active' : ''}`} onClick={() => setTab(t.id)} aria-current={target.tab === t.id || undefined}>
-              <span>{t.label}</span>
-              {t.count ? <span className="cfg-nav__count">{t.count}</span> : null}
-            </button>
+            <button key={t.id} type="button" onClick={() => { setShowSources(false); setTab(t.id); }} aria-current={tab === t.id || undefined}>{t.label}</button>
           ))}
         </nav>
-        <div className="cfg-content">
-          {loadError && <div className="cfg-error">Couldn’t load settings: {loadError}</div>}
-          {target.tab === 'general' && <GeneralTab bot={bot} onClose={onClose} />}
-          {target.tab === 'skills' && <SkillsTab bot={bot} skills={data?.skills} onChange={reload} />}
-          {target.tab === 'memories' && <MemoriesTab bot={bot} data={data} onChange={reload} />}
-          {target.tab === 'routines' && <RoutinesTab bot={bot} routines={routines ?? data?.routines} />}
-          {target.tab === 'analytics' && <BotAnalyticsTab bot={bot} />}
-          {target.tab === 'learning' && <LearningSettingsPanel key={bot.id} botId={bot.id} />}
+        <div className="bot-settings-page__content" key={tab}>
+          {loadError && ['skills', 'memories', 'routines'].includes(tab) && <div className="cfg-error" role="alert">Couldn’t load settings: {loadError} <button className="cfg-btn cfg-btn--secondary" type="button" onClick={reload}>Retry</button></div>}
+          {tab === 'general' && <GeneralTab bot={bot} onClose={onClose} />}
+          {tab === 'skills' && <SkillsTab bot={bot} skills={data?.skills} onChange={reload} />}
+          {tab === 'memories' && <>
+            <div className="bot-settings-page__memories" hidden={sourcesOpen}><MemoriesTab bot={bot} data={data} onChange={reload} onSearch={() => setShowSources(true)} /></div>
+            {sourcesOpen && <><ConversationSearch botId={bot.id} expanded /><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setShowSources(false)}>Close sources</button></>}
+          </>}
+          {tab === 'routines' && <RoutinesTab bot={bot} routines={routines ?? data?.routines} />}
+          {tab === 'analytics' && <BotAnalyticsTab bot={bot} />}
+          {tab === 'learning' && <LearningSettingsPanel botId={bot.id} />}
         </div>
       </div>
-    </Modal>
-  );
+    </>;
+  return inline ? <main className="setup-paper bot-settings-page" aria-label={`${bot.name} settings`}>{content}</main>
+    : <Modal onClose={onClose} className="setup-paper setup-paper--dialog bot-settings-page bot-settings" label={`${bot.name} settings`}>{content}</Modal>;
 }
 
 // ---------------------------------------------------------------------------
@@ -269,39 +290,25 @@ function SkillsTab({ bot, skills, onChange }: { bot: Bot; skills: KnowledgeSkill
   const [editing, setEditing] = useState<string | 'new' | null>(null);
   return (
     <div className="cfg-page">
-      <div className="cfg-page__head">
-        <div>
-          <div className="cfg-page__title">Skills</div>
-          <div className="cfg-page__sub">Step-by-step how-tos {bot.name} follows for specific jobs. Ask for one by name in chat.</div>
-        </div>
-        {editing !== 'new' && <button type="button" className="cfg-btn cfg-btn--primary" onClick={() => setEditing('new')}><Icon name="plus" size={12} /> New skill</button>}
-      </div>
-      <SkillReview botId={bot.id} version={(skills ?? []).map(s => `${s.id}:${s.revision}`).join(',')} onChange={onChange} />
       {editing === 'new' && <SkillEditor botId={bot.id} onDone={() => { setEditing(null); onChange(); }} />}
       {!skills ? <div className="cfg-empty">Loading…</div> : skills.length === 0 && editing !== 'new' ? (
         <div className="cfg-empty">
-          No skills yet. Write down how you like something done, like “Prep for a sales call”, and {bot.name} will follow it every time.
+          No skills yet. Add a repeatable procedure, then ask for it by name in chat.
         </div>
       ) : (
         <div className="cfg-list">
           {skills.map((s) => editing === s.id ? (
             <SkillEditor key={s.id} botId={bot.id} skill={s} onDone={() => { setEditing(null); onChange(); }} />
           ) : (
-            <div key={s.id} className="cfg-item">
-              <span className="cfg-item__icon"><Glyph name="spark" size={14} /></span>
-              <div className="cfg-item__text">
-                <div className="cfg-item__title">{s.name}</div>
-                <div className="cfg-item__sub">{s.description || s.body.split('\n')[0]}</div>
-                <SkillHistory skill={s} onChange={onChange} /><SkillPackageControls skillId={s.id} revision={s.revision} onChange={onChange} />
-              </div>
-              <div className="cfg-item__actions">
-                <button type="button" className="cfg-icon-btn" onClick={() => setEditing(s.id)} aria-label={`Edit ${s.name}`} title="Edit"><Icon name="edit" size={14} /></button>
-                <ConfirmButton className="cfg-icon-btn" title="Delete" onConfirm={async () => { await configApi.deleteSkill(s.id, s.revision); onChange(); }}><Glyph name="trash" size={14} /></ConfirmButton>
-              </div>
-            </div>
+            <article key={s.id} className="knowledge-item">
+              <div className="knowledge-item__row"><div><strong>{s.name}</strong><p>{s.description || s.body.split('\n')[0]}</p></div><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setEditing(s.id)} aria-label={`Edit ${s.name}`}>Edit skill</button></div>
+              <details className="knowledge-item__details"><summary>Package, protections, and history</summary><SkillHistory skill={s} onChange={onChange} /><SkillPackageControls skillId={s.id} revision={s.revision} onChange={onChange} /></details>
+            </article>
           ))}
         </div>
       )}
+      <SkillReview botId={bot.id} version={(skills ?? []).map(s => `${s.id}:${s.revision}`).join(',')} onChange={onChange} />
+      {editing !== 'new' && <div className="setup-paper__actions"><button type="button" className="cfg-btn cfg-btn--primary" onClick={() => setEditing('new')}>Add skill</button></div>}
     </div>
   );
 }
@@ -312,12 +319,14 @@ function SkillEditor({ botId, skill, onDone }: { botId: string; skill?: Knowledg
   const [body, setBody] = useState(skill?.body ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const can = name.trim() && body.trim() && !busy;
+  const [baseRevision] = useState(skill?.revision);
+  const stale = skill && skill.revision !== baseRevision;
+  const can = name.trim() && body.trim() && !busy && !stale;
   const save = async () => {
     if (!can) return;
     setBusy(true); setError(null);
     try {
-      if (skill) await learningApi.updateSkill(skill.id, { name, description, body, expectedRevision: skill.revision });
+      if (skill && baseRevision !== undefined) await learningApi.updateSkill(skill.id, { name, description, body, expectedRevision: baseRevision });
       else await configApi.createSkill(botId, { name, description, body });
       onDone();
     } catch (e) { setError((e as Error).message); setBusy(false); }
@@ -327,7 +336,8 @@ function SkillEditor({ botId, skill, onDone }: { botId: string; skill?: Knowledg
       <input className="text-input" placeholder="Skill name, e.g. Weekly report" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} autoFocus aria-label="Skill name" />
       <input className="text-input" placeholder="When to use it (optional)" value={description} maxLength={300} onChange={(e) => setDescription(e.target.value)} aria-label="Skill description" />
       <textarea className="text-input cfg-textarea cfg-textarea--tall" rows={8} placeholder={'Write the steps to follow:\n1. …\n2. …'} value={body} onChange={(e) => setBody(e.target.value)} aria-label="Skill steps" />
-      {error && <div className="cfg-error">{error}</div>}
+      {error && <div className="cfg-error" role="alert">{error}</div>}
+      {stale && <div className="cfg-error" role="alert">This skill changed. Close and reopen it to edit the current revision.</div>}
       <div className="cfg-editor__actions">
         <button type="button" className="cfg-btn cfg-btn--secondary" onClick={onDone}>Cancel</button>
         <button type="submit" className="cfg-btn cfg-btn--primary" disabled={!can}>{busy ? 'Saving…' : skill ? 'Save skill' : 'Add skill'}</button>
@@ -338,11 +348,11 @@ function SkillEditor({ botId, skill, onDone }: { botId: string; skill?: Knowledg
 
 // ---------------------------------------------------------------------------
 
-function MemoriesTab({ bot, data, onChange }: { bot: Bot; data: BotSettingsBundle | null; onChange: () => void }) {
+function MemoriesTab({ bot, data, onChange, onSearch }: { bot: Bot; data: BotSettingsBundle | null; onChange: () => void; onSearch: () => void }) {
   const [q, setQ] = useState('');
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [memoryError, setMemoryError] = useState('');
-  const memories = useMemo(() => (data?.memories ?? []).filter((m) => !hidden.has(m.id) && (!q || m.text.toLowerCase().includes(q.toLowerCase()))), [data, hidden, q]);
+  const memories = useMemo(() => (data?.memories ?? []).filter(m => m.botId === bot.id && m.status === 'active' && !hidden.has(m.id) && (!q || m.text.toLowerCase().includes(q.toLowerCase()))), [data, bot.id, hidden, q]);
   const remove = async (m: KnowledgeMemory) => {
     setHidden((h) => new Set(h).add(m.id));
     try { setMemoryError(''); await configApi.deleteMemory(m.id, m.revision); onChange(); } catch (e) { setMemoryError((e as Error).message); setHidden((h) => { const n = new Set(h); n.delete(m.id); return n; }); }
@@ -350,15 +360,7 @@ function MemoriesTab({ bot, data, onChange }: { bot: Bot; data: BotSettingsBundl
   const fill = data ? Math.min(100, Math.round((data.memory.historyChars / data.memory.compactAtChars) * 100)) : 0;
   return (
     <div className="cfg-page">
-      <div className="cfg-page__head">
-        <div>
-          <div className="cfg-page__title">Memories</div>
-          <div className="cfg-page__sub">What {bot.name} remembers about you. It saves things when you share them, and picks up more on its own once a chat goes quiet.</div>
-        </div>
-      </div>
       {memoryError && <div className="cfg-error" role="alert">{memoryError}</div>}
-      <PendingMemoryChanges key={bot.id} botId={bot.id} onChange={onChange} />
-      <ConversationSearch botId={bot.id} />
       {(data?.memories.length ?? 0) > 6 && (
         <input className="text-input" placeholder="Search memories" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search memories" />
       )}
@@ -367,23 +369,22 @@ function MemoriesTab({ bot, data, onChange }: { bot: Bot; data: BotSettingsBundl
       ) : (
         <div className="cfg-list">
           {memories.map((m) => (
-            <div key={m.id} className="cfg-item">
-              <div className="cfg-item__text">
-                <div className="cfg-item__body">{m.text}</div>
-                <div className="cfg-item__meta">
-                  {m.source === 'learned' ? <span className="cfg-chip">Picked up</span> : <span className="cfg-chip cfg-chip--muted">Saved in chat</span>}
-                  <span>{shortDate(m.createdAt)}</span>
-                </div>
-                <div className="native-meta">{m.target === 'environment' ? 'Environment fact' : 'User preference'}{m.evidenceKind ? ` · ${m.evidenceKind} evidence` : ''}</div><MemoryEvidence memory={m} onChange={onChange} /><KnowledgeScopeControl kind="memories" item={m} onChange={onChange} />
+            <details key={m.id} className="knowledge-item">
+              <summary className="knowledge-item__row"><span><strong>{m.text}</strong><small>{m.target === 'environment' ? 'Environment fact' : 'User preference'}{m.evidenceKind ? ` · ${m.evidenceKind} evidence` : ''}</small></span><span className="knowledge-item__action">Open memory</span></summary>
+              <div className="knowledge-item__details">
+                <p className="native-meta">{m.source === 'learned' ? 'Learned' : 'Saved in chat'} · {shortDate(m.createdAt)} · revision {m.revision}</p>
+                <MemoryEvidence key={`${m.id}:${m.revision}`} memory={m} onChange={onChange} />
+                <KnowledgeScopeControl kind="memories" item={m} onChange={onChange} />
+                <details className="knowledge-item__confirm"><summary>Forget this memory?</summary><p>It will no longer be used or relearned from these sources. The earlier record remains in history.</p><button type="button" className="cfg-btn cfg-btn--danger" onClick={() => void remove(m)}>Forget memory</button></details>
               </div>
-              <div className="cfg-item__actions">
-                <button type="button" className="cfg-icon-btn" onClick={() => remove(m)} aria-label="Forget this" title="Forget"><Glyph name="trash" size={14} /></button>
-              </div>
-            </div>
+            </details>
           ))}
         </div>
       )}
+      <details className="knowledge-item"><summary className="knowledge-item__row"><span><strong>Pending changes</strong><small>The current fact remains active until you approve a change.</small></span><span className="knowledge-item__action">Review memory changes</span></summary><PendingMemoryChanges botId={bot.id} onChange={onChange} /></details>
+      <div className="knowledge-item knowledge-item__row"><div><strong>Conversation sources</strong><p>Search current and archived conversations.</p></div><button type="button" className="cfg-btn cfg-btn--secondary" onClick={onSearch}>Search sources</button></div>
       <MemoryArchive botId={bot.id} version={(data?.memories ?? []).map(m => `${m.id}:${m.revision}`).join(',')} />
+      <div className="setup-paper__actions"><button type="button" className="cfg-btn cfg-btn--primary" onClick={onSearch}>Search sources</button></div>
       {data && (
         <div className="cfg-meter" title="Older messages are summarized automatically when this fills up.">
           <div className="cfg-meter__label"><span>Conversation memory</span><span>{fill}% full</span></div>

@@ -54,12 +54,13 @@ try {
   const page = await context.newPage(), errors = [];
   page.on('pageerror', e => errors.push(String(e))); page.setDefaultTimeout(15000);
   await page.goto(base + '/#settings/learning');
-  const appSettings = page.getByRole('dialog', { name: 'Settings', exact: true });
+  const appSettings = page.getByRole('region', { name: 'Settings', exact: true });
   await appSettings.getByRole('heading', { name: 'Learning', exact: true }).waitFor();
   const approval = appSettings.getByRole('checkbox', { name: /Require approval for skill changes/ });
   assert.equal(await approval.isChecked(), false);
   // This multi-call qualification uses the full coordinator prompt. The owner
   // explicitly grants a larger finite budget; native budget admission stays on.
+  await appSettings.getByText('Review limits', { exact: true }).click();
   await appSettings.getByLabel('Aggregate input token limit', { exact: false }).fill('128000');
   await approval.check(); await appSettings.getByRole('button', { name: 'Save learning settings', exact: true }).click();
   await appSettings.getByText('Learning settings saved.', { exact: true }).waitFor();
@@ -71,24 +72,28 @@ try {
   console.log('PASS account defaults/settings/existing pending proposal');
   await page.screenshot({ path: path.join(evidenceDir, 'learning-settings-desktop.png'), animations: 'disabled' });
   await page.setViewportSize({ width: 390, height: 844 });
-  assert.ok(await appSettings.locator('.app-settings__page').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'learning settings fit mobile');
+  const phoneSettings = page.getByRole('dialog', { name: 'Settings', exact: true });
+  assert.ok(await phoneSettings.locator('.app-settings__page').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'learning settings fit mobile');
   await page.screenshot({ path: path.join(evidenceDir, 'learning-settings-mobile.png'), animations: 'disabled' });
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await appSettings.getByRole('button', { name: 'Close settings', exact: true }).click();
+  await appSettings.getByRole('button', { name: 'Back to chat', exact: true }).click();
   await page.getByRole('button', { name: 'Show details', exact: true }).click();
   await page.getByRole('button', { name: 'Bot settings', exact: true }).click();
-  const botSettings = page.getByRole('dialog', { name: 'Quinn settings', exact: true });
+  const botSettings = page.getByRole('main', { name: 'Quinn settings', exact: true });
   await botSettings.getByRole('button', { name: 'Learning', exact: true }).click();
+  await botSettings.getByText('Review limits', { exact: true }).click();
   await botSettings.getByLabel('Memory review interval (turns)', { exact: true }).fill('11');
   await botSettings.getByRole('button', { name: 'Save Bot overrides', exact: true }).click();
   await until(async () => (await api(`/learning/settings?botId=${fixture.quinn.id}`)).overrides?.memoryTurnInterval === 11, 'Bot override');
   await botSettings.getByRole('button', { name: 'Use account defaults', exact: true }).click();
   await until(async () => Object.keys((await api(`/learning/settings?botId=${fixture.quinn.id}`)).overrides ?? {}).length === 0, 'override reset');
+  await botSettings.getByRole('button', { name: 'Review history', exact: true }).click();
   await botSettings.getByRole('button', { name: 'Refine now', exact: true }).click();
   await until(async () => (await api(`/learning/reviews?botId=${fixture.quinn.id}`)).reviews.some(r => r.reason === 'refine' && r.status === 'completed'), 'explicit review completion');
   await botSettings.getByRole('button', { name: 'Refresh reviews', exact: true }).click();
   console.log('PASS Bot overrides/reset and explicit review');
   await botSettings.getByRole('button', { name: /^Skills/ }).click();
+  await botSettings.getByText('Package, protections, and history', { exact: true }).click();
   await botSettings.getByRole('button', { name: 'Package resources and protections', exact: true }).click();
   await botSettings.getByRole('button', { name: 'Add resource', exact: true }).click();
   await botSettings.getByLabel('Resource path', { exact: true }).fill('templates/report.md');
@@ -121,27 +126,50 @@ try {
   console.log('PASS package resources/protections/sharing/revocation');
   await page.screenshot({ path: path.join(evidenceDir, 'skill-package-desktop.png'), animations: 'disabled' });
   await page.setViewportSize({ width: 390, height: 844 });
-  assert.ok(await botSettings.locator('.cfg-content').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'skill package fits mobile');
+  assert.ok(await botSettings.locator('.bot-settings-page__content').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'skill package fits mobile');
   await page.screenshot({ path: path.join(evidenceDir, 'skill-package-mobile.png'), animations: 'disabled' });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await botSettings.getByRole('button', { name: 'Archive package…', exact: true }).click();
   await botSettings.getByRole('button', { name: 'Confirm archive', exact: true }).click();
   await until(async () => (await api(`/learning/skills/${fixture.skill.id}`)).skill.deleted, 'package archive');
-  await botSettings.getByText('Deleted skills (1)', { exact: true }).click();
+  await botSettings.getByText('Show deleted skills', { exact: true }).click();
   await botSettings.getByRole('button', { name: /^History · revision/ }).click();
   await botSettings.locator('details > summary').filter({ hasText: new RegExp(`^Revision ${resourceRevision} ·`) }).click();
   await botSettings.getByRole('button', { name: `Restore revision ${resourceRevision}`, exact: true }).click();
   await until(async () => !(await api(`/learning/skills/${fixture.skill.id}`)).skill.deleted, 'package rollback');
   assert.ok((await api(`/learning/skills/${fixture.skill.id}`)).skill.resources['templates/report.md'], 'rollback restores the full resource package');
   await botSettings.getByRole('button', { name: /^Memories/ }).click();
+  await botSettings.getByText('Review memory changes', { exact: true }).click();
   await botSettings.getByText(/replace preference · pending/).click();
-  await botSettings.getByRole('link', { name: `Source ${fixture.daily.generation}:${fixture.daily.seq}`, exact: true }).click();
+  await botSettings.getByRole('button', { name: `Open conversation source ${fixture.daily.generation}:${fixture.daily.seq}`, exact: true }).click();
   await botSettings.getByText(fixture.dailySourceText, { exact: true }).waitFor();
   await botSettings.getByRole('button', { name: 'Close sources', exact: true }).click();
   await page.screenshot({ path: path.join(evidenceDir, 'memory-review-desktop.png'), animations: 'disabled' });
-  await page.setViewportSize({ width: 390, height: 844 });
-  assert.ok(await botSettings.locator('.cfg-content').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'memory review fits mobile');
-  await page.screenshot({ path: path.join(evidenceDir, 'memory-review-mobile.png'), animations: 'disabled' });
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    // The media query changes before React switches to the full-width phone pane.
+    await page.locator('.app.is-mobile.pane-chat').waitFor();
+    await page.evaluate(() => document.fonts.ready.then(() => undefined));
+    const memoryLayout = await botSettings.locator('.bot-settings-page__content').evaluate(el => {
+      const bounds = el.getBoundingClientRect();
+      const fits = el.scrollWidth <= el.clientWidth + 1;
+      const overflow = fits ? [] : [...el.querySelectorAll('*')].flatMap(node => {
+        const rect = node.getBoundingClientRect();
+        if (rect.right <= bounds.right + 1 || rect.width === 0 || node.checkVisibility?.() === false) return [];
+        return [{
+          tag: node.tagName, className: node.getAttribute('class'), parent: node.parentElement?.className,
+          text: node.textContent?.trim().slice(0, 180), left: rect.left, right: rect.right, width: rect.width,
+          font: getComputedStyle(node).font,
+        }];
+      }).slice(0, 10);
+      return { fits, clientWidth: el.clientWidth, scrollWidth: el.scrollWidth, left: bounds.left, right: bounds.right,
+        shell: document.querySelector('.app')?.className, sidebarWidth: document.querySelector('.sidebar')?.getBoundingClientRect().width,
+        fonts: document.fonts.status, overflow };
+    });
+    fs.writeFileSync(path.join(evidenceDir, `memory-layout-${width}.json`), JSON.stringify(memoryLayout, null, 2));
+    assert.ok(memoryLayout.fits, `memory review fits mobile (${width}px): ${JSON.stringify(memoryLayout)}`);
+    await page.screenshot({ path: path.join(evidenceDir, width === 390 ? 'memory-review-mobile.png' : `memory-review-mobile-${width}.png`), animations: 'disabled' });
+  }
   await page.setViewportSize({ width: 1440, height: 1000 });
   await botSettings.getByRole('button', { name: 'Approve memory change', exact: true }).click();
   await until(async () => (await api(`/bots/${fixture.quinn.id}/memories`)).memories.some(m => m.text.startsWith('Prefers daily')), 'staged memory approval');
@@ -156,15 +184,20 @@ try {
     sends.push({ key: route.request().headers()['idempotency-key'], body: route.request().postData() });
     if (!lost) { lost = true; const response = await route.fetch(); assert.equal(response.status(), 200); await route.abort('connectionreset'); } else await route.continue();
   });
-  await page.getByRole('button', { name: 'Show details', exact: true }).click();
-  await page.locator('.details__tabs').getByRole('button', { name: 'Library', exact: true }).click();
+  const openReports = async () => {
+    const details = page.getByRole('main', { name: 'Conversation details', exact: true });
+    if (!await details.isVisible()) await page.getByRole('button', { name: 'Show details', exact: true }).click();
+    await details.getByRole('navigation', { name: 'Conversation details sections' }).getByRole('button', { name: 'Files', exact: true }).click();
+    await details.getByRole('button', { name: 'Saved reports', exact: true }).click();
+  };
+  await openReports();
   const saved = page.getByRole('region', { name: 'Saved reports', exact: true });
   await saved.getByRole('button', { name: 'Review delivery destination', exact: true }).click();
   await saved.getByText('Confirm delivery to Library', { exact: true }).waitFor();
   await saved.getByRole('button', { name: 'Confirm delivery', exact: true }).click();
   await saved.getByRole('button', { name: 'Resume saved request', exact: true }).waitFor();
   await page.reload();
-  await page.locator('.details__tabs').getByRole('button', { name: 'Library', exact: true }).click();
+  await openReports();
   await saved.getByRole('button', { name: 'Resume saved request', exact: true }).click();
   await until(async () => (await saved.getByRole('button', { name: 'Resume saved request', exact: true }).count()) === 0, 'saved delivery resolution');
   assert.equal(sends.length, 2); assert.deepEqual(sends[0], sends[1]); assert.ok(sends[0].key);
@@ -178,24 +211,30 @@ try {
   assert.equal((await api(`/deliverables/deliveries/${fixture.uncertain.id}`)).delivery.attempts.length, 1, 'verification must not send');
   console.log('PASS stable delivery after response loss/reload and unknown verification without send');
   await page.locator('.sidebar').getByRole('button', { name: 'Tasks', exact: true }).click();
+  const workSections = page.getByRole('navigation', { name: 'Work sections' });
+  await workSections.getByRole('button', { name: 'Goals', exact: true }).click();
   const workflows = page.getByRole('region', { name: 'Goals and workflows', exact: true });
   await workflows.getByRole('button', { name: 'New workflow', exact: true }).click();
   await workflows.getByLabel('Workflow name', { exact: true }).fill('Research to report');
-  await workflows.getByRole('group', { name: 'Task 1', exact: true }).getByLabel('Title', { exact: true }).fill('Research sources');
-  await workflows.getByRole('group', { name: 'Task 1', exact: true }).getByLabel('Instructions', { exact: true }).fill('Research original evidence and return named source links.');
-  await workflows.getByRole('group', { name: 'Task 1', exact: true }).getByLabel('Worker', { exact: true }).selectOption(fixture.nia.id);
+  await workflows.getByLabel('Task 1 title', { exact: true }).fill('Research sources');
+  await workflows.getByLabel('Task 1 instructions', { exact: true }).fill('Research original evidence and return named source links.');
+  await workflows.getByLabel(/^Task 1 worker/).selectOption(fixture.nia.id);
   await workflows.getByRole('button', { name: 'Add task', exact: true }).click();
   const second = workflows.getByRole('group', { name: 'Task 2', exact: true });
-  await second.getByLabel('Title', { exact: true }).fill('Write report'); await second.getByLabel('Instructions', { exact: true }).fill('Write a concise report grounded in the research.');
-  await second.getByLabel('Worker', { exact: true }).selectOption(fixture.ellis.id); await second.getByLabel('Wait for', { exact: true }).selectOption('step-1');
+  await second.getByLabel('Task 2 title', { exact: true }).fill('Write report'); await second.getByLabel('Task 2 instructions', { exact: true }).fill('Write a concise report grounded in the research.');
+  await second.getByLabel(/^Task 2 worker/).selectOption(fixture.ellis.id); await second.getByRole('group', { name: 'Task 2 waits for' }).getByRole('checkbox', { name: 'Research sources' }).check();
   await workflows.getByRole('button', { name: 'Create workflow', exact: true }).click();
-  await workflows.getByRole('heading', { name: 'Research to report', exact: true }).waitFor();
+  await page.getByRole('heading', { name: /^Research to report · / }).waitFor();
   const created = (await api('/workflows')).workflows.find(w => w.title === 'Research to report');
   assert.equal(created.tasks[0].workerBotId, fixture.nia.id); assert.equal(created.tasks[1].workerBotId, fixture.ellis.id); assert.deepEqual(created.tasks[1].dependsOn, [created.tasks[0].id]);
-  await page.getByRole('button', { name: 'Refresh board', exact: true }).click();
-  await page.getByRole('region', { name: /board$/ }).getByRole('heading', { name: /Research to report/ }).waitFor();
-  const workflowCard = workflows.locator('.workflow-card').filter({ has: page.getByRole('heading', { name: 'Research to report', exact: true }) });
-  await workflowCard.getByRole('button', { name: 'Start', exact: true }).click();
+  await workSections.getByRole('button', { name: 'Team', exact: true }).click();
+  const team = page.getByRole('region', { name: 'Team snapshot', exact: true });
+  await team.getByRole('button', { name: 'Refresh board', exact: true }).click();
+  await team.getByRole('heading', { name: 'Research to report', exact: true }).waitFor();
+  await workSections.getByRole('button', { name: 'Goals', exact: true }).click();
+  const workflowCard = workflows.locator('.work-row').filter({ has: page.getByRole('heading', { name: 'Research to report', exact: true }) });
+  await workflowCard.getByRole('button', { name: 'Open workflow', exact: true }).click();
+  await workflows.getByRole('button', { name: 'Start', exact: true }).click();
   await until(async () => (await api(`/workflows/${created.id}`)).workflow.status === 'completed', 'dependent permanent worker completion');
   const finished = (await api(`/workflows/${created.id}`)).workflow;
   assert.ok(finished.tasks.every(t => t.status === 'completed' && t.resultValidated), 'both tasks require validated evidence');
@@ -205,6 +244,7 @@ try {
   const artifactResponse = await fetch(apiBase + workerArtifact.downloadUrl, { headers: { cookie } });
   assert.equal(artifactResponse.status, 200); assert.match(await artifactResponse.text(), /Owner:.*Source:/s);
   console.log('PASS dependent permanent workers and real validated/downloaded artifacts');
+  await workSections.getByRole('button', { name: 'Team', exact: true }).click();
   await page.getByRole('button', { name: 'Refresh board', exact: true }).click();
   await page.screenshot({ path: path.join(evidenceDir, 'team-board-desktop.png'), animations: 'disabled' });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -254,9 +294,10 @@ try {
   await page.locator('.sidebar .bot-row').filter({ has: page.getByText('Ellis', { exact: true }) }).click();
   await page.getByRole('button', { name: 'Show details', exact: true }).click();
   await page.getByRole('button', { name: 'Bot settings', exact: true }).click();
-  const ellisSettings = page.getByRole('dialog', { name: 'Ellis settings', exact: true });
+  const ellisSettings = page.getByRole('main', { name: 'Ellis settings', exact: true });
   await ellisSettings.getByRole('button', { name: /^Skills/ }).click();
-  const procedureCard = ellisSettings.locator('.cfg-item').filter({ has: page.getByText('Frozen report triage', { exact: true }) });
+  const procedureCard = ellisSettings.locator('article.knowledge-item').filter({ has: page.getByText('Frozen report triage', { exact: true }) });
+  await procedureCard.getByText('Package, protections, and history', { exact: true }).click();
   await procedureCard.getByRole('button', { name: 'History · revision 1', exact: true }).click();
   await procedureCard.locator('summary').filter({ hasText: /^Automatic improvement policy/ }).click();
   const policyEditor = procedureCard.getByLabel('Standing policy and frozen cases', { exact: true });
@@ -279,6 +320,7 @@ try {
   assert.equal(promoted.promotion.rollback.revision, 1); assert.equal(promoted.promotion.policyRevision, 1);
   await page.getByRole('button', { name: 'Bot settings', exact: true }).click();
   await ellisSettings.getByRole('button', { name: /^Skills/ }).click();
+  await procedureCard.getByText('Package, protections, and history', { exact: true }).click();
   await procedureCard.getByRole('button', { name: 'History · revision 2', exact: true }).click();
   await procedureCard.locator('summary').filter({ hasText: /^Revision 2 · automatic-promotion/ }).click();
   await procedureCard.getByText('Automatically promoted under policy revision 1. Rollback target: revision 1.', { exact: true }).waitFor();
@@ -288,7 +330,7 @@ try {
   assert.ok((await procedureCard.innerText()).includes(promoted.evaluations[0].sourceHash), 'immutable source digest is visible');
   await page.screenshot({ path: path.join(evidenceDir, 'evaluated-promotion-desktop.png'), animations: 'disabled' });
   await page.setViewportSize({ width: 390, height: 844 });
-  assert.ok(await ellisSettings.locator('.cfg-content').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'evaluation provenance fits mobile');
+  assert.ok(await ellisSettings.locator('.bot-settings-page__content').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'evaluation provenance fits mobile');
   await page.screenshot({ path: path.join(evidenceDir, 'evaluated-promotion-mobile.png'), animations: 'disabled' });
   await page.setViewportSize({ width: 1440, height: 1000 });
 
@@ -308,7 +350,7 @@ try {
   await procedureCard.getByText(/Revision 2 · Suspended/).waitFor();
   await page.screenshot({ path: path.join(evidenceDir, 'suspended-procedure-desktop.png'), animations: 'disabled' });
   await page.setViewportSize({ width: 390, height: 844 });
-  assert.ok(await ellisSettings.locator('.cfg-content').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'suspension and policy controls fit mobile');
+  assert.ok(await ellisSettings.locator('.bot-settings-page__content').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'suspension and policy controls fit mobile');
   await page.screenshot({ path: path.join(evidenceDir, 'suspended-procedure-mobile.png'), animations: 'disabled' });
   console.log('PASS browser owner policy, native five-case promotion, evaluation/provenance inspection and incompatible-baseline suspension');
   const usage = await api('/usage?range=30d');

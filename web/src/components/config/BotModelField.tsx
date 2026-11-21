@@ -2,9 +2,15 @@ import { useEffect, useState } from 'react';
 import { cliApi, type CliStatus } from '../../lib/cliApi';
 import { openrouterApi } from '../../lib/openrouterApi';
 import { ModelPicker, refreshModels } from './ModelPicker';
+import { useStore } from '../../store';
 
 /** Per-Bot model: a model id, or null for the server default. */
 export function BotModelField({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
+  const accountId = useStore(s => s.user?.id);
+  return <AccountBotModelField key={accountId} value={value} onChange={onChange} />;
+}
+
+function AccountBotModelField({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
   const [fallback, setFallback] = useState<string>('');
   const [cli, setCli] = useState<CliStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -18,7 +24,7 @@ export function BotModelField({ value, onChange }: { value: string | null; onCha
       setCli(status);
       if (!status.selected) {
         openrouterApi.status(controller.signal).then((connection) => {
-          if (!controller.signal.aborted) setFallback(connection.defaultModel);
+          if (!controller.signal.aborted) setFallback(connection.active ? connection.model : connection.defaultModel);
         }).catch(() => {});
       }
     }).catch((err: unknown) => {
@@ -33,7 +39,7 @@ export function BotModelField({ value, onChange }: { value: string | null; onCha
     <>
       {cli ? <ModelPicker key={selected ?? 'api'} label="Bot model" value={selected && !value?.startsWith(`${selected}/`) ? null : value} onChange={onChange} defaultLabel={defaultLabel} />
         : <button type="button" className="model-picker__button text-input" aria-label="Bot model" disabled>{error ? 'Provider status unavailable' : 'Checking provider…'}</button>}
-      {selected && <div className="cfg-field__hint">Models come from your connected CLI account. Model and supported effort selections use your plan; API fallback is disabled. {cli && (!cli.connected || !cli.providers[selected].installed || !cli.providers[selected].authenticated || !cli.providers[selected].subscription || cli.providers[selected].error) && 'The selected subscription is blocked until its bridge and CLI authentication are ready. No API fallback is used.'}</div>}
+      {selected && <div className="cfg-field__hint">Models come from your connected CLI account. Model and supported effort selections use your plan; API fallback is disabled. {cli && (!cli.connected || !cli.providers[selected].installed || !cli.providers[selected].authenticated || !cli.providers[selected].subscription || cli.providers[selected].error) && 'The selected subscription is blocked until its CLI connection is ready. No API fallback is used.'}</div>}
       {error && <div className="cfg-error" role="alert">{error} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setAttempt((current) => current + 1)}>Retry provider status</button></div>}
     </>
   );

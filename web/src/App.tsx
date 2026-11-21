@@ -1,13 +1,15 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { startEvents } from './lib/events';
-import { PHONE_QUERY, useStore } from './store';
+import { PHONE_QUERY, restorePhoneSetup, useStore } from './store';
 import { ChatView } from './components/ChatView';
+import { BotsView } from './components/BotsView';
 import { DetailsPanel } from './components/DetailsPanel';
 import { Sidebar } from './components/Sidebar';
 import { SignIn } from './components/SignIn';
 import { TasksView } from './components/config/TasksView';
 import { useConfigUI } from './configStore';
 import { installVoiceShortcut } from './voice/shortcut';
+import { hasOpenModal } from './components/modals/Modal';
 
 const ComputerViewer = lazy(() => import('./components/ComputerViewer').then(m => ({ default: m.ComputerViewer })));
 const JoinPage = lazy(() => import('./components/JoinPage').then(m => ({ default: m.JoinPage })));
@@ -15,6 +17,7 @@ const ConnectAppsModal = lazy(() => import('./components/modals/ConnectAppsModal
 const CreateBotModal = lazy(() => import('./components/modals/CreateBotModal').then(m => ({ default: m.CreateBotModal })));
 const CreateGroupModal = lazy(() => import('./components/modals/CreateGroupModal').then(m => ({ default: m.CreateGroupModal })));
 const SearchModal = lazy(() => import('./components/modals/SearchModal').then(m => ({ default: m.SearchModal })));
+const BotSettingsModal = lazy(() => import('./components/config/BotSettingsModal').then(m => ({ default: m.BotSettingsModal })));
 const ConfigLayer = lazy(() => import('./components/config/ConfigLayer').then(m => ({ default: m.ConfigLayer })));
 
 function Shell() {
@@ -22,18 +25,25 @@ function Shell() {
   const modal = useStore((s) => s.modal);
   const viewerOpen = useStore((s) => s.viewerOpen);
   const collapsed = useStore((s) => s.sidebarCollapsed);
-  const hasBot = useStore((s) => !!s.selectedBotId);
+  const selectedBotId = useStore(s => s.selectedBotId);
+  const hasBot = !!selectedBotId;
   const view = useConfigUI((s) => s.view);
   const mobile = useStore((s) => s.mobile);
   const pane = useStore((s) => s.mobilePane);
   // Settings dialogs load lazily; only mount them while one is open.
-  const settingsOpen = useConfigUI((s) => !!s.appSettings || !!s.botSettings);
+  const settingsOpen = useConfigUI((s) => !!s.appSettings);
+  const botSettings = useConfigUI(s => s.botSettings);
 
   // Phone layout: follow the breakpoint, and let the system back gesture leave a chat for the list.
   useEffect(() => {
     const mq = window.matchMedia(PHONE_QUERY);
-    const onChange = () => useStore.getState().set({ mobile: mq.matches, ...(mq.matches ? {} : { mobilePane: 'list' as const }) });
+    const onChange = () => {
+      const st = useStore.getState();
+      st.set({ mobile: mq.matches, ...(mq.matches ? {} : { mobilePane: 'list' as const }) });
+      if (mq.matches && (st.modal === 'create' || st.modal === 'group')) st.setModal(st.modal);
+    };
     const onPop = () => {
+      if (restorePhoneSetup()) return;
       const st = useStore.getState();
       if (!st.mobile || st.mobilePane !== 'chat') return;
       st.set({ mobilePane: 'list', detailsOpen: false });
@@ -43,7 +53,7 @@ function Shell() {
     window.addEventListener('popstate', onPop);
     return () => { mq.removeEventListener('change', onChange); window.removeEventListener('popstate', onPop); };
   }, []);
-  // Leaving phone width closes nothing; reaching it closes the details column (it becomes a sheet).
+  // Entering phone width starts from the conversation; setup can be opened as its own page.
   useEffect(() => {
     if (mobile) useStore.getState().set({ detailsOpen: false });
   }, [mobile]);
@@ -72,8 +82,10 @@ function Shell() {
       const st = useStore.getState();
       const key = e.key.toLowerCase();
       if (key === 'k') { e.preventDefault(); st.setModal(st.modal === 'search' ? null : 'search'); }
+      else if (st.modal === 'search' || st.modal === 'apps' || hasOpenModal()) return;
       else if (key === 'b') { e.preventDefault(); if (!st.mobile) st.set({ sidebarCollapsed: !st.sidebarCollapsed }); }
       else if (e.shiftKey && (key === ',' || key === '<')) { e.preventDefault(); st.set({ detailsOpen: !st.detailsOpen }); }
+      else if (key === 'n') { e.preventDefault(); useConfigUI.getState().closeAppSettings(); useConfigUI.getState().closeBotSettings(); st.setModal('create'); }
       else if (key === ',') { e.preventDefault(); useConfigUI.getState().openAppSettings(); }
     };
     window.addEventListener('keydown', k);
@@ -81,19 +93,20 @@ function Shell() {
   }, []);
 
   return (
-    <div className={`app${collapsed && !mobile ? ' is-sidebar-collapsed' : ''}${detailsOpen && hasBot && view === 'chat' ? ' has-details' : ''}${mobile ? ` is-mobile pane-${view === 'tasks' ? 'chat' : pane}` : ''}`}>
+    <div className={`app${settingsOpen ? ' is-app-settings' : ''}${collapsed && !mobile ? ' is-sidebar-collapsed' : ''}${mobile ? ` is-mobile pane-${view === 'tasks' || (modal === 'create' || modal === 'group') || botSettings || detailsOpen ? 'chat' : pane}` : ''}`}>
       <Sidebar />
-      {view === 'tasks' ? <TasksView /> : <ChatView />}
-      {detailsOpen && hasBot && view === 'chat' && (!mobile || pane === 'chat') && (
-        <>
-          {/* Tablets: the panel slides over the chat; tapping the dimmed chat closes it. Hidden on other widths (mobile.css). */}
-          {!mobile && <div className="details-scrim" aria-hidden onClick={() => useStore.getState().set({ detailsOpen: false })} />}
-          <DetailsPanel />
-        </>
-      )}
+      <div className="main-pane" hidden={settingsOpen}>
+      {detailsOpen && hasBot && view === 'chat' && <div className="setup-pane" hidden={!!botSettings || modal === 'create' || modal === 'group'}><DetailsPanel key={selectedBotId} /></div>}
+      <Suspense fallback={<main className="chat chat--empty" role="status">Loading…</main>}>
+        {modal === 'create' ? <CreateBotModal inline />
+          : modal === 'group' ? <CreateGroupModal inline />
+          : botSettings ? <BotSettingsModal inline />
+          : detailsOpen && hasBot && view === 'chat' ? null
+          : view === 'tasks' ? <TasksView />
+          : view === 'bots' && !mobile ? <BotsView /> : <ChatView />}
+      </Suspense>
+      </div>
       <Suspense fallback={<div className="toast" role="status">Loading…</div>}>
-      {modal === 'create' && <CreateBotModal />}
-      {modal === 'group' && <CreateGroupModal />}
       {modal === 'search' && <SearchModal />}
       {modal === 'apps' && <ConnectAppsModal />}
       {viewerOpen && <ComputerViewer />}

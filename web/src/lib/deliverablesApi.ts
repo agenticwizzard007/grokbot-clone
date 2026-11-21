@@ -4,8 +4,8 @@ import type { Artifact, ArtifactDelivery, DeliveryChannel, RoutineRun } from '@s
 export type { Artifact, ArtifactDelivery, DeliveryChannel, RoutineRun };
 export type SavedDeliverable = Artifact & { deliveries: ArtifactDelivery[] };
 
-async function request<T>(path: string, body?: unknown, key?: string): Promise<T> {
-  const response = await fetch(`/api/deliverables${path}`, { method: body === undefined ? 'GET' : 'POST', credentials: 'include',
+async function request<T>(path: string, body?: unknown, key?: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(`/api/deliverables${path}`, { method: body === undefined ? 'GET' : 'POST', credentials: 'include', signal,
     headers: body === undefined ? undefined : { 'Content-Type': 'application/json', ...(key ? { 'Idempotency-Key': key } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body) });
   if (!response.ok) {
@@ -15,9 +15,9 @@ async function request<T>(path: string, body?: unknown, key?: string): Promise<T
   return response.json();
 }
 export const deliverablesApi = {
-  list: (botId: string) => request<{ artifacts: SavedDeliverable[] }>(`/bots/${encodeURIComponent(botId)}`),
-  runs: (botId: string, routineId?: string) => request<{ runs: RoutineRun[] }>(`/bots/${encodeURIComponent(botId)}/runs${routineId ? `?routineId=${encodeURIComponent(routineId)}` : ''}`),
-  run: (id: string) => request<{ run: RoutineRun; artifacts: Artifact[] }>(`/runs/${encodeURIComponent(id)}`),
+  list: (botId: string, signal?: AbortSignal) => request<{ artifacts: SavedDeliverable[] }>(`/bots/${encodeURIComponent(botId)}`, undefined, undefined, signal),
+  runs: (botId: string, routineId?: string, signal?: AbortSignal) => request<{ runs: RoutineRun[] }>(`/bots/${encodeURIComponent(botId)}/runs${routineId ? `?routineId=${encodeURIComponent(routineId)}` : ''}`, undefined, undefined, signal),
+  run: (id: string, signal?: AbortSignal) => request<{ run: RoutineRun; artifacts: Artifact[] }>(`/runs/${encodeURIComponent(id)}`, undefined, undefined, signal),
   preview: (id: string, channel: DeliveryChannel) => request<{ destination: DeliveryDestination }>(`/artifacts/${encodeURIComponent(id)}/delivery-preview`, { channel }),
   retryPreview: (id: string) => request<{ destination: DeliveryDestination }>(`/deliveries/${encodeURIComponent(id)}/retry-preview`, {}),
   delivery: (id: string) => request<{ delivery: ArtifactDelivery }>(`/deliveries/${encodeURIComponent(id)}`),

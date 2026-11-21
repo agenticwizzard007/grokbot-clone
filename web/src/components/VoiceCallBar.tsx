@@ -50,27 +50,9 @@ function VoiceConnect({ request, callId }: { request: VoiceConnectionRequest; ca
   );
 }
 
-function MicGlyph({ off }: { off?: boolean }) {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="9" y="3" width="6" height="11" rx="3" />
-      <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
-      {off && <path d="M4 4l16 16" />}
-    </svg>
-  );
-}
-
-function HangUpGlyph() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
-      <path fill="currentColor" d="M12 9.5c-2.6 0-5.1.5-7.3 1.6-.7.3-1.2 1-1.2 1.8v2.3c0 .8.7 1.4 1.5 1.3l3-.4c.7-.1 1.2-.7 1.2-1.4v-1.6c1.8-.5 3.8-.5 5.6 0v1.6c0 .7.5 1.3 1.2 1.4l3 .4c.8.1 1.5-.5 1.5-1.3v-2.3c0-.8-.5-1.5-1.2-1.8-2.2-1.1-4.7-1.6-7.3-1.6Z" />
-    </svg>
-  );
-}
-
 const fmt = (ms: number) => {
   const s = Math.max(0, Math.floor(ms / 1000));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 };
 
 /** In-call bar shown above the composer while a voice call is connecting, live, or just failed. */
@@ -82,6 +64,7 @@ export function VoiceCallBar() {
   const avatarRef = useRef<HTMLSpanElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const active = v.status === 'connecting' || v.status === 'live';
+  useEffect(() => { setExpanded(false); }, [v.callId, v.botId]);
 
   useEffect(() => {
     if (v.status !== 'live') return;
@@ -142,25 +125,24 @@ export function VoiceCallBar() {
         <div className="vcall__info">
           <div className="vcall__title">
             <span className="vcall__name">{bot.name}</span>
-            {v.status === 'live' && v.startedAt && <span className="vcall__time">{fmt(now - v.startedAt)}</span>}
           </div>
           <div className={`vcall__status${working && !v.speaking && !v.listening ? ' vcall__shimmer' : ''}`} aria-live="polite">
-            {status}
+            {v.status === 'live' && v.startedAt && <span className="vcall__time">{fmt(now - v.startedAt)} · </span>}{status}
             {working && <span className="vcall__task" title={task}> · {task}</span>}
           </div>
         </div>
         <div className="vcall__actions">
           {active && (
             <button type="button" className={`vcall__btn${v.muted ? ' is-on' : ''}`} onClick={toggleMute} aria-pressed={v.muted} aria-label={v.muted ? 'Unmute' : 'Mute'} title={v.muted ? 'Unmute' : 'Mute'}>
-              <MicGlyph off={v.muted} />
+              {v.muted ? 'Unmute' : 'Mute'}
             </button>
           )}
           {active ? (
             <button type="button" className="vcall__btn vcall__btn--end" onClick={endCall} aria-label="End call" title="End call">
-              <HangUpGlyph />
+              End
             </button>
           ) : (
-            <button type="button" className="vcall__btn" onClick={() => useVoice.setState({ status: 'idle', botId: null, error: null })} aria-label="Dismiss">✕</button>
+            <button type="button" className="vcall__btn" onClick={() => useVoice.setState({ status: 'idle', botId: null, error: null })}>Dismiss</button>
           )}
         </div>
       </div>
@@ -177,16 +159,18 @@ export function VoiceCallBar() {
       {v.status === 'live' && (
         expanded ? (
           <div className="vcall__log" ref={logRef}>
+            <h2>Transcript</h2>
             {lines.length ? lines.map((c) => (
               <div key={c.id} className={`vcall__line is-${c.role}`}><b>{c.role === 'user' ? 'You' : bot.name}</b> {c.text}</div>
             )) : <div className="vcall__line is-empty">Nothing said yet.</div>}
             <button type="button" className="vcall__toggle" onClick={() => setExpanded(false)}>Hide transcript</button>
           </div>
         ) : (
-          <button type="button" className="vcall__captions" onClick={() => setExpanded(true)} title="Show full transcript">
+          <button type="button" className="vcall__captions" onClick={() => setExpanded(true)} aria-label="Show transcript">
             {last.length ? last.map((c) => (
               <span key={c.id} className={`vcall__caption is-${c.role}${c.final ? '' : ' is-partial'}`}>{c.text}</span>
             )) : <span className="vcall__caption is-empty">{v.muted ? 'You’re muted.' : `Say hi to ${bot.name}.`}</span>}
+            <span className="vcall__captions-label" aria-hidden>Show transcript</span>
           </button>
         )
       )}

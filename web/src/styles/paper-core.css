@@ -1,0 +1,131 @@
+/* Core screen geometry from accepted Paper V13. Live content remains naturally sized. */
+.app .chat:not(.tasks-view) { min-width: 0; padding: 32px 40px 24px; }
+.chat__context { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 36px; margin-bottom: 24px; color: var(--color-text-secondary); flex-shrink: 0; }
+.chat__back { display: inline-flex; align-items: center; gap: 10px; min-height: 36px; border-radius: 8px; padding: 4px 0; position: static; color: var(--color-text-secondary); }
+.chat__back:hover { color: var(--color-text-primary); }
+.app .chat__header { position: relative; inset: auto; display: flex; align-items: center; justify-content: flex-start; gap: 12px; height: auto; min-height: 58px; width: 100%; max-width: 720px; margin: 0 auto; padding: 0 0 18px; flex-shrink: 0; background: var(--color-bg-chrome); pointer-events: auto; }
+.app .chat__pill-anchor { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; max-width: none; }
+.app .chat__pill { justify-content: flex-start; padding: 0; border: 0; border-radius: 6px; background: none; box-shadow: none; width: fit-content; max-width: 100%; }
+.chat__pill-name { font-size: 16px; line-height: 26px; }
+.chat__subtitle { font-size: 13px; line-height: 20px; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app .chat__header-right { position: static; display: flex; gap: 8px; flex-shrink: 0; }
+.app .chat__details, .app .share-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; height: auto; padding: 10px 14px; border: 0; border-radius: 12px; background: var(--color-bg-active); color: var(--color-text-primary); }
+.chat__details:hover, .share-btn:hover { background: var(--color-bg-secondary-active); }
+.app .transcript-wrap { width: 100%; max-width: 720px; margin: 0 auto; }
+.app .transcript { padding: 8px 0 16px; scrollbar-width: thin; }
+.transcript__col { max-width: 720px; gap: 16px; justify-content: flex-start; }
+.transcript__col > .divider:first-child { margin-top: 16px; }
+.bubble-wrap { width: 100%; }
+.app .bubble { width: 82%; max-width: 82%; padding: 16px 18px; border-radius: 16px; box-shadow: none; }
+.app .bubble.is-agent { background: var(--color-bg-sidebar); color: var(--color-text-primary); }
+:root[data-theme='dark'] .app .bubble.is-agent { background: var(--color-bg-pane); }
+.app .bubble.is-user { background: var(--color-bg-active); color: var(--color-text-primary); }
+.bubble__sender { font-size: 13px; font-weight: 500; line-height: 22px; color: var(--color-text-secondary); margin-bottom: 6px; }
+.bubble__time { flex-shrink: 0; }
+.app .composer-area { width: 100%; max-width: 720px; margin: 0 auto; padding: 0; }
+.app .composer-shell { max-width: 720px; }
+.app .composer { max-width: 720px; padding: 16px; border: 1px solid var(--color-border-secondary); border-radius: 20px; box-shadow: none; gap: 14px; background-color: var(--color-bg-chrome); }
+.app .composer__input { padding: 0; min-height: 48px; font-size: 15px; line-height: 22px; }
+.app .composer__bar { padding: 0; gap: 10px; flex-wrap: wrap; }
+.app .composer__left { gap: 8px; flex: 1 1 180px; }
+.app .composer__right { margin-left: auto; gap: 8px; }
+.app .composer__btn, .app .composer__cta { width: 44px; height: 44px; min-width: 44px; flex-shrink: 0; }
+.app .composer__btn { background: var(--color-bg-active); box-shadow: none; }
+.app .composer__cta { background: var(--color-primary); color: var(--color-on-primary); }
+.app .composer__voice { width: auto; padding: 0 14px; font-size: 13px; border-radius: 22px; }
+.app .composer__voice.is-in-call { background: var(--color-danger); color: white; }
+.app .model-pill { min-height: 44px; height: auto; flex-wrap: wrap; gap: 4px 6px; padding: 4px 6px; border-radius: 10px; }
+.app .model-pill__name { white-space: normal; overflow-wrap: anywhere; text-align: left; }
+.app .model-pill__effort { font-size: 12px; }
+.app .composer__error { max-width: 720px; padding: 10px 12px; }
+.app .composer-area > .usage-mode { max-width: 720px; }
+.app .vcall { width: 100%; max-width: 720px; margin: 8px auto; }
+.app .agent-exchange__panel { max-width: 100%; padding: 16px; border-radius: 16px; }
+.app .agent-exchange__toggle { min-height: 44px; font-size: 13px; line-height: 20px; }
+.app .steps__toggle { min-height: 36px; }
+.app .jump-btn { width: 44px; height: 44px; }
+.app .chat .toast { max-width: calc(100% - 32px); top: 96px; border-radius: 12px; }
+@media (min-width: 761px) and (max-width: 1100px) {
+  .app .sidebar { width: var(--app-settings-rail-width); }
+  .app .chat:not(.tasks-view) { padding: 24px; }
+}
+@media (max-width: 760px) {
+  .app .sidebar { padding: max(20px, var(--safe-top)) 18px max(12px, var(--safe-bottom)); }
+  .app .sidebar__titlebar { min-height: 36px; height: auto; padding: 0; margin-bottom: 20px; }
+  .app .sidebar__titlebar::before { content: none; }
+  .app .sidebar__scroll { padding: 0; }
+  .app .pinned { justify-content: flex-start; }
+  .app .pinned__tile { width: 100%; max-width: none; padding: 14px 10px; }
+  .app .pinned__label { font-size: 15px; }
+  .app .sidebar__footer { padding: 0; }
+  .app .chat:not(.tasks-view) { padding: max(12px, var(--safe-top)) max(16px, var(--safe-right)) max(12px, var(--safe-bottom)) max(16px, var(--safe-left)); }
+  .chat__context { margin-bottom: 12px; }
+  .app .chat__back { position: static; width: auto; height: auto; display: inline-flex; }
+  .app .chat__back-badge { position: static; min-width: 20px; border-radius: 10px; padding: 1px 6px; color: var(--color-on-primary); background: var(--color-primary); font-size: 11px; }
+  .app .chat__header { gap: 8px; min-height: 54px; padding-bottom: 12px; }
+  .app .chat__header > .bot-avatar { width: 28px !important; height: 28px !important; }
+  .app .chat__details, .app .share-btn { padding: 8px 10px; min-height: 44px; font-size: 13px; }
+  .app .chat__header-right { gap: 6px; }
+  .app .chat__pill-name { font-size: 15px; }
+  .app .transcript { padding: 4px 0 12px; }
+  .app .bubble { width: 90%; max-width: 90%; padding: 14px; }
+  .app .composer { padding: 12px; gap: 10px; }
+  .app .composer__input { font-size: 16px; min-height: 44px; }
+  .app .composer__bar { gap: 6px; }
+  .app .composer__left { flex-basis: 140px; }
+  .app .composer__voice { padding: 0 12px; }
+  .app .composer-area { padding: 0; }
+  .app .chat .toast { top: 60px; bottom: auto; }
+  .bots-view { padding: 24px 16px; }
+}
+@media (max-height: 550px) {
+  .app .chat:not(.tasks-view) { padding-top: 10px; padding-bottom: 10px; }
+  .chat__context { margin-bottom: 4px; }
+  .app .chat__header { padding-bottom: 8px; }
+  .app .composer { padding: 8px 12px; gap: 4px; }
+  .app .composer__input { min-height: 32px; max-height: 80px; }
+  .sidebar__titlebar { margin-bottom: 10px; }
+  .sidebar-usage { padding-block: 8px; }
+  .sidebar-usage__detail { display: none; }
+}
+
+.setup-pane { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.setup-pane[hidden] { display: none; }
+
+.flock-mark { display: inline-flex; flex-shrink: 0; }
+.flock-mark img { width: 100%; height: 100%; }
+.flock-mark.is-working .flock-mark__static { display: none; }
+.app .activity-line__mark { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .flock-mark.is-working .flock-mark__moving { display: none; }
+  .flock-mark.is-working .flock-mark__static.brand-image--light { display: block; }
+  :root[data-theme='dark'] .flock-mark.is-working .flock-mark__static.brand-image--light { display: none; }
+  :root[data-theme='dark'] .flock-mark.is-working .flock-mark__static.brand-image--night { display: block; }
+}
+
+/* Shared chat cards and transient dialogs use the same Paper controls. */
+.card { border-radius: 18px; }
+.card .btn { min-height: 44px; height: auto; border-radius: 12px; padding: 10px 14px; white-space: normal; text-align: center; }
+.card__actions { flex-wrap: wrap; }
+.question-option { min-height: 44px; }
+.modal { border-radius: 20px; }
+.search-modal { width: min(680px, calc(100vw - 48px)); }
+.search-modal__field { padding: 24px; }
+.search-row { min-height: 64px; }
+.search-modal__empty { padding: 28px; }
+.search-modal__empty p { color: var(--color-text-secondary); }
+@media (max-width: 760px) { .modal { border-radius: 0; } }
+
+.main-pane { display: flex; flex: 1; min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
+.main-pane[hidden] { display: none; }
+.app.is-mobile.is-app-settings .sidebar { display: none; }
+
+.group-create__field { display: flex; flex-direction: column; gap: 8px; font-weight: 500; }
+.group-create__field .text-input { min-height: 44px; border-radius: 12px; padding: 10px 14px; font-weight: 400; }
+.group-create__members { border: 0; padding: 0; margin: 24px 0; min-width: 0; }
+.group-create__members legend { color: var(--color-text-secondary); margin-bottom: 8px; font-size: 13px; }
+.group-create__member { display: flex; align-items: center; gap: 12px; padding: 18px 0; border-bottom: 1px solid var(--color-border-secondary); }
+.group-create__member > span:not(.bot-avatar) { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.group-create__member strong { font-weight: 500; }
+.group-create__member small { color: var(--color-text-secondary); font-size: 13px; overflow-wrap: anywhere; }
+.group-create__member input { width: 20px; height: 20px; accent-color: var(--color-primary); flex-shrink: 0; }

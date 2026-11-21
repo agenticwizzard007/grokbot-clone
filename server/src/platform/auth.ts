@@ -39,7 +39,17 @@ export function platformAuth(directory: Directory, envelopes: TenantEnvelopes, r
   });
   app.post('/logout',async c=>{const s=await session(c);if(s){await directory.pool.query('DELETE FROM sessions WHERE hash=$1',[s.hash]);revoked(s.tenant_id,s.hash);}deleteCookie(c,'swarm_session',{path:'/'});return c.json({ok:true});});
   app.get('/sessions',async c=>{const s=await session(c);if(!s)return c.json({error:'Unauthenticated.'},401);return c.json({sessions:(await directory.pool.query('SELECT hash AS id,device,created_at,last_seen_at,expires_at FROM sessions WHERE tenant_id=$1 AND expires_at>now()',[s.tenant_id])).rows.map(r=>({...r,current:r.id===s.hash}))});});
-  app.delete('/sessions/:id',async c=>{const s=await session(c);if(!s)return c.json({error:'Unauthenticated.'},401);const r=await directory.pool.query('DELETE FROM sessions WHERE tenant_id=$1 AND hash=$2',[s.tenant_id,c.req.param('id')]);if(!r.rowCount)return c.json({error:'Session not found.'},404);revoked(s.tenant_id,c.req.param('id'));return c.json({ok:true});});
+  app.delete('/sessions/:id', async c => {
+    const current = await session(c);
+    if (!current) return c.json({ error: 'Unauthenticated.' }, 401);
+    const target = c.req.param('id');
+    const result = await directory.pool.query('DELETE FROM sessions WHERE tenant_id=$1 AND hash=$2', [current.tenant_id, target]);
+    if (!result.rowCount) return c.json({ error: 'Session not found.' }, 404);
+    const revokedCurrent = target === current.hash;
+    revoked(current.tenant_id, target);
+    if (revokedCurrent) deleteCookie(c, 'swarm_session', { path: '/' });
+    return c.json({ ok: true, revokedCurrent });
+  });
 
   for(const provider of ['google','openrouter','apple'] as const){
     app.get(`/${provider}/start`,async c=>{

@@ -1,5 +1,5 @@
 import { ApiError } from './api';
-import type { KnowledgeMemory, KnowledgeSkill, MessageSource } from './configApi';
+import type { KnowledgeMemory, KnowledgeSkill, MessageSource, SkillEvaluation } from './configApi';
 
 /** Wire contracts published in the native build's learning-api.md. */
 export interface LearningSettings {
@@ -49,6 +49,7 @@ export async function nativeRequest<T>(path: string, method = 'GET', body?: unkn
 }
 const id = encodeURIComponent;
 export const learningApi = {
+  evaluateProposal: (proposalId: string) => nativeRequest<{ evaluation: SkillEvaluation }>(`/learning/skill-proposals/${id(proposalId)}/evaluate`, 'POST', {}),
   promotionPolicy:(skillId:string)=>nativeRequest<{standingPolicy:{revision:number;policy:Record<string,unknown>}|null}>(`/learning/skills/${id(skillId)}/promotion-policy`),
   savePromotionPolicy:(skillId:string,expectedRevision:number,policy:Record<string,unknown>)=>nativeRequest<{standingPolicy:{revision:number;policy:Record<string,unknown>}}>(`/learning/skills/${id(skillId)}/promotion-policy`,'PUT',{expectedRevision,policy}),
   recheck:(skillId:string,expectedRevision:number)=>nativeRequest<{action:string}>(`/learning/skills/${id(skillId)}/recheck`,'POST',{expectedRevision}),
@@ -64,5 +65,7 @@ export const learningApi = {
   updateSkill: (skillId: string, patch: Partial<Pick<LearningSkill, 'name' | 'description' | 'body' | 'resources' | 'locked' | 'pinned' | 'managed'>> & { expectedRevision: number }) => nativeRequest<{ skill: LearningSkill }>(`/learning/skills/${id(skillId)}`, 'PATCH', patch),
   archive: (skillId: string, expectedRevision: number) => nativeRequest<{ skill: LearningSkill }>(`/learning/skills/${id(skillId)}/archive`, 'POST', { expectedRevision }),
   scope: (kind: 'skills' | 'memories', itemId: string, expectedRevision: number, scope: KnowledgeScope, projectId?: string, botIds?: string[]) => nativeRequest<{ item: LearningSkill | LearningMemory }>(`/learning/${kind}/${id(itemId)}/scope`, 'PATCH', { expectedRevision, scope, ...(scope === 'project' ? { projectId, botIds } : {}) }),
-  curate: (botId: string) => nativeRequest<{ archived: string[]; stale: string[]; deferred: boolean }>(`/learning/bots/${id(botId)}/curate`, 'POST', {}),
+  curate: (botId: string, signal?: AbortSignal) => nativeRequest<SkillMaintenanceOutcome>(`/learning/bots/${id(botId)}/curate`, 'POST', {}, signal),
 };
+
+export interface SkillMaintenanceOutcome { archived: string[]; stale: string[]; deferred: boolean }

@@ -1,23 +1,42 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { configApi, type KnowledgeMemory, type KnowledgeSkill, type MessageSource, type SkillProposal, type SkillRevision, type SourceMessage, type SkillEvaluation } from '../../lib/configApi';
 import { learningApi } from '../../lib/learningApi';
+import { conversationSourcePath, knowledgeUiApi, type ConversationFilters, type ConversationPage } from '../../lib/knowledgeUiApi';
+import { useStore } from '../../store';
 import { shortDate } from './ui';
 
 export function SourceMessages({ sources }: { sources: MessageSource[] }) {
+  const userId = useStore(state => state.user?.id);
+  const scope = JSON.stringify([userId, sources.map(source => conversationSourcePath(source))]);
+  return <SourceMessageReader key={scope} sources={sources} userId={userId} />;
+}
+
+function SourceMessageReader({ sources, userId }: { sources: MessageSource[]; userId?: string }) {
   const [messages, setMessages] = useState<SourceMessage[] | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const request = useRef<AbortController | null>(null);
+  useEffect(() => () => request.current?.abort(), []);
   const read = async (source: MessageSource) => {
-    setBusy(true); setError('');
-    try { setMessages((await configApi.sourceMessages(source)).messages); } catch (e) { setError((e as Error).message); }
-    finally { setBusy(false); }
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
+    const current = () => !controller.signal.aborted && useStore.getState().user?.id === userId;
+    setBusy(true); setError(''); setMessages(null);
+    try {
+      const value = await knowledgeUiApi.source(source, controller.signal);
+      if (current()) setMessages(value.messages.filter(message => message.botId === source.botId && message.generation === source.generation));
+    } catch (failure) { if (current()) setError((failure as Error).message); }
+    finally { if (current()) setBusy(false); }
   };
   return <div className="cfg-field__hint">
-    {sources.map(s => <a key={`${s.botId}:${s.generation}:${s.seq}:${s.kind ?? 'message'}`} href={`/api/bots/${encodeURIComponent(s.botId)}/messages/${s.generation}/${s.seq}${s.kind ? '?kind=tool' : ''}`} onClick={e => { e.preventDefault(); void read(s); }} style={{ marginRight: 10 }}>{s.kind === 'tool' ? 'Tool source' : 'Source'} {s.generation}:{s.seq}</a>)}
+    {sources.map(source => <button type="button" className="cfg-btn cfg-btn--secondary knowledge-source__open" key={conversationSourcePath(source)} onClick={() => void read(source)}>{source.kind === 'tool' ? 'Open tool source' : 'Open conversation source'} {source.generation}:{source.seq}</button>)}
     {busy && <span role="status">Loading sources…</span>}
     {error && <div className="cfg-error" role="alert">{error}</div>}
     {messages && <div className="cfg-editor">
       <button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setMessages(null)}>Close sources</button>
+      <h4>Conversation excerpt</h4>
+      {messages.length === 0 && <p>No longer available.</p>}
       {messages.map(m => <div key={m.sourceKey} style={{ marginTop: 10 }}>
         <strong>{m.from && ['bot', 'routine'].includes(m.from.kind) ? `${m.from.kind}: ${m.from.name}` : m.role === 'user' ? 'User' : m.role === 'tool' ? 'Tool observation' : 'Assistant'} · {m.generation}:{m.seq}{m.archived ? ' · Archived conversation' : ''}</strong>
         <div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{m.text}</div>
@@ -73,7 +92,7 @@ function ProcedurePolicy({skill,onChange}:{skill:KnowledgeSkill;onChange:()=>voi
 }
 
 export function SkillReview({ botId, version, onChange }: { botId: string; version: string; onChange: () => void }) {
-  const [proposals, setProposals] = useState<SkillProposal[]>([]);
+  const [proposals, setProposals] = useState<SkillProposal[] | null>(null);
   const [archive, setArchive] = useState<KnowledgeSkill[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
@@ -81,34 +100,49 @@ export function SkillReview({ botId, version, onChange }: { botId: string; versi
   useEffect(() => {
     let active = true; setError('');
     Promise.all([configApi.skillProposals(botId), learningApi.skills(botId, true)]).then(([p, a]) => {
-      if (active) { setProposals(p.proposals.filter(p => p.status === 'pending')); setArchive(a.skills.filter(s => s.deleted)); }
+      if (active) { setProposals(p.proposals); setArchive(a.skills.filter(s => s.deleted && s.botId === botId)); }
     }).catch(e => { if (active) setError(e.message); });
     return () => { active = false; };
   }, [botId, version, refresh]);
-  const review = async (p: SkillProposal, decision: 'approve' | 'reject') => {
+  const review = async (p: SkillProposal, decision: 'approve' | 'reject' | 'evaluate') => {
+    if (busy || p.status !== 'pending') return;
     setBusy(p.id); setError('');
-    try { await configApi.reviewSkill(p.id, decision, p.baseRevision); setRefresh(r => r + 1); onChange(); }
+    try {
+      if (decision === 'evaluate') await learningApi.evaluateProposal(p.id);
+      else await configApi.reviewSkill(p.id, decision, p.baseRevision);
+      setRefresh(r => r + 1); onChange();
+    }
     catch (e) { setError((e as Error).message); }
     finally { setBusy(null); }
   };
-  return <div>
-    {error && <div className="cfg-error" role="alert">{error}</div>}
-    {proposals.length > 0 && <div className="cfg-editor">
-      <strong>Learned skills awaiting review ({proposals.length})</strong>
-      <div className="cfg-field__hint">Review the proposed steps and sources before they become active.</div>
-      {proposals.map(p => <details key={p.id}>
-        <summary>{p.content.name} · {p.baseRevision ? `Updates revision ${p.baseRevision}` : 'New skill'}</summary>
-        <p>{p.reason}</p>
-        <EvaluationResults evaluations={p.evaluations??[]} />
-        <pre aria-label="Proposed skill diff" style={{ whiteSpace: 'pre-wrap', maxHeight: 320, overflow: 'auto' }}>{p.diff}</pre>
-        <SourceMessages sources={p.evidence} />
-        <div className="cfg-editor__actions">
-          <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => void review(p, 'reject')}>Reject</button>
-          <button type="button" className="cfg-btn cfg-btn--primary" disabled={!!busy} onClick={() => void review(p, 'approve')}>{busy === p.id ? 'Reviewing…' : 'Approve'}</button>
-        </div>
-      </details>)}
+  const pending = proposals?.filter(proposal => proposal.status === 'pending') ?? [];
+  const reviewed = proposals?.filter(proposal => proposal.status !== 'pending') ?? [];
+  const proposalRow = (proposal: SkillProposal) => <details className="native-history" key={proposal.id}>
+    <summary>{proposal.content.name} · {proposal.baseRevision ? `Base revision ${proposal.baseRevision}` : 'New skill'} · {proposal.status}</summary>
+    <p>{proposal.reason}</p>
+    {proposal.status === 'pending' && <p className="native-meta">The current skill stays active until a change is approved.</p>}
+    <pre aria-label="Proposed skill diff" className="knowledge-item__diff">{proposal.diff}</pre>
+    <details><summary>Proposal evaluation</summary><EvaluationResults evaluations={proposal.evaluations ?? []} />
+      {proposal.status === 'pending' && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => void review(proposal, 'evaluate')}>Evaluate frozen proposal</button>}
+    </details>
+    <SourceMessages sources={proposal.evidence} />
+    {proposal.status === 'pending' && <div className="cfg-editor__actions">
+      <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => void review(proposal, 'reject')}>Reject</button>
+      <button type="button" className="cfg-btn cfg-btn--primary" disabled={!!busy} onClick={() => void review(proposal, 'approve')}>{busy === proposal.id ? 'Updating…' : 'Approve'}</button>
     </div>}
-    {archive.length > 0 && <details><summary>Deleted skills ({archive.length})</summary>{archive.map(s => <div className="cfg-editor" key={s.id}><strong>{s.name}</strong><SkillHistory skill={s} onChange={() => { setRefresh(r => r + 1); onChange(); }} /></div>)}</details>}
+  </details>;
+  return <div>
+    {error && <div className="cfg-error" role="alert">{error} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setRefresh(value => value + 1)}>Refresh skill changes</button></div>}
+    <details className="knowledge-item">
+      <summary className="knowledge-item__row"><span><strong>Learned skill changes</strong><small>{pending.length ? `${pending.length} pending review.` : proposals ? 'No pending proposals.' : 'Review proposed steps and sources.'}</small></span><span className="knowledge-item__action">Review changes</span></summary>
+      {!proposals && !error && <p role="status">Loading proposed changes…</p>}
+      {pending.map(proposalRow)}
+      {!!reviewed.length && <details className="knowledge-item__details"><summary>Earlier skill proposals ({reviewed.length})</summary>{reviewed.map(proposalRow)}</details>}
+    </details>
+    <details className="knowledge-item"><summary className="knowledge-item__row"><span><strong>Deleted skills</strong><small>Find archived procedures and their history.</small></span><span className="knowledge-item__action">Show deleted skills</span></summary>
+      {!archive.length && proposals && <p>No archived skills.</p>}
+      {archive.map(s => <div className="cfg-editor" key={s.id}><strong>{s.name}</strong><SkillHistory skill={s} onChange={() => { setRefresh(r => r + 1); onChange(); }} /></div>)}
+    </details>
   </div>;
 }
 
@@ -140,42 +174,80 @@ export function MemoryEvidence({ memory, onChange }: { memory: KnowledgeMemory; 
   </div>;
 }
 
-export function ConversationSearch({ botId }: { botId: string }) {
-  const [query, setQuery] = useState('');
-  const [messages, setMessages] = useState<SourceMessage[] | null>(null);
+export function ConversationSearch({ botId, expanded = false }: { botId: string; expanded?: boolean }) {
+  const userId = useStore(state => state.user?.id);
+  return <ConversationSearchForm key={JSON.stringify([userId, botId])} botId={botId} userId={userId} expanded={expanded} />;
+}
+
+function ConversationSearchForm({ botId, userId, expanded }: { botId: string; userId?: string; expanded: boolean }) {
+  const [filters, setFilters] = useState<ConversationFilters>({ query: '', role: '', generation: '' });
+  const [result, setResult] = useState<(ConversationPage & { filters: ConversationFilters }) | null>(null);
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const search = async () => {
-    setBusy(true); setError('');
-    try { setMessages((await configApi.searchConversations(botId, query)).messages); } catch (e) { setError((e as Error).message); }
-    finally { setBusy(false); }
+  const [busy, setBusy] = useState<'search' | 'more' | null>(null);
+  const request = useRef<AbortController | null>(null);
+  useEffect(() => () => request.current?.abort(), []);
+  const search = async (submitted: ConversationFilters, offset = 0) => {
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
+    const current = () => !controller.signal.aborted && useStore.getState().user?.id === userId;
+    setBusy(offset ? 'more' : 'search'); setError('');
+    if (!offset) setResult(null);
+    try {
+      const value = await knowledgeUiApi.search(botId, submitted, offset, controller.signal);
+      if (!current()) return;
+      const messages = value.messages.filter(message => message.botId === botId && (!submitted.generation || message.generation === Number(submitted.generation)) && (!submitted.role || message.role === submitted.role));
+      setResult(previous => ({ filters: submitted,
+        nextOffset: value.nextOffset != null && value.nextOffset > offset && value.nextOffset <= 10000 ? value.nextOffset : null,
+        messages: [...new Map([...(offset ? previous?.messages ?? [] : []), ...messages].map(message => [message.sourceKey, message])).values()],
+      }));
+    } catch (failure) { if (current()) setError((failure as Error).message); }
+    finally { if (current()) setBusy(null); }
   };
-  return <details className="cfg-editor"><summary>Search conversation sources, including archived chats</summary>
-    <form onSubmit={e => { e.preventDefault(); void search(); }}>
-      <input className="text-input" value={query} maxLength={500} onChange={e => setQuery(e.target.value)} aria-label="Search conversation sources" placeholder="Words from a past conversation" />
-      <button type="submit" className="cfg-btn cfg-btn--secondary" disabled={busy}>{busy ? 'Searching…' : 'Search'}</button>
+  const content = <>
+    <p className="native-meta">Find evidence in current or archived chats. Saved tool observations can be opened from their linked records.</p>
+    <form className="knowledge-source__filters" onSubmit={event => { event.preventDefault(); void search(filters); }}>
+      <label>Search conversation sources<input className="text-input" value={filters.query} maxLength={500} onChange={event => setFilters({ ...filters, query: event.target.value })} placeholder="Words from a past conversation" /></label>
+      <div className="learning-grid">
+        <label>Message role<select value={filters.role} onChange={event => setFilters({ ...filters, role: event.target.value as ConversationFilters['role'] })}>
+          <option value="">All messages</option><option value="user">Human</option><option value="assistant">Assistant</option>
+        </select></label>
+        <label>Conversation generation<input className="text-input" type="number" min="1" step="1" placeholder="All conversations" value={filters.generation} onChange={event => setFilters({ ...filters, generation: event.target.value })} /></label>
+      </div>
+      <button type="submit" className="cfg-btn cfg-btn--primary">Search</button>
     </form>
+    {busy && <p role="status">{busy === 'more' ? 'Loading older sources…' : 'Searching conversation sources…'}</p>}
     {error && <div className="cfg-error" role="alert">{error}</div>}
-    {messages?.length === 0 && <div className="cfg-field__hint">No messages match.</div>}
-    {messages?.map(m => <div key={m.sourceKey} className="cfg-editor"><div style={{ whiteSpace: 'pre-wrap' }}>{m.text}</div><SourceMessages sources={[m]} /></div>)}
-  </details>;
+    {result?.messages.length === 0 && <p role="status">No messages match.</p>}
+    {result?.messages.map(message => <article key={message.sourceKey} className="knowledge-source__result">
+      <strong>{message.archived ? 'Archived conversation' : 'Current conversation'} · {message.generation}:{message.seq}</strong>
+      <p>{message.text}</p><SourceMessages sources={[message]} />
+    </article>)}
+    {result && result.nextOffset !== null && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => void search(result.filters, result.nextOffset ?? 0)}>{error ? 'Retry older sources' : 'Load older sources'}</button>}
+    {result && result.nextOffset === null && result.messages.length > 0 && <p className="native-meta" role="status">No more matching sources.</p>}
+  </>;
+  return expanded ? <section className="knowledge-source" aria-label="Conversation source search">{content}</section>
+    : <details className="knowledge-source"><summary>Conversation sources</summary>{content}</details>;
 }
 
 export function MemoryArchive({ botId, version }: { botId: string; version: string }) {
   const [open, setOpen] = useState(false);
-  const [memories, setMemories] = useState<KnowledgeMemory[]>([]);
+  const [memories, setMemories] = useState<KnowledgeMemory[] | null>(null);
   const [error, setError] = useState('');
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!open) return;
     let active = true;
-    configApi.knowledgeMemories(botId, true).then(r => { if (active) setMemories(r.memories.filter(m => m.status !== 'active')); }).catch(e => { if (active) setError(e.message); });
+    setError('');
+    configApi.knowledgeMemories(botId, true).then(r => { if (active) setMemories(r.memories.filter(m => m.botId === botId && m.status !== 'active')); }).catch(e => { if (active) setError(e.message); });
     return () => { active = false; };
-  }, [botId, open, version]);
-  return <div><button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setOpen(!open)}>{open ? 'Hide earlier facts' : 'Earlier and forgotten facts'}</button>
+  }, [botId, open, version, attempt]);
+  return <div className="knowledge-item"><div className="knowledge-item__row"><div><strong>Earlier and forgotten memories</strong><p>See facts that are no longer used.</p></div><button className="cfg-btn cfg-btn--secondary" type="button" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? 'Hide earlier facts' : 'Show earlier facts'}</button></div>
     {open && <div className="cfg-editor"><div className="cfg-field__hint">These facts are excluded from recall. Forgotten facts cannot be relearned from these sources.</div>
-      {error && <div className="cfg-error" role="alert">{error}</div>}
-      {!memories.length && <div>No earlier facts.</div>}
-      {memories.map(m => <div key={m.id}><span className="cfg-chip">{m.status}</span> {m.text}<SourceMessages sources={m.evidence} /></div>)}
+      {error && <div className="cfg-error" role="alert">{error} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setAttempt(value => value + 1)}>Retry</button></div>}
+      {!memories && !error && <p role="status">Loading earlier facts…</p>}
+      {memories?.length === 0 && <div>No earlier facts.</div>}
+      {memories?.map(m => <div key={m.id}><span className="cfg-chip">{m.status}</span> {m.text}<SourceMessages sources={m.evidence} /></div>)}
     </div>}
   </div>;
 }

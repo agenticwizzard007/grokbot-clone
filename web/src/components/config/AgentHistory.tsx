@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNativeRefresh } from '../../lib/useNativeRefresh';
+import { useStore } from '../../store';
 import { SourceMessages } from './KnowledgePanels';
 import type { MessageSource } from '../../lib/configApi';
 import './agent-history.css';
@@ -15,35 +16,49 @@ async function read<T>(botId:string,path:string,signal?:AbortSignal):Promise<T> 
 const label=(s:string)=>s.replaceAll('-',' ').replaceAll('_',' ');
 const format=(value:unknown)=>value===null?'Not recorded':typeof value==='string'?value:JSON.stringify(value,null,2);
 export function AgentHistory({botId}:{botId:string}) {
+  const userId = useStore(state => state.user?.id);
+  return <AgentHistoryPage key={JSON.stringify([userId, botId])} botId={botId} userId={userId} />;
+}
+function AgentHistoryPage({ botId, userId }: { botId: string; userId?: string }) {
   const [data,setData]=useState<Page|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
   const [refresh,requestRefresh]=useNativeRefresh();
   const [latest,setLatest]=useState<number|null>(null);
-  useEffect(()=>{
-    const controller=new AbortController();setData(null);setError('');setLatest(null);setBusy(false);
-    read<Page>(botId,'',controller.signal).then(setData).catch(e=>{if(!controller.signal.aborted)setError(e.message);});
-    return()=>controller.abort();
-  },[botId]);
+  const request = useRef<AbortController | null>(null);
+  const load = useCallback(async (page?: Page) => {
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
+    const current = () => !controller.signal.aborted && useStore.getState().user?.id === userId;
+    setBusy(true); setError('');
+    const params = page?.nextBefore != null ? `?through=${page.through}&before=${page.nextBefore}` : '';
+    try {
+      const next = await read<Page>(botId, params, controller.signal);
+      if (!current()) return;
+      setData(old => params && old ? { ...next, entries: [...new Map([...old.entries, ...next.entries].map(entry => [entry.version, entry])).values()] } : next);
+      setLatest(old => Math.max(old ?? 0, next.latestVersion));
+    } catch (failure) { if (current()) setError((failure as Error).message); }
+    finally { if (current()) setBusy(false); }
+  }, [botId, userId]);
+
+  useEffect(() => { void load(); return () => request.current?.abort(); }, [load]);
   useEffect(()=>{
     const controller=new AbortController();
-    read<Page>(botId,'?limit=1',controller.signal).then(p=>setLatest(p.latestVersion)).catch(()=>{});
+    if (refresh) read<Page>(botId,'?limit=1',controller.signal).then(page => {
+      if (!controller.signal.aborted && useStore.getState().user?.id === userId) setLatest(page.latestVersion);
+    }).catch(()=>{});
     return()=>controller.abort();
-  },[botId,refresh]);
-  async function load(more=false) {
-    setBusy(true);setError('');
-    try {
-      const next=await read<Page>(botId,more&&data?`?through=${data.through}&before=${data.nextBefore}`:'');
-      setData(old=>more&&old?{...next,entries:[...old.entries,...next.entries]}:next);setLatest(next.latestVersion);
-    }catch(e){setError((e as Error).message);}finally{setBusy(false);}
-  }
+  },[botId,refresh,userId]);
   return <section className="agent-history" aria-label="Agent change history">
-    <header><h3>Agent history</h3><button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={()=>{requestRefresh();void load();}}>Refresh history</button></header>
+    <header><h3>Agent history</h3></header>
     <p>See changes to this agent’s role, memories and skills, including proposals and evaluations. Learning is loaded into model context; these records do not rewrite the setup files.</p>
-    <p className="agent-config__muted">{data?.coverage??'Loading recorded changes…'}</p>
+    <button type="button" className="cfg-btn cfg-btn--primary" disabled={busy} onClick={()=>{requestRefresh();void load();}}>Refresh history</button>
+    {data && <p className="agent-config__muted">{data.coverage}</p>}
+    {!data && busy && <p role="status">Loading recorded changes…</p>}
     {latest!==null&&data&&latest>data.through&&<p role="status">New changes are available. Refresh history to include them.</p>}
     {error&&<p role="alert" className="cfg-error">{error}</p>}
     {data?.entries.length===0&&<p>No recorded changes yet.</p>}
     {data?.entries.map(entry=><HistoryEntry key={`${botId}:${entry.version}`} botId={botId} entry={entry}/>)}
-    {data?.nextBefore!==null&&data&&<button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={()=>void load(true)}>{busy?'Loading…':'Load older changes'}</button>}
+    {data?.nextBefore!=null&&<button type="button" className="cfg-btn cfg-btn--primary" disabled={busy} onClick={()=>void load(data)}>{busy?'Loading…':'Load older changes'}</button>}
   </section>;
 }
 function HistoryEntry({botId,entry}:{botId:string;entry:Entry}) {
@@ -51,7 +66,10 @@ function HistoryEntry({botId,entry}:{botId:string;entry:Entry}) {
   useEffect(()=>{
     if(!open||detail)return;
     const controller=new AbortController();setError('');
-    read<Change>(botId,`/${entry.version}`,controller.signal).then(setDetail).catch(e=>{if(!controller.signal.aborted)setError(e.message);});
+    read<Change>(botId,`/${entry.version}`,controller.signal).then(value => {
+      if (value.version !== entry.version) throw new Error('The server returned a different change. Refresh history and try again.');
+      if (!controller.signal.aborted) setDetail(value);
+    }).catch(e=>{if(!controller.signal.aborted)setError(e.message);});
     return()=>controller.abort();
   },[botId,entry.version,open,detail,attempt]);
   return <details className="agent-history__entry" onToggle={e=>setOpen(e.currentTarget.open)}>

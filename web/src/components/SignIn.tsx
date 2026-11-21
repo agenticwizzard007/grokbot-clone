@@ -3,6 +3,7 @@ import '@fontsource-variable/instrument-sans';
 import '../styles/signin-brand.css';
 import { api } from '../lib/api';
 import { PhoneAuth } from './PhoneAuth';
+import { SwarmMark } from './SwarmMark';
 import '../styles/messaging.css';
 import { useStore } from '../store';
 import { TrafficLights } from './Sidebar';
@@ -53,8 +54,9 @@ export function SignIn() {
   };
 
   return (
-    <div className="signin">
+    <main className="signin access-signin">
       <div className="signin__chrome"><TrafficLights /></div>
+      <div className="access-signin__phone-bar"><SwarmMark size={24} /> Swarm</div>
       <div className="signin__card">
         <header className="signin__header">
           <div className="signin__brand">
@@ -62,22 +64,21 @@ export function SignIn() {
             <img className="signin__brand-dark" src="/assets/brand/swarms-wordmark-dark.svg" width="200" height="32.62" alt="swarms.so" />
           </div>
           <div className="signin__intro">
-            <h1 className="signin__title">Sign in</h1>
-            <p className="signin__sub">AI teammates with their own computers. Hand them a task and they get it done.</p>
+            <h1 className="signin__title">Welcome to Swarm</h1>
+            <p className="signin__sub">Enter your number, or use an enabled sign-in provider.</p>
           </div>
         </header>
         {expired && <div className="signin__notice" role="status">That sign-in link has expired or was already used.</div>}
+        {error && <div className="card__error signin__error" role="alert">{error}</div>}
         <PhoneAuth mode="signin" />
-        <>
-            <div className="signin__divider signin__or"><span>or</span></div>
-            <div className="signin__providers">
-              <OpenRouterSignIn />
-              {appleLogin && <AppleSignIn />}
-              {googleLogin && <AuthLink className="signin__google" href="/api/auth/google/start" icon={<GoogleG />}>Sign in with Google</AuthLink>}
-            </div>
-        </>
-        <p className="signin__disclosure">Sign in or create an account with OpenRouter and use your own model credits. Already use Swarm? Sign in your usual way, then connect OpenRouter in Settings.</p>
-        {googleLogin && <p className="signin__disclosure">Google sign-in uses Composio and requests Gmail access to verify your email address.</p>}
+        <section aria-labelledby="signin-other-methods">
+          <h2 id="signin-other-methods">Other ways to sign in</h2>
+          <div className="signin__providers">
+            <div className="access-signin__provider access-signin__provider--primary"><div><strong>OpenRouter</strong><p>Sign in or create an account and use your own model credits.</p></div><OpenRouterSignIn label="Continue with OpenRouter" /></div>
+            {appleLogin && <div className="access-signin__provider"><div><strong>Apple</strong><p>Use an existing Apple sign-in if available on this server.</p></div><AppleSignIn /></div>}
+            {googleLogin && <div className="access-signin__provider"><div><strong>Google</strong><p>Google sign-in uses Composio and requests Gmail access to verify your email address.</p></div><AuthLink className="signin__google" href="/api/auth/google/start">Sign in with Google</AuthLink></div>}
+          </div>
+        </section>
         {devLogin && (
           <form className="signin__dev" onSubmit={dev}>
             <div className="signin__divider"><span>Dev sign-in</span></div>
@@ -86,10 +87,8 @@ export function SignIn() {
             <button type="submit" className="btn btn--secondary" disabled={busy}>{busy ? 'Signing in…' : 'Continue with email'}</button>
           </form>
         )}
-        {error && <div className="card__error signin__error">{error}</div>}
-        <p className="signin__foot">Built by swarms.so.</p>
       </div>
-    </div>
+    </main>
   );
 }
 

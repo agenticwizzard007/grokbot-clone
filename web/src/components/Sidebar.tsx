@@ -1,7 +1,7 @@
 import { userFacingLive } from '../lib/audience';
 import { memo, useCallback, useState } from 'react';
-import { Blocks, Gauge, KeyRound, LogOut, Monitor, Settings } from 'lucide-react';
-import { useConfigUI } from '../configStore';
+import { Blocks, ChevronDown, Gauge, KeyRound, LogOut, Monitor, Settings } from 'lucide-react';
+import { openConversation, useConfigUI } from '../configStore';
 import { TasksIsland } from './config/TasksView';
 import type { Bot } from '@shared/types';
 import { BotAvatarFor } from '../avatar/BotAvatar';
@@ -9,6 +9,7 @@ import { displayName, useStore } from '../store';
 import { api } from '../lib/api';
 import { Icon } from './Icon';
 import { Menu } from './Menu';
+import { SidebarUsage } from './SidebarUsage';
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
@@ -36,7 +37,7 @@ function previewFor(bot: Bot, running: boolean, awaiting: string | null) {
 
 const BotRow = memo(function BotRow({ bot, selected, running, awaiting, onSelect }: { bot: Bot; selected: boolean; running: boolean; awaiting: string | null; onSelect: (id: string) => void }) {
   return (
-    <button type="button" className={`bot-row${selected ? ' is-selected' : ''}`} onClick={() => onSelect(bot.id)} aria-current={selected || undefined}>
+    <button type="button" className={`bot-row${selected ? ' is-selected' : ''}`} onClick={() => onSelect(bot.id)} aria-label={`${displayName(bot)}. ${previewFor(bot, running, awaiting)}`} aria-current={selected || undefined}>
       <span className="bot-row__avatar">
         <BotAvatarFor bot={bot} size={36} />
         {(running || awaiting || bot.unread > 0) && (
@@ -44,7 +45,7 @@ const BotRow = memo(function BotRow({ bot, selected, running, awaiting, onSelect
         )}
       </span>
       <span className="bot-row__text">
-        <span className="bot-row__name">{displayName(bot)}</span>
+        <span className="bot-row__name">{bot.name}</span>
         <span className="bot-row__preview">{previewFor(bot, running, awaiting)}</span>
       </span>
     </button>
@@ -55,17 +56,22 @@ export function Sidebar() {
   const bots = useStore((s) => s.bots);
   const live = useStore((s) => s.live);
   const storeSelectedBotId = useStore((s) => s.selectedBotId);
-  const inTasks = useConfigUI((s) => s.view === 'tasks');
+  const inTasks = useConfigUI((s) => s.view !== 'chat');
   const selectedBotId = inTasks ? null : storeSelectedBotId; // nothing highlighted while the Tasks view is open
   const user = useStore((s) => s.user);
   // Phones show the full list as the home screen, never the collapsed rail.
   const collapsed = useStore((s) => s.sidebarCollapsed && !s.mobile);
   const set = useStore((s) => s.set);
-  const storeSelectBot = useStore((s) => s.selectBot);
   // Picking a bot (even the one already selected) leaves the Tasks view.
-  const selectBot = useCallback((id: string) => { useConfigUI.getState().setView('chat'); storeSelectBot(id); }, [storeSelectBot]);
+  const selectBot = useCallback(openConversation, []);
   const setModal = useStore((s) => s.setModal);
   const [accountMenu, setAccountMenu] = useState(false);
+  const createBot = () => { useConfigUI.getState().closeAppSettings(); useConfigUI.getState().closeBotSettings(); setModal('create'); };
+  const showBots = () => {
+    const ui = useConfigUI.getState(); ui.closeAppSettings(); ui.closeBotSettings(); setModal(null);
+    ui.setView(useStore.getState().mobile ? 'chat' : 'bots');
+    set({ mobilePane: 'list', detailsOpen: false });
+  };
   const logout = async () => { await api.logout().catch(() => {}); location.reload(); };
 
   const primary = bots.find((b) => b.isPrimary);
@@ -74,34 +80,36 @@ export function Sidebar() {
   return (
     <aside className={`sidebar${collapsed ? ' is-collapsed' : ''}`} aria-label="Your bots">
       <div className="sidebar__titlebar">
-        <TrafficLights />
+        <button type="button" className="sidebar__brand" aria-label="Your bots" onClick={showBots}>
+          {collapsed ? <>
+            <img className="brand-image brand-image--light" src="/assets/swarms/flock.svg" alt="" />
+            <img className="brand-image brand-image--night" src="/assets/swarms/flock-night.svg" alt="" />
+          </> : <>
+            <img className="brand-image brand-image--light" src="/assets/swarms/wordmark.svg" alt="swarms.so" />
+            <img className="brand-image brand-image--night" src="/assets/swarms/wordmark-night.svg" alt="swarms.so" />
+          </>}
+        </button>
         <div className="sidebar__controls">
           <button type="button" className="icon-btn icon-btn--plain" onClick={() => set({ sidebarCollapsed: !collapsed })} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} title="Toggle sidebar (⌘B)">
             <Icon name="sidebar" opacity={0.66} />
           </button>
-          {!collapsed && (
-            <>
-              <button type="button" className="icon-btn" onClick={() => setModal('search')} aria-label="Search" title="Search (⌘K)">
-                <Icon name="search" opacity={0.66} />
-              </button>
-              <button type="button" className="icon-btn" onClick={() => setModal('create')} aria-label="New Bot" title="New Bot">
-                <Icon name="plus" opacity={0.66} />
-              </button>
-            </>
-          )}
         </div>
       </div>
+      <button type="button" className="sidebar__search" onClick={() => setModal('search')} aria-label="Search" title="Search (⌘K)">
+        <Icon name="search" size={18} opacity={0.66} />
+        {!collapsed && <><span>Search</span><kbd>{IS_MAC ? '⌘K' : 'Ctrl K'}</kbd></>}
+      </button>
 
       <div className="sidebar__scroll">
         <TasksIsland />
         {primary && (
           <div className="pinned">
-            <button type="button" className={`pinned__tile${selectedBotId === primary.id ? ' is-selected' : ''}`} onClick={() => selectBot(primary.id)} title={displayName(primary)}>
+            <button type="button" className={`pinned__tile${selectedBotId === primary.id ? ' is-selected' : ''}`} onClick={() => selectBot(primary.id)} aria-label={displayName(primary)} title={displayName(primary)}>
               <span className="pinned__avatar">
-                <BotAvatarFor bot={primary} size={collapsed ? 44 : 60} star />
+                <BotAvatarFor bot={primary} size={40} star />
                 {userFacingLive(live[primary.id])?.isRunning && <span className="status-dot is-working pinned__dot" />}
               </span>
-              {!collapsed && <span className="pinned__label">{displayName(primary)}</span>}
+              {!collapsed && <span className="pinned__text"><span className="pinned__label">{primary.name}</span><span className="bot-row__preview">{userFacingLive(live[primary.id])?.awaiting?.reason ?? (userFacingLive(live[primary.id])?.isRunning ? 'Working…' : primary.label || 'Your primary bot')}</span></span>}
             </button>
           </div>
         )}
@@ -115,25 +123,20 @@ export function Sidebar() {
               <BotRow key={b.id} bot={b} selected={selectedBotId === b.id} running={!!userFacingLive(live[b.id])?.isRunning} awaiting={userFacingLive(live[b.id])?.awaiting?.reason ?? null} onSelect={selectBot} />
             ),
           )}
-          {!collapsed && others.length === 0 && (
-            <button type="button" className="bot-list__empty" onClick={() => setModal('create')}>
-              <span className="bot-list__empty-plus"><Icon name="plus" size={14} opacity={0.66} /></span>
-              <span>
-                <span className="bot-row__name">Create a Bot</span>
-                <span className="bot-row__preview">Give it a job, like research or inbox triage</span>
-              </span>
-            </button>
-          )}
         </div>
+        <button type="button" className="sidebar__create" onClick={createBot} aria-label="New Bot" title="Create a bot">
+          <Icon name="plus" size={20} opacity={0.66} />{!collapsed && <span>Create a bot</span>}
+        </button>
       </div>
+      <div id="app-settings-sidebar-slot" />
+      <SidebarUsage collapsed={collapsed} />
 
       <div className="sidebar__footer">
-        <div className="sidebar__fade" />
-        {!collapsed && (
-          <div className="account">
-            <button type="button" className="account__btn" onClick={() => setAccountMenu(!accountMenu)} aria-haspopup="menu" aria-expanded={accountMenu} title={user?.email.endsWith('@openrouter.invalid') ? 'OpenRouter account' : user?.email}>
+        <div className="account">
+            <button type="button" className="account__btn" aria-label="Account & settings" onClick={() => setAccountMenu(!accountMenu)} aria-haspopup="menu" aria-expanded={accountMenu} title={user?.email.endsWith('@openrouter.invalid') ? 'OpenRouter account' : user?.email}>
               <span className="account__initials">{initials(user?.name ?? user?.email ?? '')}</span>
-              <span className="account__name">{user?.name ?? user?.email}</span>
+              <span className="account__name">Account &amp; settings</span>
+              {!collapsed && <ChevronDown size={14} aria-hidden />}
             </button>
             {accountMenu && (
               <Menu
@@ -152,7 +155,6 @@ export function Sidebar() {
               </Menu>
             )}
           </div>
-        )}
         <button type="button" className="icon-btn icon-btn--bordered" onClick={() => setModal('apps')} aria-label="Connect apps" title="Connect apps">
           <Icon name="apps" />
         </button>

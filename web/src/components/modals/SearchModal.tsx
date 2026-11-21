@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BotAvatarFor } from '../../avatar/BotAvatar';
 import { displayName, useStore } from '../../store';
 import { Icon } from '../Icon';
+import { openConversation } from '../../configStore';
 import { Modal } from './Modal';
 
 export function SearchModal() {
   const bots = useStore((s) => s.bots);
   const setModal = useStore((s) => s.setModal);
-  const selectBot = useStore((s) => s.selectBot);
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
@@ -25,26 +25,25 @@ export function SearchModal() {
     listRef.current?.querySelector<HTMLElement>(`[data-idx="${active}"]`)?.scrollIntoView({ block: 'nearest' });
   }, [active]);
 
-  const open = (id: string) => { selectBot(id); close(); };
+  const open = openConversation;
 
   return (
     <Modal onClose={close} className="search-modal" label="Search">
       <div className="search-modal__field">
         <span className="search-modal__icon"><Icon name="search" size={18} opacity={0.56} /></span>
         <input
-          autoFocus
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search Bots, chats and settings"
+          placeholder="Search bot names, labels and descriptions"
           aria-label="Search"
           onKeyDown={(e) => {
-            if (e.key === 'ArrowDown') { e.preventDefault(); setActive((a) => Math.min(a + 1, results.length - 1)); }
+            if (e.key === 'ArrowDown') { e.preventDefault(); setActive((a) => Math.max(0, Math.min(a + 1, results.length - 1))); }
             else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
             else if (e.key === 'Enter' && results[active]) { e.preventDefault(); open(results[active].id); }
           }}
         />
       </div>
-      <div className="search-modal__results" ref={listRef} role="listbox">
+      <div className="search-modal__results" ref={listRef} role="listbox" aria-label="Matching bots">
         <div className="search-modal__section">Bots</div>
         {results.map((b, i) => (
           <button
@@ -64,7 +63,7 @@ export function SearchModal() {
             </span>
           </button>
         ))}
-        {results.length === 0 && <div className="search-modal__empty">No Bots match “{q}”</div>}
+        {results.length === 0 && <div className="search-modal__empty" role="status">No Bots match “{q}”<p>Try a different name, label, or description.</p><button type="button" className="btn btn--secondary" onClick={() => setQ('')}>Clear search</button></div>}
       </div>
     </Modal>
   );
