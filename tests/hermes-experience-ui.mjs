@@ -145,14 +145,31 @@ try {
   await botSettings.getByText(fixture.dailySourceText, { exact: true }).waitFor();
   await botSettings.getByRole('button', { name: 'Close sources', exact: true }).click();
   await page.screenshot({ path: path.join(evidenceDir, 'memory-review-desktop.png'), animations: 'disabled' });
-  await page.setViewportSize({ width: 390, height: 844 });
-  const memoryOverflow = await botSettings.locator('.bot-settings-page__content').evaluate(el => {
-    if (el.scrollWidth <= el.clientWidth + 1) return [];
-    const bounds = el.getBoundingClientRect();
-    return [...el.querySelectorAll('*')].filter(node => node.getBoundingClientRect().right > bounds.right + 1).slice(0, 10).map(node => `${node.tagName}.${node.className}`);
-  });
-  assert.ok(await botSettings.locator('.bot-settings-page__content').evaluate(el => el.scrollWidth <= el.clientWidth + 1), `memory review fits mobile: ${memoryOverflow.join(', ')}`);
-  await page.screenshot({ path: path.join(evidenceDir, 'memory-review-mobile.png'), animations: 'disabled' });
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    // The media query changes before React switches to the full-width phone pane.
+    await page.locator('.app.is-mobile.pane-chat').waitFor();
+    await page.evaluate(() => document.fonts.ready.then(() => undefined));
+    const memoryLayout = await botSettings.locator('.bot-settings-page__content').evaluate(el => {
+      const bounds = el.getBoundingClientRect();
+      const fits = el.scrollWidth <= el.clientWidth + 1;
+      const overflow = fits ? [] : [...el.querySelectorAll('*')].flatMap(node => {
+        const rect = node.getBoundingClientRect();
+        if (rect.right <= bounds.right + 1 || rect.width === 0 || node.checkVisibility?.() === false) return [];
+        return [{
+          tag: node.tagName, className: node.getAttribute('class'), parent: node.parentElement?.className,
+          text: node.textContent?.trim().slice(0, 180), left: rect.left, right: rect.right, width: rect.width,
+          font: getComputedStyle(node).font,
+        }];
+      }).slice(0, 10);
+      return { fits, clientWidth: el.clientWidth, scrollWidth: el.scrollWidth, left: bounds.left, right: bounds.right,
+        shell: document.querySelector('.app')?.className, sidebarWidth: document.querySelector('.sidebar')?.getBoundingClientRect().width,
+        fonts: document.fonts.status, overflow };
+    });
+    fs.writeFileSync(path.join(evidenceDir, `memory-layout-${width}.json`), JSON.stringify(memoryLayout, null, 2));
+    assert.ok(memoryLayout.fits, `memory review fits mobile (${width}px): ${JSON.stringify(memoryLayout)}`);
+    await page.screenshot({ path: path.join(evidenceDir, width === 390 ? 'memory-review-mobile.png' : `memory-review-mobile-${width}.png`), animations: 'disabled' });
+  }
   await page.setViewportSize({ width: 1440, height: 1000 });
   await botSettings.getByRole('button', { name: 'Approve memory change', exact: true }).click();
   await until(async () => (await api(`/bots/${fixture.quinn.id}/memories`)).memories.some(m => m.text.startsWith('Prefers daily')), 'staged memory approval');
