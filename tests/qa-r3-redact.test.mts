@@ -20,6 +20,7 @@ test('R2F-002: routine ids are filtered from assistant, notice and approval disp
     assert.doesNotMatch(stripInternalIds(input, { botName }), INTERNAL_ID_PATTERN);
   }
   assert.equal(stripInternalIds(fields.assistant, { botName }), 'Created routine for Research.');
+  assert.equal(stripInternalIds('Ask `bot_AbCdEf123456`.', { botName }), 'Ask Research.');
   assert.equal(displayExchangeText('Run rt_aukPXFs6dQee tomorrow').text, 'Run routine tomorrow');
 });
 
