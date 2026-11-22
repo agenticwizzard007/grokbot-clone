@@ -48,6 +48,7 @@ try {
     await page.route('**/*', async route => {
       const request = route.request();
       const url = new URL(request.url());
+      if (url.origin === origin.origin && url.pathname.endsWith('/suggested-apps')) return route.fulfill({ json: { suggestions: [] } });
       if (url.origin !== origin.origin || request.method() !== 'GET') {
         unexpected.push(`${request.method()} ${url.href}`);
         return route.abort();

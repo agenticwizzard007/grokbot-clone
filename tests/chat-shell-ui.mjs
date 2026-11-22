@@ -57,6 +57,7 @@ try {
   let roomError = true;
   await page.route('**/api/**', async route => {
     const request = route.request(), url = new URL(request.url()), path = url.pathname;
+    if (path.endsWith('/suggested-apps')) return route.fulfill({ json: { suggestions: [] } });
     if (request.method() !== 'GET') {
       writes.push({ method: request.method(), path, body: request.postDataJSON?.() ?? null });
       // Server contract: oversized setup imports get 413 with this message.
