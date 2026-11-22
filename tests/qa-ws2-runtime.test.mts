@@ -286,8 +286,42 @@ test('MF-035: renaming a Bot during setup refreshes its opening question', () =>
   const greeting = listRows(bot.id).filter((r) => r.body.type === 'message' && r.body.role === 'assistant').at(-1)!;
   assert.match((greeting.body as any).text, /^What job would you like QA-Temp-1 to handle\?/);
   skipSetup('owner', bot.id);
-  assert.equal(renameSetupGreeting(bot.id, 'QA-Temp-1', 'Other'), false);
+  // R2F-009: active Bots get the same rewrite (this assertion expected false before round 2).
+  assert.equal(renameSetupGreeting(bot.id, 'QA-Temp-1', 'Other'), true);
+  assert.match((listRows(bot.id).find((r) => (r.body as any).greeting)!.body as any).text, /^What job would you like Other to handle\?/);
+  assert.equal(renameSetupGreeting(bot.id, 'QA-Temp-1', 'QA-Temp-1'), false, 'same name is a no-op');
   assert.equal(getBotRow(bot.id).name, 'QA');
+});
+
+test('R2F-009: rename rewrites the first greeting even with later assistant rows, for setup and active Bots, and notes the new name', async () => {
+  const { loadHistory } = await import('../server/src/store.js');
+  const bot = newBot('QA');
+  const greetingSeq = listRows(bot.id).find((r) => (r.body as any).greeting === true)!.seq;
+  appendRow(bot.id, 'message', { type: 'message', role: 'user', text: 'Summarise tickets' });
+  appendRow(bot.id, 'message', { type: 'message', role: 'assistant', text: 'Got it. What job would you like QA to handle next?' });
+  const res = await call('PATCH', `/api/bots/${bot.id}`, { name: 'QA-Temp-3b' });
+  assert.equal(res.status, 200);
+  const greeting = listRows(bot.id).find((r) => r.seq === greetingSeq)!;
+  assert.match((greeting.body as any).text, /^What job would you like QA-Temp-3b to handle\?/);
+  assert.equal((greeting.body as any).greeting, true);
+  const later = listRows(bot.id).filter((r) => r.body.type === 'message' && r.body.role === 'assistant').at(-1)!;
+  assert.equal((later.body as any).text, 'Got it. What job would you like QA to handle next?', 'later replies are history and stay as written');
+  const history = JSON.stringify(loadHistory(bot.id));
+  assert.ok(history.includes('Your name is now QA-Temp-3b.'));
+  assert.ok(history.includes('What job would you like QA-Temp-3b to handle?'), 'model history greeting uses the new name');
+  assert.ok(!history.includes('What job would you like QA to handle? Give'), 'old greeting text is gone from the model history');
+  // Active Bot: rename again after activation.
+  skipSetup('owner', bot.id);
+  appendRow(bot.id, 'message', { type: 'message', role: 'assistant', text: 'Working on it.' });
+  assert.equal((await call('PATCH', `/api/bots/${bot.id}`, { name: 'Ticket Bot' })).status, 200);
+  assert.match((listRows(bot.id).find((r) => r.seq === greetingSeq)!.body as any).text, /^What job would you like Ticket Bot to handle\?/);
+  assert.ok(JSON.stringify(loadHistory(bot.id)).includes('Your name is now Ticket Bot.'));
+  // Rows written before the marker existed are found by their opening words.
+  const legacy = createBot('owner', { name: 'Legacy', isPrimary: false });
+  const old = appendRow(legacy.id, 'message', { type: 'message', role: 'assistant', text: 'What job would you like Legacy to handle? Give me one example.' });
+  appendRow(legacy.id, 'message', { type: 'message', role: 'assistant', text: 'Later reply.' });
+  assert.equal(renameSetupGreeting(legacy.id, 'Legacy', 'Legacy Two'), true);
+  assert.match((listRows(legacy.id).find((r) => r.seq === old.seq)!.body as any).text, /^What job would you like Legacy Two to handle\?/);
 });
 
 test('MF-013 voice path: update_agent changes to model or effort keep the setup revision; a rename bumps it', async () => {

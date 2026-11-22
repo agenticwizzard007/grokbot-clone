@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { creationSchema, emitSetup, getSetup, isConfiguring, writeSetupFiles, assertSetupCoordinator } from './bot-setup.js';
+import { creationSchema, emitSetup, getSetup, isConfiguring, writeSetupFiles, assertSetupCoordinator, renameSetupGreeting } from './bot-setup.js';
 import { createTeammate, CENTRAL_SETUP_TOOLS } from './agent/teammates.js';
 import { COORDINATION_TOOLS } from './agent/coordination-tools.js';
 import { createHash } from 'node:crypto';
@@ -228,6 +228,7 @@ export async function runVoiceControl(name: string, args: unknown, ctx: VoiceCon
           writeSetupFiles(bot.id);
         }
       })();
+      if (typeof patch.name === 'string' && patch.name !== bot.name) renameSetupGreeting(bot.id, bot.name, patch.name);
       if (getSetup(bot.id)) emitSetup(bot.id);
       emitBot(bot.id);
       return output({ ok: true, agent: agentView(getBotRow(bot.id)) });

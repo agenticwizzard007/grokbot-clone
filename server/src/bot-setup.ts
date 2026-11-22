@@ -345,7 +345,8 @@ export function beginSetupInterview(botId: string) {
   const text = hasBrief
     ? `I’ll help you configure ${b.name}. My starting brief is: ${s.brief.purpose}\n\n${questions.length ? questions.map((q, i) => `${i + 1}. ${q}`).join('\n') : 'The job, workflow and action limits are already defined. Is anything missing, or should I prepare this setup for your review?'}\n\nYour saved role is visible in Configuration on the right.`
     : `What job would you like ${b.name} to handle? Give me one example of what you’d provide and the result you’d want back.\n\nI’ll ask about any important gaps and save the role in Configuration on the right.`;
-  appendRow(botId, 'message', { type: 'message', role: 'assistant', text });
+  // greeting marks the opening question so a later rename can find it at any position (R2F-009).
+  appendRow(botId, 'message', { type: 'message', role: 'assistant', text, greeting: true });
   appendHistory(botId, [{ role: 'assistant', content: text }]);
   writeSetupFiles(botId);
   if (priorStatus !== 'interviewing') emitSetupStatus(botId); else emitSetup(botId);
@@ -513,18 +514,36 @@ export function skipSetup(userId: string, botId: string) {
   })();
 }
 
-/** Rename during setup: refresh the opening question if it is still the latest reply, so it uses the new name. */
+const greetingPrefixes = (name: string) => [`What job would you like ${name} to handle?`, `I’ll help you configure ${name}.`];
+
+/**
+ * Rename (R2F-009): rewrite the opening greeting of the current conversation so it uses the new name,
+ * wherever it sits, for Bots in setup and active Bots alike. New greetings carry greeting: true; older
+ * rows are found by their opening words. The model history gets the same rewrite plus a short note,
+ * so new replies use the new name. Returns true when the greeting row changed.
+ */
 export function renameSetupGreeting(botId: string, oldName: string, newName: string) {
   const b = getBotRow(botId);
-  if (!b || !oldName || oldName === newName || !isConfiguring(botId)) return false;
-  const last = db.prepare("SELECT seq FROM rows WHERE bot_id=? AND generation=? AND kind='message' AND json_extract(body,'$.role')='assistant' ORDER BY seq DESC LIMIT 1").get(botId, b.generation) as { seq: number } | undefined;
-  const row = last && getRow(botId, last.seq);
-  if (!row || row.body.type !== 'message') return false;
-  const greetings = [`What job would you like ${oldName} to handle?`, `I’ll help you configure ${oldName}.`];
-  const match = greetings.find(g => (row.body as { text: string }).text.startsWith(g));
-  if (!match) return false;
-  updateRow(botId, row.seq, { ...row.body, text: match.replace(oldName, newName) + row.body.text.slice(match.length) });
-  return true;
+  if (!b || b.kind === 'room' || !oldName || !newName || oldName === newName) return false;
+  const assistant = db.prepare("SELECT seq, body FROM rows WHERE bot_id=? AND generation=? AND kind='message' AND json_extract(body,'$.role')='assistant' ORDER BY seq ASC LIMIT 200").all(botId, b.generation) as { seq: number; body: string }[];
+  const marked = assistant.find(r => JSON.parse(r.body).greeting === true);
+  const legacy = marked ? undefined : assistant.find(r => greetingPrefixes(oldName).some(g => String(JSON.parse(r.body).text ?? '').startsWith(g)));
+  const target = marked ?? legacy;
+  let changed = false;
+  if (target) {
+    const body = JSON.parse(target.body) as { text: string };
+    const prefix = greetingPrefixes(oldName).find(g => body.text.startsWith(g));
+    const text = prefix ? prefix.replace(oldName, newName) + body.text.slice(prefix.length) : body.text.split(oldName).join(newName);
+    const row = getRow(botId, target.seq);
+    if (text !== body.text && row?.body.type === 'message') {
+      updateRow(botId, target.seq, { ...row.body, text });
+      // Keep the model's copy of the greeting consistent with what the user sees.
+      db.prepare("UPDATE llm_items SET item=? WHERE bot_id=? AND generation=? AND item=?").run(JSON.stringify({ role: 'assistant', content: text }), botId, b.generation, JSON.stringify({ role: 'assistant', content: body.text }));
+      changed = true;
+    }
+  }
+  appendHistory(botId, [{ role: 'user', content: `[System notice] Your name is now ${newName}.` }]);
+  return changed;
 }
 
 export function removeSetupFiles(botId: string) {

@@ -115,6 +115,8 @@ export interface MessageBody {
   /** Set when a message came from another bot, a routine, a voice call or a text message rather than the user typing in the app. */
   from?: { kind: 'bot' | 'routine' | 'voice' | 'imessage' | 'sms' | 'whatsapp'; id: string; name: string; utteranceId?: string };
   citations?: { url: string; title?: string }[];
+  /** The opening setup greeting; a rename rewrites it to the new name. */
+  greeting?: boolean;
 }
 
 export interface ToolCallBody {
