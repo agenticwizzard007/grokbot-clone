@@ -26,6 +26,7 @@ try {
       const req=route.request(),url=new URL(req.url()),p=url.pathname;
       if(url.origin!==origin) { errors.push(`external ${url.href}`); return route.abort(); }
       if(!p.startsWith('/api/')) return route.continue();
+      if(p.endsWith('/suggested-apps')) return route.fulfill({json:{suggestions:[]}});
       if(req.method()!=='GET') {
         const body=req.postDataJSON(); writes.push({path:p,method:req.method(),body});
         if(p==='/api/routines/morning'){routine={...routine,...body};return route.fulfill({json:{routine}});}
