@@ -222,6 +222,8 @@ window.addEventListener('swarm:event', (e) => {
   if (ev.type === 'memories') bump(`memories:${ev.botId}`);
   if (ev.type === 'setup') { bump(`setup:${ev.botId}`); bump('needs-you'); }
   if (ev.type === 'messaging') bump('messaging');
+  // R2F-017: the server announces account time zone changes; Daily synopses reloads on it.
+  if ((ev as { type: string }).type === 'synopses') bump('synopses');
 });
 
 // Needs-you (MF-012) also refetches when a card row appears or changes state ('rows' events stay in store.ts).

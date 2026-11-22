@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { synopsisApi, type SynopsisDetail, type SynopsisRecord, type SynopsisSettings, type SynopsisSource } from '../../lib/workApi';
 import { useStore } from '../../store';
+import { useVersion } from '../../configStore';
 import { useWorkLifetime, workBotKey } from './workScope';
 import './workArea.css';
 import './SynopsesPanel.css';
@@ -34,6 +35,7 @@ function SynopsesSurface({ onUpdated, onReports, workspace, account, primaryKey 
   const [revision, setRevision] = useState(0);
   // R2F-017: a time zone change (Settings > Account here, or any tab after the store reloads the account) refreshes the line.
   const accountZone = useStore(state => timezoneOf(state.user));
+  const announced = useVersion('synopses');
   const [sources, setSources] = useState<SynopsisSource[] | null>(null);
   const lifetime = useWorkLifetime();
   const pending = useRef(false);
@@ -52,7 +54,7 @@ function SynopsesSurface({ onUpdated, onReports, workspace, account, primaryKey 
       setLoading(false);
     });
     return () => { controller.abort(); activePage.current?.abort(); };
-  }, [account, primaryKey, revision, accountZone]);
+  }, [account, primaryKey, revision, accountZone, announced]);
   // R2F-036: the schedule line names what the latest synopsis was made from.
   const latestId = page?.reports.find(report => report.sourceCount > 0)?.id;
   useEffect(() => {

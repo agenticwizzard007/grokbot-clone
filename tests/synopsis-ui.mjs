@@ -55,6 +55,10 @@ try{
  await page.getByRole('button',{name:'Back to tasks',exact:true}).click();
  await panel.getByText(/· Europe\/London ·/).waitFor();
  assert.equal(await panel.getByText(/UTC fallback/).count(),0,'no stale UTC fallback after the zone change');
+ // A zone change made elsewhere arrives as a 'synopses' event; the open line follows it without Refresh.
+ const put=await fetch(apiBase+'/api/checkins',{method:'PUT',headers:{cookie:'swarm_session=synopsis-browser-token','content-type':'application/json'},body:JSON.stringify({timezone:'Asia/Dubai'})});assert.ok(put.ok,await put.text());
+ await page.evaluate(()=>window.dispatchEvent(new CustomEvent('swarm:event',{detail:{type:'synopses'}})));
+ await panel.getByText(/· Asia\/Dubai ·/).waitFor();
  await page.setViewportSize({width:390,height:844});await page.reload();await openSynopses();
  await panel.scrollIntoViewIfNeeded();assert.ok(await panel.evaluate(el=>el.scrollWidth<=el.clientWidth+1),'synopsis fits phone');
  await page.screenshot({path:path.join(evidence,'synopsis-mobile.png'),fullPage:true});assert.deepEqual(errors,[]);

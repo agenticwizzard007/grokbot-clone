@@ -62,7 +62,7 @@ async function harness(viewport, colorScheme) {
     if (path === '/api/team/state') return done({ state: { userId, generatedAt: now, eventCursor: 9, primaryBotId: 'quinn', sourceVersions: { workflows: 'fixture' }, agents: bots.map(bot => ({ botId: bot.id, name: bot.name, isPrimary: bot.isPrimary, parentBotId: null, status: bot.id === 'ellis' ? 'idle' : 'waiting', pendingDecision: bot.id !== 'ellis', setupStatus: 'active', setupRevision: 1, activeJobIds: [], lastObservedAt: now, observation: 'observed' })), jobs: fixture.jobPresent ? [actualJob] : [], workflows: [fixture.workflow, jobWorkflow], goals: fixture.goals, artifacts: [{ id: file.id, botId: file.botId, title: file.filename, status: 'available' }], deliveries: [], requests: {}, coverage: {}, humanSources: { pending: 0 }, health: { runtime: fixture.enabled ? 'healthy' : 'disabled', lastTickAt: now, lastError: null, pendingWakes: 0 } } });
     if (path === '/api/team/settings' && method === 'PATCH') { fixture.enabled = body.enabled; return done({ enabled: fixture.enabled }); }
     if (path === '/api/team/records') return done({ records: [{ id: 'job-quinn', bot_id: 'quinn', state: 'completed', created_at: now }, { id: 'job-nia', bot_id: 'nia', state: 'queued', created_at: now }], nextCursor: 2, through: 2, hasMore: false });
-    if (path === '/api/team/requests') return done({ requests: [], nextCursor: 0, hasMore: false });
+    if (path === '/api/team/requests') return done({ requests: [{ seq: 1, id: 'req_fixture123456', fromBotId: 'quinn', toBotId: 'nia', text: 'Draft the launch note.', status: 'completed', kind: 'request', correlationId: 'req_fixturecorrelation1', parentRequestId: null, depth: 0, audience: 'internal', jobId: 'job_fixture123456', result: 'Draft saved.', reason: '', revision: 1, createdAt: now, updatedAt: now }], nextCursor: 1, hasMore: false });
     if (path === '/api/workflows' && method === 'GET') {
       const scope = url.searchParams.get('botId');
       return done({ goals: fixture.goals.filter(goal => !scope || goal.botId === scope), workflows: !scope || scope === fixture.workflow.botId ? [fixture.workflow] : [] });
@@ -133,6 +133,12 @@ try {
   const columns = await page.locator('.task-column').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().top));
   assert.equal(new Set(columns).size, 1);
   await tab('Team').click(); await page.getByText('Team snapshot', { exact: true }).waitFor(); await shot('work-team-desktop-light');
+  // R2F-002 (WS3 Team board): internal request ids stay out of the visible text.
+  await submit('Internal team activity');
+  await page.locator('.tasks-view details summary').filter({ hasText: 'request · completed' }).first().click();
+  await page.getByText('Draft the launch note.', { exact: true }).first().waitFor();
+  assert.doesNotMatch(await page.locator('.tasks-view').innerText(), /\b(ca|req|apr)_[A-Za-z0-9_-]{6,}/, 'no raw request ids on screen');
+  await submit('Internal team activity');
   await submit('Current job');
   const currentJob = page.getByRole('region', { name: 'Current job for Draft verified brief', exact: true });
   await currentJob.getByText('Assignee: Quinn', { exact: true }).waitFor();
