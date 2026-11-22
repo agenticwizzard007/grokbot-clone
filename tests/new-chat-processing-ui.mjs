@@ -66,6 +66,7 @@ try {
       const request = route.request(), url = new URL(request.url()), path = url.pathname;
       if (url.origin !== origin) { unexpected.push(url.href); return route.abort(); }
       if (!path.startsWith('/api/')) return route.continue();
+      if (path.endsWith('/suggested-apps')) return route.fulfill({ json: { suggestions: [] } });
       if (request.method() === 'POST' && path === `/api/bots/${bot.id}/messages`) {
         rows = [row(1, 'user', request.postDataJSON().text)];
         await route.fulfill({ json: { row: rows[0] } });

@@ -50,6 +50,7 @@ try {
     }, theme);
     await page.route('**/api/**', async route => {
       const request = route.request(), url = new URL(request.url()), path = url.pathname;
+      if (path.endsWith('/suggested-apps')) return route.fulfill({ json: { suggestions: [] } });
       if (request.method() !== 'GET') {
         writes.push({ path, body: request.postDataJSON() });
         if (path === '/api/bots/quinn/messages' && sendGate) await sendGate.promise;
