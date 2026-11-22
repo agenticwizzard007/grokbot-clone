@@ -120,3 +120,39 @@ test('migration-held owners remain untouched during history initialization and c
  assert.throws(()=>db.prepare('UPDATE bots SET instructions=? WHERE id=?').run('Blocked edit',f.bot),/migration_hold/);
  assertLegacyDatabaseFences(db);
 });
+
+test('R2F-012: setup and profile changes record the setup revision they belong to',()=>{
+ const f=fixture();
+ saveSetup(f.bot,{purpose:'Reports',responsibilities:['Summarize'],out_of_scope:[],success_criteria:['Accurate'],context_summary:'Reporting role'},{messages:[]});
+ const created=entries(f).find(e=>e.kind==='setup'&&e.action==='created')!;
+ assert.equal(created.sourceRevision,'1');
+ db.prepare('UPDATE bot_setups SET revision=revision+1,onboarding_status=? WHERE bot_id=?').run('review',f.bot);
+ assert.deepEqual([entries(f)[0].kind,entries(f)[0].action,entries(f)[0].sourceRevision],['setup','updated','2']);
+ db.prepare('UPDATE bots SET name=? WHERE id=?').run('Reporter Two',f.bot);
+ assert.deepEqual([entries(f)[0].kind,entries(f)[0].sourceRevision],['profile','2']);
+ // A Bot without a setup has no revision to name.
+ const g=fixture();db.prepare('UPDATE bots SET label=? WHERE id=?').run('Ops',g.bot);
+ assert.equal(entries(g)[0].kind,'profile');assert.equal(entries(g)[0].sourceRevision,null);
+});
+
+test('R2F-012: databases with configuration triggers from before the change also record the revision, idempotently',()=>{
+ const f=fixture();
+ saveSetup(f.bot,{purpose:'Reports',responsibilities:['Summarize'],out_of_scope:[],success_criteria:['Accurate'],context_summary:'Reporting role'},{messages:[]});
+ // Recreate the earlier trigger bodies, which inserted NULL for source_revision.
+ for(const name of ['evolution_profile_update','evolution_setup_update']){
+  const sql=(db.prepare("SELECT sql FROM sqlite_master WHERE type='trigger' AND name=?").get(name) as {sql:string}).sql;
+  const legacy=sql.replace('(SELECT revision FROM bot_setups WHERE bot_id=NEW.id)','NULL').replace(/NEW\.revision,'updated'/,"NULL,'updated'");
+  assert.notEqual(legacy,sql,name);
+  db.exec(`DROP TRIGGER ${name}`);db.exec(legacy);
+ }
+ installEvolutionHistory(db);installEvolutionHistory(db);
+ assert.equal((db.prepare("SELECT count(*) n FROM sqlite_master WHERE type='trigger' AND name='evolution_config_source_revision'").get() as any).n,1);
+ const before=entries(f).length;
+ db.prepare('UPDATE bot_setups SET revision=revision+1,onboarding_status=? WHERE bot_id=?').run('review',f.bot);
+ db.prepare('UPDATE bots SET instructions=? WHERE id=?').run('Escalate uncertain totals.',f.bot);
+ const log=entries(f);
+ assert.equal(log.length,before+2,'each change is recorded exactly once');
+ assert.deepEqual(log.slice(0,2).map(e=>[e.kind,e.sourceRevision]),[['profile','2'],['setup','2']]);
+ assert.equal((change(f.user,f.bot,log[0].version).after as any).instructions,'Escalate uncertain totals.');
+ assert.deepEqual(log.map(e=>e.version),[...log.map(e=>e.version)].sort((a,b)=>b-a),'versions stay monotonic');
+});
