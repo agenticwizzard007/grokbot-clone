@@ -89,7 +89,7 @@ function Shell() {
       const st = useStore.getState();
       if (isNewBotShortcut(e)) {
         if (st.modal === 'search' || st.modal === 'apps' || hasOpenModal()) return;
-        e.preventDefault(); useConfigUI.getState().closeAppSettings(); useConfigUI.getState().closeBotSettings(); st.setModal('create');
+        e.preventDefault(); useConfigUI.getState().requestLeaveBotSettings(() => { useConfigUI.getState().closeAppSettings(); useConfigUI.getState().discardBotSettings(); st.setModal('create'); });
         return;
       }
       const mod = e.metaKey || e.ctrlKey;

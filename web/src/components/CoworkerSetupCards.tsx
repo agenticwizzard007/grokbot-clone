@@ -4,6 +4,7 @@ import { configApi } from '../lib/configApi';
 import { useVersion } from '../configStore';
 import { useStore } from '../store';
 import { stripInternalIds } from '../lib/stripInternalIds';
+import { ComputerStatusLine } from './config/computerStatus';
 import './coworker-setup.css';
 
 /** Human review stays in the coordinator conversation; activation pins the visible revision. */
@@ -76,7 +77,7 @@ function CoworkerSetupCard({ coordinatorId, setup, isCurrent, onRefresh, onActiv
     <div className="coworker-setup__heading"><strong>{bot.name}</strong><span>Revision {displayed.onboarding.revision} · {displayed.onboarding.status === 'review' ? 'Ready for review' : 'Needs your input'}</span></div>
     <p>{clean(brief.purpose)}</p>
     {!!displayed.onboarding.missing.length && <div><strong>Decisions to finish here</strong><ul>{displayed.onboarding.missing.map((question, i) => <li key={i}>{clean(question)}</li>)}</ul></div>}
-    <p className="coworker-setup__readiness">{setup.computer.status === 'ready' ? 'Computer ready. App access and approval rules still apply.' : 'Computer preparation pending. Work waits for readiness.'}</p>
+    <p className="coworker-setup__readiness"><ComputerStatusLine setup={setup.computer} />{setup.computer.status === 'ready' ? '. App access and approval rules still apply.' : '. Work waits for readiness.'}</p>
     {!review ? <button type="button" onClick={() => { setReview(setup); setError(null); }}>Review {bot.name} configuration</button> : <>
       <dl><dt>Responsibilities</dt><dd><ul>{brief.responsibilities.map((v, i) => <li key={i}>{clean(v)}</li>)}</ul></dd><dt>Expected results</dt><dd><ul>{brief.success_criteria.map((v, i) => <li key={i}>{clean(v)}</li>)}</ul></dd><dt>Action boundaries</dt><dd>{clean(brief.action_boundaries) || 'Needs your decision'}</dd><dt>Out of scope</dt><dd>{clean(brief.out_of_scope.join('; ')) || 'None specified'}</dd><dt>Standing instructions</dt><dd>{clean(bot.instructions) || 'Follow the saved brief'}</dd></dl>
       {brief.workflows.map((workflow, i) => <div key={i}><strong>{clean(workflow.name)}</strong><p>Starts when: {clean(workflow.trigger)}</p><ol>{workflow.steps.map((v, j) => <li key={j}>{clean(v)}</li>)}</ol><p>Produces: {clean(workflow.output)}</p></div>)}

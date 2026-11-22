@@ -38,6 +38,7 @@ try {
       else if(p==='/api/bots')body={bots,live:[]};
       else if(p.endsWith('/rows'))body={generation:1,rows:[{botId:p.split('/')[3],generation:1,seq:1,updatedSeq:1,kind:'message',body:{type:'message',role:'assistant',text:'The launch summary is ready for review.'},createdAt:Date.now()}]};
       else if(p.endsWith('/routines'))body={routines:p.includes('/quinn/')?[routine]:[]};
+      else if(/^\/api\/bots\/[^/]+\/settings$/.test(p))body={memories:[],skills:[],routines:p.includes('/quinn/')?[routine]:[],tasks:[],memory:{lastConsolidatedAt:null,historyChars:0,compactAtChars:1000,lastCompaction:null}};
       else if(p.endsWith('/tasks'))body={tasks:p.includes('/nia/')?[]:tasks};
       else if(p==='/api/team/exchanges')body={exchanges:[],nextBefore:null};
       else if(p.endsWith('/coworker-setups'))body={setups:[]};
@@ -80,12 +81,28 @@ try {
       assert.deepEqual(writes.at(-1),{path:'/api/bots/quinn/messages',method:'POST',body:{text:'Send while the details sidebar is open'}});
       await composer.fill('Keep this draft while reviewing details');
     }
-    await panel.getByRole('navigation',{name:'Conversation details sections'}).getByRole('button',{name:'Tasks',exact:true}).click();
+    // R2F-022: the tab bar and the close button keep their boxes (within 1 px) on every tab.
+    const detailTabs=panel.getByRole('navigation',{name:'Conversation details sections'});
+    const tabBoxes=()=>page.evaluate(()=>[...document.querySelectorAll('.details nav[aria-label="Conversation details sections"] button, .details .setup-paper__close')].map(el=>{const r=el.getBoundingClientRect();return [r.x,r.y,r.width,r.height];}));
+    const sameBoxes=(a,b,label)=>{assert.equal(a.length,b.length,label);a.forEach((box,i)=>box.forEach((v,j)=>assert.ok(Math.abs(v-b[i][j])<=1,`${label}: ${JSON.stringify(a[i])} vs ${JSON.stringify(b[i])}`)));};
+    await panel.evaluate(el=>el.scrollTo(0,0));
+    const activityBoxes=await tabBoxes();
+    // R2F-011: Details links straight to Settings > Computer.
+    assert.equal(await panel.getByRole('button',{name:'Computer settings',exact:true}).count(),1);
+    await detailTabs.getByRole('button',{name:'Tasks',exact:true}).click();
     await panel.getByRole('button',{name:/Review the launch summary/}).waitFor();
-    await panel.getByRole('navigation',{name:'Conversation details sections'}).getByRole('button',{name:'Files',exact:true}).click();
+    await panel.evaluate(el=>el.scrollTo(0,0));
+    sameBoxes(await tabBoxes(),activityBoxes,`${width} Tasks tab`);
+    await detailTabs.getByRole('button',{name:'Files',exact:true}).click();
     await panel.getByRole('region',{name:'Computer files'}).waitFor();
-    await panel.getByRole('navigation',{name:'Conversation details sections'}).getByRole('button',{name:'Setup',exact:true}).click();
+    await panel.evaluate(el=>el.scrollTo(0,0));
+    sameBoxes(await tabBoxes(),activityBoxes,`${width} Files tab`);
+    await detailTabs.getByRole('button',{name:'Setup',exact:true}).click();
     await panel.getByRole('button',{name:'Start setup interview',exact:true}).waitFor();
+    await panel.evaluate(el=>el.scrollTo(0,0));
+    sameBoxes(await tabBoxes(),activityBoxes,`${width} Setup tab`);
+    // R2F-021: the Setup tab has a one-line computer status in every state, worded like Activity.
+    await panel.getByText('Computer: Connected',{exact:true}).waitFor();
     await page.keyboard.press('Escape');
     await panel.waitFor({state:'detached'});
     assert.equal(await composer.inputValue(),'Keep this draft while reviewing details');
@@ -113,6 +130,44 @@ try {
     assert.equal(await panel.getByRole('switch',{name:'Morning product walk'}).count(),0);
     assert.equal(await panel.getByRole('button',{name:/Review the launch summary/}).count(),0,'a different bot never inherits the previous tasks');
     await panel.getByRole('button',{name:'Close details',exact:true}).click();
+    if(width===1440&&theme==='light'){
+      // R2F-004: an unsaved Bot settings edit asks before every way out; Keep editing keeps the text.
+      await page.goto(`${origin}/#bot/quinn/settings/general`);
+      const about=page.locator('#cfg-about');
+      await about.fill('An unsaved About edit');
+      const guard=page.getByRole('alertdialog',{name:'Discard unsaved changes?'});
+      const keep=async(label)=>{
+        await guard.waitFor();
+        await guard.getByText('Your edits on General have not been saved.',{exact:true}).waitFor();
+        await guard.getByRole('button',{name:'Keep editing',exact:true}).click();
+        await guard.waitFor({state:'detached'});
+        assert.equal(await about.inputValue(),'An unsaved About edit',`${label}: the draft is kept`);
+        assert.equal(await page.getByRole('main',{name:'Quinn settings'}).count(),1,`${label}: still on Bot settings`);
+      };
+      await page.locator('.bot-row').filter({hasText:'Nia'}).click();
+      await keep('sidebar Bot');
+      await page.getByRole('button',{name:'New Bot',exact:true}).click();
+      await keep('Create a Bot');
+      await page.keyboard.press('Control+k');
+      await page.getByRole('textbox',{name:'Search',exact:true}).fill('Nia');
+      await page.keyboard.press('Enter');
+      await keep('search result');
+      await page.locator('.sidebar').getByRole('button',{name:'Tasks',exact:true}).click();
+      await keep('Tasks island');
+      await page.getByRole('button',{name:'Your Bots',exact:true}).first().click();
+      await keep('brand button');
+      // Discard leaves and drops the draft; with nothing changed, no question is asked.
+      await page.locator('.bot-row').filter({hasText:'Nia'}).click();
+      await guard.getByRole('button',{name:'Discard',exact:true}).click();
+      await page.locator('.chat__pill-name').getByText('Nia',{exact:true}).waitFor();
+      assert.equal(await page.evaluate(()=>location.hash),'','leaving Bot settings clears its link');
+      assert.ok(!writes.some(w=>w.path==='/api/bots/quinn'&&w.body?.description),'nothing was saved');
+      await page.goto(`${origin}/#bot/quinn/settings/general`);
+      await about.waitFor();
+      await page.locator('.bot-row').filter({hasText:'Nia'}).click();
+      await page.locator('.chat__pill-name').getByText('Nia',{exact:true}).waitFor();
+      assert.equal(await guard.count(),0,'no question without changes');
+    }
     assert.deepEqual(errors,[]);
     results.push({width,height,theme,geometry,writes: writes.length,passed:true});
     await page.close();

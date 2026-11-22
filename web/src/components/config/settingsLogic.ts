@@ -1,5 +1,6 @@
 /** Pure helpers for Settings and the Work area. No DOM or CSS imports, so tests can load them directly. */
 import type { NeedsYouItem } from '../../lib/api';
+import { appName } from '../../../../server/src/tool-activity'; // relative so node tests load it without the @shared alias
 
 /** macOS browsers (and desktop-mode iPads, which report as a Mac). Phones that say "like Mac OS X" do not count. */
 export function isMacPlatform(nav: { platform?: string; userAgent?: string } | undefined = typeof navigator === 'undefined' ? undefined : navigator): boolean {
@@ -67,4 +68,19 @@ export function timeZoneOptions(current?: string | null): string[] {
 /** The browser's own zone, or null when it cannot be read. */
 export function browserTimeZone(): string | null {
   try { return Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch { return null; }
+}
+
+/** R2F-027: browser network failures ("Failed to fetch", "Load failed", "NetworkError…") read as a plain next step. */
+export function loadErrorText(failure: unknown): string {
+  const message = (failure as Error | undefined)?.message?.trim() ?? '';
+  const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+  if (offline || !message || /failed to fetch|load failed|networkerror|network request failed|fetch failed|err_internet_disconnected/i.test(message)) return 'Check your connection.';
+  return message;
+}
+
+/** R2F-026: an app's display name. Catalog name first, then the shared slug mapping ("notion" reads "Notion"). */
+export function toolkitDisplayName(slug: string, catalogName?: string | null): string {
+  const name = catalogName?.trim();
+  if (name) return name;
+  return appName(slug) ?? (slug.trim() || 'App');
 }

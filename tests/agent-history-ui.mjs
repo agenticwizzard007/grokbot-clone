@@ -27,12 +27,29 @@ try {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   await context.addCookies([{ name: 'swarm_session', value: 'history-browser-token', url: base }]);
   const page = await context.newPage(), errors = []; page.on('pageerror', e => errors.push(String(e))); page.setDefaultTimeout(15000);
+  // R2F-012: add one setup change with a revision and one profile change without, to check the row wording.
+  const synthetic = [
+    { version: 900001, kind: 'setup', sourceId: 'setup', sourceRevision: '4', action: 'updated', actor: 'owner', reason: null, runId: null, occurredAt: Date.now(), recordedAt: Date.now(), origin: 'recorded' },
+    { version: 900002, kind: 'profile', sourceId: 'profile', sourceRevision: null, action: 'updated', actor: 'owner', reason: null, runId: null, occurredAt: Date.now(), recordedAt: Date.now(), origin: 'recorded' },
+  ];
+  await page.route(/\/api\/learning\/bots\/[^/]+\/history(\?.*)?$/, async route => {
+    const response = await route.fetch(); const body = await response.json();
+    const query = new URL(route.request().url()).searchParams;
+    if (!query.has('before') && !query.has('limit') && Array.isArray(body.entries)) body.entries = [...body.entries, ...synthetic];
+    await route.fulfill({ response, json: body });
+  });
   await page.goto(base);
   await page.locator('.chat__pill-name').waitFor();
   const show=page.getByRole('button',{name:'Show details',exact:true});if(await show.isVisible())await show.click();
   await page.getByRole('navigation',{name:'Conversation details sections'}).getByRole('button',{name:'Setup',exact:true}).click();
   await page.getByRole('tab',{name:'History',exact:true}).click();
   const history=page.getByRole('region',{name:'Agent change history',exact:true});
+  // The header matches the tab label, and the page title reads "<Bot> · History".
+  await history.getByRole('heading',{name:'History',exact:true}).waitFor();
+  assert.equal(await history.getByRole('heading',{name:'Agent history',exact:true}).count(),0);
+  await page.getByRole('heading',{name:/^.+ · History$/}).waitFor();
+  await history.getByText(/^Change 900001 · setup · updated · setup revision 4$/).waitFor();
+  await history.getByText(/^Change 900002 · profile · updated · no revision$/).waitFor();
   await history.getByText(/skill proposal · pending/).click();
   await history.getByText('A proposal is not an active revision.',{exact:false}).waitFor();
   await history.getByText('Proposed procedure awaiting review.',{exact:true}).waitFor();

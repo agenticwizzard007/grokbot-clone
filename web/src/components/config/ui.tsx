@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { toast } from '../../lib/toast';
 import '../../styles/config.css';
 
 export function Switch({ on, onChange, label, disabled }: { on: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
@@ -32,22 +33,35 @@ export function Segmented<T extends string>({ value, options, onChange, label }:
   );
 }
 
-/** Button that asks "Sure?" in place before running a destructive action. */
+/**
+ * Button that asks "Sure?" in place before running a destructive action. The question stays until the user
+ * answers it: a click elsewhere or Escape cancels, and nothing reverts on a timer (R2F-003). A failure shows an error.
+ */
 export function ConfirmButton({ children, confirmLabel = 'Delete', onConfirm, className = 'cfg-btn cfg-btn--ghost-danger', disabled, title }: { children: ReactNode; confirmLabel?: string; onConfirm: () => Promise<unknown> | void; className?: string; disabled?: boolean; title?: string }) {
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
+  const button = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    if (!asking) return;
-    const t = setTimeout(() => setAsking(false), 4000);
-    return () => clearTimeout(t);
-  }, [asking]);
-  if (!asking) return <button type="button" className={className} disabled={disabled} title={title} onClick={() => setAsking(true)}>{children}</button>;
+    if (!asking || busy) return;
+    const outside = (event: PointerEvent) => { if (!button.current?.contains(event.target as Node)) setAsking(false); };
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape' && document.activeElement === button.current) { event.preventDefault(); event.stopPropagation(); setAsking(false); } };
+    document.addEventListener('pointerdown', outside, true);
+    document.addEventListener('keydown', escape, true);
+    return () => { document.removeEventListener('pointerdown', outside, true); document.removeEventListener('keydown', escape, true); };
+  }, [asking, busy]);
+  if (!asking) return <button ref={button} type="button" className={className} disabled={disabled} title={title} onClick={() => setAsking(true)}>{children}</button>;
   return (
     <button
+      ref={button}
       type="button"
       className="cfg-btn cfg-btn--danger"
       disabled={busy}
-      onClick={async () => { setBusy(true); try { await onConfirm(); } finally { setBusy(false); setAsking(false); } }}
+      onClick={async () => {
+        setBusy(true);
+        try { await onConfirm(); }
+        catch (failure) { toast((failure as Error)?.message || 'That did not work. Try again.', { tone: 'error' }); }
+        finally { setBusy(false); setAsking(false); }
+      }}
     >
       {busy ? 'Working…' : confirmLabel}
     </button>
