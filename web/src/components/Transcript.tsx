@@ -184,15 +184,16 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
   }, [bot.id]);
 
   const onScroll = () => {
-    const el = scrollRef.current!;
+    const el = scrollRef.current;
+    if (!el) return; // a scroll event can arrive after the chat unmounts (for example when Create opens a new Bot)
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
     stick.current = dist < 40;
     setShowJump(dist > 200);
   };
 
   const jump = () => {
-    const el = scrollRef.current!;
-    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    const el = scrollRef.current;
+    el?.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   };
 
   return (

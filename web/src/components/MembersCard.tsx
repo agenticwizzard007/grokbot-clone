@@ -4,6 +4,7 @@ import { BotAvatarFor } from '../avatar/BotAvatar';
 import { api, type RoomMember } from '../lib/api';
 import { useStore } from '../store';
 import { Icon } from './Icon';
+import { ACTIVATE_FIRST, activateBeforeGroup, isInSetup } from '../lib/botSetupState';
 
 /** Members of a group chat, with add/remove. Shown in the details panel for rooms. */
 export function MembersCard({ room }: { room: Bot }) {
@@ -25,7 +26,6 @@ export function MembersCard({ room }: { room: Bot }) {
   const ids = members?.map((m) => m.id) ?? [];
   // Every Bot not already here is listed; Bots still in setup show as disabled until activated (MF-034).
   const candidates = bots.filter((b) => b.kind !== 'room' && !ids.includes(b.id));
-  const configuring = (b: Bot) => !!(b as Bot & { onboarding?: { status: string } }).onboarding && (b as Bot & { onboarding?: { status: string } }).onboarding!.status !== 'active';
   const minimum = ids.length <= 2;
 
   return (
@@ -57,14 +57,14 @@ export function MembersCard({ room }: { room: Bot }) {
       {adding ? (
         <div className="members__add">
           {candidates.length ? candidates.map((b) => {
-            const locked = configuring(b);
+            const locked = isInSetup(b);
             return (
               <button key={b.id} type="button" className="panel-row panel-row--link" disabled={locked} aria-disabled={locked || undefined}
-                title={locked ? `Activate ${b.name} before adding it to a group.` : undefined}
+                title={locked ? activateBeforeGroup(b.name) : undefined}
                 onClick={() => { if (locked) return; setAdding(false); save([...ids, b.id]); }}>
                 <BotAvatarFor bot={b} size={20} />
                 <span className="panel-row__title" style={{ flex: 1 }}>{b.name}</span>
-                {locked && <span className="members__label">Activate first</span>}
+                {locked && <span className="members__label">{ACTIVATE_FIRST}</span>}
               </button>
             );
           }) : <div className="panel-empty">Every Bot is already here.</div>}

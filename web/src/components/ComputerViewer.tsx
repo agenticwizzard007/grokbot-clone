@@ -119,7 +119,11 @@ export function ComputerViewer() {
           <span>{bot.name}'s computer</span>
           {!lost && <span className="viewer__status">{wakingFromSleep ? wakingTitle : preparing && computer?.provider !== 'local' ? 'Agent waking up' : computerStatusText(computer)}</span>}
         </div>
-        <button type="button" className="viewer__close" onClick={close}>Close computer</button>
+        <div className="viewer__actions">
+          {/* R2F-011: settings are one click away for every provider and state. */}
+          <button type="button" className="viewer__close viewer__settings" onClick={openComputerSettings} aria-label="Computer settings"><span className="viewer__label-long">Computer settings</span><span className="viewer__label-short" aria-hidden="true">Settings</span></button>
+          <button type="button" className="viewer__close" onClick={close} aria-label="Close computer"><span className="viewer__label-long">Close computer</span><span className="viewer__label-short" aria-hidden="true">Close</span></button>
+        </div>
       </div>
 
       <div className="viewer__stage">
@@ -140,7 +144,7 @@ export function ComputerViewer() {
             {computer?.provider === 'local' ? (
               <>
                 <span>Your computer isn’t connected.</span>
-                <button type="button" className="btn btn--light" onClick={openComputerSettings}>Computer settings</button>
+                <button type="button" className="btn btn--light" onClick={openComputerSettings}>Connect your PC</button>
               </>
             ) : (
               <>

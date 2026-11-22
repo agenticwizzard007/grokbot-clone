@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { startEvents } from './lib/events';
-import { PHONE_QUERY, restorePhoneSetup, useStore } from './store';
+import { onReturnToList, PHONE_QUERY, restorePhoneSetup, showPhoneList, useStore } from './store';
 import { ChatView } from './components/ChatView';
 import { BotsView } from './components/BotsView';
 import { DetailsPanel } from './components/DetailsPanel';
@@ -43,6 +43,8 @@ function Shell() {
     const mq = window.matchMedia(PHONE_QUERY);
     const onChange = () => {
       const st = useStore.getState();
+      // R2F-007: also called on resize (device emulation can skip the media query event); only act on a real change.
+      if (st.mobile === mq.matches) return;
       st.set({ mobile: mq.matches, ...(mq.matches ? {} : { mobilePane: 'list' as const }) });
       if (mq.matches && (st.modal === 'create' || st.modal === 'group')) st.setModal(st.modal);
     };
@@ -50,12 +52,14 @@ function Shell() {
       if (restorePhoneSetup()) return;
       const st = useStore.getState();
       if (!st.mobile || st.mobilePane !== 'chat') return;
-      st.set({ mobilePane: 'list', detailsOpen: false });
-      useConfigUI.getState().setView('chat');
+      showPhoneList();
     };
+    // Back to the list always lands on the chat view underneath, never on Tasks or Goals.
+    const stopList = onReturnToList(() => { if (useConfigUI.getState().view !== 'chat') useConfigUI.getState().setView('chat'); });
     mq.addEventListener('change', onChange);
+    window.addEventListener('resize', onChange);
     window.addEventListener('popstate', onPop);
-    return () => { mq.removeEventListener('change', onChange); window.removeEventListener('popstate', onPop); };
+    return () => { stopList(); mq.removeEventListener('change', onChange); window.removeEventListener('resize', onChange); window.removeEventListener('popstate', onPop); };
   }, []);
   // Entering phone width starts from the conversation; setup can be opened as its own page.
   useEffect(() => {

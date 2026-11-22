@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 const stack: HTMLElement[] = [];
@@ -17,8 +17,30 @@ function syncModalBackground() {
   }
 }
 
+const PASS_THROUGH = 'button, a[href], [role="button"]';
+
+/**
+ * R2F-033: the backdrop closes the dialog on mouse down and is removed at once, so the browser drops the
+ * click that follows (its press and release land on different elements). For light palettes, a press on a
+ * navigation control under the backdrop (`passThrough`, a CSS scope such as '.sidebar') still activates it.
+ */
+function forwardReleaseTo(scope: string, x: number, y: number) {
+  window.addEventListener('mouseup', up => {
+    requestAnimationFrame(() => {
+      const pick = (px: number, py: number) => document.elementFromPoint(px, py)?.closest<HTMLElement>(PASS_THROUGH) ?? null;
+      const target = pick(x, y);
+      if (!target || target !== pick(up.clientX, up.clientY) || !target.closest(scope) || target.closest('[inert]') || (target as HTMLButtonElement).disabled) return;
+      target.click();
+    });
+  }, { once: true, capture: true });
+}
+
 /** Accessible dialog with keyboard containment, Escape, and focus restoration. */
-export function Modal({ onClose, children, className, label, top }: { onClose: () => void; children: ReactNode; className?: string; label: string; top?: number }) {
+export function Modal({ onClose, children, className, label, top, passThrough }: { onClose: () => void; children: ReactNode; className?: string; label: string; top?: number; passThrough?: string }) {
+  const scrimDown = (event: ReactMouseEvent) => {
+    if (passThrough && event.button === 0) forwardReleaseTo(passThrough, event.clientX, event.clientY);
+    onClose();
+  };
   const ref = useRef<HTMLDivElement>(null);
   const root = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
@@ -56,7 +78,7 @@ export function Modal({ onClose, children, className, label, top }: { onClose: (
   }, []);
   return createPortal(
     <div className="modal-root" ref={root}>
-      <div className="modal-scrim" onMouseDown={onClose} />
+      <div className="modal-scrim" onMouseDown={scrimDown} />
       <div ref={ref} className={`modal ${className ?? ''}`} role="dialog" tabIndex={-1} aria-modal="true" aria-label={label} style={top !== undefined ? { marginTop: top } : undefined}>
         {children}
       </div>
