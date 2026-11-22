@@ -19,6 +19,7 @@ import { BotAnalyticsTab } from './BotAnalyticsTab';
 import { Glyph } from './glyphs';
 import { ConfirmButton, Field, Segmented, Switch, nextRunLabel, shortDate } from './ui';
 import '../../styles/setup-paper.css';
+import { startFreshConversation } from '../../lib/useFreshConversation';
 
 const EFFORT_HINT: Record<Bot['effort'], string> = {
   none: 'Answers straight away, without thinking first.',
@@ -49,8 +50,22 @@ function BotSettingsPage({ bot, tab, inline, userId }: { bot: Bot; tab: BotSetti
   const [data, setData] = useState<BotSettingsBundle | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showSources, setShowSources] = useState(false);
+  // The General draft lives here so it survives tab switches (null = nothing edited yet).
+  const [generalDraft, setGeneralDraft] = useState<Draft | null>(null);
+  const [guard, setGuard] = useState(false);
   const request = useRef(0);
-  const onClose = useCallback(() => close(), [close]);
+  const generalDirty = generalDraft !== null && changedFields(generalDraft, draftOf(bot)).length > 0;
+  const dirtyRef = useRef(generalDirty);
+  dirtyRef.current = generalDirty;
+  const discardAndClose = useCallback(() => { setGuard(false); setGeneralDraft(null); close(); }, [close]);
+  // Back, Escape and the close button ask first when General has unsaved edits.
+  const onClose = useCallback(() => { if (dirtyRef.current) setGuard(true); else close(); }, [close]);
+  useEffect(() => {
+    if (!generalDirty) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [generalDirty]);
 
   const reload = useCallback(() => {
     const version = ++request.current;
@@ -76,20 +91,28 @@ function BotSettingsPage({ bot, tab, inline, userId }: { bot: Bot; tab: BotSetti
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || useConfigUI.getState().appSettings || document.querySelector('.modal-root') || useStore.getState().modal === 'create') return;
       event.preventDefault();
-      if (sourcesOpen) setShowSources(false);
+      if (guard) setGuard(false);
+      else if (sourcesOpen) setShowSources(false);
       else onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [inline, onClose, sourcesOpen]);
+  }, [inline, onClose, sourcesOpen, guard]);
   const headings: Partial<Record<BotSettingsTab, string>> = {
-    general: 'Identity, chat model, and settings for this bot.', skills: 'Saved procedures and changes that need your review.',
-    memories: 'Review preferences and facts, including where they came from.', routines: 'Schedules and run history for this bot.', learning: 'Review learning activity, settings, and protected maintenance.',
+    general: 'Identity, chat model, and settings for this Bot.', skills: 'Saved procedures and changes that need your review.',
+    memories: 'Review preferences and facts, including where they came from.', routines: 'Schedules and run history for this Bot.', learning: 'Review learning activity, settings, and protected maintenance.',
   };
   const content = <>
       <SetupPaperHeader backLabel={sourcesOpen ? 'Back to memories' : detailsOpen ? 'Back to details' : 'Back to chat'} title={label} onBack={sourcesOpen ? () => setShowSources(false) : onClose} onClose={onClose} />
       <div className="setup-paper__column bot-settings-page__column" style={botVars(bot.avatarColor)}>
         <h1>{sourcesOpen ? 'Conversation sources' : `${bot.name} · ${label}`}</h1>
+        {guard && <div className="cfg-guard" role="alertdialog" aria-label="Discard unsaved changes?">
+          <div className="cfg-row__text"><div className="cfg-row__title">Discard unsaved changes?</div><div className="cfg-row__sub">Your edits on General have not been saved.</div></div>
+          <div className="settings-row__actions">
+            <button type="button" className="cfg-btn cfg-btn--secondary" autoFocus onClick={() => { setGuard(false); setTab('general'); }}>Keep editing</button>
+            <button type="button" className="cfg-btn cfg-btn--danger" onClick={discardAndClose}>Discard</button>
+          </div>
+        </div>}
         {headings[tab] && <p className="setup-paper__subtitle">{sourcesOpen ? 'Find evidence in current or archived chats.' : headings[tab]}</p>}
         <nav className="setup-paper__tabs" aria-label="Bot settings sections">
           {tabs.map((t) => (
@@ -98,7 +121,7 @@ function BotSettingsPage({ bot, tab, inline, userId }: { bot: Bot; tab: BotSetti
         </nav>
         <div className="bot-settings-page__content" key={tab}>
           {loadError && ['skills', 'memories', 'routines'].includes(tab) && <div className="cfg-error" role="alert">Couldn’t load settings: {loadError} <button className="cfg-btn cfg-btn--secondary" type="button" onClick={reload}>Retry</button></div>}
-          {tab === 'general' && <GeneralTab bot={bot} onClose={onClose} />}
+          {tab === 'general' && <GeneralTab bot={bot} onClose={discardAndClose} draft={generalDraft ?? draftOf(bot)} setDraft={setGeneralDraft} />}
           {tab === 'skills' && <SkillsTab bot={bot} skills={data?.skills} onChange={reload} />}
           {tab === 'memories' && <>
             <div className="bot-settings-page__memories" hidden={sourcesOpen}><MemoriesTab bot={bot} data={data} onChange={reload} onSearch={() => setShowSources(true)} /></div>
@@ -118,9 +141,9 @@ function BotSettingsPage({ bot, tab, inline, userId }: { bot: Bot; tab: BotSetti
 
 type Draft = Pick<Bot, 'name' | 'label' | 'description' | 'instructions' | 'avatarShape' | 'avatarColor' | 'effort' | 'mode' | 'model'>;
 const draftOf = (b: Bot): Draft => ({ name: b.name, label: b.label, description: b.description, instructions: b.instructions, avatarShape: b.avatarShape, avatarColor: b.avatarColor, effort: b.effort, mode: b.mode, model: b.model ?? null });
+const changedFields = (draft: Draft, base: Draft) => (Object.keys(draft) as (keyof Draft)[]).filter((k) => draft[k] !== base[k]);
 
-function GeneralTab({ bot, onClose }: { bot: Bot; onClose: () => void }) {
-  const [draft, setDraft] = useState<Draft>(() => draftOf(bot));
+function GeneralTab({ bot, onClose, draft, setDraft }: { bot: Bot; onClose: () => void; draft: Draft; setDraft: (update: (current: Draft | null) => Draft | null) => void }) {
   const modelCatalog = useModels();
   const modelInfo = draft.model ? modelCatalog.byId.get(draft.model) : undefined;
   const supportedEfforts = effortsFor(modelInfo).map(value => ({ value, label: EFFORT_LABEL[value] }));
@@ -128,13 +151,12 @@ function GeneralTab({ bot, onClose }: { bot: Bot; onClose: () => void }) {
   const [picker, setPicker] = useState(false);
   const [saving, setSaving] = useState(false);
   const [note, setNote] = useState<{ text: string; tone: 'ok' | 'error' } | null>(null);
-  useEffect(() => { setDraft(draftOf(bot)); }, [bot.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const base = draftOf(bot);
-  const changed = (Object.keys(draft) as (keyof Draft)[]).filter((k) => draft[k] !== base[k]);
+  const changed = changedFields(draft, base);
   const dirty = changed.length > 0;
   const nameOk = draft.name.trim().length > 0;
-  const put = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft((d) => ({ ...d, [k]: v }));
+  const put = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft((d) => ({ ...(d ?? draftOf(bot)), [k]: v }));
   const flash = (text: string, tone: 'ok' | 'error' = 'ok') => { setNote({ text, tone }); setTimeout(() => setNote(null), 2400); };
 
   const save = async () => {
@@ -145,6 +167,7 @@ function GeneralTab({ bot, onClose }: { bot: Bot; onClose: () => void }) {
       for (const k of changed) (patch as Record<string, unknown>)[k] = k === 'name' ? draft.name.trim() : draft[k];
       const { bot: next } = await configApi.updateBot(bot.id, patch);
       useStore.setState((s) => ({ bots: s.bots.map((b) => (b.id === next.id ? next : b)) }));
+      setDraft(() => null);
       flash('Saved');
     } catch (e) {
       flash((e as Error).message, 'error');
@@ -173,13 +196,13 @@ function GeneralTab({ bot, onClose }: { bot: Bot; onClose: () => void }) {
           <input id="cfg-name" className="text-input" value={draft.name} maxLength={60} onChange={(e) => put('name', e.target.value)} aria-invalid={!nameOk} />
         </Field>
         <Field label="Label" htmlFor="cfg-label" hint="Shown next to the name, like “Research” or “Inbox”.">
-          <input id="cfg-label" className="text-input" value={draft.label} maxLength={60} placeholder="Add a label" onChange={(e) => put('label', e.target.value)} />
+          <input id="cfg-label" className="text-input" value={draft.label} maxLength={40} placeholder="Add a label" onChange={(e) => put('label', e.target.value)} />
         </Field>
       </section>
 
       <section className="cfg-section">
         <Field label="About" htmlFor="cfg-about">
-          <textarea id="cfg-about" className="text-input cfg-textarea" rows={2} value={draft.description} maxLength={500} placeholder="What is this Bot for?" onChange={(e) => put('description', e.target.value)} />
+          <textarea id="cfg-about" className="text-input cfg-textarea" rows={2} value={draft.description} maxLength={300} placeholder="What is this Bot for?" onChange={(e) => put('description', e.target.value)} />
         </Field>
         <Field label="Instructions" htmlFor="cfg-instructions" hint={`Standing guidance ${draft.name || 'this Bot'} always follows, like tone, priorities or things to avoid. It also learns from chat, skills and memories.`}>
           <textarea id="cfg-instructions" className="text-input cfg-textarea cfg-textarea--tall" rows={7} value={draft.instructions} maxLength={8000} placeholder="e.g. Keep updates to three bullets. Never email anyone outside the team without asking." onChange={(e) => put('instructions', e.target.value)} />
@@ -197,7 +220,7 @@ function GeneralTab({ bot, onClose }: { bot: Bot; onClose: () => void }) {
 
       <div className={`cfg-savebar${dirty ? ' is-dirty' : ''}`}>
         <span className={`cfg-savebar__note${note?.tone === 'error' ? ' is-error' : ''}`} role="status">{note?.text ?? (dirty ? 'Unsaved changes' : '')}</span>
-        <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!dirty || saving} onClick={() => setDraft(draftOf(bot))}>Discard</button>
+        <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!dirty || saving} onClick={() => setDraft(() => null)}>Discard</button>
         <button type="button" className="cfg-btn cfg-btn--primary" disabled={!dirty || saving || !nameOk} onClick={save}>{saving ? 'Saving…' : 'Save changes'}</button>
       </div>
 
@@ -209,9 +232,8 @@ function GeneralTab({ bot, onClose }: { bot: Bot; onClose: () => void }) {
               <div className="cfg-row__title">New conversation</div>
               <div className="cfg-row__sub">Clears the chat. Memories, skills and routines stay.</div>
             </div>
-            <ConfirmButton className="cfg-btn cfg-btn--secondary" confirmLabel="Start fresh" onConfirm={async () => { await configApi.fresh(bot.id); flash('Started a new conversation'); }}>
-              Start new
-            </ConfirmButton>
+            {/* MF-007: same confirm, toast and row reload as the chat entry points. */}
+            <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => { void startFreshConversation(bot.id); }}>Start new</button>
           </div>
           {!bot.isPrimary && (
             <div className="cfg-row">
@@ -314,6 +336,9 @@ function SkillsTab({ bot, skills, onChange }: { bot: Bot; skills: KnowledgeSkill
 }
 
 function SkillEditor({ botId, skill, onDone }: { botId: string; skill?: KnowledgeSkill; onDone: () => void }) {
+  const nameInput = useRef<HTMLInputElement>(null);
+  // Focus Name once the form is on screen, after any focus restore from the button that opened it.
+  useEffect(() => { const frame = requestAnimationFrame(() => nameInput.current?.focus()); return () => cancelAnimationFrame(frame); }, []);
   const [name, setName] = useState(skill?.name ?? '');
   const [description, setDescription] = useState(skill?.description ?? '');
   const [body, setBody] = useState(skill?.body ?? '');
@@ -333,7 +358,7 @@ function SkillEditor({ botId, skill, onDone }: { botId: string; skill?: Knowledg
   };
   return (
     <form className="cfg-editor" onSubmit={(e) => { e.preventDefault(); save(); }}>
-      <input className="text-input" placeholder="Skill name, e.g. Weekly report" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} autoFocus aria-label="Skill name" />
+      <input ref={nameInput} className="text-input" placeholder="Skill name, e.g. Weekly report" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} autoFocus aria-label="Skill name" />
       <input className="text-input" placeholder="When to use it (optional)" value={description} maxLength={300} onChange={(e) => setDescription(e.target.value)} aria-label="Skill description" />
       <textarea className="text-input cfg-textarea cfg-textarea--tall" rows={8} placeholder={'Write the steps to follow:\n1. …\n2. …'} value={body} onChange={(e) => setBody(e.target.value)} aria-label="Skill steps" />
       {error && <div className="cfg-error" role="alert">{error}</div>}
@@ -384,11 +409,10 @@ function MemoriesTab({ bot, data, onChange, onSearch }: { bot: Bot; data: BotSet
       <details className="knowledge-item"><summary className="knowledge-item__row"><span><strong>Pending changes</strong><small>The current fact remains active until you approve a change.</small></span><span className="knowledge-item__action">Review memory changes</span></summary><PendingMemoryChanges botId={bot.id} onChange={onChange} /></details>
       <div className="knowledge-item knowledge-item__row"><div><strong>Conversation sources</strong><p>Search current and archived conversations.</p></div><button type="button" className="cfg-btn cfg-btn--secondary" onClick={onSearch}>Search sources</button></div>
       <MemoryArchive botId={bot.id} version={(data?.memories ?? []).map(m => `${m.id}:${m.revision}`).join(',')} />
-      <div className="setup-paper__actions"><button type="button" className="cfg-btn cfg-btn--primary" onClick={onSearch}>Search sources</button></div>
       {data && (
         <div className="cfg-meter" title="Older messages are summarized automatically when this fills up.">
           <div className="cfg-meter__label"><span>Conversation memory</span><span>{fill}% full</span></div>
-          <div className="cfg-meter__track"><span style={{ width: `${Math.max(2, fill)}%` }} /></div>
+          <div className="cfg-meter__track"><span style={{ width: `${fill > 0 ? Math.max(2, fill) : 0}%` }} /></div>
           <div className="cfg-field__hint">
             When it fills up, older messages get summarized so {bot.name} can keep going.
             {data.memory.lastCompaction ? ` Last summarized ${shortDate(data.memory.lastCompaction.created_at)}.` : ''}
@@ -445,7 +469,7 @@ function RoutineItem({ r, onFlash }: { r: Routine; onFlash: (t: string) => void 
           <Glyph name="play" size={13} />
         </button>
         <ConfirmButton className="cfg-icon-btn" title="Delete" onConfirm={() => configApi.deleteRoutine(r.id).then(() => onFlash('Deleted'))}><Glyph name="trash" size={14} /></ConfirmButton>
-        <Switch on={enabled} onChange={toggle} label={`${r.name} ${enabled ? 'on' : 'paused'}`} />
+        <Switch on={enabled} onChange={toggle} label={`${r.name} schedule on`} />
       </div>
     </div>
   );

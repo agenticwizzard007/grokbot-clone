@@ -27,6 +27,7 @@ import { initSubagents } from './agent/subagents.js';
 import { initRooms } from './agent/rooms.js';
 import { checkinsApi } from './routes-proactive.js';
 import { roomsApi } from './routes-rooms.js';
+import { preferencesApi } from './routes-preferences.js';
 import { enqueue, initDurableJobs } from './agent/loop.js';
 import { desSelfTest } from './lib/des.js';
 import { configApi } from './routes-config.js';
@@ -34,7 +35,10 @@ import { usageApi } from './routes-usage.js';
 import { modelsApi } from './routes-models.js';
 import { withUsage } from './usage.js';
 import { startVmMeter } from './usage-vm.js';
-import { userFromCookieHeader } from './lib/auth.js';
+import { requireUser, userFromCookieHeader, type AuthVars } from './lib/auth.js';
+import { apiErrorHandler } from './lib/json.js';
+import { publicHealth, securityHeaders, serverTimingForUsers, withHeadSupport } from './security/request.js';
+import { attentionApi } from './routes-attention.js';
 import { loadSettings } from './settings.js';
 import { defaultModel, openrouterModels } from './lib/llm.js';
 import { mcpApi } from './mcp/routes.js';
@@ -61,16 +65,18 @@ if (isTenant) {
   db.prepare('INSERT OR IGNORE INTO companion_tokens(token_hash,user_id,created_at) VALUES(?,?,?)').run(sha256(desktopToken), tenantId, Date.now());
 }
 
-const app = new Hono();
+const app = new Hono<AuthVars>();
+// Baseline security headers on every response, public routes included (MF-002).
+app.use('*', securityHeaders);
+// Invalid JSON and validation errors are 400s; other errors are a generic 500 without a stack trace (MF-014).
+app.onError(apiErrorHandler);
 if (isTenant) app.route('/internal/desktop-ready', tenantDesktopReadiness(desktopToken));
-app.use('/api/*', async (c, next) => {
-  const start = performance.now();
-  await next();
-  if (c.req.path !== '/api/events') c.header('Server-Timing', `app;dur=${(performance.now() - start).toFixed(1)}`);
-});
+app.use('/api/*', serverTimingForUsers);
 // Usage attribution: model calls made while handling a signed-in request are billed to that account.
 app.use('/api/*', (c, next) => withUsage({ resolveUser: () => userFromCookieHeader(c.req.header('cookie'))?.id }, () => next()));
-app.get('/api/health', (c) => c.json({ ok: true, provider: env.llmProvider, model: defaultModel(), computers: computers.kind, desktop: env.localDesktop, direct: !!env.directKey, openrouter: !!env.openrouterKey, apps: env.composioEnabled, features: { botCreation: true, botSetupVersion: 2, guidedSetup: true, messaging: true } }));
+// Public health check: no provider, model, key presence or feature details (MF-001).
+app.get('/api/health', publicHealth);
+app.get('/api/health/details', requireUser, (c) => c.json({ ok: true, provider: env.llmProvider, model: defaultModel(), computers: computers.kind, desktop: env.localDesktop, apps: env.composioEnabled, features: { botCreation: true, botSetupVersion: 2, guidedSetup: true, messaging: true } }));
 const releaseManifest = new URL('./release-manifest.json', import.meta.url);
 app.get('/api/version', (c) => {
   c.header('Cache-Control', 'no-store');
@@ -102,6 +108,8 @@ app.route('/api/workflows', workflowApi);
 app.route('/api/deliverables', deliverablesApi);
 app.route('/api/learning',learningApi);
 app.route('/api/team',coordinationApi);
+app.route('/api', attentionApi);
+app.route('/api/account', preferencesApi);
 app.route('/api', api);
 app.route('/api', configApi);
 app.route('/api/usage', usageApi);
@@ -125,7 +133,7 @@ if (fs.existsSync(webDist)) {
   app.get('*', (c) => c.html(fs.readFileSync(path.join(webDist, 'index.html'), 'utf8')));
 }
 
-const server = serve({ fetch: app.fetch, port: env.port, ...(isTenant ? { hostname: '0.0.0.0' } : {}) }, (info) => console.log(`[swarm] server on http://localhost:${info.port} (models: ${env.llmProvider} ${defaultModel()}, computers: ${computers.kind})`));
+const server = serve({ fetch: withHeadSupport(app.fetch), port: env.port, ...(isTenant ? { hostname: '0.0.0.0' } : {}) }, (info) => console.log(`[swarm] server on http://localhost:${info.port} (models: ${env.llmProvider} ${defaultModel()}, computers: ${computers.kind})`));
 attachComputerSockets(server as unknown as Server);
 attachCliSocket(server as unknown as Server);
 // Warm optional model metadata without delaying the HTTP listener.

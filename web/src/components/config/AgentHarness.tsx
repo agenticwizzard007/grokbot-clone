@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { AgentInstructionPreview, AgentSetupView, Bot } from '@shared/types';
 import { configApi } from '../../lib/configApi';
 import { ApiError } from '../../lib/api';
@@ -18,7 +18,15 @@ function StandingInstructions({ bot, running, onSave }: { bot: Bot; running: boo
   const [saved, setSaved] = useState(false);
   const lifetime = useRef(false);
   const pending = useRef(false);
+  const area = useRef<HTMLTextAreaElement>(null);
+  const caret = useRef<[number, number] | null>(null);
   useEffect(() => { lifetime.current = true; return () => { lifetime.current = false; }; }, []);
+  // Keep the caret where the user typed when a re-render (SSE refresh, parent update) rewrites the value.
+  useLayoutEffect(() => {
+    const el = area.current, at = caret.current;
+    if (!el || !at || document.activeElement !== el) return;
+    if (el.selectionStart !== at[0] || el.selectionEnd !== at[1]) el.setSelectionRange(at[0], at[1]);
+  });
   const changedElsewhere = editing && bot.instructions !== original;
   const edit = () => { setOriginal(bot.instructions); setDraft(bot.instructions); setEditing(true); setSaved(false); setError(null); };
   const save = async () => {
@@ -45,7 +53,7 @@ function StandingInstructions({ bot, running, onSave }: { bot: Bot; running: boo
     <div className="agent-config__row"><h3>Standing instructions</h3>{!editing && <button type="button" className="cfg-btn cfg-btn--secondary agent-config__edit" aria-label="Edit instructions" onClick={edit}><Icon name="edit" size={14} />Edit</button>}</div>
     <p className="agent-config__muted">Set preferences, decision rules and what a good result looks like. These become part of the system prompt.</p>
     {editing ? <div className="agent-config__editor">
-      <textarea aria-label="Standing instructions" className="text-input cfg-textarea" rows={8} maxLength={8000} value={draft} disabled={saving} onChange={(e) => setDraft(e.target.value)} placeholder="For each result, include its source. Flag missing evidence. Keep updates concise." />
+      <textarea ref={area} aria-label="Standing instructions" className="text-input cfg-textarea" rows={8} maxLength={8000} value={draft} disabled={saving} onChange={(e) => { caret.current = [e.target.selectionStart, e.target.selectionEnd]; setDraft(e.target.value); }} onSelect={(e) => { caret.current = [e.currentTarget.selectionStart, e.currentTarget.selectionEnd]; }} placeholder="For each result, include its source. Flag missing evidence. Keep updates concise." />
       <div className="agent-config__editor-meta"><span>{draft.length.toLocaleString()} / 8,000</span><span>Applies to future requests</span></div>
       {changedElsewhere && <p className="cfg-error" role="alert">Instructions changed elsewhere. Cancel to load the latest version before editing.</p>}
       {running && <p className="agent-config__muted">Wait for the current run to finish before saving.</p>}

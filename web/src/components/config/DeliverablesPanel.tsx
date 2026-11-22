@@ -20,14 +20,14 @@ function channelBlock(file: SavedDeliverable, channel: DeliveryChannel) {
 type Preview = { artifactId: string; destination: DeliveryDestination; retry?: { deliveryId: string; expectedAttemptId: string } };
 export type DeliveryReviewHeading = { title: string; subtitle: string; detail: true };
 
-export function DeliverablesPanel({ botId, workspace, onReview }: { botId: string; workspace?: boolean; onReview?: (heading?: DeliveryReviewHeading) => void }) {
+export function DeliverablesPanel({ botId, workspace, onReview, onSynopses }: { botId: string; workspace?: boolean; onReview?: (heading?: DeliveryReviewHeading) => void; onSynopses?: () => void }) {
   const userId = useStore(state => state.user?.id);
   const bot = useStore(state => state.bots.find(item => item.id === botId));
   if (!userId || !bot) return null;
-  return <ReportList key={`${userId}:${workBotKey(bot)}`} botId={botId} generation={bot.generation} userId={userId} isPrimary={bot.isPrimary} workspace={workspace} onReview={onReview} />;
+  return <ReportList key={`${userId}:${workBotKey(bot)}`} botId={botId} generation={bot.generation} userId={userId} isPrimary={bot.isPrimary} botName={bot.name} workspace={workspace} onReview={onReview} onSynopses={onSynopses} />;
 }
 
-function ReportList({ botId, generation, userId, isPrimary, workspace, onReview }: { botId: string; generation: number; userId: string; isPrimary: boolean; workspace?: boolean; onReview?: (heading?: DeliveryReviewHeading) => void }) {
+function ReportList({ botId, generation, userId, isPrimary, botName, workspace, onReview, onSynopses }: { botId: string; generation: number; userId: string; isPrimary: boolean; botName: string; workspace?: boolean; onReview?: (heading?: DeliveryReviewHeading) => void; onSynopses?: () => void }) {
   const [files, setFiles] = useState<SavedDeliverable[] | null>(null), [loading, setLoading] = useState(true);
   const [readError, setReadError] = useState(''), [actionError, setActionError] = useState('');
   const [busy, setBusy] = useState<string | null>(null), [channels, setChannels] = useState<Record<string, DeliveryChannel>>({});
@@ -131,7 +131,11 @@ function ReportList({ botId, generation, userId, isPrimary, workspace, onReview 
       </div> : <>
       {!!pending.length && <div className="work-row" role="status"><h3>Unresolved delivery requests</h3><p className="work-meta">Resuming reuses the approved destination, exact request and idempotency key.</p>{pending.map(request => <div className="work-row__body" key={request.key}><p className="work-meta">{request.kind} · {files?.find(file => file.id === request.artifactId)?.filename ?? 'Saved artifact'}</p><button type="button" className="work-button" disabled={busy !== null || !!storageError} onClick={() => void execute(request)}>Resume saved request</button></div>)}</div>}
       {!files && loading && <p role="status">Loading reports…</p>}
-      {files?.length === 0 && <p className="work-meta">Reports saved by this bot appear here.</p>}
+      {files?.length === 0 && <div className="work-row work-reports-empty" role="status">
+        <h3>No saved reports yet</h3>
+        <p className="work-meta">{isPrimary && onSynopses ? `Ask ${botName} for a report, or set up a daily synopsis.` : `Ask ${botName} for a report. Reports saved by this Bot appear here.`}</p>
+        {isPrimary && onSynopses && <div className="work-actions"><button type="button" className="work-button" onClick={onSynopses}>Set up a daily synopsis</button></div>}
+      </div>}
       {files?.map(file => {
         const unresolved = pending.some(request => request.artifactId === file.id);
         const disabled = busy !== null || unresolved || !!storageError || !!readError || loading;

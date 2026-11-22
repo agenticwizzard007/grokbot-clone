@@ -91,7 +91,7 @@ try {
     const btn = (target, name) => target.getByRole('button', { name, exact: typeof name === 'string' });
     await page.goto(origin);
     await btn(page, 'New Bot').click();
-    const create = page.getByRole('main', { name: 'Create a bot', exact: true });
+    const create = page.getByRole('main', { name: 'Create a Bot', exact: true });
     await create.waitFor();
     await shot('create', create);
     await page.keyboard.press('Escape'); await create.waitFor({ state: 'hidden' });
@@ -124,7 +124,7 @@ try {
       const confirmation = account.getByRole('heading', { name: 'Delete your Swarm account?', exact: true });
       await confirmation.waitFor();
       delayedImport.release();
-      await page.getByText('Atlas is in your bots.', { exact: true }).waitFor({ state: 'attached' });
+      await page.getByText('Atlas is in your Bots.', { exact: true }).waitFor({ state: 'attached' });
       assert.equal(await confirmation.isVisible(), true, 'import must not close the newer Account confirmation');
       assert.equal(await page.locator('.main-pane').getAttribute('hidden'), '');
       assert.ok(!reads.some(endpoint => endpoint.startsWith('/api/bots/atlas/')), 'import must not select its bot before the explicit recovery action');
@@ -136,10 +136,10 @@ try {
       await openImport.click();
     }
     await details.getByText('Setup interview · Revision 4').waitFor();
-    assert.equal(await btn(details, 'Review configuration').count(), 0, 'an imported interview cannot be activated before the backend marks it ready');
+    assert.equal(await btn(details, 'Review and activate').count(), 0, 'an imported interview cannot be activated before the backend marks it ready');
     setupStatus = 'review';
     await page.evaluate(() => window.dispatchEvent(new CustomEvent('swarm:event', { detail: { type: 'setup', botId: 'atlas' } })));
-    await btn(details, 'Review configuration').click();
+    await btn(details, 'Review and activate').click();
     assert.equal(await btn(details, 'Activate agent · revision 5').isEnabled(), true);
     assert.equal(writes.length, 2, 'import must not activate automatically');
     await shot('setup-review', details);
@@ -190,7 +190,7 @@ try {
     await settingsPane.getByText(memory.text).waitFor();
     assert.equal(await settingsPane.getByText(/OTHER BOT MEMORY|SUPERSEDED MEMORY/).count(), 0);
     await shot('memories', settingsPane);
-    await btn(settingsPane.locator('.setup-paper__actions'), 'Search sources').click();
+    await btn(settingsPane, 'Search sources').click();
     const search = settingsPane.getByRole('region', { name: 'Conversation source search' });
     const query = search.getByLabel('Search conversation sources');
     await search.getByLabel('Message role').selectOption('user'); await search.getByLabel('Conversation generation').fill('2');

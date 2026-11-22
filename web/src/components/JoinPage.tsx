@@ -3,6 +3,7 @@ import { ChevronLeft } from 'lucide-react';
 import { SwarmMark } from './SwarmMark';
 import { configApi, type JoinInfo } from '../lib/configApi';
 import { WhatsAppIcon } from './WhatsAppIcon';
+import { useStore } from '../store';
 import '../styles/messaging.css';
 
 /** Public /join/:code page: claim an invite with your phone number, then text the line to create your account. */
@@ -18,6 +19,8 @@ function InvitePage({ code }: { code: string }) {
   const [error, setError] = useState<string | null>(null);
   const [claimed, setClaimed] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  // MF-051: a signed-in visitor goes back to the app, not to a sign-in page.
+  const signedIn = useStore(s => !!s.user);
   const submitting = useRef(false);
 
   useEffect(() => {
@@ -88,10 +91,10 @@ function InvitePage({ code }: { code: string }) {
 
   return (
     <div className="join access-invite">
-      <header className="join__bar"><a href="/" aria-label="Back to sign in"><ChevronLeft size={18} aria-hidden /></a><SwarmMark size={24} /><span>Swarm</span></header>
+      <header className="join__bar"><a href="/" aria-label={signedIn ? 'Back to Swarm' : 'Back to sign in'}><ChevronLeft size={18} aria-hidden /></a><SwarmMark size={24} /><span>Swarm</span></header>
       <main className="join__card">
         {body}
-        <a className="btn btn--secondary join__signin" href="/">Sign in</a>
+        <a className="btn btn--secondary join__signin" href="/">{signedIn ? 'Back to Swarm' : 'Sign in'}</a>
       </main>
     </div>
   );

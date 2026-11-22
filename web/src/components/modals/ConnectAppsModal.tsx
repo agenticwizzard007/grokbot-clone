@@ -11,6 +11,7 @@ import { ToolkitLogo } from '../ToolkitLogo';
 import { Modal } from './Modal';
 import { useConfigUI } from '../../configStore';
 import '../../styles/access-apps.css';
+import './connect-apps.css';
 
 const PILLS = APP_CATEGORIES.filter((group) => ['communication', 'productivity', 'project management', 'developer tools', 'images & design'].includes(group.id))
   .map((group) => ({ label: group.shortLabel, category: group.id }));
@@ -60,7 +61,7 @@ function AppRow({ app, onChanged }: { app: Toolkit; onChanged: () => void }) {
       <span className="app-row__text">
         <span className="app-row__name">{app.name}</span>
         {app.description && <span className="app-row__desc">{app.description}</span>}
-        {app.connected && <span className="app-row__desc">Connected</span>}
+        {app.connected && <span className="app-row__status">Connected</span>}
         {state === 'waiting' && <span className="app-row__desc" role="status">Finish authorizing in the provider window, then refresh.</span>}
         {error && <span className="app-row__error" role="alert">{error}</span>}
       </span>
@@ -274,7 +275,7 @@ function AccountAppsCatalog({ accountId, close, inline }: { accountId: string; c
             {pageError && <span role="alert">{pageError}</span>}
           </div>
         )}
-        <div className="apps-pagination access-apps__mcp"><span><strong>Using your own MCP server?</strong><small>Manage custom tools separately.</small></span><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => { close(); useConfigUI.getState().openAppSettings('mcp'); }}>Custom MCP</button></div>
+        <div className="apps-pagination access-apps__mcp"><span><strong>Using your own MCP server?</strong><small>Manage custom tools separately.</small></span><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => { close(); useConfigUI.getState().openAppSettings('mcp'); }}>MCP servers</button></div>
       </div>
     </div>
   );

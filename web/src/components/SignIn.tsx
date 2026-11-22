@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import '@fontsource-variable/instrument-sans';
 import '../styles/signin-brand.css';
 import { api } from '../lib/api';
@@ -21,6 +21,7 @@ const AUTH_ERRORS: Record<string, string> = {
   google_session: 'This sign-in link no longer matches this browser. Start again here and finish in the same browser.',
   google_invalid: 'Google sign-in could not be verified. Please try again.',
   google_busy: 'Google sign-in is busy. Please try again shortly.',
+  google_expired: 'Your Google sign-in timed out. Please try again.',
   google_link_required: 'You already have a Swarm account with this email. Sign in with your phone or Apple, then connect Google in Settings → Account.',
   google_already_linked: 'This Google account is already connected to a different Swarm account, or this Swarm account already has Google connected.',
   apple_denied: 'Apple sign-in was cancelled. You can try again or choose another sign-in option.',
@@ -42,8 +43,17 @@ export function SignIn() {
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(() => AUTH_ERRORS[new URLSearchParams(location.search).get('login') ?? ''] ?? null);
-  const expired = new URLSearchParams(location.search).get('login') === 'expired';
+  // Read the sign-in result once, then drop it from the address so a reload shows a clean page.
+  const [loginCode] = useState(() => new URLSearchParams(location.search).get('login') ?? '');
+  const [error, setError] = useState<string | null>(() => AUTH_ERRORS[loginCode] ?? null);
+  const expired = loginCode === 'expired';
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (!params.has('login')) return;
+    params.delete('login');
+    const query = params.toString();
+    history.replaceState(history.state, '', `${location.pathname}${query ? `?${query}` : ''}${location.hash}`);
+  }, []);
 
   const dev = async (e: React.FormEvent) => {
     e.preventDefault();

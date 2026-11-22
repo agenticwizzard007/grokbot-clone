@@ -170,7 +170,7 @@ try {
     await page.keyboard.press('Escape');
     await search.waitFor({ state: 'hidden' });
 
-    await page.getByRole('button', { name: 'Your bots', exact: true }).click();
+    await page.getByRole('button', { name: 'Your Bots', exact: true }).click();
     const directory = page.locator('.bots-view__list');
     const directoryNia = avatar(directory, 'Nia');
     const directoryEllis = avatar(directory, 'Ellis');

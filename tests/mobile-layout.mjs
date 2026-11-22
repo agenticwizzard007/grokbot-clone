@@ -86,7 +86,7 @@ try {
       await page.locator('.details .setup-paper__close').click();
       await toList();
       await page.getByRole('button', { name: 'New Bot', exact: true }).click();
-      await page.getByRole('main', { name: 'Create a bot' }).waitFor();
+      await page.getByRole('main', { name: 'Create a Bot' }).waitFor();
       await checkWidth('.setup-create');
       await page.keyboard.press('Escape');
       await page.locator('.account__btn').click();

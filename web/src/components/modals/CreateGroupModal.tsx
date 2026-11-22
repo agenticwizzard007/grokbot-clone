@@ -66,19 +66,19 @@ export function CreateGroupModal({ inline = false }: { inline?: boolean } = {}) 
   };
   const content = <>
     <header className="setup-paper__bar">
-      <button type="button" className="setup-paper__back" onClick={() => { if (!submitting.current) setModal('create'); }} disabled={busy}><Icon name="chev_left" size={16} />Back to create a bot</button>
+      <button type="button" className="setup-paper__back" onClick={() => { if (!submitting.current) setModal('create'); }} disabled={busy}><Icon name="chev_left" size={16} />Back to create a Bot</button>
       <span>Bots</span><button type="button" className="setup-paper__close" onClick={close} aria-label="Close" disabled={busy}><Icon name="close" /></button>
     </header>
     <form className="setup-paper__column group-create" onSubmit={event => { event.preventDefault(); void create(); }}>
-      <h1>New group chat</h1><p className="setup-paper__subtitle">Choose at least two bots to work together.</p>
+      <h1>New group chat</h1><p className="setup-paper__subtitle">Choose at least two Bots to work together.</p>
       <label className="group-create__field">Group name<input className="text-input" placeholder="Give this conversation a name" maxLength={100} value={name} onChange={event => setName(event.target.value)} autoFocus disabled={busy || !!createdId} /></label>
       <fieldset className="group-create__members"><legend>Bots in this group</legend>
         {bots.map(bot => <label className="group-create__member" key={bot.id}>
-          <BotAvatarFor bot={bot} size={28} /><span><strong>{bot.name}</strong><small>{bot.isPrimary ? 'Primary bot' : bot.label || bot.description}</small></span>
+          <BotAvatarFor bot={bot} size={28} /><span><strong>{bot.name}</strong><small>{bot.isPrimary ? 'Primary Bot' : bot.label || bot.description}</small></span>
           <input type="checkbox" checked={picked.includes(bot.id)} onChange={() => toggle(bot.id)} disabled={busy || !!createdId} aria-label={bot.name} />
         </label>)}
       </fieldset>
-      {bots.length < 2 && <p role="status">Create another bot before starting a group chat.</p>}
+      {bots.length < 2 && <p role="status">Create another Bot before starting a group chat.</p>}
       {error && <p className="cfg-error" role="alert">{error}</p>}
       <div className="setup-paper__actions">
         <button type="submit" className="cfg-btn cfg-btn--primary" disabled={!canCreate}>{createdId ? (busy ? 'Opening…' : 'Open created group') : busy ? 'Creating…' : 'Create group'}</button>

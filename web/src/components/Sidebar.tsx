@@ -10,8 +10,14 @@ import { api } from '../lib/api';
 import { Icon } from './Icon';
 import { Menu } from './Menu';
 import { SidebarUsage } from './SidebarUsage';
+import { shortcutLabel } from '../lib/shortcuts';
+import { toast } from '../lib/toast';
+import './sidebar-labels.css';
 
-const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+/** MF-027: a Bot is highlighted only while its chat is the visible page. */
+export function sidebarHighlightsBot(ui: { view: string; appSettings: unknown; botSettings: unknown }, modal: string | null): boolean {
+  return ui.view === 'chat' && !ui.appSettings && !ui.botSettings && modal !== 'create' && modal !== 'group';
+}
 
 function initials(name: string) {
   // Letters (any script) and digits only, so names like "Alex (owner)" don't yield "A(".
@@ -56,8 +62,9 @@ export function Sidebar() {
   const bots = useStore((s) => s.bots);
   const live = useStore((s) => s.live);
   const storeSelectedBotId = useStore((s) => s.selectedBotId);
-  const inTasks = useConfigUI((s) => s.view !== 'chat');
-  const selectedBotId = inTasks ? null : storeSelectedBotId; // nothing highlighted while the Tasks view is open
+  const modal = useStore((s) => s.modal);
+  const chatVisible = useConfigUI((s) => sidebarHighlightsBot(s, modal));
+  const selectedBotId = chatVisible ? storeSelectedBotId : null; // nothing highlighted on Tasks, Settings, Bot settings or create pages
   const user = useStore((s) => s.user);
   // Phones show the full list as the home screen, never the collapsed rail.
   const collapsed = useStore((s) => s.sidebarCollapsed && !s.mobile);
@@ -72,7 +79,12 @@ export function Sidebar() {
     ui.setView(useStore.getState().mobile ? 'chat' : 'bots');
     set({ mobilePane: 'list', detailsOpen: false });
   };
-  const logout = async () => { await api.logout().catch(() => {}); location.reload(); };
+  const logout = async () => {
+    try { await api.logout(); }
+    catch { toast('Couldn\'t sign out. Check your connection and try again.', { tone: 'error' }); return; }
+    useStore.getState().set({ user: null, bots: [], transcripts: {}, live: {}, routines: {} });
+    location.reload();
+  };
 
   const primary = bots.find((b) => b.isPrimary);
   const primaryLive = primary ? userFacingLive(live[primary.id]) : undefined;
@@ -80,9 +92,9 @@ export function Sidebar() {
   const others = bots.filter((b) => !b.isPrimary).sort((a, b) => b.lastActivityAt - a.lastActivityAt);
 
   return (
-    <aside className={`sidebar${collapsed ? ' is-collapsed' : ''}`} aria-label="Your bots">
+    <aside className={`sidebar${collapsed ? ' is-collapsed' : ''}`} aria-label="Your Bots">
       <div className="sidebar__titlebar">
-        <button type="button" className="sidebar__brand" aria-label="Your bots" onClick={showBots}>
+        <button type="button" className="sidebar__brand" aria-label="Your Bots" onClick={showBots}>
           {collapsed ? <>
             <img className="brand-image brand-image--light" src="/assets/swarms/flock.svg" alt="" />
             <img className="brand-image brand-image--night" src="/assets/swarms/flock-night.svg" alt="" />
@@ -92,14 +104,14 @@ export function Sidebar() {
           </>}
         </button>
         <div className="sidebar__controls">
-          <button type="button" className="icon-btn icon-btn--plain" onClick={() => set({ sidebarCollapsed: !collapsed })} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} title="Toggle sidebar (⌘B)">
+          <button type="button" className="icon-btn icon-btn--plain" onClick={() => set({ sidebarCollapsed: !collapsed })} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={`Toggle sidebar (${shortcutLabel('sidebar')})`}>
             <Icon name="sidebar" opacity={0.66} />
           </button>
         </div>
       </div>
-      <button type="button" className="sidebar__search" onClick={() => setModal('search')} aria-label="Search" title="Search (⌘K)">
+      <button type="button" className="sidebar__search" onClick={() => setModal('search')} aria-label="Search" title={`Search (${shortcutLabel('search')})`}>
         <Icon name="search" size={18} opacity={0.66} />
-        {!collapsed && <><span>Search</span><kbd>{IS_MAC ? '⌘K' : 'Ctrl K'}</kbd></>}
+        {!collapsed && <><span>Search</span><kbd>{shortcutLabel('search')}</kbd></>}
       </button>
 
       <div className="sidebar__scroll">
@@ -111,7 +123,7 @@ export function Sidebar() {
                 <BotAvatarFor bot={primary} size={40} star working={primaryWorking} />
                 {primaryWorking && <span className="status-dot is-working pinned__dot" />}
               </span>
-              {!collapsed && <span className="pinned__text"><span className="pinned__label">{primary.name}</span><span className="bot-row__preview">{primaryLive?.awaiting?.reason ?? (primaryWorking ? 'Working…' : primary.label || 'Your primary bot')}</span></span>}
+              {!collapsed && <span className="pinned__text"><span className="pinned__label">{primary.name}</span><span className="bot-row__preview">{primaryLive?.awaiting?.reason ?? (primaryWorking ? 'Working…' : primary.label || 'Your primary Bot')}</span></span>}
             </button>
           </div>
         )}
@@ -128,8 +140,8 @@ export function Sidebar() {
             );
           })}
         </div>
-        <button type="button" className="sidebar__create" onClick={createBot} aria-label="New Bot" title="Create a bot">
-          <Icon name="plus" size={20} opacity={0.66} />{!collapsed && <span>Create a bot</span>}
+        <button type="button" className="sidebar__create" onClick={createBot} aria-label="New Bot" title={`Create a Bot (${shortcutLabel('new-bot')})`}>
+          <Icon name="plus" size={20} opacity={0.66} />{!collapsed && <span>Create a Bot</span>}
         </button>
       </div>
       <div id="app-settings-sidebar-slot" />
@@ -147,7 +159,7 @@ export function Sidebar() {
                 placement="above"
                 onClose={() => setAccountMenu(false)}
                 items={[
-                  { label: 'Settings', icon: Settings, hint: IS_MAC ? '⌘,' : 'Ctrl+,', onSelect: () => useConfigUI.getState().openAppSettings() },
+                  { label: 'Settings', icon: Settings, hint: shortcutLabel('settings'), onSelect: () => useConfigUI.getState().openAppSettings() },
                   { label: 'Usage', icon: Gauge, onSelect: () => useConfigUI.getState().openAppSettings('usage') },
                   { label: 'API keys', icon: KeyRound, onSelect: () => useConfigUI.getState().openAppSettings('keys') },
                   { label: 'Computer', icon: Monitor, onSelect: () => useConfigUI.getState().openAppSettings('computer') },

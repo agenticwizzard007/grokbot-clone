@@ -73,7 +73,7 @@ function HistoryEntry({botId,entry}:{botId:string;entry:Entry}) {
     return()=>controller.abort();
   },[botId,entry.version,open,detail,attempt]);
   return <details className="agent-history__entry" onToggle={e=>setOpen(e.currentTarget.open)}>
-    <summary>Change {entry.version} · {label(entry.kind)} · {label(entry.action)}{entry.sourceRevision!==null?` · revision ${entry.sourceRevision}`:''}</summary>
+    <summary>Change {entry.version} · {label(entry.kind)} · {label(entry.action)}{entry.sourceRevision!==null?` · ${label(entry.kind)} revision ${entry.sourceRevision}`:''}</summary>
     <p><time dateTime={new Date(entry.occurredAt).toISOString()}>{new Date(entry.occurredAt).toLocaleString()}</time>{entry.origin==='historical'?' · From retained history':entry.origin==='baseline'?' · Starting snapshot':''}</p>
     <p>Recorded actor: {entry.actor??'Not recorded'}{entry.reason?` · ${entry.reason}`:''}</p>
     {entry.kind.endsWith('proposal')&&<p>A proposal is not an active revision. Approved changes have separate skill or memory entries.</p>}

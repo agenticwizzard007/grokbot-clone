@@ -2,6 +2,8 @@ import './lib/legacy-storage'; // before reading saved preferences
 import { create } from 'zustand';
 import type { Bot, ComputerState, LiveState, Routine, Row, ServerEvent, User } from '@shared/types';
 import { api } from './lib/api';
+import { noteRowsEvent } from './lib/sseWatchdog';
+import { readDetailsDefault } from './lib/detailsDefault';
 
 export type ModalKind = 'create' | 'search' | 'apps' | 'group' | null;
 
@@ -102,6 +104,7 @@ export const useStore = create<State>((set, get) => ({
     try {
       const { user, devLogin, googleLogin, googleLinked, appleLogin, appleLinked } = await api.me();
       set({ user, devLogin, googleLogin: googleLogin !== false, appleLogin: !!appleLogin, appleLinked: !!appleLinked, googleLinked: !!googleLinked, authChecked: true });
+      syncBrowserTimezone(user);
     } catch {
       set({ user: null, authChecked: true });
     }
@@ -132,7 +135,8 @@ export const useStore = create<State>((set, get) => ({
 
   selectBot(id, opts = {}) {
     if (opts.open !== false) enterChatPane();
-    set({ selectedBotId: id, ...(opts.open !== false ? { detailsOpen: false } : {}) });
+    // Bot details follow the saved "Open Bot details with each chat" preference (never on phones).
+    set({ selectedBotId: id, ...(opts.open !== false ? { detailsOpen: !get().mobile && readDetailsDefault(get().user?.id) } : {}) });
     lsSet(LS_SELECTED, id);
     const t = get().transcripts[id];
     const bot = get().bots.find((b) => b.id === id);
@@ -193,6 +197,7 @@ export const useStore = create<State>((set, get) => ({
       case 'ping':
         return;
       case 'rows':
+        noteRowsEvent(ev.botId);
         s.upsertRows(ev.botId, ev.generation, ev.rows);
         return;
       case 'cleared':
@@ -259,6 +264,24 @@ export const useStore = create<State>((set, get) => ({
     set(p);
   },
 }));
+
+/** MF-017: an account without a time zone adopts the browser's, so synopses and check-ins run at local time. */
+export function browserTimezone(): string | null {
+  try { const zone = Intl.DateTimeFormat().resolvedOptions().timeZone; return zone && zone !== 'Etc/Unknown' ? zone : null; } catch { return null; }
+}
+function syncBrowserTimezone(user: User | null) {
+  const current = (user as (User & { timezone?: string | null }) | null)?.timezone;
+  if (!user || (current !== null && current !== undefined && current !== '')) return;
+  // Older servers omit the field entirely; only send when the server reports it as unset.
+  if (current === undefined) return;
+  const timezone = browserTimezone();
+  if (!timezone) return;
+  api.updateMe({ timezone }).then(result => {
+    const state = useStore.getState();
+    if (state.user?.id !== user.id) return;
+    state.set({ user: { ...(result?.user ?? state.user), timezone } as User });
+  }).catch(() => { /* try again next boot */ });
+}
 
 /** Phones: opening a chat (or Tasks) is a navigation, so the system back gesture returns to the list. */
 export function enterChatPane() {

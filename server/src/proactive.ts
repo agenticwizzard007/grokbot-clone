@@ -155,3 +155,14 @@ export function fireCheckin(userId:string,_silentStreak=0,force=false,slotKey?:s
  if(!db.prepare('SELECT 1 FROM agent_jobs WHERE id=? AND user_id=? AND bot_id=?').get(jobId,userId,botId))throw new Error('Check-in did not receive a durable admission.');
  bindReportIntent(userId,jobId,period,synopsis.sources);return jobId;
 }
+/** MF-017: once the account has a real time zone, a schedule that fell back to UTC follows it. Explicit choices are kept. */
+export function adoptAccountTimezone(userId:string,tz:string,time=now()) {
+ assertTenant(userId);schema();new Intl.DateTimeFormat('en-US',{timeZone:tz});
+ const local=localParts(tz,time);
+ return db.transaction(()=>{
+  const changed=db.prepare("UPDATE proactivity SET timezone=?,timezone_source='account',discovered_local=?,updated_at=? WHERE user_id=? AND timezone_source='utc_fallback'").run(tz,`${local.date} ${local.hm}`,time,userId).changes>0;
+  // Pending slots were computed in UTC; they are rediscovered in the new zone.
+  if(changed)db.prepare("DELETE FROM proactive_due_slots WHERE user_id=? AND status='pending' AND report_id IS NULL").run(userId);
+  return changed;
+ })();
+}

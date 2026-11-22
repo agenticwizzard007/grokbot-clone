@@ -16,6 +16,7 @@ import { BotAvatarFor } from '../avatar/BotAvatar';
 import { userFacingLive } from '../lib/audience';
 import { hasOpenModal } from './modals/Modal';
 import { detailsReplaceChat } from '../lib/useDetailsLayout';
+import { hideSuggestedKey } from './config/settingsLogic';
 import '../styles/setup-paper.css';
 import '../styles/bot-details.css';
 
@@ -53,7 +54,7 @@ function RoutineRow({ routine }: { routine: Routine }) {
   };
   return <>
     <DetailRow title={routine.name} description={routine.enabled ? routine.description || routine.schedule : 'Paused'}>
-      <button type="button" role="switch" aria-checked={routine.enabled} aria-label={routine.name} className={`toggle${routine.enabled ? ' is-on' : ''}`} onClick={() => void toggle()} disabled={busy}><span className="toggle__knob" /></button>
+      <button type="button" role="switch" aria-checked={routine.enabled} aria-label={`${routine.name} schedule on`} className={`toggle${routine.enabled ? ' is-on' : ''}`} onClick={() => void toggle()} disabled={busy}><span className="toggle__knob" /></button>
     </DetailRow>
     {error && <p className="cfg-error" role="alert">{error}</p>}
   </>;
@@ -104,7 +105,7 @@ function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
   const [reports, setReports] = useState(false);
   const [slackBusy, setSlackBusy] = useState(false);
   const [slackError, setSlackError] = useState('');
-  const [hideSuggested, setHideSuggested] = useState(() => { try { return localStorage.getItem('swarm.hideSuggested') === '1'; } catch { return false; } });
+  const [hideSuggested, setHideSuggested] = useState(() => { try { return localStorage.getItem(hideSuggestedKey(userId)) === '1'; } catch { return false; } });
   useEffect(() => { clearImportedSetup(userId, bot.id); }, [userId, bot.id]);
   const close = () => {
     useStore.getState().set({ detailsOpen: false });
@@ -147,7 +148,7 @@ function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
   };
   const hideSuggestion = () => {
     setHideSuggested(true);
-    try { localStorage.setItem('swarm.hideSuggested', '1'); } catch { return; }
+    try { localStorage.setItem(hideSuggestedKey(userId), '1'); } catch { return; }
   };
   const openSettings = () => useConfigUI.getState().openBotSettings(bot.id);
   const openRoutines = () => useConfigUI.getState().openBotSettings(bot.id, 'routines');

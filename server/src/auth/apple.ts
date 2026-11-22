@@ -101,7 +101,7 @@ appleAuth.post('/callback', async (c) => {
     } catch { /* An absent display name does not prevent authentication. */ }
     const id = resolveAppleAccount(identity, attempt, name);
     createSession(c, id);
-    return c.redirect(`${env.appUrl}/${attempt.link_user_id ? '#settings/account' : ''}`, 303);
+    return c.redirect(`${env.appUrl}/${attempt.link_user_id ? '#settings/account' : '?signed_in=1'}`, 303);
   } catch (error) { return failure(c, errorCode(error)); }
 });
 

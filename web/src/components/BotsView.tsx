@@ -9,7 +9,7 @@ export function BotsView() {
   const live = useStore(s => s.live);
   const open = openConversation;
   return <main className="bots-view"><div className="bots-view__inner">
-    <h1>Your bots</h1><p className="bots-view__intro">Pick up where you left off.</p>
+    <h1>Your Bots</h1><p className="bots-view__intro">Pick up where you left off.</p>
     <div className="bots-view__actions">
       <button type="button" className="btn btn--secondary" onClick={() => useStore.getState().setModal('search')}><Search size={18} aria-hidden /> Search bots</button>
       <button type="button" className="btn btn--primary" onClick={() => useStore.getState().setModal('create')}><Plus size={18} aria-hidden /> Create bot</button>

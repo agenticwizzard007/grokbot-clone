@@ -7,8 +7,9 @@ import { useStore } from '../store';
 import { ClaudeMascot } from './ClaudeMascot';
 import { ModelUsageDetails } from './ModelUsageDetails';
 
-const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
-const MOD = IS_MAC ? '⌘' : 'Ctrl+';
+import { toast } from '../lib/toast';
+import { shortcutLabel } from '../lib/shortcuts';
+import { BOT_DEFAULT_EFFORT, nextEffort } from '../lib/effortCycle';
 
 /** OpenRouter's icon for the model's maker (served via our server), or a monogram. */
 export function ProviderIcon({ author, size = 16 }: { author: string; size?: number }) {
@@ -37,12 +38,21 @@ async function patchBot(bot: Bot, p: Partial<Pick<Bot, 'model' | 'effort' | 'fas
   }
 }
 
-/** Next effort in the cycle (strongest → weakest → strongest), skipping "No thinking". */
+/** Next effort in the cycle (weakest to strongest, then wraps), skipping "No thinking". Shows a toast. */
 export function cycleEffort(bot: Bot, m: PickerModel | undefined) {
-  const list: Effort[] = effortsFor(m).filter((e) => e !== 'none');
-  if (!list.length) return;
-  const cur = list.indexOf(modelSelection(bot, useModels.getState()).effort ?? effectiveEffort(bot.effort, m));
-  void patchBot(bot, { effort: list[(cur + 1) % list.length], ...(m?.billing === 'plan' ? { model: m.id, fast: false } : {}) });
+  const current = modelSelection(bot, useModels.getState()).effort ?? effectiveEffort(bot.effort, m);
+  const next = nextEffort(effortsFor(m), current);
+  if (!next) return;
+  toast(`Effort: ${EFFORT_LABEL[next]}`);
+  void patchBot(bot, { effort: next, ...(m?.billing === 'plan' ? { model: m.id, fast: false } : {}) });
+}
+
+/** The level a Bot runs at when nobody picked one: the same rule modelSelection applies. */
+export function defaultEffortFor(m: PickerModel | undefined): Effort | null {
+  const levels = effortsFor(m);
+  if (!m || !levels.length) return null;
+  if (m.billing === 'plan' && m.defaultEffort) return levels.find(level => level === m.defaultEffort) ?? effectiveEffort(BOT_DEFAULT_EFFORT, m);
+  return effectiveEffort(BOT_DEFAULT_EFFORT, m);
 }
 export const toggleFast = (bot: Bot) => void patchBot(bot, { fast: !bot.fast });
 
@@ -216,7 +226,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
         <li key={e}>
           <button type="button" role="option" aria-selected={e === effort} className={`mm-effort${e === 'ultracode' ? ' is-ultracode' : ''}${e === effort ? ' is-selected' : ''}`}
             onClick={() => { if (target) void patchBot(bot, { model: target.id, effort: e, ...(target.billing === 'plan' ? { fast: false } : {}) }); onClose(); }}>
-            <span className="mm-effort__text"><span className="mm-effort__label">{EFFORT_LABEL[e]}</span><span className="mm-effort__desc">{e === target?.defaultEffort ? 'The model’s default' : EFFORT_DESC[e]}</span></span>
+            <span className="mm-effort__text"><span className="mm-effort__label">{EFFORT_LABEL[e]}</span><span className="mm-effort__desc">{e === defaultEffortFor(target) ? `Default · ${EFFORT_DESC[e]}` : EFFORT_DESC[e]}</span></span>
             {e === effort && <Check size={16} strokeWidth={2} aria-hidden />}
           </button>
         </li>
@@ -284,7 +294,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
                   <div className="mm-item">
                     <span className="mm-item__text">Fast <span className="mm-item__hint">Fastest providers</span></span>
                     <span className="mm-item__value">
-                      {!sheet && <kbd className="mm-kbd is-plain">{MOD}⇧F</kbd>}
+                      {!sheet && <kbd className="mm-kbd is-plain">{shortcutLabel('fast')}</kbd>}
                       <button type="button" role="switch" aria-checked={bot.fast} aria-label="Fast: route to the fastest providers" className={`toggle${bot.fast ? ' is-on' : ''}`} onClick={() => toggleFast(bot)}><span className="toggle__knob" /></button>
                     </span>
                   </div>
@@ -300,7 +310,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
               <button type="button" className="mm-foot__edit" onClick={() => setEditing(!editing)} aria-pressed={editing}>
                 <Settings2 size={14} strokeWidth={1.75} aria-hidden />{editing ? 'Done' : 'Edit'}
               </button>
-              {!sheet && effortsFor(current).length > 0 && <span className="mm-foot__hint"><kbd className="mm-kbd">{MOD}⇧/</kbd>Cycle effort</span>}
+              {!sheet && effortsFor(current).length > 0 && <span className="mm-foot__hint"><kbd className="mm-kbd">{shortcutLabel('effort')}</kbd>Cycle effort</span>}
             </div>
           </>
         )}

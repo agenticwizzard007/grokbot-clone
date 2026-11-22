@@ -168,7 +168,7 @@ try {
     assert.equal(await field.evaluate(el => el.checkValidity()), true, 'empty optional field passes native validation');
     await panel.getByRole('combobox', { name: /^Agent/ }).selectOption(entry.bot.id);
     await panel.getByLabel('Goal', { exact: true }).fill(entry.title);
-    await panel.getByLabel('Acceptance checks', { exact: true }).fill('Budget acceptance evidence');
+    await panel.getByLabel('Acceptance checks (required)', { exact: true }).fill('Budget acceptance evidence');
     if (entry.expected) await field.fill(String(entry.expected));
     if (entry.clear) { await field.fill('13'); await field.fill(''); }
     if (entry.expected) {

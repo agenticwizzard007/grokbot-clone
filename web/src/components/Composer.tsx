@@ -12,6 +12,8 @@ import { endCall, isCallActive, startCall, useVoice } from '../voice/call';
 import { useDictation } from '../voice/dictation';
 import { hasOpenModal } from './modals/Modal';
 import { detailsReplaceChat, useDetailsReplaceChat } from '../lib/useDetailsLayout';
+import { useFreshConversation } from '../lib/useFreshConversation';
+import { expectRowsAfterSend } from '../lib/sseWatchdog';
 
 const MAX_H = 200;
 const drafts = new Map<string, string>();
@@ -120,8 +122,12 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
     pendingSends.set(draftKey, request); sendErrors.delete(draftKey);
     const current = () => useStore.getState().user?.id === accountId && pendingSends.get(draftKey) === request;
     setSending(true); setError(null);
+    const sentAt = Date.now();
     try {
       await api.send(bot.id, t);
+      // MF-011: if the event stream stays silent for this Bot, reload its rows once.
+      const botId = bot.id;
+      expectRowsAfterSend(botId, () => { if (useStore.getState().user?.id === accountId) useStore.getState().loadRows(botId).catch(() => {}); }, { since: sentAt });
       // Notify any newly mounted composer for this bot, preserving drafts edited during the request.
       if (current() && drafts.get(draftKey) === text) drafts.delete(draftKey);
     } catch (e) {
@@ -133,7 +139,7 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   };
 
   const stop = () => api.interrupt(bot.id).catch((e) => setError(e.message));
-  const fresh = () => api.fresh(bot.id).catch((e) => setError(e.message));
+  const fresh = useFreshConversation(bot.id);
 
   // Dictation: insert the transcript at the cursor.
   const insertText = (t: string) => {

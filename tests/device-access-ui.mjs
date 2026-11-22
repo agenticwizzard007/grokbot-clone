@@ -35,6 +35,9 @@ async function fixture(context) {
   return mutations;
 }
 
+// The Mac section only shows on macOS browsers and in the Mac app (PD-09); other platforms get one line.
+const MAC_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
+
 async function captureNativePlacements(page) {
   await page.addInitScript(() => {
     window.placements = [];
@@ -50,7 +53,7 @@ try {
   }
   browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox'] });
   for (const width of [1486, 768, 390, 320]) {
-    const context = await browser.newContext({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
+    const context = await browser.newContext({ viewport: { width, height: 1000 }, reducedMotion: 'reduce', userAgent: MAC_UA });
     const mutations = await fixture(context);
     const page = await context.newPage();
     const deviceAccess = page.getByRole('region', { name: 'Device access', exact: true });
@@ -85,6 +88,28 @@ try {
     assert.deepEqual(errors, []);
     await context.close();
     console.log(`PASS ${width}px: Computer-only permissions, branded responsive rows, saved approval removal, no implicit pairing`);
+  }
+  {
+    // Linux browser: the cloud computer card comes first, then a one-line Mac note instead of the Mac section.
+    const context = await browser.newContext({ viewport: { width: 1200, height: 900 }, userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36' });
+    const mutations = await fixture(context);
+    const page = await context.newPage();
+    await page.goto(`${base}/#settings/computer`);
+    const cloud = page.getByRole('region', { name: 'Cloud computer', exact: true });
+    await cloud.waitFor();
+    await cloud.getByText('Each Bot has its own cloud computer. Bots can browse and run commands there without asking.', { exact: false }).waitFor();
+    await cloud.getByRole('switch', { name: 'Ask before Bots use their computer' }).waitFor();
+    await page.getByText('The Mac app lets Bots use your own Mac. Available for macOS.', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('region', { name: 'Device access', exact: true }).count(), 0, 'no Mac permission rows on Linux');
+    const order = await page.evaluate(() => {
+      const cloudEl = document.querySelector('[aria-label="Cloud computer"]');
+      const mac = document.querySelector('[aria-label="Use your Mac (optional)"]');
+      return !!cloudEl && !!mac && !!(cloudEl.compareDocumentPosition(mac) & Node.DOCUMENT_POSITION_FOLLOWING);
+    });
+    assert.equal(order, true, 'cloud computer card comes before the Mac note');
+    assert.deepEqual(mutations, [], 'visiting Computer never pairs, starts or changes preferences');
+    await context.close();
+    console.log('PASS Linux browser: cloud computer card first, Mac section reduced to one line');
   }
   const swift = await fs.readFile(new URL('../apple/Swarm/MacControlView.swift', import.meta.url), 'utf8');
   const nativeScript = swift.split('static let script = #"""')[1]?.split('"""#')[0];

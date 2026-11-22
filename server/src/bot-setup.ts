@@ -4,7 +4,8 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { db, now } from './db.js';
 import { env } from './env.js';
-import { appendHistory, appendRow, getBotRow } from './store.js';
+import { appendHistory, appendRow, emitBot, getBotRow, getRow, updateRow } from './store.js';
+import type { ComputerState } from './types.js';
 import { hub } from './lib/hub.js';
 import { publishNativeEvent } from './native/events.js';
 import { assertLegacyWorkOpen } from './security/legacy-work.js';
@@ -45,7 +46,25 @@ export function releaseReadySetupHandoffs() {
   for (const row of rows) { try { releaseSetupHandoff(row.bot_id); } catch { /* Retain the assignment for the next admission attempt. */ } }
 }
 
-const text = (max: number) => z.string().trim().min(1).max(max);
+/**
+ * Models sometimes double-encode strings, leaving literal \" and \n in saved text. Unescape them only
+ * when the string has escapes but no real quotes or newlines, so intentional backslashes survive.
+ */
+export function normalizeModelText(value: string): string {
+  if (!/\\["n]/.test(value)) return value;
+  if (/(^|[^\\])"/.test(value) || value.includes('\n')) return value;
+  return value.replace(/\\"/g, '"').replace(/\\n/g, '\n');
+}
+
+/** Normalise every string in a saved brief (used for stored rows written before normalisation). */
+export function normalizeBriefStrings<T>(value: T): T {
+  if (typeof value === 'string') return normalizeModelText(value) as T;
+  if (Array.isArray(value)) return value.map(normalizeBriefStrings) as T;
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, normalizeBriefStrings(v)])) as T;
+  return value;
+}
+
+const text = (max: number) => z.string().trim().min(1).max(max).transform(normalizeModelText);
 const list = z.array(text(2000)).max(30);
 export const briefSchema = z.object({
   purpose: text(4000).describe('One focused mission, grounded in the user’s request.'),
@@ -55,13 +74,26 @@ export const briefSchema = z.object({
   context_summary: text(12000).describe('Self-contained relevant context from the master chat, including preferences, decisions, constraints and unresolved questions. The teammate cannot read the master’s chat.'),
   shared_resources: list.default([]).describe('Resource references, URLs, file paths and access requirements. Never include credentials or claim unverified access.'),
   handoff_notes: list.default([]).describe('Who supplies inputs, who receives outputs, when to report, and escalation rules.'),
-  communication_style: z.string().trim().max(2000).default('Clear, concise and factual.').describe('Tone, preferred format, and how to explain uncertainty.'),
+  communication_style: z.string().trim().max(2000).transform(normalizeModelText).default('Clear, concise and factual.').describe('Tone, preferred format, and how to explain uncertainty.'),
   working_principles: list.default(['Use evidence; distinguish facts from assumptions.', 'Stay within the agreed responsibilities.']),
-  action_boundaries: z.string().trim().max(4000).default('').describe('Which actions may be taken autonomously, which need a user decision, and which are excluded. This does not override application permissions.'),
+  action_boundaries: z.string().trim().max(4000).transform(normalizeModelText).default('').describe('Which actions may be taken autonomously, which need a user decision, and which are excluded. This does not override application permissions.'),
   workflows: z.array(z.object({ name: text(120), trigger: text(2000), steps: list.min(1), output: text(2000) })).max(20).default([]).describe('Specific functions: what starts each workflow, its ordered steps, and expected deliverable.'),
   open_questions: list.default([]).describe('Unresolved questions that prevent the role from being fully specified.'),
 });
 export type BotBrief = z.infer<typeof briefSchema>;
+
+/** Idempotent startup pass: rewrite stored briefs whose strings carry double-encoded escapes. Never deletes data. */
+export function normalizeStoredBriefs() {
+  let changed = 0;
+  for (const row of db.prepare('SELECT bot_id, brief FROM bot_setups').all() as { bot_id: string; brief: string }[]) {
+    try {
+      const next = JSON.stringify(normalizeBriefStrings(JSON.parse(row.brief)));
+      if (next !== row.brief) changed += db.prepare('UPDATE bot_setups SET brief=? WHERE bot_id=? AND brief=?').run(next, row.bot_id, row.brief).changes;
+    } catch { /* Leave rows that cannot be parsed or written untouched. */ }
+  }
+  return changed;
+}
+try { normalizeStoredBriefs(); } catch { /* bot_setups may not exist yet in a partial schema. */ }
 export interface SetupSource {
   creatorBotId?: string;
   creatorName?: string;
@@ -224,10 +256,33 @@ export function setupMissing(brief: BotBrief) {
   return missing;
 }
 
+let computerStateSource: ((userId: string) => ComputerState) | undefined;
+/** The computer runtime registers its live state here; this module never imports the providers. */
+export function bindComputerStateSource(source: (userId: string) => ComputerState) { computerStateSource = source; }
+
+/**
+ * One readiness answer for every surface (Setup tab and coworker cards), derived from the live computer
+ * as well as the provisioning record. Keeps the existing { status, error } shape.
+ */
+export function computerReadiness(userId: string, botId: string): { status: 'pending' | 'ready'; error: string | null } {
+  const row = db.prepare('SELECT computer_status, computer_error, pending_handoff FROM bot_setups WHERE bot_id=?').get(botId) as { computer_status: string; computer_error: string | null; pending_handoff: string | null } | undefined;
+  if (row?.computer_status === 'ready') return { status: 'ready', error: null };
+  let state: ComputerState | undefined;
+  try { state = computerStateSource?.(userId); } catch { state = undefined; }
+  if (state?.status === 'error') return { status: 'pending', error: state.error ?? row?.computer_error ?? 'The computer is unavailable.' };
+  if (state?.screens?.some(screen => screen.botId === botId)) return { status: 'ready', error: null };
+  if (row?.computer_error) return { status: 'pending', error: row.computer_error };
+  // Nothing to provision: a server computer starts on first use. A Mac must be connected first.
+  if (!row?.pending_handoff && state && state.provider !== 'local' && state.status !== 'stopped') return { status: 'ready', error: null };
+  if (!row?.pending_handoff && state?.provider === 'local' && state.status === 'running') return { status: 'ready', error: null };
+  return { status: 'pending', error: null };
+}
+
 export function setupView(botId: string) {
   const s = getSetup(botId);
   if (!s) return null;
-  return { manifest: setupManifest(botId)!, computer: s.computer, onboarding: { ...s.onboarding, missing: setupMissing(s.brief) }, files: setupFiles(botId) };
+  const b = getBotRow(botId);
+  return { manifest: setupManifest(botId)!, computer: b ? computerReadiness(b.user_id, botId) : s.computer, onboarding: { ...s.onboarding, missing: setupMissing(s.brief) }, files: setupFiles(botId) };
 }
 
 export const isConfiguring = (botId: string) => {
@@ -240,6 +295,15 @@ export function emitSetup(botId: string) {
   if (b) hub.emit(b.user_id, { type: 'setup', botId });
 }
 
+/** A setup status change also feeds the Tasks "needs you" list and the Bot's onboarding badge. */
+export function emitSetupStatus(botId: string) {
+  const b = getBotRow(botId);
+  if (!b) return;
+  hub.emit(b.user_id, { type: 'setup', botId });
+  hub.emit(b.user_id, { type: 'tasks', botId });
+  emitBot(botId);
+}
+
 /** Start a visible interview immediately, even without a configured model key. */
 export function beginSetupInterview(botId: string) {
   const b = getBotRow(botId);
@@ -249,6 +313,7 @@ export function beginSetupInterview(botId: string) {
     responsibilities: [b.description || 'Define the work this agent should own.'], out_of_scope: [],
     success_criteria: ['Deliver the outcome agreed with the user.'], context_summary: b.instructions || 'No detailed brief has been supplied yet.',
   }, { messages: [] });
+  const priorStatus = (db.prepare('SELECT onboarding_status FROM bot_setups WHERE bot_id=?').get(botId) as { onboarding_status: string } | undefined)?.onboarding_status;
   db.prepare("UPDATE bot_setups SET onboarding_status='interviewing', revision=revision+1, confirmed_at=NULL, updated_at=? WHERE bot_id=?").run(now(), botId);
   const s = getSetup(botId)!;
   const questions = [
@@ -262,7 +327,7 @@ export function beginSetupInterview(botId: string) {
   appendRow(botId, 'message', { type: 'message', role: 'assistant', text });
   appendHistory(botId, [{ role: 'assistant', content: text }]);
   writeSetupFiles(botId);
-  emitSetup(botId);
+  if (priorStatus !== 'interviewing') emitSetupStatus(botId); else emitSetup(botId);
 }
 
 export const setupDraftSchema = briefSchema.extend({
@@ -294,9 +359,28 @@ export function saveSetupDraft(botId: string, userId: string, input: unknown) {
     db.prepare('UPDATE bots SET instructions=?, description=?, updated_at=? WHERE id=?').run(a.instructions, brief.purpose.slice(0, 300), now(), botId);
     publishNativeEvent({ userId, botId, kind: 'setup.prepared', sourceType: 'setup', sourceId: botId, sourceRevision: a.revision + 1, data: { stage: a.stage } });
     writeSetupFiles(botId);
+    const saved = setupChanges(prior.brief, brief);
+    if (saved) appendRow(botId, 'event', { type: 'event', event: 'setup-saved', text: `Saved to setup: ${saved}`, audience: 'user' });
   })();
-  emitSetup(botId);
+  if (a.stage !== prior.onboarding.status) emitSetupStatus(botId); else emitSetup(botId);
   return setupView(botId)!;
+}
+
+const SETUP_FIELDS: [keyof BotBrief, string][] = [
+  ['purpose', 'mission'], ['responsibilities', 'responsibilities'], ['out_of_scope', 'out of scope'], ['success_criteria', 'success criteria'],
+  ['context_summary', 'context'], ['shared_resources', 'resources'], ['handoff_notes', 'handoffs'], ['communication_style', 'working style'],
+  ['working_principles', 'working principles'], ['action_boundaries', 'action limits'], ['workflows', 'workflows'], ['open_questions', 'open questions'],
+];
+/** A short, user-readable list of what a setup save changed, or '' when nothing visible changed. */
+export function setupChanges(before: BotBrief, after: BotBrief): string {
+  const changed = SETUP_FIELDS.filter(([key]) => JSON.stringify(before[key]) !== JSON.stringify(after[key]));
+  if (!changed.length) return '';
+  const describe = ([key, label]: [keyof BotBrief, string]) => {
+    if (key === 'purpose') return `${label} "${after.purpose.slice(0, 120)}${after.purpose.length > 120 ? '...' : ''}"`;
+    if (key === 'workflows' && after.workflows.length) return `${label} (${after.workflows.map(w => w.name).slice(0, 3).join(', ')})`;
+    return label;
+  };
+  return changed.map(describe).join(', ') + '.';
 }
 
 export function assertSetupCoordinator(userId: string, coordinatorId: string) {
@@ -347,7 +431,7 @@ export function prepareCoworkerSetup(userId: string, coordinatorId: string, inpu
     db.prepare('UPDATE bots SET instructions=?,description=?,updated_at=? WHERE id=? AND user_id=?').run(a.instructions, brief.purpose.slice(0, 300), now(), a.bot_id, userId);
     publishNativeEvent({ userId, botId: a.bot_id, kind: 'setup.prepared', sourceType: 'setup', sourceId: a.bot_id, sourceRevision: a.revision + 1, data: { coordinatorId, stage: a.stage, sourceRefs: answers.map(({ text, ...ref }) => ref) } });
     writeSetupFiles(a.bot_id);
-    emitSetup(a.bot_id);
+    if (a.stage !== prior.onboarding.status) emitSetupStatus(a.bot_id); else emitSetup(a.bot_id);
     return coworkerSetup(userId, coordinatorId, a.bot_id);
   })();
 }
@@ -367,12 +451,59 @@ export function activateSetup(botId: string, revision: number) {
     const text = 'Your setup is confirmed. I’ll follow the agreed responsibilities, workflows and working style.';
     appendRow(botId, 'message', { type: 'message', role: 'assistant', text });
     appendHistory(botId, [{ role: 'assistant', content: text }]);
-    emitSetup(botId);
+    emitSetupStatus(botId);
     // Provisioning can finish later. Keep the original assignment until one
     // durable job and its receipt commit together. Legacy callers may inspect it.
     try { releaseSetupHandoff(botId); } catch { /* Human activation remains committed; retry durable admission when capacity returns. */ }
     return s.computer.status === 'ready' ? pending.pending_handoff : null;
   })();
+}
+
+export const DEFAULT_SKIP_WORKFLOW = {
+  name: 'Requests in this chat',
+  trigger: 'The user asks for help in this chat.',
+  steps: ['Confirm the request if anything important is unclear.', 'Do the work with the available tools.', 'Report the result and any open questions.'],
+  output: 'The requested result, delivered in this chat.',
+};
+export const DEFAULT_SKIP_BOUNDARIES = 'Handle routine requests on my own. Ask before sending messages, changing data in connected apps, spending money or doing anything that cannot be undone. App approval rules still apply.';
+
+export class SetupSkipError extends Error { constructor(message: string, public status: 404 | 409) { super(message); } }
+
+/** "Skip setup": keep what the interview captured, fill the gaps with safe defaults and activate now. */
+export function skipSetup(userId: string, botId: string) {
+  return db.transaction(() => {
+    const b = getBotRow(botId);
+    if (!b || b.user_id !== userId || b.kind === 'room' || b.hidden) throw new SetupSkipError('not found', 404);
+    const s = getSetup(botId);
+    if (!s || s.onboarding.status === 'active') throw new SetupSkipError('This Bot is already active.', 409);
+    const brief = briefSchema.parse({
+      ...s.brief,
+      workflows: s.brief.workflows.length ? s.brief.workflows : [DEFAULT_SKIP_WORKFLOW],
+      action_boundaries: s.brief.action_boundaries || DEFAULT_SKIP_BOUNDARIES,
+      // Unanswered questions stay visible as context instead of blocking activation.
+      open_questions: [],
+      context_summary: s.brief.open_questions.length ? `${s.brief.context_summary}\n\nNot yet decided (setup skipped): ${s.brief.open_questions.join('; ')}`.slice(0, 12000) : s.brief.context_summary,
+    });
+    const moved = db.prepare("UPDATE bot_setups SET brief=?, onboarding_status='review', revision=revision+1, updated_at=? WHERE bot_id=? AND revision=?").run(JSON.stringify(brief), now(), botId, s.onboarding.revision);
+    if (!moved.changes) throw new SetupSkipError('The configuration changed. Try again.', 409);
+    writeSetupFiles(botId);
+    activateSetup(botId, s.onboarding.revision + 1);
+    return { ok: true as const };
+  })();
+}
+
+/** Rename during setup: refresh the opening question if it is still the latest reply, so it uses the new name. */
+export function renameSetupGreeting(botId: string, oldName: string, newName: string) {
+  const b = getBotRow(botId);
+  if (!b || !oldName || oldName === newName || !isConfiguring(botId)) return false;
+  const last = db.prepare("SELECT seq FROM rows WHERE bot_id=? AND generation=? AND kind='message' AND json_extract(body,'$.role')='assistant' ORDER BY seq DESC LIMIT 1").get(botId, b.generation) as { seq: number } | undefined;
+  const row = last && getRow(botId, last.seq);
+  if (!row || row.body.type !== 'message') return false;
+  const greetings = [`What job would you like ${oldName} to handle?`, `I’ll help you configure ${oldName}.`];
+  const match = greetings.find(g => (row.body as { text: string }).text.startsWith(g));
+  if (!match) return false;
+  updateRow(botId, row.seq, { ...row.body, text: match.replace(oldName, newName) + row.body.text.slice(match.length) });
+  return true;
 }
 
 export function removeSetupFiles(botId: string) {

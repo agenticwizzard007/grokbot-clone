@@ -20,7 +20,7 @@
 .bot-detail-status.is-waiting { color: var(--color-warn-text); }
 .details--sidebar .details-page__tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; margin: 0 0 28px; }
 .details--sidebar .details-page__tabs button { min-width: 0; min-height: 44px; padding: 8px 4px; border-radius: 12px; text-align: center; font-size: 14px; }
-.details--sidebar .details-page__tabs button[aria-current] { color: var(--color-primary); background: var(--color-bg-active); font-weight: 500; }
+.details--sidebar .details-page__tabs button[aria-current] { color: var(--color-primary); background: var(--color-bg-active); }
 .details--sidebar .details-page__activity { display: flex; flex-direction: column; gap: 24px; }
 .details--sidebar :is(.bot-detail-section, .details__sections > section) { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .details--sidebar :is(.bot-detail-section h2, .section-label, .voice-settings__title h2) { margin: 0; font: 500 14px/1.5 var(--font-stack); color: var(--color-text-secondary); padding: 0; }

@@ -1,7 +1,8 @@
 import { db, now } from '../db.js';
 import { newId } from '../lib/ids.js';
 import { hub } from '../lib/hub.js';
-import { appendRow } from '../store.js';
+import { appendRow, emitBot } from '../store.js';
+import { isConfiguring } from '../bot-setup.js';
 
 /**
  * Group chats ("rooms"; Swarm: SwarmAgent kind=ROOM, member_agent_ids, server turn-taking).
@@ -37,6 +38,9 @@ export function createRoom(userId: string, name: string, memberIds: string[]) {
   return id;
 }
 
+/** Shown in a group when a member cannot answer there yet. */
+export const setupNotice = (name: string) => `${name} is still being set up and can't answer in groups yet.`;
+
 /** Called instead of the agent loop when the user posts in a room. */
 export function dispatchRoomMessage(roomId: string, text: string, enqueue: (botId: string, t: any) => void) {
   const room = db.prepare('SELECT * FROM bots WHERE id=?').get(roomId) as any;
@@ -47,7 +51,11 @@ export function dispatchRoomMessage(roomId: string, text: string, enqueue: (botI
   }
   const lower = text.toLowerCase();
   const mentioned = members.filter((m) => lower.includes(`@${m.name.toLowerCase()}`));
-  const responders = (mentioned.length ? mentioned : members).slice(0, MAX_RESPONDERS);
+  const addressed = (mentioned.length ? mentioned : members).slice(0, MAX_RESPONDERS);
+  // A Bot in its setup interview has no group tools and must not answer privately or through apps.
+  const configuring = addressed.filter((m) => isConfiguring(m.id));
+  const responders = addressed.filter((m) => !isConfiguring(m.id));
+  for (const m of configuring) appendRow(roomId, 'notice', { type: 'notice', text: setupNotice(m.name), tone: 'info' });
   const recent = (db.prepare("SELECT body FROM rows WHERE bot_id=? AND generation=? AND kind='message' ORDER BY seq DESC LIMIT 12").all(roomId, room.generation) as any[])
     .reverse()
     .map((r) => {
@@ -56,25 +64,38 @@ export function dispatchRoomMessage(roomId: string, text: string, enqueue: (botI
     })
     .join('\n');
   for (const m of responders) {
+    // roomId routes this turn's final reply into the group; internal keeps it out of the member's own chat.
     enqueue(m.id, {
       type: 'system',
+      audience: 'internal',
+      roomId: room.id,
       text:
         `[Group chat "${room.name}"] Members: ${members.map((x) => x.name).join(', ')}. ` +
         `${mentioned.length ? 'You were @mentioned.' : 'The user addressed the whole group.'}\n` +
         `Recent group messages:\n${recent}\n\n` +
-        `Reply to the group by calling post_to_group with group_name "${room.name}" (use your tools first if the request needs real work). ` +
-        `Keep it short and don't repeat what other Bots already said. If you have nothing to add, call stay_silent. Do not write a normal reply.`,
+        `Reply to the group with post_to_group (group_name "${room.name}"), or end with a short plain reply; your final reply is posted to the group for you. ` +
+        `Use your tools first if the request needs real work. Connected apps are read-only in group turns; do not send anything outside Swarm. ` +
+        `Keep it short and don't repeat what other Bots already said. If you have nothing to add, call stay_silent.`,
     });
   }
+}
+
+/** Append a member's message to a group and refresh the group's sidebar row. */
+export function postToRoomById(roomId: string, fromBotId: string, text: string) {
+  const from = db.prepare('SELECT id, user_id, name FROM bots WHERE id=?').get(fromBotId) as any;
+  const room = db.prepare("SELECT * FROM bots WHERE id=? AND kind='room'").get(roomId) as any;
+  if (!from || !room || room.user_id !== from.user_id) return `No such group.`;
+  const members: string[] = room.members ? JSON.parse(room.members) : [];
+  if (!members.includes(fromBotId)) return `You're not a member of "${room.name}".`;
+  appendRow(room.id, 'message', { type: 'message', role: 'assistant', text, audience: 'user', from: { kind: 'bot', id: from.id, name: from.name } });
+  db.prepare('UPDATE bots SET unread = unread + 1 WHERE id=?').run(room.id);
+  emitBot(room.id);
+  return 'Posted to the group.';
 }
 
 export function postToRoom(fromBotId: string, roomName: string, text: string) {
   const from = db.prepare('SELECT id, user_id, name FROM bots WHERE id=?').get(fromBotId) as any;
   const room = db.prepare("SELECT * FROM bots WHERE user_id=? AND kind='room' AND lower(name)=lower(?)").get(from.user_id, roomName.trim()) as any;
   if (!room) return `No group named "${roomName}".`;
-  const members: string[] = room.members ? JSON.parse(room.members) : [];
-  if (!members.includes(fromBotId)) return `You're not a member of "${room.name}".`;
-  appendRow(room.id, 'message', { type: 'message', role: 'assistant', text, from: { kind: 'bot', id: from.id, name: from.name } });
-  db.prepare('UPDATE bots SET unread = unread + 1 WHERE id=?').run(room.id);
-  return 'Posted to the group.';
+  return postToRoomById(room.id, fromBotId, text);
 }

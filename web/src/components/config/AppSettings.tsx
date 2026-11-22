@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, PanelLeftOpen, X } from 'lucide-react';
 import type { Toolkit, User } from '@shared/types';
@@ -8,7 +8,7 @@ import { ModelPicker, refreshModels } from './ModelPicker';
 import { LearningSettingsPanel } from './LearningSettings';
 import { UsageSection } from './UsageSection';
 import { relativeShort } from '../../lib/time';
-import { useConfigUI, useVersion, type AppSection, type Theme } from '../../configStore';
+import { openConversation, useConfigUI, useVersion, type AppSection, type Theme } from '../../configStore';
 import { useStore } from '../../store';
 import { computerStatusText } from '../DetailsPanel';
 import { ToolkitLogo } from '../ToolkitLogo';
@@ -26,6 +26,10 @@ import { ConnectAppsCatalog } from '../modals/ConnectAppsModal';
 import { useCompactLayout } from '../../lib/useCompactLayout';
 import { isNativeApp } from '../../lib/native';
 import { DeviceAccessSection } from './DeviceAccessSection';
+import { readDetailsDefault, writeDetailsDefault } from '../../lib/detailsDefault';
+import { toast } from '../../lib/toast';
+import { SHORTCUTS, shortcutKeys } from '../../lib/shortcuts';
+import { browserTimeZone, timeZoneOptions } from './settingsLogic';
 import { AccountSessions } from './AccountSessions';
 import { ReauthPrompt } from './ReauthPrompt';
 import { useAccessReauth } from './useAccessReauth';
@@ -126,7 +130,7 @@ export function AppSettings() {
   const pick = (id: AppSection) => { open(id); setListView(false); setQuery(''); };
   const q = query.trim();
   const groups = q ? NAV.map((g) => ({ ...g, items: g.items.filter((it) => matches(it, q)) })).filter((g) => g.items.length) : NAV;
-  const sectionLabel = section === 'mcp' ? 'Custom MCP' : NAV.flatMap(group => group.items).find(item => item.id === section)?.label;
+  const sectionLabel = NAV.flatMap(group => group.items).find(item => item.id === section)?.label;
   // Up/Down move between sections, like a native sidebar.
   const arrows = (e: ReactKeyboardEvent) => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
@@ -137,7 +141,7 @@ export function AppSettings() {
     items[at < 0 ? 0 : (at + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus();
   };
 
-  const nav = collapsed && desktopSlot ? <nav className="access-nav access-nav--collapsed" aria-label="Settings sections">
+  const nav = collapsed && desktopSlot ? <nav className="access-nav access-nav--collapsed" aria-label="Settings sidebar">
     <button type="button" className="access-nav__expand" aria-label="Expand sidebar to browse settings" title="Expand sidebar to browse settings" onClick={() => useStore.getState().set({ sidebarCollapsed: false })}><PanelLeftOpen size={20} aria-hidden /></button>
   </nav> : (
     <nav className={`settings-nav access-nav${compact ? ' access-nav--phone' : ''}`} aria-label="Settings sections" onKeyDown={arrows}>
@@ -166,7 +170,7 @@ export function AppSettings() {
   );
 
   const showList = compact && listView;
-  const backTitle = `Back to ${view === 'chat' ? 'chat' : view === 'bots' ? 'bots' : 'tasks'}`;
+  const backTitle = `Back to ${view === 'chat' ? 'chat' : view === 'bots' ? 'Bots' : 'tasks'}`;
   return <>
     {desktopSlot && createPortal(nav, desktopSlot)}
     {createPortal(<div className={`app-settings access-settings${appRoot ? ' access-settings--in-shell' : ''}${showList ? ' is-list' : ''}`} role={appRoot ? 'region' : 'dialog'} aria-modal={appRoot ? undefined : true} aria-label="Settings">
@@ -180,6 +184,10 @@ export function AppSettings() {
           {compact && <button type="button" className="access-settings__back access-settings__dismiss" onClick={close} aria-label="Close settings"><X size={18} strokeWidth={1.75} aria-hidden /></button>}
         </header>
         {showList ? nav : <>
+          {/* Compact sidebar: the section list moves to a strip above the page so every section stays reachable. */}
+          {collapsed && desktopSlot && <nav className="settings-strip" aria-label="Settings sections">
+            {NAV.flatMap(g => g.items).map(it => <button key={it.id} type="button" className={`settings-strip__item${section === it.id ? ' is-active' : ''}`} aria-current={section === it.id ? 'page' : undefined} onClick={() => pick(it.id)}>{it.label}</button>)}
+          </nav>}
           <div className="app-settings__page" key={section}>
             {section === 'general' && <GeneralSection />}
             {section === 'keys' && <KeysSection />}
@@ -230,19 +238,13 @@ function Keys({ keys }: { keys: string[] }) {
 function GeneralSection() {
   const theme = useConfigUI((s) => s.theme);
   const setTheme = useConfigUI((s) => s.setTheme);
-  const detailsOpen = useStore((s) => s.detailsOpen);
+  const accountId = useStore((s) => s.user?.id);
+  const [detailsDefault, setDetailsDefault] = useState(() => readDetailsDefault(accountId));
+  useEffect(() => { setDetailsDefault(readDetailsDefault(accountId)); }, [accountId]);
   const collapsed = useStore((s) => s.sidebarCollapsed);
   const compact = useCompactLayout();
-  const mod = IS_MAC ? '⌘' : 'Ctrl';
-  const shift = IS_MAC ? '⇧' : 'Shift';
-  const shortcuts: [string, string[]][] = [
-    ['Search Bots and chats', [mod, 'K']],
-    // In the Mac app ⌘, opens the app's own server settings, so it never reaches this page.
-    ...(isNativeApp ? [] : [['Open settings', [mod, ',']] as [string, string[]]]),
-    ['Focus the message box', [mod, 'I']],
-    ['Show or hide the sidebar', [mod, 'B']],
-    ['Show or hide Bot details', [shift, mod, ',']],
-  ];
+  // Every shortcut the app handles (lib/shortcuts.ts), with platform glyphs (MF-028, MF-029).
+  const shortcuts: [string, string[]][] = SHORTCUTS.filter(s => !(s.web && isNativeApp)).map(s => [s.label, shortcutKeys(s)]);
   return (
     <>
       <PageHead title="General" sub="Appearance, layout, and keyboard shortcuts" />
@@ -253,8 +255,8 @@ function GeneralSection() {
       {!compact && (
         <section className="cfg-section">
           <div className="cfg-card" aria-label="Layout">
-            <SettingRow title="Bot details panel" sub="Show activity, tasks, files, and setup beside the chat.">
-              <Switch label="Bot details panel" on={detailsOpen} onChange={(v) => useStore.getState().set({ detailsOpen: v })} />
+            <SettingRow title="Open Bot details with each chat" sub="Show activity, tasks, files, and setup beside the chat whenever you open a Bot.">
+              <Switch label="Open Bot details with each chat" on={detailsDefault} onChange={(v) => { writeDetailsDefault(accountId, v); setDetailsDefault(v); }} />
             </SettingRow>
             <SettingRow title="Compact sidebar" sub="Show only Bot avatars in the sidebar to give chats more room.">
               <Switch label="Compact sidebar" on={collapsed} onChange={(v) => useStore.getState().set({ sidebarCollapsed: v })} />
@@ -265,7 +267,7 @@ function GeneralSection() {
       {!compact && (
         <section className="cfg-section">
           <h2 className="cfg-section__label">Keyboard shortcuts</h2>
-          {IS_MAC && !isNativeApp && <div className="cfg-field__hint">On Windows and Linux, use Ctrl instead of ⌘.</div>}
+          {IS_MAC && !isNativeApp && <div className="cfg-field__hint">On Windows and Linux, use Ctrl instead of ⌘ and Alt instead of ⌥.</div>}
           <div className="cfg-card settings-shortcuts">
             {shortcuts.map(([label, keys]) => <SettingRow key={label} title={label}><Keys keys={keys} /></SettingRow>)}
           </div>
@@ -468,12 +470,20 @@ function ComputerSection() {
 
   if ((computer ?? details?.computer)?.provider === 'local') return <LocalComputerSection key={accountId} details={details} detailsError={detailsError} reload={load} />;
 
+  // Watch opens a Bot's screen in the viewer: the open chat's Bot, else the primary.
+  const watchBot = bots.find(b => b.id === useStore.getState().selectedBotId && b.kind !== 'room') ?? bots.find(b => b.isPrimary && b.kind !== 'room') ?? bots.find(b => b.kind !== 'room');
+  const watch = () => {
+    if (!watchBot) return;
+    openConversation(watchBot.id);
+    useStore.getState().set({ viewerOpen: true, viewerControl: false });
+  };
+
   return (
     <>
       <PageHead title="Computer" sub="Manage where Bots work and which device they can use." />
-      <DeviceAccessSection />
-      <section className="cfg-section">
-        <h2 className="cfg-section__label">Status</h2>
+      <section className="cfg-section cloud-computer" aria-label="Cloud computer">
+        <h2 className="cfg-section__label">Cloud computer</h2>
+        <p className="cfg-field__hint">Each Bot has its own cloud computer. Bots can browse and run commands there without asking. Connected app actions that change data still ask first.</p>
         <div className="cfg-card">
           <div className="cfg-row">
             <span className={`computer-status-dot is-${running ? 'on' : transitioning ? 'busy' : 'off'}`} aria-hidden />
@@ -483,14 +493,18 @@ function ComputerSection() {
                 {details ? `Goes to sleep after ${details.hibernation.idleMinutes} idle minutes when nobody is watching. Starts again on its own once a Bot has work.` : 'Checking…'}
               </div>
             </div>
-            {running || status === 'suspending' ? (
-              <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!running || !!busy} onClick={() => act('sleep')}>{busy === 'sleep' || status === 'suspending' ? 'Going to sleep…' : 'Sleep'}</button>
-            ) : (
-              <button type="button" className="cfg-btn cfg-btn--primary" disabled={transitioning || !!busy} onClick={() => act('wake')}>{busy === 'wake' || transitioning ? 'Waking…' : 'Wake'}</button>
-            )}
+            <div className="settings-row__actions">
+              {watchBot && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={watch} title={`Watch ${watchBot.name}’s screen`}>Watch</button>}
+              {running || status === 'suspending' ? (
+                <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!running || !!busy} onClick={() => act('sleep')}>{busy === 'sleep' || status === 'suspending' ? 'Going to sleep…' : 'Sleep'}</button>
+              ) : (
+                <button type="button" className="cfg-btn cfg-btn--primary" disabled={transitioning || !!busy} onClick={() => act('wake')}>{busy === 'wake' || transitioning ? 'Waking…' : 'Wake'}</button>
+              )}
+            </div>
           </div>
-          {computer?.error && status === 'error' && <div className="cfg-error cfg-error--inset">{computer.error}</div>}
+          {computer?.error && status === 'error' && <div className="cfg-error cfg-error--inset" role="alert">{computer.error} <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => act('wake')}>Try again</button></div>}
           {note && <div className="cfg-error cfg-error--inset">{note}</div>}
+          <AskBeforeComputerRow />
         </div>
       </section>
 
@@ -523,8 +537,41 @@ function ComputerSection() {
         </div>
         <div className="cfg-field__hint">Reset closes every window on that Bot’s screen, so it starts clean next time. {(computer ?? details?.computer)?.provider === 'cloudvm' ? 'Every Bot has its own screen; the computer grows as you add Bots.' : 'Up to 4 Bots can have a screen at once.'}</div>
       </section>
+      <DeviceAccessSection />
     </>
   );
+}
+
+/** Account preference: Bots ask before using their computer (browser, shell, desktop). Off by default. */
+function AskBeforeComputerRow() {
+  const accountId = useStore(s => s.user?.id);
+  const [on, setOn] = useState<boolean | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    setError('');
+    api.preferences().then(p => { if (alive && useStore.getState().user?.id === accountId) setOn(!!p?.askBeforeComputer); })
+      .catch(e => { if (alive) setError(`Couldn’t load this setting: ${(e as Error).message}`); });
+    return () => { alive = false; };
+  }, [accountId, attempt]);
+  const change = async (next: boolean) => {
+    if (busy) return;
+    setBusy(true); setError(''); setOn(next);
+    try {
+      const saved = await api.updatePreferences({ askBeforeComputer: next });
+      if (useStore.getState().user?.id === accountId) setOn(typeof saved?.askBeforeComputer === 'boolean' ? saved.askBeforeComputer : next);
+    } catch (e) {
+      if (useStore.getState().user?.id === accountId) { setOn(!next); setError(`Couldn’t save: ${(e as Error).message}`); }
+    } finally { setBusy(false); }
+  };
+  return <>
+    <SettingRow title="Ask before Bots use their computer" sub="When on, Bots show an approval card before browsing, running commands or using the desktop. Choose Always allow on a card to stop asking for that kind of action.">
+      <Switch label="Ask before Bots use their computer" on={!!on} disabled={on === null || busy} onChange={v => void change(v)} />
+    </SettingRow>
+    {error && <div className="cfg-error cfg-error--inset" role="alert">{error} {on === null && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setAttempt(n => n + 1)}>Retry</button>}</div>}
+  </>;
 }
 
 /** Local computers: Bots use a Chrome browser on the user's own PC through the companion program. */
@@ -701,10 +748,21 @@ function humanizeTool(slug: string): { app: string; action: string } {
 
 function PermissionsSection() {
   const [policies, setPolicies] = useState<{ tool: string; mode: string }[] | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const [rowError, setRowError] = useState<{ tool: string; text: string } | null>(null);
   const [mcpNames, setMcpNames] = useState<Record<string, { app: string; action: string }>>({});
+  // Names are a nicety: without them rows fall back to the tool id, so a failure here is not an error state.
   useEffect(() => { configApi.mcpServers().then(({ servers }) => setMcpNames(Object.fromEntries(servers.flatMap(s => s.tools.map(t => [t.toolName, { app: s.name, action: t.name }]))))).catch(() => {}); }, []);
-  const load = useCallback(() => { configApi.policies().then((r) => setPolicies(r.policies)).catch(() => setPolicies([])); }, []);
+  const load = useCallback(() => {
+    setLoadError('');
+    configApi.policies().then((r) => { setPolicies(Array.isArray(r?.policies) ? r.policies : []); setLoadError(''); })
+      .catch((e) => setLoadError((e as Error).message || 'Request failed.'));
+  }, []);
   useEffect(() => { load(); }, [load]);
+  const askAgain = (tool: string) => {
+    setRowError(null);
+    configApi.deletePolicy(tool).then(load).catch((e) => setRowError({ tool, text: `Couldn’t reset this permission: ${(e as Error).message}` }));
+  };
   return (
     <>
       <PageHead title="Permissions" sub="Choose which agent actions can run without asking again." />
@@ -712,7 +770,8 @@ function PermissionsSection() {
         <h2 className="cfg-section__label">Actions you’ve always allowed</h2>
         <p>These are individual tool approvals. Remove a choice to have your agents ask again.</p>
         <div className="cfg-card">
-          {policies === null ? <div className="cfg-empty cfg-empty--flat">Loading…</div> : policies.length === 0 ? (
+          {loadError ? <div className="cfg-error" role="alert">Couldn’t load permissions. {loadError} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={load}>Retry</button></div>
+            : policies === null ? <div className="cfg-empty cfg-empty--flat">Loading…</div> : policies.length === 0 ? (
             <div className="cfg-empty cfg-empty--flat">Nothing here yet. When you choose “Always allow” on an approval, it shows up here.</div>
           ) : policies.map((p) => {
             const h = mcpNames[p.tool] ?? (p.tool.startsWith('mcp_') ? { app: 'MCP server', action: 'Previous tool permission' } : humanizeTool(p.tool));
@@ -722,7 +781,8 @@ function PermissionsSection() {
                   <div className="cfg-row__title">{h.app}{h.action ? ` · ${h.action}` : ''}</div>
                   <div className="cfg-row__sub">{p.mode === 'always_allow' ? 'Always allowed' : p.mode === 'blocked' ? 'Never allowed' : 'Asks first'}{!p.tool.startsWith('mcp_') && <> · <code className="cfg-code">{p.tool}</code></>}</div>
                 </div>
-                <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => configApi.deletePolicy(p.tool).then(load).catch(() => {})}>Ask again</button>
+                <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => askAgain(p.tool)}>Ask again</button>
+                {rowError?.tool === p.tool && <div className="cfg-error cfg-error--inset" role="alert">{rowError.text}</div>}
               </div>
             );
           })}
@@ -840,8 +900,7 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
     return <>
       <ToolkitLogo slug={c.toolkit} name={name} logo={app?.logo} size={36} />
       <div className="cfg-row__text">
-        <div className="cfg-row__title">{name} · Account {index + 1}</div>
-        <div className="cfg-row__sub">{c.id}</div>
+        <div className="cfg-row__title" title={`Connection ID: ${c.id}`}>{name} · Account {index + 1}</div>
         <div className="access-apps-settings__statuses">
           <span className="cfg-chip">{status}</span>
           {c.isDisabled && <span className="cfg-chip">Disabled</span>}
@@ -931,6 +990,37 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
 
 // ---------------------------------------------------------------------------
 
+/** Account time zone: daily synopses, check-ins and analytics days follow it. */
+function TimeZoneRow({ user }: { user: User }) {
+  const saved = (user as User & { timezone?: string | null }).timezone ?? null;
+  const [value, setValue] = useState(saved ?? browserTimeZone() ?? 'UTC');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => { if (saved) setValue(saved); }, [saved]);
+  const zones = useMemo(() => timeZoneOptions(value), [value]);
+  const change = async (next: string) => {
+    if (busy || !next) return;
+    const previous = value;
+    setValue(next); setBusy(true); setError('');
+    try {
+      const result = await api.updateMe({ timezone: next });
+      const state = useStore.getState();
+      if (state.user?.id === user.id) state.set({ user: { ...(result?.user ?? state.user), timezone: next } as User });
+      toast(`Time zone set to ${next}`);
+    } catch (e) {
+      if (useStore.getState().user?.id === user.id) { setValue(previous); setError(`Couldn’t save the time zone: ${(e as Error).message}`); }
+    } finally { setBusy(false); }
+  };
+  return <>
+    <SettingRow title="Time zone" sub={saved ? 'Daily synopses, check-ins and analytics use this zone.' : 'Not set yet. Daily synopses and analytics use UTC until you choose one.'}>
+      <select className="text-input settings-timezone" aria-label="Time zone" value={value} disabled={busy} onChange={(e) => void change(e.target.value)}>
+        {zones.map(zone => <option key={zone} value={zone}>{zone.replace(/_/g, ' ')}</option>)}
+      </select>
+    </SettingRow>
+    {error && <div className="cfg-error cfg-error--inset" role="alert">{error}</div>}
+  </>;
+}
+
 function AccountSection() {
   const user = useStore((s) => s.user);
   return user && <AccountSettings key={user.id} user={user} />;
@@ -1009,6 +1099,7 @@ function AccountSettings({ user }: { user: User }) {
           {(googleLogin || googleLinked) && <SettingRow title="Sign in with Google" sub={googleLinked ? 'Connected. Use it to sign in to this account on the web or in the Swarm app.' : 'Google sign-in uses Composio and requests Gmail access to verify your email address.'}>
             {googleLinked ? <span className="cfg-chip">Connected</span> : <AuthLink className="signin__google" href="/api/auth/google/start?intent=link">Connect Google</AuthLink>}
           </SettingRow>}
+          <TimeZoneRow user={user} />
           <SettingRow title="Delete your account" sub="Permanently removes your account, Bots and conversations.">
             <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => { setError(null); setDeleting(true); }}>Delete account…</button>
           </SettingRow>

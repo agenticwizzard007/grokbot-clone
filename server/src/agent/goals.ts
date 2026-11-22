@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { db, now } from '../db.js';
+import { addColumn, db, now } from '../db.js';
 import { env } from '../env.js';
 import { assertTenant } from '../deployment.js';
 import { newId } from '../lib/ids.js';
@@ -71,6 +71,8 @@ db.exec(`CREATE TABLE IF NOT EXISTS native_goals (
  bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE, status TEXT NOT NULL,
  usage_start INTEGER NOT NULL DEFAULT 0, tokens INTEGER, cost_usd REAL,
  created_at INTEGER NOT NULL, finished_at INTEGER);`);
+// Soft delete (MF-044): archived goals keep their history but leave every list.
+addColumn('native_goals', 'archived_at', 'INTEGER');
 
 function goalView(r: any): Goal {
   return { id: r.id, userId: r.user_id, botId: r.bot_id, title: r.title, criteria: JSON.parse(r.criteria), status: r.status,
@@ -92,14 +94,22 @@ export function createGoal(userId: string, botId: string, input: z.input<typeof 
 }
 export function getGoal(userId: string, id: string): Goal {
   assertTenant(userId);
-  const r = db.prepare('SELECT * FROM native_goals WHERE id=? AND user_id=?').get(id, userId);
+  const r = db.prepare('SELECT * FROM native_goals WHERE id=? AND user_id=? AND archived_at IS NULL').get(id, userId);
   if (!r) throw new WorkflowError('Goal not found.', 404);
   return goalView(r);
 }
 export function listGoals(userId: string, botId?: string): Goal[] {
   assertTenant(userId); if (botId) ownWorkflowBot(userId, botId);
-  return (botId ? db.prepare('SELECT * FROM native_goals WHERE user_id=? AND bot_id=? ORDER BY created_at DESC').all(userId, botId)
-    : db.prepare('SELECT * FROM native_goals WHERE user_id=? ORDER BY created_at DESC').all(userId)).map(goalView);
+  return (botId ? db.prepare('SELECT * FROM native_goals WHERE user_id=? AND bot_id=? AND archived_at IS NULL ORDER BY created_at DESC').all(userId, botId)
+    : db.prepare('SELECT * FROM native_goals WHERE user_id=? AND archived_at IS NULL ORDER BY created_at DESC').all(userId)).map(goalView);
+}
+/** Delete a stopped or completed goal from view. Active, paused and blocked goals must be stopped first. */
+export function deleteGoal(userId: string, id: string) {
+  const g = getGoal(userId, id);
+  if (g.status !== 'cancelled' && g.status !== 'completed') throw new WorkflowError('Stop this goal before deleting it.', 409);
+  db.prepare('UPDATE native_goals SET archived_at=?, updated_at=? WHERE id=? AND user_id=? AND archived_at IS NULL').run(now(), now(), id, userId);
+  emitWorkflow(userId, g.botId);
+  return { ok: true as const };
 }
 let effects: { control?: (goal: Goal, action: string) => void; verified?: (goal: Goal) => void } = {};
 export function configureGoalEffects(value: typeof effects) { effects = value; }

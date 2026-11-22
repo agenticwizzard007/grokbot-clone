@@ -214,12 +214,17 @@ export async function runVoiceControl(name: string, args: unknown, ctx: VoiceCon
       const bot = ownedAgent(ctx.userId, bot_id);
       if (patch.model !== undefined) patch.model = patch.model?.trim() || null;
       db.transaction(() => {
+        const current = db.prepare('SELECT * FROM bots WHERE id=? AND user_id=?').get(bot.id, ctx.userId) as Record<string, unknown>;
+        const changed: string[] = [];
         for (const [column, value] of Object.entries(patch)) {
+          if (current[column] === value) continue;
           db.prepare(`UPDATE bots SET ${column}=?,updated_at=? WHERE id=? AND user_id=?`).run(value, now(), bot.id, ctx.userId);
+          changed.push(column);
         }
-        // Same configuration invalidation and file regeneration as PATCH /bots/:id.
+        // Same rule as PATCH /bots/:id (MF-013): only a brief relevant edit is a new setup revision;
+        // model or effort changes still regenerate the setup files.
         if (getSetup(bot.id)) {
-          db.prepare('UPDATE bot_setups SET revision=revision+1,updated_at=? WHERE bot_id=?').run(now(), bot.id);
+          if (changed.some(column => ['name', 'label', 'description', 'instructions', 'mode'].includes(column))) db.prepare('UPDATE bot_setups SET revision=revision+1,updated_at=? WHERE bot_id=?').run(now(), bot.id);
           writeSetupFiles(bot.id);
         }
       })();

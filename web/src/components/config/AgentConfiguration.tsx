@@ -176,7 +176,7 @@ function SetupConfiguration({ bot, navigation, userId }: { bot: Bot; navigation?
         {data.onboarding.missing.length > 0 && <Items label="Decisions still needed" items={data.onboarding.missing} />}
         <p className="agent-config__muted">Operational tools are restricted until activation.</p>
         {status === 'interviewing' && <button type="button" className="cfg-btn cfg-btn--primary" onClick={() => openConversation(bot.id)}>Continue setup in chat</button>}
-        {status === 'review' && <button type="button" className="cfg-btn cfg-btn--primary" disabled={busy || !!error} onClick={() => { setReview(data); setWriteError(''); }}>Review {stale ? 'latest revision' : 'configuration'}</button>}
+        {status === 'review' && <button type="button" className="cfg-btn cfg-btn--primary" disabled={busy || !!error} onClick={() => { setReview(data); setWriteError(''); }}>{stale ? 'Review latest revision' : 'Review and activate'}</button>}
         {review && <div className="agent-config__review-summary">
           <h3>Review {bot.name}’s configuration · revision {review.onboarding.revision}</h3>
           {stale && <p role="status">The configuration changed. Review the latest revision before activating.</p>}

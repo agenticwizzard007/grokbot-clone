@@ -10,6 +10,10 @@ import { TasksView } from './components/config/TasksView';
 import { useConfigUI } from './configStore';
 import { installVoiceShortcut } from './voice/shortcut';
 import { hasOpenModal } from './components/modals/Modal';
+import { ToastPortal } from './lib/toast';
+import { ConfirmPortal } from './lib/confirmDialog';
+import { isNewBotShortcut } from './lib/shortcuts';
+import { consumeSignedInRedirect } from './lib/signedIn';
 
 const ComputerViewer = lazy(() => import('./components/ComputerViewer').then(m => ({ default: m.ComputerViewer })));
 const JoinPage = lazy(() => import('./components/JoinPage').then(m => ({ default: m.JoinPage })));
@@ -74,18 +78,23 @@ function Shell() {
     return () => { stop(); window.removeEventListener('message', onMsg); };
   }, []);
 
-  // Global shortcuts: ⌘K search, ⌘B sidebar, ⇧⌘, details, ⌘N new bot.
+  // Global shortcuts (listed in lib/shortcuts.ts and Settings > General): Mod+K search, Mod+B sidebar,
+  // Mod+Shift+, details, Mod+, settings, Alt+Shift+N new Bot (browsers reserve Mod+N).
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
-      const mod = e.metaKey || e.ctrlKey;
-      if (!mod) return;
       const st = useStore.getState();
+      if (isNewBotShortcut(e)) {
+        if (st.modal === 'search' || st.modal === 'apps' || hasOpenModal()) return;
+        e.preventDefault(); useConfigUI.getState().closeAppSettings(); useConfigUI.getState().closeBotSettings(); st.setModal('create');
+        return;
+      }
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod || e.altKey) return;
       const key = e.key.toLowerCase();
       if (key === 'k') { e.preventDefault(); st.setModal(st.modal === 'search' ? null : 'search'); }
       else if (st.modal === 'search' || st.modal === 'apps' || hasOpenModal()) return;
       else if (key === 'b') { e.preventDefault(); if (!st.mobile) st.set({ sidebarCollapsed: !st.sidebarCollapsed }); }
       else if (e.shiftKey && (key === ',' || key === '<')) { e.preventDefault(); st.set({ detailsOpen: !st.detailsOpen }); }
-      else if (key === 'n') { e.preventDefault(); useConfigUI.getState().closeAppSettings(); useConfigUI.getState().closeBotSettings(); st.setModal('create'); }
       else if (key === ',') { e.preventDefault(); useConfigUI.getState().openAppSettings(); }
     };
     window.addEventListener('keydown', k);
@@ -118,10 +127,14 @@ function Shell() {
 }
 
 export function App() {
+  return <><AppRoot /><ConfirmPortal /><ToastPortal /></>;
+}
+
+function AppRoot() {
   const authChecked = useStore((s) => s.authChecked);
   const user = useStore((s) => s.user);
   useEffect(installVoiceShortcut, []);
-  useEffect(() => { useStore.getState().checkAuth(); }, []);
+  useEffect(() => { consumeSignedInRedirect(); useStore.getState().checkAuth(); }, []);
   // Public invite page: /join/<code> works signed in or out.
   const join = window.location.pathname.match(/^\/join\/([^/]+)/);
   if (join) return <Suspense fallback={<div className="boot" role="status">Loading…</div>}><JoinPage code={decodeURIComponent(join[1])} /></Suspense>;

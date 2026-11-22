@@ -133,7 +133,9 @@ export function useDictation(
           const text = await voiceApi.transcribe(new Blob(r.chunks, { type: mr.mimeType || mime || 'audio/webm' }), r.language, r.abort.signal);
           if (!isCurrent(r)) return;
           complete(r);
-          if (text) r.onText(text);
+          // MF-058: silence (or nothing intelligible) still gets feedback.
+          if (text && text.trim()) r.onText(text);
+          else r.onError('Didn’t catch anything. Try again.');
         } catch (e) {
           fail(r, (e as Error).message || 'Transcription failed');
         }

@@ -58,7 +58,21 @@ export const api = {
   roomMembers: (id: string) => req<{ members: RoomMember[] }>('GET', `/rooms/${id}/members`),
   setRoomMembers: (id: string, botIds: string[]) => req<{ ok: true; members: string[] }>('PUT', `/rooms/${id}/members`, { botIds }),
   createRoom: (name: string, botIds: string[]) => req<{ id: string }>('POST', '/rooms', { name, botIds }),
+
+  /** Everything waiting on the user across Bots: setup reviews, approvals, questions and connect cards (WS4). */
+  needsYou: () => req<{ items: NeedsYouItem[] }>('GET', '/needs-you'),
+  /** Account preferences (WS4). */
+  preferences: () => req<AccountPreferences>('GET', '/account/preferences'),
+  updatePreferences: (p: AccountPreferences) => req<AccountPreferences>('PATCH', '/account/preferences', p),
+  /** Account fields the user can change (WS3: browser time zone on boot; WS4: Settings > Account). */
+  updateMe: (patch: { timezone: string }) => req<{ user?: User | null; ok?: true }>('PATCH', '/auth/me', patch),
+  skipSetup: (botId: string) => req<{ ok: true }>('POST', `/bots/${botId}/setup/skip`),
+  conversationSearch: (q: string) => req<{ results: ConversationSearchHit[] }>('GET', `/conversation-search?q=${encodeURIComponent(q)}`),
 };
+
+export interface NeedsYouItem { id: string; type: 'setup_review' | 'approval' | 'question' | 'connect'; botId: string; botName: string; title: string; createdAt: number; seq: number | null }
+export interface AccountPreferences { askBeforeComputer: boolean }
+export interface ConversationSearchHit { botId: string; botName: string; seq: number; generation: number; role: string; text: string; createdAt: number }
 
 /** Open a Composio redirect in a centered popup. */
 export function openPopup(url: string) {

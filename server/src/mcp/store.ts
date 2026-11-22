@@ -3,7 +3,7 @@ import { db, now } from '../db.js';
 import { newId, sha256 } from '../lib/ids.js';
 import { sealPrivate, openPrivate } from '../security/secrets.js';
 import { publicHttpsUrl } from '../security/network.js';
-import { assertTenant } from '../deployment.js';
+import { assertTenant, isTenant } from '../deployment.js';
 import type { McpServerView } from '../types.js';
 import { mcpFoldersSchema } from '../security/mcp-folders.js';
 import { validateMcpFolders } from './folders.js';
@@ -113,6 +113,28 @@ export function findMcpTool(userId: string, name: string, botId?: string) {
   }
 }
 
+/** Command based (stdio) servers run only in an isolated tenant runner, never on a shared standalone server (MF-008). */
+export const mcpStdioAvailable = isTenant;
+export const MCP_STDIO_UNAVAILABLE = 'Command-based MCP servers need an isolated runner and are not available on this server. Use an HTTP MCP server.';
+/** True when saving this change would leave an enabled stdio server on a host without a runner. */
+export function stdioBlocked(input: unknown, previous?: McpServer) {
+  if (mcpStdioAvailable) return false;
+  const patch = (input && typeof input === 'object' ? input : {}) as Partial<McpConfig>;
+  const transport = patch.transport ?? previous?.config.transport;
+  const enabled = patch.enabled ?? previous?.config.enabled ?? true;
+  return transport === 'stdio' && (!previous || enabled !== false);
+}
+/** Keep existing stdio rows on a runner-less host, but disabled and labelled with the reason. */
+export function disableUnavailableStdioServers() {
+  if (mcpStdioAvailable) return;
+  for (const row of db.prepare('SELECT * FROM mcp_servers').all() as any[]) {
+    let server: McpServer;
+    try { server = fromRow(row); } catch { continue; }
+    if (server.config.transport !== 'stdio' || (!server.config.enabled && server.error === MCP_STDIO_UNAVAILABLE)) continue;
+    db.prepare('UPDATE mcp_servers SET config=?, error=? WHERE id=? AND user_id=?').run(sealPrivate(server.userId, `mcp:${server.id}`, { ...server.config, enabled: false }), MCP_STDIO_UNAVAILABLE, server.id, server.userId);
+  }
+}
+
 export function migrateMcpSecrets() {
   for (const row of db.prepare("SELECT id,user_id,config FROM mcp_servers WHERE config NOT LIKE 'private1:%'").all() as { id: string; user_id: string; config: string }[]) {
     const config = JSON.parse(row.config);
@@ -120,3 +142,4 @@ export function migrateMcpSecrets() {
   }
 }
 migrateMcpSecrets();
+disableUnavailableStdioServers();

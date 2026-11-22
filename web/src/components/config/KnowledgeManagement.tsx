@@ -44,6 +44,8 @@ export function SkillPackageControls({ skillId, revision, onChange }: { skillId:
     try { const next = await run(skill); setSkill(next.skill); setNotice(`Saved package revision ${next.skill.revision}.`); setArchive(false); onChange(); }
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   };
+  const saved = skill ? Object.entries(skill.resources).map(([path, text]) => ({ path, text })) : [];
+  const resourcesChanged = JSON.stringify(resources) !== JSON.stringify(saved);
   const invalid = resources.some(r => !/^(references|templates|scripts)\/(?!.*(?:^|\/)\.\.(?:\/|$))[^\s\\]+$/.test(r.path)) || new Set(resources.map(r => r.path)).size !== resources.length;
   return <div className="native-panel">
     <button type="button" className="cfg-btn cfg-btn--secondary" aria-expanded={open} onClick={() => setOpen(v => !v)}>Package resources and protections</button>
@@ -59,7 +61,7 @@ export function SkillPackageControls({ skillId, revision, onChange }: { skillId:
           <h3>Package resources</h3><p className="native-meta">References, templates and scripts are versioned with the instructions. Saving a script does not run it.</p>
           {resources.map((r, i) => <div className="resource-row" key={i}><label>Resource path<input required value={r.path} placeholder="references/sources.md" onChange={e => { const path = e.currentTarget.value; setResources(rows => rows.map((row, n) => n === i ? { ...row, path } : row)); }} /></label><label>Resource content<textarea value={r.text} onChange={e => { const text = e.currentTarget.value; setResources(rows => rows.map((row, n) => n === i ? { ...row, text } : row)); }} /></label><button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => setResources(rows => rows.filter((_, n) => n !== i))}>Remove resource</button></div>)}
           {invalid && <p role="alert" className="cfg-error">Use unique relative paths under references/, templates/ or scripts/, without parent directory segments.</p>}
-          <div className="learning-actions"><button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => setResources(rows => [...rows, { path: '', text: '' }])}>Add resource</button><button type="submit" className="cfg-btn cfg-btn--primary" disabled={busy || invalid}>Save resources</button></div>
+          <div className="learning-actions"><button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => setResources(rows => [...rows, { path: '', text: '' }])}>Add resource</button><button type="submit" className="cfg-btn cfg-btn--secondary" disabled={busy || invalid || !resourcesChanged}>Save resources</button></div>
         </form>
         {!skill.deleted && <div><button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => setArchive(v => !v)}>Archive package…</button>{archive && <div><p>Archive this package? Its complete history remains available for rollback.</p><button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => void mutate(s => learningApi.archive(s.id, s.revision))}>Confirm archive</button></div>}</div>}
         {notice && <p role="status">{notice}</p>}

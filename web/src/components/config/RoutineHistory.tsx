@@ -47,7 +47,7 @@ function RunFiles({ botId, id }: { botId: string; id: string }) {
     const controller = new AbortController(); setError('');
     deliverablesApi.run(id, controller.signal).then(result => {
       if (controller.signal.aborted) return;
-      if (result.run.id !== id || result.run.botId !== botId) throw new Error('The run does not belong to this bot.');
+      if (result.run.id !== id || result.run.botId !== botId) throw new Error('The run does not belong to this Bot.');
       setFiles(result.artifacts.filter(file => file.botId === botId));
     }).catch(err => { if (!controller.signal.aborted) setError(err.message); });
     return () => controller.abort();

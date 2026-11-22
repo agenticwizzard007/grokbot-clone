@@ -2,8 +2,12 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, Menu, RefreshCw } from 'lucide-react';
 import type { Bot, Task } from '@shared/types';
 import { configApi } from '../../lib/configApi';
+import { api, type NeedsYouItem } from '../../lib/api';
+import { queueImportedSetup } from '../../lib/setupApi';
+import { scrollToRow } from '../../lib/scrollToRow';
+import { needsYouChip, scopeNeedsYou } from './settingsLogic';
 import { relativeShort } from '../../lib/time';
-import { useConfigUI, useVersion } from '../../configStore';
+import { openConversation, useConfigUI, useVersion } from '../../configStore';
 import { backToList, useStore } from '../../store';
 import { Glyph } from './glyphs';
 import { TeamBoard } from './TeamBoard';
@@ -38,7 +42,7 @@ function when(t: Task): string {
 
 function TaskCard({ task, bot, compact = false }: { task: Task; bot?: Bot; compact?: boolean }) {
   const status = STATUS[task.state];
-  const note = task.note || (task.state === 'needs_input' ? 'Open chat to see what your bot needs.' : task.state === 'done' ? 'Open chat to see the result.' : 'Your bot is working on this task.');
+  const note = task.note || (task.state === 'needs_input' ? 'Open chat to see what your Bot needs.' : task.state === 'done' ? 'Open chat to see the result.' : 'Your Bot is working on this task.');
   return (
     <button type="button" className={`task-card is-${task.state}${compact ? ' is-compact' : ''}`} onClick={() => bot && openWorkChat(bot.id)} disabled={!bot} title={`${task.state === 'done' ? 'Completed' : 'Updated'} ${when(task)} (${new Date(task.updatedAt).toLocaleString()})`}
       aria-label={`${task.title} — ${status.label}. ${bot ? `${status.action} with ${bot.name}` : 'Bot unavailable'}`}>
@@ -55,6 +59,55 @@ function TaskCard({ task, bot, compact = false }: { task: Task; bot?: Bot; compa
       </span>
     </button>
   );
+}
+
+/** Open the place where a needs-you item is answered: setup reviews in the Bot's Setup tab, cards in its chat. */
+export function openNeedsYou(item: NeedsYouItem) {
+  const store = useStore.getState();
+  if (!store.bots.some(bot => bot.id === item.botId)) return;
+  if (item.type === 'setup_review' && store.user) queueImportedSetup(store.user.id, item.botId);
+  openConversation(item.botId);
+  if (item.type === 'setup_review' && !store.mobile) useStore.getState().set({ detailsOpen: true });
+  if (item.seq != null && item.type !== 'setup_review') scrollToRow(item.seq);
+}
+
+function NeedsYouCard({ item, bot, compact = false }: { item: NeedsYouItem; bot?: Bot; compact?: boolean }) {
+  const kind = needsYouChip(item.type);
+  const action = item.type === 'setup_review' ? 'Review setup' : item.type === 'approval' ? 'Review approval' : item.type === 'connect' ? 'Connect in chat' : 'Reply in chat';
+  const name = bot?.name ?? item.botName ?? 'Bot unavailable';
+  return (
+    <button type="button" className={`task-card is-needs_input is-attention${compact ? ' is-compact' : ''}`} onClick={() => openNeedsYou(item)} disabled={!bot}
+      title={`Waiting since ${new Date(item.createdAt).toLocaleString()}`} aria-label={`${item.title}. ${kind}. ${bot ? `${action} with ${name}` : 'Bot unavailable'}`}>
+      <span className="task-card__top"><span className="task-status is-needs_input">Needs you</span></span>
+      <span className="task-card__body">
+        <span className="task-card__title">{item.title}</span>
+        <span className="task-card__note">{name} · {kind}</span>
+        <span className="task-card__row-status">Needs you</span>
+      </span>
+      <span className="task-card__footer">{bot && <span className="task-card__action">{action}</span>}</span>
+    </button>
+  );
+}
+
+/** Setup reviews, approvals, questions and connect cards waiting on the user (GET /api/needs-you). */
+function useNeedsYou(botId?: string, available = true) {
+  const userId = useStore(s => s.user?.id);
+  const version = useVersion('needs-you');
+  const connected = useStore((s) => s.sseConnected);
+  const [result, setResult] = useState<{ userId?: string; items: NeedsYouItem[] | null }>({ items: null });
+  useEffect(() => {
+    if (!userId || !available) return;
+    let alive = true;
+    api.needsYou().then(r => {
+      if (alive && useStore.getState().user?.id === userId) setResult({ userId, items: Array.isArray(r?.items) ? r.items : [] });
+    }).catch(() => {
+      // Tasks still work without this list; keep the last good answer.
+      if (alive) setResult(prev => prev.userId === userId ? prev : { userId, items: null });
+    });
+    return () => { alive = false; };
+  }, [userId, available, version, connected]);
+  const items = available && result.userId === userId ? result.items : null;
+  return useMemo(() => items ? scopeNeedsYou(items, botId) : null, [items, botId]);
 }
 
 function useTasks(botId?: string, available = true) {
@@ -117,13 +170,16 @@ function WorkWorkspace() {
   const unavailable = !!botFilter && !selectedBot;
   const heading = unavailable ? undefined : childHeading;
   const primary = bots.find(bot => bot.isPrimary && bot.kind !== 'room');
-  const scopeLabel = selectedBot?.name ?? (unavailable ? 'Bot unavailable' : 'All bots');
-  const title = heading?.title ?? (tab === 'Team' ? (primary ? `${primary.name}’s board` : 'Team board') : tab === 'Goals' ? 'Goals and workflows' : tab === 'Reports' ? 'Saved reports' : 'Tasks');
-  const subtitle = heading ? (tab === 'Reports' ? heading.subtitle : `${scopeLabel} · ${heading.subtitle}`) : tab === 'Team' ? `${scopeLabel} · Owners, dependencies and evidence from current team records.` : tab === 'Goals' ? `${scopeLabel} · Keep work running across turns and verify results against acceptance checks.` : `${scopeLabel} · Download saved reports, save in Library or review where they will be sent.`;
+  const scopeLabel = selectedBot?.name ?? (unavailable ? 'Bot unavailable' : 'All Bots');
+  // Tab labels and page titles match (PD-06); the primary's name only appears in the subtitle.
+  const title = heading?.title ?? tab;
+  const subtitle = heading ? (tab === 'Reports' ? heading.subtitle : `${scopeLabel} · ${heading.subtitle}`) : tab === 'Team' ? `${primary ? `${primary.name}’s board` : 'Team board'} · ${scopeLabel} · Owners, dependencies and evidence from current team records.` : tab === 'Goals' ? `Goals and workflows · ${scopeLabel} · Keep work running across turns and verify results against acceptance checks.` : `${scopeLabel} · Download saved reports, save in Library or review where they will be sent.`;
   const { tasks, error, retry } = useTasks(botFilter, !unavailable && tab === 'Tasks');
+  const attention = useNeedsYou(botFilter, !unavailable && tab === 'Tasks');
   const byId = useMemo(() => new Map(bots.map((b) => [b.id, b])), [bots]);
   const scoped = useMemo(() => sortTasks((tasks ?? []).filter((t) => !selectedBot || t.botId === selectedBot.id)), [tasks, selectedBot]);
-  const counts = useMemo(() => ({ all: scoped.length, needs_input: scoped.filter((t) => t.state === 'needs_input').length, working: scoped.filter((t) => t.state === 'working').length, done: scoped.filter((t) => t.state === 'done').length }), [scoped]);
+  const waitingItems = attention ?? [];
+  const counts = useMemo(() => ({ all: scoped.length + waitingItems.length, needs_input: scoped.filter((t) => t.state === 'needs_input').length + waitingItems.length, working: scoped.filter((t) => t.state === 'working').length, done: scoped.filter((t) => t.state === 'done').length }), [scoped, waitingItems.length]);
   const shownStates = filter === 'all' ? STATES.filter(state => counts[state] > 0) : [filter];
   const empty = tasks !== null && counts[filter] === 0;
   useLayoutEffect(() => { if (scroll.current) scroll.current.scrollTop = 0; }, [tab, heading?.title]);
@@ -143,7 +199,7 @@ function WorkWorkspace() {
             {tab === 'Tasks' ? <span className={`tasks-sync${connected ? ' is-connected' : ''}`}><span aria-hidden="true" />{connected ? 'Updates automatically' : 'Reconnecting…'}</span> : <p>{subtitle}</p>}
           </div>
           {!heading?.detail && <nav className="work-tabs" aria-label="Work sections">{TABS.map(item => <button key={item} type="button" aria-current={item === tab ? 'page' : undefined} onClick={() => updateContext({ tab: item })}>{item}</button>)}</nav>}
-          {tab !== 'Tasks' && unavailable && <p role="status">This bot is no longer available. Return to Tasks to choose another scope.</p>}
+          {tab !== 'Tasks' && unavailable && <p role="status">This Bot is no longer available. Return to Tasks to choose another scope.</p>}
           {!unavailable && tab === 'Team' && <TeamBoard key={`${userId}:${workBotKey(selectedBot)}`} botId={botFilter} onGoals={() => updateContext({ tab: 'Goals' })} />}
           {!unavailable && tab === 'Goals' && <WorkflowsPanel key={`${userId}:${workBotKey(selectedBot)}`} botId={botFilter} workspace onHeading={setHeading} onTeam={() => updateContext({ tab: 'Team' })} />}
           {!unavailable && tab === 'Reports' && <WorkReports key={`${userId}:${workBotKey(selectedBot)}`} botId={botFilter} location={context.report} onLocation={report => updateContext({ report })} onHeading={setHeading} />}
@@ -158,12 +214,12 @@ function WorkWorkspace() {
                 <span>{state === 'all' ? 'All tasks' : STATUS[state].label}</span><span className="task-filter__count">{tasks === null ? '–' : counts[state]}</span>
               </button>)}
             </div>
-            <label className="work-field">Filter by bot<select className="tasks-bot-filter" aria-label="Filter tasks by bot" value={botFilter ?? 'all'} onChange={(event) => updateContext({ botId: event.currentTarget.value === 'all' ? undefined : event.currentTarget.value })}>
-              <option value="all">All bots</option>{unavailable && <option value={botFilter}>Bot unavailable</option>}{bots.map((bot) => <option key={bot.id} value={bot.id}>{bot.name}</option>)}
+            <label className="work-field">Filter by Bot<select className="tasks-bot-filter" aria-label="Filter tasks by bot" value={botFilter ?? 'all'} onChange={(event) => updateContext({ botId: event.currentTarget.value === 'all' ? undefined : event.currentTarget.value })}>
+              <option value="all">All Bots</option>{unavailable && <option value={botFilter}>Bot unavailable</option>}{bots.map((bot) => <option key={bot.id} value={bot.id}>{bot.name}</option>)}
             </select></label>
           </div>
           {error && <TaskError retry={retry} stale={tasks !== null} />}
-          {unavailable ? <div className="tasks-empty" role="status"><h2>Bot unavailable</h2><p>No tasks are shown for this bot. Choose another bot or All bots.</p></div> : tasks === null ? (!error && <div className="tasks-loading" role="status"><RefreshCw size={20} aria-hidden="true" />Loading tasks…</div>) : empty ? (
+          {unavailable ? <div className="tasks-empty" role="status"><h2>Bot unavailable</h2><p>No tasks are shown for this Bot. Choose another Bot or All Bots.</p></div> : tasks === null ? (!error && <div className="tasks-loading" role="status"><RefreshCw size={20} aria-hidden="true" />Loading tasks…</div>) : empty ? (
             <div className="tasks-empty">
               <h2>{filter === 'needs_input' ? 'No pending tasks' : filter === 'done' ? 'Nothing finished yet' : filter === 'working' ? 'Nothing in progress' : selectedBot ? `No tasks for ${selectedBot.name} yet` : 'No tasks yet'}</h2>
               <p>{filter === 'needs_input' ? 'You’re all caught up. Tasks that need your input will appear here.' : filter === 'done' ? 'Completed work will appear here, ready to revisit.' : 'Give a Bot a multi-part request and every piece gets its own card here.'}</p>
@@ -173,7 +229,10 @@ function WorkWorkspace() {
             {shownStates.map((state) => {
               return <section key={state} className={`task-column is-${state}`} aria-label={filter !== 'all' ? STATUS[state].label : undefined} aria-labelledby={filter === 'all' ? `tasks-${state}` : undefined}>
                 {filter === 'all' && <header className="task-column__header"><h2 id={`tasks-${state}`}>{STATUS[state].label} · {counts[state]}</h2></header>}
-                <div className="task-column__cards">{scoped.filter((t) => t.state === state).map((t) => <TaskCard key={t.id} task={t} bot={byId.get(t.botId)} />)}</div>
+                <div className="task-column__cards">
+                  {state === 'needs_input' && waitingItems.map((item) => <NeedsYouCard key={`${item.type}:${item.id}`} item={item} bot={byId.get(item.botId)} />)}
+                  {scoped.filter((t) => t.state === state).map((t) => <TaskCard key={t.id} task={t} bot={byId.get(t.botId)} />)}
+                </div>
               </section>;
             })}
           </div>}
@@ -187,13 +246,16 @@ function WorkWorkspace() {
 /** Sidebar entry with the number of tasks waiting on the user. */
 export function TasksIsland() {
   const view = useConfigUI((s) => s.view);
+  const settingsOpen = useConfigUI((s) => s.appSettings !== null);
+  const active = view === 'tasks' && !settingsOpen;
   const { tasks } = useTasks();
-  const waiting = tasks?.filter((t) => t.state === 'needs_input').length ?? 0;
+  const attention = useNeedsYou();
+  const waiting = (tasks?.filter((t) => t.state === 'needs_input').length ?? 0) + (attention?.length ?? 0);
   return (
-    <button type="button" className={`sidebar-island${view === 'tasks' ? ' is-active' : ''}`} onClick={() => {
+    <button type="button" className={`sidebar-island${active ? ' is-active' : ''}`} onClick={() => {
       const ui = useConfigUI.getState();
       ui.closeAppSettings(); ui.closeBotSettings(); useStore.getState().setModal(null); ui.setView('tasks');
-    }} title={waiting ? `${waiting} pending tasks need your input` : 'Tasks'} aria-label="Tasks" aria-pressed={view === 'tasks'}>
+    }} title={waiting ? `${waiting} ${waiting === 1 ? 'item needs' : 'items need'} your input` : 'Tasks'} aria-label="Tasks" aria-pressed={active}>
       <span className="sidebar-island__icon"><Glyph name="tasks" size={18} /></span><span className="sidebar-island__label">Tasks</span>
       {waiting > 0 && <span className="sidebar-island__count" aria-label={`${waiting} waiting on you`}>{waiting}</span>}
     </button>
@@ -203,6 +265,7 @@ export function TasksIsland() {
 /** The same task states remain visible in each bot’s details panel. */
 export function BotTasks({ bot }: { bot: Bot }) {
   const { tasks, error, retry } = useTasks(bot.id);
+  const attention = useNeedsYou(bot.id) ?? [];
   const sorted = useMemo(() => sortTasks(tasks ?? []), [tasks]);
   const openWorkspace = (tab: WorkTab, botId?: string) => {
     workContext = { tab, filter: 'all', botId, caller: bot.id };
@@ -212,7 +275,7 @@ export function BotTasks({ bot }: { bot: Bot }) {
     <div className="details__sections"><section>
       <div className="section-label section-label--row"><span>Tasks</span><button type="button" className="link-btn link-btn--small" onClick={() => openWorkspace('Tasks')}>See all tasks</button></div>
       {error && <TaskError retry={retry} stale={tasks !== null} />}
-      {tasks === null ? (!error && <div className="panel-card"><div className="panel-empty" role="status">Loading…</div></div>) : sorted.length === 0 ? <div className="panel-card"><div className="panel-empty">No tasks yet. Ask {bot.name} for a few things at once and they’ll be tracked here.</div></div> : <div className="bot-task-cards">{sorted.map((t) => <TaskCard key={t.id} task={t} bot={bot} compact />)}</div>}
+      {tasks === null && !attention.length ? (!error && <div className="panel-card"><div className="panel-empty" role="status">Loading…</div></div>) : sorted.length + attention.length === 0 ? <div className="panel-card"><div className="panel-empty">No tasks yet. Ask {bot.name} for a few things at once and they’ll be tracked here.</div></div> : <div className="bot-task-cards">{attention.map((item) => <NeedsYouCard key={`${item.type}:${item.id}`} item={item} bot={bot} compact />)}{sorted.map((t) => <TaskCard key={t.id} task={t} bot={bot} compact />)}</div>}
     </section><section className="work-row"><h3>Goals and workflows</h3><p className="work-meta">Plan and review work for {bot.name}.</p><button type="button" className="work-button" onClick={() => openWorkspace('Goals', bot.id)}>Goals and workflows</button></section></div>
   );
 }

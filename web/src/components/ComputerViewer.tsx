@@ -7,15 +7,16 @@ import { botVars } from '../lib/colors';
 import { useSelectedBot, useStore } from '../store';
 import { computerStatusText } from './DetailsPanel';
 import { useConfigUI } from '../configStore';
+import './viewer-loading.css';
 
 type Mode = 'watch' | 'control';
 type Conn = 'connecting' | 'connected' | 'disconnected' | 'error';
 
-function WakeProgress({ detail, local = false }: { detail: string; local?: boolean }) {
+function WakeProgress({ detail, local = false, title }: { detail: string; local?: boolean; title?: string }) {
   return (
     <div className="viewer__wake" role="status" aria-live="polite">
       <span className="viewer__wake-orbit" aria-hidden="true"><span className="viewer__wake-face"><i /><i /></span></span>
-      <span className="viewer__wake-title">{local ? 'Connecting to your computer' : 'Agent waking up'}</span>
+      <span className="viewer__wake-title">{title ?? (local ? 'Connecting to your computer' : 'Agent waking up')}</span>
       <span className="viewer__wake-detail">{detail}</span>
     </div>
   );
@@ -103,6 +104,9 @@ export function ComputerViewer() {
   if (!bot) return null;
   const busy = waking || computer?.status === 'starting' || computer?.status === 'resuming' || computer?.status === 'creating';
   const preparing = busy || (running && conn === 'connecting');
+  // MF-036: opening a sleeping computer wakes it; say so instead of a generic loading state.
+  const wakingFromSleep = busy && !running && computer?.provider !== 'local';
+  const wakingTitle = `Waking ${bot.name}'s computer...`;
   const lost = running && (conn === 'error' || conn === 'disconnected');
   const openComputerSettings = () => { close(); useConfigUI.getState().openAppSettings('computer'); };
 
@@ -113,7 +117,7 @@ export function ComputerViewer() {
         <div className="viewer__title">
           <BotAvatarFor bot={bot} size={24} />
           <span>{bot.name}'s computer</span>
-          {!lost && <span className="viewer__status">{preparing && computer?.provider !== 'local' ? 'Agent waking up' : computerStatusText(computer)}</span>}
+          {!lost && <span className="viewer__status">{wakingFromSleep ? wakingTitle : preparing && computer?.provider !== 'local' ? 'Agent waking up' : computerStatusText(computer)}</span>}
         </div>
         <button type="button" className="viewer__close" onClick={close}>Close computer</button>
       </div>
@@ -140,7 +144,7 @@ export function ComputerViewer() {
               </>
             ) : (
               <>
-                {busy ? <WakeProgress detail={computer?.status === 'creating' ? 'Setting up your computer…' : 'Starting your computer…'} /> : <span>The computer is asleep.</span>}
+                {busy ? <WakeProgress title={wakingTitle} detail={computer?.status === 'creating' ? 'Step 1 of 2 · Setting up the computer' : 'Step 1 of 2 · Starting the computer'} /> : <span>The computer is asleep.</span>}
                 {!busy && <button type="button" className="btn btn--light" onClick={wake}>Wake computer</button>}
               </>
             )}

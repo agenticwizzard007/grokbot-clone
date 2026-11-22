@@ -6,6 +6,7 @@ import { SourceMessages } from './KnowledgePanels';
 import type { MessageSource } from '../../lib/configApi';
 import { openWorkChat, useWorkLifetime } from './workScope';
 import './workArea.css';
+import { goalStatusLabel } from './settingsLogic';
 
 function sources(evidence: unknown[]): MessageSource[] {
   return evidence.flatMap(item => {
@@ -81,7 +82,7 @@ export function TeamBoard({ botId, onGoals }: { botId?: string; onGoals?: () => 
         <h3>Team snapshot</h3><p className="work-meta">{new Date(state.generatedAt).toLocaleString()} · Runtime {label(healthy.runtime).toLowerCase()}{healthy.lastTickAt ? ` · Last check ${new Date(healthy.lastTickAt).toLocaleTimeString()}` : ' · No runtime check recorded'}</p>
         {healthy.lastError && <p className="work-error">Runtime: {healthy.lastError}</p>}
         <label className="team-coordination"><input type="checkbox" role="switch" checked={enabledReceipt ?? healthy.runtime !== 'disabled'} disabled={setting || readBusy || !!error} onChange={event => void toggle(event.currentTarget.checked)} /> Account coordination</label>
-        <p className="work-meta">Applies to all bots in this account. Turning coordination off keeps existing work and history visible.</p>
+        <p className="work-meta">Applies to all Bots in this account. Turning coordination off keeps existing work and history visible.</p>
         {setting && <p role="status">Saving coordination preference…</p>}
         {settingError && <p className="work-error" role="alert">{settingError}</p>}
         {!!state.humanSources?.pending && !botId && <p className="work-meta">{state.humanSources.pending} user update(s) waiting for coordinator review.</p>}
@@ -92,7 +93,7 @@ export function TeamBoard({ botId, onGoals }: { botId?: string; onGoals?: () => 
         {bots.some(bot => bot.id === agent.botId) && <button className="work-button" type="button" onClick={() => openWorkChat(agent.botId)}>Open {agent.name} chat</button>}
       </div></div>)}
       {!scoped(state.agents).length && <div className="work-row"><p className="work-meta">No team agents were observed in this scope.</p></div>}
-      {scoped(state.goals ?? []).map(goal => <div className="work-row" key={goal.id}><h3>{goal.title}</h3><p className="work-meta">Goal {goal.status} · Owner {name(goal.botId)}{goal.reason ? ` · ${goal.reason}` : ''}</p></div>)}
+      {scoped(state.goals ?? []).map(goal => <div className="work-row" key={goal.id}><h3>{goal.title}</h3><p className="work-meta">Goal {goalStatusLabel(goal).toLowerCase()} · Owner {name(goal.botId)}{goal.reason ? ` · ${goal.reason}` : ''}</p></div>)}
       {workflows.map(workflow => <article className="team-workflow" key={workflow.id}>
         <h3 className="work-title">{workflow.title}</h3><p className="work-meta">{label(workflow.status)} · Coordinator {name(workflow.botId)}{workflow.reason ? ` · ${workflow.reason}` : ''}</p>
         {workflow.tasks.map(task => {
@@ -144,8 +145,8 @@ function WorkHistory({ name, botId }: { name: (id: string | null) => string; bot
     finally { pending.current = false; if (lifetime.current) setBusy(false); }
   };
   const records = page?.records.filter(record => !botId || all || record.bot_id === botId);
-  return <TeamDisclosure title="Complete team work history" copy={botId && !all ? `See past jobs for ${name(botId)}.` : 'See past jobs across all bots.'} onOpen={() => { if (!page) void load(); }}>
-    {botId && <label className="team-coordination"><input type="checkbox" checked={all} onChange={event => setAll(event.currentTarget.checked)} /> Show all bots in work history</label>}
+  return <TeamDisclosure title="Complete team work history" copy={botId && !all ? `See past jobs for ${name(botId)}.` : 'See past jobs across all Bots.'} onOpen={() => { if (!page) void load(); }}>
+    {botId && <label className="team-coordination"><input type="checkbox" checked={all} onChange={event => setAll(event.currentTarget.checked)} /> Show all Bots in work history</label>}
     {error && <p className="work-error" role="alert">{error}</p>}
     {records?.length === 0 && <p className="work-meta">{page?.hasMore ? 'No matching work in the pages loaded so far.' : 'No past work recorded in this scope.'}</p>}
     {records?.map(record => <div key={record.id}><strong>{name(record.bot_id ?? null)} · {label(record.state ?? 'unknown')}</strong>{record.created_at && <p className="work-meta">{new Date(record.created_at).toLocaleString()}</p>}</div>)}

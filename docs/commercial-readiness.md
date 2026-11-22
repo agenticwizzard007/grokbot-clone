@@ -207,7 +207,7 @@ Additional context: the updated first-user master plan records a coordinator rep
 - Searchable Composio app catalog and personal connection flows.
 - Account-scoped tool discovery/execution and connection management.
 - Isolated gateway handling and connection/revision ownership controls.
-- Custom MCP over HTTP, SSE, or local stdio commands.
+- Custom MCP over HTTP or SSE (token, headers or OAuth). Command-based (stdio) servers need an isolated tenant runner and are rejected on the shared standalone server (`SWARM_ROLE=standalone`).
 - Remote MCP OAuth, token/header credentials, and encrypted stored configuration.
 - Tool discovery/testing, agent assignment, enable/disable, and removal controls.
 - Permission handling, revision invalidation, and controlled local-folder configuration.

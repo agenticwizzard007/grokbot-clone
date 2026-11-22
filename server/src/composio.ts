@@ -407,14 +407,31 @@ export async function startGoogleLogin(provisionalUserId: string, callbackUrl: s
 }
 
 export class GoogleLoginError extends Error {
-  constructor(public readonly code: 'google_denied' | 'google_pending' | 'google_permissions' | 'google_unavailable') { super(code); }
+  constructor(public readonly code: 'google_denied' | 'google_pending' | 'google_permissions' | 'google_unavailable' | 'google_expired') { super(code); }
+}
+
+const accountMissing = (error: any) => [error?.status, error?.cause?.status].includes(404)
+  || ['ComposioConnectedAccountNotFoundError', 'NotFoundError'].includes(error?.name) || /not found/i.test(String(error?.message ?? ''));
+
+/**
+ * Status of a sign-in authorization (for example INITIATED while Google consent is still open), or null when Composio
+ * no longer has it. Any other lookup failure throws, so callers can fail safe.
+ */
+export async function googleLoginStatus(connectedAccountId: string): Promise<string | null> {
+  if (isTenant) throw new Error(APPS_OFF);
+  try { return String((await composio().connectedAccounts.get(connectedAccountId) as any)?.status ?? ''); }
+  catch (error) { if (accountMissing(error)) return null; throw error; }
 }
 
 /** Google's verified identity for this exact authorization, read through the authorizing user only. */
 export async function googleIdentityFor(connectedAccountId: string, userId: string): Promise<{ subject: string; email: string; name?: string }> {
   if (isTenant) throw new Error(APPS_OFF);
-  const account = await composio().connectedAccounts.get(connectedAccountId) as any;
+  let account: any;
+  try { account = await composio().connectedAccounts.get(connectedAccountId); }
+  catch (error) { if (accountMissing(error)) throw new GoogleLoginError('google_expired'); throw error; }
   if (account.status === 'FAILED' && /access_denied/i.test(account.statusReason ?? '')) throw new GoogleLoginError('google_denied');
+  // A removed, failed or expired authorization means the sign-in timed out; start again.
+  if (['FAILED', 'EXPIRED'].includes(account.status)) throw new GoogleLoginError('google_expired');
   if (account.status !== 'ACTIVE' || account.toolkit?.slug !== 'gmail') throw new GoogleLoginError('google_pending');
   const r = await composio().tools.proxyExecute({ endpoint: 'https://openidconnect.googleapis.com/v1/userinfo', method: 'GET', connectedAccountId, userId } as any) as any;
   if (r.status === 401 || r.status === 403) throw new GoogleLoginError('google_permissions');

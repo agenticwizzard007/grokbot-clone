@@ -1,0 +1,4 @@
+/* MF-036: the loading state keeps the page background so the title stays readable (WCAG AA). */
+.viewer.is-loading > .viewer__scrim.viewer__scrim { background: transparent; }
+.viewer.is-loading .viewer__title { color: var(--color-text-primary); }
+.viewer.is-loading .viewer__status { color: var(--color-text-secondary); }
