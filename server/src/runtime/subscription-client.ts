@@ -3,6 +3,7 @@ import { assertTenant, isTenant } from '../deployment.js';
 import type { RunnerOptions, LoginHandle } from '../cli/hosted.js';
 import type { CliProvider } from '../cli/store.js';
 import { hasNativeTools, ToolCallbacks } from '../cli/tool-callback.js';
+import { codexDefaultCatalog } from '../cli/codex-default.js';
 
 function connect(options: RunnerOptions, message: Record<string, unknown>) {
   if (!isTenant || !options.tenantUserId || !process.env.SWARM_RUNNER_SOCKET?.startsWith('/run/swarm/')) throw new Error('Isolated subscription runner unavailable.');
@@ -65,20 +66,24 @@ function connect(options: RunnerOptions, message: Record<string, unknown>) {
 export const isolatedRunner = {
   async checkProviders(options: RunnerOptions) {
     const [codex, claude] = await Promise.all((['codex', 'claude'] as const).map(provider => connect(options, { operation: 'status', provider }).done));
+    if (codex.codexExecOnly !== true) codex.error = 'Update the isolated CLI runner before using Codex.';
     return { codex, claude };
   },
   async readCatalog(params: unknown, options: RunnerOptions) {
     const provider = (params as { provider?: string })?.provider;
     if (provider !== 'codex' && provider !== 'claude') throw new Error('Select a subscription provider.');
+    if (provider === 'codex') return codexDefaultCatalog(await requireCodexExecOnly(options));
     return connect(options, { operation: 'catalog', provider }).done;
   },
   async runGeneration(params: unknown, options: RunnerOptions) {
     const provider = (params as { provider?: string })?.provider;
     if (provider !== 'codex' && provider !== 'claude') throw new Error('Select a subscription provider.');
     if (hasNativeTools(params) && !options.onToolCall) throw new Error('Native CLI tool callback is unavailable.');
+    if (provider === 'codex') await requireCodexExecOnly(options);
     return connect(options, { operation: 'generate', provider, params }).done;
   },
   async startLogin(provider: CliProvider, options: RunnerOptions): Promise<LoginHandle> {
+    if (provider === 'codex') await requireCodexExecOnly(options);
     const rpc = connect(options, { operation: 'login', provider });
     await rpc.ready;
     return { write: data => rpc.send({ type: 'input', data }), resize: (cols, rows) => rpc.send({ type: 'resize', cols, rows }), cancel: rpc.cancel, done: rpc.done };
@@ -87,3 +92,10 @@ export const isolatedRunner = {
     for (const provider of ['codex', 'claude']) await connect(options, { operation: 'delete', provider }).done;
   },
 };
+
+/** A pinned older worker can still carry the former Codex auth flags. Probe before any login or generation. */
+async function requireCodexExecOnly(options: RunnerOptions) {
+  const status = await connect(options, { operation: 'status', provider: 'codex', requireCliOnly: true }).done;
+  if (status?.codexExecOnly !== true) throw new Error('Update the isolated CLI runner before using Codex. No API fallback was used.');
+  return status;
+}

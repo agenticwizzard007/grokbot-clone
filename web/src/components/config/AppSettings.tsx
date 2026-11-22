@@ -16,6 +16,7 @@ import { ConfirmButton, Segmented, Switch } from './ui';
 import { McpSettings } from './McpSettings';
 import { MessagingSettings } from './MessagingSettings';
 import { SubscriptionSettings } from './SubscriptionSettings';
+import { PlanConnections } from '../PlanConnections';
 import { OpenRouterSettings } from './OpenRouterSettings';
 import { PrivateKeysSettings } from './PrivateKeysSettings';
 import { AppleSignIn } from '../AppleSignIn';
@@ -356,6 +357,7 @@ function AccountKeysSection({ accountId, accountEmail }: { accountId: string; ac
     {reauth.returned && <p role="status">You’re signed in again. Review your credentials and retry the change.</p>}
     {reauth.error && <p className="cfg-error" role="alert">{reauth.error}</p>}
     <OpenRouterSettings onReauth={onReauth} />
+    <PlanConnections />
     <ServerKeysSection accountId={accountId} onReauth={onReauth} />
   </>;
 }

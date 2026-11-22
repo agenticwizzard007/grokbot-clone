@@ -91,7 +91,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       await page.keyboard.press('Home');
       assert.equal(await options().first().evaluate(el => el === document.activeElement), true);
       await page.keyboard.press('Escape');
-      await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Effort');
+      // The desktop side flyout closes the picker; the inline sheet returns to its trigger.
+      if (await page.locator('.model-menu').count()) await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Effort');
+      else { assert.equal(await page.locator('.model-pill').evaluate(el => el === document.activeElement), true); await open(); }
       await page.getByRole('button', { name: 'Effort', exact: true }).click();
       await choose('Low'); await checkEffort('low', '18s');
       assert.deepEqual(patches.at(-1), { model: `${provider}/primary`, effort: 'low', fast: false });
@@ -114,7 +116,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       const count = patches.length;
       const cycled = page.waitForResponse(r => r.url().endsWith('/api/bots/effort-test'));
       await page.keyboard.press('Control+Shift+Slash'); await cycled; await settle();
-      await page.waitForFunction(() => document.querySelector('.model-pill__effort')?.textContent === 'Low');
+      await page.waitForFunction(() => document.querySelector('.model-pill__effort')?.textContent === 'High');
       assert.equal(patches.length, count + 1); assert.equal(patches.at(-1).model, `${provider}/primary`);
       // Missing provider defaults must not invent a level or keep a stale animation.
       defaultKnown = false; await setBot({ model: null }); await page.evaluate(() => window.refreshCatalog());

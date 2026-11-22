@@ -6,6 +6,8 @@ import { EFFORT_DESC, EFFORT_LABEL, ICON_AUTHORS, effectiveEffort, effortsFor, f
 import { useStore } from '../store';
 import { ClaudeMascot } from './ClaudeMascot';
 import { ModelUsageDetails } from './ModelUsageDetails';
+import { PlanConnections } from './PlanConnections';
+import { useConfigUI } from '../configStore';
 
 import { toast } from '../lib/toast';
 import { shortcutLabel } from '../lib/shortcuts';
@@ -92,9 +94,9 @@ export function ComposerModelMenu({ bot }: { bot: Bot }) {
 }
 
 function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: PickerModel | undefined; onClose: () => void; sheet: boolean }) {
-  const { models, byId, favourites, canFast, status, error, setFavourites, provider, billing } = useModels();
+  const { models, byId, favourites, canFast, status, error, setFavourites, provider, billing, plan } = useModels();
   const [q, setQ] = useState('');
-  const [view, setView] = useState<'main' | 'effort' | 'usage'>('main');
+  const [view, setView] = useState<'main' | 'effort' | 'usage' | 'connections'>('main');
   const [effortModelId, setEffortModelId] = useState<string | null>(null);
   const [inlineEffort, setInlineEffort] = useState(sheet);
   const [menuOffset, setMenuOffset] = useState(0);
@@ -105,15 +107,17 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
   const effortRef = useRef<HTMLUListElement>(null);
   const effortTrigger = useRef<HTMLElement | null>(null);
   const usageTrigger = useRef<HTMLButtonElement>(null);
+  const connectionsTrigger = useRef<HTMLButtonElement>(null);
   const known = status === 'ready' && !error && !!provider && !!billing;
   const usageLabel = known ? billing === 'plan' ? 'Plan & usage' : 'API details' : 'Connection details';
   const back = () => {
     const fromUsage = view === 'usage';
+    const fromConnections = view === 'connections';
     const label = effortTrigger.current?.getAttribute('aria-label');
     setView('main');
     requestAnimationFrame(() => {
       const trigger = [...(ref.current?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(button => button.getAttribute('aria-label') === label);
-      (fromUsage ? usageTrigger.current : trigger ?? search.current)?.focus();
+      (fromConnections ? connectionsTrigger.current : fromUsage ? usageTrigger.current : trigger ?? search.current)?.focus();
     });
   };
   const openEffort = (model: PickerModel, trigger: HTMLElement) => {
@@ -139,7 +143,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
     const key = (e: KeyboardEvent) => {
       // R2F-030: the side effort flyout sits next to the open model list, so Escape closes the picker in one
       // press. Only views that replace the list (Connection details, the inline effort sheet) step back first.
-      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); if (view === 'usage' || (view === 'effort' && inlineEffort)) back(); else onClose(); }
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); if (view === 'usage' || view === 'connections' || (view === 'effort' && inlineEffort)) back(); else onClose(); }
       if (e.key !== 'Tab') return;
       const items = [...(ref.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), a[href]') ?? [])].filter(el => el.getClientRects().length > 0);
       const first = items[0], last = items.at(-1);
@@ -153,7 +157,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
     return () => { clearTimeout(t); document.removeEventListener('pointerdown', down); document.removeEventListener('keydown', key, true); };
   }, [onClose, view]);
   useEffect(() => { (sheet ? ref.current?.querySelector<HTMLElement>('[role=dialog]') : search.current)?.focus({ preventScroll: true }); }, [sheet]);
-  useLayoutEffect(() => { if (view === 'usage') ref.current?.querySelector<HTMLElement>('.mm-back')?.focus({ preventScroll: true }); }, [view]);
+  useLayoutEffect(() => { if (view === 'usage' || view === 'connections') ref.current?.querySelector<HTMLElement>('.mm-back')?.focus({ preventScroll: true }); }, [view]);
 
   const results = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -240,10 +244,13 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
     <>
       {sheet && <div className="mm-scrim" aria-hidden onClick={onClose} />}
       <div ref={ref} className={`mm-wrap${sheet ? ' is-sheet' : ''}`} style={sheet ? undefined : { marginLeft: menuOffset }}>
-      <div className={`model-menu${sheet ? ' is-sheet' : ''}`} role="dialog" aria-modal="true" tabIndex={-1} aria-label={view === 'usage' ? 'Connection details' : 'Choose a model'}>
-        {view === 'usage' ? <>
+      <div className={`model-menu${sheet ? ' is-sheet' : ''}`} role="dialog" aria-modal="true" tabIndex={-1} aria-label={view === 'connections' ? 'Connect a plan' : view === 'usage' ? 'Connection details' : 'Choose a model'}>
+        {view === 'usage' || view === 'connections' ? <>
           <div className="mm-sheet-head"><button type="button" className="mm-back" aria-label="Back to models" onClick={back}><ChevronLeft size={18} aria-hidden /><span>Back to models</span></button></div>
-          <ModelUsageDetails onClose={onClose} />
+          {view === 'usage' ? <ModelUsageDetails onClose={onClose} /> : <div className="usage-mode__panel">
+            <PlanConnections onClose={onClose} />
+            <button type="button" onClick={() => { onClose(); useConfigUI.getState().openAppSettings('keys'); }}>Manage API keys</button>
+          </div>}
         </> : inlineEffort && view === 'effort' ? (
           <>
             <div className="mm-sheet-head"><button type="button" className="mm-back" aria-label="Back to models" onClick={back}><ChevronLeft size={18} strokeWidth={1.75} /><span>{target?.short} · Effort</span></button></div>
@@ -255,6 +262,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
               <Search size={16} strokeWidth={1.75} aria-hidden />
               <input ref={search} type="search" placeholder="Search models" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search models" />
             </label>
+            {known && billing === 'plan' && <p className="mm-empty">{provider === 'codex-cli' ? 'Codex chooses the model. Model list and plan limits are unavailable.' : `Available on ${plan ? `your ${plan.replaceAll('_', ' ')} plan` : 'your connected plan'} via Claude Code.`}</p>}
             {q.trim() ? (
               <ul className="mm-list">
                 {results.length === 0 && <li className="mm-empty">No models match “{q.trim()}”.</li>}
@@ -304,6 +312,9 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
               </div>
             )}
             <div className="mm-section">
+              <button ref={connectionsTrigger} type="button" className="mm-item" onClick={() => setView('connections')}>
+                <span>Connect plan</span><ChevronRight size={16} aria-hidden />
+              </button>
               <button ref={usageTrigger} type="button" className="mm-item" onClick={() => setView('usage')}>
                 <span>{usageLabel}</span><ChevronRight size={16} aria-hidden />
               </button>

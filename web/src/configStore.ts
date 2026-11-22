@@ -25,6 +25,7 @@ interface ConfigUI {
   /** Bumped when the user discards drafts so editors that stay mounted reset. */
   botSettingsDiscards: number;
   appSettings: AppSection | null;
+  subscriptionProvider: 'codex' | 'claude' | null;
   /** Consumed once by the section it names, after a sign-in round trip planned with planResume(). */
   resume: ResumeTarget | null;
   /** Settings was opened without a section (e.g. ⌘, or the account menu), so phones start on the section list. */
@@ -42,7 +43,7 @@ interface ConfigUI {
   /** Runs `next` now when nothing is unsaved; otherwise shows the discard dialog and runs it only on Discard. */
   requestLeaveBotSettings(next: () => void): boolean;
   resolveLeaveBotSettings(discard: boolean): void;
-  openAppSettings(section?: AppSection): void;
+  openAppSettings(section?: AppSection, subscriptionProvider?: 'codex' | 'claude'): void;
   closeAppSettings(): void;
   clearResume(): void;
   setView(v: 'chat' | 'tasks' | 'bots'): void;
@@ -136,6 +137,7 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
   botSettingsLeave: null,
   botSettingsDiscards: 0,
   appSettings: initialAppSection,
+  subscriptionProvider: null,
   resume: resumed,
   appSettingsHome: false,
   view: 'chat',
@@ -179,17 +181,17 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
     set({ botSettingsLeave: null, botSettingsDrafts: {}, botSettingsDirty: false, botSettingsDiscards: get().botSettingsDiscards + 1 });
     pending?.next();
   },
-  openAppSettings: (section) => {
+  openAppSettings: (section, subscriptionProvider) => {
     // Keep the URL on the open section so a reload reopens it (PD-05 hash sync). replaceState fires no hashchange.
     if (section && SECTIONS_LINKABLE.includes(section)) replaceHash(`#settings/${section}`);
-    set({ appSettings: section ?? 'general', appSettingsHome: !section });
+    set({ appSettings: section ?? 'general', appSettingsHome: !section, subscriptionProvider: section === 'subscriptions' ? subscriptionProvider ?? null : null });
   },
   closeAppSettings: () => {
     // Back on an open Bot settings page, the URL names that page again.
     const bot = get().botSettings;
     if (bot) replaceHash(botSettingsHash(bot.botId, bot.tab));
     else if (linkedSection()) replaceHash('');
-    set({ appSettings: null, appSettingsHome: false });
+    set({ appSettings: null, appSettingsHome: false, subscriptionProvider: null });
   },
   clearResume: () => set({ resume: null }),
   setView: (view) => {

@@ -103,7 +103,7 @@ async function bridge(userId: string, provider: 'claude' | 'codex', plan: string
       : { result: msg.method === 'status' ? status : catalog }) }));
   });
   await once(ws, 'open');
-  ws.send(JSON.stringify({ type: 'hello', version: 1, token: secret, device: 'private-device https://private-device.invalid' }));
+  ws.send(JSON.stringify({ type: 'hello', version: 1, codexExecOnly: true, token: secret, device: 'private-device https://private-device.invalid' }));
   await until(() => cliStatus(userId).connected);
   await refreshCli(userId);
   selectCli(userId, provider);
@@ -243,10 +243,13 @@ test('CLI aliases never imply a plan or allowance, and unreported quota never be
   assert.equal(state.cli.catalog?.usage.available, false);
   assert.deepEqual(state.cli.catalog?.usage.windows, []);
   assert.equal(state.limits.remainingAllowance, null);
-  assert.equal(state.models?.available, true);
+  assert.equal(state.models?.available, false);
+  assert.deepEqual(state.models?.items, []);
+  assert.equal(fake.requests.some(r => r.method === 'catalog'), false);
   fake.fail();
   const failed = await platformState(own.userId, own.botId, { includeModels: true });
-  assert.equal(failed.cli.catalog, null);
+  assert.equal(failed.cli.catalog?.defaultModel, 'codex/default');
+  assert.equal(fake.requests.some(r => r.method === 'catalog'), false, 'legacy catalog errors cannot be contacted');
   assert.equal(failed.models?.available, false);
   safeOutput(failed);
   disconnectCli(own.userId);
@@ -296,7 +299,7 @@ test('unsafe config and provider label strings never appear in the public state'
 
 test('live state CLI catalog requests abort within about eight seconds with no raw error or fallback', async () => {
   const own = account();
-  const fake = await bridge(own.userId, 'codex');
+  const fake = await bridge(own.userId, 'claude');
   fake.hold();
   const started = Date.now(), before = fetches.length;
   const state = await platformState(own.userId, own.botId, { includeModels: true });
@@ -305,7 +308,7 @@ test('live state CLI catalog requests abort within about eight seconds with no r
   await until(() => fake.requests.some(r => r.method === 'cancel'));
   assert.equal(state.cli.catalog, null);
   assert.equal(state.models?.available, false);
-  assert.equal(state.llm.provider, 'codex-cli');
+  assert.equal(state.llm.provider, 'claude-cli');
   assert.equal(fetches.length, before);
   safeOutput(state);
 });

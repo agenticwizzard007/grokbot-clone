@@ -39,20 +39,30 @@ async function until(check: () => boolean) {
 }
 const server = createServer(), wss = new WebSocketServer({ server });
 const sessions: { ws: WebSocket; route: string | undefined; frames: any[]; closed: boolean }[] = [];
+const sockets = new Set<WebSocket>();
 let replyReady = true;
+let codexExecOnly = true;
 wss.on('connection', (ws, request) => {
+  sockets.add(ws);
   const readyForConnection = replyReady;
-  const session = { ws, route: request.url, frames: [] as any[], closed: false }; sessions.push(session);
+  const session = { ws, route: request.url, frames: [] as any[], closed: false };
   ws.on('error', () => {}); ws.on('close', () => { session.closed = true; });
   ws.on('message', raw => {
-    session.frames.push(JSON.parse(raw.toString()));
+    const frame = JSON.parse(raw.toString());
+    if (frame.operation === 'status' && frame.requireCliOnly) {
+      ws.send(JSON.stringify({ type: 'ready' }));
+      ws.send(JSON.stringify({ type: 'result', result: codexExecOnly ? { codexExecOnly: true, installed: true, authenticated: true, subscription: true } : {} }));
+      return;
+    }
+    if (!session.frames.length) sessions.push(session);
+    session.frames.push(frame);
     if (session.frames.length === 1 && readyForConnection) ws.send(JSON.stringify({ type: 'ready' }));
   });
 });
 server.listen(socketPath); await once(server, 'listening');
 const send = (index: number, value: unknown) => sessions[index].ws.send(JSON.stringify(value));
 after(async () => {
-  for (const session of sessions) session.ws.terminate();
+  for (const socket of sockets) socket.terminate();
   await new Promise<void>(resolve => wss.close(() => resolve()));
   await new Promise<void>(resolve => server.close(() => resolve()));
   mock.restoreAll(); fs.rmSync(temp, { recursive: true, force: true });
@@ -108,7 +118,7 @@ for (const ending of ['cancel', 'deadline', 'disconnect', 'conflict'] as const) 
 
 test('isolated catalog never executes a supplied native callback', async () => {
   const index = sessions.length; let executed = 0;
-  const job = isolatedRunner.readCatalog(params, { ...options, onToolCall: async () => { executed++; return { output: 'forbidden' }; } });
+  const job = isolatedRunner.readCatalog({ provider: 'claude' }, { ...options, onToolCall: async () => { executed++; return { output: 'forbidden' }; } });
   const rejected = assert.rejects(job, /Invalid runner response/);
   await until(() => sessions[index]?.frames.length > 0); send(index, { type: 'tool_call', call: call() });
   await rejected; assert.equal(executed, 0);
@@ -285,4 +295,23 @@ for (const ending of ['cancel', 'deadline', 'error'] as const) test(`worker ${en
   assert.equal(result.cancelled, ending !== 'error');
   assert.match(result.error, /generation ended|application refused/);
   assert.deepEqual(w.errors, []);
+});
+
+test('an older isolated runner is refused before Codex login or generation', async () => {
+  const count = sessions.length;
+  codexExecOnly = false;
+  try {
+    await assert.rejects(isolatedRunner.startLogin('codex', options), /Update the isolated CLI runner/);
+    await assert.rejects(isolatedRunner.readCatalog({ provider: 'codex' }, options), /Update the isolated CLI runner/);
+    await assert.rejects(isolatedRunner.runGeneration({ provider: 'codex', timeoutMs: 1000 }, options), /Update the isolated CLI runner/);
+    assert.equal(sessions.length, count, 'only a status capability probe may reach an old worker');
+  } finally { codexExecOnly = true; }
+});
+
+test('isolated Codex discovery uses a status probe and reports only the default execution option', async () => {
+  const count = sessions.length;
+  const catalog = await isolatedRunner.readCatalog({ provider: 'codex' }, options);
+  assert.equal(catalog.defaultModel, 'codex/default');
+  assert.equal(catalog.plan, null); assert.equal(catalog.usage.available, false);
+  assert.equal(sessions.length, count, 'no catalog operation is sent to the worker');
 });

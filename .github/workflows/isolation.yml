@@ -40,6 +40,7 @@ jobs:
       - run: npm run test:deployment
       - run: npm run test:isolation
       - run: npm run test:cli
+      - run: npm run test:plan-connections
       - name: Validate operational alert rules
         shell: bash
         run: |
