@@ -568,6 +568,29 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'present_draft',
+    description: 'Show the user a draft they will send themselves (an email, Slack or chat message) as a draft card with Copy. Nothing is sent and no approval is requested. Use this instead of pasting a draft into your reply.',
+    parameters: obj({
+      channel: { type: 'string', enum: ['email', 'slack', 'message'] },
+      to: { type: 'string', description: 'Recipient as the user would write it, for example a name, address or channel. Use an empty string if unknown.' },
+      subject: { type: 'string', description: 'Email subject, when there is one.' },
+      text: { type: 'string', description: 'The full draft text.' },
+    }, ['channel', 'to', 'text']),
+    activity: 'working',
+    label: 'Preparing a draft',
+    impl: async (a, ctx) => {
+      const args = z.object({
+        channel: z.enum(['email', 'slack', 'message']),
+        to: z.string().trim().max(500),
+        subject: z.string().trim().max(500).optional(),
+        text: z.string().trim().min(1).max(20000),
+      }).strict().parse(a);
+      // A draft card is not an approval: approvalId stays empty and nothing is ever sent from it (PD-R2-04 B).
+      appendRow(ctx.botId, 'card', { type: 'card', card: 'draft', channel: args.channel, to: args.to || 'Recipient', ...(args.subject ? { subject: args.subject } : {}), text: args.text, approvalId: '', status: 'pending' });
+      return { output: 'Draft shown to the user. Nothing was sent.', summary: 'Draft shown' };
+    },
+  },
+  {
     name: 'ask_user',
     description: 'Ask the user a multiple-choice question when you need a decision before continuing. Ends your turn; their answer arrives as their next message.',
     parameters: obj({ question: { type: 'string' }, options: { type: 'array', items: { type: 'string' } } }, ['question', 'options']),

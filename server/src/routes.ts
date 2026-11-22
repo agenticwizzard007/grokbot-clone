@@ -473,7 +473,8 @@ api.post('/bots/:id/cards/:seq/dismiss', (c) => {
   const row = getRow(b.id, Number(c.req.param('seq')));
   if (!row || row.body.type !== 'card') return c.json({ error: 'not a card' }, 400);
   if(row.body.status!=='pending')return c.json({ok:true});
-  const body: any = { ...row.body, status: row.body.card === 'connect' ? 'skipped' : 'dismissed' };
+  // A draft card (R2F-006) is discarded on the client's Discard; it never sends anything.
+  const body: any = { ...row.body, status: row.body.card === 'connect' ? 'skipped' : row.body.card === 'draft' ? 'discarded' : 'dismissed' };
   updateRow(b.id, row.seq, body);
   if (row.body.card === 'connect') enqueue(b.id, { type: 'system', connectionCardSeq:row.seq,text: `The user skipped connecting ${row.body.toolkitName}. Continue without it.` });
   return c.json({ ok: true });

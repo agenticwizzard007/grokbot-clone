@@ -475,3 +475,39 @@ test('R2F-001: the store refuses a card row for a room-triggered job and logs it
   // Cards for ordinary turns are unaffected.
   assert.equal(appendRow(x.id, 'card', { type: 'card', card: 'question', question: 'Fine?', options: ['yes'], status: 'pending' }).kind, 'card');
 });
+
+// ---------- R2F-006: present_draft shows a draft card and sends nothing ----------
+
+test('R2F-006: present_draft writes one draft card, no approval and no app call; setup and group turns cannot use it', async () => {
+  const { activitySnapshot } = await import('../server/src/voice.js');
+  const bot = newBot('Drafter'); skipSetup('owner', bot.id);
+  const names = functionSchemas(bot.id).map((t) => t.name);
+  assert.ok(names.includes('present_draft'));
+  assert.ok(!functionSchemas(newBot('Draft Setup').id).some((t) => t.name === 'present_draft'), 'not offered during setup');
+  assert.ok(!GROUP_TURN_TOOLS.has('present_draft'), 'not offered in group turns');
+  let turn = 0;
+  const prompts: string[] = [];
+  const create = mock.method(llmClient(360_000).responses, 'create', async (body: any) => {
+    turn++;
+    prompts.push(String(body.input?.[0]?.content ?? ''));
+    if (turn === 1) return callStream([{ name: 'present_draft', args: { channel: 'email', to: 'sam@example.com', subject: 'Hello', text: 'Hi Sam,\n\nHello from me.' } }]);
+    return textStream('Here is your draft.');
+  });
+  try { enqueue(bot.id, { type: 'user', text: 'write an unsent hello email draft' }); await settleAgentJobs(); }
+  finally { create.mock.restore(); }
+  assert.match(prompts[0], /call present_draft instead of pasting it/);
+  const cards = listRows(bot.id).filter((r) => r.kind === 'card');
+  assert.equal(cards.length, 1);
+  assert.deepEqual({ ...cards[0].body, audience: undefined }, { type: 'card', card: 'draft', channel: 'email', to: 'sam@example.com', subject: 'Hello', text: 'Hi Sam,\n\nHello from me.', approvalId: '', status: 'pending', audience: undefined });
+  assert.equal(cards[0].audience, 'user');
+  assert.equal(approvalsFor(bot.id), 0, 'no approvals row');
+  assert.equal(pendingFor(bot.id), 0);
+  const tools = listRows(bot.id).filter((r) => r.body.type === 'tool-call');
+  assert.deepEqual(tools.map((r) => [(r.body as any).name, (r.body as any).status]), [['present_draft', 'done']]);
+  assert.ok(!tools.some((r) => /^SWARM_APPS|^mcp_/.test((r.body as any).name)), 'no app call');
+  assert.match(activitySnapshot(bot.id), /A draft to review/);
+  // Discard keeps the card and marks it discarded; nothing is sent.
+  const res = await call('POST', `/api/bots/${bot.id}/cards/${cards[0].seq}/dismiss`);
+  assert.equal(res.status, 200);
+  assert.equal((listRows(bot.id).find((r) => r.seq === cards[0].seq)!.body as any).status, 'discarded');
+});
