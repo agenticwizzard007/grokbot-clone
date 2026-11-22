@@ -29,12 +29,12 @@ function VoiceField<Value extends string | number>({ label, value, options, onCh
 type VoicePatch = Pick<Bot, 'voice' | 'voiceSpeed' | 'voiceLanguage'>;
 const fieldName: Record<keyof VoicePatch, string> = { voice: 'voice', voiceSpeed: 'speed', voiceLanguage: 'language' };
 
-export function VoiceSettings({ bot }: { bot: Bot }) {
+export function VoiceSettings({ bot, compact = false, onStartCall }: { bot: Bot; compact?: boolean; onStartCall?: () => void }) {
   const accountId = useStore(state => state.user?.id);
-  return <BotVoiceSettings key={`${accountId}:${bot.id}`} accountId={accountId} bot={bot} />;
+  return <BotVoiceSettings key={`${accountId}:${bot.id}`} accountId={accountId} bot={bot} compact={compact} onStartCall={onStartCall} />;
 }
 
-function BotVoiceSettings({ bot, accountId }: { bot: Bot; accountId?: string }) {
+function BotVoiceSettings({ bot, accountId, compact, onStartCall }: { bot: Bot; accountId?: string; compact: boolean; onStartCall?: () => void }) {
   const [options, setOptions] = useState<VoiceOptions | null>(null);
   const [optionsError, setOptionsError] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -81,8 +81,8 @@ function BotVoiceSettings({ bot, accountId }: { bot: Bot; accountId?: string }) 
     finally { if (current()) setPreviewing(false); }
   }
 
-  return <section className="voice-settings" aria-label="Voice settings">
-    <div className="voice-settings__title"><h2>Set {bot.name}’s voice</h2><p>Voice, speed and language save for this Bot. Listen before starting a call.</p></div>
+  return <section className={`voice-settings${compact ? ' voice-settings--compact' : ''}`} aria-label="Voice settings">
+    <div className="voice-settings__title"><h2>{compact ? 'Voice chat' : `Set ${bot.name}’s voice`}</h2>{!compact && <p>Voice, speed and language save for this Bot. Listen before starting a call.</p>}</div>
     {!options && (optionsError ? <div className="voice-settings__notice" role="alert">Voice choices couldn’t be loaded. <button type="button" className="voice-preview" onClick={() => setAttempt(value => value + 1)}>Try again</button></div> : <p role="status">Loading voice choices…</p>)}
     {options && <>
       <VoiceField label="Voice" value={bot.voice} options={options.voices.map(voice => ({ value: voice.id, label: voice.name }))} disabled={saving} onChange={value => void save('voice', value)} hint="Choose from the voices currently available." />
@@ -91,6 +91,9 @@ function BotVoiceSettings({ bot, accountId }: { bot: Bot; accountId?: string }) 
     </>}
     <div className="voice-settings__sample"><div><strong>Voice sample</strong><p>Preview the selected voice without starting a call.</p></div><button type="button" className="voice-preview" onClick={() => void preview()} disabled={previewing || saving}>{previewing ? 'Playing…' : 'Preview'}</button></div>
     {error && <div className="voice-settings__notice" role="alert"><strong>{error.title}</strong><p>{error.detail}</p></div>}
-    <button type="button" className={`voice-settings__call${inCall ? ' is-active' : ''}`} onClick={() => (inCall ? endCall() : startCall(bot.id))}>{inCall ? 'End voice chat' : 'Start voice chat'}</button>
+    <button type="button" className={`voice-settings__call${inCall ? ' is-active' : ''}`} onClick={() => {
+      if (inCall) endCall();
+      else { void startCall(bot.id); onStartCall?.(); }
+    }}>{inCall ? 'End voice chat' : 'Start voice chat'}</button>
   </section>;
 }

@@ -10,6 +10,7 @@ import { Composer } from './Composer';
 import { Menu } from './Menu';
 import { Transcript } from './Transcript';
 import { VoiceCallBar } from './VoiceCallBar';
+import { detailsReplaceChat } from '../lib/useDetailsLayout';
 
 export function ChatView() {
   const bot = useSelectedBot();
@@ -29,6 +30,7 @@ function BotChat({ accountId, bot }: { accountId: string; bot: Bot }) {
   const otherUnread = useStore(s => s.bots.reduce((n, b) => n + (b.id !== s.selectedBotId ? b.unread || 0 : 0), 0));
   const set = useStore(s => s.set);
   const [menu, setMenu] = useState(false);
+  const menuTrigger = useRef<HTMLButtonElement>(null);
   const [toast, setToast] = useState<string | null>(null);
   const freshRequest = useRef<symbol>();
   const toastTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -47,7 +49,7 @@ function BotChat({ accountId, bot }: { accountId: string; bot: Bot }) {
     freshRequest.current = undefined;
     const state = useStore.getState();
     const ui = useConfigUI.getState();
-    if (state.user?.id === accountId && state.selectedBotId === bot.id && !state.modal && !state.detailsOpen
+    if (state.user?.id === accountId && state.selectedBotId === bot.id && !state.modal && !(state.detailsOpen && detailsReplaceChat())
       && ui.view === 'chat' && !ui.appSettings && !ui.botSettings && (!state.mobile || state.mobilePane === 'chat')) flash(notice);
   };
   return <main className="chat">
@@ -58,21 +60,27 @@ function BotChat({ accountId, bot }: { accountId: string; bot: Bot }) {
       </button><span>Bots</span>
     </div>
     <header className="chat__header">
-      <BotAvatarFor bot={bot} size={32} working={!!live?.isRunning && !live.awaiting} />
+      <button type="button" className="chat__bot-details" aria-label={`Open ${bot.name} details`} aria-expanded={detailsOpen} aria-controls={detailsOpen ? 'bot-details' : undefined} onClick={() => set({ detailsOpen: !detailsOpen })}>
+        <BotAvatarFor bot={bot} size={32} working={!!live?.isRunning && !live.awaiting} />
+      </button>
       <span className="chat__pill-anchor">
-        <button type="button" className="chat__pill" onClick={() => setMenu(!menu)} aria-haspopup="menu" aria-expanded={menu}>
+        <button ref={menuTrigger} type="button" className="chat__pill" onClick={() => setMenu(!menu)} aria-haspopup="menu" aria-expanded={menu}>
           <span className="chat__pill-name">{bot.name}</span><ChevronDown size={14} aria-hidden />
         </button>
         <span className="chat__subtitle">{bot.label || (bot.isPrimary ? 'Your primary bot' : bot.kind === 'room' ? 'Group conversation' : bot.description || 'Your teammate')}</span>
         {menu && <Menu onClose={() => setMenu(false)} items={[
-          { label: detailsOpen ? 'Hide details' : 'Show details', hint: '⇧⌘,', onSelect: () => set({ detailsOpen: !detailsOpen }) },
+          { label: detailsOpen ? 'Hide details' : 'Show details', hint: '⇧⌘,', onSelect: () => {
+            // Details must capture the persistent trigger, not the departing menu item.
+            menuTrigger.current?.focus({ preventScroll: true });
+            set({ detailsOpen: !detailsOpen });
+          } },
           { label: 'Open computer', onSelect: () => set({ viewerOpen: true }) },
           { label: 'New conversation', onSelect: fresh },
           { label: 'Bot settings', onSelect: () => useConfigUI.getState().openBotSettings(bot.id) },
         ]} />}
       </span>
       <div className="chat__header-right">
-        <button type="button" className="chat__details" onClick={() => set({ detailsOpen: !detailsOpen })} aria-label={detailsOpen ? 'Hide details' : 'Show details'}>Details</button>
+        <button type="button" className="chat__details" onClick={() => set({ detailsOpen: !detailsOpen })} aria-label={detailsOpen ? 'Hide details' : 'Show details'} aria-expanded={detailsOpen} aria-controls={detailsOpen ? 'bot-details' : undefined}>Details</button>
         <button type="button" className="share-btn" onClick={() => flash('Sharing isn’t available in Swarm yet')}>Share</button>
       </div>
     </header>

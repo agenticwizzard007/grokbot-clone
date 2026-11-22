@@ -185,7 +185,7 @@ try {
     if (!lost) { lost = true; const response = await route.fetch(); assert.equal(response.status(), 200); await route.abort('connectionreset'); } else await route.continue();
   });
   const openReports = async () => {
-    const details = page.getByRole('main', { name: 'Conversation details', exact: true });
+    const details = page.getByRole('complementary', { name: 'Conversation details', exact: true });
     if (!await details.isVisible()) await page.getByRole('button', { name: 'Show details', exact: true }).click();
     await details.getByRole('navigation', { name: 'Conversation details sections' }).getByRole('button', { name: 'Files', exact: true }).click();
     await details.getByRole('button', { name: 'Saved reports', exact: true }).click();

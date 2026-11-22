@@ -833,50 +833,58 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
   const active = connections?.filter(c => c.status === 'ACTIVE' && !c.isDisabled) ?? [];
   const expired = connections?.filter(c => c.status === 'EXPIRED') ?? [];
   const other = connections?.filter(c => c.status !== 'EXPIRED' && (c.status !== 'ACTIVE' || c.isDisabled)) ?? [];
-  const accountDetails = (c: SettingsAppConnection, index: number) => (
-    <div className="cfg-row__text">
-      <div className="cfg-row__title">{apps?.find(a => a.slug === c.toolkit)?.name ?? c.toolkit} · Account {index + 1}</div>
-      <div className="cfg-row__sub" style={{ overflowWrap: 'anywhere' }}>{c.id}</div>
-      <div className="cfg-row__sub">
-        {c.status ? c.status.toLowerCase().replace(/(^|[_\s-]+)([a-z])/g, (_, separator, letter) => `${separator ? ' ' : ''}${letter.toUpperCase()}`) : 'Unknown status'}
-        {c.isDisabled ? ' · Disabled' : ''}
-        {c.status === 'ACTIVE' && !c.isDisabled && c.isDefault ? ' · Default' : ''}
-        {c.status === 'EXPIRED' && c.authorizationIncomplete ? ' · Authorization was not completed' : ''}
+  const accountDetails = (c: SettingsAppConnection, index: number) => {
+    const app = apps?.find(app => app.slug === c.toolkit);
+    const name = app?.name ?? c.toolkit;
+    const status = c.status ? c.status.toLowerCase().replace(/(^|[_\s-]+)([a-z])/g, (_, separator, letter) => `${separator ? ' ' : ''}${letter.toUpperCase()}`) : 'Unknown status';
+    return <>
+      <ToolkitLogo slug={c.toolkit} name={name} logo={app?.logo} size={36} />
+      <div className="cfg-row__text">
+        <div className="cfg-row__title">{name} · Account {index + 1}</div>
+        <div className="cfg-row__sub">{c.id}</div>
+        <div className="access-apps-settings__statuses">
+          <span className="cfg-chip">{status}</span>
+          {c.isDisabled && <span className="cfg-chip">Disabled</span>}
+          {c.status === 'ACTIVE' && !c.isDisabled && c.isDefault && <span className="cfg-chip">Default</span>}
+        </div>
+        {c.status === 'EXPIRED' && c.authorizationIncomplete && <div className="cfg-row__sub">Authorization was not completed</div>}
       </div>
-    </div>
-  );
+    </>;
+  };
   const openApps = () => setCatalog(true);
   if (catalog) return <ConnectAppsCatalog inline onClose={() => setCatalog(false)} />;
   return (
-    <>
-      <PageHead title="Connected apps" sub="Apps your Bots can use for you, like email, calendar and docs." />
-      {(connectionsError || appsError) && <div>
+    <div className="access-apps-settings">
+      <div className="access-apps__heading">
+        <PageHead title="Connected apps" sub="Apps your Bots can use for you, like email, calendar and docs." />
+        <button type="button" className="cfg-btn cfg-btn--primary access-apps-settings__manage" onClick={openApps}>{apps === null || apps.length ? 'Manage apps' : 'Connect apps'}</button>
+      </div>
+      {(connectionsError || appsError) && <div className="access-apps-settings__errors">
         {connectionsError && <div className="cfg-error" role="alert">Accounts could not be refreshed: {connectionsError}</div>}
         {appsError && <div className="cfg-error" role="alert">Apps could not be refreshed: {appsError}</div>}
         <button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy || refreshing} onClick={() => void refresh()}>Retry refresh</button>
       </div>}
       {error && <div className="cfg-error" role="alert">{error}</div>}
-      <section className="cfg-section">
+      <section className="cfg-section" aria-label="Your apps">
         <h2 className="cfg-section__label">Your apps</h2>
-        <div className="cfg-card">
-          <div className="cfg-row">
-            <div className="cfg-row__text">
-              <div className="cfg-row__title">{apps === null ? (appsError ? 'Apps unavailable' : 'Checking…') : apps.length ? `${apps.length} app${apps.length === 1 ? '' : 's'} connected` : 'No apps connected yet'}</div>
-              <div className="cfg-row__sub">Bots ask before doing anything that changes data in an app.</div>
-            </div>
-            <button type="button" className="cfg-btn cfg-btn--primary" onClick={openApps}>{apps === null || apps.length ? 'Manage apps' : 'Connect apps'}</button>
-          </div>
-          {apps?.map((a) => (
-            <div key={a.slug} className="cfg-row">
-              <ToolkitLogo slug={a.slug} name={a.name} logo={a.logo} size={28} />
-              <div className="cfg-row__text">
-                <div className="cfg-row__title">{a.name}</div>
-                {a.description && <div className="cfg-row__sub">{a.description}</div>}
-              </div>
-              <span className="cfg-chip">Connected</span>
-            </div>
-          ))}
+        <div className="access-apps-settings__summary" role="status">
+          <strong>{apps === null ? (appsError ? 'Apps unavailable' : 'Checking…') : apps.length ? `${apps.length} app${apps.length === 1 ? '' : 's'} connected` : 'No apps connected yet'}</strong>
+          <p className="cfg-field__hint">Bots ask before doing anything that changes data in an app.</p>
         </div>
+        {!!apps?.length && (
+          <div className="cfg-card">
+            {apps.map((a) => (
+              <div key={a.slug} className="cfg-row access-apps-settings__row">
+                <ToolkitLogo slug={a.slug} name={a.name} logo={a.logo} size={36} />
+                <div className="cfg-row__text">
+                  <div className="cfg-row__title">{a.name}</div>
+                  {a.description && <div className="cfg-row__sub">{a.description}</div>}
+                </div>
+                <span className="cfg-chip">Connected</span>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
       <section className="cfg-section" aria-label="Your connected accounts">
         <h2 className="cfg-section__label">Your connected accounts</h2>
@@ -884,7 +892,7 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
         <div className="cfg-card">
           {connections === null ? <div className="cfg-empty cfg-empty--flat">{connectionsError ? 'Accounts unavailable' : 'Loading accounts…'}</div>
             : !active.length ? <div className="cfg-empty cfg-empty--flat">No active accounts connected.</div>
-              : active.map((c, index) => <div className="cfg-row" key={c.id}>
+              : active.map((c, index) => <div className="cfg-row access-apps-settings__row" key={c.id}>
                 {accountDetails(c, index)}
                 <div className="settings-row__actions">
                   <button className="cfg-btn cfg-btn--secondary" type="button" disabled={busy || c.isDefault} onClick={() => void manage(c.id, 'default')}>Use by default</button>
@@ -895,21 +903,21 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
       </section>
       {!!other.length && <section className="cfg-section" aria-label="Other connections">
         <h2 className="cfg-section__label">Other connections</h2>
-        <p>These accounts are unavailable for Bots to use. Their current status is shown below.</p>
+        <p className="cfg-field__hint">These accounts are unavailable for Bots to use. Their current status is shown below.</p>
         <div className="cfg-card">
-          {other.map((c, index) => <div className="cfg-row" key={c.id}>{accountDetails(c, index)}</div>)}
+          {other.map((c, index) => <div className="cfg-row access-apps-settings__row" key={c.id}>{accountDetails(c, index)}</div>)}
         </div>
       </section>}
       {!!expired.length && <section className="cfg-section" aria-label="Expired connections">
-        <details className="cfg-card mcp-advanced">
+        <details className="cfg-card access-apps-settings__disclosure">
           <summary className="cfg-row">
             <span className="cfg-row__text">
               <span className="cfg-row__title">Expired connections ({expired.length})</span>
               <span className="cfg-row__sub">Review and remove expired records one at a time.</span>
             </span>
-            <ChevronRight className="mcp-advanced__chev" size={18} strokeWidth={1.75} aria-hidden />
+            <ChevronRight size={18} strokeWidth={1.75} aria-hidden />
           </summary>
-          {expired.map((c, index) => <div className="cfg-row" key={c.id}>
+          {expired.map((c, index) => <div className="cfg-row access-apps-settings__row" key={c.id}>
             {accountDetails(c, index)}
             <div className="settings-row__actions">
               <ConfirmButton disabled={busy} confirmLabel="Confirm removal" title="Remove only this expired connection record" onConfirm={() => manage(c.id, 'remove-expired')}>Remove expired record</ConfirmButton>
@@ -917,7 +925,7 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
           </div>)}
         </details>
       </section>}
-    </>
+    </div>
   );
 }
 

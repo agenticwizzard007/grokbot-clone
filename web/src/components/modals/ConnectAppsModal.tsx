@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { ChevronDown, ChevronRight, Search } from 'lucide-react';
 import type { Toolkit } from '@shared/types';
 import { APP_CATEGORIES } from '@shared/app-catalog';
 import { api, openPopup, type AppsResponse } from '../../lib/api';
@@ -54,7 +55,7 @@ function AppRow({ app, onChanged }: { app: Toolkit; onChanged: () => void }) {
   };
 
   return (
-    <div className="app-row" title={app.description}>
+    <div className={`app-row${state === 'waiting' || state === 'confirm' ? ' app-row--expanded' : ''}`}>
       <ToolkitLogo slug={app.slug} name={app.name} logo={app.logo} />
       <span className="app-row__text">
         <span className="app-row__name">{app.name}</span>
@@ -65,14 +66,14 @@ function AppRow({ app, onChanged }: { app: Toolkit; onChanged: () => void }) {
       </span>
       {app.connected ? (
         <div className="access-app-row__actions">
-          <button type="button" className={`app-row__connected${state === 'confirm' ? ' is-confirm' : ''}`} onClick={disconnect} disabled={state === 'busy'}>{state === 'confirm' ? 'Confirm disconnect' : state === 'busy' ? 'Disconnecting…' : `Disconnect ${app.name}`}</button>
+          <button type="button" className={`app-row__connected${state === 'confirm' ? ' is-confirm' : ''}`} onClick={disconnect} disabled={state === 'busy'} aria-label={state === 'idle' ? `Disconnect ${app.name}` : undefined}>{state === 'confirm' ? 'Confirm disconnect' : state === 'busy' ? 'Disconnecting…' : 'Disconnect'}</button>
           {state === 'confirm' && <button type="button" className="app-row__connect" onClick={() => setState('idle')}>Cancel</button>}
         </div>
       ) : app.noAuth ? (
         <span className="app-row__connected is-static"><Icon name="check" size={12} opacity={0.56} />Built in</span>
       ) : (
         <div className="access-app-row__actions">
-          <button type="button" className="app-row__connect" onClick={connect} disabled={state === 'busy'}>{state === 'busy' ? 'Opening…' : state === 'waiting' ? 'Try again' : `Connect ${app.name}`}</button>
+          <button type="button" className="app-row__connect" onClick={connect} disabled={state === 'busy'} aria-label={state === 'idle' ? `Connect ${app.name}` : undefined}>{state === 'busy' ? 'Opening…' : state === 'waiting' ? 'Try again' : 'Connect'}</button>
           {state === 'waiting' && <button type="button" className="app-row__connect" onClick={onChanged}>Refresh status</button>}
         </div>
       )}
@@ -122,18 +123,19 @@ function AccountAppsCatalog({ accountId, close, inline }: { accountId: string; c
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
   const [data, setData] = useState<AppsResponse | null>(null);
-  const [connectedApps, setConnectedApps] = useState<Toolkit[]>([]);
+  const [legacyConnectedApps, setLegacyConnectedApps] = useState<Toolkit[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
   const queryVersion = useRef(0);
-  const bodyRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const popularTitleId = useId();
   const [error, setError] = useState<string | null>(null);
   const [bump, setBump] = useState(0);
   const refresh = useCallback(() => setBump((n) => n + 1), []);
 
   useEffect(() => { const t = setTimeout(() => setDebounced(search.trim()), 200); return () => clearTimeout(t); }, [search]);
-  useEffect(() => { bodyRef.current?.scrollTo({ top: 0 }); }, [debounced, view]);
+  useEffect(() => { scrollRef.current?.scrollTo({ top: 0 }); }, [debounced, view]);
 
   useEffect(() => {
     let alive = true;
@@ -166,17 +168,18 @@ function AccountAppsCatalog({ accountId, close, inline }: { accountId: string; c
     }
   };
 
-  // Connected list (for the header chip and the Connected view): resolve the connected slugs to full entries.
   useEffect(() => {
-    if (!data) return;
-    if (data.connectedApps) { setConnectedApps(data.connectedApps); return; }
-    const missing = data.connected.filter((s) => !data.apps.some((a) => a.slug === s));
-    if (!missing.length) { setConnectedApps(data.apps.filter((a) => a.connected)); return; }
+    if (!data || data.connectedApps) return;
+    const missing = [...new Set(data.connected)].filter(slug => !data.apps.some(app => app.slug === slug));
+    if (!missing.length) return;
     let alive = true;
-    Promise.all(data.connected.map((s) => api.apps(s).then((r) => r.apps.find((a) => a.slug === s)).catch(() => undefined)))
-      .then((list) => { if (alive) setConnectedApps(list.filter((a): a is Toolkit => !!a)); });
+    void verifyAccessAccount(accountId).then(async () => {
+      if (!alive || !current()) return;
+      const list = await Promise.all(missing.map(slug => api.apps(slug).then(result => result.apps.find(app => app.slug === slug)).catch(() => undefined)));
+      if (alive && current()) setLegacyConnectedApps(list.filter((app): app is Toolkit => !!app));
+    }).catch(() => {});
     return () => { alive = false; };
-  }, [data]);
+  }, [accountId, current, data]);
 
   const apps = data?.apps ?? [];
   const searching = debounced.length > 0;
@@ -187,25 +190,40 @@ function AccountAppsCatalog({ accountId, close, inline }: { accountId: string; c
   const popularCount = popularGroups.reduce((count, group) => count + group.apps.length, 0);
   const activeCategory = view.kind === 'category' ? view.category : null;
   const requestLoading = loading || search.trim() !== debounced;
+  const connectedSlugs = [...new Set(data?.connected)];
+  const appDetails = new Map([...(data?.connectedApps ?? legacyConnectedApps), ...apps].map(app => [app.slug, app]));
+  const connectedApps = connectedSlugs.flatMap(slug => {
+    const app = appDetails.get(slug);
+    return app ? [{ ...app, connected: true }] : [];
+  });
+  const selectView = (next: View) => {
+    if (next.kind !== 'all' && next.kind !== 'category') setSearch('');
+    setView(next);
+  };
 
   let body: React.ReactNode;
   if (requestLoading) body = <div className="apps-empty" role="status">Loading apps…</div>;
   else if (error) body = <div className="apps-empty" role="alert">Couldn’t load apps. {error} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={refresh}>Retry catalog</button></div>;
   else if (data?.notConfigured) body = <div className="apps-empty">The server owner needs to add a Composio project key in <button type="button" className="link-btn" onClick={() => { close(); useConfigUI.getState().openAppSettings('keys'); }}>Settings → API keys</button>. This enables connected apps for everyone. Then connect your own accounts here.</div>;
-  else if (view.kind === 'connected') body = connectedApps.length ? <Section title="Connected" apps={connectedApps} onChanged={refresh} /> : <div className="apps-empty">No apps connected yet.</div>;
+  else if (view.kind === 'connected') body = connectedSlugs.length ? (
+    <>
+      <Section title="Connected" apps={connectedApps} onChanged={refresh} />
+      {connectedApps.length < connectedSlugs.length && <div className="apps-empty" role="status">Some connected app details are unavailable. <button type="button" className="cfg-btn cfg-btn--secondary" onClick={refresh}>Retry catalog</button></div>}
+    </>
+  ) : <div className="apps-empty">No apps connected yet.</div>;
   else if (searching || view.kind === 'category' || view.kind === 'all') {
     body = apps.length ? (
       <Section title={searching ? `Results${activeCategory ? ` in ${pillLabel(activeCategory)}` : ''}` : activeCategory ? pillLabel(activeCategory) : 'All apps'} apps={apps} onChanged={refresh} />
     ) : <div className="apps-empty">{debounced ? `No apps match “${debounced}”.` : 'No apps available in this view.'}</div>;
   } else if (view.kind === 'categories') {
-    body = <div className="access-apps__categories">{[...PILLS.map(pill => pill.category), ...moreCategories].map(category => <button type="button" key={category} className="cfg-btn cfg-btn--secondary" onClick={() => setView({ kind: 'category', category })}>{pillLabel(category)}</button>)}</div>;
+    body = <section className="apps-section"><h2 className="apps-section__title">Categories</h2><div className="access-apps__categories">{[...PILLS.map(pill => pill.category), ...moreCategories].map(category => <button type="button" key={category} className="cfg-btn cfg-btn--secondary" onClick={() => selectView({ kind: 'category', category })}>{pillLabel(category)}</button>)}</div></section>;
   } else {
     body = (
       <>
         {popularCount > 0 && (
-          <section className="apps-popular" aria-labelledby="popular-apps-title">
+          <section className="apps-popular" aria-labelledby={popularTitleId}>
             <div className="apps-popular__head">
-              <h2 id="popular-apps-title" className="apps-popular__title">Popular apps <span className="apps-popular__count">{popularCount}</span></h2>
+              <h2 id={popularTitleId} className="apps-popular__title">Popular apps <span className="apps-popular__count">{popularCount}</span></h2>
               <p className="apps-popular__description">Everyday essentials, grouped by what you do.</p>
             </div>
             {popularGroups.map((group) => (
@@ -213,37 +231,41 @@ function AccountAppsCatalog({ accountId, close, inline }: { accountId: string; c
             ))}
           </section>
         )}
-        {!popularCount && <div className="apps-empty">No popular apps available. Select View all to browse the catalog.</div>}
+        {!popularCount && <div className="apps-empty">No popular apps available. Select All to browse the catalog.</div>}
       </>
     );
   }
 
-  const connectedCount = data?.connected.length ?? 0;
-
   return (
-    <div className={`access-apps-catalog${inline ? ' access-apps-catalog--inline' : ''}`}>
+    <div ref={inline ? undefined : scrollRef} className={`access-apps-catalog${inline ? ' access-apps-catalog--inline' : ''}`}>
       <div className="apps-modal__head">
-        <div className="app-settings__head access-apps__title">
-          <h1>Connect an app</h1>
-          <p>Connect the tools you already use.</p>
-          {inline && <button type="button" className="link-btn" onClick={close}>Back to connected accounts</button>}
+        {inline && <button type="button" className="link-btn access-apps__back" onClick={close}>Back to connected accounts</button>}
+        <div className="access-apps__heading">
+          <div className="app-settings__head access-apps__title">
+            <h1>Connect an app</h1>
+            <p>Connect the tools you already use.</p>
+          </div>
+          <button type="button" aria-pressed={view.kind === 'connected'} className="access-apps__connected" onClick={() => selectView({ kind: 'connected' })}>
+            {!!connectedApps.length && <span className="access-apps__connected-logos" aria-hidden="true">{connectedApps.slice(0, 4).map(app => <ToolkitLogo key={app.slug} slug={app.slug} name={app.name} logo={app.logo} size={22} />)}</span>}
+            <span>{data && !data.notConfigured ? `${connectedSlugs.length} connected` : 'Connected'}</span>
+            <ChevronRight size={16} aria-hidden="true" />
+          </button>
         </div>
         <div className="apps-modal__controls">
-          <div className="apps-modal__searchrow">
-            <label className="cfg-field">
-              <span className="cfg-field__label">Search apps</span>
-              <input className="text-input" value={search} onChange={(e) => { setSearch(e.target.value); if (e.target.value.trim() && (view.kind === 'connected' || view.kind === 'categories' || view.kind === 'popular')) setView({ kind: 'all' }); }} placeholder="Search apps and skills" />
-            </label>
-          </div>
-          <div className="cat-pills">
-            {([{ kind: 'popular', label: 'Popular' }, { kind: 'categories', label: 'Browse categories' }, { kind: 'all', label: 'View all' }, { kind: 'connected', label: data ? `${connectedCount} connected` : 'Connected' }] as const).map(option => {
-              const selected = view.kind === option.kind || (option.kind === 'categories' && view.kind === 'category');
-              return <button key={option.kind} type="button" aria-pressed={selected} className={`cat-pill${selected ? ' is-active' : ''}`} onClick={() => { if (option.kind !== 'all') setSearch(''); setView({ kind: option.kind }); }}>{option.label}</button>;
-            })}
+          <label className="pill-input access-apps__search">
+            <Search size={17} aria-hidden="true" />
+            <input type="search" aria-label="Search apps" value={search} onChange={(e) => { setSearch(e.target.value); if (e.target.value.trim() && (view.kind === 'connected' || view.kind === 'categories' || view.kind === 'popular')) setView({ kind: 'all' }); }} placeholder="Search apps" />
+          </label>
+          <div className="cat-pills" role="group" aria-label="App catalog filters">
+            <button type="button" className="cat-pill" aria-pressed={view.kind === 'all'} onClick={() => selectView({ kind: 'all' })}>All</button>
+            <button type="button" className="cat-pill" aria-pressed={view.kind === 'popular'} onClick={() => selectView({ kind: 'popular' })}>Popular</button>
+            {PILLS.map(pill => <button key={pill.category} type="button" className="cat-pill" aria-pressed={activeCategory === pill.category} onClick={() => selectView({ kind: 'category', category: pill.category })}>{pill.label}</button>)}
+            {activeCategory && moreCategories.includes(activeCategory) && <button type="button" className="cat-pill" aria-pressed="true" onClick={() => selectView({ kind: 'category', category: activeCategory })}>{pillLabel(activeCategory)}</button>}
+            <button type="button" className="cat-pill" aria-label="Browse categories" aria-pressed={view.kind === 'categories'} onClick={() => selectView({ kind: 'categories' })}>Categories <ChevronDown size={14} aria-hidden="true" /></button>
           </div>
         </div>
       </div>
-      <div ref={bodyRef} className="apps-modal__body">
+      <div className="apps-modal__body">
         {body}
         {!requestLoading && !error && !data?.notConfigured && (view.kind === 'all' || view.kind === 'category') && data && (
           <div className="apps-pagination">

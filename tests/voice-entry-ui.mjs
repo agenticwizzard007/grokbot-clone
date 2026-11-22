@@ -70,6 +70,7 @@ try {
       else if (path.endsWith('/tasks')) body = { tasks: [] };
       else if (path === '/api/settings') body = { settings: {}, computer: { provider: 'cloudvm' } };
       else if (path === '/api/computer') body = { computer: { status: 'absent', screens: [] } };
+      else if (path === '/api/voice/options') body = { voices: [{ id: 'ara', name: 'Ara' }], speeds: [1], languages: [{ code: 'auto', name: 'Auto-detect' }] };
       else if (path === '/api/models') body = {
         provider: plan ? 'codex-cli' : 'openrouter', billing: plan ? 'plan' : 'api', defaultModel: modelId, plan: plan ? 'pro' : null, canFast: !plan, favourites: [modelId],
         models: [{ id: modelId, name: plan ? 'GPT-6.1 Sol' : 'Opus 5.5', short: plan ? 'GPT-6.1 Sol' : 'Opus 5.5', billing: plan ? 'plan' : 'api', author: plan ? 'openai' : 'anthropic', efforts: null, defaultEffort: 'medium', reasoning: true, vision: true, context: 200000 }],
@@ -245,6 +246,29 @@ try {
   await textOnly.page.getByRole('button', { name: 'End call', exact: true }).click();
   textOnly.noChatAction(); await textOnly.close();
   console.log('PASS explicit dictation only inserts text at saved selection; pending/complete/cancel focus and live-call mode switch');
+
+  for (const width of [1280, 390]) {
+    const sidebar = await fixture({ width });
+    const draft = sidebar.page.getByRole('textbox', { name: 'Message Quinn', exact: true });
+    await draft.fill('Keep my draft while reviewing voice settings');
+    await sidebar.dictate();
+    await sidebar.page.getByRole('button', { name: 'Show details', exact: true }).click();
+    const details = sidebar.page.getByRole('complementary', { name: 'Conversation details' });
+    await details.waitFor();
+    if (width > 1100) {
+      await sidebar.page.getByRole('button', { name: 'Cancel dictation', exact: true }).click();
+    } else {
+      await waitFor(() => sidebar.page.evaluate(() => window.__streams.every(stream => stream.getTracks().every(track => track.readyState === 'ended'))));
+      assert.equal(sidebar.count('/api/voice/stt'), 0, 'hiding the composer cancels dictation without submitting audio');
+    }
+    await details.getByRole('button', { name: 'Start voice chat', exact: true }).click();
+    await sidebar.page.locator('.vcall.is-live').waitFor();
+    assert.equal(await details.isVisible(), width > 1100, 'compact details return to visible live-call controls');
+    assert.equal(await draft.inputValue(), 'Keep my draft while reviewing voice settings');
+    await sidebar.page.getByRole('button', { name: 'End call', exact: true }).click();
+    sidebar.noChatAction(); await sidebar.close();
+  }
+  console.log('PASS sidebar voice entry exposes call controls and compact details cancel hidden dictation');
 
   for (const width of [320, 390]) for (const plan of [false, true]) {
     const mobile = await fixture({ width, plan });

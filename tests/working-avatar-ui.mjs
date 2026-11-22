@@ -16,6 +16,16 @@ const bots = [
   description: '', label: '', instructions: '', model: null, effort: 'medium', ...bot,
 }));
 
+const at = Date.now() - 60_000;
+const senderRow = {
+  botId: 'nia', generation: 1, seq: 1, updatedSeq: 1, kind: 'message', audience: 'user', createdAt: at,
+  body: { type: 'message', role: 'user', text: 'Research notes for Nia.', from: { kind: 'bot', id: 'ellis', name: 'Ellis' } },
+};
+const exchange = {
+  id: 'avatar-thread', firstSeq: 2, lastSeq: 2, createdAt: at + 1000, messageCount: 1, version: 1,
+  participants: bots.map(({ id, name, avatarColor, avatarShape }) => ({ id, name, avatarColor, avatarShape })),
+};
+
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
 try {
   for (const theme of ['light', 'dark']) {
@@ -46,13 +56,17 @@ try {
       let body = {};
       if (url.pathname === '/api/auth/me') body = { user: { id: 'owner', name: 'Alex', email: 'alex@example.test' } };
       else if (url.pathname === '/api/bots') body = { bots, live: [] };
-      else if (url.pathname.endsWith('/rows')) body = { generation: 1, rows: [] };
+      else if (url.pathname.endsWith('/rows')) body = { generation: 1, rows: url.pathname === '/api/bots/nia/rows' ? [senderRow] : [] };
       else if (url.pathname.endsWith('/tasks')) body = { tasks: [] };
       else if (url.pathname.endsWith('/routines')) body = { routines: [] };
       else if (url.pathname.endsWith('/coworker-setups')) body = { setups: [] };
-      else if (url.pathname === '/api/team/exchanges') body = { exchanges: [], nextBefore: null };
+      else if (url.pathname === '/api/team/exchanges') body = { exchanges: url.searchParams.get('botId') === 'nia' ? [exchange] : [], nextBefore: null };
       else if (url.pathname === '/api/models') body = { provider: 'openrouter', billing: 'api', models: [], favourites: [], canFast: false };
       else if (url.pathname === '/api/settings') body = { settings: {}, computer: { provider: 'orgo' } };
+      else if (url.pathname === '/api/bots/nia/settings') body = {
+        memories: [], skills: [], routines: [], tasks: [],
+        memory: { lastConsolidatedAt: null, historyChars: 0, compactAtChars: 0, lastCompaction: null },
+      };
       else if (url.pathname === '/api/voice/options') body = { voices: [], languages: [], speeds: [], configured: false };
       else if (url.pathname === '/api/checkins/reports') body = { reports: [], nextCursor: null, hasMore: false };
       else if (url.pathname === '/api/computer') body = { computer: { status: 'absent', screens: [] } };
@@ -137,9 +151,81 @@ try {
     assert.equal(await moving(avatar(header, 'Ellis')).count(), 0);
     await emit('ellis', { isRunning: false, startedAt: null });
     assert.equal(await idleShape(avatar(railSecondary, 'Ellis')).innerHTML(), ellisIdle);
+
+    // Search and the directory have no working prop. They must follow the Bot in each row,
+    // including live updates while the row is already mounted and another Bot is selected.
+    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    const search = page.getByRole('dialog', { name: 'Search', exact: true });
+    const searchNia = avatar(search, 'Nia');
+    const searchEllis = avatar(search, 'Ellis');
+    await assertWorking(searchNia);
+    await idleShape(searchEllis).waitFor();
+    await emit('ellis');
+    await assertWorking(searchEllis);
+    await emit('nia', { audience: 'internal' });
+    await idleFlock(searchNia).waitFor();
+    assert.equal(await moving(searchNia).count(), 0);
+    await assertWorking(searchEllis);
+    await capture('search-working');
+    await page.keyboard.press('Escape');
+    await search.waitFor({ state: 'hidden' });
+
+    await page.getByRole('button', { name: 'Your bots', exact: true }).click();
+    const directory = page.locator('.bots-view__list');
+    const directoryNia = avatar(directory, 'Nia');
+    const directoryEllis = avatar(directory, 'Ellis');
+    await idleFlock(directoryNia).waitFor();
+    await assertWorking(directoryEllis);
+    await emit('ellis', { awaiting: { reason: 'Waiting for confirmation', since: 2 } });
+    await idleShape(directoryEllis).waitFor();
+    assert.equal(await moving(directoryEllis).count(), 0);
+    await emit('nia');
+    await assertWorking(directoryNia);
+    await capture('directory-working');
+
+    // Historical participant shapes remain the static identity, independent of an unrelated live event.
+    await directory.getByRole('button', { name: /Nia/ }).click();
+    const senderEllis = avatar(page.locator('.sender-label'), 'Ellis');
+    const participants = page.locator('.agent-exchange__avatars');
+    const exchangeEllis = avatar(participants, 'Ellis');
+    const exchangeNia = avatar(participants, 'Nia');
+    await idleShape(senderEllis).waitFor();
+    await idleShape(exchangeEllis).waitFor();
+    assert.equal(await moving(senderEllis).count(), 0);
+    assert.equal(await moving(exchangeEllis).count(), 0);
+    await assertWorking(exchangeNia);
+    await emit('ellis');
+    await assertWorking(senderEllis);
+    await assertWorking(exchangeEllis);
+    await capture('transcript-working');
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await idleShape(senderEllis).waitFor();
+    await idleShape(exchangeEllis).waitFor();
+    assert.equal(await senderEllis.locator('.flock-mark__moving:visible').count(), 0);
+    assert.equal(await exchangeEllis.locator('.flock-mark__moving:visible').count(), 0);
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await emit('ellis', { audience: 'internal' });
+    await idleShape(senderEllis).waitFor();
+    await idleShape(exchangeEllis).waitFor();
+    assert.equal(await moving(senderEllis).count(), 0);
+    assert.equal(await moving(exchangeEllis).count(), 0);
+
+    // A shape preview edits an appearance, not a live identity.
+    await header.getByRole('button', { name: 'Nia', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Bot settings', exact: true }).click();
+    await page.getByRole('button', { name: 'Change look', exact: true }).click();
+    const shapes = page.getByRole('radiogroup', { name: 'Character shape' });
+    const draftAvatar = page.locator('.cfg-look .bot-avatar');
+    await idleShape(draftAvatar).waitFor();
+    assert.ok(await shapes.locator('.bot-avatar > svg:visible').count() > 1);
+    await emit('nia', { isRunning: false, startedAt: null });
+    await emit('nia');
+    assert.equal(await shapes.locator('.flock-mark__moving').count(), 0);
+    assert.equal(await draftAvatar.locator('.flock-mark__moving').count(), 0);
+    await capture('static-shapes');
     assert.deepEqual(unexpected, [], `${theme} has no page errors, external requests, or API writes`);
     await page.close();
-    console.log(`${theme}: primary and secondary working avatars, idle restore, awaiting, internal, collapsed rail, reduced motion`);
+    console.log(`${theme}: primary and secondary avatars, pixel motion, awaiting/internal exclusions, collapsed rail, reduced motion, search/directory/transcript, static shape picker`);
   }
 } finally {
   await browser.close();

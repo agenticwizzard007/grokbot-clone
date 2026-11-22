@@ -1,5 +1,7 @@
 import type { AvatarColor, AvatarShape, Bot } from '@shared/types';
+import { userFacingLive } from '../lib/audience';
 import { palette } from '../lib/colors';
+import { useStore } from '../store';
 import { FlockMark } from '../components/FlockMark';
 import { Icon } from '../components/Icon';
 import { SHAPES, type ShapeDef } from './shapes.gen';
@@ -59,7 +61,19 @@ export function BotAvatar({ shape, color, size, star, ring, className, title, wo
   );
 }
 
-export function BotAvatarFor({ bot, size, star, className, working }: { bot: Pick<Bot, 'avatarShape' | 'avatarColor' | 'name'> & { isPrimary?: boolean }; size: number; star?: boolean; className?: string; working?: boolean }) {
-  if (bot.isPrimary) return <span className={`bot-avatar ${className ?? ''}`} style={{ width: size, height: size }} title={bot.name} role="img" aria-label={bot.name}><FlockMark size={size} working={working} /></span>;
-  return <BotAvatar shape={bot.avatarShape} color={bot.avatarColor} size={size} star={star} className={className} title={bot.name} working={working} />;
+type AvatarBot = Pick<Bot, 'name'> & Partial<Pick<Bot, 'id' | 'isPrimary'>> & {
+  avatarShape: Props['shape'];
+  avatarColor: Props['color'];
+};
+
+export function BotAvatarFor({ bot, size, star, className, working }: { bot: AvatarBot; size: number; star?: boolean; className?: string; working?: boolean }) {
+  // Snapshots with a real ID use that Bot's live state, even outside the selected chat.
+  // Raw BotAvatar shape previews stay independent of the store.
+  const isWorking = useStore(state => {
+    if (!bot.id) return !!working;
+    const live = userFacingLive(state.live[bot.id]);
+    return !!live?.isRunning && !live.awaiting;
+  });
+  if (bot.isPrimary) return <span className={`bot-avatar ${className ?? ''}`} style={{ width: size, height: size }} title={bot.name} role="img" aria-label={bot.name}><FlockMark size={size} working={isWorking} /></span>;
+  return <BotAvatar shape={bot.avatarShape} color={bot.avatarColor} size={size} star={star} className={className} title={bot.name} working={isWorking} />;
 }
