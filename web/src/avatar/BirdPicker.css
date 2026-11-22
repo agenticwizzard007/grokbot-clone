@@ -12,3 +12,6 @@
 .bird-picker__choice:has(input:focus-visible) { outline: 2px solid var(--color-text-primary); outline-offset: 3px; }
 .bird-picker__choice:has(input:disabled) { opacity: .5; cursor: default; }
 .bird-picker__choice:hover { background: var(--color-bg-chrome); }
+@media (max-width: 360px) {
+  .bird-picker { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}

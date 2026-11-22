@@ -154,6 +154,13 @@ try {
     const settingsPicker = page.getByRole('radiogroup', { name: 'Character shape' });
     assert.deepEqual(await settingsPicker.getByRole('radio').evaluateAll(elements => elements.map(el => el.value)), ids);
     assert.equal(await settingsPicker.locator('input:checked').count(), 0, 'opening a legacy Bot does not select a bird');
+    await page.setViewportSize({ width: 320, height: 760 });
+    const settingsBounds = await settingsPicker.boundingBox();
+    assert.ok(settingsBounds.x >= 0 && settingsBounds.x + settingsBounds.width <= 320, 'settings picker fits phone width');
+    for (const radio of await settingsPicker.getByRole('radio').all()) {
+      const box = await radio.boundingBox(); assert.ok(box.width >= 44 && box.height >= 44, 'settings phone touch target');
+    }
+    await page.setViewportSize({ width: 1280, height: 960 });
     const preview = page.locator('.cfg-look .bot-avatar > svg');
     const legacyPath = await preview.locator('path').last().getAttribute('d');
     assert.equal(legacyPath, shapes.heart.d);
@@ -171,6 +178,16 @@ try {
     await wait(() => patches.length === 3);
     assert.deepEqual(patches[2], { avatarShape: 'bird-diamond' });
     await preview.locator('g > path').first().waitFor();
+    const savedBird = page.locator('.bot-row .bot-avatar[aria-label="Legacy renamed"] > svg[data-bird="bird-diamond"]');
+    await savedBird.waitFor();
+    const rendered = await savedBird.evaluate(svg => {
+      const rect = svg.getBoundingClientRect(), slot = svg.parentElement.getBoundingClientRect();
+      return { width: rect.width, height: rect.height, x: rect.x, y: rect.y, slotWidth: slot.width, slotHeight: slot.height, slotX: slot.x, slotY: slot.y, color: getComputedStyle(svg).color };
+    });
+    assert.equal(rendered.width, rendered.slotWidth, 'saved bird drops legacy overdraw width');
+    assert.equal(rendered.height, rendered.slotHeight, 'saved bird drops legacy overdraw height');
+    assert.equal(rendered.x, rendered.slotX); assert.equal(rendered.y, rendered.slotY);
+    assert.equal(rendered.color, await preview.evaluate(svg => getComputedStyle(svg).color), 'saved bird keeps preview color in both themes');
     await page.screenshot({ path: new URL(`settings-${theme}.png`, evidence).pathname });
 
     // Exported assets also render real pixels, independent of the React renderer.

@@ -49,10 +49,11 @@ export function BotAvatar({ shape, color, size, star, ring, className, title, wo
   const px = vbw / draw;
   return (
     <span className={`bot-avatar${working ? ' bot-avatar--working' : ''} ${className ?? ''}`} style={{ width: size, height: size }} title={title} role="img" aria-label={title}>
-      {bird ? <svg className="bot-avatar__bird" data-bird={bird} width={size} height={size} viewBox="0 0 100 100" style={{ '--bird-fill': color === 'black' ? 'var(--color-text-primary)' : fill } as CSSProperties} aria-hidden>
+      {/* Separate SVG families so switching a stored silhouette drops its cached drawing size and paint. */}
+      {bird ? <svg key="bird" className="bot-avatar__bird" data-bird={bird} width={size} height={size} viewBox="0 0 100 100" style={{ '--bird-fill': color === 'black' ? 'var(--color-text-primary)' : fill } as CSSProperties} aria-hidden>
         {ring && <rect x="2" y="2" width="96" height="96" rx="20" fill="none" stroke="currentColor" strokeWidth="3" />}
         <g fill="currentColor">{BIRD_FORMATIONS[bird].map((transform, i) => <path key={i} d={BIRD_PATH} transform={transform} />)}</g>
-      </svg> : <svg width={draw} height={draw} viewBox={def.viewBox} style={{ position: 'absolute', left: -off, top: -off, overflow: 'visible' }} aria-hidden>
+      </svg> : <svg key="legacy" width={draw} height={draw} viewBox={def.viewBox} style={{ position: 'absolute', left: -off, top: -off, overflow: 'visible' }} aria-hidden>
         {ring && <path d={def.outline} fill="#1C1C1C3D" stroke="#1C1C1C3D" strokeWidth={px * 2 * 3.4} strokeLinejoin="round" />}
         {ring && <path d={def.outline} fill="#FFFFFF" stroke="#FFFFFF" strokeWidth={px * 2 * 2.4} strokeLinejoin="round" />}
         <path d={def.outline} fill="#FFFFFF" />
