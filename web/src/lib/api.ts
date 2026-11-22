@@ -7,9 +7,10 @@ export class ApiError extends Error {
 /** The session is valid, but this change needs a sign-in from the last few minutes. */
 export const needsReauth = (err: unknown): err is ApiError => err instanceof ApiError && err.status === 401 && err.code === 'reauth_required';
 
-async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function req<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const res = await fetch(`/api${path}`, {
     method,
+    signal,
     credentials: 'include',
     headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -24,6 +25,7 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 }
 
 export interface AppsResponse { apps: Toolkit[]; connected: string[]; connectedApps?: Toolkit[]; categories: string[]; total: number; nextOffset?: number | null; notConfigured?: boolean }
+export type SuggestedToolkit = Omit<Toolkit, 'connected'> & { reason: string };
 
 export interface RoomMember { id: string; name: string; label: string; avatarShape: string; avatarColor: string }
 
@@ -52,6 +54,7 @@ export const api = {
   ensureComputer: () => req<{ computer: ComputerState }>('POST', '/computer/ensure'),
 
   apps: (search = '', category = '', offset = 0) => req<AppsResponse>('GET', `/apps?search=${encodeURIComponent(search)}&category=${encodeURIComponent(category)}&offset=${offset}`),
+  suggestedApps: (botId: string, draft: { description: string; instructions: string }, signal?: AbortSignal) => req<{ suggestions: SuggestedToolkit[] }>('POST', `/bots/${encodeURIComponent(botId)}/suggested-apps`, draft, signal),
   connect: (slug: string, botId?: string, seq?: number) => req<{ redirectUrl: string }>('POST', `/apps/${slug}/connect`, { botId, seq }),
   disconnect: (slug: string) => req<{ ok: true }>('DELETE', `/apps/${slug}`),
 
