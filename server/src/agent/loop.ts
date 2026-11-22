@@ -7,13 +7,13 @@ import { env } from '../env.js';
 import { newId, sha256 } from '../lib/ids.js';
 import { hub } from '../lib/hub.js';
 import { appendHistory, appendRow, emitBot, getBotRow, getLive, getRow, loadHistory, setLive, updateRow } from '../store.js';
-import type { MessageBody, ToolCallBody } from '../types.js';
+import type { RowBody, ToolCallBody } from '../types.js';
 import { composioTools, connectionsDetail } from '../composio.js';
 import { appName } from '../tool-activity.js';
 import { systemPrompt } from './prompt.js';
 import { deduplicateBrowserSnapshots, repairHistory } from './history.js';
 import { maybeCompact, noteUsage } from './memory.js';
-import { activityFor, allowedDuringSetup, COMPUTER_POLICY_TITLES, executionPolicyFor, functionSchemas, humanizeSlug, runComposioTool, toolMap, type ToolCtx, type ToolResult } from './tools.js';
+import { activityFor, allowedDuringSetup, allowedInGroupTurn, COMPUTER_POLICY_TITLES, executionPolicyFor, functionSchemas, humanizeSlug, runComposioTool, toolMap, type ToolCtx, type ToolResult } from './tools.js';
 import { postToRoomById, setupNotice } from './rooms.js';
 import { isConfiguring } from '../bot-setup.js';
 import { mcpSchemas, runMcpTool } from '../mcp/client.js';
@@ -386,12 +386,16 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
   let routineStarted = false;
 
   const ctx: ToolCtx = { userId, botId, jobId, enqueueBotMessage, depth, recovery: new BrowserRecovery(), roomId: trigger.roomId };
-  // Group turns only read from connected apps; nothing leaves Swarm from a group message.
+  // Group turns (R2F-001, PD-R2-05 B): no connected apps, MCP tools, computer, delivery or cards.
+  // Every row they write to the member's own transcript is explicitly internal.
   if (trigger.roomId) ctx.readOnlyApps = true;
-  ctx.availableTools = async () => [
-    ...functionSchemas(botId), ...mcpSchemas(userId, botId), ...await composioTools(userId),
-    ...(isConfiguring(botId) ? [] : serverTools()),
-  ];
+  const audience = turnAudience(ctx);
+  ctx.availableTools = trigger.roomId
+    ? async () => [...functionSchemas(botId).filter(t => allowedInGroupTurn(t.name)), ...(isConfiguring(botId) ? [] : serverTools())]
+    : async () => [
+      ...functionSchemas(botId), ...mcpSchemas(userId, botId), ...await composioTools(userId),
+      ...(isConfiguring(botId) ? [] : serverTools()),
+    ];
   setLive(botId, { isRunning: true, activity: { kind: 'thinking', since: now() }, awaiting: null, startedAt: now() });
 
   try {
@@ -425,7 +429,7 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
       if ((st.computerRevision ?? 0) !== localAccess(userId).revision) {
         outcome='interrupted';
         await finishPending(ctx, {...st,jobId:pausedJobId}, 'computer-changed');
-        appendRow(botId, 'notice', { type: 'notice', text: 'Your selected computer changed. The previous approval and its remaining actions were cancelled. Send a new request to continue on the selected computer.', tone: 'info' });
+        appendRow(botId, 'notice', { type: 'notice', text: 'Your selected computer changed. The previous approval and its remaining actions were cancelled. Send a new request to continue on the selected computer.', tone: 'info', ...audience });
         return;
       }
       depth = st.depth;
@@ -441,7 +445,7 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
       const call = { type: 'function_call', call_id: trigger.callId, name: trigger.name, arguments: JSON.stringify(trigger.args) };
       appendHistory(botId, [call]);
       const activity = activityFor(call.name, trigger.args);
-      const row = appendRow(botId, 'tool-call', { type: 'tool-call', callId: call.call_id, name: call.name, label: activity.label, status: 'queued', args: trigger.args });
+      const row = appendRow(botId, 'tool-call', { type: 'tool-call', callId: call.call_id, name: call.name, label: activity.label, status: 'queued', args: trigger.args, ...audience });
       toolRows.push(row.seq);
       const st: PendingState = { native: true, nativeRequireApproval: trigger.requireApproval, nativeReadOnly: trigger.readOnly, jobId, computerRevision: currentComputerRevision() ?? localAccess(userId).revision, calls: [{ ...call, rowSeq: row.seq }], outputs: [], approvalId: '', depth: 0 };
       if (!await processCalls(ctx, st)) publishNativeResult(botId, st);
@@ -483,7 +487,7 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
         const item = { type: 'function_call', call_id: newId('cli'), name: call.name, arguments: JSON.stringify(call.arguments) };
         appendHistory(botId, [item]);
         const activity = activityFor(item.name, call.arguments);
-        const row = appendRow(botId, 'tool-call', { type: 'tool-call', callId: item.call_id, name: item.name, label: activity.label, status: 'queued', args: call.arguments });
+        const row = appendRow(botId, 'tool-call', { type: 'tool-call', callId: item.call_id, name: item.name, label: activity.label, status: 'queued', args: call.arguments, ...audience });
         toolRows.push(row.seq);
         const state: PendingState = { jobId, computerRevision: currentComputerRevision() ?? localAccess(userId).revision,
           calls: [{ ...item, rowSeq: row.seq }], outputs: [], approvalId: '', depth };
@@ -516,7 +520,7 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
         calls: calls.map((c: any) => {
           const args = safeParse(c.arguments);
           const act = activityFor(c.name, args);
-          const row = appendRow(botId, 'tool-call', { type: 'tool-call', callId: c.call_id, name: c.name, label: act.label, status: 'queued', args } satisfies ToolCallBody);
+          const row = appendRow(botId, 'tool-call', { type: 'tool-call', callId: c.call_id, name: c.name, label: act.label, status: 'queued', args, ...audience } satisfies RowBody);
           toolRows.push(row.seq);
           return { call_id: c.call_id, name: c.name, arguments: c.arguments, rowSeq: row.seq };
         }),
@@ -532,7 +536,7 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
   } catch (e: any) {
     outcome = ctrl.signal.aborted ? 'interrupted' : 'failed';
     const msg = ctrl.signal.aborted ? 'Stopped.' : `Something went wrong: ${e?.message ?? e}`;
-    appendRow(botId, 'notice', { type: 'notice', text: msg, tone: ctrl.signal.aborted ? 'info' : 'error' });
+    appendRow(botId, 'notice', { type: 'notice', text: msg, tone: ctrl.signal.aborted ? 'info' : 'error', ...audience });
     if (!ctrl.signal.aborted) console.error('[agent] turn failed', botId);
     throw new Error('Task did not complete. Review its activity before retrying.');
   } finally {
@@ -675,6 +679,15 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
         && ap.binding_hash === approvalBinding(userId, botId, c.call_id, c.name, args)
         && decision !== 'block' ? 'allow' : 'block';
       st.approvalId = '';
+    } else if (decision === 'ask' && ctx.roomId) {
+      // A group turn never asks for approval and never writes a card in the member's own chat (R2F-001).
+      // The ask becomes a denial; it is never turned into an allow.
+      const refusal = 'Group chat turns can\'t ask for approval. Nothing was done. Answer in the group, or ask the user to request this in your own chat.';
+      updateRow(botId, c.rowSeq, { ...body, status: 'denied', summary: 'Not available in group chats' });
+      st.outputs.push({ type: 'function_call_output', call_id: c.call_id, output: refusal });
+      st.approvalId = '';
+      st.calls.shift();
+      continue;
     } else if (decision === 'ask') {
       const approvalId = newId('apr');
       const mcp = c.name.startsWith('mcp_') ? findMcpTool(userId, c.name, botId) : undefined;
@@ -711,7 +724,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
           const program = await runProgram({ userId, botId, jobId: ctx.jobId, callId: c.call_id, args,
             catalog: ctx.availableTools!, signal: turnSignal(botId), dispatch: async action => {
               const existing = db.prepare("SELECT seq FROM rows WHERE bot_id=? AND generation=? AND kind='tool-call' AND json_extract(body,'$.callId')=? ORDER BY seq DESC LIMIT 1").get(botId, getBotRow(botId).generation, action.callId) as { seq: number } | undefined;
-              const innerRow = existing ?? appendRow(botId, 'tool-call', { type: 'tool-call', callId: action.callId, name: action.name, args: action.args, label: activityFor(action.name, action.args).label, status: 'queued' });
+              const innerRow = existing ?? appendRow(botId, 'tool-call', { type: 'tool-call', callId: action.callId, name: action.name, args: action.args, label: activityFor(action.name, action.args).label, status: 'queued', ...turnAudience(ctx) });
               const inner: PendingState = { jobId: ctx.jobId, computerRevision: st.computerRevision, calls: [{ call_id: action.callId, name: action.name, arguments: JSON.stringify(action.args), rowSeq: innerRow.seq }], outputs: [], approvalId: action.approvalId ?? '', depth: st.depth };
               const paused = await processCalls(ctx, inner, { nested: true, signal: action.signal, onPause: pending => {
                 st.approvalId = pending.approvalId;
@@ -807,6 +820,11 @@ function publishNativeResult(botId: string, state: PendingState) {
   appendRow(botId, 'message', { type: 'message', role: 'assistant', text: `Connected app result (inspect the returned data for success or failure):\n${JSON.stringify(results).slice(0, 60000)}` });
 }
 
+/** Rows a group turn writes to the member's own transcript are always internal (R2F-001), not only via AsyncLocalStorage. */
+function turnAudience(ctx: Pick<ToolCtx, 'roomId'>): { audience?: 'internal' } {
+  return ctx.roomId ? { audience: 'internal' } : {};
+}
+
 // ---------- model call with streaming into a message row ----------
 
 const imageWarnings = new WeakSet<ToolCtx>();
@@ -850,7 +868,7 @@ async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: Abo
   const discloseImages = (omitted: number) => {
     if (omitted && !imageWarnings.has(ctx)) {
       imageWarnings.add(ctx);
-      appendRow(botId, 'notice', { type: 'notice', text: 'Earlier images were omitted for this text-only model endpoint. Their text is preserved. Choose a model with image support to inspect those images.', tone: 'warn' });
+      appendRow(botId, 'notice', { type: 'notice', text: 'Earlier images were omitted for this text-only model endpoint. Their text is preserved. Choose a model with image support to inspect those images.', tone: 'warn', ...turnAudience(ctx) });
     }
   };
   if (info?.vision === false) {
@@ -892,7 +910,7 @@ async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: Abo
       stream = await llm().responses.create(body, { signal });
     } else if (e?.status === 400 && tools.some(t => t.name?.startsWith('mcp_'))) {
       console.warn('[agent] 400 with custom MCP tools, retrying without those schemas');
-      appendRow(botId, 'notice', { type: 'notice', text: 'The model rejected the request with custom MCP tools. Retrying without those tools; native connected-app tools remain available.', tone: 'warn' });
+      appendRow(botId, 'notice', { type: 'notice', text: 'The model rejected the request with custom MCP tools. Retrying without those tools; native connected-app tools remain available.', tone: 'warn', ...turnAudience(ctx) });
       body.tools = tools.filter(t => !t.name?.startsWith('mcp_'));
       stream = await llm().responses.create(body, { signal });
     } else throw e;
@@ -907,7 +925,7 @@ async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: Abo
   const flush = (streaming: boolean) => {
     clearTimeout(flushTimer);
     flushTimer = undefined;
-    const b: MessageBody = { type: 'message', role: 'assistant', text, streaming };
+    const b: RowBody = { type: 'message', role: 'assistant', text, streaming, ...turnAudience(ctx) };
     if (msgSeq === null) msgSeq = appendRow(botId, 'message', b).seq;
     else updateRow(botId, msgSeq, b);
     lastFlush = Date.now();
@@ -936,8 +954,8 @@ async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: Abo
             flushTimer = undefined;
             // finalize this message; a later message in the same response gets its own row
             const citations = (ev.item.content ?? []).flatMap((c: any) => (c.annotations ?? []).filter((a: any) => a.url).map((a: any) => ({ url: a.url, title: a.title })));
-            updateRow(botId, msgSeq, { type: 'message', role: 'assistant', text, streaming: false, citations: citations.length ? citations : undefined });
-            if(executionAudience(botId)!=='internal')db.prepare('UPDATE bots SET unread = unread + 1 WHERE id=?').run(botId);
+            updateRow(botId, msgSeq, { type: 'message', role: 'assistant', text, streaming: false, citations: citations.length ? citations : undefined, ...turnAudience(ctx) });
+            if(!ctx.roomId&&executionAudience(botId)!=='internal')db.prepare('UPDATE bots SET unread = unread + 1 WHERE id=?').run(botId);
             msgSeq = null;
             text = '';
           }

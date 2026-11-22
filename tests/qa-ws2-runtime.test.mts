@@ -302,3 +302,176 @@ test('MF-013 voice path: update_agent changes to model or effort keep the setup 
   assert.equal((await run({ bot_id: bot.id, name: 'Voice Renamed' })).ok, true);
   assert.equal(revision(), start + 1);
 });
+
+// ---------- R2F-001: group chat turns stay in the group and never ask for approval ----------
+
+const { AsyncResource } = await import('node:async_hooks');
+const { nativeToolHandler } = await import('../server/src/cli/native-tools.js');
+const { GROUP_TURN_TOOLS } = await import('../server/src/agent/tools.js');
+const { GROUP_APPS_REFUSAL } = await import('../server/src/agent/rooms.js');
+const { RoomCardRefused } = await import('../server/src/store.js');
+// Created outside any Bot turn: callbacks run through it arrive from a foreign async context,
+// the way WebSocket and HTTP runner callbacks do.
+const foreignContext = new AsyncResource('qa-native-runner-transport');
+
+/** A stubbed streaming model response that requests function calls (and optional text first). */
+function callStream(calls: { name: string; args: Record<string, unknown> }[], text = '') {
+  return (async function* () {
+    const output: any[] = [];
+    if (text) {
+      const item = { type: 'message', role: 'assistant', content: [{ type: 'output_text', text, annotations: [] }] };
+      yield { type: 'response.output_text.delta', delta: text };
+      yield { type: 'response.output_item.done', item };
+      output.push(item);
+    }
+    for (const [i, c] of calls.entries()) {
+      const item = { type: 'function_call', call_id: `call_${i}_${c.name}`, name: c.name, arguments: JSON.stringify(c.args) };
+      yield { type: 'response.output_item.done', item };
+      output.push(item);
+    }
+    yield { type: 'response.completed', response: { output } };
+  })();
+}
+const groupPair = (a: string, b: string, room: string) => {
+  const x = newBot(a); skipSetup('owner', x.id);
+  const y = newBot(b); skipSetup('owner', y.id);
+  return { x, y, roomId: createRoom('owner', room, [x.id, y.id]) };
+};
+const approvalsFor = (botId: string) => (db.prepare('SELECT count(*) n FROM approvals WHERE bot_id=?').get(botId) as any).n as number;
+const cardsFor = (botId: string) => (db.prepare("SELECT count(*) n FROM rows WHERE bot_id=? AND kind='card'").get(botId) as any).n as number;
+const pendingFor = (botId: string) => (db.prepare('SELECT count(*) n FROM pending_turns WHERE bot_id=?').get(botId) as any).n as number;
+const memberRows = (botId: string, afterSeq: number) => listRows(botId).filter((r) => r.seq > afterSeq);
+const lastSeq = (botId: string) => listRows(botId).at(-1)?.seq ?? 0;
+
+test('R2F-001: group turns are offered no app, MCP, computer, delivery or card tools, and the prompt states the refusal', async () => {
+  const { x, roomId } = groupPair('Tool Scope A', 'Tool Scope B', 'Scope group');
+  const offered: string[][] = [];
+  const prompts: string[] = [];
+  const create = mock.method(llmClient(360_000).responses, 'create', async (body: any) => {
+    offered.push((body.tools ?? []).filter((t: any) => t.type === 'function').map((t: any) => t.name));
+    prompts.push(JSON.stringify(body.input));
+    return textStream(GROUP_APPS_REFUSAL);
+  });
+  try { dispatchRoomMessage(roomId, '@Tool Scope A post hello in Slack', enqueue); await settleAgentJobs(); }
+  finally { create.mock.restore(); }
+  assert.equal(offered.length, 1);
+  const names = offered[0];
+  for (const name of names) assert.ok(GROUP_TURN_TOOLS.has(name), `${name} is allowed in group turns`);
+  for (const banned of ['SWARM_APPS_SEARCH', 'SWARM_APPS_EXECUTE', 'list_app_connections', 'search_apps', 'request_app_connection', 'ask_user', 'deliver_artifact', 'send_to_bot', 'computer_click', 'open_browser', 'get_platform_state', 'present_draft']) {
+    assert.ok(!names.includes(banned), `${banned} is not offered in a group turn`);
+  }
+  assert.ok(!names.some((n) => n.startsWith('mcp_')));
+  assert.ok(names.includes('post_to_group') && names.includes('stay_silent'));
+  assert.ok(prompts[0].includes("Group chats can't send to other apps. Ask me in my own chat."), 'room prompt carries the fixed refusal');
+  assert.ok(listRows(roomId).some((r) => r.body.type === 'message' && (r.body as any).text === GROUP_APPS_REFUSAL), 'refusal is posted in the group');
+  assert.equal(cardsFor(x.id), 0);
+  assert.equal(approvalsFor(x.id), 0);
+});
+
+test('R2F-001: an ask tool, an MCP tool and an app write in a group turn create no approval or card and are denied', async () => {
+  const { x, roomId } = groupPair('Asker A', 'Asker B', 'Ask group');
+  saveAccountPreferences('owner', { askBeforeComputer: true });
+  // Defence in depth: even if an ask tool were offered to a group turn, the ask becomes a denial.
+  (GROUP_TURN_TOOLS as Set<string>).add('computer_click');
+  const before = lastSeq(x.id);
+  let turn = 0;
+  const create = mock.method(llmClient(360_000).responses, 'create', async () => {
+    turn++;
+    if (turn === 1) return callStream([
+      { name: 'computer_click', args: { x: 1, y: 1 } },
+      { name: 'mcp_slack_post', args: { text: 'hi' } },
+      { name: 'SWARM_APPS_EXECUTE', args: { connectionId: 'ca_QAfakeAccount1', revision: 1, tool_slug: 'SLACK_SEND_MESSAGE', arguments: { channel: 'Ask group', text: 'hello' } } },
+    ]);
+    return textStream('Done here.');
+  });
+  try { dispatchRoomMessage(roomId, '@Asker A post hello in Slack', enqueue); await settleAgentJobs(); }
+  finally { create.mock.restore(); (GROUP_TURN_TOOLS as Set<string>).delete('computer_click'); saveAccountPreferences('owner', { askBeforeComputer: false }); }
+  assert.equal(approvalsFor(x.id), 0, 'no approvals row');
+  assert.equal(cardsFor(x.id), 0, 'no card row');
+  assert.equal(pendingFor(x.id), 0, 'nothing waits for a decision');
+  const tools = memberRows(x.id, before).filter((r) => r.body.type === 'tool-call');
+  assert.deepEqual(tools.map((r) => (r.body as any).name).sort(), ['SWARM_APPS_EXECUTE', 'computer_click', 'mcp_slack_post']);
+  for (const row of tools) {
+    assert.equal((row.body as any).status, 'denied', `${(row.body as any).name} is denied`);
+    assert.equal(row.audience, 'internal');
+  }
+  assert.equal((tools.find((r) => (r.body as any).name === 'computer_click')!.body as any).summary, 'Not available in group chats');
+  assert.ok(listRows(roomId).some((r) => r.body.type === 'message' && (r.body as any).text === 'Done here.'));
+});
+
+test('R2F-001: every row a group turn writes to the member transcript is explicitly internal', async () => {
+  const { x, y, roomId } = groupPair('Quiet A', 'Quiet B', 'Quiet group');
+  const before: Record<string, number> = { [x.id]: lastSeq(x.id), [y.id]: lastSeq(y.id) };
+  const unread: Record<string, number> = { [x.id]: getBotRow(x.id).unread, [y.id]: getBotRow(y.id).unread };
+  const turns = new Map<string, number>();
+  const create = mock.method(llmClient(360_000).responses, 'create', async (body: any) => {
+    const system = String(body.input?.[0]?.content ?? '');
+    const key = /You are (Quiet A|Quiet B)/.exec(system)?.[1] ?? 'x';
+    const n = (turns.get(key) ?? 0) + 1; turns.set(key, n);
+    return n === 1 ? callStream([{ name: 'list_routines', args: {} }], 'Checking my routines first.') : textStream(`pong from ${key}`);
+  });
+  try { dispatchRoomMessage(roomId, 'ping, reply with one word', enqueue); await settleAgentJobs(); }
+  finally { create.mock.restore(); }
+  for (const bot of [x, y]) {
+    const rows = memberRows(bot.id, before[bot.id]);
+    assert.ok(rows.some((r) => r.body.type === 'tool-call'), 'tool row written');
+    assert.ok(rows.some((r) => r.body.type === 'message' && (r.body as any).text === 'Checking my routines first.'), 'chatter written');
+    for (const row of rows) {
+      assert.equal(row.audience, 'internal', `${row.kind} row is internal`);
+      const stored = db.prepare('SELECT body FROM rows WHERE bot_id=? AND seq=? AND generation=?').get(bot.id, row.seq, row.generation) as { body: string };
+      assert.equal(JSON.parse(stored.body).audience, 'internal');
+    }
+    assert.equal(getBotRow(bot.id).unread, unread[bot.id], 'member unread count unchanged');
+    assert.equal(cardsFor(bot.id), 0);
+  }
+  const replies = listRows(roomId).filter((r) => r.body.type === 'message' && /^pong from/.test((r.body as any).text));
+  assert.equal(replies.length, 2);
+  assert.ok(replies.every((r) => r.audience === 'user'));
+});
+
+test('R2F-001: the native runner path gets the group tool scope, internal rows and no cards', async () => {
+  const { x, roomId } = groupPair('Native A', 'Native B', 'Native group');
+  saveAccountPreferences('owner', { askBeforeComputer: true });
+  (GROUP_TURN_TOOLS as Set<string>).add('computer_click');
+  const before = lastSeq(x.id);
+  const outcomes: Record<string, any> = {};
+  const create = mock.method(llmClient(360_000).responses, 'create', async () => {
+    const handler = nativeToolHandler('owner');
+    assert.ok(handler, 'native tool callbacks are bound to the turn');
+    // The runner calls back from its transport, outside the Bot's async chain.
+    const viaTransport = (call: { id: string; name: string; arguments: Record<string, unknown> }) =>
+      foreignContext.runInAsyncScope(() => handler!(call));
+    outcomes.read = await viaTransport({ id: 'n1', name: 'list_routines', arguments: {} });
+    outcomes.ask = await viaTransport({ id: 'n2', name: 'computer_click', arguments: { x: 2, y: 2 } });
+    for (const name of ['SWARM_APPS_EXECUTE', 'list_app_connections', 'request_app_connection', 'ask_user']) {
+      outcomes[name] = await viaTransport({ id: `n-${name}`, name, arguments: {} }).then(() => 'ran', (e: Error) => e.message);
+    }
+    return textStream('native pong');
+  });
+  try { dispatchRoomMessage(roomId, '@Native A ping', enqueue); await settleAgentJobs(); }
+  finally { create.mock.restore(); (GROUP_TURN_TOOLS as Set<string>).delete('computer_click'); saveAccountPreferences('owner', { askBeforeComputer: false }); }
+  assert.equal(outcomes.read.isError, false);
+  assert.equal(outcomes.ask.isError, true);
+  assert.match(String(outcomes.ask.output), /Group chat turns can't ask for approval/);
+  for (const name of ['SWARM_APPS_EXECUTE', 'list_app_connections', 'request_app_connection', 'ask_user']) assert.match(String(outcomes[name]), /unavailable/, name);
+  assert.equal(approvalsFor(x.id), 0);
+  assert.equal(cardsFor(x.id), 0);
+  const rows = memberRows(x.id, before);
+  assert.ok(rows.length >= 2);
+  for (const row of rows) assert.equal(row.audience, 'internal', `${row.kind} row is internal`);
+  assert.ok(listRows(roomId).some((r) => r.body.type === 'message' && (r.body as any).text === 'native pong'));
+});
+
+test('R2F-001: the store refuses a card row for a room-triggered job and logs it', () => {
+  const { x, roomId } = groupPair('Guard A', 'Guard B', 'Guard group');
+  const jobId = 'job_qaRoomGuard1';
+  db.prepare("INSERT INTO agent_jobs(id,user_id,bot_id,trigger,state,created_at) VALUES (?,?,?,?,'running',?)").run(jobId, 'owner', x.id, JSON.stringify({ type: 'system', text: 'x', audience: 'internal', roomId }), Date.now());
+  const warn = mock.method(console, 'warn', () => {});
+  try {
+    assert.throws(() => appendRow(x.id, 'card', { type: 'card', card: 'question', jobId, question: 'Which?', options: ['a'], status: 'pending' }), RoomCardRefused);
+    assert.ok(warn.mock.calls.some((c) => String(c.arguments[0]).includes('refused a card row')));
+  } finally { warn.mock.restore(); }
+  assert.equal(cardsFor(x.id), 0);
+  // Cards for ordinary turns are unaffected.
+  assert.equal(appendRow(x.id, 'card', { type: 'card', card: 'question', question: 'Fine?', options: ['yes'], status: 'pending' }).kind, 'card');
+});

@@ -644,6 +644,22 @@ export function allowedDuringSetup(botId: string, toolName: string) {
   return !isConfiguring(botId) || ['ask_user', 'save_agent_setup', 'get_platform_state', 'list_app_connections', 'search_apps', 'request_app_connection', 'SWARM_APPS_SEARCH', 'SWARM_APPS_EXECUTE'].includes(toolName);
 }
 
+/**
+ * Group chat turns (R2F-001, PD-R2-05 option B) get an explicit allowlist: posting to the group, staying
+ * silent and reading Swarm's own records. Connected apps, MCP tools, the computer and browser, delivery,
+ * hand-offs to other Bots, routines and anything that writes a card in the member's own chat are not
+ * offered, so a group message can never reach another app or ask for approval. New tools stay out of
+ * group turns until they are added here on purpose.
+ */
+export const GROUP_TURN_TOOLS: ReadonlySet<string> = new Set([
+  'post_to_group', 'stay_silent',
+  'session_search', 'recall', 'list_skills', 'read_skill',
+  'list_routines', 'list_deliverables', 'routine_history', 'get_workflows', 'list_subagents',
+  'get_team_state', 'get_team_records', 'read_team_source', 'read_team_job',
+  'tool_search', 'tool_describe', 'tool_call',
+]);
+export const allowedInGroupTurn = (toolName: string) => GROUP_TURN_TOOLS.has(toolName);
+
 export function functionSchemas(botId?: string) {
   const bot = botId ? getBotRow(botId) : null;
   const canCreate = !!bot?.is_primary && !bot.hidden && bot.kind !== 'room';
