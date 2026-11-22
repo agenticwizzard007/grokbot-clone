@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronRight, Clock3, Monitor, Settings } from 'lucide-react';
 import type { Bot, Routine } from '@shared/types';
-import { api, openPopup } from '../lib/api';
+import { api } from '../lib/api';
 import { clearImportedSetup, hasImportedSetup } from '../lib/setupApi';
 import { displayName, useSelectedBot, useStore } from '../store';
 import { SetupPaperHeader } from './SetupPaperHeader';
@@ -16,7 +16,7 @@ import { BotAvatarFor } from '../avatar/BotAvatar';
 import { userFacingLive } from '../lib/audience';
 import { hasOpenModal } from './modals/Modal';
 import { detailsReplaceChat } from '../lib/useDetailsLayout';
-import { hideSuggestedKey } from './config/settingsLogic';
+import { SuggestedIntegrations } from './SuggestedIntegrations';
 import { computerReadiness, computerStatusText } from './config/computerStatus';
 import '../styles/setup-paper.css';
 import '../styles/bot-details.css';
@@ -98,9 +98,6 @@ function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
   const live = userFacingLive(useStore(state => state.live[bot.id]));
   const [tab, setTab] = useState<DetailTab>(() => hasImportedSetup(userId, bot.id) ? 'configuration' : 'activity');
   const [reports, setReports] = useState(false);
-  const [slackBusy, setSlackBusy] = useState(false);
-  const [slackError, setSlackError] = useState('');
-  const [hideSuggested, setHideSuggested] = useState(() => { try { return localStorage.getItem(hideSuggestedKey(userId)) === '1'; } catch { return false; } });
   useEffect(() => { clearImportedSetup(userId, bot.id); }, [userId, bot.id]);
   const close = () => {
     useStore.getState().set({ detailsOpen: false });
@@ -129,22 +126,6 @@ function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
     window.addEventListener('keydown', escape);
     return () => window.removeEventListener('keydown', escape);
   }, []);
-  const addSlack = async () => {
-    if (slackBusy) return;
-    setSlackBusy(true); setSlackError('');
-    const popup = openPopup('about:blank');
-    try {
-      const { redirectUrl } = await api.connect('slack');
-      if (useStore.getState().user?.id !== userId || useStore.getState().selectedBotId !== bot.id) { popup?.close(); return; }
-      if (popup && !popup.closed) popup.location.href = redirectUrl;
-      else if (!window.open(redirectUrl, '_blank', 'noopener')) setSlackError('Allow pop-ups, then try again.');
-    } catch (failure) { popup?.close(); setSlackError((failure as Error).message); }
-    finally { setSlackBusy(false); }
-  };
-  const hideSuggestion = () => {
-    setHideSuggested(true);
-    try { localStorage.setItem(hideSuggestedKey(userId), '1'); } catch { return; }
-  };
   const openSettings = () => useConfigUI.getState().openBotSettings(bot.id);
   const openRoutines = () => useConfigUI.getState().openBotSettings(bot.id, 'routines');
   const title = displayName(bot);
@@ -173,11 +154,7 @@ function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
           </section>
           <BotTasks bot={bot} />
           {bot.kind === 'room' ? <section className="bot-detail-section"><h2>Members</h2><div className="bot-detail-card"><MembersCard room={bot} /></div></section> : <>
-            {!hideSuggested && <section className="bot-detail-section">
-              <div className="bot-detail-section__heading"><h2>Suggested</h2><button type="button" className="link-btn" onClick={hideSuggestion}>Hide suggestion</button></div>
-              <div className="bot-detail-card"><DetailRow title="Slack"><button type="button" className="cfg-btn cfg-btn--secondary" disabled={slackBusy} onClick={() => void addSlack()}>{slackBusy ? 'Opening…' : 'Add to Slack'}</button></DetailRow></div>
-            </section>}
-            {slackError && <p className="cfg-error" role="alert">{slackError}</p>}
+            <SuggestedIntegrations botId={bot.id} description={bot.description} instructions={bot.instructions} />
             <ComputerRow />
             <VoiceSettings bot={bot} compact onStartCall={() => { if (detailsReplaceChat()) close(); }} />
           </>}
