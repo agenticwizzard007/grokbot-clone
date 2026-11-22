@@ -100,10 +100,16 @@ try {
   await composer.fill(long);
   for (const viewport of [{ width: 830, height: 480 }, { width: 1280, height: 900 }, { width: 830, height: 480 }]) {
     await page.setViewportSize(viewport);
-    await wait(async () => {
-      const box = await page.locator('.composer').boundingBox();
-      return !!box && box.height <= viewport.height * 0.18 + 0.5;
-    }, `whole composer height at ${viewport.width}x${viewport.height}`);
+    // CSS clamps the outer box before resize/ResizeObserver remeasures the textarea.
+    await wait(() => page.locator('.composer').evaluate((el, maxHeight) => {
+      const box = el.getBoundingClientRect();
+      return box.width > 0 && box.height > 0 && box.height <= maxHeight
+        && [...el.querySelectorAll('.composer__input, .composer__bar, button')].every(child => {
+          const r = child.getBoundingClientRect();
+          return r.width > 0 && r.height > 0 && r.top >= box.top - 1 && r.bottom <= box.bottom + 1
+            && r.left >= box.left - 1 && r.right <= box.right + 1;
+        });
+    }, viewport.height * 0.18 + 0.5), `whole composer and controls after resize to ${viewport.width}x${viewport.height}`);
     const field = await composer.evaluate(el => ({ height: el.clientHeight, scroll: el.scrollHeight, overflow: getComputedStyle(el).overflowY }));
     assert.ok(field.scroll > field.height && field.overflow === 'auto', 'long draft scrolls inside');
     assert.equal(await composer.inputValue(), long, 'resize preserves the draft');
