@@ -1,3 +1,4 @@
+import { normalizeModelEfforts } from '../lib/model-efforts.js';
 import { z } from 'zod';
 import { cliRequest } from './bridge.js';
 import { cliRuntime, selectedCli, type CliProvider } from './store.js';
@@ -27,7 +28,7 @@ function normalize(raw: unknown, provider: CliProvider) {
   const data = schema.parse(raw);
   if (data.models.some(m => !m.id.startsWith(`${provider}/`) || !/^[a-zA-Z0-9][a-zA-Z0-9._:[\]-]{0,119}$/.test(m.id.slice(provider.length + 1)))) throw new Error('Invalid subscription model catalog.');
   if (data.defaultModel && !data.models.some(m => m.id === data.defaultModel)) data.defaultModel = null;
-  return { ...data, models: data.models.map(m => ({ ...m, short: m.name, author: provider === 'codex' ? 'openai' : 'anthropic', reasoning: m.efforts.length > 0, context: 0, price: null, billing: 'plan' as const })) };
+  return { ...data, models: data.models.map(m => normalizeModelEfforts({ ...m, short: m.name, author: provider === 'codex' ? 'openai' : 'anthropic', reasoning: m.efforts.length > 0, context: 0, price: null, billing: 'plan' as const })) };
 }
 
 /** Never share an account's capabilities or quota with another account/runtime. */

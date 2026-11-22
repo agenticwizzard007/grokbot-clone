@@ -1,3 +1,4 @@
+import { EFFORT_ORDER, supportedModelEfforts, modelDefaultEffort } from '../../../server/src/lib/model-efforts';
 import { create } from 'zustand';
 import { useStore } from '../store';
 import type { Bot, Effort } from '@shared/types';
@@ -15,7 +16,7 @@ export interface PickerModel {
   /** Short display name: "Opus 5.5", "GPT-5.5". */
   short: string;
   author: string;
-  /** Effort levels the model accepts: null = all of them, [] = no effort selection. */
+  /** Effort levels the model accepts: null = use a verified fallback, [] = no effort selection. */
   efforts: string[] | null;
   defaultEffort: string | null;
   reasoning: boolean;
@@ -77,35 +78,53 @@ useStore.subscribe((state, previous) => {
   useModels.setState({ status: 'idle', provider: null, billing: null, defaultModel: null, plan: null, usage: null, canFast: false, models: [], byId: new Map(), favourites: [], error: null });
 });
 
-export const EFFORT_LABEL: Record<Effort, string> = {
-  none: 'No thinking', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max', ultracode: 'Ultracode',
-};
-export const EFFORT_DESC: Record<Effort, string> = {
-  ultracode: 'Max effort with planning and verification', max: 'Deepest thinking', xhigh: 'For the hardest problems', high: 'Thinks it through',
-  medium: 'Balanced', low: 'Fastest replies', minimal: 'Barely stops to think', none: 'Answers straight away',
-};
-
-const ORDER: Effort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
-
-/** The levels to offer for a model, strongest first. Ultracode for any model that reasons. */
+const ORDER = EFFORT_ORDER;
+/** Real levels only, strongest first. A saved ultracode value is an alias, not an extra level. */
 export function effortsFor(m: PickerModel | undefined): Effort[] {
   if (!m) return [];
-  if (!m.reasoning && !m.efforts?.length) return [];
-  const accepted = m.efforts === null ? ORDER : ORDER.filter((e) => m.efforts!.includes(e));
-  if (!accepted.length) return [];
-  return m.billing === 'plan' ? [...accepted].reverse() : ['ultracode', ...[...accepted].reverse()];
+  const accepted = supportedModelEfforts(m);
+  const order: Effort[] = [...ORDER, 'ultracode'];
+  return order.filter(e => accepted.includes(e)).reverse();
 }
 
-/** The level the server will actually send (same rule as server/src/lib/llm.ts effortFor). */
+/** Closest supported level, with ties going lower, matching server effortFor. */
 export function effectiveEffort(effort: Effort, m: PickerModel | undefined): Effort {
-  if (!m || m.efforts === null) return effort;
-  if (effort === 'ultracode') return m.billing === 'plan' ? effortsFor(m)[0] ?? 'medium' : effort;
-  const supported = m.efforts;
-  if (!supported.length || supported.includes(effort)) return effort;
+  const supported = effortsFor(m);
+  if (!supported.length) return effort;
+  if (effort === 'ultracode') return supported[0];
+  if (supported.includes(effort)) return effort;
   const at = ORDER.indexOf(effort);
-  const best = supported.map((s) => ({ s: s as Effort, i: ORDER.indexOf(s as Effort) })).filter((x) => x.i >= 0)
-    .sort((a, b) => Math.abs(a.i - at) - Math.abs(b.i - at) || a.i - b.i)[0];
-  return best?.s ?? effort;
+  return [...supported].sort((a, b) => {
+    const ai = ORDER.indexOf(a as Exclude<Effort, 'ultracode'>), bi = ORDER.indexOf(b as Exclude<Effort, 'ultracode'>);
+    return Math.abs(ai - at) - Math.abs(bi - at) || ai - bi;
+  })[0];
+}
+
+/** The provider's default, not the Bot's previously saved preference. */
+export function defaultEffortFor(m: PickerModel | undefined): Effort | null {
+  const levels = effortsFor(m);
+  if (!m || !levels.length) return null;
+  return modelDefaultEffort(m);
+}
+
+export function isTopEffort(effort: Effort | null, m: PickerModel | undefined): boolean {
+  const top = effortsFor(m)[0];
+  return !!effort && !!top && effectiveEffort(effort, m) === top;
+}
+
+export function effortLabel(effort: Effort, m: PickerModel | undefined): string {
+  const value = effectiveEffort(effort, m);
+  if (value === 'ultracode' && !m?.efforts?.includes('ultracode')) return 'Default';
+  // Provider ids are the names: None, Minimal, Low, Medium, High, Xhigh, Max.
+  // Fallback for other catalog authors uses the same readable spelling of their ids.
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+export function effortDescription(effort: Effort, m: PickerModel | undefined): string {
+  if (m?.author === 'custom') return 'Compatible direct-provider effort';
+  if (isTopEffort(effort, m)) return 'Highest effort for this model';
+  const value = effectiveEffort(effort, m);
+  return value === 'none' ? 'Reasoning disabled' : `${effortLabel(value, m)} reasoning effort`;
 }
 
 /** Resolve defaults like the server. An explicit model removed from the catalog stays unavailable. */
@@ -122,7 +141,7 @@ export function modelSelection(bot: Pick<Bot, 'model' | 'effort'>, catalog: Pick
   const supported = effortsFor(current);
   // An implicit CLI default runs with the CLI's default effort until the user picks one.
   const effort = !current || !supported.length ? null : implicitPlanDefault
-    ? supported.find(level => level === current.defaultEffort) ?? null
+    ? defaultEffortFor(current)
     : effectiveEffort(bot.effort, current);
   return { current, effort };
 }

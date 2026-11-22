@@ -1,4 +1,4 @@
-import { useModels, effortsFor, effectiveEffort, EFFORT_LABEL } from '../../lib/models';
+import { useModels, effortsFor, effectiveEffort, effortLabel, effortDescription, defaultEffortFor, modelSelection } from '../../lib/models';
 import { BotModelField } from './BotModelField';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { AvatarColor, AvatarShape, Bot, Routine } from '@shared/types';
@@ -25,17 +25,6 @@ import { prefillComposer } from '../Composer';
 import '../../styles/setup-paper.css';
 import { startFreshConversation } from '../../lib/useFreshConversation';
 import { SuggestedIntegrations } from '../SuggestedIntegrations';
-
-const EFFORT_HINT: Record<Bot['effort'], string> = {
-  none: 'Answers straight away, without thinking first.',
-  minimal: 'Barely stops to think. Quickest answers.',
-  low: 'Fastest replies. Good for quick lookups and chit-chat.',
-  medium: 'A good balance for most work.',
-  high: 'Thinks longer before acting. Better for tricky, multi-step work.',
-  xhigh: 'Thinks for a long time. For the hardest problems.',
-  max: 'The deepest thinking this model offers. Slowest.',
-  ultracode: 'Max effort and an instruction to plan and verify every step. For big, careful jobs.',
-};
 
 export function BotSettingsModal({ inline = false }: { inline?: boolean } = {}) {
   const target = useConfigUI((s) => s.botSettings);
@@ -172,9 +161,9 @@ const changedFields = (draft: Draft, base: Draft) => (Object.keys(draft) as (key
 
 function GeneralTab({ bot, onClose, draft, setDraft }: { bot: Bot; onClose: () => void; draft: Draft; setDraft: (update: (current: Draft | null) => Draft | null) => void }) {
   const modelCatalog = useModels();
-  const modelInfo = draft.model ? modelCatalog.byId.get(draft.model) : undefined;
-  const supportedEfforts = effortsFor(modelInfo).map(value => ({ value, label: EFFORT_LABEL[value] }));
-  const shownEffort = effectiveEffort(draft.effort, modelInfo);
+  const { current: modelInfo, effort: selectedEffort } = modelSelection(draft, modelCatalog);
+  const supportedEfforts = effortsFor(modelInfo).map(value => ({ value, label: `${effortLabel(value, modelInfo)}${value === defaultEffortFor(modelInfo) ? ' (default)' : ''}` }));
+  const shownEffort = selectedEffort ?? '';
   const [picker, setPicker] = useState(false);
   const [saving, setSaving] = useState(false);
   const [note, setNote] = useState<{ text: string; tone: 'ok' | 'error' } | null>(null);
@@ -184,6 +173,14 @@ function GeneralTab({ bot, onClose, draft, setDraft }: { bot: Bot; onClose: () =
   const dirty = changed.length > 0;
   const nameOk = draft.name.trim().length > 0;
   const put = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft((d) => ({ ...(d ?? draftOf(bot)), [k]: v }));
+  const chooseEffort = (effort: Bot['effort'] | '') => {
+    if (!effort) return;
+    setDraft(d => ({ ...(d ?? draft), effort, ...(modelInfo?.billing === 'plan' ? { model: modelInfo.id } : {}) }));
+  };
+  const chooseModel = (model: string | null) => setDraft(d => {
+    const next = { ...(d ?? draft), model };
+    return { ...next, effort: effectiveEffort(next.effort, modelSelection(next, modelCatalog).current) };
+  });
   const flash = (text: string, tone: 'ok' | 'error' = 'ok') => { setNote({ text, tone }); setTimeout(() => setNote(null), 2400); };
 
   const save = async () => {
@@ -235,11 +232,11 @@ function GeneralTab({ bot, onClose, draft, setDraft }: { bot: Bot; onClose: () =
         <Field label="Instructions" htmlFor="cfg-instructions" hint={`Standing guidance ${draft.name || 'this Bot'} always follows, like tone, priorities or things to avoid. It also learns from chat, skills and memories.`}>
           <textarea id="cfg-instructions" className="text-input cfg-textarea cfg-textarea--tall" rows={7} value={draft.instructions} maxLength={8000} placeholder="e.g. Keep updates to three bullets. Never email anyone outside the team without asking." onChange={(e) => put('instructions', e.target.value)} />
         </Field>
-        <Field label="Thinking effort" hint={supportedEfforts.length ? EFFORT_HINT[shownEffort] : 'Select a model to see its supported effort levels. The default uses the provider’s settings.'}>
-          {supportedEfforts.length > 0 && <Segmented label="Thinking effort" value={shownEffort} options={supportedEfforts} onChange={(v) => put('effort', v)} />}
+        <Field label="Thinking effort" hint={supportedEfforts.length ? selectedEffort ? effortDescription(selectedEffort, modelInfo) : 'Uses the provider default.' : 'Select a model to see its supported effort levels. The default uses the provider’s settings.'}>
+          {supportedEfforts.length > 0 && <Segmented label="Thinking effort" value={shownEffort} options={supportedEfforts} onChange={chooseEffort} />}
         </Field>
         <Field label="Model" hint="Which AI model this Bot thinks with. Default follows your active API or plan connection.">
-          <BotModelField value={draft.model} onChange={(v) => put('model', v)} />
+          <BotModelField value={draft.model} onChange={chooseModel} />
         </Field>
         <Field label="Used as">
           <Segmented label="Bot type" value={draft.mode} options={[{ value: 'personal', label: 'Personal assistant' }, { value: 'teammate', label: 'Teammate' }]} onChange={(v) => put('mode', v)} />
