@@ -213,6 +213,16 @@ try {
     await settingsPane.getByLabel('Day (UTC)', { exact: true }).selectOption('2026-11-20');
     await settingsPane.getByText('3 messages · 12 min estimated time saved', { exact: true }).waitFor();
     await shot('analytics', settingsPane);
+    // The day readout stays inside the plot for the first and the last day, on every chart and width.
+    for (const plot of await settingsPane.locator('.an-plot').all()) {
+      const box = await plot.boundingBox();
+      for (const x of [2, box.width - 2]) {
+        await page.mouse.move(box.x + x, box.y + box.height / 2);
+        const fit = await plot.evaluate((node, paneNode) => { const tip = node.querySelector('.an-tip'); const p = node.getBoundingClientRect(), t = tip?.getBoundingClientRect(); return { tip: !!tip, inside: !t || (t.left >= p.left - 1 && t.right <= p.right + 1), pane: paneNode.scrollWidth <= paneNode.clientWidth + 1 }; }, await settingsPane.elementHandle());
+        assert.deepEqual(fit, { tip: true, inside: true, pane: true }, `day readout at x=${x} stays inside the ${width}px chart`);
+      }
+      await page.mouse.move(0, 0);
+    }
     assert.deepEqual(writes, [
       ...[0, 1].map(() => ({ endpoint: '/api/bots/import', method: 'POST', body: { manifest, name: 'Atlas', expectedUserId: 'owner' } })),
       { endpoint: '/api/bots/atlas/setup/activate', method: 'POST', body: { revision: 5 } },
