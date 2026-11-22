@@ -24,7 +24,8 @@
 .an-bar-slot { flex: 1; min-width: 0; display: flex; align-items: flex-end; justify-content: center; transition: opacity 120ms; }
 .an-bar-slot.is-dim { opacity: 0.35; }
 .an-bar { width: 100%; max-width: 24px; border-radius: 4px 4px 0 0; background: var(--an-msg); }
-.an-line { position: absolute; inset: 0; overflow: visible; }
+/* CSS size wins over the measured width attribute, so a frame before the resize observer catches up scales instead of overflowing. */
+.an-line { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .an-line__area { fill: var(--an-saved); fill-opacity: 0.14; }
 .an-line__stroke { fill: none; stroke: var(--an-saved); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .an-line__cross { stroke: var(--color-text-tertiary); stroke-width: 1; stroke-dasharray: 2 3; }
