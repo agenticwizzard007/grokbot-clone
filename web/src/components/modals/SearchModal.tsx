@@ -67,7 +67,7 @@ export function SearchModal() {
   const needle = q.trim();
 
   return (
-    <Modal onClose={close} className="search-modal" label="Search">
+    <Modal onClose={close} className="search-modal" label="Search" passThrough=".sidebar">
       <div className="search-modal__field">
         <span className="search-modal__icon"><Icon name="search" size={18} opacity={0.56} /></span>
         <input

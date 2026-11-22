@@ -27,6 +27,16 @@ try {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   await context.addCookies([{ name: 'swarm_session', value: 'central-browser-token', url: base }]);
   const page = await context.newPage(), errors = []; page.on('pageerror', e => errors.push(String(e))); page.setDefaultTimeout(15000);
+  // R2F-002: stored briefs written before server redaction may still hold raw ids; the card must not show them.
+  const leakedIds = /\b(ca|req|apr)_[A-Za-z0-9_-]{6,}/;
+  await page.route('**/api/bots/*/coworker-setups', async route => {
+    const response = await route.fetch(), data = await response.json();
+    for (const setup of data.setups ?? []) {
+      setup.manifest.brief.shared_resources = [...setup.manifest.brief.shared_resources, 'Slack account ca_KIxihCKrE-D2xyz', 'Gmail account ca_pESfPrEqcgnN'];
+      setup.manifest.brief.context_summary = `${setup.manifest.brief.context_summary} Follow up on request req_11evEvIvCvnX via approval apr_Zk3mQ9xLp2.`;
+    }
+    await route.fulfill({ response, json: data });
+  });
   await page.goto(base);
   await page.getByRole('article', { name: 'Nia setup' }).waitFor();
   const card = page.getByRole('article', { name: 'Nia setup' });
@@ -34,6 +44,9 @@ try {
   await card.getByRole('button', { name: 'Activate Nia · revision 1' }).waitFor();
   await card.getByText('Original user answers').click();
   await card.getByText('Prepare Nia to summarize my supplied notes into three bullets. Return results here. No external actions.', { exact: true }).waitFor();
+  await card.getByText(/Slack account; Gmail account/).waitFor();
+  assert.doesNotMatch(await page.locator('body').innerText(), leakedIds, 'no raw account, request or approval ids in the chat or review card');
+  assert.match(await card.locator('blockquote small').first().innerText(), /^Quinn · Conversation 1, message \d+$/, 'sources name the Bot, not its id');
   await page.screenshot({ path: path.join(evidence, 'review-desktop.png'), fullPage: true });
   // Canonical service in a second process changes the revision while this review stays open.
   await seed('revise');

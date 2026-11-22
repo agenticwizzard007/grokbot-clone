@@ -103,13 +103,18 @@ try {
     });
     await page.goto(origin);
     if (scenario.visibility) {
-      await until(() => screenshots === 1);
+      // The chat no longer shows a computer thumbnail: an unattended screen is never captured at all.
+      await page.locator('.composer__input').waitFor();
       await page.waitForTimeout(4300);
-      assert.equal(screenshots, 1, 'the thumbnail must not repeatedly capture an unattended screen');
+      assert.equal(screenshots, 0, 'an unattended screen is never captured');
     }
-    await page.locator('.panel-row--computer').click();
+    // R2F-020: the Details Computer row is a button named "Open computer".
+    await page.getByRole('button', { name: 'Show details', exact: true }).click();
+    await page.getByRole('button', { name: 'Open computer', exact: true }).click();
     const viewer = page.getByRole('dialog', { name: "Quinn's computer" });
     await viewer.waitFor();
+    // R2F-011: the viewer header links to Computer settings for every provider and state.
+    assert.equal(await viewer.getByRole('button', { name: 'Computer settings', exact: true }).count(), 1, `${scenario.provider}/${scenario.status}: one Computer settings button`);
     if (scenario.preparing) {
       await until(() => screenReady.length === 1);
       await viewer.getByRole('status').getByText('Agent waking up', { exact: true }).waitFor();
@@ -140,7 +145,7 @@ try {
       }, state);
       await visibility('hidden');
       await until(() => closed === connectionsBeforeHide);
-      assert.equal(screenshots, 1, 'a hidden viewer must not fall back to thumbnail capture');
+      assert.equal(screenshots, 0, 'a hidden viewer must not fall back to thumbnail capture');
       computer.status = 'suspended';
       await page.evaluate(state => window.testEvents.onmessage({ data: JSON.stringify({ type: 'computer', state }) }), computer);
       assert.equal(requests, 0, 'a background viewer must not wake an idle VM');
@@ -151,11 +156,15 @@ try {
       await until(() => opened === connectionsBeforeHide + 1);
       await viewer.locator('.viewer__overlay').waitFor({ state: 'hidden' });
       await viewer.getByRole('button', { name: 'Close computer' }).click();
-      await until(() => closed === connectionsBeforeHide + 1 && screenshots === 2);
+      await until(() => closed === connectionsBeforeHide + 1);
+      assert.equal(screenshots, 0, 'closing the viewer does not start thumbnail capture');
       assert.equal(requests, 1, 'returning to a sleeping VM wakes it once');
     } else if (scenario.provider === 'local') {
       await viewer.getByRole('button', { name: 'Connect your PC' }).waitFor();
       assert.equal(requests, 0, 'local companions cannot be woken as cloud VMs');
+      await viewer.getByRole('button', { name: 'Computer settings', exact: true }).click();
+      await viewer.waitFor({ state: 'detached' });
+      await page.waitForFunction(() => location.hash === '#settings/computer');
     } else {
       await until(() => pending.length === 1);
       await viewer.getByRole('status').getByText("Waking Quinn's computer...", { exact: true }).waitFor();

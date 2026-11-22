@@ -5,6 +5,7 @@ import { openConversation, useConfigUI } from '../../configStore';
 import { useStore } from '../../store';
 import { Icon } from '../Icon';
 import { hasOpenModal, Modal } from './Modal';
+import { ACTIVATE_FIRST, activateBeforeGroup, isInSetup } from '../../lib/botSetupState';
 import '../../styles/setup-paper.css';
 
 /** New group chat, backed by the existing account-scoped room API. */
@@ -30,7 +31,8 @@ export function CreateGroupModal({ inline = false }: { inline?: boolean } = {}) 
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
   }, [inline, close]);
-  const available = picked.filter(id => bots.some(bot => bot.id === id));
+  // R2F-008: Bots still in setup are listed but cannot be picked, as in the members card.
+  const available = picked.filter(id => bots.some(bot => bot.id === id && !isInSetup(bot)));
   const canCreate = (!!createdId || (name.trim().length > 0 && available.length >= 2)) && !busy;
   const toggle = (id: string) => setPicked(previous => previous.includes(id) ? previous.filter(item => item !== id) : [...previous, id]);
   const create = async () => {
@@ -73,10 +75,13 @@ export function CreateGroupModal({ inline = false }: { inline?: boolean } = {}) 
       <h1>New group chat</h1><p className="setup-paper__subtitle">Choose at least two Bots to work together.</p>
       <label className="group-create__field">Group name<input className="text-input" placeholder="Give this conversation a name" maxLength={100} value={name} onChange={event => setName(event.target.value)} autoFocus disabled={busy || !!createdId} /></label>
       <fieldset className="group-create__members"><legend>Bots in this group</legend>
-        {bots.map(bot => <label className="group-create__member" key={bot.id}>
-          <BotAvatarFor bot={bot} size={28} /><span><strong>{bot.name}</strong><small>{bot.isPrimary ? 'Primary Bot' : bot.label || bot.description}</small></span>
-          <input type="checkbox" checked={picked.includes(bot.id)} onChange={() => toggle(bot.id)} disabled={busy || !!createdId} aria-label={bot.name} />
-        </label>)}
+        {bots.map(bot => {
+          const locked = isInSetup(bot);
+          return <label className={`group-create__member${locked ? ' is-locked' : ''}`} key={bot.id} title={locked ? activateBeforeGroup(bot.name) : undefined}>
+            <BotAvatarFor bot={bot} size={28} /><span><strong>{bot.name}</strong><small>{locked ? ACTIVATE_FIRST : bot.isPrimary ? 'Primary Bot' : bot.label || bot.description}</small></span>
+            <input type="checkbox" checked={!locked && picked.includes(bot.id)} onChange={() => { if (!locked) toggle(bot.id); }} disabled={locked || busy || !!createdId} aria-label={locked ? `${bot.name}, ${ACTIVATE_FIRST.toLowerCase()}` : bot.name} />
+          </label>;
+        })}
       </fieldset>
       {bots.length < 2 && <p role="status">Create another Bot before starting a group chat.</p>}
       {error && <p className="cfg-error" role="alert">{error}</p>}

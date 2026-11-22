@@ -122,6 +122,122 @@ try {
     await page.close();
     console.log(`PASS ${width}px: navigation, layout, native chrome, and resume`);
   }
+  // R2F-007: Back on a phone always shows the Bot list, including after Goals and a desktop-to-phone resize.
+  {
+    const fixture = async (page) => page.route('**/api/**', async (route) => {
+      const url = new URL(route.request().url());
+      let body = {};
+      if (url.pathname === '/api/auth/me') body = { user: { id: 'user-a', name: 'Alex', email: 'alex@example.com' }, devLogin: false, googleLogin: true };
+      else if (url.pathname === '/api/bots') body = { bots: [bot], live: [] };
+      else if (url.pathname.endsWith('/rows')) body = { generation: 1, rows };
+      else if (url.pathname.endsWith('/coworker-setups')) body = { setups: [] };
+      else if (url.pathname.endsWith('/routines')) body = { routines: [] };
+      else if (url.pathname.endsWith('/tasks')) body = { tasks: [] };
+      else if (url.pathname === '/api/computer') body = { computer: { status: 'absent', screens: [] } };
+      else if (url.pathname === '/api/events') { await route.fulfill({ status: 200, contentType: 'text/event-stream', body: 'data: {"type":"hello"}\n\n' }); return; }
+      else if (url.pathname === '/api/settings') body = { settings: {}, computer: { provider: 'orgo' } };
+      else if (url.pathname === '/api/voice/options') body = { voices: [], defaultVoice: 'ara', defaultSpeed: 1, languages: [], speeds: [], configured: false };
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    });
+    const goals = (page) => page.getByRole('tab', { name: 'Goals', exact: true }).or(page.getByRole('button', { name: 'Goals', exact: true })).first();
+    const listShown = async (page, label) => {
+      await page.locator('.sidebar').waitFor();
+      assert.equal(await page.locator('.app.is-mobile.pane-list').count(), 1, `${label}: the Bot list is the visible pane`);
+      assert.equal(await page.locator('.tasks-view').isVisible().catch(() => false), false, `${label}: Tasks and Goals are not on screen`);
+    };
+    // Desktop first: Tasks > Goals, then a chat, then the window becomes a phone.
+    const page = await browser.newPage({ viewport: { width: 1280, height: 852 }, reducedMotion: 'reduce' });
+    const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+    await fixture(page);
+    await page.goto(origin);
+    await page.locator('.composer__input').waitFor();
+    await page.getByRole('button', { name: 'Tasks', exact: true }).click();
+    await goals(page).click();
+    await page.locator('.pinned__tile').click();
+    await page.locator('.composer__input').waitFor();
+    await page.setViewportSize({ width: 393, height: 852 });
+    await page.locator('.app.is-mobile').waitFor();
+    if (await page.locator('.app.pane-list').count()) await page.locator('.pinned__tile').click();
+    await page.getByRole('button', { name: /^All Bots/ }).click();
+    await listShown(page, '393 after desktop Goals');
+    // Phone: list > Tasks > Goals > back; list > chat > back; list > chat > browser Back.
+    await page.getByRole('button', { name: 'Tasks', exact: true }).click();
+    await goals(page).click();
+    await page.getByRole('button', { name: 'Bot list', exact: true }).click();
+    await listShown(page, '393 Goals back');
+    await page.getByRole('button', { name: 'Tasks', exact: true }).click();
+    await goals(page).click();
+    await page.locator('.tasks-view').waitFor();
+    await page.goBack();
+    await listShown(page, '393 Goals browser Back');
+    await page.locator('.pinned__tile').click();
+    await page.getByRole('button', { name: /^All Bots/ }).click();
+    await listShown(page, '393 chat back');
+    await page.locator('.pinned__tile').click();
+    await page.locator('.composer__input').waitFor();
+    await page.goBack();
+    await listShown(page, '393 chat browser Back');
+    // Resize back to desktop and to a phone again: the layout follows the window.
+    await page.setViewportSize({ width: 1280, height: 852 });
+    await page.locator('.app:not(.is-mobile)').waitFor();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator('.app.is-mobile').waitFor();
+    assert.deepEqual(errors, []);
+    await page.close();
+    console.log('PASS phone Back: Bot list after desktop Goals, phone Goals, chat, and browser Back');
+  }
+  // R2F-023: small laptop windows (1024x768 and about 1014x759), with Settings open and closed. A long draft
+  // never crowds out the conversation and the layout stays inside the window.
+  for (const [w, h] of [[1024, 768], [1014, 759]]) {
+    const page = await browser.newPage({ viewport: { width: w, height: h }, reducedMotion: 'reduce' });
+    const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+    await page.route('**/api/**', async (route) => {
+      const url = new URL(route.request().url());
+      let body = {};
+      if (url.pathname === '/api/auth/me') body = { user: { id: 'user-a', name: 'Alex', email: 'alex@example.com' }, devLogin: false, googleLogin: true };
+      else if (url.pathname === '/api/bots') body = { bots: [bot], live: [] };
+      else if (url.pathname.endsWith('/rows')) body = { generation: 1, rows };
+      else if (url.pathname.endsWith('/coworker-setups')) body = { setups: [] };
+      else if (url.pathname.endsWith('/routines')) body = { routines: [] };
+      else if (url.pathname.endsWith('/tasks')) body = { tasks: [] };
+      else if (url.pathname === '/api/computer') body = { computer: { status: 'absent', screens: [] } };
+      else if (url.pathname === '/api/events') { await route.fulfill({ status: 200, contentType: 'text/event-stream', body: 'data: {"type":"hello"}\n\n' }); return; }
+      else if (url.pathname === '/api/settings') body = { settings: {}, computer: { provider: 'orgo' } };
+      else if (url.pathname === '/api/voice/options') body = { voices: [], defaultVoice: 'ara', defaultSpeed: 1, languages: [], speeds: [], configured: false };
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    });
+    await page.goto(origin);
+    const input = page.locator('.composer__input');
+    await input.waitFor();
+    const layout = async (label) => {
+      const m = await page.evaluate(() => {
+        const box = (s) => { const r = document.querySelector(s)?.getBoundingClientRect(); return r && { top: r.top, bottom: r.bottom, height: r.height, right: r.right }; };
+        const el = document.querySelector('.composer__input');
+        return { composer: box('.composer'), transcript: box('.transcript'), chat: box('.chat'), clipped: el.scrollHeight > el.clientHeight + 1 && getComputedStyle(el).overflowY !== 'auto' };
+      });
+      assert.ok(m.composer.bottom <= h + 1 && m.chat.right <= w + 1, `${w}x${h} ${label}: composer inside the window ${JSON.stringify(m)}`);
+      assert.ok(m.composer.height <= h * 0.32, `${w}x${h} ${label}: composer stays under a third of the window (${Math.round(m.composer.height)}px)`);
+      assert.ok(m.transcript.height >= h * 0.4, `${w}x${h} ${label}: the conversation keeps most of the space (${Math.round(m.transcript.height)}px)`);
+      assert.equal(m.clipped, false, `${w}x${h} ${label}: a long draft scrolls instead of being clipped`);
+    };
+    await layout('empty');
+    await input.fill(Array.from({ length: 20 }, (_, i) => `Draft line ${i + 1}`).join('\n'));
+    await layout('long draft');
+    await page.screenshot({ path: `.context/apple/r2f023-${w}x${h}-chat.png` });
+    await page.keyboard.press('Control+,');
+    await page.locator('.app.is-app-settings').waitFor();
+    await page.screenshot({ path: `.context/apple/r2f023-${w}x${h}-settings.png` });
+    assert.ok(await page.locator('.app-settings').evaluate((el) => el.getBoundingClientRect().right <= innerWidth + 1), `${w}x${h}: settings fit`);
+    await page.getByRole('button', { name: 'Back to chat' }).first().click();
+    await page.locator('.app:not(.is-app-settings)').waitFor();
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await page.waitForFunction(() => document.querySelector('.sidebar__scroll')?.getBoundingClientRect().height > 100);
+    await layout('after Settings');
+    await page.screenshot({ path: `.context/apple/r2f023-${w}x${h}-after-settings.png` });
+    assert.deepEqual(errors, []);
+    await page.close();
+    console.log(`PASS ${w}x${h}: composer height, conversation space, Settings open and closed`);
+  }
   for (const width of [390, 1440]) {
     const page = await browser.newPage({ viewport: { width, height: 844 }, userAgent: 'Mozilla/5.0 SwarmNative/1.0 (iOS)' });
     let configured = true;

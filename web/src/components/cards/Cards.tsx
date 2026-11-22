@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { CardBody, Row } from '@shared/types';
 import { api, openPopup } from '../../lib/api';
 import { useStore } from '../../store';
 import { Icon } from '../Icon';
 import { ToolkitLogo } from '../ToolkitLogo';
+import { useRefocusOnResolve } from '../../lib/composerFocus';
 
 type Card<K extends CardBody['card']> = Extract<CardBody, { card: K }>;
 
@@ -31,8 +32,10 @@ export function ApprovalCard({ body }: { body: Card<'approval'> }) {
   const pending = body.status === 'pending';
   const decide = (d: 'allow' | 'always' | 'deny') => run(d, () => api.approve(body.approvalId, d));
   const name = body.toolkitName ?? (body.toolkit ? humanizeToolkit(body.toolkit) : prettyTool(body.tool));
+  const ref = useRef<HTMLDivElement>(null);
+  useRefocusOnResolve(pending, ref);
   return (
-    <div className={`card approval-card${pending ? '' : ' is-resolved'}`}>
+    <div ref={ref} className={`card approval-card${pending ? '' : ' is-resolved'}`}>
       <div className="card__head">
         <ToolkitLogo slug={body.toolkit} name={name} size={44} />
         <div className="card__titles">
@@ -66,8 +69,10 @@ export function QuestionCard({ row, body }: { row: Row; body: Card<'question'> }
   const { busy, error, run } = useBusy();
   const pending = body.status === 'pending';
   const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const ref = useRef<HTMLDivElement>(null);
+  useRefocusOnResolve(pending, ref);
   return (
-    <div className={`card question-card${pending ? '' : ' is-resolved'}`}>
+    <div ref={ref} className={`card question-card${pending ? '' : ' is-resolved'}`}>
       <div className="question-card__head">
         <div className="question-card__q">{body.question}</div>
         <div className="question-card__hint">{pending ? 'Pick an option or reply in your own words' : body.status === 'dismissed' ? 'Skipped' : 'Answered'}</div>
@@ -151,24 +156,25 @@ export function ConnectCard({ row, body }: { row: Row; body: Card<'connect'> }) 
 
 const CHANNEL_LABEL: Record<string, string> = { email: 'Email', slack: 'Slack', message: 'Chat' };
 
-export function DraftCard({ body }: { body: Card<'draft'> }) {
+export function DraftCard({ row, body }: { row: Row; body: Card<'draft'> }) {
   const { busy, error, run } = useBusy();
-  const user = useStore((s) => s.user);
+  // R2F-006: present_draft shows a draft the user sends themselves. Nothing is ever sent from this card:
+  // Copy draft stays on this device, Discard dismisses the card row (never an approval).
+  const approvalId: string | undefined = body.approvalId || undefined;
   const pending = body.status === 'pending';
   const [copied, setCopied] = useState(false);
-  const copy = async () => { try { await navigator.clipboard.writeText(body.text); setCopied(true); setTimeout(() => setCopied(false), 1200); } catch { /* ignore */ } };
-  const handle = user?.email ? `@${user.email.split('@')[0]}` : '';
+  const copy = async () => { try { await navigator.clipboard.writeText(body.subject ? `Subject: ${body.subject}\n\n${body.text}` : body.text); setCopied(true); setTimeout(() => setCopied(false), 1200); } catch { /* ignore */ } };
+  const discard = () => run('discard', () => approvalId ? api.approve(approvalId, 'deny') : api.dismiss(row.botId, row.seq));
+  const ref = useRef<HTMLDivElement>(null);
+  useRefocusOnResolve(pending, ref);
   return (
-    <div className={`card draft-card${pending ? '' : ' is-resolved'}`}>
+    <div ref={ref} className={`card draft-card${pending ? '' : ' is-resolved'}`}>
       <div className="draft-card__head">
         <span className="draft-card__tile"><Icon name="chat_filled" size={18} color="#FFFFFF" /></span>
         <div className="draft-card__titles">
           <div className="draft-card__channel">{CHANNEL_LABEL[body.channel] ?? 'Message'}</div>
-          <div className="draft-card__from">{handle}</div>
+          <div className="draft-card__from">{body.status === 'sent' ? 'Sent' : 'Draft only. Nothing was sent.'}</div>
         </div>
-        <button type="button" className="draft-card__copy" onClick={copy} aria-label="Copy draft" title={copied ? 'Copied' : 'Copy'}>
-          <Icon name={copied ? 'check' : 'copy'} size={12} opacity={0.66} />
-        </button>
       </div>
       <div className="draft-card__content">
         <div className="draft-card__to">
@@ -181,13 +187,13 @@ export function DraftCard({ body }: { body: Card<'draft'> }) {
       </div>
       {pending ? (
         <div className="draft-card__actions">
-          <button type="button" className="btn btn--secondary btn--grow" disabled={!!busy} onClick={() => run('discard', () => api.approve(body.approvalId, 'deny'))}>Discard</button>
-          <button type="button" className="btn btn--primary btn--grow" disabled={!!busy} onClick={() => run('send', () => api.approve(body.approvalId, 'allow'))}>Send</button>
+          <button type="button" className="btn btn--secondary btn--grow" disabled={!!busy} onClick={discard}>{busy === 'discard' ? 'Discarding…' : 'Discard'}</button>
+          <button type="button" className="btn btn--primary btn--grow" onClick={copy}>{copied ? 'Copied' : 'Copy draft'}</button>
         </div>
       ) : (
         <div className={`card__outcome is-${body.status}`} style={{ padding: '0 16px 16px' }}>
           <Icon name={body.status === 'sent' ? 'check' : 'close'} size={12} opacity={0.7} />
-          {body.status === 'sent' ? 'Sent' : 'Discarded'}
+          {body.status === 'sent' ? 'Sent' : 'Discarded. Nothing was sent.'}
         </div>
       )}
       {error && <div className="card__error" style={{ padding: '0 16px 12px' }}>{error}</div>}
@@ -202,7 +208,7 @@ export function CardRow({ row }: { row: Row }) {
     case 'approval': return <ApprovalCard body={b} />;
     case 'question': return <QuestionCard row={row} body={b} />;
     case 'connect': return <ConnectCard row={row} body={b} />;
-    case 'draft': return <DraftCard body={b} />;
+    case 'draft': return <DraftCard row={row} body={b} />;
     default: return null;
   }
 }

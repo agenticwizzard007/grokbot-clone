@@ -137,7 +137,9 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
   useEffect(() => {
     const down = (e: PointerEvent) => { if (ref.current && !ref.current.contains(e.target as Node) && !(e.target as Element).closest?.('.model-pill')) onClose(); };
     const key = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); if (view !== 'main') back(); else onClose(); }
+      // R2F-030: the side effort flyout sits next to the open model list, so Escape closes the picker in one
+      // press. Only views that replace the list (Connection details, the inline effort sheet) step back first.
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); if (view === 'usage' || (view === 'effort' && inlineEffort)) back(); else onClose(); }
       if (e.key !== 'Tab') return;
       const items = [...(ref.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), a[href]') ?? [])].filter(el => el.getClientRects().length > 0);
       const first = items[0], last = items.at(-1);

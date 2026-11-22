@@ -47,6 +47,7 @@
 .agent-exchange__messages { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 16px; }
 .agent-exchange__meta { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 10px; font-size: 11px; }
 .agent-exchange__meta strong { color: var(--color-ink); font-weight: 500; overflow-wrap: anywhere; }
+.agent-exchange__chip { align-self: center; padding: 1px 6px; border-radius: 999px; background: var(--color-bg-subtle); color: var(--color-text-secondary); font-size: 10px; font-weight: 500; line-height: 14px; }
 .agent-exchange__messages p { color: var(--color-ink); margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
 .agent-exchange__more, .agent-exchange__error { align-self: center; font-size: 12px; color: var(--color-text-secondary); }
 .agent-exchange__more { margin: 8px 0; padding: 6px 10px; border-radius: 6px; }
@@ -200,7 +201,8 @@
 .composer__input {
   flex: 1 1 0; min-width: 0; border: 0; outline: none; resize: none; background: transparent;
   padding: 12px 0; margin: 0; font-size: 14px; line-height: 20px; letter-spacing: 0.14px; color: var(--color-ink);
-  max-height: 200px; display: block;
+  /* R2F-023: at most 200px, and less on short windows (about 1014x759) so a long draft never crowds out the chat. */
+  max-height: clamp(66px, 18vh, 200px); display: block;
 }
 .composer__input::placeholder { color: var(--color-text-quaternary); opacity: 1; }
 .composer__cta {
@@ -212,4 +214,14 @@
 .composer__error {
   max-width: 960px; margin: 0 auto 8px; padding: 6px 12px; border-radius: 12px; background: var(--color-danger-bg); color: var(--color-danger-text);
   font-size: 13px; line-height: 18px; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+
+/* R2F-013: a search or Tasks deep link highlights its target row (scrollToRow adds the class for 1.6 s). */
+.is-search-hit { --search-hit: rgba(250, 204, 21, 0.24); border-radius: 12px; background-color: var(--search-hit); box-shadow: 0 0 0 6px var(--search-hit); animation: search-hit 1.6s ease-out both; }
+@keyframes search-hit {
+  0%, 55% { background-color: var(--search-hit); box-shadow: 0 0 0 6px var(--search-hit); }
+  100% { background-color: transparent; box-shadow: 0 0 0 6px transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .is-search-hit { animation: none; }
 }

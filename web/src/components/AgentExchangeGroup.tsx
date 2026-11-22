@@ -3,6 +3,7 @@ import type { AgentExchangeMessage } from '@shared/coordination-types';
 import { BotAvatarFor } from '../avatar/BotAvatar';
 import { exchangeApi, type ExchangeGroup } from '../lib/agentExchanges';
 import { clock, dividerLabel } from '../lib/time';
+import { displayExchangeText } from '../lib/stripInternalIds';
 
 const statuses = { queued: 'Queued', deferred: 'Waiting to send', admitted: 'In progress', completed: 'Finished', failed: 'Failed' };
 
@@ -48,10 +49,14 @@ export function AgentExchangeGroup({ group, botId, generation }: { group: Exchan
     {open && <div id={panelId} className="agent-exchange__panel" role="region" aria-label="Agent conversation">
       <p className="agent-exchange__participants">{participants.map(p => p.name).join(', ')}</p>
       <ol className="agent-exchange__messages">
-        {state.messages.map(message => <li key={message.id}>
-          <div className="agent-exchange__meta"><strong>{name(message.fromBotId)} → {name(message.toBotId)}</strong><time dateTime={new Date(message.createdAt).toISOString()} title={dividerLabel(message.createdAt)}>{clock(message.createdAt)}</time><span>{statuses[message.status]}</span></div>
-          <p>{message.text}</p>
-        </li>)}
+        {state.messages.map(message => {
+          // R2F-002: results show a chip; the server sends clean text, the header strip is only a safety net.
+          const shown = displayExchangeText(message.text, { botName: id => participants.find(p => p.id === id)?.name });
+          return <li key={message.id}>
+            <div className="agent-exchange__meta"><strong>{name(message.fromBotId)} → {name(message.toBotId)}</strong>{(message.kind === 'result' || shown.result) && <span className="agent-exchange__chip">Result</span>}<time dateTime={new Date(message.createdAt).toISOString()} title={dividerLabel(message.createdAt)}>{clock(message.createdAt)}</time><span>{statuses[message.status]}</span></div>
+            <p>{shown.text}</p>
+          </li>;
+        })}
       </ol>
       {state.loading && <p role="status">Loading messages…</p>}
       {state.error && <p role="alert">Couldn’t refresh this conversation. <button type="button" onClick={() => setRetry(n => n + 1)}>Retry</button></p>}
