@@ -2,7 +2,8 @@ import { useModels, effortsFor, effectiveEffort, EFFORT_LABEL } from '../../lib/
 import { BotModelField } from './BotModelField';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { AvatarColor, AvatarShape, Bot, Routine } from '@shared/types';
-import { BotAvatar, PICKER_SHAPES } from '../../avatar/BotAvatar';
+import { BotAvatar } from '../../avatar/BotAvatar';
+import { BirdPicker } from '../../avatar/BirdPicker';
 import { COLOR_ORDER, botVars, palette } from '../../lib/colors';
 import { KnowledgeScopeControl, PendingMemoryChanges, SkillPackageControls } from './KnowledgeManagement';
 import { learningApi } from '../../lib/learningApi';
@@ -302,22 +303,10 @@ function GeneralTab({ bot, onClose, draft, setDraft }: { bot: Bot; onClose: () =
   );
 }
 
-const SHAPE_ROWS = [PICKER_SHAPES.slice(0, 7), PICKER_SHAPES.slice(7)];
-
 function LookPicker({ shape, color, onShape, onColor }: { shape: AvatarShape; color: AvatarColor; onShape: (s: AvatarShape) => void; onColor: (c: AvatarColor) => void }) {
   return (
     <div className="cfg-picker">
-      <div className="shape-grid" role="radiogroup" aria-label="Character shape">
-        {SHAPE_ROWS.map((row, i) => (
-          <div key={i} className="shape-grid__row">
-            {row.map((s) => (
-              <button key={s} type="button" role="radio" aria-checked={shape === s} aria-label={s} className="shape-cell" onClick={() => onShape(s)}>
-                <BotAvatar shape={s} color={color} size={34} ring={shape === s} />
-              </button>
-            ))}
-          </div>
-        ))}
-      </div>
+      <BirdPicker shape={shape} color={color} onShape={onShape} />
       <div className="swatches" role="radiogroup" aria-label="Character color">
         <div className="swatches__row">
           {COLOR_ORDER.map((c) => (

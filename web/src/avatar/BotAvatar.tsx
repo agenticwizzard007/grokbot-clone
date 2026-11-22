@@ -1,10 +1,13 @@
 import type { AvatarColor, AvatarShape, Bot } from '@shared/types';
+import { BIRD_SHAPES, isBirdShape } from '@shared/avatar-shapes';
+import type { CSSProperties } from 'react';
 import { userFacingLive } from '../lib/audience';
 import { palette } from '../lib/colors';
 import { useStore } from '../store';
 import { FlockMark } from '../components/FlockMark';
 import { Icon } from '../components/Icon';
 import { SHAPES, type ShapeDef } from './shapes.gen';
+import { BIRD_PATH, BIRD_FORMATIONS } from './birds';
 import './BotAvatar.css';
 
 /** Shapes without an exported SVG fall back to the closest silhouette we have. */
@@ -17,13 +20,13 @@ export function shapeDef(shape: AvatarShape | string): ShapeDef {
   return SHAPES[shape] ?? SHAPES[FALLBACK[shape as AvatarShape] ?? 'blob'] ?? SHAPES.blob;
 }
 
-/** Shapes offered in the Create New Bot picker, in the design's order (rows of 5/5/3). */
-export const PICKER_SHAPES: AvatarShape[] = ['blob', 'cloud', 'square', 'sparkle', 'clover', 'heart', 'flower', 'teardrop', 'tablet', 'wedge', 'house', 'star', 'hex'];
+/** Bird suggestions only. Stored legacy silhouettes remain renderable. */
+export const PICKER_SHAPES: readonly AvatarShape[] = BIRD_SHAPES;
 
 interface Props {
   shape: AvatarShape | string;
   color: AvatarColor | string;
-  /** Slot size in px. The drawing overflows the slot by the design's 1.533x ratio. */
+  /** Slot size in px. Legacy silhouettes retain their original overflow. */
   size: number;
   star?: boolean;
   /** Selected-shape ring (white gap + gray outline following the silhouette). */
@@ -36,6 +39,7 @@ interface Props {
 const OVERDRAW = 55.2 / 36;
 
 export function BotAvatar({ shape, color, size, star, ring, className, title, working }: Props) {
+  const bird = isBirdShape(shape) ? shape : null;
   const def = shapeDef(shape);
   const draw = size * OVERDRAW;
   const off = (draw - size) / 2;
@@ -45,12 +49,16 @@ export function BotAvatar({ shape, color, size, star, ring, className, title, wo
   const px = vbw / draw;
   return (
     <span className={`bot-avatar${working ? ' bot-avatar--working' : ''} ${className ?? ''}`} style={{ width: size, height: size }} title={title} role="img" aria-label={title}>
-      <svg width={draw} height={draw} viewBox={def.viewBox} style={{ position: 'absolute', left: -off, top: -off, overflow: 'visible' }} aria-hidden>
+      {/* Separate SVG families so switching a stored silhouette drops its cached drawing size and paint. */}
+      {bird ? <svg key="bird" className="bot-avatar__bird" data-bird={bird} width={size} height={size} viewBox="0 0 100 100" style={{ '--bird-fill': color === 'black' ? 'var(--color-text-primary)' : fill } as CSSProperties} aria-hidden>
+        {ring && <rect x="2" y="2" width="96" height="96" rx="20" fill="none" stroke="currentColor" strokeWidth="3" />}
+        <g fill="currentColor">{BIRD_FORMATIONS[bird].map((transform, i) => <path key={i} d={BIRD_PATH} transform={transform} />)}</g>
+      </svg> : <svg key="legacy" width={draw} height={draw} viewBox={def.viewBox} style={{ position: 'absolute', left: -off, top: -off, overflow: 'visible' }} aria-hidden>
         {ring && <path d={def.outline} fill="#1C1C1C3D" stroke="#1C1C1C3D" strokeWidth={px * 2 * 3.4} strokeLinejoin="round" />}
         {ring && <path d={def.outline} fill="#FFFFFF" stroke="#FFFFFF" strokeWidth={px * 2 * 2.4} strokeLinejoin="round" />}
         <path d={def.outline} fill="#FFFFFF" />
         <path d={def.d} fill={fill} fillRule="evenodd" />
-      </svg>
+      </svg>}
       {/* Working never replaces the Bot's own shape and colour; a small badge shows activity instead. */}
       {working && <span className="bot-avatar__working" style={{ width: Math.max(12, Math.round(size * 0.5)), height: Math.max(12, Math.round(size * 0.5)) }}><FlockMark size={Math.max(12, Math.round(size * 0.5))} working /></span>}
       {star && (

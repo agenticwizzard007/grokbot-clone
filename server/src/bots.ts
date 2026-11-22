@@ -3,6 +3,7 @@ import { assertLegacyWorkOpen } from './security/legacy-work.js';
 import { publishNativeEvent } from './native/events.js';
 import { z } from 'zod';
 import { EFFORTS, isEffort, type Effort } from './types.js';
+import { BIRD_SHAPES } from './avatar-shapes.js';
 import { db, now } from './db.js';
 import { env } from './env.js';
 import { hub } from './lib/hub.js';
@@ -12,6 +13,7 @@ import type { AvatarColor, AvatarShape, Bot } from './types.js';
 import { saveSetup, removeSetupFiles, type BotBrief, type SetupSource } from './bot-setup.js';
 
 export const AVATAR_SHAPES: AvatarShape[] = [
+  ...BIRD_SHAPES,
   'blob', 'pebble', 'bean', 'egg', 'squircle', 'tablet', 'capsule', 'cylinder', 'hex',
   'gem', 'crystal', 'wedge', 'shield', 'dome', 'arch', 'cloud', 'teardrop', 'leaf',
   'square', 'sparkle', 'clover', 'flower', 'heart', 'house', 'star',
@@ -88,7 +90,7 @@ function clean(value: unknown, max: number) {
 
 export function createBot(userId: string, b: CreateBotInput): Bot {
   const id = newId('bot');
-  const shape = AVATAR_SHAPES.includes(b.avatarShape as AvatarShape) ? b.avatarShape : hashPick(id, AVATAR_SHAPES.slice(0, 13));
+  const shape = AVATAR_SHAPES.includes(b.avatarShape as AvatarShape) ? b.avatarShape : hashPick(id, BIRD_SHAPES);
   const color = AVATAR_COLORS.includes(b.avatarColor as AvatarColor) ? b.avatarColor : hashPick(id, AVATAR_COLORS.filter((c) => c !== 'black'));
   const effort = isEffort(b.effort) ? b.effort : 'medium';
   const model = typeof b.model === 'string' ? b.model.trim().slice(0, BOT_LIMITS.model) || null : null;

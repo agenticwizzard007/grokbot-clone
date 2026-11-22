@@ -1,6 +1,8 @@
 // Shared API contract between server and web (web imports these as types only).
+import type { BirdAvatarShape } from './avatar-shapes.js';
 
 export type AvatarShape =
+  | BirdAvatarShape
   | 'blob' | 'pebble' | 'bean' | 'egg' | 'squircle' | 'tablet' | 'capsule' | 'cylinder' | 'hex'
   | 'gem' | 'crystal' | 'wedge' | 'shield' | 'dome' | 'arch' | 'cloud' | 'teardrop' | 'leaf'
   | 'square' | 'sparkle' | 'clover' | 'flower' | 'heart' | 'house' | 'star';

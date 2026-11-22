@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import type { AvatarColor, AvatarShape, Bot } from '@shared/types';
-import { PICKER_SHAPES } from '../../avatar/BotAvatar';
+import { DEFAULT_AVATAR_SHAPE } from '@shared/avatar-shapes';
+import { BirdPicker } from '../../avatar/BirdPicker';
 import { api } from '../../lib/api';
 import { COLOR_ORDER } from '../../lib/colors';
 import { openConversation, useConfigUI } from '../../configStore';
@@ -32,8 +33,8 @@ function CreateBotForm({ inline, userId }: { inline: boolean; userId: string | u
   // Only the import flow needs the roster (duplicate names); typing a new name must not re-render on Bot updates.
   const bots = useStore(s => flow === 'import' ? s.bots : NO_BOTS);
   const [name, setName] = useState('');
-  const [shape, setShape] = useState<AvatarShape>('heart');
-  const [color, setColor] = useState<AvatarColor>('orange');
+  const [shape, setShape] = useState<AvatarShape>(DEFAULT_AVATAR_SHAPE);
+  const [color, setColor] = useState<AvatarColor>('blue');
   const [mode, setMode] = useState<Bot['mode']>('personal');
   const [selection, setSelection] = useState<{ file: string; manifest: unknown } | null>(null);
   const [importName, setImportName] = useState('');
@@ -152,7 +153,7 @@ function CreateBotForm({ inline, userId }: { inline: boolean; userId: string | u
           {flow === 'create' ? <>
             <label>Bot name<input className="text-input" placeholder="Give your Bot a name" ref={nameInput} value={name} maxLength={60} onChange={event => { lastInputAt.current = performance.now(); setName(event.target.value); }}
               onCompositionStart={() => setComposing(true)} onCompositionEnd={event => { setComposing(false); setName(event.currentTarget.value); }} autoFocus /><small>Up to 60 characters</small></label>
-            <label>Shape<select value={shape} onChange={event => setShape(event.target.value as AvatarShape)}>{PICKER_SHAPES.map(value => <option key={value} value={value}>{choiceLabel(value)}</option>)}</select><small>Choose a character shape</small></label>
+            <div><p>Choose a bird</p><BirdPicker shape={shape} color={color} onShape={setShape} /></div>
             <label>Color<select value={color} onChange={event => setColor(event.target.value as AvatarColor)}>{COLOR_ORDER.map(value => <option key={value} value={value}>{choiceLabel(value)}</option>)}</select><small>Choose a character color</small></label>
             <div className="setup-paper__tabs" role="group" aria-label="Bot type">
               <button type="button" aria-pressed={mode === 'personal'} onClick={() => setMode('personal')}>Personal assistant</button>
