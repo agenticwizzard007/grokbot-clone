@@ -102,6 +102,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     };
     const closeSettings = () => page.evaluate(() => window.closeSettings());
     await openPlans();
+    await page.getByText('Not connected', { exact: true }).first().waitFor();
     assert.equal(await page.getByText('Not connected', { exact: true }).count(), 2);
     await page.keyboard.press('Escape');
     assert.equal(await page.getByRole('button', { name: 'Connect plan', exact: true }).evaluate(el => el === document.activeElement), true);
