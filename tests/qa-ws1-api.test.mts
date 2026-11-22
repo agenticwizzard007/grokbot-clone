@@ -463,3 +463,24 @@ test('R2F-037 /api/bots/import rejects malformed bodies with a plain 400', async
   const { error } = await invalid.json();
   assert.ok(typeof error === 'string' && error.length < 300 && !error.includes('"code"'), 'short validation message, not a raw schema dump');
 });
+
+test('R2F-038 CSP connect-src is narrowed to self, the app host and the configured voice sockets; Permissions-Policy is set', async () => {
+  const { connectSources, contentSecurityPolicy } = await import('../server/src/security/request.js');
+  const { env } = await import('../server/src/env.js');
+  const html = await app.request('/', { headers: { 'x-forwarded-proto': 'https' } });
+  const csp = html.headers.get('content-security-policy') ?? '';
+  const connect = csp.split('; ').find((d) => d.startsWith('connect-src '))!;
+  const sources = connect.split(' ').slice(1);
+  assert.equal(sources[0], "'self'");
+  for (const broad of ['https:', 'wss:', 'http:', 'ws:', '*']) assert.ok(!sources.includes(broad), `no bare ${broad}`);
+  // The browser opens the realtime voice socket on the configured provider host.
+  const voice = new URL(env.voiceBaseUrl);
+  assert.ok(sources.includes(`${voice.protocol === 'https:' ? 'wss:' : 'ws:'}//${voice.host}`), 'voice socket host allowed');
+  assert.deepEqual(sources, connectSources());
+  for (const directive of ["frame-ancestors 'none'", "object-src 'none'", "default-src 'self'", "script-src 'self' blob:"]) assert.ok(csp.includes(directive), directive);
+  // Local plain http keeps its development allowances.
+  assert.match(contentSecurityPolicy(false), /connect-src [^;]* http: ws:/);
+  for (const route of ['/', '/api/health', '/api/auth/me']) {
+    assert.equal((await app.request(route)).headers.get('permissions-policy'), 'camera=(), geolocation=(), microphone=(self)', route);
+  }
+});
