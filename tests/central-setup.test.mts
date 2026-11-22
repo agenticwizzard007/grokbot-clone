@@ -52,7 +52,10 @@ test('a complete coworker is prepared centrally without a specialist interview o
   assert.equal(jobCount(bot.id), 0);
   const view = setup.coworkerSetup(f.userId, f.chief.id, bot.id);
   assert.equal(view.manifest.source.sourceRefs![0].text, f.spec.context_summary);
-  assert.match(view.files['CONTEXT.md'], new RegExp(f.chief.id));
+  // R2F-002: the original answer names its Bot instead of printing the raw Bot id.
+  assert.match(view.files['CONTEXT.md'], /### Quinn, conversation/);
+  assert.doesNotMatch(view.files['CONTEXT.md'], new RegExp(f.chief.id));
+  assert.equal((view.manifest.source.sourceRefs![0] as any).botName, 'Quinn');
   assert.equal(CENTRAL_SETUP_TOOLS.some(t => /activat/.test(t.name)), false);
 });
 
@@ -182,4 +185,35 @@ test('activation survives handoff capacity refusal and later admission retains t
   db.prepare('UPDATE bot_setups SET revision=revision+1 WHERE bot_id=?').run(botId);
   const jobId = setup.releaseSetupHandoff(botId); assert.ok(jobId); assert.equal(jobCount(botId), 1);
   assert.equal((db.prepare('SELECT approved_revision FROM coworker_setup_handoffs WHERE bot_id=?').get(botId) as any).approved_revision, 1);
+});
+
+test('R2F-002: briefs saved with connected account, request and Bot ids render without them, including stored ones', async () => {
+  const f = fixture(), bot = await created(f);
+  const ids = /\b(ca|req|apr|bot)_[A-Za-z0-9_-]{6,}/;
+  const saved = setup.prepareCoworkerSetup(f.userId, f.chief.id, draft(f, bot.id, {
+    shared_resources: ['Slack account ca_KIxihCKrE-D2', 'Gmail account ca_pESfPrEqcgnN'],
+    context_summary: `Follow up on req_11ev-EvIvCvn and approval apr_AbCdEf123456 with ${f.chief.id}.`,
+    instructions: 'Use ca_pESfPrEqcgnN for mail.',
+  }));
+  // Visible text (brief, instructions, rendered files) has no ids at all; structured botId fields remain for the client.
+  assert.doesNotMatch(JSON.stringify([saved.manifest.brief, saved.manifest.bot.instructions, saved.files]), ids);
+  assert.doesNotMatch(JSON.stringify(saved), /\b(ca|req|apr)_[A-Za-z0-9_-]{6,}/);
+  assert.deepEqual(saved.manifest.brief.shared_resources, ['Slack account connected account', 'Gmail account connected account']);
+  const stored = (db.prepare('SELECT brief FROM bot_setups WHERE bot_id=?').get(bot.id) as { brief: string }).brief;
+  assert.doesNotMatch(stored, ids, 'the saved brief itself carries no ids');
+  assert.doesNotMatch(getBotRow(bot.id).instructions, ids);
+  // A brief stored before redaction existed is redacted when the view is built.
+  const raw = JSON.parse(stored);
+  raw.shared_resources = ['Slack account ca_KIxihCKrE-D2'];
+  raw.context_summary = 'Old note about req_11ev-EvIvCvn.';
+  db.prepare('UPDATE bot_setups SET brief=? WHERE bot_id=?').run(JSON.stringify(raw), bot.id);
+  db.prepare('UPDATE bots SET instructions=? WHERE id=?').run('Old ca_KIxihCKrE-D2 instructions', bot.id);
+  const view = setup.setupView(bot.id)!;
+  assert.doesNotMatch(JSON.stringify(view), /\b(ca|req)_[A-Za-z0-9_-]{6,}/);
+  assert.equal(view.manifest.brief.context_summary, 'Old note about request.');
+  const http = await (await app.request(`/api/bots/${bot.id}/setup`, { headers: f.headers })).json();
+  assert.doesNotMatch(JSON.stringify(http), /\b(ca|req)_[A-Za-z0-9_-]{6,}/);
+  const coworkers = await (await app.request(`/api/bots/${f.chief.id}/coworker-setups`, { headers: f.headers })).json();
+  assert.doesNotMatch(JSON.stringify(coworkers), /\b(ca|req)_[A-Za-z0-9_-]{6,}/);
+  assert.equal(coworkers.setups[0].manifest.source.sourceRefs[0].botName, 'Quinn');
 });

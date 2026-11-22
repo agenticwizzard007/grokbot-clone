@@ -1,6 +1,7 @@
 import './schema.js';
 import { db } from '../db.js';
 import { assertTenant } from '../deployment.js';
+import { displayCoordinationText } from '../lib/redact.js';
 import type { AgentExchange, AgentExchangeMessage, AgentExchangesPage, AgentExchangeMessagesPage, ExchangeParticipant } from '../coordination-types.js';
 
 // Use the first participation in a thread, not a later reply, to bind it to a
@@ -55,6 +56,9 @@ export function readAgentExchange(userId: string, botId: string, generation: num
   const rows = db.prepare(`${scope} SELECT id,seq,from_bot_id fromBotId,to_bot_id toBotId,text,status,kind,created_at createdAt
     FROM visible WHERE correlation_id=@id AND seq>@after AND seq<=@through ORDER BY seq LIMIT @limit
   `).all({ ...args, after, through, limit: limit + 1 }) as AgentExchangeMessage[];
-  const messages = rows.slice(0, limit);
+  // Display text: the machine header of a result is dropped (kind 'result' marks it) and internal ids
+  // are replaced with names or neutral labels. The stored text keeps the header for the receiving model.
+  const botName = (id: string) => (db.prepare('SELECT name FROM bots WHERE id=? AND user_id=?').get(id, userId) as { name: string } | undefined)?.name;
+  const messages = rows.slice(0, limit).map(message => ({ ...message, text: displayCoordinationText(message.text, { botName }) }));
   return { messages, nextAfter: rows.length > limit ? messages.at(-1)!.seq : null };
 }

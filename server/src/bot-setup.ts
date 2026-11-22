@@ -9,6 +9,7 @@ import type { ComputerState } from './types.js';
 import { hub } from './lib/hub.js';
 import { publishNativeEvent } from './native/events.js';
 import { assertLegacyWorkOpen } from './security/legacy-work.js';
+import { redactInternalIds } from './lib/redact.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS coworker_setup_handoffs (
  bot_id TEXT PRIMARY KEY REFERENCES bots(id) ON DELETE CASCADE,
@@ -64,19 +65,24 @@ export function normalizeBriefStrings<T>(value: T): T {
   return value;
 }
 
-const text = (max: number) => z.string().trim().min(1).max(max).transform(normalizeModelText);
+/** Brief text is normalised and has internal ids replaced with neutral labels (R2F-002), on save and on read. */
+const cleanBriefText = (value: string) => redactInternalIds(normalizeModelText(value));
+const NO_IDS = 'Never include connection or account ids; name the app instead.';
+const text = (max: number) => z.string().trim().min(1).max(max).transform(cleanBriefText);
+/** Identifiers and names keep their exact value. */
+const plain = (max: number) => z.string().trim().min(1).max(max).transform(normalizeModelText);
 const list = z.array(text(2000)).max(30);
 export const briefSchema = z.object({
   purpose: text(4000).describe('One focused mission, grounded in the user’s request.'),
   responsibilities: list.min(1).describe('Concrete work this teammate owns; preserve the user’s exact requirements.'),
   out_of_scope: list.describe('Explicit boundaries. Do not invent permissions or unrelated responsibilities.'),
   success_criteria: list.min(1).describe('Expected deliverables and how the user will judge completion.'),
-  context_summary: text(12000).describe('Self-contained relevant context from the master chat, including preferences, decisions, constraints and unresolved questions. The teammate cannot read the master’s chat.'),
-  shared_resources: list.default([]).describe('Resource references, URLs, file paths and access requirements. Never include credentials or claim unverified access.'),
+  context_summary: text(12000).describe(`Self-contained relevant context from the master chat, including preferences, decisions, constraints and unresolved questions. The teammate cannot read the master’s chat. ${NO_IDS}`),
+  shared_resources: list.default([]).describe(`Resource references, URLs, file paths and access requirements. Never include credentials or claim unverified access. ${NO_IDS}`),
   handoff_notes: list.default([]).describe('Who supplies inputs, who receives outputs, when to report, and escalation rules.'),
-  communication_style: z.string().trim().max(2000).transform(normalizeModelText).default('Clear, concise and factual.').describe('Tone, preferred format, and how to explain uncertainty.'),
+  communication_style: z.string().trim().max(2000).transform(cleanBriefText).default('Clear, concise and factual.').describe('Tone, preferred format, and how to explain uncertainty.'),
   working_principles: list.default(['Use evidence; distinguish facts from assumptions.', 'Stay within the agreed responsibilities.']),
-  action_boundaries: z.string().trim().max(4000).transform(normalizeModelText).default('').describe('Which actions may be taken autonomously, which need a user decision, and which are excluded. This does not override application permissions.'),
+  action_boundaries: z.string().trim().max(4000).transform(cleanBriefText).default('').describe('Which actions may be taken autonomously, which need a user decision, and which are excluded. This does not override application permissions.'),
   workflows: z.array(z.object({ name: text(120), trigger: text(2000), steps: list.min(1), output: text(2000) })).max(20).default([]).describe('Specific functions: what starts each workflow, its ordered steps, and expected deliverable.'),
   open_questions: list.default([]).describe('Unresolved questions that prevent the role from being fully specified.'),
 });
@@ -103,7 +109,7 @@ export interface SetupSource {
   sourceRefs?: SetupAnswer[];
 }
 
-export const setupSourceRefSchema = z.object({ botId: text(200), generation: z.number().int().positive(), seq: z.number().int().positive(), contentHash: z.string().regex(/^[a-f0-9]{64}$/).optional() });
+export const setupSourceRefSchema = z.object({ botId: plain(200), generation: z.number().int().positive(), seq: z.number().int().positive(), contentHash: z.string().regex(/^[a-f0-9]{64}$/).optional() });
 export interface SetupAnswer { botId: string; generation: number; seq: number; contentHash: string; text: string }
 
 /** Read the original record, including archived generations; never synthesize a local answer. */
@@ -122,8 +128,8 @@ export function setupAnswers(userId: string, refs: z.infer<typeof setupSourceRef
 }
 
 export const creationSchema = briefSchema.extend({
-  creation_request_id: text(200).optional().describe('Stable identity for this creation request. Reuse exactly on retries, even after the coworker is renamed or edited.'),
-  name: text(60).refine((v) => !/[\r\n\t]/.test(v), 'Name must be a single line'),
+  creation_request_id: plain(200).optional().describe('Stable identity for this creation request. Reuse exactly on retries, even after the coworker is renamed or edited.'),
+  name: plain(60).refine((v) => !/[\r\n\t]/.test(v), 'Name must be a single line'),
   label: z.string().trim().max(40).default(''),
   instructions: z.string().trim().max(8000).default(''),
   source_message_seqs: z.array(z.number().int().positive()).min(1).max(30).describe('Relevant user message numbers from the creation context in your system prompt. Include the brief and any corrections; omit unrelated messages.'),
@@ -227,7 +233,7 @@ export function setupFiles(botId: string): Record<string, string> {
     'IDENTITY.md': `# ${b.name}\n\nRole: ${b.label}\n\n${s.purpose}\n`,
     'SOUL.md': `# Working style\n\n${soulMarkdown(s)}\n`,
     'WORKFLOWS.md': `# Workflows\n\n${workflowMarkdown(s)}\n`,
-    'CONTEXT.md': `# Context\n\n${s.context_summary}\n\n## Selected user messages\n${source.messages.map((m) => `### Message ${m.seq}\n${m.text}`).join('\n\n') || 'Created from a supplied specification.'}\n\n## Setup interview\n${(source.interviewMessages ?? []).map((m) => `### Conversation ${m.generation}, message ${m.seq}\n${m.text}`).join('\n\n')}\n\n## Original setup answers\n${(source.sourceRefs ?? []).map(m => `### Bot ${m.botId}, conversation ${m.generation}, message ${m.seq}\nHash: ${m.contentHash}\n\n${m.text}`).join('\n\n')}\n`,
+    'CONTEXT.md': `# Context\n\n${s.context_summary}\n\n## Selected user messages\n${source.messages.map((m) => `### Message ${m.seq}\n${m.text}`).join('\n\n') || 'Created from a supplied specification.'}\n\n## Setup interview\n${(source.interviewMessages ?? []).map((m) => `### Conversation ${m.generation}, message ${m.seq}\n${m.text}`).join('\n\n')}\n\n## Original setup answers\n${(source.sourceRefs ?? []).map(m => `### ${(getBotRow(botId) && ownedBotName(getBotRow(botId).user_id, m.botId)) || 'Bot'}, conversation ${m.generation}, message ${m.seq}\nHash: ${m.contentHash}\n\n${m.text}`).join('\n\n')}\n`,
     'RESOURCES.md': `# Shared resources\n\n${bullets(s.shared_resources)}\n`,
     'HANDOFFS.md': `# Handoffs\n\n${bullets(s.handoff_notes, 'Report results and blockers to the assigning Bot using send_to_bot.')}\n`,
     'bot-setup.json': JSON.stringify(manifest, null, 2) + '\n',
@@ -278,11 +284,26 @@ export function computerReadiness(userId: string, botId: string): { status: 'pen
   return { status: 'pending', error: null };
 }
 
+/** A Bot's display name, only within the same account. */
+export function ownedBotName(userId: string, botId: string): string | undefined {
+  return (db.prepare('SELECT name FROM bots WHERE id=? AND user_id=?').get(botId, userId) as { name: string } | undefined)?.name;
+}
+
+/**
+ * What the web shows for a setup. Briefs are redacted when parsed, including briefs stored before
+ * redaction existed; source references carry the Bot's name next to its id, and the rendered files
+ * never show raw connected account, request or Bot ids (R2F-002).
+ */
 export function setupView(botId: string) {
   const s = getSetup(botId);
   if (!s) return null;
   const b = getBotRow(botId);
-  return { manifest: setupManifest(botId)!, computer: b ? computerReadiness(b.user_id, botId) : s.computer, onboarding: { ...s.onboarding, missing: setupMissing(s.brief) }, files: setupFiles(botId) };
+  const botName = (id: string) => b ? ownedBotName(b.user_id, id) : undefined;
+  const manifest = setupManifest(botId)!;
+  const source = { ...manifest.source, ...(manifest.source.sourceRefs ? { sourceRefs: manifest.source.sourceRefs.map(ref => ({ ...ref, botName: botName(ref.botId) ?? 'a Bot' })) } : {}) };
+  const files = Object.fromEntries(Object.entries(setupFiles(botId)).map(([name, body]) => [name, redactInternalIds(body, { botName })]));
+  return { manifest: { ...manifest, source, bot: { ...manifest.bot, instructions: redactInternalIds(manifest.bot.instructions ?? '', { botName }) } },
+    computer: b ? computerReadiness(b.user_id, botId) : s.computer, onboarding: { ...s.onboarding, missing: setupMissing(s.brief) }, files };
 }
 
 export const isConfiguring = (botId: string) => {
@@ -356,7 +377,7 @@ export function saveSetupDraft(botId: string, userId: string, input: unknown) {
   db.transaction(() => {
     const result = db.prepare('UPDATE bot_setups SET brief=?, source=?, onboarding_status=?, revision=revision+1, confirmed_at=NULL, updated_at=? WHERE bot_id=? AND revision=?').run(JSON.stringify(brief), JSON.stringify(source), a.stage, now(), botId, a.revision);
     if (!result.changes) throw new Error('The configuration changed. Read the latest revision and retry.');
-    db.prepare('UPDATE bots SET instructions=?, description=?, updated_at=? WHERE id=?').run(a.instructions, brief.purpose.slice(0, 300), now(), botId);
+    db.prepare('UPDATE bots SET instructions=?, description=?, updated_at=? WHERE id=?').run(redactInternalIds(a.instructions), brief.purpose.slice(0, 300), now(), botId);
     publishNativeEvent({ userId, botId, kind: 'setup.prepared', sourceType: 'setup', sourceId: botId, sourceRevision: a.revision + 1, data: { stage: a.stage } });
     writeSetupFiles(botId);
     const saved = setupChanges(prior.brief, brief);
@@ -407,7 +428,7 @@ export function coworkerSetups(userId: string, coordinatorId: string) {
 }
 
 export const centralSetupDraftSchema = briefSchema.extend({
-  bot_id: text(200), revision: z.number().int().positive(), stage: z.enum(['interviewing', 'review']), instructions: z.string().max(8000),
+  bot_id: plain(200), revision: z.number().int().positive(), stage: z.enum(['interviewing', 'review']), instructions: z.string().max(8000),
   source_refs: z.array(setupSourceRefSchema).min(1).max(30).describe('Original human answers, including Quinn’s conversation. Use stable botId, generation and seq; never copy them into the specialist chat.'),
 }).strict();
 
@@ -428,7 +449,7 @@ export function prepareCoworkerSetup(userId: string, coordinatorId: string, inpu
     const source = { ...prior.source, sourceRefs: [...evidence.values()] };
     const changed = db.prepare('UPDATE bot_setups SET brief=?,source=?,onboarding_status=?,revision=revision+1,confirmed_at=NULL,updated_at=? WHERE bot_id=? AND revision=?').run(JSON.stringify(brief), JSON.stringify(source), a.stage, now(), a.bot_id, a.revision);
     if (!changed.changes) throw new Error('The configuration changed. Read the latest revision and retry.');
-    db.prepare('UPDATE bots SET instructions=?,description=?,updated_at=? WHERE id=? AND user_id=?').run(a.instructions, brief.purpose.slice(0, 300), now(), a.bot_id, userId);
+    db.prepare('UPDATE bots SET instructions=?,description=?,updated_at=? WHERE id=? AND user_id=?').run(redactInternalIds(a.instructions), brief.purpose.slice(0, 300), now(), a.bot_id, userId);
     publishNativeEvent({ userId, botId: a.bot_id, kind: 'setup.prepared', sourceType: 'setup', sourceId: a.bot_id, sourceRevision: a.revision + 1, data: { coordinatorId, stage: a.stage, sourceRefs: answers.map(({ text, ...ref }) => ref) } });
     writeSetupFiles(a.bot_id);
     if (a.stage !== prior.onboarding.status) emitSetupStatus(a.bot_id); else emitSetup(a.bot_id);

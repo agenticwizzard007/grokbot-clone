@@ -11,6 +11,7 @@ import { db, now } from '../db.js';
 import { appendRow, getBot, getBotRow } from '../store.js';
 import { publishNativeEvent } from '../native/events.js';
 import type { ToolDef, ToolCtx, ToolResult } from './tools.js';
+import { redactInternalIds } from '../lib/redact.js';
 
 const primary = (ctx: ToolCtx) => assertSetupCoordinator(ctx.userId, ctx.botId);
 
@@ -77,6 +78,8 @@ export async function createTeammate(raw: unknown, ctx: ToolCtx): Promise<ToolRe
   const a = creationSchema.parse(raw);
   a.name = a.name.replace(/\s+/g, ' ');
   a.source_message_seqs = [...new Set(a.source_message_seqs)].sort((left, right) => left - right);
+  // Briefs are redacted by their schema; standing instructions never keep internal ids either (R2F-002).
+  a.instructions = redactInternalIds(a.instructions);
   const brief = briefSchema.parse(a);
   const fingerprint = createHash('sha256').update(JSON.stringify(a)).digest('hex');
   const result = db.transaction(() => {

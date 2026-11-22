@@ -328,3 +328,25 @@ test('MF-019 a failed computer wake is reported instead of swallowed', async () 
     assert.notEqual(computerView('owner').error, 'No capacity in region');
   } finally { off(); computers.ensure = original; }
 });
+
+// ---------- Round 2 (MASTER-FIX-R2) ----------
+
+test('R2F-002 redactInternalIds replaces internal ids with neutral labels and leaves ordinary words', async () => {
+  const { redactInternalIds, displayCoordinationText, hasInternalId } = await import('../server/src/lib/redact.js');
+  const { newId } = await import('../server/src/lib/ids.js');
+  assert.equal(redactInternalIds('Slack account ca_KIxihCKrE-D2 and Gmail account ca_pESfPrEqcgnN'), 'Slack account connected account and Gmail account connected account');
+  assert.equal(redactInternalIds('See req_11ev-EvIvCvn.'), 'See request.');
+  for (const [prefix, label] of [['req', 'request'], ['apr', 'approval'], ['cli', 'tool call'], ['call', 'tool call'], ['job', 'job'], ['room', 'group chat'], ['bot', 'a Bot']]) {
+    for (let i = 0; i < 20; i++) {
+      const id = newId(prefix);
+      if (!/[A-Z0-9]/.test(id.slice(prefix.length + 1))) continue; // an all lower case draw reads as an ordinary word
+      assert.equal(redactInternalIds(`x ${id}, y`), `x ${label}, y`, id);
+    }
+  }
+  assert.equal(redactInternalIds('Ask bot_AbCdEf123456 now', { botName: (id) => id === 'bot_AbCdEf123456' ? 'Research' : undefined }), 'Ask Research now');
+  for (const keep of ['call_center_notes', 'bot_configuration', 'req_docs', 'a ca_ prefix', 'prereq_AbCdEf123456', 'https://example.com/ca_docs']) assert.equal(redactInternalIds(keep), keep);
+  assert.equal(hasInternalId('ok'), false);
+  assert.equal(hasInternalId('ca_KIxihCKrE-D2'), true);
+  assert.equal(displayCoordinationText('[Internal result for request req_11ev-EvIvCvn; execution finished; acceptance still requires evidence]\nAll done for ca_KIxihCKrE-D2.'), 'All done for connected account.');
+  assert.equal(displayCoordinationText('Plain request text'), 'Plain request text');
+});
