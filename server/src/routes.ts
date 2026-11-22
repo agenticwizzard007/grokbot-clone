@@ -538,21 +538,33 @@ api.get('/tasks', (c) => {
 
 // ---------- computer ----------
 
-// The last failed wake per account, so the viewer and Settings show the error instead of "Waking..." forever (MF-019).
-const ensureErrors = new Map<string, string>();
+// The last failed wake per account, so the viewer and Settings show the error instead of "Waking..." forever
+// (MF-019). R2F-018: it survives a restart, the client only ever sees generic copy (the provider's raw
+// text is logged on the server), and a successful wake clears it. Additive table; rows are never deleted.
+db.exec(`CREATE TABLE IF NOT EXISTS computer_wake_errors (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  message TEXT NOT NULL, failed_at INTEGER NOT NULL, cleared_at INTEGER
+)`);
+export const WAKE_ERROR_MESSAGE = 'The computer could not start. Try again in a minute.';
+function lastWakeError(userId: string): { message: string; failedAt: number } | undefined {
+  const row = db.prepare('SELECT message, failed_at FROM computer_wake_errors WHERE user_id=? AND cleared_at IS NULL').get(userId) as { message: string; failed_at: number } | undefined;
+  return row ? { message: row.message, failedAt: row.failed_at } : undefined;
+}
+const clearWakeError = (userId: string) => db.prepare('UPDATE computer_wake_errors SET cleared_at=? WHERE user_id=? AND cleared_at IS NULL').run(now(), userId);
 export function computerView(userId: string, state: ComputerState = computers.state(userId)): ComputerState {
-  const error = ensureErrors.get(userId);
+  const error = lastWakeError(userId);
   if (!error || state.error || state.status === 'running') return state;
-  return { ...state, status: 'error', error };
+  return { ...state, status: 'error', error: error.message };
 }
 export async function wakeComputer(userId: string): Promise<void> {
-  ensureErrors.delete(userId);
   try {
     await computers.ensure(userId);
+    clearWakeError(userId);
   } catch (e) {
-    const message = String((e as Error)?.message ?? e).slice(0, 300) || 'The computer could not start.';
-    console.warn('[computer] ensure failed', message);
-    ensureErrors.set(userId, message);
+    // Provider text can carry internals (hosts, regions, request ids). Keep it in the server log only.
+    console.warn('[computer] ensure failed', String((e as Error)?.message ?? e).slice(0, 300));
+    db.prepare(`INSERT INTO computer_wake_errors(user_id,message,failed_at,cleared_at) VALUES (?,?,?,NULL)
+      ON CONFLICT(user_id) DO UPDATE SET message=excluded.message, failed_at=excluded.failed_at, cleared_at=NULL`).run(userId, WAKE_ERROR_MESSAGE, now());
   }
   try { hub.emit(userId, { type: 'computer', state: computerView(userId) }); } catch { /* state unavailable */ }
 }

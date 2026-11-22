@@ -318,15 +318,18 @@ test('MF-019 a failed computer wake is reported instead of swallowed', async () 
   computers.ensure = async () => { throw new Error('No capacity in region'); };
   const events: any[] = [];
   const off = hub.subscribe('owner', (ev) => events.push(ev));
+  const warn = mock.method(console, 'warn', () => {});
   try {
     await wakeComputer('owner');
     const state = computerView('owner');
-    assert.equal(state.error, 'No capacity in region');
-    assert.ok(events.some((e) => e.type === 'computer' && e.state.error === 'No capacity in region'));
+    // R2F-018: the failure is reported with generic copy; the raw provider text stays in the server log.
+    assert.equal(state.error, 'The computer could not start. Try again in a minute.');
+    assert.equal(state.status, 'error');
+    assert.ok(events.some((e) => e.type === 'computer' && e.state.error === 'The computer could not start. Try again in a minute.'));
     computers.ensure = async () => {};
     await wakeComputer('owner');
-    assert.notEqual(computerView('owner').error, 'No capacity in region');
-  } finally { off(); computers.ensure = original; }
+    assert.notEqual(computerView('owner').error, 'The computer could not start. Try again in a minute.');
+  } finally { off(); warn.mock.restore(); computers.ensure = original; }
 });
 
 // ---------- Round 2 (MASTER-FIX-R2) ----------
@@ -392,4 +395,32 @@ test('R2F-017 two consecutive account zone changes both move the schedule, emit 
     db.prepare("UPDATE proactivity SET enabled=0 WHERE user_id='owner'").run();
     db.prepare("DELETE FROM proactive_due_slots WHERE user_id='owner' AND status='pending'").run();
   }
+});
+
+test('R2F-018 wake errors show generic copy only, survive a restart and clear on success', async () => {
+  const { computers } = await import('../server/src/computers/index.js');
+  const { wakeComputer, WAKE_ERROR_MESSAGE } = await import('../server/src/routes.js');
+  const original = computers.ensure;
+  const raw = 'gateway 10.0.0.7 refused: region me-central-1 capacity exhausted (request req_AbCdEf123456)';
+  computers.ensure = async () => { throw new Error(raw); };
+  const warn = mock.method(console, 'warn', () => {});
+  try {
+    await wakeComputer('owner');
+    assert.ok(warn.mock.calls.some((c) => c.arguments.join(' ').includes(raw)), 'raw text is logged on the server');
+    const res = await call('GET', '/api/computer');
+    assert.equal(res.status, 200);
+    const text = await res.text();
+    assert.ok(!text.includes('10.0.0.7') && !text.includes('me-central-1') && !text.includes('req_AbCdEf123456'), 'no raw provider text in the response');
+    assert.equal(JSON.parse(text).computer.error, WAKE_ERROR_MESSAGE);
+    // Persisted, not held in process memory: a restarted server reads the same row.
+    const row = db.prepare('SELECT message, failed_at, cleared_at FROM computer_wake_errors WHERE user_id=?').get('owner') as any;
+    assert.equal(row.message, WAKE_ERROR_MESSAGE);
+    assert.ok(row.failed_at > 0);
+    assert.equal(row.cleared_at, null);
+    assert.ok(!JSON.stringify(row).includes('10.0.0.7'), 'raw text is not stored');
+    computers.ensure = async () => {};
+    await wakeComputer('owner');
+    assert.notEqual((await (await call('GET', '/api/computer')).json()).computer.error, WAKE_ERROR_MESSAGE);
+    assert.ok((db.prepare('SELECT cleared_at FROM computer_wake_errors WHERE user_id=?').get('owner') as any).cleared_at > 0, 'cleared, not deleted');
+  } finally { warn.mock.restore(); computers.ensure = original; }
 });
