@@ -24,11 +24,12 @@ const bots = participants.map((bot, n) => ({ ...bot, label: '', description: '',
 const initial = { id: 'thread-a', firstSeq: 1, lastSeq: 5, createdAt: at, messageCount: 5, version: 5, participants };
 const messages = [
   ['quinn', 'research', 'Check the current sources.'],
-  ['research', 'writer', 'Draft a summary of the sources.'],
+  ['research', 'writer', 'Draft a summary of the sources from Slack account ca_KIxihCKrE-D2xyz.'],
   ['writer', 'research', 'The draft is ready.'],
-  ['research', 'quinn', 'Here is the sourced summary.'],
+  // R2F-002: the coordination layer prefixes results with a machine header naming the request id.
+  ['research', 'quinn', '[Internal result for request req_11evEvIvCvnX; execution finished; acceptance still requires evidence]\nHere is the sourced summary.'],
   ['quinn', 'writer', 'Keep the final version concise.'],
-].map(([fromBotId, toBotId, text], n) => ({ id: `message-${n}`, seq: n + 1, fromBotId, toBotId, text, status: n === 4 ? 'deferred' : 'completed', kind: 'request', createdAt: at + n * 1000 }));
+].map(([fromBotId, toBotId, text], n) => ({ id: `message-${n}`, seq: n + 1, fromBotId, toBotId, text, status: n === 4 ? 'deferred' : 'completed', kind: n === 3 ? 'result' : 'request', createdAt: at + n * 1000 }));
 try {
   await until(() => fetch(base).then(r => r.ok, () => false));
   browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
@@ -98,6 +99,10 @@ try {
   assert.equal(await region.locator('li').count(), 5);
   await region.getByText('Waiting to send', { exact: true }).waitFor();
   await region.getByText('Research → Writer', { exact: true }).waitFor();
+  assert.doesNotMatch(await page.locator('body').innerText(), /\b(ca|req|apr)_[A-Za-z0-9_-]{6,}/, 'no raw ids in agent exchanges');
+  assert.equal(await region.getByText('Internal result', { exact: false }).count(), 0, 'machine header hidden');
+  assert.equal(await region.locator('li').filter({ hasText: 'Here is the sourced summary.' }).locator('.agent-exchange__chip').innerText(), 'Result');
+  await region.getByText('Draft a summary of the sources from Slack account.', { exact: true }).waitFor();
   await page.screenshot({ path: new URL('desktop-expanded.png', evidence).pathname });
   await toggle.focus(); await page.keyboard.press('Space');
   assert.equal(await region.count(), 0);

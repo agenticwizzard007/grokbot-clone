@@ -128,3 +128,5 @@
 .group-create__member strong { font-weight: 500; }
 .group-create__member small { color: var(--color-text-secondary); font-size: 13px; overflow-wrap: anywhere; }
 .group-create__member input { width: 20px; height: 20px; accent-color: var(--color-primary); flex-shrink: 0; }
+.group-create__member.is-locked { opacity: 0.6; cursor: not-allowed; }
+.group-create__member.is-locked small { color: var(--color-text-secondary); font-weight: 500; }

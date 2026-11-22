@@ -38,6 +38,9 @@ export function createRoom(userId: string, name: string, memberIds: string[]) {
   return id;
 }
 
+/** The fixed answer when a group message asks a Bot to act in another app (R2F-001, PD-R2-05 B). */
+export const GROUP_APPS_REFUSAL = "Group chats can't send to other apps. Ask me in my own chat.";
+
 /** Shown in a group when a member cannot answer there yet. */
 export const setupNotice = (name: string) => `${name} is still being set up and can't answer in groups yet.`;
 
@@ -74,7 +77,8 @@ export function dispatchRoomMessage(roomId: string, text: string, enqueue: (botI
         `${mentioned.length ? 'You were @mentioned.' : 'The user addressed the whole group.'}\n` +
         `Recent group messages:\n${recent}\n\n` +
         `Reply to the group with post_to_group (group_name "${room.name}"), or end with a short plain reply; your final reply is posted to the group for you. ` +
-        `Use your tools first if the request needs real work. Connected apps are read-only in group turns; do not send anything outside Swarm. ` +
+        `Answer from the group conversation and what you already know. Group chats can't use other apps: no connected apps, email, Slack, MCP tools, your computer or browser, and no approvals. ` +
+        `If you are asked to send, post, read or check anything in another app, do not look it up; reply exactly: "${GROUP_APPS_REFUSAL}" ` +
         `Keep it short and don't repeat what other Bots already said. If you have nothing to add, call stay_silent.`,
     });
   }

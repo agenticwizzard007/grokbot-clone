@@ -26,14 +26,19 @@ export function installVoiceShortcut() {
 
     try {
       const config = useConfigUI.getState();
-      config.closeAppSettings();
-      config.closeBotSettings();
-      config.setView('chat');
-      state.set({ modal: null, viewerOpen: false, detailsOpen: false });
-      state.selectBot(main.id);
-      const call = useVoice.getState();
-      if (isCallActive(call) && call.botId === main.id && call.muted) toggleMute();
-      startCall(main.id); // Reuses an existing call with the main agent.
+      const proceed = () => {
+        const ui = useConfigUI.getState();
+        ui.closeAppSettings();
+        ui.discardBotSettings();
+        ui.setView('chat');
+        useStore.getState().set({ modal: null, viewerOpen: false, detailsOpen: false });
+        useStore.getState().selectBot(main.id);
+        const call = useVoice.getState();
+        if (isCallActive(call) && call.botId === main.id && call.muted) toggleMute();
+        startCall(main.id); // Reuses an existing call with the main agent.
+      };
+      // Unsaved Bot settings edits ask first (R2F-004); the call starts only after Discard.
+      config.requestLeaveBotSettings(proceed);
       handled.add(requestID);
       if (handled.size > 64) handled.delete(handled.values().next().value!);
       return 'started';

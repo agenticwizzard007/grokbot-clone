@@ -29,7 +29,7 @@ import { DeviceAccessSection } from './DeviceAccessSection';
 import { readDetailsDefault, writeDetailsDefault } from '../../lib/detailsDefault';
 import { toast } from '../../lib/toast';
 import { SHORTCUTS, shortcutKeys } from '../../lib/shortcuts';
-import { browserTimeZone, timeZoneOptions } from './settingsLogic';
+import { browserTimeZone, loadErrorText, timeZoneOptions, toolkitDisplayName } from './settingsLogic';
 import { AccountSessions } from './AccountSessions';
 import { ReauthPrompt } from './ReauthPrompt';
 import { useAccessReauth } from './useAccessReauth';
@@ -117,6 +117,10 @@ export function AppSettings() {
     return () => window.removeEventListener('keydown', k);
   }, [close]);
   useEffect(() => { setListView(home); setQuery(''); }, [home, section]);
+  // R2F-028: wide screens open straight on General, so its link is shown too (phones start on the section list).
+  useEffect(() => {
+    if (section === 'general' && !compact && !window.location.hash.startsWith('#settings/')) history.replaceState(history.state, '', `${window.location.pathname}${window.location.search}#settings/general`);
+  }, [section, compact]);
   useEffect(() => { main.current?.scrollTo({ top: 0 }); }, [section, listView]);
   useLayoutEffect(() => { heading.current?.focus({ preventScroll: true }); }, [appRoot, compact, listView, section]);
   useLayoutEffect(() => {
@@ -756,7 +760,7 @@ function PermissionsSection() {
   const load = useCallback(() => {
     setLoadError('');
     configApi.policies().then((r) => { setPolicies(Array.isArray(r?.policies) ? r.policies : []); setLoadError(''); })
-      .catch((e) => setLoadError((e as Error).message || 'Request failed.'));
+      .catch((e) => setLoadError(loadErrorText(e)));
   }, []);
   useEffect(() => { load(); }, [load]);
   const askAgain = (tool: string) => {
@@ -895,7 +899,7 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
   const other = connections?.filter(c => c.status !== 'EXPIRED' && (c.status !== 'ACTIVE' || c.isDisabled)) ?? [];
   const accountDetails = (c: SettingsAppConnection, index: number) => {
     const app = apps?.find(app => app.slug === c.toolkit);
-    const name = app?.name ?? c.toolkit;
+    const name = toolkitDisplayName(c.toolkit, app?.name);
     const status = c.status ? c.status.toLowerCase().replace(/(^|[_\s-]+)([a-z])/g, (_, separator, letter) => `${separator ? ' ' : ''}${letter.toUpperCase()}`) : 'Unknown status';
     return <>
       <ToolkitLogo slug={c.toolkit} name={name} logo={app?.logo} size={36} />

@@ -20,6 +20,7 @@ import { dispatchRoomMessage } from './agent/rooms.js';
 import { voiceApi } from './voice.js';
 import { createBot, assertPrimaryRemovalAllowed, transferPrimary, botPatchSchema, botCreateSchema, BRIEF_FIELDS } from './bots.js';
 import { readJson, zodMessage } from './lib/json.js';
+import { apiBodyLimit } from './security/body-limits.js';
 import { renameSetupGreeting, skipSetup, SetupSkipError } from './bot-setup.js';
 import { activateSetup, beginSetupInterview, briefSchema, emitSetup, getSetup, removeSetupFiles, setupFiles, setupView, writeSetupFiles, coworkerSetups, coworkerSetup } from './bot-setup.js';
 import { importTeammate, provisionTeammate } from './agent/teammates.js';
@@ -66,6 +67,8 @@ api.patch('/auth/me', requireUser, async (c) => {
   const timezone = new Intl.DateTimeFormat('en-US', { timeZone: body.data.timezone }).resolvedOptions().timeZone;
   updateProfile(userId, { timezone });
   adoptAccountTimezone(userId, timezone);
+  // R2F-017: synopsis lines and schedules that follow the account zone refresh without a manual Refresh.
+  hub.emit(userId, { type: 'synopses' });
   return c.json({ user: { ...c.get('user'), timezone } });
 });
 
@@ -101,6 +104,11 @@ api.use('/*', async (c, next) => {
   return requireUser(c, next);
 });
 
+// R2F-019: byte caps before any JSON is parsed on Bot, card answer and approval routes.
+api.use('/bots', apiBodyLimit);
+api.use('/bots/*', apiBodyLimit);
+api.use('/approvals/*', apiBodyLimit);
+
 // ---------- events (SSE) ----------
 
 api.delete('/account', requireRecentAuth, async (c) => {
@@ -132,6 +140,7 @@ export function sseCoalesceKey(ev: ServerEvent): string | null {
   if (ev.type === 'bot') return `bot:${ev.bot.id}`;
   if (ev.type === 'roster') return 'roster';
   if (ev.type === 'computer') return 'computer';
+  if (ev.type === 'synopses') return 'synopses';
   // Streaming updates rewrite one row many times; only its latest body matters.
   if (ev.type === 'rows' && ev.rows.length === 1) return `rows:${ev.botId}:${ev.generation}:${ev.rows[0].seq}`;
   return null;
@@ -213,15 +222,16 @@ api.post('/bots', async (c) => {
 });
 
 api.post('/bots/import', async (c) => {
-  try {
-    const { manifest, name, expectedUserId } = await c.req.json();
-    const userId = c.get('user').id;
-    if (expectedUserId !== undefined) {
-      if (typeof expectedUserId !== 'string' || !expectedUserId) return c.json({ error: 'Confirm the account for this import.' }, 400);
-      if (expectedUserId !== userId) return c.json({ error: 'Your account changed. Reload before importing this setup.', code: 'account_changed' }, 409);
-    }
-    return c.json(await importTeammate(userId, manifest, name));
-  } catch (e: any) { return c.json({ error: String(e?.message ?? e) }, 400); }
+  // R2F-037: malformed, empty or non-object bodies are a plain 400 from readJson, like every other handler.
+  const body = await readJson(c); if (!body.ok) return body.response;
+  const { manifest, name, expectedUserId } = body.data;
+  const userId = c.get('user').id;
+  if (expectedUserId !== undefined) {
+    if (typeof expectedUserId !== 'string' || !expectedUserId) return c.json({ error: 'Confirm the account for this import.' }, 400);
+    if (expectedUserId !== userId) return c.json({ error: 'Your account changed. Reload before importing this setup.', code: 'account_changed' }, 409);
+  }
+  try { return c.json(await importTeammate(userId, manifest, name)); }
+  catch (e: any) { return c.json({ error: e instanceof z.ZodError ? zodMessage(e) : String(e?.message ?? e) }, 400); }
 });
 
 api.get('/bots/:id/setup', (c) => {
@@ -473,7 +483,8 @@ api.post('/bots/:id/cards/:seq/dismiss', (c) => {
   const row = getRow(b.id, Number(c.req.param('seq')));
   if (!row || row.body.type !== 'card') return c.json({ error: 'not a card' }, 400);
   if(row.body.status!=='pending')return c.json({ok:true});
-  const body: any = { ...row.body, status: row.body.card === 'connect' ? 'skipped' : 'dismissed' };
+  // A draft card (R2F-006) is discarded on the client's Discard; it never sends anything.
+  const body: any = { ...row.body, status: row.body.card === 'connect' ? 'skipped' : row.body.card === 'draft' ? 'discarded' : 'dismissed' };
   updateRow(b.id, row.seq, body);
   if (row.body.card === 'connect') enqueue(b.id, { type: 'system', connectionCardSeq:row.seq,text: `The user skipped connecting ${row.body.toolkitName}. Continue without it.` });
   return c.json({ ok: true });
@@ -534,21 +545,33 @@ api.get('/tasks', (c) => {
 
 // ---------- computer ----------
 
-// The last failed wake per account, so the viewer and Settings show the error instead of "Waking..." forever (MF-019).
-const ensureErrors = new Map<string, string>();
+// The last failed wake per account, so the viewer and Settings show the error instead of "Waking..." forever
+// (MF-019). R2F-018: it survives a restart, the client only ever sees generic copy (the provider's raw
+// text is logged on the server), and a successful wake clears it. Additive table; rows are never deleted.
+db.exec(`CREATE TABLE IF NOT EXISTS computer_wake_errors (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  message TEXT NOT NULL, failed_at INTEGER NOT NULL, cleared_at INTEGER
+)`);
+export const WAKE_ERROR_MESSAGE = 'The computer could not start. Try again in a minute.';
+function lastWakeError(userId: string): { message: string; failedAt: number } | undefined {
+  const row = db.prepare('SELECT message, failed_at FROM computer_wake_errors WHERE user_id=? AND cleared_at IS NULL').get(userId) as { message: string; failed_at: number } | undefined;
+  return row ? { message: row.message, failedAt: row.failed_at } : undefined;
+}
+const clearWakeError = (userId: string) => db.prepare('UPDATE computer_wake_errors SET cleared_at=? WHERE user_id=? AND cleared_at IS NULL').run(now(), userId);
 export function computerView(userId: string, state: ComputerState = computers.state(userId)): ComputerState {
-  const error = ensureErrors.get(userId);
+  const error = lastWakeError(userId);
   if (!error || state.error || state.status === 'running') return state;
-  return { ...state, status: 'error', error };
+  return { ...state, status: 'error', error: error.message };
 }
 export async function wakeComputer(userId: string): Promise<void> {
-  ensureErrors.delete(userId);
   try {
     await computers.ensure(userId);
+    clearWakeError(userId);
   } catch (e) {
-    const message = String((e as Error)?.message ?? e).slice(0, 300) || 'The computer could not start.';
-    console.warn('[computer] ensure failed', message);
-    ensureErrors.set(userId, message);
+    // Provider text can carry internals (hosts, regions, request ids). Keep it in the server log only.
+    console.warn('[computer] ensure failed', String((e as Error)?.message ?? e).slice(0, 300));
+    db.prepare(`INSERT INTO computer_wake_errors(user_id,message,failed_at,cleared_at) VALUES (?,?,?,NULL)
+      ON CONFLICT(user_id) DO UPDATE SET message=excluded.message, failed_at=excluded.failed_at, cleared_at=NULL`).run(userId, WAKE_ERROR_MESSAGE, now());
   }
   try { hub.emit(userId, { type: 'computer', state: computerView(userId) }); } catch { /* state unavailable */ }
 }

@@ -13,7 +13,7 @@ import { APPS_OFF, connectionsDetail, executeComposio, innerToolSlugs, isReadOnl
 import { env } from '../env.js';
 import { scheduleRoutine, unscheduleRoutine } from '../routines.js';
 import { createEventRoutine, deleteEventTrigger, describeEvent, listTriggerTypes } from '../triggers.js';
-import { getCheckins, setCheckins } from '../proactive.js';
+import { accountTimezone, getCheckins, setCheckins } from '../proactive.js';
 import { updateProfile } from '../accounts.js';
 import { createSubagent, deleteSubagent, listSubagents, subagentTree } from './subagents.js';
 import { selectedCli } from '../cli/store.js';
@@ -249,11 +249,13 @@ export const TOOLS: ToolDef[] = [
     activity: 'working',
     label: 'Setting up a routine',
     impl: async (a, ctx) => {
-      try { new Cron(a.schedule, { paused: true, timezone: a.timezone || 'UTC' }); } catch (e: any) { return { output: `Invalid schedule: ${e.message}` }; }
-      const limit = checkRoutineCreate(ctx.botId, a.schedule, { timezone: a.timezone });
+      // R2F-017: without an explicit zone a new routine follows the account time zone, not UTC.
+      const timezone = a.timezone || accountTimezone(ctx.userId);
+      try { new Cron(a.schedule, { paused: true, timezone }); } catch (e: any) { return { output: `Invalid schedule: ${e.message}` }; }
+      const limit = checkRoutineCreate(ctx.botId, a.schedule, { timezone });
       if (limit) return { output: limit, summary: 'Routine not created' };
       const id = newId('rt');
-      db.prepare('INSERT INTO routines(id,bot_id,name,prompt,schedule,timezone,enabled,created_at) VALUES (?,?,?,?,?,?,1,?)').run(id, ctx.botId, a.name, a.prompt, a.schedule, a.timezone || 'UTC', now());
+      db.prepare('INSERT INTO routines(id,bot_id,name,prompt,schedule,timezone,enabled,created_at) VALUES (?,?,?,?,?,?,1,?)').run(id, ctx.botId, a.name, a.prompt, a.schedule, timezone, now());
       const r = toRoutine(db.prepare('SELECT * FROM routines WHERE id=?').get(id));
       scheduleRoutine(r);
       appendRow(ctx.botId, 'event', { type: 'event', event: 'routine-created', text: `Routine created: ${a.name} · ${describeCron(a.schedule)}`, ref: id });
@@ -568,6 +570,29 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'present_draft',
+    description: 'Show the user a draft they will send themselves (an email, Slack or chat message) as a draft card with Copy. Nothing is sent and no approval is requested. Use this instead of pasting a draft into your reply.',
+    parameters: obj({
+      channel: { type: 'string', enum: ['email', 'slack', 'message'] },
+      to: { type: 'string', description: 'Recipient as the user would write it, for example a name, address or channel. Use an empty string if unknown.' },
+      subject: { type: 'string', description: 'Email subject, when there is one.' },
+      text: { type: 'string', description: 'The full draft text.' },
+    }, ['channel', 'to', 'text']),
+    activity: 'working',
+    label: 'Preparing a draft',
+    impl: async (a, ctx) => {
+      const args = z.object({
+        channel: z.enum(['email', 'slack', 'message']),
+        to: z.string().trim().max(500),
+        subject: z.string().trim().max(500).optional(),
+        text: z.string().trim().min(1).max(20000),
+      }).strict().parse(a);
+      // A draft card is not an approval: approvalId stays empty and nothing is ever sent from it (PD-R2-04 B).
+      appendRow(ctx.botId, 'card', { type: 'card', card: 'draft', channel: args.channel, to: args.to || 'Recipient', ...(args.subject ? { subject: args.subject } : {}), text: args.text, approvalId: '', status: 'pending' });
+      return { output: 'Draft shown to the user. Nothing was sent.', summary: 'Draft shown' };
+    },
+  },
+  {
     name: 'ask_user',
     description: 'Ask the user a multiple-choice question when you need a decision before continuing. Ends your turn; their answer arrives as their next message.',
     parameters: obj({ question: { type: 'string' }, options: { type: 'array', items: { type: 'string' } } }, ['question', 'options']),
@@ -643,6 +668,22 @@ bindComputerStateSource((userId) => computers.state(userId));
 export function allowedDuringSetup(botId: string, toolName: string) {
   return !isConfiguring(botId) || ['ask_user', 'save_agent_setup', 'get_platform_state', 'list_app_connections', 'search_apps', 'request_app_connection', 'SWARM_APPS_SEARCH', 'SWARM_APPS_EXECUTE'].includes(toolName);
 }
+
+/**
+ * Group chat turns (R2F-001, PD-R2-05 option B) get an explicit allowlist: posting to the group, staying
+ * silent and reading Swarm's own records. Connected apps, MCP tools, the computer and browser, delivery,
+ * hand-offs to other Bots, routines and anything that writes a card in the member's own chat are not
+ * offered, so a group message can never reach another app or ask for approval. New tools stay out of
+ * group turns until they are added here on purpose.
+ */
+export const GROUP_TURN_TOOLS: ReadonlySet<string> = new Set([
+  'post_to_group', 'stay_silent',
+  'session_search', 'recall', 'list_skills', 'read_skill',
+  'list_routines', 'list_deliverables', 'routine_history', 'get_workflows', 'list_subagents',
+  'get_team_state', 'get_team_records', 'read_team_source', 'read_team_job',
+  'tool_search', 'tool_describe', 'tool_call',
+]);
+export const allowedInGroupTurn = (toolName: string) => GROUP_TURN_TOOLS.has(toolName);
 
 export function functionSchemas(botId?: string) {
   const bot = botId ? getBotRow(botId) : null;

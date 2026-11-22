@@ -127,3 +127,21 @@ test('adjacent threads combine into one row without crossing visible messages or
   assert.equal(groupExchanges(summaries, [{ createdAt: 1500, body: { type: 'message' } } as any]).length, 2);
   assert.equal(groupExchanges([summaries[0], { ...summaries[1], createdAt: 1_000_000 }], []).length, 2);
 });
+
+test('R2F-002: result messages and request records show no raw request ids to the client', async () => {
+  const f = fixture(), id = f.send(), request = requests.getInternalRequest(f.userId, id);
+  requests.onInternalJobFinished({ userId: f.userId, botId: f.bots[1].id, jobId: request.jobId!, status: 'completed', finalText: `Done; see ${id} and account ca_KIxihCKrE-D2.` });
+  const stored = db.prepare("SELECT text FROM coordination_requests WHERE user_id=? AND kind='result'").get(f.userId) as { text: string };
+  assert.match(stored.text, /^\[Internal result for request req_/, 'the receiving model keeps the machine header');
+  const messages = readAgentExchange(f.userId, f.bots[0].id, 1, id).messages;
+  assert.equal(messages[1].kind, 'result');
+  assert.equal(messages[1].text, 'Done; see request and account connected account.');
+  const headers = { cookie: `swarm_session=${f.userId}` };
+  const detail = await (await coordinationApi.request(`/exchanges/${id}?botId=${f.bots[0].id}&generation=1`, { headers })).json();
+  assert.doesNotMatch(JSON.stringify(detail.messages.map((m: any) => m.text)), /\b(ca|req|apr)_[A-Za-z0-9_-]{6,}/);
+  const records = await (await coordinationApi.request('/requests', { headers })).json();
+  assert.ok(records.requests.length >= 2);
+  for (const record of records.requests) {
+    for (const field of [record.text, record.result, record.reason]) if (field) assert.doesNotMatch(field, /\b(ca|req|apr)_[A-Za-z0-9_-]{6,}/);
+  }
+});

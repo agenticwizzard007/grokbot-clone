@@ -58,6 +58,8 @@ try {
       else if (path === '/api/events') return route.fulfill({ contentType: 'text/event-stream', body: 'data: {"type":"hello"}\n\n' });
       else if (path === '/api/computer') body = { computer: { status: 'absent', screens: [] } };
       else if (path === '/api/voice/options') body = { voices: [], languages: [], speeds: [], configured: false };
+      else if (path === '/api/checkins') body = { enabled: false, times: ['09:00'], timezone: 'UTC', timezoneSource: 'account', quietHours: [] };
+      else if (path === '/api/checkins/reports') body = { reports: [], nextCursor: 0, hasMore: false };
       await route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
     });
     const openTasks = async () => {
@@ -147,6 +149,67 @@ try {
     await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
     await checkFits();
     if (width === 390) await page.screenshot({ path: new URL('mobile-dark-long-content.png', screenshotDir).pathname });
+    if (width === 1440) {
+      await page.emulateMedia({ colorScheme: 'light' });
+      tasks = structuredClone(sampleTasks);
+      await openTasks();
+      await page.getByText('3 tasks need your input', { exact: true }).waitFor();
+      const tabBar = page.getByRole('navigation', { name: 'Work sections' });
+      const heading = page.locator('#tasks-heading'), subtitle = page.locator('.work-heading p');
+      const boxes = () => tabBar.getByRole('button').evaluateAll(els => els.map(el => { const r = el.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; }));
+      const sameBoxes = (a, b, label) => { assert.equal(a.length, b.length, label); a.forEach((box, i) => box.forEach((v, j) => assert.ok(Math.abs(v - b[i][j]) <= 1, `${label}: ${JSON.stringify(a[i])} vs ${JSON.stringify(b[i])}`))); };
+      const board = await boxes();
+      // R2F-014 and R2F-022: fixed titles without a Bot name (the primary only in the Team subtitle), and a tab bar that never moves.
+      const pages = [
+        ['Team', 'Team', /^Quinn’s board · Owners, dependencies and evidence/],
+        ['Goals', 'Goals', /^Keep work running across turns/],
+        ['Reports', 'Reports', /^Saved reports · Download saved reports/],
+      ];
+      for (const [tab, title, sub] of pages) {
+        await tabBar.getByRole('button', { name: tab, exact: true }).click();
+        await page.waitForFunction(([t, s]) => document.querySelector('#tasks-heading')?.textContent === t && new RegExp(s).test(document.querySelector('.work-heading p')?.textContent ?? ''), [title, sub.source]);
+        const text = await subtitle.innerText();
+        for (const name of tab === 'Team' ? ['Atlas', 'Nova', 'All Bots'] : ['Quinn', 'Atlas', 'Nova', 'All Bots']) assert.ok(!text.includes(name), `${tab} subtitle names no Bot: ${text}`);
+        sameBoxes(await boxes(), board, `${tab} tab bar`);
+      }
+      for (const [open, title] of [['Daily synopses', 'Daily synopses'], ['Routines', 'Routines']]) {
+        await tabBar.getByRole('button', { name: 'Reports', exact: true }).click();
+        const backToReports = page.getByRole('button', { name: 'Back to saved reports', exact: true });
+        if (await backToReports.count()) await backToReports.click();
+        await page.getByRole('button', { name: open, exact: true }).click();
+        await page.waitForFunction(t => document.querySelector('#tasks-heading')?.textContent === t, title);
+        assert.ok(!(await heading.innerText()).includes('Quinn') && !(await subtitle.innerText()).includes('Quinn'), `${title} names no Bot`);
+        sameBoxes(await boxes(), board, `${title} tab bar`);
+      }
+      await tabBar.getByRole('button', { name: 'Tasks', exact: true }).click();
+      await page.getByText('3 tasks need your input', { exact: true }).waitFor();
+      sameBoxes(await boxes(), board, 'back on Tasks');
+      // R2F-010: Details "See all tasks" opens Tasks filtered to that Bot, with a chip to clear it.
+      await page.locator('.bot-row').filter({ hasText: 'Atlas' }).click();
+      await page.getByRole('button', { name: 'Open Atlas details', exact: true }).click();
+      const details = page.getByRole('complementary', { name: 'Conversation details' });
+      await details.getByRole('navigation', { name: 'Conversation details sections' }).getByRole('button', { name: 'Tasks', exact: true }).click();
+      await details.getByRole('button', { name: 'See all tasks', exact: true }).click();
+      const scope = page.getByRole('combobox', { name: 'Filter tasks by bot' });
+      await page.getByText('Showing tasks for Atlas', { exact: true }).waitFor();
+      assert.equal(await scope.inputValue(), 'bot-1', 'See all tasks keeps the Bot filter');
+      await page.waitForFunction(() => document.querySelectorAll('.task-card').length === 3);
+      assert.equal(await page.locator('.task-card').count(), 3, 'only that Bot’s tasks');
+      await tabBar.getByRole('button', { name: 'Team', exact: true }).click();
+      assert.match(await subtitle.innerText(), /^Quinn’s board · Atlas · /, 'a filtered Bot is named');
+      await tabBar.getByRole('button', { name: 'Tasks', exact: true }).click();
+      await page.getByRole('button', { name: 'Clear the Atlas filter and show tasks for all Bots', exact: true }).click();
+      assert.equal(await scope.inputValue(), 'all');
+      await page.waitForFunction(() => document.querySelectorAll('.task-card').length === 9);
+      assert.equal(await page.getByText('Showing tasks for', { exact: false }).count(), 0);
+      // R2F-029: the "Back to chat" text is part of the button.
+      const back = page.locator('.tasks-view__header').getByText('Back to chat', { exact: true });
+      const [backBox, buttonBox] = await Promise.all([back.boundingBox(), page.locator('.tasks-view__header').getByRole('button', { name: 'Back to chat', exact: true }).boundingBox()]);
+      assert.ok(backBox.x >= buttonBox.x && backBox.x + backBox.width <= buttonBox.x + buttonBox.width + 1, 'label inside the button');
+      await back.click();
+      await page.locator('.composer__input').waitFor();
+      assert.match(await page.locator('.chat__pill-name').innerText(), /Atlas/, 'clicking the text returns to the chat');
+    }
     assert.deepEqual(errors, [], 'no browser runtime errors');
     await page.close();
     console.log(`PASS ${width}px: status and bot filters, live updates, keyboard navigation, errors/retry, empty state, long content, dark mode`);

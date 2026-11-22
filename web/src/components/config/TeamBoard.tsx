@@ -180,7 +180,7 @@ function InternalActivity({ botId }: { botId?: string }) {
     {error && <p className="work-error" role="alert">{error} <button className="work-button" type="button" onClick={refresh}>Refresh activity</button></p>}
     {!data && !error && <p role="status">Loading activity…</p>}
     {data?.requests.length === 0 && <p>No internal exchanges recorded.</p>}
-    {data?.requests.map(record => <details key={record.id}><summary>{name(record.fromBotId)} → {name(record.toBotId)} · {record.kind} · {record.status}</summary><p>{record.text}</p>{record.reason && <p>{record.reason}</p>}{record.result && <p>{record.result}</p>}<small>{new Date(record.updatedAt).toLocaleString()} · Request {record.id} · Correlation {record.correlationId}{record.jobId ? ` · Job ${record.jobId}` : ''}</small></details>)}
+    {data?.requests.map(record => <details key={record.id}><summary>{name(record.fromBotId)} → {name(record.toBotId)} · {record.kind} · {record.status}</summary><p>{record.text}</p>{record.reason && <p>{record.reason}</p>}{record.result && <p>{record.result}</p>}<small title={`Reference for support: request ${record.id}, correlation ${record.correlationId}${record.jobId ? `, job ${record.jobId}` : ''}`}>{new Date(record.updatedAt).toLocaleString()}</small></details>)}
     {data?.hasMore && <button type="button" className="work-button" disabled={busy} onClick={() => setPages(count => count + 1)}>{busy ? 'Loading…' : 'Load more exchanges'}</button>}
   </TeamDisclosure>;
 }

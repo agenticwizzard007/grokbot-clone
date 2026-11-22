@@ -125,7 +125,7 @@ const ago = (t: number) => {
 };
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
-function activitySnapshot(botId: string) {
+export function activitySnapshot(botId: string) {
   const live = getLive(botId);
   const tasks = listTasks(botId).filter((t) => t.state !== 'done').slice(0, 6);
   const pending = (db.prepare("SELECT body FROM rows WHERE bot_id=? AND generation=? AND kind='card' ORDER BY seq DESC LIMIT 20").all(botId, getBotRow(botId).generation) as any[])

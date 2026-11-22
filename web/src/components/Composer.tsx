@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { PhoneOff, TextCursorInput } from 'lucide-react';
 import type { Bot } from '@shared/types';
 import { api } from '../lib/api';
@@ -14,6 +14,7 @@ import { hasOpenModal } from './modals/Modal';
 import { detailsReplaceChat, useDetailsReplaceChat } from '../lib/useDetailsLayout';
 import { useFreshConversation } from '../lib/useFreshConversation';
 import { expectRowsAfterSend } from '../lib/sseWatchdog';
+import { takeComposerHold, whenTypingIdle } from '../lib/typingGuard';
 
 const MAX_H = 200;
 const drafts = new Map<string, string>();
@@ -31,6 +32,17 @@ function isActiveComposer(accountId: string | undefined, botId: string) {
 useStore.subscribe((state, previous) => {
   if (state.user?.id !== previous.user?.id) { drafts.clear(); pendingSends.clear(); sendErrors.clear(); }
 });
+
+/** PD-R2-02: put a starting prompt in a Bot's composer draft (kept after any text already there). Nothing is sent. */
+export function prefillComposer(botId: string, text: string) {
+  const accountId = useStore.getState().user?.id;
+  if (!accountId) return;
+  const key = `${accountId}:${botId}`;
+  const current = drafts.get(key)?.trimEnd() ?? '';
+  if (current.includes(text.trim())) return;
+  drafts.set(key, current ? `${current}\n${text}` : text);
+  notifyDraft(key);
+}
 
 export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   const accountId = useStore(s => s.user?.id);
@@ -63,21 +75,37 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
     };
     sync(draftKey);
     draftListeners.add(sync);
-    if (!useStore.getState().mobile && isActiveComposer(accountId, bot.id)) ref.current?.focus();
-    return () => { draftListeners.delete(sync); };
+    let cancelFocus: (() => void) | undefined;
+    if (!useStore.getState().mobile && isActiveComposer(accountId, bot.id)) {
+      // R2F-005: right after Create, keys still meant for the create form must not land here.
+      if (takeComposerHold()) cancelFocus = whenTypingIdle(() => {
+        const current = document.activeElement;
+        if (isActiveComposer(accountId, bot.id) && (!current || current === document.body)) ref.current?.focus();
+      });
+      else ref.current?.focus();
+    }
+    return () => { draftListeners.delete(sync); cancelFocus?.(); };
   }, [draftKey, accountId, bot.id]);
   useEffect(() => { drafts.set(draftKey, text); }, [draftKey, text]);
 
   // Auto-grow.
-  useLayoutEffect(() => {
+  const grow = useCallback(() => {
     const el = ref.current;
     if (!el) return;
     // Hidden (display: none) measures 0; leave the natural one-line height until it's shown.
     if (!el.offsetParent) { el.style.height = ''; return; }
+    // R2F-023: CSS caps the height by the window height (short windows keep room for the conversation);
+    // use that cap here too, or a draft between the two limits is clipped without a scrollbar.
+    const max = Math.min(MAX_H, parseFloat(getComputedStyle(el).maxHeight) || MAX_H);
     el.style.height = '0px';
-    el.style.height = `${Math.min(el.scrollHeight, MAX_H)}px`;
-    el.style.overflowY = el.scrollHeight > MAX_H ? 'auto' : 'hidden';
-  }, [text, onScreen, mobile]);
+    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+    el.style.overflowY = el.scrollHeight > max ? 'auto' : 'hidden';
+  }, []);
+  useLayoutEffect(grow, [text, onScreen, mobile, grow]);
+  // Settings hide the chat pane without unmounting it; measure again when the window or the pane changes.
+  const settingsOpen = useConfigUI(s => !!s.appSettings);
+  useLayoutEffect(grow, [settingsOpen, grow]);
+  useEffect(() => { window.addEventListener('resize', grow); return () => window.removeEventListener('resize', grow); }, [grow]);
 
   // The Paper ring reflects the supported, selected effort in either billing mode.
   const catalog = useModels();

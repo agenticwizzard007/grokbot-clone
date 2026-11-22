@@ -1,7 +1,7 @@
 import { db, now } from './db.js';
 import { hub } from './lib/hub.js';
 import type { Bot, LiveState, Row, RowBody, RowKind, Routine, Task } from './types.js';
-import { executionAudience } from './usage-context.js';
+import { currentJobId, executionAudience } from './usage-context.js';
 import { Cron } from 'croner';
 import { recordHumanSource } from './coordination/sources.js';
 import { applyExplicitPreferenceCorrections } from './knowledge/memory.js';
@@ -125,8 +125,28 @@ function recordMessageSource(userId: string, botId: string, generation: number, 
   return false;
 }
 
+/** Thrown instead of writing a card for a group chat turn (R2F-001). */
+export class RoomCardRefused extends Error {
+  constructor() { super('Group chat turns cannot show cards in a member chat. Nothing was done.'); this.name = 'RoomCardRefused'; }
+}
+
+/** The durable job a card belongs to was triggered by a group chat message. */
+function roomTriggeredJob(botId: string, jobId: unknown): boolean {
+  if (typeof jobId !== 'string' || !jobId) return false;
+  try {
+    const job = db.prepare("SELECT json_extract(trigger,'$.roomId') room FROM agent_jobs WHERE id=? AND bot_id=?").get(jobId, botId) as { room: string | null } | undefined;
+    return !!job?.room;
+  } catch { return false; } // agent_jobs may not exist in a partial schema.
+}
+
 /** Append a new row. Returns its seq. */
 export function appendRow(botId: string, kind: RowKind, body: RowBody): Row {
+  // Last line of defence: a group turn never writes an approval, question, connect or draft card into a
+  // member's own chat, whichever code path tries. The runtime already avoids this; log if it ever happens.
+  if ((kind === 'card' || body.type === 'card') && roomTriggeredJob(botId, (body as { jobId?: unknown }).jobId ?? currentJobId())) {
+    console.warn('[rows] refused a card row for a group chat turn', { botId, card: (body as { card?: string }).card });
+    throw new RoomCardRefused();
+  }
   body = { ...body, audience: body.type === 'card' ? 'user' : body.audience ?? executionAudience(botId) };
   const tx = db.transaction(() => {
     const b = db.prepare('SELECT user_id, generation, next_seq FROM bots WHERE id=?').get(botId) as any;

@@ -1,4 +1,5 @@
 import './lib/legacy-storage'; // before reading saved preferences
+import { useEffect } from 'react';
 import { create } from 'zustand';
 import type { ServerEvent } from '@shared/types';
 import { enterChatPane, useStore } from './store';
@@ -15,6 +16,14 @@ export interface ResumeTarget { section: AppSection; provider?: 'codex' | 'claud
 
 interface ConfigUI {
   botSettings: { botId: string; tab: BotSettingsTab } | null;
+  /** Unsaved Bot settings drafts by editor id, with the tab label each belongs to (R2F-004). */
+  botSettingsDrafts: Record<string, string>;
+  /** True while Bot settings is open with an unsaved draft on any tab. */
+  botSettingsDirty: boolean;
+  /** A navigation waiting on the "Discard unsaved changes?" answer. */
+  botSettingsLeave: { next: () => void } | null;
+  /** Bumped when the user discards drafts so editors that stay mounted reset. */
+  botSettingsDiscards: number;
   appSettings: AppSection | null;
   /** Consumed once by the section it names, after a sign-in round trip planned with planResume(). */
   resume: ResumeTarget | null;
@@ -25,7 +34,14 @@ interface ConfigUI {
   /** Bumped by server events (tasks, memories) so open views refetch. Keys: 'tasks', 'memories:<botId>'. */
   versions: Record<string, number>;
   openBotSettings(botId: string, tab?: BotSettingsTab): void;
+  /** Leaves Bot settings, asking first when a draft is unsaved. */
   closeBotSettings(): void;
+  /** Leaves Bot settings without asking (the Bot is gone or the draft was already handled). */
+  discardBotSettings(): void;
+  setBotSettingsDraft(id: string, label: string | null): void;
+  /** Runs `next` now when nothing is unsaved; otherwise shows the discard dialog and runs it only on Discard. */
+  requestLeaveBotSettings(next: () => void): boolean;
+  resolveLeaveBotSettings(discard: boolean): void;
   openAppSettings(section?: AppSection): void;
   closeAppSettings(): void;
   clearResume(): void;
@@ -48,6 +64,23 @@ const linkedSection = (): AppSection | null => {
   const raw = window.location.hash.replace(/^#(settings\/)?/, '');
   const h = (SECTION_ALIASES[raw] ?? raw) as AppSection;
   return SECTIONS_LINKABLE.includes(h) ? h : null;
+};
+
+/** R2F-028: /#bot/<id>/settings/<tab> reopens that Bot's settings tab (hash sync only, PD-R2-07 A). */
+const BOT_SETTINGS_TABS: BotSettingsTab[] = ['general', 'skills', 'memories', 'routines', 'analytics', 'learning'];
+export const botSettingsHash = (botId: string, tab: BotSettingsTab) => `#bot/${encodeURIComponent(botId)}/settings/${tab}`;
+const linkedBotSettings = (): { botId: string; tab: BotSettingsTab } | null => {
+  if (typeof window === 'undefined') return null;
+  const match = window.location.hash.match(/^#bot\/([^/]{1,128})\/settings(?:\/([a-z]+))?$/);
+  if (!match) return null;
+  let botId: string;
+  try { botId = decodeURIComponent(match[1]); } catch { return null; }
+  const tab = (match[2] ?? 'general') as BotSettingsTab;
+  return botId && BOT_SETTINGS_TABS.includes(tab) ? { botId, tab } : null;
+};
+const replaceHash = (hash: string) => {
+  if (typeof window === 'undefined' || window.location.hash === hash || (!hash && !window.location.hash)) return;
+  history.replaceState(history.state, '', window.location.pathname + window.location.search + hash);
 };
 
 const SS_RESUME = 'swarm.resume';
@@ -94,25 +127,68 @@ export function applyTheme(t: Theme) {
   document.documentElement.style.colorScheme = resolved;
 }
 
+const initialAppSection = initialSection();
+
 export const useConfigUI = create<ConfigUI>((set, get) => ({
-  botSettings: null,
-  appSettings: initialSection(),
+  botSettings: initialAppSection ? null : linkedBotSettings(),
+  botSettingsDrafts: {},
+  botSettingsDirty: false,
+  botSettingsLeave: null,
+  botSettingsDiscards: 0,
+  appSettings: initialAppSection,
   resume: resumed,
   appSettingsHome: false,
   view: 'chat',
   theme: readTheme(),
   versions: {},
-  openBotSettings: (botId, tab = 'general') => set({ botSettings: { botId, tab } }),
-  closeBotSettings: () => set({ botSettings: null }),
+  openBotSettings: (botId, tab = 'general') => {
+    const open = () => {
+      // Every tab change replaces the URL, so one Settings visit leaves one history entry.
+      if (!get().appSettings) replaceHash(botSettingsHash(botId, tab));
+      set({ botSettings: { botId, tab } });
+    };
+    // Tabs of the same Bot keep the General draft; another Bot's settings would drop it.
+    if (get().botSettings && get().botSettings?.botId !== botId) get().requestLeaveBotSettings(open);
+    else open();
+  },
+  closeBotSettings: () => { get().requestLeaveBotSettings(() => get().discardBotSettings()); },
+  discardBotSettings: () => {
+    if (linkedBotSettings()) replaceHash('');
+    set({ botSettings: null, botSettingsDrafts: {}, botSettingsDirty: false, botSettingsLeave: null });
+  },
+  setBotSettingsDraft: (id, label) => {
+    const drafts = get().botSettingsDrafts;
+    if ((drafts[id] ?? null) === label) return;
+    const next = { ...drafts };
+    if (label) next[id] = label; else delete next[id];
+    set({ botSettingsDrafts: next, botSettingsDirty: Object.keys(next).length > 0 });
+  },
+  requestLeaveBotSettings: (next) => {
+    const state = get();
+    if (!state.botSettings || !state.botSettingsDirty) { next(); return true; }
+    // Show the question where it can be seen: over Settings, search or the apps dialog it would be hidden.
+    if (state.appSettings) state.closeAppSettings();
+    const store = useStore.getState();
+    if (store.modal === 'search' || store.modal === 'apps') store.setModal(null);
+    set({ botSettingsLeave: { next } });
+    return false;
+  },
+  resolveLeaveBotSettings: (discard) => {
+    const pending = get().botSettingsLeave;
+    if (!discard) { set({ botSettingsLeave: null }); return; }
+    set({ botSettingsLeave: null, botSettingsDrafts: {}, botSettingsDirty: false, botSettingsDiscards: get().botSettingsDiscards + 1 });
+    pending?.next();
+  },
   openAppSettings: (section) => {
     // Keep the URL on the open section so a reload reopens it (PD-05 hash sync). replaceState fires no hashchange.
-    if (section && SECTIONS_LINKABLE.includes(section) && typeof window !== 'undefined' && window.location.hash !== `#settings/${section}`) {
-      history.replaceState(history.state, '', window.location.pathname + window.location.search + `#settings/${section}`);
-    }
+    if (section && SECTIONS_LINKABLE.includes(section)) replaceHash(`#settings/${section}`);
     set({ appSettings: section ?? 'general', appSettingsHome: !section });
   },
   closeAppSettings: () => {
-    if (linkedSection()) history.replaceState(history.state, '', window.location.pathname + window.location.search);
+    // Back on an open Bot settings page, the URL names that page again.
+    const bot = get().botSettings;
+    if (bot) replaceHash(botSettingsHash(bot.botId, bot.tab));
+    else if (linkedSection()) replaceHash('');
     set({ appSettings: null, appSettingsHome: false });
   },
   clearResume: () => set({ resume: null }),
@@ -131,7 +207,9 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
 // Apply the saved theme as early as possible, and follow the OS while on "system".
 window.addEventListener('hashchange', () => {
   const section = linkedSection();
-  if (section) useConfigUI.getState().openAppSettings(section);
+  if (section) { useConfigUI.getState().openAppSettings(section); return; }
+  const bot = linkedBotSettings();
+  if (bot) useConfigUI.getState().openBotSettings(bot.botId, bot.tab);
 });
 applyTheme(readTheme());
 darkQuery?.addEventListener?.('change', () => { if (useConfigUI.getState().theme === 'system') applyTheme('system'); });
@@ -144,6 +222,8 @@ window.addEventListener('swarm:event', (e) => {
   if (ev.type === 'memories') bump(`memories:${ev.botId}`);
   if (ev.type === 'setup') { bump(`setup:${ev.botId}`); bump('needs-you'); }
   if (ev.type === 'messaging') bump('messaging');
+  // R2F-017: the server announces account time zone changes; Daily synopses reloads on it.
+  if ((ev as { type: string }).type === 'synopses') bump('synopses');
 });
 
 // Needs-you (MF-012) also refetches when a card row appears or changes state ('rows' events stay in store.ts).
@@ -172,10 +252,20 @@ export const useVersion = (key: string) => useConfigUI((s) => s.versions[key] ??
 
 /** Canonical navigation from global bot lists/search: close panels from the previous caller. */
 export function openConversation(botId: string) {
-  const ui = useConfigUI.getState();
-  ui.closeAppSettings();
-  ui.closeBotSettings();
-  ui.setView('chat');
-  useStore.getState().setModal(null);
-  useStore.getState().selectBot(botId);
+  useConfigUI.getState().requestLeaveBotSettings(() => {
+    const ui = useConfigUI.getState();
+    ui.closeAppSettings();
+    ui.discardBotSettings();
+    ui.setView('chat');
+    useStore.getState().setModal(null);
+    useStore.getState().selectBot(botId);
+  });
+}
+
+/** Registers an unsaved Bot settings draft while `dirty` (R2F-004). `label` names its tab in the dialog. */
+export function useBotSettingsDraft(id: string, label: string, dirty: boolean) {
+  useEffect(() => {
+    useConfigUI.getState().setBotSettingsDraft(id, dirty ? label : null);
+    return () => useConfigUI.getState().setBotSettingsDraft(id, null);
+  }, [id, label, dirty]);
 }

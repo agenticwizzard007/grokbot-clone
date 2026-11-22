@@ -68,18 +68,33 @@ export function installEvolutionHistory(db: Database.Database) {
 
   // Configuration has no complete older ledger. Capture an honest current
   // baseline and all subsequent changes, without inventing earlier revisions.
-  for (const [table,id,kind,columns] of [
-    ['bots','id','profile',['name','label','description','instructions','model']],
-    ['bot_setups','bot_id','setup',['brief','onboarding_status','revision']],
+  // R2F-012: configuration entries name the setup revision they belong to. Profile changes record the
+  // Bot's current setup revision; NULL when the Bot has no setup (for example a group chat).
+  for (const [table,id,kind,columns,revision] of [
+    ['bots','id','profile',['name','label','description','instructions','model'],'(SELECT revision FROM bot_setups WHERE bot_id=NEW.id)'],
+    ['bot_setups','bot_id','setup',['brief','onboarding_status','revision'],'NEW.revision'],
   ] as const) {
     const snapshot=(alias:string)=>`json_object(${columns.flatMap(c=>[`'${c}'`,`${alias}.${c}`]).join(',')})`;
-    const v=values({bot:`NEW.${id}`,key:`'${kind}:'||lower(hex(randomblob(16)))`,kind:`'${kind}'`,id:`NEW.${id}`,action:"'updated'",after:snapshot('NEW')});
+    const v=values({bot:`NEW.${id}`,key:`'${kind}:'||lower(hex(randomblob(16)))`,kind:`'${kind}'`,id:`NEW.${id}`,revision,action:"'updated'",after:snapshot('NEW')});
     db.exec(`CREATE TRIGGER IF NOT EXISTS evolution_${kind}_insert AFTER INSERT ON ${table} BEGIN ${insert({...v,action:"'created'"},'recorded')} END;
       CREATE TRIGGER IF NOT EXISTS evolution_${kind}_update AFTER UPDATE OF ${columns.join(',')} ON ${table}
       WHEN ${columns.map(c=>`OLD.${c} IS NOT NEW.${c}`).join(' OR ')}
       BEGIN ${insert({...v,before:snapshot('OLD')},'recorded')} END;`);
     historical.push({table,v:{...v,key:`'${kind}:baseline'`,action:"'baseline'",reason:"'Current configuration when history tracking started; earlier changes may be unavailable.'"},order:id});
   }
+  // Databases created before R2F-012 keep their original configuration triggers (CREATE TRIGGER IF NOT
+  // EXISTS never replaces them, and this module does not drop triggers). This additive trigger gives
+  // their setup and profile entries the same source revision: it writes the entry once with the
+  // revision filled in and ignores the original insert. It works in either trigger order, and it never
+  // fires for entries that already carry a revision, so fresh databases are unaffected.
+  const configRevision="COALESCE(json_extract(NEW.after_snapshot,'$.revision'),(SELECT revision FROM bot_setups WHERE bot_id=NEW.source_id))";
+  db.exec(`CREATE TRIGGER IF NOT EXISTS evolution_config_source_revision BEFORE INSERT ON agent_evolution
+    WHEN NEW.kind IN ('setup','profile') AND NEW.source_revision IS NULL AND ${configRevision} IS NOT NULL
+    BEGIN
+      INSERT INTO agent_evolution (user_id,bot_id,version,source_key,kind,source_id,source_revision,action,actor,reason,run_id,before_snapshot,after_snapshot,evidence,occurred_at,recorded_at,origin)
+      VALUES (NEW.user_id,NEW.bot_id,NEW.version,NEW.source_key,NEW.kind,NEW.source_id,CAST(${configRevision} AS TEXT),NEW.action,NEW.actor,NEW.reason,NEW.run_id,NEW.before_snapshot,NEW.after_snapshot,NEW.evidence,NEW.occurred_at,NEW.recorded_at,NEW.origin);
+      SELECT RAISE(IGNORE);
+    END;`);
   historical.push({table:'memories',order:'created_at,id',v:values({bot:'NEW.bot_id',key:"'memory-baseline:'||NEW.id",kind:"'memory'",id:'NEW.id',revision:'NEW.revision',action:"'baseline'",reason:"'Current memory when tracking started; no earlier retained memory event is available.'",after:"json_object('id',NEW.id,'text',NEW.text,'revision',NEW.revision,'status',NEW.status,'target',NEW.target,'scope',NEW.scope,'evidence',json(NEW.evidence))",evidence:'NEW.evidence'})});
 
   // Backfill only retained evidence. Reads do not perform this migration, and

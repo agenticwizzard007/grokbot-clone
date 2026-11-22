@@ -90,3 +90,6 @@
   .details--sidebar .setup-paper__bar { padding-top: max(4px, env(safe-area-inset-top)); }
   .details--sidebar .voice-settings__control select { font-size: 16px; }
 }
+/* R2F-022: the scrollbar never takes width from the tabs when a tab's content starts or stops scrolling. */
+.details.details--page, .app .bot-details-pane .details.details--page.details--sidebar { scrollbar-gutter: stable; }
+.details--sidebar .bot-detail-section__link { align-self: flex-start; }

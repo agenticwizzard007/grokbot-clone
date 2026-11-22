@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { synopsisApi, type SynopsisDetail, type SynopsisRecord, type SynopsisSettings, type SynopsisSource } from '../../lib/workApi';
 import { useStore } from '../../store';
+import { useVersion } from '../../configStore';
 import { useWorkLifetime, workBotKey } from './workScope';
 import './workArea.css';
 import './SynopsesPanel.css';
@@ -8,6 +9,17 @@ import './SynopsesPanel.css';
 interface Props { onUpdated?: () => void; onReports?: () => void; workspace?: boolean }
 const savedFile = (id: string) => `/api/deliverables/artifacts/${encodeURIComponent(id)}/download`;
 const correctTime = (value: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+/** R2F-036: plain names for the team records a synopsis reads (SynopsisSource.kind). */
+const SOURCE_NAMES: Record<string, string> = {
+  routine: 'routines', run: 'routine runs', coworker: 'Bot setups', workflow: 'workflows', task: 'workflow tasks', goal: 'goals', job: 'jobs',
+  artifact: 'saved reports', delivery: 'deliveries', request: 'team requests', decision: 'decisions waiting on you', learning: 'learning',
+};
+export function synopsisSourceText(sources: Pick<SynopsisSource, 'kind'>[]): string {
+  const names = [...new Set(sources.map(source => SOURCE_NAMES[source.kind] ?? source.kind.replaceAll('_', ' ')))].slice(0, 4);
+  if (!names.length) return 'from your team’s records';
+  return `from your team’s ${names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0]}`;
+}
+const timezoneOf = (user: unknown) => (user as { timezone?: string | null } | null)?.timezone ?? null;
 
 export function SynopsesPanel(props: Props) {
   const account = useStore(state => state.user?.id);
@@ -21,6 +33,10 @@ function SynopsesSurface({ onUpdated, onReports, workspace, account, primaryKey 
   const [edit, setEdit] = useState(false), [saving, setSaving] = useState(false), [loading, setLoading] = useState(true);
   const [readErrors, setReadErrors] = useState<string[]>([]), [actionError, setActionError] = useState(''), [receipt, setReceipt] = useState('');
   const [revision, setRevision] = useState(0);
+  // R2F-017: a time zone change (Settings > Account here, or any tab after the store reloads the account) refreshes the line.
+  const accountZone = useStore(state => timezoneOf(state.user));
+  const announced = useVersion('synopses');
+  const [sources, setSources] = useState<SynopsisSource[] | null>(null);
   const lifetime = useWorkLifetime();
   const pending = useRef(false);
   const activePage = useRef<AbortController>();
@@ -38,7 +54,15 @@ function SynopsesSurface({ onUpdated, onReports, workspace, account, primaryKey 
       setLoading(false);
     });
     return () => { controller.abort(); activePage.current?.abort(); };
-  }, [account, primaryKey, revision]);
+  }, [account, primaryKey, revision, accountZone, announced]);
+  // R2F-036: the schedule line names what the latest synopsis was made from.
+  const latestId = page?.reports.find(report => report.sourceCount > 0)?.id;
+  useEffect(() => {
+    if (!latestId) { setSources(null); return; }
+    const controller = new AbortController();
+    synopsisApi.sources(latestId, 0, controller.signal).then(result => { if (!controller.signal.aborted && current()) setSources(result.sources); }).catch(() => { if (!controller.signal.aborted) setSources(null); });
+    return () => controller.abort();
+  }, [latestId]);
   const update = async <Result,>(run: () => Promise<Result>, applied: (result: Result) => void, refresh = true) => {
     if (!account || !primaryKey || !current() || pending.current || loading) return;
     pending.current = true; setSaving(true); setActionError(''); setReceipt('');
@@ -69,7 +93,7 @@ function SynopsesSurface({ onUpdated, onReports, workspace, account, primaryKey 
     {!settings && loading && <p role="status">Loading synopsis schedule…</p>}
     {settings && <div className="work-row synopsis-schedule">
       <div className="work-row__body"><div><label className="workflow-checkbox"><input type="checkbox" checked={settings.enabled} disabled={disabled || edit} onChange={event => { const enabled = event.currentTarget.checked; void update(() => synopsisApi.save({ enabled }), setSettings, false); }} /> Scheduled daily synopsis</label>
-        <p className="work-meta">{settings.enabled ? 'Scheduled' : 'Paused'} · {settings.times.length ? settings.times.join(', ') : 'No times selected'} · {settings.timezone}{settings.timezoneSource === 'utc_fallback' ? ' (UTC fallback: account timezone unavailable)' : ''}{settings.quietHours.length ? ` · quiet hours ${settings.quietHours.map(range => `${range.start}–${range.end}`).join(', ')}` : ''}. Saved in Library.</p>
+        <p className="work-meta">{settings.enabled ? 'Scheduled' : 'Paused'} · {settings.times.length ? settings.times.join(', ') : 'No times selected'} · {settings.timezone}{settings.timezoneSource === 'utc_fallback' ? ' (UTC fallback: account timezone unavailable)' : ''}{settings.quietHours.length ? ` · quiet hours ${settings.quietHours.map(range => `${range.start}–${range.end}`).join(', ')}` : ''} · <span className="synopsis-source">{synopsisSourceText(sources ?? [])}</span>. Saved in Library.</p>
       </div><button className="work-button" type="button" disabled={disabled} aria-expanded={edit} onClick={() => setEdit(!edit)}>Edit schedule</button></div>
       {edit && <ScheduleForm settings={settings} disabled={disabled} cancel={() => setEdit(false)} save={input => void update(() => synopsisApi.save(input), saved => { setSettings(saved); setEdit(false); setReceipt('Synopsis schedule saved.'); }, false)} />}
     </div>}

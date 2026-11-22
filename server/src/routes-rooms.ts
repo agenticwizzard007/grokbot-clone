@@ -6,10 +6,13 @@ import { appendRow } from './store.js';
 import { roomMembers } from './agent/rooms.js';
 import { isConfiguring } from './bot-setup.js';
 import { readJson } from './lib/json.js';
+import { apiBodyLimit } from './security/body-limits.js';
 
 /** /api/rooms: group chat membership. A room is a bot row with kind='room'. */
 export const roomsApi = new Hono<AuthVars>();
 roomsApi.use('*', requireUser);
+// R2F-019: byte cap before any JSON is parsed.
+roomsApi.use('*', apiBodyLimit);
 
 /** Bots still in their setup interview can't answer in groups. */
 function notActiveError(ids: string[]) {

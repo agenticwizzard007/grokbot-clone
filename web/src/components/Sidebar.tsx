@@ -73,12 +73,13 @@ export function Sidebar() {
   const selectBot = useCallback(openConversation, []);
   const setModal = useStore((s) => s.setModal);
   const [accountMenu, setAccountMenu] = useState(false);
-  const createBot = () => { useConfigUI.getState().closeAppSettings(); useConfigUI.getState().closeBotSettings(); setModal('create'); };
-  const showBots = () => {
-    const ui = useConfigUI.getState(); ui.closeAppSettings(); ui.closeBotSettings(); setModal(null);
+  // R2F-004: leaving Bot settings with unsaved edits asks first.
+  const createBot = () => useConfigUI.getState().requestLeaveBotSettings(() => { useConfigUI.getState().closeAppSettings(); useConfigUI.getState().discardBotSettings(); setModal('create'); });
+  const showBots = () => useConfigUI.getState().requestLeaveBotSettings(() => {
+    const ui = useConfigUI.getState(); ui.closeAppSettings(); ui.discardBotSettings(); setModal(null);
     ui.setView(useStore.getState().mobile ? 'chat' : 'bots');
     set({ mobilePane: 'list', detailsOpen: false });
-  };
+  });
   const logout = async () => {
     try { await api.logout(); }
     catch { toast('Couldn\'t sign out. Check your connection and try again.', { tone: 'error' }); return; }
@@ -116,6 +117,7 @@ export function Sidebar() {
 
       <div className="sidebar__scroll">
         <TasksIsland />
+        {!collapsed && bots.length > 0 && <p className="sidebar__section-label">Your Bots</p>}
         {primary && (
           <div className="pinned">
             <button type="button" className={`pinned__tile${selectedBotId === primary.id ? ' is-selected' : ''}`} onClick={() => selectBot(primary.id)} aria-label={displayName(primary)} title={displayName(primary)}>
@@ -123,7 +125,7 @@ export function Sidebar() {
                 <BotAvatarFor bot={primary} size={40} star working={primaryWorking} />
                 {primaryWorking && <span className="status-dot is-working pinned__dot" />}
               </span>
-              {!collapsed && <span className="pinned__text"><span className="pinned__label">{primary.name}</span><span className="bot-row__preview">{primaryLive?.awaiting?.reason ?? (primaryWorking ? 'Working…' : primary.label || 'Your primary Bot')}</span></span>}
+              {!collapsed && <span className="pinned__text"><span className="pinned__label"><span className="pinned__name">{primary.name}</span><span className="pinned__tag">Primary</span></span><span className="bot-row__preview">{primaryLive?.awaiting?.reason ?? (primaryWorking ? 'Working…' : primary.label || 'Your primary Bot')}</span></span>}
             </button>
           </div>
         )}

@@ -6,6 +6,8 @@ import { listInternalRequests } from './coordination/requests.js';
 import { listNativeEvents } from './native/events.js';
 import { setCoordinationEnabled } from './coordination/supervision.js';
 import { getTeamRecords, TEAM_RECORD_KINDS } from './coordination/records.js';
+import { db } from './db.js';
+import { displayCoordinationText } from './lib/redact.js';
 import { ExchangeUnavailable, listAgentExchanges, readAgentExchange } from './coordination/exchanges.js';
 
 export const coordinationApi=new Hono<AuthVars>();
@@ -26,6 +28,14 @@ coordinationApi.get('/exchanges/:id',c=>{
 });
 coordinationApi.get('/state',c=>c.json({state:teamState(c.get('user').id)}));
 coordinationApi.get('/records',c=>{const a=z.object({kind:z.enum(TEAM_RECORD_KINDS),after:z.coerce.number().int().min(0).default(0),limit:z.coerce.number().int().min(1).max(100).default(50),through:z.coerce.number().int().min(0).optional()}).parse(c.req.query());return c.json(getTeamRecords(c.get('user').id,a));});
-coordinationApi.get('/requests',c=>{const a=page.parse(c.req.query());return c.json(listInternalRequests(c.get('user').id,a.after,a.limit,c.req.query('botId')));});
+coordinationApi.get('/requests',c=>{
+ const a=page.parse(c.req.query());const userId=c.get('user').id;
+ const page_=listInternalRequests(userId,a.after,a.limit,c.req.query('botId'));
+ // R2F-002: text shown on the Team board carries no raw request, approval or account ids. Structured
+ // id fields stay for linking; the model keeps the machine header through its own tools.
+ const botName=(id:string)=>(db.prepare('SELECT name FROM bots WHERE id=? AND user_id=?').get(id,userId) as {name:string}|undefined)?.name;
+ const clean=(v:string|null)=>v===null?null:displayCoordinationText(v,{botName});
+ return c.json({...page_,requests:page_.requests.map(r=>({...r,text:clean(r.text)!,result:clean(r.result),reason:clean(r.reason)!}))});
+});
 coordinationApi.get('/events',c=>{const a=page.parse(c.req.query());const events=listNativeEvents(c.get('user').id,a.after,a.limit+1);return c.json({events:events.slice(0,a.limit),nextCursor:events.slice(0,a.limit).at(-1)?.seq??a.after,hasMore:events.length>a.limit});});
 coordinationApi.patch('/settings',async c=>{const a=z.object({enabled:z.boolean()}).strict().parse(await c.req.json());setCoordinationEnabled(c.get('user').id,a.enabled);return c.json({enabled:a.enabled});});

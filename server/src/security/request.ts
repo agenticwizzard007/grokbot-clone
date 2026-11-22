@@ -25,12 +25,35 @@ export const requestBoundary: MiddlewareHandler = async (c, next) => {
  * Content Security Policy for the web app shell (MF-002). Built from what web/src actually loads:
  * - scripts: Vite bundles from 'self'; the voice AudioWorklet is loaded from a blob: URL.
  * - styles: React style attributes and xterm inject inline styles, so 'unsafe-inline' stays for styles only.
- * - connect: same origin API, SSE and the noVNC viewer socket (wss://<host>/api/bots/:id/screen), plus the
- *   realtime voice socket, whose host comes from server configuration (so any https:/wss: endpoint).
+ * - connect (R2F-038): same origin API and SSE, the noVNC viewer socket on the app host
+ *   (wss://<host>/api/bots/:id/screen), and the realtime voice socket, whose host comes from the configured
+ *   voice and direct provider base URLs. Nothing else is fetched from the browser; app connections and
+ *   sign-in use redirects and popups.
  * - images: Composio app logos and MCP icons come from many hosts, plus data: and blob: previews.
  * - media: voice samples play from blob: URLs.
  * Sign-in and app connections use redirects and popups, never frames, so nothing may frame the app.
  */
+/** The websocket origin for a configured http(s) base URL, or null when it is not a URL. */
+function socketOrigin(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+    return `${u.protocol === 'https:' ? 'wss:' : 'ws:'}//${u.host}`;
+  } catch { return null; }
+}
+/** connect-src sources: 'self' plus the app host and voice provider sockets derived from configuration. */
+export function connectSources(): string[] {
+  const sources = new Set<string>(["'self'"]);
+  // 'self' covers same-origin sockets in current browsers; the explicit app host keeps older ones working.
+  for (const base of [env.appUrl, env.serverUrl, env.voiceBaseUrl, env.directBaseUrl]) {
+    const origin = socketOrigin(base);
+    if (origin) sources.add(origin);
+  }
+  return [...sources];
+}
+/** Browser features: only the microphone (voice calls and dictation), and only for this origin. */
+export const PERMISSIONS_POLICY = 'camera=(), geolocation=(), microphone=(self)';
+
 export function contentSecurityPolicy(secure = true): string {
   // Plain http deployments (local development) also load images and sockets over http: and ws:.
   const http = secure ? '' : ' http:';
@@ -46,7 +69,7 @@ export function contentSecurityPolicy(secure = true): string {
     "img-src 'self' data: blob: https:" + http,
     "font-src 'self' data:",
     "media-src 'self' data: blob:",
-    "connect-src 'self' https: wss:" + http + ws,
+    `connect-src ${connectSources().join(' ')}` + http + ws,
     "frame-src 'self' blob:",
     "manifest-src 'self'",
   ].join('; ');
@@ -73,6 +96,7 @@ function setResponseHeaders(c: Context, headers: Record<string, string>) {
 export const securityHeaders: MiddlewareHandler = async (c, next) => {
   await next();
   const headers: Record<string, string> = { 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY' };
+  if (!c.res.headers.has('Permissions-Policy')) headers['Permissions-Policy'] = PERMISSIONS_POLICY;
   const secure = isSecure(c);
   if (secure) headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
   const api = c.req.path === '/api' || c.req.path.startsWith('/api/');

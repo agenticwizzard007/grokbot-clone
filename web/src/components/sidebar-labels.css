@@ -7,3 +7,14 @@
 .sidebar .bot-row__text,
 .sidebar .sidebar-usage__row,
 .sidebar .sidebar-usage__detail { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+
+/* R2F-024: a visible section label and a primary marker on the pinned row. */
+.sidebar .sidebar__section-label { margin: 6px 10px 0; font-size: 12px; font-weight: 500; line-height: 16px; color: var(--color-text-secondary); }
+.sidebar .pinned__label { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.sidebar .pinned__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar .pinned__tag { flex-shrink: 0; padding: 0 6px; border-radius: 999px; border: 1px solid var(--color-border-secondary); font-size: 11px; font-weight: 500; line-height: 16px; color: var(--color-text-secondary); }
+
+/* R2F-034: the Tasks island stays in view while the Bot list scrolls. */
+.sidebar__scroll > .sidebar-island { position: sticky; top: 0; z-index: 2; background-color: var(--color-bg-sidebar); box-shadow: 0 10px 0 var(--color-bg-sidebar); }
+.sidebar__scroll > .sidebar-island:hover { background: linear-gradient(var(--color-bg-hover), var(--color-bg-hover)), var(--color-bg-sidebar); }
+.sidebar__scroll > .sidebar-island.is-active { background: var(--color-bg-active); }

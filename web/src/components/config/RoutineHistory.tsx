@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { deliverablesApi, type Artifact, type RoutineRun } from '../../lib/deliverablesApi';
 import { relativeShort } from '../../lib/time';
 import { useStore } from '../../store';
+import { useVersion } from '../../configStore';
 import { workBotKey } from './workScope';
 import './workArea.css';
 
@@ -17,6 +18,20 @@ function RunHistory({ botId, routineId, user }: { botId: string; routineId?: str
   const [runs, setRuns] = useState<RoutineRun[] | null>(null), [loading, setLoading] = useState(true);
   const [error, setError] = useState(''), [selected, setSelected] = useState<string>();
   const [revision, setRevision] = useState(0);
+  // R2F-016: refetch on routine events for this Bot (the store reloads its list), after Run now, and on native activity.
+  const routines = useStore(state => state.routines[botId]);
+  const bumped = useVersion(`routines:${botId}`);
+  const [activity, setActivity] = useState(0);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onEvent = (event: Event) => {
+      if ((event as CustomEvent<{ type?: string }>).detail?.type !== 'native') return;
+      clearTimeout(timer);
+      timer = setTimeout(() => setActivity(count => count + 1), 800);
+    };
+    window.addEventListener('swarm:event', onEvent);
+    return () => { clearTimeout(timer); window.removeEventListener('swarm:event', onEvent); };
+  }, []);
   useEffect(() => {
     if (!user) return;
     const controller = new AbortController();
@@ -26,7 +41,7 @@ function RunHistory({ botId, routineId, user }: { botId: string; routineId?: str
       if (current()) setRuns(result.runs.filter(run => run.botId === botId && (!routineId || run.routineId === routineId)));
     }).catch(err => { if (current()) setError(err.message); }).finally(() => { if (current()) setLoading(false); });
     return () => controller.abort();
-  }, [botId, routineId, revision, user]);
+  }, [botId, routineId, revision, user, routines, bumped, activity]);
   return <section className="work-ui routine-history" aria-label="Routine run history">
     <h2 className="work-title">Run history</h2>
     {error && <p role="alert" className="work-error">{runs ? 'Could not refresh. Showing the last loaded runs. ' : ''}{error}</p>}

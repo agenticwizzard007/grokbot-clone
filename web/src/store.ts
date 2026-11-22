@@ -113,6 +113,7 @@ export const useStore = create<State>((set, get) => ({
   async loadBots() {
     const accountId = get().user?.id;
     if (!accountId) return;
+    const firstLoad = !get().botsLoaded;
     const { bots, live } = await api.bots();
     if (get().user?.id !== accountId) return;
     const liveMap: Record<string, LiveState> = {};
@@ -131,6 +132,8 @@ export const useStore = create<State>((set, get) => ({
     if (selectedBotId !== get().selectedBotId || !get().transcripts[selectedBotId ?? '']) {
       if (selectedBotId) get().selectBot(selectedBotId, { open: false });
     }
+    // R2F-015: the chat restored after a reload follows "Open Bot details with each chat" too (never on phones).
+    if (firstLoad && selectedBotId && !get().mobile && readDetailsDefault(accountId)) set({ detailsOpen: true });
   },
 
   selectBot(id, opts = {}) {
@@ -160,7 +163,7 @@ export const useStore = create<State>((set, get) => ({
       for (const r of Object.values(prev.bySeq)) if (!bySeq[r.seq] || bySeq[r.seq].updatedSeq < r.updatedSeq) bySeq[r.seq] = r;
     }
     set((s) => ({ transcripts: { ...s.transcripts, [id]: { generation, bySeq, loaded: true } } }));
-    if (import.meta.env.DEV && new URLSearchParams(location.search).has('fixtures')) {
+    if (import.meta.env?.DEV && new URLSearchParams(location.search).has('fixtures')) {
       import('./dev/fixtures').then((m) => m.injectFixtures());
     }
   },
@@ -192,6 +195,8 @@ export const useStore = create<State>((set, get) => ({
 
   handleEvent(ev) {
     const s = get();
+    // Time zone changes (PATCH /api/auth/me) refresh synopses; picked up by configStore.ts like the topics below.
+    if ((ev as { type: string }).type === 'synopses') { window.dispatchEvent(new CustomEvent('swarm:event', { detail: ev })); return; }
     switch (ev.type) {
       case 'hello':
       case 'ping':
@@ -287,8 +292,20 @@ function syncBrowserTimezone(user: User | null) {
 export function enterChatPane() {
   const st = useStore.getState();
   if (!st.mobile || st.mobilePane === 'chat') return;
-  if (setupTraversal !== 'close') history.pushState({ swarmPane: 'chat' }, '');
+  // R2F-007: mark the entry as opened from the list, so Back may only walk history when the list is behind it.
+  if (setupTraversal !== 'close') history.pushState({ swarmPane: 'chat', swarmFrom: 'list', swarmDoc: performance.timeOrigin }, '');
   st.set({ mobilePane: 'chat' });
+}
+
+/** The page shell resets its own view (Tasks, Goals, Reports) when the phone returns to the list. */
+const listListeners = new Set<() => void>();
+export function onReturnToList(listener: () => void): () => void {
+  listListeners.add(listener);
+  return () => { listListeners.delete(listener); };
+}
+export function showPhoneList() {
+  useStore.getState().set({ mobilePane: 'list', detailsOpen: false });
+  listListeners.forEach(listener => listener());
 }
 
 export function restorePhoneSetup() {
@@ -309,9 +326,13 @@ export function restorePhoneSetup() {
 
 /** Phones: leave a chat (or Tasks) for the Bot list, as the system back gesture would. */
 export function backToList() {
-  const st = useStore.getState();
-  if (!setupTraversal && history.state?.swarmPane === 'chat') history.back();
-  else st.set({ mobilePane: 'list', detailsOpen: false });
+  const state = history.state as { swarmPane?: string; swarmFrom?: string; swarmDoc?: number; swarmSetup?: unknown } | null;
+  // R2F-007: history.back() only when the entry behind this one is known to be the list. Any other entry
+  // (Goals, Settings, an older chat) would be shown instead, so otherwise switch panes and drop the marker.
+  const listBehind = !setupTraversal && state?.swarmPane === 'chat' && state.swarmFrom === 'list' && state.swarmDoc === performance.timeOrigin && !state.swarmSetup;
+  showPhoneList();
+  if (listBehind) history.back();
+  else if (!setupTraversal && state?.swarmPane === 'chat') history.replaceState({ ...state, swarmPane: undefined, swarmFrom: undefined }, '');
 }
 
 /** Rows for a bot, ordered by seq. */

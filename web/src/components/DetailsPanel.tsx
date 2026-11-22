@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronRight, Clock3, Monitor, Settings } from 'lucide-react';
-import type { Bot, ComputerState, Routine } from '@shared/types';
+import type { Bot, Routine } from '@shared/types';
 import { api, openPopup } from '../lib/api';
 import { clearImportedSetup, hasImportedSetup } from '../lib/setupApi';
 import { displayName, useSelectedBot, useStore } from '../store';
@@ -17,19 +17,12 @@ import { userFacingLive } from '../lib/audience';
 import { hasOpenModal } from './modals/Modal';
 import { detailsReplaceChat } from '../lib/useDetailsLayout';
 import { hideSuggestedKey } from './config/settingsLogic';
+import { computerReadiness, computerStatusText } from './config/computerStatus';
 import '../styles/setup-paper.css';
 import '../styles/bot-details.css';
 
-export function computerStatusText(computer: ComputerState | null): string {
-  if (computer?.provider === 'local') return computer.status === 'running' ? 'Connected' : 'Not connected';
-  switch (computer?.status) {
-    case 'running': return 'Awake';
-    case 'starting': case 'resuming': case 'creating': return 'Agent waking up';
-    case 'suspending': return 'Going to sleep…';
-    case 'error': return 'Unreachable';
-    default: return 'Asleep';
-  }
-}
+// Shared with the viewer and Settings; the copy lives in config/computerStatus (R2F-021).
+export { computerStatusText };
 
 function DetailRow({ title, description, children }: { title: string; description?: string; children?: ReactNode }) {
   return <div className="details-page__row"><div><strong>{title}</strong>{description && <p>{description}</p>}</div>{children}</div>;
@@ -75,13 +68,15 @@ function ComputerRow() {
     <h2>Computer</h2>
     <div className="bot-detail-card">
       <button type="button" className="bot-detail-link" aria-label="Open computer" onClick={() => useStore.getState().set({ viewerOpen: true })}>
-        <Monitor size={20} aria-hidden /><span><strong>Bot’s computer</strong><small>{computerStatusText(computer)}</small></span><ChevronRight size={18} aria-hidden />
+        <Monitor size={20} aria-hidden /><span><strong>Bot’s computer</strong><small>{computerReadiness(computer)}</small></span><ChevronRight size={18} aria-hidden />
       </button>
         {offline && (computer?.provider === 'local'
           ? <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().openAppSettings('computer')}>Connect your PC</button>
           : <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => void wake()} disabled={waking}>{waking ? 'Waking…' : 'Wake computer'}</button>)}
     </div>
     {(error || computer?.error) && <p className="cfg-error" role="alert">{error || computer?.error}</p>}
+    {/* R2F-011: one click from Details to Settings > Computer, for every provider. */}
+    <button type="button" className="link-btn link-btn--small bot-detail-section__link" onClick={() => useConfigUI.getState().openAppSettings('computer')}>Computer settings</button>
   </section>;
 }
 

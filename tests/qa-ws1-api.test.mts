@@ -318,13 +318,169 @@ test('MF-019 a failed computer wake is reported instead of swallowed', async () 
   computers.ensure = async () => { throw new Error('No capacity in region'); };
   const events: any[] = [];
   const off = hub.subscribe('owner', (ev) => events.push(ev));
+  const warn = mock.method(console, 'warn', () => {});
   try {
     await wakeComputer('owner');
     const state = computerView('owner');
-    assert.equal(state.error, 'No capacity in region');
-    assert.ok(events.some((e) => e.type === 'computer' && e.state.error === 'No capacity in region'));
+    // R2F-018: the failure is reported with generic copy; the raw provider text stays in the server log.
+    assert.equal(state.error, 'The computer could not start. Try again in a minute.');
+    assert.equal(state.status, 'error');
+    assert.ok(events.some((e) => e.type === 'computer' && e.state.error === 'The computer could not start. Try again in a minute.'));
     computers.ensure = async () => {};
     await wakeComputer('owner');
-    assert.notEqual(computerView('owner').error, 'No capacity in region');
-  } finally { off(); computers.ensure = original; }
+    assert.notEqual(computerView('owner').error, 'The computer could not start. Try again in a minute.');
+  } finally { off(); warn.mock.restore(); computers.ensure = original; }
+});
+
+// ---------- Round 2 (MASTER-FIX-R2) ----------
+
+test('R2F-002 redactInternalIds replaces internal ids with neutral labels and leaves ordinary words', async () => {
+  const { redactInternalIds, displayCoordinationText, hasInternalId } = await import('../server/src/lib/redact.js');
+  const { newId } = await import('../server/src/lib/ids.js');
+  assert.equal(redactInternalIds('Slack account ca_KIxihCKrE-D2 and Gmail account ca_pESfPrEqcgnN'), 'Slack account connected account and Gmail account connected account');
+  assert.equal(redactInternalIds('See req_11ev-EvIvCvn.'), 'See request.');
+  for (const [prefix, label] of [['req', 'request'], ['apr', 'approval'], ['cli', 'tool call'], ['call', 'tool call'], ['job', 'job'], ['room', 'group chat'], ['bot', 'a Bot']]) {
+    for (let i = 0; i < 20; i++) {
+      const id = newId(prefix);
+      if (!/[A-Z0-9]/.test(id.slice(prefix.length + 1))) continue; // an all lower case draw reads as an ordinary word
+      assert.equal(redactInternalIds(`x ${id}, y`), `x ${label}, y`, id);
+    }
+  }
+  assert.equal(redactInternalIds('Ask bot_AbCdEf123456 now', { botName: (id) => id === 'bot_AbCdEf123456' ? 'Research' : undefined }), 'Ask Research now');
+  for (const keep of ['call_center_notes', 'bot_configuration', 'req_docs', 'a ca_ prefix', 'prereq_AbCdEf123456', 'https://example.com/ca_docs']) assert.equal(redactInternalIds(keep), keep);
+  assert.equal(hasInternalId('ok'), false);
+  assert.equal(hasInternalId('ca_KIxihCKrE-D2'), true);
+  assert.equal(displayCoordinationText('[Internal result for request req_11ev-EvIvCvn; execution finished; acceptance still requires evidence]\nAll done for ca_KIxihCKrE-D2.'), 'All done for connected account.');
+  assert.equal(displayCoordinationText('Plain request text'), 'Plain request text');
+});
+
+test('R2F-017 two consecutive account zone changes both move the schedule, emit a synopses event, and new routines use the account zone', async () => {
+  const { tickProactive, accountTimezone } = await import('../server/src/proactive.js');
+  const { toolMap } = await import('../server/src/agent/tools.js');
+  getCheckins('owner');
+  // A schedule that follows the account zone, quiet all day so discovery records due slots without running a synopsis.
+  db.prepare(`UPDATE proactivity SET enabled=1, times='["09:00"]', timezone='UTC', timezone_source='utc_fallback', quiet_hours='[{"start":"00:00","end":"00:00"}]', discovered_local=NULL, last_fired=NULL WHERE user_id='owner'`).run();
+  const slot = () => db.prepare("SELECT slot_key, timezone FROM proactive_due_slots WHERE user_id='owner' AND status='pending' ORDER BY slot_key DESC LIMIT 1").get() as { slot_key: string; timezone: string } | undefined;
+  const events: any[] = [];
+  const off = hub.subscribe('owner', (ev) => events.push(ev));
+  try {
+    assert.equal((await call('PATCH', '/api/auth/me', { timezone: 'Asia/Dubai' })).status, 200);
+    assert.deepEqual([getCheckins('owner').timezone, getCheckins('owner').timezoneSource], ['Asia/Dubai', 'account']);
+    assert.ok(events.some((e) => e.type === 'synopses'), 'zone change emits a synopses event');
+    tickProactive(Date.parse('2030-01-02T05:30:00Z')); // 09:30 in Dubai
+    assert.deepEqual(slot(), { slot_key: '2030-01-02 09:00', timezone: 'Asia/Dubai' });
+    events.length = 0;
+    // Second change: before R2F-017 only utc_fallback rows moved, so the schedule kept Dubai.
+    assert.equal((await call('PATCH', '/api/auth/me', { timezone: 'Europe/London' })).status, 200);
+    assert.deepEqual([getCheckins('owner').timezone, getCheckins('owner').timezoneSource], ['Europe/London', 'account']);
+    assert.equal(slot(), undefined, 'slots computed in the old zone are recomputed');
+    assert.ok(events.some((e) => e.type === 'synopses'));
+    tickProactive(Date.parse('2030-01-03T09:30:00Z')); // 09:30 in London
+    assert.deepEqual(slot(), { slot_key: '2030-01-03 09:00', timezone: 'Europe/London' });
+    // A new routine without an explicit zone uses the account zone; an explicit zone is kept.
+    assert.equal(accountTimezone('owner'), 'Europe/London');
+    const ctx = { userId: 'owner', botId: worker.id, depth: 0, enqueueBotMessage: () => undefined };
+    const made = JSON.parse((await toolMap.get('create_routine')!.impl({ name: 'Morning', prompt: 'Say hi', schedule: '0 9 * * *' }, ctx)).output as string);
+    assert.equal(made.routine.timezone, 'Europe/London');
+    const explicit = JSON.parse((await toolMap.get('create_routine')!.impl({ name: 'Evening', prompt: 'Say bye', schedule: '0 18 * * *', timezone: 'Asia/Tokyo' }, ctx)).output as string);
+    assert.equal(explicit.routine.timezone, 'Asia/Tokyo');
+    const { unscheduleRoutine } = await import('../server/src/routines.js');
+    for (const r of [made.routine, explicit.routine]) unscheduleRoutine(r.id);
+    // Explicit schedule overrides never move.
+    db.prepare("UPDATE proactivity SET timezone='America/Chicago', timezone_source='explicit' WHERE user_id='owner'").run();
+    assert.equal((await call('PATCH', '/api/auth/me', { timezone: 'Asia/Dubai' })).status, 200);
+    assert.equal(getCheckins('owner').timezone, 'America/Chicago');
+  } finally {
+    off();
+    db.prepare("UPDATE proactivity SET enabled=0 WHERE user_id='owner'").run();
+    db.prepare("DELETE FROM proactive_due_slots WHERE user_id='owner' AND status='pending'").run();
+  }
+});
+
+test('R2F-018 wake errors show generic copy only, survive a restart and clear on success', async () => {
+  const { computers } = await import('../server/src/computers/index.js');
+  const { wakeComputer, WAKE_ERROR_MESSAGE } = await import('../server/src/routes.js');
+  const original = computers.ensure;
+  const raw = 'gateway 10.0.0.7 refused: region me-central-1 capacity exhausted (request req_AbCdEf123456)';
+  computers.ensure = async () => { throw new Error(raw); };
+  const warn = mock.method(console, 'warn', () => {});
+  try {
+    await wakeComputer('owner');
+    assert.ok(warn.mock.calls.some((c) => c.arguments.join(' ').includes(raw)), 'raw text is logged on the server');
+    const res = await call('GET', '/api/computer');
+    assert.equal(res.status, 200);
+    const text = await res.text();
+    assert.ok(!text.includes('10.0.0.7') && !text.includes('me-central-1') && !text.includes('req_AbCdEf123456'), 'no raw provider text in the response');
+    assert.equal(JSON.parse(text).computer.error, WAKE_ERROR_MESSAGE);
+    // Persisted, not held in process memory: a restarted server reads the same row.
+    const row = db.prepare('SELECT message, failed_at, cleared_at FROM computer_wake_errors WHERE user_id=?').get('owner') as any;
+    assert.equal(row.message, WAKE_ERROR_MESSAGE);
+    assert.ok(row.failed_at > 0);
+    assert.equal(row.cleared_at, null);
+    assert.ok(!JSON.stringify(row).includes('10.0.0.7'), 'raw text is not stored');
+    computers.ensure = async () => {};
+    await wakeComputer('owner');
+    assert.notEqual((await (await call('GET', '/api/computer')).json()).computer.error, WAKE_ERROR_MESSAGE);
+    assert.ok((db.prepare('SELECT cleared_at FROM computer_wake_errors WHERE user_id=?').get('owner') as any).cleared_at > 0, 'cleared, not deleted');
+  } finally { warn.mock.restore(); computers.ensure = original; }
+});
+
+test('R2F-019 bodies over 256 KB are 413 before parsing on Bot, group and card answer routes; normal messages work', async () => {
+  const { roomsApi } = await import('../server/src/routes-rooms.js');
+  const big = JSON.stringify({ text: 'x'.repeat(300 * 1024) });
+  const before = rowCount(worker.id);
+  const message = await call('POST', `/api/bots/${worker.id}/messages`, undefined, big);
+  assert.equal(message.status, 413);
+  assert.deepEqual(await message.json(), { error: 'Message is too long (max 32,000 characters).' });
+  assert.equal(rowCount(worker.id), before, 'nothing appended');
+  assert.equal((await call('PATCH', `/api/bots/${worker.id}`, undefined, JSON.stringify({ label: 'x'.repeat(300 * 1024) }))).status, 413);
+  const card = appendRow(worker.id, 'card', { type: 'card', card: 'question', question: 'Big?', options: [], status: 'pending' } as any);
+  assert.equal((await call('POST', `/api/bots/${worker.id}/cards/${card.seq}/answer`, undefined, JSON.stringify({ answer: 'y'.repeat(300 * 1024) }))).status, 413);
+  assert.equal((getRow(worker.id, card.seq)!.body as any).status, 'pending');
+  assert.equal((await call('POST', '/api/approvals/apr_missing', undefined, JSON.stringify({ decision: 'deny', pad: 'z'.repeat(300 * 1024) }))).status, 413);
+  // A streamed body without a length header is cut off too.
+  const chunk = new TextEncoder().encode('x'.repeat(64 * 1024));
+  const stream = new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode('{"text":"')); for (let i = 0; i < 80; i++) controller.enqueue(chunk); controller.enqueue(new TextEncoder().encode('"}')); controller.close(); } });
+  const streamed = await app.request(`/api/bots/${worker.id}/messages`, { method: 'POST', headers: { cookie: `swarm_session=${session}`, 'content-type': 'application/json' }, body: stream, duplex: 'half' } as any);
+  assert.equal(streamed.status, 413);
+  assert.equal(rowCount(worker.id), before + 1, 'only the question card added above');
+  const rooms = await roomsApi.request('/', { method: 'POST', headers: { cookie: `swarm_session=${session}`, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'g'.repeat(300 * 1024), botIds: [] }) });
+  assert.equal(rooms.status, 413);
+  // Normal traffic is unaffected.
+  const ok = await call('PATCH', `/api/bots/${worker.id}`, { label: 'Research' });
+  assert.equal(ok.status, 200);
+  db.prepare('DELETE FROM rows WHERE bot_id=? AND seq=?').run(worker.id, card.seq);
+});
+
+test('R2F-037 /api/bots/import rejects malformed bodies with a plain 400', async () => {
+  for (const raw of ['{', '', '[]', '42', 'null', '"text"']) {
+    const res = await call('POST', '/api/bots/import', undefined, raw);
+    assert.equal(res.status, 400, JSON.stringify(raw));
+    assert.deepEqual(await res.json(), { error: 'Invalid JSON body' });
+  }
+  const invalid = await call('POST', '/api/bots/import', { manifest: { format: 'swarm.bot-setup' } });
+  assert.equal(invalid.status, 400);
+  const { error } = await invalid.json();
+  assert.ok(typeof error === 'string' && error.length < 300 && !error.includes('"code"'), 'short validation message, not a raw schema dump');
+});
+
+test('R2F-038 CSP connect-src is narrowed to self, the app host and the configured voice sockets; Permissions-Policy is set', async () => {
+  const { connectSources, contentSecurityPolicy } = await import('../server/src/security/request.js');
+  const { env } = await import('../server/src/env.js');
+  const html = await app.request('/', { headers: { 'x-forwarded-proto': 'https' } });
+  const csp = html.headers.get('content-security-policy') ?? '';
+  const connect = csp.split('; ').find((d) => d.startsWith('connect-src '))!;
+  const sources = connect.split(' ').slice(1);
+  assert.equal(sources[0], "'self'");
+  for (const broad of ['https:', 'wss:', 'http:', 'ws:', '*']) assert.ok(!sources.includes(broad), `no bare ${broad}`);
+  // The browser opens the realtime voice socket on the configured provider host.
+  const voice = new URL(env.voiceBaseUrl);
+  assert.ok(sources.includes(`${voice.protocol === 'https:' ? 'wss:' : 'ws:'}//${voice.host}`), 'voice socket host allowed');
+  assert.deepEqual(sources, connectSources());
+  for (const directive of ["frame-ancestors 'none'", "object-src 'none'", "default-src 'self'", "script-src 'self' blob:"]) assert.ok(csp.includes(directive), directive);
+  // Local plain http keeps its development allowances.
+  assert.match(contentSecurityPolicy(false), /connect-src [^;]* http: ws:/);
+  for (const route of ['/', '/api/health', '/api/auth/me']) {
+    assert.equal((await app.request(route)).headers.get('permissions-policy'), 'camera=(), geolocation=(), microphone=(self)', route);
+  }
 });
