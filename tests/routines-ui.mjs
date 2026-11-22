@@ -27,6 +27,7 @@ try {
     const req = route.request(), url = new URL(req.url()), p = url.pathname, method = req.method();
     if (url.origin !== origin) { errors.push(`external ${url.href}`); return route.abort(); }
     if (!p.startsWith('/api/')) return route.continue();
+    if (p.endsWith('/suggested-apps')) return route.fulfill({ json: { suggestions: [] } });
     if (method !== 'GET') calls.push(`${method} ${p}`);
     if (method === 'POST' && p === '/api/routines/daily-hi/run') {
       runs = [{ id: 'run-1', botId: 'quinn', routineId: 'daily-hi', routineName: 'Daily hi', jobId: null, kind: 'manual', status: 'queued', error: null, createdAt: Date.now(), startedAt: null, finishedAt: null }];

@@ -41,6 +41,7 @@ async function harness(viewport, colorScheme) {
     const request = route.request(), url = new URL(request.url()), path = url.pathname, method = request.method();
     assert.equal(url.origin, origin, `Unexpected non-fixture network request: ${url.origin}`);
     if (!path.startsWith('/api/')) return route.continue();
+    if (path.endsWith('/suggested-apps')) return route.fulfill({ json: { suggestions: [] } });
     traffic.push(`${method} ${path}${url.search}`);
     const body = request.postData() ? request.postDataJSON() : null;
     if (method !== 'GET') requests.push({ path, method, body, key: request.headers()['idempotency-key'] });
