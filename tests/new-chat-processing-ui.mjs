@@ -235,7 +235,7 @@ try {
     assert.equal(await panel.count(), 0, 'prior exchange history is an established chat');
     await page.locator('.activity-line').waitFor();
     await live({ isRunning: false });
-    if (width === 320 && !scenario.long) {
+    if (width === 320 && !scenario.long) for (const returnToWide of [false, true]) {
       await page.setViewportSize({ width: 760, height: 900 });
       generation++; rows = []; exchanges = [];
       await emit({ type: 'cleared', botId: bot.id, generation });
@@ -250,6 +250,13 @@ try {
       await working();
       const narrowHeight = (await panel.boundingBox()).height;
       assert.ok(narrowHeight > wideHeight, 'tool status grows after viewport reflow');
+      if (returnToWide) {
+        await page.setViewportSize({ width: 760, height: 900 });
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        await page.locator('.transcript').evaluate(element => { element.scrollTop = element.scrollHeight; });
+        await working();
+        assert.ok((await panel.boundingBox()).height >= narrowHeight, 'widening preserves the outgoing slot reservation too');
+      }
       const beforeResizeStream = await geometry();
       await emit({ type: 'rows', botId: bot.id, generation, rows: [row(3, 'assistant', 'Ready.', true)] });
       await page.locator('.bubble.is-streaming').waitFor();

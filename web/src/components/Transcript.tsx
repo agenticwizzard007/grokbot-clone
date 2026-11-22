@@ -190,7 +190,10 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
   useLayoutEffect(() => {
     const slot = responseSlot.current;
     if (!slot) return;
-    const measure = () => { responseHeight.current = Math.max(responseHeight.current, slot.offsetHeight); };
+    const measure = () => {
+      responseHeight.current = Math.max(responseHeight.current, slot.offsetHeight);
+      slot.style.minHeight = `${responseHeight.current}px`;
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(slot);
