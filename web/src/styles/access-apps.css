@@ -1,38 +1,95 @@
-.access-apps-dialog.apps-modal { width: min(784px, 100%); }
-.access-apps-catalog { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; }
-.access-apps-catalog .apps-modal__head { padding: 28px 28px 0; }
-.access-apps-catalog .apps-modal__body { padding: 12px 28px 28px; gap: 14px; }
-.access-apps-catalog--inline .apps-modal__head { padding: 0; }
-.access-apps-catalog--inline .apps-modal__body { flex: auto; overflow: visible; padding: 12px 0 0; }
-.access-apps__title h1 { font: 600 32px/1.2 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack); margin: 0; letter-spacing: -.025em; }
-.access-apps__title p { color: var(--color-text-secondary); margin: 10px 0 0; font-size: 15px; }
-.access-apps__title .link-btn { margin-top: 8px; }
-.access-apps-catalog .apps-modal__controls { gap: 18px; padding-top: 24px; }
-.access-apps-catalog .apps-modal__searchrow .cfg-field { width: 100%; }
-.access-apps-catalog .apps-modal__searchrow .text-input { min-height: 48px; width: 100%; }
-.access-apps-catalog .cat-pills { flex-wrap: wrap; gap: 4px; }
-.access-apps-catalog .cat-pill { min-height: 44px; padding: 0 12px; color: var(--color-text-secondary); background: transparent; border: 0; border-radius: 12px; font-size: 14px; }
-.access-apps-catalog .cat-pill.is-active { color: var(--color-primary); background: var(--color-bg-active); }
-.access-apps-catalog .app-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; }
-.access-apps-catalog .app-row { min-height: 94px; height: auto; padding: 16px 0; border-radius: 0; border-bottom: 1px solid var(--color-border-secondary); }
+.access-apps-dialog.apps-modal { width: min(920px, 100%); height: min(760px, 100dvh); }
+.access-apps-dialog > .apps-modal__close { position: static; align-self: flex-end; flex: none; width: 36px; height: 36px; margin: 8px 10px 0; }
+.access-apps-dialog > .access-apps-catalog { flex: 1 1 auto; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-width: thin; }
+.access-apps-catalog { min-width: 0; min-height: 0; }
+.access-apps-catalog .apps-modal__head { padding: 6px 32px 0; }
+.access-apps-catalog .apps-modal__body { container: access-app-grid / inline-size; overflow: visible; padding: 16px 32px 28px; gap: 20px; }
+.access-apps-catalog--inline :is(.apps-modal__head, .apps-modal__body) { padding-inline: 0; }
+.access-apps-catalog--inline .apps-modal__head { padding-top: 0; }
+.access-apps__heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px 16px; }
+.access-apps__heading > .app-settings__head { flex: 1 1 210px; min-width: 0; margin: 0; }
+.access-apps__title h1 { margin: 0; font: 600 32px/1.15 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack); letter-spacing: -.025em; }
+.access-apps__title p { margin: 6px 0 0; color: var(--color-text-secondary); font-size: 14px; line-height: 1.5; }
+.access-apps__back { display: inline-flex; align-items: center; min-height: 36px; margin-bottom: 6px; }
+.access-apps__connected { display: inline-flex; flex-wrap: wrap; justify-content: flex-start; align-items: center; gap: 8px; min-height: 40px; padding: 5px 8px; border-radius: var(--radius-full); color: var(--color-text-secondary); font-size: 14px; }
+.access-apps__connected:hover, .access-apps__connected[aria-pressed='true'] { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.access-apps__connected-logos { display: flex; align-items: center; padding-left: 3px; }
+.access-apps__connected-logos .toolkit-logo { margin-left: -3px; box-shadow: 0 0 0 1px var(--color-bg-elevated); }
+.access-apps-catalog .apps-modal__controls { gap: 10px; padding: 16px 0 0; }
+.access-apps-catalog .access-apps__search { flex: none; min-height: 42px; padding: 0 12px; color: var(--color-text-secondary); }
+.access-apps__search svg { flex: none; }
+.access-apps__search input { min-height: 40px; color: var(--color-text-primary); }
+.access-apps-catalog .cat-pills { gap: 6px; }
+.access-apps-catalog .cat-pill { min-height: 34px; height: auto; padding: 5px 12px; color: var(--color-text-primary); background: var(--color-bg-tertiary); letter-spacing: 0; white-space: normal; }
+.access-apps-catalog .cat-pill:hover:not([aria-pressed='true']) { background: var(--color-bg-secondary-hover); }
+.access-apps-catalog .cat-pill[aria-pressed='true'] { color: var(--color-bg-pane); background: var(--color-text-primary); }
+.access-apps-catalog .apps-section { gap: 4px; }
+.access-apps-catalog .apps-section__head { min-height: 38px; gap: 12px; padding: 4px 0; }
+.access-apps-catalog :is(.apps-section__title, .apps-popular__title) { font-size: 16px; font-weight: 600; }
+.access-apps-catalog .apps-popular { gap: 14px; }
+.access-apps-catalog .apps-popular__head { padding-top: 0; }
+.access-apps-catalog .app-grid { grid-template-columns: minmax(0, 1fr); gap: 0 24px; }
+.access-apps-catalog .app-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px 12px; min-height: 74px; height: auto; padding: 12px 0; border-radius: 0; border-bottom: 1px solid var(--color-border-secondary); }
 .access-apps-catalog .app-row:hover { background: transparent; }
-.access-apps-catalog .app-row__name { font-size: 15px; line-height: 1.45; }
-.access-apps-catalog :is(.app-row__desc, .app-row__error) { max-height: none; opacity: 1; white-space: normal; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
-.access-apps-catalog .app-row__text { gap: 4px; }
-.access-app-row__actions { display: grid; gap: 8px; flex: 0 0 min(176px, 42%); }
-.access-apps-catalog :is(.app-row__connect, .app-row__connected, .cfg-btn--secondary) { min-height: 44px; width: auto; height: auto; padding: 8px 12px; border-radius: 12px; background: var(--color-bg-active); color: var(--color-text-primary); text-align: center; font-size: 14px; line-height: 1.45; white-space: normal; }
+.access-apps-catalog .app-row--expanded { grid-template-columns: auto minmax(0, 1fr); }
+.access-apps-catalog .app-row--expanded .access-app-row__actions { grid-column: 2; justify-content: flex-start; }
+.access-apps-catalog .app-row__text { gap: 3px; }
+.access-apps-catalog .app-row__name { color: var(--color-text-primary); font-size: 15px; font-weight: 600; line-height: 1.35; }
+.access-apps-catalog :is(.app-row__name, .app-row__desc, .app-row__error) { max-height: none; opacity: 1; white-space: normal; overflow: visible; overflow-wrap: anywhere; text-overflow: clip; }
+.access-apps-catalog :is(.app-row__desc, .app-row__error) { font-size: 13px; line-height: 1.45; letter-spacing: 0; }
+.access-apps-catalog .app-row__desc { color: var(--color-text-secondary); }
+.access-app-row__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; min-width: 0; }
+.access-apps-catalog :is(.app-row__connect, .app-row__connected, .cfg-btn--secondary) { width: auto; max-width: 100%; min-height: 34px; height: auto; padding: 7px 12px; border-radius: var(--radius-full); background: var(--color-bg-tertiary); color: var(--color-text-primary); text-align: center; font-size: 13px; line-height: 1.35; white-space: normal; overflow-wrap: anywhere; }
+.access-apps-catalog .app-row:not(.app-row--expanded) :is(.app-row__connect, .app-row__connected) { min-width: 84px; }
+.access-apps-catalog :is(.app-row__connect, .cfg-btn--secondary):hover:not(:disabled) { background: var(--color-bg-secondary-hover); }
+.access-apps-catalog .app-row__connected.is-static { background: none; color: var(--color-text-secondary); }
 .access-apps-catalog .app-row__connected.is-confirm { background: var(--color-danger-bg); color: var(--color-danger-text); }
-.access-apps-catalog .apps-pagination { border-bottom: 1px solid var(--color-border-secondary); padding: 18px 0; gap: 12px; }
-.access-apps-catalog .apps-pagination:has(button) { justify-content: space-between; }
-.access-apps-catalog .apps-pagination > button { flex: 0 0 min(176px, 42%); justify-content: center; }
-.access-apps__mcp strong { display: block; color: var(--color-text-primary); font-size: 15px; font-weight: 500; }
-.access-apps__mcp small { font-size: 14px; }
+.access-apps-catalog .apps-empty { padding: 20px 0; text-align: left; color: var(--color-text-secondary); overflow-wrap: anywhere; }
+.access-apps-catalog .apps-pagination { justify-content: space-between; padding: 12px 0; gap: 10px; }
+.access-apps-catalog .apps-pagination > [role='alert'] { flex-basis: 100%; color: var(--color-danger-text); overflow-wrap: anywhere; }
+.access-apps__mcp { border-top: 1px solid var(--color-border-secondary); }
+.access-apps__mcp strong, .access-apps__mcp small { display: block; }
+.access-apps__mcp strong { margin-bottom: 3px; color: var(--color-text-primary); font-size: 14px; font-weight: 600; }
+.access-apps__mcp small { font-size: 13px; }
 .access-apps__categories { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.access-apps-settings { display: grid; container: access-app-accounts / inline-size; gap: 24px; min-width: 0; }
+.access-apps-settings__manage { flex: none; }
+.access-apps-settings__summary { display: grid; gap: 4px; }
+.access-apps-settings__summary strong { font-weight: 500; }
+.access-apps-settings__summary p { margin: 0; }
+.access-apps-settings__errors { display: grid; justify-items: start; gap: 8px; }
+.access-apps-settings__errors [role='alert'] { overflow-wrap: anywhere; }
+.access-apps-settings .cfg-row.access-apps-settings__row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px 12px; min-height: 68px; padding: 12px 0; }
+.access-apps-settings .access-apps-settings__row > .cfg-row__text { margin: 0; }
+.access-apps-settings__statuses { display: flex; flex-wrap: wrap; gap: 4px; }
+.access-apps-settings .cfg-chip { min-height: 22px; height: auto; color: var(--color-text-secondary); white-space: normal; }
+.access-apps-settings__disclosure > summary { cursor: pointer; list-style: none; }
+.access-apps-settings__disclosure > summary::-webkit-details-marker { display: none; }
+.access-apps-settings__disclosure > summary svg { flex: none; }
+.access-apps-settings__disclosure[open] > summary svg { transform: rotate(90deg); }
+.access-apps-settings__disclosure[open] > summary { border-bottom: 1px solid var(--color-border-secondary); }
+
+@container access-app-accounts (max-width: 535px) {
+  .access-apps-settings .access-apps-settings__row > .settings-row__actions { grid-column: 2 / -1; margin-left: 0; justify-content: flex-start; }
+}
+@media (min-width: 761px) {
+  @container access-app-grid (min-width: 620px) {
+    .access-apps-catalog .app-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+}
+@media (pointer: coarse) and (max-height: 480px) {
+  .access-apps-catalog .app-grid { grid-template-columns: minmax(0, 1fr); }
+}
 @media (max-width: 760px) {
-  .access-apps-catalog .apps-modal__head { padding: 18px 16px 0; }
-  .access-apps-catalog .apps-modal__body { padding: 10px 16px 24px; }
+  .access-apps-dialog > .apps-modal__close { width: 40px; height: 40px; margin: 4px 6px 0; }
+  .access-apps-catalog .apps-modal__head { padding: 4px 14px 0; }
+  .access-apps-catalog .apps-modal__body { padding: 12px 14px max(20px, env(safe-area-inset-bottom)); }
   .access-apps-catalog--inline :is(.apps-modal__head, .apps-modal__body) { padding-inline: 0; }
   .access-apps__title h1 { font-size: 27px; }
-  .access-apps-catalog .app-row { gap: 8px; }
-  .access-apps-catalog .app-row > .toolkit-logo { display: none; }
+  .access-apps__connected { min-height: 44px; }
+  .access-apps-catalog :is(.cat-pill, .app-row__connect, .app-row__connected, .cfg-btn--secondary) { min-height: 44px; }
+  .access-apps-catalog .app-row { column-gap: 8px; }
+  .access-apps-catalog .app-row:not(.app-row--expanded) :is(.app-row__connect, .app-row__connected) { min-width: 76px; padding-inline: 8px; }
+  .access-apps__search input { font-size: 16px; }
 }

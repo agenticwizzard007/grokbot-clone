@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useState } from 'react';
 import type { AgentExchangeMessage } from '@shared/coordination-types';
-import { BotAvatar } from '../avatar/BotAvatar';
+import { BotAvatarFor } from '../avatar/BotAvatar';
 import { exchangeApi, type ExchangeGroup } from '../lib/agentExchanges';
 import { clock, dividerLabel } from '../lib/time';
 
@@ -41,7 +41,7 @@ export function AgentExchangeGroup({ group, botId, generation }: { group: Exchan
     <button type="button" className="agent-exchange__toggle" aria-label={label} aria-expanded={open} aria-controls={panelId} onClick={() => setOpen(value => !value)}>
       <span>{count} {count === 1 ? 'message' : 'messages'} with</span>
       <span className="agent-exchange__avatars" aria-hidden="true">
-        {participants.slice(0, 3).map(bot => <BotAvatar key={bot.id} shape={bot.avatarShape} color={bot.avatarColor} size={12} title={bot.name} />)}
+        {participants.slice(0, 3).map(bot => <BotAvatarFor key={bot.id} bot={bot} size={12} />)}
       </span>
       <span>{participants.length} {participants.length === 1 ? 'Bot' : 'Bots'}</span>
     </button>

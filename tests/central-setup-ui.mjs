@@ -80,7 +80,7 @@ try {
   assert.equal(importedSetup.onboarding.status, 'interviewing');
   assert.equal(importedSetup.manifest.source.sourceRefs?.length ?? 0, 0, 'imported sources are not authenticated local references');
   assert.equal((await api(`/bots/${imported.id}/setup`, 'GET', undefined, 'central-browser-other-token')).status, 404);
-  const details = page.getByRole('main', { name: 'Conversation details' });
+  const details = page.getByRole('complementary', { name: 'Conversation details' });
   await details.getByRole('heading', { name: 'Imported Nia · Setup' }).waitFor();
   assert.equal(await details.getByRole('button', { name: /Activate agent/ }).count(), 0);
   await details.getByRole('button', { name: 'Continue setup in chat', exact: true }).click();

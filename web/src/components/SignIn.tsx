@@ -3,7 +3,6 @@ import '@fontsource-variable/instrument-sans';
 import '../styles/signin-brand.css';
 import { api } from '../lib/api';
 import { PhoneAuth } from './PhoneAuth';
-import { SwarmMark } from './SwarmMark';
 import '../styles/messaging.css';
 import { useStore } from '../store';
 import { TrafficLights } from './Sidebar';
@@ -56,7 +55,6 @@ export function SignIn() {
   return (
     <main className="signin access-signin">
       <div className="signin__chrome"><TrafficLights /></div>
-      <div className="access-signin__phone-bar"><SwarmMark size={24} /> Swarm</div>
       <div className="signin__card">
         <header className="signin__header">
           <div className="signin__brand">
@@ -65,18 +63,24 @@ export function SignIn() {
           </div>
           <div className="signin__intro">
             <h1 className="signin__title">Welcome to Swarm</h1>
-            <p className="signin__sub">Enter your number, or use an enabled sign-in provider.</p>
+            <p className="signin__sub">Choose how you’d like to sign in.</p>
           </div>
         </header>
         {expired && <div className="signin__notice" role="status">That sign-in link has expired or was already used.</div>}
         {error && <div className="card__error signin__error" role="alert">{error}</div>}
         <PhoneAuth mode="signin" />
-        <section aria-labelledby="signin-other-methods">
-          <h2 id="signin-other-methods">Other ways to sign in</h2>
+        <section className="access-signin__alternatives" aria-labelledby="signin-other-methods">
+          <h2 className="signin__divider" id="signin-other-methods">Other ways to sign in</h2>
           <div className="signin__providers">
-            <div className="access-signin__provider access-signin__provider--primary"><div><strong>OpenRouter</strong><p>Sign in or create an account and use your own model credits.</p></div><OpenRouterSignIn label="Continue with OpenRouter" /></div>
-            {appleLogin && <div className="access-signin__provider"><div><strong>Apple</strong><p>Use an existing Apple sign-in if available on this server.</p></div><AppleSignIn /></div>}
-            {googleLogin && <div className="access-signin__provider"><div><strong>Google</strong><p>Google sign-in uses Composio and requests Gmail access to verify your email address.</p></div><AuthLink className="signin__google" href="/api/auth/google/start">Sign in with Google</AuthLink></div>}
+            <div className="access-signin__provider">
+              <OpenRouterSignIn label="Continue with OpenRouter" />
+              <p>Uses your OpenRouter model credits.</p>
+            </div>
+            {appleLogin && <div className="access-signin__provider"><AppleSignIn /></div>}
+            {googleLogin && <div className="access-signin__provider">
+              <AuthLink className="signin__google" href="/api/auth/google/start" icon={<GoogleG />} aria-describedby="signin-google-disclosure">Sign in with Google</AuthLink>
+              <p id="signin-google-disclosure">Google may request Gmail access through Composio to verify your email address.</p>
+            </div>}
           </div>
         </section>
         {devLogin && (

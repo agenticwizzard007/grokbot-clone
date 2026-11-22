@@ -60,6 +60,7 @@ try {
       else if (endpoint === '/api/team/exchanges') body = { exchanges: [], nextBefore: null };
       else if (endpoint === '/api/computer') body = { computer: { status: 'absent', screens: [] } };
       else if (endpoint === '/api/models') body = { models: [], favourites: [] };
+      else if (endpoint === '/api/voice/options') body = { voices: [], speeds: [], languages: [], configured: false };
       else if (endpoint === '/api/settings') body = { settings: {}, computer: { provider: 'local' } };
       else if (endpoint === '/api/auth/sessions') body = { sessions: [] };
       else if (endpoint === '/api/apps') body = { apps: [], connected: [], categories: [], total: 0 };
@@ -109,7 +110,7 @@ try {
     await btn(upload, 'Import setup').click(); await upload.getByText('Import unavailable. Try again.').waitFor();
     await shot('import-retry', upload);
     await btn(upload, 'Import setup').click();
-    const details = page.getByRole('main', { name: 'Conversation details' });
+    const details = page.getByRole('complementary', { name: 'Conversation details' });
     const detailsNav = details.getByRole('navigation', { name: 'Conversation details sections' });
     const tabs = details.getByRole('tablist', { name: 'Agent configuration sections' });
     const settingsPane = page.getByRole('main', { name: 'Atlas settings' });

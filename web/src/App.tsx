@@ -95,16 +95,17 @@ function Shell() {
   return (
     <div className={`app${settingsOpen ? ' is-app-settings' : ''}${collapsed && !mobile ? ' is-sidebar-collapsed' : ''}${mobile ? ` is-mobile pane-${view === 'tasks' || (modal === 'create' || modal === 'group') || botSettings || detailsOpen ? 'chat' : pane}` : ''}`}>
       <Sidebar />
-      <div className="main-pane" hidden={settingsOpen}>
-      {detailsOpen && hasBot && view === 'chat' && <div className="setup-pane" hidden={!!botSettings || modal === 'create' || modal === 'group'}><DetailsPanel key={selectedBotId} /></div>}
+      <div className={`main-pane${detailsOpen && hasBot && view === 'chat' && !botSettings && modal !== 'create' && modal !== 'group' ? ' has-bot-details' : ''}`} hidden={settingsOpen}>
+      <div className="chat-pane">
       <Suspense fallback={<main className="chat chat--empty" role="status">Loading…</main>}>
         {modal === 'create' ? <CreateBotModal inline />
           : modal === 'group' ? <CreateGroupModal inline />
           : botSettings ? <BotSettingsModal inline />
-          : detailsOpen && hasBot && view === 'chat' ? null
           : view === 'tasks' ? <TasksView />
           : view === 'bots' && !mobile ? <BotsView /> : <ChatView />}
       </Suspense>
+      </div>
+      {detailsOpen && hasBot && view === 'chat' && <div className="bot-details-pane" hidden={!!botSettings || modal === 'create' || modal === 'group'}><DetailsPanel key={selectedBotId} /></div>}
       </div>
       <Suspense fallback={<div className="toast" role="status">Loading…</div>}>
       {modal === 'search' && <SearchModal />}

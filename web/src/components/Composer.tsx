@@ -11,6 +11,7 @@ import { modelSelection, useModels } from '../lib/models';
 import { endCall, isCallActive, startCall, useVoice } from '../voice/call';
 import { useDictation } from '../voice/dictation';
 import { hasOpenModal } from './modals/Modal';
+import { detailsReplaceChat, useDetailsReplaceChat } from '../lib/useDetailsLayout';
 
 const MAX_H = 200;
 const drafts = new Map<string, string>();
@@ -21,7 +22,8 @@ const notifyDraft = (key: string) => draftListeners.forEach(listener => listener
 function isActiveComposer(accountId: string | undefined, botId: string) {
   const state = useStore.getState();
   const ui = useConfigUI.getState();
-  return !!accountId && state.user?.id === accountId && state.selectedBotId === botId && !state.modal && !state.detailsOpen && !state.viewerOpen
+  return !!accountId && state.user?.id === accountId && state.selectedBotId === botId && !state.modal
+    && !(state.detailsOpen && detailsReplaceChat()) && !state.viewerOpen
     && !hasOpenModal() && ui.view === 'chat' && !ui.appSettings && !ui.botSettings && (!state.mobile || state.mobilePane === 'chat');
 }
 useStore.subscribe((state, previous) => {
@@ -36,7 +38,10 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   // Phones: the short name keeps the placeholder on one line.
   const mobile = useStore((s) => s.mobile);
   // Phones hide the chat while the Bot list is showing; the box can only be measured once it's on screen.
-  const onScreen = useStore((s) => !s.mobile || s.mobilePane === 'chat');
+  const paneVisible = useStore((s) => !s.mobile || s.mobilePane === 'chat');
+  const detailsOpen = useStore(s => s.detailsOpen);
+  const compactDetails = useDetailsReplaceChat();
+  const onScreen = paneVisible && !(detailsOpen && compactDetails);
   const [text, setText] = useState(() => drafts.get(draftKey) ?? '');
   const [sending, setSending] = useState(() => pendingSends.has(draftKey));
   const [error, setError] = useState<string | null>(() => sendErrors.get(draftKey) ?? null);
@@ -151,7 +156,7 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   const inCall = anyCall && callBotId === bot.id;
   const switchingCall = anyCall && !inCall;
   const dictation = useDictation(insertText, setError, bot.voiceLanguage, {
-    contextKey: `${bot.id}:${bot.generation}`, enabled: !anyCall,
+    contextKey: `${bot.id}:${bot.generation}`, enabled: !anyCall && onScreen,
   });
   const voiceLabel = inCall ? `End call with ${bot.name}` : switchingCall ? `Switch call to ${bot.name}` : `Start live voice with ${bot.name}`;
   const wasDictating = useRef(false);

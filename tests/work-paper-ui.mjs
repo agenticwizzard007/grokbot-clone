@@ -290,7 +290,7 @@ try {
   await tab('Tasks').click(); await work.getByRole('button', { name: /^Pending/ }).click();
   await tab('Team').click(); await submit('Open Nia chat');
   await page.getByRole('button', { name: 'Show details', exact: true }).click();
-  const details = page.getByRole('main', { name: 'Conversation details', exact: true });
+  const details = page.getByRole('complementary', { name: 'Conversation details', exact: true });
   await details.getByRole('navigation', { name: 'Conversation details sections' }).getByRole('button', { name: 'Tasks', exact: true }).click();
   await details.getByRole('button', { name: 'Goals and workflows', exact: true }).click();
   await page.getByRole('heading', { name: 'Goals and workflows', exact: true }).waitFor();
@@ -329,7 +329,7 @@ try {
     if (width === 390) await phone.shot('work-current-job-phone-night');
     await phone.submit('Open Nia chat');
     await phone.submit('Show details');
-    const phoneDetails = phone.page.getByRole('main', { name: 'Conversation details', exact: true });
+    const phoneDetails = phone.page.getByRole('complementary', { name: 'Conversation details', exact: true });
     await phoneDetails.getByRole('navigation', { name: 'Conversation details sections' }).getByRole('button', { name: 'Tasks', exact: true }).click();
     await phoneDetails.getByRole('button', { name: 'Goals and workflows', exact: true }).click();
     await phone.submit('New goal');
