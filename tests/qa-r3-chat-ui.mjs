@@ -53,7 +53,7 @@ try {
       close() {}
     };
   }, bot.id);
-  let releaseStop, delayStop = false, failStop = false, planModel = false;
+  let releaseStop, delayStop = false, failStop = false, planModel = null;
   const longModelName = 'A very long model label with an extended reasoning name';
   await page.route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
@@ -74,7 +74,7 @@ try {
     else if (path === '/api/needs-you') body = { items: [] };
     else if (path === '/api/computer') body = { computer: { provider: 'local', status: 'absent', screens: [], error: null } };
     else if (path === '/api/models') body = planModel
-      ? { provider: 'claude-cli', billing: 'plan', models: [{ id: 'claude/test', name: longModelName, short: longModelName, author: 'anthropic', efforts: ['none', 'medium'], defaultEffort: 'none', billing: 'plan', reasoning: true }], defaultModel: 'claude/test', favourites: [], canFast: false }
+      ? { provider: planModel === 'codex' ? 'codex-cli' : 'claude-cli', billing: 'plan', models: [{ id: planModel === 'codex' ? 'codex/default' : 'claude/test', name: longModelName, short: longModelName, author: planModel === 'codex' ? 'openai' : 'anthropic', efforts: planModel === 'codex' ? [] : ['none', 'minimal', 'medium'], defaultEffort: planModel === 'codex' ? null : planModel, billing: 'plan', reasoning: planModel !== 'codex' }], defaultModel: planModel === 'codex' ? 'codex/default' : 'claude/test', favourites: [], canFast: false }
       : { provider: 'direct', billing: 'api', models: [{ id: 'test/model', name: 'Test model', short: 'Test', author: 'test', efforts: ['low', 'medium', 'high'], defaultEffort: 'medium', billing: 'api' }], defaultModel: 'test/model', favourites: [], canFast: false };
     else if (path === '/api/settings') body = { settings: {}, computer: { provider: 'local' } };
     else if (path === '/api/voice/options') body = { voices: [], languages: [], speeds: [], configured: false };
@@ -123,11 +123,8 @@ try {
     assert.deepEqual(overflow, [], 'textarea and controls stay inside the composer');
   }
   await page.screenshot({ path: new URL('composer-830x480.png', evidence).pathname });
-  // Use a real plan catalog with a long model name and the longest current effort label.
-  planModel = true;
-  await page.locator('.model-pill').click();
-  await page.locator('.model-pill__name').getByText(longModelName, { exact: true }).waitFor();
-  await page.keyboard.press('Escape');
+  // Catalog-driven None, long Minimal, top Medium and Codex without effort controls.
+  let expectedEffort;
   const assertPill = async () => {
     const parts = await page.locator('.model-pill').evaluate(el => {
       const box = el.getBoundingClientRect();
@@ -137,35 +134,57 @@ try {
           inside: r.left >= box.left - 1 && r.right <= box.right + 1 && r.top >= box.top - 1 && r.bottom <= box.bottom + 1 };
       });
     });
-    assert.equal(parts.length, 3, 'model, billing and effort all remain displayed');
+    assert.equal(parts.length, expectedEffort ? 3 : 2, 'model, billing and supported effort remain displayed');
     for (const part of parts) {
       assert.ok(part.width >= 24 && part.height > 0 && part.inside, `${part.name} has readable bounds inside the model pill`);
       if (part.name !== 'model-pill__name') assert.equal(part.clipped, false, `${part.name} stays fully readable`);
     }
-    assert.equal(await page.locator('.model-pill__effort').innerText(), 'No thinking', 'exercise the longest current effort label');
-    assert.match(await page.locator('.model-pill').getAttribute('aria-label'), /A very long model label with an extended reasoning name, Plan connection, No thinking effort/);
+    if (expectedEffort) assert.equal(await page.locator('.model-pill__effort').innerText(), expectedEffort);
+    else assert.equal(await page.locator('.model-pill__effort').count(), 0, 'Codex does not invent an effort');
+    assert.equal(await page.locator('.model-pill').getAttribute('aria-label'), `Model: ${longModelName}, Plan connection${expectedEffort ? `, ${expectedEffort} effort` : ''}. Change`);
+    assert.equal(await page.locator('.composer-shell.is-top-effort').count(), planModel === 'medium' ? 1 : 0, 'top effort follows the selected model');
   };
-  for (const viewport of [{ width: 830, height: 480 }, { width: 390, height: 844 }, { width: 320, height: 568 }]) {
-    const enteringPhone = page.viewportSize().width > 760 && viewport.width <= 760;
-    await page.setViewportSize(viewport);
-    if (enteringPhone) {
-      // Resize returns before the media-query listener updates the phone navigation.
-      await page.locator('.app.is-mobile.pane-list').waitFor({ state: 'visible' });
-      await page.locator('.pinned__tile').click();
+  for (const mode of ['none', 'minimal', 'medium', 'codex']) {
+    planModel = mode;
+    expectedEffort = mode === 'codex' ? null : mode[0].toUpperCase() + mode.slice(1);
+    await page.locator('.model-pill').click();
+    await wait(() => page.locator('.model-pill').getAttribute('aria-label').then(label => label === `Model: ${longModelName}, Plan connection${expectedEffort ? `, ${expectedEffort} effort` : ''}. Change`), `catalog ${mode}`);
+    if (mode === 'codex') {
+      assert.equal(await page.getByRole('button', { name: 'Effort', exact: true }).count(), 0);
+      assert.equal(await page.locator('.mm-row__effort, .mm-foot__hint').count(), 0);
     }
-    await composer.waitFor({ state: 'visible' });
-    await page.waitForTimeout(100);
-    const box = await page.locator('.composer').boundingBox();
-    assert.ok(box && box.width > 0 && box.height > 0, 'visible composer has measurable bounds');
-    const overflow = await page.locator('.composer').evaluate(el => {
-      const box = el.getBoundingClientRect();
-      return [...el.querySelectorAll('.composer__input, .composer__bar, button')].filter(child => {
-        const r = child.getBoundingClientRect(); return r.top < box.top - 1 || r.bottom > box.bottom + 1 || r.left < box.left - 1 || r.right > box.right + 1;
-      }).map(child => child.className);
-    });
-    assert.deepEqual(overflow, [], `long label controls fit ${viewport.width}x${viewport.height}`);
-    await assertPill();
+    await page.keyboard.press('Escape');
+    await composer.fill(long);
+    for (const viewport of [{ width: 830, height: 480 }, { width: 390, height: 844 }, { width: 320, height: 568 }]) {
+      const enteringPhone = page.viewportSize().width > 760 && viewport.width <= 760;
+      await page.setViewportSize(viewport);
+      if (enteringPhone) {
+        // Resize returns before the media-query listener updates the phone navigation.
+        await page.locator('.app.is-mobile.pane-list').waitFor({ state: 'visible' });
+        await page.locator('.pinned__tile').click();
+      }
+      await composer.waitFor({ state: 'visible' });
+      await wait(() => page.locator('.composer').evaluate((el, cap) => {
+        const box = el.getBoundingClientRect();
+        return box.width > 0 && box.height > 0 && box.height <= cap
+          && [...el.querySelectorAll('.composer__input, .composer__bar, button')].every(child => {
+            const r = child.getBoundingClientRect();
+            return r.width > 0 && r.height > 0 && r.top >= box.top - 1 && r.bottom <= box.bottom + 1
+              && r.left >= box.left - 1 && r.right <= box.right + 1;
+          });
+      }, viewport.height * 0.18 + 0.5), `${mode} contained controls after resize`);
+      const box = await page.locator('.composer').boundingBox();
+      assert.ok(box && box.width > 0 && box.height > 0, 'visible composer has measurable bounds');
+      const overflow = await page.locator('.composer').evaluate(el => {
+        const box = el.getBoundingClientRect();
+        return [...el.querySelectorAll('.composer__input, .composer__bar, button')].filter(child => {
+          const r = child.getBoundingClientRect(); return r.top < box.top - 1 || r.bottom > box.bottom + 1 || r.left < box.left - 1 || r.right > box.right + 1;
+        }).map(child => child.className);
+      });
+      assert.deepEqual(overflow, [], `long label controls fit ${viewport.width}x${viewport.height}`);
+      await assertPill();
   }
+  await page.evaluate(state => window.__emit({ type: 'live', state }), live(true));
   // Idle, Send and Stop keep the same toolbar space even with a populated plan pill.
   const toolbarGeometry = () => page.evaluate(() => Object.fromEntries(['.composer__bar', '.composer__right', '.model-pill'].map(selector => {
     const box = document.querySelector(selector).getBoundingClientRect();
@@ -187,7 +206,18 @@ try {
     }
   }
   assert.equal(await page.locator('.composer__voice > [aria-hidden]').isVisible(), true, 'compact voice keeps its microphone icon');
-  await page.screenshot({ path: new URL('composer-plan-320.png', evidence).pathname });
+  await page.screenshot({ path: new URL(`composer-plan-${mode}-320.png`, evidence).pathname });
+  if (mode === 'codex') {
+    const before = writes.length;
+    await composer.focus();
+    await page.keyboard.press('Control+Shift+Slash');
+    await page.waitForTimeout(100);
+    assert.equal(writes.length, before, 'Codex effort shortcut performs no mutation');
+    await assertPill();
+    assert.equal(await page.locator('.composer__glow, .composer.has-effort').count(), 0, 'Codex has no active effort glow');
+      assert.equal(await page.locator('.composer-shell').getAttribute('data-effort'), null);
+  }
+  }
   await page.evaluate(state => window.__emit({ type: 'live', state }), live(true));
   await page.setViewportSize({ width: 830, height: 480 });
   console.log('PASS R3-093 whole composer stays within 18 percent and remeasures on resize');
