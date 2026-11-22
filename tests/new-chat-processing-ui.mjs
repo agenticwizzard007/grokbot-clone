@@ -241,7 +241,7 @@ try {
       await emit({ type: 'cleared', botId: bot.id, generation });
       const wrappingTool = { ...row(2, 'assistant', ''), kind: 'tool-call', body: { type: 'tool-call', callId: 'wrapping-tool', name: 'lookup', label: 'Checking source details across connected apps and the research archive before preparing the response', args: {}, status: 'running' } };
       await emit({ type: 'rows', botId: bot.id, generation, rows: [row(1, 'user', 'Review the requirements, milestones, validation steps and dependencies. '.repeat(8)), wrappingTool] });
-      await live();
+      await live({ activity: { kind: 'connecting_service', since: Date.now() } });
       await working();
       const wideHeight = (await panel.boundingBox()).height;
       await page.setViewportSize({ width: 320, height: 568 });
