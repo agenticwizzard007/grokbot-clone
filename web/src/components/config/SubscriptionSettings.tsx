@@ -2,6 +2,7 @@ import { useModels } from '../../lib/models';
 import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, Copy, ExternalLink, RefreshCw, Terminal } from 'lucide-react';
 import { cliApi, type CliProvider, type CliProviderStatus, type CliStatus } from '../../lib/cliApi';
+import { PLAN_PROVIDERS, planConnectionStatus } from '../../lib/planConnections';
 import { refreshModels } from './ModelPicker';
 import { CliLoginTerminal } from './CliLoginTerminal';
 import { ReauthPrompt } from './ReauthPrompt';
@@ -48,11 +49,12 @@ export function SubscriptionSettings() {
 
 function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: string; accountEmail: string }) {
   const modelCatalog = useModels();
+  const requestedProvider = useConfigUI(s => s.subscriptionProvider);
   const planUsage = useReportedPlanUsage(modelCatalog.usage);
   // A sign-in round trip (OAuth redirect or phone verification) returns here with the tab it left from.
   const resume = useConfigUI.getState().resume?.section === 'subscriptions' ? useConfigUI.getState().resume : null;
   const resumed = resume?.accountId === accountId && resume.expiresAt > Date.now() ? resume : null;
-  const [providerTab, setProviderTab] = useState<CliProvider>(resumed?.provider ?? 'claude');
+  const [providerTab, setProviderTab] = useState<CliProvider>(resumed?.provider ?? requestedProvider ?? 'claude');
   const [reauth, setReauth] = useState<{ reason: string; action: ResumeAction } | null>(null);
   const [verifyingResume, setVerifyingResume] = useState(!!resumed);
   const [notice, setNotice] = useState<string | null>(null);
@@ -62,7 +64,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
   const [loginAttempt, setLoginAttempt] = useState(0);
   const [loginRunning, setLoginRunning] = useState(false);
   const loginActive = useRef(false);
-  const tabPicked = useRef(!!resumed?.provider);
+  const tabPicked = useRef(!!resumed?.provider || !!requestedProvider);
   const methodChosen = useRef(false);
   const [status, setStatus] = useState<CliStatus | null>(null);
   const [busy, setBusy] = useState<Action | null>('load');
@@ -86,7 +88,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
     return ++statusEpoch.current;
   };
   const current = (epoch: number) => mounted.current && epoch === statusEpoch.current;
-  const retryLabel = (action: ResumeAction) => ({ login: 'Login', reset: 'Reset connection', pair: 'Generate connect command', revoke: 'Disconnect subscription or Revoke bridge' })[action];
+  const retryLabel = (action: ResumeAction) => ({ login: 'Login', reset: 'Reset connection', pair: 'Generate connect command', revoke: 'Revoke bridge' })[action];
   const requestReauth = (action: ResumeAction, reason: string) => {
     invalidateStatus(); authLockedRef.current = true;
     setNotice(null); setStale(true); setReauth({ action, reason });
@@ -94,6 +96,12 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
     // the current state without assuming that the failed request did nothing.
     void readStatus().catch(() => {});
   };
+
+  useEffect(() => {
+    if (requestedProvider && !authLocked && !loginRunning) {
+      tabPicked.current = true; setProviderTab(requestedProvider); setAuthMethod('cli');
+    }
+  }, [requestedProvider]);
 
   useEffect(() => {
     if (status) refreshModels();
@@ -137,7 +145,9 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
       const controller = new AbortController();
       const epoch = statusEpoch.current;
       polling.current = controller;
-      cliApi.status(controller.signal).then((result) => {
+      cliApi.status(controller.signal).then(async (result) => {
+        // The initial hosted snapshot has no installation evidence until the official CLIs are probed.
+        if (initial && !result.connected && result.runtime === 'server' && result.serverLoginAvailable) result = await cliApi.refresh();
         if (!controller.signal.aborted) update(result, epoch);
       }).catch((err: unknown) => {
         if (!controller.signal.aborted && current(epoch)) {
@@ -209,6 +219,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
   const refresh = () => run('refresh', async (epoch) => { update(await cliApi.refresh(), epoch); });
   const select = (provider: CliProvider | null) => run(provider ?? 'api', async (epoch) => {
     await cliApi.select(provider);
+    closeLogin();
     refreshModels();
     // Selection responses need no body. Reflect the saved mode even if the subsequent GET fails.
     if (current(epoch)) {
@@ -267,6 +278,8 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
   const provider = PROVIDERS.find((item) => item.id === providerTab)!;
   const health = status?.providers[providerTab];
   const serverReady = runtime === 'server' && !!status?.connected && !!health && ready(health) && !stale;
+  const planReady = !!status?.connected && !!health && ready(health) && !stale;
+  const reportedPlan = modelCatalog.provider === `${providerTab}-cli` && modelCatalog.status === 'ready' && !modelCatalog.error ? modelCatalog.plan : null;
   const disabled = !!busy || loginRunning || !status || stale || authLocked;
   const loginLabel = runtime === 'bridge' ? 'Use server login' : health?.authenticated ? 'Log in again' : 'Login';
   const startLogin = () => {
@@ -305,6 +318,20 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
       {reauth && <ReauthPrompt accountEmail={accountEmail} reason={reauth.reason} resume={{ section: 'subscriptions', provider: providerTab, accountId, action: reauth.action }}
         retryLabel={retryLabel(reauth.action)} terminalActive={!!loginProvider} onCancel={() => { invalidateStatus(); setReauth(null); }} />}
 
+      <section className="cfg-section" aria-label="Plan connection">
+        <AccessRow title={providerTab === 'claude' ? 'Claude plan' : 'ChatGPT plan'} description={`${PLAN_PROVIDERS.find(p => p.id === providerTab)!.plans} via the official ${providerTab === 'claude' ? 'Claude Code' : 'Codex'} CLI.`}
+          status={<span role="status">{stale ? 'Status unavailable' : planConnectionStatus(status, providerTab, reportedPlan)}</span>}>
+          {selected === providerTab
+            ? <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy || loginRunning || authLocked} onClick={() => void select(null)}>Disconnect</button>
+            : planReady
+              ? <button type="button" className="cfg-btn cfg-btn--primary" disabled={disabled} onClick={() => void select(providerTab)}>Use subscription</button>
+              : <button type="button" className="cfg-btn cfg-btn--primary" disabled={disabled || runtime === 'bridge' || !status?.serverLoginAvailable || (status.connected && !health?.installed)} onClick={startLogin}>Connect plan</button>}
+        </AccessRow>
+        <p>Complete sign-in with the official CLI on the computer running your Bots. Credentials stay in that CLI's profile. Disconnect switches your Bots to API billing and leaves the CLI signed in.</p>
+        {runtime === 'bridge' && !planReady && <p>Run <code>{provider.login}</code> on your computer, complete the official sign-in, then refresh status and choose Use subscription.</p>}
+        {status?.connected && !health?.installed && <p>Install the official {providerTab === 'claude' ? 'Claude Code' : 'Codex'} CLI on {runtime === 'bridge' ? 'your computer' : "your Bot's computer"}, then refresh status. <a href={provider.docs} target="_blank" rel="noreferrer">Installation and sign-in instructions</a></p>}
+      </section>
+
       {loginProvider && <CliLoginTerminal key={loginAttempt} provider={loginProvider} onClose={closeLogin} onReauthRequired={() => { closeLogin(); requestReauth('login', 'Sign in again to continue connecting your subscription.'); }} onStateChange={(next) => {
         const running = next === 'running' || next === 'verifying';
         loginActive.current = running; setLoginRunning(running);
@@ -322,6 +349,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
         </AccessRow>
         <AccessRow title="API providers" description="Pay per use through a connected API provider." status={status && !selected ? 'In use' : undefined}>
           <button type="button" className="cfg-btn cfg-btn--secondary" aria-pressed={authMethod === 'api'} disabled={disabled} onClick={() => void select(null)}>Use API providers</button>
+          <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().openAppSettings('keys')}>Manage API keys</button>
         </AccessRow>
         <AccessRow title={providerTab === 'claude' ? 'Claude Code' : 'Codex'} description={modeTitle} status={<span role="status">{busy === 'load' ? 'Checking status…' : !status ? 'Status unavailable' : stale ? 'Status unverified' : runtime === 'bridge' ? status.connected ? 'Computer bridge connected' : 'Computer bridge offline' : serverReady ? 'Connected' : 'Login required'}</span>}>
           {serverReady && selected !== providerTab && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={disabled} onClick={() => void select(providerTab)}>Use {providerTab === 'claude' ? 'Claude' : 'ChatGPT'}</button>}
@@ -346,7 +374,6 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
         {(error || readError) && <div className="cfg-error" role="alert">{error || readError}</div>}
         {verifyingResume && <p role="status">Verifying your sign-in…</p>}
         {notice && !reauth && <p className="subscription-settings__notice" role="status">{notice}</p>}
-        {runtime === 'server' && confirmRevoke && <p>Disconnecting deletes saved CLI credentials and stops jobs for this account. Your selected provider stays selected and blocked until you log in again or explicitly choose API providers.</p>}
         {status?.serverLoginAvailable === false && <p>Server login is currently unavailable. Try Login for the server’s instructions, or use the computer bridge under Advanced.</p>}
         {health?.error && <div className="cfg-error">{health.error}</div>}
       </section>
@@ -376,15 +403,15 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
           {command && (
             <div className="subscription-settings__pair">
               <div className="cfg-row__title">Run this in a terminal on your computer</div>
-              <p>This command contains a secret for your account. Keep it private. It is only shown here until you dismiss it or leave this page.</p>
-              <pre tabIndex={0} aria-label="Connect command"><code>{command}</code></pre>
+              <p>This command contains a private pairing secret. Copy it directly to your terminal. The secret is hidden here and discarded when you leave this page.</p>
+              <pre tabIndex={0} aria-label="Connect command, secret hidden"><code>node swarm-cli-bridge.mjs --server [your server] --token [hidden]</code></pre>
               <div className="subscription-settings__actions">
                 <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => void copy()}>
                   {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}{copied ? 'Copied' : 'Copy connect command'}
                 </button>
                 <button type="button" className="cfg-btn cfg-btn--secondary" onClick={dismiss}>Dismiss command</button>
               </div>
-              <p role="status">{copyError ? 'Clipboard access failed. Select and copy the command above.' : 'After starting the bridge, use Refresh status, then select a provider.'}</p>
+              <p role="status">{copyError ? 'Clipboard access failed. Allow clipboard access, then try Copy connect command again.' : 'After starting the bridge, use Refresh status, then select a provider.'}</p>
             </div>
           )}
           {runtime === 'bridge' && <div className="subscription-settings__revoke">
@@ -442,13 +469,13 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
       <AccessRow title="Manage device access" description="Pair or manage the separate computer your Bots work on.">
         <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().openAppSettings('computer')}>Computer settings</button>
       </AccessRow>
-      {authMethod === 'cli' && <div className="subscription-settings__actions">
+      <div className="subscription-settings__actions">
         <button type="button" className="cfg-btn cfg-btn--primary" disabled={disabled} onClick={startLogin}>{loginRunning ? 'Login in progress…' : loginLabel}</button>
-        {runtime === 'server' && (health?.authenticated || selected) && <button type="button" className={`cfg-btn ${confirmRevoke ? 'cfg-btn--danger' : 'cfg-btn--ghost-danger'}`} disabled={disabled} onClick={() => confirmRevoke ? void revoke() : setConfirmRevoke(true)}>{busy === 'revoke' ? 'Disconnecting…' : confirmRevoke ? 'Confirm disconnect' : 'Disconnect subscription'}</button>}
-        {confirmRevoke && runtime === 'server' && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setConfirmRevoke(false)}>Cancel</button>}
-      </div>}
+        {selected === providerTab && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy || loginRunning || authLocked} onClick={() => void select(null)}>Disconnect subscription</button>}
+      </div>
       <section className="cfg-section subscription-settings__coverage" aria-labelledby="subscription-limits-title">
         <h2 className="cfg-section__label" id="subscription-limits-title">Usage and coverage</h2>
+        {providerTab === 'codex' && <p>Codex chooses its default model. The model list, plan name and usage limits are unavailable through this CLI connection. Check your ChatGPT account for plan details.</p>}
         <p>All your Bots share your plan across desktop, phone and linked iMessage or WhatsApp. Your provider’s usage limits and extra usage charges still apply.</p>
         <p>Browser and computer tools use the computer selected in Settings. Choose a server-hosted computer there to use those tools while your personal computer is off.</p>
         {status?.selected && modelCatalog.billing === 'plan' && <div className="cfg-card" aria-label="Connected plan usage">

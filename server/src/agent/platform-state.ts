@@ -169,7 +169,7 @@ export async function platformState(userId: string, botId: string, options: Plat
           };
           if (observations.size >= 200) observations.delete(observations.keys().next().value!);
           observations.set(userId, { runtime: before.runtime, selected: before.selected, providers: before.providers, facts });
-          if (options.includeModels) models = { available: true, items: publicModels(data.models) };
+          if (options.includeModels) models = before.selected === 'codex' ? { available: false, items: [] } : { available: true, items: publicModels(data.models) };
         }
       } catch {
         observations.delete(userId);

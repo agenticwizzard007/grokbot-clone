@@ -77,7 +77,7 @@ class ReviewBridge {
       if (message.method === 'generate') {
         try {
           const reply = this.generate(message);
-          if (reply !== HOLD) this.reply(message.id, reply);
+          if (reply !== HOLD) this.reply(message.id, { ...reply, ...(message.params.provider === 'codex' ? { model: 'default' } : {}) });
         } catch (error) { this.ws.send(JSON.stringify({ id: message.id, error: (error as Error).message })); }
       }
     });
@@ -87,7 +87,7 @@ class ReviewBridge {
   async connect() {
     const token = createCliPairing(this.userId);
     await once(this.ws, 'open');
-    this.ws.send(JSON.stringify({ type: 'hello', version: 1, token, nativeMcp: true, noGenerationDeadline: true, device: 'Review fixture computer' }));
+    this.ws.send(JSON.stringify({ type: 'hello', version: 1, token, nativeMcp: true, codexExecOnly: true, noGenerationDeadline: true, device: 'Review fixture computer' }));
     const deadline = Date.now() + 2000;
     while (!this.welcome && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 5));
     assert.equal(this.welcome, true, 'bridge must authenticate');
@@ -119,7 +119,7 @@ async function fixture(provider: Provider) {
   const tool = LEARNING_TOOLS.find(tool => tool.name === 'manage_memory')!;
   assert.ok(tool);
   const body = {
-    model: `${provider}/review-model`, reasoning: { effort: 'high' },
+    model: provider === 'codex' ? 'codex/default' : 'claude/review-model', ...(provider === 'claude' ? { reasoning: { effort: 'high' } } : {}),
     input: [{ role: 'user', content: 'Review the sourced durable preference using the allowed management tools.' }],
     tools: [{ type: 'function', name: tool.name, description: tool.description, parameters: tool.parameters }],
     store: false, parallel_tool_calls: false, swarm_management_review: true,
@@ -202,7 +202,7 @@ for (const provider of ['claude', 'codex'] as const) {
         assert.equal(turns.length, 2, 'one returned call plus one Swarm-supplied result require exactly two CLI generations');
         for (const turn of turns) {
           assert.equal(Object.hasOwn(turn.params, 'nativeTools'), false, 'review must send no native MCP manifest despite withNativeTools');
-          assert.equal(turn.params.provider, provider); assert.equal(turn.params.model, 'review-model'); assert.equal(turn.params.effort, 'high');
+          assert.equal(turn.params.provider, provider); assert.equal(turn.params.model, provider === 'codex' ? 'default' : 'review-model'); assert.equal(turn.params.effort, provider === 'codex' ? undefined : 'high');
           assert.deepEqual(turn.params.actionNames, ['manage_memory']);
           assert.deepEqual(turn.params.schema.properties.tool_calls.items.properties.name.enum, ['manage_memory']);
           assert.match(turn.params.prompt, /Do not use native CLI tools/);

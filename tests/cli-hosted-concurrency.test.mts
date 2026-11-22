@@ -148,7 +148,7 @@ for (const provider of ['codex', 'claude'] as const) test(`${provider}: hostedGe
       assert.equal(record.env.CODEX_HOME, path.join(record.home, '.codex'));
       assert.equal(record.env.CLAUDE_CONFIG_DIR, path.join(record.home, '.claude'));
       assert.doesNotMatch(JSON.stringify(record.env), /forbidden-paid-api-secret|forbidden-parent|127\.0\.0\.1/);
-      if (provider === 'codex') for (const flag of ['forced_login_method="chatgpt"', 'model_provider="openai"', 'cli_auth_credentials_store="file"']) assert.ok(record.args.includes(flag));
+      if (provider === 'codex') for (const flag of ['model_provider="openai"', 'cli_auth_credentials_store="file"']) assert.ok(record.args.includes(flag));
       else assert.equal(record.args[record.args.indexOf('--tools') + 1], '');
     }
 

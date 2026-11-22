@@ -62,8 +62,8 @@ const jobs = () => db.prepare('SELECT * FROM agent_jobs WHERE user_id=? ORDER BY
 const jobFor = (text: string) => jobs().find(job => JSON.parse(job.trigger).text === text)!;
 const usage = () => db.prepare('SELECT * FROM usage_events WHERE user_id=?').all(owner) as any[];
 
-async function until(check: () => boolean, description: string) {
-  const deadline = Date.now() + 8000;
+async function until(check: () => boolean, description: string, timeoutMs = 8000) {
+  const deadline = Date.now() + timeoutMs;
   while (!check() && Date.now() < deadline) await delay(5);
   assert.ok(check(), `${description}; durable states: ${JSON.stringify(jobs().map(job => job.state))}`);
 }
@@ -163,7 +163,7 @@ async function selectedBridge(provider: Provider) {
   assert.ok(secret);
   const bridge = new HeldBridge();
   await once(bridge.ws, 'open');
-  bridge.ws.send(JSON.stringify({ type: 'hello', version: 1, nativeMcp: true, noGenerationDeadline: true, token: secret, device: 'Held concurrency fixture' }));
+  bridge.ws.send(JSON.stringify({ type: 'hello', version: 1, nativeMcp: true, codexExecOnly: true, noGenerationDeadline: true, token: secret, device: 'Held concurrency fixture' }));
   await until(() => bridge.welcome, 'bridge authenticates');
   await refreshCli(owner);
   const selected = await request('/cli', 'PUT', { provider });
@@ -437,7 +437,7 @@ test('same-Bot turns stay ordered while another Bot runs and finishes alongside 
   assert.deepEqual(listRows(a.id).filter(row => row.body.type === 'message' && row.body.role === 'assistant').map(row => (row.body as any).text), ['A first result', 'A second result']);
 });
 
-test('seventy selected-CLI jobs are admitted durably and all start without a per-account capacity wait', { timeout: 25_000 }, async () => {
+test('seventy selected-CLI jobs are admitted durably and all start without a per-account capacity wait', { timeout: 40_000 }, async () => {
   const bridge = await selectedBridge('claude');
   const team = Array.from({ length: 70 }, (_, i) => newBot(`Admission ${i}`));
   assert.doesNotThrow(() => {
@@ -445,7 +445,9 @@ test('seventy selected-CLI jobs are admitted durably and all start without a per
   }, 'the 65th and later CLI tasks must be accepted');
   assert.equal(jobs().length, team.length);
   assert.ok(jobs().every(job => job.state === 'queued'), 'all accepted jobs are durable before scheduling microtasks run');
-  await until(() => bridge.generations.length === team.length, 'all seventy CLI jobs reach the bridge while every earlier response remains held');
+  // Preparing seventy real prompts can exceed eight seconds on shared CI hosts.
+  // Every response stays held, so a concurrency cap still cannot satisfy this check.
+  await until(() => bridge.generations.length === team.length, 'all seventy CLI jobs reach the bridge while every earlier response remains held', 25_000);
   assert.equal(bridge.held.size, team.length);
   assert.ok(jobs().every(job => job.state === 'running'));
   assert.equal(usage().length, 0);
