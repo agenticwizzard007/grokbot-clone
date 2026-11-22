@@ -7,7 +7,7 @@ import { useStore } from '../store';
 import { Icon } from './Icon';
 import { Menu } from './Menu';
 import { ComposerModelMenu, cycleEffort, toggleFast } from './ComposerModelMenu';
-import { modelSelection, useModels } from '../lib/models';
+import { isTopEffort, modelSelection, useModels } from '../lib/models';
 import { endCall, isCallActive, startCall, useVoice } from '../voice/call';
 import { useDictation } from '../voice/dictation';
 import { hasOpenModal } from './modals/Modal';
@@ -109,9 +109,9 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
 
   // The Paper ring reflects the supported, selected effort in either billing mode.
   const catalog = useModels();
-  const { effort } = modelSelection(bot, catalog);
+  const { current, effort } = modelSelection(bot, catalog);
   const animated = effort !== null && effort !== 'none';
-  const ultra = effort === 'ultracode';
+  const ultra = isTopEffort(effort, current);
   const [flare, setFlare] = useState(false);
   const previousEffort = useRef({ botId: bot.id, effort });
   useEffect(() => {
@@ -231,7 +231,7 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
           </div>
         </div>
       )}
-      <div className={`composer-shell effort-motion${flare ? ' is-flaring' : ''}`} data-effort={effort ?? undefined}>
+      <div className={`composer-shell effort-motion${ultra ? ' is-top-effort' : ''}${flare ? ' is-flaring' : ''}`} data-effort={effort ?? undefined}>
       {animated && <span className="composer__glow" aria-hidden />}
       <div className={`composer${multiline ? ' is-multiline' : ''}${animated ? ' has-effort' : ''}${ultra ? ' is-ultracode' : ''}`}>
         <textarea

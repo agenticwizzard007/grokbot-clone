@@ -1,3 +1,4 @@
+import { normalizeModelEfforts } from './model-efforts.js';
 import { catalogModelId, cliModelCatalog } from '../cli/catalog.js';
 import { isTenant, assertTenant } from '../deployment.js';
 import { privateKey } from '../providers/private-keys.js';
@@ -229,6 +230,7 @@ async function fetchModels(): Promise<ModelInfo[]> {
       context: m.context_length ?? 0,
       price: { input: Number(m.pricing?.prompt ?? 0) * 1e6, output: Number(m.pricing?.completion ?? 0) * 1e6 },
     }))
+    .map(normalizeModelEfforts)
     .sort((a: ModelInfo, b: ModelInfo) => a.name.localeCompare(b.name));
   catalog = { at: Date.now(), models };
   return models;
