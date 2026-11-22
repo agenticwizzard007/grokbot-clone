@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useDisplayText } from '../lib/useDisplayText';
 import type { Bot, LiveState, Row } from '@shared/types';
 import { FlockMark } from './FlockMark';
 import { activityPhrase } from '../lib/phrases';
@@ -16,6 +17,7 @@ function variantFor(kind: ActivityKind | undefined, waiting: boolean): SpinnerVa
 
 /** The single live "activity line": avatar mark + shimmering phrase + a braille spinner and a running clock. */
 export function ActivityLine({ bot, live, rows }: { bot: Bot; live: LiveState; rows: Row[] }) {
+  const clean = useDisplayText();
   const { effort } = modelSelection(bot, useModels());
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -24,7 +26,7 @@ export function ActivityLine({ bot, live, rows }: { bot: Bot; live: LiveState; r
   }, []);
   const since = live.startedAt ?? live.activity?.since ?? live.awaiting?.since ?? now;
   const tick = Math.floor((now - (live.activity?.since ?? since)) / 6000);
-  const phrase = activityPhrase(live, rows, tick);
+  const phrase = clean(activityPhrase(live, rows, tick));
   const waiting = !live.isRunning && (live.awaiting || live.activity?.kind === 'waiting_for_you');
   return (
     <div className={`activity-line effort-motion${waiting ? ' is-waiting' : ''}`} data-effort={waiting ? undefined : effort ?? undefined} role="status" aria-live="polite">
@@ -34,7 +36,7 @@ export function ActivityLine({ bot, live, rows }: { bot: Bot; live: LiveState; r
         <BrailleSpinner variant={variantFor(live.activity?.kind, !!waiting)} />
         <ElapsedTimer since={waiting ? live.awaiting?.since ?? since : since} />
       </span>
-      {waiting && live.awaiting?.reason && <span className="activity-line__time">{live.awaiting.reason}</span>}
+      {waiting && live.awaiting?.reason && <span className="activity-line__time">{clean(live.awaiting.reason)}</span>}
     </div>
   );
 }

@@ -471,6 +471,8 @@ test('R2F-038 CSP connect-src is narrowed to self, the app host and the configur
   const csp = html.headers.get('content-security-policy') ?? '';
   const connect = csp.split('; ').find((d) => d.startsWith('connect-src '))!;
   const sources = connect.split(' ').slice(1);
+  assert.equal(csp.split('; ').find(d => d.startsWith('img-src ')), "img-src 'self' data: blob:", 'logos use same-origin proxies; no arbitrary HTTPS images');
+  assert.equal(contentSecurityPolicy(false).split('; ').find(d => d.startsWith('img-src ')), "img-src 'self' data: blob:");
   assert.equal(sources[0], "'self'");
   for (const broad of ['https:', 'wss:', 'http:', 'ws:', '*']) assert.ok(!sources.includes(broad), `no bare ${broad}`);
   // The browser opens the realtime voice socket on the configured provider host.

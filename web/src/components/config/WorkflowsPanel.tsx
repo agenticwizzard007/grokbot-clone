@@ -105,7 +105,6 @@ function WorkflowSurface({ botId, workspace, onHeading, onTeam, userId }: PanelP
   const newItem = (kind: Editor) => { setCreate(kind); setSelected(null); setActionError(''); setReceipt(''); };
   const back = () => { setCreate(null); setSelected(null); setActionError(''); };
   const refresh = () => { setActionError(''); setRevision(count => count + 1); };
-  const board = primary ? `${primary.name}’s board` : 'Team board';
   return <section className={`work-ui workflows-panel${workspace ? ' is-workspace' : ''}`} aria-label="Goals and workflows">
     {!workspace && <h2 className="work-title">{headingTitle ?? 'Goals and workflows'}</h2>}
     {readError && <p className="work-error" role="alert">{state ? 'Could not refresh. Showing the last loaded records. ' : ''}{readError} <button className="work-button" type="button" onClick={refresh}>Refresh</button></p>}
@@ -127,7 +126,7 @@ function WorkflowSurface({ botId, workspace, onHeading, onTeam, userId }: PanelP
       {state.goals.map(goal => <div className="work-row work-goal-row" key={goal.id}><div className="work-row__body"><div><h3>{goal.title}</h3><p className="work-meta">{name(goal.botId)} · {goalStatusLabel(goal)} · {goalTurnUsage(goal)}</p></div><button className="work-button" type="button" onClick={() => setSelected({ kind: 'goal', id: goal.id })}>Open goal</button></div></div>)}
       <div className="work-row"><div className="work-row__body"><div><h3>Workflows</h3><p className="work-meta">{state.workflows.length ? `${state.workflows.length} saved ${state.workflows.length === 1 ? 'workflow' : 'workflows'}` : 'No workflows yet. Draft a workflow and add tasks before you start it.'}</p></div><button className="work-button" type="button" onClick={() => newItem('workflow')}>New workflow</button></div></div>
       {state.workflows.map(workflow => <div className="work-row" key={workflow.id}><div className="work-row__body"><div><h3>{workflow.title}</h3><p className="work-meta">{name(workflow.botId)} · {labelStatus(workflow.status)} · {workflow.tasks.length} {workflow.tasks.length === 1 ? 'task' : 'tasks'}</p></div><button className="work-button" type="button" onClick={() => setSelected({ kind: 'workflow', id: workflow.id })}>Open workflow</button></div></div>)}
-      {onTeam && <div className="work-row"><div className="work-row__body"><div><h3>{board}</h3><p className="work-meta">See who’s working and which tasks need attention.</p></div><button className="work-button" type="button" onClick={onTeam}>{board}</button></div></div>}
+      {onTeam && <div className="work-row"><div className="work-row__body"><div><h3>Team board</h3><p className="work-meta">See who’s working and which tasks need attention.</p></div><button className="work-button" type="button" onClick={onTeam}>Team board</button></div></div>}
       <div className="work-actions is-stack"><button className="work-button" type="button" onClick={refresh} disabled={loading}>Refresh</button>
         {(botId || primary) && <button className="work-button" type="button" onClick={() => openWorkChat(botId ?? primary!.id)}>Manage work in chat</button>}
       </div>

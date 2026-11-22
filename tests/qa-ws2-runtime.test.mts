@@ -380,8 +380,10 @@ const lastSeq = (botId: string) => listRows(botId).at(-1)?.seq ?? 0;
 test('R2F-001: group turns are offered no app, MCP, computer, delivery or card tools, and the prompt states the refusal', async () => {
   const { x, roomId } = groupPair('Tool Scope A', 'Tool Scope B', 'Scope group');
   const offered: string[][] = [];
+  const providerTools: string[] = [];
   const prompts: string[] = [];
   const create = mock.method(llmClient(360_000).responses, 'create', async (body: any) => {
+    providerTools.push(...(body.tools ?? []).filter((t: any) => t.type !== 'function').map((t: any) => t.type));
     offered.push((body.tools ?? []).filter((t: any) => t.type === 'function').map((t: any) => t.name));
     prompts.push(JSON.stringify(body.input));
     return textStream(GROUP_APPS_REFUSAL);
@@ -389,6 +391,7 @@ test('R2F-001: group turns are offered no app, MCP, computer, delivery or card t
   try { dispatchRoomMessage(roomId, '@Tool Scope A post hello in Slack', enqueue); await settleAgentJobs(); }
   finally { create.mock.restore(); }
   assert.equal(offered.length, 1);
+  assert.deepEqual(providerTools, [], 'built-in group model path offers no provider tools, including web_search and x_search');
   const names = offered[0];
   for (const name of names) assert.ok(GROUP_TURN_TOOLS.has(name), `${name} is allowed in group turns`);
   for (const banned of ['SWARM_APPS_SEARCH', 'SWARM_APPS_EXECUTE', 'list_app_connections', 'search_apps', 'request_app_connection', 'ask_user', 'deliver_artifact', 'send_to_bot', 'computer_click', 'open_browser', 'get_platform_state', 'present_draft']) {

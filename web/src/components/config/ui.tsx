@@ -75,16 +75,16 @@ export function shortDate(ts: number): string {
   return d.toLocaleDateString('en-US', opts);
 }
 
-/** "Next today 8:00 AM", shown in the routine's own time zone so it matches its schedule text. */
+/** "Next today 8:00 AM Asia/Dubai", shown in the routine's own time zone. */
 export function nextRunLabel(ts: number | null, timeZone?: string): string {
   if (!ts) return '';
-  let tz = timeZone || undefined;
-  try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); } catch { tz = undefined; }
+  let tz = timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); } catch { tz = Intl.DateTimeFormat().resolvedOptions().timeZone; }
   const dayKey = (t: number) => new Date(t).toLocaleDateString('en-US', { timeZone: tz });
   const day = new Date(ts).toLocaleDateString('en-US', { weekday: 'short', timeZone: tz });
   const time = new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz });
   const rel = dayKey(ts) === dayKey(Date.now()) ? 'today' : dayKey(ts) === dayKey(Date.now() + 86_400_000) ? 'tomorrow' : day;
-  return `Next ${rel} ${time}`;
+  return `Next ${rel} ${time} ${tz}`;
 }
 
 export function formatBytes(n: number): string {

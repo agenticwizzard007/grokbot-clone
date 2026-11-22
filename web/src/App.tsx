@@ -7,7 +7,7 @@ import { DetailsPanel } from './components/DetailsPanel';
 import { Sidebar } from './components/Sidebar';
 import { SignIn } from './components/SignIn';
 import { TasksView } from './components/config/TasksView';
-import { useConfigUI } from './configStore';
+import { botSettingsHash, useConfigUI } from './configStore';
 import { installVoiceShortcut } from './voice/shortcut';
 import { hasOpenModal } from './components/modals/Modal';
 import { ToastPortal } from './lib/toast';
@@ -52,6 +52,15 @@ function Shell() {
       if (restorePhoneSetup()) return;
       const st = useStore.getState();
       if (!st.mobile || st.mobilePane !== 'chat') return;
+      const config = useConfigUI.getState();
+      if (config.botSettings && !config.appSettings) {
+        if (config.botSettingsDirty) {
+          // Keep editing must retain an in-app Back destination after the browser has popped it.
+          history.pushState({ swarmPane: 'chat', swarmFrom: 'list', swarmDoc: performance.timeOrigin }, '', botSettingsHash(config.botSettings.botId, config.botSettings.tab));
+          config.closeBotSettings();
+        } else { config.discardBotSettings(); showPhoneList(); }
+        return;
+      }
       showPhoneList();
     };
     // Back to the list always lands on the chat view underneath, never on Tasks or Goals.
@@ -65,6 +74,9 @@ function Shell() {
   useEffect(() => {
     if (mobile) useStore.getState().set({ detailsOpen: false });
   }, [mobile]);
+  useEffect(() => {
+    if (mobile && botSettings) useConfigUI.getState().openBotSettings(botSettings.botId, botSettings.tab);
+  }, [mobile, botSettings?.botId, botSettings?.tab]);
 
   useEffect(() => {
     const st = useStore.getState();

@@ -5,6 +5,7 @@ import { useStore } from '../../store';
 import { Icon } from '../Icon';
 import { ToolkitLogo } from '../ToolkitLogo';
 import { useRefocusOnResolve } from '../../lib/composerFocus';
+import { useDisplayText } from '../../lib/useDisplayText';
 
 type Card<K extends CardBody['card']> = Extract<CardBody, { card: K }>;
 
@@ -29,9 +30,10 @@ const APPROVAL_OUTCOME: Record<string, string> = { allowed: 'Allowed once', alwa
 
 export function ApprovalCard({ body }: { body: Card<'approval'> }) {
   const { busy, error, run } = useBusy();
+  const clean = useDisplayText();
   const pending = body.status === 'pending';
   const decide = (d: 'allow' | 'always' | 'deny') => run(d, () => api.approve(body.approvalId, d));
-  const name = body.toolkitName ?? (body.toolkit ? humanizeToolkit(body.toolkit) : prettyTool(body.tool));
+  const name = clean(body.toolkitName ?? (body.toolkit ? humanizeToolkit(body.toolkit) : prettyTool(clean(body.tool))));
   const ref = useRef<HTMLDivElement>(null);
   useRefocusOnResolve(pending, ref);
   return (
@@ -39,11 +41,11 @@ export function ApprovalCard({ body }: { body: Card<'approval'> }) {
       <div className="card__head">
         <ToolkitLogo slug={body.toolkit} name={name} size={44} />
         <div className="card__titles">
-          <div className="card__title">{body.title}</div>
+          <div className="card__title">{clean(body.title)}</div>
           <div className="card__sub">{name}</div>
         </div>
       </div>
-      {body.detail && <div className="card__body">{body.detail}</div>}
+      {body.detail && <div className="card__body">{clean(body.detail)}</div>}
       {pending ? (
         <>
           <div className="card__actions">
@@ -51,7 +53,7 @@ export function ApprovalCard({ body }: { body: Card<'approval'> }) {
             <button type="button" className="btn btn--secondary" disabled={!!busy} onClick={() => decide('always')}>Always allow</button>
             <button type="button" className="btn btn--primary" disabled={!!busy} onClick={() => decide('allow')}>Allow</button>
           </div>
-          {error && <div className="card__error">{error}</div>}
+          {error && <div className="card__error">{clean(error)}</div>}
         </>
       ) : (
         <div className={`card__outcome is-${body.status}`}>
@@ -67,6 +69,7 @@ export function ApprovalCard({ body }: { body: Card<'approval'> }) {
 
 export function QuestionCard({ row, body }: { row: Row; body: Card<'question'> }) {
   const { busy, error, run } = useBusy();
+  const clean = useDisplayText();
   const pending = body.status === 'pending';
   const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
   const ref = useRef<HTMLDivElement>(null);
@@ -74,7 +77,7 @@ export function QuestionCard({ row, body }: { row: Row; body: Card<'question'> }
   return (
     <div ref={ref} className={`card question-card${pending ? '' : ' is-resolved'}`}>
       <div className="question-card__head">
-        <div className="question-card__q">{body.question}</div>
+        <div className="question-card__q">{clean(body.question)}</div>
         <div className="question-card__hint">{pending ? 'Pick an option or reply in your own words' : body.status === 'dismissed' ? 'Skipped' : 'Answered'}</div>
       </div>
       <div className="question-card__options">
@@ -89,7 +92,7 @@ export function QuestionCard({ row, body }: { row: Row; body: Card<'question'> }
               onClick={() => run(String(i), () => api.answer(row.botId, row.seq, opt))}
             >
               <span className="question-option__key">{letters[i] ?? i + 1}</span>
-              <span className="question-option__label">{opt}</span>
+              <span className="question-option__label">{clean(opt)}</span>
               {chosen && <Icon name="check" size={12} opacity={0.6} style={{ marginLeft: 'auto', marginTop: 6 }} />}
             </button>
           );
@@ -100,7 +103,7 @@ export function QuestionCard({ row, body }: { row: Row; body: Card<'question'> }
           <button type="button" className="link-btn" disabled={!!busy} onClick={() => run('dismiss', () => api.dismiss(row.botId, row.seq))}>Skip</button>
         </div>
       )}
-      {error && <div className="card__error">{error}</div>}
+      {error && <div className="card__error">{clean(error)}</div>}
     </div>
   );
 }
@@ -109,6 +112,7 @@ export function QuestionCard({ row, body }: { row: Row; body: Card<'question'> }
 
 export function ConnectCard({ row, body }: { row: Row; body: Card<'connect'> }) {
   const { busy, error, run } = useBusy();
+  const clean = useDisplayText();
   const [waiting, setWaiting] = useState(false);
   const connectionsVersion = useStore((s) => s.connectionsVersion);
   const pending = body.status === 'pending';
@@ -128,10 +132,10 @@ export function ConnectCard({ row, body }: { row: Row; body: Card<'connect'> }) 
   return (
     <div className={`card connect-card${pending ? '' : ' is-resolved'}`}>
       <div className="card__head">
-        <ToolkitLogo slug={body.toolkit} name={body.toolkitName} logo={body.logo} size={44} />
+        <ToolkitLogo slug={body.toolkit} name={clean(body.toolkitName)} logo={body.logo} size={44} />
         <div className="card__titles">
-          <div className="card__title">Connect {body.toolkitName}</div>
-          <div className="card__sub">{body.reason}</div>
+          <div className="card__title">Connect {clean(body.toolkitName)}</div>
+          <div className="card__sub">{clean(body.reason)}</div>
         </div>
       </div>
       {pending ? (
@@ -140,12 +144,12 @@ export function ConnectCard({ row, body }: { row: Row; body: Card<'connect'> }) 
             <button type="button" className="btn btn--secondary" disabled={!!busy} onClick={() => run('skip', () => api.dismiss(row.botId, row.seq))}>Skip</button>
             <button type="button" className="btn btn--primary" disabled={!!busy} onClick={connect}>{waiting ? 'Waiting for sign-in…' : 'Connect'}</button>
           </div>
-          {error && <div className="card__error">{error}</div>}
+          {error && <div className="card__error">{clean(error)}</div>}
         </>
       ) : (
         <div className={`card__outcome is-${body.status}`}>
           <Icon name={body.status === 'connected' ? 'check' : 'close'} size={12} opacity={0.7} />
-          {body.status === 'connected' ? `${body.toolkitName} connected` : body.status === 'expired' ? 'This connection request has expired. Connect again from Settings.' : 'Skipped'}
+          {body.status === 'connected' ? `${clean(body.toolkitName)} connected` : body.status === 'expired' ? 'This connection request has expired. Connect again from Settings.' : 'Skipped'}
         </div>
       )}
     </div>
@@ -158,12 +162,13 @@ const CHANNEL_LABEL: Record<string, string> = { email: 'Email', slack: 'Slack', 
 
 export function DraftCard({ row, body }: { row: Row; body: Card<'draft'> }) {
   const { busy, error, run } = useBusy();
+  const clean = useDisplayText();
   // R2F-006: present_draft shows a draft the user sends themselves. Nothing is ever sent from this card:
   // Copy draft stays on this device, Discard dismisses the card row (never an approval).
   const approvalId: string | undefined = body.approvalId || undefined;
   const pending = body.status === 'pending';
   const [copied, setCopied] = useState(false);
-  const copy = async () => { try { await navigator.clipboard.writeText(body.subject ? `Subject: ${body.subject}\n\n${body.text}` : body.text); setCopied(true); setTimeout(() => setCopied(false), 1200); } catch { /* ignore */ } };
+  const copy = async () => { try { await navigator.clipboard.writeText(clean(body.subject ? `Subject: ${body.subject}\n\n${body.text}` : body.text)); setCopied(true); setTimeout(() => setCopied(false), 1200); } catch { /* ignore */ } };
   const discard = () => run('discard', () => approvalId ? api.approve(approvalId, 'deny') : api.dismiss(row.botId, row.seq));
   const ref = useRef<HTMLDivElement>(null);
   useRefocusOnResolve(pending, ref);
@@ -180,10 +185,10 @@ export function DraftCard({ row, body }: { row: Row; body: Card<'draft'> }) {
         <div className="draft-card__to">
           <span className="draft-card__to-label">To</span>
           <span className="draft-card__to-avatar">{(body.to.trim()[0] ?? '?').toUpperCase()}</span>
-          <span className="draft-card__to-name">{body.to}</span>
+          <span className="draft-card__to-name">{clean(body.to)}</span>
         </div>
-        {body.subject && <div className="draft-card__subject">{body.subject}</div>}
-        <div className="draft-card__text">{body.text}</div>
+        {body.subject && <div className="draft-card__subject">{clean(body.subject)}</div>}
+        <div className="draft-card__text">{clean(body.text)}</div>
       </div>
       {pending ? (
         <div className="draft-card__actions">
@@ -196,7 +201,7 @@ export function DraftCard({ row, body }: { row: Row; body: Card<'draft'> }) {
           {body.status === 'sent' ? 'Sent' : 'Discarded. Nothing was sent.'}
         </div>
       )}
-      {error && <div className="card__error" style={{ padding: '0 16px 12px' }}>{error}</div>}
+      {error && <div className="card__error" style={{ padding: '0 16px 12px' }}>{clean(error)}</div>}
     </div>
   );
 }

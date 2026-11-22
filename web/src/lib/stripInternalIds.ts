@@ -10,7 +10,7 @@ const LABELS: Record<string, { lead: RegExp; alone: string }> = {
   bot: { lead: /\bbot$/i, alone: 'a Bot' },
 };
 // An optional "(" or "id:" before the id is consumed with it; the leading space is handled separately.
-const PATTERN = /( ?)(\(\s*`?)?(?:\bid[:=]?\s*)?`?\b(ca|req|apr|cli|bot)_[A-Za-z0-9_-]{6,}`?(`?\s*\))?/gi;
+const PATTERN = /( ?)(\(\s*`?)?(?:\bid[:=]?\s*)?`?(?<![A-Za-z0-9_-])(ca|req|apr|cli|bot)_(?=[A-Za-z0-9_-]*[A-Z0-9])[A-Za-z0-9_-]{6,}`?(`?\s*\))?/g;
 
 /** Header the coordination layer prepends to a result handed back to the requesting Bot. */
 const RESULT_HEADER = /^\s*\[Internal result for request[^\]\n]*\]\s*\n?/i;
@@ -24,7 +24,8 @@ export function stripInternalIds(text: string, options: StripOptions = {}): stri
     const kind = prefix.toLowerCase();
     const before = whole.slice(0, offset).trimEnd();
     if (kind === 'bot') {
-      const name = options.botName?.(match.trim().replace(/^\(\s*/, '').replace(/\s*\)$/, '').replace(/^id[:=]?\s*/i, ''));
+      const id = /bot_[A-Za-z0-9_-]+/.exec(match)?.[0];
+      const name = id ? options.botName?.(id) : undefined;
       if (name) return `${space}${name}`;
     }
     const label = LABELS[kind];
@@ -54,4 +55,4 @@ export function displayExchangeText(text: string, options: StripOptions = {}): {
 }
 
 /** Visible text must never match this (R2F-002 acceptance). */
-export const INTERNAL_ID_PATTERN = /\b(ca|req|apr)_[A-Za-z0-9_-]{6,}/;
+export const INTERNAL_ID_PATTERN = new RegExp(`\\b(ca|req|apr|cli|bot|${OTHER_PREFIXES})_(?=[A-Za-z0-9_-]*[A-Z0-9])[A-Za-z0-9_-]{6,}`);
