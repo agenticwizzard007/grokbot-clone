@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, GripVertical, Minus, Search, Settings2, Star } from 'lucide-react';
-import type { Bot, Effort } from '@shared/types';
+import type { Bot } from '@shared/types';
 import { configApi } from '../lib/configApi';
-import { EFFORT_DESC, EFFORT_LABEL, ICON_AUTHORS, effectiveEffort, effortsFor, fallbackShort, modelSelection, useModels, type PickerModel } from '../lib/models';
+import { defaultEffortFor, effortDescription, effortLabel, isTopEffort, ICON_AUTHORS, effectiveEffort, effortsFor, fallbackShort, modelSelection, useModels, type PickerModel } from '../lib/models';
 import { useStore } from '../store';
 import { ClaudeMascot } from './ClaudeMascot';
 import { ModelUsageDetails } from './ModelUsageDetails';
 
 import { toast } from '../lib/toast';
 import { shortcutLabel } from '../lib/shortcuts';
-import { BOT_DEFAULT_EFFORT, nextEffort } from '../lib/effortCycle';
+import { nextEffort } from '../lib/effortCycle';
 
 /** OpenRouter's icon for the model's maker (served via our server), or a monogram. */
 export function ProviderIcon({ author, size = 16 }: { author: string; size?: number }) {
@@ -43,17 +43,10 @@ export function cycleEffort(bot: Bot, m: PickerModel | undefined) {
   const current = modelSelection(bot, useModels.getState()).effort ?? effectiveEffort(bot.effort, m);
   const next = nextEffort(effortsFor(m), current);
   if (!next) return;
-  toast(`Effort: ${EFFORT_LABEL[next]}`);
+  toast(`Effort: ${effortLabel(next, m)}`);
   void patchBot(bot, { effort: next, ...(m?.billing === 'plan' ? { model: m.id, fast: false } : {}) });
 }
 
-/** The level a Bot runs at when nobody picked one: the same rule modelSelection applies. */
-export function defaultEffortFor(m: PickerModel | undefined): Effort | null {
-  const levels = effortsFor(m);
-  if (!m || !levels.length) return null;
-  if (m.billing === 'plan' && m.defaultEffort) return levels.find(level => level === m.defaultEffort) ?? effectiveEffort(BOT_DEFAULT_EFFORT, m);
-  return effectiveEffort(BOT_DEFAULT_EFFORT, m);
-}
 export const toggleFast = (bot: Bot) => void patchBot(bot, { fast: !bot.fast });
 
 export function ComposerModelMenu({ bot }: { bot: Bot }) {
@@ -73,16 +66,16 @@ export function ComposerModelMenu({ bot }: { bot: Bot }) {
   const effort = known ? selection.effort : null;
   const label = models.status === 'loading' || models.status === 'idle' ? 'Loading models…' : models.status === 'error' || models.error ? 'Models unavailable' : !known ? 'Provider default' : current?.short ?? (planMode ? 'CLI default' : bot.model ? fallbackShort(bot.model) : 'Default model');
   const efforts = effortsFor(current);
-  const ultra = effort === 'ultracode';
+  const ultra = isTopEffort(effort, current);
 
   return (
     <span className="model-pill-anchor">
       <button ref={trigger} type="button" className={`model-pill${ultra ? ' is-ultracode' : ''}`} onClick={() => { if (!open) void models.load(true); setOpen(!open); }} aria-haspopup="dialog" aria-expanded={open}
-        aria-label={`Model: ${label}${known ? `, ${planMode ? 'Plan' : 'API'} connection` : ''}${efforts.length ? `, ${effort ? EFFORT_LABEL[effort] : 'Default'} effort` : ''}${bot.fast && models.canFast ? ', fast' : ''}. Change`}>
+        aria-label={`Model: ${label}${known ? `, ${planMode ? 'Plan' : 'API'} connection` : ''}${efforts.length ? `, ${effort ? effortLabel(effort, current) : 'Default'} effort` : ''}${bot.fast && models.canFast ? ', fast' : ''}. Change`}>
         {current ? <ProviderIcon author={current.author} /> : known && !planMode && bot.model ? <ProviderIcon author={bot.model.split('/')[0]} /> : null}
         <span className="model-pill__name">{label}</span>
         {known && <span className="model-billing">{planMode ? 'Plan' : 'API'}</span>}
-        {efforts.length > 0 && <span className="model-pill__effort">{effort ? EFFORT_LABEL[effort] : 'Default'}</span>}
+        {efforts.length > 0 && <span className="model-pill__effort">{effort ? effortLabel(effort, current) : 'Default'}</span>}
         {bot.fast && models.canFast && <span className="model-pill__fast" title="Fast: fastest providers">⚡︎</span>}
         <ChevronDown size={14} strokeWidth={1.75} aria-hidden className="model-pill__chev" />
       </button>
@@ -169,13 +162,13 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
   const rowEffort = (m: PickerModel) => !editing && effortsFor(m).length > 0 && (
     <button type="button" className="mm-row__effort" aria-label={`Effort for ${m.short}`} aria-haspopup="listbox" aria-expanded={view === 'effort' && target?.id === m.id}
       onClick={e => openEffort(m, e.currentTarget)}>
-      <span>{m.id === current?.id && currentEffort ? EFFORT_LABEL[currentEffort] : 'Effort'}</span><ChevronRight size={12} aria-hidden />
+      <span className={m.id === current?.id && isTopEffort(currentEffort, m) ? 'uc-text' : undefined}>{m.id === current?.id && currentEffort ? effortLabel(currentEffort, current) : 'Effort'}</span><ChevronRight size={12} aria-hidden />
     </button>
   );
 
   const choose = (m: PickerModel) => {
-    // Keep the effort the user picked when the new model accepts it; else the server snaps it.
-    void patchBot(bot, { model: m.id, ...(m.billing === 'plan' ? { effort: effectiveEffort(bot.effort, m), fast: false } : {}) });
+    // Save the closest supported level in both billing modes.
+    void patchBot(bot, { model: m.id, effort: effectiveEffort(bot.effort, m), ...(m.billing === 'plan' ? { fast: false } : {}) });
     onClose();
   };
   const toggleFav = (id: string) => setFavourites(favourites.includes(id) ? favourites.filter((x) => x !== id) : [...favourites, id]);
@@ -226,9 +219,9 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
     }}>
       {efforts.map((e) => (
         <li key={e}>
-          <button type="button" role="option" aria-selected={e === effort} className={`mm-effort${e === 'ultracode' ? ' is-ultracode' : ''}${e === effort ? ' is-selected' : ''}`}
+          <button type="button" role="option" aria-selected={e === effort} className={`mm-effort${isTopEffort(e, target) ? ' is-ultracode' : ''}${e === effort ? ' is-selected' : ''}`}
             onClick={() => { if (target) void patchBot(bot, { model: target.id, effort: e, ...(target.billing === 'plan' ? { fast: false } : {}) }); onClose(); }}>
-            <span className="mm-effort__text"><span className="mm-effort__label">{EFFORT_LABEL[e]}</span><span className="mm-effort__desc">{e === defaultEffortFor(target) ? `Default · ${EFFORT_DESC[e]}` : EFFORT_DESC[e]}</span></span>
+            <span className="mm-effort__text"><span className="mm-effort__label">{effortLabel(e, target)}</span><span className="mm-effort__desc">{e === defaultEffortFor(target) ? `Default · ${effortDescription(e, target)}` : effortDescription(e, target)}</span></span>
             {e === effort && <Check size={16} strokeWidth={2} aria-hidden />}
           </button>
         </li>
@@ -289,7 +282,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
                 {current && effortsFor(current).length > 0 && (
                   <button type="button" aria-label="Effort" className={`mm-item${view === 'effort' ? ' is-open' : ''}`} onClick={e => view === 'effort' ? back() : openEffort(current, e.currentTarget)} aria-expanded={view === 'effort'}>
                     <span>Effort</span>
-                    <span className={`mm-item__value${currentEffort === 'ultracode' ? ' is-ultracode' : ''}`}>{currentEffort ? EFFORT_LABEL[currentEffort] : 'Default'}<ChevronRight size={14} strokeWidth={1.75} /></span>
+                    <span className={`mm-item__value${isTopEffort(currentEffort, current) ? ' is-ultracode' : ''}`}>{currentEffort ? effortLabel(currentEffort, current) : 'Default'}<ChevronRight size={14} strokeWidth={1.75} /></span>
                   </button>
                 )}
                 {canFast && (
