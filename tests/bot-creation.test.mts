@@ -402,3 +402,31 @@ test('instruction preview never invokes a model, queues work, records usage or d
   assert.equal(calls.length, browserCalls);
   assert.equal(networkRequests.length, 0, 'No external request, including swallowed failures, is permitted');
 });
+
+test('R2F-032: About and Instructions survive export and import, through files and HTTP', async () => {
+  const source = createBot('owner', { name: 'Round Trip', label: 'Ops', description: 'Keeps the weekly ops report.', instructions: 'Use tables for numbers.\nAsk before emailing anyone.' });
+  // Edits made later in Bot settings are part of the exported manifest too.
+  const patched = await app.request(`/api/bots/${source.id}`, { method: 'PATCH', headers: { cookie: `swarm_session=${cookie}`, 'content-type': 'application/json' }, body: JSON.stringify({ description: 'Owns the weekly ops report.', instructions: 'Use tables for numbers.\nAsk before emailing anyone.\nCite sources.' }) });
+  assert.equal(patched.status, 200);
+  const download = await app.request(`/api/bots/${source.id}/setup/bot-setup.json`, { headers: { cookie: `swarm_session=${cookie}` } });
+  assert.equal(download.status, 200);
+  const manifest = JSON.parse(await download.text());
+  assert.equal(manifest.bot.description, 'Owns the weekly ops report.');
+  assert.equal(manifest.bot.instructions, 'Use tables for numbers.\nAsk before emailing anyone.\nCite sources.');
+  const res = await app.request('/api/bots/import', { method: 'POST', headers: { cookie: `swarm_session=${cookie}`, 'content-type': 'application/json' }, body: JSON.stringify({ manifest, name: 'Round Trip Copy', expectedUserId: 'owner' }) });
+  assert.equal(res.status, 200);
+  const { bot } = await res.json();
+  const copy = getBotRow(bot.id);
+  assert.equal(copy.description, 'Owns the weekly ops report.');
+  assert.equal(copy.instructions, 'Use tables for numbers.\nAsk before emailing anyone.\nCite sources.');
+  assert.equal(bot.description, 'Owns the weekly ops report.');
+  assert.equal(bot.instructions, 'Use tables for numbers.\nAsk before emailing anyone.\nCite sources.');
+  // The direct import path keeps them as well, and the copy's own export round-trips again.
+  const again = await importTeammate('owner', JSON.parse(setupFiles(bot.id)['bot-setup.json']), 'Round Trip Third');
+  assert.equal(getBotRow(again.bot!.id).description, 'Owns the weekly ops report.');
+  assert.equal(getBotRow(again.bot!.id).instructions, 'Use tables for numbers.\nAsk before emailing anyone.\nCite sources.');
+  // Older manifests without About or Instructions still import with empty fields.
+  const bare = { ...manifest, bot: { ...manifest.bot, description: '', instructions: '' } };
+  const plain = await importTeammate('owner', bare, 'Round Trip Bare');
+  assert.equal(getBotRow(plain.bot!.id).description, '');
+});

@@ -20,6 +20,7 @@ import { dispatchRoomMessage } from './agent/rooms.js';
 import { voiceApi } from './voice.js';
 import { createBot, assertPrimaryRemovalAllowed, transferPrimary, botPatchSchema, botCreateSchema, BRIEF_FIELDS } from './bots.js';
 import { readJson, zodMessage } from './lib/json.js';
+import { apiBodyLimit } from './security/body-limits.js';
 import { renameSetupGreeting, skipSetup, SetupSkipError } from './bot-setup.js';
 import { activateSetup, beginSetupInterview, briefSchema, emitSetup, getSetup, removeSetupFiles, setupFiles, setupView, writeSetupFiles, coworkerSetups, coworkerSetup } from './bot-setup.js';
 import { importTeammate, provisionTeammate } from './agent/teammates.js';
@@ -102,6 +103,11 @@ api.use('/*', async (c, next) => {
   if (c.req.path.startsWith('/api/auth/') || c.req.path.startsWith('/api/apps/callback') || c.req.path.startsWith('/api/messaging/inkbox/webhook') || c.req.path.startsWith('/api/join/') || c.req.path === '/api/health') return next();
   return requireUser(c, next);
 });
+
+// R2F-019: byte caps before any JSON is parsed on Bot, card answer and approval routes.
+api.use('/bots', apiBodyLimit);
+api.use('/bots/*', apiBodyLimit);
+api.use('/approvals/*', apiBodyLimit);
 
 // ---------- events (SSE) ----------
 
@@ -216,15 +222,16 @@ api.post('/bots', async (c) => {
 });
 
 api.post('/bots/import', async (c) => {
-  try {
-    const { manifest, name, expectedUserId } = await c.req.json();
-    const userId = c.get('user').id;
-    if (expectedUserId !== undefined) {
-      if (typeof expectedUserId !== 'string' || !expectedUserId) return c.json({ error: 'Confirm the account for this import.' }, 400);
-      if (expectedUserId !== userId) return c.json({ error: 'Your account changed. Reload before importing this setup.', code: 'account_changed' }, 409);
-    }
-    return c.json(await importTeammate(userId, manifest, name));
-  } catch (e: any) { return c.json({ error: String(e?.message ?? e) }, 400); }
+  // R2F-037: malformed, empty or non-object bodies are a plain 400 from readJson, like every other handler.
+  const body = await readJson(c); if (!body.ok) return body.response;
+  const { manifest, name, expectedUserId } = body.data;
+  const userId = c.get('user').id;
+  if (expectedUserId !== undefined) {
+    if (typeof expectedUserId !== 'string' || !expectedUserId) return c.json({ error: 'Confirm the account for this import.' }, 400);
+    if (expectedUserId !== userId) return c.json({ error: 'Your account changed. Reload before importing this setup.', code: 'account_changed' }, 409);
+  }
+  try { return c.json(await importTeammate(userId, manifest, name)); }
+  catch (e: any) { return c.json({ error: e instanceof z.ZodError ? zodMessage(e) : String(e?.message ?? e) }, 400); }
 });
 
 api.get('/bots/:id/setup', (c) => {

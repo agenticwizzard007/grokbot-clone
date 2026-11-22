@@ -424,3 +424,42 @@ test('R2F-018 wake errors show generic copy only, survive a restart and clear on
     assert.ok((db.prepare('SELECT cleared_at FROM computer_wake_errors WHERE user_id=?').get('owner') as any).cleared_at > 0, 'cleared, not deleted');
   } finally { warn.mock.restore(); computers.ensure = original; }
 });
+
+test('R2F-019 bodies over 256 KB are 413 before parsing on Bot, group and card answer routes; normal messages work', async () => {
+  const { roomsApi } = await import('../server/src/routes-rooms.js');
+  const big = JSON.stringify({ text: 'x'.repeat(300 * 1024) });
+  const before = rowCount(worker.id);
+  const message = await call('POST', `/api/bots/${worker.id}/messages`, undefined, big);
+  assert.equal(message.status, 413);
+  assert.deepEqual(await message.json(), { error: 'Message is too long (max 32,000 characters).' });
+  assert.equal(rowCount(worker.id), before, 'nothing appended');
+  assert.equal((await call('PATCH', `/api/bots/${worker.id}`, undefined, JSON.stringify({ label: 'x'.repeat(300 * 1024) }))).status, 413);
+  const card = appendRow(worker.id, 'card', { type: 'card', card: 'question', question: 'Big?', options: [], status: 'pending' } as any);
+  assert.equal((await call('POST', `/api/bots/${worker.id}/cards/${card.seq}/answer`, undefined, JSON.stringify({ answer: 'y'.repeat(300 * 1024) }))).status, 413);
+  assert.equal((getRow(worker.id, card.seq)!.body as any).status, 'pending');
+  assert.equal((await call('POST', '/api/approvals/apr_missing', undefined, JSON.stringify({ decision: 'deny', pad: 'z'.repeat(300 * 1024) }))).status, 413);
+  // A streamed body without a length header is cut off too.
+  const chunk = new TextEncoder().encode('x'.repeat(64 * 1024));
+  const stream = new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode('{"text":"')); for (let i = 0; i < 80; i++) controller.enqueue(chunk); controller.enqueue(new TextEncoder().encode('"}')); controller.close(); } });
+  const streamed = await app.request(`/api/bots/${worker.id}/messages`, { method: 'POST', headers: { cookie: `swarm_session=${session}`, 'content-type': 'application/json' }, body: stream, duplex: 'half' } as any);
+  assert.equal(streamed.status, 413);
+  assert.equal(rowCount(worker.id), before + 1, 'only the question card added above');
+  const rooms = await roomsApi.request('/', { method: 'POST', headers: { cookie: `swarm_session=${session}`, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'g'.repeat(300 * 1024), botIds: [] }) });
+  assert.equal(rooms.status, 413);
+  // Normal traffic is unaffected.
+  const ok = await call('PATCH', `/api/bots/${worker.id}`, { label: 'Research' });
+  assert.equal(ok.status, 200);
+  db.prepare('DELETE FROM rows WHERE bot_id=? AND seq=?').run(worker.id, card.seq);
+});
+
+test('R2F-037 /api/bots/import rejects malformed bodies with a plain 400', async () => {
+  for (const raw of ['{', '', '[]', '42', 'null', '"text"']) {
+    const res = await call('POST', '/api/bots/import', undefined, raw);
+    assert.equal(res.status, 400, JSON.stringify(raw));
+    assert.deepEqual(await res.json(), { error: 'Invalid JSON body' });
+  }
+  const invalid = await call('POST', '/api/bots/import', { manifest: { format: 'swarm.bot-setup' } });
+  assert.equal(invalid.status, 400);
+  const { error } = await invalid.json();
+  assert.ok(typeof error === 'string' && error.length < 300 && !error.includes('"code"'), 'short validation message, not a raw schema dump');
+});

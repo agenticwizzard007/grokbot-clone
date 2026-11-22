@@ -48,6 +48,7 @@ import { startLearningRuntime } from './agent/learning.js';
 import { startCoordinationRuntime } from './coordination/index.js';
 import { learningApi } from './routes-learning.js';
 import { coordinationApi } from './routes-coordination.js';
+import { apiBodyLimit, BODY_LIMITED_PATHS } from './security/body-limits.js';
 import { initMessaging, inkboxWebhook, messagingApi, messagingPublic } from './messaging/index.js';
 
 if (!desSelfTest()) throw new Error('DES self-test failed');
@@ -71,6 +72,8 @@ app.use('*', securityHeaders);
 // Invalid JSON and validation errors are 400s; other errors are a generic 500 without a stack trace (MF-014).
 app.onError(apiErrorHandler);
 if (isTenant) app.route('/internal/desktop-ready', tenantDesktopReadiness(desktopToken));
+// R2F-019: Bot, group and card answer bodies are capped in bytes before routing, for every router mounted under them.
+for (const path of BODY_LIMITED_PATHS) app.use(path, apiBodyLimit);
 app.use('/api/*', serverTimingForUsers);
 // Usage attribution: model calls made while handling a signed-in request are billed to that account.
 app.use('/api/*', (c, next) => withUsage({ resolveUser: () => userFromCookieHeader(c.req.header('cookie'))?.id }, () => next()));
