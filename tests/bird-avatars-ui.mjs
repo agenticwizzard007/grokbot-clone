@@ -129,12 +129,14 @@ try {
     await form.getByRole('combobox', { name: 'Color' }).selectOption('blue');
     await form.screenshot({ path: new URL(`create-${theme}.png`, evidence).pathname });
     await page.setViewportSize({ width: 320, height: 760 });
+    await page.locator('.app.is-mobile').waitFor();
     const bounds = await picker.boundingBox(); assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 320);
     for (const radio of await picker.getByRole('radio').all()) {
       const box = await radio.boundingBox(); assert.ok(box.width >= 44 && box.height >= 44, 'phone touch target');
     }
     await form.screenshot({ path: new URL(`phone-${theme}.png`, evidence).pathname });
     await page.setViewportSize({ width: 1280, height: 960 });
+    await page.locator('.app:not(.is-mobile)').waitFor();
     await form.getByRole('textbox', { name: 'Bot name' }).fill('New bird');
     await form.getByRole('button', { name: 'Create', exact: true }).click();
     await page.locator('.chat__header svg[data-bird="bird-flock"]').waitFor();
@@ -155,12 +157,14 @@ try {
     assert.deepEqual(await settingsPicker.getByRole('radio').evaluateAll(elements => elements.map(el => el.value)), ids);
     assert.equal(await settingsPicker.locator('input:checked').count(), 0, 'opening a legacy Bot does not select a bird');
     await page.setViewportSize({ width: 320, height: 760 });
+    await page.locator('.app.is-mobile').waitFor();
     const settingsBounds = await settingsPicker.boundingBox();
     assert.ok(settingsBounds.x >= 0 && settingsBounds.x + settingsBounds.width <= 320, 'settings picker fits phone width');
     for (const radio of await settingsPicker.getByRole('radio').all()) {
       const box = await radio.boundingBox(); assert.ok(box.width >= 44 && box.height >= 44, 'settings phone touch target');
     }
     await page.setViewportSize({ width: 1280, height: 960 });
+    await page.locator('.app:not(.is-mobile)').waitFor();
     const preview = page.locator('.cfg-look .bot-avatar > svg');
     const legacyPath = await preview.locator('path').last().getAttribute('d');
     assert.equal(legacyPath, shapes.heart.d);
