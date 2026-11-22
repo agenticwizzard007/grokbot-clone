@@ -90,7 +90,7 @@ try {
     console.log(`PASS ${width}px: Computer-only permissions, branded responsive rows, saved approval removal, no implicit pairing`);
   }
   {
-    // Linux browser: the cloud computer card comes first, then a one-line Mac note instead of the Mac section.
+    // Linux browser: the cloud computer card comes first, then Linux pairing guidance and the macOS-only permission note.
     const context = await browser.newContext({ viewport: { width: 1200, height: 900 }, userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36' });
     const mutations = await fixture(context);
     const page = await context.newPage();
@@ -99,11 +99,12 @@ try {
     await cloud.waitFor();
     await cloud.getByText('Each Bot has its own cloud computer. Bots can browse and run commands there without asking.', { exact: false }).waitFor();
     await cloud.getByRole('switch', { name: 'Ask before Bots use their computer' }).waitFor();
-    await page.getByText('The Mac app lets Bots use your own Mac. Available for macOS.', { exact: true }).waitFor();
+    await page.getByText('On Linux, use Connect your PC when PC pairing is available.', { exact: false }).waitFor();
+    await page.getByText('Accessibility, Screen Recording, Full Disk Access and Automation permissions apply only on macOS.', { exact: false }).waitFor();
     assert.equal(await page.getByRole('region', { name: 'Device access', exact: true }).count(), 0, 'no Mac permission rows on Linux');
     const order = await page.evaluate(() => {
       const cloudEl = document.querySelector('[aria-label="Cloud computer"]');
-      const mac = document.querySelector('[aria-label="Use your Mac (optional)"]');
+      const mac = document.querySelector('[aria-label="Linux and Mac computers"]');
       return !!cloudEl && !!mac && !!(cloudEl.compareDocumentPosition(mac) & Node.DOCUMENT_POSITION_FOLLOWING);
     });
     assert.equal(order, true, 'cloud computer card comes before the Mac note');

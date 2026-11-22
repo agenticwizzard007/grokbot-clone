@@ -29,7 +29,7 @@ export const requestBoundary: MiddlewareHandler = async (c, next) => {
  *   (wss://<host>/api/bots/:id/screen), and the realtime voice socket, whose host comes from the configured
  *   voice and direct provider base URLs. Nothing else is fetched from the browser; app connections and
  *   sign-in use redirects and popups.
- * - images: Composio app logos and MCP icons come from many hosts, plus data: and blob: previews.
+ * - images: same-origin assets and toolkit/model logo proxies, plus data: and blob: previews.
  * - media: voice samples play from blob: URLs.
  * Sign-in and app connections use redirects and popups, never frames, so nothing may frame the app.
  */
@@ -55,7 +55,7 @@ export function connectSources(): string[] {
 export const PERMISSIONS_POLICY = 'camera=(), geolocation=(), microphone=(self)';
 
 export function contentSecurityPolicy(secure = true): string {
-  // Plain http deployments (local development) also load images and sockets over http: and ws:.
+  // Plain http deployments (local development) also connect over http: and ws:.
   const http = secure ? '' : ' http:';
   const ws = secure ? '' : ' ws:';
   return [
@@ -66,7 +66,7 @@ export function contentSecurityPolicy(secure = true): string {
     "script-src 'self' blob:",
     "worker-src 'self' blob:",
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob: https:" + http,
+    "img-src 'self' data: blob:",
     "font-src 'self' data:",
     "media-src 'self' data: blob:",
     `connect-src ${connectSources().join(' ')}` + http + ws,

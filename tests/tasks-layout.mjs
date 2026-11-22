@@ -161,7 +161,7 @@ try {
       const board = await boxes();
       // R2F-014 and R2F-022: fixed titles without a Bot name (the primary only in the Team subtitle), and a tab bar that never moves.
       const pages = [
-        ['Team', 'Team', /^Quinn’s board · Owners, dependencies and evidence/],
+        ['Team', 'Team', /^Team board · Owners, dependencies and evidence/],
         ['Goals', 'Goals', /^Keep work running across turns/],
         ['Reports', 'Reports', /^Saved reports · Download saved reports/],
       ];
@@ -196,7 +196,7 @@ try {
       await page.waitForFunction(() => document.querySelectorAll('.task-card').length === 3);
       assert.equal(await page.locator('.task-card').count(), 3, 'only that Bot’s tasks');
       await tabBar.getByRole('button', { name: 'Team', exact: true }).click();
-      assert.match(await subtitle.innerText(), /^Quinn’s board · Atlas · /, 'a filtered Bot is named');
+      assert.match(await subtitle.innerText(), /^Team board · Atlas · /, 'a filtered Bot is named');
       await tabBar.getByRole('button', { name: 'Tasks', exact: true }).click();
       await page.getByRole('button', { name: 'Clear the Atlas filter and show tasks for all Bots', exact: true }).click();
       assert.equal(await scope.inputValue(), 'all');

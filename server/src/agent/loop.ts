@@ -391,7 +391,7 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
   if (trigger.roomId) ctx.readOnlyApps = true;
   const audience = turnAudience(ctx);
   ctx.availableTools = trigger.roomId
-    ? async () => [...functionSchemas(botId).filter(t => allowedInGroupTurn(t.name)), ...(isConfiguring(botId) ? [] : serverTools())]
+    ? async () => functionSchemas(botId).filter(t => allowedInGroupTurn(t.name))
     : async () => [
       ...functionSchemas(botId), ...mcpSchemas(userId, botId), ...await composioTools(userId),
       ...(isConfiguring(botId) ? [] : serverTools()),

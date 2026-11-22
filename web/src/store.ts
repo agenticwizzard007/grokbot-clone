@@ -54,6 +54,7 @@ interface State {
 }
 
 const LS_SELECTED = 'swarm.selectedBot';
+let computerRequest = 0;
 
 type InlineSetup = 'create' | 'group';
 type SetupHistory = { page: InlineSetup; depth: 1 | 2; accountId: string; documentStart: number };
@@ -174,8 +175,13 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async loadComputer() {
+    const userId = get().user?.id;
+    if (!userId) return;
+    const request = ++computerRequest;
+    const previous = get().computer;
     const { computer } = await api.computer();
-    set({ computer });
+    // A delayed snapshot must not replace a newer live event or another account's state.
+    if (request === computerRequest && get().user?.id === userId && get().computer === previous) set({ computer });
   },
 
   upsertRows(botId, generation, rows) {

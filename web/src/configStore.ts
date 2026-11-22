@@ -2,7 +2,7 @@ import './lib/legacy-storage'; // before reading saved preferences
 import { useEffect } from 'react';
 import { create } from 'zustand';
 import type { ServerEvent } from '@shared/types';
-import { enterChatPane, useStore } from './store';
+import { backToList, enterChatPane, useStore } from './store';
 
 /** UI state for bot settings, app settings, the Tasks view and the theme. Kept apart from store.ts on purpose. */
 
@@ -143,6 +143,17 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
   versions: {},
   openBotSettings: (botId, tab = 'general') => {
     const open = () => {
+      // Keep a real list entry behind phone settings, including a reloaded deep link.
+      if (!get().appSettings) {
+        const store = useStore.getState();
+        const restoring = store.mobile && store.mobilePane === 'list' && linkedBotSettings()
+          && history.state?.swarmPane === 'chat' && history.state.swarmDoc === performance.timeOrigin;
+        if (restoring) store.set({ mobilePane: 'chat' });
+        else {
+          if (store.mobile && store.mobilePane === 'list' && linkedBotSettings()) replaceHash('');
+          enterChatPane();
+        }
+      }
       // Every tab change replaces the URL, so one Settings visit leaves one history entry.
       if (!get().appSettings) replaceHash(botSettingsHash(botId, tab));
       set({ botSettings: { botId, tab } });
@@ -151,7 +162,10 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
     if (get().botSettings && get().botSettings?.botId !== botId) get().requestLeaveBotSettings(open);
     else open();
   },
-  closeBotSettings: () => { get().requestLeaveBotSettings(() => get().discardBotSettings()); },
+  closeBotSettings: () => { get().requestLeaveBotSettings(() => {
+    get().discardBotSettings();
+    if (useStore.getState().mobile) { set({ view: 'chat' }); backToList(); }
+  }); },
   discardBotSettings: () => {
     if (linkedBotSettings()) replaceHash('');
     set({ botSettings: null, botSettingsDrafts: {}, botSettingsDirty: false, botSettingsLeave: null });
@@ -203,6 +217,22 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
   },
   bump: (key) => set({ versions: { ...get().versions, [key]: (get().versions[key] ?? 0) + 1 } }),
 }));
+
+// A settings page can cover an open Setup page. Recompute the visible title on cleanup
+// so closing either layer cannot restore a title from a page that has already left.
+const pageTitles = new Map<symbol, { title: string; layer: number }>();
+export function usePageTitle(title: string | null, layer = 0) {
+  useEffect(() => {
+    if (!title) return;
+    const key = Symbol();
+    const update = () => {
+      const top = [...pageTitles.values()].sort((a, b) => b.layer - a.layer)[0];
+      document.title = top?.title ?? 'Swarm';
+    };
+    pageTitles.set(key, { title, layer }); update();
+    return () => { pageTitles.delete(key); update(); };
+  }, [title, layer]);
+}
 
 // Apply the saved theme as early as possible, and follow the OS while on "system".
 window.addEventListener('hashchange', () => {

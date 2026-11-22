@@ -157,8 +157,19 @@ try {
     assert.equal(await settingsPane.isVisible(), false);
     assert.equal(await page.locator('.main-pane').getAttribute('hidden'), '');
     await btn(account, width > 760 ? 'Back to chat' : 'Close settings').click();
-    await settingsPane.waitFor(); await page.keyboard.press('Escape'); await details.waitFor();
-    assert.equal(await harness.getAttribute('aria-selected'), 'true', 'return restores caller tab');
+    await settingsPane.waitFor(); await page.keyboard.press('Escape');
+    if (width <= 760) {
+      await page.locator('.app.is-mobile.pane-list').waitFor();
+      assert.equal(await settingsPane.count(), 0, 'phone Back closes Bot settings');
+      assert.equal(await details.count(), 0, 'phone Back returns to the list without a details overlay');
+      await page.locator('.bot-row').filter({ hasText: imported.name }).click();
+      await btn(page, `Open ${imported.name} details`).click();
+      await details.waitFor();
+      await btn(detailsNav, 'Setup').click();
+    } else {
+      await details.waitFor();
+      assert.equal(await harness.getAttribute('aria-selected'), 'true', 'desktop return restores the caller tab');
+    }
     await tabs.getByRole('tab', { name: 'Files' }).click();
     await btn(details, /^bot-setup\.json/).click();
     await details.getByRole('region', { name: 'bot-setup.json contents' }).waitFor();
