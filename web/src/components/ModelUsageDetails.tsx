@@ -2,6 +2,7 @@ import { RefreshCw } from 'lucide-react';
 import { useModels, type ModelProvider } from '../lib/models';
 import { useConfigUI } from '../configStore';
 import { useReportedPlanUsage } from '../lib/accessPlanUsage';
+import { PlanConnections } from './PlanConnections';
 import '../styles/model-usage.css';
 
 function connectionName(provider: ModelProvider | null, plan: string | null) {
@@ -38,6 +39,7 @@ export function ModelUsageDetails({ onClose }: { onClose: () => void }) {
       {checkedAt !== null && <p className="usage-mode__muted">Last checked {dateLabel(checkedAt)} · {catalog.provider === 'claude-cli' ? 'Claude' : 'Codex'}</p>}
     </div> : <div className="usage-mode__api-note"><strong>Pay per use</strong><p>View recorded spending in Usage. Your provider manages key balances and budgets.</p></div>)}
     <p className="usage-mode__scope">Model usage only. Voice and other services have separate billing.</p>
+    <PlanConnections onClose={onClose} />
     <footer className="usage-mode__actions">
       <button type="button" onClick={() => void catalog.load(true)} disabled={loading}><RefreshCw size={14} aria-hidden />{loading ? 'Checking…' : 'Refresh'}</button>
       {known && !planMode && <button type="button" onClick={() => { onClose(); useConfigUI.getState().openAppSettings('usage'); }}>View usage</button>}

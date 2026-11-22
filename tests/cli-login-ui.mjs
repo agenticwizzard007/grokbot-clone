@@ -318,7 +318,9 @@ try {
   await page.getByRole('button', { name: 'Reset connection', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm reset', exact: true }).click();
   await reauth.getByText(/Reset may already have stopped login sessions or removed saved connections/).waitFor();
-  await terminal.getByText('Failed', { exact: true }).waitFor();
+  // Polling can observe cancellation before retirement, or a missing retired session.
+  await terminal.getByText(/^(Failed|Cancelled)$/).waitFor();
+  assert.equal(await terminal.getByLabel('Authorization code', { exact: true }).count(), 0);
   await page.locator('.cfg-row__sub').getByText('ChatGPT via Codex · Blocked', { exact: true }).waitFor();
   assert.equal(await page.getByText(/This request has not been applied|Your current terminal stays open/).count(), 0);
   assert.equal(resetBodies.length, resetCount + 1, 'late denial must not replay reset automatically');

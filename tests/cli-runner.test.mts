@@ -125,7 +125,7 @@ test('Codex preserves credential locations, strips overrides, isolates tools and
   assert.equal(call.input, request().prompt);
   assert.equal(call.args.includes(request().prompt), false);
   assert.equal(call.args.at(-1), '-');
-  for (const arg of ['--json', '--ignore-user-config', '--ignore-rules', '--skip-git-repo-check', '--ephemeral', 'read-only', 'forced_login_method="chatgpt"', 'model_provider="openai"', 'features.shell_tool=false', 'features.hooks=false', 'features.apps=false', 'features.plugins=false', 'features.multi_agent=false', 'features.computer_use=false', 'features.browser_use=false', 'web_search="disabled"', 'mcp_servers={}']) assert.ok(call.args.includes(arg), arg);
+  for (const arg of ['--json', '--ignore-user-config', '--ignore-rules', '--skip-git-repo-check', '--ephemeral', 'read-only', 'model_provider="openai"', 'features.shell_tool=false', 'features.hooks=false', 'features.apps=false', 'features.plugins=false', 'features.multi_agent=false', 'features.computer_use=false', 'features.browser_use=false', 'web_search="disabled"', 'mcp_servers={}']) assert.ok(call.args.includes(arg), arg);
   assert.deepEqual(JSON.parse(call.schema), schema);
   for (const event of events) {
     assert.equal(event.env.HOME, f.options.env.HOME);
@@ -435,7 +435,7 @@ test('eight same-provider WebSocket generations overlap, cancel independently an
     assert.equal(calls.some((event) => event.kind === 'finished'), false, 'none finished before all eight started');
     assert.deepEqual(replies(), [], 'overlapping jobs receive no capacity/busy response');
     for (const call of started) {
-      assert.ok(call.args.includes('forced_login_method="chatgpt"'));
+      assert.ok(!call.args.some((arg: string) => arg.includes('forced_login_method')));
       assert.ok(call.args.includes('model_provider="openai"'));
       assert.doesNotMatch(JSON.stringify(call.env), /do-not-pass|untrusted|third-party|console/);
     }

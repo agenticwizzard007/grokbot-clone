@@ -162,15 +162,15 @@ class FakeBridge {
     this.respond(rpc.id, reply);
   }
   get generations() { return this.requests.filter(request => request.method === 'generate'); }
-  async hello(secret: string, noGenerationDeadline: boolean | 'omit' = true) {
+  async hello(secret: string, noGenerationDeadline: boolean | 'omit' = true, codexExecOnly = true) {
     await once(this.ws, 'open');
-    this.ws.send(JSON.stringify({ type: 'hello', version: 1, nativeMcp: true, ...(noGenerationDeadline === 'omit' ? {} : { noGenerationDeadline }), token: secret, device: `Computer of ${this.userId}` }));
+    this.ws.send(JSON.stringify({ type: 'hello', version: 1, nativeMcp: true, codexExecOnly, ...(noGenerationDeadline === 'omit' ? {} : { noGenerationDeadline }), token: secret, device: `Computer of ${this.userId}` }));
   }
 }
 
-async function connect(userId: string, secret = createCliPairing(userId), noGenerationDeadline: boolean | 'omit' = true) {
+async function connect(userId: string, secret = createCliPairing(userId), noGenerationDeadline: boolean | 'omit' = true, codexExecOnly = true) {
   const bridge = new FakeBridge(userId);
-  await bridge.hello(secret, noGenerationDeadline);
+  await bridge.hello(secret, noGenerationDeadline, codexExecOnly);
   await until(() => bridge.welcome, 'bridge handshake should finish');
   await refreshCli(userId);
   return bridge;
@@ -954,7 +954,7 @@ test('voice session, preview and dictation return 409 in either selected CLI mod
   assert.equal(events(alice).length, 0);
 });
 
-for (const provider of ['codex', 'claude'] as const) {
+for (const provider of ['claude'] as const) {
   test(`${provider}: HTTP picker uses the account catalog and plan usage, never configured API models`, async () => {
     const bridge = await connect(alice); await choose(alice, provider);
     const response = await app.request('/api/models', {headers:{cookie:`swarm_session=${alice}`}});
@@ -1020,7 +1020,7 @@ for (const provider of ['codex', 'claude'] as const) {
   for (const deadlineCapability of [true, 'omit'] as const) test(`${provider}: a queued Bot with a saved default alias keeps high effort and owner attribution (deadline capability ${deadlineCapability})`, async () => {
     const ownerBridge = await connect(alice, undefined, deadlineCapability), otherBridge = await connect(bob);
     await choose(alice, provider);
-    await choose(bob, provider === 'codex' ? 'claude' : 'codex');
+    await choose(bob, 'codex');
     const bot = newBot(alice);
     const alias = `${provider}/default`, resolved = `${provider}/account-model`;
     db.prepare('UPDATE bots SET model=?,effort=? WHERE id=?').run(alias, 'high', bot.id);
@@ -1066,9 +1066,9 @@ for (const provider of ['codex', 'claude'] as const) {
 }
 
 test('credential changes fence a delayed catalog response so stale account data is not cached',async()=>{
- const bridge=await connect(alice);await choose(alice,'codex');
+ const bridge=await connect(alice);await choose(alice,'claude');
  const original=bridge.catalog;bridge.catalog=()=>HOLD;
- const pending=cliCatalog(alice,'codex',true);
+ const pending=cliCatalog(alice,'claude',true);
  await until(()=>bridge.requests.some(r=>r.method==='catalog'),'catalog is in flight');
  const request=bridge.requests.find(r=>r.method==='catalog')!;
  clearCliCatalog(alice);
@@ -1077,9 +1077,9 @@ test('credential changes fence a delayed catalog response so stale account data 
 });
 
 test('cancelling explicit model discovery cancels that RPC before generation',async()=>{
- const bridge=await connect(alice);await choose(alice,'codex');bridge.catalog=()=>HOLD;
+ const bridge=await connect(alice);await choose(alice,'claude');bridge.catalog=()=>HOLD;
  const controller=new AbortController();
- const pending=cliResponsesClient(alice,'codex',3000).responses.create({...requestBody(),model:'codex/account-model'},{signal:controller.signal});
+ const pending=cliResponsesClient(alice,'claude',3000).responses.create({...requestBody(),model:'claude/account-model'},{signal:controller.signal});
  await until(()=>bridge.requests.some(r=>r.method==='catalog'),'catalog is in flight');
  const request=bridge.requests.find(r=>r.method==='catalog')!;controller.abort();
  await assert.rejects(pending,/cancelled/);
@@ -1139,4 +1139,45 @@ test('replacing a CLI bridge drops capabilities from the previous connection', a
   };
   assert.equal((await cliModelCatalog(alice, 'claude')).models[0].id, 'claude/reconnected-model');
   assert.equal((await first.closed).code, 4401);
+});
+
+
+test('Codex picker uses only a verified CLI default and never a legacy bridge catalog RPC', async () => {
+  const bridge = await connect(alice); await choose(alice, 'codex');
+  bridge.catalog = () => { throw new Error('Codex catalog RPC must not run'); };
+  const response = await app.request('/api/models', { headers: { cookie: `swarm_session=${alice}` } });
+  const data = await response.json();
+  assert.equal(data.provider, 'codex-cli'); assert.equal(data.billing, 'plan');
+  assert.deepEqual(data.models.map((m: any) => m.id), ['codex/default']);
+  assert.deepEqual(data.models[0].efforts, []);
+  assert.equal(data.plan, null); assert.equal(data.usage.available, false);
+  assert.deepEqual(data.usage.windows, []);
+  assert.equal(bridge.requests.filter(r => r.method === 'catalog').length, 0);
+  assert.ok(bridge.requests.some(r => r.method === 'status'));
+  await cliResponsesClient(alice, 'codex', 3000).responses.create({ ...requestBody(), model: 'codex/default' });
+  assert.equal(bridge.generations[0].params.model, 'default');
+  assert.equal(bridge.generations[0].params.effort, undefined);
+  await assert.rejects(cliResponsesClient(alice, 'codex', 3000).responses.create({ ...requestBody(), model: 'codex/previous-model' }), /no longer offered/);
+  assert.equal(bridge.generations.length, 1);
+  await req(alice, '', 'PUT', { provider: null });
+  assert.equal(selectedCli(alice), null);
+  assert.equal(cliStatus(alice).connected, true, 'disconnect preserves the CLI connection and credentials');
+});
+
+
+test('an existing Codex selection on an old bridge requires an update without blocking Claude', async () => {
+  const bridge = await connect(alice, undefined, true, false);
+  selectCli(alice, 'codex');
+  const status = await refreshCli(alice);
+  assert.match(status.providers.codex.error!, /Update your computer bridge/);
+  assert.equal((await req(alice, '', 'PUT', { provider: 'codex' })).status, 409);
+  const response = await app.request('/api/models', { headers: { cookie: `swarm_session=${alice}` } });
+  const catalog = await response.json();
+  assert.equal(catalog.billing, 'plan'); assert.deepEqual(catalog.models, []);
+  assert.match(catalog.error, /Update your computer bridge/);
+  await assert.rejects(cliResponsesClient(alice, 'codex', 3000).responses.create(requestBody()), /Update your computer bridge/);
+  assert.equal(bridge.requests.some(r => r.method === 'catalog' || r.method === 'generate'), false);
+  await choose(alice, 'claude');
+  await cliResponsesClient(alice, 'claude', 3000).responses.create({ ...requestBody(), model: 'claude/default' });
+  assert.equal(bridge.generations.length, 1);
 });

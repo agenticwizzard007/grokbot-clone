@@ -89,7 +89,7 @@ input.on('line', async line => {
       cols: message.cols, rows: message.rows, onData: data => { if (loginReady) send({ type: 'data', data }); else initialOutput.push(data); } };
     if (message.operation !== 'login') send({ type: 'ready' });
     let result;
-    if (message.operation === 'status') result = (await runner.checkProviders(options))[message.provider];
+    if (message.operation === 'status') result = { ...(await runner.checkProviders(options))[message.provider], ...(message.provider === 'codex' ? { codexExecOnly: runner.CODEX_EXEC_ONLY === true } : {}) };
     else if (message.operation === 'catalog') result = await runner.readCatalog({ provider: message.provider }, options);
     else if (message.operation === 'generate') {
       if (message.params?.provider !== message.provider) throw new Error('Provider mismatch.');

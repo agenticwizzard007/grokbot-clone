@@ -1,0 +1,9 @@
+.plan-connections { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.plan-connections > p { margin: 0; color: var(--color-text-secondary); font-size: 13px; line-height: 20px; }
+.plan-connections__provider { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid var(--color-border-secondary); }
+.plan-connections__provider > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.plan-connections__provider strong { font-size: 13px; font-weight: 550; }
+.plan-connections__provider small, .plan-connections__provider [role='status'] { font-size: 12px; line-height: 18px; color: var(--color-text-secondary); }
+.plan-connections__provider button { flex-shrink: 0; min-height: 44px; padding: 8px; border-radius: 6px; color: var(--color-primary); font-size: 12px; }
+.plan-connections__provider button:hover { background: var(--color-bg-hover); }
+.plan-connections__provider button:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }

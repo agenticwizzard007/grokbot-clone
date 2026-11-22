@@ -252,14 +252,6 @@ const EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'm
 const effortList = values => Array.isArray(values) ? [...new Set(values.filter(v => EFFORTS.has(v)))] : [];
 const safeLabel = value => typeof value === 'string' ? value.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 160) : '';
 const percent = n => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 100;
-function codexWindows(result) {
-  const buckets = result?.rateLimitsByLimitId ?? (result?.rateLimits ? { codex: result.rateLimits } : {});
-  return Object.entries(buckets).flatMap(([key, bucket]) => ['primary', 'secondary'].flatMap(kind => {
-    const w = bucket?.[kind];
-    return w && percent(w.usedPercent) ? [{ label: `${safeLabel(bucket.limitName || key)} · ${w.windowDurationMins ? `${w.windowDurationMins} min` : kind}`, usedPercent: w.usedPercent,
-      resetsAt: Number.isFinite(w.resetsAt) ? w.resetsAt * 1000 : null }] : [];
-  }));
-}
 function claudeWindows(result) {
   if (!result?.rate_limits_available || !result.rate_limits) return [];
   const limits = result.rate_limits;
@@ -273,6 +265,7 @@ function claudeWindows(result) {
 }
 
 /** Current account's picker and usage. No hardcoded model versions or quota estimates. */
+export const CODEX_EXEC_ONLY = true;
 export async function readCatalog(params, options = {}) {
   const provider = params?.provider;
   if (!Object.hasOwn(LABEL, provider)) throw new RunnerError('Provider must be codex or claude.');
@@ -281,43 +274,25 @@ export async function readCatalog(params, options = {}) {
     try {
       const status = await providerStatus(provider, options, cwd, signal);
       if (!status.subscription) throw new RunnerError(status.error, 'auth');
-      const args = provider === 'codex' ? ['app-server', '-c', 'forced_login_method="chatgpt"', '-c', 'model_provider="openai"', '-c', 'chatgpt_base_url="https://chatgpt.com/backend-api"', '-c', 'features.hooks=false', '-c', 'features.plugins=false', '-c', 'features.apps=false', '-c', 'mcp_servers={}', '-c', 'notify=[]'] :
-        ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--tools', '', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--setting-sources', '', '--permission-mode', 'dontAsk', '--no-session-persistence', '--disable-slash-commands', '--safe-mode', '--settings', '{"disableAllHooks":true,"forceLoginMethod":"claudeai"}'];
-      if (provider === 'codex' && options.fileCredentials) args.push('-c', 'cli_auth_credentials_store="file"');
-      return await controlSession(provider, args, options, cwd, signal, async (request, send) => {
+      // Codex login status verifies the CLI's subscription. Model discovery and
+      // quota require authenticated app-server APIs, which hosted services cannot use.
+      // This is an execution alias, not an invented model or account catalog.
+      if (provider === 'codex') return {
+        models: [{ id: 'codex/default', name: 'Codex CLI default', efforts: [], defaultEffort: null, vision: true }],
+        defaultModel: 'codex/default', plan: null,
+        usage: { windows: [], available: false, checkedAt: Date.now() },
+      };
+      const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--tools', '', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--setting-sources', '', '--permission-mode', 'dontAsk', '--no-session-persistence', '--disable-slash-commands', '--safe-mode', '--settings', '{"disableAllHooks":true,"forceLoginMethod":"claudeai"}'];
+      return await controlSession(provider, args, options, cwd, signal, async (request) => {
         let models, plan = null, windows = [], defaultModel = null;
-        if (provider === 'codex') {
-          await request('initialize', { clientInfo: { name: 'swarm', version: '1.0.0' }, capabilities: { experimentalApi: true } });
-          send({ method: 'initialized' });
-          const account = await request('account/read', { refreshToken: false });
-          if (account?.account?.type !== 'chatgpt') throw new RunnerError('Codex requires a ChatGPT plan login.', 'auth');
-          plan = safeLabel(account.account.planType) || null;
-          models = []; let cursor = null; const seen = new Set();
-          do {
-            const page = await request('model/list', { limit: 100, includeHidden: false, cursor });
-            if (!Array.isArray(page?.data)) throw new RunnerError('Codex returned an invalid model catalog.');
-            for (const m of page.data) {
-              if (m.hidden || !modelId(m.model)) continue;
-              const efforts = effortList(m.supportedReasoningEfforts?.map(e => e.reasoningEffort));
-              models.push({ id: `codex/${m.model}`, name: safeLabel(m.displayName) || m.model, efforts, defaultEffort: efforts.includes(m.defaultReasoningEffort) ? m.defaultReasoningEffort : null,
-                vision: !m.inputModalities || m.inputModalities.includes('image') });
-              if (m.isDefault) defaultModel = `codex/${m.model}`;
-            }
-            cursor = page.nextCursor;
-            if (cursor && (seen.has(cursor) || seen.size >= 100)) throw new RunnerError('Codex catalog pagination did not finish.');
-            if (cursor) seen.add(cursor);
-          } while (cursor);
-          try { windows = codexWindows(await request('account/rateLimits/read', {}, 5000)); } catch { /* Unknown is never zero usage. */ }
-        } else {
-          const init = await request('initialize');
-          if (!claudeCatalogPlan(init?.account?.subscriptionType) || (init.account.apiProvider && init.account.apiProvider !== 'firstParty') || init.account.tokenSource === 'none') throw new RunnerError('Claude subscription authentication changed. Sign in again.', 'auth');
-          if (!Array.isArray(init?.models)) throw new RunnerError('Claude returned an invalid model catalog.');
-          plan = safeLabel(init.account?.subscriptionType) || null;
-          models = init.models.filter(m => modelId(m.value)).map(m => ({ id: `claude/${m.value}`, name: safeLabel(m.displayName) || m.value, ...(modelId(m.resolvedModel) ? { resolvedModel: m.resolvedModel } : {}),
-            efforts: m.supportsEffort ? effortList(m.supportedEffortLevels) : [], defaultEffort: null, vision: true }));
-          defaultModel = models.find(m => m.id === 'claude/default')?.id ?? null;
-          try { const result = await request('get_usage', { skip_behaviors: true }, 5000); windows = claudeWindows(result); plan = safeLabel(result?.subscription_type) || plan; } catch { /* Older CLIs don't expose plan usage. */ }
-        }
+        const init = await request('initialize');
+        if (!claudeCatalogPlan(init?.account?.subscriptionType) || (init.account.apiProvider && init.account.apiProvider !== 'firstParty') || init.account.tokenSource === 'none') throw new RunnerError('Claude subscription authentication changed. Sign in again.', 'auth');
+        if (!Array.isArray(init?.models)) throw new RunnerError('Claude returned an invalid model catalog.');
+        plan = safeLabel(init.account?.subscriptionType) || null;
+        models = init.models.filter(m => modelId(m.value)).map(m => ({ id: `claude/${m.value}`, name: safeLabel(m.displayName) || m.value, ...(modelId(m.resolvedModel) ? { resolvedModel: m.resolvedModel } : {}),
+          efforts: m.supportsEffort ? effortList(m.supportedEffortLevels) : [], defaultEffort: null, vision: true }));
+        defaultModel = models.find(m => m.id === 'claude/default')?.id ?? null;
+        try { const result = await request('get_usage', { skip_behaviors: true }, 5000); windows = claudeWindows(result); plan = safeLabel(result?.subscription_type) || plan; } catch { /* Older CLIs don't expose plan usage. */ }
         aborted(signal);
         return { models, defaultModel, plan, usage: { windows, available: windows.length > 0, checkedAt: Date.now() } };
       });
@@ -573,7 +548,7 @@ async function generateCodex(params, options, cwd, signal) {
   await writeFile(schemaFile, params.schema, { mode: 0o600 });
   const args = ['exec', '--json', '--output-schema', schemaFile, '--output-last-message', outputFile,
     '--ignore-user-config', '--ignore-rules', '--skip-git-repo-check', '--ephemeral', '--sandbox', 'read-only',
-    '-c', 'forced_login_method="chatgpt"', '-c', 'model_provider="openai"', '-c', 'web_search="disabled"',
+    '-c', 'model_provider="openai"', '-c', 'web_search="disabled"',
     '-c', options.nativeMcp ? `mcp_servers={swarm={url=${JSON.stringify(options.nativeMcp.url)},http_headers={Authorization=${JSON.stringify('Bearer ' + options.nativeMcp.token)}},enabled_tools=${JSON.stringify(params.nativeTools.map(tool => tool.name))},tool_timeout_sec=${Math.ceil(nativeToolTimeout(params) / 1000)},required=true,default_tools_approval_mode="auto"}}` : 'mcp_servers={}', '-c', 'notify=[]', '-c', 'approval_policy="never"'];
   if (options.fileCredentials === true) args.push('-c', 'cli_auth_credentials_store="file"');
   // shell_tool is the supported command-execution gate. unified_exec alone is
@@ -904,7 +879,7 @@ export async function startLogin(provider, options = {}) {
   const env = childEnvironment(options.env);
   delete env.NO_COLOR;
   Object.assign(env, { TERM: 'xterm-256color', FORCE_COLOR: '1', CLICOLOR: '1', BROWSER: browser });
-  const args = provider === 'codex' ? ['login', '--device-auth', '-c', 'forced_login_method="chatgpt"', '-c', 'cli_auth_credentials_store="file"'] : ['auth', 'login', '--claudeai'];
+  const args = provider === 'codex' ? ['login', '--device-auth', '-c', 'cli_auth_credentials_store="file"'] : ['auth', 'login', '--claudeai'];
   const remaining = Math.max(1, timeoutMs - (Date.now() - startedAt));
   let child;
   try {
@@ -1128,7 +1103,7 @@ async function connection(url, options) {
     socket.addEventListener('open', () => {
       if (closed) { try { socket.close(); } catch {} return; }
       clearTimeout(handshake); openedAt = Date.now();
-      send({ type: 'hello', token: options.token, version: 1, device: hostname(), nativeMcp: true, noGenerationDeadline: true });
+      send({ type: 'hello', token: options.token, version: 1, device: hostname(), nativeMcp: true, noGenerationDeadline: true, codexExecOnly: CODEX_EXEC_ONLY });
     });
     socket.addEventListener('message', receive);
     socket.addEventListener('close', (event) => {

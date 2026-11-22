@@ -31,6 +31,7 @@ try {
 import fs from 'node:fs';
 import { createInterface } from 'node:readline';
 const args = process.argv.slice(2);
+if (args[0] === 'app-server') throw new Error('Authenticated app-server must not run.');
 if (args[0] === 'login') { console.error('Logged in using ChatGPT'); process.exit(0); }
 if (args[0] === 'auth') { console.log(JSON.stringify({loggedIn:true,authMethod:'claude.ai',subscriptionType:'max'})); process.exit(0); }
 let prompt = '';
@@ -70,7 +71,7 @@ if (native) {
  const state = JSON.parse(result.content.find(part => part.type === 'text').text);
  if (!state.cli.connected || state.cli.selected !== (args[0] === 'exec' ? 'codex' : 'claude')) throw new Error('Native callback used the wrong subscription context.');
 }
-fs.appendFileSync(${JSON.stringify(path.join(root, 'generations.jsonl'))}, JSON.stringify({args,native:!!native})+'\\n');
+fs.appendFileSync(${JSON.stringify(path.join(root, 'generations.jsonl'))}, JSON.stringify({args:args.map((arg,index)=>arg.startsWith('mcp_servers=')||args[index-1]==='--mcp-config'?'[native MCP config]':arg),native:!!native})+'\\n');
 const reply = {text:'Subscription bridge integration reply.',tool_calls:[]};
 if (args[0] === 'exec') {
   fs.writeFileSync(args[args.indexOf('--output-last-message')+1], JSON.stringify(reply));
@@ -117,7 +118,12 @@ if (args[0] === 'exec') {
   for (const provider of ['codex', 'claude']) {
     const selected = await api('/cli', 'PUT', { provider });
     assert.equal(selected.selected, provider);
-    const catalog=await api('/models');assert.equal(catalog.billing,'plan');assert.equal(catalog.models.length,2);
+    const catalog=await api('/models');assert.equal(catalog.billing,'plan');assert.equal(catalog.models.length,provider === 'codex' ? 1 : 2);
+    if (provider === 'codex') {
+      assert.equal(catalog.models[0].id, 'codex/default');
+      assert.equal(catalog.plan, null); assert.equal(catalog.usage.available, false);
+      assert.deepEqual(catalog.models[0].efforts, []);
+    }
     for (const model of catalog.models) {
       await api(`/bots/${bot.id}`,'PATCH',{model:model.id,effort:'high'});
       const sent = (await api(`/bots/${bot.id}/messages`, 'POST', { text: `Reply through ${model.id}.` })).row;
@@ -144,7 +150,12 @@ if (args[0] === 'exec') {
     assert.equal(status.runtime, 'server');
     assert.equal(status.selected, provider);
     assert.equal(status.providers[provider].subscription, true);
-    const catalog=await api('/models');assert.equal(catalog.billing,'plan');assert.equal(catalog.models.length,2);
+    const catalog=await api('/models');assert.equal(catalog.billing,'plan');assert.equal(catalog.models.length,provider === 'codex' ? 1 : 2);
+    if (provider === 'codex') {
+      assert.equal(catalog.models[0].id, 'codex/default');
+      assert.equal(catalog.plan, null); assert.equal(catalog.usage.available, false);
+      assert.deepEqual(catalog.models[0].efforts, []);
+    }
     for (const model of catalog.models) {
       await api(`/bots/${bot.id}`,'PATCH',{model:model.id,effort:'high'});
       const sent = (await api(`/bots/${bot.id}/messages`, 'POST', { text: `Hosted ${model.id} reply.` })).row;
@@ -160,8 +171,15 @@ if (args[0] === 'exec') {
   assert.deepEqual(await fs.readdir(path.join(root, 'cli-profiles')), []);
   const generations=(await fs.readFile(path.join(root,'generations.jsonl'),'utf8')).trim().split('\n').map(JSON.parse);
   assert.ok(generations.every(g => g.native), 'every downloaded and hosted generation loads native MCP tools and receives an application result');
-  for(const model of ['account-vision','account-alternate']) assert.equal(generations.filter(g=>g.args[g.args.indexOf('--model')+1]===model).length,4,'each discovered model is used by both providers through both runtimes');
-  for(const {args} of generations) assert.ok(args.includes('--effort') ? args[args.indexOf('--effort')+1]==='high' : args.includes('model_reasoning_effort="high"'));
+  for(const model of ['account-vision','account-alternate']) assert.equal(generations.filter(g=>g.args[g.args.indexOf('--model')+1]===model).length,2,'each Claude model is used through both runtimes');
+  assert.equal(generations.filter(g => g.args[0] === 'exec').length, 2);
+  for(const {args} of generations) {
+    assert.ok(!args.some(arg => arg.includes('forced_login_method')));
+    if (args[0] === 'exec') {
+      assert.ok(!args.includes('--model'), 'Codex chooses its default model');
+      assert.ok(!args.some(arg => arg.startsWith('model_reasoning_effort=')), 'Codex chooses its default effort');
+    } else assert.equal(args[args.indexOf('--effort')+1], 'high');
+  }
   console.log('PASS: single-file downloaded bridge, native MCP callbacks through both providers and hosted/bridge runtimes, catalog selections/efforts, Bot chat, subscription accounting, offline no-fallback behavior, and hosted profile deletion.');
 } catch (error) {
   console.error(logs.slice(-5000));

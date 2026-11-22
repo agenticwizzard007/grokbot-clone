@@ -5,13 +5,14 @@ import { authenticateCli, cliRuntime, selectedCli, type CliProvider } from './st
 import { hostedCatalog, hostedGenerate, hostedStatus, refreshHosted, serverLoginAvailable } from './hosted.js';
 import { legacyWorkHeld, withLegacyWork } from '../security/legacy-work.js';
 import { clearCliCatalog } from './catalog.js';
+import { codexDefaultCatalog } from './codex-default.js';
 import type { NativeToolHandler } from './native-tools.js';
 import { hasNativeTools, ToolCallbacks } from './tool-callback.js';
 
 export interface CliAuthStatus { installed: boolean; authenticated: boolean; subscription: boolean; error?: string }
 export type CliProviders = Record<CliProvider, CliAuthStatus>;
 interface Pending { finish: (error?: Error, value?: unknown) => void; toolCall: (call: unknown) => void }
-interface Connection { ws: WebSocket; device: string; nativeMcp: boolean; noGenerationDeadline: boolean; providers: CliProviders; pending: Map<string, Pending> }
+interface Connection { ws: WebSocket; device: string; nativeMcp: boolean; noGenerationDeadline: boolean; codexExecOnly: boolean; providers: CliProviders; pending: Map<string, Pending> }
 const connections = new Map<string, Connection>();
 const LEGACY_GENERATION_TIMEOUT_MS = 360_000;
 const missing = (): CliProviders => ({
@@ -38,6 +39,12 @@ export function disconnectCli(userId: string) {
 }
 
 export function cliRequest(userId: string, method: 'status' | 'generate' | 'catalog', params: unknown, timeoutMs: number, signal?: AbortSignal, onToolCall?: NativeToolHandler): Promise<any> {
+  // Never ask an older computer bridge for a Codex catalog: those versions use
+  // authenticated app-server account/model/quota APIs. Only probe official CLI auth.
+  if (method === 'catalog' && (params as { provider?: unknown })?.provider === 'codex') {
+    if (cliRuntime(userId) === 'bridge' && connections.has(userId) && !connections.get(userId)!.codexExecOnly) return Promise.reject(new Error('Update your computer bridge in Models & access before using Codex.'));
+    return cliRequest(userId, 'status', {}, timeoutMs, signal).then(providers => codexDefaultCatalog(providers.codex));
+  }
   return withLegacyWork(userId, () => admittedRequest(userId, method, params, timeoutMs, signal, onToolCall));
 }
 
@@ -45,6 +52,7 @@ function admittedRequest(userId: string, method: 'status' | 'generate' | 'catalo
   if (cliRuntime(userId) === 'server') return method === 'status' ? refreshHosted(userId, signal) : method === 'catalog' ? hostedCatalog(userId, params, signal) : hostedGenerate(userId, params, signal, onToolCall);
   const c = connections.get(userId);
   if (!c || c.ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error(CLI_OFFLINE));
+  if (method === 'generate' && (params as { provider?: unknown })?.provider === 'codex' && !c.codexExecOnly) return Promise.reject(new Error('Update your computer bridge in Models & access before using Codex. No API fallback was used.'));
   if (method === 'generate' && timeoutMs === 0 && !c.noGenerationDeadline) {
     // Previously downloaded bridges reject zero. Preserve their original turn
     // deadline and transport grace; only an explicit capability opts out.
@@ -100,6 +108,7 @@ export async function refreshCli(userId: string) {
     if (!s || typeof s.installed !== 'boolean' || typeof s.authenticated !== 'boolean' || typeof s.subscription !== 'boolean') throw new Error('CLI bridge returned an invalid authentication status. Update your bridge.');
     providers[p] = { installed: s.installed, authenticated: s.authenticated, subscription: s.subscription, ...(typeof s.error === 'string' ? { error: s.error.slice(0, 500) } : {}) };
   }
+  if (!c.codexExecOnly) providers.codex.error = 'Update your computer bridge in Models & access before using Codex.';
   if (connections.get(userId) === c) c.providers = providers;
   return cliStatus(userId);
 }
@@ -126,7 +135,7 @@ export function attachCliSocket(server: Server) {
           if (!userId || legacyWorkHeld(userId)) return ws.close(4401, 'invalid or expired pairing token');
           clearTimeout(handshake);
           disconnectCli(userId);
-          connection = { ws, device: String(msg.device ?? 'My computer').slice(0, 100), nativeMcp: msg.nativeMcp === true, noGenerationDeadline: msg.noGenerationDeadline === true, providers: missing(), pending: new Map() };
+          connection = { ws, device: String(msg.device ?? 'My computer').slice(0, 100), nativeMcp: msg.nativeMcp === true, noGenerationDeadline: msg.noGenerationDeadline === true, codexExecOnly: msg.codexExecOnly === true, providers: missing(), pending: new Map() };
           connections.set(userId, connection);
           ws.send(JSON.stringify({ type: 'welcome' }));
           void refreshCli(userId).catch(() => {});

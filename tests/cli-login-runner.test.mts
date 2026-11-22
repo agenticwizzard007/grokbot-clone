@@ -54,7 +54,7 @@ test('fixed subscription login commands use real TTYs, private empty cwd and iso
     assert.equal(meta.stdinTTY, true); assert.equal(meta.stdoutTTY, true); assert.equal(meta.stderrTTY, true);
     assert.deepEqual(meta.files, []);
     assert.deepEqual(meta.size, [80, 24]);
-    assert.deepEqual(meta.args, provider === 'codex' ? ['login', '--device-auth', '-c', 'forced_login_method="chatgpt"', '-c', 'cli_auth_credentials_store="file"'] : ['auth', 'login', '--claudeai']);
+    assert.deepEqual(meta.args, provider === 'codex' ? ['login', '--device-auth', '-c', 'cli_auth_credentials_store="file"'] : ['auth', 'login', '--claudeai']);
     assert.equal(meta.env.HOME, f.home); assert.equal(meta.env.CODEX_HOME, join(f.home, '.codex')); assert.equal(meta.env.CLAUDE_CONFIG_DIR, join(f.home, '.claude'));
     assert.equal(meta.env.TERM, 'xterm-256color'); assert.equal(meta.env.NO_COLOR, undefined); assert.equal(meta.env.FORCE_COLOR, '1');
     assert.doesNotMatch(JSON.stringify(meta.env), /api-secret|untrusted|third-party|console/);

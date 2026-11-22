@@ -19,7 +19,7 @@ const config = ${JSON.stringify(config)}, args = process.argv.slice(2);
 const audit = data => fs.appendFileSync(${JSON.stringify(auditFile)}, JSON.stringify(data)+'\\n');
 const send = value => console.log(JSON.stringify(value));
 audit({args, cwd:process.cwd(), leakedKey:process.env.OPENAI_API_KEY});
-if (args[0]==='login') { console.error(config.authBad ? 'Logged in using an API key' : 'Logged in using ChatGPT'); process.exit(0); }
+if (args[0]==='login') { if(config.hold) { setInterval(()=>{},1000); await new Promise(()=>{}); } console.error(config.authBad ? 'Logged in using an API key' : 'Logged in using ChatGPT'); process.exit(0); }
 if (args[0]==='auth') { send({loggedIn:true,authMethod:'claude.ai',subscriptionType:config.authBad?'console':'max'}); process.exit(0); }
 if (args[0]==='exec') {
   let input='';for await(const chunk of process.stdin)input+=chunk;
@@ -52,22 +52,26 @@ for (const provider of ['codex','claude'] as const) {
   test(`${provider}: discover actual account models, efforts and quota without inference or auth leakage`, async t => {
     const f = await fixture(t, provider);
     const catalog = await readCatalog({provider},f.options);
+    if (provider === 'codex') {
+      assert.deepEqual(catalog.models, [{ id: 'codex/default', name: 'Codex CLI default', efforts: [], defaultEffort: null, vision: true }]);
+      assert.equal(catalog.defaultModel, 'codex/default');
+      assert.equal(catalog.plan, null);
+      assert.deepEqual(catalog.usage.windows, []);
+      assert.equal(catalog.usage.available, false);
+      assert.ok((await f.audit()).every(call => call.args?.[0] === 'login'), 'discovery only probes official CLI login status');
+      return;
+    }
     assert.equal(catalog.models[0].id,`${provider}/${f.name}`);
     assert.deepEqual(catalog.models[0].efforts,['low','high']);
-    assert.equal(catalog.plan,provider==='codex'?'pro':'max');
+    assert.equal(catalog.plan,'max');
     assert.equal(catalog.usage.available,true);
-    assert.equal(catalog.usage.windows[0].usedPercent,provider==='codex'?37:61);
+    assert.equal(catalog.usage.windows[0].usedPercent,61);
     assert.ok(catalog.usage.checkedAt <= Date.now());
     assert.doesNotMatch(JSON.stringify(catalog),/secret@example|private-sentinel/);
     const audit = await f.audit();
     assert.ok(audit.every(a=>!a.generation&&!a.leakedKey));
     assert.ok(audit.filter(a=>a.request).every(a=>!['turn/start','thread/start','user'].includes(a.request.method??a.request.type)));
-    if(provider==='codex') {
-      assert.equal(catalog.models.length,2);
-      assert.equal(catalog.models[1].vision,false);
-      assert.equal(catalog.usage.windows[1].usedPercent,0,'reported zero is distinct from unavailable');
-      assert.equal(audit.filter(a=>a.request?.method==='model/list').length,2);
-    }
+
   });
   test(`${provider}: usage failure preserves model catalog but never fabricates zero quota`, async t => {
     const f = await fixture(t,provider,{usageBad:true});
@@ -98,9 +102,11 @@ for (const provider of ['codex','claude'] as const) {
     for(const a of await f.audit()) if(a.cwd) await assert.rejects(readFile(join(a.cwd,'anything')),/ENOENT/);
   });
 }
-test('Codex independently checks account identity after its login status probe',async t=>{
+test('Codex does not inspect an authenticated app-server account',async t=>{
   const f=await fixture(t,'codex',{accountBad:true});
-  await assert.rejects(readCatalog({provider:'codex'},f.options),/ChatGPT plan login/);
+  const catalog = await readCatalog({provider:'codex'},f.options);
+  assert.equal(catalog.plan, null);
+  assert.ok((await f.audit()).every(call => call.args?.[0] === 'login'));
 });
 test('runner rejects argument-injection models and invented effort modes before starting a CLI',async()=>{
   for(const extra of [{model:'--bad'},{model:'openai/model'},{model:'x\n--bad'},{effort:'ultracode'}]) await assert.rejects(runGeneration({provider:'codex',prompt:'x',schema:{},timeoutMs:1000,...extra}),/Invalid CLI/);
@@ -131,7 +137,7 @@ test('Claude display labels cannot admit API, missing-token or unknown billing',
  await assert.rejects(readCatalog({provider:'claude'},f.options),/subscription login/);
  assert.equal((await f.audit()).length,1,'display plan cannot bypass the independent auth probe');
 });
-test('an unresponsive quota endpoint does not hide the discovered models',async t=>{
+test('Codex does not contact quota endpoints',async t=>{
  const f=await fixture(t,'codex',{holdUsage:true});const start=Date.now();
  const result=await readCatalog({provider:'codex'},f.options);
  assert.ok(result.models.length);assert.equal(result.usage.available,false);assert.ok(Date.now()-start<8000);

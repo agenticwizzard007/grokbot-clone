@@ -290,3 +290,11 @@ test('callbacks queued behind a stop or cancellation never execute', async () =>
     await rejected; assert.equal(executed, 1); callbacks.close();
   }
 });
+
+test('older bridges cannot dispatch Codex generation but keep Claude available', async t => {
+  const legacy = await bridge(t);
+  await assert.rejects(cliRequest(legacy.userId, 'generate', { provider: 'codex', model: 'default' }, 1000), /Update your computer bridge/);
+  assert.equal(legacy.calls().length, 0);
+  const status = await cliRequest(legacy.userId, 'status', {}, 1000);
+  assert.equal(status.claude.subscription, true);
+});
