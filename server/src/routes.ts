@@ -66,6 +66,8 @@ api.patch('/auth/me', requireUser, async (c) => {
   const timezone = new Intl.DateTimeFormat('en-US', { timeZone: body.data.timezone }).resolvedOptions().timeZone;
   updateProfile(userId, { timezone });
   adoptAccountTimezone(userId, timezone);
+  // R2F-017: synopsis lines and schedules that follow the account zone refresh without a manual Refresh.
+  hub.emit(userId, { type: 'synopses' });
   return c.json({ user: { ...c.get('user'), timezone } });
 });
 
@@ -132,6 +134,7 @@ export function sseCoalesceKey(ev: ServerEvent): string | null {
   if (ev.type === 'bot') return `bot:${ev.bot.id}`;
   if (ev.type === 'roster') return 'roster';
   if (ev.type === 'computer') return 'computer';
+  if (ev.type === 'synopses') return 'synopses';
   // Streaming updates rewrite one row many times; only its latest body matters.
   if (ev.type === 'rows' && ev.rows.length === 1) return `rows:${ev.botId}:${ev.generation}:${ev.rows[0].seq}`;
   return null;

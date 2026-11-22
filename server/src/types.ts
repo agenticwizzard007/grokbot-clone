@@ -267,6 +267,8 @@ export type ServerEvent =
   | { type: 'setup'; botId: string }
   | { type: 'connections' }
   | { type: 'messaging' }
+  /** Daily synopsis or check-in schedule changed (for example the account time zone moved). */
+  | { type: 'synopses' }
   | { type: 'ping' };
 
 /**

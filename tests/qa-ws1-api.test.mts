@@ -350,3 +350,46 @@ test('R2F-002 redactInternalIds replaces internal ids with neutral labels and le
   assert.equal(displayCoordinationText('[Internal result for request req_11ev-EvIvCvn; execution finished; acceptance still requires evidence]\nAll done for ca_KIxihCKrE-D2.'), 'All done for connected account.');
   assert.equal(displayCoordinationText('Plain request text'), 'Plain request text');
 });
+
+test('R2F-017 two consecutive account zone changes both move the schedule, emit a synopses event, and new routines use the account zone', async () => {
+  const { tickProactive, accountTimezone } = await import('../server/src/proactive.js');
+  const { toolMap } = await import('../server/src/agent/tools.js');
+  getCheckins('owner');
+  // A schedule that follows the account zone, quiet all day so discovery records due slots without running a synopsis.
+  db.prepare(`UPDATE proactivity SET enabled=1, times='["09:00"]', timezone='UTC', timezone_source='utc_fallback', quiet_hours='[{"start":"00:00","end":"00:00"}]', discovered_local=NULL, last_fired=NULL WHERE user_id='owner'`).run();
+  const slot = () => db.prepare("SELECT slot_key, timezone FROM proactive_due_slots WHERE user_id='owner' AND status='pending' ORDER BY slot_key DESC LIMIT 1").get() as { slot_key: string; timezone: string } | undefined;
+  const events: any[] = [];
+  const off = hub.subscribe('owner', (ev) => events.push(ev));
+  try {
+    assert.equal((await call('PATCH', '/api/auth/me', { timezone: 'Asia/Dubai' })).status, 200);
+    assert.deepEqual([getCheckins('owner').timezone, getCheckins('owner').timezoneSource], ['Asia/Dubai', 'account']);
+    assert.ok(events.some((e) => e.type === 'synopses'), 'zone change emits a synopses event');
+    tickProactive(Date.parse('2030-01-02T05:30:00Z')); // 09:30 in Dubai
+    assert.deepEqual(slot(), { slot_key: '2030-01-02 09:00', timezone: 'Asia/Dubai' });
+    events.length = 0;
+    // Second change: before R2F-017 only utc_fallback rows moved, so the schedule kept Dubai.
+    assert.equal((await call('PATCH', '/api/auth/me', { timezone: 'Europe/London' })).status, 200);
+    assert.deepEqual([getCheckins('owner').timezone, getCheckins('owner').timezoneSource], ['Europe/London', 'account']);
+    assert.equal(slot(), undefined, 'slots computed in the old zone are recomputed');
+    assert.ok(events.some((e) => e.type === 'synopses'));
+    tickProactive(Date.parse('2030-01-03T09:30:00Z')); // 09:30 in London
+    assert.deepEqual(slot(), { slot_key: '2030-01-03 09:00', timezone: 'Europe/London' });
+    // A new routine without an explicit zone uses the account zone; an explicit zone is kept.
+    assert.equal(accountTimezone('owner'), 'Europe/London');
+    const ctx = { userId: 'owner', botId: worker.id, depth: 0, enqueueBotMessage: () => undefined };
+    const made = JSON.parse((await toolMap.get('create_routine')!.impl({ name: 'Morning', prompt: 'Say hi', schedule: '0 9 * * *' }, ctx)).output as string);
+    assert.equal(made.routine.timezone, 'Europe/London');
+    const explicit = JSON.parse((await toolMap.get('create_routine')!.impl({ name: 'Evening', prompt: 'Say bye', schedule: '0 18 * * *', timezone: 'Asia/Tokyo' }, ctx)).output as string);
+    assert.equal(explicit.routine.timezone, 'Asia/Tokyo');
+    const { unscheduleRoutine } = await import('../server/src/routines.js');
+    for (const r of [made.routine, explicit.routine]) unscheduleRoutine(r.id);
+    // Explicit schedule overrides never move.
+    db.prepare("UPDATE proactivity SET timezone='America/Chicago', timezone_source='explicit' WHERE user_id='owner'").run();
+    assert.equal((await call('PATCH', '/api/auth/me', { timezone: 'Asia/Dubai' })).status, 200);
+    assert.equal(getCheckins('owner').timezone, 'America/Chicago');
+  } finally {
+    off();
+    db.prepare("UPDATE proactivity SET enabled=0 WHERE user_id='owner'").run();
+    db.prepare("DELETE FROM proactive_due_slots WHERE user_id='owner' AND status='pending'").run();
+  }
+});

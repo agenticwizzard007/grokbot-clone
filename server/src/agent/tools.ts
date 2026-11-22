@@ -13,7 +13,7 @@ import { APPS_OFF, connectionsDetail, executeComposio, innerToolSlugs, isReadOnl
 import { env } from '../env.js';
 import { scheduleRoutine, unscheduleRoutine } from '../routines.js';
 import { createEventRoutine, deleteEventTrigger, describeEvent, listTriggerTypes } from '../triggers.js';
-import { getCheckins, setCheckins } from '../proactive.js';
+import { accountTimezone, getCheckins, setCheckins } from '../proactive.js';
 import { updateProfile } from '../accounts.js';
 import { createSubagent, deleteSubagent, listSubagents, subagentTree } from './subagents.js';
 import { selectedCli } from '../cli/store.js';
@@ -249,11 +249,13 @@ export const TOOLS: ToolDef[] = [
     activity: 'working',
     label: 'Setting up a routine',
     impl: async (a, ctx) => {
-      try { new Cron(a.schedule, { paused: true, timezone: a.timezone || 'UTC' }); } catch (e: any) { return { output: `Invalid schedule: ${e.message}` }; }
-      const limit = checkRoutineCreate(ctx.botId, a.schedule, { timezone: a.timezone });
+      // R2F-017: without an explicit zone a new routine follows the account time zone, not UTC.
+      const timezone = a.timezone || accountTimezone(ctx.userId);
+      try { new Cron(a.schedule, { paused: true, timezone }); } catch (e: any) { return { output: `Invalid schedule: ${e.message}` }; }
+      const limit = checkRoutineCreate(ctx.botId, a.schedule, { timezone });
       if (limit) return { output: limit, summary: 'Routine not created' };
       const id = newId('rt');
-      db.prepare('INSERT INTO routines(id,bot_id,name,prompt,schedule,timezone,enabled,created_at) VALUES (?,?,?,?,?,?,1,?)').run(id, ctx.botId, a.name, a.prompt, a.schedule, a.timezone || 'UTC', now());
+      db.prepare('INSERT INTO routines(id,bot_id,name,prompt,schedule,timezone,enabled,created_at) VALUES (?,?,?,?,?,?,1,?)').run(id, ctx.botId, a.name, a.prompt, a.schedule, timezone, now());
       const r = toRoutine(db.prepare('SELECT * FROM routines WHERE id=?').get(id));
       scheduleRoutine(r);
       appendRow(ctx.botId, 'event', { type: 'event', event: 'routine-created', text: `Routine created: ${a.name} · ${describeCron(a.schedule)}`, ref: id });
