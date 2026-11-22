@@ -305,7 +305,11 @@ try {
   await page.getByRole('button', { name: 'Show details', exact: true }).click();
   await details.getByRole('navigation', { name: 'Conversation details sections' }).getByRole('button', { name: 'Tasks', exact: true }).click();
   await details.getByRole('button', { name: 'See all tasks', exact: true }).click();
-  assert.equal(await scope.inputValue(), 'all', 'See all tasks opens the entire workspace');
+  // R2F-010: See all tasks keeps this Bot's filter, with a chip that clears it.
+  assert.equal(await scope.inputValue(), 'nia', 'See all tasks opens Tasks filtered to this Bot');
+  await work.getByText('Showing tasks for Nia', { exact: true }).waitFor();
+  await work.getByRole('button', { name: 'Clear the Nia filter and show tasks for all Bots', exact: true }).click();
+  assert.equal(await scope.inputValue(), 'all', 'clearing the chip shows the entire workspace');
   assert.equal(await work.locator('.task-filter.is-all').getAttribute('aria-pressed'), 'true');
   await scope.selectOption('quinn'); await page.getByText('Review launch note', { exact: true }).waitFor();
   await work.getByRole('button', { name: 'Back to chat', exact: true }).click();
@@ -341,6 +345,8 @@ try {
     await phone.submit('Show details');
     await phoneDetails.getByRole('navigation', { name: 'Conversation details sections' }).getByRole('button', { name: 'Tasks', exact: true }).click();
     await phoneDetails.getByRole('button', { name: 'See all tasks', exact: true }).click();
+    assert.equal(await phone.page.getByRole('combobox', { name: 'Filter tasks by bot' }).inputValue(), 'nia', 'R2F-010: filtered to this Bot');
+    await phone.submit('Clear the Nia filter and show tasks for all Bots');
     assert.equal(await phone.page.getByRole('combobox', { name: 'Filter tasks by bot' }).inputValue(), 'all');
     await phone.page.getByText('2 tasks need your input', { exact: true }).waitFor();
 

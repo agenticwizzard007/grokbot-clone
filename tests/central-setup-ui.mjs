@@ -30,6 +30,9 @@ try {
   await page.goto(base);
   await page.getByRole('article', { name: 'Nia setup' }).waitFor();
   const card = page.getByRole('article', { name: 'Nia setup' });
+  // R2F-021 (WS3): the card words the computer state with the shared helper used by Activity and Setup.
+  const readiness = await card.locator('.coworker-setup__readiness').innerText();
+  assert.match(readiness, /^Computer: (Preparation pending|Not connected|Connected|Awake|Asleep|Agent waking up|Going to sleep…|Unreachable)\. /, readiness);
   await card.getByRole('button', { name: 'Review Nia configuration' }).click();
   await card.getByRole('button', { name: 'Activate Nia · revision 1' }).waitFor();
   await card.getByText('Original user answers').click();
@@ -83,6 +86,8 @@ try {
   const details = page.getByRole('complementary', { name: 'Conversation details' });
   await details.getByRole('heading', { name: 'Imported Nia · Setup' }).waitFor();
   assert.equal(await details.getByRole('button', { name: /Activate agent/ }).count(), 0);
+  // R2F-021 (WS3): the Setup tab always shows a one-line computer status.
+  assert.match(await details.locator('.agent-config__computer').first().innerText(), /^Computer: \S/);
   await details.getByRole('button', { name: 'Continue setup in chat', exact: true }).click();
   await details.waitFor({ state: 'hidden' });
   assert.equal(await page.locator('.chat__pill-name').innerText(), 'Imported Nia');

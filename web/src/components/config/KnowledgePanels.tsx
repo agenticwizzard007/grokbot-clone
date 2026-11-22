@@ -3,6 +3,7 @@ import { configApi, type KnowledgeMemory, type KnowledgeSkill, type MessageSourc
 import { learningApi } from '../../lib/learningApi';
 import { conversationSourcePath, knowledgeUiApi, type ConversationFilters, type ConversationPage } from '../../lib/knowledgeUiApi';
 import { useStore } from '../../store';
+import { useBotSettingsDraft } from '../../configStore';
 import { shortDate } from './ui';
 
 export function SourceMessages({ sources }: { sources: MessageSource[] }) {
@@ -152,6 +153,7 @@ export function MemoryEvidence({ memory, onChange }: { memory: KnowledgeMemory; 
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState<{ action: string; memory: KnowledgeMemory; createdAt: number }[] | null>(null);
+  useBotSettingsDraft(`memory:${memory.id}`, 'Memories', editing && !busy && text.trim() !== memory.text);
   const correct = async () => {
     setBusy(true); setError('');
     try { await configApi.correctMemory(memory.id, text, memory.revision); setEditing(false); onChange(); }

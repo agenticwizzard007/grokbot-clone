@@ -18,7 +18,8 @@
 .an-grid { position: absolute; left: 0; right: 0; height: 0.5px; background: var(--color-border-tertiary); }
 .an-axis { position: relative; width: 32px; flex-shrink: 0; }
 .an-axis span { position: absolute; right: 0; transform: translateY(50%); font-size: 11px; line-height: 14px; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
-.an-dates { display: flex; justify-content: space-between; padding-right: 40px; font-size: 11px; color: var(--color-text-secondary); }
+.an-dates { position: relative; height: 14px; margin-right: 40px; font-size: 11px; line-height: 14px; color: var(--color-text-secondary); }
+.an-dates span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
 .an-bars { position: absolute; inset: 0; display: flex; align-items: stretch; gap: 2px; }
 .an-bar-slot { flex: 1; min-width: 0; display: flex; align-items: flex-end; justify-content: center; transition: opacity 120ms; }
 .an-bar-slot.is-dim { opacity: 0.35; }

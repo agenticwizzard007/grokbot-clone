@@ -3,6 +3,7 @@ import type { Bot } from '@shared/types';
 import { configApi, type BotAnalytics } from '../../lib/configApi';
 import { niceTicks } from './UsageSection';
 import { Segmented } from './ui';
+import { cumulativeHours, slotCentre } from './analyticsSeries';
 import '../../styles/analytics.css';
 
 /**
@@ -35,7 +36,8 @@ export function BotAnalyticsTab({ bot }: { bot: Bot }) {
   const rangePicker = <Segmented label="Period" value={range} options={RANGES} onChange={changeRange} />;
   if (error) return <div className="cfg-page an-page">{rangePicker}<p className="cfg-error" role="alert">{error}</p><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => { setError(null); setRetry(value => value + 1); }}>Retry analytics</button></div>;
   if (!data || data.range !== range) return <div className="cfg-page an-page">{rangePicker}<p role="status">Loading analytics…</p></div>;
-  const days = data.days;
+  // Calendar order, the same order the cumulative series is summed in (R2F-035).
+  const days = [...data.days].sort((a, b) => a.day.localeCompare(b.day));
   if (!days.length) return <div className="cfg-page an-page">{rangePicker}<p>No analytics available for this period.</p></div>;
   const hoursTotal = data.totals.minutesSaved / 60;
   const r = data.rates;
@@ -128,7 +130,14 @@ function Frame({ days, ticks, top, children, readout, onPick, pick }: {
         </div>
         <div className="an-axis" style={{ height: H }} aria-hidden>{ticks.map((t) => <span key={t} style={{ bottom: `${(t / top) * 100}%` }}>{Math.round(t * 10) / 10}</span>)}</div>
       </div>
-      <div className="an-dates" aria-hidden><span>{dayLabel(days[0].day)}</span><span>{dayLabel(days[mid].day)}</span><span>{dayLabel(days[days.length - 1].day)}</span></div>
+      {/* R2F-035: date labels sit under their day's slot, where the bars and line points are drawn, so the
+          last point lines up with the last date instead of reading as a peak half a slot early. */}
+      <div className="an-dates" aria-hidden>{[...new Set([0, mid, days.length - 1])].map(i => {
+        // Centred on the slot, but never past the plot's edges when slots are narrower than a label.
+        const at = `${slotCentre(i, days.length) * 100}%`;
+        const left = i === 0 ? `max(20px, ${at})` : i === days.length - 1 ? `min(calc(100% - 20px), ${at})` : at;
+        return <span key={i} style={{ left }}>{dayLabel(days[i].day)}</span>;
+      })}</div>
     </div>
   );
 }
@@ -155,7 +164,7 @@ function BarChart({ days }: { days: BotAnalytics['days'] }) {
 
 function CumulativeChart({ days }: { days: BotAnalytics['days'] }) {
   const [pick, setPick] = useState<number | null>(null);
-  const cum = useMemo(() => days.reduce<number[]>((a, d) => [...a, (a[a.length - 1] ?? 0) + d.minutesSaved / 60], []), [days]);
+  const cum = useMemo(() => cumulativeHours(days), [days]);
   const ticks = niceTicks(Math.max(cum[cum.length - 1] ?? 0, 1));
   const top = ticks[ticks.length - 1] || 1;
   const H = 150;
@@ -163,7 +172,7 @@ function CumulativeChart({ days }: { days: BotAnalytics['days'] }) {
     <Frame days={days} ticks={ticks} top={top} pick={pick} onPick={setPick}
       readout={(i) => `${dayLabel(days[i].day)}: ${fmtHours(days[i].minutesSaved)} that day · ${fmtHours(cum[i] * 60)} so far`}>
       {(w) => {
-        const x = (i: number) => ((i + 0.5) / days.length) * w; // slot centres, like the bars and the readout
+        const x = (i: number) => slotCentre(i, days.length) * w; // slot centres, like the bars, dates and readout
         const y = (v: number) => H - (v / top) * H;
         const line = cum.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(' ');
         return (

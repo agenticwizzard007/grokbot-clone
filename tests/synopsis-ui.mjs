@@ -41,6 +41,20 @@ try{
  await panel.getByRole('button',{name:'Prepare today’s synopsis',exact:true}).click();await sleep(200);assert.equal((await api('/checkins/reports')).reports.length,1);
  const report=await api('/checkins/reports/'+before.id);assert.match(report.report.content,/Quinn daily synopsis/);assert.ok(report.report.sha256);assert.equal(report.report.delivery.attempts.length,1);
  assert.equal((await api('/checkins')).enabled,false);await page.screenshot({path:path.join(evidence,'synopsis-desktop.png'),fullPage:true});
+ // R2F-036: the schedule line names what the latest synopsis was made from.
+ await panel.locator('.synopsis-source').filter({hasText:/^from your team’s \S/}).waitFor();
+ const sourceKinds=(await api('/checkins/reports/'+before.id+'/sources?after=0')).sources.map(source=>source.kind);
+ assert.ok(sourceKinds.length>0,'the factual report recorded its sources');
+ assert.notEqual(await panel.locator('.synopsis-source').innerText(),'from your team’s records','sources are named once a synopsis exists');
+ // R2F-017: changing the account time zone in Settings refreshes the open synopsis line without Refresh.
+ await page.unroute('**/api/auth/me');
+ await page.evaluate(()=>{location.hash='#settings/account';});
+ const zone=page.getByRole('combobox',{name:'Time zone',exact:true});
+ await zone.waitFor();await zone.selectOption('Europe/London');
+ await until(async()=>(await api('/checkins')).timezone==='Europe/London','account zone saved');
+ await page.getByRole('button',{name:'Back to tasks',exact:true}).click();
+ await panel.getByText(/· Europe\/London ·/).waitFor();
+ assert.equal(await panel.getByText(/UTC fallback/).count(),0,'no stale UTC fallback after the zone change');
  await page.setViewportSize({width:390,height:844});await page.reload();await openSynopses();
  await panel.scrollIntoViewIfNeeded();assert.ok(await panel.evaluate(el=>el.scrollWidth<=el.clientWidth+1),'synopsis fits phone');
  await page.screenshot({path:path.join(evidence,'synopsis-mobile.png'),fullPage:true});assert.deepEqual(errors,[]);

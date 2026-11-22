@@ -32,6 +32,17 @@ useStore.subscribe((state, previous) => {
   if (state.user?.id !== previous.user?.id) { drafts.clear(); pendingSends.clear(); sendErrors.clear(); }
 });
 
+/** PD-R2-02: put a starting prompt in a Bot's composer draft (kept after any text already there). Nothing is sent. */
+export function prefillComposer(botId: string, text: string) {
+  const accountId = useStore.getState().user?.id;
+  if (!accountId) return;
+  const key = `${accountId}:${botId}`;
+  const current = drafts.get(key)?.trimEnd() ?? '';
+  if (current.includes(text.trim())) return;
+  drafts.set(key, current ? `${current}\n${text}` : text);
+  notifyDraft(key);
+}
+
 export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   const accountId = useStore(s => s.user?.id);
   const draftKey = `${accountId}:${bot.id}`;

@@ -1,7 +1,11 @@
 .app .chat.tasks-view { min-width: 0; padding: 0; background: var(--color-bg-pane); container-type: inline-size; }
-.tasks-view__scroll { flex: 1 1 0; min-height: 0; overflow-y: auto; }
+.tasks-view__scroll { flex: 1 1 0; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
 .tasks-view__inner { width: min(100% - 48px, 720px); margin: 0 auto; padding: 36px 0 64px; }
-.tasks-view__inner.is-board { width: min(100% - 48px, 1000px); }
+/* R2F-022: the board content alone breaks out to 1000px, so the heading and tabs never move between tabs. */
+@container (min-width: 769px) { .tasks-board-area.is-board { margin-inline: calc((100% - min(100cqw - 48px, 1000px)) / 2); } }
+.tasks-scope { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-bottom: 20px; padding: 8px 8px 8px 16px; border-radius: 12px; background: var(--work-tint); color: var(--color-text-primary); }
+.tasks-view__back { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 12px 0 6px; margin-left: -6px; border-radius: 10px; color: var(--color-text-primary); font-size: 14px; }
+.tasks-view__back:hover { background: var(--color-bg-hover); }
 .tasks-view__header { display: flex; align-items: center; min-height: 60px; padding: 0 24px; gap: 8px; border-bottom: 1px solid var(--color-border-tertiary); }
 .tasks-view__header .icon-btn { display: grid; place-items: center; min-width: 44px; min-height: 44px; border-color: transparent; }
 .tasks-view__header .icon-btn:last-child { margin-left: auto; }

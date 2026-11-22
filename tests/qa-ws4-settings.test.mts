@@ -23,7 +23,8 @@ const history = {
     location.hash = hash ? `#${hash}` : '';
     location.pathname = beforeHash.split('?')[0] || '/';
   },
-  pushState() { /* not used here */ },
+  pushes: 0,
+  pushState() { this.pushes += 1; },
 };
 Object.defineProperty(globalThis, 'localStorage', { value: memoryStorage, configurable: true });
 Object.defineProperty(globalThis, 'sessionStorage', { value: memoryStorage, configurable: true });
@@ -35,7 +36,7 @@ Object.assign(globalThis, {
 });
 globalThis.fetch = (async () => Response.json({ generation: 1, rows: [], routines: [] })) as typeof fetch;
 
-const { useConfigUI } = await import('../web/src/configStore.ts');
+const { useConfigUI, openConversation } = await import('../web/src/configStore.ts');
 const { useStore } = await import('../web/src/store.ts');
 const { readDetailsDefault, writeDetailsDefault, detailsDefaultKey } = await import('../web/src/lib/detailsDefault.ts');
 const logic = await import('../web/src/components/config/settingsLogic.ts');
@@ -129,4 +130,84 @@ test('time zone options always include UTC and the saved zone', () => {
   assert.ok(zones.includes('UTC'));
   assert.ok(zones.includes('Asia/Dubai'));
   assert.ok(logic.timeZoneOptions('Mars/Base').includes('Mars/Base'));
+});
+
+// R2F-028: Bot settings deep links (PD-R2-07 option A, hash sync only).
+test('Bot settings tabs are linkable with replaceState and one history entry per visit', () => {
+  const pushes = history.pushes;
+  useConfigUI.getState().openBotSettings('quinn');
+  assert.equal(location.hash, '#bot/quinn/settings/general');
+  useConfigUI.getState().openBotSettings('quinn', 'skills');
+  assert.equal(location.hash, '#bot/quinn/settings/skills');
+  useConfigUI.getState().openBotSettings('quinn', 'routines');
+  assert.equal(location.hash, '#bot/quinn/settings/routines');
+  // Settings opened on top names its section; closing it names the Bot settings page again.
+  useConfigUI.getState().openAppSettings('general');
+  assert.equal(location.hash, '#settings/general', 'General is linkable');
+  useConfigUI.getState().closeAppSettings();
+  assert.equal(location.hash, '#bot/quinn/settings/routines');
+  useConfigUI.getState().closeBotSettings();
+  assert.equal(location.hash, '');
+  assert.equal(useConfigUI.getState().botSettings, null);
+  assert.equal(history.pushes, pushes, 'tab and section changes never add history entries');
+});
+
+test('a Bot settings link reopens that tab on reload', async () => {
+  location.hash = '#bot/nia/settings/memories';
+  const fresh = await import('../web/src/configStore.ts?reload=bot-settings');
+  assert.deepEqual(fresh.useConfigUI.getState().botSettings, { botId: 'nia', tab: 'memories' });
+  location.hash = '#bot/nia/settings/bogus';
+  const invalid = await import('../web/src/configStore.ts?reload=bot-settings-invalid');
+  assert.equal(invalid.useConfigUI.getState().botSettings, null, 'unknown tabs are ignored');
+  location.hash = '';
+});
+
+// R2F-004: unsaved Bot settings drafts guard every way out.
+test('leaving Bot settings with a draft waits for Discard; Cancel keeps the page', () => {
+  const ui = () => useConfigUI.getState();
+  useStore.setState({ user: { id: 'alice', email: 'alice@example.test', name: 'alice', avatarUrl: null } as never, mobile: false, bots: [], transcripts: {} });
+  ui().openBotSettings('quinn');
+  // Nothing changed: no question.
+  ui().closeBotSettings();
+  assert.equal(ui().botSettings, null);
+  assert.equal(ui().botSettingsLeave, null);
+
+  ui().openBotSettings('quinn');
+  ui().setBotSettingsDraft('general', 'General');
+  assert.equal(ui().botSettingsDirty, true);
+  ui().closeBotSettings();
+  assert.deepEqual(ui().botSettings, { botId: 'quinn', tab: 'general' }, 'close waits for an answer');
+  assert.ok(ui().botSettingsLeave);
+  ui().resolveLeaveBotSettings(false);
+  assert.equal(ui().botSettingsLeave, null);
+  assert.equal(ui().botSettingsDirty, true, 'Cancel keeps the draft');
+
+  // Sidebar Bot rows, search results and Tasks cards all use openConversation.
+  openConversation('nia');
+  assert.notEqual(useStore.getState().selectedBotId, 'nia', 'no navigation before Discard');
+  assert.ok(ui().botSettingsLeave);
+  ui().resolveLeaveBotSettings(true);
+  assert.equal(ui().botSettings, null);
+  assert.equal(ui().botSettingsDirty, false);
+  assert.equal(useStore.getState().selectedBotId, 'nia');
+
+  // Another Bot's settings would drop the draft; tabs of the same Bot keep it.
+  ui().openBotSettings('quinn');
+  ui().setBotSettingsDraft('skill:1', 'Skills');
+  ui().openBotSettings('quinn', 'memories');
+  assert.equal(ui().botSettings?.tab, 'memories');
+  ui().openBotSettings('nia');
+  assert.equal(ui().botSettings?.botId, 'quinn');
+  ui().resolveLeaveBotSettings(true);
+  assert.deepEqual(ui().botSettings, { botId: 'nia', tab: 'general' });
+  ui().discardBotSettings();
+  useStore.setState({ user: null, selectedBotId: null, detailsOpen: false });
+  location.hash = '';
+});
+
+test('R2F-027: network failures read "Check your connection."', () => {
+  assert.equal(logic.loadErrorText(new TypeError('Failed to fetch')), 'Check your connection.');
+  assert.equal(logic.loadErrorText(new TypeError('NetworkError when attempting to fetch resource.')), 'Check your connection.');
+  assert.equal(logic.loadErrorText(new TypeError('Load failed')), 'Check your connection.');
+  assert.equal(logic.loadErrorText(new Error('Sign in again to continue.')), 'Sign in again to continue.');
 });

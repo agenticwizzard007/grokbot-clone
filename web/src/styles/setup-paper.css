@@ -8,6 +8,7 @@
   color: var(--color-text-primary);
   font: 400 14px/1.5 var(--font-stack);
   scrollbar-width: thin;
+  scrollbar-gutter: stable; /* R2F-022: tabs keep their place when content starts scrolling */
 }
 
 .setup-paper.setup-paper--dialog { width: min(900px, 96vw); max-width: none; height: min(840px, 92dvh); }

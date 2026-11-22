@@ -1,6 +1,6 @@
 import { useModels, effortsFor, effectiveEffort, EFFORT_LABEL } from '../../lib/models';
 import { BotModelField } from './BotModelField';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { AvatarColor, AvatarShape, Bot, Routine } from '@shared/types';
 import { BotAvatar, PICKER_SHAPES } from '../../avatar/BotAvatar';
 import { COLOR_ORDER, botVars, palette } from '../../lib/colors';
@@ -10,7 +10,7 @@ import { LearningSettingsPanel } from './LearningSettings';
 import { configApi, type BotSettingsBundle, type KnowledgeSkill, type KnowledgeMemory } from '../../lib/configApi';
 import { SkillHistory, SkillReview, MemoryEvidence, ConversationSearch, MemoryArchive } from './KnowledgePanels';
 import { RoutineHistory } from './RoutineHistory';
-import { useConfigUI, useVersion, type BotSettingsTab } from '../../configStore';
+import { openConversation, useBotSettingsDraft, useConfigUI, useVersion, type BotSettingsTab } from '../../configStore';
 import { useStore } from '../../store';
 import { Icon } from '../Icon';
 import { SetupPaperHeader } from '../SetupPaperHeader';
@@ -18,6 +18,9 @@ import { Modal } from '../modals/Modal';
 import { BotAnalyticsTab } from './BotAnalyticsTab';
 import { Glyph } from './glyphs';
 import { ConfirmButton, Field, Segmented, Switch, nextRunLabel, shortDate } from './ui';
+import { confirmDialog } from '../../lib/confirmDialog';
+import { toast } from '../../lib/toast';
+import { prefillComposer } from '../Composer';
 import '../../styles/setup-paper.css';
 import { startFreshConversation } from '../../lib/useFreshConversation';
 
@@ -34,17 +37,20 @@ const EFFORT_HINT: Record<Bot['effort'], string> = {
 
 export function BotSettingsModal({ inline = false }: { inline?: boolean } = {}) {
   const target = useConfigUI((s) => s.botSettings);
-  const close = useConfigUI((s) => s.closeBotSettings);
+  const discard = useConfigUI((s) => s.discardBotSettings);
   const bot = useStore((s) => s.bots.find((b) => b.id === target?.botId));
   const userId = useStore(state => state.user?.id);
-  useEffect(() => { if (target && !bot && useStore.getState().bots.length) close(); }, [bot, target, close]);
+  useEffect(() => { if (target && !bot && useStore.getState().bots.length) discard(); }, [bot, target, discard]);
   return target && bot ? <BotSettingsPage key={JSON.stringify([userId, bot.id])} bot={bot} tab={target.tab} inline={inline} userId={userId} /> : null;
 }
 
+const draftTabs = (labels: string[]) => {
+  const unique = [...new Set(labels)];
+  return unique.length > 1 ? `${unique.slice(0, -1).join(', ')} and ${unique[unique.length - 1]}` : unique[0] ?? 'this page';
+};
+
 function BotSettingsPage({ bot, tab, inline, userId }: { bot: Bot; tab: BotSettingsTab; inline: boolean; userId?: string }) {
-  const close = useConfigUI(state => state.closeBotSettings);
   const detailsOpen = useStore(state => state.detailsOpen && state.selectedBotId === bot.id);
-  const setTab = (next: BotSettingsTab) => useConfigUI.getState().openBotSettings(bot.id, next);
   const routines = useStore(state => state.routines[bot.id]);
   const memVersion = useVersion(`memories:${bot.id}`);
   const [data, setData] = useState<BotSettingsBundle | null>(null);
@@ -52,20 +58,36 @@ function BotSettingsPage({ bot, tab, inline, userId }: { bot: Bot; tab: BotSetti
   const [showSources, setShowSources] = useState(false);
   // The General draft lives here so it survives tab switches (null = nothing edited yet).
   const [generalDraft, setGeneralDraft] = useState<Draft | null>(null);
-  const [guard, setGuard] = useState(false);
   const request = useRef(0);
   const generalDirty = generalDraft !== null && changedFields(generalDraft, draftOf(bot)).length > 0;
-  const dirtyRef = useRef(generalDirty);
-  dirtyRef.current = generalDirty;
-  const discardAndClose = useCallback(() => { setGuard(false); setGeneralDraft(null); close(); }, [close]);
-  // Back, Escape and the close button ask first when General has unsaved edits.
-  const onClose = useCallback(() => { if (dirtyRef.current) setGuard(true); else close(); }, [close]);
+  // R2F-004: drafts on every tab are tracked in configStore, so every way out of this page asks first.
+  useBotSettingsDraft('general', 'General', generalDirty);
+  const dirty = useConfigUI(state => state.botSettingsDirty);
+  const drafts = useConfigUI(state => state.botSettingsDrafts);
+  const leaving = useConfigUI(state => state.botSettingsLeave);
+  const discards = useConfigUI(state => state.botSettingsDiscards);
+  const firstDiscards = useRef(discards);
+  useEffect(() => { if (discards !== firstDiscards.current) setGeneralDraft(null); }, [discards]);
+  // Switching tabs keeps the General draft; other tabs' forms close with their tab, so those ask first.
+  const setTab = (next: BotSettingsTab) => {
+    const open = () => useConfigUI.getState().openBotSettings(bot.id, next);
+    const others = Object.keys(useConfigUI.getState().botSettingsDrafts).some(id => id !== 'general');
+    if (next !== tab && others) useConfigUI.getState().requestLeaveBotSettings(open); else open();
+  };
+  const discardAndClose = useCallback(() => { setGeneralDraft(null); useConfigUI.getState().discardBotSettings(); }, []);
+  // Back, Escape and the close button ask first when a tab has unsaved edits.
+  const onClose = useCallback(() => useConfigUI.getState().closeBotSettings(), []);
+  const keepEditing = () => {
+    useConfigUI.getState().resolveLeaveBotSettings(false);
+    const labels = Object.values(useConfigUI.getState().botSettingsDrafts);
+    if (tab !== 'general' && labels.length && labels.every(label => label === 'General')) setTab('general');
+  };
   useEffect(() => {
-    if (!generalDirty) return;
+    if (!dirty) return;
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
-  }, [generalDirty]);
+  }, [dirty]);
 
   const reload = useCallback(() => {
     const version = ++request.current;
@@ -91,13 +113,13 @@ function BotSettingsPage({ bot, tab, inline, userId }: { bot: Bot; tab: BotSetti
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || useConfigUI.getState().appSettings || document.querySelector('.modal-root') || useStore.getState().modal === 'create') return;
       event.preventDefault();
-      if (guard) setGuard(false);
+      if (useConfigUI.getState().botSettingsLeave) useConfigUI.getState().resolveLeaveBotSettings(false);
       else if (sourcesOpen) setShowSources(false);
       else onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [inline, onClose, sourcesOpen, guard]);
+  }, [inline, onClose, sourcesOpen]);
   const headings: Partial<Record<BotSettingsTab, string>> = {
     general: 'Identity, chat model, and settings for this Bot.', skills: 'Saved procedures and changes that need your review.',
     memories: 'Review preferences and facts, including where they came from.', routines: 'Schedules and run history for this Bot.', learning: 'Review learning activity, settings, and protected maintenance.',
@@ -106,11 +128,11 @@ function BotSettingsPage({ bot, tab, inline, userId }: { bot: Bot; tab: BotSetti
       <SetupPaperHeader backLabel={sourcesOpen ? 'Back to memories' : detailsOpen ? 'Back to details' : 'Back to chat'} title={label} onBack={sourcesOpen ? () => setShowSources(false) : onClose} onClose={onClose} />
       <div className="setup-paper__column bot-settings-page__column" style={botVars(bot.avatarColor)}>
         <h1>{sourcesOpen ? 'Conversation sources' : `${bot.name} · ${label}`}</h1>
-        {guard && <div className="cfg-guard" role="alertdialog" aria-label="Discard unsaved changes?">
-          <div className="cfg-row__text"><div className="cfg-row__title">Discard unsaved changes?</div><div className="cfg-row__sub">Your edits on General have not been saved.</div></div>
+        {leaving && <div className="cfg-guard" role="alertdialog" aria-label="Discard unsaved changes?">
+          <div className="cfg-row__text"><div className="cfg-row__title">Discard unsaved changes?</div><div className="cfg-row__sub">Your edits on {draftTabs(Object.values(drafts))} have not been saved.</div></div>
           <div className="settings-row__actions">
-            <button type="button" className="cfg-btn cfg-btn--secondary" autoFocus onClick={() => { setGuard(false); setTab('general'); }}>Keep editing</button>
-            <button type="button" className="cfg-btn cfg-btn--danger" onClick={discardAndClose}>Discard</button>
+            <button type="button" className="cfg-btn cfg-btn--secondary" autoFocus onClick={keepEditing}>Keep editing</button>
+            <button type="button" className="cfg-btn cfg-btn--danger" onClick={() => { setGeneralDraft(null); useConfigUI.getState().resolveLeaveBotSettings(true); }}>Discard</button>
           </div>
         </div>}
         {headings[tab] && <p className="setup-paper__subtitle">{sourcesOpen ? 'Find evidence in current or archived chats.' : headings[tab]}</p>}
@@ -345,6 +367,8 @@ function SkillEditor({ botId, skill, onDone }: { botId: string; skill?: Knowledg
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [baseRevision] = useState(skill?.revision);
+  const draftId = useId();
+  useBotSettingsDraft(`skill:${draftId}`, 'Skills', !busy && (name !== (skill?.name ?? '') || description !== (skill?.description ?? '') || body !== (skill?.body ?? '')));
   const stale = skill && skill.revision !== baseRevision;
   const can = name.trim() && body.trim() && !busy && !stale;
   const save = async () => {
@@ -428,6 +452,11 @@ function MemoriesTab({ bot, data, onChange, onSearch }: { bot: Bot; data: BotSet
 function RoutinesTab({ bot, routines }: { bot: Bot; routines: Routine[] | undefined }) {
   const [flash, setFlash] = useState<string | null>(null);
   const say = (t: string) => { setFlash(t); setTimeout(() => setFlash(null), 2200); };
+  // PD-R2-02: routines are created in chat; this opens the chat with a starting prompt to edit and send.
+  const askInChat = () => {
+    prefillComposer(bot.id, ROUTINE_PROMPT);
+    openConversation(bot.id);
+  };
   return (
     <div className="cfg-page">
       <div className="cfg-page__head">
@@ -444,17 +473,40 @@ function RoutinesTab({ bot, routines }: { bot: Bot; routines: Routine[] | undefi
           {routines.map((r) => <RoutineItem key={r.id} r={r} onFlash={say} />)}
         </div>
       )}
+      <div className="setup-paper__actions"><button type="button" className="cfg-btn cfg-btn--secondary" onClick={askInChat}>Ask {bot.name} to add a routine</button></div>
       <RoutineHistory botId={bot.id} />
     </div>
   );
 }
 
+const ROUTINE_PROMPT = 'Please add a routine: every weekday at 9am, ';
+
 function RoutineItem({ r, onFlash }: { r: Routine; onFlash: (t: string) => void }) {
   const [enabled, setEnabled] = useState(r.enabled);
+  const [busy, setBusy] = useState(false);
   useEffect(() => setEnabled(r.enabled), [r.enabled]);
   const toggle = async (v: boolean) => {
     setEnabled(v);
     try { await configApi.setRoutine(r.id, v); onFlash(v ? 'Resumed' : 'Paused'); } catch { setEnabled(!v); }
+  };
+  const refresh = () => {
+    void useStore.getState().loadRoutines(r.botId).catch(() => {});
+    useConfigUI.getState().bump(`routines:${r.botId}`);
+  };
+  // R2F-003: both actions ask in the shared dialog; nothing reverts on a timer and the icons never move.
+  const runNow = async () => {
+    if (busy || !await confirmDialog({ title: `Run ${r.name} now?`, body: 'It runs once now. Its schedule does not change.', confirmLabel: 'Run now' })) return;
+    setBusy(true);
+    try { await configApi.runRoutine(r.id); onFlash('Running now'); refresh(); }
+    catch (e) { toast((e as Error).message || `Couldn’t run ${r.name}.`, { tone: 'error' }); }
+    finally { setBusy(false); }
+  };
+  const remove = async () => {
+    if (busy || !await confirmDialog({ title: `Delete ${r.name}?`, body: 'Future runs stop. Past runs and reports stay.', confirmLabel: 'Delete', danger: true })) return;
+    setBusy(true);
+    try { await configApi.deleteRoutine(r.id); onFlash('Deleted'); refresh(); }
+    catch (e) { toast((e as Error).message || `Couldn’t delete ${r.name}.`, { tone: 'error' }); }
+    finally { setBusy(false); }
   };
   return (
     <div className="cfg-item cfg-item--routine">
@@ -465,10 +517,12 @@ function RoutineItem({ r, onFlash }: { r: Routine; onFlash: (t: string) => void 
         <div className="cfg-item__prompt">{r.prompt}</div>
       </div>
       <div className="cfg-item__actions">
-        <button type="button" className="cfg-icon-btn" title="Run now" aria-label={`Run ${r.name} now`} onClick={() => configApi.runRoutine(r.id).then(() => onFlash('Running now')).catch((e) => onFlash(e.message))}>
+        <button type="button" className="cfg-icon-btn" title="Run now" aria-label={`Run ${r.name} now`} disabled={busy} onClick={() => void runNow()}>
           <Glyph name="play" size={13} />
         </button>
-        <ConfirmButton className="cfg-icon-btn" title="Delete" onConfirm={() => configApi.deleteRoutine(r.id).then(() => onFlash('Deleted'))}><Glyph name="trash" size={14} /></ConfirmButton>
+        <button type="button" className="cfg-icon-btn" title="Delete" aria-label={`Delete ${r.name}`} disabled={busy} onClick={() => void remove()}>
+          <Glyph name="trash" size={14} />
+        </button>
         <Switch on={enabled} onChange={toggle} label={`${r.name} schedule on`} />
       </div>
     </div>

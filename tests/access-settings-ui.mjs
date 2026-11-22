@@ -523,6 +523,17 @@ try {
   assert.deepEqual(state.invites, [{ phone: '+14155550142' }]);
   assert.equal(await page.getByRole('link', { name: 'Text Swarm', exact: true }).getAttribute('href'), line.smsLink);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  // R2F-027: an offline permissions load says what to do, never the browser's "Failed to fetch".
+  const offline = await context.newPage();
+  offline.on('pageerror', error => errors.push(error.message));
+  await offline.route('**/api/policies', route => route.abort('internetdisconnected'));
+  await offline.goto(`${base}/#settings/permissions`);
+  const offlineAlert = offline.getByRole('alert').filter({ hasText: 'Couldn’t load permissions.' });
+  await offlineAlert.waitFor({ timeout: 10_000 });
+  const offlineText = await offlineAlert.innerText();
+  assert.match(offlineText, /Couldn’t load permissions\. Check your connection\./);
+  assert.doesNotMatch(offlineText, /Failed to fetch|NetworkError|Load failed/i);
+  await offline.close();
   assert.deepEqual(errors, []);
   console.log('Access UI passed: navigation, own sessions, deletion/MCP/key reauthentication, device stop vs disconnect, provider model selection, catalog paging, and messaging/invite payloads.');
 } finally {

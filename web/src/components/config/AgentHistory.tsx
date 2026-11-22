@@ -14,6 +14,8 @@ async function read<T>(botId:string,path:string,signal?:AbortSignal):Promise<T> 
   return response.json();
 }
 const label=(s:string)=>s.replaceAll('-',' ').replaceAll('_',' ');
+/** R2F-012: setup and profile changes carry the setup revision; rows without one say so the same way every time. */
+export const revisionText=(entry:Pick<Entry,'kind'|'sourceRevision'>)=>entry.sourceRevision===null||entry.sourceRevision===''?'no revision':`${entry.kind==='setup'||entry.kind==='profile'?'setup':label(entry.kind)} revision ${entry.sourceRevision}`;
 const format=(value:unknown)=>value===null?'Not recorded':typeof value==='string'?value:JSON.stringify(value,null,2);
 export function AgentHistory({botId}:{botId:string}) {
   const userId = useStore(state => state.user?.id);
@@ -49,7 +51,7 @@ function AgentHistoryPage({ botId, userId }: { botId: string; userId?: string })
     return()=>controller.abort();
   },[botId,refresh,userId]);
   return <section className="agent-history" aria-label="Agent change history">
-    <header><h3>Agent history</h3></header>
+    <header><h3>History</h3></header>
     <p>See changes to this agent’s role, memories and skills, including proposals and evaluations. Learning is loaded into model context; these records do not rewrite the setup files.</p>
     <button type="button" className="cfg-btn cfg-btn--primary" disabled={busy} onClick={()=>{requestRefresh();void load();}}>Refresh history</button>
     {data && <p className="agent-config__muted">{data.coverage}</p>}
@@ -73,7 +75,7 @@ function HistoryEntry({botId,entry}:{botId:string;entry:Entry}) {
     return()=>controller.abort();
   },[botId,entry.version,open,detail,attempt]);
   return <details className="agent-history__entry" onToggle={e=>setOpen(e.currentTarget.open)}>
-    <summary>Change {entry.version} · {label(entry.kind)} · {label(entry.action)}{entry.sourceRevision!==null?` · ${label(entry.kind)} revision ${entry.sourceRevision}`:''}</summary>
+    <summary>Change {entry.version} · {label(entry.kind)} · {label(entry.action)}{` · ${revisionText(entry)}`}</summary>
     <p><time dateTime={new Date(entry.occurredAt).toISOString()}>{new Date(entry.occurredAt).toLocaleString()}</time>{entry.origin==='historical'?' · From retained history':entry.origin==='baseline'?' · Starting snapshot':''}</p>
     <p>Recorded actor: {entry.actor??'Not recorded'}{entry.reason?` · ${entry.reason}`:''}</p>
     {entry.kind.endsWith('proposal')&&<p>A proposal is not an active revision. Approved changes have separate skill or memory entries.</p>}
