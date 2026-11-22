@@ -27,6 +27,15 @@ const { Hono } = await import('hono');
 const { api } = await import('../server/src/routes.js');
 const { roomsApi } = await import('../server/src/routes-rooms.js');
 const { preferencesApi } = await import('../server/src/routes-preferences.js');
+// Finish fixture loading before registering tests so Node 22 cannot run cleanup
+// while a later top-level import is still registering the remaining cases.
+const { AsyncResource } = await import('node:async_hooks');
+const { nativeToolHandler } = await import('../server/src/cli/native-tools.js');
+const { GROUP_TURN_TOOLS } = await import('../server/src/agent/tools.js');
+const { GROUP_APPS_REFUSAL } = await import('../server/src/agent/rooms.js');
+const { RoomCardRefused } = await import('../server/src/store.js');
+// Created outside any Bot turn, like WebSocket and HTTP runner callbacks.
+const foreignContext = new AsyncResource('qa-native-runner-transport');
 
 const app = new Hono().route('/api/rooms', roomsApi).route('/api/account', preferencesApi).route('/api', api);
 for (const id of ['owner', 'other']) db.prepare('INSERT INTO users(id,email,name,created_at) VALUES (?,?,?,?)').run(id, `${id}@example.com`, id, Date.now());
@@ -338,15 +347,6 @@ test('MF-013 voice path: update_agent changes to model or effort keep the setup 
 });
 
 // ---------- R2F-001: group chat turns stay in the group and never ask for approval ----------
-
-const { AsyncResource } = await import('node:async_hooks');
-const { nativeToolHandler } = await import('../server/src/cli/native-tools.js');
-const { GROUP_TURN_TOOLS } = await import('../server/src/agent/tools.js');
-const { GROUP_APPS_REFUSAL } = await import('../server/src/agent/rooms.js');
-const { RoomCardRefused } = await import('../server/src/store.js');
-// Created outside any Bot turn: callbacks run through it arrive from a foreign async context,
-// the way WebSocket and HTTP runner callbacks do.
-const foreignContext = new AsyncResource('qa-native-runner-transport');
 
 /** A stubbed streaming model response that requests function calls (and optional text first). */
 function callStream(calls: { name: string; args: Record<string, unknown> }[], text = '') {
