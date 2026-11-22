@@ -105,6 +105,8 @@ button.mm-item:hover, .mm-item.is-open { background: var(--color-bg-hover); }
 .effort-motion[data-effort='medium'] { --effort-turn: 12s; --effort-breathe: 4.5s; --effort-glow-min: 0.12; --effort-glow-max: 0.22; --effort-flare: 0.3; --effort-shimmer: 2.2s; --effort-bob: 3s; --effort-colors: #7787e1, #20c7e8, #5064c4, #9baaf0, #7787e1; }
 .effort-motion[data-effort='high'] { --effort-turn: 9s; --effort-breathe: 3.8s; --effort-glow-min: 0.2; --effort-glow-max: 0.35; --effort-flare: 0.5; --effort-shimmer: 1.8s; --effort-bob: 2.7s; --effort-colors: #3aa0ff, #20c7e8, #7b61ff, #d25cff, #3aa0ff; }
 .effort-motion[data-effort='xhigh'] { --effort-turn: 7.5s; --effort-breathe: 3.4s; --effort-glow-min: 0.28; --effort-glow-max: 0.45; --effort-flare: 0.7; --effort-shimmer: 1.6s; }
+/* Every model's highest supported level uses the original full rainbow and speed. */
+.composer-shell.effort-motion.is-top-effort { --effort-turn: 6s; --effort-breathe: 3s; --effort-glow-min: 0.35; --effort-glow-max: 0.55; --effort-flare: 0.9; --effort-colors: #ff5f6d, #ffb341, #ffe14d, #3ddc84, #20c7e8, #3aa0ff, #7b61ff, #d25cff, #ff5f6d; }
 @property --uc-angle { syntax: '<angle>'; inherits: false; initial-value: 210deg; }
 .composer.has-effort {
   border: 1.5px solid transparent;

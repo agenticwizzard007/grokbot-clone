@@ -195,3 +195,136 @@ for(const model of ['deepseek/deepseek-v4','mock/vision-unavailable']) {
   assert.match(JSON.stringify(requests.at(-1).body.input),/Earlier image omitted/);
  });
 }
+
+const { effortsFor, effortLabel, defaultEffortFor, effectiveEffort, isTopEffort, modelSelection } = await import('../web/src/lib/models.js');
+const pickerModel = (id: string, efforts: string[] | null = null, defaultEffort: string | null = null) => ({
+  id, author: id.split('/')[0], name: id, short: id, billing: 'api' as const,
+  efforts, defaultEffort, reasoning: true, vision: true, context: 0,
+});
+
+const documentedModels: [string, string[], string][] = [
+  ...['gpt-5', 'gpt-5-mini', 'gpt-5-nano'].map(id => [`openai/${id}`, ['minimal', 'low', 'medium', 'high'], 'medium'] as [string, string[], string]),
+  ['openai/gpt-5.1', ['none', 'low', 'medium', 'high'], 'none'],
+  ...['gpt-5.2', 'gpt-5.4'].map(id => [`openai/${id}`, ['none', 'low', 'medium', 'high', 'xhigh'], 'none'] as [string, string[], string]),
+  ...['gpt-5.2-codex', 'gpt-5.3-codex'].map(id => [`openai/${id}`, ['low', 'medium', 'high', 'xhigh'], 'medium'] as [string, string[], string]),
+  ['openai/gpt-5.5', ['none', 'low', 'medium', 'high', 'xhigh'], 'medium'],
+  ['anthropic/claude-opus-5.5', ['low', 'medium', 'high', 'xhigh', 'max'], 'medium'],
+  ['anthropic/claude-sonnet-5.5', ['low', 'medium', 'high', 'xhigh', 'max'], 'high'],
+  ['anthropic/claude-haiku-5.5', ['low', 'medium', 'high', 'xhigh', 'max'], 'medium'],
+  ...['5', '4.8', '4.7'].map(v => [`anthropic/claude-opus-${v}`, ['low', 'medium', 'high', 'xhigh', 'max'], 'high'] as [string, string[], string]),
+  ['anthropic/claude-opus-4.6', ['low', 'medium', 'high', 'max'], 'high'],
+  ...['argon', 'carbon'].map(v => [`google/gemini-4-${v}`, ['low', 'medium', 'high'], 'medium'] as [string, string[], string]),
+  ['google/gemini-4-hydrogen', ['low', 'medium', 'high', 'xhigh'], 'high'],
+  ['google/gemini-4-argon-cyber-permissive', ['low', 'medium', 'high'], 'high'],
+  ['google/gemini-4-carbon-cyber-permissive', ['low', 'medium', 'high'], 'high'],
+  ...['3.5', '3.6'].map(v => [`google/gemini-${v}-flash`, ['minimal', 'low', 'medium', 'high'], 'medium'] as [string, string[], string]),
+  ['google/gemini-3.5-flash-lite', ['minimal', 'low', 'medium', 'high'], 'minimal'],
+  ...['4.6', '4.7'].map(v => [`x-ai/grok-${v}`, ['low', 'medium', 'high', 'xhigh'], 'high'] as [string, string[], string]),
+  ['x-ai/grok-4.5', ['low', 'medium', 'high'], 'high'],
+  ['x-ai/grok-4.3', ['none', 'low', 'medium', 'high'], 'low'],
+];
+
+for (const [id, levels, fallback] of documentedModels) test(`${id}: documented names, default, top level and catalog limits`, () => {
+  const model = pickerModel(id);
+  const offered = effortsFor(model);
+  assert.deepEqual(offered, [...levels].reverse());
+  assert.deepEqual(offered.map(e => effortLabel(e, model)), [...levels].reverse().map(e => e[0].toUpperCase() + e.slice(1)));
+  assert.equal(defaultEffortFor(model), fallback);
+  assert.equal(effectiveEffort('ultracode', model), levels.at(-1));
+  assert.equal(effortLabel('ultracode', model), effortLabel(offered[0], model));
+  assert.equal(isTopEffort('ultracode', model), true);
+  for (const level of offered) assert.equal(isTopEffort(level, model), level === offered[0]);
+  assert.deepEqual(effortsFor({ ...model, efforts: [] }), [], 'an explicitly empty catalog never gains levels');
+  assert.deepEqual(effortsFor({ ...model, efforts: ['low', 'medium', 'ultracode'] }), ['medium', 'low'], 'do not add documented levels the catalog omits');
+  assert.equal(defaultEffortFor({ ...model, defaultEffort: 'low' }), 'low', 'catalog default wins');
+  assert.equal(defaultEffortFor({ ...model, efforts: ['low'], defaultEffort: 'max' }), null, 'invalid metadata must not mark an unsupported default');
+});
+
+test('known models exclude undocumented levels; model variants and direct providers use catalog metadata', () => {
+  assert.deepEqual(effortsFor(pickerModel('anthropic/claude-haiku-5.5', ['none', 'low', 'high', 'max'])), ['max', 'high', 'low']);
+  assert.deepEqual(effortsFor(pickerModel('google/gemini-4-argon', ['minimal', 'low', 'medium', 'high', 'xhigh'])), ['high', 'medium', 'low']);
+  for (const id of ['openai/gpt-6-astra', 'openai/gpt-6.1-sol', 'openai/gpt-5.5-pro', 'deepseek/custom', 'custom/gpt-5.5']) {
+    const model = pickerModel(id, ['xhigh', 'low', 'medium', 'high'], 'high');
+    assert.deepEqual(effortsFor(model), ['xhigh', 'high', 'medium', 'low']);
+    assert.equal(defaultEffortFor(model), 'high');
+    assert.equal(effortLabel('xhigh', model), 'Xhigh');
+    assert.equal(effortLabel('ultracode', model), 'Xhigh');
+    assert.equal(defaultEffortFor({ ...model, defaultEffort: null }), null);
+  }
+  for (const id of ['google/gemini-2.5-pro', 'deepseek/deepseek-v4']) {
+    assert.deepEqual(effortsFor(pickerModel(id, [])), []);
+    assert.deepEqual(effortsFor(pickerModel(id, null)), []);
+    assert.equal(isTopEffort('ultracode', pickerModel(id, [])), false);
+  }
+  const literal = pickerModel('custom/model', ['low', 'ultracode'], 'low');
+  assert.deepEqual(effortsFor(literal), ['ultracode', 'low']);
+  assert.equal(effortLabel('ultracode', literal), 'Ultracode', 'only a literal catalog name may expose Ultracode');
+});
+
+test('cross-model mapping matches server snapping for every documented level and the saved top alias', () => {
+  for (const [id, levels] of documentedModels) for (const effort of ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'] as const) {
+    const model = pickerModel(id, levels);
+    assert.equal(effectiveEffort(effort, model), effortFor(effort, levels), `${id}: ${effort}`);
+    assert.ok(levels.includes(effectiveEffort(effort, model)));
+  }
+  assert.equal(effectiveEffort('medium', pickerModel('custom/tied', ['low', 'high'])), 'low');
+});
+
+test('CLI resolved models use documented fallbacks and preserve catalog defaults', () => {
+  const model = { ...pickerModel('claude/default'), author: 'anthropic', billing: 'plan' as const, resolvedModel: 'claude-opus-5-5' };
+  const catalog = { provider: 'claude-cli' as const, billing: 'plan' as const, defaultModel: model.id, byId: new Map([[model.id, model]]) };
+  assert.equal(modelSelection({ model: null, effort: 'ultracode' }, catalog).effort, 'medium');
+  assert.equal(modelSelection({ model: 'claude/default', effort: 'ultracode' }, catalog).effort, 'max');
+  assert.equal(modelSelection({ model: 'claude/removed', effort: 'high' }, catalog).effort, null);
+  assert.equal(defaultEffortFor({ ...model, defaultEffort: 'high' }), 'high');
+});
+
+
+test('Astra uses verified catalog support and default without claiming an undocumented API fallback', () => {
+  const model = pickerModel('openai/gpt-6.2-astra', ['max', 'xhigh', 'high', 'medium', 'low'], 'medium');
+  assert.deepEqual(effortsFor(model), ['max', 'xhigh', 'high', 'medium', 'low']);
+  assert.equal(defaultEffortFor(model), 'medium');
+  assert.equal(effectiveEffort('none', model), 'low');
+  assert.equal(effortLabel('ultracode', model), 'Max');
+  assert.equal(defaultEffortFor({ ...model, defaultEffort: null }), null);
+});
+
+const { normalizeModelEfforts } = await import('../server/src/lib/model-efforts.js');
+for (const [id, rawEfforts, saved, expected] of [
+  ['openai/gpt-5', null, 'ultracode', 'high'],
+  ['google/gemini-4-argon', null, 'ultracode', 'high'],
+  ['openai/gpt-5.3-codex', ['none', 'low', 'medium', 'high', 'xhigh'], 'none', 'low'],
+  ['anthropic/claude-haiku-5.5', ['none', 'low', 'medium', 'high', 'xhigh', 'max'], 'none', 'low'],
+] as const) test(`${id}: existing saved ${saved} displays and sends the same supported effort`, () => {
+  const raw = pickerModel(id, rawEfforts ? [...rawEfforts] : null);
+  const normalized = normalizeModelEfforts(raw);
+  assert.equal(effectiveEffort(saved, raw), expected);
+  assert.equal(effectiveEffort(saved, normalized), expected);
+  assert.deepEqual(providerFields({ effort: saved, reasoning: true, efforts: normalized.efforts, cacheKey: 'k', safetyId: 's' }), { reasoning: { effort: expected } });
+  assert.deepEqual(normalizeModelEfforts(normalized), normalized, 'normalization is idempotent');
+});
+
+
+for (const [resolvedModel, expected] of [['claude-sonnet-5-5', 'medium'], ['claude-opus-4-7', 'xhigh']] as const) {
+  test(`${resolvedModel}: CLI fallback follows Claude Code while API fallback remains high`, () => {
+    const raw = { ...pickerModel('claude/default', ['low', 'medium', 'high', 'xhigh', 'max']), author: 'anthropic', billing: 'plan' as const, resolvedModel };
+    const normalized = normalizeModelEfforts(raw);
+    assert.equal(normalized.defaultEffort, expected);
+    assert.equal(defaultEffortFor(raw), expected);
+    assert.equal(defaultEffortFor({ ...raw, billing: 'api' }), 'high');
+    assert.equal(normalizeModelEfforts({ ...raw, defaultEffort: 'low' }).defaultEffort, 'low', 'account default takes precedence');
+    const catalog = { provider: 'claude-cli' as const, billing: 'plan' as const, defaultModel: raw.id, byId: new Map([[raw.id, normalized]]) };
+    for (const model of [null, 'api/previous']) assert.equal(modelSelection({ model, effort: 'ultracode' }, catalog).effort, expected);
+  });
+}
+
+test('unverified CLI defaults stay unknown; a single available level is still the animated top', () => {
+  const cli = { ...pickerModel('codex/gpt-5.4', ['none', 'low', 'medium', 'high', 'xhigh']), author: 'openai', billing: 'plan' as const };
+  assert.equal(defaultEffortFor(cli), null);
+  assert.equal(normalizeModelEfforts(cli).defaultEffort, null);
+  assert.equal(defaultEffortFor({ ...cli, defaultEffort: 'high' }), 'high');
+  const single = pickerModel('custom/model', ['medium', 'medium'], 'medium');
+  assert.deepEqual(effortsFor(single), ['medium']);
+  assert.equal(isTopEffort('medium', single), true);
+  assert.equal(effortLabel('ultracode', single), 'Medium');
+});
