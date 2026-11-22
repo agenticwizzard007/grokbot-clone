@@ -35,6 +35,7 @@ try {
     await page.route('**/api/**', async route => {
       const request = route.request(), url = new URL(request.url()), endpoint = url.pathname, query = url.searchParams;
       const error = (message, status = 503) => route.fulfill({ status, json: { error: message } });
+      if (endpoint.endsWith('/suggested-apps')) return route.fulfill({ json: { suggestions: [] } });
       if (request.method() !== 'GET') {
         writes.push({ endpoint, method: request.method(), body: request.postDataJSON() });
         if (endpoint === '/api/bots/import') {
