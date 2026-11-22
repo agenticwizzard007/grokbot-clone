@@ -221,6 +221,7 @@ try {
 
   // Back button and browser Back at phone width, with clean and dirty drafts.
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('.app.is-mobile.pane-list').waitFor({ state: 'visible' });
   await openBot(); await page.getByRole('button', { name: 'Back to Bots', exact: true }).click();
   await assertPhoneList(); await title('Swarm');
   await openBot();
