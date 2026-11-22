@@ -53,7 +53,8 @@ try {
       close() {}
     };
   }, bot.id);
-  let releaseStop, delayStop = false, failStop = false;
+  let releaseStop, delayStop = false, failStop = false, planModel = false;
+  const longModelName = 'A very long model label with an extended reasoning name';
   await page.route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
     if (request.method() !== 'GET') {
@@ -72,7 +73,9 @@ try {
     else if (path === '/api/team/exchanges') body = { exchanges: [], nextBefore: null };
     else if (path === '/api/needs-you') body = { items: [] };
     else if (path === '/api/computer') body = { computer: { provider: 'local', status: 'absent', screens: [], error: null } };
-    else if (path === '/api/models') body = { provider: 'direct', billing: 'api', models: [{ id: 'test/model', name: 'Test model', short: 'Test', author: 'test', efforts: ['low', 'medium', 'high'], defaultEffort: 'medium', billing: 'api' }], defaultModel: 'test/model', favourites: [], canFast: false };
+    else if (path === '/api/models') body = planModel
+      ? { provider: 'claude-cli', billing: 'plan', models: [{ id: 'claude/test', name: longModelName, short: longModelName, author: 'anthropic', efforts: ['none', 'medium'], defaultEffort: 'none', billing: 'plan', reasoning: true }], defaultModel: 'claude/test', favourites: [], canFast: false }
+      : { provider: 'direct', billing: 'api', models: [{ id: 'test/model', name: 'Test model', short: 'Test', author: 'test', efforts: ['low', 'medium', 'high'], defaultEffort: 'medium', billing: 'api' }], defaultModel: 'test/model', favourites: [], canFast: false };
     else if (path === '/api/settings') body = { settings: {}, computer: { provider: 'local' } };
     else if (path === '/api/voice/options') body = { voices: [], languages: [], speeds: [], configured: false };
     else if (path === '/api/apps') body = { apps: [], connected: [], categories: [], total: 0 };
@@ -114,11 +117,32 @@ try {
     assert.deepEqual(overflow, [], 'textarea and controls stay inside the composer');
   }
   await page.screenshot({ path: new URL('composer-830x480.png', evidence).pathname });
-  // A long provider label must not push controls outside a capped composer.
-  await page.locator('.model-pill__name').evaluate(el => { el.textContent = 'A very long model label with an extended reasoning name'; });
-  for (const viewport of [{ width: 830, height: 480 }, { width: 390, height: 844 }]) {
+  // Use a real plan catalog with a long model name and the longest current effort label.
+  planModel = true;
+  await page.locator('.model-pill').click();
+  await page.locator('.model-pill__name').getByText(longModelName, { exact: true }).waitFor();
+  await page.keyboard.press('Escape');
+  const assertPill = async () => {
+    const parts = await page.locator('.model-pill').evaluate(el => {
+      const box = el.getBoundingClientRect();
+      return [...el.querySelectorAll('.model-pill__name, .model-billing, .model-pill__effort')].map(part => {
+        const r = part.getBoundingClientRect();
+        return { name: part.className, width: r.width, height: r.height, clipped: part.scrollWidth > part.clientWidth + 1,
+          inside: r.left >= box.left - 1 && r.right <= box.right + 1 && r.top >= box.top - 1 && r.bottom <= box.bottom + 1 };
+      });
+    });
+    assert.equal(parts.length, 3, 'model, billing and effort all remain displayed');
+    for (const part of parts) {
+      assert.ok(part.width >= 24 && part.height > 0 && part.inside, `${part.name} has readable bounds inside the model pill`);
+      if (part.name !== 'model-pill__name') assert.equal(part.clipped, false, `${part.name} stays fully readable`);
+    }
+    assert.equal(await page.locator('.model-pill__effort').innerText(), 'No thinking', 'exercise the longest current effort label');
+    assert.match(await page.locator('.model-pill').getAttribute('aria-label'), /A very long model label with an extended reasoning name, Plan connection, No thinking effort/);
+  };
+  for (const viewport of [{ width: 830, height: 480 }, { width: 390, height: 844 }, { width: 320, height: 568 }]) {
+    const enteringPhone = page.viewportSize().width > 760 && viewport.width <= 760;
     await page.setViewportSize(viewport);
-    if (viewport.width <= 760) {
+    if (enteringPhone) {
       // Resize returns before the media-query listener updates the phone navigation.
       await page.locator('.app.is-mobile.pane-list').waitFor({ state: 'visible' });
       await page.locator('.pinned__tile').click();
@@ -134,7 +158,31 @@ try {
       }).map(child => child.className);
     });
     assert.deepEqual(overflow, [], `long label controls fit ${viewport.width}x${viewport.height}`);
+    await assertPill();
   }
+  // Idle, Send and Stop keep the same toolbar space even with a populated plan pill.
+  const toolbarGeometry = () => page.evaluate(() => Object.fromEntries(['.composer__bar', '.composer__right', '.model-pill'].map(selector => {
+    const box = document.querySelector(selector).getBoundingClientRect();
+    return [selector, { x: box.x, width: box.width, height: box.height }];
+  })));
+  await page.getByRole('button', { name: 'Send', exact: true }).waitFor();
+  const sendBox = await toolbarGeometry();
+  await composer.fill('');
+  await page.getByRole('button', { name: 'Stop', exact: true }).waitFor();
+  await assertPill();
+  const stopBox = await toolbarGeometry();
+  await page.evaluate(botId => window.__emit({ type: 'live', state: { botId, isRunning: false } }), bot.id);
+  await page.getByRole('button', { name: 'Stop', exact: true }).waitFor({ state: 'hidden' });
+  await assertPill();
+  const idleBox = await toolbarGeometry();
+  for (const box of [sendBox, stopBox]) {
+    for (const selector of Object.keys(idleBox)) for (const key of ['x', 'width', 'height']) {
+      assert.ok(Math.abs(box[selector][key] - idleBox[selector][key]) < 1, `idle reserves Send/Stop space: ${selector} ${key}`);
+    }
+  }
+  assert.equal(await page.locator('.composer__voice > [aria-hidden]').isVisible(), true, 'compact voice keeps its microphone icon');
+  await page.screenshot({ path: new URL('composer-plan-320.png', evidence).pathname });
+  await page.evaluate(state => window.__emit({ type: 'live', state }), live(true));
   await page.setViewportSize({ width: 830, height: 480 });
   console.log('PASS R3-093 whole composer stays within 18 percent and remeasures on resize');
 

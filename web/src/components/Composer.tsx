@@ -321,7 +321,7 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
             onClick={voice}
           >
             {inCall ? <PhoneOff size={16} aria-hidden /> : <Icon name="mic" />}
-            <span>{inCall ? 'End call' : switchingCall ? 'Switch call' : 'Live voice'}</span>
+            <span className="composer__voice-label">{inCall ? 'End call' : switchingCall ? 'Switch call' : 'Live voice'}</span>
           </button>
           {running && !hasText ? (
             <button type="button" className="composer__cta" onClick={stop} aria-label="Stop" title="Stop">
