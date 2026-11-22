@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import type { Bot } from '@shared/types';
 import { configApi, type BotAnalytics } from '../../lib/configApi';
 import { niceTicks } from './UsageSection';
@@ -120,13 +120,24 @@ function Frame({ days, ticks, top, children, readout, onPick, pick }: {
     onPick(Math.min(days.length - 1, Math.max(0, Math.floor(((e.clientX - r.left) / r.width) * days.length))));
   };
   const mid = Math.floor((days.length - 1) / 2);
+  // The readout sits over its day but is measured and kept inside the plot: a fixed left, centre or right
+  // alignment pushed the last day's readout past the edge when there were only a few days.
+  const tip = useRef<HTMLDivElement>(null);
+  const tipText = pick !== null && days[pick] ? readout(pick) : null;
+  const [tipLeft, setTipLeft] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const el = tip.current;
+    if (!el || pick === null) { setTipLeft(null); return; }
+    const width = el.offsetWidth;
+    setTipLeft(Math.max(0, Math.min(w - width, slotCentre(pick, days.length) * w - width / 2)));
+  }, [pick, w, days.length, tipText]);
   return (
     <div className="an-chart">
       <div className="an-chart__row">
         <div ref={ref} className="an-plot" style={{ height: H }} onPointerDown={at} onPointerMove={at} onPointerLeave={(e) => { if (e.pointerType === 'mouse') onPick(null); }} role="img" aria-label={readout(days.length - 1)}>
           {ticks.map((t) => <div key={t} className="an-grid" style={{ bottom: `${(t / top) * 100}%` }} />)}
           {children(w)}
-          {pick !== null && <div className="an-tip" style={{ left: `${((pick + 0.5) / days.length) * 100}%`, transform: `translateX(${pick < days.length * 0.25 ? '0%' : pick > days.length * 0.75 ? '-100%' : '-50%'})` }}>{readout(pick)}</div>}
+          {tipText !== null && <div ref={tip} className="an-tip" style={{ left: tipLeft ?? 0, visibility: tipLeft === null ? 'hidden' : undefined }}>{tipText}</div>}
         </div>
         <div className="an-axis" style={{ height: H }} aria-hidden>{ticks.map((t) => <span key={t} style={{ bottom: `${(t / top) * 100}%` }}>{Math.round(t * 10) / 10}</span>)}</div>
       </div>

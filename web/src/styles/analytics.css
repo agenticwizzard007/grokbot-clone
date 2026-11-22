@@ -30,7 +30,8 @@
 .an-line__stroke { fill: none; stroke: var(--an-saved); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .an-line__cross { stroke: var(--color-text-tertiary); stroke-width: 1; stroke-dasharray: 2 3; }
 .an-line__dot { fill: var(--color-bg-pane); stroke: var(--an-saved); stroke-width: 2; }
-.an-tip { position: absolute; top: -6px; z-index: 4; padding: 5px 9px; border-radius: 8px; background: var(--color-bg-elevated); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12), 0 0 0 0.5px var(--color-border-secondary); font-size: 12px; line-height: 16px; color: var(--color-text-primary); white-space: nowrap; pointer-events: none; }
+.an-tip { position: absolute; top: -6px; z-index: 4; padding: 5px 9px; border-radius: 8px; background: var(--color-bg-elevated); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12), 0 0 0 0.5px var(--color-border-secondary); font-size: 12px; line-height: 16px; color: var(--color-text-primary); width: max-content; max-width: 100%; pointer-events: none; }
+/* One line when it fits; a readout longer than the plot wraps instead of overflowing a narrow screen. */
 
 .an-where { display: flex; flex-direction: column; }
 .an-where__head { display: flex; align-items: baseline; justify-content: space-between; padding-bottom: 8px; font-size: 15px; font-weight: 600; color: var(--color-text-primary); }
