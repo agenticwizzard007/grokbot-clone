@@ -47,6 +47,7 @@ try {
       const request = route.request(), url = new URL(request.url()), path = url.pathname;
       if (url.origin !== origin) { errors.push(`External request ${url.origin}`); return route.abort(); }
       if (!path.startsWith('/api/')) return route.continue();
+      if (path.endsWith('/suggested-apps')) return route.fulfill({ json: { suggestions: [] } });
       if (request.method() === 'POST' && path === '/api/bots') {
         const body = request.postDataJSON(); posts.push(body);
         const bot = { ...base, ...body, id: 'created', isPrimary: false };
