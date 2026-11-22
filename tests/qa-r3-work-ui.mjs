@@ -111,6 +111,7 @@ try {
   await composer.focus();
   assert.deepEqual(await composer.evaluate(element => [element.selectionStart, element.selectionEnd]), [prefill.length, prefill.length]);
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('.app.is-mobile.pane-list').waitFor({ state: 'visible' });
   await page.locator('.sidebar .bot-row').filter({ hasText: 'Research Bot' }).click();
   await composer.waitFor({ state: 'visible' });
   assert.equal(await composer.inputValue(), prefill, 'opening the Bot from the phone list preserves its routine prefill');

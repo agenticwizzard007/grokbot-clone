@@ -118,7 +118,11 @@ try {
   await page.locator('.model-pill__name').evaluate(el => { el.textContent = 'A very long model label with an extended reasoning name'; });
   for (const viewport of [{ width: 830, height: 480 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
-    if (viewport.width <= 760 && await page.locator('.app.pane-list').count()) await page.locator('.pinned__tile').click();
+    if (viewport.width <= 760) {
+      // Resize returns before the media-query listener updates the phone navigation.
+      await page.locator('.app.is-mobile.pane-list').waitFor({ state: 'visible' });
+      await page.locator('.pinned__tile').click();
+    }
     await composer.waitFor({ state: 'visible' });
     await page.waitForTimeout(100);
     const box = await page.locator('.composer').boundingBox();
