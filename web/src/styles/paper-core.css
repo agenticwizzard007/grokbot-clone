@@ -81,6 +81,18 @@
   .app .chat .toast { top: 60px; bottom: auto; }
   .bots-view { padding: 24px 16px; }
 }
+@media (max-width: 480px) {
+  /* Keep the model and billing readable beside the reserved Send/Stop space. */
+  .app .composer__voice { width: 44px; padding: 0; gap: 0; }
+  .app .composer__voice-label { display: none; }
+  .app .model-pill { display: grid; grid-template-columns: auto minmax(0, 1fr); align-content: center; gap: 0 4px; padding: 3px 4px; }
+  .app .model-pill > .provider-icon, .app .model-pill__chev { display: none; }
+  .app .model-pill__name { grid-column: 1 / -1; grid-row: 1; }
+  .app .model-pill .model-billing { grid-column: 1; grid-row: 2; justify-self: start; }
+  .app .model-pill__effort { grid-column: 2; grid-row: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; justify-self: end; }
+  .app .model-pill__fast { grid-column: 2; grid-row: 1; justify-self: end; }
+  .app .model-pill:has(.model-pill__fast) .model-pill__name { padding-right: 16px; }
+}
 @media (max-height: 550px) {
   .app .chat:not(.tasks-view) { padding-top: 10px; padding-bottom: 10px; }
   .chat__context { margin-bottom: 4px; }
