@@ -107,10 +107,10 @@ try {
       const mac = document.querySelector('[aria-label="Linux and Mac computers"]');
       return !!cloudEl && !!mac && !!(cloudEl.compareDocumentPosition(mac) & Node.DOCUMENT_POSITION_FOLLOWING);
     });
-    assert.equal(order, true, 'cloud computer card comes before the Mac note');
+    assert.equal(order, true, 'cloud computer card comes before Linux and Mac guidance');
     assert.deepEqual(mutations, [], 'visiting Computer never pairs, starts or changes preferences');
     await context.close();
-    console.log('PASS Linux browser: cloud computer card first, Mac section reduced to one line');
+    console.log('PASS Linux browser: cloud computer card first, Linux pairing and macOS-only permission guidance');
   }
   const swift = await fs.readFile(new URL('../apple/Swarm/MacControlView.swift', import.meta.url), 'utf8');
   const nativeScript = swift.split('static let script = #"""')[1]?.split('"""#')[0];
