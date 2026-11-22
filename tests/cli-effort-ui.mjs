@@ -211,10 +211,14 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       assert.equal(patches.at(-1).effort, model.efforts.at(-1));
       assert.equal(await page.locator('.model-pill.is-ultracode').count(), 1);
       // Settings uses the same real names, default marker and selected value.
+      const settingsCatalog = page.waitForResponse(r => new URL(r.url()).pathname === '/api/models');
       await page.evaluate(() => window.openSettings());
+      await settingsCatalog;
       const settingsEfforts = page.getByRole('radiogroup', { name: 'Thinking effort', exact: true });
+      const selectedLabel = labels[0] + (labels[0] === defaultLabel ? ' (default)' : '');
+      await settingsEfforts.getByRole('radio', { name: selectedLabel, exact: true, checked: true }).waitFor();
       assert.deepEqual(await settingsEfforts.getByRole('radio').allTextContents(), labels.map(label => label === defaultLabel ? `${label} (default)` : label));
-      assert.equal(await settingsEfforts.getByRole('radio', { checked: true }).innerText(), labels[0] + (labels[0] === defaultLabel ? ' (default)' : ''));
+      assert.equal(await settingsEfforts.getByRole('radio', { checked: true }).innerText(), selectedLabel);
       await page.evaluate(() => window.closeSettings());
     }
     // Switching models persists a supported real level in API billing too.
