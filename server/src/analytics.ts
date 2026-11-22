@@ -51,15 +51,28 @@ export function toolMinutes(name: string, args: any): { cat: Category; min: numb
 const DAY = 86_400_000;
 const utcDay = (t: number) => new Date(t).toISOString().slice(0, 10);
 
-export function botAnalytics(botId: string, range: AnalyticsRange, nowMs = Date.now()) {
+/** The account's IANA time zone, or UTC when it has none (MF-017). */
+function accountTimezone(botId: string): string {
+  const row = db.prepare('SELECT u.timezone FROM bots b JOIN users u ON u.id=b.user_id WHERE b.id=?').get(botId) as { timezone?: string | null } | undefined;
+  const tz = row?.timezone;
+  if (tz) { try { new Intl.DateTimeFormat('en-CA', { timeZone: tz }); return tz; } catch { /* fall back */ } }
+  return 'UTC';
+}
+
+export function botAnalytics(botId: string, range: AnalyticsRange, nowMs = Date.now(), timezone = accountTimezone(botId)) {
   const n = range === '90d' ? 90 : range === '30d' ? 30 : 7;
-  const today = Date.UTC(new Date(nowMs).getUTCFullYear(), new Date(nowMs).getUTCMonth(), new Date(nowMs).getUTCDate());
-  const from = today - (n - 1) * DAY;
-  const days = Array.from({ length: n }, (_, i) => ({ day: utcDay(from + i * DAY), messages: 0, minutesSaved: 0 }));
+  // Days are calendar days in the account's time zone, keyed YYYY-MM-DD.
+  const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' });
+  const localDay = (t: number) => { const p = Object.fromEntries(fmt.formatToParts(new Date(t)).map((x) => [x.type, x.value])); return `${p.year}-${p.month}-${p.day}`; };
+  const [y, m, d] = localDay(nowMs).split('-').map(Number);
+  const today = Date.UTC(y, m - 1, d);
+  // Query a little wider than the window; rows outside the local days are ignored by the day map.
+  const from = nowMs - (n + 1) * DAY;
+  const days = Array.from({ length: n }, (_, i) => ({ day: utcDay(today - (n - 1 - i) * DAY), messages: 0, minutesSaved: 0 }));
   const byDay = new Map(days.map((d) => [d.day, d]));
   const byCat: Record<Category, number> = { research: 0, writing: 0, apps: 0, computer: 0, organising: 0 };
   const add = (t: number, cat: Category, min: number) => {
-    const d = byDay.get(utcDay(t));
+    const d = byDay.get(localDay(t));
     if (!d) return;
     d.minutesSaved += min;
     byCat[cat] += min;
@@ -71,7 +84,7 @@ export function botAnalytics(botId: string, range: AnalyticsRange, nowMs = Date.
     try { b = JSON.parse(r.body); } catch { continue; }
     if (r.kind === 'message') {
       if (b.streaming) continue;
-      const d = byDay.get(utcDay(r.created_at));
+      const d = byDay.get(localDay(r.created_at));
       if (d) d.messages++;
       if (b.role === 'assistant') add(r.created_at, 'writing', words(b.text) / RATES.wordsPerMinute);
     } else if (b.status === 'done') {
@@ -90,6 +103,7 @@ export function botAnalytics(botId: string, range: AnalyticsRange, nowMs = Date.
     .sort((a, b) => b.minutes - a.minutes);
   return {
     range,
+    timezone,
     days,
     totals: { messages: days.reduce((s, d) => s + d.messages, 0), minutesSaved: Math.round(days.reduce((s, d) => s + d.minutesSaved, 0) * 10) / 10 },
     breakdown,

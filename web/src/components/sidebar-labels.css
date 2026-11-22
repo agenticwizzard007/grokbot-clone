@@ -1,0 +1,9 @@
+/* MF-057: sidebar labels stay on one line while the sidebar width animates. */
+.sidebar .sidebar__search span,
+.sidebar .sidebar__create span,
+.sidebar .sidebar-island__label,
+.sidebar .account__name,
+.sidebar .pinned__text,
+.sidebar .bot-row__text,
+.sidebar .sidebar-usage__row,
+.sidebar .sidebar-usage__detail { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }

@@ -6,7 +6,7 @@ import { beginMcpOAuth, finishMcpOAuth } from './oauth.js';
 import { listMcpFolders } from './folders.js';
 import type { Context } from 'hono';
 import { closeMcpSessions, testMcpServer } from './client.js';
-import { getMcpServer, listMcpServers, mcpServerView, saveMcpServer } from './store.js';
+import { getMcpServer, listMcpServers, mcpServerView, saveMcpServer, mcpStdioAvailable, stdioBlocked, MCP_STDIO_UNAVAILABLE } from './store.js';
 
 export const mcpApi = new Hono<AuthVars>();
 mcpApi.use('*', requireUser);
@@ -34,12 +34,13 @@ mcpApi.post('/:id/oauth', requireRecentAuth, async c => {
   try { return c.json(await beginMcpOAuth(s, sessionHash(sessionFromCookie(c.req.header('cookie')) ?? ''))); }
   catch { return c.json({ error: 'Could not start MCP authorization. Check the endpoint and its OAuth support.' }, 400); }
 });
-mcpApi.get('/', c => c.json({ servers: listMcpServers(c.get('user').id).map(mcpServerView), canManage: true }));
+mcpApi.get('/', c => c.json({ servers: listMcpServers(c.get('user').id).map(mcpServerView), canManage: true, stdioAvailable: mcpStdioAvailable }));
 
 mcpApi.post('/', async c => {
   try {
     const input = await c.req.json();
     if (!currentSession(c)) return c.json({ error: 'unauthenticated' }, 401);
+    if (stdioBlocked(input)) return c.json({ error: MCP_STDIO_UNAVAILABLE }, 400);
     if (sensitiveChange(input) && !recentlyAuthenticated(c)) return c.json({ error: 'Sign in again to change credentials or folder access.', code: 'reauth_required' }, 401);
     const server = saveMcpServer(c.get('user').id, input);
     return c.json({ server: mcpServerView(server) }, 201);
@@ -51,6 +52,7 @@ mcpApi.patch('/:id', async c => {
   try {
     const input = await c.req.json();
     if (!currentSession(c)) return c.json({ error: 'unauthenticated' }, 401);
+    if (stdioBlocked(input, server)) return c.json({ error: MCP_STDIO_UNAVAILABLE }, 400);
     if (sensitiveChange(input) && !recentlyAuthenticated(c)) return c.json({ error: 'Sign in again to change credentials or folder access.', code: 'reauth_required' }, 401);
     const updated = saveMcpServer(server.userId, input, server);
     await closeMcpSessions(server.id);

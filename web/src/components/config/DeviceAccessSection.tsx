@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { isNativeApp } from '../../lib/native';
+import { isMacPlatform } from './settingsLogic';
 import '../../styles/device-access.css';
 
 /** Computer is the only device-permissions surface. Native consent stays in the shell. */
@@ -14,9 +15,17 @@ export function DeviceAccessSection() {
   }, []);
 
   if (nativeControls) return <section className="device-access-native" data-swarm-mac-control-slot="" aria-label="Device access approvals and macOS permissions" />;
+  // The Mac section only applies on macOS browsers and in the Mac app. Everyone else gets one line.
+  if (!isNativeApp && !isMacPlatform()) return (
+    <section className="cfg-section device-access-note" aria-label="Use your Mac (optional)">
+      <h2 className="cfg-section__label">Use your Mac (optional)</h2>
+      <p className="cfg-field__hint">The Mac app lets Bots use your own Mac. Available for macOS.</p>
+    </section>
+  );
 
   return (
     <section className="cfg-section device-access" aria-label="Device access">
+      <h2 className="cfg-section__label">Use your Mac (optional)</h2>
       <div className="cfg-card">
         <div className="cfg-row">
           <div className="cfg-row__text">

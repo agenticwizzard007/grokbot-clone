@@ -1,5 +1,6 @@
 import type { ActivityKind, LiveState, Row } from '@shared/types';
 import { appToolLabel } from '@shared/tool-activity';
+import { queuedPhrase } from './queued';
 
 /** textKind → phrase table from docs/research/03-ui-design.md §2.4. Arrays rotate. */
 const PHRASES: Record<string, string[]> = {
@@ -33,6 +34,7 @@ export function activityPhrase(live: LiveState, rows: Row[], tick: number): stri
   const a = live.activity;
   if (!a) return live.awaiting ? 'Needs your input' : 'Working on it';
   const kind = a.kind as ActivityKind;
+  if ((kind as string) === 'queued') return queuedPhrase(a.detail);
   if (kind === 'thinking' && a.detail) return a.detail;
   if (kind === 'messaging_named') {
     const running = [...rows].reverse().find((r) => r.body.type === 'tool-call' && r.body.status === 'running');

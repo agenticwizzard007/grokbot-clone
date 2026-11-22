@@ -20,7 +20,7 @@ import { selectedCli } from '../cli/store.js';
 import { createRoom, postToRoom } from './rooms.js';
 import type { ActivityKind } from '../types.js';
 import { Cron } from 'croner';
-import { creationSchema, isConfiguring, saveSetupDraft, setupDraftSchema } from '../bot-setup.js';
+import { bindComputerStateSource, creationSchema, isConfiguring, saveSetupDraft, setupDraftSchema } from '../bot-setup.js';
 import { createTeammate, replicateTeammate, retryTeammate, CENTRAL_SETUP_TOOLS } from './teammates.js';
 import { COORDINATION_TOOLS } from './coordination-tools.js';
 import { z } from 'zod';
@@ -35,6 +35,7 @@ import { KNOWLEDGE_TOOLS } from './knowledge-tools.js';
 import { WORKFLOW_TOOLS } from './workflow-tools.js';
 import { DELIVERABLE_TOOLS } from './deliverable-tools.js';
 import { recordArtifact } from '../deliverables/index.js';
+import { accountPreferences } from '../settings.js';
 
 export interface ToolCtx {
   userId: string;
@@ -45,6 +46,8 @@ export interface ToolCtx {
   learningIteration?: number;
   /** Pin automatically allowed app reads to fresh read-only provider metadata at dispatch. */
   readOnlyApps?: boolean;
+  /** Set for group chat turns: the final reply goes to this room and app access is read-only. */
+  roomId?: string;
   recovery?: BrowserRecovery;
   /** Re-read authorized schemas at dispatch; discovery never grants permission. */
   availableTools?: () => Promise<any[]>;
@@ -484,10 +487,13 @@ export const TOOLS: ToolDef[] = [
     impl: async (a, ctx) => {
       const ids: string[] = [];
       const missing: string[] = [];
+      const configuring: string[] = [];
       for (const n of (a.bot_names ?? []) as string[]) {
         const b = botByName(ctx.userId, n);
-        if (b && b.kind !== 'room') ids.push(b.id); else missing.push(n);
+        if (b && b.kind !== 'room' && isConfiguring(b.id)) configuring.push(b.name);
+        else if (b && b.kind !== 'room') ids.push(b.id); else missing.push(n);
       }
+      if (configuring.length) return { output: `Activate ${configuring.join(', ')} before adding ${configuring.length > 1 ? 'them' : 'it'} to a group. Bots that are still being set up can't answer in groups.` };
       if (ids.length < 2) return { output: `A group needs at least 2 Bots. Not found: ${missing.join(', ') || 'none'}.` };
       const id = createRoom(ctx.userId, String(a.name), [...new Set(ids)]);
       appendRow(id, 'event', { type: 'event', event: 'bot-message', text: `Group created with ${(a.bot_names as string[]).filter((n) => !missing.includes(n)).join(', ')}` });
@@ -631,6 +637,9 @@ export const TOOLS: ToolDef[] = [
 
 export const toolMap = new Map(TOOLS.map((t) => [t.name, t]));
 
+// Setup readiness reads the live computer without bot-setup importing the providers.
+bindComputerStateSource((userId) => computers.state(userId));
+
 export function allowedDuringSetup(botId: string, toolName: string) {
   return !isConfiguring(botId) || ['ask_user', 'save_agent_setup', 'get_platform_state', 'list_app_connections', 'search_apps', 'request_app_connection', 'SWARM_APPS_SEARCH', 'SWARM_APPS_EXECUTE'].includes(toolName);
 }
@@ -649,6 +658,19 @@ export function functionSchemas(botId?: string) {
 
 // ---------- approvals policy ----------
 
+/** Policy keys for computer use; "Always allow" stores one of these in policies. */
+export const COMPUTER_POLICY_TITLES = { computer: 'Computer: use its cloud computer', browser: 'Browser: use its browser', shell: 'Shell: run commands on its computer' } as const;
+export type ComputerPolicyKey = keyof typeof COMPUTER_POLICY_TITLES;
+/** Observation-only tools never change anything, so they do not ask. */
+const COMPUTER_READ_TOOLS = new Set(['computer_screenshot', 'browser_snapshot', 'browser_take_screenshot', 'browser_find', 'browser_console_messages', 'browser_wait_for', 'wait_for_browser_access']);
+export function computerFamily(toolName: string): ComputerPolicyKey | null {
+  if (COMPUTER_READ_TOOLS.has(toolName)) return null;
+  if (toolName === 'shell') return 'shell';
+  if (toolName.startsWith('computer_')) return 'computer';
+  if (toolName === 'open_browser' || toolName.startsWith('browser_')) return 'browser';
+  return null;
+}
+
 export type Decision = 'allow' | 'ask' | 'block';
 
 export function policyFor(userId: string, toolName: string, args: any, botId?: string): { decision: Decision; key: string; toolkit?: string; title: string } {
@@ -663,7 +685,15 @@ export function policyFor(userId: string, toolName: string, args: any, botId?: s
     const policy = db.prepare('SELECT mode FROM policies WHERE user_id=? AND tool=?').get(userId, key) as { mode: string } | undefined;
     return { decision: !match || policy?.mode === 'blocked' ? 'block' : policy?.mode === 'always_allow' || !match.server.config.requireApproval ? 'allow' : 'ask', key, title: match ? `MCP: use ${match.tool.name} on ${match.server.config.name}` : 'MCP: use an unavailable tool' };
   }
-  if (toolMap.has(toolName)) return { decision: 'allow', key: toolName, title: toolName };
+  if (toolMap.has(toolName)) {
+    // Bots' own computers run without approval by default. The account can opt in to asking first.
+    const family = computerFamily(toolName);
+    if (family && accountPreferences(userId).askBeforeComputer) {
+      const policy = db.prepare('SELECT mode FROM policies WHERE user_id=? AND tool=?').get(userId, family) as { mode: string } | undefined;
+      return { decision: policy?.mode === 'blocked' ? 'block' : policy?.mode === 'always_allow' ? 'allow' : 'ask', key: family, title: COMPUTER_POLICY_TITLES[family] };
+    }
+    return { decision: 'allow', key: toolName, title: toolName };
+  }
   const slugs = innerToolSlugs(toolName, args);
   if (!slugs.length) return { decision: 'allow', key: toolName, title: toolName };
   let decision: Decision = 'allow';

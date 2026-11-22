@@ -82,6 +82,8 @@ export interface Bot {
   lastPreview: string | null;
   lastActivityAt: number;
   createdAt: number;
+  /** Setup state; 'active' when the Bot has no pending setup interview. */
+  onboarding?: { status: 'interviewing' | 'review' | 'active' };
 }
 
 /** A transcript row. `seq` orders rows; `updatedSeq` is a per-bot revision counter (rows are rewritten while streaming). */
@@ -182,7 +184,7 @@ export type CardBody =
 
 export interface EventBody {
   type: 'event';
-  event: 'routine-created' | 'routine-updated' | 'routine-run' | 'task-changed' | 'bot-message' | 'conversation-cleared' | 'computer' | 'voice-call';
+  event: 'routine-created' | 'routine-updated' | 'routine-run' | 'task-changed' | 'bot-message' | 'conversation-cleared' | 'computer' | 'voice-call' | 'setup-saved';
   text: string;
   ref?: string;
   /** voice-call only: the call record (set on the end-of-call row). */
@@ -205,7 +207,7 @@ export interface NoticeBody { type: 'notice'; text: string; tone?: 'info' | 'war
 export type ActivityKind =
   | 'thinking' | 'working' | 'searching_web' | 'reading_web' | 'browsing_web' | 'on_its_computer'
   | 'running_commands' | 'waiting_on_command' | 'messaging_named' | 'connecting_service'
-  | 'waiting_for_you' | 'drafting_file' | 'remembering';
+  | 'waiting_for_you' | 'drafting_file' | 'remembering' | 'queued';
 
 export interface LiveState {
   audience?: 'user'|'internal';

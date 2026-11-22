@@ -1,5 +1,6 @@
 import { isEffort } from './types.js';
 import { Hono, type Context } from 'hono';
+import { z } from 'zod';
 import { checkRoutineCreate } from './routine-limits.js';
 import { streamSSE } from 'hono/streaming';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
@@ -17,13 +18,16 @@ import { runRoutine, scheduleRoutine, unscheduleRoutine } from './routines.js';
 import { deleteEventTrigger } from './triggers.js';
 import { dispatchRoomMessage } from './agent/rooms.js';
 import { voiceApi } from './voice.js';
-import { createBot, assertPrimaryRemovalAllowed, transferPrimary } from './bots.js';
+import { createBot, assertPrimaryRemovalAllowed, transferPrimary, botPatchSchema, botCreateSchema, BRIEF_FIELDS } from './bots.js';
+import { readJson, zodMessage } from './lib/json.js';
+import { renameSetupGreeting, skipSetup, SetupSkipError } from './bot-setup.js';
 import { activateSetup, beginSetupInterview, briefSchema, emitSetup, getSetup, removeSetupFiles, setupFiles, setupView, writeSetupFiles, coworkerSetups, coworkerSetup } from './bot-setup.js';
 import { importTeammate, provisionTeammate } from './agent/teammates.js';
-import type { Toolkit } from './types.js';
+import type { ComputerState, ServerEvent, Toolkit } from './types.js';
 import { compareAppPriority, matchesAppCategory } from './app-catalog.js';
 import { signUser, verifyUserSig } from './messaging/store.js';
-import { createAccount, deleteAccount, AccountAuthorizationChanged } from './accounts.js';
+import { createAccount, deleteAccount, updateProfile, AccountAuthorizationChanged } from './accounts.js';
+import { adoptAccountTimezone } from './proactive.js';
 import { finishNativeLogin, nativeAuth } from './native-auth.js';
 import { appleAuth } from './auth/apple.js';
 import { appleAvailableForAgent } from './auth/apple-provider.js';
@@ -47,15 +51,29 @@ api.route('/auth/openrouter', openrouterAuth);
 api.route('/providers', providerApi);
 
 api.get('/auth/me', (c) => {
-  const user = userFromCookieHeader(c.req.header('cookie'));
+  const session = userFromCookieHeader(c.req.header('cookie'));
+  const user = session ? { ...session, timezone: ((db.prepare('SELECT timezone FROM users WHERE id=?').get(session.id) as { timezone?: string | null } | undefined)?.timezone ?? null) } : null;
   const appleLinked = !!user && !!db.prepare('SELECT 1 FROM apple_identities WHERE user_id=?').get(user.id);
   return c.json({ user, devLogin: env.devLogin, googleLogin: googleSignInAvailable(), googleLinked: !!user && googleLinked(user.id), appleLogin: appleAvailableForAgent(c.req.header('user-agent')), appleLinked });
 });
 
+/** MF-017: the browser sends its IANA time zone; synopses and check-ins that fell back to UTC follow it. */
+const validTimezone = (tz: string) => { try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true; } catch { return false; } };
+const mePatchSchema = z.object({ timezone: z.string().trim().min(1).max(100).refine(validTimezone, 'Use an IANA time zone such as Europe/London.') }).strict();
+api.patch('/auth/me', requireUser, async (c) => {
+  const body = await readJson(c, mePatchSchema); if (!body.ok) return body.response;
+  const userId = c.get('user').id;
+  const timezone = new Intl.DateTimeFormat('en-US', { timeZone: body.data.timezone }).resolvedOptions().timeZone;
+  updateProfile(userId, { timezone });
+  adoptAccountTimezone(userId, timezone);
+  return c.json({ user: { ...c.get('user'), timezone } });
+});
+
 api.post('/auth/dev', async (c) => {
   if (!env.devLogin || process.env.NODE_ENV === 'production') return c.json({ error: 'disabled' }, 403);
-  const { email, name } = await c.req.json<{ email: string; name?: string }>();
-  if (!email?.includes('@')) return c.json({ error: 'email required' }, 400);
+  const body = await readJson(c); if (!body.ok) return body.response;
+  const { email, name } = body.data as { email?: unknown; name?: unknown };
+  if (typeof email !== 'string' || !email.includes('@') || (name !== undefined && typeof name !== 'string')) return c.json({ error: 'email required' }, 400);
   const { id } = findOrCreateUser(email, name);
   createSession(c, id);
   return c.json({ ok: true });
@@ -106,12 +124,41 @@ api.delete('/account', requireRecentAuth, async (c) => {
   }
 });
 
+/** Hard cap on undelivered events per subscriber; past it the stream is closed and the client resyncs on reconnect. */
+export const SSE_QUEUE_CAP = 5000;
+/** Snapshot style events replace an older undelivered copy for the same bot instead of piling up (MF-011). */
+export function sseCoalesceKey(ev: ServerEvent): string | null {
+  if (ev.type === 'live') return `live:${ev.state.botId}`;
+  if (ev.type === 'bot') return `bot:${ev.bot.id}`;
+  if (ev.type === 'roster') return 'roster';
+  if (ev.type === 'computer') return 'computer';
+  // Streaming updates rewrite one row many times; only its latest body matters.
+  if (ev.type === 'rows' && ev.rows.length === 1) return `rows:${ev.botId}:${ev.generation}:${ev.rows[0].seq}`;
+  return null;
+}
+export class SseQueue {
+  private items: { key: string | null; data: string }[] = [];
+  get length() { return this.items.length; }
+  /** Returns false when the subscriber is too far behind to keep. */
+  push(ev: ServerEvent): boolean {
+    const key = sseCoalesceKey(ev);
+    if (key !== null) {
+      const i = this.items.findIndex((item) => item.key === key);
+      if (i >= 0) this.items.splice(i, 1);
+    }
+    if (this.items.length >= SSE_QUEUE_CAP) return false;
+    this.items.push({ key, data: JSON.stringify(ev) });
+    return true;
+  }
+  shift(): string | undefined { return this.items.shift()?.data; }
+}
+
 api.get('/events', (c) => {
   const user = c.get('user');
-  return streamSSE(c, async (stream) => {
-    const queue: string[] = [];
+  const res = streamSSE(c, async (stream) => {
+    const queue = new SseQueue();
     let wake: (() => void) | null = null;
-    const unsub = hub.subscribe(user.id, (ev) => { if (queue.length >= 1000) { stream.abort(); return; } queue.push(JSON.stringify(ev)); wake?.(); });
+    const unsub = hub.subscribe(user.id, (ev) => { if (!queue.push(ev)) { stream.abort(); return; } wake?.(); });
     const off = onSessionRevoked(sessionHash(sessionFromCookie(c.req.header('cookie')) ?? ''), () => stream.abort());
     const expiry = setInterval(() => { if (!userFromCookieHeader(c.req.header('cookie'))) stream.abort(); }, 15_000).unref();
     stream.onAbort(() => { clearInterval(expiry); off(); unsub(); wake?.(); });
@@ -129,11 +176,23 @@ api.get('/events', (c) => {
     }
     clearInterval(expiry); off(); unsub();
   });
+  // Proxies (Fly, nginx) must neither buffer nor transform the event stream.
+  res.headers.set('Cache-Control', 'no-cache, no-transform');
+  res.headers.set('X-Accel-Buffering', 'no');
+  return res;
 });
 
 // ---------- bots ----------
 api.get('/jobs', c => c.json({ jobs: db.prepare("SELECT id,bot_id,state,created_at,started_at,finished_at FROM agent_jobs WHERE user_id=? ORDER BY created_at DESC LIMIT 200").all(c.get('user').id) }));
 api.get('/runtime/events', c => c.json({ failures: isTenant ? db.prepare('SELECT id,error_code,received_at FROM runtime_event_failures ORDER BY received_at DESC LIMIT 200').all() : [] }));
+
+/** Longest user message, room message or card answer accepted (MF-009). */
+export const MAX_MESSAGE_CHARS = 32_000;
+const MESSAGE_TOO_LONG = 'Message is too long (max 32,000 characters).';
+const approvalDecisionSchema = z.object({ decision: z.enum(['allow', 'always', 'deny']) }).strict();
+const routinePatchSchema = z.object({ enabled: z.boolean() }).strict();
+
+class PatchConflict extends Error { constructor(message: string, readonly status: 404 | 409) { super(message); } }
 
 const ownBot = (userId: string, id: string) => {
   const b = getBotRow(id);
@@ -143,10 +202,12 @@ const ownBot = (userId: string, id: string) => {
 api.get('/bots', (c) => c.json({ bots: listBots(c.get('user').id), live: allLive(c.get('user').id) }));
 
 api.post('/bots', async (c) => {
-  const body = await c.req.json();
+  const parsed = await readJson(c, botCreateSchema);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.data;
   const brief = body.brief === undefined ? undefined : briefSchema.safeParse(body.brief);
   if (brief && !brief.success) return c.json({ error: brief.error.message }, 400);
-  const bot = createBot(c.get('user').id, { ...body, isPrimary: false, brief: brief?.data, source: { messages: [] } });
+  const bot = createBot(c.get('user').id, { ...body, name: body.name ?? '', isPrimary: false, brief: brief?.data, source: { messages: [] } });
   beginSetupInterview(bot.id);
   return c.json({ bot: getBot(bot.id) });
 });
@@ -185,7 +246,8 @@ api.post('/bots/:id/setup/interview', async (c) => {
 api.post('/bots/:id/setup/activate', async (c) => {
   const b = ownBot(c.get('user').id, c.req.param('id'));
   if (!b) return c.json({ error: 'not found' }, 404);
-  const { revision, coordinatorId } = await c.req.json();
+  const body = await readJson(c); if (!body.ok) return body.response;
+  const { revision, coordinatorId } = body.data;
   if (!Number.isInteger(revision)) return c.json({ error: 'A configuration revision is required.' }, 400);
   try {
     await runInBotQueue(b.id, async () => {
@@ -194,6 +256,14 @@ api.post('/bots/:id/setup/activate', async (c) => {
     });
     return c.json(setupView(b.id));
   } catch (e: any) { return c.json({ error: String(e?.message ?? e) }, 409); }
+});
+
+// MF-010 (WS2): "Skip setup" activates the current brief with safe defaults.
+api.post('/bots/:id/setup/skip', async (c) => {
+  const userId = c.get('user').id;
+  if (!ownBot(userId, c.req.param('id'))) return c.json({ error: 'not found' }, 404);
+  try { return c.json(await runInBotQueue(c.req.param('id'), async () => skipSetup(userId, c.req.param('id')))); }
+  catch (e: any) { return c.json({ error: String(e?.message ?? e) }, e instanceof SetupSkipError ? e.status : 409); }
 });
 
 api.get('/bots/:id/setup/:file', (c) => {
@@ -212,34 +282,54 @@ api.post('/bots/:id/setup/retry', async (c) => {
 });
 
 api.patch('/bots/:id', async (c) => {
-  const b = ownBot(c.get('user').id, c.req.param('id'));
+  const userId = c.get('user').id;
+  const b = ownBot(userId, c.req.param('id'));
   if (!b) return c.json({ error: 'not found' }, 404);
-  const p = await c.req.json();
-  if (p.model !== undefined) {
-    if (p.model !== null && (typeof p.model !== 'string' || p.model.length > 120)) return c.json({ error: 'bad model' }, 400);
-    p.model = p.model?.trim() || null;
+  const body = await readJson(c);
+  if (!body.ok) return body.response;
+  const parsed = botPatchSchema.safeParse(body.data);
+  if (!parsed.success) {
+    // Keep the established short messages for fields older clients already handle.
+    const field = String(parsed.error.issues[0]?.path[0] ?? '');
+    if (body.data.expectedInstructions !== undefined && (field === 'instructions' || field === 'expectedInstructions')) return c.json({ error: 'bad instructions' }, 400);
+    if (field === 'model' || field === 'effort' || field === 'fast') return c.json({ error: `bad ${field}` }, 400);
+    return c.json({ error: zodMessage(parsed.error) }, 400);
   }
-  if (p.effort !== undefined && !isEffort(p.effort)) return c.json({ error: 'bad effort' }, 400);
-  if (p.fast !== undefined && typeof p.fast !== 'boolean') return c.json({ error: 'bad fast' }, 400);
-  // The inline configuration editor supplies its original text so a delayed or
-  // missed roster event cannot let one browser overwrite another browser's edit.
-  if (p.expectedInstructions !== undefined) {
-    if (typeof p.expectedInstructions !== 'string' || typeof p.instructions !== 'string' || p.instructions.length > 8000)
-      return c.json({ error: 'bad instructions' }, 400);
-    const result = db.prepare('UPDATE bots SET instructions=?, updated_at=? WHERE id=? AND user_id=? AND instructions=?')
-      .run(p.instructions, now(), b.id, c.get('user').id, p.expectedInstructions);
-    if (!result.changes) return c.json({ error: 'Instructions changed elsewhere. Reload the current instructions before saving.' }, 409);
-  }
+  const p = parsed.data;
   const cols: Record<string, string> = { name: 'name', label: 'label', description: 'description', instructions: 'instructions', avatarShape: 'avatar_shape', avatarColor: 'avatar_color', mode: 'mode', effort: 'effort', pinned: 'pinned', voice: 'voice', voiceSpeed: 'voice_speed', voiceLanguage: 'voice_language', model: 'model', fast: 'fast' };
-  for (const [k, col] of Object.entries(cols)) {
-    if (k === 'instructions' && p.expectedInstructions !== undefined) continue;
-    if (p[k] !== undefined) db.prepare(`UPDATE bots SET ${col}=?, updated_at=? WHERE id=?`).run(typeof p[k] === 'boolean' ? (p[k] ? 1 : 0) : p[k], now(), b.id);
+  const manifestCols = new Set(['name', 'label', 'description', 'instructions', 'avatarShape', 'avatarColor', 'mode', 'effort', 'model', 'voice', 'voiceSpeed', 'voiceLanguage']);
+  const sqlValue = (v: unknown) => typeof v === 'boolean' ? (v ? 1 : 0) : v;
+  let result: { briefChanged: boolean; manifestChanged: boolean };
+  try {
+    // One transaction: every field, the instructions compare-and-set and the setup revision land together or not at all.
+    result = db.transaction(() => {
+      const current = db.prepare('SELECT * FROM bots WHERE id=? AND user_id=?').get(b.id, userId) as Record<string, unknown> | undefined;
+      if (!current) throw new PatchConflict('not found', 404);
+      // The inline configuration editor supplies its original text so a delayed or
+      // missed roster event cannot let one browser overwrite another browser's edit.
+      if (p.expectedInstructions !== undefined && current.instructions !== p.expectedInstructions)
+        throw new PatchConflict('Instructions changed elsewhere. Reload the current instructions before saving.', 409);
+      const changed: string[] = [];
+      for (const [k, col] of Object.entries(cols)) {
+        const v = (p as Record<string, unknown>)[k];
+        if (v === undefined) continue;
+        const next = sqlValue(v);
+        if (current[col] === next) continue;
+        db.prepare(`UPDATE bots SET ${col}=?, updated_at=? WHERE id=?`).run(next, now(), b.id);
+        changed.push(k);
+      }
+      // MF-013: only a brief relevant edit is a new setup revision; model, effort, voice or pin changes are not.
+      const briefChanged = changed.some((k) => (BRIEF_FIELDS as readonly string[]).includes(k));
+      if (briefChanged && getSetup(b.id)) db.prepare('UPDATE bot_setups SET revision=revision+1, updated_at=? WHERE bot_id=?').run(now(), b.id);
+      return { briefChanged, manifestChanged: changed.some((k) => manifestCols.has(k)) };
+    })();
+  } catch (e) {
+    if (e instanceof PatchConflict) return c.json({ error: e.message }, e.status);
+    throw e;
   }
-  if (getSetup(b.id)) {
-    db.prepare('UPDATE bot_setups SET revision=revision+1, updated_at=? WHERE bot_id=?').run(now(), b.id);
-    writeSetupFiles(b.id);
-    emitSetup(b.id);
-  }
+  if (typeof p.name === 'string' && p.name !== b.name) renameSetupGreeting(b.id, b.name, p.name); // MF-035 (WS2)
+  if (result.manifestChanged && getSetup(b.id)) writeSetupFiles(b.id);
+  if (result.briefChanged && getSetup(b.id)) emitSetup(b.id);
   emitBot(b.id);
   return c.json({ bot: getBot(b.id) });
 });
@@ -292,16 +382,25 @@ api.post('/bots/:id/read', (c) => {
 api.get('/bots/:id/rows', (c) => {
   const b = ownBot(c.get('user').id, c.req.param('id'));
   if (!b) return c.json({ error: 'not found' }, 404);
-  const beforeSeq = c.req.query('beforeSeq') ? Number(c.req.query('beforeSeq')) : undefined;
-  return c.json({ generation: b.generation, rows: listRows(b.id, { beforeSeq, limit: Number(c.req.query('limit') ?? 200) }) });
+  const rawBefore = c.req.query('beforeSeq');
+  const rawLimit = c.req.query('limit');
+  if (rawBefore !== undefined && rawBefore !== '' && !/^-?\d+$/.test(rawBefore)) return c.json({ error: 'beforeSeq must be an integer.' }, 400);
+  if (rawLimit !== undefined && !/^-?\d+$/.test(rawLimit)) return c.json({ error: 'limit must be an integer.' }, 400);
+  const beforeSeq = rawBefore ? Number(rawBefore) : undefined;
+  const limit = rawLimit === undefined ? 200 : Math.max(1, Math.min(500, Number(rawLimit)));
+  return c.json({ generation: b.generation, rows: listRows(b.id, { beforeSeq, limit }) });
 });
 
 api.post('/bots/:id/messages', async (c) => {
   const b = ownBot(c.get('user').id, c.req.param('id'));
   if (!b) return c.json({ error: 'not found' }, 404);
-  const { text } = await c.req.json<{ text: string }>();
-  if (!text?.trim()) return c.json({ error: 'empty' }, 400);
+  const body = await readJson(c); if (!body.ok) return body.response;
+  const { text } = body.data;
+  if (typeof text !== 'string' || !text.trim()) return c.json({ error: 'empty' }, 400);
+  if (text.length > MAX_MESSAGE_CHARS) return c.json({ error: MESSAGE_TOO_LONG }, 413);
   const row = appendRow(b.id, 'message', { type: 'message', role: 'user', text: text.trim() });
+  // The sidebar preview comes from the bot list, so tell clients the row changed (rooms and 1:1 chats alike).
+  emitBot(b.id);
   // Group chats dispatch to their member Bots instead of running their own loop.
   if (b.kind === 'room') dispatchRoomMessage(b.id, text.trim(), enqueue);
   // Any pending question card is answered by a free-text message.
@@ -326,7 +425,8 @@ api.post('/bots/:id/fresh', (c) => {
 });
 
 api.post('/approvals/:id', async (c) => {
-  const { decision } = await c.req.json<{ decision: 'allow' | 'always' | 'deny' }>();
+  const body = await readJson(c, approvalDecisionSchema); if (!body.ok) return body.response;
+  const { decision } = body.data;
   try { resolveApproval(c.get('user').id, c.req.param('id'), decision); } catch { return c.json({ error: 'not found' }, 404); }
   return c.json({ ok: true });
 });
@@ -335,9 +435,11 @@ api.post('/bots/:id/cards/:seq/answer', async (c) => {
   const b = ownBot(c.get('user').id, c.req.param('id'));
   if (!b) return c.json({ error: 'not found' }, 404);
   const row = getRow(b.id, Number(c.req.param('seq')));
-  const { answer } = await c.req.json<{ answer: string }>();
+  const body = await readJson(c); if (!body.ok) return body.response;
+  const { answer } = body.data;
   if (!row || row.body.type !== 'card' || row.body.card !== 'question') return c.json({ error: 'not a question' }, 400);
-  if(typeof answer!=='string'||!answer.trim()||answer.length>100000)return c.json({error:'Invalid answer'},400);
+  if(typeof answer!=='string'||!answer.trim())return c.json({error:'Invalid answer'},400);
+  if(answer.length>MAX_MESSAGE_CHARS)return c.json({error:MESSAGE_TOO_LONG},413);
   if(row.body.answerJobId) {
     if(row.body.answer!==answer)return c.json({error:'This question already has an admitted answer.'},409);
     return c.json({ok:true,jobId:row.body.answerJobId});
@@ -358,6 +460,8 @@ api.post('/bots/:id/cards/:seq/answer', async (c) => {
       appendRow(b.id,'message',{type:'message',role:'user',text:answer});
       return id;
     })();
+    // Needs-you lists pending question cards; this one is no longer waiting.
+    hub.emit(c.get('user').id, { type: 'tasks', botId: b.id });
     return c.json({ok:true,jobId});
   }catch(e){return c.json({error:(e as Error).message},409);}
 
@@ -385,7 +489,8 @@ api.get('/bots/:id/routines', (c) => {
 api.patch('/routines/:id', async (c) => {
   const r = db.prepare('SELECT r.* FROM routines r JOIN bots b ON b.id=r.bot_id WHERE r.id=? AND b.user_id=?').get(c.req.param('id'), c.get('user').id) as any;
   if (!r) return c.json({ error: 'not found' }, 404);
-  const { enabled } = await c.req.json<{ enabled: boolean }>();
+  const body = await readJson(c, routinePatchSchema); if (!body.ok) return body.response;
+  const { enabled } = body.data;
   if (enabled && !r.enabled) {
     const limit = checkRoutineCreate(r.bot_id, r.schedule, { timezone: r.timezone, excludeRoutineId: r.id });
     if (limit) return c.json({ error: limit }, 429);
@@ -425,25 +530,34 @@ api.get('/tasks', (c) => {
   return c.json({ tasks: rows.map((r) => ({ id: r.id, botId: r.bot_id, title: r.title, state: r.state, note: r.note, updatedAt: r.updated_at })) });
 });
 
-api.get('/bots/:id/memories', (c) => {
-  const b = ownBot(c.get('user').id, c.req.param('id'));
-  if (!b) return c.json({ error: 'not found' }, 404);
-  const rows = db.prepare('SELECT * FROM memories WHERE bot_id=? ORDER BY created_at DESC').all(b.id) as any[];
-  return c.json({ memories: rows.map((m) => ({ id: m.id, botId: m.bot_id, text: m.text, createdAt: m.created_at })) });
-});
-
-api.delete('/memories/:id', (c) => {
-  db.prepare('DELETE FROM memories WHERE id=? AND bot_id IN (SELECT id FROM bots WHERE user_id=?)').run(c.req.param('id'), c.get('user').id);
-  return c.json({ ok: true });
-});
+// Memory routes live in routes-knowledge.ts, which mounts before this router.
 
 // ---------- computer ----------
 
-api.get('/computer', async (c) => c.json({ computer: await computers.refresh(c.get('user').id) }));
+// The last failed wake per account, so the viewer and Settings show the error instead of "Waking..." forever (MF-019).
+const ensureErrors = new Map<string, string>();
+export function computerView(userId: string, state: ComputerState = computers.state(userId)): ComputerState {
+  const error = ensureErrors.get(userId);
+  if (!error || state.error || state.status === 'running') return state;
+  return { ...state, status: 'error', error };
+}
+export async function wakeComputer(userId: string): Promise<void> {
+  ensureErrors.delete(userId);
+  try {
+    await computers.ensure(userId);
+  } catch (e) {
+    const message = String((e as Error)?.message ?? e).slice(0, 300) || 'The computer could not start.';
+    console.warn('[computer] ensure failed', message);
+    ensureErrors.set(userId, message);
+  }
+  try { hub.emit(userId, { type: 'computer', state: computerView(userId) }); } catch { /* state unavailable */ }
+}
+
+api.get('/computer', async (c) => c.json({ computer: computerView(c.get('user').id, await computers.refresh(c.get('user').id)) }));
 
 api.post('/computer/ensure', (c) => {
   const userId = c.get('user').id;
-  computers.ensure(userId).catch((e) => console.warn('[computer] ensure failed', e.message));
+  void wakeComputer(userId);
   return c.json({ computer: computers.state(userId) });
 });
 

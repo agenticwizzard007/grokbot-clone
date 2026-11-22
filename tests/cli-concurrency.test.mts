@@ -488,6 +488,9 @@ test('API mode retains its 64 pending-job admission limit', () => {
 });
 
 test('API mode retains account ordering across different Bots', { timeout: 20_000 }, async (t) => {
+  // MF-011 lets Bots of one account run side by side (default 2). With one slot, order is strict.
+  process.env.SWARM_ACCOUNT_CONCURRENCY = '1';
+  t.after(() => { delete process.env.SWARM_ACCOUNT_CONCURRENCY; });
   const a = newBot('API ordered A'), b = newBot('API ordered B');
   type ApiCall = { body: any; finish: (text: string) => void };
   const calls: ApiCall[] = [];

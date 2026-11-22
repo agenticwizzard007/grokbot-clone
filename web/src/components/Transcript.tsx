@@ -69,7 +69,7 @@ function cornerClass(i: number, n: number) {
 const Bubble = memo(function Bubble({ row, side, pos, botName }: { row: Row; side: 'left' | 'right'; pos: string; botName: string }) {
   const b = row.body as MessageBody;
   return (
-    <div className={`bubble-wrap is-${side}`}>
+    <div className={`bubble-wrap is-${side}`} data-row-seq={row.seq}>
       <div className={`bubble is-${side === 'right' ? 'user' : 'agent'}${pos}${b.streaming ? ' is-streaming' : ''}`}>
         <div className="bubble__sender">{side === 'right' ? 'You' : b.from?.name || botName}</div>
         {side === 'right' ? <div className="bubble__plain">{b.text}</div> : <Markdown text={b.text || ' '} />}
@@ -145,9 +145,10 @@ function Steps({ rows }: { rows: Row[] }) {
 
 function SystemRow({ row }: { row: Row }) {
   const b = row.body;
-  if (b.type === 'event') return <div className="system-event">{b.text}</div>;
-  if (b.type === 'notice') return <div className={`notice is-${b.tone ?? 'info'}`}>{b.text}</div>;
-  if (b.type === 'card') return <CardRow row={row} />;
+  if (b.type === 'event') return <div className="system-event" data-row-seq={row.seq}>{b.text}</div>;
+  if (b.type === 'notice') return <div className={`notice is-${b.tone ?? 'info'}`} data-row-seq={row.seq}>{b.text}</div>;
+  // display: contents keeps the card layout unchanged while giving deep links (search, Tasks) an anchor.
+  if (b.type === 'card') return <div data-row-seq={row.seq} style={{ display: 'contents' }}><CardRow row={row} /></div>;
   return null;
 }
 

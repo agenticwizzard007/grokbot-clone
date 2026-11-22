@@ -29,6 +29,7 @@ let authorizeHook: (() => Promise<void>) | undefined;
 let listHook: ((input: any) => Promise<void>) | undefined;
 let proxyHook: ((input: any) => Promise<void>) | undefined;
 let deleteHook: ((id: string) => Promise<void>) | undefined;
+let getHook: ((id: string) => Promise<void>) | undefined;
 mock.method(client, 'create', async (userId: string, options: any) => {
   assert.equal(options.manageConnections, false);
   return { authorize: async (toolkit: string, input: any) => {
@@ -42,6 +43,7 @@ mock.method(client, 'create', async (userId: string, options: any) => {
   } };
 });
 mock.method(client.connectedAccounts, 'get', async (id: string) => {
+  await getHook?.(id);
   const a = accounts.get(id);
   if (!a) throw new Error('not found');
   return { id, status: a.status, statusReason: a.reason ?? null, toolkit: { slug: 'gmail' } };
@@ -76,7 +78,8 @@ async function begin(principal: Principal, extraCookie = '', query = '') {
   assert.equal(location.hostname, 'connect.composio.dev', `started: ${location}`);
   const account = location.pathname.split('/').pop()!;
   const attempt = r.headers.getSetCookie().find(v => v.startsWith('swarm_google_attempt='))!.split(';')[0];
-  const state = attempt.split('=')[1];
+  // The cookie may hold several attempts from this browser; the newest is last.
+  const state = attempt.split('=')[1].split('.').pop()!;
   return { account, state, provisional: accounts.get(account)!.userId, cookie: extraCookie ? `${extraCookie}; ${attempt}` : attempt, path: `/api/auth/google/callback?state=${state}&status=success&connected_account_id=${account}` };
 }
 const finish = (a: { path: string; cookie: string }, path = a.path) => app.request(path, { headers: { cookie: a.cookie } });
@@ -100,7 +103,7 @@ test('Google sign-in is offered through Composio when no Google OAuth client exi
 test('a new Google subject creates one account, keeps its authorization, and is single use; a repeat sign-in removes its own', async () => {
   const a = await begin({ sub: '1000', email: 'person@example.test' });
   const r = await finish(a);
-  assert.equal(r.headers.get('location'), 'https://swarm.test/');
+  assert.equal(r.headers.get('location'), 'https://swarm.test/?signed_in=1');
   const profile = await me(sessionCookie(r)!);
   assert.equal(profile.user.email, 'person@example.test');
   assert.equal(profile.googleLinked, true);
@@ -159,7 +162,7 @@ test('a recently signed-in user can connect Google, then sign in with it; linkin
   addUser('usr_phone', 'tel+15550002222@phone.invalid', '15550002222');
   addSession('phone-session', 'usr_phone');
   const link = await begin({ sub: '5001', email: 'phone.owner@example.test' }, 'swarm_session=phone-session', '?intent=link');
-  assert.equal((await finish(link)).headers.get('location'), 'https://swarm.test/');
+  assert.equal((await finish(link)).headers.get('location'), 'https://swarm.test/?signed_in=1');
   assert.equal(boundTo('5001'), 'usr_phone');
   assert.equal(authorizationsOf(link.provisional), 0, 'a linking authorization is removed');
   const later = await finish(await begin({ sub: '5001', email: 'phone.owner@example.test' }));
@@ -200,7 +203,7 @@ test('every terminal failure removes the exact throwaway authorization; foreign 
   const foreign = await begin({ sub: '6005', email: 'foreign@example.test' });
   assert.match((await app.request(foreign.path)).headers.get('location')!, /google_session/, 'the attempt cookie binds the browser');
   assert.equal(authorizationsOf(foreign.provisional), 1, 'a foreign browser cannot consume or delete the attempt');
-  assert.equal((await finish(foreign)).headers.get('location'), 'https://swarm.test/', 'the owner can still finish it');
+  assert.equal((await finish(foreign)).headers.get('location'), 'https://swarm.test/?signed_in=1', 'the owner can still finish it');
 });
 
 test('expired, session-revoked and failed-start attempts are swept from the durable cleanup record', async () => {
@@ -248,6 +251,10 @@ function cleanupInColdProcess(a: { account: string; provisional: string; state: 
     const { composio } = await import('./server/src/composio.ts');
     const client = composio();
     let present = true, attempts = 0;
+    mock.method(client.connectedAccounts, 'get', async id => {
+      if (!present || id !== fixture.account) throw Object.assign(new Error('Connected account not found'), { status: 404 });
+      return { id, status: 'ACTIVE', toolkit: { slug: 'gmail' } };
+    });
     mock.method(client.connectedAccounts, 'list', async input => ({ items: present && input.userIds.includes(fixture.provisional) ? [{ id: fixture.account }] : [], nextCursor: null }));
     mock.method(client.connectedAccounts, 'delete', async id => {
       assert.equal(id, fixture.account); attempts++;
@@ -340,7 +347,7 @@ test('promotion wins against a stale sweep snapshot and preserves its real user 
     await listingStarted.wait;
     // The sweep already selected both cleanup rows, but has not claimed the second.
     const response = await finish(a);
-    assert.equal(response.headers.get('location'), 'https://swarm.test/');
+    assert.equal(response.headers.get('location'), 'https://swarm.test/?signed_in=1');
     assert.equal((await me(sessionCookie(response)!)).user.id, a.provisional);
     assert.equal(boundTo('8202'), a.provisional);
     assert.equal(cleanupRow(a.state), undefined);
@@ -429,4 +436,80 @@ test('a failed promotion transaction rolls back user and binding before cleanup 
     assert.equal(authorizationsOf(a.provisional), 0);
     assert.equal(cleanupRow(a.state), undefined);
   } finally { db.exec('DROP TRIGGER refuse_promotion_commit'); }
+});
+
+// MF-015: slow Google consent, sweeps and several attempts from one browser.
+const settle = async () => { for (let i = 0; i < 20; i++) await new Promise(resolve => setImmediate(resolve)); };
+const attemptCookie = (r: Response) => r.headers.getSetCookie().find(v => v.startsWith('swarm_google_attempt='))!.split(';')[0];
+
+test('a consent finished 15 minutes after start signs in, even after a sweep runs', async () => {
+  mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  try {
+    const a = await begin({ sub: '9001', email: 'slow-consent@example.test' });
+    mock.timers.tick(15 * 60_000);
+    await sweepGoogleLoginAuthorizations();
+    assert.equal(authorizationsOf(a.provisional), 1, 'the sweep keeps an attempt inside its window');
+    const r = await finish(a);
+    assert.equal(r.headers.get('location'), 'https://swarm.test/?signed_in=1');
+    assert.equal((await me(sessionCookie(r)!)).user.id, a.provisional);
+    assert.equal(cleanupRow(a.state), undefined);
+  } finally { mock.timers.reset(); }
+});
+
+test('an authorization still waiting on Google consent is kept until it is 60 minutes old, also when the status lookup fails', async () => {
+  mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  try {
+    const a = await begin({ sub: '9002', email: 'consent-open@example.test' });
+    accounts.get(a.account)!.status = 'INITIATED';
+    mock.timers.tick(40 * 60_000);
+    await sweepGoogleLoginAuthorizations();
+    assert.equal(authorizationsOf(a.provisional), 1, 'an open consent is not deleted under the user');
+    assert.equal(cleanupRow(a.state)?.nonce, 'composio-cleanup');
+    getHook = async () => { throw new Error('Composio temporarily unavailable'); };
+    mock.timers.tick(5 * 60_000);
+    await sweepGoogleLoginAuthorizations();
+    assert.equal(authorizationsOf(a.provisional), 1, 'a failed status lookup never deletes a young attempt');
+    getHook = undefined;
+    mock.timers.tick(20 * 60_000);
+    await sweepGoogleLoginAuthorizations();
+    assert.equal(authorizationsOf(a.provisional), 0, 'removed once older than 60 minutes');
+    assert.equal(cleanupRow(a.state), undefined);
+  } finally { getHook = undefined; mock.timers.reset(); }
+});
+
+test('a second start from the same browser keeps the first attempt usable and never sweeps it', async () => {
+  const first = await begin({ sub: '9101', email: 'first-tab@example.test' });
+  // Make the first attempt's cleanup record due, so only the same-browser rule protects it.
+  expireCleanup(first.state);
+  nextPrincipal = { sub: '9102', email: 'second-tab@example.test' };
+  const started = await app.request('/api/auth/google/start', { headers: { cookie: first.cookie } });
+  assert.equal(new URL(started.headers.get('location')!).hostname, 'connect.composio.dev');
+  const jar = attemptCookie(started);
+  const [held, second] = jar.split('=')[1].split('.');
+  assert.equal(held, first.state, 'the browser keeps its earlier attempt');
+  await settle();
+  assert.equal(cleanupRow(first.state)?.nonce, 'composio-cleanup', 'a new start never sweeps its own browser\'s attempt');
+  assert.equal(authorizationsOf(first.provisional), 1);
+
+  const done = await finish({ path: first.path, cookie: jar });
+  assert.equal(done.headers.get('location'), 'https://swarm.test/?signed_in=1');
+  assert.equal((await me(sessionCookie(done)!)).user.id, first.provisional);
+  const rest = attemptCookie(done);
+  assert.equal(rest, `swarm_google_attempt=${second}`, 'only the finished attempt is consumed');
+  const secondAccount = [...accounts].find(([, v]) => v.principal.sub === '9102')![0];
+  const later = await finish({ path: `/api/auth/google/callback?state=${second}&status=success&connected_account_id=${secondAccount}`, cookie: rest });
+  assert.equal(later.headers.get('location'), 'https://swarm.test/?signed_in=1');
+  assert.equal((await me(sessionCookie(later)!)).user.email, 'second-tab@example.test');
+});
+
+test('a missing or failed Composio authorization at callback reports a timed-out sign-in', async () => {
+  const gone = await begin({ sub: '9201', email: 'gone@example.test' });
+  accounts.delete(gone.account);
+  assert.match((await finish(gone)).headers.get('location')!, /login=google_expired/);
+  assert.equal(cleanupRow(gone.state), undefined);
+
+  const failed = await begin({ sub: '9202', email: 'failed@example.test' });
+  Object.assign(accounts.get(failed.account)!, { status: 'FAILED', reason: 'Connection timed out' });
+  assert.match((await finish(failed)).headers.get('location')!, /login=google_expired/);
+  assert.equal(authorizationsOf(failed.provisional), 0);
 });

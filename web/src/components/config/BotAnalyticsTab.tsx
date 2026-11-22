@@ -42,11 +42,13 @@ export function BotAnalyticsTab({ bot }: { bot: Bot }) {
   const method = `Estimated from what ${bot.name} did: about ${r.pageRead} minutes per page it read, ${r.webSearch} per web search or app action, ${r.command} per command, ${r.computerStep * 60} seconds per computer step, and writing at ${r.wordsPerMinute} words a minute.`;
   const maxBreak = Math.max(...data.breakdown.map((b) => b.minutes), 1);
   const selectedDay = days.find(day => day.day === inspectDay) ?? days[days.length - 1];
+  // Days are bucketed on the server in the account time zone (UTC when none is set); labels say which.
+  const zoneLabel = (data.timezone || 'UTC').replace(/_/g, ' ');
 
   return (
     <div className="cfg-page an-page">
       <div className="an-range">
-        <span className="an-range__span">{span(days[0].day, days[days.length - 1].day)} · UTC</span>
+        <span className="an-range__span">{span(days[0].day, days[days.length - 1].day)} · {zoneLabel}</span>
         {rangePicker}
       </div>
       <div className="an-cards">
@@ -81,11 +83,11 @@ export function BotAnalyticsTab({ bot }: { bot: Bot }) {
         <details className="usage-table an-table">
           <summary>Show as a table</summary>
           <div className="an-table__scroll"><table>
-            <thead><tr><th>Day (UTC)</th><th>Messages</th><th>Time saved</th></tr></thead>
+            <thead><tr><th>Day ({zoneLabel})</th><th>Messages</th><th>Time saved</th></tr></thead>
             <tbody>{days.map(day => <tr key={day.day}><td>{dayLabel(day.day)}</td><td>{day.messages}</td><td>{day.minutesSaved ? fmtHours(day.minutesSaved) : '—'}</td></tr>)}</tbody>
           </table></div>
         </details>
-        <details><summary>Inspect a day</summary><label>Day (UTC) <select aria-label="Day (UTC)" value={selectedDay.day} onChange={event => setInspectDay(event.target.value)}>{days.map(day => <option key={day.day} value={day.day}>{dayLabel(day.day)}</option>)}</select></label><p>{selectedDay.messages} messages · {fmtHours(selectedDay.minutesSaved)} estimated time saved</p></details>
+        <details><summary>Inspect a day</summary><label>Day ({zoneLabel}) <select aria-label={`Day (${zoneLabel})`} value={selectedDay.day} onChange={event => setInspectDay(event.target.value)}>{days.map(day => <option key={day.day} value={day.day}>{dayLabel(day.day)}</option>)}</select></label><p>{selectedDay.messages} messages · {fmtHours(selectedDay.minutesSaved)} estimated time saved</p></details>
         <details><summary>How time saved is estimated</summary><p className="an-method">{method}</p></details>
       </div>
     </div>

@@ -63,6 +63,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
   const [loginRunning, setLoginRunning] = useState(false);
   const loginActive = useRef(false);
   const tabPicked = useRef(!!resumed?.provider);
+  const methodChosen = useRef(false);
   const [status, setStatus] = useState<CliStatus | null>(null);
   const [busy, setBusy] = useState<Action | null>('load');
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +98,8 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
   useEffect(() => {
     if (status) refreshModels();
     if (status?.selected && !tabPicked.current) setProviderTab(status.selected);
+    // Open on what is actually active: with no plan selected, Bots run on API providers.
+    if (status && !methodChosen.current) { methodChosen.current = true; if (!status.selected && !tabPicked.current) setAuthMethod('api'); }
   }, [status?.selected, status?.runtime, status?.connected]);
 
   useEffect(() => {
@@ -314,10 +317,10 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
             {confirmReset && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setConfirmReset(false)}>Cancel</button>}
         </AccessRow>
         {confirmReset && <p role="note">Reset removes the saved Claude Code and Codex logins from your Swarm server, revokes any computer bridge, cancels a sign-in in progress and clears cached status, then checks both CLIs again. Your selected subscription stays selected and blocked until you log in again or choose API providers.</p>}
-        <AccessRow title="CLI authentication" description="Use your subscription on the Swarm server or through an advanced bridge." status={authMethod === 'cli' && !selected ? 'Set up a plan below' : undefined}>
+        <AccessRow title="CLI authentication" description="Use your subscription on the Swarm server or through an advanced bridge." status={selected ? undefined : authMethod === 'cli' ? 'Set up a plan below' : 'Not in use'}>
           {authMethod === 'api' && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={disabled} onClick={() => setAuthMethod('cli')}>Set up CLI authentication</button>}
         </AccessRow>
-        <AccessRow title="API providers" description="Pay per use through a connected API provider.">
+        <AccessRow title="API providers" description="Pay per use through a connected API provider." status={status && !selected ? 'In use' : undefined}>
           <button type="button" className="cfg-btn cfg-btn--secondary" aria-pressed={authMethod === 'api'} disabled={disabled} onClick={() => void select(null)}>Use API providers</button>
         </AccessRow>
         <AccessRow title={providerTab === 'claude' ? 'Claude Code' : 'Codex'} description={modeTitle} status={<span role="status">{busy === 'load' ? 'Checking status…' : !status ? 'Status unavailable' : stale ? 'Status unverified' : runtime === 'bridge' ? status.connected ? 'Computer bridge connected' : 'Computer bridge offline' : serverReady ? 'Connected' : 'Login required'}</span>}>

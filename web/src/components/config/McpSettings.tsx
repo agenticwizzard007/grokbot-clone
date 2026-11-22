@@ -98,7 +98,7 @@ function FolderPicker({ selected, onChange }: { selected: string[]; onChange: (f
   </div></div>;
 }
 
-function McpEditor({ server, recovered, locked, onSave, onCancel, onRemove }: { server: McpServerView | null; recovered?: SafeDraft; locked: boolean; onSave: (input: McpServerInput) => Promise<void>; onCancel: () => void; onRemove?: () => Promise<void> }) {
+function McpEditor({ server, recovered, locked, stdioAvailable = true, onSave, onCancel, onRemove }: { server: McpServerView | null; recovered?: SafeDraft; locked: boolean; stdioAvailable?: boolean; onSave: (input: McpServerInput) => Promise<void>; onCancel: () => void; onRemove?: () => Promise<void> }) {
   const [draft, setDraft] = useState(() => restoreDraft(server, recovered));
   const [token, setToken] = useState('');
   const [clearToken, setClearToken] = useState(false);
@@ -128,11 +128,12 @@ function McpEditor({ server, recovered, locked, onSave, onCancel, onRemove }: { 
       <fieldset disabled={busy} className="mcp-fields">
         <FormRow label="Name" hint="What Bots see this server as.">{({ id, describedBy }) => <input id={id} aria-describedby={describedBy} className="text-input" required maxLength={80} value={draft.name} onChange={e => set('name', e.target.value)} placeholder="Research tools" autoFocus />}</FormRow>
         <FormRow label="Connection" hint="How Swarm reaches the server.">{({ id, describedBy }) => <select id={id} aria-describedby={describedBy} className="text-input" value={draft.transport} onChange={e => setDraft(d => ({ ...d, transport: e.target.value as McpServerInput['transport'], folders: e.target.value === 'stdio' ? d.folders : [] }))}>
-          <option value="http">Remote URL (Streamable HTTP)</option><option value="sse">Remote URL (legacy SSE)</option><option value="stdio">Local command (stdio)</option>
+          <option value="http">Remote URL (Streamable HTTP)</option><option value="sse">Remote URL (legacy SSE)</option>{(stdioAvailable || stdio) && <option value="stdio" disabled={!stdioAvailable}>Local command (stdio)</option>}
         </select>}</FormRow>
+        {stdio && !stdioAvailable && <p className="cfg-error" role="alert">Command-based MCP servers need an isolated runner and are not available on this server. Use an HTTP MCP server.</p>}
         {stdio ? <>
           <FormRow label="Command" hint="Runs in a private container. Use an installed command.">{({ id, describedBy }) => <input id={id} aria-describedby={describedBy} className="text-input" required value={draft.command} onChange={e => set('command', e.target.value)} placeholder="/usr/local/bin/mcp-server" />}</FormRow>
-          <FormRow label="Arguments — one per line" hint="Put secrets in environment variables instead.">{({ id, describedBy }) => <textarea id={id} aria-describedby={describedBy} className="text-input" rows={3} value={draft.args.join('\n')} onChange={e => set('args', e.target.value ? e.target.value.split('\n') : [])} placeholder={'-y\n@your-org/mcp-server'} />}</FormRow>
+          <FormRow label="Arguments, one per line" hint="Put secrets in environment variables instead.">{({ id, describedBy }) => <textarea id={id} aria-describedby={describedBy} className="text-input" rows={3} value={draft.args.join('\n')} onChange={e => set('args', e.target.value ? e.target.value.split('\n') : [])} placeholder={'-y\n@your-org/mcp-server'} />}</FormRow>
           <FolderPicker selected={draft.folders ?? []} onChange={folders => set('folders', folders)} />
         </> : <FormRow label="Server URL">{({ id }) => <input id={id} className="text-input" required type="url" value={draft.url} onChange={e => set('url', e.target.value)} placeholder="https://example.com/mcp" />}</FormRow>}
         <FormRow label="Bot access" hint="Which Bots can use its tools.">{({ id, describedBy }) => <>
@@ -189,6 +190,8 @@ export function McpSettings() {
 function AccountMcpSettings({ accountId, accountEmail }: { accountId: string; accountEmail: string }) {
   const [servers, setServers] = useState<McpServerView[]>([]);
   const [canManage, setCanManage] = useState(false);
+  // Older servers omit the flag; treat that as available so nothing disappears unexpectedly.
+  const [stdioAvailable, setStdioAvailable] = useState(true);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [reload, setReload] = useState(0);
@@ -210,7 +213,7 @@ function AccountMcpSettings({ accountId, accountEmail }: { accountId: string; ac
     let alive = true;
     setLoading(true); setLoadError(''); setCanManage(false); setServers([]);
     void configApi.mcpServers().then(result => {
-      if (alive && current()) { setServers(result.servers ?? []); setCanManage(!!result.canManage); }
+      if (alive && current()) { setServers(result.servers ?? []); setCanManage(!!result.canManage); setStdioAvailable(result.stdioAvailable !== false); }
     }).catch(err => { if (alive && current()) setLoadError(err.message); }).finally(() => { if (alive && current()) setLoading(false); });
     return () => { alive = false; mounted.current = false; };
   }, [accountId, reload]);
@@ -245,7 +248,7 @@ function AccountMcpSettings({ accountId, accountEmail }: { accountId: string; ac
   });
   return <>
     <div className="app-settings__head">
-      <h1>Manage MCP servers</h1><p>Allow Bots to use only the servers and tools they need.</p>
+      <h1>MCP servers</h1><p>Allow Bots to use only the servers and tools they need.</p>
     </div>
     {error && <div className="cfg-error" role="alert">{error}</div>}
     {reauth.error && <div className="cfg-error" role="alert">{reauth.error}</div>}
@@ -256,7 +259,7 @@ function AccountMcpSettings({ accountId, accountEmail }: { accountId: string; ac
     {!locked && loadError && <div><p className="cfg-error" role="alert">{loadError}</p><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setReload(value => value + 1)}>Try again</button></div>}
     {!locked && loading && <div className="cfg-empty cfg-empty--flat" role="status">Loading MCP servers…</div>}
     {!loading && !loadError && <>
-      {editing !== undefined && <McpEditor key={editing?.id ?? 'new'} server={editing} recovered={recovered} locked={locked} onCancel={() => edit(undefined)}
+      {editing !== undefined && <McpEditor key={editing?.id ?? 'new'} server={editing} recovered={recovered} locked={locked} stdioAvailable={stdioAvailable} onCancel={() => edit(undefined)}
         onRemove={editing ? async () => { const id = editing.id; await act(id, async () => { await configApi.deleteMcpServer(id); if (current()) { setServers(list => list.filter(item => item.id !== id)); edit(undefined); } }); } : undefined}
         onSave={async input => {
           if (locked || action.current || !current()) return;
@@ -277,7 +280,7 @@ function AccountMcpSettings({ accountId, accountEmail }: { accountId: string; ac
         }} />}
       {!locked && <section className="cfg-section access-mcp">
         <h2 className="cfg-section__label">Your servers</h2>
-        {!servers.length ? <div className="cfg-empty">{canManage ? 'No custom servers yet. Add a remote URL or a local MCP command.' : 'No custom servers are available to this account.'}</div> : <div className="cfg-card">
+        {!servers.length ? <div className="cfg-empty">{canManage ? (stdioAvailable ? 'No MCP servers yet. Add a remote URL or a local MCP command.' : 'No MCP servers yet. Add a remote URL.') : 'No custom servers are available to this account.'}</div> : <div className="cfg-card">
           {servers.map(s => <section className="cfg-row mcp-server" key={s.id} aria-label={s.name}>
             <span className={`computer-status-dot is-${statusDot(s)}`} aria-hidden />
             <div className="cfg-row__text">

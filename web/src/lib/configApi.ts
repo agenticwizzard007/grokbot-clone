@@ -162,7 +162,7 @@ export interface ProviderUsage {
 }
 
 export const configApi = {
-  mcpServers: () => req<{ servers: McpServerView[]; canManage: boolean }>('GET', '/mcp/servers'),
+  mcpServers: () => req<{ servers: McpServerView[]; canManage: boolean; stdioAvailable?: boolean }>('GET', '/mcp/servers'),
   mcpFolders: (path = '', after = '') => req<{ folders: { path: string; name: string }[]; next: string | null }>('GET', `/mcp/servers/folders?path=${encodeURIComponent(path)}&after=${encodeURIComponent(after)}`),
   createMcpServer: (input: McpServerInput) => req<{ server: McpServerView }>('POST', '/mcp/servers', input),
   updateMcpServer: (id: string, input: Partial<McpServerInput>) => req<{ server: McpServerView }>('PATCH', `/mcp/servers/${id}`, input),
@@ -292,6 +292,8 @@ export const configApi = {
 
 export interface BotAnalytics {
   range: '7d' | '30d' | '90d';
+  /** Zone the server bucketed days in (account time zone, else UTC). Older servers omit it. */
+  timezone?: string;
   days: { day: string; messages: number; minutesSaved: number }[];
   totals: { messages: number; minutesSaved: number };
   breakdown: { key: string; label: string; minutes: number }[];

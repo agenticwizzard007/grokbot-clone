@@ -171,7 +171,7 @@ try {
   assert.equal(Math.round(await work.locator('.task-card').evaluate(element => element.getBoundingClientRect().width)), 720);
   await tab('Team').click(); await submit('Complete team work history'); await page.getByText('Nia · Queued', { exact: true }).waitFor();
   assert.equal(await page.getByText('Quinn · Completed', { exact: true }).count(), 0);
-  await page.getByRole('checkbox', { name: 'Show all bots in work history' }).check();
+  await page.getByRole('checkbox', { name: 'Show all Bots in work history' }).check();
   await page.getByText('Quinn · Completed', { exact: true }).waitFor();
   await submit('Open Nia chat'); await page.locator('.chat__pill-name').getByText('Nia', { exact: true }).waitFor();
   await sidebar.click(); await tab('Tasks').click(); assert.equal(await scope.inputValue(), 'nia');
@@ -188,7 +188,7 @@ try {
   fixture.taskError = false; await submit('Retry'); await work.getByRole('alert').waitFor({ state: 'hidden' });
   await tab('Goals').click(); await page.getByText(/No goals yet/).waitFor();
   assert.ok(traffic.includes('GET /api/workflows?botId=nia'));
-  await tab('Reports').click(); await page.getByText('Reports saved by this bot appear here.', { exact: true }).waitFor();
+  await tab('Reports').click(); await page.getByText('No saved reports yet', { exact: true }).waitFor();
   assert.ok(traffic.includes('GET /api/deliverables/bots/nia'));
   assert.equal(await page.getByText('Launch brief.md', { exact: true }).count(), 0);
 
@@ -201,7 +201,7 @@ try {
   await page.getByRole('spinbutton', { name: /Maximum spend/ }).fill('2.50');
   await page.getByRole('checkbox', { name: 'Start immediately' }).uncheck();
   await submit('Create without starting');
-  await page.getByText('Goal status · Active', { exact: true }).waitFor();
+  await page.getByText('Goal status · Not started', { exact: true }).waitFor();
   assert.deepEqual(requests.at(-1).body, { botId: 'quinn', title: 'Prepare project handoff', start: false, maxTurns: 12, maxTokens: 4000, maxSpendUsd: 2.5, criteria: [{ id: 'criterion-1', description: 'Each item has an owner', kind: 'row', contains: 'Each item has an owner' }] });
   await page.getByText('0 of 4,000 tokens', { exact: true }).waitFor();
   await submit('Resume'); assert.deepEqual(requests.at(-1).body, { action: 'resume' });
@@ -293,7 +293,7 @@ try {
   const details = page.getByRole('complementary', { name: 'Conversation details', exact: true });
   await details.getByRole('navigation', { name: 'Conversation details sections' }).getByRole('button', { name: 'Tasks', exact: true }).click();
   await details.getByRole('button', { name: 'Goals and workflows', exact: true }).click();
-  await page.getByRole('heading', { name: 'Goals and workflows', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Goals', exact: true }).waitFor();
   assert.ok(traffic.includes('GET /api/workflows?botId=nia'));
   await submit('New goal');
   assert.equal(await work.getByRole('combobox', { name: /^Agent/ }).count(), 0, 'bot Details Goals keeps the same bot');
@@ -355,7 +355,7 @@ try {
     assert.deepEqual(phone.requests.at(-1).body, { channel: 'sms' });
     if (width === 390) await phone.shot('work-confirm-phone-night');
     await phone.page.getByText('Delivery details', { exact: true }).click(); await phone.page.getByText(sha, { exact: true }).waitFor();
-    await phone.submit('Cancel'); await phone.page.getByRole('heading', { name: 'Saved reports', exact: true }).waitFor();
+    await phone.submit('Cancel'); await phone.page.getByRole('heading', { name: 'Reports', exact: true }).waitFor();
     assert.equal(phone.requests.filter(request => request.path.endsWith('/deliveries')).length, 0);
     if (width === 390) {
       phone.fixture.taskError = true; await phone.page.reload(); await phone.sidebar.click();

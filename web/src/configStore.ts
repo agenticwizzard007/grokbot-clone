@@ -104,7 +104,13 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
   versions: {},
   openBotSettings: (botId, tab = 'general') => set({ botSettings: { botId, tab } }),
   closeBotSettings: () => set({ botSettings: null }),
-  openAppSettings: (section) => set({ appSettings: section ?? 'general', appSettingsHome: !section }),
+  openAppSettings: (section) => {
+    // Keep the URL on the open section so a reload reopens it (PD-05 hash sync). replaceState fires no hashchange.
+    if (section && SECTIONS_LINKABLE.includes(section) && typeof window !== 'undefined' && window.location.hash !== `#settings/${section}`) {
+      history.replaceState(history.state, '', window.location.pathname + window.location.search + `#settings/${section}`);
+    }
+    set({ appSettings: section ?? 'general', appSettingsHome: !section });
+  },
   closeAppSettings: () => {
     if (linkedSection()) history.replaceState(history.state, '', window.location.pathname + window.location.search);
     set({ appSettings: null, appSettingsHome: false });
@@ -134,10 +140,27 @@ darkQuery?.addEventListener?.('change', () => { if (useConfigUI.getState().theme
 window.addEventListener('swarm:event', (e) => {
   const ev = (e as CustomEvent<ServerEvent>).detail;
   const { bump } = useConfigUI.getState();
-  if (ev.type === 'tasks') { bump('tasks'); bump(`tasks:${ev.botId}`); }
+  if (ev.type === 'tasks') { bump('tasks'); bump(`tasks:${ev.botId}`); bump('needs-you'); }
   if (ev.type === 'memories') bump(`memories:${ev.botId}`);
-  if (ev.type === 'setup') bump(`setup:${ev.botId}`);
+  if (ev.type === 'setup') { bump(`setup:${ev.botId}`); bump('needs-you'); }
   if (ev.type === 'messaging') bump('messaging');
+});
+
+// Needs-you (MF-012) also refetches when a card row appears or changes state ('rows' events stay in store.ts).
+const cardSignatures = new Map<string, string>();
+let needsYouTimer: ReturnType<typeof setTimeout> | undefined;
+useStore.subscribe((s, prev) => {
+  if (s.transcripts === prev.transcripts) return;
+  let changed = false;
+  for (const [botId, transcript] of Object.entries(s.transcripts)) {
+    if (prev.transcripts[botId] === transcript) continue;
+    let signature = String(transcript.generation);
+    for (const row of Object.values(transcript.bySeq)) if (row.kind === 'card') signature += `|${row.seq}:${row.updatedSeq}`;
+    if (cardSignatures.get(botId) !== signature) { cardSignatures.set(botId, signature); changed = true; }
+  }
+  if (!changed) return;
+  clearTimeout(needsYouTimer);
+  needsYouTimer = setTimeout(() => useConfigUI.getState().bump('needs-you'), 300);
 });
 
 // Picking a bot anywhere (sidebar, search) goes back to its chat.

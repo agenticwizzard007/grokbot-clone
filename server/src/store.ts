@@ -9,6 +9,37 @@ import { isHumanUserMessage } from './knowledge/sessions.js';
 
 // ---------- bots ----------
 
+/** Plain text for one-line previews: drop markdown emphasis, links, code fences and headings. */
+export function stripMarkdown(text: string): string {
+  return text
+    .replace(/```[^\n]*\n?([\s\S]*?)```/g, '$1')
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/^\s{0,3}>\s?/gm, '')
+    .replace(/(\*\*|__)(.+?)\1/g, '$2')
+    .replace(/(^|[^\w*])\*(?!\s)([^*\n]+?)\*(?!\w)/g, '$1$2')
+    .replace(/(^|[^\w_])_(?!\s)([^_\n]+?)_(?!\w)/g, '$1$2')
+    .replace(/~~(.+?)~~/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Sidebar preview for the latest user-facing row. Only pending cards say they are waiting. */
+export function previewFor(b: RowBody): string | null {
+  if (b.type === 'message') return stripMarkdown(b.text);
+  if (b.type === 'event') return b.text;
+  if (b.type !== 'card') return null;
+  if (b.card === 'approval') {
+    const label = b.status === 'pending' ? 'Waiting for you' : b.status === 'denied' ? 'Not allowed' : b.status === 'expired' ? 'Expired' : 'Allowed';
+    return `${label}: ${b.title}`;
+  }
+  if (b.card === 'question') return b.question;
+  if (b.card === 'connect') return b.status === 'pending' ? `Connect ${b.toolkitName}` : b.status === 'connected' ? `Connected ${b.toolkitName}` : b.status === 'skipped' ? `Skipped: Connect ${b.toolkitName}` : `Expired: Connect ${b.toolkitName}`;
+  return 'Draft';
+}
+
 export function toBot(r: any): Bot {
   const last = db
     .prepare(`SELECT body, created_at FROM rows WHERE bot_id=? AND generation=? AND kind IN ('message','card','event')
@@ -16,12 +47,11 @@ export function toBot(r: any): Bot {
       AND (json_extract(body,'$.audience')='user' OR COALESCE(json_extract(body,'$.from.kind'),'')!='bot')
       ORDER BY seq DESC LIMIT 1`)
     .get(r.id, r.generation) as any;
-  let lastPreview: string | null = null;
-  if (last) {
-    const b = JSON.parse(last.body) as RowBody;
-    lastPreview =
-      b.type === 'message' ? b.text : b.type === 'card' ? (b.card === 'approval' ? `Waiting for you: ${b.title}` : b.card === 'question' ? b.question : b.card === 'connect' ? `Connect ${b.toolkitName}` : 'Draft') : b.type === 'event' ? b.text : null;
-  }
+  const lastPreview = last ? previewFor(JSON.parse(last.body) as RowBody) : null;
+  // Order by the user's own activity so the sidebar does not reshuffle while Bots stream rows.
+  const lastUser = db.prepare(`SELECT created_at FROM rows WHERE bot_id=? AND kind='message' AND json_extract(body,'$.role')='user'
+    ORDER BY generation DESC, seq DESC LIMIT 1`).get(r.id) as { created_at: number } | undefined;
+  const setup = db.prepare('SELECT onboarding_status FROM bot_setups WHERE bot_id=?').get(r.id) as { onboarding_status: 'interviewing' | 'review' | 'active' } | undefined;
   return {
     id: r.id,
     name: r.name,
@@ -43,8 +73,9 @@ export function toBot(r: any): Bot {
     generation: r.generation,
     unread: r.unread,
     lastPreview: lastPreview ? lastPreview.slice(0, 140) : null,
-    lastActivityAt: last?.created_at ?? r.updated_at,
+    lastActivityAt: Math.max(lastUser?.created_at ?? 0, r.created_at ?? 0),
     createdAt: r.created_at,
+    onboarding: { status: setup?.onboarding_status ?? 'active' },
   };
 }
 

@@ -29,6 +29,8 @@ try{
   await page.getByRole('navigation',{name:'Work sections'}).getByRole('button',{name:'Reports',exact:true}).click();
   await page.getByRole('button',{name:'Daily synopses',exact:true}).click();
  };
+ // The app adopts the browser time zone on boot (MF-017); block that call here so the UTC fallback stays covered.
+ await page.route('**/api/auth/me',route=>route.request().method()==='PATCH'?route.abort():route.continue());
  await page.goto(base);await openSynopses();
  const panel=page.getByRole('region',{name:'Daily synopses',exact:true}),toggle=panel.getByRole('checkbox',{name:'Scheduled daily synopsis',exact:true});
  await toggle.waitFor();assert.equal(await toggle.isChecked(),false);await panel.getByText(/UTC fallback: account timezone unavailable/).waitFor();

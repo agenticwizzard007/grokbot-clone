@@ -10,7 +10,7 @@ const flags: { key: keyof Settings; label: string; hint: string }[] = [
   { key: 'automaticReview', label: 'Automatic reviews', hint: 'Review eligible finished turns in the background.' },
   { key: 'memoryReview', label: 'Review memories', hint: 'Learn durable preferences and environment facts.' },
   { key: 'skillReview', label: 'Review skills', hint: 'Improve reusable procedures and their resources.' },
-  { key: 'skillApproval', label: 'Require approval for skill changes', hint: 'Off allows automatic improvements only under a standing scope policy after independent frozen evaluations. Other unattended changes wait for review.' },
+  { key: 'skillApproval', label: 'Require approval for skill changes', hint: 'On: every skill change waits for your review. Off allows automatic improvements only under a standing scope policy after independent frozen evaluations. Other unattended changes wait for review.' },
 ];
 export function LearningSettingsPanel({ botId }: { botId?: string }) {
   const userId = useStore(state => state.user?.id);
@@ -40,7 +40,7 @@ function LearningSettingsForm({ botId }: { botId?: string }) {
   const numberField = (key: keyof Settings, label: string, min: number, max?: number) => <label key={key}>{label}<input type="number" min={min} max={max} required value={draft?.[key] as number ?? ''} onChange={e => set(key, e.currentTarget.valueAsNumber)} /></label>;
   const overridden = Object.keys(view?.overrides ?? {});
   return <div className="cfg-page learning-settings native-panel">
-    <header><div><h2>Learning</h2><p>{botId ? 'Account defaults apply unless this bot has an override.' : 'Account defaults for reviews, skill activation and maintenance.'}</p></div></header>
+    <header><div><h2>Learning</h2><p>{botId ? 'Account defaults apply unless this Bot has an override.' : 'Account defaults for reviews, skill activation and maintenance.'}</p></div></header>
     {!showReviews && <>
     {error && <div className="cfg-error" role="alert">{error} <button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setAttempt(n => n + 1)}>Reload settings</button></div>}
     {!draft && !error && <p role="status">Loading learning settings…</p>}
@@ -69,7 +69,7 @@ function LearningSettingsForm({ botId }: { botId?: string }) {
         <p className="native-meta">Pinned, locked and routine-referenced packages are protected. Archived packages retain recoverable history.</p>
         {botId && <SkillMaintenance botId={botId} settings={view.settings} />}
       </div></details>
-      <div className="learning-disclosure learning-disclosure--row"><div><strong>Review history and activity</strong><small>{botId ? 'Only reviews for this bot.' : 'Reviews across this account.'}</small></div><button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setShowReviews(true)}>Review history</button></div>
+      <div className="learning-disclosure learning-disclosure--row"><div><strong>Review history and activity</strong><small>{botId ? 'Only reviews for this Bot.' : 'Reviews across this account.'}</small></div><button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setShowReviews(true)}>Review history</button></div>
       <div className="learning-actions"><button className="cfg-btn cfg-btn--primary" disabled={busy || JSON.stringify(draft) === JSON.stringify(view.settings)} type="submit">{busy ? 'Saving…' : botId ? 'Save Bot overrides' : 'Save learning settings'}</button>{botId && <button className="cfg-btn cfg-btn--secondary" disabled={busy || !Object.keys(view.overrides ?? {}).length} type="button" onClick={() => void save(true)}>Use account defaults</button>}</div>
       {notice && <p role="status">{notice}</p>}
     </form>}
@@ -113,7 +113,7 @@ function SkillMaintenance({ botId, settings }: { botId: string; settings?: Setti
     {error && <p className="cfg-error" role="alert">{error}</p>}
     {outcome && <p role="status">{outcome.result.deferred ? outcome.paused
       ? 'Maintenance deferred. Saved learning or maintenance settings are off.'
-      : 'Maintenance deferred. The bot may be busy or the required idle time or interval may not have elapsed.'
+      : 'Maintenance deferred. The Bot may be busy or the required idle time or interval may not have elapsed.'
       : `Maintenance completed. Archived: ${outcome.result.archived.length}. Reported stale: ${outcome.result.stale.length}.`}</p>}
   </section>;
 }

@@ -61,7 +61,7 @@ function AccountOpenRouterSettings({ accountId, onReauth }: { accountId: string;
       <p>Use your own credits or return to this server’s API defaults.</p>
     </div>
     {!status ? (error ? <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => { setError(null); setAttempt(n => n + 1); }}>Retry OpenRouter status</button> : <p role="status">Loading OpenRouter…</p>) : <>
-      <AccessRow title="Personal key" description={status.hint ? `${status.source === 'oauth' ? 'Authorized key' : 'Manual key'} · ${status.hint}` : 'No personal key connected.'}
+      <AccessRow title="Personal key" description={status.hint ? `${status.source === 'oauth' ? 'Authorized key' : 'Manual key'} · ${status.hint}` : 'No personal key connected. Bots use the server’s API defaults below. Add a personal key to bill your own OpenRouter account.'}
         status={active ? status.connected ? 'OpenRouter · Active' : 'OpenRouter · Reconnect to continue' : status.connected ? 'OpenRouter · Connected' : 'Not connected'} />
       <AccessRow title="OpenRouter sign-in" description={status.linked ? 'Linked to this Swarm account.' : 'A manual key does not enable sign-in.'}>
         {!(status.connected && status.linked) && <a className="cfg-btn cfg-btn--secondary openrouter-settings__oauth" href={oauth} aria-disabled={busy} onClick={e => {

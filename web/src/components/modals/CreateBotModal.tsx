@@ -34,6 +34,9 @@ function CreateBotForm({ inline, userId }: { inline: boolean; userId: string | u
   const [error, setError] = useState('');
   const [completedImport, setCompletedImport] = useState<{ botId: string; name: string } | null>(null);
   const active = useRef(false);
+  // MF-059: submit reads the live input value, and Create waits while an IME composition is open.
+  const nameInput = useRef<HTMLInputElement>(null);
+  const [composing, setComposing] = useState(false);
   const submission = useRef<'idle' | 'pending' | 'imported'>('idle');
   const fileVersion = useRef(0);
   useEffect(() => {
@@ -80,14 +83,15 @@ function CreateBotForm({ inline, userId }: { inline: boolean; userId: string | u
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!userId || !isCurrent() || useConfigUI.getState().appSettings || submission.current !== 'idle' || (flow === 'import' ? !selection || !importName.trim() || duplicate : !name.trim())) return;
+    const typedName = (nameInput.current?.value ?? name).trim();
+    if (composing || !userId || !isCurrent() || useConfigUI.getState().appSettings || submission.current !== 'idle' || (flow === 'import' ? !selection || !importName.trim() || duplicate : !typedName)) return;
     submission.current = 'pending'; setBusy(true); setError('');
     try {
       const { bot } = flow === 'import' && selection
         ? await setupApi.importManifest(selection.manifest, importName.trim(), userId)
-        : await api.createBot({ name: name.trim(), avatarShape: shape, avatarColor: color, mode });
+        : await api.createBot({ name: typedName, avatarShape: shape, avatarColor: color, mode });
       if (!isCurrent()) return;
-      if (!bot) throw new Error('No imported bot was returned. Check your bot list before retrying.');
+      if (!bot) throw new Error('No imported Bot was returned. Check your Bot list before retrying.');
       const state = useStore.getState();
       state.set({ bots: state.bots.some(item => item.id === bot.id) ? state.bots : [...state.bots, bot] });
       if (flow === 'import') {
@@ -107,19 +111,20 @@ function CreateBotForm({ inline, userId }: { inline: boolean; userId: string | u
     }
   };
 
-  const title = flow === 'create' ? 'Create a bot' : 'Import a saved setup';
+  const title = flow === 'create' ? 'Create a Bot' : 'Import a saved setup';
   const content = <>
-    <SetupPaperHeader backLabel={returnsToBots ? 'Back to bots' : 'Back to chat'} title="Bots" onBack={close} onClose={close} disabled={busy} />
+    <SetupPaperHeader backLabel={returnsToBots ? 'Back to Bots' : 'Back to chat'} title="Bots" onBack={close} onClose={close} disabled={busy} />
     <div className="setup-paper__column setup-create__column">
       <h1>{title}</h1>
-      {!completedImport && <p className="setup-paper__subtitle">{flow === 'create' ? 'Give your bot a name and a look.' : 'Choose a bot-setup.json exported from Configuration files.'}</p>}
+      {!completedImport && <p className="setup-paper__subtitle">{flow === 'create' ? 'Give your Bot a name and a look.' : 'Choose a bot-setup.json exported from Configuration files.'}</p>}
       {completedImport ? <div className="setup-create__form">
-        <div className="setup-create__description" role="status"><strong>Setup imported</strong><p>{completedImport.name} is in your bots.</p></div>
+        <div className="setup-create__description" role="status"><strong>Setup imported</strong><p>{completedImport.name} is in your Bots.</p></div>
         <div className="setup-paper__actions"><button type="button" className="cfg-btn cfg-btn--primary" onClick={() => openImportedSetup(completedImport.botId)}>Open imported setup</button></div>
       </div> : <form onSubmit={submit} className="setup-create__form">
         <fieldset disabled={busy}>
           {flow === 'create' ? <>
-            <label>Bot name<input className="text-input" placeholder="Give your Bot a name" value={name} maxLength={60} onChange={event => setName(event.target.value)} autoFocus /><small>Up to 60 characters</small></label>
+            <label>Bot name<input className="text-input" placeholder="Give your Bot a name" ref={nameInput} value={name} maxLength={60} onChange={event => setName(event.target.value)}
+              onCompositionStart={() => setComposing(true)} onCompositionEnd={event => { setComposing(false); setName(event.currentTarget.value); }} autoFocus /><small>Up to 60 characters</small></label>
             <label>Shape<select value={shape} onChange={event => setShape(event.target.value as AvatarShape)}>{PICKER_SHAPES.map(value => <option key={value} value={value}>{choiceLabel(value)}</option>)}</select><small>Choose a character shape</small></label>
             <label>Color<select value={color} onChange={event => setColor(event.target.value as AvatarColor)}>{COLOR_ORDER.map(value => <option key={value} value={value}>{choiceLabel(value)}</option>)}</select><small>Choose a character color</small></label>
             <div className="setup-paper__tabs" role="group" aria-label="Bot type">
@@ -131,16 +136,16 @@ function CreateBotForm({ inline, userId }: { inline: boolean; userId: string | u
             <label>Setup file<input type="file" accept=".json,application/json" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; void chooseFile(file); }} /></label>
             {reading && <p role="status">Reading setup file…</p>}
             {selection && <><p className="setup-paper__subtitle">Selected: {selection.file}</p><label>Bot name<input className="text-input" value={importName} maxLength={60} onChange={event => { setImportName(event.target.value); setError(''); }} /><small>Choose a unique name in this account.</small></label></>}
-            {duplicate && <p className="cfg-error" role="alert">A bot with this name already exists. Choose a different name.</p>}
-            <div className="setup-create__description"><strong>Setup only</strong><p>Imports the role and saved setup, not tasks, schedules, sessions, or learned history. Review the new bot’s setup before activating it.</p></div>
+            {duplicate && <p className="cfg-error" role="alert">A Bot with this name already exists. Choose a different name.</p>}
+            <div className="setup-create__description"><strong>Setup only</strong><p>Imports the role and saved setup, not tasks, schedules, sessions, or learned history. Review the new Bot’s setup before activating it.</p></div>
           </>}
         </fieldset>
         {error && <p className="cfg-error" role="alert">{error}</p>}
         <div className="setup-paper__actions">
-          <button type="submit" className="cfg-btn cfg-btn--primary" disabled={busy || reading || (flow === 'import' ? !selection || !importName.trim() || duplicate : !name.trim())}>{busy ? flow === 'create' ? 'Creating…' : 'Importing…' : flow === 'create' ? 'Create' : 'Import setup'}</button>
+          <button type="submit" className="cfg-btn cfg-btn--primary" disabled={busy || reading || (flow === 'create' && composing) || (flow === 'import' ? !selection || !importName.trim() || duplicate : !name.trim())}>{busy ? flow === 'create' ? 'Creating…' : 'Importing…' : flow === 'create' ? 'Create' : 'Import setup'}</button>
           <button type="button" className="cfg-btn cfg-btn--secondary" onClick={close} disabled={busy}>Cancel</button>
           {flow === 'create' && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setModal('group')} disabled={busy}>New group chat instead</button>}
-          <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => switchFlow(flow === 'create' ? 'import' : 'create')} disabled={busy}>{flow === 'create' ? 'Import saved setup' : 'Create a bot instead'}</button>
+          <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => switchFlow(flow === 'create' ? 'import' : 'create')} disabled={busy}>{flow === 'create' ? 'Import saved setup' : 'Create a Bot instead'}</button>
         </div>
       </form>}
     </div>

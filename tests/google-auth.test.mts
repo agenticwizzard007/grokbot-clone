@@ -35,11 +35,11 @@ after(()=>{mock.restoreAll();db.close();fs.rmSync(root,{recursive:true,force:tru
 test('Google OIDC binds browser state, verifies identity, rotates and rejects replay',async()=>{
   const a=await begin();const before=calls.length;
   assert.match((await app.request(a.path)).headers.get('location')!,/google_session/);assert.equal(calls.length,before);
-  const r=await finish(a);assert.equal(r.headers.get('location'),'https://swarm.test/');
+  const r=await finish(a);assert.equal(r.headers.get('location'),'https://swarm.test/?signed_in=1');
   const cookie=r.headers.getSetCookie().find(v=>v.startsWith('swarm_session='))!.split(';')[0];
   const me=await (await app.request('/api/auth/me',{headers:{cookie}})).json() as any;assert.equal(me.user.email,email);
   assert.match((await finish(a)).headers.get('location')!,/google_session/);
-  const again=await finish(await begin(cookie));assert.equal(again.headers.get('location'),'https://swarm.test/');
+  const again=await finish(await begin(cookie));assert.equal(again.headers.get('location'),'https://swarm.test/?signed_in=1');
   assert.equal((await (await app.request('/api/auth/me',{headers:{cookie}})).json() as any).user,null);
   assert.equal((db.prepare('SELECT count(*) n FROM google_identities').get() as any).n,1);
 });

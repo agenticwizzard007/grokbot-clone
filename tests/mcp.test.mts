@@ -119,14 +119,14 @@ test('folder picker exposes only owned Library folders and rejects foreign, miss
 
 test('explicit folder grants default to empty, are redacted to relative paths, and changes invalidate tools and old approvals', async () => {
  const input={name:'Shared files',transport:'stdio',command:'server',folders:[chief.id+'/documents']};
- const created=await req('','POST',input);assert.equal(created.status,201);
- const {server}=await created.json() as any;
+ // This host has no isolated runner (standalone), so the folder grant lifecycle is exercised through the store.
+ const server=mcpServerView(saveMcpServer('owner',input)) as any;
  assert.deepEqual(server.folders,input.folders);assert.ok(!JSON.stringify(server).includes(root));
  let saved=getMcpServer('owner',server.id)!;
  db.prepare('UPDATE mcp_servers SET tools=? WHERE id=?').run(JSON.stringify([{name:'read',inputSchema:{type:'object'}}]),server.id);
  saved=getMcpServer('owner',server.id)!;
  const oldName=mcpToolName(saved,'read');
- const removed=await req('/'+server.id,'PATCH',{folders:[]});assert.equal(removed.status,200);
+ saveMcpServer('owner',{folders:[]},saved);
  const current=getMcpServer('owner',server.id)!;
  assert.deepEqual(current.config.folders,[]);assert.deepEqual(current.tools,[]);assert.equal(current.revision,saved.revision+1);
  assert.notEqual(mcpToolName(current,'read'),oldName);
@@ -134,6 +134,25 @@ test('explicit folder grants default to empty, are redacted to relative paths, a
  assert.equal((await req('','POST',{...remote(),folders:input.folders})).status,400);
  const empty=saveMcpServer('owner',{name:'No grant',transport:'stdio',command:'server'});assert.deepEqual(empty.config.folders,[]);
  await req('/'+server.id,'DELETE');
+});
+
+test('standalone hosts reject command-based (stdio) MCP servers but keep HTTP servers', async () => {
+ const message='Command-based MCP servers need an isolated runner and are not available on this server. Use an HTTP MCP server.';
+ const list=await (await req('')).json() as any;assert.equal(list.stdioAvailable,false);
+ const created=await req('','POST',{name:'Local tool',transport:'stdio',command:'server'});
+ assert.equal(created.status,400);assert.equal((await created.json() as any).error,message);
+ const http=saveMcpServer('owner',remote());
+ const switched=await req('/'+http.id,'PATCH',{transport:'stdio',command:'server'});
+ assert.equal(switched.status,400);assert.equal(getMcpServer('owner',http.id)!.config.transport,'http');
+ // An existing stdio row can still be disabled or deleted.
+ const legacy=saveMcpServer('owner',{name:'Legacy stdio',transport:'stdio',command:'server'});
+ assert.equal((await req('/'+legacy.id,'PATCH',{enabled:true,name:'Renamed'})).status,400);
+ assert.equal((await req('/'+legacy.id,'PATCH',{enabled:false})).status,200);
+ const { disableUnavailableStdioServers }=await import('../server/src/mcp/store.js');
+ const other=saveMcpServer('owner',{name:'Other stdio',transport:'stdio',command:'server'});
+ disableUnavailableStdioServers();
+ const disabled=getMcpServer('owner',other.id)!;assert.equal(disabled.config.enabled,false);assert.equal(disabled.error,message);
+ for(const id of [http.id,legacy.id,other.id])assert.equal((await req('/'+id,'DELETE')).status,200);
 });
 
 test('expired recent authentication cannot replace MCP credentials or grant folders', async () => {

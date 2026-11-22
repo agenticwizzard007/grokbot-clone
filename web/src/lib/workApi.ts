@@ -34,6 +34,8 @@ export const workApi = {
   list: (botId?: string, signal?: AbortSignal) => nativeRequest<WorkRecords>(`${workflows}${botId ? `?botId=${encodeURIComponent(botId)}` : ''}`, 'GET', undefined, signal),
   createGoal: (input: GoalInput) => nativeRequest<{ goal: WorkGoal }>(`${workflows}/goals`, 'POST', input),
   createWorkflow: (input: WorkflowInput) => nativeRequest<{ workflow: WorkWorkflow }>(workflows, 'POST', input),
+  /** Soft delete; only stopped or completed goals (409 otherwise). */
+  deleteGoal: (id: string) => nativeRequest<{ ok: true }>(goalPath(id), 'DELETE'),
   controlGoal: (id: string, action: WorkControl, reason?: string) => nativeRequest<{ goal: WorkGoal }>(`${goalPath(id)}/control`, 'POST', { action, reason }),
   controlWorkflow: (id: string, action: WorkControl, reason?: string) => nativeRequest<{ workflow: WorkWorkflow }>(`${workflowPath(id)}/control`, 'POST', { action, reason }),
   startWorkflow: (id: string) => nativeRequest<{ workflow: WorkWorkflow }>(`${workflowPath(id)}/start`, 'POST', {}),

@@ -161,3 +161,27 @@ export async function verifyOpenRouterKey(key: string): Promise<{ ok: true; labe
     return { ok: false, error: `Couldn't reach OpenRouter: ${e?.message ?? e}` };
   }
 }
+
+// ---------- per-account preferences ----------
+
+db.exec(`CREATE TABLE IF NOT EXISTS account_preferences (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  ask_before_computer INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL
+)`);
+
+export interface AccountPreferences { askBeforeComputer: boolean }
+
+/** Defaults apply until the account saves a preference. */
+export function accountPreferences(userId: string): AccountPreferences {
+  const row = db.prepare('SELECT ask_before_computer FROM account_preferences WHERE user_id=?').get(userId) as { ask_before_computer: number } | undefined;
+  return { askBeforeComputer: row?.ask_before_computer === 1 };
+}
+
+export function saveAccountPreferences(userId: string, patch: Partial<AccountPreferences>): AccountPreferences {
+  const next = { ...accountPreferences(userId), ...patch };
+  db.prepare(`INSERT INTO account_preferences(user_id,ask_before_computer,updated_at) VALUES (?,?,?)
+    ON CONFLICT(user_id) DO UPDATE SET ask_before_computer=excluded.ask_before_computer, updated_at=excluded.updated_at`)
+    .run(userId, next.askBeforeComputer ? 1 : 0, now());
+  return next;
+}

@@ -66,7 +66,10 @@ const waitFor = async (what, pred, ms = 30000) => {
 
 // ---------- accounts ----------
 
-const health = await (await fetch(`${API}/api/health`)).json();
+// Public /api/health only returns { ok: true }; the configuration lives behind a session.
+const healthLogin = await fetch(`${API}/api/auth/dev`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'health-check@example.com', name: 'Health check' }) });
+const healthCookie = (healthLogin.headers.get('set-cookie') ?? '').match(/swarm_session=([^;]+)/)?.[1];
+const health = await (await fetch(`${API}/api/health/details`, { headers: { cookie: `swarm_session=${healthCookie}` } })).json();
 if (health.computers !== 'cloudvm') throw new Error(`server must run with COMPUTER_PROVIDER=cloudvm (health: ${JSON.stringify(health)})`);
 
 async function signUp(email) {

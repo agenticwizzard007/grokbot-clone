@@ -6,14 +6,15 @@ import { db, now } from '../db.js';
 import { env } from '../env.js';
 import { newId, sha256 } from '../lib/ids.js';
 import { hub } from '../lib/hub.js';
-import { appendHistory, appendRow, emitBot, getBotRow, getRow, loadHistory, setLive, updateRow } from '../store.js';
+import { appendHistory, appendRow, emitBot, getBotRow, getLive, getRow, loadHistory, setLive, updateRow } from '../store.js';
 import type { MessageBody, ToolCallBody } from '../types.js';
-import { composioTools } from '../composio.js';
+import { composioTools, connectionsDetail } from '../composio.js';
 import { appName } from '../tool-activity.js';
 import { systemPrompt } from './prompt.js';
 import { deduplicateBrowserSnapshots, repairHistory } from './history.js';
 import { maybeCompact, noteUsage } from './memory.js';
-import { activityFor, allowedDuringSetup, executionPolicyFor, functionSchemas, humanizeSlug, runComposioTool, toolMap, type ToolCtx, type ToolResult } from './tools.js';
+import { activityFor, allowedDuringSetup, COMPUTER_POLICY_TITLES, executionPolicyFor, functionSchemas, humanizeSlug, runComposioTool, toolMap, type ToolCtx, type ToolResult } from './tools.js';
+import { postToRoomById, setupNotice } from './rooms.js';
 import { isConfiguring } from '../bot-setup.js';
 import { mcpSchemas, runMcpTool } from '../mcp/client.js';
 import { findMcpTool } from '../mcp/store.js';
@@ -45,7 +46,7 @@ export type Trigger = (
   | { type: 'bot'; fromBotId: string; fromName: string; text: string; depth: number }
   | { type: 'system'; text: string; connectionCardSeq?: number }
   | { type: 'native-tool'; name: 'SWARM_APPS_EXECUTE'; args: Record<string, unknown>; callId: string; requireApproval?: boolean; readOnly?: boolean }
-  | { type: 'resume' }) & { parentJobId?: string; audience?: 'internal'; coordinationRequestId?:string; coordinationWakeId?:string; workflowId?:string;taskId?:string;goalId?:string;proactiveSlotKey?:string;coordinationReportPeriod?:string };
+  | { type: 'resume' }) & { parentJobId?: string; audience?: 'internal'; /** Group chat turn: the final reply goes to this room. */ roomId?: string; coordinationRequestId?:string; coordinationWakeId?:string; workflowId?:string;taskId?:string;goalId?:string;proactiveSlotKey?:string;coordinationReportPeriod?:string };
 
 interface PendingState {
   /** A native voice invocation resumes the exact tool without asking a text model to re-plan it. */
@@ -78,7 +79,6 @@ const running = new Map<string, Trigger>();
 const activeJobs = new Map<string, string>();
 const completions = new Map<string, {status:string;finalText:string;iterations:number;generation:number;model:string;provider:string;messagesSnapshot:any[];systemPrompt?:string;contextWindow?:number;temporary:boolean;foregroundEpoch:number;sourceSnapshot:ReturnType<typeof learningSourceSnapshot>}>();
 const modelSnapshots = new WeakMap<ToolCtx,{systemPrompt:string;contextWindow?:number;model:string;provider:string;contextRevision:string}>();
-const userQueues = new Map<string, Promise<void>>();
 const scheduledJobs = new Set<string>();
 /** Drain accepted work before orderly shutdown or test storage teardown. */
 export async function settleAgentJobs() { while (queues.size) await Promise.allSettled([...queues.values()]); }
@@ -122,7 +122,7 @@ export function enqueue(botId: string, trigger: Trigger) {
   }
   if (trigger.parentJobId) {
     const parent = db.prepare('SELECT trigger FROM agent_jobs WHERE id=? AND bot_id=?').get(trigger.parentJobId,botId) as {trigger:string}|undefined;
-    if (parent) { const t = JSON.parse(parent.trigger); trigger = { ...trigger, audience:t.audience, coordinationRequestId:t.coordinationRequestId, coordinationWakeId:t.coordinationWakeId,workflowId:t.workflowId,taskId:t.taskId,goalId:t.goalId,proactiveSlotKey:t.proactiveSlotKey,coordinationReportPeriod:t.coordinationReportPeriod }; }
+    if (parent) { const t = JSON.parse(parent.trigger); trigger = { ...trigger, audience:t.audience, roomId:t.roomId, coordinationRequestId:t.coordinationRequestId, coordinationWakeId:t.coordinationWakeId,workflowId:t.workflowId,taskId:t.taskId,goalId:t.goalId,proactiveSlotKey:t.proactiveSlotKey,coordinationReportPeriod:t.coordinationReportPeriod }; }
   }
   const job = acceptJob(botId, trigger);
   void beforeForegroundTurn(job.userId,botId).catch(()=>console.error('[learning] foreground admission fence failed'));
@@ -133,8 +133,63 @@ export function enqueue(botId: string, trigger: Trigger) {
   }
   return {job,trigger};
   })();
+  // Show the user right away that their message was accepted, even while it waits for a slot.
+  if (userFacing(admitted.trigger) && !aborts.has(botId)) {
+    setLive(botId, { isRunning: true, activity: { kind: 'queued', detail: waitingBehind(admitted.job.userId, botId), since: now() }, awaiting: null, startedAt: now() });
+  }
   scheduleJob(admitted.job.id,admitted.job.userId,botId,admitted.trigger);
   return admitted.job.id;
+}
+
+/** Work the user is watching for in this chat (not background, internal or scheduled work). */
+function userFacing(t: Trigger) {
+  if (t.audience === 'internal' || t.workflowId || t.proactiveSlotKey) return false;
+  return t.type === 'user' || t.type === 'resume' || t.type === 'system';
+}
+
+/** The Bot this job waits behind when the account's concurrent slots are full. */
+function waitingBehind(userId: string, botId: string): string | undefined {
+  if (selectedCli(userId)) return undefined;
+  const busy = [...activeJobs.keys()].filter(id => id !== botId).map(id => getBotRow(id)).filter(b => b?.user_id === userId);
+  return busy.length >= accountConcurrency() ? busy[0]?.name : undefined;
+}
+
+function clearQueuedLive(botId: string) {
+  if (!aborts.has(botId) && getLive(botId).activity?.kind === 'queued') setLive(botId, { isRunning: false, activity: null, awaiting: null, startedAt: null });
+}
+
+// ---------- per-account concurrency ----------
+// Different Bots of one account may run side by side up to a small limit. Each Bot stays strictly
+// serial through its own queue, and every turn keeps its own withUsage attribution.
+const accountConcurrency = () => {
+  const n = Number(process.env.SWARM_ACCOUNT_CONCURRENCY ?? 2);
+  return Number.isFinite(n) ? Math.max(1, Math.min(8, Math.floor(n))) : 2;
+};
+interface AccountSlots { active: number; waiting: { foreground: boolean; start: () => void }[] }
+const accountSlots = new Map<string, AccountSlots>();
+function acquireAccountSlot(userId: string, foreground: boolean): Promise<() => void> {
+  let slots = accountSlots.get(userId);
+  if (!slots) accountSlots.set(userId, slots = { active: 0, waiting: [] });
+  const s = slots;
+  return new Promise(resolve => {
+    const start = () => {
+      s.active++;
+      let released = false;
+      resolve(() => {
+        if (released) return;
+        released = true;
+        s.active--;
+        const next = s.waiting.shift();
+        if (next) next.start();
+        else if (!s.active && accountSlots.get(userId) === s) accountSlots.delete(userId);
+      });
+    };
+    if (s.active < accountConcurrency()) return start();
+    // Turns the user is waiting on go ahead of background work (routines, internal messages).
+    const index = foreground ? s.waiting.findIndex(w => !w.foreground) : -1;
+    if (index < 0) s.waiting.push({ foreground, start });
+    else s.waiting.splice(index, 0, { foreground, start });
+  });
 }
 
 // Independent voice assignments and legacy native invocations share one durable FIFO.
@@ -161,32 +216,32 @@ function scheduleJob(jobId: string, userId: string, botId: string, trigger: Trig
   const queuedAt = performance.now();
   const prev = queues.get(botId) ?? Promise.resolve();
   const subscription = !!selectedCli(userId);
-  const userPrev = subscription ? Promise.resolve() : userQueues.get(userId) ?? Promise.resolve();
   // Usage attribution: every model call in this turn (including compaction) is billed to this Bot and its owner.
-  const next = Promise.all([prev, userPrev]).then(async () => {
-    // Independent work cannot replace an unresolved approval or answer a question.
-    // Release the serial queue while it waits so another agent or a follow-up can run.
-    if (independentTrigger(trigger) && (
-      hasPendingDecision(botId) ||
-      db.prepare(`SELECT 1 FROM agent_jobs WHERE bot_id=? AND state='queued' AND ${independentJobSql}
-        AND rowid < (SELECT rowid FROM agent_jobs WHERE id=?) LIMIT 1`).get(botId, jobId)
-    )) return;
-    if (!beginJob(jobId)) return;
-    latency('queue', queuedAt, { botId });
+  const next = prev.then(async () => {
+    const release = subscription ? () => {} : await acquireAccountSlot(userId, userFacing(trigger));
     try {
-      await beforeForegroundTurn(userId,botId);
-      await withUsage({ userId,botId,jobId,reviewId:null,kind:'chat',audience:trigger.audience??(trigger.type==='bot'?'internal':'user') }, () => runTurn(botId,trigger,jobId));
-      db.transaction(()=>{finishJob(jobId,true);const c=completions.get(jobId);if(c){recordCoordinationJobOutcome({userId,botId,jobId,status:c.status,finalText:c.finalText,trigger});recordJobCompletion({userId,botId,jobId,trigger,completion:c});}})();
-    } catch { db.transaction(()=>{finishJob(jobId,false);const c=completions.get(jobId);if(c){recordCoordinationJobOutcome({userId,botId,jobId,status:c.status,finalText:c.finalText,trigger});recordJobCompletion({userId,botId,jobId,trigger,completion:c});}})(); }
+      // Independent work cannot replace an unresolved approval or answer a question.
+      // Release the serial queue while it waits so another agent or a follow-up can run.
+      if (independentTrigger(trigger) && (
+        hasPendingDecision(botId) ||
+        db.prepare(`SELECT 1 FROM agent_jobs WHERE bot_id=? AND state='queued' AND ${independentJobSql}
+          AND rowid < (SELECT rowid FROM agent_jobs WHERE id=?) LIMIT 1`).get(botId, jobId)
+      )) { clearQueuedLive(botId); return; }
+      if (!beginJob(jobId)) { clearQueuedLive(botId); return; }
+      latency('queue', queuedAt, { botId });
+      try {
+        await beforeForegroundTurn(userId,botId);
+        await withUsage({ userId,botId,jobId,reviewId:null,kind:'chat',audience:trigger.audience??(trigger.type==='bot'?'internal':'user') }, () => runTurn(botId,trigger,jobId));
+        db.transaction(()=>{finishJob(jobId,true);const c=completions.get(jobId);if(c){recordCoordinationJobOutcome({userId,botId,jobId,status:c.status,finalText:c.finalText,trigger});recordJobCompletion({userId,botId,jobId,trigger,completion:c});}})();
+      } catch { db.transaction(()=>{finishJob(jobId,false);const c=completions.get(jobId);if(c){recordCoordinationJobOutcome({userId,botId,jobId,status:c.status,finalText:c.finalText,trigger});recordJobCompletion({userId,botId,jobId,trigger,completion:c});}})(); }
+    } finally { release(); }
     completions.delete(jobId);
     await dispatchJobCompletions(jobId);
   }).catch(() => { finishJob(jobId, false); });
-  if (!subscription) userQueues.set(userId, next);
   queues.set(botId, next);
   next.finally(() => {
     scheduledJobs.delete(jobId);
     if (queues.get(botId) === next) queues.delete(botId);
-    if (userQueues.get(userId) === next) userQueues.delete(userId);
     // Answers, resumes and connection callbacks release the next independent job
     // only after their own continuation has cleared every pending decision.
     if (!hasPendingDecision(botId)) {
@@ -232,6 +287,15 @@ configureCoordinationRuntime({ enqueue:(botId,t)=>{
 export const turnSignal = (botId: string): AbortSignal | undefined => aborts.get(botId)?.signal;
 
 export function interrupt(botId: string, expectedJobId?: string) {
+  // Stop from the chat also drops the user's messages still waiting in the queue.
+  // beginJob only starts 'queued' jobs, so an already scheduled promise will not run them.
+  if (expectedJobId === undefined) {
+    db.prepare(`UPDATE agent_jobs SET state='cancelled',finished_at=? WHERE bot_id=? AND state='queued'
+      AND json_extract(trigger,'$.type')='user' AND COALESCE(json_extract(trigger,'$.voiceAssignment'),0)=0
+      AND json_extract(trigger,'$.workflowId') IS NULL AND json_extract(trigger,'$.coordinationRequestId') IS NULL
+      AND json_extract(trigger,'$.goalId') IS NULL AND json_extract(trigger,'$.taskId') IS NULL`).run(now(), botId);
+    if (!aborts.has(botId) && getLive(botId).activity?.kind === 'queued') { clearQueuedLive(botId); emitBot(botId); }
+  }
   // Workflow controls target a durable job. Cancelling queued work must not
   // abort an unrelated chat that currently owns this Bot's serial queue.
   const matchesActive = expectedJobId === undefined || activeJobs.get(botId) === expectedJobId;
@@ -321,7 +385,9 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
   let admitted = false;
   let routineStarted = false;
 
-  const ctx: ToolCtx = { userId, botId, jobId, enqueueBotMessage, depth, recovery: new BrowserRecovery() };
+  const ctx: ToolCtx = { userId, botId, jobId, enqueueBotMessage, depth, recovery: new BrowserRecovery(), roomId: trigger.roomId };
+  // Group turns only read from connected apps; nothing leaves Swarm from a group message.
+  if (trigger.roomId) ctx.readOnlyApps = true;
   ctx.availableTools = async () => [
     ...functionSchemas(botId), ...mcpSchemas(userId, botId), ...await composioTools(userId),
     ...(isConfiguring(botId) ? [] : serverTools()),
@@ -345,6 +411,11 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
     ctx.remainingTokens = gate.remainingTokens;
     onJobStarted({ jobId, botId, trigger });
     routineStarted = true;
+    if (trigger.roomId && trigger.type !== 'resume' && isConfiguring(botId)) {
+      // Joined the group before setup restarted: answer nothing privately; say so in the group.
+      appendRow(trigger.roomId, 'notice', { type: 'notice', text: setupNotice(bot.name), tone: 'info' });
+      return;
+    }
     if (trigger.type === 'resume') {
       if (!pendingRow) return;
       const st = JSON.parse(pendingRow.state) as PendingState;
@@ -359,7 +430,7 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
       }
       depth = st.depth;
       ctx.depth=st.depth;
-      ctx.readOnlyApps = st.nativeReadOnly;
+      ctx.readOnlyApps = st.nativeReadOnly || !!trigger.roomId;
       const paused = await processCalls(ctx, st);
       if (paused) return;
       if (st.native) { publishNativeResult(botId, st); return; }
@@ -457,6 +528,7 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
       if (paused) return;
       if (st.outputs.some((o: any) => o.__endTurn)) break;
     }
+    if (trigger.roomId) postRoomReply(botId, trigger.roomId, finalText, toolRows);
   } catch (e: any) {
     outcome = ctrl.signal.aborted ? 'interrupted' : 'failed';
     const msg = ctrl.signal.aborted ? 'Stopped.' : `Something went wrong: ${e?.message ?? e}`;
@@ -572,6 +644,24 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
     // Was this call just approved/denied?
     const ap = st.approvalId ? (db.prepare('SELECT * FROM approvals WHERE id=?').get(st.approvalId) as any) : null;
     const pol = await executionPolicyFor(userId, c.name, args, botId);
+    let accountLabel: string | undefined;
+    if (c.name === 'SWARM_APPS_EXECUTE' && pol.decision !== 'block' && !(ap && ap.call_id === c.call_id)) {
+      let refusal: string | undefined;
+      if (ctx.roomId && !pol.readOnlyApps) {
+        refusal = 'Group chat turns can only read from connected apps. Nothing was sent. Answer in the group instead, or ask the user to request this action in your own chat.';
+      } else if (pol.decision === 'ask' || st.nativeRequireApproval) {
+        // Never ask the user to approve an action on an account they have not connected.
+        const account = await activeAppAccount(userId, args);
+        if (account.ok) accountLabel = account.label;
+        else refusal = account.message;
+      }
+      if (refusal) {
+        updateRow(botId, c.rowSeq, { ...body, status: 'denied', summary: refusal.slice(0, 200) });
+        st.outputs.push({ type: 'function_call_output', call_id: c.call_id, output: refusal });
+        st.calls.shift();
+        continue;
+      }
+    }
     // A sibling can spend the shared budget or revoke authority while tool
     // discovery, validation or policy lookup is awaiting. Fence the actual
     // approval/dispatch boundary with the current durable state.
@@ -590,14 +680,14 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
       const mcp = c.name.startsWith('mcp_') ? findMcpTool(userId, c.name, botId) : undefined;
       const card = appendRow(botId, 'card', {
         type: 'card', card: 'approval', approvalId, jobId: ctx.jobId, title: `Allow ${getBotRow(botId).name} to ${pol.title.split(': ')[1] ?? pol.title}?`,
-        detail: describeArgs(args), tool: pol.key, toolkit: pol.toolkit, toolkitName: mcp?.server.config.name ?? appName(pol.toolkit), args, status: 'pending',
+        detail: describeArgs(args, accountLabel), tool: pol.key, toolkit: pol.toolkit, toolkitName: mcp?.server.config.name ?? appName(pol.toolkit), args, status: 'pending',
       });
       db.prepare('INSERT INTO approvals(id,bot_id,row_seq,call_id,tool,status,created_at,binding_hash) VALUES (?,?,?,?,?,?,?,?)').run(approvalId, botId, card.seq, c.call_id, pol.key, 'pending', now(), approvalBinding(userId, botId, c.call_id, c.name, args));
       updateRow(botId, c.rowSeq, { ...body, status: 'awaiting-approval' });
       st.approvalId = approvalId;
       if (options.onPause) options.onPause(st);
       else db.prepare('INSERT OR REPLACE INTO pending_turns(bot_id,state) VALUES (?,?)').run(botId, JSON.stringify(st));
-      setLive(botId, { isRunning: false, activity: { kind: 'waiting_for_you', since: now() }, awaiting: { reason: humanizeSlug(pol.key), since: now() } });
+      setLive(botId, { isRunning: false, activity: { kind: 'waiting_for_you', since: now() }, awaiting: { reason: Object.hasOwn(COMPUTER_POLICY_TITLES, pol.key) ? pol.title : humanizeSlug(pol.key), since: now() } });
       hub.emit(userId, { type: 'tasks', botId });
       return true;
     }
@@ -879,10 +969,43 @@ function safeParse(s: string) {
   try { return JSON.parse(s); } catch { return undefined; }
 }
 
-function describeArgs(args: any): string {
+const toolkitMatches = (toolkit: string, slug: string) => {
+  const t = toolkit.toLowerCase(), lower = slug.toLowerCase();
+  return lower.startsWith(`${t}_`) || lower.startsWith(`${t.replace(/[-_]/g, '')}_`);
+};
+
+/** The requested app account must be an ACTIVE, enabled connection of this user for the tool's app. */
+export async function activeAppAccount(userId: string, args: any): Promise<{ ok: true; label: string } | { ok: false; message: string }> {
+  const slug = typeof args?.tool_slug === 'string' ? args.tool_slug : '';
+  const app = appName(slug.split('_')[0]) ?? 'app';
+  let accounts: Awaited<ReturnType<typeof connectionsDetail>>;
+  try { accounts = await connectionsDetail(userId); }
+  catch { return { ok: false, message: `The ${app} connection could not be confirmed, so nothing was done. Check it with list_app_connections and try again.` }; }
+  const usable = accounts.filter(a => a.status === 'ACTIVE' && !a.isDisabled);
+  const account = usable.find(a => a.id === args?.connectionId && toolkitMatches(a.toolkit, slug));
+  if (!account) return { ok: false, message: `The ${app} account in this request is not connected. Use request_app_connection to ask the user to connect it.` };
+  const name = appName(account.toolkit) ?? app;
+  const same = usable.filter(a => a.toolkit === account.toolkit);
+  return { ok: true, label: same.length > 1 ? `Connected ${name} account ${same.indexOf(account) + 1} of ${same.length}` : `Connected ${name} account` };
+}
+
+/** A group turn's plain final text belongs in the group, unless the Bot already posted or stayed silent. */
+function postRoomReply(botId: string, roomId: string, finalText: string, toolRows: number[]) {
+  const text = finalText.trim();
+  if (!text) return;
+  const handled = toolRows.some(seq => {
+    const body = getRow(botId, seq)?.body;
+    return body?.type === 'tool-call' && ['post_to_group', 'stay_silent'].includes(body.name) && body.status === 'done';
+  });
+  if (!handled) postToRoomById(roomId, botId, text);
+}
+
+function describeArgs(args: any, accountLabel?: string): string {
   if (!args || typeof args !== 'object') return '';
   if (typeof args.tool_slug === 'string' && args.arguments && typeof args.arguments === 'object') {
-    return `Account: ${String(args.connectionId)}\nTool: ${args.tool_slug}\n${JSON.stringify(args.arguments, null, 2)}`.slice(0, 4000);
+    // Show the app and a readable account label; provider account ids stay out of the card.
+    const app = appName(args.tool_slug.split('_')[0]) ?? 'App';
+    return `App: ${app}\nAccount: ${accountLabel ?? `Connected ${app} account`}\nAction: ${humanizeSlug(args.tool_slug)}\n${JSON.stringify(args.arguments, null, 2)}`.slice(0, 4000);
   }
   const inner = Array.isArray(args.tools) ? args.tools.map((t: any) => t.arguments ?? t.args ?? t) : [args];
   const flat = inner.map((a: any) => Object.entries(a ?? {}).filter(([, v]) => typeof v !== 'object' || v === null).slice(0, 6).map(([k, v]) => `${k}: ${String(v).slice(0, 160)}`).join('\n'));
@@ -901,6 +1024,10 @@ export function resolveApproval(userId: string, approvalId: string, decision: 'a
   if (decision === 'always') db.prepare("INSERT OR REPLACE INTO policies(user_id,tool,mode) VALUES (?,?,'always_allow')").run(userId, ap.tool);
   const card = getRow(ap.bot_id, ap.row_seq);
   if (card && card.body.type === 'card' && card.body.card === 'approval') updateRow(ap.bot_id, ap.row_seq, { ...card.body, status });
+  // The decision is made: drop "Waiting for you" now instead of when the resumed turn starts.
+  setLive(ap.bot_id, { awaiting: null, activity: null });
+  emitBot(ap.bot_id);
+  hub.emit(userId, { type: 'tasks', botId: ap.bot_id });
   enqueue(ap.bot_id, { type: 'resume' });
   })();
 }

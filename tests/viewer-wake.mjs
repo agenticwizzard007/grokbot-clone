@@ -158,11 +158,11 @@ try {
       assert.equal(requests, 0, 'local companions cannot be woken as cloud VMs');
     } else {
       await until(() => pending.length === 1);
-      await viewer.getByRole('status').getByText('Agent waking up', { exact: true }).waitFor();
+      await viewer.getByRole('status').getByText("Waking Quinn's computer...", { exact: true }).waitFor();
       assert.equal(await viewer.getByRole('button', { name: 'Wake computer' }).count(), 0, 'no duplicate wake while pending');
       if (scenario.intermediate) {
         await page.evaluate(state => window.testEvents.onmessage({ data: JSON.stringify({ type: 'computer', state }) }), { ...computer, status: 'resuming' });
-        await page.locator('.viewer__status').filter({ hasText: 'Agent waking up' }).waitFor();
+        await page.locator('.viewer__status').filter({ hasText: "Waking Quinn's computer..." }).waitFor();
       }
       if (scenario.fail) {
         await pending.shift()({ error: 'Temporary wake failure' }, 503);
@@ -173,7 +173,7 @@ try {
       }
       if (scenario.backgroundWake) {
         await pending.shift()({ computer: { ...computer, status: 'starting' } });
-        await viewer.getByRole('status').getByText('Agent waking up', { exact: true }).waitFor();
+        await viewer.getByRole('status').getByText("Waking Quinn's computer...", { exact: true }).waitFor();
         assert.equal(opened, 0, 'the screen waits for the VM readiness event');
         await page.evaluate(state => window.testEvents.onmessage({ data: JSON.stringify({ type: 'computer', state }) }), { ...computer, status: 'running' });
       } else await pending.shift()({ computer: { ...computer, status: 'running' } });

@@ -1,7 +1,8 @@
 import { assertTenant } from './deployment.js';
 import { assertLegacyWorkOpen } from './security/legacy-work.js';
 import { publishNativeEvent } from './native/events.js';
-import { isEffort } from './types.js';
+import { z } from 'zod';
+import { EFFORTS, isEffort, type Effort } from './types.js';
 import { db, now } from './db.js';
 import { env } from './env.js';
 import { hub } from './lib/hub.js';
@@ -17,6 +18,48 @@ export const AVATAR_SHAPES: AvatarShape[] = [
 ];
 
 export const AVATAR_COLORS: AvatarColor[] = ['black', 'brown', 'red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'violet', 'magenta', 'gray'];
+
+/** Field limits shared by create (POST /bots) and edit (PATCH /bots/:id). */
+export const BOT_LIMITS = { name: 60, label: 40, description: 300, instructions: 8000, model: 120, voice: 40, voiceLanguage: 40, voiceSpeedMin: 0.7, voiceSpeedMax: 1.5 } as const;
+
+/** Every field a client may edit on a Bot. Unknown keys are rejected. */
+export const botPatchSchema = z.object({
+  name: z.string().transform((v) => v.replace(/\s+/g, ' ').trim()).pipe(z.string().min(1, 'Name is required').max(BOT_LIMITS.name)),
+  label: z.string().transform((v) => v.replace(/\s+/g, ' ').trim()).pipe(z.string().max(BOT_LIMITS.label)),
+  description: z.string().transform((v) => v.trim()).pipe(z.string().max(BOT_LIMITS.description)),
+  instructions: z.string().max(BOT_LIMITS.instructions),
+  expectedInstructions: z.string().max(100_000),
+  avatarShape: z.enum(AVATAR_SHAPES as [AvatarShape, ...AvatarShape[]]),
+  avatarColor: z.enum(AVATAR_COLORS as [AvatarColor, ...AvatarColor[]]),
+  mode: z.enum(['personal', 'teammate']),
+  effort: z.enum(EFFORTS as unknown as [Effort, ...Effort[]]),
+  pinned: z.boolean(),
+  voice: z.string().trim().min(1).max(BOT_LIMITS.voice),
+  voiceSpeed: z.number().finite().min(BOT_LIMITS.voiceSpeedMin).max(BOT_LIMITS.voiceSpeedMax),
+  voiceLanguage: z.string().trim().min(1).max(BOT_LIMITS.voiceLanguage),
+  model: z.string().max(BOT_LIMITS.model).nullable().transform((v) => v?.trim() || null),
+  fast: z.boolean(),
+}).partial().strict().superRefine((p, ctx) => {
+  if (p.expectedInstructions !== undefined && p.instructions === undefined) ctx.addIssue({ code: 'custom', path: ['instructions'], message: 'Instructions are required with expectedInstructions' });
+});
+export type BotPatch = z.infer<typeof botPatchSchema>;
+
+/** POST /bots body. Same limits as edit; unknown keys are ignored for older clients. */
+export const botCreateSchema = z.object({
+  name: z.string().max(BOT_LIMITS.name).optional(),
+  label: z.string().max(BOT_LIMITS.label).optional(),
+  description: z.string().max(BOT_LIMITS.description).optional(),
+  instructions: z.string().max(BOT_LIMITS.instructions).optional(),
+  avatarShape: z.enum(AVATAR_SHAPES as [AvatarShape, ...AvatarShape[]]).optional(),
+  avatarColor: z.enum(AVATAR_COLORS as [AvatarColor, ...AvatarColor[]]).optional(),
+  mode: z.enum(['personal', 'teammate']).optional(),
+  effort: z.enum(EFFORTS as unknown as [Effort, ...Effort[]]).optional(),
+  model: z.string().max(BOT_LIMITS.model).nullable().optional(),
+  brief: z.unknown().optional(),
+});
+
+/** Brief relevant fields: changing one of these is a new setup revision (MF-013). */
+export const BRIEF_FIELDS = ['name', 'label', 'description', 'instructions', 'mode'] as const;
 
 export interface CreateBotInput {
   name: string;
@@ -48,7 +91,7 @@ export function createBot(userId: string, b: CreateBotInput): Bot {
   const shape = AVATAR_SHAPES.includes(b.avatarShape as AvatarShape) ? b.avatarShape : hashPick(id, AVATAR_SHAPES.slice(0, 13));
   const color = AVATAR_COLORS.includes(b.avatarColor as AvatarColor) ? b.avatarColor : hashPick(id, AVATAR_COLORS.filter((c) => c !== 'black'));
   const effort = isEffort(b.effort) ? b.effort : 'medium';
-  const model = typeof b.model === 'string' ? b.model.trim().slice(0, 120) || null : null;
+  const model = typeof b.model === 'string' ? b.model.trim().slice(0, BOT_LIMITS.model) || null : null;
   try {
     db.transaction(() => {
       db.prepare(
@@ -57,10 +100,10 @@ export function createBot(userId: string, b: CreateBotInput): Bot {
       ).run(
         id,
         userId,
-        clean(b.name, 60) || 'New Bot',
-        clean(b.label, 40),
-        clean(b.description, 300),
-        String(b.instructions ?? '').trim().slice(0, 8000),
+        clean(b.name, BOT_LIMITS.name) || 'New Bot',
+        clean(b.label, BOT_LIMITS.label),
+        clean(b.description, BOT_LIMITS.description),
+        String(b.instructions ?? '').trim().slice(0, BOT_LIMITS.instructions),
         shape,
         color,
         b.mode === 'teammate' ? 'teammate' : 'personal',

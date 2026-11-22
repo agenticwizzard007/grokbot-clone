@@ -51,7 +51,8 @@ export function BotAvatar({ shape, color, size, star, ring, className, title, wo
         <path d={def.outline} fill="#FFFFFF" />
         <path d={def.d} fill={fill} fillRule="evenodd" />
       </svg>
-      {working && <FlockMark size={size} working />}
+      {/* Working never replaces the Bot's own shape and colour; a small badge shows activity instead. */}
+      {working && <span className="bot-avatar__working" style={{ width: Math.max(12, Math.round(size * 0.5)), height: Math.max(12, Math.round(size * 0.5)) }}><FlockMark size={Math.max(12, Math.round(size * 0.5))} working /></span>}
       {star && (
         <span className="bot-avatar__star" style={{ width: size * 0.2667, height: size * 0.2667 }}>
           <Icon name="star" size={size * 0.1333} color="#FFFFFF" />

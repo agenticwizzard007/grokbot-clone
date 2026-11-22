@@ -97,7 +97,7 @@ try {
     await page.goto(origin);
     const searchButton = page.locator('.sidebar__search');
     const searchInput = page.getByRole('textbox', { name: 'Search', exact: true });
-    const create = page.getByRole('main', { name: 'Create a bot', exact: true });
+    const create = page.getByRole('main', { name: 'Create a Bot', exact: true });
     const group = page.getByRole('main', { name: 'New group chat', exact: true });
     const openCreate = () => page.getByRole('button', { name: 'New Bot', exact: true }).click();
     const openGroup = () => create.getByRole('button', { name: 'New group chat instead', exact: true }).click();
@@ -110,7 +110,7 @@ try {
         await group.getByLabel('Group name', { exact: true }).fill('Do not submit');
         await page.goBack(); await create.waitFor();
         await openGroup();
-        await group.getByRole('button', { name: 'Back to create a bot', exact: true }).click();
+        await group.getByRole('button', { name: 'Back to create a Bot', exact: true }).click();
         await create.waitFor();
         await page.goBack(); await page.locator('.sidebar').waitFor();
         assert.equal(await create.isVisible(), false);
@@ -145,7 +145,18 @@ try {
     await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'More actions', exact: true }).click();
     await page.getByRole('menuitem', { name: 'New conversation', exact: true }).click();
+    // MF-007: every entry point asks first; Cancel leaves the chat untouched.
+    await page.getByRole('dialog', { name: 'Start a new conversation?' }).getByRole('button', { name: 'Cancel', exact: true }).click();
+    assert.equal(writes.some(w => w.path === '/api/bots/quinn/fresh'), false, 'Cancel must not clear the conversation');
+    await page.getByRole('button', { name: 'More actions', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'New conversation', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Start a new conversation?' }).getByRole('button', { name: 'Start new conversation', exact: true }).click();
     await wait(() => writes.some(w => w.path === '/api/bots/quinn/fresh'));
+    // The receipt is an app-level toast; dismiss it so later checks start clean.
+    const receipt = page.locator('.toast--global', { hasText: 'Started a new conversation' });
+    await receipt.waitFor();
+    await receipt.click();
+    await receipt.waitFor({ state: 'hidden' });
     await page.locator('.composer__input').fill('Keep my Quinn draft');
     if (raceChecks) {
       await searchButton.click();
@@ -187,8 +198,8 @@ try {
     assert.equal(await page.locator('.composer__input').inputValue(), 'A newer Nia draft', 'late send must not clear another bot’s draft');
     await showList();
     if (width > 760) {
-      await page.getByRole('button', { name: 'Back to bots', exact: true }).click();
-      await page.getByRole('heading', { name: 'Your bots', exact: true }).waitFor();
+      await page.getByRole('button', { name: 'Back to Bots', exact: true }).click();
+      await page.getByRole('heading', { name: 'Your Bots', exact: true }).waitFor();
     }
     await page.locator('.sidebar__search').click();
     await page.getByRole('textbox', { name: 'Search', exact: true }).fill('no-matching-bot');
@@ -202,6 +213,7 @@ try {
       freshGate = gate();
       await page.locator('.chat__pill').click();
       await page.getByRole('menuitem', { name: 'New conversation', exact: true }).click();
+      await page.getByRole('dialog', { name: 'Start a new conversation?' }).getByRole('button', { name: 'Start new conversation', exact: true }).click();
       await wait(() => writes.filter(w => w.path === '/api/bots/quinn/fresh').length === 2);
       await select('Nia');
       const reset = page.waitForResponse(r => r.url().endsWith('/api/bots/quinn/fresh'));
@@ -240,17 +252,18 @@ try {
       assert.equal(await page.getByText(edited.body.text, { exact: true }).isVisible(), true);
       await page.locator('.chat__pill').click();
       await page.getByRole('menuitem', { name: 'New conversation', exact: true }).click();
+      await page.getByRole('dialog', { name: 'Start a new conversation?' }).getByRole('button', { name: 'Start new conversation', exact: true }).click();
       await page.getByText('Started a new conversation', { exact: true }).waitFor();
     }
     if (phoneHistoryChecks) {
-      await page.keyboard.press('Control+n'); await openGroup();
+      await page.keyboard.press('Alt+Shift+N'); await openGroup();
       await group.waitFor();
       await page.goBack(); await create.waitFor();
       await page.goBack(); await page.locator('.composer__input').waitFor();
       assert.equal(await page.locator('.chat__pill').innerText(), 'Nia');
       assert.equal(await page.locator('.composer__input').inputValue(), 'A newer Nia draft');
       assert.equal(await page.evaluate(() => performance.timeOrigin), documentStart, 'phone setup Back restores the exact chat caller');
-      await page.keyboard.press('Control+n'); await openGroup();
+      await page.keyboard.press('Alt+Shift+N'); await openGroup();
       await group.getByRole('button', { name: 'Cancel', exact: true }).click();
       await page.locator('.composer__input').waitFor();
       assert.equal(await page.locator('.chat__pill').innerText(), 'Nia');
