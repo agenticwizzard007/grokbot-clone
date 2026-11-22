@@ -27,7 +27,7 @@ const messages = [
   ['research', 'writer', 'Draft a summary of the sources from Slack account ca_KIxihCKrE-D2xyz.'],
   ['writer', 'research', 'The draft is ready.'],
   // R2F-002: the coordination layer prefixes results with a machine header naming the request id.
-  ['research', 'quinn', '[Internal result for request req_11evEvIvCvnX; execution finished; acceptance still requires evidence]\nHere is the sourced summary.'],
+  ['research', 'quinn', '[Internal result for request req_11evEvIvCvnX; execution finished; acceptance still requires evidence]\nHere is the sourced summary.\n\n- Routine: Monday OK (`rt_aukPXFs6dQee`)\n- Schedule: every Monday at 9:00 AM UTC\n\nSay if you want a different zone.'],
   ['quinn', 'writer', 'Keep the final version concise.'],
 ].map(([fromBotId, toBotId, text], n) => ({ id: `message-${n}`, seq: n + 1, fromBotId, toBotId, text, status: n === 4 ? 'deferred' : 'completed', kind: n === 3 ? 'result' : 'request', createdAt: at + n * 1000 }));
 try {
@@ -103,6 +103,15 @@ try {
   assert.equal(await region.getByText('Internal result', { exact: false }).count(), 0, 'machine header hidden');
   assert.equal(await region.locator('li').filter({ hasText: 'Here is the sourced summary.' }).locator('.agent-exchange__chip').innerText(), 'Result');
   await region.getByText('Draft a summary of the sources from Slack account.', { exact: true }).waitFor();
+  // The exchange shows a short coordination summary; details and ids stay out until asked for.
+  assert.equal(await region.getByText('Schedule: every Monday', { exact: false }).count(), 0, 'detail lists are not in the summary');
+  assert.doesNotMatch(await region.innerText(), /\brt_[A-Za-z0-9_-]{6,}/, 'no routine ids in the summary');
+  await region.getByRole('button', { name: 'Show full messages', exact: true }).click();
+  await region.getByText('Schedule: every Monday at 9:00 AM UTC', { exact: false }).waitFor();
+  assert.doesNotMatch(await region.innerText(), /\b(rt|ca|req|apr)_[A-Za-z0-9_-]{6,}/, 'no internal ids in the full messages');
+  assert.match(await region.innerText(), /Routine: Monday OK\n/, 'an id given as an aside is dropped with its brackets');
+  await region.getByRole('button', { name: 'Show summary', exact: true }).click();
+  await region.getByText('Schedule: every Monday', { exact: false }).waitFor({ state: 'detached' });
   await page.screenshot({ path: new URL('desktop-expanded.png', evidence).pathname });
   await toggle.focus(); await page.keyboard.press('Space');
   assert.equal(await region.count(), 0);

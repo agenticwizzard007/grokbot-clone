@@ -168,5 +168,5 @@ button.mm-item:hover, .mm-item.is-open { background: var(--color-bg-hover); }
 }
 
 /* Billing source stays visible beside the selected model and every picker row. */
-.model-billing { display: inline-flex; align-items: center; flex-shrink: 0; border: 1px solid var(--color-border-primary); border-radius: 999px; padding: 1px 6px; font-size: 10px; line-height: 16px; font-weight: 500; color: var(--color-text-secondary); }
-.mm-row__resolved { display: block; font-size: 10px; line-height: 14px; font-weight: 400; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; }
+.model-billing { display: inline-flex; align-items: center; flex-shrink: 0; border: 1px solid var(--color-border-primary); border-radius: 999px; padding: 1px 6px; font-size: 11px; line-height: 16px; font-weight: 500; color: var(--color-text-secondary); }
+.mm-row__resolved { display: block; font-size: 11px; line-height: 15px; font-weight: 400; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; }

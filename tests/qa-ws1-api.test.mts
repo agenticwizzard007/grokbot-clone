@@ -337,7 +337,7 @@ test('MF-019 a failed computer wake is reported instead of swallowed', async () 
 test('R2F-002 redactInternalIds replaces internal ids with neutral labels and leaves ordinary words', async () => {
   const { redactInternalIds, displayCoordinationText, hasInternalId } = await import('../server/src/lib/redact.js');
   const { newId } = await import('../server/src/lib/ids.js');
-  assert.equal(redactInternalIds('Slack account ca_KIxihCKrE-D2 and Gmail account ca_pESfPrEqcgnN'), 'Slack account connected account and Gmail account connected account');
+  assert.equal(redactInternalIds('Slack account ca_KIxihCKrE-D2 and Gmail account ca_pESfPrEqcgnN'), 'Slack account and Gmail account');
   assert.equal(redactInternalIds('See req_11ev-EvIvCvn.'), 'See request.');
   for (const [prefix, label] of [['req', 'request'], ['apr', 'approval'], ['cli', 'tool call'], ['call', 'tool call'], ['job', 'job'], ['room', 'group chat'], ['bot', 'a Bot']]) {
     for (let i = 0; i < 20; i++) {

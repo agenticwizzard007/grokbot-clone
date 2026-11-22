@@ -157,7 +157,7 @@ function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
     <SetupPaperHeader backLabel={reports ? 'Back to files' : 'Back to chat'} title={label} onBack={reports ? () => setReports(false) : close} onClose={close} closeLabel="Close details" />
     <div className="setup-paper__column details-page__column">
       <div className="bot-detail-identity">
-        <BotAvatarFor bot={bot} size={64} />
+        <BotAvatarFor bot={bot} size={48} />
         <h1>{bot.name}</h1>
         {bot.label && <p>{bot.label}</p>}
         {live?.awaiting ? <span className="bot-detail-status is-waiting">Needs your reply</span> : live?.isRunning ? <span className="bot-detail-status">Working…</span> : null}

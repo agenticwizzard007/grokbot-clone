@@ -90,7 +90,7 @@ export function TeamBoard({ botId, onGoals }: { botId?: string; onGoals?: () => 
       </div>
       {scoped(state.agents).map(agent => <div className="work-row" key={agent.botId}><div className="work-row__body">
         <div><h3>{agent.name}</h3><p className="work-meta">{agent.pendingDecision ? 'Waiting for your decision' : label(agent.status)}{agent.isPrimary ? ' · Coordinator' : agent.parentBotId ? ' · Temporary helper' : ''}{agent.observation === 'no_recent_progress_observed' ? ' · No recent progress recorded' : ''}</p></div>
-        {bots.some(bot => bot.id === agent.botId) && <button className="work-button" type="button" onClick={() => openWorkChat(agent.botId)}>Open {agent.name} chat</button>}
+        {bots.some(bot => bot.id === agent.botId) && <button className="work-button" type="button" aria-label={`Open ${agent.name} chat`} onClick={() => openWorkChat(agent.botId)}>Open chat</button>}
       </div></div>)}
       {!scoped(state.agents).length && <div className="work-row"><p className="work-meta">No team agents were observed in this scope.</p></div>}
       {scoped(state.goals ?? []).map(goal => <div className="work-row" key={goal.id}><h3>{goal.title}</h3><p className="work-meta">Goal {goalStatusLabel(goal).toLowerCase()} · Owner {name(goal.botId)}{goal.reason ? ` · ${goal.reason}` : ''}</p></div>)}

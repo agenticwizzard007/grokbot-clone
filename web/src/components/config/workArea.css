@@ -21,13 +21,13 @@
   --work-warn: #efd09b;
   --work-warn-bg: #312e29;
 }
-.work-heading h1, .work-ui .work-title { font-family: 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack); font-weight: 650; letter-spacing: -.035em; line-height: 1.15; }
-.work-heading h1 { font-size: 32px; margin: 0 0 10px; }
+.work-heading h1, .work-ui .work-title { font-family: 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack); font-weight: 650; letter-spacing: -.02em; line-height: 1.15; }
+.work-heading h1 { font-size: var(--text-page-title); margin: 0 0 10px; }
 .work-heading p { margin: 0; color: var(--color-text-secondary); }
 /* R2F-022: room for a two-line subtitle on every tab, so the tab bar below keeps its position. */
-.tasks-view .work-heading { min-height: calc(32px * 1.15 + 10px + 2 * 1.55em); }
+.tasks-view .work-heading { min-height: calc(var(--text-page-title) * 1.15 + 10px + 2 * 1.55em); }
 .tasks-view .work-heading .tasks-sync { min-height: 1.55em; }
-.work-ui .work-title { font-size: 21px; margin: 0 0 8px; }
+.work-ui .work-title { font-size: var(--text-panel-title); margin: 0 0 8px; }
 .work-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 30px 0 28px; }
 .work-tabs button, .work-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 10px 13px; border-radius: 12px; text-align: center; font-size: 14px; line-height: 1.55; }
 .work-tabs button { color: var(--color-text-secondary); }
@@ -73,7 +73,7 @@
 .work-routine-toggle { display: flex; align-items: center; justify-content: end; gap: 8px; min-height: 44px; }
 .routine-history, .work-deliverables:not(.tasks-view .work-deliverables) { margin: 18px 0; }
 @media (max-width: 600px) {
-  .work-heading h1 { font-size: 26px; }
+  .work-heading h1 { font-size: var(--text-page-title); }
   .work-row__body { grid-template-columns: minmax(0, 1fr) minmax(88px, 116px); gap: 14px; }
   .work-actions.is-stack > .work-button { flex-basis: 100%; }
 }

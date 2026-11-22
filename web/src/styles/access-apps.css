@@ -8,7 +8,7 @@
 .access-apps-catalog--inline .apps-modal__head { padding-top: 0; }
 .access-apps__heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px 16px; }
 .access-apps__heading > .app-settings__head { flex: 1 1 210px; min-width: 0; margin: 0; }
-.access-apps__title h1 { margin: 0; font: 600 32px/1.15 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack); letter-spacing: -.025em; }
+.access-apps__title h1 { margin: 0; font: 600 var(--text-page-title)/1.15 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack); letter-spacing: -.025em; }
 .access-apps__title p { margin: 6px 0 0; color: var(--color-text-secondary); font-size: 14px; line-height: 1.5; }
 .access-apps__back { display: inline-flex; align-items: center; min-height: 36px; margin-bottom: 6px; }
 .access-apps__connected { display: inline-flex; flex-wrap: wrap; justify-content: flex-start; align-items: center; gap: 8px; min-height: 40px; padding: 5px 8px; border-radius: var(--radius-full); color: var(--color-text-secondary); font-size: 14px; }
@@ -86,7 +86,7 @@
   .access-apps-catalog .apps-modal__head { padding: 4px 14px 0; }
   .access-apps-catalog .apps-modal__body { padding: 12px 14px max(20px, env(safe-area-inset-bottom)); }
   .access-apps-catalog--inline :is(.apps-modal__head, .apps-modal__body) { padding-inline: 0; }
-  .access-apps__title h1 { font-size: 27px; }
+  .access-apps__title h1 { font-size: var(--text-page-title); }
   .access-apps__connected { min-height: 44px; }
   .access-apps-catalog :is(.cat-pill, .app-row__connect, .app-row__connected, .cfg-btn--secondary) { min-height: 44px; }
   .access-apps-catalog .app-row { column-gap: 8px; }

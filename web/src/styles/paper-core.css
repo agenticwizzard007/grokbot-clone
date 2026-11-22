@@ -6,7 +6,9 @@
 .app .chat__header { position: relative; inset: auto; display: flex; align-items: center; justify-content: flex-start; gap: 12px; height: auto; min-height: 58px; width: 100%; max-width: 720px; margin: 0 auto; padding: 0 0 18px; flex-shrink: 0; background: var(--color-bg-chrome); pointer-events: auto; }
 .app .chat__pill-anchor { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; max-width: none; }
 .app .chat__pill { justify-content: flex-start; padding: 0; border: 0; border-radius: 6px; background: none; box-shadow: none; width: fit-content; max-width: 100%; }
-.chat__pill-name { font-size: 16px; line-height: 26px; }
+/* The name opens the conversation menu: keep a comfortable touch target on touch screens. */
+@media (pointer: coarse), (max-width: 760px) { .app .chat__pill { min-height: 40px; } }
+.chat__pill-name { font-size: var(--text-message); line-height: 24px; }
 .chat__subtitle { font-size: 13px; line-height: 20px; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .app .chat__header-right { position: static; display: flex; gap: 8px; flex-shrink: 0; }
 .app .chat__details, .app .share-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; height: auto; padding: 10px 14px; border: 0; border-radius: 12px; background: var(--color-bg-active); color: var(--color-text-primary); }

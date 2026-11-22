@@ -198,7 +198,7 @@ test('R2F-002: briefs saved with connected account, request and Bot ids render w
   // Visible text (brief, instructions, rendered files) has no ids at all; structured botId fields remain for the client.
   assert.doesNotMatch(JSON.stringify([saved.manifest.brief, saved.manifest.bot.instructions, saved.files]), ids);
   assert.doesNotMatch(JSON.stringify(saved), /\b(ca|req|apr)_[A-Za-z0-9_-]{6,}/);
-  assert.deepEqual(saved.manifest.brief.shared_resources, ['Slack account connected account', 'Gmail account connected account']);
+  assert.deepEqual(saved.manifest.brief.shared_resources, ['Slack account', 'Gmail account']);
   const stored = (db.prepare('SELECT brief FROM bot_setups WHERE bot_id=?').get(bot.id) as { brief: string }).brief;
   assert.doesNotMatch(stored, ids, 'the saved brief itself carries no ids');
   assert.doesNotMatch(getBotRow(bot.id).instructions, ids);
