@@ -185,6 +185,9 @@
 
 /* ---------- empty chat ---------- */
 .empty-chat { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: auto; padding: 40px 24px; text-align: center; align-self: center; }
+.first-response { display: flex; flex-direction: column; align-items: center; justify-content: center; flex-shrink: 0; gap: 8px; width: 100%; min-height: 96px; padding: 12px 0; }
+.first-response--empty { margin: auto 0; }
+.first-response__mark { display: flex; flex: 0 0 72px; width: 72px; height: 72px; }
 .empty-chat__title { font-size: 17px; font-weight: 500; line-height: 24px; letter-spacing: 0.17px; margin-top: 12px; }
 .empty-chat__sub { max-width: 380px; font-size: 14px; line-height: 20px; color: var(--color-text-secondary); }
 

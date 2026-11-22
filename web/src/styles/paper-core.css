@@ -31,6 +31,8 @@
 .app .composer__bar { padding: 0; gap: 10px; flex-wrap: wrap; }
 .app .composer__left { gap: 8px; flex: 1 1 180px; }
 .app .composer__right { margin-left: auto; gap: 8px; }
+/* Reserve the send/stop button so starting a run cannot wrap the mobile controls. */
+.app .composer__right:has(> .composer__voice:only-child)::after { content: ''; width: 44px; height: 44px; flex-shrink: 0; }
 .app .composer__btn, .app .composer__cta { width: 44px; height: 44px; min-width: 44px; flex-shrink: 0; }
 .app .composer__btn { background: var(--color-bg-active); box-shadow: none; }
 .app .composer__cta { background: var(--color-primary); color: var(--color-on-primary); }

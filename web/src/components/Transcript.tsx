@@ -6,6 +6,7 @@ import { BotAvatar, BotAvatarFor } from '../avatar/BotAvatar';
 import { clock, dividerLabel } from '../lib/time';
 import { useStore } from '../store';
 import { ActivityLine } from './ActivityLine';
+import { FlockMark } from './FlockMark';
 import { CardRow } from './cards/Cards';
 import { Icon } from './Icon';
 import { Markdown } from './Markdown';
@@ -156,6 +157,8 @@ interface Props { bot: Bot; generation: number; rows: Row[]; live: LiveState | u
 
 export const Transcript = memo(function Transcript({ bot, generation, rows, live, loaded }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const responseSlot = useRef<HTMLDivElement>(null);
+  const responseHeight = useRef(0);
   const stick = useRef(true);
   const [showJump, setShowJump] = useState(false);
   const connected = useStore(s => s.sseConnected);
@@ -169,10 +172,37 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
   const waiting = !running && (!!live?.awaiting || live?.activity?.kind === 'waiting_for_you');
   const last = visibleRows[visibleRows.length - 1];
   const streamingNow = last?.body.type === 'message' && last.body.role === 'assistant' && !!last.body.streaming;
-  const showActivity = (running && !streamingNow) || waiting;
+  // A first response may delegate work before it starts streaming. Only exchange
+  // history from before this turn disqualifies the default processing mark.
+  const firstPrompt = visibleRows.find(r => r.body.type === 'message' && r.body.role === 'user' && r.body.from?.kind !== 'bot' && r.body.from?.kind !== 'routine');
+  const firstTurnStartedAt = firstPrompt?.createdAt ?? live?.startedAt;
+  const priorExchanges = groups.some(group => firstTurnStartedAt == null || group.createdAt < firstTurnStartedAt);
+  const firstTurn = loaded && !priorExchanges && !visibleRows.some(r => r.body.type === 'message'
+    && (r.body.role !== 'user' || r.body.from?.kind === 'bot' || r.body.from?.kind === 'routine'));
+  const processing = firstTurn && running && !live?.awaiting && !streamingNow;
+  const empty = loaded && visibleRows.length === 0 && groups.length === 0;
+  const firstAssistant = items.find(it => it.kind === 'group' && it.rows.some(r => r.body.type === 'message' && r.body.role === 'assistant'));
+  const showActivity = ((running && !streamingNow) || waiting)
+    && (!firstTurn || !!live?.awaiting || waiting || visibleRows.some(r => r.body.type !== 'message'));
+
+  // Keep the reservation through CSS reflow as well as state changes. The first
+  // assistant row replaces this slot, so its last measured height must survive.
+  useLayoutEffect(() => {
+    const slot = responseSlot.current;
+    if (!slot) return;
+    const measure = () => { responseHeight.current = Math.max(responseHeight.current, slot.offsetHeight); };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(slot);
+    return () => observer.disconnect();
+  }, [firstTurn, empty, processing]);
 
   // Keep pinned to the bottom while new content arrives, unless the user scrolled up.
   useLayoutEffect(() => {
+    // Hand the reserved space to the first response, including any tool status.
+    // Keep it for this generation so a short reply or no-output finish cannot
+    // collapse the scroll extent and move the user's message.
+    if (responseSlot.current) responseHeight.current = Math.max(responseHeight.current, responseSlot.current.offsetHeight);
     const el = scrollRef.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
   }, [rows, live, loaded, bot.id, exchanges.exchanges]);
@@ -200,7 +230,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
     <div className="transcript-wrap">
     <div className="transcript" ref={scrollRef} onScroll={onScroll}>
       <div className="transcript__col">
-        {loaded && visibleRows.length === 0 && groups.length === 0 && <EmptyChat bot={bot} />}
+        {empty && !processing && <EmptyChat bot={bot} />}
         {exchanges.more && <button type="button" className="agent-exchange__more" disabled={exchanges.loading} onClick={exchanges.loadMore}>Earlier agent conversations</button>}
         {exchanges.error && <p className="agent-exchange__error" role="status">Couldn’t refresh agent conversations. <button type="button" onClick={exchanges.retry}>Retry</button></p>}
         {items.map((it) => {
@@ -215,7 +245,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
               return <SystemRow key={it.key} row={it.row} />;
             case 'group':
               return (
-                <div key={it.key} className={`group is-${it.side}`}>
+                <div key={it.key} className={`group is-${it.side}`} style={it === firstAssistant && responseHeight.current ? { minHeight: responseHeight.current } : undefined}>
                   {it.from && <SenderLabel from={it.from} />}
                   {it.rows.map((r, i) => (
                     <Fragment key={r.seq}><Bubble row={r} side={it.side} botName={bot.name} pos={cornerClass(i, it.rows.length)} /></Fragment>
@@ -224,8 +254,16 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
               );
           }
         })}
+        {firstTurn && (!empty || processing) && (
+          <div ref={responseSlot} className={`first-response${empty ? ' first-response--empty' : ''}`} style={{ minHeight: responseHeight.current || undefined }}>
+            <div className="first-response__mark" role={processing ? 'status' : undefined} aria-label={processing ? 'Working' : undefined}>
+              <FlockMark size={72} working={processing} />
+            </div>
+            {showActivity && live && <ActivityLine bot={bot} live={live} rows={visibleRows} />}
+          </div>
+        )}
         {bot.isPrimary && <CoworkerSetupCards key={bot.id} coordinator={bot} />}
-        {showActivity && live && <ActivityLine bot={bot} live={live} rows={visibleRows} />}
+        {!firstTurn && showActivity && live && <ActivityLine bot={bot} live={live} rows={visibleRows} />}
       </div>
     </div>
       {showJump && (
