@@ -125,7 +125,7 @@ export function Sidebar() {
                 <BotAvatarFor bot={primary} size={40} star working={primaryWorking} />
                 {primaryWorking && <span className="status-dot is-working pinned__dot" />}
               </span>
-              {!collapsed && <span className="pinned__text"><span className="pinned__label"><span className="pinned__name">{primary.name}</span><span className="pinned__tag">Primary</span></span><span className="bot-row__preview">{primaryLive?.awaiting?.reason ?? (primaryWorking ? 'Working…' : primary.label || 'Your primary Bot')}</span></span>}
+              {!collapsed && <span className="pinned__text"><span className="pinned__label"><span className="pinned__name">{primary.name}</span><span className="pinned__tag">Primary</span></span><span className="bot-row__preview">{primaryLive?.awaiting?.reason ?? (primaryWorking ? 'Working…' : primary.label || primary.lastPreview || 'No messages yet')}</span></span>}
             </button>
           </div>
         )}

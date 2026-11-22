@@ -135,7 +135,7 @@ test('R2F-002: result messages and request records show no raw request ids to th
   assert.match(stored.text, /^\[Internal result for request req_/, 'the receiving model keeps the machine header');
   const messages = readAgentExchange(f.userId, f.bots[0].id, 1, id).messages;
   assert.equal(messages[1].kind, 'result');
-  assert.equal(messages[1].text, 'Done; see request and account connected account.');
+  assert.equal(messages[1].text, 'Done; see request and account.');
   const headers = { cookie: `swarm_session=${f.userId}` };
   const detail = await (await coordinationApi.request(`/exchanges/${id}?botId=${f.bots[0].id}&generation=1`, { headers })).json();
   assert.doesNotMatch(JSON.stringify(detail.messages.map((m: any) => m.text)), /\b(ca|req|apr)_[A-Za-z0-9_-]{6,}/);

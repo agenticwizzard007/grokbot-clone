@@ -31,6 +31,7 @@
     "test:voice-shortcut": "node tests/voice-shortcut.mjs",
     "test:voice-entry": "node --import tsx --test tests/dictation-lifecycle.test.mts tests/voice-results-client.test.mts && node tests/voice-entry-ui.mjs",
     "test:mobile": "node tests/mobile-layout.mjs",
+    "test:phone-sizes": "node tests/phone-sizes-ui.mjs",
     "test:google-auth": "node --import tsx --test tests/google-auth.test.mts tests/google-composio-auth.test.mts",
     "test:apple-auth": "node --import tsx --test tests/apple-auth.test.mts",
     "test:tasks": "node tests/tasks-layout.mjs",
@@ -45,7 +46,7 @@
     "test:quinn-understanding": "node --test tests/quinn-understanding.test.mjs",
     "qualify:quinn-understanding": "node --import tsx scripts/qualify-quinn-understanding.mjs",
     "test:updated-ui": "node --import tsx --test tests/cli-account-client.test.mts tests/ui-store.test.mts && node tests/updated-ui.mjs",
-    "test:qa": "node --import tsx --test --test-concurrency=1 tests/qa-ws1-api.test.mts tests/qa-ws2-runtime.test.mts tests/qa-ws2-apps.test.mts tests/qa-ws3-web-logic.test.mts tests/qa-ws3-conversation-search.test.mts tests/qa-ws4-settings.test.mts tests/qa-r2-ws3.test.mts"
+    "test:qa": "node --import tsx --test --test-concurrency=1 tests/qa-ws1-api.test.mts tests/qa-ws2-runtime.test.mts tests/qa-ws2-apps.test.mts tests/qa-ws3-web-logic.test.mts tests/qa-ws3-conversation-search.test.mts tests/qa-ws4-settings.test.mts tests/qa-r2-ws3.test.mts tests/exchange-summary.test.mts"
   },
   "engines": {
     "node": ">=22"

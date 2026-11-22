@@ -37,8 +37,8 @@
 .setup-paper__column { width: min(100% - 64px, 720px); margin: 0 auto; padding: 20px 0 52px; }
 .setup-paper__column > h1, .setup-paper__column > div > h1, .setup-paper .agent-config__title {
   margin: 0;
-  font: 650 clamp(24px, 3vw, 32px)/1.15 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack);
-  letter-spacing: -.035em;
+  font: 650 var(--text-page-title)/1.15 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack);
+  letter-spacing: -.02em;
   overflow-wrap: anywhere;
 }
 .setup-paper__subtitle { margin: 7px 0 0; color: var(--color-text-secondary); }

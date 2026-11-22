@@ -40,7 +40,10 @@ function LearningSettingsForm({ botId }: { botId?: string }) {
   const numberField = (key: keyof Settings, label: string, min: number, max?: number) => <label key={key}>{label}<input type="number" min={min} max={max} required value={draft?.[key] as number ?? ''} onChange={e => set(key, e.currentTarget.valueAsNumber)} /></label>;
   const overridden = Object.keys(view?.overrides ?? {});
   return <div className="cfg-page learning-settings native-panel">
-    <header><div><h2>Learning</h2><p>{botId ? 'Account defaults apply unless this Bot has an override.' : 'Account defaults for reviews, skill activation and maintenance.'}</p></div></header>
+    {/* Account Settings pages share one page header; inside Bot settings the page already has its title. */}
+    <header>{botId
+      ? <div><h2>Learning</h2><p>Account defaults apply unless this Bot has an override.</p></div>
+      : <div className="app-settings__head"><h1>Learning</h1><p>Account defaults for reviews, skill activation and maintenance.</p></div>}</header>
     {!showReviews && <>
     {error && <div className="cfg-error" role="alert">{error} <button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setAttempt(n => n + 1)}>Reload settings</button></div>}
     {!draft && !error && <p role="status">Loading learning settings…</p>}

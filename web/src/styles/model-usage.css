@@ -5,7 +5,7 @@
 .usage-mode__heading { display: flex; flex-direction: column; gap: 6px; }
 .usage-mode__eyebrow {  color: var(--color-text-secondary); font-size: 12px; line-height: 18px; font-weight: 550; text-transform: uppercase; letter-spacing: 0.2px; }
 .usage-mode__panel.is-plan .usage-mode__eyebrow { color: var(--usage-accent); }
-.usage-mode__heading h2 { margin: 0; padding-right: 12px; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.3px; overflow-wrap: anywhere; }
+.usage-mode__heading h2 { margin: 0; padding-right: 12px; font-size: var(--text-panel-title); line-height: 1.3; font-weight: 600; letter-spacing: -0.3px; overflow-wrap: anywhere; }
 .usage-mode__panel p { margin: 0; color: var(--color-text-secondary); }
 .usage-mode__usage { display: flex; flex-direction: column; gap: 20px; }
 .usage-mode__window { display: flex; flex-direction: column; gap: 8px; }

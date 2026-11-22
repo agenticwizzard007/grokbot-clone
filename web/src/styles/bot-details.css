@@ -12,18 +12,19 @@
 .details--sidebar .setup-paper__back { min-width: 44px; }
 .details--sidebar .setup-paper__close { border: 1px solid var(--color-border-secondary); border-radius: 50%; background: var(--color-bg-pane); }
 .details--sidebar .details-page__column { width: auto; margin: 0; padding: 16px 20px max(28px, env(safe-area-inset-bottom)); }
-.details--sidebar .bot-detail-identity { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; margin-bottom: 24px; }
-.details--sidebar .bot-detail-identity > .bot-avatar { margin: 12px 0 16px; }
-.details--sidebar .bot-detail-identity h1 { font: 600 24px/1.25 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack); letter-spacing: -.025em; margin: 0; overflow-wrap: anywhere; }
-.bot-detail-identity p { margin: 0; color: var(--color-text-secondary); }
+.details--sidebar .bot-detail-identity { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; margin-bottom: 16px; }
+.details--sidebar .bot-detail-identity > .bot-avatar { margin: 4px 0 8px; }
+.details--sidebar .bot-detail-identity h1 { font: 600 var(--text-panel-title)/1.3 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack); letter-spacing: -.025em; margin: 0; overflow-wrap: anywhere; }
+.bot-detail-identity p { margin: 0; color: var(--color-text-secondary); font-size: var(--text-sm); }
 .bot-detail-status { color: var(--color-primary); font-size: 12px; }
 .bot-detail-status.is-waiting { color: var(--color-warn-text); }
-.details--sidebar .details-page__tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; margin: 0 0 28px; }
-.details--sidebar .details-page__tabs button { min-width: 0; min-height: 44px; padding: 8px 4px; border-radius: 12px; text-align: center; font-size: 14px; }
+.details--sidebar .details-page__tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; margin: 0 0 20px; }
+.details--sidebar .details-page__tabs button { min-width: 0; min-height: 36px; padding: 6px 4px; border-radius: 10px; text-align: center; font-size: var(--text-sm); }
+@media (pointer: coarse) { .details--sidebar .details-page__tabs button { min-height: 44px; } }
 .details--sidebar .details-page__tabs button[aria-current] { color: var(--color-primary); background: var(--color-bg-active); }
 .details--sidebar .details-page__activity { display: flex; flex-direction: column; gap: 24px; }
 .details--sidebar :is(.bot-detail-section, .details__sections > section) { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.details--sidebar :is(.bot-detail-section h2, .section-label, .voice-settings__title h2) { margin: 0; font: 500 14px/1.5 var(--font-stack); color: var(--color-text-secondary); padding: 0; }
+.details--sidebar :is(.bot-detail-section h2, .section-label, .voice-settings__title h2) { margin: 0; font: 600 var(--text-section)/1.5 var(--font-stack); letter-spacing: 0; color: var(--color-text-secondary); padding: 0; }
 .bot-detail-section__heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; }
 .details--sidebar .link-btn { min-height: 44px; padding: 8px; font-size: 12px; }
 .details--sidebar :is(.bot-detail-card, .panel-card) { background: var(--color-bg-pane); border: 1px solid var(--color-border-secondary); border-radius: 16px; padding: 4px 12px; overflow-wrap: anywhere; }
@@ -69,7 +70,7 @@
 .details--sidebar .toggle .toggle__knob { position: relative; width: 18px; height: 18px; }
 .details--sidebar .toggle.is-on .toggle__knob { transform: translateX(18px); }
 .details--sidebar :is(.agent-config__title, .agent-config__row, .agent-history, .knowledge-files) { min-width: 0; overflow-wrap: anywhere; }
-.details--sidebar .agent-config__title { font-size: 21px; }
+.details--sidebar .agent-config__title { font-size: var(--text-panel-title); }
 .details--sidebar .agent-config__row { flex-wrap: wrap; }
 .details--sidebar :is(.agent-config__tabs, .setup-paper__actions) { flex-wrap: wrap; }
 .details--sidebar :is(.agent-config__tabs button, .cfg-btn) { min-height: 44px; }

@@ -55,7 +55,7 @@
   position: relative; inset: auto; flex: 1 1 0; width: auto; height: 100%; display: block;
   padding: 0; border: 0; overflow: auto; background: var(--color-bg-pane); animation: none;
 }
-.details--page .details-page__activity h2 { margin: 0 0 9px; font-size: 17px; font-weight: 600; }
+.details--page .details-page__activity h2 { margin: 0 0 9px; font-size: var(--text-section); font-weight: 600; color: var(--color-text-secondary); }
 .details--page .details-page__row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 63px; padding: 12px 0; border-bottom: 1px solid var(--color-border-tertiary); }
 .details--page .details-page__row > div:first-child { min-width: 0; overflow-wrap: anywhere; }
 .details--page .details-page__row strong { font-weight: 600; }

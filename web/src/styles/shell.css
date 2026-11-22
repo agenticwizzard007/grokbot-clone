@@ -65,7 +65,7 @@
 .sidebar.is-collapsed .account__btn { padding: 0; }
 .bots-view { flex: 1; min-width: 0; overflow-y: auto; padding: 40px; }
 .bots-view__inner { max-width: 720px; margin: 0 auto; }
-.bots-view h1 { font-family: 'Instrument Sans', var(--font-stack); font-size: 32px; line-height: 1.2; font-weight: 600; margin: 18px 0 8px; }
+.bots-view h1 { font-family: 'Instrument Sans', var(--font-stack); font-size: var(--text-page-title); line-height: 1.2; font-weight: 600; margin: 18px 0 8px; }
 .bots-view__intro { color: var(--color-text-secondary); margin-bottom: 24px; }
 .bots-view__actions { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 24px; }
 .bots-view__list { display: flex; flex-direction: column; gap: 12px; }

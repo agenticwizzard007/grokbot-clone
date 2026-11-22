@@ -191,6 +191,9 @@
 @media (max-width: 760px) {
   .bubble__time { display: none; }
   .text-input, .cfg-textarea, .pill-input input, select { font-size: 16px; }
+  /* iOS zooms into any field under 16px on focus. Every typed or chosen field holds at least 16px on phones,
+     whichever component styles it; the search field and sign-in code keep their larger sizes. */
+  :is(input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='hidden'], [type='color'], [type='button'], [type='submit']), select, textarea):not(.search-modal__field input, .phone-auth__code) { font-size: 16px !important; }
   .signin { padding-top: max(24px, env(safe-area-inset-top)); padding-bottom: max(24px, env(safe-area-inset-bottom)); }
   .create-modal, .bot-settings { width: 100%; }
   .shape-grid__row { gap: 2px; }
@@ -202,4 +205,24 @@
   .cfg-key__model { flex-basis: 100%; }
   .model-picker__pop { min-width: min(320px, calc(100vw - 64px)); }
   .viewer__title { flex-wrap: wrap; gap: 4px 8px; }
+}
+
+/* Touch screens: switches and small icon buttons get touch sized targets without changing desktop density. */
+@media (pointer: coarse), (max-width: 760px) {
+  .toggle { width: 44px; height: 26px; }
+  .toggle .toggle__knob { width: 22px; height: 22px; }
+  .toggle.is-on .toggle__knob { transform: translateX(18px); }
+  .cfg-icon-btn { width: 40px; height: 40px; }
+  .cfg-icon-btn.cfg-btn--danger { height: 40px; }
+}
+
+/* Phones: Bot settings sections stay on one scrolling row so the bar never reflows between tabs, and a
+   routine's controls sit under its text instead of squeezing the name into a narrow column. */
+@media (max-width: 760px) {
+  .bot-settings-page .setup-paper__tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-inline: -4px; padding-inline: 4px; }
+  .bot-settings-page .setup-paper__tabs::-webkit-scrollbar { display: none; }
+  .bot-settings-page .setup-paper__tabs button { flex: 0 0 auto; white-space: nowrap; overflow-wrap: normal; }
+  .cfg-item--routine { flex-wrap: wrap; }
+  .cfg-item--routine .cfg-item__text { flex: 1 1 calc(100% - 40px); }
+  .cfg-item--routine .cfg-item__actions { width: 100%; justify-content: flex-end; gap: 4px; }
 }
