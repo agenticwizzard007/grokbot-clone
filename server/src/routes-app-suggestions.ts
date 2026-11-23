@@ -7,17 +7,17 @@ import { getBotRow } from './store.js';
 import { getSetup } from './bot-setup.js';
 import { llmClient, defaultModel, modelInfo } from './lib/llm.js';
 import { recordModelUsage, withUsage } from './usage.js';
-import { availableSuggestions, createSuggestionRanker, SUGGESTION_PROMPT } from './app-suggestions.js';
+import { availableSuggestions, createSuggestionRanker, SUGGESTION_PROMPT, withSuggestionTimeout } from './app-suggestions.js';
 import { toolkitIcon } from './toolkit-icons.js';
 
 // Mounted under the main API's session and Bot body-limit middleware.
 export const appSuggestionsApi = new Hono<AuthVars>();
-const rank = createSuggestionRanker(async input => {
+const rank = createSuggestionRanker(async (input, signal) => {
   const model = defaultModel();
   const response: any = await llmClient(30_000).responses.create({
     model, store: false, tools: [], max_output_tokens: 1200,
     input: [{ role: 'system', content: SUGGESTION_PROMPT }, { role: 'user', content: input }],
-  }, { signal: AbortSignal.timeout(30_000) });
+  }, { signal });
   await recordModelUsage({ model, kind: 'other', response });
   const text = String(response.output_text ?? '').trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
   return JSON.parse(text);
@@ -35,16 +35,25 @@ appSuggestionsApi.post('/bots/:id/suggested-apps', async c => {
       instructions: body.data.instructions ?? bot.instructions,
       purpose: getSetup(bot.id)?.brief.purpose ?? '',
     };
-    const available = await catalog();
-    const result = await withUsage({ userId, botId: bot.id, kind: 'other' }, async () => {
-      const model = defaultModel();
-      const info = available.length ? await modelInfo(model) : undefined;
-      return rank(userId, model, context, available, info?.context || undefined);
-    });
-    // Recheck membership and connection state even on a cached ranking.
-    const [current, accounts] = await Promise.all([catalog(), connectionsDetail(userId)]);
-    const connected = new Set(accounts.filter(account => account.status === 'ACTIVE' && !account.isDisabled).map(account => account.toolkit));
-    return c.json({ suggestions: availableSuggestions(result, current, connected) });
+    const suggestions = await withSuggestionTimeout(async signal => {
+      const available = await catalog();
+      signal.throwIfAborted();
+      if (!available.length) throw new Error('App catalog unavailable.');
+      const result = await withUsage({ userId, botId: bot.id, kind: 'other' }, async () => {
+        const model = defaultModel();
+        const info = await modelInfo(model, false, signal);
+        signal.throwIfAborted();
+        return rank(userId, model, context, available, info?.context || undefined);
+      });
+      signal.throwIfAborted();
+      // Recheck membership and connection state even on a cached ranking.
+      const [current, accounts] = await Promise.all([catalog(), connectionsDetail(userId, { signal })]);
+      signal.throwIfAborted();
+      if (!current.length) throw new Error('App catalog unavailable.');
+      const connected = new Set(accounts.filter(account => account.status === 'ACTIVE' && !account.isDisabled).map(account => account.toolkit));
+      return availableSuggestions(result, current, connected);
+    }, 10_000);
+    return c.json({ suggestions, hasContext: Object.values(context).some(text => text.trim()) });
   } catch {
     return c.json({ error: 'Suggestions are unavailable right now. Try again shortly.' }, 503);
   }

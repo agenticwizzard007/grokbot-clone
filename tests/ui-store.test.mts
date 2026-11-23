@@ -52,6 +52,27 @@ test('a roster refresh from a departed account cannot publish bots or change sel
   assert.equal(calls, 1, 'signed-out refresh does not dispatch');
 });
 
+test('a delayed roster or Bot event cannot undo Skip setup or a newer setup restart', async () => {
+  const globals = globalThis as Record<string, unknown>;
+  const location = globals.location;
+  globals.location = { search: '', pathname: '/' };
+  const bot = { id: 'setup-race-bot', generation: 1, onboarding: { status: 'interviewing', revision: 1 } } as Bot;
+  const response = Promise.withResolvers<Response>();
+  globalThis.fetch = async () => response.promise;
+  useStore.setState({ user: { id: 'owner', name: 'Test account' } as any, bots: [bot], botsLoaded: true, selectedBotId: bot.id,
+    transcripts: { [bot.id]: { generation: 1, bySeq: {}, loaded: true } } });
+  try {
+    const pending = useStore.getState().loadBots();
+    useStore.getState().handleEvent({ type: 'bot', bot: { ...bot, onboarding: { status: 'active', revision: 3 } } });
+    response.resolve(Response.json({ bots: [bot], live: [] }));
+    await pending;
+    assert.deepEqual(useStore.getState().bots[0].onboarding, { status: 'active', revision: 3 });
+    useStore.getState().handleEvent({ type: 'bot', bot: { ...bot, onboarding: { status: 'interviewing', revision: 4 } } });
+    useStore.getState().handleEvent({ type: 'bot', bot: { ...bot, onboarding: { status: 'active', revision: 3 } } });
+    assert.deepEqual(useStore.getState().bots[0].onboarding, { status: 'interviewing', revision: 4 });
+  } finally { globals.location = location; }
+});
+
 test('R2F-015: the chat restored after a reload opens details when "Open Bot details with each chat" is on', async () => {
   const g = globalThis as Record<string, unknown>;
   const saved = { localStorage: g.localStorage, location: g.location, history: g.history };

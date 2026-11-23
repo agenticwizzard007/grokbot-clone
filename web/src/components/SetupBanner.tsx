@@ -30,13 +30,17 @@ export function SetupBanner({ bot }: { bot: Bot }) {
   if (!needsSetupBanner(bot as Bot & SetupAware)) return null;
   const skip = async () => {
     if (busy) return;
+    const accountId = useStore.getState().user?.id;
     setBusy(true);
     try {
-      await api.skipSetup(bot.id);
+      const result = await api.skipSetup(bot.id);
+      if (useStore.getState().user?.id !== accountId) return;
+      const currentBot = useStore.getState().bots.find(current => current.id === bot.id);
+      if (!currentBot || (currentBot.onboarding?.revision ?? 0) > (result.bot.onboarding?.revision ?? 0)) return;
+      useStore.setState(state => ({ bots: state.bots.map(current => current.id === bot.id ? { ...current, onboarding: result.bot.onboarding } : current) }));
       toast(`${bot.name} is ready to work`);
-      useStore.getState().loadBots().catch(() => {});
     } catch (error) {
-      toast((error as Error).message || 'Could not skip setup', { tone: 'error' });
+      if (useStore.getState().user?.id === accountId) toast((error as Error).message || 'Could not skip setup', { tone: 'error' });
     } finally { setBusy(false); }
   };
   return <div className="setup-banner" role="region" aria-label={`${bot.name} setup`}>

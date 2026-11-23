@@ -85,7 +85,7 @@ export interface Bot {
   lastActivityAt: number;
   createdAt: number;
   /** Setup state; 'active' when the Bot has no pending setup interview. */
-  onboarding?: { status: 'interviewing' | 'review' | 'active' };
+  onboarding?: { status: 'interviewing' | 'review' | 'active'; revision?: number };
 }
 
 /** A transcript row. `seq` orders rows; `updatedSeq` is a per-bot revision counter (rows are rewritten while streaming). */

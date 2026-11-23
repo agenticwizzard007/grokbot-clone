@@ -54,7 +54,7 @@ export const api = {
   ensureComputer: () => req<{ computer: ComputerState }>('POST', '/computer/ensure'),
 
   apps: (search = '', category = '', offset = 0) => req<AppsResponse>('GET', `/apps?search=${encodeURIComponent(search)}&category=${encodeURIComponent(category)}&offset=${offset}`),
-  suggestedApps: (botId: string, draft: { description: string; instructions: string }, signal?: AbortSignal) => req<{ suggestions: SuggestedToolkit[] }>('POST', `/bots/${encodeURIComponent(botId)}/suggested-apps`, draft, signal),
+  suggestedApps: (botId: string, draft: { description: string; instructions: string }, signal?: AbortSignal) => req<{ suggestions: SuggestedToolkit[]; hasContext?: boolean }>('POST', `/bots/${encodeURIComponent(botId)}/suggested-apps`, draft, signal),
   connect: (slug: string, botId?: string, seq?: number) => req<{ redirectUrl: string }>('POST', `/apps/${slug}/connect`, { botId, seq }),
   disconnect: (slug: string) => req<{ ok: true }>('DELETE', `/apps/${slug}`),
 
@@ -69,7 +69,7 @@ export const api = {
   updatePreferences: (p: AccountPreferences) => req<AccountPreferences>('PATCH', '/account/preferences', p),
   /** Account fields the user can change (WS3: browser time zone on boot; WS4: Settings > Account). */
   updateMe: (patch: { timezone: string }) => req<{ user?: User | null; ok?: true }>('PATCH', '/auth/me', patch),
-  skipSetup: (botId: string) => req<{ ok: true }>('POST', `/bots/${botId}/setup/skip`),
+  skipSetup: (botId: string) => req<{ ok: true; bot: Bot }>('POST', `/bots/${botId}/setup/skip`),
   conversationSearch: (q: string) => req<{ results: ConversationSearchHit[] }>('GET', `/conversation-search?q=${encodeURIComponent(q)}`),
 };
 
