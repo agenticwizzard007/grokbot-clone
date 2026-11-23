@@ -50,6 +50,7 @@
 .work-row + .work-row { padding-top: 34px; }
 .work-row h3, .work-row h4 { margin: 0; font-size: 15px; font-weight: 500; }
 .work-row__body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(125px, 176px); gap: 20px; align-items: center; }
+.work-row__body--report { grid-template-columns: minmax(0, 1fr) min(40%, 176px); }
 .work-row__body > .work-button { grid-column: 2; }
 .work-ui details[open] > summary { margin-bottom: 10px; }
 .work-ui summary { cursor: pointer; min-height: 44px; align-content: center; }

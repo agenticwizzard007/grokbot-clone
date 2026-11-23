@@ -144,7 +144,7 @@ function ReportList({ botId, generation, userId, isPrimary, workspace, onReview,
         const channel = channels[file.id] ?? 'library';
         const blocked = channelBlock(file, channel);
         return <article key={file.id} className="work-row">
-          <div className="work-row__body"><div><h3>{file.filename}</h3><p className="work-meta">{formatBytes(file.size)} · Saved {relativeShort(file.createdAt)} · Download does not send this file.</p>
+          <div className="work-row__body work-row__body--report"><div><h3>{file.filename}</h3><p className="work-meta">{formatBytes(file.size)} · Saved {relativeShort(file.createdAt)} · Download does not send this file.</p>
             {file.deliveries.map(delivery => <p key={delivery.id} className="work-meta">{channelName[delivery.channel]}: {outcome(delivery)}</p>)}
           </div><a href={file.downloadUrl} download={file.filename} className="work-button">Download report</a></div>
           <div className="work-form"><label className="work-field">Delivery destination for {file.filename}<select aria-label={`Delivery destination for ${file.filename}`} value={channel} disabled={busy !== null || loading} onChange={event => { const value = event.currentTarget.value as DeliveryChannel; setChannels(previous => ({ ...previous, [file.id]: value })); setPreview(null); }}>{Object.entries(channelName).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><small>Choose Library to save without sending.</small></label>
