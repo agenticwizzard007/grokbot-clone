@@ -22,6 +22,15 @@ export function staticAssets(root) {
 }
 
 export const entryAssets = staticAssets('index.html');
+// Include every asset linked by HTML as well as transitive static imports and CSS.
+// Images, fonts and dynamic imports are excluded, matching the original audit scope.
+const html = await fs.readFile(new URL('index.html', dist), 'utf8');
+for (const match of html.matchAll(/(?:src|href)="\/([^"?#]+\.(?:js|css))"/g)) {
+  entryAssets.add(match[1]);
+  const key = Object.keys(manifest).find(key => manifest[key].file === match[1]);
+  if (key) for (const asset of staticAssets(key)) entryAssets.add(asset);
+}
+
 export const deferredEntries = [
   'src/AuthenticatedShell.tsx', 'src/components/ChatView.tsx',
   'src/components/DetailsPanel.tsx', 'src/components/config/TasksView.tsx',
@@ -38,10 +47,6 @@ for (const key of deferredEntries.slice(1)) {
 
 assert.ok(!staticAssets(deferredEntries[2]).has(manifest[deferredEntries[3]].file), 'Details task summaries do not load the work workspace');
 
-// Include every asset linked by HTML as well as transitive static imports and CSS.
-// Images, fonts and dynamic imports are excluded, matching the original audit scope.
-const html = await fs.readFile(new URL('index.html', dist), 'utf8');
-for (const match of html.matchAll(/(?:src|href)="\/([^"?#]+\.(?:js|css))"/g)) entryAssets.add(match[1]);
 const budgets = {
   js: { requests: 12, bytes: 230_000, gzip: 78_000 },
   css: { requests: 4, bytes: 36_000, gzip: 9_500 },
