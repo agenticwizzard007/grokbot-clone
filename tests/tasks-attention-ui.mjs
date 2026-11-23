@@ -77,6 +77,7 @@ try {
     assert.equal((await context.request.patch(`${base}/api/bots/${bot.id}`, { data: { name: 'Attention QA Bot' } })).status(), 200);
     const page = await context.newPage(), errors = [];
     page.setDefaultTimeout(10000);
+    await page.clock.install();
     page.on('pageerror', error => errors.push(error.message));
     await page.addInitScript(() => {
       window.EventSource = class {
@@ -115,6 +116,9 @@ try {
     };
     await page.goto(base + '/#tasks');
     await work.getByText(task.title, { exact: true }).waitFor();
+    // Lazy panels can render before the initial transcript's debounced count refresh.
+    await page.waitForFunction(async id => (await import('/src/store.ts')).useStore.getState().transcripts[id]?.loaded, bot.id);
+    await page.clock.runFor(350);
     await unknown();
     await work.getByText('Loading pending input...', { exact: true }).waitFor();
     failing = true;
@@ -126,7 +130,9 @@ try {
     await pending.click();
     await unknown();
     // A failed retry leaves the error actionable instead of displaying an empty success.
+    const failedRetry = page.waitForResponse(response => new URL(response.url()).pathname === '/api/needs-you' && response.status() === 503);
     await retry.click();
+    await failedRetry;
     await retry.waitFor();
     await unknown();
     failing = false;

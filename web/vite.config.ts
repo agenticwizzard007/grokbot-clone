@@ -20,5 +20,5 @@ export default defineConfig({
     },
   },
   // noVNC uses top-level await, so target ES2022+.
-  build: { target: 'es2022', chunkSizeWarningLimit: 1200 },
+  build: { manifest: true, target: 'es2022', chunkSizeWarningLimit: 1200 },
 });

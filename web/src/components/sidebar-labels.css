@@ -1,3 +1,14 @@
+.sidebar-island {
+  display: flex; align-items: center; gap: 10px; width: 100%; height: 40px; padding: 0 10px; margin-bottom: 10px; border-radius: 12px;
+  font-size: 14px; font-weight: 500; line-height: 20px; color: var(--color-text-primary); transition: background-color 120ms;
+}
+.sidebar-island:hover { background: var(--color-bg-hover); }
+.sidebar-island.is-active { background: var(--color-bg-active); }
+.sidebar-island__icon { display: flex; align-items: center; justify-content: center; width: 36px; color: var(--color-icon-secondary); }
+.sidebar-island__count { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--radius-full); background: var(--color-warn); color: #FFFFFF; font-size: 11px; font-weight: 600; line-height: 20px; text-align: center; }
+.sidebar.is-collapsed .sidebar-island { justify-content: center; padding: 0; }
+.sidebar.is-collapsed .sidebar-island__label, .sidebar.is-collapsed .sidebar-island__count { display: none; }
+
 /* MF-057: sidebar labels stay on one line while the sidebar width animates. */
 .sidebar .sidebar__search span,
 .sidebar .sidebar__create span,
@@ -18,3 +29,5 @@
 .sidebar__scroll > .sidebar-island { position: sticky; top: 0; z-index: 2; background-color: var(--color-bg-sidebar); box-shadow: 0 10px 0 var(--color-bg-sidebar); }
 .sidebar__scroll > .sidebar-island:hover { background: linear-gradient(var(--color-bg-hover), var(--color-bg-hover)), var(--color-bg-sidebar); }
 .sidebar__scroll > .sidebar-island.is-active { background: var(--color-bg-active); }
+
+.sidebar .sidebar-island__count { background: var(--color-primary); color: var(--color-on-primary); }

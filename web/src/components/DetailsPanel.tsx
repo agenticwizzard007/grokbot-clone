@@ -10,7 +10,7 @@ import { MembersCard } from './MembersCard';
 import { useConfigUI } from '../configStore';
 import { LibraryTab } from './config/LibraryTab';
 import { DeliverablesPanel } from './config/DeliverablesPanel';
-import { BotTasks } from './config/TasksView';
+import { BotTasks } from './config/TaskCards';
 import { AgentConfiguration } from './config/AgentConfiguration';
 import { BotAvatarFor } from '../avatar/BotAvatar';
 import { userFacingLive } from '../lib/audience';

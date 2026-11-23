@@ -12,7 +12,6 @@
 .card__actions { display: flex; gap: 8px; padding: 14px 16px 16px; }
 .card__actions .btn { flex: 1 1 0; padding: 8px 10px; }
 .card__outcome { display: flex; align-items: center; gap: 6px; padding: 12px 16px 16px; font-size: 13px; line-height: 18px; letter-spacing: 0.195px; color: var(--color-text-tertiary); }
-.card__error { padding: 0 16px 12px; font-size: 13px; line-height: 18px; color: var(--color-danger-text); }
 .card.is-resolved .card__head { padding-bottom: 0; }
 
 /* question card (screen 01) */

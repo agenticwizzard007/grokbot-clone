@@ -153,3 +153,5 @@ a { color: inherit; }
 .brand-image--night { display: none; }
 :root[data-theme='dark'] .brand-image--light { display: none; }
 :root[data-theme='dark'] .brand-image--night { display: block; }
+
+.card__error { padding: 0 16px 12px; font-size: 13px; line-height: 18px; color: var(--color-danger-text); }

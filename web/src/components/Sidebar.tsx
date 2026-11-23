@@ -3,7 +3,7 @@ import { userFacingLive } from '../lib/audience';
 import { memo, useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { Blocks, ChevronDown, Gauge, KeyRound, LogOut, Monitor, Settings } from 'lucide-react';
 import { openConversation, useConfigUI } from '../configStore';
-import { TasksIsland } from './config/TasksView';
+import { TasksIsland } from './config/TasksIsland';
 import type { Bot } from '@shared/types';
 import { BotAvatarFor } from '../avatar/BotAvatar';
 import { displayName, useStore } from '../store';
