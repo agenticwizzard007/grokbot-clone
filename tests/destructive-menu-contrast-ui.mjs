@@ -68,7 +68,7 @@ try {
   await ready(`${apiBase}/api/health`, start(['--import', preload, '--import', 'tsx', 'server/src/index.ts']));
   await ready(base, start(['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', String(uiPort), '--strictPort'], path.join(root, 'web'), { SWARM_API: apiBase }));
   browser = await chromium.launch({ executablePath: process.env.CHROME_BIN || process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
-  for (const width of [390, 1280]) for (const theme of ['light', 'dark']) {
+  for (const width of [390, 768, 1280, 1440]) for (const theme of ['light', 'dark']) {
     const context = await browser.newContext({ viewport: { width, height: 900 }, timezoneId: 'UTC', reducedMotion: 'reduce', serviceWorkers: 'block' });
     const login = await context.request.post(`${base}/api/auth/dev`, { data: { email: 'contrast@example.test', name: 'QA account' } });
     assert.equal(login.status(), 200);
@@ -96,6 +96,8 @@ try {
       if (state === 'focus') {
         await page.mouse.move(width - 1, 0);
         await page.keyboard.press('End');
+        // Establish keyboard input, then focus the item without relying on menu navigation.
+        await item.focus();
         assert.equal(await item.evaluate(el => el.matches(':focus-visible')), true);
       }
       if (state === 'pressed') {
