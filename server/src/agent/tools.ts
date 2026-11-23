@@ -259,7 +259,7 @@ export const TOOLS: ToolDef[] = [
       const id = newId('rt');
       db.prepare('INSERT INTO routines(id,bot_id,name,prompt,schedule,timezone,enabled,created_at) VALUES (?,?,?,?,?,?,1,?)').run(id, ctx.botId, a.name, a.prompt, a.schedule, timezone, now());
       const r = toRoutine(db.prepare('SELECT * FROM routines WHERE id=?').get(id));
-      scheduleRoutine(r);
+      await scheduleRoutine(r);
       appendRow(ctx.botId, 'event', { type: 'event', event: 'routine-created', text: `Routine created: ${a.name} · ${describeCron(a.schedule)}`, ref: id });
       hub.emit(ctx.userId, { type: 'routines', botId: ctx.botId });
       return { output: JSON.stringify({ ok: true, routine: r }), summary: `Created routine ${a.name}` };
@@ -338,7 +338,8 @@ export const TOOLS: ToolDef[] = [
       try { new Cron(next.schedule, { paused: true, timezone: next.timezone }); } catch (e: any) { return { output: `Invalid schedule: ${e.message}` }; }
       db.prepare('UPDATE routines SET name=?,prompt=?,schedule=?,timezone=?,enabled=? WHERE id=?').run(next.name, next.prompt, next.schedule, next.timezone, next.enabled, cur.id);
       const r = toRoutine(db.prepare('SELECT * FROM routines WHERE id=?').get(cur.id));
-      r.enabled ? scheduleRoutine(r) : unscheduleRoutine(r.id);
+      if (r.enabled) await scheduleRoutine(r);
+      else await unscheduleRoutine(r.id);
       appendRow(ctx.botId, 'event', { type: 'event', event: 'routine-updated', text: `Routine updated: ${r.name} · ${r.enabled ? r.description : 'Paused'}`, ref: r.id });
       hub.emit(ctx.userId, { type: 'routines', botId: ctx.botId });
       return { output: JSON.stringify({ ok: true, routine: r }) };
@@ -354,7 +355,7 @@ export const TOOLS: ToolDef[] = [
       const id = String(a.routine_id);
       const routine = db.prepare('SELECT r.id FROM routines r JOIN bots b ON b.id=r.bot_id WHERE r.id=? AND r.bot_id=? AND b.user_id=?').get(id, ctx.botId, ctx.userId);
       if (!routine) return { output: 'No such routine.' };
-      unscheduleRoutine(id);
+      await unscheduleRoutine(id);
       await deleteEventTrigger(id);
       db.prepare('DELETE FROM routines WHERE id=? AND bot_id=?').run(id, ctx.botId);
       hub.emit(ctx.userId, { type: 'routines', botId: ctx.botId });

@@ -274,6 +274,8 @@ export function toRoutine(r: any): Routine {
   return {
     id: r.id, botId: r.bot_id, name: r.name, prompt: r.prompt, schedule: r.schedule, timezone: r.timezone,
     enabled: !!r.enabled, nextRunAt, lastRunAt: r.last_run_at, description: r.schedule.startsWith('event:') ? describeEventSlug(r.schedule) : describeCron(r.schedule),
+    activationTarget: r.activation_target == null ? null : !!r.activation_target,
+    activationPending: r.activation_target != null && !r.activation_error, activationError: r.activation_error ?? null,
   };
 }
 

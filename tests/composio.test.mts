@@ -402,7 +402,7 @@ test('key changes move event subscriptions to the new client and stop old delive
   const { initTriggers, refreshTriggerSubscription } = await import('../server/src/triggers.js');
   const { client: oldClient } = freshClient();
   let oldDelivery!: (event: any) => void;
-  mock.method(oldClient.triggers, 'subscribe', async (callback: any) => { oldDelivery = callback; });
+  mock.method(oldClient.triggers, 'subscribe', async (callback: any) => { oldDelivery = callback; (oldClient.triggers as any).pusherService.connection = { channel: { subscribed: true, bind() {}, unbind() {} } }; });
   const oldStop = mock.method(oldClient.triggers, 'unsubscribe', async () => {});
   const delivered: string[] = [];
   const { acceptJob, beginJob, finishJob } = await import('../server/src/agent/jobs.js');
@@ -417,7 +417,7 @@ test('key changes move event subscriptions to the new client and stop old delive
   assert.deepEqual(delivered, ['event-bot']);
   const { client: nextClient } = freshClient();
   let nextDelivery!: (event: any) => void;
-  const nextStart = mock.method(nextClient.triggers, 'subscribe', async (callback: any) => { nextDelivery = callback; });
+  const nextStart = mock.method(nextClient.triggers, 'subscribe', async (callback: any) => { nextDelivery = callback; (nextClient.triggers as any).pusherService.connection = { channel: { subscribed: true, bind() {}, unbind() {} } }; });
   const nextStop = mock.method(nextClient.triggers, 'unsubscribe', async () => {});
   await refreshTriggerSubscription();
   assert.equal(oldStop.mock.callCount(), 1);

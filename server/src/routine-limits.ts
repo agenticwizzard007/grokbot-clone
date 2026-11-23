@@ -58,11 +58,11 @@ export function checkRoutineCreate(botId: string, schedule: string | null, opts:
   const ex = opts.excludeRoutineId ?? '';
   const L = routineLimits;
   if (L.maxPerBot) {
-    const n = (db.prepare('SELECT COUNT(*) n FROM routines WHERE bot_id=? AND enabled=1 AND id<>?').get(botId, ex) as { n: number }).n;
+    const n = (db.prepare('SELECT COUNT(*) n FROM routines WHERE bot_id=? AND (enabled=1 OR activation_target=1) AND id<>?').get(botId, ex) as { n: number }).n;
     if (n >= L.maxPerBot) return `This Bot already has ${n} active routines (the limit is ${L.maxPerBot}). Pause or delete one first, or combine them into one routine.`;
   }
   if (L.maxPerUser) {
-    const n = (db.prepare('SELECT COUNT(*) n FROM routines r JOIN bots b ON b.id=r.bot_id WHERE b.user_id=? AND r.enabled=1 AND r.id<>?').get(userId, ex) as { n: number }).n;
+    const n = (db.prepare('SELECT COUNT(*) n FROM routines r JOIN bots b ON b.id=r.bot_id WHERE b.user_id=? AND (r.enabled=1 OR r.activation_target=1) AND r.id<>?').get(userId, ex) as { n: number }).n;
     if (n >= L.maxPerUser) return `This account already has ${n} active routines (the limit is ${L.maxPerUser}). Pause or delete one first.`;
   }
   if (schedule && !schedule.startsWith('event:') && L.minIntervalMin) {

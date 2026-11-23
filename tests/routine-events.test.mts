@@ -9,10 +9,16 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-routine-events-'));
 Object.assign(process.env, {
   DB_PATH: path.join(root, 'test.db'), FILES_DIR: path.join(root, 'files'),
   DEV_LOGIN: '1', SESSION_SECRET: 'events-test-only', COMPUTER_PROVIDER: 'local',
-  COMPOSIO_API_KEY: '', DIRECT_API_KEY: '', OPENROUTER_API_KEY: '', INKBOX_TUNNEL: '0',
+  COMPOSIO_API_KEY: 'mock-toolkit', DIRECT_API_KEY: '', OPENROUTER_API_KEY: '', INKBOX_TUNNEL: '0',
   ROUTINE_EVENT_MIN_GAP_SEC: '60', ROUTINE_MAX_RUNS_PER_DAY: '5', ROUTINE_PAUSE_IF_USER_IDLE_DAYS: '30',
 });
 mock.method(globalThis, 'fetch', async () => { throw new Error('Network is disabled in this fixture.'); });
+const { composio } = await import('../server/src/composio.js');
+mock.method(composio().triggers, 'subscribe', async () => {
+  (composio().triggers as any).pusherService.connection = { channel: { subscribed: true, bind() {}, unbind() {} } };
+});
+mock.method(composio().triggers, 'enable', async () => ({}));
+mock.method(composio().triggers, 'disable', async () => ({}));
 const { db } = await import('../server/src/db.js');
 const { acceptJob, beginJob, finishJob } = await import('../server/src/agent/jobs.js');
 const { onJobStarted, onJobFinished } = await import('../server/src/deliverables/runs.js');
@@ -45,6 +51,10 @@ function complete(f: Fixture, jobId = jobs(f).at(-1).id) {
 function restart(program: string, exitCode = 0) {
   const child = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', `
     globalThis.fetch = async () => { throw Error('Network is disabled in this fixture.'); };
+    const {composio} = await import('./server/src/composio.ts');
+    composio().triggers.subscribe = async () => { composio().triggers.pusherService.connection = { channel: { subscribed: true, bind() {}, unbind() {} } }; };
+    composio().triggers.enable = async () => ({});
+    composio().triggers.disable = async () => ({});
     const {db} = await import('./server/src/db.ts');
     const jobs = await import('./server/src/agent/jobs.ts');
     const runs = await import('./server/src/deliverables/runs.ts');
