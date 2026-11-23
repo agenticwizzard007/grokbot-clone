@@ -39,6 +39,8 @@ jobs:
         run: npm run test:updated-ui
       - name: Validate QA regressions
         run: npm run test:qa && node tests/qa-model-menu-ui.mjs
+      - name: Validate settings model picker layout
+        run: node tests/settings-model-picker-ui.mjs
       - run: npm run test:deployment
       - run: npm run test:isolation
       - run: npm run test:cli
