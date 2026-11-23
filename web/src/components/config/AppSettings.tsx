@@ -1,3 +1,4 @@
+import { ConnectedAccountDetails, ConnectedAccounts, type DisplayAccount } from '../ConnectedAccountDetails';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, PanelLeftOpen, X } from 'lucide-react';
@@ -797,7 +798,7 @@ function PermissionsSection() {
 
 // ---------------------------------------------------------------------------
 
-type SettingsAppConnection = {
+type SettingsAppConnection = DisplayAccount & {
   id: string;
   toolkit: string;
   status: string;
@@ -920,13 +921,12 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
   const accountDetails = (c: SettingsAppConnection, index: number) => {
     const app = apps?.find(app => app.slug === c.toolkit);
     const name = toolkitDisplayName(c.toolkit, app?.name);
-    const status = c.status ? c.status.toLowerCase().replace(/(^|[_\s-]+)([a-z])/g, (_, separator, letter) => `${separator ? ' ' : ''}${letter.toUpperCase()}`) : 'Unknown status';
     return <>
       <ToolkitLogo slug={c.toolkit} name={name} logo={app?.logo} size={36} />
       <div className="cfg-row__text">
         <div className="cfg-row__title" title={`Connection ID: ${c.id}`}>{name} · Account {index + 1}</div>
+        <ConnectedAccountDetails account={c} />
         <div className="access-apps-settings__statuses">
-          <span className="cfg-chip">{status}</span>
           {c.isDisabled && <span className="cfg-chip">Disabled</span>}
           {c.status === 'ACTIVE' && !c.isDisabled && c.isDefault && <span className="cfg-chip">Default</span>}
         </div>
@@ -961,6 +961,7 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
                 <ToolkitLogo slug={a.slug} name={a.name} logo={a.logo} size={36} />
                 <div className="cfg-row__text">
                   <div className="cfg-row__title">{a.name}</div>
+                  <ConnectedAccounts accounts={a.accounts} />
                   {a.description && <div className="cfg-row__sub">{a.description}</div>}
                 </div>
                 <span className="cfg-chip">Connected</span>

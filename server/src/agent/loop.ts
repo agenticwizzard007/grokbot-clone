@@ -1,3 +1,4 @@
+import { connectedDate, connectionStatusLabel, fallbackAccountLabel } from '../connection-details.js';
 import { recordModelUsage, withUsage } from '../usage.js';
 import { selectedCli } from '../cli/store.js';
 import { withNativeTools, type NativeToolHandler } from '../cli/native-tools.js';
@@ -1021,14 +1022,12 @@ export async function activeAppAccount(userId: string, args: any): Promise<{ ok:
   const slug = typeof args?.tool_slug === 'string' ? args.tool_slug : '';
   const app = appName(slug.split('_')[0]) ?? 'app';
   let accounts: Awaited<ReturnType<typeof connectionsDetail>>;
-  try { accounts = await connectionsDetail(userId); }
+  try { accounts = await connectionsDetail(userId, { details: true }); }
   catch { return { ok: false, message: `The ${app} connection could not be confirmed, so nothing was done. Check it with list_app_connections and try again.` }; }
   const usable = accounts.filter(a => a.status === 'ACTIVE' && !a.isDisabled);
   const account = usable.find(a => a.id === args?.connectionId && toolkitMatches(a.toolkit, slug));
   if (!account) return { ok: false, message: `The ${app} account in this request is not connected. Use request_app_connection to ask the user to connect it.` };
-  const name = appName(account.toolkit) ?? app;
-  const same = usable.filter(a => a.toolkit === account.toolkit);
-  return { ok: true, label: same.length > 1 ? `Connected ${name} account ${same.indexOf(account) + 1} of ${same.length}` : `Connected ${name} account` };
+  return { ok: true, label: `${account.accountLabel ?? fallbackAccountLabel(account.id)} · ${connectionStatusLabel(account.displayStatus ?? 'active')} · ${connectedDate(account.connectedAt)}` };
 }
 
 /** A group turn's plain final text belongs in the group, unless the Bot already posted or stayed silent. */

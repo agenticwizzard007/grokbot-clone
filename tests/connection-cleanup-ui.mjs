@@ -183,9 +183,9 @@ try {
   assert.equal(await desktop.row(ids.expired).isVisible(), false);
   assert.equal(await desktop.active.getByRole('button', { name: 'Use by default', exact: true }).count(), 2);
   assert.equal(await desktop.active.getByRole('button', { name: 'Disconnect', exact: true }).count(), 2);
-  assert.match(await desktop.row(ids.active).innerText(), /Active\s+Default/);
+  assert.match(await desktop.row(ids.active).innerText(), /Active\s+Connected date unavailable\s+Default/);
   assert.equal(await desktop.row(ids.active).getByRole('button', { name: 'Use by default', exact: true }).isDisabled(), true);
-  for (const [id, status] of [[ids.pending, 'Pending'], [ids.initiated, 'Authorization Pending'], [ids.revoked, 'Revoked'], [ids.disabled, 'Active\\s+Disabled']]) {
+  for (const [id, status] of [[ids.pending, 'Awaiting authorization'], [ids.initiated, 'Awaiting authorization'], [ids.revoked, 'Needs reauth'], [ids.disabled, 'Needs reauth\\s+Connected date unavailable\\s+Disabled']]) {
     assert.match(await desktop.row(id).innerText(), new RegExp(status));
     assert.equal(await desktop.row(id).getByRole('button').count(), 0, 'other statuses have no destructive or active-account controls');
   }
@@ -207,7 +207,7 @@ try {
   assert.equal(await desktop.expired.getByRole('button', { name: 'Disconnect', exact: true }).count(), 0);
   assert.equal(await desktop.expired.getByRole('button', { name: 'Remove expired record', exact: true }).count(), 2);
   assert.equal((await desktop.row(ids.expired).innerText()).includes('Authorization was not completed'), false, 'unknown expiry reasons must stay honest');
-  assert.match(await desktop.row(ids.unfinished).innerText(), /Expired\s+Authorization was not completed/);
+  assert.match(await desktop.row(ids.unfinished).innerText(), /Needs reauth\s+Connected date unavailable\s+Authorization was not completed/);
   await desktop.row(ids.unfinished).scrollIntoViewIfNeeded();
   await desktop.page.screenshot({ animations: 'disabled', path: new URL('desktop-expanded.png', screenshots).pathname });
 
@@ -250,7 +250,7 @@ try {
   assert.equal(desktop.mutations.filter(mutation => mutation.action === 'remove-expired').length, 3);
 
   await desktop.row(ids.second).getByRole('button', { name: 'Use by default', exact: true }).click();
-  await until(async () => /Active\s+Default/.test(await desktop.row(ids.second).innerText()));
+  await until(async () => /Active\s+Connected date unavailable\s+Default/.test(await desktop.row(ids.second).innerText()));
   await until(async () => await desktop.row(ids.active).getByRole('button', { name: 'Disconnect', exact: true }).isEnabled());
   const beforeDisconnect = desktop.mutations.length;
   await desktop.row(ids.active).getByRole('button', { name: 'Disconnect', exact: true }).click();
