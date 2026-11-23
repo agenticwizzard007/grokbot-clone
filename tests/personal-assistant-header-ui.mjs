@@ -70,8 +70,8 @@ try {
   await ready(origin);
   browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
 
-  for (const width of [1280, 1024, 768, 390]) {
-    const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion: 'reduce', serviceWorkers: 'block' });
+  for (const width of [390, 768, 1280, 1440, 1024]) {
+    const context = await browser.newContext({ viewport: { width, height: width === 390 ? 844 : 900 }, reducedMotion: 'reduce', serviceWorkers: 'block' });
     const api = async (pathname, method = 'GET', data) => {
       const response = await context.request.fetch(`${origin}/api${pathname}`, { method, data });
       assert.ok(response.ok(), `${method} ${pathname}: ${response.status()}`);
@@ -136,6 +136,59 @@ try {
       await api(`/bots/${bot.id}`, 'PATCH', { label: '', description: '' });
       await check(expected);
     }
+    // QA header-sep: a compressed menu chevron must not look like a stray separator.
+    const headerBot = created[0];
+    await open(headerBot.name);
+    for (const name of ['QA-Short', 'QA-Long-' + 'B'.repeat(52)]) {
+      for (const label of ['', 'L'.repeat(40)]) {
+        await api(`/bots/${headerBot.id}`, 'PATCH', { name, label });
+        await page.waitForFunction(expected => document.querySelector('.chat__pill-name')?.textContent === expected, name);
+        await check(label || 'Personal assistant');
+        await page.evaluate(() => document.fonts.ready);
+        const pill = page.locator('.chat__pill');
+        const geometry = await pill.evaluate(element => {
+          const box = node => {
+            const { left, right, top, bottom, width, height } = node.getBoundingClientRect();
+            return { left, right, top, bottom, width, height };
+          };
+          const name = element.querySelector('.chat__pill-name');
+          const subtitle = document.querySelector('.chat__subtitle');
+          return {
+            pill: box(element), name: box(name), chevron: box(element.querySelector('svg')),
+            anchor: box(element.parentElement), subtitle: box(subtitle),
+            details: box(document.querySelector('.chat__details')),
+            nameTruncated: name.scrollWidth > name.clientWidth,
+            subtitleTruncated: subtitle.scrollWidth > subtitle.clientWidth,
+            nameOverflow: getComputedStyle(name).textOverflow,
+            subtitleOverflow: getComputedStyle(subtitle).textOverflow,
+          };
+        });
+        const scenario = `${width}px ${name.startsWith('QA-Long') ? 'long' : 'short'} name, ${label ? 'long' : 'empty'} label`;
+        await page.screenshot({ path: path.join(evidence, `header-sep-${width}-${name.startsWith('QA-Long') ? 'long' : 'short'}-${label ? 'label' : 'empty'}.png`) });
+        assert.equal(await pill.textContent(), name, `${scenario}: no trailing separator text`);
+        assert.equal(geometry.chevron.width, 14, `${scenario}: menu chevron keeps its full width`);
+        assert.equal(geometry.chevron.height, 14, `${scenario}: menu chevron keeps its full height`);
+        assert.ok(geometry.name.width >= (name.startsWith('QA-Long') ? 80 : 40), `${scenario}: name stays readable`);
+        assert.ok(geometry.name.right < geometry.chevron.left, `${scenario}: name does not overlap the chevron`);
+        for (const bounds of [geometry.pill, geometry.anchor]) {
+          assert.ok(geometry.chevron.left >= bounds.left && geometry.chevron.right <= bounds.right + 0.5 &&
+            geometry.chevron.top >= bounds.top && geometry.chevron.bottom <= bounds.bottom + 0.5,
+          `${scenario}: the complete chevron stays inside its control and column`);
+        }
+        assert.ok(geometry.anchor.right <= geometry.details.left, `${scenario}: header stays clear of Details`);
+        assert.ok(geometry.subtitle.top >= geometry.pill.bottom, `${scenario}: subtitle remains below the name`);
+        assert.equal(geometry.nameOverflow, 'ellipsis');
+        assert.equal(geometry.subtitleOverflow, 'ellipsis');
+        if (width === 390 && label) assert.ok(geometry.subtitleTruncated, `${scenario}: exercises subtitle truncation`);
+        if (name.startsWith('QA-Long')) assert.ok(geometry.nameTruncated, `${scenario}: exercises name truncation`);
+        else assert.ok(!geometry.nameTruncated, `${scenario}: short name fits`);
+        await pill.locator('svg').click();
+        await page.getByRole('menuitem', { name: 'Bot settings', exact: true }).waitFor();
+        assert.equal(await pill.getAttribute('aria-expanded'), 'true');
+        await page.keyboard.press('Escape');
+        assert.equal(await pill.getAttribute('aria-expanded'), 'false');
+      }
+    }
     await open('Primary Bot');
     await check('Your primary Bot');
     await api(`/bots/${primary.id}`, 'PATCH', { label: 'Primary label' });
@@ -149,7 +202,7 @@ try {
     await check('Group label');
     assert.deepEqual(errors, []);
     await context.close();
-    console.log(`PASS ${width}px: personal and teammate creation, persisted mode, reload, label, description, primary and group precedence`);
+    console.log(`PASS ${width}px: personal and teammate creation, persisted mode, reload, label, description, primary and group precedence; header-sep long and short names with empty and long labels`);
   }
 } finally {
   await browser?.close();

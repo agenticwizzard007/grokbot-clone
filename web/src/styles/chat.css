@@ -20,7 +20,9 @@
   transition: background-color 120ms var(--ease-out);
 }
 .chat__pill:hover { background: var(--color-bg-elevated-hover); }
-.chat__pill-name { font-size: 14px; font-weight: 500; line-height: 20px; letter-spacing: 0.14px; color: var(--color-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat__pill-name { min-width: 0; font-size: 14px; font-weight: 500; line-height: 20px; letter-spacing: 0.14px; color: var(--color-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Keep the menu chevron recognizable when the name is truncated. */
+.chat__pill > svg { flex-shrink: 0; }
 .chat__header-right { position: absolute; right: 12px; top: 12px; display: flex; gap: 8px; }
 .share-btn {
   height: 36px; padding: 8px 16px; border-radius: var(--radius-full);

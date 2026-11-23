@@ -54,7 +54,7 @@ async function checkText(page, selector, column, pane, expected, width) {
 }
 
 try {
-  for (const width of [1280, 1024, 768, 390]) {
+  for (const width of [1440, 1280, 1024, 768, 390]) {
     const context = await browser.newContext({ viewport: { width, height: 900 }, colorScheme: 'light', reducedMotion: 'reduce', serviceWorkers: 'block' });
     const errors = [], writes = [], external = [];
     await context.addInitScript(() => {
@@ -123,7 +123,7 @@ try {
   }
   await fs.writeFile(new URL('verification.json', out), JSON.stringify({ results, failures }, null, 2) + '\n');
   assert.deepEqual(failures, [], 'identity text stays within its column and pane');
-  console.log('PASS identity text: unsaved 60-character names and 40-character labels at all four widths');
+  console.log('PASS identity text: unsaved 60-character names and 40-character labels at all five widths');
 } finally {
   await browser.close();
 }
