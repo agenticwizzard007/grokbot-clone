@@ -1,4 +1,4 @@
-// QA PR R3: real local API, SQLite, composer and SSE with held model replies.
+// QA PR L-03: real local API, SQLite, composer and SSE with held model replies.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
@@ -12,9 +12,10 @@ const temp = await mkdtemp(join(tmpdir(), 'loading-avatar-'));
 const evidence = join(root, '.context/loading-avatar');
 await mkdir(evidence, { recursive: true });
 const children = [], errors = [];
-let browser, gate, releaseReply;
+let browser, gate, releaseReply, replyStage;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-const holdReply = () => new Promise(resolve => {
+const holdReply = stage => new Promise(resolve => {
+  replyStage = stage;
   releaseReply = () => { releaseReply = undefined; resolve(); };
 });
 async function port() {
@@ -65,13 +66,13 @@ try {
   `);
   start(['tests/mock-provider.mjs', String(modelPort)]);
   await until(() => fetch(`http://127.0.0.1:${modelPort}/v1/models`).then(r => r.ok, () => false), 'mock provider');
-  // Hold model output before text, after blank text, and after the first visible token.
+  // Hold model output before text, after blank text, and after the first nonblank delta.
   gate = http.createServer(async (request, response) => {
     try {
       const chunks = [];
       for await (const chunk of request) chunks.push(chunk);
       const streaming = request.url === '/v1/responses' && JSON.parse(Buffer.concat(chunks).toString()).stream;
-      if (streaming) await holdReply();
+      if (streaming) await holdReply('before-text');
       const upstream = await fetch(`http://127.0.0.1:${modelPort}${request.url}`, {
         method: request.method, headers: { 'content-type': 'application/json' },
         ...(chunks.length ? { body: Buffer.concat(chunks) } : {}),
@@ -85,9 +86,9 @@ try {
         const delta = JSON.parse(events[firstText].split('\ndata: ')[1]);
         response.write(events.slice(0, firstText).join('\n\n') + '\n\n');
         response.write(`event: response.output_text.delta\ndata: ${JSON.stringify({ ...delta, delta: ' \n\t' })}\n\n`);
-        await holdReply();
+        await holdReply('blank-text');
         response.write(events[firstText] + '\n\n');
-        await holdReply();
+        await holdReply('buffered-text');
         response.end(events.slice(firstText + 1).join('\n\n') + '\n\n');
       } else response.end(body);
     } catch (error) { errors.push(String(error)); response.writeHead(500); response.end(); }
@@ -119,7 +120,7 @@ try {
   await api(`/bots/${secondaryId}/setup/skip`, 'POST', {});
   const bots = (await api('/bots')).bots.filter(bot => [primaryId, secondaryId].includes(bot.id));
   browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
-  for (const width of [1280, 1024, 768, 390]) for (const theme of ['light', 'dark']) for (const bot of bots) {
+  for (const width of [1440, 1280, 1024, 768, 390]) for (const theme of ['light', 'dark']) for (const bot of bots) {
     await api(`/bots/${bot.id}/fresh`, 'POST', {});
     const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion: 'no-preference' });
     await context.addCookies([{ name: 'swarm_session', value: cookie.slice(cookie.indexOf('=') + 1), url: origin }]);
@@ -162,12 +163,13 @@ try {
       assert.ok(box.y >= clip.y && box.y + box.height <= clip.y + clip.height, 'all 72px remain visible');
       assert.equal(await mark.locator('.bot-avatar').count(), 0, 'processing uses the flock');
       assert.equal(await page.locator('.bubble.is-streaming').count(), 0, 'no empty streaming bubble or trailing dot');
+      assert.ok((await page.locator('.bubble.is-agent .md').allTextContents()).every(text => text.trim()), 'no blank assistant bubble');
     };
     const label = `${width}-${theme}-${bot.isPrimary ? 'primary' : 'secondary'}`;
     for (const turn of ['first', 'later']) {
       await page.getByRole('textbox', { name: `Message ${bot.name}` }).fill(`mock: say Local avatar check complete for ${turn} reply.`);
       await page.getByRole('button', { name: 'Send', exact: true }).click();
-      await until(() => Boolean(releaseReply), 'held model request');
+      await until(() => replyStage === 'before-text' && Boolean(releaseReply), 'held model request');
       await assertFlock();
       assert.equal(await bird.innerHTML(), identity, 'working header preserves the exact chosen formation');
       assert.equal(await bird.evaluate(el => getComputedStyle(el).color), fill, 'header retains the Bot color');
@@ -190,28 +192,27 @@ try {
       assert.equal(await bird.evaluate(el => el.getAnimations().length), 0);
       await page.emulateMedia({ reducedMotion: 'no-preference' });
       releaseReply();
-      await until(async () => {
-        const { rows } = await api(`/bots/${bot.id}/rows`);
-        return rows.some(row => row.body.type === 'message' && row.body.streaming && row.body.text === ' \n\t');
-      }, 'blank streaming row reached SQLite');
-      await page.waitForFunction(async () => {
+      // Configured Bots buffer deltas until the full reply passes validation.
+      // Synchronize with the mock stream, not a blank SQLite or store row.
+      await until(() => replyStage === 'blank-text' && Boolean(releaseReply), 'held blank text');
+      await page.waitForFunction(async botId => {
         const { useStore } = await import('/src/store.ts');
-        return Object.values(useStore.getState().transcripts).flatMap(transcript => Object.values(transcript.bySeq)).some(row => row.body.type === 'message' && row.body.streaming && row.body.text === ' \n\t');
-      });
+        return useStore.getState().live[botId]?.activity?.kind === 'working';
+      }, bot.id);
       await assertFlock();
-      await until(() => Boolean(releaseReply), 'held blank text');
+      assert.equal(await bird.innerHTML(), identity, 'blank stream preserves the Bot bird');
+      assert.equal(await bird.evaluate(el => getComputedStyle(el).color), fill, 'blank stream preserves the Bot color');
       releaseReply();
-      await page.locator('.bubble.is-streaming').waitFor();
-      await mark.waitFor({ state: 'hidden' });
-      assert.match(await page.locator('.bubble.is-streaming .md').innerText(), /Local avatar/);
-      assert.equal(await page.locator('.first-response').count(), 0, 'the first visible token replaces the loader');
-      await until(() => Boolean(releaseReply), 'held visible text');
+      await until(() => replyStage === 'buffered-text' && Boolean(releaseReply), 'held buffered text');
+      await assertFlock();
       releaseReply();
       await page.locator('.bubble.is-agent').getByText(`Local avatar check complete for ${turn} reply.`, { exact: true }).waitFor();
+      await mark.waitFor({ state: 'hidden' });
+      assert.equal(await page.locator('.first-response').count(), 0, 'the validated reply replaces the loader');
       await page.waitForFunction(() => !document.querySelector('.chat__header .bot-avatar--working'));
       assert.equal(await bird.innerHTML(), identity, 'completed reply preserves header identity');
       assert.deepEqual(unexpected, []);
-      console.log(`PASS ${label}-${turn}: animated 72px flock, blank stream, first token handoff, reduced motion, header identity`);
+      console.log(`PASS ${label}-${turn}: animated 72px flock, blank stream, validated reply handoff, reduced motion, header identity`);
     }
     await context.close();
   }
