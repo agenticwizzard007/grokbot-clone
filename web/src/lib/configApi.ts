@@ -2,9 +2,10 @@ import type { AgentInstructionPreview, AgentSetupView, CoworkerSetupView, Bot, C
 import { ApiError } from './api';
 import type { McpServerInput, McpServerView } from '@shared/types';
 
-async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function req<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const res = await fetch(`/api${path}`, {
     method,
+    signal,
     credentials: 'include',
     headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -238,7 +239,7 @@ export const configApi = {
   policies: () => req<{ policies: { tool: string; mode: string }[] }>('GET', '/policies'),
   deletePolicy: (tool: string) => req<{ ok: true }>('DELETE', `/policies/${encodeURIComponent(tool)}`),
 
-  connectedApps: () => req<{ connectedApps?: Toolkit[]; connected: string[] }>('GET', '/apps?limit=1'),
+  connectedApps: (signal?: AbortSignal) => req<{ connectedApps?: Toolkit[]; connected: string[] }>('GET', '/apps?limit=1', undefined, signal),
   logout: () => req<{ ok: true }>('POST', '/auth/logout'),
 
   messaging: () => req<MessagingStatus>('GET', '/messaging'),
