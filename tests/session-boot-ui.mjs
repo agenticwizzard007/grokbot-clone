@@ -62,6 +62,7 @@ try {
   for (const width of [1280, 1024, 768, 390]) {
     const page = await browser.newPage({ viewport: { width, height: 900 }, serviceWorkers: 'block', reducedMotion: 'reduce' });
     page.setDefaultTimeout(10000);
+    await page.clock.install();
     const unexpected = [];
     let mode = 'normal', sessionRequests = 0, held;
     page.on('pageerror', error => unexpected.push(error.message));
@@ -109,6 +110,32 @@ try {
     assert.equal(login.status(), 200);
     await page.reload();
     await page.locator('.app').waitFor();
+
+    // P-09: a request that never responds must leave boot within five seconds.
+    mode = 'held';
+    held = undefined;
+    await page.reload();
+    for (let attempt = 0; !held && attempt < 100; attempt++) await delay(20);
+    assert.ok(held, 'the initial session lookup is stalled');
+    await page.clock.fastForward(5000);
+    const timeoutRetry = page.getByRole('button', { name: 'Try again', exact: true });
+    await timeoutRetry.waitFor();
+    assert.equal(await timeoutRetry.isEnabled(), true);
+    assert.equal(await page.locator('.signin, .app').count(), 0);
+    await page.screenshot({ path: new URL(`${width}-timeout.png`, evidence).pathname });
+
+    // A stalled retry has its own deadline and keeps recovery available.
+    held = undefined;
+    await timeoutRetry.click();
+    for (let attempt = 0; !held && attempt < 100; attempt++) await delay(20);
+    assert.ok(held, 'retry sends another session lookup');
+    await page.clock.fastForward(5000);
+    await timeoutRetry.waitFor();
+    assert.equal(await timeoutRetry.isEnabled(), true);
+    mode = 'normal';
+    await timeoutRetry.click();
+    await page.locator('.app').waitFor();
+    assert.equal(await page.getByRole('alert').count(), 0, 'retry after timeout restores the existing session');
 
     const beforeFailure = sessionRequests;
     mode = 'server';
@@ -168,7 +195,7 @@ try {
     assert.deepEqual(unexpected, [], 'no page errors, live requests, or unexpected API calls');
     await page.close();
   }
-  console.log('PASS A-03: signed-in reload failure, visible error, keyboard retry, pending and repeated failure, recovery, network failure, confirmed sign-out at 1280, 1024, 768, 390px.');
+  console.log('PASS P-09: stalled boot and retry deadlines, successful recovery. PASS A-03: signed-in reload failure, visible error, keyboard retry, pending and repeated failure, recovery, network failure, confirmed sign-out at 1280, 1024, 768, 390px.');
 } finally {
   await browser?.close();
   await Promise.all(children.map(child => new Promise(resolve => {

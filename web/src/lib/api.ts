@@ -39,7 +39,7 @@ export interface RoomMember { id: string; name: string; label: string; avatarSha
 export const ROW_PAGE_SIZE = 200;
 
 export const api = {
-  me: () => req<{ user: User | null; devLogin: boolean; googleLogin?: boolean; googleLinked?: boolean; appleLogin?: boolean; appleLinked?: boolean }>('GET', '/auth/me'),
+  me: (signal?: AbortSignal) => req<{ user: User | null; devLogin: boolean; googleLogin?: boolean; googleLinked?: boolean; appleLogin?: boolean; appleLinked?: boolean }>('GET', '/auth/me', undefined, signal),
   devLogin: (email: string, name?: string) => req<{ ok: true }>('POST', '/auth/dev', { email, name }),
   logout: () => req<{ ok: true }>('POST', '/auth/logout'),
   deleteAccount: (expectedUserId: string) => req<{ ok: true }>('DELETE', '/account', { confirmation: 'DELETE', expectedUserId }),
