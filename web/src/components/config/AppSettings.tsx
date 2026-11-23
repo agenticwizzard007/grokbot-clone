@@ -960,11 +960,10 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
               <div key={a.slug} className="cfg-row access-apps-settings__row">
                 <ToolkitLogo slug={a.slug} name={a.name} logo={a.logo} size={36} />
                 <div className="cfg-row__text">
-                  <div className="cfg-row__title">{a.name}</div>
+                  <div className="access-apps-settings__name"><span className="cfg-row__title">{a.name}</span><span className="cfg-chip">Connected</span></div>
                   <ConnectedAccounts accounts={a.accounts} />
-                  {a.description && <div className="cfg-row__sub">{a.description}</div>}
+                  {a.description && <div className="cfg-row__sub access-apps-settings__description">{a.description}</div>}
                 </div>
-                <span className="cfg-chip">Connected</span>
               </div>
             ))}
           </div>

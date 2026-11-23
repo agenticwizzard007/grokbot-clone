@@ -115,7 +115,9 @@ try {
     await checkLayout(settings);
     await page.screenshot({ path: path.join(evidence, `settings-${width}.png`), fullPage: true });
     await settings.getByRole('button', { name: 'Manage apps', exact: true }).click();
-    await page.getByRole('button', { name: '2 connected', exact: true }).click();
+    const [catalogResponse] = await Promise.all([page.waitForResponse(response => new URL(response.url()).pathname === '/api/apps'),page.getByRole('button', { name: '2 connected', exact: true }).click()]);
+    await catalogResponse.finished();
+    await page.getByRole('heading', { name: 'Connected', exact: true }).waitFor();
     const catalog = page.locator('.access-apps-catalog');
     await catalog.getByText('name@gmail.com', { exact: true }).waitFor();
     const gmailCard = catalog.locator('.app-row').filter({ has: page.getByText('Gmail', { exact: true }) });
@@ -132,7 +134,9 @@ try {
     // The same catalog is opened from chat and Bot connector entry points.
     await page.evaluate(async () => (await import('/src/configStore.ts')).useConfigUI.getState().closeAppSettings());
     await page.evaluate(async () => (await import('/src/store.ts')).useStore.getState().setModal('apps'));
-    await page.locator('.apps-modal').getByRole('button', { name: '2 connected', exact: true }).click();
+    const [modalResponse] = await Promise.all([page.waitForResponse(response => new URL(response.url()).pathname === '/api/apps'),page.locator('.apps-modal').getByRole('button', { name: '2 connected', exact: true }).click()]);
+    await modalResponse.finished();
+    await page.locator('.apps-modal').getByRole('heading', { name: 'Connected', exact: true }).waitFor();
     await page.locator('.apps-modal').getByText('name@gmail.com', { exact: true }).waitFor();
     await checkLayout(page.locator('.apps-modal'));
     await page.locator('.apps-modal').getByRole('button', { name: 'Close', exact: true }).click();
