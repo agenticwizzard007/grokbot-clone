@@ -152,6 +152,7 @@ export function TasksView() {
 
 function WorkWorkspace() {
   const bots = useStore((s) => s.bots);
+  const botsLoaded = useStore((s) => s.botsLoaded);
   const userId = useStore(s => s.user?.id);
   const connected = useStore((s) => s.sseConnected);
   const mobile = useStore((s) => s.mobile);
@@ -176,7 +177,7 @@ function WorkWorkspace() {
   const unavailable = !!botFilter && !selectedBot;
   const heading = unavailable ? undefined : childHeading;
   // Titles are fixed. A Bot is named only when the user filtered to it.
-  const scope = selectedBot ? `${selectedBot.name} · ` : unavailable ? 'Bot unavailable · ' : '';
+  const scope = selectedBot ? `${selectedBot.name} · ` : unavailable && botsLoaded ? 'Bot unavailable · ' : '';
   usePageTitle(`${scope}${tab}`);
   const title = heading?.title ?? tab;
   const subtitle = heading ? (tab === 'Reports' ? heading.subtitle : `${scope}${heading.subtitle}`) : tab === 'Team' ? `Team board · ${scope}Owners, dependencies and evidence from current team records.` : tab === 'Goals' ? `${scope}Keep work running across turns and verify results against acceptance checks.` : `${scope}Download saved reports, save in Library or review where they will be sent.`;
