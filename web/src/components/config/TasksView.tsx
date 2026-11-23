@@ -3,6 +3,7 @@ import { ChevronLeft, Menu, RefreshCw } from 'lucide-react';
 import { useConfigUI, usePageTitle } from '../../configStore';
 import { botSlug, routeBot, type WorkTab } from '../../lib/userRoutes';
 import { backToList, useStore } from '../../store';
+import { RosterFeedback } from '../LoadFeedback';
 import { TeamBoard } from './TeamBoard';
 import { WorkflowsPanel } from './WorkflowsPanel';
 import { WorkReports } from './WorkReports';
@@ -21,6 +22,7 @@ export function TasksView() {
 function WorkWorkspace() {
   const bots = useStore((s) => s.bots);
   const botsLoaded = useStore((s) => s.botsLoaded);
+  const rosterUnavailable = !botsLoaded && !bots.length;
   const userId = useStore(s => s.user?.id);
   const connected = useStore((s) => s.sseConnected);
   const mobile = useStore((s) => s.mobile);
@@ -50,8 +52,8 @@ function WorkWorkspace() {
   const title = heading?.title ?? tab;
   const subtitle = heading ? (tab === 'Reports' ? heading.subtitle : `${scope}${heading.subtitle}`) : tab === 'Team' ? `Team board · ${scope}Owners, dependencies and evidence from current team records.` : tab === 'Goals' ? `${scope}Keep work running across turns and verify results against acceptance checks.` : `${scope}Download saved reports, save in Library or review where they will be sent.`;
 
-  const { tasks, error, retry } = useTasks(botFilter, !unavailable && tab === 'Tasks');
-  const attention = useNeedsYou(botFilter, !unavailable && tab === 'Tasks');
+  const { tasks, error, retry } = useTasks(botFilter, !rosterUnavailable && !unavailable && tab === 'Tasks');
+  const attention = useNeedsYou(botFilter, !rosterUnavailable && !unavailable && tab === 'Tasks');
   const byId = useMemo(() => new Map(bots.map((b) => [b.id, b])), [bots]);
   const scoped = useMemo(() => sortTasks((tasks ?? []).filter((t) => !selectedBot || t.botId === selectedBot.id)), [tasks, selectedBot]);
   const waitingItems = attention.items ?? [];
@@ -76,10 +78,12 @@ function WorkWorkspace() {
       </header>}
       <div className="tasks-view__scroll" ref={scroll}>
         <div className="tasks-view__inner work-ui">
-          <div className="work-heading"><h1 id="tasks-heading" ref={pageHeading} tabIndex={-1}>{title}</h1>
+          <div className="work-heading"><h1 id="tasks-heading" ref={pageHeading} tabIndex={-1}>{title === tab ? `${scope}${title}` : title}</h1>
             {tab === 'Tasks' ? <span className={`tasks-sync${connected ? ' is-connected' : ''}`}><span aria-hidden="true" />{connected ? 'Updates automatically' : 'Reconnecting…'}</span> : <p>{subtitle}</p>}
           </div>
           {!heading?.detail && <nav className="work-tabs" aria-label="Work sections">{TABS.map(item => <button key={item} type="button" aria-current={item === tab ? 'page' : undefined} onClick={() => updateContext({ tab: item })}>{item}</button>)}</nav>}
+          <RosterFeedback />
+          {!rosterUnavailable && <>
           {tab !== 'Tasks' && unavailable && <p role="status">This Bot is no longer available. Return to Tasks to choose another scope.</p>}
           {!unavailable && tab === 'Team' && <TeamBoard key={`${userId}:${workBotKey(selectedBot)}`} botId={botFilter} onGoals={() => updateContext({ tab: 'Goals' })} />}
           {!unavailable && tab === 'Goals' && <WorkflowsPanel key={`${userId}:${workBotKey(selectedBot)}`} botId={botFilter} workspace onHeading={setHeading} onTeam={() => updateContext({ tab: 'Team' })} />}
@@ -120,6 +124,7 @@ function WorkWorkspace() {
             })}
           </div>}
           </div>}
+          </>}
         </div>
       </div>
     </main>

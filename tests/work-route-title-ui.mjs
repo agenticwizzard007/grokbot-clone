@@ -67,7 +67,7 @@ try {
   await ready(`${apiBase}/api/health`, start(['--import', preload, '--import', 'tsx', 'server/src/index.ts']));
   await ready(base, start(['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', String(uiPort), '--strictPort'], path.join(root, 'web'), { SWARM_API: apiBase }));
   browser = await chromium.launch({ executablePath: process.env.CHROME_BIN || process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
-  for (const width of [1280, 390]) {
+  for (const width of [390, 768, 1280, 1440]) {
     const context = await browser.newContext({ viewport: { width, height: 900 }, serviceWorkers: 'block' });
     const login = await context.request.post(`${base}/api/auth/dev`, { data: { email: `title-${width}@example.test`, name: 'QA account' } });
     assert.equal(login.status(), 200);
@@ -107,20 +107,65 @@ try {
         holdRoster = false;
         const reference = exists ? slug : 'missing-qa-bot';
         await page.goto(`${base}/#bot/${reference}/${tab.toLowerCase()}`);
+        // Reload also clears an empty roster retained by the preceding recovery case.
+        await page.reload();
         const expected = `${exists ? 'Reports QA Bot' : 'Bot unavailable'} · ${tab}`;
         await page.waitForFunction(title => document.title === title, expected);
         holdRoster = true;
         await page.reload();
-        await page.locator('#tasks-heading').waitFor();
+        const heading = page.locator('#tasks-heading');
+        await heading.waitFor({ state: 'visible' });
         for (let attempt = 0; !held.length && attempt < 100; attempt++) await page.waitForTimeout(20);
         assert.ok(held.length, 'Reload requests the roster');
         await page.waitForTimeout(2200);
         assert.equal(await page.title(), tab, 'Loading title is neutral');
+        assert.equal(await heading.innerText(), tab, 'Loading heading is neutral');
+        await page.locator('.tasks-view').getByText('Loading Bots...', { exact: true }).waitFor();
+        assert.equal(await page.locator('.tasks-view').getByText(/Bot unavailable|This Bot is no longer available/).count(), 0, 'No missing Bot content while loading');
         assert.ok(!(await page.evaluate(() => window.titleHistory)).some(title => title.includes('Bot unavailable')), 'No unavailable title during the entire loading window');
         holdRoster = false;
         for (const route of held.splice(0)) await route.fulfill({ response: await route.fetch() });
         await page.waitForFunction(title => document.title === title, expected);
+        await page.waitForFunction(title => document.querySelector('#tasks-heading')?.textContent === title, expected);
+        assert.equal(await heading.isVisible(), true);
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'Work route fits the viewport');
         console.log(`PASS ${width}px ${tab}: neutral during reload, ${exists ? 'Bot name' : 'unavailable'} after roster`);
+      }
+      for (const empty of [false, true]) {
+        holdRoster = true;
+        await page.goto(`${base}/#bot/${slug}/${tab.toLowerCase()}`);
+        await page.reload();
+        const work = page.locator('.tasks-view');
+        const retry = work.getByRole('button', { name: 'Retry Bots', exact: true });
+        await work.getByText('Loading Bots...', { exact: true }).waitFor();
+        for (let attempt = 0; !held.length && attempt < 100; attempt++) await page.waitForTimeout(20);
+        assert.ok(held.length, 'Failure scenario requests the roster');
+        if (tab === 'Reports' && !empty) await page.screenshot({ path: path.join(evidence, `pending-${width}.png`) });
+        for (const route of held.splice(0)) await route.fulfill({ status: 503, json: { error: 'Fixture unavailable' } });
+        await retry.waitFor();
+        await work.getByRole('alert').getByText("Couldn't load your Bots. Check your connection and try again.", { exact: true }).waitFor();
+        assert.equal(await page.title(), tab, 'Failure does not confirm a missing Bot');
+        assert.equal(await page.locator('#tasks-heading').innerText(), tab);
+        await retry.click();
+        await work.getByText('Retrying...', { exact: true }).waitFor();
+        assert.equal(await retry.isDisabled(), true, 'Pending retry cannot be submitted twice');
+        for (let attempt = 0; !held.length && attempt < 100; attempt++) await page.waitForTimeout(20);
+        assert.ok(held.length, 'Retry requests the roster');
+        assert.equal(await page.title(), tab, 'Pending retry keeps the neutral title');
+        assert.equal(await page.locator('#tasks-heading').innerText(), tab);
+        assert.ok(!(await page.evaluate(() => window.titleHistory)).some(title => title.includes('Bot unavailable')), 'Failure and retry never claim the Bot is missing');
+        assert.equal(await work.getByText(/Bot unavailable|This Bot is no longer available/).count(), 0);
+        holdRoster = false;
+        for (const route of held.splice(0)) {
+          if (empty) await route.fulfill({ json: { bots: [], live: [] } });
+          else await route.fulfill({ response: await route.fetch() });
+        }
+        const expected = `${empty ? 'Bot unavailable' : 'Reports QA Bot'} · ${tab}`;
+        await page.waitForFunction(title => document.title === title && document.querySelector('#tasks-heading')?.textContent === title, expected);
+        assert.equal(await page.locator('#tasks-heading').isVisible(), true);
+        assert.equal(await work.locator('.load-feedback').count(), 0, 'Successful roster clears recovery feedback, including empty success');
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+        console.log(`PASS ${width}px ${tab}: failure and pending retry stay neutral, recover to ${empty ? 'empty' : 'populated'} roster`);
       }
     }
     assert.deepEqual(errors, [], 'No page errors or external browser requests');
