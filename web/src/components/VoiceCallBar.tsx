@@ -158,11 +158,13 @@ export function VoiceCallBar() {
       )}
       {v.status === 'live' && (
         expanded ? (
-          <div className="vcall__log" ref={logRef}>
-            <h2>Transcript</h2>
-            {lines.length ? lines.map((c) => (
-              <div key={c.id} className={`vcall__line is-${c.role}`}><b>{c.role === 'user' ? 'You' : bot.name}</b> {c.text}</div>
-            )) : <div className="vcall__line is-empty">Nothing said yet.</div>}
+          <div className="vcall__transcript">
+            <div className="vcall__log" ref={logRef}>
+              <h2>Transcript</h2>
+              {lines.length ? lines.map((c) => (
+                <div key={c.id} className={`vcall__line is-${c.role}`}><b>{c.role === 'user' ? 'You' : bot.name}</b> {c.text}</div>
+              )) : <div className="vcall__line is-empty">Nothing said yet.</div>}
+            </div>
             <button type="button" className="vcall__toggle" onClick={() => setExpanded(false)}>Hide transcript</button>
           </div>
         ) : (
