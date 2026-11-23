@@ -132,8 +132,8 @@ try {
     await page.setViewportSize({ width: 320, height: 760 });
     await page.locator('.app.is-mobile').waitFor();
     const bounds = await picker.boundingBox(); assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 320);
-    for (const radio of await picker.getByRole('radio').all()) {
-      const box = await radio.boundingBox(); assert.ok(box.width >= 44 && box.height >= 44, 'phone touch target');
+    for (const choice of await picker.locator('.bird-picker__choice').all()) {
+      const box = await choice.boundingBox(); assert.ok(box.width >= 44 && box.height >= 44, 'phone label touch target');
     }
     await form.screenshot({ path: new URL(`phone-${theme}.png`, evidence).pathname });
     await page.setViewportSize({ width: 1280, height: 960 });
@@ -161,8 +161,8 @@ try {
     await page.locator('.app.is-mobile').waitFor();
     const settingsBounds = await settingsPicker.boundingBox();
     assert.ok(settingsBounds.x >= 0 && settingsBounds.x + settingsBounds.width <= 320, 'settings picker fits phone width');
-    for (const radio of await settingsPicker.getByRole('radio').all()) {
-      const box = await radio.boundingBox(); assert.ok(box.width >= 44 && box.height >= 44, 'settings phone touch target');
+    for (const choice of await settingsPicker.locator('.bird-picker__choice').all()) {
+      const box = await choice.boundingBox(); assert.ok(box.width >= 44 && box.height >= 44, 'settings phone label touch target');
     }
     await page.setViewportSize({ width: 1280, height: 960 });
     await page.locator('.app:not(.is-mobile)').waitFor();
@@ -178,7 +178,7 @@ try {
     await wait(() => patches.length === 2);
     assert.deepEqual(patches[1], { avatarColor: 'violet' });
     assert.equal(await preview.locator('path').last().getAttribute('d'), legacyPath);
-    await settingsPicker.getByRole('radio', { name: 'Diamond', exact: true }).check();
+    await settingsPicker.getByText('Diamond', { exact: true }).click();
     await page.getByRole('button', { name: 'Save changes', exact: true }).click();
     await wait(() => patches.length === 3);
     assert.deepEqual(patches[2], { avatarShape: 'bird-diamond' });
@@ -215,3 +215,6 @@ try {
   }
 } catch (error) { console.error(logs); throw error; }
 finally { await browser?.close(); server?.kill(); }
+
+// Include the local dev-server hit-target regression in the existing CI bird suite.
+await import('./bird-picker-ui.mjs');
