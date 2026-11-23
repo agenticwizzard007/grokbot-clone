@@ -151,6 +151,9 @@
 .app-settings .mcp-advanced[open] > * + * { margin-top: 0; }
 .mcp-advanced__body .settings-field::before { content: ''; position: absolute; top: 0; left: var(--settings-inset); right: var(--settings-inset); height: 1px; background: var(--color-border-tertiary); }
 .app-settings .mcp-actions { display: flex; align-items: center; gap: 8px; margin: 0 var(--settings-inset); padding: 16px 0; border-top: 1px solid var(--color-border-tertiary); }
+.app-settings .mcp-folder-row { flex-wrap: wrap; min-width: 0; }
+.mcp-folder-path { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
+.app-settings .mcp-editor .mcp-folder-choice { max-width: 100%; height: auto; padding-block: 10px; white-space: normal; overflow-wrap: anywhere; }
 .mcp-actions__spacer { flex: 1; }
 .app-settings .mcp-server { align-items: flex-start; }
 .app-settings .mcp-server > .computer-status-dot { margin-top: 5px; }
