@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { db, now } from './db.js';
 import { env } from './env.js';
-import { appendHistory, appendRow, emitBot, getBotRow, getRow, setLive, updateRow } from './store.js';
+import { appendHistory, appendRow, emitBot, getBotRow, getLive, getRow, setLive, updateRow } from './store.js';
 import type { ComputerState } from './types.js';
 import { hub } from './lib/hub.js';
 import { publishNativeEvent } from './native/events.js';
@@ -148,6 +148,30 @@ export function getSetup(botId: string) {
   return { brief: briefSchema.parse(JSON.parse(row.brief)), source: JSON.parse(row.source) as SetupSource,
     onboarding: { status: row.onboarding_status as 'interviewing' | 'review' | 'active', revision: row.revision as number, confirmedAt: row.confirmed_at as number | null },
     computer: { status: row.computer_status as 'pending' | 'ready', error: row.computer_error as string | null }, updatedAt: row.updated_at as number };
+}
+
+/** Retire only unanswered interview cards that predate activation. Keep later work and approvals. */
+export function repairActiveSetup(botId: string) {
+  const setup = db.prepare("SELECT confirmed_at FROM bot_setups WHERE bot_id=? AND onboarding_status='active'").get(botId) as { confirmed_at: number | null } | undefined;
+  if (!setup?.confirmed_at) return;
+  dismissSetupQuestions(botId, setup.confirmed_at);
+}
+
+function dismissSetupQuestions(botId: string, before: number) {
+  const b = getBotRow(botId);
+  if (!b) return;
+  const questions = db.prepare("SELECT seq FROM rows WHERE bot_id=? AND generation=? AND created_at < ? AND kind='card' AND json_extract(body,'$.card')='question' AND json_extract(body,'$.status') IN ('pending','answered') AND json_extract(body,'$.answerJobId') IS NULL").all(botId, b.generation, before) as { seq: number }[];
+  for (const { seq } of questions) {
+    const row = getRow(botId, seq);
+    if (row?.body.type === 'card' && row.body.card === 'question') updateRow(botId, seq, { ...row.body, status: 'dismissed' });
+  }
+  if (!questions.length) return;
+  const live = getLive(botId);
+  const pending = db.prepare("SELECT 1 FROM rows WHERE bot_id=? AND generation=? AND kind='card' AND json_extract(body,'$.card') IN ('question','approval','connect') AND json_extract(body,'$.status')='pending' LIMIT 1").get(botId, b.generation);
+  if (!pending && !live.isRunning && live.awaiting && live.awaiting.since < before) {
+    setLive(botId, { awaiting: null, ...(live.activity?.kind === 'waiting_for_you' ? { activity: null } : {}) });
+  }
+  hub.emit(b.user_id, { type: 'tasks', botId });
 }
 
 const bullets = (items: string[], fallback = 'None specified.') => items.length ? items.map((s) => `- ${s}`).join('\n') : fallback;
@@ -295,6 +319,7 @@ export function ownedBotName(userId: string, botId: string): string | undefined 
  * never show raw connected account, request or Bot ids (R2F-002).
  */
 export function setupView(botId: string) {
+  repairActiveSetup(botId);
   const s = getSetup(botId);
   if (!s) return null;
   const b = getBotRow(botId);
@@ -468,6 +493,8 @@ export function activateSetup(botId: string, revision: number) {
     if (setupMissing(s.brief).length) throw new Error('The specification has unresolved questions.');
     const result = db.prepare("UPDATE bot_setups SET onboarding_status='active', confirmed_at=?, revision=revision+1, updated_at=? WHERE bot_id=? AND revision=? AND onboarding_status='review'").run(now(), now(), botId, revision);
     if (!result.changes) throw new Error('The specification changed. Review the latest version before activating.');
+    // Include questions written in the same millisecond; no operational turn has started yet.
+    dismissSetupQuestions(botId, now() + 1);
     const pending = db.prepare('SELECT pending_handoff FROM bot_setups WHERE bot_id=?').get(botId) as { pending_handoff: string | null };
     publishNativeEvent({ userId: b.user_id, botId, kind: 'setup.activated', sourceType: 'setup', sourceId: botId, sourceRevision: revision + 1, audience: 'user', data: { approvedRevision: revision } });
     const text = 'Your setup is confirmed. I’ll follow the agreed responsibilities, workflows and working style.';
