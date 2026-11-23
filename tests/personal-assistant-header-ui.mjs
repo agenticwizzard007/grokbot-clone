@@ -117,7 +117,39 @@ try {
       await page.getByRole('button', { name: 'New Bot', exact: true }).click();
       const name = `${type} Bot`;
       await page.getByPlaceholder('Give your Bot a name', { exact: true }).fill(name);
-      await page.getByRole('group', { name: 'Bot type' }).getByRole('button', { name: type, exact: true }).click();
+      // create-type: radio semantics, one tab stop, arrow selection and wraparound.
+      const types = page.getByRole('radiogroup', { name: 'Bot type', exact: true });
+      const personal = types.getByRole('radio', { name: 'Personal assistant', exact: true });
+      const teammate = types.getByRole('radio', { name: 'Teammate', exact: true });
+      const selected = async (radio, other) => {
+        assert.equal(await radio.getAttribute('aria-checked'), 'true');
+        assert.equal(await radio.getAttribute('tabindex'), '0');
+        assert.equal(await other.getAttribute('aria-checked'), 'false');
+        assert.equal(await other.getAttribute('tabindex'), '-1');
+        assert.equal(await radio.evaluate(element => element === document.activeElement), true);
+      };
+      await page.getByRole('combobox', { name: 'Color' }).focus();
+      await page.keyboard.press('Tab');
+      await selected(personal, teammate);
+      for (const key of ['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp']) {
+        await page.keyboard.press(key);
+        await selected(teammate, personal);
+        await page.keyboard.press(key);
+        await selected(personal, teammate);
+      }
+      await teammate.click();
+      await selected(teammate, personal);
+      await page.keyboard.press('Tab');
+      assert.equal(await page.getByRole('button', { name: 'Create', exact: true }).evaluate(element => element === document.activeElement), true);
+      await page.keyboard.press('Shift+Tab');
+      await selected(teammate, personal);
+      await personal.click();
+      await selected(personal, teammate);
+      if (mode === 'teammate') {
+        await page.keyboard.press('ArrowRight');
+        await selected(teammate, personal);
+      }
+      await page.screenshot({ path: path.join(evidence, `create-type-${mode}-${width}.png`) });
       await page.getByRole('button', { name: 'Create', exact: true }).click();
       await check(expected);
       const bot = (await api('/bots')).bots.find(bot => bot.name === name);
