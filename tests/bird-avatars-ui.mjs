@@ -75,8 +75,9 @@ try {
       return route.fulfill({ json: body });
     });
     await page.goto(origin);
-    await page.locator('.chat__header .flock-mark').waitFor();
-    assert.equal(await page.locator('.chat__header svg[data-bird]').count(), 0, 'primary keeps the official mark');
+    await page.locator('.chat__header .bot-avatar > svg').waitFor();
+    assert.equal(await page.locator('.chat__header .bot-avatar > svg > path').last().getAttribute('d'), shapes.blob.d, 'primary keeps its saved silhouette');
+    assert.equal(await page.locator('.chat__header svg[data-bird]').count(), 0, 'primary retains a stored legacy shape');
     for (const shape of legacy) {
       const avatar = page.locator(`.bot-row .bot-avatar[aria-label="Legacy ${shape}"]`);
       assert.equal(await avatar.locator('svg > path').last().getAttribute('d'), (shapes[shape] ?? shapes[aliases[shape]]).d, `${shape} retains its original silhouette`);
@@ -146,7 +147,8 @@ try {
     const createdAvatar = page.locator('.chat__header .bot-avatar[aria-label="New bird"]');
     const original = await createdAvatar.locator('svg').innerHTML();
     await page.evaluate(() => window.emitBird({ type: 'live', state: { botId: 'created', audience: 'user', isRunning: true, awaiting: null, startedAt: Date.now(), activity: null } }));
-    await createdAvatar.locator('.flock-mark__moving:visible').waitFor();
+    await createdAvatar.locator(':scope.bot-avatar--working > svg').waitFor();
+    assert.equal(await createdAvatar.locator('.flock-mark, .bot-avatar__working').count(), 0);
     assert.equal(await createdAvatar.locator('svg').innerHTML(), original, 'working keeps the chosen bird');
     await page.emulateMedia({ reducedMotion: 'reduce' });
     assert.equal(await createdAvatar.locator('.flock-mark__moving:visible').count(), 0);

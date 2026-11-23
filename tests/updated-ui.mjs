@@ -6,6 +6,9 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 
+// The loading identity regression owns its temporary API, database and model backend.
+await import('./loading-avatar-ui.mjs');
+
 await fs.access(new URL('../web/dist/index.html', import.meta.url));
 const port = await new Promise(resolve => {
   const socket = http.createServer().listen(0, '127.0.0.1', () => {
