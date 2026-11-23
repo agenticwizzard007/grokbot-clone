@@ -4,7 +4,6 @@ import type { CSSProperties } from 'react';
 import { userFacingLive } from '../lib/audience';
 import { palette } from '../lib/colors';
 import { useStore } from '../store';
-import { FlockMark } from '../components/FlockMark';
 import { Icon } from '../components/Icon';
 import { SHAPES, type ShapeDef } from './shapes.gen';
 import { BIRD_PATH, BIRD_FORMATIONS } from './birds';
@@ -59,8 +58,6 @@ export function BotAvatar({ shape, color, size, star, ring, className, title, wo
         <path d={def.outline} fill="#FFFFFF" />
         <path d={def.d} fill={fill} fillRule="evenodd" />
       </svg>}
-      {/* Working never replaces the Bot's own shape and colour; a small badge shows activity instead. */}
-      {working && <span className="bot-avatar__working" style={{ width: Math.max(12, Math.round(size * 0.5)), height: Math.max(12, Math.round(size * 0.5)) }}><FlockMark size={Math.max(12, Math.round(size * 0.5))} working /></span>}
       {star && (
         <span className="bot-avatar__star" style={{ width: size * 0.2667, height: size * 0.2667 }}>
           <Icon name="star" size={size * 0.1333} color="#FFFFFF" />
@@ -83,6 +80,5 @@ export function BotAvatarFor({ bot, size, star, className, working }: { bot: Ava
     const live = userFacingLive(state.live[bot.id]);
     return !!live?.isRunning && !live.awaiting;
   });
-  if (bot.isPrimary) return <span className={`bot-avatar ${className ?? ''}`} style={{ width: size, height: size }} title={bot.name} role="img" aria-label={bot.name}><FlockMark size={size} working={isWorking} /></span>;
-  return <BotAvatar shape={bot.avatarShape} color={bot.avatarColor} size={size} star={star} className={className} title={bot.name} working={isWorking} />;
+  return <BotAvatar shape={bot.avatarShape} color={bot.avatarColor} size={size} star={!bot.isPrimary && star} className={className} title={bot.name} working={isWorking} />;
 }
