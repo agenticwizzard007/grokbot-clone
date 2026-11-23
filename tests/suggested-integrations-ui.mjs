@@ -20,7 +20,7 @@ try {
   for (let i = 0; i < 150; i++) { if (await fetch(origin).then(response => response.ok, () => false)) { ready = true; break; } await new Promise(resolve => setTimeout(resolve, 100)); }
   assert.ok(ready, log);
   browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
-  for (const width of [900, 390, 320]) for (const theme of ['light', 'dark']) {
+  for (const width of [1280, 1024, 900, 768, 390, 320]) for (const theme of ['light', 'dark']) {
     const page = await browser.newPage({ viewport: { width, height: 800 }, colorScheme: theme });
     page.setDefaultTimeout(8000);
     const errors = [], requests = [], connects = [], iconPaths = [];
@@ -98,6 +98,15 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     const geometry = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
     assert.ok(geometry.scroll <= geometry.width, JSON.stringify(geometry));
     await page.screenshot({ path: `.context/suggestions/chips-${width}-${theme}.png` });
+    // QA SO L-05: empty suggestions must point to a real settings section.
+    await page.getByLabel('About', { exact: true }).fill('');
+    const emptyNote = page.getByRole('region', { name: 'Suggested integrations' }).locator('.suggested-integrations__note');
+    await emptyNote.filter({ hasText: /Describe this Bot's work/ }).waitFor();
+    assert.equal(await emptyNote.innerText(), "Describe this Bot's work in Bot settings > General to find relevant integrations.");
+    assert.ok(await emptyNote.evaluate(element => element.scrollWidth <= element.clientWidth), `empty note fits ${width}px`);
+    await page.screenshot({ path: `.context/suggestions/empty-${width}-${theme}.png` });
+    await page.getByLabel('About', { exact: true }).fill('track GitHub PRs and post to Slack');
+    await page.getByRole('button', { name: 'Connect GitHub', exact: true }).waitFor();
     if (width === 900 && theme === 'light') {
       await page.getByRole('button', { name: 'Skip setup', exact: true }).click();
       await page.getByRole('region', { name: 'Review Bot setup', exact: true }).waitFor({ state: 'hidden' });

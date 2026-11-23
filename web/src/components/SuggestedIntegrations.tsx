@@ -77,6 +77,6 @@ export function SuggestedIntegrations({ botId, description, instructions }: { bo
       : current.apps.length ? <ul className="suggested-integrations__list">{current.apps.map(app => <SuggestionCard key={`${key}:${app.slug}`} app={app} refresh={refresh} />)}</ul>
       : <p className="suggested-integrations__note">{current.hasContext || description.trim() || instructions.trim()
         ? 'No matching additional apps for this Bot right now.'
-        : "Describe this Bot's work in About to find relevant integrations."}</p>}
+        : "Describe this Bot's work in Bot settings > General to find relevant integrations."}</p>}
   </section>;
 }
