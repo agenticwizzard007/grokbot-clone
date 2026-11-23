@@ -24,7 +24,7 @@ try {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   assert.ok(ready, `Built preview did not become ready: ${log}`);
-  for (const file of ['updated-ui-core.mjs', 'work-paper-ui.mjs', 'knowledge-paper-ui.mjs', 'access-settings-ui.mjs', 'working-avatar-ui.mjs', 'new-chat-processing-ui.mjs', 'bird-avatars-ui.mjs', 'bot-details-ui.mjs', 'usage-mode-ui.mjs', 'model-selector-ui.mjs', 'chat-shell-ui.mjs', 'create-bot-ui.mjs', 'routines-ui.mjs', 'suggested-integrations-ui.mjs', 'qa-r3-chat-ui.mjs', 'qa-r3-work-ui.mjs', 'qa-r3-work-import-ui.mjs', 'qa-r3-settings-ui.mjs']) {
+  for (const file of ['updated-ui-core.mjs', 'work-paper-ui.mjs', 'knowledge-paper-ui.mjs', 'access-settings-ui.mjs', 'working-avatar-ui.mjs', 'new-chat-processing-ui.mjs', 'bird-avatars-ui.mjs', 'bot-details-ui.mjs', 'usage-mode-ui.mjs', 'model-selector-ui.mjs', 'chat-shell-ui.mjs', 'create-bot-ui.mjs', 'routines-ui.mjs', 'suggested-integrations-ui.mjs', 'qa-r3-chat-ui.mjs', 'qa-r3-work-ui.mjs', 'qa-r3-work-import-ui.mjs', 'qa-r3-settings-ui.mjs', 'account-popover-ui.mjs']) {
     console.log(`Running ${file}`);
     const code = await new Promise((resolve, reject) => {
       active = spawn(process.execPath, [`tests/${file}`], { cwd: new URL('..', import.meta.url), env: { ...process.env, UI_ORIGIN: origin, WORK_ORIGIN: origin, ACCESS_UI_BASE: origin }, stdio: 'inherit' });
