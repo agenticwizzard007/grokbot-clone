@@ -12,13 +12,26 @@ export function startEvents(): () => void {
   let stopped = false;
   let retry = 1000;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let everConnected = false;
+  let needsResync = false;
 
   const resync = () => {
     const st = useStore.getState();
-    st.loadBots().catch(() => {});
+    st.loadBots({ silent: true }).catch(() => {});
     st.loadComputer().catch(() => {});
-    if (st.selectedBotId) { st.loadRows(st.selectedBotId).catch(() => {}); st.loadRoutines(st.selectedBotId).catch(() => {}); }
+    const cached = new Set([...Object.keys(st.transcripts), ...Object.keys(st.routines)]);
+    if (st.selectedBotId) cached.add(st.selectedBotId);
+    for (const id of cached) {
+      st.loadRows(id, { resync: true }).catch(() => {});
+      st.loadRoutines(id).catch(() => {});
+    }
+    // Refresh subscribers to invalidations that may have arrived during the gap.
+    st.handleEvent({ type: 'connections' });
+    st.handleEvent({ type: 'messaging' });
+    st.handleEvent({ type: 'synopses' });
+    st.handleEvent({ type: 'native', cursor: 0 });
+    for (const bot of st.bots) {
+      for (const type of ['tasks', 'memories', 'setup'] as const) st.handleEvent({ type, botId: bot.id });
+    }
   };
 
   const open = () => {
@@ -30,8 +43,8 @@ export function startEvents(): () => void {
       watchdog.beat();
       retry = 1000;
       useStore.getState().set({ sseConnected: true });
-      if (everConnected) resync();
-      everConnected = true;
+      if (needsResync) resync();
+      needsResync = true;
     };
     source.onmessage = (m) => {
       if (stopped || sessionExpired() || es !== source) return;
@@ -40,6 +53,7 @@ export function startEvents(): () => void {
     };
     source.onerror = async () => {
       if (stopped || sessionExpired() || es !== source) return;
+      needsResync = true;
       useStore.getState().set({ sseConnected: false });
       source.close();
       if (!await revalidateSession()) { stop(); return; }
@@ -54,13 +68,12 @@ export function startEvents(): () => void {
     clearTimeout(timer);
     es?.close();
     resync();
-    const state = useStore.getState();
-    state.set({ connectionsVersion: state.connectionsVersion + 1 });
     open();
   };
   // No event (pings included) for 45 s: the stream is stuck, so reconnect and resync even if hidden.
   const watchdog = createSseWatchdog(() => {
     if (stopped || sessionExpired()) return;
+    needsResync = true;
     clearTimeout(timer);
     es?.close(); es = null;
     useStore.getState().set({ sseConnected: false });

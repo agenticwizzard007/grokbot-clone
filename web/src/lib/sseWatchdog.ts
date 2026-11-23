@@ -1,5 +1,5 @@
 /**
- * MF-011: the server pings every 20 s. If nothing (not even a ping) arrives for 45 s the stream is
+ * MF-011: the server pings every 10 s. If nothing (not even a ping) arrives for 45 s the stream is
  * stuck behind a proxy or a dropped subscriber; force a reconnect and resync.
  */
 export const SSE_STALE_MS = 45_000;

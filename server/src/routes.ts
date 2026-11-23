@@ -2,7 +2,7 @@ import { isEffort } from './types.js';
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import { checkRoutineCreate } from './routine-limits.js';
-import { streamSSE } from 'hono/streaming';
+import { stream } from 'hono/streaming';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { db, now } from './db.js';
 import { env } from './env.js';
@@ -138,6 +138,7 @@ api.delete('/account', requireRecentAuth, async (c) => {
 
 /** Hard cap on undelivered events per subscriber; past it the stream is closed and the client resyncs on reconnect. */
 export const SSE_QUEUE_CAP = 5000;
+export const SSE_HEARTBEAT_MS = 10_000;
 /** Snapshot style events replace an older undelivered copy for the same bot instead of piling up (MF-011). */
 export function sseCoalesceKey(ev: ServerEvent): string | null {
   if (ev.type === 'live') return `live:${ev.state.botId}`;
@@ -168,31 +169,38 @@ export class SseQueue {
 
 api.get('/events', (c) => {
   const user = c.get('user');
-  const res = streamSSE(c, async (stream) => {
+  // Set these before the first write. Leave protocol framing to the adapter:
+  // streamSSE adds HTTP/1 hop-by-hop headers that are invalid on HTTP/2.
+  c.header('Content-Type', 'text/event-stream; charset=utf-8');
+  c.header('Cache-Control', 'no-cache, no-transform');
+  c.header('X-Accel-Buffering', 'no');
+  c.header('Content-Encoding', 'identity');
+  return stream(c, async (stream) => {
     const queue = new SseQueue();
     let wake: (() => void) | null = null;
     const unsub = hub.subscribe(user.id, (ev) => { if (!queue.push(ev)) { stream.abort(); return; } wake?.(); });
     const off = onSessionRevoked(sessionHash(sessionFromCookie(c.req.header('cookie')) ?? ''), () => stream.abort());
     const expiry = setInterval(() => { if (!userFromCookieHeader(c.req.header('cookie'))) stream.abort(); }, 15_000).unref();
-    stream.onAbort(() => { clearInterval(expiry); off(); unsub(); wake?.(); });
-    await stream.writeSSE({ data: JSON.stringify({ type: 'hello', serverTime: now() }) });
-    while (!stream.aborted) {
-      if (!queue.length) {
-        await new Promise<void>((resolve) => {
-          const timer = setTimeout(resolve, 20_000);
-          wake = () => { clearTimeout(timer); resolve(); };
-        });
-        wake = null;
-        if (!queue.length) { await stream.writeSSE({ data: JSON.stringify({ type: 'ping' }) }); continue; }
+    const cleanup = () => { clearInterval(expiry); off(); unsub(); wake?.(); };
+    stream.onAbort(cleanup);
+    // Each write is a complete SSE frame. Data pings also reach the browser watchdog.
+    const write = (data: string) => stream.write(`data: ${data}\n\n`);
+    try {
+      await write(JSON.stringify({ type: 'hello', serverTime: now() }));
+      while (!stream.aborted) {
+        if (!queue.length) {
+          await new Promise<void>((resolve) => {
+            const timer = setTimeout(resolve, SSE_HEARTBEAT_MS);
+            wake = () => { clearTimeout(timer); resolve(); };
+          });
+          wake = null;
+          if (stream.aborted) break;
+          if (!queue.length) { await write(JSON.stringify({ type: 'ping' })); continue; }
+        }
+        while (queue.length && !stream.aborted) await write(queue.shift()!);
       }
-      while (queue.length) await stream.writeSSE({ data: queue.shift()! });
-    }
-    clearInterval(expiry); off(); unsub();
+    } finally { cleanup(); }
   });
-  // Proxies (Fly, nginx) must neither buffer nor transform the event stream.
-  res.headers.set('Cache-Control', 'no-cache, no-transform');
-  res.headers.set('X-Accel-Buffering', 'no');
-  return res;
 });
 
 // ---------- bots ----------
