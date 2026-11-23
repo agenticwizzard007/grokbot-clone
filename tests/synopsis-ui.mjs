@@ -59,7 +59,12 @@ try{
  const put=await fetch(apiBase+'/api/checkins',{method:'PUT',headers:{cookie:'swarm_session=synopsis-browser-token','content-type':'application/json'},body:JSON.stringify({timezone:'Asia/Dubai'})});assert.ok(put.ok,await put.text());
  await page.evaluate(()=>window.dispatchEvent(new CustomEvent('swarm:event',{detail:{type:'synopses'}})));
  await panel.getByText(/· Asia\/Dubai ·/).waitFor();
- await page.setViewportSize({width:390,height:844});await page.reload();await openSynopses();
+ await page.setViewportSize({width:390,height:844});await page.reload();
+ // Reload restores Reports directly on phones, where the sidebar is not mounted.
+ await page.getByRole('navigation',{name:'Work sections'}).waitFor();
+ assert.equal(new URL(page.url()).hash,'#reports');
+ await page.waitForFunction(()=>document.title==='Reports');
+ await page.getByRole('button',{name:'Daily synopses',exact:true}).click();
  await panel.scrollIntoViewIfNeeded();assert.ok(await panel.evaluate(el=>el.scrollWidth<=el.clientWidth+1),'synopsis fits phone');
  await page.screenshot({path:path.join(evidence,'synopsis-mobile.png'),fullPage:true});assert.deepEqual(errors,[]);
  fs.writeFileSync(path.join(evidence,'result.json'),JSON.stringify({passed:true,reportId:before.id,attempts:report.report.delivery.attempts.length}));
