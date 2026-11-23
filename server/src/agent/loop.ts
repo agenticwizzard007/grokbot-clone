@@ -15,7 +15,7 @@ import { deduplicateBrowserSnapshots, repairHistory } from './history.js';
 import { maybeCompact, noteUsage } from './memory.js';
 import { activityFor, allowedDuringSetup, allowedInGroupTurn, COMPUTER_POLICY_TITLES, executionPolicyFor, functionSchemas, humanizeSlug, runComposioTool, toolMap, type ToolCtx, type ToolResult } from './tools.js';
 import { postToRoomById, setupNotice } from './rooms.js';
-import { isConfiguring } from '../bot-setup.js';
+import { isConfiguring, repairActiveSetup } from '../bot-setup.js';
 import { mcpSchemas, runMcpTool } from '../mcp/client.js';
 import { findMcpTool } from '../mcp/store.js';
 import { latency } from '../lib/latency.js';
@@ -89,6 +89,7 @@ export const currentTrigger = (botId: string): Trigger | undefined => running.ge
 
 export function enqueue(botId: string, trigger: Trigger) {
   const admitted=db.transaction(()=>{
+  repairActiveSetup(botId);
   // Questions and approvals end one run before their continuation starts. Preserve the
   // lineage so observers track the assignment instead of mistaking that pause for completion.
   let question: ReturnType<typeof getRow> = null;

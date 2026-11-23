@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, openPopup, type SuggestedToolkit } from '../lib/api';
 import { verifyAccessAccount } from '../lib/accessApi';
 import { useStore } from '../store';
@@ -48,25 +48,36 @@ export function SuggestedIntegrations({ botId, description, instructions }: { bo
   const connectionsVersion = useStore(state => state.connectionsVersion);
   const [retry, setRetry] = useState(0);
   const [result, setResult] = useState<{ key: string; apps: SuggestedToolkit[]; hasContext?: boolean; error?: string }>();
+  const loadingWindow = useRef<{ contextKey: string; deadline: number }>();
+  const contextKey = JSON.stringify([userId, botId, description, instructions, retry]);
   const key = JSON.stringify([userId, botId, description, instructions, connectionsVersion, retry]);
   useEffect(() => {
     if (!userId) return;
     const controller = new AbortController();
-    let deadline: ReturnType<typeof setTimeout> | undefined;
     const isCurrent = () => !controller.signal.aborted && useStore.getState().user?.id === userId;
+    // Connection refreshes may invalidate a request, but cannot extend loading forever.
+    if (loadingWindow.current?.contextKey !== contextKey) {
+      loadingWindow.current = { contextKey, deadline: Date.now() + SUGGESTIONS_DEBOUNCE_MS + SUGGESTIONS_TIMEOUT_MS };
+    }
+    const timeout = () => {
+      if (isCurrent()) setResult({ key, apps: [], error: 'Finding relevant apps took too long. Try again.' });
+      controller.abort();
+    };
+    const remaining = loadingWindow.current.deadline - Date.now();
+    if (remaining <= 0) { timeout(); return; }
+    const deadline = setTimeout(timeout, remaining);
     const timer = setTimeout(() => {
-      deadline = setTimeout(() => {
-        if (isCurrent()) setResult({ key, apps: [], error: 'Finding relevant apps took too long. Try again.' });
-        controller.abort();
-      }, SUGGESTIONS_TIMEOUT_MS);
       void api.suggestedApps(botId, { description, instructions }, controller.signal).then(response => {
-        if (isCurrent()) setResult({ key, apps: response.suggestions, hasContext: response.hasContext });
+        if (isCurrent()) {
+          loadingWindow.current = undefined;
+          setResult({ key, apps: response.suggestions, hasContext: response.hasContext });
+        }
       }).catch(() => {
         if (isCurrent()) setResult({ key, apps: [], error: 'Suggestions are unavailable right now.' });
       }).finally(() => clearTimeout(deadline));
     }, SUGGESTIONS_DEBOUNCE_MS);
     return () => { clearTimeout(timer); clearTimeout(deadline); controller.abort(); };
-  }, [key, botId, description, instructions, userId]);
+  }, [key, contextKey, botId, description, instructions, userId]);
   if (!userId) return null;
   const current = result?.key === key ? result : undefined;
   const refresh = () => setRetry(value => value + 1);

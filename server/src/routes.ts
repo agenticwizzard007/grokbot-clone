@@ -22,7 +22,7 @@ import { createBot, assertPrimaryRemovalAllowed, transferPrimary, botPatchSchema
 import { readJson, zodMessage } from './lib/json.js';
 import { apiBodyLimit } from './security/body-limits.js';
 import { renameSetupGreeting, skipSetup, SetupSkipError } from './bot-setup.js';
-import { activateSetup, beginSetupInterview, briefSchema, emitSetup, getSetup, removeSetupFiles, setupFiles, setupView, writeSetupFiles, coworkerSetups, coworkerSetup } from './bot-setup.js';
+import { activateSetup, beginSetupInterview, briefSchema, emitSetup, getSetup, repairActiveSetup, removeSetupFiles, setupFiles, setupView, writeSetupFiles, coworkerSetups, coworkerSetup } from './bot-setup.js';
 import { importTeammate, provisionTeammate } from './agent/teammates.js';
 import type { ComputerState, ServerEvent, Toolkit } from './types.js';
 import { compareAppPriority, matchesAppCategory } from './app-catalog.js';
@@ -210,7 +210,12 @@ const ownBot = (userId: string, id: string) => {
   return b && b.user_id === userId ? b : null;
 };
 
-api.get('/bots', (c) => c.json({ bots: listBots(c.get('user').id), live: allLive(c.get('user').id) }));
+api.get('/bots', (c) => {
+  const userId = c.get('user').id;
+  const bots = listBots(userId);
+  for (const bot of bots) repairActiveSetup(bot.id);
+  return c.json({ bots, live: allLive(userId) });
+});
 
 api.post('/bots', async (c) => {
   const parsed = await readJson(c, botCreateSchema);
@@ -402,6 +407,7 @@ api.post('/bots/:id/read', (c) => {
 api.get('/bots/:id/rows', (c) => {
   const b = ownBot(c.get('user').id, c.req.param('id'));
   if (!b) return c.json({ error: 'not found' }, 404);
+  repairActiveSetup(b.id);
   const rawBefore = c.req.query('beforeSeq');
   const rawLimit = c.req.query('limit');
   if (rawBefore !== undefined && rawBefore !== '' && !/^-?\d+$/.test(rawBefore)) return c.json({ error: 'beforeSeq must be an integer.' }, 400);

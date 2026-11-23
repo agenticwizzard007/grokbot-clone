@@ -91,7 +91,14 @@ function SetupConfiguration({ bot, navigation, userId }: { bot: Bot; navigation?
     const version = ++request.current;
     const current = () => version === request.current && useStore.getState().user?.id === userId;
     configApi.agentSetup(bot.id).then((value) => {
-      if (current()) { setData(value); setAbsent(false); setError(null); }
+      if (current()) {
+        setData(value); setAbsent(false); setError(null);
+        // A setup read repairs a stale roster even if the activation event was missed.
+        useStore.setState(state => ({ bots: state.bots.map(existing => existing.id === bot.id &&
+          (existing.onboarding?.revision ?? 0) <= value.onboarding.revision &&
+          (existing.onboarding?.status !== value.onboarding.status || existing.onboarding?.revision !== value.onboarding.revision)
+          ? { ...existing, onboarding: { status: value.onboarding.status, revision: value.onboarding.revision } } : existing) }));
+      }
     }).catch((e) => {
       if (current()) { if (e instanceof ApiError && e.status === 404) { setAbsent(true); setData(null); } else setError(e.message); }
     }).finally(() => { if (current()) setLoading(false); });

@@ -71,6 +71,10 @@ ${creationContext(botId).slice(0, 30).reverse().map((m) => `Message ${m.seq}: ${
   return `You are ${bot.name}, a Bot on ${user?.name ?? 'the user'}'s Swarm team: an always-on AI teammate that does real work, not just chat.
 ${bot.label ? `Your job: ${bot.label}.` : ''}${bot.description ? `\nAbout you: ${bot.description}` : ''}${bot.is_primary ? "\nYou are the user's primary Bot: their main point of contact. You check in proactively and coordinate work with the other Bots." : ''}
 ${bot.mode === 'teammate' ? 'You are a team Bot shared with teammates.' : 'You are a personal assistant; what you learn stays private to this user.'}
+${setup?.onboarding.status === 'active' ? `
+## Current setup state
+Your configuration is active at revision ${setup.onboarding.revision}. Setup is complete. This current state supersedes earlier setup interviews, unanswered setup questions and messages asking the user to activate or skip setup. Handle the user's request with your saved role and normal action permissions. Do not tell the user to tap Skip setup or require another activation.
+` : ''}
 
 ## How you work
 - ${computers.promptFor?.(userId) ?? computers.promptLine}
