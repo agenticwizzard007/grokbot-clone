@@ -1,3 +1,5 @@
+import { ShieldCheck } from 'lucide-react';
+import { SettingIcon } from './SettingRow';
 import { useEffect, useState } from 'react';
 import { isNativeApp } from '../../lib/native';
 import { isMacPlatform } from './settingsLogic';
@@ -28,14 +30,14 @@ export function DeviceAccessSection() {
     <section className="cfg-section device-access" aria-label="Device access">
       <h2 className="cfg-section__label">Use your Mac (optional)</h2>
       <div className="cfg-card">
-        <div className="cfg-row">
+        <div className="cfg-row"><SettingIcon icon={ShieldCheck} />
           <div className="cfg-row__text">
             <div className="cfg-row__title">Use your Mac</div>
             <div className="cfg-row__sub">Open Swarm on your Mac and go to Settings → Computer to approve and connect.</div>
             <div className="cfg-row__sub">Mac app required</div>
           </div>
         </div>
-        <div className="cfg-row">
+        <div className="cfg-row"><SettingIcon icon={ShieldCheck} />
           <div className="cfg-row__text">
             <div className="cfg-row__title">Agent access</div>
             <div className="cfg-row__sub">Terminal, Files, Browsers, and Desktop &amp; apps require review in the Mac app.</div>
@@ -52,7 +54,7 @@ export function DeviceAccessSection() {
 }
 
 function Permission({ title, detail }: { title: string; detail: string }) {
-  return <div className="cfg-row">
+  return <div className="cfg-row"><SettingIcon icon={ShieldCheck} />
     <div className="cfg-row__text"><div className="cfg-row__title">{title}</div><div className="cfg-row__sub">{detail}</div></div>
   </div>;
 }

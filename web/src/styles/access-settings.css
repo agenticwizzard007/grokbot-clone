@@ -9,11 +9,11 @@
 .access-nav--phone .settings-nav__label { font-family: 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack); }
 .access-settings .app-settings__head h1 { margin: 0; font-size: var(--text-page-title); line-height: 1.2; letter-spacing: -.025em; }
 .access-settings .app-settings__head p { margin: 11px 0 0; font-size: 15px; line-height: 1.5; }
-.access-settings .cfg-section__label { font-size: var(--text-panel-title); line-height: 1.3; font-weight: 600; }
+.access-settings .cfg-section__label { font-size: 15px; line-height: 1.3; font-weight: 600; }
 .access-settings .cfg-section > p,
 .access-section-note { color: var(--color-text-secondary); font-size: 14px; line-height: 1.55; }
 .access-settings .cfg-card { border-width: 0; border-radius: 0; background: transparent; }
-.access-settings .cfg-row { min-height: 84px; padding: 18px 0; align-items: center; }
+.access-settings .cfg-row { min-height: 72px; padding: 16px 0; align-items: center; }
 .access-settings .cfg-card > .cfg-row,
 .access-settings .account-delete > .cfg-row { border-bottom: 1px solid var(--access-divider); }
 .access-settings :is(.cfg-row, .settings-field, .mcp-advanced) + :is(.cfg-row, .settings-field, .mcp-advanced)::before { display: none; }
@@ -91,18 +91,18 @@
 .settings-strip__item:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
 .access-nav:not(.access-nav--phone) { padding: 4px 20px 12px; }
 .access-nav:not(.access-nav--phone) .settings-nav__title { padding: 6px 10px; font-family: var(--font-stack); font-size: 14px; line-height: 22px; font-weight: 500; color: var(--color-text-secondary); }
-.access-nav:not(.access-nav--phone) .settings-nav__label { display: none; }
+.access-nav:not(.access-nav--phone) .settings-nav__label { display: block; margin: 0; padding: 10px 10px 4px; font-size: 12px; }
 .access-nav:not(.access-nav--phone) .settings-search { margin: 2px 0 4px; height: 36px; }
-.access-nav:not(.access-nav--phone) .settings-nav__item { display: flex; justify-content: start; min-height: 40px; width: 100%; text-align: left; border-radius: 12px; }
+.access-nav:not(.access-nav--phone) .settings-nav__item { display: flex; justify-content: start; min-height: 34px; height: 34px; width: 100%; text-align: left; border-radius: 12px; }
 .access-nav:not(.access-nav--phone) .settings-nav__item.is-active { background: var(--color-bg-active); color: var(--color-primary); }
 .access-nav.access-nav--collapsed { display: flex; padding: 0; justify-content: center; }
 .access-nav__expand { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; color: var(--color-primary); background: var(--color-bg-active); }
 
-.access-settings .settings-appearance > .cfg-section__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-.access-settings .settings-shortcuts .cfg-row { flex-direction: column; align-items: flex-start; gap: 4px; min-height: 84px; }
-.access-settings .settings-shortcuts .cfg-row > .cfg-row__text { flex: initial; }
+
+.access-settings .settings-shortcuts .cfg-row { min-height: 52px; padding-block: 12px; }
+
 .access-settings .settings-keys { gap: 4px; }
-.access-settings .settings-keys kbd { width: auto; min-width: 0; height: auto; padding: 0; background: none; box-shadow: none; font-size: 14px; }
+.access-settings .settings-keys kbd { min-width: 24px; height: 24px; padding: 0 5px; border: 1px solid var(--access-divider); border-radius: 5px; font-size: 12px; }
 .access-settings .access-account .auth-button { min-height: 44px; height: auto; padding: 10px 14px; border-radius: 12px; background: var(--color-bg-active); color: var(--color-text-primary); font-size: 14px; }
 .access-account .auth-button__icon, .access-account .auth-button::after { display: none; }
 .access-settings .access-account > .cfg-btn, .access-settings .access-mcp > .cfg-btn { align-self: flex-start; margin-top: 8px; }
@@ -131,21 +131,75 @@
   .access-settings__back { flex: 0 0 36px; justify-content: center; }
   .access-nav--phone { padding: 24px 16px max(32px, env(safe-area-inset-bottom)); }
   .access-nav--phone .app-settings__head { margin-bottom: 24px; }
-  .access-nav__search-label { margin-bottom: 8px; font-size: 14px; font-weight: 500; }
   .access-nav--phone .settings-search { height: 48px; margin: 0; padding: 0 14px; border: 1px solid var(--access-divider); border-radius: 12px; background: transparent; }
-  .access-nav__search-hint { margin: 10px 0 0; color: var(--color-text-secondary); font-size: 13px; }
-  .access-nav--phone .settings-nav__group { margin: 24px 0 0; }
-  .access-nav--phone .settings-nav__label { margin: 0 0 18px; padding: 0; color: var(--color-text-primary); font-size: var(--text-page-title); font-weight: 600; }
-  .access-nav--phone .settings-nav__items { display: flex; flex-flow: row wrap; gap: 4px; margin: 0; border: 0; box-shadow: none; background: none; }
-  .access-settings .access-nav--phone .settings-nav__item { display: inline-flex; align-items: center; justify-content: center; width: auto; height: auto; min-height: 44px; padding: 0 12px; border-radius: 12px; box-shadow: none; font-size: 14px; }
+  .access-nav--phone .settings-nav__group { margin: 20px 0 0; }
+  .access-nav--phone .settings-nav__label { margin: 0 0 8px; padding: 0 12px; color: var(--color-text-secondary); font-size: 13px; font-weight: 500; }
+  .access-nav--phone .settings-nav__items { display: flex; flex-direction: column; gap: 2px; margin: 0; border: 0; box-shadow: none; background: none; }
+  .access-settings .access-nav--phone .settings-nav__item { display: inline-flex; align-items: center; justify-content: flex-start; width: 100%; height: auto; min-height: 44px; padding: 0 12px; border-radius: 12px; box-shadow: none; font-size: 14px; }
   .access-settings .access-nav--phone .settings-nav__item + .settings-nav__item::before { display: none; }
   .access-nav--phone .settings-nav__item.is-active { color: var(--color-primary); }
-  .access-settings .access-nav__learning { flex-wrap: nowrap; border-bottom: 1px solid var(--access-divider); margin-bottom: 10px; }
-  .access-settings .access-nav__learning > .cfg-row__text { flex: 1 1 0; }
-  .access-settings .access-nav__learning > .cfg-btn { flex-basis: 116px; }
-  .access-nav__return { margin-top: 28px; }
   .access-settings .cfg-row { min-height: 72px; padding: 16px 0; }
   .access-settings .cfg-row > .cfg-btn--secondary, .access-settings .cfg-row > .auth-button { flex: 0 1 116px; }
   .access-settings .account-delete .access-row-actions { flex-direction: column; align-items: stretch; }
   .access-device-pair { width: 100%; }
+}
+
+/* Shared icon, text and control lanes. Controls wrap under the text on phones. */
+.settings-row__icon { flex: none; color: var(--color-text-secondary); }
+.access-nav .settings-nav__item, .settings-strip__item { display: flex; align-items: center; gap: 10px; }
+.access-nav .settings-nav__icon { padding: 0; }
+.access-nav .settings-nav__item.is-active .settings-nav__icon { color: var(--color-primary); }
+.access-settings .cfg-row { column-gap: 12px; }
+.access-settings .cfg-row > .cfg-row__text { flex: 1 1 200px; min-width: 0; margin: 0; }
+.access-settings .cfg-row > .settings-row__icon { align-self: flex-start; margin-top: 3px; }
+.access-settings .cfg-row > :is(.cfg-btn, .auth-button) { flex: 0 0 auto; }
+.access-settings .cfg-row > .settings-row__actions { min-width: 0; flex-wrap: wrap; }
+.access-settings .cfg-key__form.cfg-row { padding: 16px 0; }
+.access-settings .settings-field { gap: 12px; }
+.access-settings .settings-field__text { width: 210px; padding-top: 0; }
+.access-settings .settings-field > .settings-row__icon { margin-top: 2px; }
+.access-settings .settings-strip { padding: 12px 32px; }
+.access-settings .learning-flags, .access-settings .learning-fields { gap: 0; }
+.access-settings .learning-fields .native-check { gap: 12px; align-items: flex-start; padding: 16px 0; border-bottom: 1px solid var(--access-divider); }
+.access-settings .learning-flags .native-check > input { order: 3; margin-left: auto; }
+.access-settings .learning-flags .native-check > span { flex: 1; min-width: 0; }
+.access-settings .learning-flags strong { font-size: 15px; font-weight: 500; }
+.access-settings .learning-flags small { display: block; font-size: 13px; }
+.access-settings .learning-disclosure { border-radius: 0; }
+.access-settings .learning-disclosure > summary, .access-settings .learning-disclosure--row { gap: 12px; }
+.access-settings .learning-disclosure > summary > span:first-of-type, .access-settings .learning-disclosure--row > div { flex: 1; min-width: 0; }
+.access-settings .learning-grid { grid-template-columns: 1fr; gap: 0; }
+.access-settings .learning-grid > label { display: grid; grid-template-columns: 20px minmax(0, 1fr) minmax(100px, 180px); gap: 12px; align-items: center; padding: 16px 0; border-bottom: 1px solid var(--access-divider); font-size: 14px; }
+.access-settings .learning-grid > label > small { grid-column: 2 / -1; }
+@media (max-width: 960px) {
+  .access-settings .settings-field { display: grid; grid-template-columns: 20px minmax(0, 1fr); }
+  .access-settings .settings-field__text { width: auto; }
+  .access-settings .settings-field__control { grid-column: 2; }
+}
+@media (max-width: 760px) {
+  .access-settings .cfg-row > .cfg-row__text { flex: 1 1 190px; }
+  .access-settings .cfg-row > :is(.cfg-btn, .auth-button, .access-row__actions, .settings-row__actions, .cfg-seg, .model-picker, .text-input, .msg-voice__controls, .settings-keys) { margin-left: 32px; max-width: calc(100% - 32px); }
+  .access-settings .settings-shortcuts .cfg-row > .cfg-row__text { flex-basis: 150px; }
+  .access-settings .settings-shortcuts .settings-keys { margin-left: 0; }
+  .access-settings .access-row:has(.model-picker, .openrouter-settings__oauth) { flex-direction: row; }
+  .access-settings .access-row__actions { flex-basis: calc(100% - 32px); }
+  .access-settings .cfg-seg { flex-wrap: wrap; }
+  .access-settings .mcp-server > .cfg-row__text { flex-basis: calc(100% - 32px); }
+  .access-settings .mcp-server__actions { margin-left: 32px; max-width: calc(100% - 32px); }
+  .access-settings .learning-grid > label { grid-template-columns: 20px minmax(0, 1fr); }
+  .access-settings .learning-grid > label > input { grid-column: 2; }
+}
+
+.access-settings .usage-filters > label { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px 12px; }
+.access-settings .usage-filters > label > :is(select, .cfg-field__hint) { grid-column: 2; }
+
+.access-settings .cfg-field:has(> .settings-row__icon) { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px 12px; }
+.access-settings .cfg-field:has(> .settings-row__icon) > :is(input, select, .cfg-field__hint) { grid-column: 2; }
+.access-settings .plan-connections { gap: 0; }
+.access-settings .plan-connections > .cfg-row { border-bottom: 1px solid var(--access-divider); }
+.access-settings .cfg-row > .auth-button { flex: 0 0 176px; width: 176px; }
+.access-settings .settings-timezone { width: 240px; max-width: 100%; }
+@media (max-width: 760px) {
+  .access-settings .cfg-row > .auth-button { flex-basis: calc(100% - 32px); width: auto; }
+  .access-settings .settings-timezone { width: calc(100% - 32px); }
 }

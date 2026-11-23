@@ -1,0 +1,320 @@
+[
+  {
+    "width": 390,
+    "section": "home",
+    "nav": 11,
+    "rows": 0
+  },
+  {
+    "width": 390,
+    "section": "general",
+    "nav": 0,
+    "rows": 11
+  },
+  {
+    "width": 390,
+    "section": "account",
+    "nav": 0,
+    "rows": 6
+  },
+  {
+    "width": 390,
+    "section": "messaging",
+    "nav": 0,
+    "rows": 5
+  },
+  {
+    "width": 390,
+    "section": "messaging-preferences",
+    "nav": 0,
+    "rows": 8
+  },
+  {
+    "width": 390,
+    "section": "usage",
+    "nav": 0,
+    "rows": 3
+  },
+  {
+    "width": 390,
+    "section": "learning",
+    "nav": 0,
+    "rows": 8
+  },
+  {
+    "width": 390,
+    "section": "learning-expanded",
+    "nav": 0,
+    "rows": 20
+  },
+  {
+    "width": 390,
+    "section": "computer",
+    "nav": 0,
+    "rows": 3
+  },
+  {
+    "width": 390,
+    "section": "permissions",
+    "nav": 0,
+    "rows": 1
+  },
+  {
+    "width": 390,
+    "section": "apps",
+    "nav": 0,
+    "rows": 2
+  },
+  {
+    "width": 390,
+    "section": "mcp",
+    "nav": 0,
+    "rows": 1
+  },
+  {
+    "width": 390,
+    "section": "mcp-editor",
+    "nav": 0,
+    "rows": 10
+  },
+  {
+    "width": 390,
+    "section": "subscriptions",
+    "nav": 0,
+    "rows": 9
+  },
+  {
+    "width": 390,
+    "section": "subscriptions-bridge",
+    "nav": 0,
+    "rows": 12
+  },
+  {
+    "width": 390,
+    "section": "keys",
+    "nav": 0,
+    "rows": 15
+  },
+  {
+    "width": 390,
+    "section": "keyboard-open",
+    "nav": 11,
+    "rows": 0
+  },
+  {
+    "width": 1280,
+    "section": "home",
+    "nav": 11,
+    "rows": 11
+  },
+  {
+    "width": 1280,
+    "section": "general",
+    "nav": 11,
+    "rows": 11
+  },
+  {
+    "width": 1280,
+    "section": "account",
+    "nav": 11,
+    "rows": 6
+  },
+  {
+    "width": 1280,
+    "section": "messaging",
+    "nav": 11,
+    "rows": 5
+  },
+  {
+    "width": 1280,
+    "section": "messaging-preferences",
+    "nav": 11,
+    "rows": 8
+  },
+  {
+    "width": 1280,
+    "section": "usage",
+    "nav": 11,
+    "rows": 3
+  },
+  {
+    "width": 1280,
+    "section": "learning",
+    "nav": 11,
+    "rows": 8
+  },
+  {
+    "width": 1280,
+    "section": "learning-expanded",
+    "nav": 11,
+    "rows": 20
+  },
+  {
+    "width": 1280,
+    "section": "computer",
+    "nav": 11,
+    "rows": 3
+  },
+  {
+    "width": 1280,
+    "section": "permissions",
+    "nav": 11,
+    "rows": 1
+  },
+  {
+    "width": 1280,
+    "section": "apps",
+    "nav": 11,
+    "rows": 2
+  },
+  {
+    "width": 1280,
+    "section": "mcp",
+    "nav": 11,
+    "rows": 1
+  },
+  {
+    "width": 1280,
+    "section": "mcp-editor",
+    "nav": 11,
+    "rows": 10
+  },
+  {
+    "width": 1280,
+    "section": "subscriptions",
+    "nav": 11,
+    "rows": 9
+  },
+  {
+    "width": 1280,
+    "section": "subscriptions-bridge",
+    "nav": 11,
+    "rows": 12
+  },
+  {
+    "width": 1280,
+    "section": "keys",
+    "nav": 11,
+    "rows": 15
+  },
+  {
+    "width": 1280,
+    "section": "collapsed-sidebar",
+    "nav": 11,
+    "rows": 11
+  },
+  {
+    "width": 1280,
+    "section": "keyboard-open",
+    "nav": 11,
+    "rows": 11
+  },
+  {
+    "width": 1440,
+    "section": "home",
+    "nav": 11,
+    "rows": 11
+  },
+  {
+    "width": 1440,
+    "section": "general",
+    "nav": 11,
+    "rows": 11
+  },
+  {
+    "width": 1440,
+    "section": "account",
+    "nav": 11,
+    "rows": 6
+  },
+  {
+    "width": 1440,
+    "section": "messaging",
+    "nav": 11,
+    "rows": 5
+  },
+  {
+    "width": 1440,
+    "section": "messaging-preferences",
+    "nav": 11,
+    "rows": 8
+  },
+  {
+    "width": 1440,
+    "section": "usage",
+    "nav": 11,
+    "rows": 3
+  },
+  {
+    "width": 1440,
+    "section": "learning",
+    "nav": 11,
+    "rows": 8
+  },
+  {
+    "width": 1440,
+    "section": "learning-expanded",
+    "nav": 11,
+    "rows": 20
+  },
+  {
+    "width": 1440,
+    "section": "computer",
+    "nav": 11,
+    "rows": 3
+  },
+  {
+    "width": 1440,
+    "section": "permissions",
+    "nav": 11,
+    "rows": 1
+  },
+  {
+    "width": 1440,
+    "section": "apps",
+    "nav": 11,
+    "rows": 2
+  },
+  {
+    "width": 1440,
+    "section": "mcp",
+    "nav": 11,
+    "rows": 1
+  },
+  {
+    "width": 1440,
+    "section": "mcp-editor",
+    "nav": 11,
+    "rows": 10
+  },
+  {
+    "width": 1440,
+    "section": "subscriptions",
+    "nav": 11,
+    "rows": 9
+  },
+  {
+    "width": 1440,
+    "section": "subscriptions-bridge",
+    "nav": 11,
+    "rows": 12
+  },
+  {
+    "width": 1440,
+    "section": "keys",
+    "nav": 11,
+    "rows": 15
+  },
+  {
+    "width": 1440,
+    "section": "collapsed-sidebar",
+    "nav": 11,
+    "rows": 11
+  },
+  {
+    "width": 1440,
+    "section": "keyboard-open",
+    "nav": 11,
+    "rows": 11
+  }
+]

@@ -155,8 +155,12 @@ function Shell() {
       {modal === 'search' && <SearchModal />}
       {modal === 'apps' && <ConnectAppsModal />}
       {viewerOpen && <ComputerViewer />}
-      {settingsOpen && <ConfigLayer />}
       </Suspense>
+      {settingsOpen && <Suspense fallback={<section className="settings-loading" aria-label="Settings">
+        <h1>Settings</h1>
+        <p role="status">Loading settings…</p>
+        <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().closeAppSettings()}>Close settings</button>
+      </section>}><ConfigLayer /></Suspense>}
     </div>
   );
 }

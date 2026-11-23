@@ -1,3 +1,5 @@
+import { Monitor } from 'lucide-react';
+import { SettingIcon } from './SettingRow';
 import { useEffect, useRef, useState } from 'react';
 import { accessApi, verifyAccessAccount, type AccountSession } from '../../lib/accessApi';
 import { ApiError } from '../../lib/api';
@@ -73,7 +75,7 @@ export function AccountSessions({ accountId }: { accountId: string }) {
       {sessions.map(session => {
         const confirmingThis = confirming?.id === session.id;
         const dates = [ ['Signed in', session.created_at], ['Last active', session.last_seen_at], ['Expires', session.expires_at] ] as const;
-        return <div className="cfg-row account-session" key={session.id}>
+        return <div className="cfg-row account-session" key={session.id}><SettingIcon icon={Monitor} />
           <div className="cfg-row__text">
             <div className="cfg-row__title">{session.current ? 'Current session' : session.device || 'Other session'}</div>
             {session.current && session.device && <div className="cfg-row__sub">{session.device}</div>}

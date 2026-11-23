@@ -1,9 +1,11 @@
 import { ConnectedAccountDetails, ConnectedAccounts, type DisplayAccount } from '../ConnectedAccountDetails';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, PanelLeftOpen, X } from 'lucide-react';
+import { Blocks, ChevronLeft, ChevronRight, CircleUserRound, Clock3, TextCursorInput, KeyRound, Monitor, PanelLeftOpen, Settings2, Search, ShieldCheck, X } from 'lucide-react';
+import { NAV, matches, SettingsNavButton } from './settingsNavigation';
+import { SettingRow, SettingIcon } from './SettingRow';
+export { SettingRow } from './SettingRow';
 import type { Toolkit, User } from '@shared/types';
-import { BotAvatarFor } from '../../avatar/BotAvatar';
 import { configApi, type ComputerDetails, type KeysResponse, type KeyStatus, type Pairing } from '../../lib/configApi';
 import { ModelPicker, refreshModels } from './ModelPicker';
 import { LearningSettingsPanel } from './LearningSettings';
@@ -12,7 +14,6 @@ import { relativeShort } from '../../lib/time';
 import { openConversation, useConfigUI, usePageTitle, useVersion, type AppSection, type Theme } from '../../configStore';
 import { useStore } from '../../store';
 import { computerStatusText } from './computerStatus';
-import { ToolkitLogo } from '../ToolkitLogo';
 import { ConfirmButton, Segmented, Switch } from './ui';
 import { McpSettings } from './McpSettings';
 import { MessagingSettings } from './MessagingSettings';
@@ -40,31 +41,6 @@ import { SwarmMark } from '../SwarmMark';
 import '../../styles/settings.css';
 import '../../styles/access-settings.css';
 
-// Swarms settings design for desktop, phone, Mac, and iPhone.
-type NavItem = { id: AppSection; label: string; keywords: string };
-const NAV: { group: string; items: NavItem[] }[] = [
-  { group: 'Personal', items: [
-    { id: 'general', label: 'General', keywords: 'theme dark light appearance layout sidebar details panel keyboard shortcuts' },
-    { id: 'account', label: 'Account', keywords: 'profile name email sign out log out apple delete sessions sign in' },
-    { id: 'messaging', label: 'Messaging', keywords: 'imessage sms text phone number whatsapp voice replies invite friends contact' },
-    { id: 'usage', label: 'Usage', keywords: 'cost spend money dollars tokens requests billing limits' },
-  ] },
-  { group: 'Bots', items: [
-    { id: 'learning', label: 'Learning', keywords: 'hermes memory skills review approval refine history maintenance' },
-    { id: 'computer', label: 'Computer', keywords: 'vm cloud browser screen desktop pc linux macos companion sleep wake reset device access accessibility recording files automation' },
-    { id: 'permissions', label: 'Permissions', keywords: 'approvals always allow ask again tools' },
-  ] },
-  { group: 'Integrations', items: [
-    { id: 'apps', label: 'Connected apps', keywords: 'composio gmail google calendar slack notion integrations connect' },
-    { id: 'mcp', label: 'MCP servers', keywords: 'mcp custom tools server url command stdio headers token' },
-    { id: 'subscriptions', label: 'Models & access', keywords: 'chatgpt codex claude code cli bridge connect subscription plan login auth api' },
-    { id: 'keys', label: 'API keys', keywords: 'openrouter model provider key composio default model platform voice xai admin' },
-  ] },
-];
-const matches = (it: NavItem, q: string) => {
-  const hay = `${it.label} ${it.keywords}`.toLowerCase();
-  return q.toLowerCase().split(/\s+/).filter(Boolean).every((w) => hay.includes(w));
-};
 const THEME_LABEL: Record<Theme, string> = { system: 'System', light: 'Light', dark: 'Dark' };
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
@@ -101,8 +77,15 @@ export function AppSettings() {
   const [query, setQuery] = useState('');
   const main = useRef<HTMLDivElement>(null);
   const heading = useRef<HTMLElement>(null);
-  const desktopSlot = compact ? null : document.getElementById('app-settings-sidebar-slot');
-  const appRoot = desktopSlot?.closest('.app');
+  const [portalHost, setPortalHost] = useState<HTMLElement | null>(null);
+  // The sidebar may mount in this same commit on a cold deep link. Resolve the
+  // host before mounting any page, then keep it stable across viewport changes:
+  // moving a portal remounts forms and can consume a one-time sign-in return.
+  useLayoutEffect(() => {
+    setPortalHost(document.querySelector<HTMLElement>('.app') ?? document.body);
+  }, []);
+  const desktopSlot = compact ? null : portalHost?.querySelector<HTMLElement>('#app-settings-sidebar-slot');
+  const appRoot = !compact && portalHost?.matches('.app') ? portalHost : null;
   const state = useRef({ query, compact, listView });
   state.current = { query, compact, listView };
 
@@ -120,7 +103,7 @@ export function AppSettings() {
   }, [close]);
   useEffect(() => { setListView(home); setQuery(''); }, [home, section]);
   useEffect(() => { main.current?.scrollTo({ top: 0 }); }, [section, listView]);
-  useLayoutEffect(() => { heading.current?.focus({ preventScroll: true }); }, [appRoot, compact, listView, section]);
+  useLayoutEffect(() => { heading.current?.focus({ preventScroll: true }); }, [portalHost, appRoot, compact, listView, section]);
   useLayoutEffect(() => {
     const caller = settingsCaller;
     return () => {
@@ -130,7 +113,7 @@ export function AppSettings() {
 
   const sectionLabel = NAV.flatMap(group => group.items).find(item => item.id === section)?.label;
   usePageTitle(section ? compact && listView ? 'Settings' : `Settings · ${sectionLabel}` : null, 2);
-  if (!section) return null;
+  if (!section || !portalHost) return null;
   const pick = (id: AppSection) => { open(id); setListView(false); setQuery(''); };
   const q = query.trim();
   const groups = q ? NAV.map((g) => ({ ...g, items: g.items.filter((it) => matches(it, q)) })).filter((g) => g.items.length) : NAV;
@@ -149,26 +132,23 @@ export function AppSettings() {
   </nav> : (
     <nav className={`settings-nav access-nav${compact ? ' access-nav--phone' : ''}`} aria-label="Settings sections" onKeyDown={arrows}>
       {compact ? <PageHead title={q ? 'Search settings' : 'Settings'} sub="Manage your Swarm workspace." /> : <h2 className="settings-nav__title">Settings</h2>}
-      {compact && <label className="access-nav__search-label" htmlFor="app-settings-search">Search settings</label>}
       <label className="settings-search">
+        <Search size={18} strokeWidth={1.75} aria-hidden />
         <input
-          id="app-settings-search" type="search" value={query} placeholder={compact ? undefined : 'Search settings'} aria-label="Search settings" autoComplete="off" spellCheck={false} enterKeyHint="go"
+          id="app-settings-search" type="search" value={query} placeholder="Search settings" aria-label="Search settings" autoComplete="off" spellCheck={false} enterKeyHint="go"
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && groups[0]) { e.preventDefault(); pick(groups[0].items[0].id); } }}
         />
       </label>
-      {compact && <p className="access-nav__search-hint">Search sections and related terms</p>}
       {groups.map((g) => (
         <div key={g.group} className="settings-nav__group" role="group" aria-label={g.group}>
           <h3 className="settings-nav__label">{g.group}</h3>
-          {compact && g.group === 'Bots' && g.items.some(item => item.id === 'learning') && <div className="cfg-row access-nav__learning"><div className="cfg-row__text"><div className="cfg-row__title">Learning</div><p className="cfg-row__sub">Review how Bots improve skills and memories.</p></div><button type="button" className="cfg-btn cfg-btn--secondary settings-nav__item" onClick={() => pick('learning')}>Learning</button></div>}
           <div className="settings-nav__items">
-            {g.items.filter(it => !compact || it.id !== 'learning').map(it => <button key={it.id} type="button" className={`cfg-nav__item settings-nav__item${section === it.id ? ' is-active' : ''}`} onClick={() => pick(it.id)} aria-current={section === it.id ? 'page' : undefined}>{it.label}</button>)}
+            {g.items.map(it => <SettingsNavButton key={it.id} item={it} compact={compact} active={section === it.id} onSelect={pick} />)}
           </div>
         </div>
       ))}
       {!groups.length && <div className="settings-nav__empty" role="status">No settings match “{q}”.</div>}
-      {compact && <button className="cfg-btn cfg-btn--primary access-nav__return" type="button" onClick={close}>Back to Bots</button>}
     </nav>
   );
 
@@ -189,7 +169,7 @@ export function AppSettings() {
         {showList ? nav : <>
           {/* Compact sidebar: the section list moves to a strip above the page so every section stays reachable. */}
           {collapsed && desktopSlot && <nav className="settings-strip" aria-label="Settings sections">
-            {NAV.flatMap(g => g.items).map(it => <button key={it.id} type="button" className={`settings-strip__item${section === it.id ? ' is-active' : ''}`} aria-current={section === it.id ? 'page' : undefined} onClick={() => pick(it.id)}>{it.label}</button>)}
+            {NAV.flatMap(g => g.items).map(it => <SettingsNavButton key={it.id} item={it} strip active={section === it.id} onSelect={pick} />)}
           </nav>}
           <div className="app-settings__page" key={section}>
             {section === 'general' && <GeneralSection />}
@@ -206,7 +186,7 @@ export function AppSettings() {
           </div>
         </>}
       </div>
-    </div>, appRoot ?? document.body)}
+    </div>, portalHost)}
   </>;
 }
 
@@ -215,19 +195,6 @@ function PageHead({ title, sub }: { title: string; sub?: string }) {
     <div className="app-settings__head">
       <h1>{title}</h1>
       {sub && <p>{sub}</p>}
-    </div>
-  );
-}
-
-/** A settings row: title and description on the left, its control on the right. */
-export function SettingRow({ title, sub, children, wrap }: { title: string; sub?: string; children?: ReactNode; wrap?: boolean }) {
-  return (
-    <div className={`cfg-row${wrap ? ' settings-row--wrap' : ''}`}>
-      <div className="cfg-row__text">
-        <div className="cfg-row__title">{title}</div>
-        {sub && <div className="cfg-row__sub">{sub}</div>}
-      </div>
-      {children}
     </div>
   );
 }
@@ -245,37 +212,32 @@ function GeneralSection() {
   const [detailsDefault, setDetailsDefault] = useState(() => readDetailsDefault(accountId));
   useEffect(() => { setDetailsDefault(readDetailsDefault(accountId)); }, [accountId]);
   const collapsed = useStore((s) => s.sidebarCollapsed);
-  const compact = useCompactLayout();
   // Every shortcut the app handles (lib/shortcuts.ts), with platform glyphs (MF-028, MF-029).
   const shortcuts: [string, string[]][] = SHORTCUTS.filter(s => !(s.web && isNativeApp)).map(s => [s.label, shortcutKeys(s)]);
   return (
     <>
       <PageHead title="General" sub="Appearance, layout, and keyboard shortcuts" />
       <section className="cfg-section settings-appearance">
-        <h2 className="cfg-section__label">Appearance</h2>
-        <Segmented label="Theme" value={theme} onChange={setTheme} options={(['system', 'light', 'dark'] as const).map((t) => ({ value: t, label: THEME_LABEL[t] }))} />
+        <h2 className="cfg-section__label">Appearance & layout</h2>
+        <div className="cfg-card">
+          <SettingRow icon={Settings2} title="Theme" sub="Choose how Swarm looks on this device.">
+            <Segmented label="Theme" value={theme} onChange={setTheme} options={(['system', 'light', 'dark'] as const).map((t) => ({ value: t, label: THEME_LABEL[t] }))} />
+          </SettingRow>
+          <SettingRow icon={PanelLeftOpen} title="Open Bot details with each chat" sub="Show activity, tasks, files, and setup beside the chat.">
+            <Switch label="Open Bot details with each chat" on={detailsDefault} onChange={(v) => { writeDetailsDefault(accountId, v); setDetailsDefault(v); }} />
+          </SettingRow>
+          <SettingRow icon={PanelLeftOpen} title="Compact sidebar" sub="Give chats more room on desktop.">
+            <Switch label="Compact sidebar" on={collapsed} onChange={(v) => useStore.getState().set({ sidebarCollapsed: v })} />
+          </SettingRow>
+        </div>
       </section>
-      {!compact && (
-        <section className="cfg-section">
-          <div className="cfg-card" aria-label="Layout">
-            <SettingRow title="Open Bot details with each chat" sub="Show activity, tasks, files, and setup beside the chat whenever you open a Bot.">
-              <Switch label="Open Bot details with each chat" on={detailsDefault} onChange={(v) => { writeDetailsDefault(accountId, v); setDetailsDefault(v); }} />
-            </SettingRow>
-            <SettingRow title="Compact sidebar" sub="Show only Bot avatars in the sidebar to give chats more room.">
-              <Switch label="Compact sidebar" on={collapsed} onChange={(v) => useStore.getState().set({ sidebarCollapsed: v })} />
-            </SettingRow>
-          </div>
-        </section>
-      )}
-      {!compact && (
-        <section className="cfg-section">
-          <h2 className="cfg-section__label">Keyboard shortcuts</h2>
-          {IS_MAC && !isNativeApp && <div className="cfg-field__hint">On Windows and Linux, use Ctrl instead of ⌘ and Alt instead of ⌥.</div>}
-          <div className="cfg-card settings-shortcuts">
-            {shortcuts.map(([label, keys]) => <SettingRow key={label} title={label}><Keys keys={keys} /></SettingRow>)}
-          </div>
-        </section>
-      )}
+      <section className="cfg-section">
+        <h2 className="cfg-section__label">Keyboard shortcuts</h2>
+        {IS_MAC && !isNativeApp && <div className="cfg-field__hint">On Windows and Linux, use Ctrl instead of ⌘ and Alt instead of ⌥.</div>}
+        <div className="cfg-card settings-shortcuts">
+          {shortcuts.map(([label, keys]) => <SettingRow icon={TextCursorInput} key={label} title={label}><Keys keys={keys} /></SettingRow>)}
+        </div>
+      </section>
     </>
   );
 }
@@ -309,8 +271,7 @@ function KeyCard({ name, title, what, link, status, canEdit, required, onChange 
   };
   return (
     <div className="cfg-card cfg-key">
-      <div className="cfg-row">
-        <span className={`computer-status-dot is-${status.set ? 'on' : 'off'}`} aria-hidden />
+      <div className="cfg-row"><SettingIcon icon={KeyRound} />
         <div className="cfg-row__text">
           <div className="cfg-row__title">{title} · {status.set ? 'Connected' : required ? 'Needed' : 'Not set'}</div>
           <div className="cfg-row__sub">{what}{status.set && canEdit ? ` ${status.hint ? `Key ${status.hint}, ` : 'Key '}${sourceText(status)}.` : ''}</div>
@@ -355,7 +316,7 @@ function AccountKeysSection({ accountId, accountEmail }: { accountId: string; ac
     {reauth.returned && <p role="status">You’re signed in again. Review your credentials and retry the change.</p>}
     {reauth.error && <p className="cfg-error" role="alert">{reauth.error}</p>}
     <OpenRouterSettings onReauth={onReauth} />
-    <PlanConnections />
+    <PlanConnections settings />
     <ServerKeysSection accountId={accountId} onReauth={onReauth} />
   </>;
 }
@@ -410,7 +371,7 @@ function ServerKeysSection({ accountId, onReauth }: { accountId: string; onReaut
       <section className="cfg-section">
         <h2 className="cfg-section__label">Models</h2>
         <div className="cfg-card cfg-key">
-          <div className="cfg-key__form">
+          <div className="cfg-row cfg-key__form"><SettingIcon icon={KeyRound} />
             <div className="cfg-row__text"><div className="cfg-row__title">Run Bots on</div><div className="cfg-row__sub">OpenRouter gives one key for Claude, GPT, Gemini and hundreds more.</div></div>
             <div className="cfg-seg" role="radiogroup" aria-label="Model provider">
               {(['openrouter', 'direct'] as const).map((p) => (
@@ -420,7 +381,7 @@ function ServerKeysSection({ accountId, onReauth }: { accountId: string; onReaut
               ))}
             </div>
           </div>
-          <div className="cfg-key__form">
+          <div className="cfg-row cfg-key__form"><SettingIcon icon={KeyRound} />
             <div className="cfg-row__text"><div className="cfg-row__title">Default model</div><div className="cfg-row__sub">Used by every Bot unless you pick one in its settings.</div></div>
             <ModelPicker key={`${chosen}-${pickerKey}`} provider={chosen} label="Default model" value={current} disabled={!canPick}
               onChange={(id) => { if (id && id !== current) void save(chosen === 'openrouter' ? 'openrouter_model' : 'model', id); }} />
@@ -489,8 +450,7 @@ function ComputerSection() {
         <h2 className="cfg-section__label">Cloud computer</h2>
         <p className="cfg-field__hint">Each Bot has its own cloud computer. Bots can browse and run commands there without asking. Connected app actions that change data still ask first.</p>
         <div className="cfg-card">
-          <div className="cfg-row">
-            <span className={`computer-status-dot is-${running ? 'on' : transitioning ? 'busy' : 'off'}`} aria-hidden />
+          <div className="cfg-row"><SettingIcon icon={Monitor} />
             <div className="cfg-row__text">
               <div className="cfg-row__title">Bots' computer · {computerStatusText(computer ?? null)}</div>
               <div className="cfg-row__sub">
@@ -520,8 +480,8 @@ function ComputerSection() {
           ) : details.screens.map((s) => {
             const bot = byId.get(s.botId);
             return (
-              <div key={s.botId} className="cfg-row">
-                {bot ? <BotAvatarFor bot={bot} size={28} /> : <span className="cfg-row__ph" />}
+              <div key={s.botId} className="cfg-row"><SettingIcon icon={Monitor} />
+
                 <div className="cfg-row__text">
                   <div className="cfg-row__title">{bot?.name ?? 'Removed Bot'}</div>
                   <div className="cfg-row__sub">{screenLabel(s.screenId)} · used {relativeShort(s.lastUsedAt) === 'now' ? 'just now' : `${relativeShort(s.lastUsedAt)}${/^\d/.test(relativeShort(s.lastUsedAt)) ? ' ago' : ''}`}</div>
@@ -571,7 +531,7 @@ function AskBeforeComputerRow() {
     } finally { setBusy(false); }
   };
   return <>
-    <SettingRow title="Ask before Bots use their computer" sub="When on, Bots show an approval card before browsing, running commands or using the desktop. Choose Always allow on a card to stop asking for that kind of action.">
+    <SettingRow icon={ShieldCheck} title="Ask before Bots use their computer" sub="When on, Bots show an approval card before browsing, running commands or using the desktop. Choose Always allow on a card to stop asking for that kind of action.">
       <Switch label="Ask before Bots use their computer" on={!!on} disabled={on === null || busy} onChange={v => void change(v)} />
     </SettingRow>
     {error && <div className="cfg-error cfg-error--inset" role="alert">{error} {on === null && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setAttempt(n => n + 1)}>Retry</button>}</div>}
@@ -660,8 +620,7 @@ function LocalComputerSection({ details, detailsError, reload }: { details: Comp
       <section className="cfg-section">
         {!connectOnly && <h2 className="cfg-section__label">Status</h2>}
         <div className="cfg-card">
-          <div className="cfg-row">
-            <span className={`computer-status-dot is-${connected ? 'on' : 'off'}`} aria-hidden />
+          <div className="cfg-row"><SettingIcon icon={Monitor} />
             <div className="cfg-row__text">
               <div className="cfg-row__title">{nativeMac ? 'Your Mac' : 'Your PC'}</div>
               <div className="cfg-row__sub">
@@ -710,8 +669,8 @@ function LocalComputerSection({ details, detailsError, reload }: { details: Comp
           ) : details.screens.map((s) => {
             const bot = byId.get(s.botId);
             return (
-              <div key={s.botId} className="cfg-row">
-                {bot ? <BotAvatarFor bot={bot} size={28} /> : <span className="cfg-row__ph" />}
+              <div key={s.botId} className="cfg-row"><SettingIcon icon={Monitor} />
+
                 <div className="cfg-row__text">
                   <div className="cfg-row__title">{bot?.name ?? 'Removed Bot'}</div>
                   <div className="cfg-row__sub">{desktop ? 'Desktop' : 'Browser'} · used {relativeShort(s.lastUsedAt) === 'now' ? 'just now' : `${relativeShort(s.lastUsedAt)}${/^\d/.test(relativeShort(s.lastUsedAt)) ? ' ago' : ''}`}</div>
@@ -776,7 +735,7 @@ function PermissionsSection() {
           ) : policies.map((p) => {
             const h = mcpNames[p.tool] ?? (p.tool.startsWith('mcp_') ? { app: 'MCP server', action: 'Previous tool permission' } : humanizeTool(p.tool));
             return (
-              <div key={p.tool} className="cfg-row">
+              <div key={p.tool} className="cfg-row"><SettingIcon icon={ShieldCheck} />
                 <div className="cfg-row__text">
                   <div className="cfg-row__title">{h.app}{h.action ? ` · ${h.action}` : ''}</div>
                   <div className="cfg-row__sub">{p.mode === 'always_allow' ? 'Always allowed' : p.mode === 'blocked' ? 'Never allowed' : 'Asks first'}{!p.tool.startsWith('mcp_') && <> · <code className="cfg-code">{p.tool}</code></>}</div>
@@ -922,7 +881,6 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
     const app = apps?.find(app => app.slug === c.toolkit);
     const name = toolkitDisplayName(c.toolkit, app?.name);
     return <>
-      <ToolkitLogo slug={c.toolkit} name={name} logo={app?.logo} size={36} />
       <div className="cfg-row__text">
         <div className="cfg-row__title" title={`Connection ID: ${c.id}`}>{name} · Account {index + 1}</div>
         <ConnectedAccountDetails account={c} />
@@ -957,8 +915,7 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
         {!!apps?.length && (
           <div className="cfg-card">
             {apps.map((a) => (
-              <div key={a.slug} className="cfg-row access-apps-settings__row">
-                <ToolkitLogo slug={a.slug} name={a.name} logo={a.logo} size={36} />
+              <div key={a.slug} className="cfg-row access-apps-settings__row"><SettingIcon icon={Blocks} />
                 <div className="cfg-row__text">
                   <div className="access-apps-settings__name"><span className="cfg-row__title">{a.name}</span><span className="cfg-chip">Connected</span></div>
                   <ConnectedAccounts accounts={a.accounts} />
@@ -975,7 +932,7 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
         <div className="cfg-card">
           {connections === null ? <div className="cfg-empty cfg-empty--flat">{connectionsError ? 'Accounts unavailable' : 'Loading accounts…'}</div>
             : !active.length ? <div className="cfg-empty cfg-empty--flat">No active accounts connected.</div>
-              : active.map((c, index) => <div className="cfg-row access-apps-settings__row" key={c.id}>
+              : active.map((c, index) => <div className="cfg-row access-apps-settings__row" key={c.id}><SettingIcon icon={CircleUserRound} />
                 {accountDetails(c, index)}
                 <div className="settings-row__actions">
                   <button className="cfg-btn cfg-btn--secondary" type="button" disabled={busy || c.isDefault} onClick={() => void manage(c.id, 'default')}>Use by default</button>
@@ -992,19 +949,19 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
         <h2 className="cfg-section__label">Other connections</h2>
         <p className="cfg-field__hint">These accounts are unavailable for Bots to use. Their current status is shown below.</p>
         <div className="cfg-card">
-          {other.map((c, index) => <div className="cfg-row access-apps-settings__row" key={c.id}>{accountDetails(c, index)}</div>)}
+          {other.map((c, index) => <div className="cfg-row access-apps-settings__row" key={c.id}><SettingIcon icon={CircleUserRound} />{accountDetails(c, index)}</div>)}
         </div>
       </section>}
       {!!expired.length && <section className="cfg-section" aria-label="Expired connections">
         <details className="cfg-card access-apps-settings__disclosure">
-          <summary className="cfg-row">
+          <summary className="cfg-row"><SettingIcon icon={CircleUserRound} />
             <span className="cfg-row__text">
               <span className="cfg-row__title">Expired connections ({expired.length})</span>
               <span className="cfg-row__sub">Review and remove expired records one at a time.</span>
             </span>
             <ChevronRight size={18} strokeWidth={1.75} aria-hidden />
           </summary>
-          {expired.map((c, index) => <div className="cfg-row access-apps-settings__row" key={c.id}>
+          {expired.map((c, index) => <div className="cfg-row access-apps-settings__row" key={c.id}><SettingIcon icon={CircleUserRound} />
             {accountDetails(c, index)}
             <div className="settings-row__actions">
               <ConfirmButton disabled={busy} confirmLabel="Confirm removal" title="Remove only this expired connection record" onConfirm={() => manage(c.id, 'remove-expired')}>Remove expired record</ConfirmButton>
@@ -1040,7 +997,7 @@ function TimeZoneRow({ user }: { user: User }) {
     } finally { setBusy(false); }
   };
   return <>
-    <SettingRow title="Time zone" sub={saved ? 'Daily synopses, check-ins and analytics use this zone.' : 'Not set yet. Daily synopses and analytics use UTC until you choose one.'}>
+    <SettingRow icon={Clock3} title="Time zone" sub={saved ? 'Daily synopses, check-ins and analytics use this zone.' : 'Not set yet. Daily synopses and analytics use UTC until you choose one.'}>
       <select className="text-input settings-timezone" aria-label="Time zone" value={value} disabled={busy} onChange={(e) => void change(e.target.value)}>
         {zones.map(zone => <option key={zone} value={zone}>{zone.replace(/_/g, ' ')}</option>)}
       </select>
@@ -1102,7 +1059,7 @@ function AccountSettings({ user }: { user: User }) {
     <div className="app-settings__head"><h1 ref={deleteHeading} tabIndex={-1}>Delete your Swarm account?</h1><p>This permanently removes your account, Bots and conversations. Apple access is revoked if linked.</p></div>
     {reauth.returned && <p role="status" className="access-section-note">You’re signed in again. Nothing has been deleted.</p>}
     <div className="account-delete__warning"><strong>This can’t be undone</strong><p>Deleting your account is different from signing out or clearing local data.</p></div>
-    <SettingRow title="Account to delete" sub={email} />
+    <SettingRow icon={CircleUserRound} title="Account to delete" sub={email} />
     <section className="cfg-section">
       <h2 className="cfg-section__label">Before you continue</h2>
       <p>Cancel to keep your account and return to Account settings.</p>
@@ -1120,15 +1077,15 @@ function AccountSettings({ user }: { user: User }) {
       <section className="cfg-section access-account" aria-label="Profile and sign-in methods">
         {reauth.error && <div className="cfg-error" role="alert">{reauth.error}</div>}
         <div className="cfg-card">
-          <div className="cfg-row"><div className="cfg-row__text"><div className="cfg-row__title">{user.name || 'Swarm member'}</div><div className="cfg-row__sub">{email}</div><div className="cfg-row__sub">Signed in</div></div></div>
-          {(appleLogin || appleLinked) && <SettingRow title="Sign in with Apple" sub={appleLinked ? 'Connected. Use it to sign in to this account on the web or in the Swarm app.' : 'Use your Apple account on the web or in the Swarm app.'}>
+          <div className="cfg-row"><SettingIcon icon={CircleUserRound} /><div className="cfg-row__text"><div className="cfg-row__title">{user.name || 'Swarm member'}</div><div className="cfg-row__sub">{email}</div><div className="cfg-row__sub">Signed in</div></div></div>
+          {(appleLogin || appleLinked) && <SettingRow icon={CircleUserRound} title="Sign in with Apple" sub={appleLinked ? 'Connected. Use it to sign in to this account on the web or in the Swarm app.' : 'Use your Apple account on the web or in the Swarm app.'}>
             {appleLinked ? <span className="cfg-chip">Connected</span> : <AppleSignIn link />}
           </SettingRow>}
-          {(googleLogin || googleLinked) && <SettingRow title="Sign in with Google" sub={googleLinked ? 'Connected. Use it to sign in to this account on the web or in the Swarm app.' : 'Google sign-in uses Composio and requests Gmail access to verify your email address.'}>
+          {(googleLogin || googleLinked) && <SettingRow icon={CircleUserRound} title="Sign in with Google" sub={googleLinked ? 'Connected. Use it to sign in to this account on the web or in the Swarm app.' : 'Google sign-in uses Composio and requests Gmail access to verify your email address.'}>
             {googleLinked ? <span className="cfg-chip">Connected</span> : <AuthLink className="signin__google" href="/api/auth/google/start?intent=link">Connect Google</AuthLink>}
           </SettingRow>}
           <TimeZoneRow user={user} />
-          <SettingRow title="Delete your account" sub="Permanently removes your account, Bots and conversations.">
+          <SettingRow icon={ShieldCheck} title="Delete your account" sub="Permanently removes your account, Bots and conversations.">
             <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => { setError(null); setDeleting(true); }}>Delete account…</button>
           </SettingRow>
         </div>
