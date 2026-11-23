@@ -9,6 +9,10 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
     headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
+  return readResponse<T>(res);
+}
+
+async function readResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let msg = res.statusText;
     try { msg = ((await res.json()) as { error?: string }).error ?? msg; } catch { /* not json */ }
@@ -81,6 +85,15 @@ export interface MessagingWhatsAppStart { number: string | null; messageText: st
 export interface MessagingLine { number: string; connectCommand: string; smsLink: string; whatsapp?: MessagingWhatsAppStart | null }
 export type SignupMode = 'invite' | 'open' | 'closed';
 export interface PlatformSignupPolicy { mode: SignupMode; signupsPerDay: number; memberInvites: number; revision: string }
+
+async function platformSignup(): Promise<{ admin: boolean; settings?: PlatformSignupPolicy }> {
+  const res = await fetch('/api/platform/signup', { method: 'GET', credentials: 'include' });
+  // Standalone servers have no platform admin route and may serve the SPA fallback.
+  const contentType = res.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase();
+  if (res.status === 404 || (res.ok && contentType === 'text/html')) return { admin: false };
+  return readResponse(res);
+}
+
 export interface PlatformWaitlistEntry extends WaitlistEntry { revision: string }
 export interface InkboxWhatsAppStatus { enabled: boolean; number: string | null; status: string }
 export interface InkboxWhatsAppOnboarding { agentIdentityId: string; number: string | null; messageText: string; messageLink: string | null; messageQrPngDataUrl: string | null; ready: boolean }
@@ -247,7 +260,7 @@ export const configApi = {
   inkboxWhatsApp: () => req<InkboxWhatsAppInfo>('GET', '/messaging/inkbox/whatsapp'),
   messagingSignup: (p: Partial<MessagingOwner['signup']>) => req<MessagingStatus>('PUT', '/messaging/signup', p),
   invites: () => req<{ invites: MessagingInvite[] }>('GET', '/messaging/invites'),
-  platformSignup: () => req<{ admin: boolean; settings?: PlatformSignupPolicy }>('GET', '/platform/signup'),
+  platformSignup,
   savePlatformSignup: (settings: PlatformSignupPolicy) => req<{ admin: boolean; settings: PlatformSignupPolicy }>('PUT', '/platform/signup', settings),
   platformInvites: (cursor = '') => req<{ invites: MessagingInvite[]; next: string | null }>('GET', `/messaging/invites?cursor=${encodeURIComponent(cursor)}`),
   platformWaitlist: (cursor = '') => req<{ waitlist: PlatformWaitlistEntry[]; next: string | null }>('GET', `/messaging/waitlist?cursor=${encodeURIComponent(cursor)}`),
