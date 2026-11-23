@@ -160,7 +160,12 @@ function AppRoot() {
   useEffect(() => { consumeSignedInRedirect(); useStore.getState().checkAuth(); }, []);
   // Public invite page: /join/<code> works signed in or out.
   const join = window.location.pathname.match(/^\/join\/([^/]+)/);
-  if (join) return <Suspense fallback={<div className="boot" role="status">Loading…</div>}><JoinPage code={decodeURIComponent(join[1])} /></Suspense>;
+  if (join) {
+    let code: string | null = null;
+    try { code = decodeURIComponent(join[1]); }
+    catch { /* Malformed URL encoding is an unusable invite. */ }
+    return <Suspense fallback={<div className="boot" role="status">Loading…</div>}><JoinPage code={code} /></Suspense>;
+  }
   if (authError) return (
     <main className="boot boot--error">
       <div className="boot__message">
