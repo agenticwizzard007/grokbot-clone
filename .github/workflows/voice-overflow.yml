@@ -1,0 +1,29 @@
+name: Voice overflow regressions
+on:
+  pull_request:
+    paths: ['web/**', 'tests/voice-overflow-ui.mjs', 'package*.json', '.github/workflows/voice-overflow.yml']
+  push:
+    branches: [main]
+    paths: ['web/**', 'tests/voice-overflow-ui.mjs', 'package*.json', '.github/workflows/voice-overflow.yml']
+permissions:
+  contents: read
+jobs:
+  voice-overflow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Check simulated voice layout at desktop, tablet, and phone sizes
+        run: CHROME_PATH="$(node --input-type=module -e "import { chromium } from 'playwright'; process.stdout.write(chromium.executablePath())")" node tests/voice-overflow-ui.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: voice-overflow-screenshots
+          path: .context/voice-overflow-ui/
+          include-hidden-files: true
