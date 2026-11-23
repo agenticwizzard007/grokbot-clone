@@ -4,7 +4,7 @@ import type { Bot, ComputerState, LiveState, Routine, Row, ServerEvent, User } f
 import { api, ROW_PAGE_SIZE } from './lib/api';
 import { noteRowsEvent } from './lib/sseWatchdog';
 import { readDetailsDefault } from './lib/detailsDefault';
-import { sessionExpired } from './lib/session';
+import { requireActiveSession, sessionExpired } from './lib/session';
 
 export type ModalKind = 'create' | 'search' | 'apps' | 'group' | null;
 
@@ -169,6 +169,7 @@ export const useStore = create<State>((set, get) => ({
     try {
       const firstLoad = !get().botsLoaded;
       const { bots, live } = await api.bots();
+      requireActiveSession();
       if (!current()) return;
       const liveMap: Record<string, LiveState> = {};
       for (const l of live) liveMap[l.botId] = l;
@@ -189,6 +190,7 @@ export const useStore = create<State>((set, get) => ({
       // R2F-015: the chat restored after a reload follows "Open Bot details with each chat" too (never on phones).
       if (firstLoad && selectedBotId && !get().mobile && readDetailsDefault(accountId)) set({ detailsOpen: true });
     } catch {
+      requireActiveSession();
       if (current()) set({ botsError: "Couldn't load your Bots. Check your connection and try again." });
     } finally {
       if (current()) set({ botsLoading: false });
@@ -227,6 +229,7 @@ export const useStore = create<State>((set, get) => ({
     } } }));
     try {
       const { generation, rows } = await api.rows(id);
+      requireActiveSession();
       if (!current()) return;
       const state = get();
       const bot = state.bots.find(candidate => candidate.id === id);
@@ -245,6 +248,8 @@ export const useStore = create<State>((set, get) => ({
         import('./dev/fixtures').then((m) => m.injectFixtures());
       }
     } catch {
+      // Ordinary load failures remain retryable, but confirmed expiry must reject.
+      requireActiveSession();
       if (current() && get().transcripts[id]?.generation === expectedGeneration) set(s => ({ transcripts: { ...s.transcripts, [id]: {
         ...s.transcripts[id], loading: false, error: "Couldn't load messages. Check your connection and try again.",
       } } }));
@@ -273,6 +278,7 @@ export const useStore = create<State>((set, get) => ({
     const request = (async () => {
       try {
         const page = await api.rows(id, cursor);
+        requireActiveSession();
         const transcript = current();
         if (!transcript || page.generation !== generation) return;
         const bySeq = { ...transcript.bySeq };
@@ -312,7 +318,7 @@ export const useStore = create<State>((set, get) => ({
 
   async loadRoutines(id) {
     const { routines } = await api.routines(id);
-    if (sessionExpired()) return;
+    requireActiveSession();
     set((s) => ({ routines: { ...s.routines, [id]: routines } }));
   },
 
@@ -322,6 +328,7 @@ export const useStore = create<State>((set, get) => ({
     const request = ++computerRequest;
     const previous = get().computer;
     const { computer } = await api.computer();
+    requireActiveSession();
     // A delayed snapshot must not replace a newer live event or another account's state.
     if (request === computerRequest && get().user?.id === userId && get().computer === previous) set({ computer });
   },

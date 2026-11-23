@@ -20,5 +20,5 @@ export function RosterFeedback() {
   const error = useStore(s => s.botsError);
   const hasBots = useStore(s => s.bots.length > 0);
   if (loaded && !loading && !error) return null;
-  return <LoadFeedback label="Bots" error={error} loading={loading || (!loaded && !error)} stale={loaded || hasBots} onRetry={() => { void useStore.getState().loadBots(); }} />;
+  return <LoadFeedback label="Bots" error={error} loading={loading || (!loaded && !error)} stale={loaded || hasBots} onRetry={() => { void useStore.getState().loadBots().catch(() => {}); }} />;
 }

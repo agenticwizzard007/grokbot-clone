@@ -18,7 +18,7 @@ function signedIn() {
   globals.localStorage = { removeItem: (key: string) => removed.push(key) };
   useStore.setState({ ...useStore.getInitialState(), user, authChecked: true, selectedBotId: 'private-bot',
     bots: [{ id: 'private-bot', generation: 1 }] as any, botsLoaded: true,
-    transcripts: { 'private-bot': { generation: 1, bySeq: { 1: { body: { text: 'Private fixture' } } as any }, loaded: true } },
+    transcripts: { 'private-bot': { generation: 1, bySeq: { 1: { body: { text: 'Private fixture' } } as any }, loaded: true, olderCursor: 1 } },
     live: { 'private-bot': {} as any }, routines: { 'private-bot': [{} as any] }, computer: {} as any,
     modal: 'search', viewerOpen: true, viewerControl: true, detailsOpen: true, sseConnected: true,
   });
@@ -99,24 +99,39 @@ test('confirmed expiry clears private UI and rejects delayed responses and strea
     calls++;
     const path = String(input);
     const missing = path === '/api/auth/me' && ++authReads === 2;
-    const body = path.endsWith('/rows') ? { generation: 1, rows: [] }
+    const body = path.includes('/rows') ? { generation: 1, rows: [] }
       : path.endsWith('/routines') ? { routines: [{ id: 'private-routine' }] }
       : path.endsWith('/sessions') ? { sessions: [{ id: 'private-session' }] }
       : path.endsWith('/bots') ? { bots: [{ id: 'private-bot' }], live: [] }
+      : path.endsWith('/computer') ? { computer: { status: 'ready' } }
       : { user: missing ? null : user };
     // Hold bodies to control both sides of the API/store promise-continuation boundary.
     return { ok: true, status: 200, json: () => new Promise(resolve => releases.push({ path: missing ? 'expiry' : path, release: () => resolve(body) })) } as Response;
   };
   const stop = startEvents();
   try {
-    const pending = [useStore.getState().loadRows('private-bot'), useStore.getState().loadRoutines('private-bot'), api.bots(), accessApi.sessions()];
+    const state = useStore.getState();
+    const pending = [
+      ['rows', state.loadRows('private-bot')],
+      ['routines', state.loadRoutines('private-bot')],
+      ['API roster', api.bots()],
+      ['account sessions', accessApi.sessions()],
+      ['store roster', state.loadBots()],
+      ['computer', state.loadComputer()],
+      ['older rows', state.loadOlderRows('private-bot')],
+      ['rows continuation', state.loadRows('private-bot')],
+    ] as const;
     const checkingAuth = useStore.getState().checkAuth();
-    const results = Promise.allSettled(pending);
+    const results = Promise.allSettled(pending.map(([, request]) => request));
     const expiry = revalidateSession();
     await Promise.resolve();
-    assert.equal(releases.length, 6);
+    assert.equal(releases.length, pending.length + 2);
     // These bodies pass the API guard, then expiry wins before the store continuations.
     releases.find(item => item.path.endsWith('/routines'))!.release();
+    releases.filter(item => item.path.endsWith('/bots'))[1].release();
+    releases.find(item => item.path.endsWith('/computer'))!.release();
+    releases.find(item => item.path.includes('/rows?'))!.release();
+    releases.filter(item => item.path.endsWith('/rows'))[1].release();
     releases.find(item => item.path === '/api/auth/me')!.release();
     releases.find(item => item.path === 'expiry')!.release();
     assert.equal(await expiry, false);
@@ -125,7 +140,10 @@ test('confirmed expiry clears private UI and rejects delayed responses and strea
     assert.deepEqual(removed, ['swarm.selectedBot']);
     for (const { release } of releases) release();
     const settled = await results;
-    for (const index of [0, 2, 3]) assert.equal(settled[index].status, 'rejected');
+    for (const [index, result] of settled.entries()) {
+      assert.equal(result.status, 'rejected', `${pending[index][0]} rejects after expiry`);
+      if (result.status === 'rejected') assert.match(result.reason.message, /session has ended/);
+    }
     await checkingAuth;
     source.onopen();
     source.onmessage({ data: JSON.stringify({ type: 'bot', bot: { id: 'late-private-bot' } }) });
@@ -133,11 +151,11 @@ test('confirmed expiry clears private UI and rejects delayed responses and strea
     assert.equal(await revalidateSession(), false);
     await assert.rejects(api.bots(), /session has ended/);
     assert.equal(calls, readsAtExpiry, 'expired document never dispatches again');
-    const state = useStore.getState();
-    for (const field of ['user', 'selectedBotId', 'computer', 'modal'] as const) assert.equal(state[field], null);
-    assert.deepEqual(state.bots, []);
-    for (const field of ['transcripts', 'live', 'routines'] as const) assert.deepEqual(state[field], {});
-    for (const field of ['botsLoaded', 'viewerOpen', 'viewerControl', 'detailsOpen', 'sseConnected'] as const) assert.equal(state[field], false);
+    const cleared = useStore.getState();
+    for (const field of ['user', 'selectedBotId', 'computer', 'modal'] as const) assert.equal(cleared[field], null);
+    assert.deepEqual(cleared.bots, []);
+    for (const field of ['transcripts', 'live', 'routines'] as const) assert.deepEqual(cleared[field], {});
+    for (const field of ['botsLoaded', 'viewerOpen', 'viewerControl', 'detailsOpen', 'sseConnected'] as const) assert.equal(cleared[field], false);
     assert.deepEqual(redirects, ['/']);
   } finally { stop(); }
 });

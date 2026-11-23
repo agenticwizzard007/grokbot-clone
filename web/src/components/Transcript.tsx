@@ -293,7 +293,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
   return (
     <div className="transcript-wrap">
     <CompletedReplyAnnouncer key={`${bot.id}:${generation}`} rows={visibleRows} loaded={loaded} botName={bot.name} />
-    {(!loaded || paging?.error || paging?.loading) && <LoadFeedback label="messages" error={paging?.error} loading={!!paging?.loading || (!loaded && !paging?.error)} stale={loaded || rows.length > 0} onRetry={() => { void useStore.getState().loadRows(bot.id); }} />}
+    {(!loaded || paging?.error || paging?.loading) && <LoadFeedback label="messages" error={paging?.error} loading={!!paging?.loading || (!loaded && !paging?.error)} stale={loaded || rows.length > 0} onRetry={() => { void useStore.getState().loadRows(bot.id).catch(() => {}); }} />}
     <div className="transcript" ref={scrollRef} onScroll={onScroll} data-bot-id={bot.id} data-generation={generation}>
       <div className="transcript__col">
         {paging?.olderCursor != null && <button type="button" className="transcript__older" disabled={paging.loadingOlder} onClick={() => useStore.getState().loadOlderRows(bot.id).catch(() => {})}>{paging.loadingOlder ? 'Loading earlier messages...' : 'Earlier messages'}</button>}
