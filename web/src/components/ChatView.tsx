@@ -1,5 +1,5 @@
 import { userFacingLive } from '../lib/audience';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Bot } from '@shared/types';
 import { ChevronDown, ChevronLeft } from 'lucide-react';
 import { BotAvatarFor } from '../avatar/BotAvatar';
@@ -11,6 +11,7 @@ import { Transcript } from './Transcript';
 import { VoiceCallBar } from './VoiceCallBar';
 import { useFreshConversation } from '../lib/useFreshConversation';
 import { shortcutLabel } from '../lib/shortcuts';
+import { RosterFeedback } from './LoadFeedback';
 import { SetupBanner } from './SetupBanner';
 
 /** PD-03: no Share control until a real share feature exists. */
@@ -20,7 +21,7 @@ export function ChatView() {
   const bot = useSelectedBot();
   const accountId = useStore(s => s.user?.id);
   const mobile = useStore(s => s.mobile);
-  if (!bot || !accountId) return <main className="chat chat--empty"><div className="empty-chat"><div className="empty-chat__sub">No Bot selected.</div><button type="button" className="btn btn--secondary" onClick={() => mobile ? backToList() : useConfigUI.getState().setView('bots')}>Your Bots</button></div></main>;
+  if (!bot || !accountId) return <main className="chat chat--empty"><div className="empty-chat"><RosterFeedback /><div className="empty-chat__sub">No Bot selected.</div><button type="button" className="btn btn--secondary" onClick={() => mobile ? backToList() : useConfigUI.getState().setView('bots')}>Your Bots</button></div></main>;
   return <BotChat key={`${accountId}:${bot.id}`} accountId={accountId} bot={bot} />;
 }
 
@@ -28,6 +29,10 @@ function BotChat({ bot }: { accountId: string; bot: Bot }) {
   const transcript = useStore(s => s.transcripts[bot.id]);
   const currentTranscript = transcript && transcript.generation >= (bot.generation ?? 0) ? transcript : undefined;
   const generation = currentTranscript?.generation ?? bot.generation;
+  useEffect(() => {
+    const current = useStore.getState().transcripts[bot.id];
+    if (!current || current.generation < bot.generation) void useStore.getState().loadRows(bot.id);
+  }, [bot.id, bot.generation]);
   const live = userFacingLive(useStore(s => s.live[bot.id]));
   const detailsOpen = useStore(s => s.detailsOpen);
   const mobile = useStore(s => s.mobile);
@@ -70,6 +75,7 @@ function BotChat({ bot }: { accountId: string; bot: Bot }) {
         {FEATURE_SHARE && <button type="button" className="share-btn">Share</button>}
       </div>
     </header>
+    <RosterFeedback />
     <Transcript key={generation} bot={bot} generation={generation} rows={rows} live={live} loaded={!!currentTranscript?.loaded} />
     <VoiceCallBar />
     <SetupBanner bot={bot} />
