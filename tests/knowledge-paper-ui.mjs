@@ -179,7 +179,7 @@ try {
     await btn(detailsNav, 'Files').click();
     const computer = details.getByRole('region', { name: 'Computer files' });
     await computer.getByText(/No computer files/).waitFor();
-    await btn(details, 'Saved reports').click();
+    await btn(details, 'View saved reports').click();
     await details.getByRole('region', { name: 'Saved reports' }).waitFor();
     assert.equal(await computer.isVisible(), false);
     await btn(details, 'Back to files').click(); await computer.waitFor();
