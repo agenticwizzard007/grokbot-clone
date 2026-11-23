@@ -825,6 +825,8 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [catalog, setCatalog] = useState(false);
+  const [disconnectId, setDisconnectId] = useState<string | null>(null);
+  const disconnectButton = useRef<HTMLButtonElement>(null);
   const connectionsRequest = useRef(0);
   const appsRequest = useRef(0);
   const managing = useRef(false);
@@ -867,6 +869,7 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
   const manage = async (id: string, action: 'default' | 'disconnect' | 'remove-expired') => {
     if (managing.current) return;
     managing.current = true;
+    if (action !== 'disconnect') setDisconnectId(null);
     setBusy(true);
     setError('');
     try {
@@ -891,6 +894,7 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
     } finally {
       managing.current = false;
       setBusy(false);
+      if (action === 'disconnect') setDisconnectId(null);
     }
   };
   const active = connections?.filter(c => c.status === 'ACTIVE' && !c.isDisabled) ?? [];
@@ -913,7 +917,7 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
       </div>
     </>;
   };
-  const openApps = () => setCatalog(true);
+  const openApps = () => { setDisconnectId(null); setCatalog(true); };
   if (catalog) return <ConnectAppsCatalog inline onClose={() => setCatalog(false)} />;
   return (
     <div className="access-apps-settings">
@@ -958,7 +962,11 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
                 {accountDetails(c, index)}
                 <div className="settings-row__actions">
                   <button className="cfg-btn cfg-btn--secondary" type="button" disabled={busy || c.isDefault} onClick={() => void manage(c.id, 'default')}>Use by default</button>
-                  <button className="cfg-btn cfg-btn--secondary" type="button" disabled={busy} onClick={() => void manage(c.id, 'disconnect')}>Disconnect</button>
+                  <button ref={disconnectId === c.id ? disconnectButton : undefined} className={`cfg-btn ${disconnectId === c.id ? 'cfg-btn--danger' : 'cfg-btn--secondary'}`} type="button" disabled={busy} onClick={() => {
+                    if (disconnectId === c.id) void manage(c.id, 'disconnect');
+                    else { setError(''); setDisconnectId(c.id); }
+                  }}>{disconnectId === c.id ? (busy ? 'Disconnecting…' : 'Confirm disconnect') : 'Disconnect'}</button>
+                  {disconnectId === c.id && <button className="cfg-btn cfg-btn--secondary" type="button" disabled={busy} onClick={() => { disconnectButton.current?.focus(); setDisconnectId(null); }}>Cancel</button>}
                 </div>
               </div>)}
         </div>
