@@ -53,7 +53,7 @@ function BotChat({ bot }: { accountId: string; bot: Bot }) {
         <button ref={menuTrigger} type="button" className="chat__pill" onClick={() => setMenu(!menu)} aria-haspopup="menu" aria-expanded={menu}>
           <span className="chat__pill-name">{bot.name}</span><ChevronDown size={14} aria-hidden />
         </button>
-        <span className="chat__subtitle">{bot.label || (bot.isPrimary ? 'Your primary Bot' : bot.kind === 'room' ? 'Group conversation' : bot.description || 'Your teammate')}</span>
+        <span className="chat__subtitle">{bot.label || (bot.isPrimary ? 'Your primary Bot' : bot.kind === 'room' ? 'Group conversation' : bot.description || (bot.mode === 'personal' ? 'Personal assistant' : 'Your teammate'))}</span>
         {menu && <Menu onClose={() => setMenu(false)} items={[
           { label: detailsOpen ? 'Hide details' : 'Show details', hint: shortcutLabel('details'), onSelect: () => {
             // Details must capture the persistent trigger, not the departing menu item.
