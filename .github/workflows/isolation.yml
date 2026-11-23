@@ -38,7 +38,7 @@ jobs:
       - name: Validate integrated Paper navigation and recovery
         run: npm run test:updated-ui
       - name: Validate QA regressions
-        run: npm run test:qa
+        run: npm run test:qa && node tests/qa-model-menu-ui.mjs
       - run: npm run test:deployment
       - run: npm run test:isolation
       - run: npm run test:cli
