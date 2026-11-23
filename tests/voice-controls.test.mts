@@ -136,7 +136,7 @@ test('get reads owned configuration, current messages, tasks, routines and setup
   appendRow(secondary.id, 'tool-call', { type: 'tool-call', callId: 'private-tool', name: 'private_tool', label: 'Private', status: 'done', args: { secret: 'credential-not-returned' } });
   db.prepare("UPDATE bots SET voice='sage',voice_speed=1.2,voice_language='fr',fast=1,model='vendor/model',effort='xhigh' WHERE id=?").run(secondary.id);
   db.prepare("INSERT INTO tasks VALUES(?,?,?,'working',?,?,?)").run('task-detail', secondary.id, 'Research', 'Evidence note', Date.now(), Date.now());
-  db.prepare("INSERT INTO routines VALUES(?,?,?,?,?,'UTC',1,NULL,?)").run('routine-detail', secondary.id, 'Weekly research', 'Check three leads', '0 9 * * 5', Date.now());
+  db.prepare("INSERT INTO routines(id,bot_id,name,prompt,schedule,timezone,enabled,last_run_at,created_at) VALUES(?,?,?,?,?,'UTC',1,NULL,?)").run('routine-detail', secondary.id, 'Weekly research', 'Check three leads', '0 9 * * 5', Date.now());
   const result = await run('get_agent', { bot_id: secondary.id });
   assert.equal(result.agent.id, secondary.id); assert.equal(result.agent.instructions, 'Preserve sourced findings.');
   assert.equal(result.agent.voice, 'sage'); assert.equal(result.agent.voiceSpeed, 1.2); assert.equal(result.agent.voiceLanguage, 'fr');
@@ -332,7 +332,7 @@ test('stop expires paused approvals and denies remaining planned calls without g
   setLive(secondary.id, { isRunning: false, awaiting: { reason: 'Approval', since: Date.now() } });
   const initialSetup = getSetup(secondary.id);
   db.prepare("INSERT INTO tasks VALUES(?,?,?,'needs_input',?,?,?)").run('paused-task', secondary.id, 'Pending research', 'Keep task', Date.now(), Date.now());
-  db.prepare("INSERT INTO routines VALUES(?,?,?,?,?,'UTC',1,NULL,?)").run('paused-routine', secondary.id, 'Weekly', 'Research', '0 9 * * 5', Date.now());
+  db.prepare("INSERT INTO routines(id,bot_id,name,prompt,schedule,timezone,enabled,last_run_at,created_at) VALUES(?,?,?,?,?,'UTC',1,NULL,?)").run('paused-routine', secondary.id, 'Weekly', 'Research', '0 9 * * 5', Date.now());
   const result = await run('control_agent', { bot_id: secondary.id, action: 'stop' });
   assert.equal(result.ok, true); assert.equal(botCount(), 5);
   assert.equal((db.prepare('SELECT status FROM approvals WHERE id=?').get('pending-approval') as any).status, 'expired');
