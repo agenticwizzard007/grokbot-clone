@@ -2,11 +2,14 @@
  * Bring a transcript row into view once the chat has rendered it (search results, Tasks deep links).
  * Rows carry `data-row-seq`; card rows use a `display: contents` wrapper, so scroll its first child.
  */
-export function scrollToRow(seq: number, opts: { tries?: number; delayMs?: number } = {}) {
+export function scrollToRow(seq: number, opts: { tries?: number; delayMs?: number; botId?: string; generation?: number } = {}) {
   let tries = 0;
   const max = opts.tries ?? 30;
   const find = () => {
-    const anchor = document.querySelector<HTMLElement>(`.transcript [data-row-seq="${seq}"]`);
+    const transcript = document.querySelector<HTMLElement>('.transcript');
+    if (transcript && ((opts.botId !== undefined && transcript.dataset.botId !== opts.botId)
+      || (opts.generation !== undefined && Number(transcript.dataset.generation) !== opts.generation))) return;
+    const anchor = transcript?.querySelector<HTMLElement>(`[data-row-seq="${seq}"]`);
     const target = anchor && getComputedStyle(anchor).display === 'contents' ? anchor.firstElementChild as HTMLElement | null : anchor;
     if (target) {
       target.scrollIntoView({ block: 'center' });

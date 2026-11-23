@@ -159,8 +159,13 @@ function SystemRow({ row }: { row: Row }) {
 
 interface Props { bot: Bot; generation: number; rows: Row[]; live: LiveState | undefined; loaded: boolean }
 
+// Card anchors use display: contents, so their child owns the visible rectangle.
+const rowRect = (anchor: HTMLElement) => (anchor.style.display === 'contents' && anchor.firstElementChild ? anchor.firstElementChild : anchor).getBoundingClientRect();
+
 export const Transcript = memo(function Transcript({ bot, generation, rows, live, loaded }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const readingPosition = useRef<{ firstSeq: number; seq: string; top: number } | null>(null);
+  const paging = useStore(s => s.transcripts[bot.id]);
   const responseSlot = useRef<HTMLDivElement>(null);
   const responseHeight = useRef(0);
   const responseHeights = useRef(new Map<number, number>());
@@ -221,10 +226,25 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
     return () => observer.disconnect();
   }, [pendingResponse, turn.startedAt, turn.promptSeq, empty, processing]);
 
-  // Keep pinned to the bottom while new content arrives, unless the user scrolled up.
+  const rememberPosition = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const top = el.getBoundingClientRect().top;
+    const anchor = Array.from(el.querySelectorAll<HTMLElement>('[data-row-seq]')).find(row => rowRect(row).bottom > top);
+    readingPosition.current = anchor && rows.length ? { firstSeq: rows[0].seq, seq: anchor.dataset.rowSeq!, top: rowRect(anchor).top } : null;
+  };
+
+  // Prepending history preserves the visible row even when message groups merge.
+  // New content still follows the bottom unless the user has scrolled up.
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (el && stick.current) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    const previous = readingPosition.current;
+    if (!stick.current && previous && rows.length && rows[0].seq < previous.firstSeq) {
+      const anchor = el.querySelector<HTMLElement>(`[data-row-seq="${previous.seq}"]`);
+      if (anchor) el.scrollTop += rowRect(anchor).top - previous.top;
+    } else if (stick.current) el.scrollTop = el.scrollHeight;
+    rememberPosition();
   }, [rows, live, loaded, bot.id, exchanges.exchanges]);
   // Jump to bottom when switching bots.
   useLayoutEffect(() => {
@@ -239,6 +259,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
     stick.current = dist < 40;
     setShowJump(dist > 200);
+    rememberPosition();
   };
 
   const jump = () => {
@@ -248,8 +269,10 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
 
   return (
     <div className="transcript-wrap">
-    <div className="transcript" ref={scrollRef} onScroll={onScroll}>
+    <div className="transcript" ref={scrollRef} onScroll={onScroll} data-bot-id={bot.id} data-generation={generation}>
       <div className="transcript__col">
+        {paging?.olderCursor != null && <button type="button" className="transcript__older" disabled={paging.loadingOlder} onClick={() => useStore.getState().loadOlderRows(bot.id).catch(() => {})}>{paging.loadingOlder ? 'Loading earlier messages...' : 'Earlier messages'}</button>}
+        {paging?.olderError && <p className="transcript__error" role="status">{paging.olderError}</p>}
         {empty && !processing && <EmptyChat bot={bot} />}
         {exchanges.more && <button type="button" className="agent-exchange__more" disabled={exchanges.loading} onClick={exchanges.loadMore}>Earlier agent conversations</button>}
         {exchanges.error && <p className="agent-exchange__error" role="status">Couldn’t refresh agent conversations. <button type="button" onClick={exchanges.retry}>Retry</button></p>}

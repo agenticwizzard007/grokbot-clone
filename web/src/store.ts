@@ -1,7 +1,7 @@
 import './lib/legacy-storage'; // before reading saved preferences
 import { create } from 'zustand';
 import type { Bot, ComputerState, LiveState, Routine, Row, ServerEvent, User } from '@shared/types';
-import { api } from './lib/api';
+import { api, ROW_PAGE_SIZE } from './lib/api';
 import { noteRowsEvent } from './lib/sseWatchdog';
 import { readDetailsDefault } from './lib/detailsDefault';
 import { sessionExpired } from './lib/session';
@@ -14,7 +14,13 @@ function withLatestSetup(incoming: Bot, current?: Bot): Bot {
     ? { ...incoming, onboarding: current!.onboarding } : incoming;
 }
 
-interface Transcript { generation: number; bySeq: Record<number, Row>; loaded: boolean }
+interface Transcript {
+  generation: number; bySeq: Record<number, Row>; loaded: boolean;
+  /** Oldest fetched page boundary, independent of rows arriving over SSE. Null means complete. */
+  olderCursor?: number | null;
+  loadingOlder?: boolean;
+  olderError?: string | null;
+}
 
 interface State {
   user: User | null;
@@ -55,6 +61,8 @@ interface State {
   /** Select a Bot. `open: false` selects without navigating (phones stay on the list). */
   selectBot(id: string, opts?: { open?: boolean }): void;
   loadRows(id: string): Promise<void>;
+  loadOlderRows(id: string): Promise<void>;
+  ensureRowLoaded(id: string, generation: number, seq: number): Promise<boolean>;
   loadRoutines(id: string): Promise<void>;
   loadComputer(): Promise<void>;
   upsertRows(botId: string, generation: number, rows: Row[]): void;
@@ -65,6 +73,7 @@ interface State {
 
 const LS_SELECTED = 'swarm.selectedBot';
 let computerRequest = 0;
+const olderRequests = new Map<string, Promise<void>>();
 
 type InlineSetup = 'create' | 'group';
 type SetupHistory = { page: InlineSetup; depth: 1 | 2; accountId: string; documentStart: number };
@@ -182,10 +191,71 @@ export const useStore = create<State>((set, get) => ({
     if (prev && prev.generation === generation) {
       for (const r of Object.values(prev.bySeq)) if (!bySeq[r.seq] || bySeq[r.seq].updatedSeq < r.updatedSeq) bySeq[r.seq] = r;
     }
-    set((s) => ({ transcripts: { ...s.transcripts, [id]: { generation, bySeq, loaded: true } } }));
+    const paging = prev?.generation === generation ? prev : undefined;
+    const olderCursor = paging?.olderCursor !== undefined ? paging.olderCursor : rows.length === ROW_PAGE_SIZE ? rows[0].seq : null;
+    set((s) => ({ transcripts: { ...s.transcripts, [id]: { ...paging, generation, bySeq, loaded: true, olderCursor } } }));
     if (import.meta.env?.DEV && new URLSearchParams(location.search).has('fixtures')) {
       import('./dev/fixtures').then((m) => m.injectFixtures());
     }
+  },
+
+  async loadOlderRows(id) {
+    const accountId = get().user?.id;
+    const previous = get().transcripts[id];
+    const cursor = previous?.olderCursor;
+    if (!accountId || !previous?.loaded || cursor == null || !get().bots.some(bot => bot.id === id && bot.generation <= previous.generation)) return;
+    const generation = previous.generation;
+    const key = `${accountId}:${id}:${generation}:${cursor}`;
+    const pending = olderRequests.get(key);
+    if (pending) return pending;
+    const current = () => {
+      const state = get(), transcript = state.transcripts[id];
+      return state.user?.id === accountId && state.bots.some(bot => bot.id === id && bot.generation <= generation)
+        && transcript?.generation === generation && transcript.olderCursor === cursor ? transcript : undefined;
+    };
+    const update = (patch: Partial<Transcript>) => {
+      const transcript = current();
+      if (transcript) set(s => ({ transcripts: { ...s.transcripts, [id]: { ...transcript, ...patch } } }));
+    };
+    update({ loadingOlder: true, olderError: null });
+    const request = (async () => {
+      try {
+        const page = await api.rows(id, cursor);
+        const transcript = current();
+        if (!transcript || page.generation !== generation) return;
+        const bySeq = { ...transcript.bySeq };
+        for (const row of page.rows) {
+          if (!bySeq[row.seq] || row.updatedSeq >= bySeq[row.seq].updatedSeq) bySeq[row.seq] = row;
+        }
+        update({ bySeq, loadingOlder: false, olderCursor: page.rows.length === ROW_PAGE_SIZE ? page.rows[0].seq : null });
+      } catch (error) {
+        update({ olderError: "Couldn't load earlier messages. Try again." });
+        throw error;
+      } finally {
+        update({ loadingOlder: false });
+        olderRequests.delete(key);
+      }
+    })();
+    olderRequests.set(key, request);
+    return request;
+  },
+
+  async ensureRowLoaded(id, generation, seq) {
+    const accountId = get().user?.id;
+    const valid = () => !!accountId && get().user?.id === accountId
+      && get().bots.some(bot => bot.id === id && bot.generation === generation);
+    if (!valid()) return false;
+    if (!get().transcripts[id]?.loaded || get().transcripts[id].generation < generation) await get().loadRows(id);
+    while (valid()) {
+      const transcript = get().transcripts[id];
+      if (!transcript || transcript.generation !== generation) return false;
+      if (transcript.bySeq[seq]) return true;
+      const cursor = transcript.olderCursor;
+      if (cursor == null || cursor <= seq) return false;
+      await get().loadOlderRows(id);
+      if (get().transcripts[id]?.olderCursor === cursor) return false;
+    }
+    return false;
   },
 
   async loadRoutines(id) {

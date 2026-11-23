@@ -19,6 +19,9 @@ export function SearchModal() {
   const [messages, setMessages] = useState<ConversationSearchHit[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [opening, setOpening] = useState(false);
+  const [openError, setOpenError] = useState<string | null>(null);
+  const navigation = useRef(0);
   const listRef = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setModal(null), [setModal]);
 
@@ -51,16 +54,34 @@ export function SearchModal() {
   ], [results, messages, bots]);
 
   useEffect(() => setActive(0), [q]);
+  useEffect(() => {
+    setOpening(false);
+    setOpenError(null);
+    return () => { navigation.current++; };
+  }, [q, accountId]);
   useEffect(() => { setActive(a => Math.min(a, Math.max(0, items.length - 1))); }, [items.length]);
   useEffect(() => {
     listRef.current?.querySelector<HTMLElement>(`[data-idx="${active}"]`)?.scrollIntoView({ block: 'nearest' });
   }, [active]);
 
-  const choose = (item: Item | undefined) => {
-    if (!item) return;
+  const choose = async (item: Item | undefined) => {
+    if (!item || opening) return;
     if (item.kind === 'bot') { openConversation(item.id); return; }
-    openConversation(item.hit.botId);
-    scrollToRow(item.hit.seq);
+    const request = ++navigation.current;
+    setOpening(true);
+    setOpenError(null);
+    try {
+      const { botId, generation, seq } = item.hit;
+      const found = await useStore.getState().ensureRowLoaded(botId, generation, seq);
+      if (request !== navigation.current || useStore.getState().user?.id !== accountId) return;
+      if (!found) { setOpenError('This message is no longer available. Search again.'); return; }
+      openConversation(botId);
+      scrollToRow(seq, { botId, generation });
+    } catch {
+      if (request === navigation.current) setOpenError("Couldn't load this message. Try selecting it again.");
+    } finally {
+      if (request === navigation.current) setOpening(false);
+    }
   };
   const botResults = results.length;
   const messageItems = items.slice(botResults);
@@ -88,6 +109,7 @@ export function SearchModal() {
           <button
             key={b.id}
             type="button"
+            disabled={opening}
             role="option"
             aria-selected={i === active}
             data-idx={i}
@@ -111,6 +133,7 @@ export function SearchModal() {
             <button
               key={`${item.hit.botId}:${item.hit.generation}:${item.hit.seq}`}
               type="button"
+              disabled={opening}
               role="option"
               aria-selected={i === active}
               data-idx={i}
@@ -126,6 +149,8 @@ export function SearchModal() {
             </button>
           );
         })}
+        {opening && <div className="search-modal__empty" role="status">Loading message...</div>}
+        {openError && <div className="search-modal__empty" role="status">{openError}</div>}
         {needle.length >= 2 && searching && messageItems.length === 0 && <div className="search-modal__empty" role="status">Searching messages...</div>}
         {searchError && <div className="search-modal__empty" role="status">{searchError}</div>}
         {items.length === 0 && !searching && !searchError && <div className="search-modal__empty" role="status">No Bots or messages match “{q}”<p>Try a different name or a word from the conversation.</p><button type="button" className="btn btn--secondary" onClick={() => setQ('')}>Clear search</button></div>}

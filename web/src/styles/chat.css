@@ -34,6 +34,10 @@
 .transcript { position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden; padding: 60px 16px 16px; overflow-anchor: none; }
 .transcript__col { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; max-width: 960px; margin: 0 auto; min-height: 100%; justify-content: flex-end; }
 .transcript__col > * { max-width: 100%; }
+.transcript__older, .transcript__error { align-self: center; font-size: var(--text-xs); color: var(--color-text-secondary); }
+.transcript__older { padding: 8px 12px; border-radius: 6px; }
+.transcript__older:hover { color: var(--color-ink); }
+.transcript__older:disabled { cursor: wait; }
 
 /* Quiet, centered agent conversation summaries, matching the chat dividers. */
 .agent-exchange { width: 100%; display: flex; flex-direction: column; align-items: center; padding: 4px 0; }
