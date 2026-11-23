@@ -7,7 +7,7 @@ import { env } from '../env.js';
 import { isTenant } from '../deployment.js';
 import { messagingRequest } from '../runtime/messaging.js';
 import { getBotRow, getBot } from '../store.js';
-import { accountByPhone, consumeLoginToken, createLoginLink, getAccount, isPlaceholderEmail, setEmail } from '../accounts.js';
+import { accountByPhone, consumeLoginToken, createLoginLink, getAccount, isPlaceholderEmail } from '../accounts.js';
 import { deliver, hasTextLink } from './bridge.js';
 import { inboxStats } from './inbox.js';
 import { startPhoneLogin, verifyPhoneLogin } from './phone-auth.js';
@@ -198,12 +198,11 @@ messagingApi.post('/test', async (c) => {
   return c.json({ ok: true });
 });
 
-messagingApi.put('/email', async (c) => {
-  const { email } = await c.req.json<{ email?: string }>().catch(() => ({} as { email?: string }));
-  const r = setEmail(c.get('user').id, String(email ?? ''));
-  if (!r.ok) return c.json({ error: r.error }, 400);
-  return c.json(await status(c.get('user').id, canManageServer(c.get('user'))));
-});
+// Older clients must not report that saving an unverified address enables sign-in.
+messagingApi.put('/email', (c) => c.json({
+  error: 'Saving an email does not connect Google sign-in. Reload, then choose Connect Google in Settings > Messaging while signed in to this account.',
+  code: 'google_link_required',
+}, 410));
 
 /** Your own invite link (members). */
 messagingApi.post('/my-invite', (c) => {

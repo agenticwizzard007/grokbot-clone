@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useAuthCallback } from '../lib/authCallback';
 import { useConfigUI } from '../configStore';
+import { useStore } from '../store';
 import '../styles/auth-callback.css';
 
 const PROVIDERS = [
@@ -17,6 +18,9 @@ export function SignedInAuthFeedback({ children }: { children: ReactNode }) {
   const [dismissed, setDismissed] = useState(false);
   const banner = useRef<HTMLDivElement>(null);
   const provider = PROVIDERS.find(provider => code.startsWith(`${provider.code}_`));
+  const googleLinked = useStore(state => state.googleLinked);
+  // An unlinked account must return to explicit linking after a failed Google attempt.
+  const reviewGoogleLink = provider?.code === 'google' && !googleLinked && consume;
   useLayoutEffect(() => {
     if (!banner.current) return;
     // Settings can be portalled to the body, so reserve space for the banner there too.
@@ -33,7 +37,7 @@ export function SignedInAuthFeedback({ children }: { children: ReactNode }) {
     {error && !dismissed && <div className="auth-callback" role="alert" ref={banner}>
       <p className="auth-callback__message">{error}</p>
       <div className="auth-callback__actions">
-        {provider && <a className="btn btn--secondary" href={`/api/auth/${provider.code}/start`}>Try {provider.name} again</a>}
+        {provider && <a className="btn btn--secondary" href={reviewGoogleLink ? '/#settings/messaging' : `/api/auth/${provider.code}/start`}>{reviewGoogleLink ? 'Review Google sign-in' : `Try ${provider.name} again`}</a>}
         <button type="button" className="btn btn--secondary" onClick={() => setDismissed(true)} aria-label="Dismiss sign-in error">Dismiss</button>
       </div>
     </div>}

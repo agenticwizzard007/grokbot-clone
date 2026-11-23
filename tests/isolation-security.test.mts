@@ -11,7 +11,7 @@ const { db, now } = await import('../server/src/db.js');
 await import('../server/src/db-config.js');
 const { initSubagents } = await import('../server/src/agent/subagents.js'); initSubagents();
 const { initRooms } = await import('../server/src/agent/rooms.js'); initRooms();
-const { createAccount, setEmail, deleteAccount, AccountAuthorizationChanged } = await import('../server/src/accounts.js');
+const { createAccount, deleteAccount, AccountAuthorizationChanged } = await import('../server/src/accounts.js');
 const { createBot } = await import('../server/src/bots.js');
 const { canManageServer } = await import('../server/src/settings.js');
 const { createSession, userFromCookieHeader, userFromToken, sessionHash, requireUser, revokeSession } = await import('../server/src/lib/auth.js');
@@ -34,7 +34,8 @@ const cookie = async (id: string) => (await app.request(`/session/${id}`)).heade
 after(() => { db.close(); fs.rmSync(root, { recursive: true, force: true }); });
 
 test('unverified email cannot claim a login identity or grant admin', () => {
-  assert.deepEqual(setEmail('alice', 'unclaimed-admin@example.test'), { ok: true });
+  // A legacy pending address remains unverified and cannot claim an identity.
+  db.prepare('UPDATE users SET pending_email=? WHERE id=(SELECT user_id FROM bots WHERE id=?)').run('unclaimed-admin@example.test', botA.id);
   const row = db.prepare('SELECT * FROM users WHERE id=?').get('alice') as any;
   assert.equal(row.email, 'alice@example.test');
   assert.equal(row.pending_email, 'unclaimed-admin@example.test');

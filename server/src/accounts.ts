@@ -148,16 +148,6 @@ export function updateProfile(userId: string, p: { name?: string; timezone?: str
   if (p.onboarded) db.prepare('UPDATE users SET onboarded_at=COALESCE(onboarded_at, ?) WHERE id=?').run(now(), userId);
 }
 
-/** Replace a placeholder (or old) email. Refused when another account already uses it: accounts are never merged. */
-export function setEmail(userId: string, email: string): { ok: true } | { ok: false; error: string } {
-  const e = email.trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) || isPlaceholderEmail(e)) return { ok: false, error: 'Enter a valid email address.' };
-  const other = db.prepare('SELECT id FROM users WHERE lower(email)=? AND id<>?').get(e, userId);
-  if (other) return { ok: false, error: 'That email has its own Swarm account. Sign in there and link your phone with a link code instead.' };
-  db.prepare('UPDATE users SET pending_email=? WHERE id=?').run(e, userId);
-  return { ok: true };
-}
-
 /** Delete an account and everything in it. Bots, rows, links and sessions go with the user (foreign keys cascade). */
 export class AccountAuthorizationChanged extends Error {}
 export async function deleteAccount(userId: string, authorize: () => void = () => {}) {

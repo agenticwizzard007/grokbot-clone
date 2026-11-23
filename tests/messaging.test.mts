@@ -236,6 +236,15 @@ test('unknown numbers join the waitlist once (invite mode)', async () => {
   assert.equal(w.firstMessage, 'hey is this swarm?');
 });
 
+test('P-03 welcome requires phone sign-in and explicit Google linking for desktop continuity', () => {
+  const welcome = signup.welcomeText('Setup Bot');
+  assert.match(welcome, /Sign in to the app with your phone first/);
+  assert.match(welcome, /Connect Google in Settings > Messaging/);
+  assert.match(welcome, /same account and Bots on desktop/);
+  assert.match(welcome, /Connect Gmail there if you want me to help with mail/);
+  assert.doesNotMatch(welcome, /save.*address|save.*email/i);
+});
+
 let alice: string;
 test('join page claim → first text creates the account, welcomes, and onboarding starts', async () => {
   const inv = signup.createInvite(owner, { maxUses: 2 });
@@ -257,6 +266,9 @@ test('join page claim → first text creates the account, welcomes, and onboardi
   await sentTo('15550002222', /^Hi! 👋 I'm Quinn, your Swarm/);
   // The [onboarding] turn ran and its reply came back by text.
   const onboarding = await sentTo('15550002222', /onboarding\] A new user just joined/);
+  const onboardingRequests = JSON.stringify(await (await fetch(`http://localhost:${mockPort}/_requests`)).json());
+  assert.match(onboardingRequests, /sign in with their phone first and choose Connect Google in Settings > Messaging/);
+  assert.doesNotMatch(onboardingRequests, /save the Google\/Gmail address/);
   assert.ok(!/\*\*/.test(onboarding.text), 'plain text, no Markdown');
   assert.equal(signup.listInvites().find((i) => i.code === inv.code)!.uses, 1);
   const prompt = await systemPrompt(alice, (db.prepare('SELECT id FROM bots WHERE user_id=? AND is_primary=1').get(alice) as any).id);

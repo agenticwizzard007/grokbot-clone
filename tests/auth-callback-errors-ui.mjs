@@ -98,8 +98,9 @@ try {
       assert.equal(await page.locator('.signin').count(), 0);
       assert.equal(new URL(page.url()).search, '?keep=fixture');
       assert.equal(new URL(page.url()).hash, '#settings/account');
-      const retry = banner.getByRole('link', { name: `Try ${test.provider} again`, exact: true });
-      const retryPath = `/api/auth/${test.provider.toLowerCase()}/start`;
+      const reviewGoogleLink = test.provider === 'Google';
+      const retry = banner.getByRole('link', { name: reviewGoogleLink ? 'Review Google sign-in' : `Try ${test.provider} again`, exact: true });
+      const retryPath = reviewGoogleLink ? '/#settings/messaging' : `/api/auth/${test.provider.toLowerCase()}/start`;
       assert.equal(await retry.getAttribute('href'), retryPath);
       const geometry = await banner.evaluate(el => {
         const rect = el.getBoundingClientRect(), shell = document.querySelector('.app').getBoundingClientRect(), settings = document.querySelector('.app-settings').getBoundingClientRect();
@@ -116,17 +117,26 @@ try {
       if (test.code.endsWith('_denied')) await page.screenshot({ path: `${screenshots}/${test.code}-${width}.png` });
 
       // Exercise retry navigation locally, returning another failure without leaving the fixture.
-      let retries = 0;
-      await context.route(`${base}${retryPath}`, route => {
-        retries++;
-        return route.fulfill({ status: 302, headers: { location: `${base}/?login=${test.code}` }, body: '' });
-      });
-      await retry.click();
-      await page.waitForURL(base + '/');
-      await banner.waitFor();
-      assert.equal(retries, 1);
-      assert.equal(await banner.locator('.auth-callback__message').innerText(), test.message);
-      await context.unroute(`${base}${retryPath}`);
+      if (reviewGoogleLink) {
+        await retry.click();
+        await page.getByRole('heading', { name: 'Text your Bots', exact: true }).waitFor();
+        assert.equal(await page.getByRole('link', { name: 'Connect Google', exact: true }).getAttribute('href'), '/api/auth/google/start?intent=link');
+        assert.equal(await banner.count(), 0);
+        await page.goto(`${base}/?login=${test.code}`);
+        await banner.waitFor();
+      } else {
+        let retries = 0;
+        await context.route(`${base}${retryPath}`, route => {
+          retries++;
+          return route.fulfill({ status: 302, headers: { location: `${base}/?login=${test.code}` }, body: '' });
+        });
+        await retry.click();
+        await page.waitForURL(base + '/');
+        await banner.waitFor();
+        assert.equal(retries, 1);
+        assert.equal(await banner.locator('.auth-callback__message').innerText(), test.message);
+        await context.unroute(`${base}${retryPath}`);
+      }
       assert.equal((await (await context.request.get(`${base}/api/auth/me`)).json()).user.id, user.id);
 
       await banner.getByRole('button', { name: 'Dismiss sign-in error' }).click();
@@ -147,6 +157,7 @@ try {
     })), user.id);
     await page.goto(`${base}/?login=google_denied`);
     await page.locator('.auth-callback').waitFor();
+    assert.equal(await page.locator('.auth-callback').getByRole('link', { name: 'Try Google again', exact: true }).getAttribute('href'), '/api/auth/google/start');
     await page.getByRole('region', { name: 'Confirm it’s you', exact: true }).getByText('Sign-in did not complete. Try again to continue.', { exact: true }).waitFor();
     assert.equal(await page.getByText(/You’re signed in again/).count(), 0, 'a failed callback must not become a successful reauthentication');
     assert.deepEqual(errors, []);
