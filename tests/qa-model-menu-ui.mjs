@@ -139,7 +139,7 @@ try {
       else if (path === '/api/settings') body = { settings: {}, computer: { provider: 'local' } };
       else if (path === '/api/voice/options') body = { voices: [], languages: [], speeds: [], configured: false };
       else if (path === '/api/apps') body = { apps: [], connected: [], categories: [], total: 0 };
-      else if (path.endsWith('/suggested-integrations')) body = { status: 'ready', suggestions: [] };
+      else if (path.endsWith('/suggested-apps')) body = { status: 'ready', suggestions: [] };
       else if (path === '/api/cli') body = { connected: false, providers: { codex: { installed: false }, claude: { installed: false } } };
       return route.fulfill({ json: body });
     });
@@ -182,6 +182,7 @@ try {
       assert.equal(await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).isVisible(), true);
       await page.getByRole('button', { name: 'Show details', exact: true }).click();
       await page.locator('.bot-details-pane').waitFor();
+      await page.locator('.suggested-integrations[aria-busy="false"]').waitFor();
       await openMenu();
       await page.locator('.mm-row__effort').click();
       await assertEffortFits();
