@@ -5,7 +5,7 @@
   background: var(--color-bg-secondary, var(--color-bg-tertiary)); box-shadow: var(--color-border-secondary) 0 0 0 0.5px inset;
   font-size: 13px; line-height: 18px; color: var(--color-ink);
 }
-.setup-banner__text { flex: 1 1 260px; min-width: 0; }
+.setup-banner__text { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; }
 .setup-banner__actions { display: flex; gap: 8px; flex-shrink: 0; }
 .setup-banner__actions .btn { white-space: nowrap; }
 @media (max-width: 760px) {
