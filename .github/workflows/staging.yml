@@ -2,6 +2,10 @@ name: Deploy Fly staging
 on:
   push:
     branches: [main]
+  # Commit skip markers suppress push runs, but not scheduled recovery.
+  # Preflight exits before building when the current main revision is live.
+  schedule:
+    - cron: '7,17,27,37,47,57 * * * *'
   workflow_dispatch:
     inputs:
       allow_live_replacement:
@@ -10,6 +14,8 @@ on:
         default: false
 permissions:
   contents: read
+  # A superseded checkout queues the tip if its push did not create a deploy.
+  actions: write
 defaults:
   run:
     shell: bash
