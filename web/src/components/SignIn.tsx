@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import '@fontsource-variable/instrument-sans';
 import '../styles/signin-brand.css';
 import { api } from '../lib/api';
@@ -9,6 +9,7 @@ import { AppleSignIn } from './AppleSignIn';
 import { AuthLink } from './AuthButton';
 import { OpenRouterSignIn } from './OpenRouterSignIn';
 import { useAuthCallback } from '../lib/authCallback';
+import { planResume, useConfigUI } from '../configStore';
 
 export function SignIn() {
   const devLogin = useStore((s) => s.devLogin);
@@ -21,6 +22,13 @@ export function SignIn() {
   const { code: loginCode, error: callbackError } = useAuthCallback();
   const [error, setError] = useState<string | null>(callbackError);
   const expired = loginCode === 'expired';
+
+  useEffect(() => {
+    // A genuinely expired session may need a provider redirect before connecting.
+    // Preserve the destination across that redirect, without another Login click.
+    const resume = useConfigUI.getState().resume;
+    if (resume?.section === 'subscriptions' && resume.expiresAt > Date.now()) planResume(resume);
+  }, []);
 
   const dev = async (e: React.FormEvent) => {
     e.preventDefault();

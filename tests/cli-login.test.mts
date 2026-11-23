@@ -703,11 +703,42 @@ test('a verified hosted subscription is shared by browser sessions of one accoun
   assert.equal(cliRuntime(alice), 'server');
 });
 
-test('credential replacement requires recent authentication', async () => {
-  db.prepare('UPDATE auth_sessions SET authenticated_at=? WHERE token=session_hash(?)').run(Date.now()-11*60000,alice);
-  assert.equal((await req(alice,'/login','POST',{provider:'codex',cols:80,rows:24})).status,401);
-  assert.equal((await req(alice,'/pair','POST',{})).status,401);
-  assert.equal((await req(alice,'/reset','POST')).status,401);
+for (const ageMinutes of [30, 120, 6 * 24 * 60]) {
+  for (const provider of ['claude', 'codex'] as const) {
+    test(`${provider} connect accepts an active session authenticated ${ageMinutes} minutes ago`, async () => {
+      const owner = alice;
+      const signedInAt = Date.now() - ageMinutes * 60_000;
+      db.prepare('UPDATE auth_sessions SET created_at=?,authenticated_at=? WHERE token=session_hash(?)').run(signedInAt, signedInAt, owner);
+      const session = await start(owner, provider);
+      assert.equal((await read(owner, session.id)).state, 'running');
+      assert.equal((db.prepare('SELECT authenticated_at FROM auth_sessions WHERE token=session_hash(?)').get(owner) as any).authenticated_at, signedInAt,
+        'connecting must not manufacture fresh proof for unrelated protected actions');
+    });
+  }
+}
+
+test('legacy valid sessions without a proof timestamp can connect both providers', async () => {
+  const owner = alice;
+  db.prepare('UPDATE auth_sessions SET authenticated_at=0 WHERE token=session_hash(?)').run(owner);
+  for (const provider of ['claude', 'codex'] as const) {
+    const session = await start(owner, provider);
+    assert.equal((await req(owner, `/login/${session.id}`, 'DELETE')).status, 200);
+  }
+});
+
+test('connecting with an older session does not authorize account deletion', async () => {
+  const owner = alice;
+  const { api } = await import('../server/src/routes.js');
+  const accountApi = new Hono().route('/api', api);
+  db.prepare('UPDATE auth_sessions SET authenticated_at=? WHERE token=session_hash(?)').run(Date.now() - 30 * 60_000, owner);
+  await start(owner, 'claude');
+  const response = await accountApi.request('/api/account', {
+    method: 'DELETE', headers: { cookie: `swarm_session=${encodeURIComponent(owner)}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ confirmation: 'DELETE', expectedUserId: owner }),
+  });
+  assert.equal(response.status, 401);
+  assert.equal((await response.json()).code, 'reauth_required');
+  assert.ok(db.prepare('SELECT 1 FROM users WHERE id=?').get(owner));
 });
 
 test('reset removes both saved logins, the bridge pairing, a pending sign-in and cached status, keeps the selection and leaves the other account intact', async () => {
@@ -766,31 +797,31 @@ test('reset rejects a stale displayed account before touching either account or 
   assert.deepEqual(mutationState(bob), beforeBob);
   assert.equal((await (await req(bob, `/login/${terminal.id}`)).json()).state, 'running');
   db.prepare('UPDATE auth_sessions SET authenticated_at=? WHERE token=session_hash(?)').run(Date.now() - 11 * 60_000, bob);
-  assert.equal((await req(bob, '/reset', 'POST', { expectedUserId: bob })).status, 401);
-  assert.deepEqual(mutationState(bob), beforeBob, 'a step-up rejection must not cancel the terminal or reset credentials');
+  assert.equal((await req(bob, '/reset', 'POST', { expectedUserId: bob })).status, 200);
+  assert.equal((await req(bob, `/login/${terminal.id}`)).status, 404, 'the confirmed reset accepts an older valid session');
 });
 
-test('reauth verification requires fresh authentication for the initiating account and never mutates credentials', async () => {
+test('connection recovery verifies the initiating account without requiring recent proof or mutating credentials', async () => {
   const beforeAlice = mutationState(alice), beforeBob = mutationState(bob);
   assert.equal((await req(alice, '/reauth', 'POST', { expectedUserId: alice })).status, 200);
   assert.equal((await req(bob, '/reauth', 'POST', { expectedUserId: alice })).status, 409);
   assert.equal((await req(alice, '/reauth', 'POST')).status, 400);
   db.prepare('UPDATE auth_sessions SET authenticated_at=? WHERE token=session_hash(?)').run(Date.now() - 11 * 60_000, alice);
   const old = await req(alice, '/reauth', 'POST', { expectedUserId: alice });
-  assert.equal(old.status, 401);
-  assert.equal((await old.json()).code, 'reauth_required');
+  assert.equal(old.status, 200);
+  assert.deepEqual(await old.json(), { ok: true });
   assert.deepEqual(mutationState(alice), beforeAlice);
   assert.deepEqual(mutationState(bob), beforeBob);
 });
 
 const credentialMutations = [
-  { name: 'login', route: '/login', method: 'POST', body: { provider: 'claude', cols: 80, rows: 24 }, recent: true },
-  { name: 'pair creation', route: '/pair', method: 'POST', body: undefined, recent: true },
-  { name: 'disconnect', route: '/pair', method: 'DELETE', body: undefined, recent: true },
+  { name: 'login', route: '/login', method: 'POST', body: { provider: 'claude', cols: 80, rows: 24 } },
+  { name: 'pair creation', route: '/pair', method: 'POST', body: undefined },
+  { name: 'disconnect', route: '/pair', method: 'DELETE', body: undefined },
   // Selecting API mode would remove the existing subscription without an auth
   // refresh, so it also exercises the mutation's initial authorization boundary.
-  { name: 'provider selection', route: '', method: 'PUT', body: { provider: null }, recent: false },
-  { name: 'reset', route: '/reset', method: 'POST', body: undefined, recent: true },
+  { name: 'provider selection', route: '', method: 'PUT', body: { provider: null } },
+  { name: 'reset', route: '/reset', method: 'POST', body: undefined },
 ] as const;
 type CredentialMutation = typeof credentialMutations[number];
 
@@ -859,18 +890,15 @@ for (const invalidation of ['revoked', 'expired'] as const) {
   }
 }
 
-for (const mutation of credentialMutations.filter(value => value.recent)) {
-  test(`queued ${mutation.name} requires authentication to remain recent while waiting`, async () => {
+for (const mutation of credentialMutations) {
+  test(`queued ${mutation.name} accepts a valid session that passes ten minutes while waiting`, async () => {
     seedMutationState(mutation);
-    const before = mutationState(alice);
     try {
       const response = await queuedMutation(alice, mutation, () => {
         db.prepare('UPDATE auth_sessions SET authenticated_at=? WHERE token=session_hash(?)').run(Date.now() - 11 * 60_000, alice);
       });
-      assert.equal(response.status, 401, await response.clone().text());
-      assert.equal((await response.json()).code, 'reauth_required');
-      assert.equal((await req(alice)).status, 200, 'the session itself remains valid; only recent authentication aged out');
-      assert.deepEqual(mutationState(alice), before);
+      assert.equal(response.status, 200, await response.clone().text());
+      assert.equal((await req(alice)).status, 200, 'session validity is independent of recent proof');
     } finally { await cancelUserLogins(alice); }
   });
 }
@@ -930,7 +958,7 @@ test('revocation during async CLI auth refresh cannot select a verified provider
 });
 
 
-test('late reset authentication expiry preserves its denial after cancelling a real PTY', async () => {
+test('late reset session expiry preserves its denial after cancelling a real PTY', async () => {
   const source = fs.readFileSync(fakeCli, 'utf8');
   fs.writeFileSync(fakeCli, source.replace('if (login) {', `if (login) {
     process.on('SIGTERM', () => { audit({ kind: 'reset-stop-observed' }); setTimeout(() => process.exit(0), 500); });
@@ -940,17 +968,15 @@ test('late reset authentication expiry preserves its denial after cancelling a r
   try {
     const pending = req(alice, '/reset', 'POST', { expectedUserId: alice });
     await until(() => audit().some(value => value.kind === 'reset-stop-observed'), 'reset has cancelled the real fake-CLI process');
-    // Simulate crossing the existing 10-minute recency cutoff while the already
-    // cancelled PTY is shutting down; the account session itself remains valid.
-    Date.now = () => realNow() + 11 * 60_000;
+    // The session genuinely expires while the cancelled PTY is shutting down.
+    Date.now = () => realNow() + 2 * 3600_000;
     const response = await pending;
     const body = await response.json();
     Date.now = realNow;
     const terminal = await req(alice, `/login/${session.id}`);
     assert.equal(response.status, 401);
-    assert.equal(body.code, 'reauth_required');
+    assert.equal(body.error, 'unauthenticated');
     assert.equal(terminal.status, 404);
-    console.log(JSON.stringify({ reproduction: 'late-reset-recency', resetStatus: response.status, resetCode: body.code, terminalAfterReset: terminal.status, cancellationObservedBeforeExpiry: true, providers: 'fake-only', paidApiRequests: apiRequests.length }));
   } finally {
     Date.now = realNow;
     fs.writeFileSync(fakeCli, source);

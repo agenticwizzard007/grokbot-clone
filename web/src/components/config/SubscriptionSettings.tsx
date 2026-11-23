@@ -5,12 +5,11 @@ import { cliApi, type CliProvider, type CliProviderStatus, type CliStatus } from
 import { PLAN_PROVIDERS, planConnectionStatus } from '../../lib/planConnections';
 import { refreshModels } from './ModelPicker';
 import { CliLoginTerminal } from './CliLoginTerminal';
-import { ReauthPrompt } from './ReauthPrompt';
-import { needsReauth } from '../../lib/api';
+import { ApiError } from '../../lib/api';
 import { AccessRow } from './AccessRow';
 import { useReportedPlanUsage } from '../../lib/accessPlanUsage';
 import { useStore } from '../../store';
-import { useConfigUI, type ResumeAction } from '../../configStore';
+import { cancelResume, planResume, useConfigUI, type ResumeAction } from '../../configStore';
 import '../../styles/subscriptions.css';
 
 const PROVIDERS: { id: CliProvider; name: string; plan: string; install: string; login: string; docs: string }[] = [
@@ -27,6 +26,7 @@ const PROVIDERS: { id: CliProvider; name: string; plan: string; install: string;
 ];
 
 const ready = (provider: CliProviderStatus) => provider.installed && provider.authenticated && provider.subscription && !provider.error;
+const needsSession = (err: unknown): err is ApiError => err instanceof ApiError && err.status === 401;
 const providerName = (id: CliProvider) => PROVIDERS.find((provider) => provider.id === id)!.name;
 
 function providerState(provider: CliProviderStatus | undefined, connected: boolean) {
@@ -55,8 +55,9 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
   const resume = useConfigUI.getState().resume?.section === 'subscriptions' ? useConfigUI.getState().resume : null;
   const resumed = resume?.accountId === accountId && resume.expiresAt > Date.now() ? resume : null;
   const [providerTab, setProviderTab] = useState<CliProvider>(resumed?.provider ?? requestedProvider ?? 'claude');
-  const [reauth, setReauth] = useState<{ reason: string; action: ResumeAction } | null>(null);
+  const [recovery, setRecovery] = useState<{ reason: string; action: ResumeAction } | null>(null);
   const [verifyingResume, setVerifyingResume] = useState(!!resumed);
+  const [resumeLogin, setResumeLogin] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [authMethod, setAuthMethod] = useState<'cli' | 'api'>('cli');
@@ -80,7 +81,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
   const mounted = useRef(false);
   const polling = useRef<AbortController | null>(null);
   const statusEpoch = useRef(0);
-  const authLocked = !!reauth || verifyingResume;
+  const authLocked = !!recovery || verifyingResume;
   const authLockedRef = useRef(authLocked);
   authLockedRef.current = authLocked;
   const invalidateStatus = () => {
@@ -89,9 +90,10 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
   };
   const current = (epoch: number) => mounted.current && epoch === statusEpoch.current;
   const retryLabel = (action: ResumeAction) => ({ login: 'Login', reset: 'Reset connection', pair: 'Generate connect command', revoke: 'Revoke bridge' })[action];
-  const requestReauth = (action: ResumeAction, reason: string) => {
+  const requestSession = (action: ResumeAction, reason: string) => {
     invalidateStatus(); authLockedRef.current = true;
-    setNotice(null); setStale(true); setReauth({ action, reason });
+    setNotice(null); setStale(true); setRecovery({ action, reason });
+    planResume({ section: 'subscriptions', provider: providerTab, accountId, action });
     // A late authorization check can follow partial reset effects. Reconcile
     // the current state without assuming that the failed request did nothing.
     void readStatus().catch(() => {});
@@ -113,20 +115,23 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
   useEffect(() => {
     if (!resume) return;
     useConfigUI.getState().clearResume();
+    cancelResume();
     if (!resumed) { setError('The previous sign-in request expired or belongs to another account. Choose your connection action again.'); return; }
     const controller = new AbortController();
     invalidateStatus();
     const callback = new URLSearchParams(window.location.search);
     if (callback.has('login') || (callback.has('openrouter') && callback.get('openrouter') !== 'connected')) {
-      requestReauth(resumed.action, 'Sign-in did not complete. Try again to continue.');
+      requestSession(resumed.action, 'Sign-in did not complete. Try again to continue.');
       setVerifyingResume(false);
       return;
     }
     void cliApi.verifyAuth(accountId, controller.signal).then(() => {
-      if (!controller.signal.aborted) setNotice(`You’re signed in again. Choose ${retryLabel(resumed.action)}${resumed.action === 'login' ? ` to continue connecting ${providerName(resumed.provider ?? 'claude')}` : ' again to continue'}.`);
+      if (controller.signal.aborted) return;
+      if (resumed.action === 'login') setResumeLogin(true);
+      else setNotice(`Your session is ready. Review the connection status before choosing ${retryLabel(resumed.action)}.`);
     }).catch((err: unknown) => {
       if (controller.signal.aborted) return;
-      if (needsReauth(err)) requestReauth(resumed.action, err.message);
+      if (needsSession(err)) requestSession(resumed.action, err.message);
       else setError(err instanceof Error ? err.message : 'Could not verify your sign-in. Reload and try again.');
     }).finally(() => {
       if (!controller.signal.aborted) {
@@ -191,7 +196,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
     try { await task(epoch); }
     catch (err) {
       if (!mounted.current) return;
-      if (needsReauth(err)) { requestReauth(action === 'reset' || action === 'pair' || action === 'revoke' ? action : 'login', err.message); return; }
+      if (needsSession(err)) { requestSession(action === 'reset' || action === 'pair' || action === 'revoke' ? action : 'login', err.message); return; }
       setError(err instanceof Error ? err.message : 'Subscription request failed. Try again.');
       setStale(true);
     } finally {
@@ -286,13 +291,19 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
     if (disabled || loginActive.current) return;
     tabPicked.current = true;
     invalidateStatus();
-    setBusy(null); setError(null); setReauth(null); setNotice(null); setConfirmReset(false); dismiss();
+    setBusy(null); setError(null); setRecovery(null); setNotice(null); setConfirmReset(false); dismiss();
     loginActive.current = true; setLoginRunning(true);
     setAuthMethod('cli'); setLoginAttempt((current) => current + 1); setLoginProvider(providerTab);
   };
   const closeLogin = () => {
     loginActive.current = false; setLoginRunning(false); setLoginProvider(null);
   };
+
+  useEffect(() => {
+    if (!resumeLogin || disabled || loginActive.current) return;
+    setResumeLogin(false);
+    startLogin();
+  }, [resumeLogin, disabled]);
 
   return (
     <div className="subscription-settings">
@@ -315,8 +326,23 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
         ))}
       </div>
 
-      {reauth && <ReauthPrompt accountEmail={accountEmail} reason={reauth.reason} resume={{ section: 'subscriptions', provider: providerTab, accountId, action: reauth.action }}
-        retryLabel={retryLabel(reauth.action)} terminalActive={!!loginProvider} onCancel={() => { invalidateStatus(); setReauth(null); }} />}
+      {recovery && <section className="cfg-card subscription-reauth" aria-label="Continue connection">
+        <div className="subscription-reauth__body">
+          <p role="alert">{recovery.reason}</p>
+          <p>Continue to check your Swarm session and return to this connection.</p>
+          {recovery.action === 'reset' && <p>Reset may already have stopped login sessions or removed saved connections. Review the refreshed status before retrying.</p>}
+          <div className="subscription-settings__actions">
+            <button type="button" className="cfg-btn cfg-btn--primary" onClick={() => {
+              planResume({ section: 'subscriptions', provider: providerTab, accountId, action: recovery.action });
+              const url = new URL(window.location.href);
+              url.searchParams.delete('login'); url.searchParams.delete('openrouter');
+              history.replaceState(history.state, '', url.pathname + url.search + '#settings/subscriptions');
+              window.location.reload();
+            }}>Continue connection</button>
+            <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => { invalidateStatus(); cancelResume(); setRecovery(null); }}>Not now</button>
+          </div>
+        </div>
+      </section>}
 
       <section className="cfg-section" aria-label="Plan connection">
         <AccessRow title={providerTab === 'claude' ? 'Claude plan' : 'ChatGPT plan'} description={`${PLAN_PROVIDERS.find(p => p.id === providerTab)!.plans} via the official ${providerTab === 'claude' ? 'Claude Code' : 'Codex'} CLI.`}
@@ -332,7 +358,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
         {status?.connected && !health?.installed && <p>Install the official {providerTab === 'claude' ? 'Claude Code' : 'Codex'} CLI on {runtime === 'bridge' ? 'your computer' : "your Bot's computer"}, then refresh status. <a href={provider.docs} target="_blank" rel="noreferrer">Installation and sign-in instructions</a></p>}
       </section>
 
-      {loginProvider && <CliLoginTerminal key={loginAttempt} provider={loginProvider} onClose={closeLogin} onReauthRequired={() => { closeLogin(); requestReauth('login', 'Sign in again to continue connecting your subscription.'); }} onStateChange={(next) => {
+      {loginProvider && <CliLoginTerminal key={loginAttempt} provider={loginProvider} onClose={closeLogin} onSessionRequired={() => { closeLogin(); requestSession('login', 'Your Swarm session needs to be checked before connecting.'); }} onStateChange={(next) => {
         const running = next === 'running' || next === 'verifying';
         loginActive.current = running; setLoginRunning(running);
         if ((next === 'failed' || next === 'cancelled') && !working.current) void readStatus().catch(() => {});
@@ -373,7 +399,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
         {blocked && <p className="subscription-settings__blocked">The selected subscription is blocked until its login is ready. There is no automatic fallback to API providers.</p>}
         {(error || readError) && <div className="cfg-error" role="alert">{error || readError}</div>}
         {verifyingResume && <p role="status">Verifying your sign-in…</p>}
-        {notice && !reauth && <p className="subscription-settings__notice" role="status">{notice}</p>}
+        {notice && !recovery && <p className="subscription-settings__notice" role="status">{notice}</p>}
         {status?.serverLoginAvailable === false && <p>Server login is currently unavailable. Try Login for the server’s instructions, or use the computer bridge under Advanced.</p>}
         {health?.error && <div className="cfg-error">{health.error}</div>}
       </section>
