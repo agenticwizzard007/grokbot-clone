@@ -18,13 +18,17 @@ CREATE TABLE IF NOT EXISTS tool_dispatches (
   bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE, call_id TEXT NOT NULL,
   tool TEXT NOT NULL, arguments_hash TEXT NOT NULL, state TEXT NOT NULL,
   created_at INTEGER NOT NULL, finished_at INTEGER, PRIMARY KEY(bot_id,call_id));`);
+export class JobCapacityError extends Error {
+  constructor() { super('Your task queue is full. Wait for running tasks to finish.'); }
+}
+
 export function acceptJob(botId: string, trigger: unknown) {
   return db.transaction(() => {
     const bot = db.prepare('SELECT user_id FROM bots WHERE id=?').get(botId) as { user_id: string } | undefined;
     if (!bot) throw new Error('Agent not found.'); assertTenant(bot.user_id);
     if (!selectedCli(bot.user_id)) {
       const n = (db.prepare("SELECT count(*) n FROM agent_jobs WHERE user_id=? AND state IN ('queued','running') AND json_extract(trigger,'$.type')!='learning-review'").get(bot.user_id) as { n: number }).n;
-      if (n >= 64) throw new Error('Your task queue is full. Wait for running tasks to finish.');
+      if (n >= 64) throw new JobCapacityError();
     }
     const payload = JSON.stringify(trigger);
     if (Buffer.byteLength(payload) > 16 * 1024 * 1024) throw new Error('Task payload is too large.');
