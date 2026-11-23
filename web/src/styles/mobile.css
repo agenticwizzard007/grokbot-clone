@@ -80,6 +80,8 @@
   .composer__input { font-size: 16px; line-height: 22px; } /* under 16px, iOS zooms the page on focus */
   .composer__btn, .composer__cta { width: 34px; height: 34px; }
   .toast { bottom: calc(84px + var(--safe-bottom)); max-width: calc(100vw - 32px); }
+  /* Body portal toasts size to their text, with corners that keep wrapped lines readable. */
+  .toast--global { bottom: auto; border-radius: 12px; }
 
   /* Tasks */
   .tasks-view__header { height: auto; min-height: calc(56px + var(--safe-top)); padding: var(--safe-top) 8px 0 8px; gap: 8px; flex-wrap: wrap; }
