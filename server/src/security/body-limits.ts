@@ -12,6 +12,15 @@ export const IMPORT_BODY_LIMIT = 2 * 1024 * 1024;
 export const BODY_TOO_LARGE = 'Message is too long (max 32,000 characters).';
 export const IMPORT_TOO_LARGE = 'This setup file is too large (max 2 MB).';
 
+// Public phone sign-in and invite claims carry only short strings. Mount this on those POST
+// handlers so uploads and provider callbacks keep their existing limits and body formats.
+export const PUBLIC_AUTH_BODY_LIMIT = 4 * 1024;
+export const PUBLIC_AUTH_TOO_LARGE = 'Request body is too large (max 4 KB).';
+export const publicAuthBodyLimit = bodyLimit({
+  maxSize: PUBLIC_AUTH_BODY_LIMIT,
+  onError: (c) => c.json({ error: PUBLIC_AUTH_TOO_LARGE }, 413),
+});
+
 const standard = bodyLimit({ maxSize: API_BODY_LIMIT, onError: (c) => c.json({ error: BODY_TOO_LARGE }, 413) });
 const imports = bodyLimit({ maxSize: IMPORT_BODY_LIMIT, onError: (c) => c.json({ error: IMPORT_TOO_LARGE }, 413) });
 
