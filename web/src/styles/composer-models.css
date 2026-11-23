@@ -126,6 +126,8 @@ button.mm-item:hover, .mm-item.is-open { background: var(--color-bg-hover); }
 /* The glow sits behind the composer (a sibling), never over its controls. */
 .composer-shell { position: relative; max-width: 960px; margin: 0 auto; }
 .composer-shell > .composer { position: relative; z-index: 1; }
+/* Keep the picker and its phone backdrop above the chat header and jump control. */
+.composer-shell > .composer:has(.mm-wrap) { z-index: 6; }
 .composer__glow {
   position: absolute; inset: 10px 18px -8px; z-index: 0; border-radius: 26px; pointer-events: none;
   background: conic-gradient(from var(--uc-angle), var(--effort-colors, #ff5f6d, #ffb341, #ffe14d, #3ddc84, #20c7e8, #3aa0ff, #7b61ff, #d25cff, #ff5f6d));
