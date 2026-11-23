@@ -5,6 +5,7 @@
 }
 .card__head { display: flex; align-items: flex-start; gap: 10px; padding: 16px 16px 4px; }
 .card__titles { display: flex; flex-direction: column; flex: 1 1 0; min-width: 0; padding: 2px 0; }
+.card__title, .question-card__q, .card__sub { overflow-wrap: anywhere; }
 .card__title { font-size: 14px; font-weight: 500; line-height: 20px; letter-spacing: 0.14px; color: var(--color-ink); }
 .card__sub { font-size: 14px; line-height: 20px; letter-spacing: 0.14px; color: var(--color-text-secondary); }
 .card__body { padding: 8px 16px 0; font-size: 14px; line-height: 20px; letter-spacing: 0.14px; color: var(--color-ink); white-space: pre-wrap; overflow-wrap: anywhere; }
