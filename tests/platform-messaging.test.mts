@@ -15,12 +15,25 @@ test('platform phone verification and messaging stay bound to verified owners',{
   t.after(async()=>{await directory.pool.end();await admin.query(`DROP SCHEMA ${schema} CASCADE`);await admin.end();});
   await directory.migrate();
   const sent:any[]=[],events:any[]=[];
-  const provider={ready:()=>true,line:async()=>({number:'+15550000000'}),verify:(raw:string,h:any)=>verifySignature(raw,{requestId:h['x-inkbox-request-id'],timestamp:h['x-inkbox-timestamp'],signature:h['x-inkbox-signature']},'test-signing'),send:async(channel:any,destination:any,message:any,id:any)=>{sent.push({channel,destination,message,id});return `sent-${sent.length}`;}};
+  const provider={ready:()=>true,line:async()=>({number:'+15550000000',connectCommand:'connect @swarm',smsLink:'sms:+15550000000?&body=connect%20%40swarm'}),verify:(raw:string,h:any)=>verifySignature(raw,{requestId:h['x-inkbox-request-id'],timestamp:h['x-inkbox-timestamp'],signature:h['x-inkbox-signature']},'test-signing'),send:async(channel:any,destination:any,message:any,id:any)=>{sent.push({channel,destination,message,id});return `sent-${sent.length}`;}};
   const envelopes={create:async()=>{},encrypt:async(tenant:string,purpose:string,payload:any)=>{events.push({tenant,id:purpose.slice(6),payload});return JSON.stringify(payload);}};
   const runtime={verify:async(token:string)=>{if(!token.startsWith('usr_'))throw new Error();return {tenant:token,generation:'1'};}};
   const app=platformMessaging(directory,envelopes as any,runtime as any,()=>{},provider);
   const post=(route:string,body:any,cookie?:string,token?:string)=>app.request(route,{method:'POST',headers:{'content-type':'application/json',...(cookie?{cookie}:{}),...(token?{authorization:`Bearer ${token}`}:{})},body:JSON.stringify(body)});
-  async function start(phone:string,cookie?:string,link=false){const r=await post(link?'/api/messaging/phone/start':'/api/auth/phone/start',{phone},cookie);assert.equal(r.status,200,await r.clone().text());return {id:(await r.json() as any).id,cookie:r.headers.getSetCookie()[0].split(';')[0],code:sent.at(-1).message.text.match(/\b\d{6}\b/)[0]};}
+  async function start(phone:string,cookie?:string,link=false){
+    const r=await post(link?'/api/messaging/phone/start':'/api/auth/phone/start',{phone},cookie);
+    assert.equal(r.status,200,await r.clone().text());
+    const body=await r.json() as any;
+    assert.ok(['sent','text-first'].includes(body.delivery));
+    if(body.delivery==='text-first'){
+      assert.equal(body.line.connectCommand,'connect @swarm');
+      const raw=JSON.stringify({event_type:'imessage.received',data:{message:{id:`first-${body.id}`,remote_number:`+${phone}`,conversation_id:`conversation-${phone}`,content:'hi'}}});
+      const timestamp=String(Math.floor(Date.now()/1000)),requestId=`first-${body.id}`;
+      const signature=`sha256=${createHmac('sha256','test-signing').update(`${requestId}.${timestamp}.${raw}`).digest('hex')}`;
+      assert.equal((await app.request('/api/messaging/inkbox/webhook',{method:'POST',body:raw,headers:{'content-type':'application/json','x-inkbox-request-id':requestId,'x-inkbox-timestamp':timestamp,'x-inkbox-signature':signature}})).status,204);
+    }
+    return {id:body.id,cookie:r.headers.getSetCookie()[0].split(';')[0],code:sent.at(-1).message.text.match(/\b\d{6}\b/)[0]};
+  }
   async function finish(a:any,cookie=a.cookie,link=false){return post(link?'/api/messaging/phone/verify':'/api/auth/phone/verify',{id:a.id,code:a.code},cookie);}
   {
     const a=await start('15550001111');

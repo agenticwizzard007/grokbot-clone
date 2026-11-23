@@ -9,6 +9,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { after, test } from 'node:test';
+import { parsePhoneStart, PHONE_START_UNAVAILABLE } from '../server/src/messaging/phone-start.js';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-messaging-'));
 const free = () => new Promise<number>((r) => { const s = http.createServer().listen(0, () => { const p = (s.address() as any).port; s.close(() => r(p)); }); });
@@ -31,6 +32,8 @@ const ib = {
   assignments: [] as string[],
   /** Numbers Inkbox refuses to text first (connected on the shared line, never wrote to it): 409 imessage_awaiting_inbound. */
   awaiting: [] as string[],
+  failed: [] as string[],
+  routerUnavailable: false,
   reactions: [] as any[],
   sent: [] as any[],
   uploads: [] as { type: string; bytes: number }[],
@@ -81,6 +84,7 @@ const inkbox = http.createServer((req, res) => {
     if (p === '/imessage/messages' && req.method === 'POST') {
       if (key !== 'idkey') return json(401, { detail: 'bad key' });
       const target = String(body.to ?? String(body.conversation_id ?? '').replace(/^conv_/, '+')).replace(/\D/g, '');
+      if (ib.failed.includes(target)) return json(500, { detail: 'Local send failure' });
       if (ib.awaiting.includes(target)) return json(409, { detail: { error: 'imessage_awaiting_inbound', address: `+${target}`, message: `+${target} is connected to this agent but hasn't sent a message or reaction yet. They must text +12547360578, not the router, before the agent can reply.` } });
       ib.sent.push(body);
       return json(200, { message: { id: `im_out_${ib.sent.length}`, conversation_id: body.conversation_id } });
@@ -113,7 +117,7 @@ const inkbox = http.createServer((req, res) => {
     }
     if (key !== 'admin') return json(401, { detail: 'bad admin key' });
     if (p.startsWith('/imessage/assignments')) return json(200, ib.assignments.map((n) => ({ id: `as_${n}`, remote_number: `+${n}`, status: 'active' })));
-    if (p === '/imessage/triage-number') return json(200, { number: '+14155550199', connect_command: 'connect @handle', sms_link: 'sms:+14155550199', connect_qr_png_data_url: '' });
+    if (p === '/imessage/triage-number') return ib.routerUnavailable ? json(500, { detail: 'Local line unavailable' }) : json(200, { number: '+14155550199', connect_command: 'connect @handle', sms_link: 'sms:+14155550199', connect_qr_png_data_url: '' });
     if (p === '/identities/swarm/channel-status') return json(200, { whatsapp: { enabled: true, number: '+14155550200', status: 'ready' } });
     if (p === '/identities/' && req.method === 'POST') { ib.identities++; return json(201, { id: 'idn_new', agent_handle: body.agent_handle, email_address: `${body.agent_handle}@inkboxmail.com`, imessage_enabled: true }); }
     if (p === '/api-keys' && req.method === 'POST') { if (ib.failKeyOnce) { ib.failKeyOnce = false; return json(500, { detail: 'boom' }); } ib.keys++; return json(201, { api_key: 'idkey' }); }
@@ -131,7 +135,7 @@ const ibPort = await free();
 await new Promise<void>((r) => inkbox.listen(ibPort, r));
 
 Object.assign(process.env, {
-  DB_PATH: path.join(root, 'test.db'), FILES_DIR: path.join(root, 'files'), SESSION_SECRET: 'test-only-secret', COMPUTER_PROVIDER: 'local', COMPOSIO_API_KEY: '',
+  DB_PATH: path.join(root, 'test.db'), FILES_DIR: path.join(root, 'files'), SESSION_SECRET: 'test-only-secret', DEV_LOGIN: '1', COMPUTER_PROVIDER: 'local', COMPOSIO_API_KEY: '',
   OPENROUTER_API_KEY: 'test', OPENROUTER_BASE_URL: `http://localhost:${mockPort}/api/v1`, DIRECT_API_KEY: 'test', DIRECT_BASE_URL: `http://localhost:${mockPort}/v1`, LLM_PROVIDER: 'openrouter',
   XAI_API_KEY: '', XAI_BASE_URL: `http://localhost:${ibPort}/xai`,
   INKBOX_BASE_URL: `http://localhost:${ibPort}`, INKBOX_ADMIN_API_KEY: 'admin', INKBOX_API_KEY: 'idkey', INKBOX_SIGNING_KEY: 'whsec_test', INKBOX_IDENTITY_ID: 'idn_1', INKBOX_HANDLE: 'swarm',
@@ -620,10 +624,44 @@ test('plain-text formatting', () => {
 const post = (path: string, body: unknown, cookie?: string) => app.request(path, { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json', 'x-forwarded-for': `10.0.0.${++evN % 250}`, ...(cookie ? { cookie } : {}) } });
 const codeIn = (t: string) => t.match(/is (\d{6})\./)![1];
 
+test('P-04: standalone sign-in and attach reject unavailable messaging without leaving a challenge', async () => {
+  const { forgetLineInfo } = await import('../server/src/messaging/inkbox/adapter.js');
+  const signingKey = process.env.INKBOX_SIGNING_KEY!;
+  let n = 0;
+  try {
+    for (const route of ['/api/auth/phone/start', '/api/messaging/phone/start']) {
+      for (const reason of ['unconfigured', 'line-unavailable', 'send-failed']) {
+        const phone = `15550009${String(++n).padStart(3, '0')}`;
+        process.env.INKBOX_SIGNING_KEY = reason === 'unconfigured' ? '' : signingKey;
+        ib.routerUnavailable = reason === 'line-unavailable';
+        forgetLineInfo();
+        if (reason === 'send-failed') {
+          const userId = createAccount({ phone, source: 'text' }).id;
+          store.upsertLink(userId, 'imessage', 'inkbox', { status: 'connected', phone, chatRef: conv(phone) });
+          ib.failed.push(phone);
+        }
+        // Attach to the same holder when exercising a failed send.
+        const holder = db.prepare('SELECT id FROM users WHERE phone=?').get(phone) as { id: string } | undefined;
+        const response = await post(route, { phone }, cookieFor(holder?.id ?? owner));
+        assert.equal(response.status, 503, reason);
+        assert.deepEqual(await response.json(), { error: PHONE_START_UNAVAILABLE });
+        assert.equal(db.prepare('SELECT 1 FROM phone_logins WHERE phone=? AND used_at IS NULL').get(phone), undefined);
+      }
+    }
+  } finally {
+    process.env.INKBOX_SIGNING_KEY = signingKey;
+    ib.routerUnavailable = false;
+    ib.failed.length = 0;
+    forgetLineInfo();
+  }
+});
+
 test('phone sign-up: a new number gets its code by replying to the iMessage line, then the account is created and connected', async () => {
   const phone = '15550008888';
   const start = await (await post('/api/auth/phone/start', { phone: '+1 555 000 8888' })).json() as any;
   assert.ok(start.id);
+  assert.deepEqual(parsePhoneStart(start), start);
+  assert.equal(start.delivery, 'text-first');
   assert.equal(start.line.connectCommand, 'connect @swarm');
   // Not connected yet: nothing is texted until they write over iMessage.
   await text(phone, 'hi');

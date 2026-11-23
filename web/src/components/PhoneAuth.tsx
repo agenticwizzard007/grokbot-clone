@@ -35,6 +35,7 @@ export function PhoneAuth({ mode, onAttached, reauth = false }: { mode: 'signin'
     setBusy(true); setError(null); setExisting(false);
     try { setStart(await (mode === 'signin' ? configApi.phoneStart(phone.trim()) : configApi.phoneAttachStart(phone.trim()))); setCode(''); }
     catch (err) {
+      setStart(null);
       setError((err as Error).message);
       if (mode === 'attach' && err instanceof ApiError && err.status === 409) setExisting(true);
     }
@@ -107,10 +108,13 @@ export function PhoneAuth({ mode, onAttached, reauth = false }: { mode: 'signin'
       )}
       {start.delivery === 'text-first' && !start.textNumber && start.line && (
         <div className="phone-auth__help">
-          <div><b>No text yet?</b> Say Hi Swarm and we'll text your code right back.</div>
-          {start.line.whatsapp?.messageLink && <a className="btn btn--secondary phone-auth__btn phone-auth__btn--whatsapp" href={start.line.whatsapp.messageLink}><WhatsAppIcon /> Open WhatsApp</a>}
+          <div><b>Connect to get your code.</b> Choose a messaging app and send the connection text.</div>
+          {start.line.whatsapp?.messageLink && <>
+            <a className="btn btn--secondary phone-auth__btn phone-auth__btn--whatsapp" href={start.line.whatsapp.messageLink}><WhatsAppIcon /> Open WhatsApp</a>
+            <div className="phone-auth__small">Send the filled-in WhatsApp message to get your code.</div>
+          </>}
           <a className="btn btn--secondary phone-auth__btn" href={start.line.smsLink}>Open Messages</a>
-          <div className="phone-auth__small">WhatsApp or Messages will fill in the connection text for you. If Messages doesn't, text <code>{start.line.connectCommand}</code> to <code>{prettyNumber(start.line.number)}</code>. Swarm's contact card then arrives in a new thread: reply “hi” there (not to the router number) and we'll text your code right back.</div>
+          <div className="phone-auth__small">In Messages, send <code>{start.line.connectCommand}</code> to <code>{prettyNumber(start.line.number)}</code>. Swarm's contact card then arrives in a new thread: reply “hi” there to get your code.</div>
         </div>
       )}
       <button type="button" className="phone-auth__link" onClick={() => { setStart(null); setError(null); setNeedInvite(false); }}>Use a different number</button>

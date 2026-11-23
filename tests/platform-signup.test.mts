@@ -23,7 +23,7 @@ test('platform signup administration preserves identity, role and fresh authoriz
   let token = await directory.createSession(a,undefined,'admin device');
   const other = await directory.createSession(b,undefined,'other device'), administration = new SignupAdministration(directory);
   const sent:any[]=[];
-  const provider = {ready:()=>true,line:async()=>({number:'+15550000000'}),verify:(raw:string,h:any)=>verifySignature(raw,{requestId:h['x-inkbox-request-id'],timestamp:h['x-inkbox-timestamp'],signature:h['x-inkbox-signature']},'signup-signing'),send:async(_c:any,d:any,m:any)=>{sent.push({d,m});return 'receipt';}};
+  const provider = {ready:()=>true,line:async()=>({number:'+15550000000',connectCommand:'connect @swarm',smsLink:'sms:+15550000000?&body=connect%20%40swarm'}),verify:(raw:string,h:any)=>verifySignature(raw,{requestId:h['x-inkbox-request-id'],timestamp:h['x-inkbox-timestamp'],signature:h['x-inkbox-signature']},'signup-signing'),send:async(_c:any,d:any,m:any)=>{sent.push({d,m});return 'receipt';}};
   const envelopes = {create:async()=>{},encrypt:async()=> 'encrypted'}, runtime = {verify:async()=>{throw new Error('No runtime admin permission.');}};
   const app = new Hono(); app.route('/',signupAdminRoutes(directory)); app.route('/',platformMessaging(directory,envelopes as any,runtime as any,()=>{},provider));
   const request = (route:string,method='GET',body?:unknown,raw=token,extra={})=>app.request(route,{method,headers:{cookie:`swarm_session=${raw}`,'content-type':'application/json',...extra},...(body===undefined?{}:{body:JSON.stringify(body)})});
@@ -35,7 +35,9 @@ test('platform signup administration preserves identity, role and fresh authoriz
   }
   async function start(phone:string) {
     const response=await request('/api/auth/phone/start','POST',{phone}); assert.equal(response.status,200);
-    return { id:(await response.json() as any).id, code:sent.at(-1).m.text.match(/\b\d{6}\b/)[0], cookie:response.headers.getSetCookie()[0].split(';')[0] };
+    const body=await response.json() as any;
+    if(body.delivery==='text-first')assert.equal((await signed(phone,'hi',`first-${body.id}`)).status,204);
+    return { id:body.id, code:sent.at(-1).m.text.match(/\b\d{6}\b/)[0], cookie:response.headers.getSetCookie()[0].split(';')[0] };
   }
   const verify=(attempt:any,code=attempt.code)=>app.request('/api/auth/phone/verify',{method:'POST',headers:{cookie:attempt.cookie,'content-type':'application/json'},body:JSON.stringify({id:attempt.id,code})});
 

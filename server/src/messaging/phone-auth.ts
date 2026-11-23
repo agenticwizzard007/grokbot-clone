@@ -6,6 +6,7 @@ import { deliver } from './bridge.js';
 import { signupConfig, startAccount, takeInvite } from './signup.js';
 import { digits, getLink, isLive, upsertLink, type Channel, type Transport } from './store.js';
 import { awaitingInbound, inkboxConfigured, isConnectedToLine, textNewlyConnected } from './inkbox/adapter.js';
+import { PHONE_START_UNAVAILABLE, phoneStartResponse, type PhoneStart } from './phone-start.js';
 
 /**
  * "Continue with your phone number" in the browser, and "Connect your phone" for signed-in users.
@@ -58,15 +59,14 @@ const pendingFor = (phone: string) =>
   db.prepare('SELECT * FROM phone_logins WHERE phone=? AND used_at IS NULL AND expires_at>? ORDER BY created_at DESC LIMIT 1').get(phone, now()) as any;
 
 export type StartResult =
-  /** `sent`: the code is on its way. `text-first`: it goes out when the phone texts the line (`textNumber` when known). */
-  | { ok: true; id: string; delivery: 'sent' | 'text-first'; textNumber: string | null }
+  | ({ ok: true } & PhoneStart)
   | { ok: false; status: number; error: string };
 
 /**
  * Start: make a code for this number. If the number already reaches Swarm, text it now.
- * Answers the same either way, so nobody learns whether a number has an account.
+ * Delivery state tells the browser whether to wait for the code or make first contact.
  */
-export async function startPhoneLogin(phone: string, opts: { ip: string; attachTo?: string }): Promise<StartResult> {
+export async function startPhoneLogin(phone: string, opts: { ip: string; attachTo?: string; line: () => Promise<unknown> }): Promise<StartResult> {
   const p = digits(phone);
   if (p.length < 8 || p.length > 15) return { ok: false, status: 400, error: 'Enter your full number with country code, like +1 415 555 0100.' };
   if (limited(`ip:${opts.ip}`, 10, 10 * 60_000) || limited(`phone:${p}`, 5, 10 * 60_000)) return { ok: false, status: 429, error: 'Too many tries. Wait a few minutes and try again.' };
@@ -76,22 +76,34 @@ export async function startPhoneLogin(phone: string, opts: { ip: string; attachT
     const holder = accountByPhone(p);
     if (holder && holder.id !== opts.attachTo) return { ok: false, status: 409, error: EXISTING_ACCOUNT };
   }
+  const unavailable = { ok: false, status: 503, error: PHONE_START_UNAVAILABLE } as const;
+  if (!inkboxConfigured()) return unavailable;
   const id = crypto.randomBytes(16).toString('base64url');
   // A plain 6-digit code (people type it from a text).
   const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
   db.prepare('UPDATE phone_logins SET used_at=? WHERE phone=? AND used_at IS NULL').run(now(), p); // one live code per number
   db.prepare('INSERT INTO phone_logins(id,phone,code_hash,attach_user_id,created_at,expires_at) VALUES (?,?,?,?,?,?)').run(id, p, hash(id, code), opts.attachTo ?? null, now(), now() + TTL);
   pendingCodes.set(id, code);
+  const fail = () => {
+    db.prepare('DELETE FROM phone_logins WHERE id=?').run(id);
+    pendingCodes.delete(id);
+    return unavailable;
+  };
   const acct = accountByPhone(p);
   const channel = acct && (['imessage', 'whatsapp'] as const).find((ch) => isLive(getLink(acct.id, ch)));
   if (acct && channel) {
     const r = await textCode(acct.id, channel, codeText(code, !!opts.attachTo));
-    if (r.sent) { db.prepare('UPDATE phone_logins SET code_sent=1 WHERE id=?').run(id); return { ok: true, id, delivery: 'sent', textNumber: null }; }
+    if (r.sent) { db.prepare('UPDATE phone_logins SET code_sent=1 WHERE id=?').run(id); return { ok: true, id, delivery: 'sent', textNumber: null, line: null }; }
+    if (!r.awaiting) return fail();
+    const response = await phoneStartResponse(id, 'text-first', r.textNumber, opts.line);
+    if (!response) return fail();
     db.prepare('UPDATE phone_logins SET text_number=? WHERE id=?').run(r.textNumber, id);
-    return { ok: true, id, delivery: 'text-first', textNumber: r.textNumber };
+    return { ok: true, ...response };
   }
+  const response = await phoneStartResponse(id, 'text-first', null, opts.line);
+  if (!response) return fail();
   watchForConnect(id, p, code, !!opts.attachTo);
-  return { ok: true, id, delivery: 'text-first', textNumber: null };
+  return { ok: true, ...response };
 }
 
 /**
@@ -99,13 +111,13 @@ export async function startPhoneLogin(phone: string, opts: { ip: string; attachT
  * on the shared line without writing to it; then the code waits for their text (replyWithCode), and the person is
  * told which number to text when Inkbox names it.
  */
-async function textCode(userId: string, channel: 'imessage' | 'whatsapp', text: string): Promise<{ sent: true } | { sent: false; textNumber: string | null }> {
+async function textCode(userId: string, channel: 'imessage' | 'whatsapp', text: string): Promise<{ sent: true } | { sent: false; awaiting: boolean; textNumber: string | null }> {
   const result: { outcome: 'sent' | 'queued' | 'failed' | 'dropped'; error?: unknown } = { outcome: 'dropped' };
   await deliver(userId, { text }, { kind: 'system', channel, onOutcome: (outcome, error) => Object.assign(result, { outcome, error }) });
   if (result.outcome === 'sent') return { sent: true };
   const hint = awaitingInbound(result.error);
   if (hint.awaiting) console.log(`[phone-auth] code waits for the phone to text the line first${hint.textNumber ? ` (${hint.textNumber})` : ''}`);
-  return { sent: false, textNumber: hint.textNumber };
+  return { sent: false, ...hint };
 }
 
 /**
