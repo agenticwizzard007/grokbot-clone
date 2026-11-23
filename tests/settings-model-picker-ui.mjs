@@ -28,7 +28,7 @@ const shortModels = Array.from({ length: 16 }, (_, index) => ({
   price: { input: 0.25, output: 12 },
 }));
 const longModel = {
-  ...shortModels[0], id: `test/${'unbrokenidentifier'.repeat(14)}`, name: 'Long identifier model',
+  ...shortModels[0], id: `test/${'unbrokenidentifier'.repeat(14)}`, name: `Long ${'ExtendedModelVariant'.repeat(14)} model`,
   price: { input: 123456789.12, output: 987654321.98 },
 };
 const missingKey = { set: false, source: null, hint: null };
@@ -115,24 +115,29 @@ try {
     await page.keyboard.press('Escape');
     await button.and(page.locator(':focus')).waitFor();
 
-    // Opening the picker refreshes its catalog with a long ID and pricing metadata.
+    // Opening the picker refreshes its catalog with a long display name and pricing metadata.
     models = [shortModels[0], longModel, ...shortModels.slice(1)];
     await button.click();
-    const metadata = list.locator('.model-picker__meta').filter({ hasText: longModel.id });
+    const option = list.getByRole('option').filter({ hasText: longModel.name });
+    const metadata = option.locator('.model-picker__meta');
     await metadata.waitFor();
-    await assertPaneFits(labelLeft, `${width}px long identifier`);
+    assert.match(await metadata.innerText(), / in · .+ out \/ 1M tokens$/);
+    assert.equal((await option.innerText()).includes(longModel.id), false, 'options show the display name instead of the raw ID');
+    await assertPaneFits(labelLeft, `${width}px long display name`);
     const dimensions = await metadata.evaluate(meta => {
       const list = meta.closest('.model-picker__list');
       const row = meta.closest('.model-picker__row');
-      return { metaWidth: meta.clientWidth, metaScrollWidth: meta.scrollWidth, metaHeight: meta.clientHeight, fontSize: parseFloat(getComputedStyle(meta).fontSize), rowWidth: row.clientWidth, rowScrollWidth: row.scrollWidth, listWidth: list.clientWidth, listScrollWidth: list.scrollWidth };
+      const name = row.querySelector('.model-picker__name');
+      return { metaWidth: meta.clientWidth, metaScrollWidth: meta.scrollWidth, nameWidth: name.clientWidth, nameScrollWidth: name.scrollWidth, nameHeight: name.clientHeight, fontSize: parseFloat(getComputedStyle(name).fontSize), rowWidth: row.clientWidth, rowScrollWidth: row.scrollWidth, listWidth: list.clientWidth, listScrollWidth: list.scrollWidth };
     });
     assert.ok(dimensions.metaScrollWidth <= dimensions.metaWidth + 1, `${width}px: metadata wraps inside its own box: ${JSON.stringify(dimensions)}`);
     assert.ok(dimensions.rowScrollWidth <= dimensions.rowWidth + 1, `${width}px: option stays within its row`);
     assert.ok(dimensions.listScrollWidth <= dimensions.listWidth + 1, `${width}px: no horizontal catalog scroller`);
     assert.ok(dimensions.metaScrollWidth <= dimensions.listWidth, `${width}px: metadata fits the list`);
-    assert.ok(dimensions.metaHeight > dimensions.fontSize * 2, `${width}px: full identifier and price wrap over multiple lines`);
+    assert.ok(dimensions.nameScrollWidth <= dimensions.nameWidth + 1, `${width}px: the display name wraps inside its own box`);
+    assert.ok(dimensions.nameHeight > dimensions.fontSize * 2, `${width}px: the full display name wraps over multiple lines`);
     await search.fill('unbrokenidentifier');
-    assert.equal(await list.getByRole('option').count(), 1, 'wrapped IDs remain searchable');
+    assert.equal(await list.getByRole('option').count(), 1, 'raw IDs remain searchable');
     await page.keyboard.press('ArrowDown');
     await list.getByRole('option').and(page.locator(':focus')).waitFor();
     await assertPaneFits(labelLeft, `${width}px option keyboard focus`);
