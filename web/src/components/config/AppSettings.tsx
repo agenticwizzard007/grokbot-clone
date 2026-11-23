@@ -501,7 +501,7 @@ function ComputerSection() {
               </div>
             </div>
             <div className="settings-row__actions">
-              {watchBot && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={watch} title={`Watch ${watchBot.name}’s screen`}>Watch</button>}
+              {watchBot && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={watch} title={`Watch ${watchBot.name}'s screen`}>Watch</button>}
               {running || status === 'suspending' ? (
                 <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!running || !!busy} onClick={() => act('sleep')}>{busy === 'sleep' || status === 'suspending' ? 'Going to sleep…' : 'Sleep'}</button>
               ) : (
@@ -542,7 +542,7 @@ function ComputerSection() {
             );
           })}
         </div>
-        <div className="cfg-field__hint">Reset closes every window on that Bot’s screen, so it starts clean next time. {(computer ?? details?.computer)?.provider === 'cloudvm' ? 'Every Bot has its own screen; the computer grows as you add Bots.' : 'Up to 4 Bots can have a screen at once.'}</div>
+        <div className="cfg-field__hint">Reset closes every window on that Bot's screen, so it starts clean next time. {(computer ?? details?.computer)?.provider === 'cloudvm' ? 'Every Bot has its own screen; the computer grows as you add Bots.' : 'Up to 4 Bots can have a screen at once.'}</div>
       </section>
       <DeviceAccessSection />
     </>
@@ -723,7 +723,7 @@ function LocalComputerSection({ details, detailsError, reload }: { details: Comp
                   className="cfg-btn cfg-btn--secondary"
                   confirmLabel="Close browser"
                   disabled={!connected}
-                  title="Closes this Bot’s browser on your PC. Its logins are kept."
+                  title="Closes this Bot's browser on your PC. Its logins are kept."
                   onConfirm={async () => { try { await configApi.resetScreen(s.botId); setNote(null); reload(); } catch (e) { setNote((e as Error).message); } }}
                 >
                   Close
@@ -733,7 +733,7 @@ function LocalComputerSection({ details, detailsError, reload }: { details: Comp
           })}
         </div>
         {desktop
-          ? <div className="cfg-field__hint">Bots act as you: they can open any app, read and change your files, and run shell commands. You can watch or take over any time from a Bot’s screen. Press <b>Stop</b> (or Ctrl+C in the companion) to cut them off.</div>
+          ? <div className="cfg-field__hint">Bots act as you: they can open any app, read and change your files, and run shell commands. You can watch or take over any time from a Bot's screen. Press <b>Stop</b> (or Ctrl+C in the companion) to cut them off.</div>
           : <div className="cfg-field__hint">Bots only get a browser on your PC: no files and no shell. Local-network addresses are blocked unless you start the companion with <code className="cfg-code">--allow-private-network</code>.</div>}
       </section>}
     </>

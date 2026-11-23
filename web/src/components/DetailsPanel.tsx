@@ -68,7 +68,7 @@ function ComputerRow() {
     <h2>Computer</h2>
     <div className="bot-detail-card">
       <button type="button" className="bot-detail-link" aria-label="Open computer" onClick={() => useStore.getState().set({ viewerOpen: true })}>
-        <Monitor size={20} aria-hidden /><span><strong>Bot’s computer</strong><small>{computerReadiness(computer)}</small></span><ChevronRight size={18} aria-hidden />
+        <Monitor size={20} aria-hidden /><span><strong>Bot's computer</strong><small>{computerReadiness(computer)}</small></span><ChevronRight size={18} aria-hidden />
       </button>
         {offline && (computer?.provider === 'local'
           ? <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().openAppSettings('computer')}>Connect your PC</button>
