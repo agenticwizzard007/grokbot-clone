@@ -12,9 +12,10 @@ const models = [
 ].map(model => ({ ...model, name: model.short, defaultEffort: 'medium', billing: 'api', reasoning: true, vision: true, context: 0 }));
 const catalog = { provider: 'openrouter', billing: 'api', models, favourites: models.map(model => model.id), defaultModel: models[0].id, canFast: false };
 const bot = { id: 'effort-animation-fixture', name: 'Test bot', label: '', description: '', instructions: '', mode: 'personal', model: models[0].id, effort: 'max', fast: false };
-// Keep the order and every global stylesheet, including later Paper overrides.
-const entry = await readFile('web/src/main.tsx', 'utf8');
-const styles = [...entry.matchAll(/import '([^']+\.css)';/g)].map(([, path]) => `import '/src/${path.slice(2)}';`).join('\n');
+// Load shared entry styles before authenticated work styles, including Paper overrides.
+const styleSources = await Promise.all(['main.tsx', 'AuthenticatedShell.tsx'].map(file => readFile(`web/src/${file}`, 'utf8')));
+const styles = styleSources.flatMap(source => [...source.matchAll(/import '([^']+\.css)';/g)])
+  .map(([, path]) => `import '/src/${path.slice(2)}';`).join('\n');
 const port = await new Promise(resolve => {
   const server = http.createServer().listen(0, '127.0.0.1', () => {
     const port = server.address().port; server.close(() => resolve(port));
@@ -82,7 +83,7 @@ async function assertStatic(locator) {
 try {
   for (let i = 0; i < 100; i++) { if (await fetch(origin).then(r => r.ok, () => false)) break; await new Promise(resolve => setTimeout(resolve, 100)); }
   browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox'] });
-  for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
+  for (const width of [390, 768, 1280, 1440]) for (const theme of ['light', 'dark']) {
     const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: 'no-preference' });
     page.setDefaultTimeout(8000);
     const errors = []; page.on('pageerror', error => errors.push(error.message));
