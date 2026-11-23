@@ -11,6 +11,7 @@ import type { RowBody, ToolCallBody } from '../types.js';
 import { composioTools, connectionsDetail } from '../composio.js';
 import { appName } from '../tool-activity.js';
 import { systemPrompt } from './prompt.js';
+import { isSetupRefusal, messageText, operationalHistory } from './setup-reply.js';
 import { deduplicateBrowserSnapshots, repairHistory } from './history.js';
 import { maybeCompact, noteUsage } from './memory.js';
 import { activityFor, allowedDuringSetup, allowedInGroupTurn, COMPUTER_POLICY_TITLES, executionPolicyFor, functionSchemas, humanizeSlug, runComposioTool, toolMap, type ToolCtx, type ToolResult } from './tools.js';
@@ -829,9 +830,10 @@ function turnAudience(ctx: Pick<ToolCtx, 'roomId'>): { audience?: 'internal' } {
 // ---------- model call with streaming into a message row ----------
 
 const imageWarnings = new WeakSet<ToolCtx>();
-async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: AbortSignal, refreshes=0): Promise<{ output: any[] }> {
+async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: AbortSignal, refreshes=0, setupRetries=0): Promise<{ output: any[] }> {
   const { botId, userId } = ctx;
   const bot = getBotRow(botId);
+  const operational = !isConfiguring(botId);
   const prepareStart = performance.now();
   const preparedRevision=contextRevision(userId,botId);
   const model = modelFor(bot.model);
@@ -859,12 +861,13 @@ async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: Abo
   checkModelBudget();
   if(preparedRevision!==contextRevision(userId,botId)){
     if(refreshes>=3)throw new Error('Knowledge changed repeatedly while preparing context. Retry with the latest version.');
-    return callModel(ctx,toolsPromise,signal,refreshes+1);
+    return callModel(ctx,toolsPromise,signal,refreshes+1,setupRetries);
   }
   modelSnapshots.set(ctx,{systemPrompt:prompt,contextWindow:info?.context,model,provider:llmProvider(),contextRevision:preparedRevision});
   const { tools, manifest } = assembleToolCatalog(allTools);
   // The model is only called when no approval is pending, so every orphaned call can be repaired.
-  let input = [{ role: 'system', content: prompt + (ctx.workflowPrompt ? `\n\n${ctx.workflowPrompt}` : '') + (manifest ? `\n\n## Available tools\n${manifest}` : '') }, ...prepareInput(pruneImages(deduplicateBrowserSnapshots(repairHistory(history))), model)];
+  let input = [{ role: 'system', content: prompt + (ctx.workflowPrompt ? `\n\n${ctx.workflowPrompt}` : '') + (manifest ? `\n\n## Available tools\n${manifest}` : '') }, ...prepareInput(pruneImages(deduplicateBrowserSnapshots(repairHistory(operational ? operationalHistory(history) : history))), model)];
+  if (setupRetries) input.push({ role: 'system', content: 'The previous response repeated an obsolete setup refusal and was discarded. Answer the latest user request using the active configuration. Setup is already complete.' });
 
   const discloseImages = (omitted: number) => {
     if (omitted && !imageWarnings.has(ctx)) {
@@ -926,6 +929,9 @@ async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: Abo
   const flush = (streaming: boolean) => {
     clearTimeout(flushTimer);
     flushTimer = undefined;
+    // Validate the entire active response before any row or SSE text is emitted.
+    // Checking only a prefix misses refusals copied later in an otherwise normal reply.
+    if (operational || !isConfiguring(botId)) return;
     const b: RowBody = { type: 'message', role: 'assistant', text, streaming, ...turnAudience(ctx) };
     if (msgSeq === null) msgSeq = appendRow(botId, 'message', b).seq;
     else updateRow(botId, msgSeq, b);
@@ -979,6 +985,20 @@ async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: Abo
   latency('model_complete', modelStart, { botId, model });
   if (final.usage?.input_tokens) noteUsage(botId, final.usage.input_tokens, history.length);
   await recordModelUsage({ userId, botId, kind: 'chat', model, response: final });
+  signal.throwIfAborted();
+  if (operational !== !isConfiguring(botId) || (!isConfiguring(botId) &&
+      (isSetupRefusal(text) || (final.output ?? []).some((item: any) => isSetupRefusal(messageText(item)))))) {
+    if (setupRetries >= 2) throw new Error('The model repeatedly returned an obsolete setup response. Please retry your request.');
+    return callModel(ctx, toolsPromise, signal, refreshes, setupRetries + 1);
+  }
+  if (operational) {
+    for (const item of final.output ?? []) {
+      if (item.type !== 'message' || !messageText(item)) continue;
+      const citations = (item.content ?? []).flatMap((part: any) => (part.annotations ?? []).filter((a: any) => a.url).map((a: any) => ({ url: a.url, title: a.title })));
+      appendRow(botId, 'message', { type: 'message', role: 'assistant', text: messageText(item), streaming: false, citations: citations.length ? citations : undefined, ...turnAudience(ctx) });
+      if (!ctx.roomId && executionAudience(botId) !== 'internal') db.prepare('UPDATE bots SET unread = unread + 1 WHERE id=?').run(botId);
+    }
+  }
   return { output: tagOutput(final.output ?? [], model) };
 }
 

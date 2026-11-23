@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, openPopup, type SuggestedToolkit } from '../lib/api';
+import { api, ApiError, openPopup, type SuggestedToolkit } from '../lib/api';
 import { verifyAccessAccount } from '../lib/accessApi';
 import { useStore } from '../store';
 import { ToolkitLogo } from './ToolkitLogo';
@@ -72,8 +72,8 @@ export function SuggestedIntegrations({ botId, description, instructions }: { bo
           loadingWindow.current = undefined;
           setResult({ key, apps: response.suggestions, hasContext: response.hasContext });
         }
-      }).catch(() => {
-        if (isCurrent()) setResult({ key, apps: [], error: 'Suggestions are unavailable right now.' });
+      }).catch(error => {
+        if (isCurrent()) setResult({ key, apps: [], error: error instanceof ApiError ? error.message : 'Could not reach app suggestions. Check your connection and retry.' });
       }).finally(() => clearTimeout(deadline));
     }, SUGGESTIONS_DEBOUNCE_MS);
     return () => { clearTimeout(timer); clearTimeout(deadline); controller.abort(); };

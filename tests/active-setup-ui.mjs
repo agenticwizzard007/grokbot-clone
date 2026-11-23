@@ -59,6 +59,10 @@ useStore.setState({ user: { id: 'owner', name: 'Test account' }, bots: [stale] }
 window.refreshConnections = () => useStore.getState().handleEvent({ type: 'connections' });
 window.replayStaleRoster = () => useStore.getState().handleEvent({ type: 'bot', bot: stale });
 window.currentBot = () => useStore.getState().bots[0];
+window.showFixture = async name => {
+  const { bots } = await (await fetch('/api/bots')).json();
+  useStore.setState({ bots: [bots.find(bot => bot.name === name)] });
+};
 function Harness() {
   const bot = useStore(state => state.bots[0]);
   return React.createElement('main', { style: { maxWidth: 700, margin: 'auto', padding: 20 } },
@@ -98,10 +102,40 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     const bot = await page.evaluate(() => window.currentBot());
     const rows = await (await context.request.get(`${origin}/api/bots/${bot.id}/rows`)).json();
     assert.equal(rows.rows.find(row => row.body.card === 'question').body.status, 'dismissed');
+    await page.clock.resume();
+    async function taskReply(botId) {
+      const sent = await context.request.post(origin + '/api/bots/' + botId + '/messages', { data: { text: 'Say hi in five words' } });
+      assert.equal(sent.status(), 200);
+      const { row: userRow } = await sent.json();
+      await until(async () => {
+        const { rows } = await (await context.request.get(origin + '/api/bots/' + botId + '/rows')).json();
+        const failure = rows.find(row => row.seq > userRow.seq && row.body.type === 'notice' && row.body.tone === 'error');
+        assert.ok(!failure, failure?.body.text);
+        const replies = rows.filter(row => row.seq > userRow.seq && row.body.role === 'assistant');
+        assert.ok(replies.every(row => !row.body.text.includes('Tap Skip setup')), 'discarded model reply never reaches the transcript');
+        return replies.some(row => row.body.text === 'Hi there, ready to help.');
+      });
+    }
+    await taskReply(bot.id);
+    for (const stage of ['interviewing', 'review']) {
+      await page.evaluate(name => window.showFixture(name), `${stage} Bot ${width}`);
+      await page.getByRole('button', { name: 'Skip setup', exact: true }).waitFor();
+      const configuring = await page.evaluate(() => window.currentBot());
+      const setup = await (await context.request.get(origin + '/api/bots/' + configuring.id + '/setup')).json();
+      assert.equal(setup.onboarding.status, stage);
+      assert.equal(configuring.onboarding.status, stage);
+      await page.screenshot({ path: path.join(evidence, `${stage}-${width}.png`) });
+      await page.getByRole('button', { name: 'Skip setup', exact: true }).click();
+      await page.waitForFunction(() => window.currentBot().onboarding.status === 'active');
+      assert.equal(await page.getByRole('button', { name: 'Skip setup', exact: true }).count(), 0);
+      await taskReply(configuring.id);
+      const roster = await (await context.request.get(origin + '/api/bots')).json();
+      assert.equal(roster.bots.find(bot => bot.id === configuring.id).onboarding.status, 'active');
+    }
     assert.deepEqual(errors, []);
     await context.close();
   }
-  console.log('PASS R1: active revision repairs stale roster and interview cards; suggestions time out under refreshes and retry to a clear empty state.');
+  console.log('PASS R1b: active and configuring Bots agree across roster and Setup, real Skip activation works, and task replies reject stale interview text at desktop and phone widths.');
 } finally {
   await browser?.close();
   for (const child of children.reverse()) child.kill('SIGTERM');

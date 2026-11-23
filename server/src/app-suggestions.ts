@@ -39,6 +39,25 @@ export function availableSuggestions(value: unknown, catalog: CatalogItem[], con
   }).slice(0, 4);
 }
 
+/** Conservative catalog-only fallback. Never fills empty results with popular apps. */
+export function fallbackSuggestions(context: SuggestionContext, catalog: CatalogItem[]) {
+  const query = `${context.description} ${context.instructions}`.trim() || context.purpose;
+  return rankCatalog(query, catalog).filter(({ named, score }) => named || score >= 2).map(({ item, named }) => ({
+    slug: item.slug,
+    reason: named ? `${item.name} is named in this Bot's work.` : `${item.name}: ${item.description || 'Matches the described work.'}`,
+  }));
+}
+
+function rankCatalog(query: string, catalog: CatalogItem[]) {
+  const queryTokens = [...new Set(tokens(query))];
+  const normalized = ` ${query.toLowerCase().replace(/[^a-z0-9]+/g, ' ')} `;
+  return catalog.map(item => {
+    const named = [item.name, item.slug].some(name => normalized.includes(` ${name.toLowerCase().replace(/[^a-z0-9]+/g, ' ')} `));
+    const score = scoreTool({ slug: `${item.slug} ${item.name}`, description: `${item.description ?? ''} ${item.categories.join(' ')}` }, queryTokens, false).score;
+    return { item, named, score: (named ? 10_000 : 0) + score };
+  }).sort((a, b) => b.score - a.score || a.item.slug.localeCompare(b.item.slug));
+}
+
 export function suggestionInput(context: SuggestionContext, catalog: CatalogItem[], contextTokens = 8192): string {
   // Budget serialized UTF-8 bytes conservatively as tokens, reserving room for
   // instructions and output. Escaping and non-ASCII text count toward the cap.
@@ -54,13 +73,7 @@ export function suggestionInput(context: SuggestionContext, catalog: CatalogItem
   };
   const bot = { description: fit(context.description, Math.floor(budget / 8)), instructions: fit(context.instructions, Math.floor(budget / 4)), purpose: fit(context.purpose, Math.floor(budget / 8)) };
   const query = `${context.description} ${context.instructions} ${context.purpose}`;
-  const queryTokens = [...new Set(tokens(query))];
-  const normalized = ` ${query.toLowerCase().replace(/[^a-z0-9]+/g, ' ')} `;
-  const ranked = catalog.map(item => {
-    const named = [item.name, item.slug].some(name => normalized.includes(` ${name.toLowerCase().replace(/[^a-z0-9]+/g, ' ')} `));
-    const score = scoreTool({ slug: `${item.slug} ${item.name}`, description: `${item.description ?? ''} ${item.categories.join(' ')}` }, queryTokens, false).score;
-    return { item, score: (named ? 10_000 : 0) + score };
-  }).sort((a, b) => b.score - a.score || a.item.slug.localeCompare(b.item.slug));
+  const ranked = rankCatalog(query, catalog);
   const candidates: unknown[] = [];
   let size = bytes({ bot, catalog: [] });
   for (const { item } of ranked) {

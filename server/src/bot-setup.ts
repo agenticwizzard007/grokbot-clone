@@ -10,6 +10,7 @@ import { hub } from './lib/hub.js';
 import { publishNativeEvent } from './native/events.js';
 import { assertLegacyWorkOpen } from './security/legacy-work.js';
 import { redactInternalIds } from './lib/redact.js';
+import { setupOnboarding } from './setup-state.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS coworker_setup_handoffs (
  bot_id TEXT PRIMARY KEY REFERENCES bots(id) ON DELETE CASCADE,
@@ -143,6 +144,7 @@ export const creationSchema = briefSchema.extend({
 export const setupDirectory = (botId: string) => path.join(path.dirname(env.dbPath), 'bot-setups', botId);
 
 export function getSetup(botId: string) {
+  repairActiveSetup(botId);
   const row = db.prepare('SELECT * FROM bot_setups WHERE bot_id=?').get(botId) as any;
   if (!row) return null;
   return { brief: briefSchema.parse(JSON.parse(row.brief)), source: JSON.parse(row.source) as SetupSource,
@@ -152,9 +154,9 @@ export function getSetup(botId: string) {
 
 /** Retire only unanswered interview cards that predate activation. Keep later work and approvals. */
 export function repairActiveSetup(botId: string) {
-  const setup = db.prepare("SELECT confirmed_at FROM bot_setups WHERE bot_id=? AND onboarding_status='active'").get(botId) as { confirmed_at: number | null } | undefined;
-  if (!setup?.confirmed_at) return;
-  dismissSetupQuestions(botId, setup.confirmed_at);
+  const setup = setupOnboarding(botId);
+  if (setup?.status !== 'active' || setup.confirmedAt === null) return;
+  dismissSetupQuestions(botId, setup.confirmedAt);
 }
 
 function dismissSetupQuestions(botId: string, before: number) {
@@ -165,13 +167,14 @@ function dismissSetupQuestions(botId: string, before: number) {
     const row = getRow(botId, seq);
     if (row?.body.type === 'card' && row.body.card === 'question') updateRow(botId, seq, { ...row.body, status: 'dismissed' });
   }
-  if (!questions.length) return;
   const live = getLive(botId);
   const pending = db.prepare("SELECT 1 FROM rows WHERE bot_id=? AND generation=? AND kind='card' AND json_extract(body,'$.card') IN ('question','approval','connect') AND json_extract(body,'$.status')='pending' LIMIT 1").get(botId, b.generation);
-  if (!pending && !live.isRunning && live.awaiting && live.awaiting.since < before) {
+  const interviewWait = questions.length || /^setup(?: question| interview)?$/i.test(live.awaiting?.reason ?? '') || db.prepare("SELECT 1 FROM rows WHERE bot_id=? AND generation=? AND created_at < ? AND kind='card' AND json_extract(body,'$.card')='question' AND json_extract(body,'$.status')='dismissed' AND json_extract(body,'$.answerJobId') IS NULL LIMIT 1").get(botId, b.generation, before);
+  const pendingAction = db.prepare("SELECT 1 FROM approvals WHERE bot_id=? AND status='pending' UNION ALL SELECT 1 FROM pending_turns WHERE bot_id=? LIMIT 1").get(botId, botId);
+  if (interviewWait && !pending && !pendingAction && !live.isRunning && live.awaiting && live.awaiting.since < before) {
     setLive(botId, { awaiting: null, ...(live.activity?.kind === 'waiting_for_you' ? { activity: null } : {}) });
   }
-  hub.emit(b.user_id, { type: 'tasks', botId });
+  if (questions.length) hub.emit(b.user_id, { type: 'tasks', botId });
 }
 
 const bullets = (items: string[], fallback = 'None specified.') => items.length ? items.map((s) => `- ${s}`).join('\n') : fallback;
