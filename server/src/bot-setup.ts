@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { db, now } from './db.js';
 import { env } from './env.js';
-import { appendHistory, appendRow, emitBot, getBotRow, getRow, updateRow } from './store.js';
+import { appendHistory, appendRow, emitBot, getBotRow, getRow, setLive, updateRow } from './store.js';
 import type { ComputerState } from './types.js';
 import { hub } from './lib/hub.js';
 import { publishNativeEvent } from './native/events.js';
@@ -508,7 +508,15 @@ export function skipSetup(userId: string, botId: string) {
     });
     const moved = db.prepare("UPDATE bot_setups SET brief=?, onboarding_status='review', revision=revision+1, updated_at=? WHERE bot_id=? AND revision=?").run(JSON.stringify(brief), now(), botId, s.onboarding.revision);
     if (!moved.changes) throw new SetupSkipError('The configuration changed. Try again.', 409);
+    // An unanswered interview must not capture the next operational message.
+    const questions = db.prepare("SELECT seq FROM rows WHERE bot_id=? AND generation=? AND kind='card' AND json_extract(body,'$.card')='question' AND json_extract(body,'$.status') IN ('pending','answered') AND json_extract(body,'$.answerJobId') IS NULL").all(botId, b.generation) as { seq: number }[];
+    for (const { seq } of questions) {
+      const row = getRow(botId, seq);
+      if (row?.body.type === 'card' && row.body.card === 'question') updateRow(botId, seq, { ...row.body, status: 'dismissed' });
+    }
+    if (questions.length) appendHistory(botId, [{ role: 'assistant', content: 'Setup was skipped. Earlier setup questions no longer need answers. I am ready to handle new requests using the saved role and safe defaults.' }]);
     writeSetupFiles(botId);
+    setLive(botId, { isRunning: false, activity: null, awaiting: null, startedAt: null });
     activateSetup(botId, s.onboarding.revision + 1);
     return { ok: true as const };
   })();

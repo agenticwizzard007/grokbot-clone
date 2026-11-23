@@ -128,6 +128,7 @@ try {
       if (path === '/api/auth/me') body = { user: { id: 'cleanup-test-user', name: 'Alex', email: 'alex@example.test' }, devLogin: true };
       else if (path === '/api/team/exchanges' && method === 'GET') body = { exchanges: [], nextBefore: null };
       else if (path === '/api/bots') body = { bots: [bot], live: [] };
+      else if (path === '/api/needs-you') body = { items: [] };
       else if (path === '/api/models') body = { models: [], defaultModel: null };
       else if (path.endsWith('/rows')) body = { generation: 1, rows: [] };
       else if (path.endsWith('/coworker-setups')) body = { setups: [] };
@@ -147,7 +148,7 @@ try {
     const active = page.getByRole('region', { name: 'Your connected accounts', exact: true });
     const expired = page.getByRole('region', { name: 'Expired connections', exact: true });
     const other = page.getByRole('region', { name: 'Other connections', exact: true });
-    const row = id => page.locator('.cfg-row').filter({ has: page.getByText(id, { exact: true }) });
+    const row = id => page.locator('.cfg-row').filter({ has: page.getByTitle(`Connection ID: ${id}`, { exact: true }) });
     const summary = () => expired.locator('summary');
     const expand = async () => {
       if (!await expired.locator('details').evaluate(element => element.open)) await summary().click();
@@ -172,16 +173,16 @@ try {
   assert.equal(await desktop.row(ids.expired).isVisible(), false);
   assert.equal(await desktop.active.getByRole('button', { name: 'Use by default', exact: true }).count(), 2);
   assert.equal(await desktop.active.getByRole('button', { name: 'Disconnect', exact: true }).count(), 2);
-  assert.match(await desktop.row(ids.active).innerText(), /Active · Default/);
+  assert.match(await desktop.row(ids.active).innerText(), /Active\s+Default/);
   assert.equal(await desktop.row(ids.active).getByRole('button', { name: 'Use by default', exact: true }).isDisabled(), true);
-  for (const [id, status] of [[ids.pending, 'Pending'], [ids.initiated, 'Authorization Pending'], [ids.revoked, 'Revoked'], [ids.disabled, 'Active · Disabled']]) {
+  for (const [id, status] of [[ids.pending, 'Pending'], [ids.initiated, 'Authorization Pending'], [ids.revoked, 'Revoked'], [ids.disabled, 'Active\\s+Disabled']]) {
     assert.match(await desktop.row(id).innerText(), new RegExp(status));
     assert.equal(await desktop.row(id).getByRole('button').count(), 0, 'other statuses have no destructive or active-account controls');
   }
-  assert.equal(await desktop.other.getByText(ids.disabled, { exact: true }).count(), 1, 'disabled ACTIVE accounts belong in Other connections');
-  assert.equal(await desktop.active.getByText(ids.disabled, { exact: true }).count(), 0);
+  assert.equal(await desktop.other.getByTitle(`Connection ID: ${ids.disabled}`, { exact: true }).count(), 1, 'disabled ACTIVE accounts belong in Other connections');
+  assert.equal(await desktop.active.getByTitle(`Connection ID: ${ids.disabled}`, { exact: true }).count(), 0);
   assert.equal((await desktop.row(ids.disabled).innerText()).includes('Default'), false, 'disabled accounts do not appear as usable defaults');
-  assert.equal(await desktop.active.getByText(ids.expired, { exact: true }).count(), 0);
+  assert.equal(await desktop.active.getByTitle(`Connection ID: ${ids.expired}`, { exact: true }).count(), 0);
   await desktop.summary().scrollIntoViewIfNeeded();
   await desktop.page.screenshot({ animations: 'disabled', path: new URL('desktop-collapsed.png', screenshots).pathname });
   // Native disclosure supports keyboard opening and keeps every action scoped to its row.
@@ -192,7 +193,7 @@ try {
   assert.equal(await desktop.expired.getByRole('button', { name: 'Disconnect', exact: true }).count(), 0);
   assert.equal(await desktop.expired.getByRole('button', { name: 'Remove expired record', exact: true }).count(), 2);
   assert.equal((await desktop.row(ids.expired).innerText()).includes('Authorization was not completed'), false, 'unknown expiry reasons must stay honest');
-  assert.match(await desktop.row(ids.unfinished).innerText(), /Expired · Authorization was not completed/);
+  assert.match(await desktop.row(ids.unfinished).innerText(), /Expired\s+Authorization was not completed/);
   await desktop.row(ids.unfinished).scrollIntoViewIfNeeded();
   await desktop.page.screenshot({ animations: 'disabled', path: new URL('desktop-expanded.png', screenshots).pathname });
 
@@ -228,13 +229,13 @@ try {
   desktop.deletion({ status: 409, body: { error: 'This account is no longer expired' } });
   await desktop.confirmRemoval(ids.unfinished);
   await desktop.page.getByRole('alert').filter({ hasText: 'This account is no longer expired' }).waitFor();
-  await desktop.active.getByText(ids.unfinished, { exact: true }).waitFor();
+  await desktop.active.getByTitle(`Connection ID: ${ids.unfinished}`, { exact: true }).waitFor();
   assert.match(await desktop.row(ids.unfinished).innerText(), /Active/);
   assert.equal(await desktop.expired.count(), 0, 'conflicts refresh status and remove the obsolete expiry group');
   assert.equal(desktop.mutations.filter(mutation => mutation.action === 'remove-expired').length, 3);
 
   await desktop.row(ids.second).getByRole('button', { name: 'Use by default', exact: true }).click();
-  await until(async () => (await desktop.row(ids.second).innerText()).includes('Active · Default'));
+  await until(async () => /Active\s+Default/.test(await desktop.row(ids.second).innerText()));
   await until(async () => await desktop.row(ids.active).getByRole('button', { name: 'Disconnect', exact: true }).isEnabled());
   await desktop.row(ids.active).getByRole('button', { name: 'Disconnect', exact: true }).click();
   await desktop.row(ids.active).waitFor({ state: 'detached' });
@@ -246,7 +247,7 @@ try {
 
   const mobile = await fixture({ mobile: true });
   await mobile.summary().waitFor();
-  assert.equal(await mobile.other.getByText(ids.disabled, { exact: true }).count(), 1);
+  assert.equal(await mobile.other.getByTitle(`Connection ID: ${ids.disabled}`, { exact: true }).count(), 1);
   assert.equal(await mobile.row(ids.disabled).getByRole('button').count(), 0, 'disabled ACTIVE accounts have no controls on mobile');
   assert.equal(await mobile.expired.locator('details').evaluate(element => element.open), false);
   await mobile.summary().scrollIntoViewIfNeeded();
@@ -340,11 +341,11 @@ try {
     assert.equal(await current.row(id).count(), 1, 'refused cleanup retains the same account record');
     assert.equal(await current.row(id).getByRole('button', { name: 'Remove expired record', exact: true }).count(), 0);
     if (status === 'ACTIVE') {
-      assert.equal(await current.active.getByText(id, { exact: true }).count(), 1);
+      assert.equal(await current.active.getByTitle(`Connection ID: ${id}`, { exact: true }).count(), 1);
       assert.equal(await current.row(id).getByRole('button', { name: 'Disconnect', exact: true }).count(), 1);
       assert.equal(await current.row(id).getByRole('button', { name: 'Use by default', exact: true }).count(), 1);
     } else {
-      assert.equal(await current.other.getByText(id, { exact: true }).count(), 1);
+      assert.equal(await current.other.getByTitle(`Connection ID: ${id}`, { exact: true }).count(), 1);
       assert.equal(await current.row(id).getByRole('button').count(), 0, 'pending records have no destructive or active-account controls');
     }
     assert.deepEqual(current.mutations, [{ method: 'DELETE', path: `/api/apps/connections/${id}/expired`, action: 'remove-expired', id }], 'status conflict causes no fallback deletion');

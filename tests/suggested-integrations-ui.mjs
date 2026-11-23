@@ -24,7 +24,7 @@ try {
     const page = await browser.newPage({ viewport: { width, height: 800 }, colorScheme: theme });
     page.setDefaultTimeout(8000);
     const errors = [], requests = [], connects = [], iconPaths = [];
-    let connected = false, held;
+    let connected = false, held, recoverHang = false, holdSkip = false, heldSkip;
     page.on('pageerror', error => errors.push(error.message));
     await page.addInitScript(() => {
       window.violations = [];
@@ -42,15 +42,19 @@ try {
 import React from '/node_modules/.vite/deps/react.js';
 import ReactDOM from '/node_modules/.vite/deps/react-dom_client.js';
 import { SuggestedIntegrations } from '/src/components/SuggestedIntegrations.tsx';
+import { SetupBanner } from '/src/components/SetupBanner.tsx';
 import { useStore } from '/src/store.ts';
 import '/src/styles/tokens.css'; import '/src/styles/base.css'; import '/src/styles/config.css';
 document.documentElement.dataset.theme = ${JSON.stringify(theme)};
 useStore.setState({ user: { id: 'owner', name: 'Test account' } });
+useStore.setState({ bots: [{ id: 'review-bot', name: 'Review Bot', kind: 'agent', onboarding: { status: 'interviewing', revision: 1 } }] });
 window.refreshConnections = () => useStore.setState(state => ({ connectionsVersion: state.connectionsVersion + 1 }));
 window.switchAccount = () => useStore.setState({ user: { id: 'another-account', name: 'Another account' } });
 function Harness() {
   const [description, setDescription] = React.useState('track GitHub PRs and post to Slack');
+  const bot = useStore(state => state.bots[0]);
   return React.createElement('main', { style: { margin: '24px auto', padding: '16px', maxWidth: '640px' } },
+    React.createElement(SetupBanner, { bot }),
     React.createElement('label', { htmlFor: 'about' }, 'About'),
     React.createElement('textarea', { id: 'about', className: 'text-input', value: description, onChange: event => setDescription(event.target.value) }),
     React.createElement(SuggestedIntegrations, { botId: 'review-bot', description, instructions: '' }));
@@ -66,9 +70,16 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       if (url.pathname.endsWith('/suggested-apps')) {
         const body = request.postDataJSON(); requests.push(body);
         if (body.description === 'slow request') { held = route; return; }
+        if (body.description === 'never resolves' && !recoverHang) { held = route; return; }
+        if (body.description === 'no matching tools' || !body.description.trim()) return route.fulfill({ json: { suggestions: [] } });
         const suggestions = body.description.includes('calendar') ? [calendar] : connected ? [slack] : [github, slack];
         return route.fulfill({ json: { suggestions } });
       }
+      if (url.pathname.endsWith('/setup/skip')) {
+        if (holdSkip) { heldSkip = route; return; }
+        return route.fulfill({ json: { ok: true, bot: { id: 'review-bot', name: 'Review Bot', kind: 'agent', onboarding: { status: 'active', revision: 3 } } } });
+      }
+      if (url.pathname === '/api/bots') return route.fulfill({ status: 503, json: { error: 'Roster refresh unavailable.' } });
       if (url.pathname === '/api/auth/me') return route.fulfill({ json: { user: { id: 'owner', name: 'Test account' } } });
       if (url.pathname === '/api/apps/github/connect') { connects.push(request.postDataJSON()); return route.fulfill({ json: { redirectUrl: `${origin}/fixture-authorize` } }); }
       if (url.pathname.startsWith('/api/')) { errors.push(`Unexpected API ${url.pathname}`); return route.abort(); }
@@ -88,6 +99,29 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     assert.ok(geometry.scroll <= geometry.width, JSON.stringify(geometry));
     await page.screenshot({ path: `.context/suggestions/chips-${width}-${theme}.png` });
     if (width === 900 && theme === 'light') {
+      await page.getByRole('button', { name: 'Skip setup', exact: true }).click();
+      await page.getByRole('region', { name: 'Review Bot setup', exact: true }).waitFor({ state: 'hidden' });
+      assert.equal(await page.evaluate(() => import('/src/store.ts').then(({ useStore }) => useStore.getState().bots[0].onboarding.status)), 'active');
+      holdSkip = true;
+      await page.evaluate(async () => {
+        const { useStore } = await import('/src/store.ts');
+        useStore.setState(state => ({ bots: state.bots.map(bot => ({ ...bot, onboarding: { status: 'interviewing', revision: 4 } })) }));
+      });
+      await page.getByRole('button', { name: 'Skip setup', exact: true }).click();
+      for (let i = 0; !heldSkip && i < 40; i++) await page.waitForTimeout(25);
+      assert.ok(heldSkip);
+      await page.evaluate(async () => {
+        const { useStore } = await import('/src/store.ts');
+        const bot = useStore.getState().bots[0];
+        useStore.getState().handleEvent({ type: 'bot', bot: { ...bot, name: 'Updated Bot', onboarding: { status: 'interviewing', revision: 6 } } });
+      });
+      await heldSkip.fulfill({ json: { ok: true, bot: { id: 'review-bot', name: 'Old Bot', onboarding: { status: 'active', revision: 5 } } } });
+      await page.getByRole('button', { name: 'Skip setup', exact: true }).waitFor();
+      assert.deepEqual(await page.evaluate(async () => {
+        const { useStore } = await import('/src/store.ts');
+        const bot = useStore.getState().bots[0];
+        return { name: bot.name, onboarding: bot.onboarding };
+      }), { name: 'Updated Bot', onboarding: { status: 'interviewing', revision: 6 } });
       await page.getByRole('button', { name: 'Connect GitHub', exact: true }).click();
       await page.getByRole('button', { name: 'Refresh status', exact: true }).waitFor();
       assert.equal(connects.length, 1);
@@ -104,6 +138,27 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       await page.getByLabel('About', { exact: true }).fill('manage my calendar');
       await page.getByRole('button', { name: 'Connect Google Calendar', exact: true }).waitFor();
       assert.equal(requests.length - before, 1, 'edits produce one debounced request');
+      await page.getByLabel('About', { exact: true }).fill('no matching tools');
+      await page.getByText('No matching additional apps for this Bot right now.', { exact: true }).waitFor();
+      assert.equal(await page.getByText(/Describe this Bot's work/).count(), 0);
+      await page.getByLabel('About', { exact: true }).fill('');
+      await page.getByText(/Describe this Bot's work/).waitFor();
+      await page.clock.install();
+      await page.getByLabel('About', { exact: true }).fill('never resolves');
+      await page.clock.runFor(500);
+      for (let i = 0; !held && i < 40; i++) await new Promise(resolve => setTimeout(resolve, 25));
+      assert.ok(held, 'the fixture must hold an actual suggestions request');
+      await page.clock.fastForward(12_000);
+      await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
+      assert.equal(await page.getByText('Finding relevant apps…', { exact: true }).count(), 0);
+      assert.equal(await page.getByRole('region', { name: 'Suggested integrations' }).getAttribute('aria-busy'), 'false');
+      await held.fulfill({ json: { suggestions: [calendar] } }).catch(() => {});
+      assert.equal(await page.getByRole('button', { name: 'Connect Google Calendar', exact: true }).count(), 0, 'a response after timeout must not replace the error');
+      held = undefined; recoverHang = true;
+      await page.getByRole('button', { name: 'Retry', exact: true }).click();
+      await page.clock.runFor(500);
+      await page.getByRole('button', { name: 'Connect Slack', exact: true }).waitFor();
+      await page.clock.resume();
       await page.getByLabel('About', { exact: true }).fill('slow request');
       for (let i = 0; !held && i < 40; i++) await page.waitForTimeout(50);
       assert.ok(held);

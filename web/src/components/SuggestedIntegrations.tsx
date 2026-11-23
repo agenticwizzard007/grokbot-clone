@@ -7,6 +7,7 @@ import { useAccessPanel } from './config/useAccessPanel';
 import '../styles/suggested-integrations.css';
 
 export const SUGGESTIONS_DEBOUNCE_MS = 450;
+export const SUGGESTIONS_TIMEOUT_MS = 12_000;
 
 function SuggestionCard({ app, refresh }: { app: SuggestedToolkit; refresh: () => void }) {
   const userId = useStore(state => state.user?.id);
@@ -46,19 +47,25 @@ export function SuggestedIntegrations({ botId, description, instructions }: { bo
   const userId = useStore(state => state.user?.id);
   const connectionsVersion = useStore(state => state.connectionsVersion);
   const [retry, setRetry] = useState(0);
-  const [result, setResult] = useState<{ key: string; apps: SuggestedToolkit[]; error?: string }>();
+  const [result, setResult] = useState<{ key: string; apps: SuggestedToolkit[]; hasContext?: boolean; error?: string }>();
   const key = JSON.stringify([userId, botId, description, instructions, connectionsVersion, retry]);
   useEffect(() => {
     if (!userId) return;
     const controller = new AbortController();
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const isCurrent = () => !controller.signal.aborted && useStore.getState().user?.id === userId;
     const timer = setTimeout(() => {
+      deadline = setTimeout(() => {
+        if (isCurrent()) setResult({ key, apps: [], error: 'Finding relevant apps took too long. Try again.' });
+        controller.abort();
+      }, SUGGESTIONS_TIMEOUT_MS);
       void api.suggestedApps(botId, { description, instructions }, controller.signal).then(response => {
-        if (!controller.signal.aborted && useStore.getState().user?.id === userId) setResult({ key, apps: response.suggestions });
+        if (isCurrent()) setResult({ key, apps: response.suggestions, hasContext: response.hasContext });
       }).catch(() => {
-        if (!controller.signal.aborted && useStore.getState().user?.id === userId) setResult({ key, apps: [], error: 'Suggestions are unavailable right now.' });
-      });
+        if (isCurrent()) setResult({ key, apps: [], error: 'Suggestions are unavailable right now.' });
+      }).finally(() => clearTimeout(deadline));
     }, SUGGESTIONS_DEBOUNCE_MS);
-    return () => { clearTimeout(timer); controller.abort(); };
+    return () => { clearTimeout(timer); clearTimeout(deadline); controller.abort(); };
   }, [key, botId, description, instructions, userId]);
   if (!userId) return null;
   const current = result?.key === key ? result : undefined;
@@ -68,6 +75,8 @@ export function SuggestedIntegrations({ botId, description, instructions }: { bo
     {!current ? <p className="suggested-integrations__note" role="status">Finding relevant apps…</p>
       : current.error ? <p className="suggested-integrations__note" role="status">{current.error} <button type="button" className="link-btn" onClick={refresh}>Retry</button></p>
       : current.apps.length ? <ul className="suggested-integrations__list">{current.apps.map(app => <SuggestionCard key={`${key}:${app.slug}`} app={app} refresh={refresh} />)}</ul>
-      : <p className="suggested-integrations__note">No additional apps to suggest. Describe this Bot's work in About to find relevant integrations.</p>}
+      : <p className="suggested-integrations__note">{current.hasContext || description.trim() || instructions.trim()
+        ? 'No matching additional apps for this Bot right now.'
+        : "Describe this Bot's work in About to find relevant integrations."}</p>}
   </section>;
 }

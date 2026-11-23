@@ -51,7 +51,7 @@ export function toBot(r: any): Bot {
   // Order by the user's own activity so the sidebar does not reshuffle while Bots stream rows.
   const lastUser = db.prepare(`SELECT created_at FROM rows WHERE bot_id=? AND kind='message' AND json_extract(body,'$.role')='user'
     ORDER BY generation DESC, seq DESC LIMIT 1`).get(r.id) as { created_at: number } | undefined;
-  const setup = db.prepare('SELECT onboarding_status FROM bot_setups WHERE bot_id=?').get(r.id) as { onboarding_status: 'interviewing' | 'review' | 'active' } | undefined;
+  const setup = db.prepare('SELECT onboarding_status, revision FROM bot_setups WHERE bot_id=?').get(r.id) as { onboarding_status: 'interviewing' | 'review' | 'active'; revision: number } | undefined;
   return {
     id: r.id,
     name: r.name,
@@ -75,7 +75,7 @@ export function toBot(r: any): Bot {
     lastPreview: lastPreview ? lastPreview.slice(0, 140) : null,
     lastActivityAt: Math.max(lastUser?.created_at ?? 0, r.created_at ?? 0),
     createdAt: r.created_at,
-    onboarding: { status: setup?.onboarding_status ?? 'active' },
+    onboarding: { status: setup?.onboarding_status ?? 'active', revision: setup?.revision ?? 0 },
   };
 }
 

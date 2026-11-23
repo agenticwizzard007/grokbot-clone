@@ -86,6 +86,19 @@ test('empty context or catalog does not invoke a model; failures can be retried'
   assert.deepEqual(await rank('owner', 'model', context, catalogItems), choices);
 });
 
+test('a hung ranking expires and the same context can be retried', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let calls = 0, failed = false;
+  const rank = createSuggestionRanker(async () => ++calls === 1 ? new Promise(() => {}) : choices);
+  const pending = rank('owner', 'model', context, catalogItems).catch(() => { failed = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  t.mock.timers.tick(12_000);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(failed, true, 'a provider that never settles must not keep the cache pending');
+  await pending;
+  assert.deepEqual(await rank('owner', 'model', context, catalogItems), choices);
+});
+
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-suggestions-'));
 Object.assign(process.env, { SWARM_ROLE: 'standalone', DB_PATH: path.join(root, 'test.db'), FILES_DIR: path.join(root, 'files'), SESSION_SECRET: 'suggestions-fixture', COMPUTER_PROVIDER: 'local', COMPOSIO_API_KEY: 'fixture-project', DIRECT_API_KEY: 'fixture-key', LLM_PROVIDER: 'direct', OPENROUTER_API_KEY: '', INKBOX_TUNNEL: '0' });
 const iconRequests: string[] = [];
@@ -110,6 +123,7 @@ const { db } = await import('../server/src/db.js');
 const { setEnvOverride } = await import('../server/src/env.js');
 const { composio } = await import('../server/src/composio.js');
 const { createBot } = await import('../server/src/bots.js');
+const { getSetup } = await import('../server/src/bot-setup.js');
 const { llmClient } = await import('../server/src/lib/llm.js');
 const { api } = await import('../server/src/routes.js');
 const { toolkitIcon } = await import('../server/src/toolkit-icons.js');
@@ -137,9 +151,11 @@ const suggest = (body: unknown = {}, owner = 'owner') => app.request(`/api/bots/
 after(() => { mock.restoreAll(); db.close(); fs.rmSync(root, { recursive: true, force: true }); });
 
 test('authenticated suggestion route uses owned Bot context, accepts drafts, and filters unavailable or newly connected apps', async () => {
+  assert.equal(getSetup(bot.id)!.onboarding.status, 'interviewing');
   const first = await suggest(); assert.equal(first.status, 200);
   assert.deepEqual((await first.json() as any).suggestions.map((item: any) => item.slug), ['github', 'slack']);
   assert.equal(JSON.parse(modelInputs[0].input[1].content).bot.instructions, context.instructions);
+  assert.equal(JSON.parse(modelInputs[0].input[1].content).bot.description, context.description);
   assert.ok(JSON.parse(modelInputs[0].input[1].content).bot.purpose);
   assert.deepEqual(modelInputs[0].tools, []);
   accounts = [{ id: 'fixture-slack', toolkit: { slug: 'slack' }, status: 'ACTIVE' }];
@@ -183,6 +199,65 @@ test('malformed model output fails closed and a retry can recover without cached
   const retry = await suggest({ description: 'A different review purpose' });
   assert.equal(retry.status, 200);
   assert.deepEqual((await retry.json() as any).suggestions.map((item: any) => item.slug), ['github', 'slack']);
+});
+
+test('a stalled connection lookup times out the whole route and can be retried', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const entered = Promise.withResolvers<void>();
+  let aborted = false;
+  const list = mock.method(composio().connectedAccounts, 'list', async (_body: unknown, options: any) => {
+    options?.signal?.addEventListener('abort', () => { aborted = true; });
+    entered.resolve();
+    return new Promise<any>(() => {});
+  });
+  try {
+    let response: Response | undefined;
+    const pending = suggest().then(value => { response = value; });
+    await entered.promise;
+    t.mock.timers.tick(10_000);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(response?.status, 503);
+    assert.equal(aborted, true);
+    await pending;
+  } finally { list.mock.restore(); }
+  assert.equal((await suggest()).status, 200);
+});
+
+test('missing catalog configuration is an error, not a successful empty ranking', async () => {
+  const previous = process.env.COMPOSIO_API_KEY;
+  process.env.COMPOSIO_API_KEY = '';
+  setEnvOverride('COMPOSIO_API_KEY', '');
+  try { assert.equal((await suggest()).status, 503); }
+  finally {
+    process.env.COMPOSIO_API_KEY = previous;
+    setEnvOverride('COMPOSIO_API_KEY', 'fixture-project');
+    mock.method(composio().connectedAccounts, 'list', async () => ({ items: [], nextCursor: null }));
+  }
+});
+
+test('a stalled catalog request times out without starting a model request', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  setEnvOverride('COMPOSIO_API_KEY', 'catalog-timeout-fixture');
+  mock.method(composio().connectedAccounts, 'list', async () => ({ items: [], nextCursor: null }));
+  const entered = Promise.withResolvers<void>();
+  const originalFetch = globalThis.fetch;
+  const fetch = mock.method(globalThis, 'fetch', async (input: any, init: any) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.hostname === 'backend.composio.dev') { entered.resolve(); return new Promise<Response>(() => {}); }
+    return originalFetch(input, init);
+  });
+  const before = modelInputs.length;
+  try {
+    let response: Response | undefined;
+    const pending = suggest().then(value => { response = value; });
+    await entered.promise;
+    t.mock.timers.tick(10_000);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(response?.status, 503);
+    assert.equal(modelInputs.length, before);
+    await pending;
+  } finally { fetch.mock.restore(); }
+  assert.equal((await suggest()).status, 200);
 });
 
 test('catalog replacement during generation cannot return an app from the old project', async () => {

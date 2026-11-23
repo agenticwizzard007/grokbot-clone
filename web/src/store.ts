@@ -7,6 +7,12 @@ import { readDetailsDefault } from './lib/detailsDefault';
 
 export type ModalKind = 'create' | 'search' | 'apps' | 'group' | null;
 
+/** A delayed roster or Bot event cannot reopen a setup that was already skipped. */
+function withLatestSetup(incoming: Bot, current?: Bot): Bot {
+  return (current?.onboarding?.revision ?? 0) > (incoming.onboarding?.revision ?? 0)
+    ? { ...incoming, onboarding: current!.onboarding } : incoming;
+}
+
 interface Transcript { generation: number; bySeq: Record<number, Row>; loaded: boolean }
 
 interface State {
@@ -121,7 +127,7 @@ export const useStore = create<State>((set, get) => ({
     for (const l of live) liveMap[l.botId] = l;
     const sel = get().selectedBotId;
     const selectedBotId = sel && bots.some((b) => b.id === sel) ? sel : (bots.find((b) => b.isPrimary) ?? bots[0])?.id ?? null;
-    set({ bots, botsLoaded: true, live: liveMap });
+    set(state => ({ bots: bots.map(bot => withLatestSetup(bot, state.bots.find(current => current.id === bot.id))), botsLoaded: true, live: liveMap }));
     // A link from a Bot ("solve this on my screen"): open that Bot's screen, ready to take control.
     const linked = new URLSearchParams(location.search).get('screen');
     if (linked && bots.some((b) => b.id === linked)) {
@@ -228,7 +234,7 @@ export const useStore = create<State>((set, get) => ({
         const exists = s.bots.some((b) => b.id === ev.bot.id);
         // Opening a bot marks it read; keep the open bot at 0 unread.
         if (ev.bot.id === s.selectedBotId && ev.bot.unread > 0 && document.visibilityState === 'visible') api.markRead(ev.bot.id).catch(() => {});
-        set((st) => ({ bots: exists ? st.bots.map((b) => (b.id === ev.bot.id ? ev.bot : b)) : [...st.bots, ev.bot] }));
+        set((st) => ({ bots: exists ? st.bots.map((b) => (b.id === ev.bot.id ? withLatestSetup(ev.bot, b) : b)) : [...st.bots, ev.bot] }));
         return;
       }
       case 'computer':

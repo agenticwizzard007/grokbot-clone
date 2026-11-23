@@ -16,7 +16,7 @@ const { initSubagents } = await import('../server/src/agent/subagents.js');
 const { initRooms, createRoom, dispatchRoomMessage } = await import('../server/src/agent/rooms.js');
 initSubagents(); initRooms();
 const { createBot } = await import('../server/src/bots.js');
-const { appendRow, getBot, getBotRow, getLive, listRows, setLive, previewFor, stripMarkdown } = await import('../server/src/store.js');
+const { appendRow, getBot, getBotRow, getLive, getRow, listRows, setLive, previewFor, stripMarkdown } = await import('../server/src/store.js');
 const { beginSetupInterview, skipSetup, getSetup, normalizeModelText, normalizeStoredBriefs, computerReadiness, bindComputerStateSource, renameSetupGreeting, saveSetupDraft } = await import('../server/src/bot-setup.js');
 const { functionSchemas, policyFor, computerFamily } = await import('../server/src/agent/tools.js');
 const { accountPreferences, saveAccountPreferences } = await import('../server/src/settings.js');
@@ -27,6 +27,7 @@ const { Hono } = await import('hono');
 const { api } = await import('../server/src/routes.js');
 const { roomsApi } = await import('../server/src/routes-rooms.js');
 const { preferencesApi } = await import('../server/src/routes-preferences.js');
+const { needsYou } = await import('../server/src/routes-attention.js');
 // Finish fixture loading before registering tests so Node 22 cannot run cleanup
 // while a later top-level import is still registering the remaining cases.
 const { AsyncResource } = await import('node:async_hooks');
@@ -72,7 +73,10 @@ test('MF-010: a new Bot starts in setup; Skip setup activates it with operationa
   const res = await call('POST', `/api/bots/${bot.id}/setup/skip`);
   off();
   assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { ok: true });
+  const skipped = await res.json() as any;
+  assert.equal(skipped.ok, true);
+  assert.equal(skipped.bot.onboarding.status, 'active');
+  assert.equal(skipped.bot.onboarding.revision, getSetup(bot.id)!.onboarding.revision);
   const row = db.prepare('SELECT onboarding_status FROM bot_setups WHERE bot_id=?').get(bot.id) as any;
   assert.equal(row.onboarding_status, 'active');
   const setup = getSetup(bot.id)!;
@@ -97,6 +101,78 @@ test('MF-010: a brief change during setup is shown as a "Saved to setup" event r
   const event = listRows(bot.id).find((r) => r.body.type === 'event' && r.body.text.startsWith('Saved to setup:'));
   assert.ok(event, 'event row exists');
   assert.match((event!.body as any).text, /mission "Summarise support tickets every morning\."/);
+});
+
+test('Skip setup stops a pending interview, persists activation and serves the next turn as ready', async () => {
+  const bot = newBot('Setup Bot');
+  const entered = Promise.withResolvers<void>();
+  const held = Promise.withResolvers<any>();
+  const prompts: string[] = [];
+  const create = mock.method(llmClient(360_000).responses, 'create', async (body: any, options: any) => {
+    prompts.push(body.input[0].content);
+    if (prompts.length === 1) {
+      options.signal.addEventListener('abort', () => held.reject(new Error('interrupted')), { once: true });
+      entered.resolve();
+      return held.promise;
+    }
+    return textStream(prompts.at(-1)!.includes('Reply exactly: "I\'m still being set up.') ? "I'm still being set up." : 'Ready to handle this request.');
+  });
+  let response: Response | undefined;
+  let pending: Promise<void> | undefined;
+  try {
+    enqueue(bot.id, { type: 'user', text: 'Help with this request.' });
+    await entered.promise;
+    pending = call('POST', `/api/bots/${bot.id}/setup/skip`).then(value => { response = value; });
+    for (let i = 0; !response && i < 20; i++) await new Promise(resolve => setTimeout(resolve, 5));
+    assert.equal(response?.status, 200, 'Skip must stop the interview instead of waiting for its provider');
+    assert.equal(getSetup(bot.id)!.onboarding.status, 'active');
+    assert.equal((await response!.json() as any).bot.onboarding.status, 'active');
+    enqueue(bot.id, { type: 'user', text: 'Handle the next request.' });
+    await settleAgentJobs();
+    assert.doesNotMatch(prompts.at(-1)!, /I'm still being set up|You are the setup consultant/);
+    assert.ok(listRows(bot.id).some(row => row.body.type === 'message' && row.body.role === 'assistant' && row.body.text === 'Ready to handle this request.'));
+  } finally {
+    held.resolve(textStream('Finished interview.'));
+    await pending;
+    await settleAgentJobs();
+    create.mock.restore();
+  }
+});
+
+test('Skip setup dismisses interview questions and releases pending state before later work', async () => {
+  const bot = newBot('Question Bot');
+  const calls: any[] = [];
+  const create = mock.method(llmClient(360_000).responses, 'create', async (body: any) => {
+    calls.push(body);
+    if (calls.length === 1) return (async function* () {
+      const item = { type: 'function_call', call_id: 'setup-question', name: 'ask_user', arguments: JSON.stringify({ question: 'Which workflow?', options: ['First', 'Second'] }) };
+      yield { type: 'response.output_item.done', item };
+      yield { type: 'response.completed', response: { output: [item] } };
+    })();
+    return textStream('Ready to work.');
+  });
+  try {
+    enqueue(bot.id, { type: 'user', text: 'Help define the workflow.' });
+    await settleAgentJobs();
+    const question = listRows(bot.id).find(row => row.body.type === 'card' && row.body.card === 'question')!;
+    assert.ok(needsYou('owner').some(item => item.botId === bot.id && item.type === 'setup_review'));
+    db.prepare('INSERT INTO pending_turns(bot_id,state) VALUES(?,?)').run(bot.id, JSON.stringify({ calls: [], outputs: [], approvalId: '', depth: 0 }));
+    setLive(bot.id, { activity: { kind: 'waiting_for_you', since: Date.now() }, awaiting: { reason: 'Setup decision', since: Date.now() } });
+    assert.equal((await call('POST', `/api/bots/${bot.id}/setup/skip`)).status, 200);
+    assert.equal((getRow(bot.id, question.seq)!.body as any).status, 'dismissed');
+    assert.equal(db.prepare('SELECT 1 FROM pending_turns WHERE bot_id=?').get(bot.id), undefined);
+    assert.equal(getLive(bot.id).awaiting, null);
+    assert.ok(!needsYou('owner').some(item => item.botId === bot.id));
+    const independent = enqueue(bot.id, { type: 'system', audience: 'internal', text: 'Perform the next task.' });
+    await settleAgentJobs();
+    assert.equal((db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(independent) as any).state, 'completed');
+    const next = enqueue(bot.id, { type: 'user', text: 'Handle the next request.' });
+    const trigger = JSON.parse((db.prepare('SELECT trigger FROM agent_jobs WHERE id=?').get(next) as any).trigger);
+    assert.equal(trigger.parentJobId, undefined, 'the new request is not an interview answer');
+    assert.equal((getRow(bot.id, question.seq)!.body as any).answer, undefined);
+    await settleAgentJobs();
+    assert.doesNotMatch(calls.at(-1).input[0].content, /I'm still being set up|You are the setup consultant/);
+  } finally { await settleAgentJobs(); create.mock.restore(); }
 });
 
 test('MF-004: adding a Bot that is still in setup to a group returns 400', async () => {

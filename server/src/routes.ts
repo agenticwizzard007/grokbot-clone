@@ -273,8 +273,16 @@ api.post('/bots/:id/setup/activate', async (c) => {
 // MF-010 (WS2): "Skip setup" activates the current brief with safe defaults.
 api.post('/bots/:id/setup/skip', async (c) => {
   const userId = c.get('user').id;
-  if (!ownBot(userId, c.req.param('id'))) return c.json({ error: 'not found' }, 404);
-  try { return c.json(await runInBotQueue(c.req.param('id'), async () => skipSetup(userId, c.req.param('id')))); }
+  const botId = c.req.param('id');
+  const bot = ownBot(userId, botId);
+  if (!bot || bot.kind === 'room' || bot.hidden) return c.json({ error: 'not found' }, 404);
+  const setup = getSetup(botId);
+  if (!setup || setup.onboarding.status === 'active') return c.json({ error: 'This Bot is already active.' }, 409);
+  // Stop the interview before joining its queue so a slow setup turn cannot block Skip.
+  interrupt(botId);
+  try {
+    return c.json(await runInBotQueue(botId, async () => ({ ...skipSetup(userId, botId), bot: getBot(botId)! })));
+  }
   catch (e: any) { return c.json({ error: String(e?.message ?? e) }, e instanceof SetupSkipError ? e.status : 409); }
 });
 
