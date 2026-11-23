@@ -31,7 +31,7 @@ function BotChat({ bot }: { accountId: string; bot: Bot }) {
   const generation = currentTranscript?.generation ?? bot.generation;
   useEffect(() => {
     const current = useStore.getState().transcripts[bot.id];
-    if (!current || current.generation < bot.generation) void useStore.getState().loadRows(bot.id);
+    if (!current || current.generation < bot.generation) void useStore.getState().loadRows(bot.id).catch(() => {});
   }, [bot.id, bot.generation]);
   const live = userFacingLive(useStore(s => s.live[bot.id]));
   const detailsOpen = useStore(s => s.detailsOpen);

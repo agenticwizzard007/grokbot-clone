@@ -72,7 +72,13 @@ try {
     const bot = (await api('/bots')).bots.find(item => item.isPrimary);
     const marker = `Private session fixture ${scenario} ${width}`;
     await api(`/bots/${bot.id}/messages`, 'POST', { text: `mock: say ${marker}` });
-    await page.evaluate(async id => (await import('/src/store.ts')).useStore.getState().selectBot(id), bot.id);
+    await until(async () => (await api(`/bots/${bot.id}/rows`)).rows.some(row => row.body?.role === 'assistant' && row.body.text === marker));
+    await page.evaluate(async id => {
+      const store = (await import('/src/store.ts')).useStore;
+      await store.getState().loadBots();
+      await store.getState().loadRows(id);
+      store.getState().selectBot(id);
+    }, bot.id);
     await page.getByText(marker, { exact: true }).waitFor();
     if (!silentStream) await page.waitForFunction(async () => (await import('/src/store.ts')).useStore.getState().sseConnected);
     const signedOut = async () => {
@@ -90,7 +96,7 @@ try {
     return { context, page, api, bot, marker, email, signedOut };
   }
 
-  for (const width of [1280, 1024, 768, 390]) {
+  for (const width of [1440, 1280, 1024, 768, 390]) {
     const f = await fixture(width, 'remote');
     await f.page.evaluate(() => { history.pushState(null, '', '#session-fixture'); });
     const current = (await f.api('/auth/sessions')).sessions.find(session => session.current);
@@ -140,7 +146,7 @@ try {
   await recovery.page.waitForFunction(async () => (await import('/src/store.ts')).useStore.getState().sseConnected);
   assert.ok(await recovery.page.getByText(recovery.marker, { exact: true }).isVisible());
   await recovery.context.close();
-  console.log('PASS A-01: remote revocation at 1280/1024/768/390, history, current-session revocation, Account sign-out, API 401 cleanup, stream recovery.');
+  console.log('PASS A-01: remote revocation at 1440/1280/1024/768/390, history, current-session revocation, Account sign-out, API 401 cleanup, stream recovery.');
 } catch (error) {
   console.error(logs.join('').slice(-4000));
   throw error;
