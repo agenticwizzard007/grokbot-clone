@@ -488,7 +488,7 @@ const COMMANDS: [ReactNode, string][] = [
   [<code>/invite</code>, 'Get an invite link for a friend'],
   [<code>/web</code>, 'Get a link that signs you in here'],
   [<code>/me</code>, 'Your account'],
-  [<code>/computer</code>, 'Your Bots’ computer'],
+  [<code>/computer</code>, "Your Bots' computer"],
   [<code>/delete</code>, 'Delete your account'],
 ];
 

@@ -495,7 +495,7 @@ function ComputerSection() {
           <div className="cfg-row">
             <span className={`computer-status-dot is-${running ? 'on' : transitioning ? 'busy' : 'off'}`} aria-hidden />
             <div className="cfg-row__text">
-              <div className="cfg-row__title">Bots’ computer · {computerStatusText(computer ?? null)}</div>
+              <div className="cfg-row__title">Bots' computer · {computerStatusText(computer ?? null)}</div>
               <div className="cfg-row__sub">
                 {details ? `Goes to sleep after ${details.hibernation.idleMinutes} idle minutes when nobody is watching. Starts again on its own once a Bot has work.` : 'Checking…'}
               </div>
@@ -696,8 +696,8 @@ function LocalComputerSection({ details, detailsError, reload }: { details: Comp
                 <button type="button" className="cfg-btn cfg-btn--secondary" onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
               </div>
               {desktop
-                ? <div className="cfg-field__hint">It contains a private token: anyone who has it can connect their PC as your Bots’ computer. On macOS, allow the terminal app in System Settings → Privacy &amp; Security → <b>Accessibility</b> and <b>Screen Recording</b>. Waiting for your PC to connect…</div>
-                : <div className="cfg-field__hint">It contains a private token: anyone who has it can connect their PC as your Bots’ browser. Add <code className="cfg-code">--headed</code> to see the browser windows on your PC. Waiting for your PC to connect…</div>}
+                ? <div className="cfg-field__hint">It contains a private token: anyone who has it can connect their PC as your Bots' computer. On macOS, allow the terminal app in System Settings → Privacy &amp; Security → <b>Accessibility</b> and <b>Screen Recording</b>. Waiting for your PC to connect…</div>
+                : <div className="cfg-field__hint">It contains a private token: anyone who has it can connect their PC as your Bots' browser. Add <code className="cfg-code">--headed</code> to see the browser windows on your PC. Waiting for your PC to connect…</div>}
             </div>
           )}
           {note && <div className="cfg-error cfg-error--inset" role="alert">{note}</div>}
