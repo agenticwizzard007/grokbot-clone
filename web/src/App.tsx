@@ -15,6 +15,7 @@ import { ToastPortal } from './lib/toast';
 import { ConfirmPortal } from './lib/confirmDialog';
 import { isNewBotShortcut } from './lib/shortcuts';
 import { consumeSignedInRedirect } from './lib/signedIn';
+import { linkedWork } from './lib/userRoutes';
 
 const ComputerViewer = lazy(() => import('./components/ComputerViewer').then(m => ({ default: m.ComputerViewer })));
 const JoinPage = lazy(() => import('./components/JoinPage').then(m => ({ default: m.JoinPage })));
@@ -53,6 +54,9 @@ function Shell() {
       if (restorePhoneSetup()) return;
       const st = useStore.getState();
       if (!st.mobile || st.mobilePane !== 'chat') return;
+      // Hash navigation already has a history entry. Let the route handler restore
+      // that work page instead of treating every pop as a return to the Bot list.
+      if (linkedWork(window.location.hash)) return;
       const config = useConfigUI.getState();
       if (config.botSettings && !config.appSettings) {
         if (config.botSettingsDirty) {

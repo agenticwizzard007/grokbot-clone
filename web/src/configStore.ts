@@ -274,6 +274,9 @@ const restoreLinkedPage = () => {
   const work = linkedWork(window.location.hash);
   if (work) { guarded(() => {
     ui.closeAppSettings(); ui.discardBotSettings();
+    // Back/Forward and address-bar hashes already created the destination entry.
+    // Mark the phone pane directly so setView does not push over Forward history.
+    if (useStore.getState().mobile) useStore.getState().set({ mobilePane: 'chat' });
     ui.setWorkRoute(work); ui.setView('tasks');
   }); return; }
   if (!window.location.hash) guarded(() => {

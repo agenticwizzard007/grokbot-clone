@@ -86,7 +86,7 @@ await context.route('**/api/**', async route => {
     pairing: { paired: false }, localComputer: { enabled: false }, thisComputer: { available: false, active: false },
   });
   if (url.pathname === '/api/cli') return send({ selected: null, connected: false, providers: {} });
-  if (url.pathname === '/api/openrouter/status') return send({ active: false, defaultModel: 'x-ai/grok-4.7' });
+  if (url.pathname === '/api/providers/openrouter') return send({ active: false, defaultModel: 'x-ai/grok-4.7' });
   if (url.pathname === '/api/tasks') return send({ tasks: [] });
   if (url.pathname === '/api/needs-you') return send({ items: [] });
   if (url.pathname === '/api/models') return send({ provider: 'direct', billing: 'api', models: [], favourites: [], canFast: false });
@@ -158,6 +158,11 @@ try {
   await model.getByText('Grok 4.7', { exact: true }).waitFor();
   assert.ok(!(await model.innerText()).includes('x-ai/grok-4.7'));
   await page.screenshot({ path: '.context/slug-settings.png' });
+  duplicate.model = null;
+  await page.reload(); await title('Coordinator Bot · General');
+  await model.getByText('Default · Grok 4.7', { exact: true }).waitFor();
+  assert.ok(!(await model.innerText()).includes('x-ai/grok-4.7'));
+  duplicate.model = bot.model;
   await page.keyboard.press('Escape'); await title('Swarm');
   await page.getByRole('button', { name: 'Tasks', exact: true }).click();
   for (const tab of ['Goals', 'Reports']) {
@@ -280,6 +285,19 @@ try {
   // Back button and browser Back at phone width, with clean and dirty drafts.
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator('.app.is-mobile.pane-list').waitFor({ state: 'visible' });
+  await page.getByRole('button', { name: 'Tasks', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Work sections' }).getByRole('button', { name: 'Goals', exact: true }).click();
+  await title('Goals');
+  await page.evaluate(() => { location.hash = '#reports'; }); await title('Reports');
+  const workHistoryLength = await page.evaluate(() => history.length);
+  await page.goBack(); await title('Goals');
+  await page.goForward(); await title('Reports');
+  assert.equal(await page.evaluate(() => history.length), workHistoryLength, 'work route traversal retains Forward history');
+  await page.goBack(); await title('Goals');
+  await page.goBack(); await assertPhoneList();
+  await page.goForward(); await title('Goals');
+  assert.equal(await page.evaluate(() => history.length), workHistoryLength);
+  await page.getByRole('button', { name: 'Bot list', exact: true }).click(); await assertPhoneList();
   await openBot(); await page.getByRole('button', { name: 'Back to Bots', exact: true }).click();
   await assertPhoneList(); await title('Swarm');
   await openBot();
