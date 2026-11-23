@@ -1,0 +1,12 @@
+.signed-in-content { display: flex; flex-direction: column; height: 100%; min-width: 0; }
+.signed-in-content > .app { flex: 1; min-height: 0; }
+.auth-callback {
+  position: relative; z-index: 91;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 12px;
+  flex-shrink: 0; padding: 12px 16px;
+  background: var(--color-bg-pane); border-bottom: 1px solid var(--color-border-secondary);
+}
+body:has(.auth-callback) .app-settings { top: var(--auth-callback-height, 0px); }
+.auth-callback__message { flex: 1 1 320px; min-width: 0; margin: 0; color: var(--color-danger-text); font-size: 14px; line-height: 20px; overflow-wrap: anywhere; }
+.auth-callback__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.auth-callback__actions .btn { min-height: 44px; height: auto; white-space: normal; }
