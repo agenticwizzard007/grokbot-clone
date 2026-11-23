@@ -809,11 +809,13 @@ export async function runComposioTool(ctx: ToolCtx, name: string, args: any): Pr
     if (out.length > 60000) out = out.slice(0, 60000) + '…(truncated)';
     return { output: out, summary: 'done' };
   } catch (error: any) {
+    // This local policy refusal is safe and must remain distinct from connection errors.
+    if (error?.message === 'Setup requires a provider-verified read-only app tool. Write or unknown tool metadata is refused.') throw error;
     // Provider bodies can contain private app data. Expose classifications only.
     const timedOut = ['TimeoutError', 'AbortError', 'APIConnectionTimeoutError'].includes(error?.name) || [408, 504].includes(error?.status);
     const expired = [401, 403, 404, 409].includes(error?.status) || /connection not found/i.test(String(error?.message));
     const reason = timedOut ? `${app} tool timed out.` : expired ? `${app} connection failed or expired.` : `${app} connection failed.`;
-    return { output: `${reason} ${retry}`, summary: `${reason} ${retry}`, isError: true };
+    throw new Error(`${reason} ${retry}`);
   }
 }
 
