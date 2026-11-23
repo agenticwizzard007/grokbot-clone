@@ -10,6 +10,7 @@ import { frontDesk, type Sender } from '../signup.js';
 import { digits, hostLinkByPhone, updateLink, type Channel, type Link } from '../store.js';
 import { now } from '../../db.js';
 import * as ib from './client.js';
+import { awaitingInbound } from './client.js';
 import { startTunnel, tunnelEnabled, tunnelStatus, tunnelWebhookUrl } from './tunnel.js';
 
 /**
@@ -229,16 +230,7 @@ export async function isConnectedToLine(phone: string): Promise<boolean> {
   return list.some((a) => digits(a.remoteNumber) === digits(phone) && a.status === 'active');
 }
 
-/**
- * Inkbox refuses to text a number that connected on the shared line but hasn't written to it yet (409
- * imessage_awaiting_inbound). Its message names the line number that person must text (not the router).
- */
-export function awaitingInbound(e: unknown): { awaiting: boolean; textNumber: string | null } {
-  const msg = e instanceof Error ? e.message : String(e ?? '');
-  const code = e instanceof ib.InkboxError ? e.code : undefined;
-  const awaiting = code === 'imessage_awaiting_inbound' || /hasn't sent a message or reaction yet/i.test(msg);
-  return { awaiting, textNumber: awaiting ? msg.match(/must text (\+\d{8,15})/)?.[1] ?? null : null };
-}
+export { awaitingInbound } from './client.js';
 
 export type FirstText = { sent: true } | { sent: false; textNumber: string | null };
 

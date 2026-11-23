@@ -1,6 +1,14 @@
 import type { AgentInstructionPreview, AgentSetupView, CoworkerSetupView, Bot, ComputerState, LibraryFile, Memory, Routine, Skill, Task, Toolkit } from '@shared/types';
 import { ApiError } from './api';
 import type { McpServerInput, McpServerView } from '@shared/types';
+import { parsePhoneStart, PHONE_START_UNAVAILABLE, type PhoneStart } from '../../../server/src/messaging/phone-start';
+export type { PhoneStart } from '../../../server/src/messaging/phone-start';
+
+async function phoneStart(path: string, phone: string): Promise<PhoneStart> {
+  const response = parsePhoneStart(await req<unknown>('POST', path, { phone }));
+  if (!response) throw new ApiError(503, PHONE_START_UNAVAILABLE);
+  return response;
+}
 
 async function req<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const res = await fetch(`/api${path}`, {
@@ -105,8 +113,6 @@ export interface MessagingOwner {
 }
 export type VoiceReplies = 'voice-in' | 'always' | 'off';
 export interface InkboxProfile { displayName: string | null; description: string | null; hasAvatar: boolean }
-/** `sent`: the code was texted. `text-first`: it arrives once the phone texts the line (`textNumber` when Inkbox named it). */
-export interface PhoneStart { id: string; delivery: 'sent' | 'text-first'; textNumber: string | null; line: MessagingLine | null }
 export interface MessagingStatus {
   account: { phone: string | null; email: string | null; signupSource: 'web' | 'text' };
   links: MessagingLink[];
@@ -287,10 +293,10 @@ export const configApi = {
     return j as InkboxProfile;
   },
   inkboxDeleteAvatar: () => req<InkboxProfile>('DELETE', '/messaging/inkbox/avatar'),
-  phoneStart: (phone: string) => req<PhoneStart>('POST', '/auth/phone/start', { phone }),
+  phoneStart: (phone: string) => phoneStart('/auth/phone/start', phone),
   phoneVerify: (id: string, code: string, inviteCode?: string) => req<{ ok: true; created: boolean }>('POST', '/auth/phone/verify', { id, code, inviteCode }),
   /** Connect your phone (signed in): the same code flow, attaching the number to this account. */
-  phoneAttachStart: (phone: string) => req<PhoneStart>('POST', '/messaging/phone/start', { phone }),
+  phoneAttachStart: (phone: string) => phoneStart('/messaging/phone/start', phone),
   phoneAttachVerify: async (id: string, code: string) => {
     const result = await req<MessagingStatus | {ok:true;phone:string}>('POST', '/messaging/phone/verify', { id, code });
     if ('account' in result) return result;

@@ -13,6 +13,18 @@ export class InkboxError extends Error {
   }
 }
 
+/**
+ * Inkbox refuses to text a number that connected on the shared line but hasn't written to it yet (409
+ * imessage_awaiting_inbound). Its message names the line number that person must text (not the router).
+ */
+export function awaitingInbound(e: unknown): { awaiting: boolean; textNumber: string | null } {
+  const msg = e instanceof Error ? e.message : String(e ?? '');
+  const code = e instanceof InkboxError ? e.code : undefined;
+  const awaiting = code === 'imessage_awaiting_inbound' || /hasn't sent a message or reaction yet/i.test(msg);
+  return { awaiting, textNumber: awaiting ? msg.match(/must text (\+\d{8,15})/)?.[1] ?? null : null };
+}
+
+
 const api = (path: string) => `${env.inkboxBaseUrl}/api/v1${path}`;
 
 async function request<T = any>(key: string, method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<T> {

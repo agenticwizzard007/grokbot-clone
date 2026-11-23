@@ -87,9 +87,10 @@ messagingPublic.post('/auth/text/request', async (c) => {
  */
 messagingPublic.post('/auth/phone/start', async (c) => {
   const { phone } = await c.req.json<{ phone?: string }>().catch(() => ({} as { phone?: string }));
-  const r = await startPhoneLogin(String(phone ?? ''), { ip: clientIp(c) });
+  const r = await startPhoneLogin(String(phone ?? ''), { ip: clientIp(c), line: publicLine });
   if (!r.ok) return c.json({ error: r.error }, r.status as 400);
-  return c.json({ id: r.id, delivery: r.delivery, textNumber: r.textNumber, line: await publicLine() });
+  const { ok, ...response } = r;
+  return c.json(response);
 });
 
 messagingPublic.post('/auth/phone/verify', async (c) => {
@@ -171,9 +172,10 @@ messagingApi.post('/code', async (c) => {
 /** Connect your phone (signed in): the same code flow, attaching the number to this account. */
 messagingApi.post('/phone/start', async (c) => {
   const { phone } = await c.req.json<{ phone?: string }>().catch(() => ({} as { phone?: string }));
-  const r = await startPhoneLogin(String(phone ?? ''), { ip: clientIp(c), attachTo: c.get('user').id });
+  const r = await startPhoneLogin(String(phone ?? ''), { ip: clientIp(c), attachTo: c.get('user').id, line: publicLine });
   if (!r.ok) return c.json({ error: r.error }, r.status as 400);
-  return c.json({ id: r.id, delivery: r.delivery, textNumber: r.textNumber, line: await publicLine() });
+  const { ok, ...response } = r;
+  return c.json(response);
 });
 
 messagingApi.post('/phone/verify', async (c) => {

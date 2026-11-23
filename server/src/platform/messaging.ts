@@ -14,15 +14,22 @@ import * as ib from '../messaging/inkbox/client.js';
 import { env } from '../env.js';
 import { MessagingOwnership, MessagingNotFound, MessagingAdmissionError, MessagingDestinationChanged, type MessagingDeliveryTarget } from './messaging-store.js';
 import { noteVerifiedWaiter, signupPolicy } from './signup.js';
+import { PHONE_START_UNAVAILABLE, phoneStartResponse, type PhoneStart } from '../messaging/phone-start.js';
 
 type Channel = 'imessage' | 'whatsapp' | 'sms';
 interface OutboundMessage { text?: string; quote?: string; audio?: { data: Buffer; mime: string; filename: string } }
 async function providerJson(response:Response){
-  if(!response.ok){await response.body?.cancel();throw new Error('Message outcome requires reconciliation.');}
+  if(!response.ok && response.status!==409){await response.body?.cancel();throw new Error('Message outcome requires reconciliation.');}
   const reader=response.body?.getReader();if(!reader)throw new Error('Empty provider response.');
   const chunks:Uint8Array[]=[];let size=0;
   try{while(true){const r=await reader.read();if(r.done)break;size+=r.value.length;if(size>262144)throw new Error('Provider response limit exceeded.');chunks.push(r.value);}}finally{await reader.cancel();}
-  return JSON.parse(Buffer.concat(chunks).toString());
+  const body=JSON.parse(Buffer.concat(chunks).toString());
+  if(!response.ok){
+    const detail=body?.detail??body?.error;
+    if(detail?.error==='imessage_awaiting_inbound')throw new ib.InkboxError(response.status,detail.error,String(detail.message??'').slice(0,300));
+    throw new Error('Message outcome requires reconciliation.');
+  }
+  return body;
 }
 export interface PlatformMessenger {
   ready(): boolean;
@@ -141,7 +148,7 @@ export function platformMessaging(directory:Directory,envelopes:TenantEnvelopes,
   for(const linking of [false,true]){
     const route=linking?'/api/messaging/phone':'/api/auth/phone';
     app.post(`${route}/start`,async c=>{
-      if(!messenger.ready())return c.json({error:'Messaging is not configured.'},503);
+      if(!messenger.ready())return c.json({error:PHONE_START_UNAVAILABLE},503);
       const s=await session(c);if(linking&&!recent(s))return c.json({error:'Sign in again to link this phone.',code:'reauth_required'},401);
       const b=await c.req.json(),phone=digits(b.phone);
       if(phone.length<8||phone.length>15)return c.json({error:'Enter your full number with country code.'},400);
@@ -149,11 +156,26 @@ export function platformMessaging(directory:Directory,envelopes:TenantEnvelopes,
       const id=opaqueToken(),code=String(randomInt(1000000)).padStart(6,'0');
       await directory.pool.query('DELETE FROM phone_attempts WHERE phone=$1 OR expires_at<=now()',[phone]);
       await directory.pool.query('INSERT INTO phone_attempts(hash,phone,ciphertext,code_hash,link_session) VALUES($1,$2,$3,$4,$5)',[hashToken(id),phone,secrets.seal(`phone:${hashToken(id)}`,{code,id}),codeHash(id,code),linking?s.hash:null]);
-      setCookie(c,'swarm_phone_attempt',id,{httpOnly:true,secure:true,sameSite:'Lax',path:'/api',maxAge:600});
       // Sending never proves ownership. Only the session-bound code verification does.
       const known=(await directory.pool.query("SELECT * FROM messaging_routes WHERE phone=$1 AND state='active' AND channel IN ('imessage','whatsapp') ORDER BY channel LIMIT 1",[phone])).rows[0];
-      await messenger.send(known?.channel??'imessage',{phone,conversation:known?.conversation_id},{text:`Your Swarm sign-in code is ${code}. It expires in 10 minutes. If you did not request it, ignore it.`},`phone-${id}`).catch(()=>{});
-      return c.json({id,line:await messenger.line()});
+      let response:PhoneStart|null=null;
+      if(known){
+        try{
+          const receipt=await messenger.send(known.channel,{phone,conversation:known.conversation_id},{text:`Your Swarm sign-in code is ${code}. It expires in 10 minutes. If you did not request it, ignore it.`},`phone-${id}`);
+          if(receipt)response=await phoneStartResponse(id,'sent',null,()=>messenger.line());
+        }catch(error){
+          const hint=ib.awaitingInbound(error);
+          if(hint.awaiting)response=await phoneStartResponse(id,'text-first',hint.textNumber,()=>messenger.line());
+        }
+      }else{
+        response=await phoneStartResponse(id,'text-first',null,()=>messenger.line());
+      }
+      if(!response){
+        await directory.pool.query('DELETE FROM phone_attempts WHERE hash=$1',[hashToken(id)]);
+        return c.json({error:PHONE_START_UNAVAILABLE},503);
+      }
+      setCookie(c,'swarm_phone_attempt',id,{httpOnly:true,secure:true,sameSite:'Lax',path:'/api',maxAge:600});
+      return c.json(response);
     });
     app.post(`${route}/verify`,async c=>{
       const b=await c.req.json(),s=await session(c);
