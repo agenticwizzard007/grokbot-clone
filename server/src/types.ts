@@ -1,3 +1,4 @@
+import type { ConnectionDetails } from './connection-details.js';
 // Shared API contract between server and web (web imports these as types only).
 import type { BirdAvatarShape } from './avatar-shapes.js';
 
@@ -173,6 +174,7 @@ export type CardBody =
       logo?: string;
       reason: string;
       connectedAccountId?: string;
+      accountDetails?: ConnectionDetails;
       connectionAttempt?: string;
       status: 'pending' | 'connected' | 'skipped' | 'expired';
     }
@@ -257,6 +259,7 @@ export interface ComputerState {
 export interface Toolkit {
   slug: string; name: string; logo?: string; description?: string; categories: string[];
   managedAuth: boolean; noAuth: boolean; connected: boolean;
+  accounts?: Array<{ id: string; status: string; isDisabled?: boolean } & Partial<ConnectionDetails>>;
 }
 
 /** Server-sent events on GET /api/events */

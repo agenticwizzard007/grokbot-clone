@@ -1,3 +1,4 @@
+import { ConnectedAccounts } from '../ConnectedAccountDetails';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, Search } from 'lucide-react';
 import type { Toolkit } from '@shared/types';
@@ -63,6 +64,7 @@ function AppRow({ app, onChanged }: { app: Toolkit; onChanged: () => void }) {
       <ToolkitLogo slug={app.slug} name={app.name} logo={app.logo} />
       <span className="app-row__text">
         <span className="app-row__name">{app.name}</span>
+        <ConnectedAccounts accounts={app.accounts} />
         {app.description && <span className="app-row__desc">{app.description}</span>}
         {app.connected && <span className="app-row__status">Connected</span>}
         {state === 'waiting' && <span className="app-row__desc" role="status">Finish authorizing in the provider window, then refresh.</span>}

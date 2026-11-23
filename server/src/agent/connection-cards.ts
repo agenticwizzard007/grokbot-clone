@@ -69,7 +69,7 @@ export function reconcileConnectionCards(userId: string, cards: PendingConnectio
     const row = getRow(card.botId, card.seq);
     // A retry, dismissal or callback that arrived during the lookup wins.
     if (!row || row.generation !== card.generation || JSON.stringify(row.body) !== JSON.stringify(card.body)) continue;
-    updateRow(card.botId, card.seq, { ...card.body, status });
+    updateRow(card.botId, card.seq, { ...card.body, status, ...(account.accountLabel ? { accountDetails: { accountLabel: account.accountLabel, connectedAt: account.connectedAt ?? null, displayStatus: account.displayStatus! } } : {}) });
   }
 }
 

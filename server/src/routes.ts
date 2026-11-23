@@ -653,13 +653,15 @@ api.get('/apps', async (c) => {
   if (!env.composioEnabled) return c.json({ apps: [], connected: [], connectedApps: [], categories: [], total: 0, notConfigured: true });
   const search = (c.req.query('search') ?? '').toLowerCase();
   const category = c.req.query('category') ?? '';
-  const [all, connected] = await Promise.all([catalog(), connectedToolkits(user.id)]);
-  let items: Toolkit[] = all.map((t) => ({ ...t, connected: connected.has(t.slug) }));
+  const [all, accounts] = await Promise.all([catalog(), connectionsDetail(user.id, { details: true })]);
+  const connected = new Set(accounts.filter(a => a.status === 'ACTIVE' && !a.isDisabled).map(a => a.toolkit));
+  const withAccounts = (t: Omit<Toolkit, 'connected'>): Toolkit => ({ ...t, connected: connected.has(t.slug), accounts: accounts.filter(a => a.toolkit === t.slug) });
+  let items: Toolkit[] = all.map(withAccounts);
   if (search) items = items.filter((t) => t.name.toLowerCase().includes(search) || t.slug.includes(search) || t.description?.toLowerCase().includes(search));
   if (category) items = items.filter((t) => matchesAppCategory(t, category));
   items.sort(compareAppPriority);
   const categories = [...new Set(all.flatMap((t) => t.categories))].sort();
-  const connectedApps = all.filter((t) => connected.has(t.slug)).map((t) => ({ ...t, connected: true }));
+  const connectedApps = all.filter((t) => connected.has(t.slug)).map(withAccounts);
   const pageNumber = (value: string | undefined, fallback: number) => value !== undefined && /^\d+$/.test(value) && Number.isSafeInteger(Number(value)) ? Number(value) : fallback;
   const offset = pageNumber(c.req.query('offset'), 0);
   const limit = Math.max(1, Math.min(200, pageNumber(c.req.query('limit'), 60)));
@@ -671,7 +673,7 @@ api.get('/apps', async (c) => {
 api.get('/apps/connections', async c => {
   const userId = c.get('user').id;
   const pending = pendingConnectionCards(userId);
-  const connections = await connectionsDetail(userId);
+  const connections = await connectionsDetail(userId, { details: true });
   reconcileConnectionCards(userId, pending, connections);
   return c.json({ connections });
 });
@@ -733,10 +735,11 @@ api.get('/apps/callback', async (c) => {
   let ok = false;
   const userExists = db.prepare('SELECT 1 FROM users WHERE id=?').get(userId);
   if (userExists && c.req.query('status') !== 'failed') {
+    invalidateComposioSession(userId);
     const connected = await connectedToolkits(userId).catch(() => new Set<string>());
     if (connected.has(slug)) {
       ok = !botId && !seq;
-      invalidateComposioSession(userId);
+      if (ok) await connectionsDetail(userId, { details: true }).catch(() => []);
       hub.emit(userId, { type: 'connections' });
       if (botId && ownBot(userId, botId)) {
         const bot = ownBot(userId, botId);
@@ -746,15 +749,15 @@ api.get('/apps/callback', async (c) => {
               row.body.connectionAttempt && row.body.connectionAttempt === c.req.query('attempt') &&
               ['pending', 'connected'].includes(row.body.status)) {
             const connectedAccountId = row.body.connectedAccountId;
-            const accounts = await connectionsDetail(userId).catch(() => []);
+            const accounts = await connectionsDetail(userId, { details: true }).catch(() => []);
             // The user's other ACTIVE account must not confirm this sign-in attempt.
-            const verified = accounts.some(a => a.id === connectedAccountId && a.toolkit === slug && a.status === 'ACTIVE' && !a.isDisabled);
+            const verified = accounts.find(a => a.id === connectedAccountId && a.toolkit === slug && a.status === 'ACTIVE' && !a.isDisabled);
             const currentBot = ownBot(userId, botId);
             const current = currentBot?.generation === row.generation ? getRow(botId, seq) : null;
             if (verified && current && JSON.stringify(current.body) === JSON.stringify(row.body)) {
               ok = true;
               if (!row.body.answerJobId) {
-                updateRow(botId, seq, { ...row.body, status: 'connected' });
+                updateRow(botId, seq, { ...row.body, status: 'connected', accountDetails: verified.accountLabel ? { accountLabel: verified.accountLabel, connectedAt: verified.connectedAt ?? null, displayStatus: verified.displayStatus! } : undefined });
                 const answerJobId = enqueue(botId, { type: 'system', connectionCardSeq: seq, text: `The user connected ${row.body.toolkitName}. Continue with what you were doing.` });
                 const resolved = getRow(botId, seq);
                 if (resolved?.body.type === 'card' && resolved.body.card === 'connect') updateRow(botId, seq, { ...resolved.body, answerJobId });

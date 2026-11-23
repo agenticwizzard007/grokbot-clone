@@ -1,3 +1,4 @@
+import type { ConnectionDetails } from '../connection-details.js';
 import { createHash } from 'node:crypto';
 import type { Tool } from '@composio/core';
 
@@ -16,7 +17,7 @@ export function appArguments(args: unknown): asserts args is Record<string, unkn
     if (Object.hasOwn(args, key)) throw new Error('Connection identity overrides are forbidden.');
   }
 }
-export interface PrivateConnection { id: string; tenant: string; toolkit: string; revision: number; state: string; isDefault: boolean }
+export interface PrivateConnection extends Partial<ConnectionDetails> { status?: string; isDisabled?: boolean; id: string; tenant: string; toolkit: string; revision: number; state: string; isDefault: boolean }
 export interface ConnectionRegistry {
   identity(tenant: string): Promise<string>;
   list(tenant: string): Promise<PrivateConnection[]>;
@@ -25,10 +26,11 @@ export interface ConnectionRegistry {
   begin(tenant: string, id: string, revision: number, dispatch: string, tool: string, argumentsHash: string): Promise<boolean>;
   finish(tenant: string, dispatch: string, state: 'completed' | 'uncertain'): Promise<void>;
 }
+export interface ProviderConnection extends Partial<ConnectionDetails> { toolkit: string; active: boolean; status?: string; isDisabled?: boolean }
 export interface ConnectionProvider {
-  owned(identity: string, id: string): Promise<{ toolkit: string; active: boolean } | undefined>;
+  owned(identity: string, id: string): Promise<ProviderConnection | undefined>;
   /** One fresh provider snapshot for a listing, never reused for execution authorization. */
-  ownedMany?(identity: string, ids: string[]): Promise<Map<string, { toolkit: string; active: boolean }>>;
+  ownedMany?(identity: string, ids: string[], details?: boolean): Promise<Map<string, ProviderConnection>>;
   tool(slug: string): Promise<{ toolkit: string; version: string; readOnly?: boolean }>;
   execute(identity: string, connection: string, slug: string, version: string, args: Record<string, unknown>): Promise<unknown>;
   disconnect(id: string): Promise<void>;
@@ -50,18 +52,18 @@ export class ConnectionGateway {
     await this.authorize();
     return { row:current, identity };
   }
-  async list(tenant: string) {
+  async list(tenant: string, details = false) {
     const rows = (await this.registry.list(tenant)).map(row => ({ ...row }));
     const result: PrivateConnection[] = [];
     if (this.provider.ownedMany && rows.length) {
       const identity = await this.registry.identity(tenant);
-      const remote = await this.provider.ownedMany(identity, rows.map(row => row.id));
+      const remote = await this.provider.ownedMany(identity, rows.map(row => row.id), details);
       for (const row of rows) {
         const account = remote.get(row.id);
         const current = await this.registry.get(tenant, row.id);
-        if (!account?.active || account.toolkit !== row.toolkit || !current || current.tenant !== tenant || current.state !== 'active' || current.revision !== row.revision || current.toolkit !== row.toolkit) continue;
+        if (!account || (!account.active && !(details && account.status)) || account.toolkit !== row.toolkit || !current || current.tenant !== tenant || current.state !== 'active' || current.revision !== row.revision || current.toolkit !== row.toolkit) continue;
         await this.authorize();
-        result.push({ ...current });
+        result.push({ ...current, ...(details ? { accountLabel: account.accountLabel, connectedAt: account.connectedAt, displayStatus: account.displayStatus, status: account.status, isDisabled: account.isDisabled } : {}) });
       }
       return result;
     }

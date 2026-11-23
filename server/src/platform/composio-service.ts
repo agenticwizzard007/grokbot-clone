@@ -1,6 +1,7 @@
+import { createConnectionDetailsCache } from '../connection-details.js';
 import { Composio } from '@composio/core';
 import type { Directory } from './directory.js';
-import { ConnectionGateway, trustedReadOnly, type ConnectionRegistry, type PrivateConnection, type ConnectionProvider } from './composio-policy.js';
+import { ConnectionGateway, trustedReadOnly, type ConnectionRegistry, type PrivateConnection, type ConnectionProvider, type ProviderConnection } from './composio-policy.js';
 
 const connection = (r: any): PrivateConnection => ({ id: r.id, tenant: r.tenant_id, toolkit: r.toolkit, revision: Number(r.revision), state: r.state, isDefault: r.is_default });
 export class PgConnectionRegistry implements ConnectionRegistry {
@@ -27,6 +28,7 @@ export class PgConnectionRegistry implements ConnectionRegistry {
 }
 export class ComposioProvider implements ConnectionProvider {
   readonly sdk: Composio;
+  private detailsCache = createConnectionDetailsCache();
   constructor(key: string) {
     if (!key || key.startsWith('ck_') || key.startsWith('uak_')) throw new Error('A platform Composio project key is required.');
     this.sdk = new Composio({ apiKey: key, dangerouslyAllowAutoUploadDownloadFiles: false });
@@ -34,18 +36,18 @@ export class ComposioProvider implements ConnectionProvider {
   async owned(identity: string, id: string) {
     return (await this.ownedMany(identity, [id])).get(id);
   }
-  async ownedMany(identity: string, ids: string[]) {
+  async ownedMany(identity: string, ids: string[], details = false) {
     const remaining = new Set(ids);
-    const found = new Map<string, { toolkit: string; active: boolean }>();
+    const found = new Map<string, ProviderConnection>();
     if (!remaining.size) return found;
     let cursor: string | undefined; const seen = new Set<string>();
     do {
       const r = await this.sdk.connectedAccounts.list({ userIds: [identity], accountType: 'PRIVATE', cursor, limit: 100 });
-      for (const item of r.items) {
-        if (!remaining.has(item.id)) continue;
-        found.set(item.id, { toolkit: item.toolkit.slug, active: item.status === 'ACTIVE' });
+      await Promise.all(r.items.filter(item => remaining.has(item.id)).map(async item => {
+        found.set(item.id, { toolkit: item.toolkit.slug, active: item.status === 'ACTIVE' && !item.isDisabled,
+          ...(details ? { status: item.status, isDisabled: item.isDisabled, ...await this.detailsCache.details(this.sdk, identity, item) } : {}) });
         remaining.delete(item.id);
-      }
+      }));
       if (!remaining.size) return found;
       cursor = r.nextCursor ?? undefined;
       if (cursor && (seen.has(cursor) || seen.size >= 100)) throw new Error('Invalid connection pagination.');

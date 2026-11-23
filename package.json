@@ -7,6 +7,7 @@
     "web"
   ],
   "scripts": {
+    "test:account-details": "node --import tsx --test tests/connected-account-details.test.mts && node tests/connected-account-details-ui.mjs",
     "test:signed-out-entry": "npm run build -w web && node tests/signed-out-entry-ui.mjs",
     "test:danger-menu": "node tests/destructive-menu-contrast-ui.mjs",
     "test:setup-banner": "node tests/setup-banner-long-names-ui.mjs",
