@@ -140,7 +140,7 @@
 .group-create__members legend { color: var(--color-text-secondary); margin-bottom: 8px; font-size: 13px; }
 .group-create__member { display: flex; align-items: center; gap: 12px; padding: 18px 0; border-bottom: 1px solid var(--color-border-secondary); }
 .group-create__member > span:not(.bot-avatar) { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.group-create__member strong { font-weight: 500; }
+.group-create__member strong { font-weight: 500; overflow-wrap: anywhere; }
 .group-create__member small { color: var(--color-text-secondary); font-size: 13px; overflow-wrap: anywhere; }
 .group-create__member input { width: 20px; height: 20px; accent-color: var(--color-primary); flex-shrink: 0; }
 .group-create__member.is-locked { opacity: 0.6; cursor: not-allowed; }
