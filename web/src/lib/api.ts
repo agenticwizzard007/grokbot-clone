@@ -35,8 +35,10 @@ export type SuggestedToolkit = Omit<Toolkit, 'connected'> & { reason: string };
 
 export interface RoomMember { id: string; name: string; label: string; avatarShape: string; avatarColor: string }
 
-// Matches the default window returned by GET /bots/:id/rows.
+// The first paint uses a small window; explicit history reads can fetch more.
+export const INITIAL_ROW_PAGE_SIZE = 24;
 export const ROW_PAGE_SIZE = 200;
+interface RowPage { generation: number; rows: Row[]; revision?: number; olderCursor?: number | null }
 
 export const api = {
   me: (signal?: AbortSignal) => req<{ user: User | null; devLogin: boolean; googleLogin?: boolean; googleLinked?: boolean; appleLogin?: boolean; appleLinked?: boolean }>('GET', '/auth/me', undefined, signal),
@@ -47,7 +49,8 @@ export const api = {
   bots: () => req<{ bots: Bot[]; live: LiveState[] }>('GET', '/bots'),
   createBot: (b: Pick<Bot, 'name' | 'avatarShape' | 'avatarColor' | 'mode'>) => req<{ bot: Bot }>('POST', '/bots', b),
   markRead: (id: string) => req<{ ok: true }>('POST', `/bots/${id}/read`),
-  rows: (id: string, beforeSeq?: number) => req<{ generation: number; rows: Row[] }>('GET', `/bots/${id}/rows${beforeSeq === undefined ? '' : `?beforeSeq=${beforeSeq}&limit=${ROW_PAGE_SIZE}`}`),
+  rows: (id: string, beforeSeq?: number) => req<RowPage>('GET', `/bots/${id}/rows?${beforeSeq === undefined ? `limit=${INITIAL_ROW_PAGE_SIZE}` : `beforeSeq=${beforeSeq}&limit=${ROW_PAGE_SIZE}`}`),
+  rowChanges: (id: string, afterRev: number, throughRev: number, minSeq: number) => req<{ generation: number; rows: Row[]; nextRev: number | null }>('GET', `/bots/${id}/row-changes?afterRev=${afterRev}&throughRev=${throughRev}&minSeq=${minSeq}`),
   send: (id: string, text: string, submissionId: string) => req<{ row: Row; jobIds: string[]; submissionId: string }>('POST', `/bots/${id}/messages`, { text, submissionId }),
   interrupt: (id: string) => req<{ ok: true }>('POST', `/bots/${id}/interrupt`),
   fresh: (id: string) => req<{ ok: true }>('POST', `/bots/${id}/fresh`),

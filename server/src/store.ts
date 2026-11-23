@@ -211,6 +211,12 @@ export function listRows(botId: string, opts: { beforeSeq?: number; limit?: numb
   return rows.reverse().map(toRow);
 }
 
+/** Bounded reconciliation of revisions since the last complete snapshot. */
+export function listRowChanges(botId: string, generation: number, afterRev: number, throughRev: number, minSeq: number): Row[] {
+  return (db.prepare('SELECT * FROM rows WHERE bot_id=? AND generation=? AND updated_seq>? AND updated_seq<=? AND seq>=? ORDER BY updated_seq ASC LIMIT 200')
+    .all(botId, generation, afterRev, throughRev, minSeq) as any[]).map(toRow);
+}
+
 export function clearConversation(botId: string) {
   const b = getBotRow(botId);
   db.prepare('UPDATE bots SET generation = generation + 1, next_seq = 1 WHERE id=?').run(botId);

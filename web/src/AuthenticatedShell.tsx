@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect } from 'react';
 import { startEvents } from './lib/events';
 import { onReturnToList, PHONE_QUERY, restorePhoneSetup, showPhoneList, useStore } from './store';
 import { RosterFeedback } from './components/LoadFeedback';
+import { ChatSkeleton } from './components/ChatSkeleton';
 import { Sidebar } from './components/Sidebar';
 import { SignedInAuthFeedback } from './components/SignedInAuthFeedback';
 import { botSettingsHash, hasSettingsLink, useConfigUI } from './configStore';
@@ -141,7 +142,7 @@ function Shell() {
       <Sidebar />
       <div className={`main-pane${detailsOpen && hasBot && view === 'chat' && !botSettings && modal !== 'create' && modal !== 'group' ? ' has-bot-details' : ''}`} hidden={settingsOpen}>
       <div className="chat-pane">
-      <Suspense fallback={<main className="chat chat--empty" role="status">Loading…</main>}>
+      <Suspense fallback={view === 'chat' && !botSettings && !modal ? <ChatSkeleton /> : <main className="chat chat--empty" role="status">Loading...</main>}>
         {modal === 'create' ? <CreateBotModal inline />
           : modal === 'group' ? <CreateGroupModal inline />
           : botSettings ? <BotSettingsModal inline />

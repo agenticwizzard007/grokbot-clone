@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS rows (
   PRIMARY KEY (bot_id, generation, seq)
 );
 CREATE INDEX IF NOT EXISTS rows_rev ON rows(bot_id, updated_seq);
+CREATE INDEX IF NOT EXISTS rows_cards ON rows(bot_id, generation, created_at) WHERE kind='card';
 CREATE TABLE IF NOT EXISTS llm_items (
   bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
   generation INTEGER NOT NULL,

@@ -4,6 +4,10 @@
   background: var(--color-bg-chrome); overflow: hidden;
 }
 .chat--empty { align-items: center; justify-content: center; }
+.message-skeleton { display: grid; gap: 12px; width: min(440px, 85%); padding: 24px 0; }
+.message-skeleton span { height: 18px; border-radius: 6px; background: var(--color-border-tertiary); }
+.message-skeleton span:nth-child(2) { width: 75%; }
+.message-skeleton span:nth-child(3) { width: 50%; }
 
 .chat__header {
   position: absolute; left: 0; right: 0; top: 0; height: 60px; z-index: 5;

@@ -145,25 +145,26 @@ try {
     };
     try {
       await open();
-      assert.equal(await transcript.locator('[data-row-seq]').count(), 200);
+      assert.equal(await transcript.locator('[data-row-seq]').count(), 24);
       assert.equal(await transcript.getByText(bot.anchor, { exact: true }).count(), 0);
-      await transcript.evaluate(el => { el.scrollTop = 0; });
-      await earlier.scrollIntoViewIfNeeded();
-      const before = await transcript.locator('[data-row-seq="61"]').boundingBox();
       olderMode = 'hold';
-      await earlier.click();
+      await transcript.evaluate(el => { el.scrollTop = 0; });
+      const before = await transcript.locator('[data-row-seq="237"]').boundingBox();
       const loading = page.getByRole('button', { name: 'Loading earlier messages...', exact: true });
       await loading.waitFor();
       assert.equal(await loading.isDisabled(), true);
       assert.ok(held, 'one older-page request is pending');
       await held.continue(); held = undefined; olderMode = 'normal';
-      await transcript.locator('[data-row-seq="1"]').waitFor({ state: 'attached' });
-      const after = await transcript.locator('[data-row-seq="61"]').boundingBox();
+      await transcript.locator('[data-row-seq="37"]').waitFor({ state: 'attached' });
+      const after = await transcript.locator('[data-row-seq="237"]').boundingBox();
       assert.ok(Math.abs(before.y - after.y) <= 2, `prepended history preserves the visible row: ${before.y} vs ${after.y}`);
+      assert.equal(await transcript.locator('[data-row-seq]').count(), 224);
+      await transcript.evaluate(el => { el.scrollTop = 0; });
+      await transcript.locator('[data-row-seq="1"]').waitFor({ state: 'attached' });
       assert.equal(await transcript.locator('[data-row-seq]').count(), 260);
       assert.equal(await earlier.count(), 0, 'end of history removes the control');
       await transcript.evaluate(el => { el.scrollTop = 0; });
-      const oldest = await transcript.getByText(bot.anchor, { exact: true }).boundingBox();
+      const oldest = await transcript.locator('[data-row-seq="1"]').boundingBox();
       assert.ok(oldest.y >= 0 && oldest.y < 900, 'scrolling reaches the oldest message');
       await page.getByRole('button', { name: 'Scroll to bottom', exact: true }).click();
       await page.waitForFunction(() => {
@@ -182,12 +183,12 @@ try {
       await failed.dialog.waitFor({ state: 'detached' });
       await highlighted(bot);
 
-      // An unopened Bot needs the latest page plus three earlier pages, even when
+      // An unopened Bot needs the latest page plus four earlier pages, even when
       // another visible transcript already contains a row with the same sequence.
       const countBefore = requests.length;
       await search(deep.anchor, deep);
       await highlighted(deep);
-      assert.deepEqual(requests.slice(countBefore).filter(r => r.bot === deep.id).map(r => r.before), [null, '461', '261', '61']);
+      assert.deepEqual(requests.slice(countBefore).filter(r => r.bot === deep.id).map(r => r.before), [null, '637', '437', '237', '37']);
       assert.equal(await transcript.locator('[data-row-seq]').count(), 660);
 
       // Closing Search while a page is pending must not navigate afterwards.
@@ -207,13 +208,14 @@ try {
       assert.equal(await transcript.getAttribute('data-bot-id'), bot.id, 'cancelled search does not open the destination');
 
       // A failed manual page remains retryable without resetting the transcript.
-      await transcript.evaluate(el => { el.scrollTop = 0; });
       olderMode = 'fail';
-      await earlier.click();
+      await transcript.evaluate(el => { el.scrollTop = 0; });
       await page.getByRole('status').filter({ hasText: "Couldn't load earlier messages. Try again." }).waitFor();
       assert.equal(await earlier.isEnabled(), true);
       olderMode = 'normal';
       await earlier.click();
+      await transcript.locator('[data-row-seq="37"]').waitFor({ state: 'attached' });
+      await transcript.evaluate(el => { el.scrollTop = 0; });
       await transcript.locator('[data-row-seq="1"]').waitFor({ state: 'attached' });
       assert.equal(await page.locator('.transcript__error').count(), 0);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
