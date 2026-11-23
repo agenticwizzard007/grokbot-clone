@@ -1,5 +1,5 @@
 import { userFacingLive } from '../lib/audience';
-import { memo, useCallback, useState } from 'react';
+import { memo, useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { Blocks, ChevronDown, Gauge, KeyRound, LogOut, Monitor, Settings } from 'lucide-react';
 import { openConversation, useConfigUI } from '../configStore';
 import { TasksIsland } from './config/TasksView';
@@ -73,6 +73,38 @@ export function Sidebar() {
   const selectBot = useCallback(openConversation, []);
   const setModal = useStore((s) => s.setModal);
   const [accountMenu, setAccountMenu] = useState(false);
+  const accountRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const account = accountRef.current;
+    if (!accountMenu || !account) return;
+    const measure = () => {
+      // Allow for the menu's 6px trigger gap and an 8px viewport margin.
+      account.style.setProperty('--account-menu-height', `${Math.max(0, account.getBoundingClientRect().top - 14)}px`);
+    };
+    measure();
+    let frame = 0;
+    const scheduleMeasure = () => {
+      // Read after responsive layout has settled for the new viewport.
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(measure);
+    };
+    const observer = new ResizeObserver(scheduleMeasure);
+    observer.observe(account, { box: 'border-box' });
+    const sidebar = account.closest('.sidebar');
+    if (sidebar) {
+      observer.observe(sidebar, { box: 'border-box' });
+      // Sibling size changes can move the trigger without resizing it.
+      for (const child of sidebar.children) observer.observe(child, { box: 'border-box' });
+    }
+    window.addEventListener('resize', scheduleMeasure);
+    window.addEventListener('scroll', scheduleMeasure, true);
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+      window.removeEventListener('resize', scheduleMeasure);
+      window.removeEventListener('scroll', scheduleMeasure, true);
+    };
+  }, [accountMenu, collapsed]);
   // R2F-004: leaving Bot settings with unsaved edits asks first.
   const createBot = () => useConfigUI.getState().requestLeaveBotSettings(() => { useConfigUI.getState().closeAppSettings(); useConfigUI.getState().discardBotSettings(); setModal('create'); });
   const showBots = () => useConfigUI.getState().requestLeaveBotSettings(() => {
@@ -150,7 +182,7 @@ export function Sidebar() {
       <SidebarUsage collapsed={collapsed} />
 
       <div className="sidebar__footer">
-        <div className="account">
+        <div className="account" ref={accountRef}>
             <button type="button" className="account__btn" aria-label="Account & settings" onClick={() => setAccountMenu(!accountMenu)} aria-haspopup="menu" aria-expanded={accountMenu} title={user?.email.endsWith('@openrouter.invalid') ? 'OpenRouter account' : user?.email}>
               <span className="account__initials">{initials(user?.name ?? user?.email ?? '')}</span>
               <span className="account__name">Account &amp; settings</span>
