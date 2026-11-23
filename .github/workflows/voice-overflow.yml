@@ -1,10 +1,8 @@
 name: Voice overflow regressions
+# Automatic CI is paused to avoid per-push and per-PR test costs.
+# Re-enable this workflow in GitHub Actions before dispatching it manually.
 on:
-  pull_request:
-    paths: ['web/**', 'tests/voice-overflow-ui.mjs', 'package*.json', '.github/workflows/voice-overflow.yml']
-  push:
-    branches: [main]
-    paths: ['web/**', 'tests/voice-overflow-ui.mjs', 'package*.json', '.github/workflows/voice-overflow.yml']
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:

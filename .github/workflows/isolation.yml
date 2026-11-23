@@ -1,10 +1,7 @@
 name: Tenant isolation
+# Automatic CI is paused to avoid per-push and per-PR test costs.
+# Re-enable this workflow in GitHub Actions before dispatching it manually.
 on:
-  pull_request:
-    paths: ['server/**', 'web/**', 'tests/**', 'scripts/**', 'infra/tenant-host/**', 'infra/monitoring/**', 'Dockerfile', '.dockerignore', 'package*.json', '.github/workflows/isolation.yml']
-  push:
-    branches: [main]
-    paths: ['server/**', 'web/**', 'tests/**', 'scripts/**', 'infra/tenant-host/**', 'infra/monitoring/**', 'Dockerfile', '.dockerignore', 'package*.json', '.github/workflows/isolation.yml']
   workflow_dispatch:
 permissions:
   contents: read
