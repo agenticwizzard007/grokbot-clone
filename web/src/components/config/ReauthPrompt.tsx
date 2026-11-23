@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ShieldCheck } from 'lucide-react';
 import { api } from '../../lib/api';
+import { cliApi } from '../../lib/cliApi';
 import { useStore } from '../../store';
 import { cancelResume, planResume, type ResumeTarget } from '../../configStore';
 import { AuthLink } from '../AuthButton';
@@ -14,14 +15,43 @@ import '../../styles/messaging.css';
  * Credential changes need a Swarm sign-in from the last few minutes. The session itself is still valid,
  * so this re-runs the normal sign-in in place and returns to `resume` when a provider leaves the page.
  */
-export function ReauthPrompt({ accountEmail, reason, resume, retryLabel, terminalActive, onCancel }: {
+type ReauthProps = {
   accountEmail: string;
   reason: string;
   resume: Omit<ResumeTarget, 'expiresAt'>;
   retryLabel: string;
   terminalActive: boolean;
   onCancel: () => void;
-}) {
+};
+
+// A retained settings chunk can still request the old component after a deploy.
+// Subscription connection recovery must never render credential sign-in controls.
+export function ReauthPrompt(props: ReauthProps) {
+  return props.resume.section === 'subscriptions' ? <SubscriptionRecovery {...props} /> : <CredentialReauthPrompt {...props} />;
+}
+
+function SubscriptionRecovery({ resume, onCancel }: ReauthProps) {
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void cliApi.verifyAuth(resume.accountId, controller.signal).then(() => {
+      if (controller.signal.aborted) return;
+      planResume(resume);
+      const url = new URL(window.location.href);
+      url.searchParams.delete('login'); url.searchParams.delete('openrouter');
+      history.replaceState(history.state, '', url.pathname + url.search + '#settings/subscriptions');
+      window.location.reload();
+    }).catch(() => { if (!controller.signal.aborted) setError('Reload to check your session and continue the connection.'); });
+    return () => controller.abort();
+  }, [resume.accountId, resume.provider, resume.action]);
+  return <section className="cfg-card subscription-reauth" aria-label="Continue connection">
+    <p role="status">{error ?? 'Checking your session to continue the connection...'}</p>
+    {error && <button type="button" className="cfg-btn cfg-btn--primary" onClick={() => { planResume(resume); window.location.reload(); }}>Reload and continue</button>}
+    <button type="button" className="cfg-btn cfg-btn--secondary" onClick={onCancel}>Not now</button>
+  </section>;
+}
+
+function CredentialReauthPrompt({ accountEmail, reason, resume, retryLabel, terminalActive, onCancel }: ReauthProps) {
   const devLogin = useStore((s) => s.devLogin);
   const googleLogin = useStore((s) => s.googleLogin);
   const appleLogin = useStore((s) => s.appleLogin);

@@ -318,7 +318,7 @@ test('stop aborts the active turn and keeps its durable job cancelled after the 
     await settleAgentJobs();
     assert.deepEqual(jobs(primary.id).map(job => job.state), ['cancelled', 'cancelled']);
     assert.equal(getLive(primary.id).isRunning, false);
-    assert.ok(listRows(primary.id).some(row => row.body.type === 'notice' && row.body.text === 'Stopped.'));
+    assert.ok(listRows(primary.id).some(row => row.body.type === 'notice' && row.body.text === 'This request was stopped by a voice call control.'));
   } finally { interrupt(primary.id); await settleAgentJobs(); }
 });
 

@@ -45,8 +45,13 @@ export function startCall(botId: string) {
     if (current.botId === botId) return;
     current.end();
   }
-  current = new VoiceCall(botId);
-  void current.start();
+  try {
+    current = new VoiceCall(botId);
+    void current.start();
+  } catch {
+    current = null;
+    setV({ status: 'error', botId, error: 'Audio could not start. Check browser audio support, then retry.', speaking: false, listening: false, thinking: false });
+  }
 }
 
 export function endCall() { current?.end(); }
@@ -95,6 +100,8 @@ class VoiceCall {
   private updatesTimer: ReturnType<typeof setTimeout> | null = null;
   private updatesRequest: AbortController | null = null;
   private connectTimer: ReturnType<typeof setTimeout> | null = null;
+  private setupRequest = new AbortController();
+  private setupStage = 'microphone';
   private onUnload = () => {
     if (this.sess && !this.ended) {
       const { transcript, transcriptRevision } = this.captureTranscript();
@@ -114,6 +121,10 @@ class VoiceCall {
 
   async start() {
     setV({ status: 'connecting', botId: this.botId, callId: null, muted: false, speaking: false, listening: false, thinking: false, working: [], connectionRequests: [], approvals: [], captions: [], error: null, startedAt: null });
+    // One deadline covers permission, audio worklet, token HTTP and socket handshake.
+    this.connectTimer = setTimeout(() => {
+      if (!this.ready) this.end(`Call setup timed out while waiting for ${this.setupStage}. Check permissions and your connection, then retry.`);
+    }, 10000);
     window.addEventListener('pagehide', this.onUnload);
     let stream: MediaStream;
     try {
@@ -124,6 +135,7 @@ class VoiceCall {
     }
     if (this.ended) { stream.getTracks().forEach((t) => t.stop()); return; }
     try {
+      this.setupStage = 'audio';
       this.mic = new MicCapture(this.ctx, stream, (pcm) => this.sendAudio(pcm));
       // A native shortcut can arrive before the first web gesture. Once microphone
       // permission is granted, resume audio before connecting a silent call.
@@ -139,9 +151,11 @@ class VoiceCall {
       if (this.ended) return;
       await this.mic.start();
       if (this.ended) { this.mic.stop(); return; }
-      this.sess = await voiceApi.session(this.botId);
-      if (this.ended) { void voiceApi.end(this.botId, this.sess.callId, [], 'Cancelled', ++this.transcriptRevision); return; }
+      this.setupStage = 'the voice session';
+      this.sess = await voiceApi.session(this.botId, this.setupRequest.signal);
+      if (this.ended) { void voiceApi.end(this.botId, this.sess.callId, [], 'Call setup ended', ++this.transcriptRevision).catch(() => {}); return; }
       setV({ callId: this.sess.callId });
+      this.setupStage = 'the voice connection';
       this.connect(this.sess);
     } catch (e) {
       this.end((e as Error).message || 'Could not start the call');
@@ -152,7 +166,7 @@ class VoiceCall {
     const protocol = sess.clientSecretProtocol ?? 'direct-client-secret';
     const ws = new WebSocket(sess.websocketUrl, [`${protocol}.${sess.clientSecret}`]);
     this.ws = ws;
-    this.connectTimer = setTimeout(() => { if (!this.ready) this.end('Couldn’t connect the call'); }, 15000);
+    ws.onerror = () => this.end('The voice connection failed. Check your network, then retry.');
     ws.onopen = () => this.send({ type: 'session.update', session: sess.session });
     ws.onmessage = (m) => {
       if (typeof m.data !== 'string') return;
@@ -486,6 +500,7 @@ class VoiceCall {
     window.removeEventListener('pagehide', this.onUnload);
     if (this.connectTimer) clearTimeout(this.connectTimer);
     if (this.updatesTimer) clearTimeout(this.updatesTimer);
+    this.setupRequest.abort();
     this.updatesRequest?.abort();
     this.notes = [];
     this.noteChars = 0;
@@ -503,7 +518,7 @@ class VoiceCall {
     if (current === this) current = null;
     if (error) {
       setV({ status: 'error', error, speaking: false, listening: false, thinking: false, working: [], connectionRequests: [], approvals: [] });
-      setTimeout(() => { if (useVoice.getState().status === 'error' && !current) setV({ status: 'idle', botId: null, error: null }); }, 6000);
+      // Keep the reason and Retry available until the user acts.
     } else {
       setV({ status: 'idle', botId: null, callId: null, speaking: false, listening: false, thinking: false, working: [], connectionRequests: [], approvals: [], startedAt: null });
     }

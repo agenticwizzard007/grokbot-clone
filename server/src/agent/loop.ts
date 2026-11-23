@@ -1,4 +1,5 @@
 import { connectedDate, connectionStatusLabel, fallbackAccountLabel } from '../connection-details.js';
+import { TurnInterruption, interruptionMessage, type InterruptionSource } from './interruption.js';
 import { recordModelUsage, withUsage } from '../usage.js';
 import { selectedCli } from '../cli/store.js';
 import { withNativeTools, type NativeToolHandler } from '../cli/native-tools.js';
@@ -282,17 +283,17 @@ export function initDurableJobs() {
   for (const job of jobs) scheduleJob(job.id, job.user_id, job.bot_id, JSON.parse(job.trigger));
   releaseReadySetupHandoffs();
 }
-configureWorkflowRuntime({ enqueue, interrupt });
+configureWorkflowRuntime({ enqueue, interrupt: (botId, jobId) => interrupt(botId, jobId, 'workflow') });
 bindSetupHandoffRuntime((botId, trigger) => enqueue(botId, trigger as Trigger));
 configureCoordinationRuntime({ enqueue:(botId,t)=>{
   if(t.type==='bot'&&(!t.fromBotId||!t.fromName||t.depth===undefined))throw new Error('Internal sender identity is required.');
   return enqueue(botId,t as Trigger);
-}, interrupt });
+}, interrupt: (botId, jobId) => interrupt(botId, jobId, 'workflow') });
 
-/** The running turn's abort signal (aborted when the user stops the Bot). */
+/** The running turn's signal. Only server controls abort it, never SSE transport. */
 export const turnSignal = (botId: string): AbortSignal | undefined => aborts.get(botId)?.signal;
 
-export function interrupt(botId: string, expectedJobId?: string) {
+export function interrupt(botId: string, expectedJobId?: string, source: InterruptionSource = 'system') {
   // Stop from the chat also drops the user's messages still waiting in the queue.
   // beginJob only starts 'queued' jobs, so an already scheduled promise will not run them.
   if (expectedJobId === undefined) {
@@ -305,7 +306,7 @@ export function interrupt(botId: string, expectedJobId?: string) {
   // Workflow controls target a durable job. Cancelling queued work must not
   // abort an unrelated chat that currently owns this Bot's serial queue.
   const matchesActive = expectedJobId === undefined || activeJobs.get(botId) === expectedJobId;
-  if (matchesActive) aborts.get(botId)?.abort();
+  if (matchesActive) aborts.get(botId)?.abort(new TurnInterruption(source));
   if (!aborts.has(botId) || !matchesActive) {
     const pending = db.prepare('SELECT state FROM pending_turns WHERE bot_id=?').get(botId) as { state: string } | undefined;
     const bot = getBotRow(botId);
@@ -518,7 +519,10 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
       // it never replays the completed calls just to continue the same job.
       if (nativeBoundary === 'replan' || nativeBoundary === 'checkpoint') continue;
       const calls = result.output.filter((o: any) => o.type === 'function_call');
-      if (!calls.length) break;
+      if (!calls.length) {
+        if (!finalText.trim()) throw new Error('The model ended without a reply. Please retry your request.');
+        break;
+      }
 
       const st: PendingState = {
         jobId,
@@ -541,9 +545,12 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
     if (trigger.roomId) postRoomReply(botId, trigger.roomId, finalText, toolRows);
   } catch (e: any) {
     outcome = ctrl.signal.aborted ? 'interrupted' : 'failed';
-    const msg = ctrl.signal.aborted ? 'Stopped.' : `Something went wrong: ${e?.message ?? e}`;
-    appendRow(botId, 'notice', { type: 'notice', text: msg, tone: ctrl.signal.aborted ? 'info' : 'error', ...audience });
-    if (!ctrl.signal.aborted) console.error('[agent] turn failed', botId);
+    const userStopped = ctrl.signal.aborted && ctrl.signal.reason instanceof TurnInterruption && ctrl.signal.reason.source === 'user';
+    const msg = ctrl.signal.aborted ? interruptionMessage(ctrl.signal) : `Something went wrong: ${e?.message ?? e}`;
+    appendRow(botId, 'notice', { type: 'notice', text: msg, tone: userStopped ? 'info' : 'error', terminal: true,
+      ...(!userStopped && trigger.type === 'user' ? { retry: { text: trigger.text } } : {}), ...audience });
+    if (ctrl.signal.aborted) console.warn('[agent] turn interrupted', { botId, jobId, source: ctrl.signal.reason instanceof TurnInterruption ? ctrl.signal.reason.source : 'unknown' });
+    else console.error('[agent] turn failed', botId);
     throw new Error('Task did not complete. Review its activity before retrying.');
   } finally {
     latency('turn', turnStart, { botId });
@@ -583,6 +590,7 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
 /** Run function calls in order. Returns true if the turn paused for approval. */
 async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: boolean; signal?: AbortSignal; onPause?: (state: PendingState) => void } = {}): Promise<boolean> {
   const { botId, userId } = ctx;
+  let failure: string | undefined;
   const assertTurnCanContinue = () => {
     turnSignal(botId)?.throwIfAborted();
     options.signal?.throwIfAborted();
@@ -755,11 +763,15 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
         updateRow(botId, c.rowSeq, { ...body, status: successful ? 'done' : 'error', summary: res.summary, completedAt: now() });
       } catch (e: any) {
         finishTool(botId, c.call_id, false);
-        res = { output: `Tool error: ${e?.message ?? e}`, replan: /^(?:browser_|computer_|open_browser$|wait_for_browser_access$)/.test(c.name) };
+        res = { output: `Tool error: ${e?.message ?? e}`, isError: true, summary: String(e?.message ?? e).slice(0, 200), replan: /^(?:browser_|computer_|open_browser$|wait_for_browser_access$)/.test(c.name) };
         updateRow(botId, c.rowSeq, { ...body, status: 'error', summary: String(e?.message ?? e).slice(0, 200), completedAt: now() });
       } finally {
         latency('tool', toolStart, { botId, tool: c.name });
       }
+    }
+    if (['SWARM_APPS_SEARCH', 'SWARM_APPS_EXECUTE'].includes(c.name) && (res.isError || res.summary === 'failed')) {
+      failure = res.summary && res.summary !== 'failed' ? res.summary : 'The connected app operation failed. Check the connection in Settings, then retry. Review activity before repeating any external action.';
+      res.endTurn = true;
     }
     const out: any = { type: 'function_call_output', call_id: c.call_id, output: res.output };
     st.outputs.push(res.endTurn ? { ...out, __endTurn: true } : out);
@@ -783,6 +795,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
     appendHistory(botId, st.outputs.map(({ __endTurn, ...o }: any) => o));
     db.prepare('DELETE FROM pending_turns WHERE bot_id=?').run(botId);
   }
+  if (failure) throw new Error(failure);
   setLive(botId, { isRunning: true, activity: { kind: 'thinking', since: now() }, awaiting: null });
   return false;
 }

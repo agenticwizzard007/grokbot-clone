@@ -12,7 +12,7 @@ export async function gatewayRequest<T = any>(userId: string, operation: string,
   const timeout = AbortSignal.timeout(65_000);
   const res = await fetch(new URL('/rpc', endpoint), { method: 'POST', redirect: 'error', signal: options.signal ? AbortSignal.any([options.signal, timeout]) : timeout,
     headers: { authorization: `Bearer ${authorization}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ operation, input, sessionHash: currentSessionHash() }) }).catch(() => { throw new GatewayError(503); });
+    body: JSON.stringify({ operation, input, sessionHash: currentSessionHash() }) }).catch(() => { if (timeout.aborted) throw timeout.reason; throw new GatewayError(503); });
   if (!res.ok) { await res.body?.cancel(); throw new GatewayError(res.status); }
   // Bound streamed decoding before JSON allocation.
   const reader = res.body?.getReader(); if (!reader) throw new Error('Empty gateway response.');

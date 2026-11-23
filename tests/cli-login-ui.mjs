@@ -140,6 +140,38 @@ try {
   const cancelTerminal = () => terminal.getByRole('button', { name: 'Cancel login and close terminal', exact: true }).click();
   const readyTerminal = () => until(() => terminal.getByLabel('Authorization code', { exact: true }).isEnabled());
 
+  if (process.env.STALE_UI_PORT) {
+    const fixtureAssets = `http://127.0.0.1:${process.env.STALE_UI_PORT}`;
+    for (const width of [390, 1280]) for (const provider of ['claude', 'codex']) {
+      await fixture(`retained-${provider}-${width}`);
+      await page.setViewportSize({ width, height: 900 });
+      await fetch(`${fixtureAssets}/__fixture/settings?stale`);
+      await page.goto(`${base}/?fixture=retained-${provider}-${width}#settings/subscriptions`);
+      await page.getByRole('tab', { name: provider === 'claude' ? 'Claude Code' : 'Codex', exact: true }).click();
+      await page.getByRole('button', { name: 'Connect plan', exact: true }).click();
+      await readyTerminal(); await assertNoSignIn(); await cancelTerminal();
+      await resumeAt(provider);
+      // A retained caller can request the obsolete prompt from a failed callback,
+      // even though the authenticated server no longer returns reauth_required.
+      await page.route('**/api/cli/reauth?*', async route => {
+        await fetch(`${fixtureAssets}/__fixture/settings?current`);
+        await route.continue();
+      });
+      await page.addInitScript(() => {
+        window.fixtureSignInRendered = false;
+        new MutationObserver(() => {
+          if (document.querySelector('.subscription-reauth input[type="tel"], .subscription-reauth input[type="email"]')) window.fixtureSignInRendered = true;
+        }).observe(document, { childList: true, subtree: true });
+      });
+      await page.goto(`${base}/?login=cancelled#settings/subscriptions`);
+      await readyTerminal(); await assertNoSignIn();
+      assert.equal(await page.evaluate(() => window.fixtureSignInRendered), false);
+      await terminal.screenshot({ path: path.join(screenshots, `retained-${provider}-${width}.png`) });
+      await cancelTerminal(); await page.unroute('**/api/cli/reauth?*');
+    }
+    console.log('Retained pre-177 settings caller: both providers connect and recover without sign-in at 390 and 1280.');
+  }
+
   for (const width of [1280, 390]) {
     await fixture(`connect-${width}`);
     await page.setViewportSize({ width, height: 900 });

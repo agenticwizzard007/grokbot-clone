@@ -130,7 +130,7 @@ function stopAgent(botId: string, userId: string) {
   const active = !!turnSignal(botId);
   const cancelled = db.prepare("UPDATE agent_jobs SET state='cancelled',finished_at=? WHERE bot_id=? AND user_id=? AND (state='queued' OR (?=1 AND state='running'))")
     .run(now(), botId, userId, active ? 1 : 0).changes;
-  interrupt(botId);
+  interrupt(botId, undefined, 'voice');
   // Paused runs have already ended, but their question/approval still represents unfinished
   // work. Cancel that assignment too, and make old question cards non-resumable.
   const decisions = db.prepare("SELECT seq,body FROM rows WHERE bot_id=? AND generation=? AND kind='card' AND json_extract(body,'$.card') IN ('question','approval','connect') AND json_extract(body,'$.status')='pending'")

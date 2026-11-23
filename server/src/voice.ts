@@ -9,7 +9,7 @@ import { recordModelUsage, recordUnits, withUsage } from './usage.js';
 import { db, now } from './db.js';
 import { env } from './env.js';
 import { isTenant } from './deployment.js';
-import { mintVoiceSecret, voiceProvider } from './lib/voice-provider.js';
+import { VoiceSessionError, mintVoiceSecret, voiceProvider } from './lib/voice-provider.js';
 import { newId } from './lib/ids.js';
 import type { AuthVars } from './lib/auth.js';
 import { appendHistory, appendRow, emitBot, getBotRow, getLive, listRoutines, listTasks, onRowChange, updateRow } from './store.js';
@@ -440,10 +440,10 @@ voiceApi.post('/session', async (c) => {
 
   let secret: { value: string; expires_at: number };
   try {
-    secret = await mintVoiceSecret(provider.key, provider.baseUrl);
-  } catch {
+    secret = await mintVoiceSecret(provider.key, provider.baseUrl, c.req.raw.signal);
+  } catch (error) {
     console.warn('[voice] client secret mint failed');
-    return c.json({ error: 'Could not start a voice session. Try again or contact your platform admin.' }, 502);
+    return c.json({ error: error instanceof VoiceSessionError ? error.message : 'Could not start a voice session. Try again or contact your platform admin.' }, 502);
   }
 
   // Fetch only connection metadata here: full platformState can also wait on a CLI
@@ -469,6 +469,7 @@ voiceApi.post('/session', async (c) => {
     },
   };
 
+  if (c.req.raw.signal.aborted) return c.json({ error: 'Call setup ended. Retry to start a new call.' }, 408);
   const callId = newId('call');
   const startRow = appendRow(bot.id, 'event', callEvent(`Voice call with ${bot.name} started`, { id: callId, phase: 'started' }));
   const connectionBaseline = new Map((db.prepare('SELECT id,generation,next_seq FROM bots WHERE user_id=?').all(user.id) as { id: string; generation: number; next_seq: number }[])

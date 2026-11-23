@@ -80,11 +80,13 @@ export class MicCapture {
   private node: AudioWorkletNode | null = null;
   private sink: GainNode | null = null;
   level = 0;
+  private stopped = false;
 
   constructor(private ctx: AudioContext, private stream: MediaStream, private onFrame: (pcm: Int16Array) => void) {}
 
   async start() {
     await ensureWorklet(this.ctx);
+    if (this.stopped) return;
     this.source = this.ctx.createMediaStreamSource(this.stream);
     this.node = new AudioWorkletNode(this.ctx, 'pcm16-capture', { processorOptions: { rate: RATE }, numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1, channelCountMode: 'explicit' });
     this.node.port.onmessage = (e: MessageEvent<{ pcm: ArrayBuffer; level: number }>) => {
@@ -103,6 +105,8 @@ export class MicCapture {
   }
 
   stop() {
+    if (this.stopped) return;
+    this.stopped = true;
     try { this.source?.disconnect(); this.node?.disconnect(); this.sink?.disconnect(); } catch { /* already gone */ }
     if (this.node) this.node.port.onmessage = null;
     for (const t of this.stream.getTracks()) t.stop();

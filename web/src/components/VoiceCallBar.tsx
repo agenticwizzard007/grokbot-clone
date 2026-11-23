@@ -3,7 +3,7 @@ import { BotAvatarFor } from '../avatar/BotAvatar';
 import { botVars } from '../lib/colors';
 import { api, openPopup } from '../lib/api';
 import { useStore } from '../store';
-import { callLevels, endCall, toggleMute, useVoice } from '../voice/call';
+import { callLevels, endCall, startCall, toggleMute, useVoice } from '../voice/call';
 import type { VoiceConnectionRequest } from '../voice/api';
 import { ApprovalCard } from './cards/Cards';
 import { ToolkitLogo } from './ToolkitLogo';
@@ -132,6 +132,7 @@ export function VoiceCallBar() {
           </div>
         </div>
         <div className="vcall__actions">
+          {v.status === 'error' && <button type="button" className="vcall__btn" onClick={() => startCall(bot.id)}>Retry</button>}
           {active && (
             <button type="button" className={`vcall__btn${v.muted ? ' is-on' : ''}`} onClick={toggleMute} aria-pressed={v.muted} aria-label={v.muted ? 'Unmute' : 'Mute'} title={v.muted ? 'Unmute' : 'Mute'}>
               {v.muted ? 'Unmute' : 'Mute'}

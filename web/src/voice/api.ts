@@ -68,7 +68,7 @@ export const voiceApi = {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return r.json() as Promise<VoiceOptions>;
   }).catch((e) => { optionsPromise = null; throw e; })),
-  session: (botId: string) => post<VoiceSession>('/session', { botId }),
+  session: (botId: string, signal?: AbortSignal) => post<VoiceSession>('/session', { botId }, signal),
   tool: (botId: string, callId: string, name: string, args: unknown, toolCallId?: string, transcript?: VoiceTranscriptEntry[], transcriptRevision?: number) => post<VoiceToolResult>('/tool', { botId, callId, name, args, toolCallId, transcript, transcriptRevision }),
   updates: (botId: string, callId: string, after: number, signal?: AbortSignal) => post<VoiceUpdates>('/updates', { botId, callId, after }, signal),
   end: (botId: string, callId: string, transcript: VoiceTranscriptEntry[], error?: string, transcriptRevision?: number) => post<{ ok: true }>('/end', { botId, callId, transcript, error, transcriptRevision }),

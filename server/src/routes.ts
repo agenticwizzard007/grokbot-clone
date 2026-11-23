@@ -294,7 +294,7 @@ api.post('/bots/:id/setup/skip', async (c) => {
   const setup = getSetup(botId);
   if (!setup || setup.onboarding.status === 'active') return c.json({ error: 'This Bot is already active.' }, 409);
   // Stop the interview before joining its queue so a slow setup turn cannot block Skip.
-  interrupt(botId);
+  interrupt(botId, undefined, 'setup');
   try {
     return c.json(await runInBotQueue(botId, async () => ({ ...skipSetup(userId, botId), bot: getBot(botId)! })));
   }
@@ -461,14 +461,14 @@ api.post('/bots/:id/messages', async (c) => {
 api.post('/bots/:id/interrupt', (c) => {
   const b = ownBot(c.get('user').id, c.req.param('id'));
   if (!b) return c.json({ error: 'not found' }, 404);
-  interrupt(b.id);
+  interrupt(b.id, undefined, 'user');
   return c.json({ ok: true });
 });
 
 api.post('/bots/:id/fresh', (c) => {
   const b = ownBot(c.get('user').id, c.req.param('id'));
   if (!b) return c.json({ error: 'not found' }, 404);
-  interrupt(b.id);
+  interrupt(b.id, undefined, 'conversation');
   clearConversation(b.id);
   emitBot(b.id);
   return c.json({ ok: true });
