@@ -7,8 +7,9 @@ import { BirdPicker } from '../../avatar/BirdPicker';
 import { COLOR_ORDER, botVars, palette } from '../../lib/colors';
 import { KnowledgeScopeControl, PendingMemoryChanges, SkillPackageControls } from './KnowledgeManagement';
 import { learningApi } from '../../lib/learningApi';
+import { ApiError } from '../../lib/api';
 import { LearningSettingsPanel } from './LearningSettings';
-import { configApi, type BotSettingsBundle, type KnowledgeSkill, type KnowledgeMemory } from '../../lib/configApi';
+import { configApi, type BotPatch, type BotSettingsBundle, type KnowledgeSkill, type KnowledgeMemory } from '../../lib/configApi';
 import { SkillHistory, SkillReview, MemoryEvidence, ConversationSearch, MemoryArchive } from './KnowledgePanels';
 import { RoutineHistory } from './RoutineHistory';
 import { openConversation, useBotSettingsDraft, useConfigUI, usePageTitle, useVersion, type BotSettingsTab } from '../../configStore';
@@ -50,9 +51,9 @@ function BotSettingsPage({ bot, tab, inline, userId }: { bot: Bot; tab: BotSetti
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showSources, setShowSources] = useState(false);
   // The General draft lives here so it survives tab switches (null = nothing edited yet).
-  const [generalDraft, setGeneralDraft] = useState<Draft | null>(null);
+  const [generalDraft, setGeneralDraft] = useState<GeneralDraft | null>(null);
   const request = useRef(0);
-  const generalDirty = generalDraft !== null && changedFields(generalDraft, draftOf(bot)).length > 0;
+  const generalDirty = generalDraft !== null && changedFields(generalDraft.values, generalDraft.base).length > 0;
   // R2F-004: drafts on every tab are tracked in configStore, so every way out of this page asks first.
   useBotSettingsDraft('general', 'General', generalDirty);
   const dirty = useConfigUI(state => state.botSettingsDirty);
@@ -140,7 +141,7 @@ function BotSettingsPage({ bot, tab, inline, userId }: { bot: Bot; tab: BotSetti
         </nav>
         <div className="bot-settings-page__content" key={tab}>
           {loadError && ['skills', 'memories', 'routines'].includes(tab) && <div className="cfg-error" role="alert">Couldn’t load settings: {loadError} <button className="cfg-btn cfg-btn--secondary" type="button" onClick={reload}>Retry</button></div>}
-          {tab === 'general' && <GeneralTab bot={bot} onClose={discardAndClose} draft={generalDraft ?? draftOf(bot)} setDraft={setGeneralDraft} />}
+          {tab === 'general' && <GeneralTab bot={bot} onClose={discardAndClose} draft={generalDraft} setDraft={setGeneralDraft} />}
           {tab === 'skills' && <SkillsTab bot={bot} skills={data?.skills} onChange={reload} />}
           {tab === 'memories' && <>
             <div className="bot-settings-page__memories" hidden={sourcesOpen}><MemoriesTab bot={bot} data={data} onChange={reload} onSearch={() => setShowSources(true)} /></div>
@@ -159,10 +160,14 @@ function BotSettingsPage({ bot, tab, inline, userId }: { bot: Bot; tab: BotSetti
 // ---------------------------------------------------------------------------
 
 type Draft = Pick<Bot, 'name' | 'label' | 'description' | 'instructions' | 'avatarShape' | 'avatarColor' | 'effort' | 'mode' | 'model'>;
+// Keep the first-edit baseline with the values across live updates and settings tab switches.
+type GeneralDraft = { base: Draft; values: Draft };
 const draftOf = (b: Bot): Draft => ({ name: b.name, label: b.label, description: b.description, instructions: b.instructions, avatarShape: b.avatarShape, avatarColor: b.avatarColor, effort: b.effort, mode: b.mode, model: b.model ?? null });
 const changedFields = (draft: Draft, base: Draft) => (Object.keys(draft) as (keyof Draft)[]).filter((k) => draft[k] !== base[k]);
 
-function GeneralTab({ bot, onClose, draft, setDraft }: { bot: Bot; onClose: () => void; draft: Draft; setDraft: (update: (current: Draft | null) => Draft | null) => void }) {
+function GeneralTab({ bot, onClose, draft: generalDraft, setDraft }: { bot: Bot; onClose: () => void; draft: GeneralDraft | null; setDraft: (update: (current: GeneralDraft | null) => GeneralDraft | null) => void }) {
+  const base = generalDraft?.base ?? draftOf(bot);
+  const draft = generalDraft?.values ?? base;
   const modelCatalog = useModels();
   const { current: modelInfo, effort: selectedEffort } = modelSelection(draft, modelCatalog);
   const supportedEfforts = effortsFor(modelInfo).map(value => ({ value, label: `${effortLabel(value, modelInfo)}${value === defaultEffortFor(modelInfo) ? ' (default)' : ''}` }));
@@ -171,17 +176,17 @@ function GeneralTab({ bot, onClose, draft, setDraft }: { bot: Bot; onClose: () =
   const [saving, setSaving] = useState(false);
   const [note, setNote] = useState<{ text: string; tone: 'ok' | 'error' } | null>(null);
 
-  const base = draftOf(bot);
   const changed = changedFields(draft, base);
   const dirty = changed.length > 0;
   const nameOk = draft.name.trim().length > 0;
-  const put = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft((d) => ({ ...(d ?? draftOf(bot)), [k]: v }));
+  const updateDraft = (update: (current: Draft) => Draft) => setDraft(current => ({ base: current?.base ?? base, values: update(current?.values ?? draft) }));
+  const put = <K extends keyof Draft>(k: K, v: Draft[K]) => updateDraft(d => ({ ...d, [k]: v }));
   const chooseEffort = (effort: Bot['effort'] | '') => {
     if (!effort) return;
-    setDraft(d => ({ ...(d ?? draft), effort, ...(modelInfo?.billing === 'plan' ? { model: modelInfo.id } : {}) }));
+    updateDraft(d => ({ ...d, effort, ...(modelInfo?.billing === 'plan' ? { model: modelInfo.id } : {}) }));
   };
-  const chooseModel = (model: string | null) => setDraft(d => {
-    const next = { ...(d ?? draft), model };
+  const chooseModel = (model: string | null) => updateDraft(d => {
+    const next = { ...d, model };
     return { ...next, effort: effectiveEffort(next.effort, modelSelection(next, modelCatalog).current) };
   });
   const flash = (text: string, tone: 'ok' | 'error' = 'ok') => { setNote({ text, tone }); setTimeout(() => setNote(null), 2400); };
@@ -190,14 +195,16 @@ function GeneralTab({ bot, onClose, draft, setDraft }: { bot: Bot; onClose: () =
     if (!dirty || !nameOk) return;
     setSaving(true);
     try {
-      const patch: Partial<Draft> = {};
+      const patch: BotPatch = {};
       for (const k of changed) (patch as Record<string, unknown>)[k] = k === 'name' ? draft.name.trim() : draft[k];
+      if (changed.includes('instructions')) patch.expectedInstructions = base.instructions;
       const { bot: next } = await configApi.updateBot(bot.id, patch);
       useStore.setState((s) => ({ bots: s.bots.map((b) => (b.id === next.id ? next : b)) }));
       setDraft(() => null);
       flash('Saved');
     } catch (e) {
       flash((e as Error).message, 'error');
+      if (e instanceof ApiError && e.status === 409) await useStore.getState().loadBots().catch(() => {});
     } finally {
       setSaving(false);
     }
