@@ -54,7 +54,11 @@ try {
   const context = await browser.newContext({viewport:{width:1440,height:1000}});
   await context.addCookies([{name:'swarm_session',value:cookie.slice(cookie.indexOf('=')+1),url:base}]);
   const page = await context.newPage(); await page.goto(base);
-  await page.locator('.bot-row').filter({hasText:'Nia · LinkedIn Research'}).click();
+  // The sidebar displays the Bot name separately from its role and message preview.
+  const botRow = page.locator('.bot-row').filter({has:page.getByText(teammate.name,{exact:true})});
+  await botRow.click();
+  assert.equal(await botRow.locator('.bot-row__name').innerText(),teammate.name,'sidebar shows the exact created Bot name');
+  assert.equal(await botRow.getAttribute('aria-current'),'true','clicking the named sidebar row selects the created Bot');
   // Opening the chat pill reveals the details panel if it is closed.
   const config = page.getByRole('button',{name:'Configuration',exact:true});
   if(!await config.isVisible()) await page.getByRole('button',{name:'Show details',exact:true}).click();
@@ -174,7 +178,6 @@ try {
   for (const width of [320,375,390,430,768,1024]) {
     await resize(width);
     if (!await page.locator('aside.details').isVisible()) {
-      const botRow = page.locator('.bot-row').filter({hasText:'Nia · LinkedIn Research'});
       if (await botRow.isVisible()) await botRow.click();
       await page.getByRole('button',{name:'Show details',exact:true}).click();
       await config.click();
@@ -206,7 +209,6 @@ try {
   }
   await resize(390);
   if (!await page.locator('aside.details').isVisible()) {
-    const botRow = page.locator('.bot-row').filter({hasText:'Nia · LinkedIn Research'});
     if (await botRow.isVisible()) await botRow.click();
     await page.getByRole('button',{name:'Show details',exact:true}).click();
     await config.click();
