@@ -126,6 +126,7 @@ a { color: inherit; }
   background: var(--color-primary); color: var(--color-on-primary); font-size: 13px; line-height: 18px; padding: 7px 12px; border-radius: var(--radius-full);
   box-shadow: var(--shadow-pill); animation: rise 160ms var(--ease-out);
 }
+.toast--global { overflow-wrap: break-word; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
