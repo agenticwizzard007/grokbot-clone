@@ -9,7 +9,7 @@ import { env } from './env.js';
 import { newId } from './lib/ids.js';
 import { hub } from './lib/hub.js';
 import { activeSessionPredicate, activeSessionBounds, clearSessionCookies, createSession, destroySession, requireUser, requireRecentAuth, recentlyAuthenticated, userFromCookieHeader, revokeSession, sessionHash, sessionFromCookie, type AuthVars } from './lib/auth.js';
-import { allLive, appendRow, clearConversation, emitBot, getBot, getBotRow, getRow, listBots, listRoutines, listRows, listTasks, toRoutine, updateRow } from './store.js';
+import { allLive, appendRow, clearConversation, emitBot, getBot, getBotRow, getRow, listBots, listRoutines, listRows, listRowChanges, listTasks, toRoutine, updateRow } from './store.js';
 import { enqueue, interrupt, resolveApproval, runInBotQueue } from './agent/loop.js';
 import { computers } from './computers/index.js';
 import { catalog, connectedToolkits, connectionsDetail, manageConnection, removeExpiredConnection, ExpiredConnectionRemovalError, disconnect, invalidateComposioSession } from './composio.js';
@@ -417,14 +417,29 @@ api.post('/bots/:id/read', (c) => {
 api.get('/bots/:id/rows', (c) => {
   const b = ownBot(c.get('user').id, c.req.param('id'));
   if (!b) return c.json({ error: 'not found' }, 404);
-  repairActiveSetup(b.id);
   const rawBefore = c.req.query('beforeSeq');
   const rawLimit = c.req.query('limit');
   if (rawBefore !== undefined && rawBefore !== '' && !/^-?\d+$/.test(rawBefore)) return c.json({ error: 'beforeSeq must be an integer.' }, 400);
   if (rawLimit !== undefined && !/^-?\d+$/.test(rawLimit)) return c.json({ error: 'limit must be an integer.' }, 400);
   const beforeSeq = rawBefore ? Number(rawBefore) : undefined;
-  const limit = rawLimit === undefined ? 200 : Math.max(1, Math.min(500, Number(rawLimit)));
-  return c.json({ generation: b.generation, rows: listRows(b.id, { beforeSeq, limit }) });
+  const limit = rawLimit === undefined ? 24 : Math.max(1, Math.min(500, Number(rawLimit)));
+  // Activation and roster/setup reads repair legacy setup cards. History reads
+  // stay read-only and bounded, including the first conversation page.
+  const rows = listRows(b.id, { beforeSeq, limit });
+  return c.json({ generation: b.generation, revision: b.rev, rows, olderCursor: rows.length === limit ? rows[0].seq : null });
+});
+
+// Only changed rows in the already opened range are reconciled after reconnect.
+api.get('/bots/:id/row-changes', (c) => {
+  const b = ownBot(c.get('user').id, c.req.param('id'));
+  if (!b) return c.json({ error: 'not found' }, 404);
+  const values = ['afterRev', 'throughRev', 'minSeq'].map(key => c.req.query(key));
+  if (values.some(value => value === undefined || !/^\d+$/.test(value) || !Number.isSafeInteger(Number(value)))) {
+    return c.json({ error: 'Revision and sequence cursors must be nonnegative integers.' }, 400);
+  }
+  const [afterRev, throughRev, minSeq] = values.map(Number);
+  const rows = listRowChanges(b.id, b.generation, afterRev, Math.min(throughRev, b.rev), minSeq);
+  return c.json({ generation: b.generation, rows, nextRev: rows.length === 200 ? rows[rows.length - 1].updatedSeq : null });
 });
 
 api.post('/bots/:id/messages', async (c) => {

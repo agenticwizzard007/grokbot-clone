@@ -1,7 +1,7 @@
 import './lib/legacy-storage'; // before reading saved preferences
 import { create } from 'zustand';
 import type { Bot, ComputerState, LiveState, Routine, Row, ServerEvent, User } from '@shared/types';
-import { api, ROW_PAGE_SIZE } from './lib/api';
+import { api, INITIAL_ROW_PAGE_SIZE, ROW_PAGE_SIZE } from './lib/api';
 import { noteRowsEvent } from './lib/sseWatchdog';
 import { readDetailsDefault } from './lib/detailsDefault';
 import { requireActiveSession, sessionExpired } from './lib/session';
@@ -22,6 +22,8 @@ interface Transcript {
   olderCursor?: number | null;
   loadingOlder?: boolean;
   olderError?: string | null;
+  /** Server revision of the last fully reconciled snapshot. SSE does not advance it. */
+  revision?: number;
 }
 
 interface State {
@@ -228,36 +230,44 @@ export const useStore = create<State>((set, get) => ({
       loading: true,
     } } }));
     try {
-      const { generation, rows: latest } = await api.rows(id);
-      const rows = [...latest];
-      // Reconnects must bridge a burst larger than one page and refresh revisions
-      // of already cached rows. Normal navigation still fetches just one window.
-      const floor = opts.resync && previous?.loaded && previous.generation === generation
-        ? Object.values(previous.bySeq).reduce((min, row) => Math.min(min, row.seq), Infinity) : undefined;
-      let page = latest;
-      while (floor !== undefined && page.length === ROW_PAGE_SIZE && page[0].seq > (floor === Infinity ? 0 : floor)) {
-        if (!current()) return;
-        const older = await api.rows(id, page[0].seq);
-        if (older.generation !== generation) throw new Error('Outdated transcript');
-        if (older.rows.length && older.rows[0].seq >= page[0].seq) throw new Error('Invalid transcript page');
-        page = older.rows;
-        rows.push(...page);
-      }
+      const latest = await api.rows(id);
+      const { generation, rows, revision } = latest;
       requireActiveSession();
       if (!current()) return;
-      const state = get();
-      const bot = state.bots.find(candidate => candidate.id === id);
-      const prev = state.transcripts[id];
-      if (!bot || generation < (bot.generation ?? 0) || (prev && generation < prev.generation)) throw new Error('Outdated transcript');
-      const bySeq: Record<number, Row> = {};
-      for (const r of rows) bySeq[r.seq] = r;
-      // Merge with anything that streamed in while we were fetching.
-      if (prev && prev.generation === generation) {
-        for (const r of Object.values(prev.bySeq)) if (!bySeq[r.seq] || bySeq[r.seq].updatedSeq < r.updatedSeq) bySeq[r.seq] = r;
-      }
+      const valid = () => {
+        const state = get(), bot = state.bots.find(candidate => candidate.id === id), transcript = state.transcripts[id];
+        return current() && bot && generation >= (bot.generation ?? 0) && (!transcript || generation >= transcript.generation);
+      };
+      if (!valid()) throw new Error('Outdated transcript');
+      const prev = get().transcripts[id];
       const paging = prev?.generation === generation ? prev : undefined;
-      const olderCursor = paging?.olderCursor !== undefined ? paging.olderCursor : rows.length === ROW_PAGE_SIZE ? rows[0].seq : null;
-      set((s) => ({ transcripts: { ...s.transcripts, [id]: { ...paging, generation, bySeq, loaded: true, loading: false, error: null, olderCursor } } }));
+      const bySeq: Record<number, Row> = { ...paging?.bySeq };
+      for (const row of rows) if (!bySeq[row.seq] || bySeq[row.seq].updatedSeq <= row.updatedSeq) bySeq[row.seq] = row;
+      const olderCursor = paging?.olderCursor !== undefined && Object.keys(paging.bySeq).length > 0 ? paging.olderCursor : latest.olderCursor !== undefined ? latest.olderCursor
+        : rows.length === INITIAL_ROW_PAGE_SIZE || rows.length === ROW_PAGE_SIZE ? rows[0].seq : null;
+      const reconcile = previous?.loaded && previous.generation === generation;
+      // Publish the latest window before any gap recovery. Keep the last complete
+      // watermark if recovery fails, so the next reconnect can retry safely.
+      set(s => ({ transcripts: { ...s.transcripts, [id]: { ...paging, generation, bySeq, loaded: true, loading: false, error: null,
+        olderCursor, revision: reconcile ? previous.revision : revision } } }));
+      if (reconcile && revision !== undefined) {
+        let after = previous.revision ?? 0;
+        const floor = Object.values(previous.bySeq).reduce((min, row) => Math.min(min, row.seq), rows[0]?.seq ?? Infinity);
+        while (after < revision && Number.isFinite(floor)) {
+          if (!valid()) return;
+          const changes = await api.rowChanges(id, after, revision, floor);
+          requireActiveSession();
+          if (!valid() || changes.generation !== generation) return;
+          const transcript = get().transcripts[id];
+          const merged = { ...transcript.bySeq };
+          for (const row of changes.rows) if (!merged[row.seq] || merged[row.seq].updatedSeq <= row.updatedSeq) merged[row.seq] = row;
+          set(s => ({ transcripts: { ...s.transcripts, [id]: { ...transcript, bySeq: merged } } }));
+          if (changes.nextRev === null) break;
+          if (changes.nextRev <= after) throw new Error('Invalid revision page');
+          after = changes.nextRev;
+        }
+        if (valid()) set(s => ({ transcripts: { ...s.transcripts, [id]: { ...s.transcripts[id], revision } } }));
+      }
       if (import.meta.env?.DEV && new URLSearchParams(location.search).has('fixtures')) {
         import('./dev/fixtures').then((m) => m.injectFixtures());
       }
@@ -299,7 +309,7 @@ export const useStore = create<State>((set, get) => ({
         for (const row of page.rows) {
           if (!bySeq[row.seq] || row.updatedSeq >= bySeq[row.seq].updatedSeq) bySeq[row.seq] = row;
         }
-        update({ bySeq, loadingOlder: false, olderCursor: page.rows.length === ROW_PAGE_SIZE ? page.rows[0].seq : null });
+        update({ bySeq, loadingOlder: false, olderCursor: page.olderCursor !== undefined ? page.olderCursor : page.rows.length === ROW_PAGE_SIZE ? page.rows[0].seq : null });
       } catch (error) {
         update({ olderError: "Couldn't load earlier messages. Try again." });
         throw error;

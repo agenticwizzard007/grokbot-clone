@@ -1,4 +1,5 @@
 import { LoadFeedback } from './LoadFeedback';
+import { MessageSkeleton } from './ChatSkeleton';
 import { useDisplayText } from '../lib/useDisplayText';
 import { isInternalRow, userFacingLive } from '../lib/audience';
 import { CoworkerSetupCards } from './CoworkerSetupCards';
@@ -269,6 +270,23 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
     } else if (stick.current) el.scrollTop = el.scrollHeight;
     rememberPosition();
   }, [rows, live, loaded, bot.id, exchanges.exchanges]);
+  // Lazy markdown can change height after the rows commit. Keep the latest
+  // message in view, or preserve the reader's anchor while older content formats.
+  useLayoutEffect(() => {
+    const el = scrollRef.current, column = el?.firstElementChild;
+    if (!el || !column) return;
+    const observer = new ResizeObserver(() => {
+      if (stick.current) el.scrollTop = el.scrollHeight;
+      else {
+        const position = readingPosition.current;
+        const anchor = position && el.querySelector<HTMLElement>(`[data-row-seq="${position.seq}"]`);
+        if (anchor) el.scrollTop += rowRect(anchor).top - position!.top;
+      }
+      rememberPosition();
+    });
+    observer.observe(column);
+    return () => observer.disconnect();
+  }, [bot.id, rows]);
   // Jump to bottom when switching bots.
   useLayoutEffect(() => {
     stick.current = true;
@@ -283,6 +301,11 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
     stick.current = dist < 40;
     setShowJump(dist > 200);
     rememberPosition();
+    // Fetch one earlier window when the reader reaches the top. Initial bottom
+    // positioning and short transcripts must not walk the entire history.
+    if (el.scrollTop < 80 && dist > 200 && paging?.olderCursor != null && !paging.loadingOlder && !paging.olderError) {
+      void useStore.getState().loadOlderRows(bot.id).catch(() => {});
+    }
   };
 
   const jump = () => {
@@ -296,6 +319,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
     {(!loaded || paging?.error || paging?.loading) && <LoadFeedback label="messages" error={paging?.error} loading={!!paging?.loading || (!loaded && !paging?.error)} stale={loaded || rows.length > 0} onRetry={() => { void useStore.getState().loadRows(bot.id).catch(() => {}); }} />}
     <div className="transcript" ref={scrollRef} onScroll={onScroll} data-bot-id={bot.id} data-generation={generation}>
       <div className="transcript__col">
+        {!loaded && !paging?.error && <MessageSkeleton />}
         {paging?.olderCursor != null && <button type="button" className="transcript__older" disabled={paging.loadingOlder} onClick={() => useStore.getState().loadOlderRows(bot.id).catch(() => {})}>{paging.loadingOlder ? 'Loading earlier messages...' : 'Earlier messages'}</button>}
         {paging?.olderError && <p className="transcript__error" role="status">{paging.olderError}</p>}
         {empty && !processing && <EmptyChat bot={bot} />}

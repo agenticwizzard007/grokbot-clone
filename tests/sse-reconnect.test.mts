@@ -29,7 +29,7 @@ function setup(t: TestContext) {
   globals.location = { search: '', pathname: '/' };
   const bots = ['selected', 'cached'].map(id => ({ id, generation: 1 } as Bot));
   useStore.setState({ ...useStore.getInitialState(), user, authChecked: true, bots, botsLoaded: true, selectedBotId: 'selected',
-    transcripts: Object.fromEntries(bots.map(({ id }) => [id, { generation: 1, bySeq: { 1: row(id, 1) }, loaded: true, olderCursor: null }])),
+    transcripts: Object.fromEntries(bots.map(({ id }) => [id, { generation: 1, bySeq: { 1: row(id, 1) }, loaded: true, olderCursor: null, revision: 1 }])),
   }, true);
   t.mock.method(globalThis, 'fetch', async input => {
     assert.equal(String(input), '/api/auth/me', 'only the local session fixture may be fetched');
@@ -55,7 +55,14 @@ test('silent reconnect resyncs a full P-01 burst, cached chats and invalidations
   const requests: { id: string; before?: number }[] = [];
   t.mock.method(api, 'rows', async (id: string, before?: number) => {
     requests.push({ id, before });
-    return { generation: 1, rows: rows[id].filter(row => before === undefined || row.seq < before).slice(-200) };
+    return { generation: 1, revision: 9000, rows: rows[id].filter(row => before === undefined || row.seq < before).slice(-30), olderCursor: null };
+  });
+  const changes: { id: string; after: number }[] = [];
+  t.mock.method(api, 'rowChanges', async (id: string, after: number, through: number, minSeq: number) => {
+    changes.push({ id, after });
+    const page = rows[id].filter(row => row.updatedSeq > after && row.updatedSeq <= through && row.seq >= minSeq)
+      .sort((a, b) => a.updatedSeq - b.updatedSeq).slice(0, 200);
+    return { generation: 1, rows: page, nextRev: page.length === 200 ? page.at(-1)!.updatedSeq : null };
   });
   const invalidations: string[] = [];
   window.addEventListener('swarm:event', event => invalidations.push((event as CustomEvent).detail.type));
@@ -85,7 +92,8 @@ test('silent reconnect resyncs a full P-01 burst, cached chats and invalidations
       assert.equal(state.transcripts[id].olderCursor, null);
     }
     assert.equal(state.transcripts.selected.bySeq[5001].updatedSeq, 10_000);
-    assert.equal(requests.filter(request => request.id === 'selected').length, 26);
+    assert.equal(requests.filter(request => request.id === 'selected').length, 1, 'only one latest page');
+    assert.equal(changes.filter(request => request.id === 'selected').length, 26, 'bounded gap recovery');
     assert.equal(state.connectionsVersion, 1);
     for (const type of ['tasks', 'memories', 'setup', 'messaging', 'synopses', 'native']) assert.ok(invalidations.includes(type), type);
     first.onmessage({ data: JSON.stringify({ type: 'cleared', botId: 'selected', generation: 2 }) });
@@ -145,18 +153,19 @@ test('data pings keep the watchdog quiet and a silent stream reconnects with res
 test('resync pages cannot restore a cleared conversation or a departed account', async t => {
   for (const change of ['clear', 'account', 'deleted', 'generation']) {
     setup(t);
-    const page = Promise.withResolvers<{ generation: number; rows: Row[] }>();
+    const page = Promise.withResolvers<{ generation: number; rows: Row[]; nextRev: number | null }>();
     const reads = t.mock.method(api, 'rows', async (_id: string, before?: number) => before === undefined
-      ? { generation: 1, rows: Array.from({ length: 200 }, (_, i) => row('selected', i + 400)) } : page.promise);
+      ? { generation: 1, revision: 599, rows: Array.from({ length: 30 }, (_, i) => row('selected', i + 570)) } : page.promise);
+    const changes = t.mock.method(api, 'rowChanges', () => page.promise);
     const pending = useStore.getState().loadRows('selected', { resync: true });
     await settle();
     if (change === 'clear') useStore.getState().handleEvent({ type: 'cleared', botId: 'selected', generation: 2 });
     if (change === 'account') useStore.setState({ user: { ...user, id: 'next-account' }, transcripts: {} });
     if (change === 'deleted') useStore.setState({ bots: [], transcripts: {} });
-    page.resolve({ generation: change === 'generation' ? 2 : 1, rows: [row('selected', 2)] });
+    page.resolve({ generation: change === 'generation' ? 2 : 1, rows: [row('selected', 2)], nextRev: null });
     await pending;
     assert.equal(useStore.getState().transcripts.selected?.bySeq[2], undefined);
-    reads.mock.restore(); t.mock.timers.reset();
+    reads.mock.restore(); changes.mock.restore(); t.mock.timers.reset();
   }
 });
 
@@ -173,4 +182,59 @@ test('an initial stream failure still resyncs snapshots on the first successful 
     assert.ok(useStore.getState().transcripts.selected.bySeq[2]);
     assert.equal(currentToast(), null);
   } finally { stop(); }
+});
+
+test('latest rows publish before held revision recovery and unchanged history is not refetched', async t => {
+  setup(t);
+  const pending = Promise.withResolvers<{ generation: number; rows: Row[]; nextRev: number | null }>();
+  const latest = t.mock.method(api, 'rows', async () => ({ generation: 1, revision: 800, rows: [row('selected', 800)], olderCursor: 800 }));
+  const changes = t.mock.method(api, 'rowChanges', () => pending.promise);
+  const load = useStore.getState().loadRows('selected', { resync: true });
+  await settle();
+  const visible = useStore.getState().transcripts.selected;
+  assert.ok(visible.loaded && !visible.loading);
+  assert.ok(visible.bySeq[800], 'latest message is ready while gap recovery is held');
+  assert.equal(visible.revision, 1, 'a pending recovery cannot advance the complete watermark');
+  pending.resolve({ generation: 1, rows: [row('selected', 1, 800)], nextRev: null });
+  await load;
+  assert.equal(useStore.getState().transcripts.selected.bySeq[1].updatedSeq, 800);
+  assert.equal(useStore.getState().transcripts.selected.revision, 800);
+  await useStore.getState().loadRows('selected', { resync: true });
+  assert.equal(latest.mock.callCount(), 2);
+  assert.equal(changes.mock.callCount(), 1, 'unchanged snapshot needs no history recovery');
+});
+
+test('failed revision recovery retains its watermark and a later reconnect retries', async t => {
+  setup(t);
+  t.mock.method(api, 'rows', async () => ({ generation: 1, revision: 800, rows: [row('selected', 800)] }));
+  let fail = true;
+  const cursors: number[] = [];
+  t.mock.method(api, 'rowChanges', async (_id: string, after: number) => {
+    cursors.push(after);
+    if (fail) throw new Error('Offline fixture');
+    return { generation: 1, rows: [row('selected', 1, 799)], nextRev: null };
+  });
+  await useStore.getState().loadRows('selected', { resync: true });
+  assert.equal(useStore.getState().transcripts.selected.revision, 1);
+  assert.ok(useStore.getState().transcripts.selected.bySeq[800]);
+  fail = false;
+  await useStore.getState().loadRows('selected', { resync: true });
+  assert.deepEqual(cursors, [1, 1]);
+  assert.equal(useStore.getState().transcripts.selected.bySeq[1].updatedSeq, 799);
+  assert.equal(useStore.getState().transcripts.selected.revision, 800);
+});
+
+test('an empty cached conversation keeps an older cursor after a large missed burst', async t => {
+  setup(t);
+  useStore.setState({ transcripts: { selected: { generation: 1, loaded: true, bySeq: {}, olderCursor: null, revision: 0 } } });
+  t.mock.method(api, 'rows', async () => ({ generation: 1, revision: 720,
+    rows: Array.from({ length: 24 }, (_, i) => row('selected', i + 697)), olderCursor: 697 }));
+  const reads = t.mock.method(api, 'rowChanges', async (_id: string, _after: number, _through: number, floor: number) => {
+    assert.equal(floor, 697, 'no previous visible history needs a gap fill');
+    return { generation: 1, rows: [], nextRev: null };
+  });
+  await useStore.getState().loadRows('selected', { resync: true });
+  assert.equal(Object.keys(useStore.getState().transcripts.selected.bySeq).length, 24);
+  assert.equal(useStore.getState().transcripts.selected.olderCursor, 697);
+  assert.equal(reads.mock.callCount(), 1);
 });
