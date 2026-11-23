@@ -98,7 +98,7 @@ try {
   seed(user.id);
   const storageState = await auth.storageState();
   await auth.close();
-  for (const width of [390, 768, 1024, 1280]) {
+  for (const width of [390, 768, 1024, 1280, 1440]) {
     const page = await browser.newPage({ storageState, timezoneId: 'UTC', viewport: { width, height: 900 }, reducedMotion: 'reduce', serviceWorkers: 'block' });
     page.setDefaultTimeout(10000);
     const unexpected = [];
@@ -132,14 +132,23 @@ try {
             return { left, right, top, bottom, width, height };
           };
           const range = document.createRange();
-          range.selectNodeContents(element);
+          // A range over the notice also reports nested element boxes. Measure
+          // text nodes alone so container rectangles do not count as extra lines.
+          const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+          const lines = [];
+          while (walker.nextNode()) {
+            range.selectNodeContents(walker.currentNode);
+            for (const { left, right, top, bottom, width, height } of range.getClientRects()) {
+              if (width > 0 && height > 0) lines.push({ left, right, top, bottom });
+            }
+          }
           return {
             text: element.textContent, notice: box(element),
             column: box(element.closest('.transcript__col')),
             transcript: box(element.closest('.transcript')),
             clientWidth: element.clientWidth, scrollWidth: element.scrollWidth,
             clientHeight: element.clientHeight, scrollHeight: element.scrollHeight,
-            lines: [...range.getClientRects()].map(({ left, right, top, bottom }) => ({ left, right, top, bottom })),
+            lines,
           };
         });
         const label = `${width}px ${row.body.tone} ${index % 2 ? 'short' : 'long'}`;
@@ -172,7 +181,7 @@ try {
   }
   await fs.writeFile(path.join(evidence, 'measurements.json'), JSON.stringify(report, null, 2));
   assert.deepEqual(failures, [], 'Notice references remain fully visible at every required viewport');
-  console.log('PASS N04: long and short warning, info, and error notices at 390, 768, 1024, 1280px');
+  console.log('PASS N04: long and short warning, info, and error notices at 390, 768, 1024, 1280, 1440px');
 } catch (error) {
   await fs.writeFile(path.join(evidence, 'server.log'), logs.join(''));
   throw error;
