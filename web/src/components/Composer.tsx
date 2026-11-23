@@ -303,6 +303,7 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
             </button>
             {menu && (
               <Menu
+                triggerRef={moreRef}
                 placement="above"
                 onClose={() => setMenu(false)}
                 items={[

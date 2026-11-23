@@ -73,6 +73,7 @@ export function Sidebar() {
   const selectBot = useCallback(openConversation, []);
   const setModal = useStore((s) => s.setModal);
   const [accountMenu, setAccountMenu] = useState(false);
+  const accountTrigger = useRef<HTMLButtonElement>(null);
   const accountRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const account = accountRef.current;
@@ -183,13 +184,14 @@ export function Sidebar() {
 
       <div className="sidebar__footer">
         <div className="account" ref={accountRef}>
-            <button type="button" className="account__btn" aria-label="Account & settings" onClick={() => setAccountMenu(!accountMenu)} aria-haspopup="menu" aria-expanded={accountMenu} title={user?.email.endsWith('@openrouter.invalid') ? 'OpenRouter account' : user?.email}>
+            <button ref={accountTrigger} type="button" className="account__btn" aria-label="Account & settings" onClick={() => setAccountMenu(!accountMenu)} aria-haspopup="menu" aria-expanded={accountMenu} title={user?.email.endsWith('@openrouter.invalid') ? 'OpenRouter account' : user?.email}>
               <span className="account__initials">{initials(user?.name ?? user?.email ?? '')}</span>
               <span className="account__name">Account &amp; settings</span>
               {!collapsed && <ChevronDown size={14} aria-hidden />}
             </button>
             {accountMenu && (
               <Menu
+                triggerRef={accountTrigger}
                 placement="above"
                 onClose={() => setAccountMenu(false)}
                 items={[

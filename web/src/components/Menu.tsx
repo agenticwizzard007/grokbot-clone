@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { ExternalLink, type LucideIcon } from 'lucide-react';
 
 export interface MenuItem {
@@ -15,15 +15,22 @@ export interface MenuItem {
 }
 
 /** Small popover menu anchored by its parent (position: relative). Closes on outside click / Escape; arrow keys move between items. */
-export function Menu({ items, onClose, align = 'left', placement = 'below', children }: { items: MenuItem[]; onClose: () => void; align?: 'left' | 'right' | 'center'; placement?: 'below' | 'above'; children?: ReactNode }) {
+export function Menu({ items, onClose, triggerRef, align = 'left', placement = 'below', children }: { items: MenuItem[]; onClose: () => void; triggerRef: RefObject<HTMLButtonElement>; align?: 'left' | 'right' | 'center'; placement?: 'below' | 'above'; children?: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const down = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); };
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      onClose();
+      // Restore only on keyboard dismissal, so actions and outside clicks can move focus.
+      triggerRef.current?.focus({ preventScroll: true });
+    };
     const t = setTimeout(() => document.addEventListener('mousedown', down));
     document.addEventListener('keydown', key, true);
     return () => { clearTimeout(t); document.removeEventListener('mousedown', down); document.removeEventListener('keydown', key, true); };
-  }, [onClose]);
+  }, [onClose, triggerRef]);
 
   const move = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
