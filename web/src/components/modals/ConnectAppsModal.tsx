@@ -4,6 +4,7 @@ import type { Toolkit } from '@shared/types';
 import { APP_CATEGORIES } from '@shared/app-catalog';
 import { api, openPopup, type AppsResponse } from '../../lib/api';
 import { verifyAccessAccount } from '../../lib/accessApi';
+import { isNativeApp } from '../../lib/native';
 import { useStore } from '../../store';
 import { Icon } from '../Icon';
 import { useAccessPanel } from '../config/useAccessPanel';
@@ -36,7 +37,9 @@ function AppRow({ app, onChanged }: { app: Toolkit; onChanged: () => void }) {
       if (!current()) { popup?.close(); return; }
       const { redirectUrl } = await api.connect(app.slug);
       if (!current()) { popup?.close(); return; }
-      if (popup) popup.location.href = redirectUrl; else window.open(redirectUrl, '_blank');
+      if (popup && !popup.closed) popup.location.href = redirectUrl;
+      // Native hands the final URL to the system browser without a WindowProxy.
+      else if (!window.open(redirectUrl, '_blank') && !isNativeApp) throw new Error('Could not open the connection. Allow pop-ups and try again.');
       setState('waiting');
     } catch (e) {
       popup?.close();
