@@ -22,10 +22,21 @@ export function Field({ label, hint, children, htmlFor }: { label: string; hint?
 
 /** A small segmented control with optional per-option hints. */
 export function Segmented<T extends string>({ value, options, onChange, label }: { value: T; options: { value: T; label: string }[]; onChange: (v: T) => void; label: string }) {
+  const buttons = useRef<(HTMLButtonElement | null)[]>([]);
+  const tabIndex = Math.max(0, options.findIndex(option => option.value === value));
   return (
     <div className="cfg-seg" role="radiogroup" aria-label={label}>
-      {options.map((o) => (
-        <button key={o.value} type="button" role="radio" aria-checked={value === o.value} className={value === o.value ? 'is-active' : ''} onClick={() => onChange(o.value)}>
+      {options.map((o, index) => (
+        <button key={o.value} ref={element => { buttons.current[index] = element; }} type="button" role="radio" aria-checked={value === o.value} tabIndex={index === tabIndex ? 0 : -1} className={value === o.value ? 'is-active' : ''} onClick={() => onChange(o.value)}
+          onKeyDown={event => {
+            const direction = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1
+              : event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 0;
+            if (!direction) return;
+            event.preventDefault();
+            const next = (index + direction + options.length) % options.length;
+            buttons.current[next]?.focus();
+            onChange(options[next].value);
+          }}>
           {o.label}
         </button>
       ))}
