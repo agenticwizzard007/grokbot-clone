@@ -21,14 +21,7 @@ let subscriptionChange: Promise<void> = Promise.resolve();
 
 export const isEventSchedule = (schedule: string) => schedule.startsWith('event:');
 
-function migrate() {
-  for (const col of ['trigger_id TEXT', 'trigger_config TEXT']) {
-    try { db.exec(`ALTER TABLE routines ADD COLUMN ${col}`); } catch { /* already there */ }
-  }
-}
-
 export async function initTriggers(enqueue: (botId: string, t: any) => void) {
-  migrate();
   enqueueFn = enqueue;
   if (isTenant) return;
   if (!env.composioEnabled) { console.log('[triggers] off: no COMPOSIO_API_KEY'); return; }
@@ -107,7 +100,6 @@ export async function listTriggerTypes(toolkit: string) {
 }
 
 export async function createEventRoutine(userId: string, botId: string, a: { name: string; prompt: string; trigger_slug: string; config?: Record<string, unknown> }) {
-  migrate();
   if (!env.composioEnabled) throw new Error(APPS_OFF);
   const slug = a.trigger_slug.toUpperCase();
   const res: any = isTenant ? await gatewayRequest(userId, 'trigger-create', { slug, config: a.config ?? {} }) : await composio().triggers.create(userId, slug, { triggerConfig: a.config ?? {} } as any);
