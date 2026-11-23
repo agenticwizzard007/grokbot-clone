@@ -44,6 +44,7 @@ Paper MCP not available. Checked the environment's available tool catalog once o
 
 Repository sources inspected:
 
+- `9e21ecd`, Initial open-source release of grokbot-clone. Its README explicitly identifies Grok Bot as the layout inspiration; its original `shell.css`, `chat.css` and `tokens.css` preserve the compact rail, floating composer and bubble component geometry. These are historical layout references only; current Swarm branding and the owner's requested dimensions take precedence.
 - `0ff0b857`, Implement the accepted Swarms UI and complete consumer feature access.
 - `docs/updated-ui.md`, accepted Paper V13 directory, implementation provenance, route and feature inventory: https://app.paper.design/file/01M7XRD50KB121YXVPQPK0VG7S/p-1-0. Native exports and receipts described there are outside Git and unavailable in this workspace.
 - `docs/agent-configuration-design.md`, Paper brand and settings links: https://app.paper.design/file/01M73GPA3GPRHEBRRXNDC09HDV/p-H-0 and https://app.paper.design/file/01M73GPA3GPRHEBRRXNDC09HDV/p-A-0.
