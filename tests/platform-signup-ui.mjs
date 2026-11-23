@@ -64,7 +64,7 @@ try {
   await ready(base);
   browser = await chromium.launch({ executablePath: process.env.CHROME_BIN || process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
   const settings = { mode: 'invite', signupsPerDay: 10, memberInvites: 2, revision: 'fixture-revision' };
-  for (const width of [1280, 1024, 768, 390]) {
+  for (const width of [390, 768, 1280, 1440]) {
     const context = await browser.newContext({ viewport: { width, height: 900 }, serviceWorkers: 'block' });
     const login = await context.request.post(`${base}/api/auth/dev`, { data: { email: `messaging-${width}@example.test`, name: 'QA account' } });
     assert.ok(login.ok(), 'local development login succeeds');
@@ -77,6 +77,11 @@ try {
     await page.route('**/*', async route => {
       const url = new URL(route.request().url());
       if (url.origin !== base) { unexpected.push(`External browser request: ${url.origin}`); return route.abort(); }
+      // Expose Google linking without configuring or contacting a live OAuth provider.
+      if (url.pathname === '/api/auth/me') {
+        const response = await route.fetch();
+        return route.fulfill({ response, json: { ...await response.json(), googleLogin: true } });
+      }
       // Toolkit results are fixtures; account, messaging and standalone fallback use the real local server.
       if (url.pathname === '/api/apps') return route.fulfill({ json: { apps: [], connected: [], connectedApps: [], categories: [], total: 0 } });
       if (url.pathname === '/api/platform/signup' && scenario !== 'standalone') {
@@ -96,7 +101,10 @@ try {
       const result = await response;
       await result.finished();
       await page.getByRole('heading', { name: 'Text your Bots', exact: true }).waitFor();
-      await page.locator('#messaging-desktop-email').waitFor();
+      const connectGoogle = page.getByRole('link', { name: 'Connect Google', exact: true });
+      await connectGoogle.waitFor({ state: 'visible' });
+      assert.equal(await connectGoogle.getAttribute('href'), '/api/auth/google/start?intent=link');
+      assert.equal(await connectGoogle.getAttribute('aria-disabled'), 'false');
       await page.getByText('Checking signup access…', { exact: true }).waitFor({ state: 'detached' });
       return result;
     };
