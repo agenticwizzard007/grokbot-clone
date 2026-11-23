@@ -829,12 +829,13 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
   const disconnectButton = useRef<HTMLButtonElement>(null);
   const connectionsRequest = useRef(0);
   const appsRequest = useRef(0);
+  const refreshController = useRef<AbortController | null>(null);
   const managing = useRef(false);
 
-  const loadConnections = useCallback(async () => {
+  const loadConnections = useCallback(async (signal: AbortSignal) => {
     const request = ++connectionsRequest.current;
     try {
-      const r = await fetch('/api/apps/connections', { credentials: 'include' });
+      const r = await fetch('/api/apps/connections', { credentials: 'include', signal });
       const body = await r.json();
       if (!r.ok) throw new Error(body.error ?? 'Could not load accounts.');
       if (!Array.isArray(body.connections)) throw new Error('Could not load accounts.');
@@ -843,28 +844,48 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
         setConnectionsError('');
       }
     } catch (e) {
-      if (request === connectionsRequest.current) setConnectionsError((e as Error).message);
+      if (request === connectionsRequest.current) setConnectionsError(signal.aborted ? 'The request took too long. Try again.' : (e as Error).message);
     }
   }, []);
-  const loadApps = useCallback(async () => {
+  const loadApps = useCallback(async (signal: AbortSignal) => {
     const request = ++appsRequest.current;
     try {
-      const r = await configApi.connectedApps();
+      const r = await configApi.connectedApps(signal);
       if (!Array.isArray(r.connectedApps)) throw new Error('Could not load connected apps.');
       if (request === appsRequest.current) {
         setApps(r.connectedApps);
         setAppsError('');
       }
     } catch (e) {
-      if (request === appsRequest.current) setAppsError((e as Error).message);
+      if (request === appsRequest.current) setAppsError(signal.aborted ? 'The request took too long. Try again.' : (e as Error).message);
     }
   }, []);
+  const cancelRefresh = useCallback(() => {
+    // Invalidate before aborting so cancelled reads cannot overwrite a newer result.
+    connectionsRequest.current++;
+    appsRequest.current++;
+    refreshController.current?.abort();
+    refreshController.current = null;
+  }, []);
   const refresh = useCallback(async () => {
+    cancelRefresh();
+    const controller = new AbortController();
+    refreshController.current = controller;
+    // Even a warm catalog waits on the provider's account lookup. Bound both
+    // reads so a stalled response cannot leave Checking or Retry stuck.
+    const timeout = window.setTimeout(() => controller.abort(), 5_000);
     setRefreshing(true);
-    await Promise.all([loadConnections(), loadApps()]);
-    setRefreshing(false);
-  }, [loadConnections, loadApps]);
-  useEffect(() => { void refresh(); }, [version, refresh]);
+    try {
+      await Promise.all([loadConnections(controller.signal), loadApps(controller.signal)]);
+    } finally {
+      window.clearTimeout(timeout);
+      if (refreshController.current === controller) {
+        refreshController.current = null;
+        setRefreshing(false);
+      }
+    }
+  }, [cancelRefresh, loadConnections, loadApps]);
+  useEffect(() => { void refresh(); return cancelRefresh; }, [version, refresh, cancelRefresh]);
 
   const manage = async (id: string, action: 'default' | 'disconnect' | 'remove-expired') => {
     if (managing.current) return;
