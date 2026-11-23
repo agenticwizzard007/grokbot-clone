@@ -117,14 +117,21 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
     effortTrigger.current = trigger; setEffortModelId(model.id); setView('effort');
   };
   useLayoutEffect(() => {
+    const anchor = ref.current?.parentElement;
+    const chat = anchor?.closest('.chat');
     const measure = () => {
-      const left = (ref.current?.parentElement?.getBoundingClientRect().left ?? 4) - 4;
-      const offset = sheet ? 0 : Math.min(0, innerWidth - 12 - left - 340);
+      const left = (anchor?.getBoundingClientRect().left ?? 4) - 4;
+      // Details can narrow the chat without resizing the window.
+      const right = Math.min(innerWidth, chat?.getBoundingClientRect().right ?? innerWidth) - 12;
+      const offset = sheet ? 0 : Math.min(0, right - left - 340);
       setMenuOffset(offset);
-      setInlineEffort(sheet || left + offset + 588 > innerWidth - 12);
+      setInlineEffort(sheet || left + offset + 588 > right);
     };
+    const observer = new ResizeObserver(measure);
+    if (chat) observer.observe(chat);
+    if (anchor) observer.observe(anchor);
     measure(); window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
+    return () => { observer.disconnect(); window.removeEventListener('resize', measure); };
   }, [sheet]);
   useEffect(() => {
     if (view === 'effort') (effortRef.current?.querySelector<HTMLElement>('[aria-selected="true"]') ?? effortRef.current?.querySelector<HTMLElement>('button'))?.focus();
@@ -148,7 +155,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
     const t = setTimeout(() => document.addEventListener('pointerdown', down));
     document.addEventListener('keydown', key, true);
     return () => { clearTimeout(t); document.removeEventListener('pointerdown', down); document.removeEventListener('keydown', key, true); };
-  }, [onClose, view]);
+  }, [onClose, view, inlineEffort]);
   useEffect(() => { (sheet ? ref.current?.querySelector<HTMLElement>('[role=dialog]') : search.current)?.focus({ preventScroll: true }); }, [sheet]);
   useLayoutEffect(() => { if (view === 'usage' || view === 'connections') ref.current?.querySelector<HTMLElement>('.mm-back')?.focus({ preventScroll: true }); }, [view]);
 
