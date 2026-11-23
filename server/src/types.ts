@@ -107,13 +107,14 @@ export type RowBody = (
   | ToolCallBody
   | CardBody
   | EventBody
-  | NoticeBody) & { audience?: 'user'|'internal' };
+  | NoticeBody) & { audience?: 'user'|'internal'; jobId?: string };
 
 export interface MessageBody {
   type: 'message';
   role: 'user' | 'assistant';
   text: string;
   streaming?: boolean;
+  interrupted?: boolean;
   /** Set when a message came from another bot, a routine, a voice call or a text message rather than the user typing in the app. */
   from?: { kind: 'bot' | 'routine' | 'voice' | 'imessage' | 'sms' | 'whatsapp'; id: string; name: string; utteranceId?: string };
   citations?: { url: string; title?: string }[];
@@ -127,7 +128,7 @@ export interface ToolCallBody {
   name: string;
   /** Human phrase, e.g. "Clicking on screen". */
   label: string;
-  status: 'queued' | 'running' | 'done' | 'error' | 'awaiting-approval' | 'denied';
+  status: 'queued' | 'running' | 'done' | 'error' | 'awaiting-approval' | 'denied' | 'interrupted' | 'uncertain';
   startedAt?: number;
   completedAt?: number;
   args?: unknown;
@@ -206,7 +207,11 @@ export interface VoiceCallRecord {
 
 export interface VoiceOption { id: string; name: string; gender?: string }
 
-export interface NoticeBody { type: 'notice'; text: string; tone?: 'info' | 'warn' | 'error' }
+export interface NoticeBody {
+  type: 'notice'; text: string; tone?: 'info' | 'warn' | 'error';
+  /** A durable snapshot keeps the affected activity available after transcript paging. */
+  recovery?: { jobId: string; activity: Pick<ToolCallBody, 'label' | 'status' | 'summary'>[] };
+}
 
 export type ActivityKind =
   | 'thinking' | 'working' | 'searching_web' | 'reading_web' | 'browsing_web' | 'on_its_computer'

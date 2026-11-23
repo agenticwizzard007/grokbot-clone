@@ -143,6 +143,11 @@
 }
 .notice.is-warn { background: var(--color-warn-bg); color: var(--color-warn-text); }
 .notice.is-error { background: var(--color-danger-bg); color: var(--color-danger-text); }
+.recovery-activity { margin-top: 8px; text-align: left; }
+.recovery-activity summary { cursor: pointer; font-weight: 600; }
+.recovery-activity ul { padding-left: 20px; }
+.recovery-activity li + li { margin-top: 8px; }
+.bubble__interrupted { margin-top: 6px; font-size: 12px; color: var(--color-warn-text); }
 
 /* ---------- tool-call steps (collapsed) ---------- */
 .steps { display: flex; flex-direction: column; align-items: flex-start; margin: -4px 0; }
@@ -158,6 +163,7 @@
 .step__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-success); margin-left: -15.5px; position: relative; top: -1px; box-shadow: 0 0 0 2px var(--color-bg-chrome); }
 .step.is-error .step__dot, .step.is-denied .step__dot { background: var(--color-danger); }
 .step.is-running .step__dot, .step.is-awaiting-approval .step__dot { background: var(--color-warn); }
+.step.is-uncertain .step__dot, .step.is-interrupted .step__dot { background: var(--color-warn); }
 .step.is-queued .step__dot { background: var(--color-text-tertiary); }
 .step__label { overflow-wrap: anywhere; min-width: 0; }
 .step__summary { color: var(--color-text-tertiary); font-size: 12px; }

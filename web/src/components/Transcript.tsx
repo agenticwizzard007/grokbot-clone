@@ -77,6 +77,7 @@ const Bubble = memo(function Bubble({ row, side, pos, botName }: { row: Row; sid
       <div className={`bubble is-${side === 'right' ? 'user' : 'agent'}${pos}${b.streaming ? ' is-streaming' : ''}`}>
         <div className="bubble__sender">{side === 'right' ? 'You' : clean(b.from?.name || botName)}</div>
         {side === 'right' ? <div className="bubble__plain">{b.text}</div> : <Markdown text={clean(b.text) || ' '} />}
+        {b.interrupted && <div className="bubble__interrupted">Interrupted reply</div>}
         {b.citations && b.citations.length > 0 && (
           <div className="bubble__cites">
             {b.citations.slice(0, 6).map((c, i) => {
@@ -118,7 +119,7 @@ function Steps({ rows }: { rows: Row[] }) {
   const clean = useDisplayText();
   const [open, setOpen] = useState(false);
   // Keep execution visible even when the user collapses completed history.
-  const visible = open ? rows : rows.filter(r => ['queued', 'running', 'awaiting-approval'].includes((r.body as ToolCallBody).status));
+  const visible = open ? rows : rows.filter(r => ['queued', 'running', 'awaiting-approval', 'uncertain', 'interrupted'].includes((r.body as ToolCallBody).status));
   const n = rows.length;
   return (
     <div className={`steps${open ? ' is-open' : ''}`}>
@@ -140,6 +141,8 @@ function Steps({ rows }: { rows: Row[] }) {
               {c.status === 'done' && <span className="step__summary">Done{c.startedAt !== undefined && c.completedAt !== undefined ? ` · ${fmtElapsed(c.completedAt - c.startedAt)}` : ''}</span>}
               {c.status === 'error' && <span className="step__summary">Failed</span>}
               {c.status === 'denied' && !c.summary && <span className="step__summary">Not allowed</span>}
+              {c.status === 'uncertain' && <span className="step__summary">Result unknown</span>}
+              {c.status === 'interrupted' && <span className="step__summary">Interrupted</span>}
               {c.screenshot && <img className="step__shot" src={c.screenshot} alt="" />}
             </li>;
           })}
@@ -153,11 +156,25 @@ function SystemRow({ row }: { row: Row }) {
   const clean = useDisplayText();
   const b = row.body;
   if (b.type === 'event') return <div className="system-event" data-row-seq={row.seq}>{clean(b.text)}</div>;
-  if (b.type === 'notice') return <div className={`notice is-${b.tone ?? 'info'}`} data-row-seq={row.seq}>{clean(b.text)}</div>;
+  if (b.type === 'notice') return <div className={`notice is-${b.tone ?? 'info'}`} data-row-seq={row.seq} data-recovery-job={b.recovery?.jobId}>
+    <div>{clean(b.text)}</div>
+    {b.recovery && <details className="recovery-activity">
+      <summary>Review activity</summary>
+      {b.recovery.activity.length ? <ul>{b.recovery.activity.map((step, index) => <li key={index}>
+        <strong>{clean(step.label)}</strong>: {recoveryStatus[step.status]}
+        {step.summary && <div>{clean(step.summary)}</div>}
+      </li>)}</ul> : <p>No tool actions were recorded for this request.</p>}
+    </details>}
+  </div>;
   // display: contents keeps the card layout unchanged while giving deep links (search, Tasks) an anchor.
   if (b.type === 'card') return <div data-row-seq={row.seq} style={{ display: 'contents' }}><CardRow row={row} /></div>;
   return null;
 }
+
+const recoveryStatus: Record<ToolCallBody['status'], string> = {
+  done: 'Completed', error: 'Failed', denied: 'Not allowed', uncertain: 'Result unknown',
+  interrupted: 'Interrupted before dispatch', queued: 'Queued', running: 'Running', 'awaiting-approval': 'Waiting for approval',
+};
 
 interface Props { bot: Bot; generation: number; rows: Row[]; live: LiveState | undefined; loaded: boolean }
 
@@ -199,7 +216,8 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
     if (firstReply && responseHeight.current) separateReplies.add(firstReply.seq);
     return buildItems(visibleRows, groups, separateReplies);
   }, [visibleRows, groups, firstReply?.seq]);
-  const pendingResponse = loaded && !firstReply;
+  const interruptedTurn = !running && visibleRows.some(row => row.seq > promptSeq && row.body.type === 'notice' && row.body.recovery);
+  const pendingResponse = loaded && !firstReply && !interruptedTurn;
   const processing = pendingResponse && running && !live?.awaiting && live?.activity?.kind !== 'waiting_for_you' && !streamingNow;
   const empty = loaded && visibleRows.length === 0 && groups.length === 0;
   const activeTools = visibleRows.some(row => row.body.type === 'tool-call' && ['queued', 'running', 'awaiting-approval'].includes(row.body.status));
