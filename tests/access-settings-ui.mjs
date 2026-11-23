@@ -39,6 +39,9 @@ const messaging = {
 
 const browser = await chromium.launch({ executablePath: process.env.CHROME_BIN ?? '/usr/bin/google-chrome', args: ['--no-sandbox'] });
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' });
+// Keep session probes from consuming the Account preflight gates. Real SSE expiry is
+// exercised by session-revocation-ui.mjs; this suite models a quiet, connected session.
+await context.addInitScript(() => { window.EventSource = class { close() {} }; });
 const state = {
   user: alice, fresh: false, failures: 1, activeSession: currentId,
   sessions: [{ id: currentId, current: true, created_at: now, last_seen_at: now, expires_at: now + 600_000 },
