@@ -118,10 +118,6 @@ export function AppSettings() {
     return () => window.removeEventListener('keydown', k);
   }, [close]);
   useEffect(() => { setListView(home); setQuery(''); }, [home, section]);
-  // R2F-028: wide screens open straight on General, so its link is shown too (phones start on the section list).
-  useEffect(() => {
-    if (section === 'general' && !compact && !window.location.hash.startsWith('#settings/')) history.replaceState(history.state, '', `${window.location.pathname}${window.location.search}#settings/general`);
-  }, [section, compact]);
   useEffect(() => { main.current?.scrollTo({ top: 0 }); }, [section, listView]);
   useLayoutEffect(() => { heading.current?.focus({ preventScroll: true }); }, [appRoot, compact, listView, section]);
   useLayoutEffect(() => {

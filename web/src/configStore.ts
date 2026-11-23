@@ -85,6 +85,8 @@ const botSettingsLink = (): { reference: string; tab: BotSettingsTab } | null =>
   const tab = (match[2] ?? 'general') as BotSettingsTab;
   return reference && BOT_SETTINGS_TABS.includes(tab) ? { reference, tab } : null;
 };
+/** Settings hash navigation is handled here, including the unsaved-draft guard. */
+export const hasSettingsLink = () => !!(linkedSection() || botSettingsLink());
 const linkedBotSettings = (): { botId: string; tab: BotSettingsTab } | null => {
   const link = botSettingsLink();
   const bot = link && routeBot(link.reference, useStore.getState().bots);
@@ -160,19 +162,18 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
   openBotSettings: (botId, tab = 'general') => {
     pendingBotSettingsLink = null;
     const open = () => {
+      if (get().appSettings) get().closeAppSettings();
       // Keep a real list entry behind phone settings, including a reloaded deep link.
-      if (!get().appSettings) {
-        const store = useStore.getState();
-        const restoring = store.mobile && store.mobilePane === 'list' && linkedBotSettings()
-          && history.state?.swarmPane === 'chat' && history.state.swarmDoc === performance.timeOrigin;
-        if (restoring) store.set({ mobilePane: 'chat' });
-        else {
-          if (store.mobile && store.mobilePane === 'list' && linkedBotSettings()) replaceHash('');
-          enterChatPane();
-        }
+      const store = useStore.getState();
+      const restoring = store.mobile && store.mobilePane === 'list' && linkedBotSettings()
+        && history.state?.swarmPane === 'chat' && history.state.swarmDoc === performance.timeOrigin;
+      if (restoring) store.set({ mobilePane: 'chat' });
+      else {
+        if (store.mobile && store.mobilePane === 'list' && linkedBotSettings()) replaceHash('');
+        enterChatPane();
       }
       // Every tab change replaces the URL, so one Settings visit leaves one history entry.
-      if (!get().appSettings) replaceHash(botSettingsHash(botId, tab));
+      replaceHash(botSettingsHash(botId, tab));
       set({ botSettings: { botId, tab } });
     };
     // Tabs of the same Bot keep the General draft; another Bot's settings would drop it.
@@ -214,9 +215,16 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
   },
   openAppSettings: (section, subscriptionProvider) => {
     pendingBotSettingsLink = null;
-    // Keep the URL on the open section so a reload reopens it (PD-05 hash sync). replaceState fires no hashchange.
-    if (section && SECTIONS_LINKABLE.includes(section)) replaceHash(`#settings/${section}`);
-    set({ appSettings: section ?? 'general', appSettingsHome: !section, subscriptionProvider: section === 'subscriptions' ? subscriptionProvider ?? null : null });
+    const state = get();
+    const open = () => {
+      // Default entry points also name the visible section, including on phones.
+      replaceHash(`#settings/${section ?? 'general'}`);
+      set({ botSettings: null, botSettingsDrafts: {}, botSettingsDirty: false, botSettingsLeave: null,
+        appSettings: section ?? 'general', appSettingsHome: !section, subscriptionProvider: section === 'subscriptions' ? subscriptionProvider ?? null : null });
+    };
+    // A hash link may have changed the URL before the draft guard runs. Keep it on
+    // the Bot page until Discard completes the switch to app Settings.
+    if (!state.requestLeaveBotSettings(open) && state.botSettings) replaceHash(botSettingsHash(state.botSettings.botId, state.botSettings.tab));
   },
   closeAppSettings: () => {
     pendingBotSettingsLink = null;
@@ -280,7 +288,7 @@ const restoreLinkedPage = () => {
   };
   if (bot) {
     // A deep link must uncover its destination, including any unsaved-draft guard.
-    const open = () => { ui.closeAppSettings(); ui.openBotSettings(bot.botId, bot.tab); };
+    const open = () => ui.openBotSettings(bot.botId, bot.tab);
     if (ui.botSettings && ui.botSettings.botId !== bot.botId) guarded(open);
     else open();
     return;

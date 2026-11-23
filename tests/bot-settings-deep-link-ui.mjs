@@ -1,4 +1,4 @@
-// QA SO D-01: real local app, temporary SQLite, DEV_LOGIN, and mocked providers.
+// QA R4 and D-01: real local app, temporary SQLite, DEV_LOGIN, and mocked providers.
 // Run: node tests/bot-settings-deep-link-ui.mjs
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -107,13 +107,35 @@ try {
       window.addEventListener('hashchange', () => resolve(), { once: true });
       location.hash = value;
     }), hash);
+    // A fixture anchor inside the open surface exercises an actual pointer click
+    // and browser hash navigation, without adding a test link to production UI.
+    const clickLink = async (surface, hash) => {
+      await surface.evaluate((element, value) => {
+        const anchor = document.createElement('a');
+        anchor.href = value;
+        anchor.textContent = 'Open fixture settings';
+        anchor.dataset.testid = 'settings-fixture-link';
+        element.prepend(anchor);
+      }, hash);
+      await surface.getByTestId('settings-fixture-link').click();
+      await page.getByTestId('settings-fixture-link').evaluateAll(links => links.forEach(link => link.remove()));
+    };
+    const appDestination = async (section = 'general') => {
+      await appSettings.waitFor({ state: 'visible' });
+      await botSettings.waitFor({ state: 'detached' });
+      assert.equal(await page.locator('.main-pane').getAttribute('hidden'), '');
+      const state = await page.evaluate(async () => {
+        const ui = (await import('/src/configStore.ts')).useConfigUI.getState();
+        return { section: ui.appSettings, bot: ui.botSettings, hash: location.hash };
+      });
+      assert.deepEqual(state, { section, bot: null, hash: `#settings/${section}` });
+    };
     const openApp = async (provider = null) => {
       if (provider) await page.evaluate(async selected => {
         (await import('/src/configStore.ts')).useConfigUI.getState().openAppSettings('subscriptions', selected);
       }, provider);
       else await page.keyboard.press('Control+,');
-      await appSettings.waitFor({ state: 'visible' });
-      assert.equal(await page.locator('.main-pane').getAttribute('hidden'), '');
+      await appDestination(provider ? 'subscriptions' : 'general');
     };
     const destination = async (target, tab) => {
       await appSettings.waitFor({ state: 'detached' });
@@ -140,52 +162,110 @@ try {
       await page.locator('.app').waitFor();
       await page.waitForFunction(async id => (await import('/src/store.ts')).useStore.getState().bots.some(bot => bot.id === id), bot.id);
       await openApp();
-      // Address-bar and anchor links both dispatch this browser hashchange event.
-      await hashLink(rawLink(bot, 'memories'));
+      // D-01: click a Bot deep link while app Settings is visibly open.
+      await clickLink(page.locator('.app-settings__main'), rawLink(bot, 'memories'));
       await destination(bot, 'memories');
       await page.screenshot({ path: path.join(evidence, `${width}-hash.png`) });
       await page.reload();
       await destination(bot, 'memories');
 
-      // A generated link must also uncover a different Bot while Settings covers the old one.
+      // R4: the comma shortcut replaces Bot settings, including on phones.
+      await openApp();
+      await page.screenshot({ path: path.join(evidence, `${width}-exclusive-app-settings.png`) });
+      await page.reload();
+      await appDestination();
+      // Section clicks also retain the matching URL through reload.
+      const appSections = page.getByRole('navigation', { name: 'Settings sections' });
+      if (!await appSections.isVisible()) await appSettings.getByRole('button', { name: 'Back to Settings', exact: true }).click();
+      await appSections.getByRole('button', { name: 'Learning', exact: true }).click();
+      await appDestination('learning');
+      await page.reload();
+      await appDestination('learning');
+
+      // Direct entry points share the same exclusive switch as hash links.
+      await page.evaluate(async id => (await import('/src/configStore.ts')).useConfigUI.getState().openBotSettings(id, 'routines'), bot.id);
+      await destination(bot, 'routines');
+      await page.reload();
+      await destination(bot, 'routines');
+
+      // The desktop account menu is another default Settings entry point.
+      if (width === 1280) {
+        await page.getByRole('button', { name: 'Account & settings', exact: true }).click();
+        await page.getByRole('menuitem', { name: /^Settings/ }).click();
+        await appDestination();
+      }
+
+      // A production Bot settings button opens an explicit app section.
+      await hashLink(rawLink(bot, 'learning'));
+      await destination(bot, 'learning');
+      await botSettings.getByRole('button', { name: 'Review history', exact: true }).click();
+      await botSettings.getByRole('button', { name: 'View background learning usage', exact: true }).click();
+      await appDestination('usage');
+      await page.reload();
+      await appDestination('usage');
+
+      // A generated link also switches away from a provider-specific app section.
       await openApp('codex');
       const canonicalLink = await page.evaluate(async id => {
         return (await import('/src/configStore.ts')).botSettingsHash(id, 'skills');
       }, other.id);
-      await hashLink(canonicalLink);
+      await clickLink(page.locator('.app-settings__main'), canonicalLink);
       await destination(other, 'skills');
       await page.reload();
       await destination(other, 'skills');
       await page.screenshot({ path: path.join(evidence, `${width}-generated-link.png`) });
 
-      // A same-Bot link preserves its General draft when uncovering another tab.
+      // A same-Bot link preserves its General draft across tabs.
       await openApp();
       await hashLink(rawLink(bot, 'general'));
       await destination(bot, 'general');
       await botSettings.getByLabel('Name', { exact: true }).fill('Unsaved fixture name');
       await page.waitForFunction(async () => (await import('/src/configStore.ts')).useConfigUI.getState().botSettingsDirty);
-      await openApp();
       await hashLink(rawLink(bot, 'memories'));
       await destination(bot, 'memories');
       await botSettings.getByRole('button', { name: 'General', exact: true }).click();
       assert.equal(await botSettings.getByLabel('Name', { exact: true }).inputValue(), 'Unsaved fixture name');
 
-      // A different Bot still asks before dropping that draft, with the guard uncovered.
-      await openApp();
-      await hashLink(rawLink(other, 'skills'));
+      // R4: app Settings cannot silently drop or cover an unsaved Bot draft.
       const guard = page.getByRole('alertdialog', { name: 'Discard unsaved changes?' });
+      await page.keyboard.press('Control+,');
+      await guard.waitFor();
+      await appSettings.waitFor({ state: 'detached' });
+      assert.equal(await page.evaluate(async () => location.hash === (await import('/src/configStore.ts')).botSettingsHash(
+        (await import('/src/configStore.ts')).useConfigUI.getState().botSettings.botId, 'general')), true);
+      await guard.getByRole('button', { name: 'Keep editing', exact: true }).click();
+      await destination(bot, 'general');
+      assert.equal(await botSettings.getByLabel('Name', { exact: true }).inputValue(), 'Unsaved fixture name');
+
+      // A different Bot still asks before dropping that draft.
+      await hashLink(rawLink(other, 'skills'));
       await guard.waitFor();
       await appSettings.waitFor({ state: 'detached' });
       await guard.getByRole('button', { name: 'Keep editing', exact: true }).click();
       await destination(bot, 'general');
       assert.equal(await botSettings.getByLabel('Name', { exact: true }).inputValue(), 'Unsaved fixture name');
-      await openApp();
       await hashLink(rawLink(other, 'skills'));
       await guard.getByRole('button', { name: 'Discard', exact: true }).click();
       await destination(other, 'skills');
       await page.screenshot({ path: path.join(evidence, `${width}-discard.png`) });
 
-      // A passive roster refresh is not a new link, even if phone Settings keeps the underlying hash.
+      // An app section link also guards a draft, restores the Bot URL on Cancel,
+      // and opens only app Settings after Discard.
+      await hashLink(rawLink(bot, 'general'));
+      await destination(bot, 'general');
+      await botSettings.getByLabel('Name', { exact: true }).fill('Discard this fixture draft');
+      await page.waitForFunction(async () => (await import('/src/configStore.ts')).useConfigUI.getState().botSettingsDirty);
+      await clickLink(botSettings.locator('header').first(), '#settings/learning');
+      await guard.waitFor();
+      await guard.getByRole('button', { name: 'Keep editing', exact: true }).click();
+      await destination(bot, 'general');
+      await hashLink('#settings/learning');
+      await guard.getByRole('button', { name: 'Discard', exact: true }).click();
+      await appDestination('learning');
+      await page.reload();
+      await appDestination('learning');
+
+      // A passive roster refresh is not a new navigation.
       await openApp();
       const sectionAfterRefresh = await page.evaluate(async () => {
         await (await import('/src/store.ts')).useStore.getState().loadBots();
@@ -239,7 +319,7 @@ try {
         if (!reopenSettings) { await page.reload(); await destination(target, 'skills'); }
       }
       assert.deepEqual(errors, []);
-      console.log(`PASS D-01 ${width}px: links, reload, drafts, delayed loading, passive refresh, and newer Settings navigation`);
+      console.log(`PASS R4 and D-01 ${width}px: exclusive settings, in-app link clicks, shortcuts, reload, drafts, delayed loading, and passive refresh`);
     } catch (error) {
       failures.push(`${width}px: ${error.message}`);
       await page.screenshot({ path: path.join(evidence, `${width}-failure.png`) }).catch(() => {});

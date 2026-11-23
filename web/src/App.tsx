@@ -8,7 +8,7 @@ import { Sidebar } from './components/Sidebar';
 import { SignIn } from './components/SignIn';
 import { SignedInAuthFeedback } from './components/SignedInAuthFeedback';
 import { TasksView } from './components/config/TasksView';
-import { botSettingsHash, useConfigUI } from './configStore';
+import { botSettingsHash, hasSettingsLink, useConfigUI } from './configStore';
 import { installVoiceShortcut } from './voice/shortcut';
 import { hasOpenModal } from './components/modals/Modal';
 import { ToastPortal } from './lib/toast';
@@ -55,8 +55,8 @@ function Shell() {
       const st = useStore.getState();
       if (!st.mobile || st.mobilePane !== 'chat') return;
       // Hash navigation already has a history entry. Let the route handler restore
-      // that work page instead of treating every pop as a return to the Bot list.
-      if (linkedWork(window.location.hash)) return;
+      // work or settings, including its draft guard, before handling a list return.
+      if (linkedWork(window.location.hash) || hasSettingsLink()) return;
       const config = useConfigUI.getState();
       if (config.botSettings && !config.appSettings) {
         if (config.botSettingsDirty) {
