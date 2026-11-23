@@ -36,7 +36,7 @@ Object.assign(globalThis, {
 });
 globalThis.fetch = (async () => Response.json({ generation: 1, rows: [], routines: [] })) as typeof fetch;
 
-const { useConfigUI, openConversation } = await import('../web/src/configStore.ts');
+const { useConfigUI, openConversation, botSettingsHash } = await import('../web/src/configStore.ts');
 const { useStore } = await import('../web/src/store.ts');
 const { readDetailsDefault, writeDetailsDefault, detailsDefaultKey } = await import('../web/src/lib/detailsDefault.ts');
 const logic = await import('../web/src/components/config/settingsLogic.ts');
@@ -69,23 +69,23 @@ test('opening Settings without a section does not invent a hash', () => {
 
 test('details default is stored per account and drives detailsOpen on bot switch', () => {
   const user = (id: string) => ({ id, email: `${id}@example.test`, name: id, avatarUrl: null });
-  assert.equal(readDetailsDefault('alice'), false);
-  writeDetailsDefault('alice', true);
-  assert.equal(storage.get(detailsDefaultKey('alice')), '1');
-  assert.equal(readDetailsDefault('bob'), false, 'another account is unaffected');
-  useStore.setState({ user: user('alice'), mobile: false, bots: [], transcripts: {}, detailsOpen: false });
+  assert.equal(readDetailsDefault('account-a'), false);
+  writeDetailsDefault('account-a', true);
+  assert.equal(storage.get(detailsDefaultKey('account-a')), '1');
+  assert.equal(readDetailsDefault('account-b'), false, 'another account is unaffected');
+  useStore.setState({ user: user('account-a'), mobile: false, bots: [], transcripts: {}, detailsOpen: false });
   useStore.getState().selectBot('bot-1');
   assert.equal(useStore.getState().detailsOpen, true);
   // Closing the panel from a chat never writes the preference.
   useStore.getState().set({ detailsOpen: false });
-  assert.equal(readDetailsDefault('alice'), true);
+  assert.equal(readDetailsDefault('account-a'), true);
   useStore.getState().selectBot('bot-2');
   assert.equal(useStore.getState().detailsOpen, true);
-  writeDetailsDefault('alice', false);
+  writeDetailsDefault('account-a', false);
   useStore.getState().selectBot('bot-3');
   assert.equal(useStore.getState().detailsOpen, false);
   // Phones never open details automatically.
-  writeDetailsDefault('alice', true);
+  writeDetailsDefault('account-a', true);
   useStore.setState({ mobile: true });
   useStore.getState().selectBot('bot-4');
   assert.equal(useStore.getState().detailsOpen, false);
@@ -112,15 +112,15 @@ test('Mac detection: macOS browsers yes, iPhone and Linux no', () => {
 });
 
 test('hide suggestion is scoped to the account', () => {
-  assert.notEqual(logic.hideSuggestedKey('alice'), logic.hideSuggestedKey('bob'));
-  assert.equal(logic.hideSuggestedKey('alice'), 'swarm.alice.hideSuggested');
+  assert.notEqual(logic.hideSuggestedKey('account-a'), logic.hideSuggestedKey('account-b'));
+  assert.equal(logic.hideSuggestedKey('account-a'), 'swarm.account-a.hideSuggested');
 });
 
 test('needs-you items are scoped per Bot, deduplicated and oldest first', () => {
   const item = (id: string, botId: string, createdAt: number, type: 'approval' | 'question' | 'setup_review' | 'connect' = 'approval') => ({ id, type, botId, botName: botId, title: id, createdAt, seq: null });
-  const items = [item('b', 'quinn', 20), item('a', 'nia', 10, 'setup_review'), item('b', 'quinn', 20), item('c', 'quinn', 5, 'question')];
+  const items = [item('b', 'coordinator', 20), item('a', 'worker', 10, 'setup_review'), item('b', 'coordinator', 20), item('c', 'coordinator', 5, 'question')];
   assert.deepEqual(logic.scopeNeedsYou(items).map(i => i.id), ['c', 'a', 'b']);
-  assert.deepEqual(logic.scopeNeedsYou(items, 'quinn').map(i => i.id), ['c', 'b']);
+  assert.deepEqual(logic.scopeNeedsYou(items, 'coordinator').map(i => i.id), ['c', 'b']);
   assert.deepEqual(logic.scopeNeedsYou(null), []);
   assert.equal(logic.needsYouChip('setup_review'), 'Setup review');
 });
@@ -134,18 +134,19 @@ test('time zone options always include UTC and the saved zone', () => {
 
 // R2F-028: Bot settings deep links (PD-R2-07 option A, hash sync only).
 test('Bot settings tabs are linkable with replaceState and one history entry per visit', () => {
+  useStore.setState({ bots: [{ id: 'coordinator', name: 'Coordinator Bot' }, { id: 'worker', name: 'Worker Bot' }] as never });
   const pushes = history.pushes;
-  useConfigUI.getState().openBotSettings('quinn');
-  assert.equal(location.hash, '#bot/quinn/settings/general');
-  useConfigUI.getState().openBotSettings('quinn', 'skills');
-  assert.equal(location.hash, '#bot/quinn/settings/skills');
-  useConfigUI.getState().openBotSettings('quinn', 'routines');
-  assert.equal(location.hash, '#bot/quinn/settings/routines');
+  useConfigUI.getState().openBotSettings('coordinator');
+  assert.equal(location.hash, botSettingsHash('coordinator', 'general'));
+  useConfigUI.getState().openBotSettings('coordinator', 'skills');
+  assert.equal(location.hash, botSettingsHash('coordinator', 'skills'));
+  useConfigUI.getState().openBotSettings('coordinator', 'routines');
+  assert.equal(location.hash, botSettingsHash('coordinator', 'routines'));
   // Settings opened on top names its section; closing it names the Bot settings page again.
   useConfigUI.getState().openAppSettings('general');
   assert.equal(location.hash, '#settings/general', 'General is linkable');
   useConfigUI.getState().closeAppSettings();
-  assert.equal(location.hash, '#bot/quinn/settings/routines');
+  assert.equal(location.hash, botSettingsHash('coordinator', 'routines'));
   useConfigUI.getState().closeBotSettings();
   assert.equal(location.hash, '');
   assert.equal(useConfigUI.getState().botSettings, null);
@@ -153,10 +154,10 @@ test('Bot settings tabs are linkable with replaceState and one history entry per
 });
 
 test('a Bot settings link reopens that tab on reload', async () => {
-  location.hash = '#bot/nia/settings/memories';
+  location.hash = '#bot/worker/settings/memories';
   const fresh = await import('../web/src/configStore.ts?reload=bot-settings');
-  assert.deepEqual(fresh.useConfigUI.getState().botSettings, { botId: 'nia', tab: 'memories' });
-  location.hash = '#bot/nia/settings/bogus';
+  assert.deepEqual(fresh.useConfigUI.getState().botSettings, { botId: 'worker', tab: 'memories' });
+  location.hash = '#bot/worker/settings/bogus';
   const invalid = await import('../web/src/configStore.ts?reload=bot-settings-invalid');
   assert.equal(invalid.useConfigUI.getState().botSettings, null, 'unknown tabs are ignored');
   location.hash = '';
@@ -165,41 +166,41 @@ test('a Bot settings link reopens that tab on reload', async () => {
 // R2F-004: unsaved Bot settings drafts guard every way out.
 test('leaving Bot settings with a draft waits for Discard; Cancel keeps the page', () => {
   const ui = () => useConfigUI.getState();
-  useStore.setState({ user: { id: 'alice', email: 'alice@example.test', name: 'alice', avatarUrl: null } as never, mobile: false, bots: [], transcripts: {} });
-  ui().openBotSettings('quinn');
+  useStore.setState({ user: { id: 'account-a', email: 'account-a@example.test', name: 'account-a', avatarUrl: null } as never, mobile: false, bots: [], transcripts: {} });
+  ui().openBotSettings('coordinator');
   // Nothing changed: no question.
   ui().closeBotSettings();
   assert.equal(ui().botSettings, null);
   assert.equal(ui().botSettingsLeave, null);
 
-  ui().openBotSettings('quinn');
+  ui().openBotSettings('coordinator');
   ui().setBotSettingsDraft('general', 'General');
   assert.equal(ui().botSettingsDirty, true);
   ui().closeBotSettings();
-  assert.deepEqual(ui().botSettings, { botId: 'quinn', tab: 'general' }, 'close waits for an answer');
+  assert.deepEqual(ui().botSettings, { botId: 'coordinator', tab: 'general' }, 'close waits for an answer');
   assert.ok(ui().botSettingsLeave);
   ui().resolveLeaveBotSettings(false);
   assert.equal(ui().botSettingsLeave, null);
   assert.equal(ui().botSettingsDirty, true, 'Cancel keeps the draft');
 
   // Sidebar Bot rows, search results and Tasks cards all use openConversation.
-  openConversation('nia');
-  assert.notEqual(useStore.getState().selectedBotId, 'nia', 'no navigation before Discard');
+  openConversation('worker');
+  assert.notEqual(useStore.getState().selectedBotId, 'worker', 'no navigation before Discard');
   assert.ok(ui().botSettingsLeave);
   ui().resolveLeaveBotSettings(true);
   assert.equal(ui().botSettings, null);
   assert.equal(ui().botSettingsDirty, false);
-  assert.equal(useStore.getState().selectedBotId, 'nia');
+  assert.equal(useStore.getState().selectedBotId, 'worker');
 
   // Another Bot's settings would drop the draft; tabs of the same Bot keep it.
-  ui().openBotSettings('quinn');
+  ui().openBotSettings('coordinator');
   ui().setBotSettingsDraft('skill:1', 'Skills');
-  ui().openBotSettings('quinn', 'memories');
+  ui().openBotSettings('coordinator', 'memories');
   assert.equal(ui().botSettings?.tab, 'memories');
-  ui().openBotSettings('nia');
-  assert.equal(ui().botSettings?.botId, 'quinn');
+  ui().openBotSettings('worker');
+  assert.equal(ui().botSettings?.botId, 'coordinator');
   ui().resolveLeaveBotSettings(true);
-  assert.deepEqual(ui().botSettings, { botId: 'nia', tab: 'general' });
+  assert.deepEqual(ui().botSettings, { botId: 'worker', tab: 'general' });
   ui().discardBotSettings();
   useStore.setState({ user: null, selectedBotId: null, detailsOpen: false });
   location.hash = '';

@@ -7,11 +7,12 @@ const base = process.env.QA_R3_SETTINGS_UI_BASE ?? process.env.UI_ORIGIN ?? 'htt
 assert.match(base, /^http:\/\/(127\.0\.0\.1|localhost):\d+$/, 'Use a local frontend for settings fixtures.');
 const account = { id: 'settings-account', email: 'settings@example.test', name: 'Account', avatarUrl: null, timezone: 'UTC' };
 const bot = {
-  id: 'settings-bot', name: 'Coordinator Bot', label: '', description: 'Fixture coordinator', instructions: 'Review supplied notes.',
+  id: 'bot_settings_fixture', name: 'Coordinator Bot', label: '', description: 'Fixture coordinator', instructions: 'Review supplied notes.',
   avatarShape: 'square', avatarColor: 'blue', mode: 'personal', isPrimary: true, pinned: false, kind: 'agent',
-  effort: 'medium', fast: false, model: null, voice: '', voiceSpeed: 1, voiceLanguage: 'auto',
+  effort: 'medium', fast: false, model: 'x-ai/grok-4.7', voice: '', voiceSpeed: 1, voiceLanguage: 'auto',
   generation: 1, unread: 0, lastPreview: null, lastActivityAt: 1, createdAt: 1, onboarding: { status: 'active' },
 };
+const duplicate = { ...bot, id: 'bot_duplicate_fixture', isPrimary: false };
 const worker = { ...bot, id: 'settings-worker', name: 'Worker Bot', isPrimary: false };
 const computer = (status, provider = 'cloudvm') => ({ status, provider, screens: [], orgoId: null, error: null, desktop: false });
 const settings = {
@@ -22,7 +23,7 @@ const settings = {
 };
 const state = {
   computer: computer('suspended'), stage: 'review', preparation: 'ready', setupMode: 'ready',
-  source: undefined, overrides: { enabled: false }, writes: [],
+  source: undefined, overrides: { enabled: false }, writes: [], reads: [],
 };
 function setup(target) {
   return {
@@ -45,7 +46,7 @@ let heldSetup;
 const browser = await chromium.launch({ executablePath: process.env.CHROME_BIN ?? process.env.CHROME_PATH ?? '/usr/bin/google-chrome', args: ['--no-sandbox'] });
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, timezoneId: 'UTC' });
 await context.addInitScript(() => {
-  localStorage.setItem('swarm.selectedBot', 'settings-bot');
+  localStorage.setItem('swarm.selectedBot', 'bot_settings_fixture');
   // Keep the live event stream entirely in the fixture. Individual computer events use handleEvent.
   window.EventSource = class {
     static CLOSED = 2;
@@ -59,8 +60,9 @@ await context.route('**/api/**', async route => {
   const send = (json, status = 200) => route.fulfill({ status, json });
   if (url.origin !== base) return route.abort();
   if (request.method() !== 'GET') { state.writes.push({ path: url.pathname, method: request.method() }); return send({ error: 'Unexpected fixture write.' }, 400); }
+  state.reads.push(url.pathname + url.search);
   if (url.pathname === '/api/auth/me') return send({ user: account, devLogin: true });
-  if (url.pathname === '/api/bots') return send({ bots: [bot, worker], live: [] });
+  if (url.pathname === '/api/bots') return send({ bots: [bot, worker, duplicate], live: [] });
   if (/\/bots\/[^/]+\/rows$/.test(url.pathname)) return send({ generation: 1, rows: [] });
   if (/\/bots\/[^/]+\/routines$/.test(url.pathname)) return send({ routines: [] });
   if (/\/bots\/[^/]+\/tasks$/.test(url.pathname)) return send({ tasks: [] });
@@ -83,6 +85,10 @@ await context.route('**/api/**', async route => {
     computer: { ...state.computer, status: 'running' }, screens: [], hibernation: { idleMinutes: 10 },
     pairing: { paired: false }, localComputer: { enabled: false }, thisComputer: { available: false, active: false },
   });
+  if (url.pathname === '/api/cli') return send({ selected: null, connected: false, providers: {} });
+  if (url.pathname === '/api/openrouter/status') return send({ active: false, defaultModel: 'x-ai/grok-4.7' });
+  if (url.pathname === '/api/tasks') return send({ tasks: [] });
+  if (url.pathname === '/api/needs-you') return send({ items: [] });
   if (url.pathname === '/api/models') return send({ provider: 'direct', billing: 'api', models: [], favourites: [], canFast: false });
   if (url.pathname === '/api/apps') return send({ apps: [], connected: [], connectedApps: [], categories: [] });
   if (url.pathname === '/api/apps/connections') return send({ connections: [] });
@@ -125,6 +131,58 @@ const assertPhoneList = async () => {
 };
 
 try {
+  await reload();
+  await card.waitFor();
+  // R3 follow-up: copied settings links work without saved selection or a route cache.
+  await openBot('learning');
+  const settingsUrl = page.url();
+  assert.ok(!settingsUrl.includes('bot_'));
+  assert.ok(!settingsUrl.includes(bot.id));
+  assert.match(new URL(settingsUrl).hash, /^#bot\/coordinator-bot~[a-z0-9]+\/settings\/learning$/);
+  await page.reload(); await title('Coordinator Bot · Learning');
+  await page.locator('.bot-settings-page .learning-flags').waitFor();
+  const copied = await context.newPage();
+  await copied.goto(settingsUrl);
+  await copied.locator('.bot-settings-page .learning-flags').waitFor();
+  assert.equal(await copied.title(), 'Coordinator Bot · Learning');
+  await copied.close();
+  await reload(`#bot/${duplicate.id}/settings/general`);
+  await title('Coordinator Bot · General');
+  const duplicateUrl = page.url();
+  assert.ok(!duplicateUrl.includes('bot_'));
+  assert.notEqual(new URL(duplicateUrl).hash.split('/')[1], new URL(settingsUrl).hash.split('/')[1]);
+  state.reads = [];
+  await page.reload(); await title('Coordinator Bot · General');
+  assert.ok(state.reads.includes(`/api/bots/${duplicate.id}/settings`), 'reload restores the correct duplicate Bot');
+  const model = page.getByRole('button', { name: 'Bot model', exact: true });
+  await model.getByText('Grok 4.7', { exact: true }).waitFor();
+  assert.ok(!(await model.innerText()).includes('x-ai/grok-4.7'));
+  await page.screenshot({ path: '.context/slug-settings.png' });
+  await page.keyboard.press('Escape'); await title('Swarm');
+  await page.getByRole('button', { name: 'Tasks', exact: true }).click();
+  for (const tab of ['Goals', 'Reports']) {
+    await page.getByRole('navigation', { name: 'Work sections' }).getByRole('button', { name: tab, exact: true }).click();
+    await title(tab);
+    assert.equal(new URL(page.url()).hash, `#${tab.toLowerCase()}`);
+    await page.reload(); await title(tab);
+    assert.equal(await page.getByRole('navigation', { name: 'Work sections' }).getByRole('button', { name: tab, exact: true }).getAttribute('aria-current'), 'page');
+    await openApp('learning'); await title('Settings · Learning');
+    await page.keyboard.press('Escape'); await title(tab);
+    assert.equal(new URL(page.url()).hash, `#${tab.toLowerCase()}`);
+  }
+  await page.locator('.pinned__tile').click(); await title('Swarm');
+  assert.equal(new URL(page.url()).hash, '');
+  await reload('#goals'); await title('Goals');
+  await page.evaluate(() => { location.hash = '#reports'; }); await title('Reports');
+  await page.goBack(); await title('Goals');
+  await page.goForward(); await title('Reports');
+  for (const tab of ['Goals', 'Reports']) {
+    const hash = new URL(duplicateUrl).hash.replace('/settings/general', `/${tab.toLowerCase()}`);
+    await reload(hash); await title(`Coordinator Bot · ${tab}`);
+    await page.reload(); await title(`Coordinator Bot · ${tab}`);
+    assert.equal(new URL(page.url()).hash, hash);
+    assert.ok(!page.url().includes('bot_'));
+  }
   await reload();
   await card.waitFor();
   assert.equal(await card.locator('.coworker-setup__readiness').innerText(), 'Computer: Asleep. Work waits for readiness.');
@@ -261,7 +319,7 @@ try {
   assert.equal(await page.locator('.bot-settings-page .learning-flags input').first().isChecked(), true);
   await page.getByRole('button', { name: 'Back to Bots', exact: true }).click();
   await guard.getByRole('button', { name: 'Discard', exact: true }).click(); await assertPhoneList();
-  await reload('#bot/settings-bot/settings/general');
+  await reload('#bot/bot_settings_fixture/settings/general');
   await page.getByRole('button', { name: 'Back to Bots', exact: true }).click(); await assertPhoneList();
   assert.deepEqual(state.writes, [], 'these checks must not perform any API writes');
   assert.deepEqual(errors, []);

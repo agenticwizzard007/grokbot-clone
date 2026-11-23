@@ -3,6 +3,7 @@ import { cliApi, type CliStatus } from '../../lib/cliApi';
 import { openrouterApi } from '../../lib/openrouterApi';
 import { ModelPicker, refreshModels } from './ModelPicker';
 import { useStore } from '../../store';
+import { modelDisplayName } from '../../lib/modelDisplay';
 
 /** Per-Bot model: a model id, or null for the server default. */
 export function BotModelField({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
@@ -34,7 +35,7 @@ function AccountBotModelField({ value, onChange }: { value: string | null; onCha
   }, [attempt]);
 
   const selected = cli?.selected;
-  const defaultLabel = selected === 'codex' ? 'ChatGPT · Codex default' : selected === 'claude' ? 'Claude · CLI default' : fallback || 'server default';
+  const defaultLabel = selected === 'codex' ? 'ChatGPT · Codex default' : selected === 'claude' ? 'Claude · CLI default' : fallback ? modelDisplayName(fallback) : 'server default';
   return (
     <>
       {cli ? <ModelPicker key={selected ?? 'api'} label="Bot model" value={selected && !value?.startsWith(`${selected}/`) ? null : value} onChange={onChange} defaultLabel={defaultLabel} />

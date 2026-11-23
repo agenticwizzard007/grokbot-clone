@@ -66,7 +66,7 @@ export function ComposerModelMenu({ bot }: { bot: Bot }) {
   const selection = modelSelection(bot, models);
   const current = known ? selection.current : undefined;
   const effort = known ? selection.effort : null;
-  const label = models.status === 'loading' || models.status === 'idle' ? 'Loading models…' : models.status === 'error' || models.error ? 'Models unavailable' : !known ? 'Provider default' : current?.short ?? (planMode ? 'CLI default' : bot.model ? fallbackShort(bot.model) : 'Default model');
+  const label = models.status === 'loading' || models.status === 'idle' ? 'Loading models…' : models.status === 'error' || models.error ? 'Models unavailable' : !known ? 'Provider default' : current ? fallbackShort(current.id, current.short) : (planMode ? 'CLI default' : bot.model ? fallbackShort(bot.model) : 'Default model');
   const efforts = effortsFor(current);
   const ultra = isTopEffort(effort, current);
 
@@ -204,7 +204,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
         <button type="button" className="mm-row__main" onClick={() => choose(m)} onKeyDown={i !== null ? rowKeys(i) : undefined} aria-current={selected || undefined}
           title={i !== null ? 'Alt+↑/↓ to reorder' : undefined}>
           <ProviderIcon author={m.author} />
-          <span className="mm-row__name">{m.short}{m.resolvedModel && <small className="mm-row__resolved">{m.resolvedModel}</small>}</span>
+          <span className="mm-row__name">{fallbackShort(m.id, m.short)}{m.resolvedModel && <small className="mm-row__resolved">{fallbackShort(m.resolvedModel)}</small>}</span>
           <span className="model-billing">{billing === 'plan' ? 'Plan' : 'API'}</span>
           {!m.vision && <span className="mm-row__meta">No images</span>}
         </button>
@@ -271,7 +271,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
                     <span className="mm-row__grip" aria-hidden />
                     <button type="button" className="mm-row__main" onClick={() => choose(m)}>
                       <ProviderIcon author={m.author} />
-                      <span className="mm-row__name">{m.short}{m.resolvedModel && <small className="mm-row__resolved">{m.resolvedModel}</small>}</span>
+                      <span className="mm-row__name">{fallbackShort(m.id, m.short)}{m.resolvedModel && <small className="mm-row__resolved">{fallbackShort(m.resolvedModel)}</small>}</span>
           <span className="model-billing">{billing === 'plan' ? 'Plan' : 'API'}</span>
           {!m.vision && <span className="mm-row__meta">No images</span>}
                       <span className="mm-row__meta">{m.author}</span>
