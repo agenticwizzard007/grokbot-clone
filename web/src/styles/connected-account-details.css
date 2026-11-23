@@ -1,0 +1,4 @@
+.connected-account-details { display: block; min-width: 0; max-width: 100%; margin-top: 4px; font-size: 13px; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; }
+.connected-account-details__label { display: block; color: var(--color-text-primary); }
+.connected-account-details__meta { display: flex; flex-wrap: wrap; gap: 0 10px; color: var(--color-text-secondary); }
+.connected-account-details + .connected-account-details { margin-top: 8px; }

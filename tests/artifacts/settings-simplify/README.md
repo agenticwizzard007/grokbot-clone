@@ -24,7 +24,7 @@ Run from the repository root with the local Vite frontend on port 5193:
 
 ```sh
 npm run dev -w web -- --host 127.0.0.1 --port 5193
-node --import tsx --test tests/settings-simplify.test.mts tests/qa-r3-settings.test.mts tests/qa-ws4-settings.test.mts tests/plan-connections.test.mts
+node --import tsx --test tests/settings-simplify.test.mts tests/qa-r3-settings.test.mts tests/qa-ws4-settings.test.mts tests/plan-connections.test.mts tests/connected-account-details.test.mts
 UI_ORIGIN=http://127.0.0.1:5193 node tests/settings-simplify-ui.mjs
 UI_ORIGIN=http://127.0.0.1:5193 node tests/settings-open-ui.mjs
 UI_ORIGIN=http://127.0.0.1:5193 node --test tests/qa-ui-i07-settings-search.mjs
@@ -32,6 +32,7 @@ node tests/access-settings-ui.mjs
 node tests/qa-r3-settings-ui.mjs
 node tests/bot-settings-deep-link-ui.mjs
 node tests/settings-disconnect-ui.mjs
+node tests/connected-account-details-ui.mjs
 UI_ORIGIN=http://127.0.0.1:5193 node tests/settings-model-picker-ui.mjs
 node tests/mcp-folder-overflow-ui.mjs
 UI_ORIGIN=http://127.0.0.1:5193 node tests/plan-connections-ui.mjs

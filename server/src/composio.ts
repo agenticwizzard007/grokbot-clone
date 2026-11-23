@@ -1,3 +1,4 @@
+import { createConnectionDetailsCache, type ConnectionDetails } from './connection-details.js';
 import { Composio } from '@composio/core';
 import { OpenAIResponsesProvider } from '@composio/openai';
 import { gatewayRequest } from './runtime/gateway-client.js';
@@ -15,6 +16,7 @@ import { createMetadataCache, rankAppTools } from './platform/app-discovery.js';
 const toolkitMetadata = createMetadataCache<Awaited<ReturnType<ReturnType<typeof composio>['tools']['getRawComposioTools']>>>(5 * 60_000);
 
 const makeClient = (apiKey: string) => new Composio({ ...composioCredentials(apiKey), provider: new OpenAIResponsesProvider() });
+const accountDetailsCache = createConnectionDetailsCache();
 let current: { key: string; client: ReturnType<typeof makeClient> } | null = null;
 /** The Composio client for the current key; rebuilt (and caches dropped) when the key changes in Settings. */
 export function composio() {
@@ -24,6 +26,7 @@ export function composio() {
   const identity = composioIdentity();
   if (!current || current.key !== identity) {
     current = { key: identity, client: makeClient(key) };
+    accountDetailsCache.clear();
     sessionCache.clear();
     promptConnections.clear();
     catalogCache = null;
@@ -114,7 +117,7 @@ export async function connectedToolkits(userId: string, cached = false): Promise
   return new Set((await connectionsDetail(userId)).filter((c) => c.status === 'ACTIVE').map((c) => c.toolkit));
 }
 
-export interface AppConnection {
+export interface AppConnection extends Partial<ConnectionDetails> {
   id: string; toolkit: string; status: string; revision?: number; isDefault?: boolean;
   isDisabled?: boolean; authorizationIncomplete?: boolean;
 }
@@ -123,9 +126,9 @@ const UNFINISHED_AUTH_REASONS = new Set([
   'Connection expired before authorization was started',
 ]);
 
-export async function connectionsDetail(userId: string, options: { signal?: AbortSignal } = {}): Promise<AppConnection[]> {
+export async function connectionsDetail(userId: string, options: { signal?: AbortSignal; details?: boolean } = {}): Promise<AppConnection[]> {
   assertTenant(userId);
-  if (isTenant) return gatewayRequest(userId, 'connections', {}, options);
+  if (isTenant) return gatewayRequest(userId, 'connections', options.details ? { details: true } : {}, options);
   if (!env.composioEnabled) return [];
   const client = composio();
   const key = composioIdentity();
@@ -135,12 +138,13 @@ export async function connectionsDetail(userId: string, options: { signal?: Abor
   do {
     options.signal?.throwIfAborted();
     const r = await client.connectedAccounts.list({ userIds: [userId], accountType: 'PRIVATE', limit: 100, cursor }, options);
-    items.push(...r.items.map((i) => ({ id: i.id, toolkit: i.toolkit.slug, status: i.status,
+    items.push(...await Promise.all(r.items.map(async (i) => ({
+      ...(options.details ? await accountDetailsCache.details(client, userId, i, options.signal) : {}), id: i.id, toolkit: i.toolkit.slug, status: i.status,
       ...(i.isDisabled ? { isDisabled: true } : {}),
       // Project only a known classification, never raw provider reasons or credential state.
       ...(i.status === 'EXPIRED' && UNFINISHED_AUTH_REASONS.has(i.statusReason?.trim().replace(/\.$/, '') ?? '')
         ? { authorizationIncomplete: true } : {}),
-    })));
+    }))));
     cursor = r.nextCursor ?? undefined;
     if (cursor && cursors.has(cursor)) throw new Error('Composio returned a repeated connections page. Please retry.');
     if (cursor) cursors.add(cursor);
@@ -183,6 +187,7 @@ function assertCurrentKey(key: string) {
 export function resetAppDiscovery() { toolkitMetadata.clear(); }
 
 export function invalidateComposioSession(userId: string) {
+  accountDetailsCache.invalidate(userId);
   sessionCache.delete(userId);
   promptConnections.delete(userId);
   db.prepare('DELETE FROM composio_sessions WHERE user_id=?').run(userId);

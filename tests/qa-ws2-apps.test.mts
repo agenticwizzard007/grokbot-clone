@@ -63,13 +63,13 @@ test('MF-005: an inactive or disabled account is treated as not connected', asyn
 });
 
 test('MF-005: a connected account still asks first, and the card shows the app and account label, not the raw id', async () => {
-  accounts = [{ id: 'ca_slack', toolkit: { slug: 'slack' }, status: 'ACTIVE' }];
+  accounts = [{ id: 'ca_slack', toolkit: { slug: 'slack' }, status: 'ACTIVE', data: { email: 'team@example.test' }, createdAt: '2026-11-21T09:30:00Z' }];
   const create = scripted();
   try { enqueue(bot.id, { type: 'user', text: 'Post hello to Slack again' }); await settleAgentJobs(); } finally { create.mock.restore(); }
   assert.equal((db.prepare("SELECT count(*) n FROM approvals WHERE status='pending'").get() as any).n, 1);
   const card = listRows(bot.id).find((r) => r.body.type === 'card')!.body as any;
   assert.equal(card.card, 'approval');
   assert.match(card.detail, /App: Slack/);
-  assert.match(card.detail, /Account: Connected Slack account/);
+  assert.match(card.detail, /Account: team@example.test · Active · Connected 21 Nov 2026/);
   assert.doesNotMatch(card.detail, /ca_/);
 });

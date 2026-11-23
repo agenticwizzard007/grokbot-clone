@@ -10,7 +10,9 @@ import { appendRow, clearConversation, emitBot, getBotRow, getLive, getRow, list
 import { currentTrigger, enqueue, interrupt, isBotBusy, resolveApproval, runInBotQueue, type Trigger } from '../agent/loop.js';
 import { dispatchRoomMessage } from '../agent/rooms.js';
 import { activateSetup, getSetup } from '../bot-setup.js';
-import { connectedToolkits, toolkitInfo } from '../composio.js';
+import { connectionsDetail, toolkitInfo } from '../composio.js';
+import { connectedDate, connectionStatusLabel, fallbackAccountLabel } from '../connection-details.js';
+import { appName } from '../tool-activity.js';
 import { startCardConnect } from '../agent/connection-cards.js';
 import { computers } from '../computers/index.js';
 import { createPairing } from '../computers/local.js';
@@ -746,8 +748,9 @@ async function command(link: Link, inb: Inbound, raw: string) {
 
     case 'apps': {
       if (!env.composioEnabled) return void reply("Connected apps aren't set up on this server yet.");
-      const apps = [...(await connectedToolkits(userId).catch(() => new Set<string>()))];
-      return void reply(apps.length ? `**Connected apps**\n${apps.map((a) => `• ${a}`).join('\n')}\n\n_/connect app to add one_` : 'No apps connected yet. Send /connect gmail (or any app) to connect one.');
+      const apps = await connectionsDetail(userId, { details: true }).catch(() => null);
+      if (!apps) return void reply('App accounts could not be refreshed. Try /apps again.');
+      return void reply(apps.length ? `**Connected apps**\n${apps.map(a => `• ${appName(a.toolkit) ?? a.toolkit}: ${a.accountLabel ?? fallbackAccountLabel(a.id)}\n  ${connectionStatusLabel(a.displayStatus ?? 'unknown')} · ${connectedDate(a.connectedAt)}`).join('\n')}\n\n_/connect app to add one_` : 'No apps connected yet. Send /connect gmail (or any app) to connect one.');
     }
 
     case 'connect': {

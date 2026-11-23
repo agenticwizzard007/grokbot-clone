@@ -1,7 +1,7 @@
 import { SettingIcon } from './SettingRow';
 import { useModels } from '../../lib/models';
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, Copy, ExternalLink, RefreshCw, Terminal, BookOpen, KeyRound, Monitor } from 'lucide-react';
+import { Check, ChevronDown, Copy, ExternalLink, RefreshCw, Terminal, KeyRound, Monitor } from 'lucide-react';
 import { cliApi, type CliProvider, type CliProviderStatus, type CliStatus } from '../../lib/cliApi';
 import { PLAN_PROVIDERS, planConnectionStatus } from '../../lib/planConnections';
 import { refreshModels } from './ModelPicker';
@@ -384,7 +384,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
         <AccessRow icon={RefreshCw} title="Authorization status" description="Refresh after signing in or reconnecting.">
           <button type="button" className="cfg-btn cfg-btn--secondary" disabled={authLocked || !!busy || loginRunning} onClick={() => void refresh()}>{busy === 'refresh' ? 'Refreshing…' : 'Refresh status'}</button>
         </AccessRow>
-        <AccessRow icon={BookOpen} title="Provider instructions" description="Review eligibility and official authentication steps.">
+        <AccessRow icon={ExternalLink} title="Provider instructions" description="Review eligibility and official authentication steps.">
           <a className="cfg-btn cfg-btn--secondary" href={provider.docs} target="_blank" rel="noreferrer">Official auth docs</a>
         </AccessRow>
         <details className="subscription-settings__context">

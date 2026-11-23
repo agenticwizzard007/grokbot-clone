@@ -1,6 +1,6 @@
 import { SettingIcon } from './SettingRow';
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { Clock, CircleUserRound, Download, Gauge } from 'lucide-react';
+import { Clock3, CircleUserRound, Download, Gauge } from 'lucide-react';
 import { useStore } from '../../store';
 import { AccessRow } from './AccessRow';
 import { configApi, type ProviderUsage, type UsageCoverage, type UsageRange, type UsageReport, type UsageRow } from '../../lib/configApi';
@@ -444,7 +444,7 @@ function AccountUsageReport() {
     <div className="usage-page">
       <PageHead span={span} />
       <div className="usage-filters">
-        <label className="cfg-field"><SettingIcon icon={Clock} /><span className="cfg-field__label">Report period</span><select className="text-input" value={range} onChange={event => setRange(event.target.value as UsageRange)}>{RANGES.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        <label className="cfg-field"><SettingIcon icon={Clock3} /><span className="cfg-field__label">Report period</span><select className="text-input" value={range} onChange={event => setRange(event.target.value as UsageRange)}>{RANGES.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
         <label className="cfg-field"><SettingIcon icon={CircleUserRound} /><span className="cfg-field__label">Scope</span><select className="text-input" value={scope} onChange={event => setScope(event.target.value === 'all' ? 'all' : 'me')} disabled={!canSeeAll}><option value="me">Me</option>{canSeeAll && <option value="all">Everyone</option>}</select><span className="cfg-field__hint">Everyone is limited to eligible administrators.</span></label>
       </div>
 

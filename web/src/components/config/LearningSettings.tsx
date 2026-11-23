@@ -1,4 +1,4 @@
-import { Blocks, Clock, Gauge, History, ShieldCheck } from 'lucide-react';
+import { Blocks, Clock3, Gauge, ShieldCheck } from 'lucide-react';
 import { SettingIcon } from './SettingRow';
 import { useEffect, useRef, useState } from 'react';
 import { learningApi, type LearningSettings as Settings, type LearningSettingsView, type LearningReview, type SkillMaintenanceOutcome } from '../../lib/learningApi';
@@ -40,7 +40,7 @@ function LearningSettingsForm({ botId }: { botId?: string }) {
     finally { setBusy(false); }
   };
   const set = <K extends keyof Settings>(key: K, value: Settings[K]) => setDraft(s => s ? { ...s, [key]: value } : s);
-  const numberField = (key: keyof Settings, label: string, min: number, max?: number) => <label key={key}><SettingIcon icon={Clock} /><span>{label}</span><input type="number" min={min} max={max} required value={draft?.[key] as number ?? ''} onChange={e => set(key, e.currentTarget.valueAsNumber)} /></label>;
+  const numberField = (key: keyof Settings, label: string, min: number, max?: number) => <label key={key}><SettingIcon icon={Clock3} /><span>{label}</span><input type="number" min={min} max={max} required value={draft?.[key] as number ?? ''} onChange={e => set(key, e.currentTarget.valueAsNumber)} /></label>;
   const overridden = Object.keys(view?.overrides ?? {});
   return <div className="cfg-page learning-settings native-panel">
     {/* Account Settings pages share one page header; inside Bot settings the page already has its title. */}
@@ -75,7 +75,7 @@ function LearningSettingsForm({ botId }: { botId?: string }) {
         <p className="native-meta">Pinned, locked and routine-referenced packages are protected. Archived packages retain recoverable history.</p>
         {botId && <SkillMaintenance botId={botId} settings={view.settings} />}
       </div></details>
-      <div className="learning-disclosure learning-disclosure--row"><SettingIcon icon={History} /><div><strong>Review history and activity</strong><small>{botId ? 'Only reviews for this Bot.' : 'Reviews across this account.'}</small></div><button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setShowReviews(true)}>Review history</button></div>
+      <div className="learning-disclosure learning-disclosure--row"><SettingIcon icon={Clock3} /><div><strong>Review history and activity</strong><small>{botId ? 'Only reviews for this Bot.' : 'Reviews across this account.'}</small></div><button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setShowReviews(true)}>Review history</button></div>
       <div className="learning-actions"><button className="cfg-btn cfg-btn--primary" disabled={busy || JSON.stringify(draft) === JSON.stringify(view.settings)} type="submit">{busy ? 'Saving…' : botId ? 'Save Bot overrides' : 'Save learning settings'}</button>{botId && <button className="cfg-btn cfg-btn--secondary" disabled={busy || !Object.keys(view.overrides ?? {}).length} type="button" onClick={() => void save(true)}>Use account defaults</button>}</div>
       {notice && <p role="status">{notice}</p>}
     </form>}

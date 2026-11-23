@@ -1,4 +1,4 @@
-import { CircleUserRound, Share2 } from 'lucide-react';
+import { CircleUserRound, ExternalLink } from 'lucide-react';
 import { SettingIcon } from './SettingRow';
 import { useEffect, useRef, useState } from 'react';
 import { configApi, type MessagingInvite, type PlatformSignupPolicy, type PlatformWaitlistEntry } from '../../lib/configApi';
@@ -84,7 +84,7 @@ export function PlatformSignupSettings({ version }: { version: number }) {
           <label className="cfg-field"><SettingIcon icon={CircleUserRound} /><span className="cfg-field__label">Expires in days</span><input className="text-input" type="number" min="1" max="365" required value={inviteDays} onChange={e => setInviteDays(e.target.value)} disabled={busy} /></label>
           <button className="cfg-btn cfg-btn--primary" disabled={busy}>Create invite</button>
         </form>
-        {invites.map(invite => <div className="cfg-row" key={invite.code}><SettingIcon icon={Share2} />
+        {invites.map(invite => <div className="cfg-row" key={invite.code}><SettingIcon icon={ExternalLink} />
           <div className="cfg-row__text"><div className="cfg-row__title"><a href={invite.url}>{invite.code}</a></div><div className="cfg-row__sub">{invite.uses} of {invite.maxUses} used · {invite.revoked ? 'Revoked' : invite.expiresAt ? `Expires ${shortDate(invite.expiresAt)}` : 'No expiry'}</div></div>
           {!invite.revoked && <ConfirmButton className="cfg-btn cfg-btn--secondary" disabled={busy} confirmLabel="Revoke invite" onConfirm={() => act(async () => { await configApi.revokeInvite(invite.code); await loadInvites(); })}>Revoke</ConfirmButton>}
         </div>)}

@@ -1,5 +1,6 @@
 import { SettingIcon } from './SettingRow';
-import { CircleUserRound, Mail, MessageCircle, Share2 } from 'lucide-react';
+import { CircleUserRound, MessageCircle, ExternalLink } from 'lucide-react';
+import { ConnectedAccounts, type DisplayAccount } from '../ConnectedAccountDetails';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   configApi,
@@ -271,6 +272,7 @@ function AccountSection() {
   const connectionsVersion = useStore((s) => s.connectionsVersion);
   const setModal = useStore((s) => s.setModal);
   const [busy, setBusy] = useState<'google' | 'gmail' | null>(null);
+  const [gmailAccounts, setGmailAccounts] = useState<DisplayAccount[]>([]);
   const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
   const [note, setNote] = useState<NoteState>(null);
   const [gmailError, setGmailError] = useState(false);
@@ -278,10 +280,12 @@ function AccountSection() {
   useEffect(() => {
     let alive = true;
     setGmailConnected(null);
+    setGmailAccounts([]);
     setGmailError(false);
     configApi.connectedApps()
       .then((r) => {
         if (!alive) return;
+        setGmailAccounts(r.connectedApps?.find(a => a.slug === 'gmail')?.accounts ?? []);
         setGmailConnected(r.connected.includes('gmail') || !!r.connectedApps?.some((a) => a.slug === 'gmail'));
       })
       .catch(() => { if (alive) setGmailError(true); });
@@ -329,7 +333,7 @@ function AccountSection() {
           {busy === 'google' ? 'Opening…' : 'Connect Google'}
         </a>}
       </AccessRow>
-      <AccessRow icon={Mail} title="Gmail for your Bots" description={gmailConnected ? 'Connected for Bots to read and send mail with your approval.' : 'Connect Gmail separately from your phone identity.'}>
+      <AccessRow icon={MessageCircle} title="Gmail for your Bots" description={<><ConnectedAccounts accounts={gmailAccounts} />{gmailConnected ? 'Connected for Bots to read and send mail with your approval.' : 'Connect Gmail separately from your phone identity.'}</>}>
           {gmailError ? <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setAttempt(value => value + 1)}>Retry Gmail status</button> : <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy || !googleLogin || gmailConnected === null} onClick={() => void connectGmail()}>
             {busy === 'gmail' ? 'Opening…' : gmailConnected === null ? 'Checking…' : gmailConnected ? 'Manage Gmail' : 'Connect Gmail'}
           </button>}
@@ -447,7 +451,7 @@ function InviteFriendsSection({ allowance }: { allowance: number }) {
     <section className="cfg-section">
       <div className="cfg-section__label">Invite friends</div>
       <div className="cfg-card cfg-key">
-        <div className="cfg-row"><SettingIcon icon={Share2} />
+        <div className="cfg-row"><SettingIcon icon={ExternalLink} />
           <div className="cfg-row__text">
             <div className="cfg-row__title">Share Swarm</div>
             <div className="cfg-row__sub">{allowance > 0 ? `Friends get their own Bots by text. You can invite ${allowance} ${allowance === 1 ? 'person' : 'people'}.` : 'Invites are turned off on this server.'}</div>

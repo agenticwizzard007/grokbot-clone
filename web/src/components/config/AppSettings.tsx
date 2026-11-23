@@ -1,6 +1,7 @@
+import { ConnectedAccountDetails, ConnectedAccounts, type DisplayAccount } from '../ConnectedAccountDetails';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { Blocks, ChevronLeft, ChevronRight, CircleUserRound, Clock, Keyboard, KeyRound, Monitor, PanelLeft, PanelLeftOpen, Palette, Search, ShieldCheck, Trash2, X } from 'lucide-react';
+import { Blocks, ChevronLeft, ChevronRight, CircleUserRound, Clock3, TextCursorInput, KeyRound, Monitor, PanelLeftOpen, Settings2, Search, ShieldCheck, X } from 'lucide-react';
 import { NAV, matches, SettingsNavButton } from './settingsNavigation';
 import { SettingRow, SettingIcon } from './SettingRow';
 export { SettingRow } from './SettingRow';
@@ -219,13 +220,13 @@ function GeneralSection() {
       <section className="cfg-section settings-appearance">
         <h2 className="cfg-section__label">Appearance & layout</h2>
         <div className="cfg-card">
-          <SettingRow icon={Palette} title="Theme" sub="Choose how Swarm looks on this device.">
+          <SettingRow icon={Settings2} title="Theme" sub="Choose how Swarm looks on this device.">
             <Segmented label="Theme" value={theme} onChange={setTheme} options={(['system', 'light', 'dark'] as const).map((t) => ({ value: t, label: THEME_LABEL[t] }))} />
           </SettingRow>
           <SettingRow icon={PanelLeftOpen} title="Open Bot details with each chat" sub="Show activity, tasks, files, and setup beside the chat.">
             <Switch label="Open Bot details with each chat" on={detailsDefault} onChange={(v) => { writeDetailsDefault(accountId, v); setDetailsDefault(v); }} />
           </SettingRow>
-          <SettingRow icon={PanelLeft} title="Compact sidebar" sub="Give chats more room on desktop.">
+          <SettingRow icon={PanelLeftOpen} title="Compact sidebar" sub="Give chats more room on desktop.">
             <Switch label="Compact sidebar" on={collapsed} onChange={(v) => useStore.getState().set({ sidebarCollapsed: v })} />
           </SettingRow>
         </div>
@@ -234,7 +235,7 @@ function GeneralSection() {
         <h2 className="cfg-section__label">Keyboard shortcuts</h2>
         {IS_MAC && !isNativeApp && <div className="cfg-field__hint">On Windows and Linux, use Ctrl instead of ⌘ and Alt instead of ⌥.</div>}
         <div className="cfg-card settings-shortcuts">
-          {shortcuts.map(([label, keys]) => <SettingRow icon={Keyboard} key={label} title={label}><Keys keys={keys} /></SettingRow>)}
+          {shortcuts.map(([label, keys]) => <SettingRow icon={TextCursorInput} key={label} title={label}><Keys keys={keys} /></SettingRow>)}
         </div>
       </section>
     </>
@@ -756,7 +757,7 @@ function PermissionsSection() {
 
 // ---------------------------------------------------------------------------
 
-type SettingsAppConnection = {
+type SettingsAppConnection = DisplayAccount & {
   id: string;
   toolkit: string;
   status: string;
@@ -879,12 +880,11 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
   const accountDetails = (c: SettingsAppConnection, index: number) => {
     const app = apps?.find(app => app.slug === c.toolkit);
     const name = toolkitDisplayName(c.toolkit, app?.name);
-    const status = c.status ? c.status.toLowerCase().replace(/(^|[_\s-]+)([a-z])/g, (_, separator, letter) => `${separator ? ' ' : ''}${letter.toUpperCase()}`) : 'Unknown status';
     return <>
       <div className="cfg-row__text">
         <div className="cfg-row__title" title={`Connection ID: ${c.id}`}>{name} · Account {index + 1}</div>
+        <ConnectedAccountDetails account={c} />
         <div className="access-apps-settings__statuses">
-          <span className="cfg-chip">{status}</span>
           {c.isDisabled && <span className="cfg-chip">Disabled</span>}
           {c.status === 'ACTIVE' && !c.isDisabled && c.isDefault && <span className="cfg-chip">Default</span>}
         </div>
@@ -918,6 +918,7 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
               <div key={a.slug} className="cfg-row access-apps-settings__row"><SettingIcon icon={Blocks} />
                 <div className="cfg-row__text">
                   <div className="cfg-row__title">{a.name}</div>
+                  <ConnectedAccounts accounts={a.accounts} />
                   {a.description && <div className="cfg-row__sub">{a.description}</div>}
                 </div>
                 <span className="cfg-chip">Connected</span>
@@ -997,7 +998,7 @@ function TimeZoneRow({ user }: { user: User }) {
     } finally { setBusy(false); }
   };
   return <>
-    <SettingRow icon={Clock} title="Time zone" sub={saved ? 'Daily synopses, check-ins and analytics use this zone.' : 'Not set yet. Daily synopses and analytics use UTC until you choose one.'}>
+    <SettingRow icon={Clock3} title="Time zone" sub={saved ? 'Daily synopses, check-ins and analytics use this zone.' : 'Not set yet. Daily synopses and analytics use UTC until you choose one.'}>
       <select className="text-input settings-timezone" aria-label="Time zone" value={value} disabled={busy} onChange={(e) => void change(e.target.value)}>
         {zones.map(zone => <option key={zone} value={zone}>{zone.replace(/_/g, ' ')}</option>)}
       </select>
@@ -1085,7 +1086,7 @@ function AccountSettings({ user }: { user: User }) {
             {googleLinked ? <span className="cfg-chip">Connected</span> : <AuthLink className="signin__google" href="/api/auth/google/start?intent=link">Connect Google</AuthLink>}
           </SettingRow>}
           <TimeZoneRow user={user} />
-          <SettingRow icon={Trash2} title="Delete your account" sub="Permanently removes your account, Bots and conversations.">
+          <SettingRow icon={ShieldCheck} title="Delete your account" sub="Permanently removes your account, Bots and conversations.">
             <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => { setError(null); setDeleting(true); }}>Delete account…</button>
           </SettingRow>
         </div>

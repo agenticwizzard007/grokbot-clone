@@ -48,6 +48,7 @@ function publicConnection(connection: Connection) {
   // The standalone adapter explicitly executes revision 1. Tenant revisions are
   // provider/gateway facts; never substitute a guessed tenant revision.
   return { id: connection.id, toolkit: connection.toolkit, status: connection.status,
+    accountLabel: connection.accountLabel, displayStatus: connection.displayStatus, connectedAt: connection.connectedAt,
     revision: connection.revision ?? (isTenant ? null : 1), isDefault: connection.isDefault ?? false };
 }
 
@@ -71,7 +72,7 @@ function define<S extends z.ZodType>(name: string, description: string, schema: 
 const listTool = define('list_app_connections',
   'List all of this user’s private app accounts, including account IDs, connection revisions and current statuses. Unavailable provider data is distinct from no connections. Never returns credentials.',
   listSchema, async (_args, ctx, generation) => {
-    const connections = (await connectionsDetail(ctx.userId)).map(publicConnection);
+    const connections = (await connectionsDetail(ctx.userId, { details: true })).map(publicConnection);
     ownBot(ctx, generation);
     return result({ ok: true, available: true, status: connections.length ? 'available' : 'none', connections });
   });
@@ -98,7 +99,7 @@ const requestTool = define('request_app_connection',
     const info = await toolkitInfo(args.toolkit);
     ownBot(ctx, generation);
     if (!info) return result({ ok: false, status: 'unknown_toolkit', error: 'Unknown app. Use search_apps to find a supported toolkit slug.' });
-    const active = (await connectionsDetail(ctx.userId)).filter(connection => connection.toolkit === info.slug && connection.status === 'ACTIVE').map(publicConnection);
+    const active = (await connectionsDetail(ctx.userId, { details: true })).filter(connection => connection.toolkit === info.slug && connection.status === 'ACTIVE').map(publicConnection);
     ownBot(ctx, generation);
     if (active.length) return result({ ok: true, status: 'connected',
       ...(active.length === 1 ? { connection: active[0] } : { connections: active }),

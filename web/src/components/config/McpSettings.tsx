@@ -1,6 +1,6 @@
 import { SettingIcon } from './SettingRow';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { ChevronRight, CircleUserRound, FolderOpen, KeyRound, Server, ShieldCheck } from 'lucide-react';
+import { ChevronRight, CircleUserRound, Blocks, KeyRound, Server, ShieldCheck } from 'lucide-react';
 import type { McpServerInput, McpServerView } from '@shared/types';
 import { configApi } from '../../lib/configApi';
 import { accessApi, verifyAccessAccount } from '../../lib/accessApi';
@@ -84,7 +84,7 @@ function FolderPicker({ selected, onChange }: { selected: string[]; onChange: (f
   }, [folder, page]);
   const open = (value: string) => { setFolder(value); setPage(''); };
   const overlaps = (value: string) => selected.some(s => s === value || s.startsWith(value + '/') || value.startsWith(s + '/'));
-  return <div className="cfg-row"><SettingIcon icon={FolderOpen} /><div className="cfg-row__text">
+  return <div className="cfg-row"><SettingIcon icon={Blocks} /><div className="cfg-row__text">
     <div className="cfg-row__title">Shared folders</div>
     <p className="cfg-row__sub">Choose up to eight Library folders this server can read. Folder access includes their contents and subfolders. It cannot change your files.</p>
     {selected.map((value, index) => <div className="mcp-actions mcp-folder-row" key={value}><span className="mcp-folder-path">{value} · <code>/workspace/folders/{index + 1}</code></span><button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => onChange(selected.filter(s => s !== value))}>Remove folder</button></div>)}

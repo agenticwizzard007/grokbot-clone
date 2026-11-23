@@ -1,4 +1,4 @@
-import { Blocks, Gauge, KeyRound, Trash2 } from 'lucide-react';
+import { Blocks, Gauge, KeyRound, ShieldCheck } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { openrouterApi, OPENROUTER_ERRORS, type OpenRouterStatus } from '../../lib/openrouterApi';
 import { verifyAccessAccount } from '../../lib/accessApi';
@@ -95,7 +95,7 @@ function AccountOpenRouterSettings({ accountId, onReauth }: { accountId: string;
       <AccessRow icon={Gauge} title="Credits and spending" description="Manage keys and budgets at OpenRouter.">
         <a className="cfg-btn cfg-btn--secondary" href={status.settingsUrl} target="_blank" rel="noreferrer">Open OpenRouter</a>
       </AccessRow>
-      {status.connected && <AccessRow icon={Trash2} title="Remove personal key" description="Stop using this key in Swarm. Revoke it on OpenRouter to invalidate it there.">
+      {status.connected && <AccessRow icon={ShieldCheck} title="Remove personal key" description="Stop using this key in Swarm. Revoke it on OpenRouter to invalidate it there.">
         <ConfirmButton className="cfg-btn cfg-btn--secondary" disabled={busy} confirmLabel="Remove my key" onConfirm={() => run(openrouterApi.disconnect, () => 'Key removed from Swarm.')}>Disconnect key</ConfirmButton>
       </AccessRow>}
       {status.connected && !active && <button type="button" className="cfg-btn cfg-btn--primary openrouter-settings__use" disabled={busy} onClick={() => void run(() => openrouterApi.update({ enabled: true }), result => result.active ? 'Your Bots now use your OpenRouter credits.' : 'Your personal key is enabled but is not the active billing route.')}>Use my OpenRouter credits</button>}

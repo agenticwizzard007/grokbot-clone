@@ -1,3 +1,4 @@
+import { ConnectedAccountDetails, type DisplayAccount } from '../ConnectedAccountDetails';
 import { useEffect, useRef, useState } from 'react';
 import type { CardBody, Row } from '@shared/types';
 import { api, openPopup } from '../../lib/api';
@@ -116,6 +117,18 @@ export function ConnectCard({ row, body }: { row: Row; body: Card<'connect'> }) 
   const [waiting, setWaiting] = useState(false);
   const connectionsVersion = useStore((s) => s.connectionsVersion);
   const pending = body.status === 'pending';
+  const userId = useStore(s => s.user?.id);
+  const [account, setAccount] = useState<DisplayAccount | null>(null);
+  useEffect(() => {
+    setAccount(null);
+    if (!userId || !['connected', 'expired'].includes(body.status) || !body.connectedAccountId) return;
+    const controller = new AbortController();
+    void fetch('/api/apps/connections', { credentials: 'include', signal: controller.signal })
+      .then(async r => { if (!r.ok) return; const data = await r.json();
+        if (!controller.signal.aborted) setAccount(data.connections?.find((a: DisplayAccount) => a.id === body.connectedAccountId) ?? null);
+      }).catch(() => {});
+    return () => controller.abort();
+  }, [userId, body.status, body.connectedAccountId, connectionsVersion]);
 
   // Leave the "waiting" state once the server reports a connection change or the card resolves.
   useEffect(() => { setWaiting(false); }, [connectionsVersion, body.status]);
@@ -134,7 +147,8 @@ export function ConnectCard({ row, body }: { row: Row; body: Card<'connect'> }) 
       <div className="card__head">
         <ToolkitLogo slug={body.toolkit} name={clean(body.toolkitName)} logo={body.logo} size={44} />
         <div className="card__titles">
-          <div className="card__title">Connect {clean(body.toolkitName)}</div>
+          <div className="card__title">{body.status === 'connected' ? '' : 'Connect '}{clean(body.toolkitName)}</div>
+          {(body.status === 'connected' || body.status === 'expired' && body.connectedAccountId) && <ConnectedAccountDetails account={account ?? { id: body.connectedAccountId ?? 'unavailable', status: body.status === 'expired' ? 'EXPIRED' : 'ACTIVE', ...body.accountDetails }} />}
           <div className="card__sub">{clean(body.reason)}</div>
         </div>
       </div>
