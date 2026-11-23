@@ -15,6 +15,10 @@ import '../../styles/setup-paper.css';
 const choiceLabel = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 const maxFileSize = 2 * 1024 * 1024;
 const NO_BOTS: Bot[] = [];
+const BOT_TYPES = [
+  { value: 'personal', label: 'Personal assistant' },
+  { value: 'teammate', label: 'Teammate' },
+] as const;
 /** R2F-005: Create waits until the name field has been quiet this long, so late keystrokes are included. */
 const INPUT_SETTLE_MS = 150;
 // Same wording as the server's 413 responses, also used when a proxy answers 413 without a JSON body.
@@ -36,6 +40,7 @@ function CreateBotForm({ inline, userId }: { inline: boolean; userId: string | u
   const [shape, setShape] = useState<AvatarShape>(DEFAULT_AVATAR_SHAPE);
   const [color, setColor] = useState<AvatarColor>('blue');
   const [mode, setMode] = useState<Bot['mode']>('personal');
+  const typeButtons = useRef<(HTMLButtonElement | null)[]>([]);
   const [selection, setSelection] = useState<{ file: string; manifest: unknown } | null>(null);
   const [importName, setImportName] = useState('');
   const [reading, setReading] = useState(false);
@@ -155,9 +160,18 @@ function CreateBotForm({ inline, userId }: { inline: boolean; userId: string | u
               onCompositionStart={() => setComposing(true)} onCompositionEnd={event => { setComposing(false); setName(event.currentTarget.value); }} autoFocus /><small>Up to 60 characters</small></label>
             <div><p>Choose a bird</p><BirdPicker shape={shape} color={color} onShape={setShape} /></div>
             <label>Color<select value={color} onChange={event => setColor(event.target.value as AvatarColor)}>{COLOR_ORDER.map(value => <option key={value} value={value}>{choiceLabel(value)}</option>)}</select><small>Choose a character color</small></label>
-            <div className="setup-paper__tabs" role="group" aria-label="Bot type">
-              <button type="button" aria-pressed={mode === 'personal'} onClick={() => setMode('personal')}>Personal assistant</button>
-              <button type="button" aria-pressed={mode === 'teammate'} onClick={() => setMode('teammate')}>Teammate</button>
+            <div className="setup-paper__tabs" role="radiogroup" aria-label="Bot type">
+              {BOT_TYPES.map((option, index) => <button key={option.value} ref={element => { typeButtons.current[index] = element; }}
+                type="button" role="radio" aria-checked={mode === option.value} tabIndex={mode === option.value ? 0 : -1}
+                onClick={() => setMode(option.value)} onKeyDown={event => {
+                  const direction = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1
+                    : event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 0;
+                  if (!direction) return;
+                  event.preventDefault();
+                  const next = (index + direction + BOT_TYPES.length) % BOT_TYPES.length;
+                  typeButtons.current[next]?.focus();
+                  setMode(BOT_TYPES[next].value);
+                }}>{option.label}</button>)}
             </div>
             <div className="setup-create__description"><strong>{mode === 'personal' ? 'Personal assistant' : 'Teammate'}</strong><p>{mode === 'personal' ? 'Works for you, with your apps.' : 'Works with your team on an agreed role and responsibilities.'}</p></div>
           </> : <>

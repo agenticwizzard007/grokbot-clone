@@ -45,7 +45,7 @@
 .setup-paper__tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 18px 0 20px; }
 .setup-paper__tabs button { min-height: 38px; padding: 7px 10px; border-radius: 8px; text-align: start; overflow-wrap: anywhere; }
 /* Active tabs change colour, not weight, so the row never shifts width. */
-.setup-paper__tabs button[aria-current], .setup-paper__tabs button[aria-pressed='true'] { background: var(--color-bg-active); color: var(--color-text-primary); }
+.setup-paper__tabs button[aria-current], .setup-paper__tabs button[aria-checked='true'] { background: var(--color-bg-active); color: var(--color-text-primary); }
 .setup-paper .cfg-btn { min-height: 40px; height: auto; max-width: 100%; padding: 8px 13px; border-radius: 9px; white-space: normal; text-align: center; overflow-wrap: anywhere; }
 .setup-paper .cfg-btn--secondary { background: var(--color-bg-active); box-shadow: none; }
 .setup-paper .cfg-btn--secondary:hover:not(:disabled) { background: var(--color-bg-secondary-active); }
