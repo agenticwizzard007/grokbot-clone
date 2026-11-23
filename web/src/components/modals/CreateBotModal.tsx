@@ -169,7 +169,7 @@ function CreateBotForm({ inline, userId }: { inline: boolean; userId: string | u
             {selection && <label>Bot name<input className="text-input" value={importName} maxLength={60} onChange={event => { setImportName(event.target.value); setError(''); }} /><small>Choose a unique name in this account.</small></label>}
             {/* The imported Bot can reach the roster before the import response arrives. */}
             {duplicate && !busy && <p className="cfg-error" role="alert">A Bot with this name already exists. Choose a different name.</p>}
-            <div className="setup-create__description"><strong>Setup only</strong><p>Imports the role and saved setup, not tasks, schedules, sessions, or learned history. Review the new Bot’s setup before activating it.</p></div>
+            <div className="setup-create__description"><strong>Setup only</strong><p>Imports the role and saved setup, not tasks, schedules, sessions, or learned history. Review the new Bot's setup before activating it.</p></div>
           </>}
         </fieldset>
         {error && <p className="cfg-error" role="alert">{error}</p>}
