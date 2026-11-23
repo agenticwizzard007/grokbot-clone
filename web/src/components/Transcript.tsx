@@ -28,7 +28,7 @@ const DIVIDER_GAP = 60 * 60 * 1000;
 const GROUP_GAP = 5 * 60 * 1000;
 
 /** Turns rows into render items: date dividers, grouped bubbles, collapsed tool-call steps, cards, events. */
-function buildItems(rows: Row[], exchanges: ExchangeGroup[]): Item[] {
+function buildItems(rows: Row[], exchanges: ExchangeGroup[], separateReplies: Set<number>): Item[] {
   const items: Item[] = [];
   let prevTs = 0;
   const entries = [...rows.map(row => ({ at: row.createdAt, row, exchange: null as ExchangeGroup | null })), ...exchanges.map(exchange => ({ at: exchange.createdAt, row: null as Row | null, exchange }))].sort((a, b) => a.at - b.at);
@@ -46,13 +46,13 @@ function buildItems(rows: Row[], exchanges: ExchangeGroup[]): Item[] {
       continue;
     }
     if (b.type === 'message') {
-      if (!b.text && !b.streaming) continue;
+      if (!b.text && (b.role === 'assistant' || !b.streaming)) continue;
       const side = b.role === 'user' && (!b.from || b.from.kind === 'voice' || isText(b.from.kind)) ? 'right' : 'left';
       const sender = b.from ? `${b.from.kind}:${b.from.id}` : b.role;
       const lastRow = last?.kind === 'group' ? last.rows[last.rows.length - 1] : null;
       const lastBody = lastRow?.body as MessageBody | undefined;
       const lastSender = lastBody ? (lastBody.from ? `${lastBody.from.kind}:${lastBody.from.id}` : lastBody.role) : null;
-      if (last?.kind === 'group' && lastSender === sender && row.createdAt - lastRow!.createdAt < GROUP_GAP) last.rows.push(row);
+      if (last?.kind === 'group' && lastSender === sender && !separateReplies.has(row.seq) && row.createdAt - lastRow!.createdAt < GROUP_GAP) last.rows.push(row);
       else items.push({ kind: 'group', key: `g${row.seq}`, side, from: b.from, rows: [row] });
       continue;
     }
@@ -164,34 +164,51 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
   const scrollRef = useRef<HTMLDivElement>(null);
   const responseSlot = useRef<HTMLDivElement>(null);
   const responseHeight = useRef(0);
+  const responseHeights = useRef(new Map<number, number>());
+  const responseTurn = useRef<{ startedAt: number | null; promptSeq: number }>({ startedAt: null, promptSeq: 0 });
   const stick = useRef(true);
   const [showJump, setShowJump] = useState(false);
   const connected = useStore(s => s.sseConnected);
   const exchanges = useAgentExchanges(bot.id, generation, loaded && bot.kind !== 'room', connected);
   const visibleRows = useMemo(() => rows.filter(r => !isInternalRow(r)), [rows]);
   const groups = useMemo(() => groupExchanges(exchanges.exchanges, visibleRows), [exchanges.exchanges, visibleRows]);
-  const items = useMemo(() => buildItems(visibleRows, groups), [visibleRows, groups]);
   live = userFacingLive(live);
 
   const running = !!live?.isRunning;
   const waiting = !running && (!!live?.awaiting || live?.activity?.kind === 'waiting_for_you');
-  const last = visibleRows[visibleRows.length - 1];
-  const streamingNow = last?.body.type === 'message' && last.body.role === 'assistant' && !!last.body.streaming;
-  // A first response may delegate work before it starts streaming. Only exchange
-  // history from before this turn disqualifies the default processing mark.
-  const firstPrompt = visibleRows.find(r => r.body.type === 'message' && r.body.role === 'user' && r.body.from?.kind !== 'bot' && r.body.from?.kind !== 'routine');
-  const firstTurnStartedAt = firstPrompt?.createdAt ?? live?.startedAt;
-  const priorExchanges = groups.some(group => firstTurnStartedAt == null || group.createdAt < firstTurnStartedAt);
-  const firstTurn = loaded && !priorExchanges && !visibleRows.some(r => r.body.type === 'message'
-    && (r.body.role !== 'user' || r.body.from?.kind === 'bot' || r.body.from?.kind === 'routine'));
-  const processing = firstTurn && running && !live?.awaiting && !streamingNow;
+  const streamingNow = visibleRows.some(row => row.body.type === 'message' && row.body.role === 'assistant' && row.body.streaming && row.body.text);
+  const promptSeq = visibleRows.findLast(row => row.body.type === 'message' && row.body.role === 'user'
+    && row.body.from?.kind !== 'bot' && row.body.from?.kind !== 'routine')?.seq ?? 0;
+  // A queued prompt can precede the previous run's answer. Use the run boundary
+  // once available, and retain it after stopping so a no-output finish stays put.
+  const turn = running && live?.startedAt != null
+    ? { startedAt: live.startedAt, promptSeq }
+    : promptSeq !== responseTurn.current.promptSeq
+      ? { startedAt: null, promptSeq }
+      : responseTurn.current;
+  const firstReply = visibleRows.find(row => row.body.type === 'message' && row.body.role === 'assistant' && row.body.text
+    && (turn.startedAt != null ? row.createdAt >= turn.startedAt : row.seq > turn.promptSeq));
+  const items = useMemo(() => {
+    const separateReplies = new Set(responseHeights.current.keys());
+    if (firstReply && responseHeight.current) separateReplies.add(firstReply.seq);
+    return buildItems(visibleRows, groups, separateReplies);
+  }, [visibleRows, groups, firstReply?.seq]);
+  const pendingResponse = loaded && !firstReply;
+  const processing = pendingResponse && running && !live?.awaiting && live?.activity?.kind !== 'waiting_for_you' && !streamingNow;
   const empty = loaded && visibleRows.length === 0 && groups.length === 0;
-  const firstAssistant = items.find(it => it.kind === 'group' && it.rows.some(r => r.body.type === 'message' && r.body.role === 'assistant'));
+  const activeTools = visibleRows.some(row => row.body.type === 'tool-call' && ['queued', 'running', 'awaiting-approval'].includes(row.body.status));
   const showActivity = ((running && !streamingNow) || waiting)
-    && (!firstTurn || !!live?.awaiting || waiting || visibleRows.some(r => r.body.type !== 'message'));
+    && (!!live?.awaiting || waiting || activeTools);
 
-  // Keep the reservation through CSS reflow as well as state changes. The first
-  // assistant row replaces this slot, so its last measured height must survive.
+  // Each reply inherits its own measured slot. Retain earlier reservations so a
+  // later turn or a wrapped activity line cannot resize completed history.
+  useLayoutEffect(() => {
+    responseTurn.current = turn;
+    if (firstReply && responseHeight.current) {
+      responseHeights.current.set(firstReply.seq, responseHeight.current);
+      responseHeight.current = 0;
+    }
+  }, [turn.startedAt, turn.promptSeq, firstReply?.seq]);
   useLayoutEffect(() => {
     const slot = responseSlot.current;
     if (!slot) return;
@@ -203,14 +220,10 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
     const observer = new ResizeObserver(measure);
     observer.observe(slot);
     return () => observer.disconnect();
-  }, [firstTurn, empty, processing]);
+  }, [pendingResponse, turn.startedAt, turn.promptSeq, empty, processing]);
 
   // Keep pinned to the bottom while new content arrives, unless the user scrolled up.
   useLayoutEffect(() => {
-    // Hand the reserved space to the first response, including any tool status.
-    // Keep it for this generation so a short reply or no-output finish cannot
-    // collapse the scroll extent and move the user's message.
-    if (responseSlot.current) responseHeight.current = Math.max(responseHeight.current, responseSlot.current.offsetHeight);
     const el = scrollRef.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
   }, [rows, live, loaded, bot.id, exchanges.exchanges]);
@@ -251,18 +264,20 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
               return <Steps key={it.key} rows={it.rows} />;
             case 'row':
               return <SystemRow key={it.key} row={it.row} />;
-            case 'group':
+            case 'group': {
+              const height = Math.max(0, ...it.rows.map(row => Math.max(responseHeights.current.get(row.seq) ?? 0, row.seq === firstReply?.seq ? responseHeight.current : 0)));
               return (
-                <div key={it.key} className={`group is-${it.side}`} style={it === firstAssistant && responseHeight.current ? { minHeight: responseHeight.current } : undefined}>
+                <div key={it.key} className={`group is-${it.side}`} style={height ? { minHeight: height } : undefined}>
                   {it.from && <SenderLabel from={it.from} />}
                   {it.rows.map((r, i) => (
                     <Fragment key={r.seq}><Bubble row={r} side={it.side} botName={bot.name} pos={cornerClass(i, it.rows.length)} /></Fragment>
                   ))}
                 </div>
               );
+            }
           }
         })}
-        {firstTurn && (!empty || processing) && (
+        {pendingResponse && (!empty || processing) && (
           <div ref={responseSlot} className={`first-response${empty ? ' first-response--empty' : ''}`} style={{ minHeight: responseHeight.current || undefined }}>
             <div className="first-response__mark" role={processing ? 'status' : undefined} aria-label={processing ? 'Working' : undefined}>
               <FlockMark size={72} working={processing} />
@@ -271,7 +286,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
           </div>
         )}
         {bot.isPrimary && <CoworkerSetupCards key={bot.id} coordinator={bot} />}
-        {!firstTurn && showActivity && live && <ActivityLine bot={bot} live={live} rows={visibleRows} />}
+        {!pendingResponse && showActivity && live && <ActivityLine bot={bot} live={live} rows={visibleRows} />}
       </div>
     </div>
       {showJump && (
