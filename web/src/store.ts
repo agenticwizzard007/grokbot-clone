@@ -273,7 +273,8 @@ export const useStore = create<State>((set, get) => ({
       setupTraversal = 'close';
       history.go(-entry.depth);
     }
-    set({ modal });
+    // Search replaces the fullscreen viewer so its inert background cannot cover the dialog.
+    set({ modal, ...(modal === 'search' ? { viewerOpen: false } : {}) });
   },
 
   set(p) {
