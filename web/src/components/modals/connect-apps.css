@@ -1,7 +1,7 @@
-/* MF-049: the Connected badge gets its own line under the description so the two never overlap. */
+/* Connected status shares the title row; descriptions and account details sit below. */
 .apps-modal .app-row { height: auto; min-height: 64px; }
 .apps-modal .app-row__text { min-width: 0; }
-.apps-modal .app-row__status {
-  display: inline-flex; align-self: flex-start; align-items: center; margin-top: 4px; padding: 1px 8px; border-radius: var(--radius-full);
+.access-apps-catalog .app-row__status {
+  display: inline-flex; align-self: flex-start; align-items: center; margin-top: 0; flex-shrink: 0; padding: 1px 8px; border-radius: var(--radius-full);
   background: var(--color-bg-tertiary); color: var(--color-text-secondary); font-size: 12px; line-height: 16px; white-space: nowrap;
 }

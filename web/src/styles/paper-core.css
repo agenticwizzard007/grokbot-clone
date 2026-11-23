@@ -12,17 +12,21 @@
 .chat__subtitle { font-size: 13px; line-height: 20px; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .app .chat__header-right { position: static; display: flex; gap: 8px; flex-shrink: 0; }
 .app .chat__details, .app .share-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; height: auto; padding: 10px 14px; border: 0; border-radius: 12px; background: var(--color-bg-active); color: var(--color-text-primary); }
-.chat__details:hover, .share-btn:hover { background: var(--color-bg-secondary-active); }
+.share-btn:hover { background: var(--color-bg-secondary-active); }
+.app .chat__header-right { align-self: center; }
+.app .chat__details { position: relative; isolation: isolate; height: 44px; padding: 0 10px; background: transparent; font-size: 13px; }
+.chat__details::before { content: ''; position: absolute; z-index: -1; inset: 6px 0; border-radius: 8px; background: var(--color-bg-active); }
+.chat__details:hover::before { background: var(--color-bg-secondary-active); }
 .app .transcript-wrap { width: 100%; max-width: 720px; margin: 0 auto; }
-.app .transcript { padding: 8px 0 16px; scrollbar-width: thin; }
+.app .transcript { padding: 8px 8px 16px; scrollbar-width: thin; scrollbar-gutter: stable both-edges; }
 .transcript__col { max-width: 720px; gap: 16px; justify-content: flex-start; }
 .transcript__col > .divider:first-child { margin-top: 16px; }
 .bubble-wrap { width: 100%; }
-.app .bubble { width: 82%; max-width: 82%; padding: 16px 18px; border-radius: 16px; box-shadow: none; }
+.app .bubble { width: auto; max-width: min(80%, 560px); padding: 12px 14px; border-radius: 16px; box-shadow: none; }
 .app .bubble.is-agent { background: var(--color-bg-sidebar); color: var(--color-text-primary); }
 :root[data-theme='dark'] .app .bubble.is-agent { background: var(--color-bg-pane); }
 .app .bubble.is-user { background: var(--color-bg-active); color: var(--color-text-primary); }
-.bubble__sender { font-size: 13px; font-weight: 500; line-height: 22px; color: var(--color-text-secondary); margin-bottom: 6px; }
+.bubble__sender { font-size: 12px; font-weight: 500; line-height: 18px; color: var(--color-text-secondary); margin-bottom: 6px; }
 .bubble__time { flex-shrink: 0; }
 .app .composer-area { width: 100%; max-width: 720px; margin: 0 auto; padding: 0; }
 .app .composer-shell { max-width: 720px; }
@@ -38,12 +42,12 @@
 .app .composer__btn { background: var(--color-bg-active); box-shadow: none; }
 .app .composer__cta { background: var(--color-primary); color: var(--color-on-primary); }
 .app .composer__voice { width: auto; padding: 0 14px; font-size: 13px; border-radius: 22px; }
-.app .composer__voice.is-in-call { background: var(--color-danger); color: white; }
+.app .composer__voice.is-in-call { background: #B42332; color: white; }
 .app .model-pill { min-height: 44px; height: auto; flex-wrap: nowrap; gap: 4px 6px; padding: 4px 6px; border-radius: 10px; }
 .app .model-pill__name { white-space: nowrap; text-overflow: ellipsis; text-align: left; }
 .app .model-pill__effort { font-size: 12px; }
 .app .composer__error { max-width: 720px; padding: 10px 12px; }
-.app .vcall { width: 100%; max-width: 720px; margin: 8px auto; }
+.app .vcall { width: 100%; max-width: 720px; margin: 12px auto; }
 .app .agent-exchange__panel { max-width: 100%; padding: 16px; border-radius: 16px; }
 .app .agent-exchange__toggle { min-height: 44px; font-size: 13px; line-height: 20px; }
 .app .steps__toggle { min-height: 36px; }
@@ -68,11 +72,10 @@
   .app .chat__back-badge { position: static; min-width: 20px; border-radius: 10px; padding: 1px 6px; color: var(--color-on-primary); background: var(--color-primary); font-size: 11px; }
   .app .chat__header { gap: 8px; min-height: 54px; padding-bottom: 12px; }
   .app .chat__header > .bot-avatar { width: 28px !important; height: 28px !important; }
-  .app .chat__details, .app .share-btn { padding: 8px 10px; min-height: 44px; font-size: 13px; }
+  .app .chat__details, .app .share-btn { padding: 0 10px; min-height: 44px; font-size: 13px; }
   .app .chat__header-right { gap: 6px; }
   .app .chat__pill-name { font-size: 15px; }
-  .app .transcript { padding: 4px 0 12px; }
-  .app .bubble { width: 90%; max-width: 90%; padding: 14px; }
+  .app .transcript { padding: 4px 8px 12px; }
   .app .composer__input { font-size: 16px; }
   .app .composer__bar { gap: 6px; }
   .app .composer__left { flex-basis: 140px; }
@@ -85,13 +88,9 @@
   /* Keep the model and billing readable beside the reserved Send/Stop space. */
   .app .composer__voice { width: 44px; padding: 0; gap: 0; }
   .app .composer__voice-label { display: none; }
-  .app .model-pill { display: grid; grid-template-columns: auto minmax(0, 1fr); align-content: center; gap: 0 4px; padding: 3px 4px; }
+  .app .model-pill { display: inline-flex; gap: 4px; padding: 4px; }
   .app .model-pill > .provider-icon, .app .model-pill__chev { display: none; }
-  .app .model-pill__name { grid-column: 1 / -1; grid-row: 1; }
-  .app .model-pill .model-billing { grid-column: 1; grid-row: 2; justify-self: start; }
-  .app .model-pill__effort { grid-column: 2; grid-row: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; justify-self: end; }
-  .app .model-pill__fast { grid-column: 2; grid-row: 1; justify-self: end; }
-  .app .model-pill:has(.model-pill__fast) .model-pill__name { padding-right: 16px; }
+  .app .model-pill__effort, .app .model-pill .model-billing { flex-shrink: 0; }
 }
 @media (max-height: 550px) {
   .app .chat:not(.tasks-view) { padding-top: 10px; padding-bottom: 10px; }

@@ -18,3 +18,15 @@
 .auth-button::after { content: ''; }
 .auth-button__label { flex: 1; min-width: 0; text-align: center; }
 .auth-button .auth-button__google-mark { background: #FFFFFF; border-radius: 50%; padding: 1px; }
+
+/* Full-width providers share geometry; phone remains the primary action. */
+:is(.access-signin, .subscription-reauth) .auth-button {
+  width: 100%; max-width: none; min-height: 48px; height: auto; padding: 12px;
+  border-radius: 12px; letter-spacing: 0; font-size: 15px; line-height: 20px;
+  display: flex; align-self: stretch; gap: 12px;
+}
+:is(.access-signin, .subscription-reauth) a.auth-button {
+  border: 1px solid var(--color-border-primary);
+  background: var(--color-bg-pane); color: var(--color-text-primary); text-decoration: none;
+}
+:is(.access-signin, .subscription-reauth) a.auth-button:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }

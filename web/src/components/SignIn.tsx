@@ -58,13 +58,15 @@ export function SignIn() {
           <div className="signin__providers">
             <div className="access-signin__provider">
               <OpenRouterSignIn label="Continue with OpenRouter" />
-              <p>Uses your OpenRouter model credits.</p>
             </div>
             {appleLogin && <div className="access-signin__provider"><AppleSignIn /></div>}
             {googleLogin && <div className="access-signin__provider">
               <AuthLink className="signin__google" href="/api/auth/google/start" icon={<GoogleG />} aria-describedby="signin-google-disclosure">Sign in with Google</AuthLink>
-              <p id="signin-google-disclosure">Google may request Gmail access through Composio to verify your email address.</p>
             </div>}
+          </div>
+          <div className="access-signin__disclosures">
+            <p>Uses your OpenRouter model credits.</p>
+            {googleLogin && <p id="signin-google-disclosure">Google may request Gmail access through Composio to verify your email address.</p>}
           </div>
         </section>
         {devLogin && (

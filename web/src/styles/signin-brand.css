@@ -8,7 +8,6 @@
 .signin__title { margin: 0; font-size: 22px; font-weight: 600; line-height: 28px; letter-spacing: -0.2px; }
 .signin__sub { margin: 0; text-align: center; font-size: 14px; line-height: 20px; color: var(--color-text-secondary); }
 .signin__providers { display: flex; flex-direction: column; gap: 12px; width: 100%; }
-.signin__apple { max-width: 360px; }
 .signin__dev { display: flex; flex-direction: column; gap: 12px; width: 100%; margin-top: 24px; }
 .signin__divider { display: flex; align-items: center; gap: 12px; width: 100%; font-size: 12px; line-height: 16px; color: var(--color-text-secondary); }
 .signin__divider::before, .signin__divider::after { content: ''; flex: 1; height: 1px; background: var(--color-border-tertiary); }
@@ -61,13 +60,12 @@
 .access-signin .signin__divider { margin: 0; font: 400 13px/20px var(--font-stack); letter-spacing: 0; }
 .access-signin .signin__providers { margin: 0; gap: 12px; }
 .access-signin .access-signin__provider { display: flex; flex-direction: column; gap: 8px; }
-.access-signin .access-signin__provider p { margin: 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.5; text-align: center; }
+.access-signin .access-signin__disclosures { display: grid; gap: 8px; }
+.access-signin .access-signin__disclosures p { margin: 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.5; text-align: center; }
 .access-signin .auth-button {
   width: 100%; max-width: none; min-height: 48px; height: auto; padding: 12px; gap: 8px;
   border: 1px solid transparent; border-radius: 12px; font-size: 15px; line-height: 22px; letter-spacing: 0;
 }
-.access-signin .access-signin__provider .auth-button { border-color: var(--color-border-primary); background: var(--color-bg-pane); color: var(--color-text-primary); }
-.access-signin .access-signin__provider .auth-button:hover { background: var(--color-bg-hover); }
 .access-signin .signin__dev { margin: 0; }
 .access-signin .signin__dev :is(input, button) { min-height: 48px; font-size: 16px; }
 

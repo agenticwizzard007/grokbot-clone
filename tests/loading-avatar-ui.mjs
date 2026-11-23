@@ -155,12 +155,12 @@ try {
       assert.ok(await moving.evaluate(el => el.complete && el.naturalWidth > 0), 'the animated asset is loaded');
       for (const element of [mark, flock, moving]) {
         const box = await element.boundingBox();
-        assert.equal(box.width, 72, 'the mark, flock and visible image each use 72px width');
-        assert.equal(box.height, 72, 'the mark, flock and visible image each use 72px height');
+        assert.equal(box.width, 32, 'the mark, flock and visible image each use 32px width');
+        assert.equal(box.height, 32, 'the mark, flock and visible image each use 32px height');
       }
       const box = await moving.boundingBox(), clip = await page.locator('.transcript').boundingBox();
       assert.ok(box.x >= clip.x && box.x + box.width <= clip.x + clip.width);
-      assert.ok(box.y >= clip.y && box.y + box.height <= clip.y + clip.height, 'all 72px remain visible');
+      assert.ok(box.y >= clip.y && box.y + box.height <= clip.y + clip.height, 'all 32px remain visible');
       assert.equal(await mark.locator('.bot-avatar').count(), 0, 'processing uses the flock');
       assert.equal(await page.locator('.bubble.is-streaming').count(), 0, 'no empty streaming bubble or trailing dot');
       assert.ok((await page.locator('.bubble.is-agent .md').allTextContents()).every(text => text.trim()), 'no blank assistant bubble');
@@ -179,13 +179,13 @@ try {
         await sleep(110);
         if (!frame.equals(await moving.screenshot())) { animated = true; break; }
       }
-      assert.ok(animated, 'the 72px flock has visible pixel motion');
+      assert.ok(animated, 'the 32px flock has visible pixel motion');
       await page.screenshot({ path: join(evidence, `${label}-${turn}-working.png`) });
       await page.emulateMedia({ reducedMotion: 'reduce' });
       const still = flock.locator('.flock-mark__static:visible');
       await still.waitFor();
       assert.equal(await moving.count(), 0, 'reduced motion hides the animation');
-      assert.equal((await still.boundingBox()).width, 72);
+      assert.equal((await still.boundingBox()).width, 32);
       const staticFrame = await still.screenshot();
       await sleep(250);
       assert.ok(staticFrame.equals(await still.screenshot()), 'reduced motion artwork stays still');
@@ -212,7 +212,7 @@ try {
       await page.waitForFunction(() => !document.querySelector('.chat__header .bot-avatar--working'));
       assert.equal(await bird.innerHTML(), identity, 'completed reply preserves header identity');
       assert.deepEqual(unexpected, []);
-      console.log(`PASS ${label}-${turn}: animated 72px flock, blank stream, validated reply handoff, reduced motion, header identity`);
+      console.log(`PASS ${label}-${turn}: animated 32px flock, blank stream, validated reply handoff, reduced motion, header identity`);
     }
     await context.close();
   }

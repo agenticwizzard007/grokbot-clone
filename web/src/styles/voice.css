@@ -44,8 +44,6 @@
 }
 .vcall__btn:hover { background: #FFFFFF33; }
 .vcall__btn.is-on { background: #FFFFFF; color: #1C1C1C; }
-.vcall__btn--end { background: var(--color-danger); width: 44px; }
-.vcall__btn--end:hover { background: #C82532; }
 .vcall__captions {
   display: flex; flex-direction: column; flex-shrink: 0; gap: 2px; width: 100%; text-align: left; margin-top: 8px; padding: 8px 10px;
   border-radius: 14px; background: #FFFFFF0F; font-size: 13px; line-height: 18px; cursor: pointer;
@@ -90,7 +88,7 @@
 /* ---------- composer: live voice is the main microphone entry ---------- */
 .composer__voice { width: auto; min-height: 34px; padding: 0 10px; gap: 6px; border-radius: 18px; font-size: 12px; font-weight: var(--font-weight-medium); white-space: nowrap; }
 .composer__voice.is-in-call { background: var(--color-danger); color: #FFFFFF; }
-.composer__voice.is-in-call:hover:not(:disabled) { background: #C82532; }
+.composer__voice.is-in-call:hover:not(:disabled) { background: #941B28; }
 .composer__voice:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
 .composer__dictation { max-width: 960px; margin: 0 auto 8px; padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; border-radius: 12px; background: var(--color-bg-tertiary); font-size: 13px; line-height: 18px; color: var(--color-text-secondary); }
 .composer__dictation-actions { display: flex; gap: 12px; }
@@ -126,7 +124,9 @@
 .vcall__shimmer, .vcall__shimmer .vcall__task { color: var(--color-text-secondary); background: none; animation: none; }
 .vcall__btn, .vcall__toggle, .voice-preview { width: auto; min-height: 44px; padding: 0 14px; border: 0; border-radius: 12px; background: var(--color-bg-active); color: var(--color-text-primary); font-size: 14px; text-decoration: none; }
 .vcall__btn:hover, .vcall__btn.is-on { background: var(--color-bg-secondary-active); color: var(--color-text-primary); }
-.vcall__btn--end, .vcall__btn--end:hover { background: var(--color-danger-bg); color: var(--color-danger-text); border-radius: var(--radius-full); }
+.vcall__btn--end { background: #B42332; color: #FFFFFF; border-radius: var(--radius-full); }
+.vcall__btn--end:hover { background: #941B28; color: #FFFFFF; }
+.vcall__btn:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 3px; }
 .vcall__captions { gap: 4px; padding: 10px 0 0; background: none; }
 .vcall__captions:hover, .vcall__log { background: none; }
 .vcall__captions-label { color: var(--color-primary); font-size: 13px; line-height: 1.5; }

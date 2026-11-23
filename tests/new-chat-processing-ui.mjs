@@ -115,9 +115,9 @@ try {
       assert.equal(await moving.getAttribute('src'), `/assets/swarms/flock-working-${theme === 'dark' ? 'night' : 'light'}.svg`);
       assert.equal(await mark.locator('.bot-avatar').count(), 0);
       const imageBox = await moving.boundingBox();
-      assert.equal(imageBox.width, 72); assert.equal(imageBox.height, 72);
+      assert.equal(imageBox.width, 32); assert.equal(imageBox.height, 32);
       const box = await mark.boundingBox();
-      assert.equal(box.width, 72); assert.equal(box.height, 72);
+      assert.equal(box.width, 32); assert.equal(box.height, 32);
       const viewport = await page.locator('.transcript').boundingBox();
       assert.ok(box.y >= viewport.y && box.y + box.height <= viewport.y + viewport.height, `${label}: the whole processing mark is inside the transcript clip`);
     };
@@ -151,7 +151,7 @@ try {
     await live();
     await working();
     await hasPixelMotion();
-    assert.equal(await page.locator('.activity-line').count(), 0, 'the default first-turn animation is the 72px flock');
+    assert.equal(await page.locator('.activity-line').count(), 0, 'the default first-turn animation is the 32px flock');
     sameGeometry(before, await geometry());
     assert.equal(await page.locator('.chat__header .bot-avatar > svg').count(), 1, 'the Bot identity shape stays in the header');
     await page.screenshot({ path: new URL(`${label}-working.png`, evidence).pathname });

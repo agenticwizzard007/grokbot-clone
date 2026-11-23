@@ -92,3 +92,23 @@
   .access-apps-catalog .app-row:not(.app-row--expanded) :is(.app-row__connect, .app-row__connected) { min-width: 76px; padding-inline: 8px; }
   .access-apps__search input { font-size: 16px; }
 }
+
+/* Keep connected cards compact, with a separate line available for account details. */
+.access-apps-catalog .app-row--connected { align-items: start; }
+.app-row__heading, .access-apps-settings__name { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.access-apps-catalog .app-row--connected .app-row__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.access-apps-catalog .app-row--connected .app-row__desc,
+.access-apps-settings .access-apps-settings__description { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.access-apps-catalog .app-row--connected .access-app-row__actions { align-self: start; }
+.access-apps-catalog .app-row--connected .app-row__connected { white-space: nowrap; overflow-wrap: normal; }
+.access-apps-settings .cfg-row.access-apps-settings__row { align-items: start; }
+.access-apps-settings__name .cfg-chip { flex-shrink: 0; }
+/* The footer owns the single divider after the final row. */
+.access-apps-catalog .apps-modal__body > .apps-section:last-of-type .app-row:last-child { border-bottom: 0; }
+.access-apps-catalog .access-apps__mcp { flex-wrap: wrap; align-items: center; }
+.access-apps-catalog .access-apps__mcp > .cfg-btn { flex: 0 0 auto; white-space: nowrap; overflow-wrap: normal; }
+@media (min-width: 761px) {
+  @container access-app-grid (min-width: 620px) {
+    .access-apps-catalog .apps-modal__body > .apps-section:last-of-type .app-row:nth-last-child(2):nth-child(odd) { border-bottom: 0; }
+  }
+}

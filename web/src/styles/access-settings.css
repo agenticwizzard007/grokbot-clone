@@ -33,9 +33,10 @@
 .access-row__actions { display: flex; flex-direction: column; align-items: stretch; gap: 8px; min-width: 0; flex: 0 0 min(176px, 42%); }
 .access-row__actions > :is(.cfg-btn, .auth-button) { align-self: stretch; justify-content: center; text-align: center; text-decoration: none; }
 .access-settings .subscription-settings a.cfg-btn { align-self: stretch; font-size: 14px; }
-.access-settings .subscription-settings__tabs { gap: 4px; border: 0; }
-.access-settings .subscription-settings__tabs > button { min-height: 44px; padding: 0 12px; border: 0; border-radius: 12px; }
-.access-settings .subscription-settings__tabs > button[aria-selected='true'] { color: var(--color-primary); background: var(--color-bg-active); }
+.access-settings .subscription-settings__tabs { display: flex; width: 100%; gap: 4px; padding: 4px; border: 1px solid var(--color-border-secondary); border-radius: 12px; background: var(--color-bg-pane); }
+.access-settings .subscription-settings__tabs > button { flex: 1 1 0; justify-content: center; min-height: 44px; padding: 0 12px; border: 0; border-radius: 8px; color: var(--color-text-secondary); font-weight: 500; }
+.access-settings .subscription-settings__tabs > button[aria-selected='true'] { color: var(--color-text-primary); background: var(--color-bg-active); }
+.access-settings .subscription-settings__tabs > button:disabled { opacity: 1; }
 .access-settings .subscription-settings__auth { gap: 0; }
 .access-settings .subscription-settings__auth > :is(p, details, .cfg-error) { margin: 12px 0 0; }
 .subscription-settings__context > summary { cursor: pointer; color: var(--color-text-secondary); font-size: 14px; }
@@ -45,12 +46,21 @@
 .access-settings .subscription-settings__advanced > summary > .cfg-btn { flex: 0 0 min(176px, 42%); justify-content: center; }
 .access-settings .subscription-reauth { border: 0; background: transparent; }
 .access-settings .subscription-reauth__body { padding: 0; }
-.access-settings .subscription-reauth__head h3 { font-family: 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack); font-size: var(--text-panel-title); letter-spacing: -.02em; outline: none; }
+/* One heading family and tracking, with page and section sizes. */
+.access-settings .subscription-settings :is(h1, h2, h3),
+.access-settings .subscription-reauth__head h3 {
+  font-family: 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack);
+  font-weight: 600; letter-spacing: 0; line-height: 1.3;
+}
+.access-settings .subscription-settings h1 { font-size: var(--text-page-title); }
+.access-settings .subscription-settings :is(h2, h3),
+.access-settings .subscription-reauth__head h3 { font-size: var(--text-panel-title); }
+.access-settings .subscription-reauth__head h3 { outline: none; }
 .access-settings .access-reauth__notice { display: grid; gap: 8px; margin: 0; padding: 14px 16px; border-radius: 12px; background: var(--color-warning-bg, var(--color-bg-active)); color: var(--color-warning-text, var(--color-text-primary)); }
 .access-settings .access-reauth__notice p { color: inherit; margin: 0; }
 .access-reauth__provider-title { font-size: 14px; }
 .access-reauth__provider-title p { margin: 4px 0 0; }
-.access-settings .subscription-reauth__providers > .auth-button { min-height: 44px; border-radius: 12px; }
+.access-settings .subscription-reauth__providers > .auth-button { min-height: 48px; border-radius: 12px; }
 @media (max-width: 760px) {
   .access-settings .access-row { min-height: 82px; }
   .access-settings .access-row:has(.model-picker), .access-settings .access-row:has(.openrouter-settings__oauth) { align-items: stretch; flex-direction: column; gap: 10px; }

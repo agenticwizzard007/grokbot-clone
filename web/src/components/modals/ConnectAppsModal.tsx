@@ -60,13 +60,15 @@ function AppRow({ app, onChanged }: { app: Toolkit; onChanged: () => void }) {
   };
 
   return (
-    <div className={`app-row${state === 'waiting' || state === 'confirm' ? ' app-row--expanded' : ''}`}>
+    <div className={`app-row${app.connected ? ' app-row--connected' : ''}${state === 'waiting' || state === 'confirm' ? ' app-row--expanded' : ''}`}>
       <ToolkitLogo slug={app.slug} name={app.name} logo={app.logo} />
       <span className="app-row__text">
-        <span className="app-row__name">{app.name}</span>
+        <span className="app-row__heading">
+          <span className="app-row__name">{app.name}</span>
+          {app.connected && <span className="app-row__status">Connected</span>}
+        </span>
         <ConnectedAccounts accounts={app.accounts} />
         {app.description && <span className="app-row__desc">{app.description}</span>}
-        {app.connected && <span className="app-row__status">Connected</span>}
         {state === 'waiting' && <span className="app-row__desc" role="status">Finish authorizing in the provider window, then refresh.</span>}
         {error && <span className="app-row__error" role="alert">{error}</span>}
       </span>

@@ -59,19 +59,20 @@ async function checkRows(rows, label, connected, hovered) {
   assert.equal(measurements.length, 3, `${label}: fixture has a following row in either grid layout`);
   const first = measurements[0];
   assert.equal(first.hovered, hovered, `${label}: expected hover state`);
-  assert.ok(first.painted.height > first.lineHeight * 2, `${label}: fixture must wrap to several lines`);
+  if (!connected) assert.ok(first.painted.height > first.lineHeight * 2, `${label}: unconnected fixture wraps to several lines`);
   for (const [index, item] of measurements.entries()) {
     assert.equal(item.opacity, '1', `${label}: description ${index} is visible`);
     assert.ok(item.description.height + 1 >= item.scrollHeight, `${label}: description ${index} contains its scroll height`);
+    if (connected) assert.ok(item.description.height <= item.lineHeight + 1, `${label}: connected description stays on one line`);
     assert.ok(item.painted.top >= item.description.top - 1 && item.painted.bottom <= item.description.bottom + 1,
       `${label}: description ${index} contains its painted text`);
     assert.ok(item.description.top >= item.row.top && item.description.bottom <= item.row.bottom,
       `${label}: row ${index} reserves the full description height`);
   }
-  const parts = { description: first.description, painted: first.painted, action: first.action };
+  const parts = { description: first.description, ...(connected ? {} : { painted: first.painted }), action: first.action };
   if (connected) {
     assert.ok(first.status, `${label}: fake connected status is present`);
-    assert.ok(first.status.top >= first.description.bottom, `${label}: Connected sits below description`);
+    assert.ok(Math.abs(first.status.top - first.name.top) < 4, `${label}: Connected sits next to the name`);
     parts.status = first.status;
   } else {
     assert.equal(first.status, null, `${label}: search result is unconnected`);
@@ -84,7 +85,7 @@ async function checkRows(rows, label, connected, hovered) {
     for (const next of measurements.slice(1)) {
       disjoint(rect, next.name, `${label}: ${name} and following title`);
       disjoint(rect, next.description, `${label}: ${name} and following description`);
-      disjoint(rect, next.painted, `${label}: ${name} and following painted text`);
+      if (!connected) disjoint(rect, next.painted, `${label}: ${name} and following painted text`);
     }
   }
   assert.ok(measurements.slice(1).some(next => Math.abs(next.row.left - first.row.left) < 1 && next.row.top >= first.row.bottom - 1),
@@ -143,7 +144,8 @@ try {
 
     for (const scenario of ['connected', 'search']) {
       if (scenario === 'search') {
-        await dialog.getByRole('searchbox', { name: 'Search apps' }).fill('Notion');
+        const [searchResponse] = await Promise.all([page.waitForResponse(response => new URL(response.url()).pathname === '/api/apps' && new URL(response.url()).searchParams.get('search') === 'Notion'),dialog.getByRole('searchbox', { name: 'Search apps' }).fill('Notion')]);
+        await searchResponse.finished();
         await dialog.getByRole('heading', { name: 'Results', exact: true }).waitFor();
         await dialog.getByRole('button', { name: 'Connect Notion', exact: true }).waitFor();
       }
