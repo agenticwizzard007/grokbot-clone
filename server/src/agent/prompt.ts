@@ -1,4 +1,5 @@
 import { db } from '../db.js';
+import { botTargetChoice, listVisibleAgents } from '../bots.js';
 import { getBotRow, listRoutines } from '../store.js';
 import { connectedToolkits } from '../composio.js';
 import { computers } from '../computers/index.js';
@@ -55,8 +56,8 @@ ${nativeState}
 User answer numbers in this conversation:
 ${creationContext(botId).slice(0, 30).reverse().map((m) => `Message ${m.seq}: ${JSON.stringify(m.text)}`).join('\n') || 'No answers yet.'}`;
   }
-  const team = (db.prepare('SELECT name, label, is_primary FROM bots WHERE user_id=? AND id<>? AND COALESCE(hidden,0)=0').all(userId, botId) as any[])
-    .map((b) => `- ${b.name}${b.label ? ` (${b.label})` : ''}${b.is_primary ? ' [primary Bot]' : ''}`)
+  const team = listVisibleAgents(userId).filter((b) => b.id !== botId)
+    .map((b) => `- ${JSON.stringify({ ...botTargetChoice(b), is_primary: !!b.is_primary })}`)
     .join('\n');
   // Bounded: most relevant to the last few user messages, then most recent, within a character budget.
   const mem = memoriesForPrompt(botId);
@@ -89,7 +90,7 @@ ${env.composioEnabled ? `- Prefer connected apps over the browser when an app is
 - Use tool_search and tool_describe to discover deferred tools, then tool_call with the current schema_hash. Discovery does not grant permission.
 - For bulk JSON data, execute_code runs isolated JavaScript with inputs, print(), and synchronous tools.call(name,args). Return a JSON value. List exact allowed tools explicitly; an empty list permits no tool calls. Each action still needs its normal authorization. Approval resumes reuse completed results; uncertain actions must be reconciled.
 - Use save_file to produce actual downloadable reports. deliver_artifact sends that exact saved artifact after authorization. Use routine_history/list_deliverables to inspect outcomes, and retry_delivery only for a definitely-not-sent failure. Do not regenerate a report to retry delivery.
-- Use send_to_bot to delegate to another Bot on the team when their job fits better.
+- Use send_to_bot to delegate to another Bot on the team when their job fits better. Target Bots by bot_id from the team roster for delegation, replication and setup retry, and use bot_ids for group members. Names are display labels and may be duplicated. If the intended Bot is unclear, ask the user to choose using its role details; never guess from duplicate names.
 ${textingLine(userId)}${bot.is_primary ? `- You CAN create permanent teammates directly in this chat using create_bot. This is an available capability now, even if earlier messages claimed otherwise. Do not send the user to the sidebar or tell them that creation is unavailable.
 - When the user asks for a new Bot, use their full brief and corrections in this conversation (and relevant recalled facts) to prepare its mission, concrete responsibilities, boundaries, deliverables, success criteria, shared resources, and handoff rules. Keep its remit narrow. The new Bot cannot read your chat: include all relevant context in context_summary. Cite the relevant user message numbers with source_message_seqs. Do not copy unrelated private context or invent access, schedules, credentials, or responsibilities.
 - If the job is already clear, call create_bot now. Ask one focused question only when the actual responsibility is missing or conflicting; do not ask the user to repeat specifications they have already given you. For a bare “create a bot” without a prior brief, ask what it should own.

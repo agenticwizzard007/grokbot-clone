@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
-import { createBot, visibleAgentByName } from '../bots.js';
+import { createBot, resolveBotTarget, visibleAgentByName, type BotTarget } from '../bots.js';
 import {
   beginSetupInterview, creationContext, creationSchema, emitSetup, getSetup, setupFiles, setupManifest,
   briefSchema, writeSetupFiles, setupAnswers, setupMissing, setupView, assertSetupCoordinator,
@@ -146,18 +146,18 @@ export async function importTeammate(userId: string, manifest: unknown, name?: s
   return { bot: getBot(bot.id), computer: await provisionTeammate(userId, bot.id) };
 }
 
-export async function replicateTeammate(a: { bot_name: string; new_name: string }, ctx: ToolCtx): Promise<ToolResult> {
+export async function replicateTeammate(a: BotTarget & { new_name: string }, ctx: ToolCtx): Promise<ToolResult> {
   primary(ctx);
-  const bot = visibleAgentByName(ctx.userId, a.bot_name);
+  const bot = resolveBotTarget(ctx.userId, a);
   const manifest = bot && setupManifest(bot.id);
   if (!manifest) throw new Error('No saved setup found for that teammate. Create one from its brief with create_bot.');
   const result = await importTeammate(ctx.userId, manifest, a.new_name);
   return { output: JSON.stringify({ ok: true, ...result, note: 'Role and setup replicated. Browser sessions, live tasks, schedules, and chat history are not copied.' }), summary: `Replicated ${bot.name} as ${result.bot!.name}` };
 }
 
-export async function retryTeammate(a: { bot_name: string }, ctx: ToolCtx): Promise<ToolResult> {
+export async function retryTeammate(a: BotTarget, ctx: ToolCtx): Promise<ToolResult> {
   primary(ctx);
-  const bot = visibleAgentByName(ctx.userId, a.bot_name);
+  const bot = resolveBotTarget(ctx.userId, a);
   if (!bot) throw new Error('No such teammate.');
   return { output: JSON.stringify({ bot_id: bot.id, computer: await provisionTeammate(ctx.userId, bot.id) }) };
 }
