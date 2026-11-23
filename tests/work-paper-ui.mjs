@@ -374,7 +374,7 @@ try {
     await phone.submit('Cancel'); await phone.page.getByRole('heading', { name: 'Reports', exact: true }).waitFor();
     assert.equal(phone.requests.filter(request => request.path.endsWith('/deliveries')).length, 0);
     if (width === 390) {
-      phone.fixture.taskError = true; await phone.page.reload(); await phone.sidebar.click(); await phone.tab('Tasks').click();
+      phone.fixture.taskError = true; await phone.page.reload(); await phone.tab('Tasks').click();
       await phone.page.getByRole('alert').getByText('Tasks couldn’t load.', { exact: true }).waitFor();
       assert.equal(await phone.page.locator('.tasks-toolbar + .tasks-error').count(), 1);
       await phone.shot('work-tasks-error-phone-night');
