@@ -17,6 +17,7 @@ import { AgentExchangeGroup } from './AgentExchangeGroup';
 import { groupExchanges, type ExchangeGroup } from '../lib/agentExchanges';
 import { useAgentExchanges } from '../lib/useAgentExchanges';
 import { FlockMark } from './FlockMark';
+import { CompletedReplyAnnouncer } from './CompletedReplyAnnouncer';
 
 type Item =
   | { kind: 'exchange'; key: string; group: ExchangeGroup }
@@ -291,6 +292,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
 
   return (
     <div className="transcript-wrap">
+    <CompletedReplyAnnouncer key={`${bot.id}:${generation}`} rows={visibleRows} loaded={loaded} botName={bot.name} />
     {(!loaded || paging?.error || paging?.loading) && <LoadFeedback label="messages" error={paging?.error} loading={!!paging?.loading || (!loaded && !paging?.error)} stale={loaded || rows.length > 0} onRetry={() => { void useStore.getState().loadRows(bot.id); }} />}
     <div className="transcript" ref={scrollRef} onScroll={onScroll} data-bot-id={bot.id} data-generation={generation}>
       <div className="transcript__col">
