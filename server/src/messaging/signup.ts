@@ -259,7 +259,7 @@ export const isAdminPhone = (phone: string) => adminPhones().includes(digits(pho
 /** The first text a new member gets (sent before the account exists when they've only just connected). */
 export const welcomeText = (botName = 'Quinn', name?: string | null) => {
   const first = name?.split(/\s+/)[0];
-  return `Hi${first ? ` ${first}` : ''}! 👋 I'm ${botName}, your Swarm. I can get things done on the web, handle email and calendar once you connect them, and bring in teammate Bots for bigger jobs. Once you're in the app, save the Google/Gmail address you'll use for desktop sign-in, then connect Gmail if you want me to help with mail. Let's get you set up; it takes a minute.`;
+  return `Hi${first ? ` ${first}` : ''}! 👋 I'm ${botName}, your Swarm. I can get things done on the web, handle email and calendar once you connect them, and bring in teammate Bots for bigger jobs. Sign in to the app with your phone first, then choose Connect Google in Settings > Messaging to use the same account and Bots on desktop. Connect Gmail there if you want me to help with mail. Let's get you set up; it takes a minute.`;
 };
 
 export async function startAccount(s: Sender, invitedBy: string | null, opts: { welcomeSent?: boolean } = {}): Promise<string> {
@@ -273,7 +273,7 @@ export async function startAccount(s: Sender, invitedBy: string | null, opts: { 
     text: `[onboarding] A new user just joined by ${CHANNEL_NAMES[s.channel]}${inviter ? `, invited by ${inviter}` : ''}. ` +
       `Their ${CHANNEL_NAMES[s.channel]} name: ${s.name ?? 'unknown'}. Their number starts with +${s.phone.slice(0, Math.max(1, s.phone.length - 7))}. ` +
       `${s.text ? `Their first message was: ${JSON.stringify(s.text.slice(0, 300))}. ` : ''}` +
-      'The welcome text was already sent. Start onboarding now, following the Onboarding section of your instructions: ask the first question in one short text. Before onboarding feels complete, remind them to save the Google/Gmail address they will use for desktop sign-in and connect Gmail if they want help with email.',
+      'The welcome text was already sent. Start onboarding now, following the Onboarding section of your instructions: ask the first question in one short text. Before onboarding feels complete, remind them to sign in with their phone first and choose Connect Google in Settings > Messaging before using Google on desktop, so they keep the same account and Bots. They can connect Gmail there if they want help with email.',
   });
   return userId;
 }

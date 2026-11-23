@@ -101,7 +101,7 @@ function AccountMessagingSettings({ accountId }: { accountId: string }) {
       {head}
       {retry}
       <PhoneSection status={status} setStatus={setStatus} code={code} setCode={setCode} />
-      <AccountSection status={status} setStatus={setStatus} />
+      <AccountSection />
       {status.links.length > 0 && <>
         <AccessRow title="Message preferences" description="Choose which Bots reply and what reaches your phone.">
           <button type="button" className="cfg-btn cfg-btn--secondary" aria-expanded={prefsOpen} onClick={() => setPrefsOpen(value => !value)}>{prefsOpen ? 'Hide preferences' : 'Manage preferences'}</button>
@@ -265,20 +265,18 @@ function PhoneSection({ status, setStatus, code, setCode }: SectionProps & { cod
 // ---------------------------------------------------------------------------
 // Account
 
-function AccountSection({ status, setStatus }: SectionProps) {
-  const { account } = status;
+function AccountSection() {
   const accountId = useStore(s => s.user?.id);
   const current = useAccessPanel(accountId);
   const googleLogin = useStore((s) => s.googleLogin);
+  const googleLinked = useStore((s) => s.googleLinked);
   const connectionsVersion = useStore((s) => s.connectionsVersion);
   const setModal = useStore((s) => s.setModal);
-  const [email, setEmail] = useState(account.email ?? '');
-  const [busy, setBusy] = useState<'email' | 'gmail' | null>(null);
+  const [busy, setBusy] = useState<'google' | 'gmail' | null>(null);
   const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
   const [note, setNote] = useState<NoteState>(null);
   const [gmailError, setGmailError] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const needsEmail = account.signupSource === 'text' || !account.email;
   useEffect(() => {
     let alive = true;
     setGmailConnected(null);
@@ -292,17 +290,14 @@ function AccountSection({ status, setStatus }: SectionProps) {
     return () => { alive = false; };
   }, [connectionsVersion, attempt]);
 
-  const save = async (e: React.FormEvent) => {
+  const connectGoogle = async (e: React.MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
-    if (!accountId || !current()) return;
-    if (!email.includes('@')) { setNote({ tone: 'error', text: 'Enter an email address.' }); return; }
-    setBusy('email'); setNote(null);
+    if (busy || !accountId || !current()) return;
+    setBusy('google'); setNote(null);
     try {
       await verifyAccessAccount(accountId);
       if (!current()) return;
-      const updated = await configApi.messagingEmail(email.trim());
-      if (!current()) return;
-      setStatus(updated); setEmail(updated.account.email ?? ''); setNote({ tone: 'ok', text: 'Saved. Use this same email when you sign in with Google on web or desktop.' });
+      window.location.assign('/api/auth/google/start?intent=link');
     } catch (err) { if (current()) setNote({ tone: 'error', text: (err as Error).message }); }
     finally { if (current()) setBusy(null); }
   };
@@ -327,12 +322,15 @@ function AccountSection({ status, setStatus }: SectionProps) {
   };
   return (
     <section className="cfg-section access-messaging__account">
-      <form className="cfg-field" onSubmit={save}>
-        <label htmlFor="messaging-desktop-email" className="cfg-field__label">Desktop sign-in email</label>
-        <input id="messaging-desktop-email" className="text-input" type="email" autoComplete="email" value={needsEmail ? email : account.email ?? ''} onChange={e => setEmail(e.target.value)} readOnly={!needsEmail} disabled={!!busy} />
-        <span className="cfg-field__hint">{needsEmail ? 'Use a Google email you can access.' : 'Use this email to sign in on web or desktop.'}</span>
-        {needsEmail && <button type="submit" className="cfg-btn cfg-btn--primary" disabled={!!busy || !email.trim() || email.trim() === account.email}>{busy === 'email' ? 'Saving…' : 'Save sign-in email'}</button>}
-      </form>
+      <AccessRow title="Google sign-in on desktop" description={googleLinked
+        ? 'Google sign-in is connected. Use the linked Google account to access these same Bots on web or desktop.'
+        : googleLogin
+          ? 'Connect Google while signed in to this account to keep the same account and Bots on desktop.'
+          : 'Google sign-in is unavailable on this server. You can still sign in with your phone.'}>
+        {googleLinked ? <span className="cfg-chip" role="status">Google connected</span> : googleLogin && <a className="cfg-btn cfg-btn--primary" href="/api/auth/google/start?intent=link" aria-disabled={!!busy} onClick={connectGoogle}>
+          {busy === 'google' ? 'Opening…' : 'Connect Google'}
+        </a>}
+      </AccessRow>
       <AccessRow title="Gmail for your Bots" description={gmailConnected ? 'Connected for Bots to read and send mail with your approval.' : 'Connect Gmail separately from your phone identity.'}>
           {gmailError ? <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setAttempt(value => value + 1)}>Retry Gmail status</button> : <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy || !googleLogin || gmailConnected === null} onClick={() => void connectGmail()}>
             {busy === 'gmail' ? 'Opening…' : gmailConnected === null ? 'Checking…' : gmailConnected ? 'Manage Gmail' : 'Connect Gmail'}

@@ -253,7 +253,6 @@ export const configApi = {
   messagingCode: () => req<MessagingCode>('POST', '/messaging/code'),
   messagingUnlink: (channel: MessagingChannel) => req<MessagingStatus>('DELETE', `/messaging/links/${channel}`),
   messagingTest: () => req<{ ok: true }>('POST', '/messaging/test'),
-  messagingEmail: (email: string) => req<MessagingStatus>('PUT', '/messaging/email', { email }),
   messagingMyInvite: () => req<{ url: string; remaining: number }>('POST', '/messaging/my-invite'),
   inkboxSaveKey: (adminKey: string) => req<MessagingStatus>('PUT', '/messaging/inkbox', { adminKey }),
   inkboxSetup,
