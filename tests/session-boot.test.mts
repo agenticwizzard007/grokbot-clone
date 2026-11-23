@@ -73,6 +73,79 @@ test('A-03: a confirmed signed-out response clears the error and restores sign-i
   assert.equal(state.appleLogin, true);
 });
 
+test('P-09: a never-settling boot request reaches retry at five seconds', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let signal: AbortSignal | undefined;
+  globalThis.fetch = async (_input, init) => {
+    signal = init?.signal ?? undefined;
+    return new Promise<Response>(() => {});
+  };
+  const pending = useStore.getState().checkAuth();
+  assert.ok(signal, 'the session request receives a cancellation signal');
+  t.mock.timers.tick(4999);
+  assert.equal(useStore.getState().authChecking, true);
+  assert.equal(useStore.getState().authError, null);
+  t.mock.timers.tick(1);
+  await pending;
+  assert.equal(signal.aborted, true);
+  assert.equal(useStore.getState().authChecking, false);
+  assert.equal(useStore.getState().authChecked, false);
+  assert.match(useStore.getState().authError!, /check your session/i);
+
+  globalThis.fetch = async () => Response.json({ user: null, devLogin: true });
+  await useStore.getState().checkAuth();
+  assert.equal(useStore.getState().authChecked, true);
+  assert.equal(useStore.getState().authError, null);
+});
+
+for (const stage of ['fetch', 'body']) {
+  for (const outcome of ['resolve', 'reject']) {
+    for (const retryState of ['pending', 'successful']) {
+      test(`P-09: late ${stage} ${outcome} cannot overwrite a ${retryState} retry`, async t => {
+        t.mock.timers.enable({ apis: ['setTimeout'] });
+        let resolveOld!: (value: Response | { user: null; devLogin: boolean }) => void;
+        let rejectOld!: (reason: Error) => void;
+        const old = new Promise<Response | { user: null; devLogin: boolean }>((resolve, reject) => { resolveOld = resolve; rejectOld = reject; });
+        globalThis.fetch = async () => stage === 'fetch' ? old as Promise<Response> : ({ ok: true, json: () => old } as Response);
+        const pending = useStore.getState().checkAuth();
+        await Promise.resolve();
+        t.mock.timers.tick(5000);
+        await pending;
+        const error = useStore.getState().authError;
+        assert.ok(error);
+
+        let releaseRetry!: (response: Response) => void;
+        let retrySignal: AbortSignal | undefined;
+        globalThis.fetch = async (_input, init) => {
+          retrySignal = init?.signal ?? undefined;
+          return new Promise<Response>(resolve => { releaseRetry = resolve; });
+        };
+        const retry = useStore.getState().checkAuth();
+        if (retryState === 'successful') {
+          releaseRetry(Response.json({ user: null, devLogin: true }));
+          await retry;
+        }
+        if (outcome === 'reject') rejectOld(new Error('Late request failure'));
+        else resolveOld(stage === 'fetch' ? Response.json({ user: null, devLogin: false }) : { user: null, devLogin: false });
+        await new Promise<void>(resolve => setImmediate(resolve));
+        if (retryState === 'pending') {
+          assert.equal(useStore.getState().authChecking, true);
+          assert.equal(useStore.getState().authError, error);
+          assert.equal(useStore.getState().authChecked, false);
+          releaseRetry(Response.json({ user: null, devLogin: true }));
+          await retry;
+        }
+        t.mock.timers.tick(5000);
+        assert.equal(retrySignal?.aborted, false, 'success clears its deadline');
+        assert.equal(useStore.getState().authChecking, false);
+        assert.equal(useStore.getState().authChecked, true);
+        assert.equal(useStore.getState().authError, null);
+        assert.equal(useStore.getState().devLogin, true);
+      });
+    }
+  }
+}
+
 // Expiry is terminal for the document, so this race must run last.
 test('A-03: a delayed boot lookup cannot replace confirmed session expiry with an error', async () => {
   const user = { id: 'session-test', email: 'session@example.test', name: 'Test account', avatarUrl: null };

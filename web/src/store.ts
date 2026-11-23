@@ -125,8 +125,18 @@ export const useStore = create<State>((set, get) => ({
   async checkAuth() {
     if (get().authChecking) return;
     set({ authChecking: true });
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const { user, devLogin, googleLogin, googleLinked, appleLogin, appleLinked } = await api.me();
+      const deadline = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error('Session check timed out'));
+          controller.abort();
+        }, 5000);
+      });
+      // Race the whole lookup, including its body, even if cancellation is ignored.
+      // A late result cannot settle this race again or overwrite a later retry.
+      const { user, devLogin, googleLogin, googleLinked, appleLogin, appleLinked } = await Promise.race([api.me(controller.signal), deadline]);
       if (sessionExpired()) return;
       if (user !== null && (!user || typeof user.id !== 'string' || !user.id)) throw new Error('Invalid session response');
       set({ user, devLogin, googleLogin: googleLogin !== false, appleLogin: !!appleLogin, appleLinked: !!appleLinked, googleLinked: !!googleLinked, authChecked: true, authError: null });
@@ -135,6 +145,7 @@ export const useStore = create<State>((set, get) => ({
       if (sessionExpired()) return;
       set({ authChecked: false, authError: "We couldn't check your session. Check your connection and try again." });
     } finally {
+      clearTimeout(timer);
       set({ authChecking: false });
     }
   },
