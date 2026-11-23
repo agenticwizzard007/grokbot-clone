@@ -2,6 +2,7 @@ import { useStore } from '../../store';
 import { useModels } from '../../lib/models';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { configApi, type ModelInfo } from '../../lib/configApi';
+import { modelDisplayName } from '../../lib/modelDisplay';
 
 type Provider = 'direct' | 'openrouter';
 type ModelCatalog = { models: ModelInfo[]; error?: string; billing?: 'api' | 'plan' };
@@ -79,10 +80,9 @@ export function ModelPicker({ value, onChange, defaultLabel, disabled, label = '
     <div className="model-picker" ref={box}>
       <button ref={trigger} type="button" className="model-picker__button text-input" disabled={disabled} onClick={() => { setQuery(''); setOpen((o) => !o); }} aria-controls={open ? panelId : undefined} aria-expanded={open} aria-label={label}>
         <span className="model-picker__current">
-          {value ? (selected?.name ?? value) : defaultLabel ? `Default · ${defaultLabel}` : 'Choose a model'}
+          {value ? modelDisplayName(value, selected?.name) : defaultLabel ? `Default · ${defaultLabel}` : 'Choose a model'}
         </span>
         {data?.billing && <span className="model-billing">{data.billing === 'plan' ? 'Plan' : 'API'}</span>}
-        {value && <span className="model-picker__id">{value}</span>}
         {selected && !selected.vision && <span className="cfg-chip cfg-chip--warn">No images</span>}
       </button>
       {open && (
@@ -108,8 +108,8 @@ export function ModelPicker({ value, onChange, defaultLabel, disabled, label = '
             )}
             {shown.map((m) => (
               <button type="button" role="option" aria-selected={m.id === value} key={m.id} className={`model-picker__row${m.id === value ? ' is-selected' : ''}`} onClick={() => pick(m.id)}>
-                <span className="model-picker__name">{m.name}{(m.billing ?? data?.billing) && <span className="model-billing">{(m.billing ?? data?.billing) === 'plan' ? 'Plan' : 'API'}</span>}{!m.vision && <span className="cfg-chip cfg-chip--warn">No images</span>}</span>
-                <span className="model-picker__meta">{m.id}{price(m) ? ` · ${price(m)}` : ''}</span>
+                <span className="model-picker__name">{modelDisplayName(m.id, m.name)}{(m.billing ?? data?.billing) && <span className="model-billing">{(m.billing ?? data?.billing) === 'plan' ? 'Plan' : 'API'}</span>}{!m.vision && <span className="cfg-chip cfg-chip--warn">No images</span>}</span>
+                {price(m) && <span className="model-picker__meta">{price(m)}</span>}
               </button>
             ))}
           </div>

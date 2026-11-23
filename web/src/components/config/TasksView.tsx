@@ -7,7 +7,8 @@ import { queueImportedSetup } from '../../lib/setupApi';
 import { scrollToRow } from '../../lib/scrollToRow';
 import { needsYouChip, scopeNeedsYou } from './settingsLogic';
 import { relativeShort } from '../../lib/time';
-import { openConversation, useConfigUI, useVersion } from '../../configStore';
+import { openConversation, useConfigUI, usePageTitle, useVersion } from '../../configStore';
+import { botSlug, routeBot, type WorkTab } from '../../lib/userRoutes';
 import { backToList, useStore } from '../../store';
 import { Glyph } from './glyphs';
 import { TeamBoard } from './TeamBoard';
@@ -20,10 +21,9 @@ import '@fontsource-variable/instrument-sans/wght.css';
 import '../../styles/tasks.css';
 
 type Filter = 'all' | Task['state'];
-type WorkTab = 'Tasks' | 'Team' | 'Goals' | 'Reports';
-type WorkContext = { tab: WorkTab; botId?: string; filter: Filter; caller?: string; report?: ReportLocation };
+type WorkContext = { filter: Filter; caller?: string; report?: ReportLocation };
 const TABS: WorkTab[] = ['Tasks', 'Team', 'Goals', 'Reports'];
-const defaultContext: WorkContext = { tab: 'Tasks', filter: 'all' };
+const defaultContext: WorkContext = { filter: 'all' };
 let workContext = defaultContext;
 useStore.subscribe((state, previous) => {
   if (state.user?.id !== previous.user?.id) workContext = defaultContext;
@@ -159,18 +159,25 @@ function WorkWorkspace() {
   const [childHeading, setHeading] = useState<{ title: string; subtitle: string; detail?: boolean }>();
   const scroll = useRef<HTMLDivElement>(null);
   const pageHeading = useRef<HTMLHeadingElement>(null);
-  const { tab, filter, botId: botFilter, caller } = context;
-  const updateContext = (patch: Partial<WorkContext>) => {
+  const route = useConfigUI(s => s.workRoute);
+  const tab = route.tab;
+  const botFilter = route.botSlug ? routeBot(route.botSlug, bots)?.id ?? 'unavailable' : undefined;
+  const { filter, caller } = context;
+  const updateContext = (patch: Partial<WorkContext> & { tab?: WorkTab; botId?: string }) => {
+    const bot = bots.find(bot => bot.id === patch.botId);
+    useConfigUI.getState().setWorkRoute({ tab: patch.tab ?? tab, botSlug: 'botId' in patch ? bot && botSlug(bot) : route.botSlug });
     workContext = { ...workContext, ...('botId' in patch && patch.botId !== botFilter ? { report: undefined } : {}), ...patch };
     setContext(workContext);
     if (patch.tab && patch.tab !== tab) setHeading(undefined);
   };
   const setFilter = (next: Filter) => updateContext({ filter: next });
   const selectedBot = bots.find((b) => b.id === botFilter);
+  useLayoutEffect(() => { setHeading(undefined); }, [tab, botFilter]);
   const unavailable = !!botFilter && !selectedBot;
   const heading = unavailable ? undefined : childHeading;
   // Titles are fixed. A Bot is named only when the user filtered to it.
   const scope = selectedBot ? `${selectedBot.name} · ` : unavailable ? 'Bot unavailable · ' : '';
+  usePageTitle(`${scope}${tab}`);
   const title = heading?.title ?? tab;
   const subtitle = heading ? (tab === 'Reports' ? heading.subtitle : `${scope}${heading.subtitle}`) : tab === 'Team' ? `Team board · ${scope}Owners, dependencies and evidence from current team records.` : tab === 'Goals' ? `${scope}Keep work running across turns and verify results against acceptance checks.` : `${scope}Download saved reports, save in Library or review where they will be sent.`;
 
@@ -272,7 +279,8 @@ export function BotTasks({ bot }: { bot: Bot }) {
   const attention = useNeedsYou(bot.id) ?? [];
   const sorted = useMemo(() => sortTasks(tasks ?? []), [tasks]);
   const openWorkspace = (tab: WorkTab, botId?: string) => {
-    workContext = { tab, filter: 'all', botId, caller: bot.id };
+    workContext = { filter: 'all', caller: bot.id };
+    useConfigUI.getState().setWorkRoute({ tab, ...(botId ? { botSlug: botSlug(bot) } : {}) });
     useConfigUI.getState().setView('tasks');
   };
   return (

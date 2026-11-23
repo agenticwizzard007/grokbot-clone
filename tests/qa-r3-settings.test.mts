@@ -35,7 +35,7 @@ Object.assign(globalThis, {
   document: { title: 'Swarm', documentElement: { dataset: {}, style: {} } },
 });
 const { useStore, enterChatPane } = await import('../web/src/store.ts');
-const { useConfigUI } = await import('../web/src/configStore.ts');
+const { useConfigUI, botSettingsHash } = await import('../web/src/configStore.ts');
 const { computerStatusText, computerReadiness, computerStatusLine } = await import('../web/src/components/config/computerStatus.tsx');
 const { setupResourceText } = await import('../web/src/components/config/setupResources.ts');
 const user = { id: 'settings-account', email: 'settings@example.test', name: 'Account', avatarUrl: null };
@@ -45,7 +45,7 @@ const ui = () => useConfigUI.getState();
 beforeEach(() => {
   entries.splice(0, entries.length, { state: null, hash: '' }); location.hash = '';
   useConfigUI.setState({ botSettings: null, botSettingsDrafts: {}, botSettingsDirty: false, botSettingsLeave: null, appSettings: null, view: 'chat' });
-  useStore.setState({ user, mobile: false, mobilePane: 'list', selectedBotId: 'settings-bot', detailsOpen: false, computer: null });
+  useStore.setState({ bots: [{ id: 'settings-bot', name: 'Coordinator Bot' }] as never, user, mobile: false, mobilePane: 'list', selectedBotId: 'settings-bot', detailsOpen: false, computer: null });
 });
 
 test('R3-091: phone settings create one list return entry and tabs replace its URL', () => {
@@ -56,7 +56,8 @@ test('R3-091: phone settings create one list return entry and tabs replace its U
   assert.equal(entries[0].hash, '', 'the list must not retain a settings deep link');
   ui().openBotSettings('settings-bot', 'learning');
   assert.equal(entries.length, 2, 'tab changes add no entries');
-  assert.equal(location.hash, '#bot/settings-bot/settings/learning');
+  assert.equal(location.hash, botSettingsHash('settings-bot', 'learning'));
+  assert.ok(!location.hash.includes('settings-bot'));
   ui().closeBotSettings();
   assert.equal(ui().botSettings, null);
   assert.equal(useStore.getState().mobilePane, 'list');
@@ -116,7 +117,7 @@ test('R3-091: Forward to an existing settings entry does not push another list e
   ui().openBotSettings('settings-bot');
   assert.equal(entries.length, 2);
   assert.equal(useStore.getState().mobilePane, 'chat');
-  assert.equal(location.hash, '#bot/settings-bot/settings/general');
+  assert.equal(location.hash, botSettingsHash('settings-bot', 'general'));
 });
 
 test('R3-044: every shared status surface uses the same live readiness words', () => {

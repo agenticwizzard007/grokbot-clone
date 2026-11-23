@@ -294,7 +294,10 @@ try {
   await submit('Delete Morning check-in…'); await submit('Delete routine');
   await page.getByText('Routine deleted. Previous runs remain in history.', { exact: true }).waitFor();
   await submit('Run history'); await submit('Run details'); await page.getByRole('link', { name: 'Launch brief.md', exact: true }).waitFor();
-  await tab('Tasks').click(); await work.getByRole('button', { name: /^Pending/ }).click();
+  await tab('Tasks').click();
+  // Reload now preserves the scoped route; explicitly return to all Bots for this check.
+  await scope.selectOption('all');
+  await work.getByRole('button', { name: /^Pending/ }).click();
   await tab('Team').click(); await submit('Open Nia chat');
   await page.getByRole('button', { name: 'Show details', exact: true }).click();
   const details = page.getByRole('complementary', { name: 'Conversation details', exact: true });
@@ -371,7 +374,7 @@ try {
     await phone.submit('Cancel'); await phone.page.getByRole('heading', { name: 'Reports', exact: true }).waitFor();
     assert.equal(phone.requests.filter(request => request.path.endsWith('/deliveries')).length, 0);
     if (width === 390) {
-      phone.fixture.taskError = true; await phone.page.reload(); await phone.sidebar.click();
+      phone.fixture.taskError = true; await phone.page.reload(); await phone.tab('Tasks').click();
       await phone.page.getByRole('alert').getByText('Tasks couldn’t load.', { exact: true }).waitFor();
       assert.equal(await phone.page.locator('.tasks-toolbar + .tasks-error').count(), 1);
       await phone.shot('work-tasks-error-phone-night');

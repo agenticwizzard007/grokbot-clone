@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { create } from 'zustand';
 import type { ServerEvent } from '@shared/types';
 import { backToList, enterChatPane, useStore } from './store';
+import { botSlug, routeBot, linkedWork, workHash, type WorkRoute } from './lib/userRoutes';
 
 /** UI state for bot settings, app settings, the Tasks view and the theme. Kept apart from store.ts on purpose. */
 
@@ -31,6 +32,7 @@ interface ConfigUI {
   /** Settings was opened without a section (e.g. ⌘, or the account menu), so phones start on the section list. */
   appSettingsHome: boolean;
   view: 'chat' | 'tasks' | 'bots';
+  workRoute: WorkRoute;
   theme: Theme;
   /** Bumped by server events (tasks, memories) so open views refetch. Keys: 'tasks', 'memories:<botId>'. */
   versions: Record<string, number>;
@@ -47,6 +49,7 @@ interface ConfigUI {
   closeAppSettings(): void;
   clearResume(): void;
   setView(v: 'chat' | 'tasks' | 'bots'): void;
+  setWorkRoute(route: WorkRoute): void;
   setTheme(t: Theme): void;
   bump(key: string): void;
 }
@@ -67,17 +70,25 @@ const linkedSection = (): AppSection | null => {
   return SECTIONS_LINKABLE.includes(h) ? h : null;
 };
 
-/** R2F-028: /#bot/<id>/settings/<tab> reopens that Bot's settings tab (hash sync only, PD-R2-07 A). */
+/** Settings links resolve after the account's Bots load. Legacy ID links are canonicalized. */
 const BOT_SETTINGS_TABS: BotSettingsTab[] = ['general', 'skills', 'memories', 'routines', 'analytics', 'learning'];
-export const botSettingsHash = (botId: string, tab: BotSettingsTab) => `#bot/${encodeURIComponent(botId)}/settings/${tab}`;
-const linkedBotSettings = (): { botId: string; tab: BotSettingsTab } | null => {
+export const botSettingsHash = (botId: string, tab: BotSettingsTab) => {
+  const bot = useStore.getState().bots.find(bot => bot.id === botId) ?? { id: botId, name: 'Bot' };
+  return `#bot/${encodeURIComponent(botSlug(bot))}/settings/${tab}`;
+};
+const botSettingsLink = (): { reference: string; tab: BotSettingsTab } | null => {
   if (typeof window === 'undefined') return null;
   const match = window.location.hash.match(/^#bot\/([^/]{1,128})\/settings(?:\/([a-z]+))?$/);
   if (!match) return null;
-  let botId: string;
-  try { botId = decodeURIComponent(match[1]); } catch { return null; }
+  let reference: string;
+  try { reference = decodeURIComponent(match[1]); } catch { return null; }
   const tab = (match[2] ?? 'general') as BotSettingsTab;
-  return botId && BOT_SETTINGS_TABS.includes(tab) ? { botId, tab } : null;
+  return reference && BOT_SETTINGS_TABS.includes(tab) ? { reference, tab } : null;
+};
+const linkedBotSettings = (): { botId: string; tab: BotSettingsTab } | null => {
+  const link = botSettingsLink();
+  const bot = link && routeBot(link.reference, useStore.getState().bots);
+  return bot && link ? { botId: bot.id, tab: link.tab } : null;
 };
 const replaceHash = (hash: string) => {
   if (typeof window === 'undefined' || window.location.hash === hash || (!hash && !window.location.hash)) return;
@@ -129,6 +140,8 @@ export function applyTheme(t: Theme) {
 }
 
 const initialAppSection = initialSection();
+// Only an explicit link may uncover Settings when its Bot becomes available.
+let pendingBotSettingsLink = !initialAppSection && botSettingsLink() ? window.location.hash : null;
 
 export const useConfigUI = create<ConfigUI>((set, get) => ({
   botSettings: initialAppSection ? null : linkedBotSettings(),
@@ -140,10 +153,12 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
   subscriptionProvider: null,
   resume: resumed,
   appSettingsHome: false,
-  view: 'chat',
+  view: typeof window !== 'undefined' && linkedWork(window.location.hash) ? 'tasks' : 'chat',
+  workRoute: (typeof window !== 'undefined' && linkedWork(window.location.hash)) || { tab: 'Tasks' },
   theme: readTheme(),
   versions: {},
   openBotSettings: (botId, tab = 'general') => {
+    pendingBotSettingsLink = null;
     const open = () => {
       // Keep a real list entry behind phone settings, including a reloaded deep link.
       if (!get().appSettings) {
@@ -164,12 +179,13 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
     if (get().botSettings && get().botSettings?.botId !== botId) get().requestLeaveBotSettings(open);
     else open();
   },
-  closeBotSettings: () => { get().requestLeaveBotSettings(() => {
+  closeBotSettings: () => { pendingBotSettingsLink = null; get().requestLeaveBotSettings(() => {
     get().discardBotSettings();
     if (useStore.getState().mobile) { set({ view: 'chat' }); backToList(); }
   }); },
   discardBotSettings: () => {
-    if (linkedBotSettings()) replaceHash('');
+    pendingBotSettingsLink = null;
+    if (get().botSettings && !get().appSettings) replaceHash(get().view === 'tasks' ? workHash(get().workRoute) : '');
     set({ botSettings: null, botSettingsDrafts: {}, botSettingsDirty: false, botSettingsLeave: null });
   },
   setBotSettingsDraft: (id, label) => {
@@ -180,6 +196,7 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
     set({ botSettingsDrafts: next, botSettingsDirty: Object.keys(next).length > 0 });
   },
   requestLeaveBotSettings: (next) => {
+    pendingBotSettingsLink = null;
     const state = get();
     if (!state.botSettings || !state.botSettingsDirty) { next(); return true; }
     // Show the question where it can be seen: over Settings, search or the apps dialog it would be hidden.
@@ -196,21 +213,36 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
     pending?.next();
   },
   openAppSettings: (section, subscriptionProvider) => {
+    pendingBotSettingsLink = null;
     // Keep the URL on the open section so a reload reopens it (PD-05 hash sync). replaceState fires no hashchange.
     if (section && SECTIONS_LINKABLE.includes(section)) replaceHash(`#settings/${section}`);
     set({ appSettings: section ?? 'general', appSettingsHome: !section, subscriptionProvider: section === 'subscriptions' ? subscriptionProvider ?? null : null });
   },
   closeAppSettings: () => {
+    pendingBotSettingsLink = null;
     // Back on an open Bot settings page, the URL names that page again.
     const bot = get().botSettings;
     if (bot) replaceHash(botSettingsHash(bot.botId, bot.tab));
+    else if (get().view === 'tasks') replaceHash(workHash(get().workRoute));
     else if (linkedSection()) replaceHash('');
     set({ appSettings: null, appSettingsHome: false, subscriptionProvider: null });
   },
   clearResume: () => set({ resume: null }),
   setView: (view) => {
+    pendingBotSettingsLink = null;
     if (view === 'tasks') enterChatPane(); // phones: Tasks replaces the list, like a chat
     set({ view });
+    if (!get().appSettings && !get().botSettings) {
+      if (view === 'tasks') replaceHash(workHash(get().workRoute));
+      else if (linkedWork(window.location.hash)) replaceHash('');
+    }
+  },
+  setWorkRoute: (workRoute) => {
+    pendingBotSettingsLink = null;
+    const bot = workRoute.botSlug && routeBot(workRoute.botSlug, useStore.getState().bots);
+    const route = bot ? { ...workRoute, botSlug: botSlug(bot) } : workRoute;
+    set({ workRoute: route });
+    if (get().view === 'tasks' && !get().appSettings && !get().botSettings) replaceHash(workHash(route));
   },
   setTheme: (theme) => {
     try { localStorage.setItem(LS_THEME, theme); } catch { /* ignore */ }
@@ -237,15 +269,49 @@ export function usePageTitle(title: string | null, layer = 0) {
 }
 
 // Apply the saved theme as early as possible, and follow the OS while on "system".
-window.addEventListener('hashchange', () => {
+const restoreLinkedPage = () => {
+  pendingBotSettingsLink = null;
   const section = linkedSection();
   if (section) { useConfigUI.getState().openAppSettings(section); return; }
   const bot = linkedBotSettings();
+  const ui = useConfigUI.getState();
+  const guarded = (next: () => void) => {
+    if (!ui.requestLeaveBotSettings(next) && ui.botSettings) replaceHash(botSettingsHash(ui.botSettings.botId, ui.botSettings.tab));
+  };
   if (bot) {
-    const ui = useConfigUI.getState();
     // A deep link must uncover its destination, including any unsaved-draft guard.
-    ui.closeAppSettings();
-    ui.openBotSettings(bot.botId, bot.tab);
+    const open = () => { ui.closeAppSettings(); ui.openBotSettings(bot.botId, bot.tab); };
+    if (ui.botSettings && ui.botSettings.botId !== bot.botId) guarded(open);
+    else open();
+    return;
+  }
+  if (botSettingsLink()) { pendingBotSettingsLink = window.location.hash; return; }
+  const work = linkedWork(window.location.hash);
+  if (work) { guarded(() => {
+    ui.closeAppSettings(); ui.discardBotSettings();
+    // Back/Forward and address-bar hashes already created the destination entry.
+    // Mark the phone pane directly so setView does not push over Forward history.
+    if (useStore.getState().mobile) useStore.getState().set({ mobilePane: 'chat' });
+    ui.setWorkRoute(work); ui.setView('tasks');
+  }); return; }
+  if (!window.location.hash) guarded(() => {
+    ui.closeAppSettings(); ui.discardBotSettings(); ui.setView('chat');
+  });
+};
+window.addEventListener('hashchange', restoreLinkedPage);
+useStore.subscribe((state, previous) => {
+  if (previous.user && state.user?.id !== previous.user.id) {
+    pendingBotSettingsLink = null;
+    if (linkedWork(window.location.hash) || /^#bot\//.test(window.location.hash)) replaceHash('');
+    useConfigUI.setState({ workRoute: { tab: 'Tasks' }, view: 'chat', botSettings: null, botSettingsDrafts: {}, botSettingsDirty: false, botSettingsLeave: null });
+    return;
+  }
+  if (state.bots !== previous.bots) {
+    const bot = linkedBotSettings();
+    if (bot && pendingBotSettingsLink === window.location.hash) restoreLinkedPage();
+    else if (bot && useConfigUI.getState().botSettings?.botId === bot.botId) useConfigUI.getState().openBotSettings(bot.botId, bot.tab);
+    const work = linkedWork(window.location.hash);
+    if (work) useConfigUI.getState().setWorkRoute(work);
   }
 });
 applyTheme(readTheme());
@@ -280,10 +346,8 @@ useStore.subscribe((s, prev) => {
   needsYouTimer = setTimeout(() => useConfigUI.getState().bump('needs-you'), 300);
 });
 
-// Picking a bot anywhere (sidebar, search) goes back to its chat.
-useStore.subscribe((s, prev) => {
-  if (s.selectedBotId !== prev.selectedBotId && useConfigUI.getState().view !== 'chat') useConfigUI.getState().setView('chat');
-});
+// Explicit conversation navigation below restores chat. Loading the saved selection
+// must not dismiss a Goals or Reports deep link during startup.
 
 export const useVersion = (key: string) => useConfigUI((s) => s.versions[key] ?? 0);
 

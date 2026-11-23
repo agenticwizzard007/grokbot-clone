@@ -2,6 +2,7 @@ import { EFFORT_ORDER, supportedModelEfforts, modelDefaultEffort } from '../../.
 import { create } from 'zustand';
 import { useStore } from '../store';
 import type { Bot, Effort } from '@shared/types';
+import { modelDisplayName } from './modelDisplay';
 
 /** The composer's model picker: the provider's models, the user's favourites, effort levels. */
 
@@ -146,8 +147,8 @@ export function modelSelection(bot: Pick<Bot, 'model' | 'effort'>, catalog: Pick
   return { current, effort };
 }
 
-/** "anthropic/claude-opus-5.5" → "claude-opus-5.5", for models missing from the catalog. */
-export const fallbackShort = (id: string) => id.split('/').pop() ?? id;
+/** Readable labels for models missing from the catalog. */
+export const fallbackShort = modelDisplayName;
 
 /** Authors whose icon the server can fetch from OpenRouter; others get a monogram. */
 export const ICON_AUTHORS = new Set(['openai', 'google', 'meta', 'meta-llama', 'mistralai', 'deepseek', 'qwen', 'moonshotai', 'cohere']);

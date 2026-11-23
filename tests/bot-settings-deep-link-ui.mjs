@@ -206,7 +206,7 @@ try {
       }
 
       // Links can arrive while the initial Bot list is still loading behind Settings.
-      for (const reopenSettings of [false, true]) {
+      for (const [target, link] of [[bot, rawLink(bot, 'skills')], [other, canonicalLink]]) for (const reopenSettings of [false, true]) {
         const releaseBots = Promise.withResolvers();
         await page.route('**/api/bots', async route => {
           await releaseBots.promise;
@@ -218,24 +218,25 @@ try {
           await page.locator('.app').waitFor();
           await botsRequested;
           await openApp();
-          await hashLink(rawLink(bot, 'skills'));
+          await hashLink(link);
           assert.equal(await page.evaluate(async () => (await import('/src/store.ts')).useStore.getState().bots.length), 0);
           // A newer explicit Settings action cancels the pending navigation.
           if (reopenSettings) await openApp();
           releaseBots.resolve();
-          await page.waitForFunction(async id => (await import('/src/store.ts')).useStore.getState().bots.some(bot => bot.id === id), bot.id);
+          await page.waitForFunction(async id => (await import('/src/store.ts')).useStore.getState().bots.some(bot => bot.id === id), target.id);
           if (reopenSettings) {
             assert.equal(await page.evaluate(async () => (await import('/src/configStore.ts')).useConfigUI.getState().appSettings), 'general');
+            assert.equal(await page.evaluate(async () => (await import('/src/configStore.ts')).useConfigUI.getState().botSettings), null, 'A canceled link does not open a hidden Bot page');
             await appSettings.waitFor({ state: 'visible' });
           } else {
-            await destination(bot, 'skills');
+            await destination(target, 'skills');
             await page.screenshot({ path: path.join(evidence, `${width}-delayed.png`) });
           }
         } finally {
           releaseBots.resolve();
           await page.unroute('**/api/bots');
         }
-        if (!reopenSettings) { await page.reload(); await destination(bot, 'skills'); }
+        if (!reopenSettings) { await page.reload(); await destination(target, 'skills'); }
       }
       assert.deepEqual(errors, []);
       console.log(`PASS D-01 ${width}px: links, reload, drafts, delayed loading, passive refresh, and newer Settings navigation`);
