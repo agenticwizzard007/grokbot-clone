@@ -1,10 +1,11 @@
 import { Hono } from 'hono';
-import { getConnInfo } from '@hono/node-server/conninfo';
 import QRCode from 'qrcode';
 import { z } from 'zod';
 import { createSession, requireUser, type AuthVars } from '../lib/auth.js';
 import { readJson } from '../lib/json.js';
 import { publicAuthBodyLimit } from '../security/body-limits.js';
+import { clientIp } from '../security/client-ip.js';
+import { TextSigninLimiter } from './text-signin-limiter.js';
 import { canManageServer, clearSetting, saveSetting, SETTINGS, type SettingName } from '../settings.js';
 import { env } from '../env.js';
 import { isTenant } from '../deployment.js';
@@ -21,10 +22,6 @@ import {
   approveWaitlist, claimInvite, createInvite, declineWaitlist, inviteInfo, listInvites, listWaitlist, memberInvite, revokeInvite, signupConfig,
 } from './signup.js';
 import { CHANNEL_NAMES, deleteLink, digits, getPrefs, isChannel, listUserLinks, newLinkCode, setPrefs, VOICE_REPLIES, type VoiceReplies } from './store.js';
-
-const clientIp = (c: any) => {
-  try { return c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || getConnInfo(c).remote.address || ''; } catch { return ''; }
-};
 
 // ---------- public: join page and sign-in by text ----------
 
@@ -75,17 +72,14 @@ messagingPublic.post('/join/:code/claim', publicAuthBodyLimit, async (c) => {
   return c.json({ ok: true });
 });
 
-const signinHits = new Map<string, number[]>();
+const signinLimiter = new TextSigninLimiter();
 /** Text a one-time sign-in link to a number. The same answer whether or not the number has an account. */
 messagingPublic.post('/auth/text/request', publicAuthBodyLimit, async (c) => {
   const body = await readJson(c, publicPhoneBody);
   if (!body.ok) return body.response;
   const p = digits(body.data.phone);
   if (p.length < 8 || p.length > 15) return c.json({ error: 'Enter your full number with country code.' }, 400);
-  const key = `${clientIp(c)}|${p}`;
-  const hits = (signinHits.get(key) ?? []).filter((t) => Date.now() - t < 10 * 60_000);
-  if (hits.length >= 3) return c.json({ error: 'Too many tries. Wait a few minutes.' }, 429);
-  signinHits.set(key, [...hits, Date.now()]);
+  if (!signinLimiter.allow(clientIp(c), p)) return c.json({ error: 'Too many tries. Wait a few minutes.' }, 429);
   const acct = accountByPhone(p);
   if (acct && hasTextLink(acct.id)) {
     await deliver(acct.id, { text: `🔑 Sign in to Swarm (works once, for 10 minutes):\n${createLoginLink(acct.id)}\n\nDidn't ask for this? Ignore it.` }, { kind: 'system' });
