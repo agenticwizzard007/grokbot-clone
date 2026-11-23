@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import '@fontsource-variable/instrument-sans';
 import '../styles/signin-brand.css';
 import { api } from '../lib/api';
@@ -9,31 +9,7 @@ import { TrafficLights } from './Sidebar';
 import { AppleSignIn } from './AppleSignIn';
 import { AuthLink } from './AuthButton';
 import { OpenRouterSignIn } from './OpenRouterSignIn';
-import { OPENROUTER_ERRORS } from '../lib/openrouterApi';
-
-const AUTH_ERRORS: Record<string, string> = {
-  ...OPENROUTER_ERRORS,
-  failed: 'Sign-in didn’t finish. Try again.',
-  google_denied: 'Google did not approve access. Try again and review the permissions. If Google says the app is blocked, your Google account or workspace administrator may need to allow it.',
-  google_pending: 'Google authorization was not completed. Start sign-in again and finish the Google consent screen.',
-  google_permissions: 'Google connected, but Gmail profile access was not granted. Try again and approve the requested Gmail permissions.',
-  google_unavailable: 'Google sign-in is temporarily unavailable. Please try again.',
-  google_session: 'This sign-in link no longer matches this browser. Start again here and finish in the same browser.',
-  google_invalid: 'Google sign-in could not be verified. Please try again.',
-  google_busy: 'Google sign-in is busy. Please try again shortly.',
-  google_expired: 'Your Google sign-in timed out. Please try again.',
-  google_link_required: 'You already have a Swarm account with this email. Sign in with your phone or Apple, then connect Google in Settings → Account.',
-  google_already_linked: 'This Google account is already connected to a different Swarm account, or this Swarm account already has Google connected.',
-  apple_denied: 'Apple sign-in was cancelled. You can try again or choose another sign-in option.',
-  apple_session: 'Apple sign-in expired or no longer matches this browser. Please start again.',
-  apple_invalid: 'Apple sign-in could not be verified. Please try again.',
-  apple_unavailable: 'Apple sign-in is not configured on this server yet. Choose Google or phone sign-in.',
-  apple_busy: 'Apple sign-in is busy. Please try again shortly.',
-  apple_email_required: 'Apple did not provide a verified email. Review Swarm’s access in your Apple Account and try again.',
-  apple_link_required: 'You already have a Swarm account with this email. Sign in with Google or phone, then connect Apple in Settings → Account.',
-  apple_link_signin: 'Sign in to your existing Swarm account before connecting Apple.',
-  apple_already_linked: 'This Apple Account is already connected to a different Swarm account, or this Swarm account already has Apple connected.',
-};
+import { useAuthCallback } from '../lib/authCallback';
 
 export function SignIn() {
   const devLogin = useStore((s) => s.devLogin);
@@ -43,17 +19,9 @@ export function SignIn() {
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
-  // Read the sign-in result once, then drop it from the address so a reload shows a clean page.
-  const [loginCode] = useState(() => new URLSearchParams(location.search).get('login') ?? '');
-  const [error, setError] = useState<string | null>(() => AUTH_ERRORS[loginCode] ?? null);
+  const { code: loginCode, error: callbackError } = useAuthCallback();
+  const [error, setError] = useState<string | null>(callbackError);
   const expired = loginCode === 'expired';
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    if (!params.has('login')) return;
-    params.delete('login');
-    const query = params.toString();
-    history.replaceState(history.state, '', `${location.pathname}${query ? `?${query}` : ''}${location.hash}`);
-  }, []);
 
   const dev = async (e: React.FormEvent) => {
     e.preventDefault();

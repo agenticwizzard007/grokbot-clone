@@ -6,6 +6,7 @@ import { BotsView } from './components/BotsView';
 import { DetailsPanel } from './components/DetailsPanel';
 import { Sidebar } from './components/Sidebar';
 import { SignIn } from './components/SignIn';
+import { SignedInAuthFeedback } from './components/SignedInAuthFeedback';
 import { TasksView } from './components/config/TasksView';
 import { botSettingsHash, useConfigUI } from './configStore';
 import { installVoiceShortcut } from './voice/shortcut';
@@ -171,5 +172,5 @@ function AppRoot() {
     </main>
   );
   if (!authChecked) return <div className="boot" />;
-  return user ? <Shell /> : <SignIn />;
+  return user ? <SignedInAuthFeedback><Shell /></SignedInAuthFeedback> : <SignIn />;
 }
