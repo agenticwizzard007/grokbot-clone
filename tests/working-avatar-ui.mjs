@@ -9,8 +9,8 @@ const evidence = process.env.AVATAR_EVIDENCE_DIR;
 if (evidence) await mkdir(evidence, { recursive: true });
 
 const bots = [
-  { id: 'nia', name: 'Nia', isPrimary: true, avatarColor: 'blue', avatarShape: 'blob' },
-  { id: 'ellis', name: 'Ellis', isPrimary: false, avatarColor: 'violet', avatarShape: 'clover' },
+  { id: 'primary', name: 'Primary Bot', isPrimary: true, avatarColor: 'blue', avatarShape: 'blob' },
+  { id: 'research', name: 'Research Bot', isPrimary: false, avatarColor: 'violet', avatarShape: 'clover' },
 ].map(bot => ({
   kind: 'agent', mode: 'personal', generation: 1, unread: 0, lastActivityAt: 0, createdAt: 0,
   description: '', label: '', instructions: '', model: null, effort: 'medium', ...bot,
@@ -18,8 +18,8 @@ const bots = [
 
 const at = Date.now() - 60_000;
 const senderRow = {
-  botId: 'nia', generation: 1, seq: 1, updatedSeq: 1, kind: 'message', audience: 'user', createdAt: at,
-  body: { type: 'message', role: 'user', text: 'Research notes for Nia.', from: { kind: 'bot', id: 'ellis', name: 'Ellis' } },
+  botId: 'primary', generation: 1, seq: 1, updatedSeq: 1, kind: 'message', audience: 'user', createdAt: at,
+  body: { type: 'message', role: 'user', text: 'Research notes for Primary Bot.', from: { kind: 'bot', id: 'research', name: 'Research Bot' } },
 };
 const exchange = {
   id: 'avatar-thread', firstSeq: 2, lastSeq: 2, createdAt: at + 1000, messageCount: 1, version: 1,
@@ -35,7 +35,7 @@ try {
     page.on('pageerror', error => { unexpected.push(error.message); console.error(error.message); });
     await page.addInitScript(theme => {
       localStorage.setItem('swarm.theme', theme);
-      localStorage.setItem('swarm.selectedBot', 'nia');
+      localStorage.setItem('swarm.selectedBot', 'primary');
       window.EventSource = class {
         static CLOSED = 2;
         constructor() {
@@ -55,16 +55,16 @@ try {
       }
       if (!url.pathname.startsWith('/api/')) return route.continue();
       let body = {};
-      if (url.pathname === '/api/auth/me') body = { user: { id: 'owner', name: 'Alex', email: 'alex@example.test' } };
+      if (url.pathname === '/api/auth/me') body = { user: { id: 'owner', name: 'Owner', email: 'owner@example.test' } };
       else if (url.pathname === '/api/bots') body = { bots, live: [] };
-      else if (url.pathname.endsWith('/rows')) body = { generation: 1, rows: url.pathname === '/api/bots/nia/rows' ? [senderRow] : [] };
+      else if (url.pathname.endsWith('/rows')) body = { generation: 1, rows: url.pathname === '/api/bots/primary/rows' ? [senderRow] : [] };
       else if (url.pathname.endsWith('/tasks')) body = { tasks: [] };
       else if (url.pathname.endsWith('/routines')) body = { routines: [] };
       else if (url.pathname.endsWith('/coworker-setups')) body = { setups: [] };
-      else if (url.pathname === '/api/team/exchanges') body = { exchanges: url.searchParams.get('botId') === 'nia' ? [exchange] : [], nextBefore: null };
+      else if (url.pathname === '/api/team/exchanges') body = { exchanges: url.searchParams.get('botId') === 'primary' ? [exchange] : [], nextBefore: null };
       else if (url.pathname === '/api/models') body = { provider: 'openrouter', billing: 'api', models: [], favourites: [], canFast: false };
       else if (url.pathname === '/api/settings') body = { settings: {}, computer: { provider: 'orgo' } };
-      else if (url.pathname === '/api/bots/nia/settings') body = {
+      else if (url.pathname === '/api/bots/primary/settings') body = {
         memories: [], skills: [], routines: [], tasks: [],
         memory: { lastConsolidatedAt: null, historyChars: 0, compactAtChars: 0, lastCompaction: null },
       };
@@ -77,11 +77,10 @@ try {
     await page.waitForFunction(() => typeof window.emitAvatarEvent === 'function');
     const header = page.locator('.chat__header');
     const primary = page.locator('.pinned__tile');
-    const secondary = page.locator('.bot-row').filter({ hasText: 'Ellis' });
-    const railSecondary = page.locator('.bot-rail-item[title="Ellis"]');
+    const secondary = page.locator('.bot-row').filter({ hasText: 'Research Bot' });
+    const railSecondary = page.locator('.bot-rail-item[title="Research Bot"]');
     const avatar = (host, name) => host.locator(`.bot-avatar[role="img"][aria-label="${name}"]`);
-    const moving = locator => locator.locator(`img[src$="flock-working-${theme === 'dark' ? 'night' : 'light'}.svg"]`);
-    const idleFlock = locator => locator.locator(`img[src$="${theme === 'dark' ? 'flock-night.svg' : 'flock.svg'}"]`);
+    const moving = locator => locator.locator(':scope.bot-avatar--working > svg');
     const idleShape = locator => locator.locator('svg[viewBox]');
     const runningDot = host => host.locator('.status-dot.is-working');
     const emit = async (botId, changes) => page.evaluate(async state => {
@@ -93,8 +92,8 @@ try {
     };
     const assertWorking = async locator => {
       await moving(locator).waitFor();
-      await page.waitForFunction(element => element.complete && element.naturalWidth > 0, await moving(locator).elementHandle());
-      assert.equal(await locator.locator('.flock-mark__moving:visible').count(), 1);
+      assert.equal(await locator.locator('.flock-mark, .bot-avatar__working').count(), 0);
+      assert.equal(await moving(locator).evaluate(el => el.getAnimations().length), 1);
     };
     const assertMovingPixels = async locator => {
       const first = await moving(locator).screenshot();
@@ -102,127 +101,129 @@ try {
         const later = await moving(locator).screenshot();
         if (!first.equals(later)) return;
       }
-      assert.fail(`${theme} working flock stayed on the same frame`);
+      assert.fail(`${theme} working avatar stayed on the same frame`);
     };
 
-    await idleFlock(avatar(header, 'Nia')).waitFor();
+    await idleShape(avatar(header, 'Primary Bot')).waitFor();
     await capture('idle');
-    await idleShape(avatar(secondary, 'Ellis')).waitFor();
-    const ellisIdle = await idleShape(avatar(secondary, 'Ellis')).innerHTML();
-    await emit('nia');
+    await idleShape(avatar(secondary, 'Research Bot')).waitFor();
+    const researchIdle = await idleShape(avatar(secondary, 'Research Bot')).innerHTML();
+    await emit('primary');
     await runningDot(primary).waitFor();
-    await capture('nia-working');
-    await assertWorking(avatar(primary, 'Nia'));
-    await assertWorking(avatar(header, 'Nia'));
-    await assertMovingPixels(avatar(header, 'Nia'));
-    await emit('nia', { awaiting: { reason: 'Confirm the plan', since: 2 } });
+    await capture('primary-working');
+    await assertWorking(avatar(primary, 'Primary Bot'));
+    await assertWorking(avatar(header, 'Primary Bot'));
+    await assertMovingPixels(avatar(header, 'Primary Bot'));
+    await emit('primary', { awaiting: { reason: 'Confirm the plan', since: 2 } });
     await runningDot(primary).waitFor({ state: 'hidden' });
-    await idleFlock(avatar(primary, 'Nia')).waitFor();
-    await idleFlock(avatar(header, 'Nia')).waitFor();
-    await emit('nia', { audience: 'internal' });
-    assert.equal(await moving(avatar(header, 'Nia')).count(), 0);
-    assert.equal(await moving(avatar(primary, 'Nia')).count(), 0);
+    await idleShape(avatar(primary, 'Primary Bot')).waitFor();
+    await idleShape(avatar(header, 'Primary Bot')).waitFor();
+    for (const host of [primary, header]) assert.equal(await idleShape(avatar(host, 'Primary Bot')).evaluate(el => el.getAnimations().length), 0, 'awaiting input stops the primary avatar pulse');
+    await emit('primary', { audience: 'internal' });
+    assert.equal(await moving(avatar(header, 'Primary Bot')).count(), 0);
+    assert.equal(await moving(avatar(primary, 'Primary Bot')).count(), 0);
 
     await secondary.click();
-    await idleShape(avatar(header, 'Ellis')).waitFor();
-    await emit('ellis');
-    await assertWorking(avatar(secondary, 'Ellis'));
-    await assertWorking(avatar(header, 'Ellis'));
-    await assertMovingPixels(avatar(header, 'Ellis'));
-    await capture('ellis-working');
+    await idleShape(avatar(header, 'Research Bot')).waitFor();
+    await emit('research');
+    await assertWorking(avatar(secondary, 'Research Bot'));
+    await assertWorking(avatar(header, 'Research Bot'));
+    await assertMovingPixels(avatar(header, 'Research Bot'));
+    await capture('research-working');
     await page.getByRole('button', { name: 'Collapse sidebar' }).click();
-    await assertWorking(avatar(railSecondary, 'Ellis'));
-    await emit('nia');
-    await assertWorking(avatar(primary, 'Nia'));
+    await assertWorking(avatar(railSecondary, 'Research Bot'));
+    await emit('primary');
+    await assertWorking(avatar(primary, 'Primary Bot'));
 
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await idleShape(avatar(railSecondary, 'Ellis')).waitFor();
-    await idleShape(avatar(header, 'Ellis')).waitFor();
-    await idleFlock(avatar(primary, 'Nia')).waitFor();
-    assert.equal(await page.locator('.bot-avatar .flock-mark__moving:visible').count(), 0);
-    assert.equal(await idleShape(avatar(railSecondary, 'Ellis')).innerHTML(), ellisIdle);
+    await idleShape(avatar(railSecondary, 'Research Bot')).waitFor();
+    await idleShape(avatar(header, 'Research Bot')).waitFor();
+    await idleShape(avatar(primary, 'Primary Bot')).waitFor();
+    assert.equal(await page.locator('.bot-avatar > svg').evaluateAll(elements => elements.reduce((n, el) => n + el.getAnimations().length, 0)), 0);
+    assert.equal(await idleShape(avatar(railSecondary, 'Research Bot')).innerHTML(), researchIdle);
     await capture('reduced-motion');
     await page.emulateMedia({ reducedMotion: 'no-preference' });
-    await assertWorking(avatar(railSecondary, 'Ellis'));
-    await emit('ellis', { awaiting: { reason: '', since: 2 } });
-    await idleShape(avatar(railSecondary, 'Ellis')).waitFor();
-    await idleShape(avatar(header, 'Ellis')).waitFor();
-    await emit('ellis', { audience: 'internal' });
-    assert.equal(await moving(avatar(railSecondary, 'Ellis')).count(), 0);
-    assert.equal(await moving(avatar(header, 'Ellis')).count(), 0);
-    await emit('ellis', { isRunning: false, startedAt: null });
-    assert.equal(await idleShape(avatar(railSecondary, 'Ellis')).innerHTML(), ellisIdle);
+    await assertWorking(avatar(railSecondary, 'Research Bot'));
+    await emit('research', { awaiting: { reason: '', since: 2 } });
+    await idleShape(avatar(railSecondary, 'Research Bot')).waitFor();
+    await idleShape(avatar(header, 'Research Bot')).waitFor();
+    for (const host of [railSecondary, header]) assert.equal(await idleShape(avatar(host, 'Research Bot')).evaluate(el => el.getAnimations().length), 0, 'awaiting input stops the secondary avatar pulse');
+    await emit('research', { audience: 'internal' });
+    assert.equal(await moving(avatar(railSecondary, 'Research Bot')).count(), 0);
+    assert.equal(await moving(avatar(header, 'Research Bot')).count(), 0);
+    await emit('research', { isRunning: false, startedAt: null });
+    assert.equal(await idleShape(avatar(railSecondary, 'Research Bot')).innerHTML(), researchIdle);
 
     // Search and the directory have no working prop. They must follow the Bot in each row,
     // including live updates while the row is already mounted and another Bot is selected.
     await page.getByRole('button', { name: 'Search', exact: true }).click();
     const search = page.getByRole('dialog', { name: 'Search', exact: true });
-    const searchNia = avatar(search, 'Nia');
-    const searchEllis = avatar(search, 'Ellis');
-    await assertWorking(searchNia);
-    await idleShape(searchEllis).waitFor();
-    await emit('ellis');
-    await assertWorking(searchEllis);
-    await emit('nia', { audience: 'internal' });
-    await idleFlock(searchNia).waitFor();
-    assert.equal(await moving(searchNia).count(), 0);
-    await assertWorking(searchEllis);
+    const searchPrimary = avatar(search, 'Primary Bot');
+    const searchResearch = avatar(search, 'Research Bot');
+    await assertWorking(searchPrimary);
+    await idleShape(searchResearch).waitFor();
+    await emit('research');
+    await assertWorking(searchResearch);
+    await emit('primary', { audience: 'internal' });
+    await idleShape(searchPrimary).waitFor();
+    assert.equal(await moving(searchPrimary).count(), 0);
+    await assertWorking(searchResearch);
     await capture('search-working');
     await page.keyboard.press('Escape');
     await search.waitFor({ state: 'hidden' });
 
     await page.getByRole('button', { name: 'Your Bots', exact: true }).click();
     const directory = page.locator('.bots-view__list');
-    const directoryNia = avatar(directory, 'Nia');
-    const directoryEllis = avatar(directory, 'Ellis');
-    await idleFlock(directoryNia).waitFor();
-    await assertWorking(directoryEllis);
-    await emit('ellis', { awaiting: { reason: 'Waiting for confirmation', since: 2 } });
-    await idleShape(directoryEllis).waitFor();
-    assert.equal(await moving(directoryEllis).count(), 0);
-    await emit('nia');
-    await assertWorking(directoryNia);
+    const directoryPrimary = avatar(directory, 'Primary Bot');
+    const directoryResearch = avatar(directory, 'Research Bot');
+    await idleShape(directoryPrimary).waitFor();
+    await assertWorking(directoryResearch);
+    await emit('research', { awaiting: { reason: 'Waiting for confirmation', since: 2 } });
+    await idleShape(directoryResearch).waitFor();
+    assert.equal(await moving(directoryResearch).count(), 0);
+    await emit('primary');
+    await assertWorking(directoryPrimary);
     await capture('directory-working');
 
     // Historical participant shapes remain the static identity, independent of an unrelated live event.
-    await directory.getByRole('button', { name: /Nia/ }).click();
-    const senderEllis = avatar(page.locator('.sender-label'), 'Ellis');
+    await directory.getByRole('button', { name: /Primary Bot/ }).click();
+    const senderResearch = avatar(page.locator('.sender-label'), 'Research Bot');
     const participants = page.locator('.agent-exchange__avatars');
-    const exchangeEllis = avatar(participants, 'Ellis');
-    const exchangeNia = avatar(participants, 'Nia');
-    await idleShape(senderEllis).waitFor();
-    await idleShape(exchangeEllis).waitFor();
-    assert.equal(await moving(senderEllis).count(), 0);
-    assert.equal(await moving(exchangeEllis).count(), 0);
-    await assertWorking(exchangeNia);
-    await emit('ellis');
-    await assertWorking(senderEllis);
-    await assertWorking(exchangeEllis);
+    const exchangeResearch = avatar(participants, 'Research Bot');
+    const exchangePrimary = avatar(participants, 'Primary Bot');
+    await idleShape(senderResearch).waitFor();
+    await idleShape(exchangeResearch).waitFor();
+    assert.equal(await moving(senderResearch).count(), 0);
+    assert.equal(await moving(exchangeResearch).count(), 0);
+    await assertWorking(exchangePrimary);
+    await emit('research');
+    await assertWorking(senderResearch);
+    await assertWorking(exchangeResearch);
     await capture('transcript-working');
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await idleShape(senderEllis).waitFor();
-    await idleShape(exchangeEllis).waitFor();
-    assert.equal(await senderEllis.locator('.flock-mark__moving:visible').count(), 0);
-    assert.equal(await exchangeEllis.locator('.flock-mark__moving:visible').count(), 0);
+    await idleShape(senderResearch).waitFor();
+    await idleShape(exchangeResearch).waitFor();
+    assert.equal(await senderResearch.locator(':scope > svg').evaluate(el => el.getAnimations().length), 0);
+    assert.equal(await exchangeResearch.locator(':scope > svg').evaluate(el => el.getAnimations().length), 0);
     await page.emulateMedia({ reducedMotion: 'no-preference' });
-    await emit('ellis', { audience: 'internal' });
-    await idleShape(senderEllis).waitFor();
-    await idleShape(exchangeEllis).waitFor();
-    assert.equal(await moving(senderEllis).count(), 0);
-    assert.equal(await moving(exchangeEllis).count(), 0);
+    await emit('research', { audience: 'internal' });
+    await idleShape(senderResearch).waitFor();
+    await idleShape(exchangeResearch).waitFor();
+    assert.equal(await moving(senderResearch).count(), 0);
+    assert.equal(await moving(exchangeResearch).count(), 0);
 
     // A shape preview edits an appearance, not a live identity.
-    await header.getByRole('button', { name: 'Nia', exact: true }).click();
+    await header.getByRole('button', { name: 'Primary Bot', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Bot settings', exact: true }).click();
     await page.getByRole('button', { name: 'Change look', exact: true }).click();
     const shapes = page.getByRole('radiogroup', { name: 'Character shape' });
     const draftAvatar = page.locator('.cfg-look .bot-avatar');
     await idleShape(draftAvatar).waitFor();
     assert.ok(await shapes.locator('.bot-avatar > svg:visible').count() > 1);
-    await emit('nia', { isRunning: false, startedAt: null });
-    await emit('nia');
-    assert.equal(await shapes.locator('.flock-mark__moving').count(), 0);
-    assert.equal(await draftAvatar.locator('.flock-mark__moving').count(), 0);
+    await emit('primary', { isRunning: false, startedAt: null });
+    await emit('primary');
+    assert.equal(await shapes.locator('.bot-avatar--working').count(), 0);
+    assert.equal(await draftAvatar.locator(':scope.bot-avatar--working').count(), 0);
     await capture('static-shapes');
     assert.deepEqual(unexpected, [], `${theme} has no page errors, external requests, or API writes`);
     await page.close();

@@ -20,8 +20,8 @@ vite?.stderr.on('data', data => { logs += data; });
 const evidence = new URL('../.context/new-chat-processing/', import.meta.url);
 await mkdir(evidence, { recursive: true });
 const bots = [
-  { id: 'primary', name: 'Primary Bot', isPrimary: true, avatarShape: 'blob', avatarColor: 'blue' },
-  { id: 'research', name: 'Research Bot', isPrimary: false, avatarShape: 'clover', avatarColor: 'violet' },
+  { id: 'primary', name: 'Primary Bot', isPrimary: true, avatarShape: 'bird-soar', avatarColor: 'orange' },
+  { id: 'research', name: 'Research Bot', isPrimary: false, avatarShape: 'bird-pair', avatarColor: 'violet' },
 ].map(bot => ({ kind: 'agent', mode: 'personal', generation: 1, unread: 0, createdAt: 0, lastActivityAt: 0, description: '', label: '', instructions: '', model: null, effort: 'medium', ...bot }));
 
 try {
@@ -98,8 +98,8 @@ try {
     if (width < 761) await page.locator(bot.isPrimary ? '.pinned__tile' : '.bot-row').filter({ hasText: bot.name }).click();
     const panel = page.locator('.first-response');
     const mark = panel.locator('.first-response__mark');
-    const moving = mark.locator(`img[src$="flock-working-${theme === 'dark' ? 'night' : 'light'}.svg"]`);
-    const idle = mark.locator(`img[src$="${theme === 'dark' ? 'flock-night.svg' : 'flock.svg'}"]`);
+    const moving = mark.locator('.bot-avatar--working > svg');
+    const idle = mark.locator('.bot-avatar > svg');
     const geometry = () => page.evaluate(() => Object.fromEntries(['.composer-area', '.transcript', '.bubble-wrap.is-right'].map(selector => {
       const rect = document.querySelector(selector)?.getBoundingClientRect();
       return [selector, rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : null];
@@ -112,9 +112,8 @@ try {
     };
     const working = async () => {
       await moving.waitFor();
-      await page.waitForFunction(element => element.complete && element.naturalWidth > 0, await moving.elementHandle());
-      assert.equal(await mark.locator('.flock-mark__moving:visible').count(), 1);
-      assert.equal(await mark.locator('.flock-mark__static:visible').count(), 0);
+      assert.equal(await moving.getAttribute('data-bird'), bot.avatarShape);
+      assert.equal(await mark.locator('.flock-mark, .bot-avatar__working').count(), 0);
       const box = await mark.boundingBox();
       assert.equal(box.width, 72); assert.equal(box.height, 72);
       const viewport = await page.locator('.transcript').boundingBox();
@@ -150,15 +149,14 @@ try {
     await live();
     await working();
     await hasPixelMotion();
-    assert.equal(await page.locator('.activity-line').count(), 0, 'the default first-turn animation is the large flock');
+    assert.equal(await page.locator('.activity-line').count(), 0, 'the default first-turn animation is the Bot avatar');
     sameGeometry(before, await geometry());
-    if (!bot.isPrimary) assert.equal(await page.locator('.chat__header .bot-avatar > svg').count(), 1, 'the Bot identity shape stays in the header');
+    assert.equal(await page.locator('.chat__header .bot-avatar > svg').count(), 1, 'the Bot identity shape stays in the header');
     await page.screenshot({ path: new URL(`${label}-working.png`, evidence).pathname });
 
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await idle.waitFor();
-    assert.equal(await mark.locator('.flock-mark__moving:visible').count(), 0);
-    assert.equal(await mark.locator('.flock-mark__static:visible').count(), 1);
+    assert.equal(await idle.evaluate(el => el.getAnimations().length), 0);
     const staticFrame = await mark.screenshot();
     await page.waitForTimeout(400);
     assert.ok(staticFrame.equals(await mark.screenshot()), `${label}: reduced motion is still`);
@@ -199,7 +197,7 @@ try {
     await emit({ type: 'rows', botId: bot.id, generation, rows: [tool] });
     assert.equal(await panel.count(), 0, 'a later tool row keeps established chat activity');
     await live({ isRunning: false });
-    assert.equal(await page.locator('.transcript .flock-mark__moving').count(), 0);
+    assert.equal(await page.locator('.transcript .bot-avatar--working').count(), 0);
 
     // Clearing a conversation starts a fresh first turn in the new generation.
     generation++; rows = []; exchanges = [];
@@ -262,10 +260,10 @@ try {
     await page.screenshot({ path: new URL(`${label}-existing-working.png`, evidence).pathname });
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await idle.waitFor();
-    assert.equal(await mark.locator('.flock-mark__moving:visible').count(), 0);
+    assert.equal(await idle.evaluate(el => el.getAnimations().length), 0);
     const still = await mark.screenshot();
     await page.waitForTimeout(300);
-    assert.ok(still.equals(await mark.screenshot()), 'the existing-chat reduced-motion flock is static');
+    assert.ok(still.equals(await mark.screenshot()), 'the existing-chat reduced-motion avatar is static');
     sameGeometry(established, await geometry());
     await page.emulateMedia({ reducedMotion: 'no-preference' });
     await live({ isRunning: false, activity: null, startedAt: null });
@@ -299,7 +297,7 @@ try {
     assert.equal(await panel.count(), 0, 'a direct completed reply also removes the main loader');
     sameGeometry(queuedGeometry, await geometry());
     await live({ isRunning: false, startedAt: null });
-    assert.equal(await page.locator('.transcript .flock-mark__moving').count(), 0);
+    assert.equal(await page.locator('.transcript .bot-avatar--working').count(), 0);
 
     // Two prompts may both arrive before the first run produces any text.
     generation++; rows = []; exchanges = [];
