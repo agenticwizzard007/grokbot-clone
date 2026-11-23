@@ -60,15 +60,15 @@ try {
   assert.equal(await botRow.locator('.bot-row__name').innerText(),teammate.name,'sidebar shows the exact created Bot name');
   assert.equal(await botRow.getAttribute('aria-current'),'true','clicking the named sidebar row selects the created Bot');
   // Opening the chat pill reveals the details panel if it is closed.
-  const config = page.getByRole('button',{name:'Configuration',exact:true});
+  const config = page.getByRole('button',{name:'Setup',exact:true});
   if(!await config.isVisible()) await page.getByRole('button',{name:'Show details',exact:true}).click();
   await config.click();
   await page.evaluate(() => document.fonts.ready);
-  await page.locator('.agent-config__status').getByText('Setup interview',{exact:true}).waitFor();
+  await page.locator('.setup-paper__subtitle').filter({hasText:/^Setup interview · Revision /}).waitFor();
   const saved = await chat(teammate.id, `mock: save_agent_setup ${JSON.stringify(complete)} | say Your configuration is ready for review.`);
   assert.equal(saved.rows.find(r=>r.body.name==='save_agent_setup').body.status,'done');
   const review = await api(`/bots/${teammate.id}/setup`); assert.equal(review.onboarding.status,'review');
-  await page.getByText('Ready for your review',{exact:true}).waitFor();
+  await page.locator('.setup-paper__subtitle').filter({hasText:/^Ready for review · Revision /}).waitFor();
   // Responsibilities are immediately visible; harness and generated files have explicit navigation.
   for (const name of ['Mission & responsibilities', 'Expected results', 'Planned workflows', 'Agreed limits']) {
     assert.ok(await page.getByRole('heading',{name,exact:true}).isVisible(), name+' should be visible');
@@ -99,20 +99,21 @@ try {
   await page.getByText('Concise, factual, and explicit about missing evidence.',{exact:true}).last().waitFor();
   await until(async () => page.getByRole('region',{name:'SOUL.md contents',exact:true}).evaluate(el=>document.activeElement === el));
   const download = page.waitForEvent('download');
-  await page.getByRole('link',{name:'Download',exact:true}).click();
+  await page.getByRole('button',{name:'Download',exact:true}).click();
   const downloaded = await download;
   assert.equal(downloaded.suggestedFilename(),'SOUL.md');
   assert.match(fs.readFileSync(await downloaded.path(),'utf8'),/Concise, factual/);
   fs.mkdirSync('.context/shots',{recursive:true});
   await page.locator('.agent-config__file').screenshot({path:'.context/shots/agent-soul-file.png'});
   await responsibilitiesTab.click();
-  await page.locator('.details__scroll').evaluate(el=>el.scrollTop=0);
+  await page.locator('aside.details').evaluate(el=>el.scrollTop=0);
   await page.locator('aside.details').screenshot({path:'.context/shots/agent-configuration-review.png'});
-  await page.getByRole('button',{name:'Activate agent',exact:true}).click();
-  await page.getByText('Active configuration',{exact:true}).waitFor();
+  await page.getByRole('region',{name:'Setup status',exact:true}).getByRole('button',{name:'Review and activate',exact:true}).click();
+  await page.getByRole('button',{name:`Activate agent · revision ${review.onboarding.revision}`,exact:true}).click();
+  await page.locator('.setup-paper__subtitle').filter({hasText:/^Active configuration · Revision /}).waitFor();
   assert.equal((await api(`/bots/${teammate.id}/setup`)).onboarding.status,'active');
   await until(async () => !(await api('/bots')).live.some(l=>l.botId===teammate.id&&l.isRunning));
-  await page.locator('.details__scroll').evaluate(el=>el.scrollTop=0);
+  await page.locator('aside.details').evaluate(el=>el.scrollTop=0);
   await page.locator('aside.details').screenshot({path:'.context/shots/agent-configuration-active.png'});
   // Keyboard navigation and instruction editing use the real owner-scoped save path.
   await responsibilitiesTab.focus(); await page.keyboard.press('ArrowRight');
@@ -161,8 +162,8 @@ try {
   await page.getByLabel('Assembled system instructions').waitFor();
   // Returning from Skills settings refreshes an already-open preview without another manual refresh.
   await page.getByRole('button',{name:'Skills',exact:true}).click();
-  const settings = page.getByRole('dialog',{name:'Nia settings',exact:true});
-  await settings.getByRole('button',{name:'New skill',exact:true}).click();
+  const settings = page.getByRole('main',{name:`${teammate.name} settings`,exact:true});
+  await settings.getByRole('button',{name:'Add skill',exact:true}).click();
   await settings.getByRole('textbox',{name:'Skill name',exact:true}).fill('Evidence checklist');
   await settings.getByRole('textbox',{name:'Skill steps',exact:true}).fill('Check each source before presenting the lead summary.');
   await settings.getByRole('button',{name:'Add skill',exact:true}).click();
@@ -172,20 +173,22 @@ try {
   await until(async () => (await page.getByLabel('Assembled system instructions').innerText()).includes('Evidence checklist'));
 
   await page.locator('summary').filter({hasText:'Preview assembled instructions'}).click();
-  await page.locator('.details__scroll').evaluate(el=>el.scrollTop=180);
+  await page.locator('aside.details').evaluate(el=>el.scrollTop=180);
   await page.locator('aside.details').screenshot({path:'.context/shots/agent-configuration-harness.png'});
   // Narrow layouts retain readable controls and do not introduce horizontal scrolling.
-  for (const width of [320,375,390,430,768,1024]) {
+  for (const width of [320,375,390,430,768,1024,1280,1440]) {
     await resize(width);
     if (!await page.locator('aside.details').isVisible()) {
       if (await botRow.isVisible()) await botRow.click();
       await page.getByRole('button',{name:'Show details',exact:true}).click();
       await config.click();
     }
+    assert.equal(await botRow.getAttribute('aria-current'),'true',`created Bot remains selected at ${width}`);
+    await config.click();
     for (const section of [responsibilitiesTab,harnessTab,filesTab]) {
       await section.click();
       assert.ok(await page.locator('aside.details').evaluate(el=>el.scrollWidth<=el.clientWidth),`panel overflow at ${width}`);
-      assert.ok(await page.locator('.details__scroll').evaluate(el=>el.scrollWidth<=el.clientWidth),`content overflow at ${width}`);
+      assert.ok(await page.locator('.details-page__column').evaluate(el=>el.scrollWidth<=el.clientWidth),`content overflow at ${width}`);
       if (width <= 760) {
         const undersized = await page.locator('.agent-config button, .agent-config summary, .agent-config__row > a').evaluateAll(els => els.filter(el => {
           const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.height < 44;
@@ -193,7 +196,7 @@ try {
         assert.deepEqual(undersized,[],`touch actions are at least 44px at ${width}`);
       }
       if (width === 390 || width === 1024) {
-        await page.locator('.details__scroll').evaluate(el=>el.scrollTop=0);
+        await page.locator('aside.details').evaluate(el=>el.scrollTop=0);
         await page.locator('aside.details').screenshot({path:`.context/shots/agent-configuration-paper-${width}-${(await section.innerText()).toLowerCase()}.png`});
         if (width === 390 && await section.innerText() === 'Files') {
           const soul = page.getByRole('button',{name:'SOUL.md Style & working principles',exact:true});
@@ -223,7 +226,7 @@ try {
   await page.getByLabel('Assembled system instructions').scrollIntoViewIfNeeded();
   await page.screenshot({path:'.context/shots/agent-configuration-paper-preview.png'});
   await page.locator('summary').filter({hasText:'Preview assembled instructions'}).click();
-  await page.locator('.details__scroll').evaluate(el=>el.scrollTop=0);
+  await page.locator('aside.details').evaluate(el=>el.scrollTop=0);
   await page.screenshot({path:'.context/shots/agent-configuration-mobile.png'});
   await page.evaluate(()=>document.documentElement.dataset.theme='dark');
   await page.screenshot({path:'.context/shots/agent-configuration-mobile-dark.png',animations:'disabled'});
@@ -260,15 +263,18 @@ try {
   assert.ok(fs.readdirSync(path.join(root,'companion','profiles')).includes(replica.id));
   const {bot:blank}=await api('/bots','POST',{name:'Blank QA'});
   await page.locator('.bot-row').filter({hasText:'Blank QA'}).click();
+  if (!await config.isVisible()) await page.getByRole('button',{name:'Show details',exact:true}).click();
+  await config.click();
   await page.getByText('No specific job defined yet. Describe what you want this agent to handle in chat.',{exact:true}).waitFor();
   assert.equal(await page.getByRole('heading',{name:'Expected results',exact:true}).count(),0);
   for (const placeholder of await page.getByText('None specified.',{exact:true}).all()) assert.equal(await placeholder.isVisible(),false);
   assert.ok((await api(`/bots/${blank.id}/rows`)).rows.some(r=>r.body.text?.includes('What job would you like Blank QA to handle?')));
   await page.locator('aside.details').screenshot({path:'.context/shots/agent-configuration-empty.png'});
-  // A room reached from Configuration keeps its ordinary Library header.
+  // A room reached from Setup keeps its ordinary Library header.
   await api('/rooms','POST',{name:'Configuration room QA',botIds:[primary.id,teammate.id]});
   await page.locator('.bot-row').filter({hasText:'Configuration room QA'}).click();
-  assert.equal(await page.getByRole('button',{name:'Configuration',exact:true}).count(),0);
+  if (!await page.locator('aside.details').isVisible()) await page.getByRole('button',{name:'Show details',exact:true}).click();
+  assert.equal(await page.getByRole('button',{name:'Setup',exact:true}).count(),0);
   assert.equal(await page.locator('.agent-config').count(),0);
   assert.equal(await page.locator('aside.details').evaluate(el=>el.classList.contains('details--configuration')),false);
 
