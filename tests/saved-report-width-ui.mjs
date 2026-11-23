@@ -29,7 +29,7 @@ try {
     await page.getByRole('button', { name: 'Open Research Bot details', exact: true }).click();
     const details = page.getByRole('complementary', { name: 'Conversation details' });
     await details.getByRole('navigation', { name: 'Conversation details sections' }).getByRole('button', { name: 'Files', exact: true }).click();
-    await details.getByRole('button', { name: 'Saved reports', exact: true }).click();
+    await details.getByRole('button', { name: 'View saved reports', exact: true }).click();
     const row = details.getByRole('region', { name: 'Saved reports', exact: true }).getByRole('article');
     const heading = row.getByRole('heading', { name: filename, exact: true });
     await heading.waitFor();
