@@ -48,10 +48,13 @@ try {
       assert.doesNotMatch(await form.innerText(), /No file chosen/i);
     };
     await assertCustomPicker();
+    await choose.waitFor({ state: 'visible' });
+    assert.equal(await choose.isEnabled(), true);
+    // Arm browser interception before focus checks, then activate the custom control by keyboard.
+    const chooserEvent = page.waitForEvent('filechooser');
     await choose.focus();
     assert.equal(await choose.evaluate(element => element === document.activeElement), true);
-    const chooserEvent = page.waitForEvent('filechooser');
-    await page.keyboard.press('Enter');
+    await choose.press('Enter');
     const chooser = await chooserEvent;
     await chooser.setFiles({ name: 'invalid.json', mimeType: 'application/json', buffer: Buffer.from('INVALID') });
     await form.getByRole('alert').filter({ hasText: 'This file is not valid JSON.' }).waitFor();
