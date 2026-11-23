@@ -17,6 +17,7 @@ import { ConnectionCardChanged, pendingConnectionCards, reconcileConnectionCards
 import { runRoutine, scheduleRoutine, unscheduleRoutine } from './routines.js';
 import { deleteEventTrigger } from './triggers.js';
 import { dispatchRoomMessage } from './agent/rooms.js';
+import { acceptMessage, SubmissionConflict } from './agent/message-receipts.js';
 import { voiceApi } from './voice.js';
 import { createBot, assertPrimaryRemovalAllowed, transferPrimary, botPatchSchema, botCreateSchema, BRIEF_FIELDS } from './bots.js';
 import { readJson, zodMessage } from './lib/json.js';
@@ -421,17 +422,27 @@ api.post('/bots/:id/messages', async (c) => {
   const b = ownBot(c.get('user').id, c.req.param('id'));
   if (!b) return c.json({ error: 'not found' }, 404);
   const body = await readJson(c); if (!body.ok) return body.response;
-  const { text } = body.data;
+  const { text, submissionId } = body.data;
   if (typeof text !== 'string' || !text.trim()) return c.json({ error: 'empty' }, 400);
   if (text.length > MAX_MESSAGE_CHARS) return c.json({ error: MESSAGE_TOO_LONG }, 413);
-  const row = appendRow(b.id, 'message', { type: 'message', role: 'user', text: text.trim() });
-  // The sidebar preview comes from the bot list, so tell clients the row changed (rooms and 1:1 chats alike).
-  emitBot(b.id);
-  // Group chats dispatch to their member Bots instead of running their own loop.
-  if (b.kind === 'room') dispatchRoomMessage(b.id, text.trim(), enqueue);
-  // Any pending question card is answered by a free-text message.
-  else enqueue(b.id, { type: 'user', text: text.trim() });
-  return c.json({ row });
+  if (submissionId !== undefined && (typeof submissionId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(submissionId)))
+    return c.json({ error: 'Invalid submission ID.' }, 400);
+  try {
+    const receipt = acceptMessage(c.get('user').id, b.id, submissionId, text, () => {
+      const row = appendRow(b.id, 'message', { type: 'message', role: 'user', text: text.trim() });
+      const jobIds: string[] = [];
+      // enqueue schedules a promise; beginJob checks durable state after this transaction commits.
+      // If any group member cannot be admitted, all rows, jobs and the receipt roll back.
+      if (b.kind === 'room') dispatchRoomMessage(b.id, text.trim(), (id, trigger) => { jobIds.push(enqueue(id, trigger)); });
+      else jobIds.push(enqueue(b.id, { type: 'user', text: text.trim() }));
+      return { row, jobIds };
+    });
+    emitBot(b.id);
+    return c.json(receipt);
+  } catch (error) {
+    if (error instanceof SubmissionConflict) return c.json({ error: error.message }, 409);
+    throw error;
+  }
 });
 
 api.post('/bots/:id/interrupt', (c) => {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { PhoneOff, TextCursorInput } from 'lucide-react';
 import type { Bot } from '@shared/types';
 import { api } from '../lib/api';
+import { acknowledgeSubmission, beginSubmission, pendingSubmission } from '../lib/chatSubmission';
 import { useConfigUI } from '../configStore';
 import { useStore } from '../store';
 import { Icon } from './Icon';
@@ -24,6 +25,7 @@ const pendingSends = new Map<string, symbol>();
 const sendErrors = new Map<string, string>();
 const draftListeners = new Set<(key: string) => void>();
 const notifyDraft = (key: string) => draftListeners.forEach(listener => listener(key));
+const draftText = (key: string) => drafts.get(key) ?? pendingSubmission(key)?.text ?? '';
 function isActiveComposer(accountId: string | undefined, botId: string) {
   const state = useStore.getState();
   const ui = useConfigUI.getState();
@@ -60,7 +62,7 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   const detailsOpen = useStore(s => s.detailsOpen);
   const compactDetails = useDetailsReplaceChat();
   const onScreen = paneVisible && !(detailsOpen && compactDetails);
-  const [text, setText] = useState(() => drafts.get(draftKey) ?? '');
+  const [text, setText] = useState(() => draftText(draftKey));
   const [sending, setSending] = useState(() => pendingSends.has(draftKey));
   const [error, setError] = useState<string | null>(() => sendErrors.get(draftKey) ?? null);
   const [menu, setMenu] = useState(false);
@@ -76,7 +78,7 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   useEffect(() => {
     const sync = (key: string) => {
       if (key !== draftKey) return;
-      setText(drafts.get(key) ?? ''); setSending(pendingSends.has(key)); setError(sendErrors.get(key) ?? null);
+      setText(draftText(key)); setSending(pendingSends.has(key)); setError(sendErrors.get(key) ?? null);
     };
     sync(draftKey);
     draftListeners.add(sync);
@@ -176,7 +178,9 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
     setSending(true); setError(null);
     const sentAt = Date.now();
     try {
-      await api.send(bot.id, t);
+      const submission = beginSubmission(draftKey, t);
+      await api.send(bot.id, t, submission.id);
+      acknowledgeSubmission(draftKey, submission.id);
       // MF-011: if the event stream stays silent for this Bot, reload its rows once.
       const botId = bot.id;
       expectRowsAfterSend(botId, () => { if (useStore.getState().user?.id === accountId) useStore.getState().loadRows(botId).catch(() => {}); }, { since: sentAt });
