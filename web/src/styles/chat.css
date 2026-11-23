@@ -136,8 +136,9 @@
 .divider { align-self: center; padding: 12px 0 6px; font-size: 12px; line-height: 16px; letter-spacing: 0.12px; color: var(--color-text-secondary); }
 .system-event { align-self: center; max-width: 560px; text-align: center; font-size: 12px; line-height: 16px; letter-spacing: 0.12px; color: var(--color-text-secondary); padding: 0 12px; }
 .notice {
-  align-self: center; max-width: 560px; padding: 8px 12px; border-radius: 12px;
+  align-self: center; max-width: min(560px, 100%); min-width: 0; padding: 8px 12px; border-radius: 12px;
   font-size: 13px; line-height: 18px; letter-spacing: 0.195px; text-align: center;
+  overflow-wrap: anywhere;
   background: var(--color-bg-tertiary); color: var(--color-text-secondary);
 }
 .notice.is-warn { background: var(--color-warn-bg); color: var(--color-warn-text); }
