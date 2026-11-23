@@ -259,7 +259,7 @@ beforeEach(() => {
   });
   mock.method(client.tools, 'getRawComposioTools', async () => [tool]);
   mock.method(client.tools, 'getRawComposioToolBySlug', async (slug: string) => { metadataQueries.push(slug); assert.equal(slug, tool.slug); return tool; });
-  mock.method(client.tools, 'execute', async (...args: any[]) => { executions.push(args); return { data: providerData, successful: true, error: null, logId: 'local-app-fixture' }; });
+  mock.method(client.tools, 'execute', async (...args: any[]) => { assert.ok(args[2]?.signal instanceof AbortSignal); assert.equal(args[2].maxRetries, 0); executions.push(args.slice(0, 2)); return { data: providerData, successful: true, error: null, logId: 'local-app-fixture' }; });
   mock.method(client, 'create', async () => { oauthStarts++; throw new Error('Existing account must not initiate OAuth'); });
 });
 afterEach(async () => {
