@@ -241,7 +241,12 @@ window.addEventListener('hashchange', () => {
   const section = linkedSection();
   if (section) { useConfigUI.getState().openAppSettings(section); return; }
   const bot = linkedBotSettings();
-  if (bot) useConfigUI.getState().openBotSettings(bot.botId, bot.tab);
+  if (bot) {
+    const ui = useConfigUI.getState();
+    // A deep link must uncover its destination, including any unsaved-draft guard.
+    ui.closeAppSettings();
+    ui.openBotSettings(bot.botId, bot.tab);
+  }
 });
 applyTheme(readTheme());
 darkQuery?.addEventListener?.('change', () => { if (useConfigUI.getState().theme === 'system') applyTheme('system'); });
