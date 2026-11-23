@@ -39,6 +39,8 @@ jobs:
         run: npm run test:updated-ui
       - name: Validate QA regressions
         run: npm run test:qa
+      - name: Validate session boot failure and retry
+        run: npm run test:session-boot
       - run: npm run test:deployment
       - run: npm run test:isolation
       - run: npm run test:cli

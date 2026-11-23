@@ -148,12 +148,28 @@ export function App() {
 
 function AppRoot() {
   const authChecked = useStore((s) => s.authChecked);
+  const authChecking = useStore((s) => s.authChecking);
+  const authError = useStore((s) => s.authError);
   const user = useStore((s) => s.user);
   useEffect(installVoiceShortcut, []);
   useEffect(() => { consumeSignedInRedirect(); useStore.getState().checkAuth(); }, []);
   // Public invite page: /join/<code> works signed in or out.
   const join = window.location.pathname.match(/^\/join\/([^/]+)/);
   if (join) return <Suspense fallback={<div className="boot" role="status">Loading…</div>}><JoinPage code={decodeURIComponent(join[1])} /></Suspense>;
+  if (authError) return (
+    <main className="boot boot--error">
+      <div className="boot__message">
+        <div role="alert">
+          <h1>Unable to load your session</h1>
+          <p>{authError}</p>
+        </div>
+        <button className="btn btn--primary" disabled={authChecking} onClick={() => useStore.getState().checkAuth()}>
+          {authChecking ? 'Checking session...' : 'Try again'}
+        </button>
+        {authChecking && <p role="status">Checking your session...</p>}
+      </div>
+    </main>
+  );
   if (!authChecked) return <div className="boot" />;
   return user ? <Shell /> : <SignIn />;
 }

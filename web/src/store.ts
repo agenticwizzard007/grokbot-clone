@@ -17,7 +17,10 @@ interface State {
   appleLogin: boolean;
   appleLinked: boolean;
   googleLinked: boolean;
+  /** A successful lookup has confirmed the current session or sign-out. */
   authChecked: boolean;
+  authChecking: boolean;
+  authError: string | null;
 
   bots: Bot[];
   botsLoaded: boolean;
@@ -83,6 +86,8 @@ export const useStore = create<State>((set, get) => ({
   appleLinked: false,
   googleLinked: false,
   authChecked: false,
+  authChecking: false,
+  authError: null,
   bots: [],
   botsLoaded: false,
   live: {},
@@ -102,12 +107,17 @@ export const useStore = create<State>((set, get) => ({
   viewerControl: false,
 
   async checkAuth() {
+    if (get().authChecking) return;
+    set({ authChecking: true });
     try {
       const { user, devLogin, googleLogin, googleLinked, appleLogin, appleLinked } = await api.me();
-      set({ user, devLogin, googleLogin: googleLogin !== false, appleLogin: !!appleLogin, appleLinked: !!appleLinked, googleLinked: !!googleLinked, authChecked: true });
+      if (user !== null && (!user || typeof user.id !== 'string' || !user.id)) throw new Error('Invalid session response');
+      set({ user, devLogin, googleLogin: googleLogin !== false, appleLogin: !!appleLogin, appleLinked: !!appleLinked, googleLinked: !!googleLinked, authChecked: true, authError: null });
       syncBrowserTimezone(user);
     } catch {
-      set({ user: null, authChecked: true });
+      set({ authChecked: false, authError: "We couldn't check your session. Check your connection and try again." });
+    } finally {
+      set({ authChecking: false });
     }
   },
 
