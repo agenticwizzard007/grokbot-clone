@@ -1,3 +1,4 @@
+import { LoadFeedback } from './LoadFeedback';
 import { useDisplayText } from '../lib/useDisplayText';
 import { isInternalRow, userFacingLive } from '../lib/audience';
 import { CoworkerSetupCards } from './CoworkerSetupCards';
@@ -184,7 +185,8 @@ const rowRect = (anchor: HTMLElement) => (anchor.style.display === 'contents' &&
 export const Transcript = memo(function Transcript({ bot, generation, rows, live, loaded }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const readingPosition = useRef<{ firstSeq: number; seq: string; top: number } | null>(null);
-  const paging = useStore(s => s.transcripts[bot.id]);
+  const transcript = useStore(s => s.transcripts[bot.id]);
+  const paging = transcript?.generation === generation ? transcript : undefined;
   const responseSlot = useRef<HTMLDivElement>(null);
   const responseHeight = useRef(0);
   const responseHeights = useRef(new Map<number, number>());
@@ -219,7 +221,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
   const interruptedTurn = !running && visibleRows.some(row => row.seq > promptSeq && row.body.type === 'notice' && row.body.recovery);
   const pendingResponse = loaded && !firstReply && !interruptedTurn;
   const processing = pendingResponse && running && !live?.awaiting && live?.activity?.kind !== 'waiting_for_you' && !streamingNow;
-  const empty = loaded && visibleRows.length === 0 && groups.length === 0;
+  const empty = loaded && !paging?.error && !paging?.loading && visibleRows.length === 0 && groups.length === 0;
   const activeTools = visibleRows.some(row => row.body.type === 'tool-call' && ['queued', 'running', 'awaiting-approval'].includes(row.body.status));
   const showActivity = ((running && !streamingNow) || waiting)
     && (!!live?.awaiting || waiting || activeTools);
@@ -289,6 +291,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
 
   return (
     <div className="transcript-wrap">
+    {(!loaded || paging?.error || paging?.loading) && <LoadFeedback label="messages" error={paging?.error} loading={!!paging?.loading || (!loaded && !paging?.error)} stale={loaded || rows.length > 0} onRetry={() => { void useStore.getState().loadRows(bot.id); }} />}
     <div className="transcript" ref={scrollRef} onScroll={onScroll} data-bot-id={bot.id} data-generation={generation}>
       <div className="transcript__col">
         {paging?.olderCursor != null && <button type="button" className="transcript__older" disabled={paging.loadingOlder} onClick={() => useStore.getState().loadOlderRows(bot.id).catch(() => {})}>{paging.loadingOlder ? 'Loading earlier messages...' : 'Earlier messages'}</button>}

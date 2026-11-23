@@ -1,3 +1,4 @@
+import { RosterFeedback } from './LoadFeedback';
 import { userFacingLive } from '../lib/audience';
 import { memo, useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { Blocks, ChevronDown, Gauge, KeyRound, LogOut, Monitor, Settings } from 'lucide-react';
@@ -59,6 +60,7 @@ const BotRow = memo(function BotRow({ bot, selected, running, awaiting, onSelect
 });
 
 export function Sidebar() {
+  const mobile = useStore(s => s.mobile);
   const bots = useStore((s) => s.bots);
   const live = useStore((s) => s.live);
   const storeSelectedBotId = useStore((s) => s.selectedBotId);
@@ -149,6 +151,7 @@ export function Sidebar() {
       </button>
 
       <div className="sidebar__scroll">
+        {mobile && <RosterFeedback />}
         <TasksIsland />
         {!collapsed && bots.length > 0 && <p className="sidebar__section-label">Your Bots</p>}
         {primary && (

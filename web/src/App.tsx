@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { startEvents } from './lib/events';
 import { onReturnToList, PHONE_QUERY, restorePhoneSetup, showPhoneList, useStore } from './store';
+import { RosterFeedback } from './components/LoadFeedback';
 import { ChatView } from './components/ChatView';
 import { BotsView } from './components/BotsView';
 import { DetailsPanel } from './components/DetailsPanel';
@@ -33,6 +34,7 @@ function Shell() {
   const collapsed = useStore((s) => s.sidebarCollapsed);
   const selectedBotId = useStore(s => s.selectedBotId);
   const hasBot = !!selectedBotId;
+  const rosterUnavailable = useStore(s => !s.botsLoaded && !s.bots.length);
   const view = useConfigUI((s) => s.view);
   const mobile = useStore((s) => s.mobile);
   const pane = useStore((s) => s.mobilePane);
@@ -122,6 +124,8 @@ function Shell() {
     return () => window.removeEventListener('keydown', k);
   }, []);
 
+  if (rosterUnavailable) return <main className="boot boot--data"><RosterFeedback /></main>;
+
   return (
     <div className={`app${settingsOpen ? ' is-app-settings' : ''}${collapsed && !mobile ? ' is-sidebar-collapsed' : ''}${mobile ? ` is-mobile pane-${view === 'tasks' || (modal === 'create' || modal === 'group') || botSettings || detailsOpen ? 'chat' : pane}` : ''}`}>
       <Sidebar />
@@ -181,5 +185,5 @@ function AppRoot() {
     </main>
   );
   if (!authChecked) return <div className="boot" />;
-  return user ? <SignedInAuthFeedback><Shell /></SignedInAuthFeedback> : <SignIn />;
+  return user ? <SignedInAuthFeedback><Shell key={user.id} /></SignedInAuthFeedback> : <SignIn />;
 }

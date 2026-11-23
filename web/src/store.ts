@@ -16,6 +16,8 @@ function withLatestSetup(incoming: Bot, current?: Bot): Bot {
 
 interface Transcript {
   generation: number; bySeq: Record<number, Row>; loaded: boolean;
+  loading?: boolean;
+  error?: string | null;
   /** Oldest fetched page boundary, independent of rows arriving over SSE. Null means complete. */
   olderCursor?: number | null;
   loadingOlder?: boolean;
@@ -37,6 +39,8 @@ interface State {
 
   bots: Bot[];
   botsLoaded: boolean;
+  botsLoading: boolean;
+  botsError: string | null;
   live: Record<string, LiveState>;
   selectedBotId: string | null;
   transcripts: Record<string, Transcript>;
@@ -73,6 +77,9 @@ interface State {
 
 const LS_SELECTED = 'swarm.selectedBot';
 let computerRequest = 0;
+let accountEpoch = 0;
+let rosterRequest = 0;
+const rowRequests = new Map<string, number>();
 const olderRequests = new Map<string, Promise<void>>();
 
 type InlineSetup = 'create' | 'group';
@@ -106,6 +113,8 @@ export const useStore = create<State>((set, get) => ({
   authError: null,
   bots: [],
   botsLoaded: false,
+  botsLoading: false,
+  botsError: null,
   live: {},
   selectedBotId: lsGet(LS_SELECTED),
   transcripts: {},
@@ -153,27 +162,37 @@ export const useStore = create<State>((set, get) => ({
   async loadBots() {
     const accountId = get().user?.id;
     if (!accountId) return;
-    const firstLoad = !get().botsLoaded;
-    const { bots, live } = await api.bots();
-    if (get().user?.id !== accountId) return;
-    const liveMap: Record<string, LiveState> = {};
-    for (const l of live) liveMap[l.botId] = l;
-    const sel = get().selectedBotId;
-    const selectedBotId = sel && bots.some((b) => b.id === sel) ? sel : (bots.find((b) => b.isPrimary) ?? bots[0])?.id ?? null;
-    set(state => ({ bots: bots.map(bot => withLatestSetup(bot, state.bots.find(current => current.id === bot.id))), botsLoaded: true, live: liveMap }));
-    // A link from a Bot ("solve this on my screen"): open that Bot's screen, ready to take control.
-    const linked = new URLSearchParams(location.search).get('screen');
-    if (linked && bots.some((b) => b.id === linked)) {
-      history.replaceState(null, '', location.pathname);
-      get().selectBot(linked);
-      set({ viewerOpen: true, viewerControl: true });
-      return;
+    const epoch = accountEpoch;
+    const request = ++rosterRequest;
+    const current = () => get().user?.id === accountId && epoch === accountEpoch && request === rosterRequest;
+    set({ botsLoading: true });
+    try {
+      const firstLoad = !get().botsLoaded;
+      const { bots, live } = await api.bots();
+      if (!current()) return;
+      const liveMap: Record<string, LiveState> = {};
+      for (const l of live) liveMap[l.botId] = l;
+      const sel = get().selectedBotId;
+      const selectedBotId = sel && bots.some((b) => b.id === sel) ? sel : (bots.find((b) => b.isPrimary) ?? bots[0])?.id ?? null;
+      set(state => ({ bots: bots.map(bot => withLatestSetup(bot, state.bots.find(current => current.id === bot.id))), botsLoaded: true, botsError: null, live: liveMap, selectedBotId }));
+      // A link from a Bot ("solve this on my screen"): open that Bot's screen, ready to take control.
+      const linked = new URLSearchParams(location.search).get('screen');
+      if (linked && bots.some((b) => b.id === linked)) {
+        history.replaceState(null, '', location.pathname);
+        get().selectBot(linked);
+        set({ viewerOpen: true, viewerControl: true });
+        return;
+      }
+      if (selectedBotId !== sel || !get().transcripts[selectedBotId ?? '']) {
+        if (selectedBotId) get().selectBot(selectedBotId, { open: false });
+      }
+      // R2F-015: the chat restored after a reload follows "Open Bot details with each chat" too (never on phones).
+      if (firstLoad && selectedBotId && !get().mobile && readDetailsDefault(accountId)) set({ detailsOpen: true });
+    } catch {
+      if (current()) set({ botsError: "Couldn't load your Bots. Check your connection and try again." });
+    } finally {
+      if (current()) set({ botsLoading: false });
     }
-    if (selectedBotId !== get().selectedBotId || !get().transcripts[selectedBotId ?? '']) {
-      if (selectedBotId) get().selectBot(selectedBotId, { open: false });
-    }
-    // R2F-015: the chat restored after a reload follows "Open Bot details with each chat" too (never on phones).
-    if (firstLoad && selectedBotId && !get().mobile && readDetailsDefault(accountId)) set({ detailsOpen: true });
   },
 
   selectBot(id, opts = {}) {
@@ -191,22 +210,44 @@ export const useStore = create<State>((set, get) => ({
   async loadRows(id) {
     const accountId = get().user?.id;
     if (!accountId || !get().bots.some(bot => bot.id === id)) return;
-    const { generation, rows } = await api.rows(id);
-    const state = get();
-    const bot = state.bots.find(candidate => candidate.id === id);
-    const prev = state.transcripts[id];
-    if (state.user?.id !== accountId || !bot || generation < (bot.generation ?? 0) || (prev && generation < prev.generation)) return;
-    const bySeq: Record<number, Row> = {};
-    for (const r of rows) bySeq[r.seq] = r;
-    // Merge with anything that streamed in while we were fetching.
-    if (prev && prev.generation === generation) {
-      for (const r of Object.values(prev.bySeq)) if (!bySeq[r.seq] || bySeq[r.seq].updatedSeq < r.updatedSeq) bySeq[r.seq] = r;
-    }
-    const paging = prev?.generation === generation ? prev : undefined;
-    const olderCursor = paging?.olderCursor !== undefined ? paging.olderCursor : rows.length === ROW_PAGE_SIZE ? rows[0].seq : null;
-    set((s) => ({ transcripts: { ...s.transcripts, [id]: { ...paging, generation, bySeq, loaded: true, olderCursor } } }));
-    if (import.meta.env?.DEV && new URLSearchParams(location.search).has('fixtures')) {
-      import('./dev/fixtures').then((m) => m.injectFixtures());
+    const epoch = accountEpoch;
+    const botGeneration = get().bots.find(bot => bot.id === id)!.generation ?? 0;
+    const previous = get().transcripts[id];
+    const expectedGeneration = Math.max(botGeneration, previous?.generation ?? 0);
+    const request = (rowRequests.get(id) ?? 0) + 1;
+    rowRequests.set(id, request);
+    const current = () => {
+      const state = get();
+      return state.user?.id === accountId && epoch === accountEpoch && rowRequests.get(id) === request
+        && state.bots.some(bot => bot.id === id);
+    };
+    set(s => ({ transcripts: { ...s.transcripts, [id]: {
+      ...(previous?.generation === expectedGeneration ? previous : { generation: expectedGeneration, bySeq: {}, loaded: false }),
+      loading: true,
+    } } }));
+    try {
+      const { generation, rows } = await api.rows(id);
+      if (!current()) return;
+      const state = get();
+      const bot = state.bots.find(candidate => candidate.id === id);
+      const prev = state.transcripts[id];
+      if (!bot || generation < (bot.generation ?? 0) || (prev && generation < prev.generation)) throw new Error('Outdated transcript');
+      const bySeq: Record<number, Row> = {};
+      for (const r of rows) bySeq[r.seq] = r;
+      // Merge with anything that streamed in while we were fetching.
+      if (prev && prev.generation === generation) {
+        for (const r of Object.values(prev.bySeq)) if (!bySeq[r.seq] || bySeq[r.seq].updatedSeq < r.updatedSeq) bySeq[r.seq] = r;
+      }
+      const paging = prev?.generation === generation ? prev : undefined;
+      const olderCursor = paging?.olderCursor !== undefined ? paging.olderCursor : rows.length === ROW_PAGE_SIZE ? rows[0].seq : null;
+      set((s) => ({ transcripts: { ...s.transcripts, [id]: { ...paging, generation, bySeq, loaded: true, loading: false, error: null, olderCursor } } }));
+      if (import.meta.env?.DEV && new URLSearchParams(location.search).has('fixtures')) {
+        import('./dev/fixtures').then((m) => m.injectFixtures());
+      }
+    } catch {
+      if (current() && get().transcripts[id]?.generation === expectedGeneration) set(s => ({ transcripts: { ...s.transcripts, [id]: {
+        ...s.transcripts[id], loading: false, error: "Couldn't load messages. Check your connection and try again.",
+      } } }));
     }
   },
 
@@ -377,6 +418,19 @@ export const useStore = create<State>((set, get) => ({
     set(p);
   },
 }));
+
+// Invalidate reads even when an account is left and then opened again before they settle.
+useStore.subscribe((state, previous) => {
+  if (state.user?.id === previous.user?.id) return;
+  accountEpoch++;
+  rowRequests.clear();
+  useStore.setState({
+    botsLoading: false, botsError: null,
+    ...(state.bots === previous.bots ? { bots: [], botsLoaded: false } : {}),
+    ...(state.transcripts === previous.transcripts ? { transcripts: {} } : {}),
+    ...(state.live === previous.live ? { live: {} } : {}),
+  });
+});
 
 /** MF-017: an account without a time zone adopts the browser's, so synopses and check-ins run at local time. */
 export function browserTimezone(): string | null {
