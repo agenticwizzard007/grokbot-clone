@@ -1,0 +1,22 @@
+name: Session revocation
+on:
+  pull_request:
+    paths: ['server/**', 'web/**', 'tests/**', 'package*.json', '.github/workflows/session-revocation.yml']
+  push:
+    branches: [main]
+    paths: ['server/**', 'web/**', 'tests/**', 'package*.json', '.github/workflows/session-revocation.yml']
+jobs:
+  session-revocation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node --import tsx --test tests/session-revocation.test.mts
+      - run: node tests/session-revocation-ui.mjs

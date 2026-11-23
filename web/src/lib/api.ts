@@ -1,5 +1,6 @@
 import type { Bot, ComputerState, LiveState, Routine, Row, Toolkit, User } from '@shared/types';
 import { isNativeApp } from './native';
+import { requireActiveSession, revalidateSession } from './session';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public code?: string) { super(message); }
@@ -8,6 +9,7 @@ export class ApiError extends Error {
 export const needsReauth = (err: unknown): err is ApiError => err instanceof ApiError && err.status === 401 && err.code === 'reauth_required';
 
 async function req<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  requireActiveSession();
   const res = await fetch(`/api${path}`, {
     method,
     signal,
@@ -15,13 +17,17 @@ async function req<T>(method: string, path: string, body?: unknown, signal?: Abo
     headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
+  requireActiveSession();
   if (!res.ok) {
     let msg = res.statusText, code: string | undefined;
     try { const body = (await res.json()) as { error?: string; code?: string }; msg = body.error ?? msg; code = body.code; } catch { /* not json */ }
+    if (res.status === 401 && code !== 'reauth_required') void revalidateSession();
     throw new ApiError(res.status, msg, code);
   }
   if (res.status === 204) return undefined as T;
-  return res.json() as Promise<T>;
+  const result = await res.json() as T;
+  requireActiveSession();
+  return result;
 }
 
 export interface AppsResponse { apps: Toolkit[]; connected: string[]; connectedApps?: Toolkit[]; categories: string[]; total: number; nextOffset?: number | null; notConfigured?: boolean }
