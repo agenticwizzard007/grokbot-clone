@@ -86,12 +86,12 @@ function FolderPicker({ selected, onChange }: { selected: string[]; onChange: (f
   return <div className="cfg-row"><div className="cfg-row__text">
     <div className="cfg-row__title">Shared folders</div>
     <p className="cfg-row__sub">Choose up to eight Library folders this server can read. Folder access includes their contents and subfolders. It cannot change your files.</p>
-    {selected.map((value, index) => <div className="mcp-actions" key={value}><span>{value} · <code>/workspace/folders/{index + 1}</code></span><button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => onChange(selected.filter(s => s !== value))}>Remove folder</button></div>)}
+    {selected.map((value, index) => <div className="mcp-actions mcp-folder-row" key={value}><span className="mcp-folder-path">{value} · <code>/workspace/folders/{index + 1}</code></span><button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => onChange(selected.filter(s => s !== value))}>Remove folder</button></div>)}
     {!selected.length && <p className="cfg-row__sub">No folders shared.</p>}
-    <div className="mcp-actions"><span>{folder || 'Your Library'}</span>{folder && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => open(folder.includes('/') ? folder.slice(0, folder.lastIndexOf('/')) : '')}>Up</button>}
+    <div className="mcp-actions mcp-folder-row"><span className="mcp-folder-path">{folder || 'Your Library'}</span>{folder && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => open(folder.includes('/') ? folder.slice(0, folder.lastIndexOf('/')) : '')}>Up</button>}
       {folder && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={loading || !!error || selected.length >= 8 || overlaps(folder)} onClick={() => onChange([...selected, folder])}>Share this folder</button>}
     </div>
-    {loading ? <p className="cfg-row__sub">Loading folders…</p> : choices.map(choice => <button type="button" className="cfg-btn cfg-btn--secondary" key={choice.path} onClick={() => open(choice.path)}>{choice.name}</button>)}
+    {loading ? <p className="cfg-row__sub">Loading folders…</p> : choices.map(choice => <button type="button" className="cfg-btn cfg-btn--secondary mcp-folder-choice" key={choice.path} onClick={() => open(choice.path)}>{choice.name}</button>)}
     {!loading && !choices.length && !error && <p className="cfg-row__sub">No folders here.</p>}
     {next && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setPage(next)}>Next folders</button>}
     {error && <p role="alert" className="cfg-error">{error}</p>}
