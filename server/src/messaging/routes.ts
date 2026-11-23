@@ -1,7 +1,10 @@
 import { Hono } from 'hono';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import QRCode from 'qrcode';
+import { z } from 'zod';
 import { createSession, requireUser, type AuthVars } from '../lib/auth.js';
+import { readJson } from '../lib/json.js';
+import { publicAuthBodyLimit } from '../security/body-limits.js';
 import { canManageServer, clearSetting, saveSetting, SETTINGS, type SettingName } from '../settings.js';
 import { env } from '../env.js';
 import { isTenant } from '../deployment.js';
@@ -26,6 +29,13 @@ const clientIp = (c: any) => {
 // ---------- public: join page and sign-in by text ----------
 
 export const messagingPublic = new Hono();
+
+const publicPhoneBody = z.object({ phone: z.string().min(1).max(64) });
+const publicVerifyBody = z.object({
+  id: z.string().min(1).max(128),
+  code: z.string().min(1).max(32),
+  inviteCode: z.string().max(128).optional(),
+});
 
 async function publicWhatsApp() {
   if (!inkboxConfigured()) return null;
@@ -57,18 +67,20 @@ messagingPublic.get('/join/:code', async (c) => {
   });
 });
 
-messagingPublic.post('/join/:code/claim', async (c) => {
-  const { phone } = await c.req.json<{ phone?: string }>().catch(() => ({} as { phone?: string }));
-  const r = claimInvite(c.req.param('code'), String(phone ?? ''), clientIp(c));
+messagingPublic.post('/join/:code/claim', publicAuthBodyLimit, async (c) => {
+  const body = await readJson(c, publicPhoneBody);
+  if (!body.ok) return body.response;
+  const r = claimInvite(c.req.param('code'), body.data.phone, clientIp(c));
   if (!r.ok) return c.json({ error: r.error }, r.status as 400);
   return c.json({ ok: true });
 });
 
 const signinHits = new Map<string, number[]>();
 /** Text a one-time sign-in link to a number. The same answer whether or not the number has an account. */
-messagingPublic.post('/auth/text/request', async (c) => {
-  const { phone } = await c.req.json<{ phone?: string }>().catch(() => ({} as { phone?: string }));
-  const p = digits(phone);
+messagingPublic.post('/auth/text/request', publicAuthBodyLimit, async (c) => {
+  const body = await readJson(c, publicPhoneBody);
+  if (!body.ok) return body.response;
+  const p = digits(body.data.phone);
   if (p.length < 8 || p.length > 15) return c.json({ error: 'Enter your full number with country code.' }, 400);
   const key = `${clientIp(c)}|${p}`;
   const hits = (signinHits.get(key) ?? []).filter((t) => Date.now() - t < 10 * 60_000);
@@ -85,17 +97,20 @@ messagingPublic.post('/auth/text/request', async (c) => {
  * Continue with your phone number: start → a code reaches the phone (texted, or in reply to their first text);
  * verify → signed in, account created if new, number connected.
  */
-messagingPublic.post('/auth/phone/start', async (c) => {
-  const { phone } = await c.req.json<{ phone?: string }>().catch(() => ({} as { phone?: string }));
-  const r = await startPhoneLogin(String(phone ?? ''), { ip: clientIp(c), line: publicLine });
+messagingPublic.post('/auth/phone/start', publicAuthBodyLimit, async (c) => {
+  const body = await readJson(c, publicPhoneBody);
+  if (!body.ok) return body.response;
+  const r = await startPhoneLogin(body.data.phone, { ip: clientIp(c), line: publicLine });
   if (!r.ok) return c.json({ error: r.error }, r.status as 400);
   const { ok, ...response } = r;
   return c.json(response);
 });
 
-messagingPublic.post('/auth/phone/verify', async (c) => {
-  const b = await c.req.json<{ id?: string; code?: string; inviteCode?: string }>().catch(() => ({} as any));
-  const r = await verifyPhoneLogin(String(b.id ?? ''), String(b.code ?? ''), { inviteCode: b.inviteCode ? String(b.inviteCode) : undefined });
+messagingPublic.post('/auth/phone/verify', publicAuthBodyLimit, async (c) => {
+  const body = await readJson(c, publicVerifyBody);
+  if (!body.ok) return body.response;
+  const { id, code, inviteCode } = body.data;
+  const r = await verifyPhoneLogin(id, code, { inviteCode });
   if (!r.ok) return c.json({ error: r.error, needInvite: r.needInvite ?? false }, r.status as 400);
   createSession(c, r.userId);
   return c.json({ ok: true, created: r.created });
