@@ -7,11 +7,11 @@ import { useStore } from '../store';
 import '../styles/messaging.css';
 
 /** Public /join/:code page: claim an invite with your phone number, then text the line to create your account. */
-export function JoinPage({ code }: { code: string }) {
+export function JoinPage({ code }: { code: string | null }) {
   return <InvitePage key={code} code={code} />;
 }
 
-function InvitePage({ code }: { code: string }) {
+function InvitePage({ code }: { code: string | null }) {
   const [info, setInfo] = useState<JoinInfo | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [phone, setPhone] = useState('');
@@ -24,6 +24,7 @@ function InvitePage({ code }: { code: string }) {
   const submitting = useRef(false);
 
   useEffect(() => {
+    if (code === null) return;
     let current = true;
     setLoadError(null);
     configApi.joinInfo(code).then(result => { if (current) setInfo(result); }).catch(e => { if (current) setLoadError((e as Error).message); });
@@ -32,7 +33,7 @@ function InvitePage({ code }: { code: string }) {
 
   const claim = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (submitting.current) return;
+    if (code === null || submitting.current) return;
     const digits = phone.replace(/\D/g, '');
     if (digits.length < 8) { setError('Enter your full number with country code, like +1 415 555 0123.'); return; }
     submitting.current = true;
@@ -43,7 +44,9 @@ function InvitePage({ code }: { code: string }) {
   };
 
   let body: React.ReactNode;
-  if (loadError) {
+  if (code === null) {
+    body = <><h1 className="join__title">This invite can’t be used</h1><p className="join__pitch">This invite link is invalid. Ask for a new invitation.</p></>;
+  } else if (loadError) {
     body = <><h1 className="join__title">Something went wrong</h1><div className="card__error join__error" role="alert">{loadError}</div><button className="btn btn--primary" type="button" onClick={() => setAttempt(value => value + 1)}>Retry invitation</button></>;
   } else if (!info) {
     body = <p className="join__pitch" role="status">Loading invitation…</p>;
