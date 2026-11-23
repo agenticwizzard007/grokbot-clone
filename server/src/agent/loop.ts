@@ -608,7 +608,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
     let c = st.calls[0];
     let args = safeParse(c.arguments) ?? {};
     const row = getRow(botId, c.rowSeq);
-    let body = (row?.body ?? {}) as ToolCallBody;
+    let body = { ...(row?.body ?? {}), jobId: ctx.jobId } as ToolCallBody & { jobId?: string };
     try {
       if (c.name === 'tool_call') {
         const resolved = await resolveToolCall(await ctx.availableTools!(), args);

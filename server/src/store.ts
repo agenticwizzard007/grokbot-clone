@@ -148,7 +148,8 @@ export function appendRow(botId: string, kind: RowKind, body: RowBody): Row {
     console.warn('[rows] refused a card row for a group chat turn', { botId, card: (body as { card?: string }).card });
     throw new RoomCardRefused();
   }
-  body = { ...body, audience: body.type === 'card' ? 'user' : body.audience ?? executionAudience(botId) };
+  const jobId = body.jobId ?? (body.type === 'message' || body.type === 'tool-call' ? currentJobId() ?? undefined : undefined);
+  body = { ...body, jobId, audience: body.type === 'card' ? 'user' : body.audience ?? executionAudience(botId) };
   const tx = db.transaction(() => {
     const b = db.prepare('SELECT user_id, generation, next_seq FROM bots WHERE id=?').get(botId) as any;
     const seq = b.next_seq;
@@ -172,7 +173,9 @@ export function updateRow(botId: string, seq: number, body: RowBody): Row | null
     const b = db.prepare('SELECT user_id, generation FROM bots WHERE id=?').get(botId) as any;
     const existing = db.prepare('SELECT * FROM rows WHERE bot_id=? AND generation=? AND seq=?').get(botId, b.generation, seq) as any;
     if (!existing) return null;
-    body = { ...body, audience: body.type === 'card' ? 'user' : body.audience ?? JSON.parse(existing.body).audience ?? executionAudience(botId) };
+    const prior = JSON.parse(existing.body) as RowBody;
+    const jobId = body.jobId ?? prior.jobId ?? (body.type === 'message' || body.type === 'tool-call' ? currentJobId() ?? undefined : undefined);
+    body = { ...body, jobId, audience: body.type === 'card' ? 'user' : body.audience ?? prior.audience ?? executionAudience(botId) };
     const rev = bumpRev(botId);
     db.prepare('UPDATE rows SET body=?, updated_seq=? WHERE bot_id=? AND generation=? AND seq=?').run(JSON.stringify(body), rev, botId, b.generation, seq);
     const memoryChanged = existing.kind === 'message' && recordMessageSource(b.user_id, botId, b.generation, seq, rev, body);
