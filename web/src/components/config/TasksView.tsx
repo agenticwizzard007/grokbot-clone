@@ -1,161 +1,16 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, Menu, RefreshCw } from 'lucide-react';
-import type { Bot, Task } from '@shared/types';
-import { configApi } from '../../lib/configApi';
-import { api, type NeedsYouItem } from '../../lib/api';
-import { queueImportedSetup } from '../../lib/setupApi';
-import { scrollToRow } from '../../lib/scrollToRow';
-import { needsYouChip, scopeNeedsYou } from './settingsLogic';
-import { relativeShort } from '../../lib/time';
-import { openConversation, useConfigUI, usePageTitle, useVersion } from '../../configStore';
+import { useConfigUI, usePageTitle } from '../../configStore';
 import { botSlug, routeBot, type WorkTab } from '../../lib/userRoutes';
 import { backToList, useStore } from '../../store';
-import { Glyph } from './glyphs';
 import { TeamBoard } from './TeamBoard';
 import { WorkflowsPanel } from './WorkflowsPanel';
-import { WorkReports, type ReportLocation } from './WorkReports';
+import { WorkReports } from './WorkReports';
 import { openWorkChat, workBotKey } from './workScope';
-import './ui';
-import './workArea.css';
-import '@fontsource-variable/instrument-sans/wght.css';
-import '../../styles/tasks.css';
+import { useNeedsYou, useTasks } from './taskData';
+import { AttentionStatus, NeedsYouCard, TaskCard, TaskError, sortTasks, STATES, STATUS, workContext, setWorkContext, type Filter, type WorkContext } from './TaskCards';
 
-type Filter = 'all' | Task['state'];
-type WorkContext = { filter: Filter; caller?: string; report?: ReportLocation };
 const TABS: WorkTab[] = ['Tasks', 'Team', 'Goals', 'Reports'];
-const defaultContext: WorkContext = { filter: 'all' };
-let workContext = defaultContext;
-useStore.subscribe((state, previous) => {
-  if (state.user?.id !== previous.user?.id) workContext = defaultContext;
-});
-const STATES = ['needs_input', 'working', 'done'] as const;
-const STATUS = {
-  needs_input: { label: 'Pending', chip: 'Needs you', action: 'Reply in chat' },
-  working: { label: 'In progress', chip: 'In progress', action: 'View progress' },
-  done: { label: 'Done', chip: 'Completed', action: 'View result' },
-};
-
-function when(t: Task): string {
-  const r = relativeShort(t.updatedAt);
-  return r === 'now' ? 'Just now' : r === 'Yesterday' ? 'Yesterday' : `${r} ago`;
-}
-
-function TaskCard({ task, bot, compact = false }: { task: Task; bot?: Bot; compact?: boolean }) {
-  const status = STATUS[task.state];
-  const note = task.note || (task.state === 'needs_input' ? 'Open chat to see what your Bot needs.' : task.state === 'done' ? 'Open chat to see the result.' : 'Your Bot is working on this task.');
-  return (
-    <button type="button" className={`task-card is-${task.state}${compact ? ' is-compact' : ''}`} onClick={() => bot && openWorkChat(bot.id)} disabled={!bot} title={`${task.state === 'done' ? 'Completed' : 'Updated'} ${when(task)} (${new Date(task.updatedAt).toLocaleString()})`}
-      aria-label={`${task.title} — ${status.label}. ${bot ? `${status.action} with ${bot.name}` : 'Bot unavailable'}`}>
-      <span className="task-card__top">
-        <span className={`task-status is-${task.state}`}>{status.chip}</span>
-      </span>
-      <span className="task-card__body">
-        <span className="task-card__title">{task.title}</span>
-        <span className="task-card__note">{bot?.name ?? 'Bot unavailable'} · {note}</span>
-        <span className="task-card__row-status">{status.chip}</span>
-      </span>
-      <span className="task-card__footer">
-        {bot && <span className="task-card__action">{status.action}</span>}
-      </span>
-    </button>
-  );
-}
-
-/** Open the place where a needs-you item is answered: setup reviews in the Bot's Setup tab, cards in its chat. */
-export function openNeedsYou(item: NeedsYouItem) {
-  const store = useStore.getState();
-  if (!store.bots.some(bot => bot.id === item.botId)) return;
-  if (item.type === 'setup_review' && store.user) queueImportedSetup(store.user.id, item.botId);
-  openConversation(item.botId);
-  if (item.type === 'setup_review' && !store.mobile) useStore.getState().set({ detailsOpen: true });
-  if (item.seq != null && item.type !== 'setup_review') scrollToRow(item.seq);
-}
-
-function NeedsYouCard({ item, bot, compact = false }: { item: NeedsYouItem; bot?: Bot; compact?: boolean }) {
-  const kind = needsYouChip(item.type);
-  const action = item.type === 'setup_review' ? 'Review setup' : item.type === 'approval' ? 'Review approval' : item.type === 'connect' ? 'Connect in chat' : 'Reply in chat';
-  const name = bot?.name ?? item.botName ?? 'Bot unavailable';
-  return (
-    <button type="button" className={`task-card is-needs_input is-attention${compact ? ' is-compact' : ''}`} onClick={() => openNeedsYou(item)} disabled={!bot}
-      title={`Waiting since ${new Date(item.createdAt).toLocaleString()}`} aria-label={`${item.title}. ${kind}. ${bot ? `${action} with ${name}` : 'Bot unavailable'}`}>
-      <span className="task-card__top"><span className="task-status is-needs_input">Needs you</span></span>
-      <span className="task-card__body">
-        <span className="task-card__title">{item.title}</span>
-        <span className="task-card__note">{name} · {kind}</span>
-        <span className="task-card__row-status">Needs you</span>
-      </span>
-      <span className="task-card__footer">{bot && <span className="task-card__action">{action}</span>}</span>
-    </button>
-  );
-}
-
-/** Setup reviews, approvals, questions and connect cards waiting on the user (GET /api/needs-you). */
-function useNeedsYou(botId?: string, available = true) {
-  const userId = useStore(s => s.user?.id);
-  const version = useVersion('needs-you');
-  const connected = useStore((s) => s.sseConnected);
-  const [attempt, setAttempt] = useState(0);
-  const [result, setResult] = useState<{ userId?: string; items: NeedsYouItem[] | null; error: boolean; loading: boolean }>();
-  useEffect(() => {
-    if (!userId || !available) return;
-    let alive = true;
-    setResult(prev => ({ userId, items: prev?.userId === userId ? prev.items : null, error: prev?.userId === userId && prev.error, loading: true }));
-    api.needsYou().then(r => {
-      if (alive && useStore.getState().user?.id === userId) setResult({ userId, items: Array.isArray(r?.items) ? r.items : [], error: false, loading: false });
-    }).catch(() => {
-      if (alive && useStore.getState().user?.id === userId) setResult(prev => ({ userId, items: prev?.userId === userId ? prev.items : null, error: true, loading: false }));
-    });
-    return () => { alive = false; };
-  }, [userId, available, version, connected, attempt]);
-  const current = available && result?.userId === userId ? result : undefined;
-  const items = current?.items ?? null;
-  const scoped = useMemo(() => items ? scopeNeedsYou(items, botId) : null, [items, botId]);
-  // Keep the error and stale label during retries until a successful response arrives.
-  return { items: scoped, error: current?.error ?? false, loading: current?.loading ?? true, retry: () => setAttempt(n => n + 1) };
-}
-
-function useTasks(botId?: string, available = true) {
-  const userId = useStore(s => s.user?.id);
-  const generation = useStore(s => s.bots.find(bot => bot.id === botId)?.generation);
-  const scope = JSON.stringify([userId, botId, generation]);
-  const version = useVersion(botId ? `tasks:${botId}` : 'tasks');
-  const connected = useStore((s) => s.sseConnected);
-  const [attempt, setAttempt] = useState(0);
-  const [result, setResult] = useState<{ scope: string; tasks: Task[] | null; error: boolean }>();
-  useEffect(() => {
-    if (!userId || !available) return;
-    let alive = true;
-    (botId ? configApi.botTasks(botId) : configApi.tasks()).then((r) => {
-      if (alive && useStore.getState().user?.id === userId) setResult({ scope, tasks: r.tasks.filter(task => !botId || task.botId === botId), error: false });
-    }).catch(() => {
-      if (alive) setResult((prev) => ({ scope, tasks: prev?.scope === scope ? prev.tasks : null, error: true }));
-    });
-    return () => { alive = false; };
-  }, [userId, botId, scope, available, version, attempt, connected]);
-  const retry = () => {
-    setResult((prev) => prev && ({ ...prev, error: false }));
-    setAttempt((n) => n + 1);
-  };
-  return { tasks: available && result?.scope === scope ? result.tasks : null, error: available && result?.scope === scope && result.error, retry };
-}
-
-function sortTasks(list: Task[]) {
-  const rank = { needs_input: 0, working: 1, done: 2 } as const;
-  return [...list].sort((a, b) => rank[a.state] - rank[b.state] || (a.state === 'needs_input' ? a.updatedAt - b.updatedAt : b.updatedAt - a.updatedAt));
-}
-
-function TaskError({ retry, stale }: { retry: () => void; stale: boolean }) {
-  return <div className={`tasks-error${stale ? ' is-stale' : ''}`} role="alert"><div className="tasks-error__copy"><strong>{stale ? 'Tasks couldn’t refresh.' : 'Tasks couldn’t load.'}</strong><span>{stale ? 'Showing the last update.' : 'Please try again.'}</span></div><button className="work-button" type="button" onClick={retry}>Retry</button></div>;
-}
-
-function AttentionStatus({ attention }: { attention: ReturnType<typeof useNeedsYou> }) {
-  if (attention.error) return <div className={`tasks-error${attention.items !== null ? ' is-stale' : ''}`} role="alert">
-    <div className="tasks-error__copy"><strong>Pending input could not {attention.items !== null ? 'refresh' : 'load'}.</strong><span>{attention.items !== null ? 'Showing the last update. Pending input may be out of date.' : 'Approvals, setup reviews and questions may be missing.'}</span></div>
-    <button className="work-button" type="button" onClick={attention.retry} disabled={attention.loading}>{attention.loading ? 'Retrying...' : 'Retry pending input'}</button>
-  </div>;
-  if (attention.items === null) return <div className="tasks-loading" role="status">Loading pending input...</div>;
-  return null;
-}
 
 /** Responsive board: status columns on wide screens, grouped cards on phones. */
 export function TasksView() {
@@ -180,7 +35,7 @@ function WorkWorkspace() {
   const updateContext = (patch: Partial<WorkContext> & { tab?: WorkTab; botId?: string }) => {
     const bot = bots.find(bot => bot.id === patch.botId);
     useConfigUI.getState().setWorkRoute({ tab: patch.tab ?? tab, botSlug: 'botId' in patch ? bot && botSlug(bot) : route.botSlug });
-    workContext = { ...workContext, ...('botId' in patch && patch.botId !== botFilter ? { report: undefined } : {}), ...patch };
+    setWorkContext({ ...workContext, ...('botId' in patch && patch.botId !== botFilter ? { report: undefined } : {}), ...patch });
     setContext(workContext);
     if (patch.tab && patch.tab !== tab) setHeading(undefined);
   };
@@ -268,46 +123,5 @@ function WorkWorkspace() {
         </div>
       </div>
     </main>
-  );
-}
-
-/** Sidebar entry with the number of tasks waiting on the user. */
-export function TasksIsland() {
-  const view = useConfigUI((s) => s.view);
-  const settingsOpen = useConfigUI((s) => s.appSettings !== null);
-  const active = view === 'tasks' && !settingsOpen;
-  const { tasks } = useTasks();
-  const attention = useNeedsYou();
-  const waiting = (tasks?.filter((t) => t.state === 'needs_input').length ?? 0) + (attention.items?.length ?? 0);
-  const attentionKnown = attention.items !== null && !attention.error;
-  return (
-    <button type="button" className={`sidebar-island${active ? ' is-active' : ''}`} onClick={() => useConfigUI.getState().requestLeaveBotSettings(() => {
-      const ui = useConfigUI.getState();
-      ui.closeAppSettings(); ui.discardBotSettings(); useStore.getState().setModal(null); ui.setView('tasks');
-    })} title={!attentionKnown ? 'Pending input count unavailable' : waiting ? `${waiting} ${waiting === 1 ? 'item needs' : 'items need'} your input` : 'Tasks'} aria-label="Tasks" aria-pressed={active}>
-      <span className="sidebar-island__icon"><Glyph name="tasks" size={18} /></span><span className="sidebar-island__label">Tasks</span>
-      {!attentionKnown ? <span className="sidebar-island__count" aria-label="Pending input count unavailable">?</span> : waiting > 0 && <span className="sidebar-island__count" aria-label={`${waiting} waiting on you`}>{waiting}</span>}
-    </button>
-  );
-}
-
-/** The same task states remain visible in each bot’s details panel. */
-export function BotTasks({ bot }: { bot: Bot }) {
-  const { tasks, error, retry } = useTasks(bot.id);
-  const attention = useNeedsYou(bot.id);
-  const waitingItems = attention.items ?? [];
-  const sorted = useMemo(() => sortTasks(tasks ?? []), [tasks]);
-  const openWorkspace = (tab: WorkTab, botId?: string) => {
-    workContext = { filter: 'all', caller: bot.id };
-    useConfigUI.getState().setWorkRoute({ tab, ...(botId ? { botSlug: botSlug(bot) } : {}) });
-    useConfigUI.getState().setView('tasks');
-  };
-  return (
-    <div className="details__sections"><section>
-      <div className="section-label section-label--row"><span>Tasks</span><button type="button" className="link-btn link-btn--small" onClick={() => openWorkspace('Tasks', bot.id)}>See all tasks</button></div>
-      {error && <TaskError retry={retry} stale={tasks !== null} />}
-      <AttentionStatus attention={attention} />
-      {tasks === null && !waitingItems.length ? (!error && <div className="panel-card"><div className="panel-empty" role="status">Loading…</div></div>) : sorted.length + waitingItems.length === 0 && attention.items !== null && !attention.error ? <div className="panel-card"><div className="panel-empty">No tasks yet. Ask {bot.name} for a few things at once and they’ll be tracked here.</div></div> : <div className="bot-task-cards">{waitingItems.map((item) => <NeedsYouCard key={`${item.type}:${item.id}`} item={item} bot={bot} compact />)}{sorted.map((t) => <TaskCard key={t.id} task={t} bot={bot} compact />)}</div>}
-    </section><section className="work-row"><h3>Goals and workflows</h3><p className="work-meta">Plan and review work for {bot.name}.</p><button type="button" className="work-button" onClick={() => openWorkspace('Goals', bot.id)}>Goals and workflows</button></section></div>
   );
 }

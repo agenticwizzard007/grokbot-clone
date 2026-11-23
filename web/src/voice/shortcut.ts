@@ -3,15 +3,12 @@ import { isNativeApp } from '../lib/native';
 import { useStore } from '../store';
 import { isCallActive, startCall, toggleMute, useVoice } from './call';
 
-type ShortcutStatus = 'loading' | 'signin' | 'missing-agent' | 'started' | 'failed';
-
-declare global {
-  interface Window { swarmStartMainVoice?: (requestID: string) => ShortcutStatus }
-}
+import type { ShortcutStatus } from './entry';
 
 /** Native-to-web only. It cannot invoke native APIs, change servers, or establish a session. */
 export function installVoiceShortcut() {
   if (!isNativeApp) return () => {};
+  const previous = window.swarmStartMainVoice;
   const handled = new Set<string>();
   const start = (requestID: string): ShortcutStatus => {
     if (typeof requestID !== 'string' || !/^[a-f\d-]{36}$/i.test(requestID)) return 'failed';
@@ -45,5 +42,5 @@ export function installVoiceShortcut() {
     } catch { return 'failed'; }
   };
   window.swarmStartMainVoice = start;
-  return () => { if (window.swarmStartMainVoice === start) delete window.swarmStartMainVoice; };
+  return () => { if (window.swarmStartMainVoice === start) window.swarmStartMainVoice = previous; };
 }

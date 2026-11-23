@@ -58,7 +58,6 @@
 .tasks-error__copy { display: grid; gap: 6px; }
 .tasks-error__copy strong { font-weight: 500; }
 .tasks-error button { min-height: 44px; }
-.sidebar .sidebar-island__count { background: var(--color-primary); color: var(--color-on-primary); }
 @container (max-width: 760px) {
   .task-board { grid-template-columns: 1fr; gap: 28px; }
   .task-column__cards { grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); }

@@ -5,7 +5,6 @@ import { api } from '../lib/api';
 import { PhoneAuth } from './PhoneAuth';
 import '../styles/messaging.css';
 import { useStore } from '../store';
-import { TrafficLights } from './Sidebar';
 import { AppleSignIn } from './AppleSignIn';
 import { AuthLink } from './AuthButton';
 import { OpenRouterSignIn } from './OpenRouterSignIn';
@@ -32,7 +31,6 @@ export function SignIn() {
 
   return (
     <main className="signin access-signin">
-      <div className="signin__chrome"><TrafficLights /></div>
       <div className="signin__card">
         <header className="signin__header">
           <div className="signin__brand">

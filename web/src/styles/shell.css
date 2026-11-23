@@ -80,3 +80,11 @@
 .bots-view__item-text { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
 .bots-view__item strong { font-weight: 500; overflow-wrap: anywhere; }
 .bots-view__item small { color: var(--color-text-secondary); font-size: 13px; overflow-wrap: anywhere; }
+
+/* The selected conversation stays alongside its details on a wide workspace. */
+.app .chat-pane { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; height: 100%; }
+.app .bot-details-pane { display: flex; flex: 0 0 clamp(360px, 29vw, 420px); min-width: 0; min-height: 0; border-left: 1px solid var(--color-border-secondary); }
+.app .bot-details-pane[hidden] { display: none; }
+.app .chat__bot-details { display: inline-flex; align-items: center; justify-content: center; width: 44px; min-width: 44px; height: 44px; border-radius: 12px; }
+.app .chat__bot-details:hover { background: var(--color-bg-hover); }
+.app .chat__bot-details[aria-expanded='true'] { background: var(--color-bg-active); }
