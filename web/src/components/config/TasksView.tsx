@@ -94,20 +94,24 @@ function useNeedsYou(botId?: string, available = true) {
   const userId = useStore(s => s.user?.id);
   const version = useVersion('needs-you');
   const connected = useStore((s) => s.sseConnected);
-  const [result, setResult] = useState<{ userId?: string; items: NeedsYouItem[] | null }>({ items: null });
+  const [attempt, setAttempt] = useState(0);
+  const [result, setResult] = useState<{ userId?: string; items: NeedsYouItem[] | null; error: boolean; loading: boolean }>();
   useEffect(() => {
     if (!userId || !available) return;
     let alive = true;
+    setResult(prev => ({ userId, items: prev?.userId === userId ? prev.items : null, error: prev?.userId === userId && prev.error, loading: true }));
     api.needsYou().then(r => {
-      if (alive && useStore.getState().user?.id === userId) setResult({ userId, items: Array.isArray(r?.items) ? r.items : [] });
+      if (alive && useStore.getState().user?.id === userId) setResult({ userId, items: Array.isArray(r?.items) ? r.items : [], error: false, loading: false });
     }).catch(() => {
-      // Tasks still work without this list; keep the last good answer.
-      if (alive) setResult(prev => prev.userId === userId ? prev : { userId, items: null });
+      if (alive && useStore.getState().user?.id === userId) setResult(prev => ({ userId, items: prev?.userId === userId ? prev.items : null, error: true, loading: false }));
     });
     return () => { alive = false; };
-  }, [userId, available, version, connected]);
-  const items = available && result.userId === userId ? result.items : null;
-  return useMemo(() => items ? scopeNeedsYou(items, botId) : null, [items, botId]);
+  }, [userId, available, version, connected, attempt]);
+  const current = available && result?.userId === userId ? result : undefined;
+  const items = current?.items ?? null;
+  const scoped = useMemo(() => items ? scopeNeedsYou(items, botId) : null, [items, botId]);
+  // Keep the error and stale label during retries until a successful response arrives.
+  return { items: scoped, error: current?.error ?? false, loading: current?.loading ?? true, retry: () => setAttempt(n => n + 1) };
 }
 
 function useTasks(botId?: string, available = true) {
@@ -142,6 +146,15 @@ function sortTasks(list: Task[]) {
 
 function TaskError({ retry, stale }: { retry: () => void; stale: boolean }) {
   return <div className={`tasks-error${stale ? ' is-stale' : ''}`} role="alert"><div className="tasks-error__copy"><strong>{stale ? 'Tasks couldn’t refresh.' : 'Tasks couldn’t load.'}</strong><span>{stale ? 'Showing the last update.' : 'Please try again.'}</span></div><button className="work-button" type="button" onClick={retry}>Retry</button></div>;
+}
+
+function AttentionStatus({ attention }: { attention: ReturnType<typeof useNeedsYou> }) {
+  if (attention.error) return <div className={`tasks-error${attention.items !== null ? ' is-stale' : ''}`} role="alert">
+    <div className="tasks-error__copy"><strong>Pending input could not {attention.items !== null ? 'refresh' : 'load'}.</strong><span>{attention.items !== null ? 'Showing the last update. Pending input may be out of date.' : 'Approvals, setup reviews and questions may be missing.'}</span></div>
+    <button className="work-button" type="button" onClick={attention.retry} disabled={attention.loading}>{attention.loading ? 'Retrying...' : 'Retry pending input'}</button>
+  </div>;
+  if (attention.items === null) return <div className="tasks-loading" role="status">Loading pending input...</div>;
+  return null;
 }
 
 /** Responsive board: status columns on wide screens, grouped cards on phones. */
@@ -186,10 +199,12 @@ function WorkWorkspace() {
   const attention = useNeedsYou(botFilter, !unavailable && tab === 'Tasks');
   const byId = useMemo(() => new Map(bots.map((b) => [b.id, b])), [bots]);
   const scoped = useMemo(() => sortTasks((tasks ?? []).filter((t) => !selectedBot || t.botId === selectedBot.id)), [tasks, selectedBot]);
-  const waitingItems = attention ?? [];
+  const waitingItems = attention.items ?? [];
+  const attentionKnown = attention.items !== null && !attention.error;
   const counts = useMemo(() => ({ all: scoped.length + waitingItems.length, needs_input: scoped.filter((t) => t.state === 'needs_input').length + waitingItems.length, working: scoped.filter((t) => t.state === 'working').length, done: scoped.filter((t) => t.state === 'done').length }), [scoped, waitingItems.length]);
   const shownStates = filter === 'all' ? STATES.filter(state => counts[state] > 0) : [filter];
-  const empty = tasks !== null && counts[filter] === 0;
+  const empty = tasks !== null && counts[filter] === 0 && (attentionKnown || (filter !== 'all' && filter !== 'needs_input'));
+  const countLabel = (state: Filter) => tasks === null || (!attentionKnown && (state === 'all' || state === 'needs_input')) ? '?' : counts[state];
   // R2F-022: only the board content widens; the heading and tab bar keep one width and position on every tab.
   const board = tab === 'Tasks' && filter === 'all' && tasks !== null && !empty;
   useLayoutEffect(() => { if (scroll.current) scroll.current.scrollTop = 0; }, [tab, heading?.title]);
@@ -216,14 +231,14 @@ function WorkWorkspace() {
           {!unavailable && tab === 'Reports' && <WorkReports key={`${userId}:${workBotKey(selectedBot)}`} botId={botFilter} location={context.report} onLocation={report => updateContext({ report })} onHeading={setHeading} />}
           {tab === 'Tasks' && <div className={`tasks-board-area${board ? ' is-board' : ''}`}>
           {selectedBot && <div className="tasks-scope" role="status"><span>Showing tasks for {selectedBot.name}</span><button type="button" className="work-button" aria-label={`Clear the ${selectedBot.name} filter and show tasks for all Bots`} onClick={() => updateContext({ botId: undefined })}>Show all Bots</button></div>}
-          {tasks !== null && <div className={`tasks-attention${counts.needs_input ? '' : ' is-clear'}`}>
+          {tasks !== null && attentionKnown && <div className={`tasks-attention${counts.needs_input ? '' : ' is-clear'}`}>
             <div className="tasks-attention__copy"><strong>{counts.needs_input ? `${counts.needs_input} ${counts.needs_input === 1 ? 'task needs' : 'tasks need'} your input` : 'You’re all caught up'}</strong><span>{counts.needs_input ? 'A quick reply helps your team keep moving.' : 'No tasks are waiting for your input.'}</span></div>
             {counts.needs_input > 0 && filter !== 'needs_input' && <button type="button" className="work-button" onClick={() => setFilter('needs_input')}>Show pending</button>}
           </div>}
           <div className="tasks-toolbar">
             <div className="task-filters" role="group" aria-label="Filter tasks by status">
               {(['all', ...STATES] as const).map((state) => <button key={state} type="button" aria-pressed={filter === state} className={`task-filter is-${state}${filter === state ? ' is-selected' : ''}`} onClick={() => setFilter(state)}>
-                <span>{state === 'all' ? 'All tasks' : STATUS[state].label}</span><span className="task-filter__count">{tasks === null ? '–' : counts[state]}</span>
+                <span>{state === 'all' ? 'All tasks' : STATUS[state].label}</span><span className="task-filter__count">{countLabel(state)}</span>
               </button>)}
             </div>
             <label className="work-field">Filter by Bot<select className="tasks-bot-filter" aria-label="Filter tasks by bot" value={botFilter ?? 'all'} onChange={(event) => updateContext({ botId: event.currentTarget.value === 'all' ? undefined : event.currentTarget.value })}>
@@ -231,6 +246,7 @@ function WorkWorkspace() {
             </select></label>
           </div>
           {error && <TaskError retry={retry} stale={tasks !== null} />}
+          {!unavailable && <AttentionStatus attention={attention} />}
           {unavailable ? <div className="tasks-empty" role="status"><h2>Bot unavailable</h2><p>No tasks are shown for this Bot. Choose another Bot or All Bots.</p></div> : tasks === null ? (!error && <div className="tasks-loading" role="status"><RefreshCw size={20} aria-hidden="true" />Loading tasks…</div>) : empty ? (
             <div className="tasks-empty">
               <h2>{filter === 'needs_input' ? 'No pending tasks' : filter === 'done' ? 'Nothing finished yet' : filter === 'working' ? 'Nothing in progress' : selectedBot ? `No tasks for ${selectedBot.name} yet` : 'No tasks yet'}</h2>
@@ -240,7 +256,7 @@ function WorkWorkspace() {
           ) : <div className={`task-board${filter !== 'all' ? ' is-filtered' : ''}`}>
             {shownStates.map((state) => {
               return <section key={state} className={`task-column is-${state}`} aria-label={filter !== 'all' ? STATUS[state].label : undefined} aria-labelledby={filter === 'all' ? `tasks-${state}` : undefined}>
-                {filter === 'all' && <header className="task-column__header"><h2 id={`tasks-${state}`}>{STATUS[state].label} · {counts[state]}</h2></header>}
+                {filter === 'all' && <header className="task-column__header"><h2 id={`tasks-${state}`}>{STATUS[state].label} · {countLabel(state)}</h2></header>}
                 <div className="task-column__cards">
                   {state === 'needs_input' && waitingItems.map((item) => <NeedsYouCard key={`${item.type}:${item.id}`} item={item} bot={byId.get(item.botId)} />)}
                   {scoped.filter((t) => t.state === state).map((t) => <TaskCard key={t.id} task={t} bot={byId.get(t.botId)} />)}
@@ -262,14 +278,15 @@ export function TasksIsland() {
   const active = view === 'tasks' && !settingsOpen;
   const { tasks } = useTasks();
   const attention = useNeedsYou();
-  const waiting = (tasks?.filter((t) => t.state === 'needs_input').length ?? 0) + (attention?.length ?? 0);
+  const waiting = (tasks?.filter((t) => t.state === 'needs_input').length ?? 0) + (attention.items?.length ?? 0);
+  const attentionKnown = attention.items !== null && !attention.error;
   return (
     <button type="button" className={`sidebar-island${active ? ' is-active' : ''}`} onClick={() => useConfigUI.getState().requestLeaveBotSettings(() => {
       const ui = useConfigUI.getState();
       ui.closeAppSettings(); ui.discardBotSettings(); useStore.getState().setModal(null); ui.setView('tasks');
-    })} title={waiting ? `${waiting} ${waiting === 1 ? 'item needs' : 'items need'} your input` : 'Tasks'} aria-label="Tasks" aria-pressed={active}>
+    })} title={!attentionKnown ? 'Pending input count unavailable' : waiting ? `${waiting} ${waiting === 1 ? 'item needs' : 'items need'} your input` : 'Tasks'} aria-label="Tasks" aria-pressed={active}>
       <span className="sidebar-island__icon"><Glyph name="tasks" size={18} /></span><span className="sidebar-island__label">Tasks</span>
-      {waiting > 0 && <span className="sidebar-island__count" aria-label={`${waiting} waiting on you`}>{waiting}</span>}
+      {!attentionKnown ? <span className="sidebar-island__count" aria-label="Pending input count unavailable">?</span> : waiting > 0 && <span className="sidebar-island__count" aria-label={`${waiting} waiting on you`}>{waiting}</span>}
     </button>
   );
 }
@@ -277,7 +294,8 @@ export function TasksIsland() {
 /** The same task states remain visible in each bot’s details panel. */
 export function BotTasks({ bot }: { bot: Bot }) {
   const { tasks, error, retry } = useTasks(bot.id);
-  const attention = useNeedsYou(bot.id) ?? [];
+  const attention = useNeedsYou(bot.id);
+  const waitingItems = attention.items ?? [];
   const sorted = useMemo(() => sortTasks(tasks ?? []), [tasks]);
   const openWorkspace = (tab: WorkTab, botId?: string) => {
     workContext = { filter: 'all', caller: bot.id };
@@ -288,7 +306,8 @@ export function BotTasks({ bot }: { bot: Bot }) {
     <div className="details__sections"><section>
       <div className="section-label section-label--row"><span>Tasks</span><button type="button" className="link-btn link-btn--small" onClick={() => openWorkspace('Tasks', bot.id)}>See all tasks</button></div>
       {error && <TaskError retry={retry} stale={tasks !== null} />}
-      {tasks === null && !attention.length ? (!error && <div className="panel-card"><div className="panel-empty" role="status">Loading…</div></div>) : sorted.length + attention.length === 0 ? <div className="panel-card"><div className="panel-empty">No tasks yet. Ask {bot.name} for a few things at once and they’ll be tracked here.</div></div> : <div className="bot-task-cards">{attention.map((item) => <NeedsYouCard key={`${item.type}:${item.id}`} item={item} bot={bot} compact />)}{sorted.map((t) => <TaskCard key={t.id} task={t} bot={bot} compact />)}</div>}
+      <AttentionStatus attention={attention} />
+      {tasks === null && !waitingItems.length ? (!error && <div className="panel-card"><div className="panel-empty" role="status">Loading…</div></div>) : sorted.length + waitingItems.length === 0 && attention.items !== null && !attention.error ? <div className="panel-card"><div className="panel-empty">No tasks yet. Ask {bot.name} for a few things at once and they’ll be tracked here.</div></div> : <div className="bot-task-cards">{waitingItems.map((item) => <NeedsYouCard key={`${item.type}:${item.id}`} item={item} bot={bot} compact />)}{sorted.map((t) => <TaskCard key={t.id} task={t} bot={bot} compact />)}</div>}
     </section><section className="work-row"><h3>Goals and workflows</h3><p className="work-meta">Plan and review work for {bot.name}.</p><button type="button" className="work-button" onClick={() => openWorkspace('Goals', bot.id)}>Goals and workflows</button></section></div>
   );
 }
