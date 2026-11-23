@@ -1,0 +1,27 @@
+name: Bot settings deep links
+on:
+  pull_request:
+    paths: ['web/**', 'server/**', 'tests/bot-settings-deep-link-ui.mjs', 'tests/mock-provider.mjs', 'package*.json', '.github/workflows/bot-settings-deep-link.yml']
+  push:
+    branches: [main]
+    paths: ['web/**', 'server/**', 'tests/bot-settings-deep-link-ui.mjs', 'tests/mock-provider.mjs', 'package*.json', '.github/workflows/bot-settings-deep-link.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  bot-settings-deep-link:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node tests/bot-settings-deep-link-ui.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bot-settings-deep-link-evidence
+          path: .context/bot-settings-deep-link/
