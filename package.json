@@ -7,6 +7,7 @@
     "web"
   ],
   "scripts": {
+    "test:transcript-paging": "node --import tsx --test tests/transcript-paging.test.mts && node tests/transcript-paging-ui.mjs",
     "posttest:qa": "node tests/mcp-folder-overflow-ui.mjs",
     "dev": "npm run dev -w server & npm run dev -w web",
     "build": "npm run build -w web && npm run build -w server && node scripts/write-release-manifest.mjs",

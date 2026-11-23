@@ -35,6 +35,9 @@ export type SuggestedToolkit = Omit<Toolkit, 'connected'> & { reason: string };
 
 export interface RoomMember { id: string; name: string; label: string; avatarShape: string; avatarColor: string }
 
+// Matches the default window returned by GET /bots/:id/rows.
+export const ROW_PAGE_SIZE = 200;
+
 export const api = {
   me: () => req<{ user: User | null; devLogin: boolean; googleLogin?: boolean; googleLinked?: boolean; appleLogin?: boolean; appleLinked?: boolean }>('GET', '/auth/me'),
   devLogin: (email: string, name?: string) => req<{ ok: true }>('POST', '/auth/dev', { email, name }),
@@ -44,7 +47,7 @@ export const api = {
   bots: () => req<{ bots: Bot[]; live: LiveState[] }>('GET', '/bots'),
   createBot: (b: Pick<Bot, 'name' | 'avatarShape' | 'avatarColor' | 'mode'>) => req<{ bot: Bot }>('POST', '/bots', b),
   markRead: (id: string) => req<{ ok: true }>('POST', `/bots/${id}/read`),
-  rows: (id: string) => req<{ generation: number; rows: Row[] }>('GET', `/bots/${id}/rows`),
+  rows: (id: string, beforeSeq?: number) => req<{ generation: number; rows: Row[] }>('GET', `/bots/${id}/rows${beforeSeq === undefined ? '' : `?beforeSeq=${beforeSeq}&limit=${ROW_PAGE_SIZE}`}`),
   send: (id: string, text: string) => req<{ row: Row }>('POST', `/bots/${id}/messages`, { text }),
   interrupt: (id: string) => req<{ ok: true }>('POST', `/bots/${id}/interrupt`),
   fresh: (id: string) => req<{ ok: true }>('POST', `/bots/${id}/fresh`),
