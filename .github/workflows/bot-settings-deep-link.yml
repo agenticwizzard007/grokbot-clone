@@ -25,3 +25,4 @@ jobs:
         with:
           name: bot-settings-deep-link-evidence
           path: .context/bot-settings-deep-link/
+          include-hidden-files: true
