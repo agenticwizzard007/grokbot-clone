@@ -130,7 +130,14 @@ try {
     await page.waitForFunction(async () => (await import('/src/store.ts')).useStore.getState().user?.id === 'app-row-fixture');
     await page.evaluate(async () => (await import('/src/store.ts')).useStore.getState().setModal('apps'));
     const dialog = page.getByRole('dialog', { name: 'Connect Apps', exact: true });
-    await dialog.getByRole('button', { name: '3 connected', exact: true }).click();
+    const connectedButton = dialog.getByRole('button', { name: '3 connected', exact: true });
+    await connectedButton.waitFor();
+    // Wait for the view-change reload, not the initial response that reveals this button.
+    const [connectedResponse] = await Promise.all([
+      page.waitForResponse(response => new URL(response.url()).pathname === '/api/apps'),
+      connectedButton.click(),
+    ]);
+    await connectedResponse.finished();
     await dialog.getByRole('heading', { name: 'Connected', exact: true }).waitFor();
     await page.evaluate(() => document.fonts.ready);
 
