@@ -1,24 +1,68 @@
-// Local full-app regressions for I04 and I06. Every API response is synthetic.
+// Local I04 and I06 regressions: temporary SQLite, DEV_LOGIN, mocked model/toolkit APIs.
 // Run: node tests/qa-model-menu-ui.mjs
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import fs from 'node:fs/promises';
-import http from 'node:http';
+import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
+const root = fileURLToPath(new URL('..', import.meta.url));
+const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'model-menu-'));
 const evidence = new URL('../.context/model-menu/', import.meta.url);
 await fs.mkdir(evidence, { recursive: true });
-const port = await new Promise(resolve => {
-  const socket = http.createServer().listen(0, '127.0.0.1', () => {
-    const port = socket.address().port;
-    socket.close(() => resolve(port));
-  });
-});
-const origin = `http://127.0.0.1:${port}`;
-const vite = spawn(process.execPath, ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', String(port), '--strictPort'], { cwd: new URL('../web', import.meta.url), stdio: 'pipe' });
-let logs = '';
-vite.stdout.on('data', data => { logs += data; });
-vite.stderr.on('data', data => { logs += data; });
+async function freePort() {
+  const socket = net.createServer();
+  socket.listen(0, '127.0.0.1');
+  await once(socket, 'listening');
+  const port = socket.address().port;
+  await new Promise(resolve => socket.close(resolve));
+  return port;
+}
+const apiPort = await freePort(), uiPort = await freePort(), modelPort = await freePort();
+const origin = `http://127.0.0.1:${uiPort}`, apiBase = `http://127.0.0.1:${apiPort}`;
+const modelBase = `http://127.0.0.1:${modelPort}`;
+// Do not inherit provider credentials or database settings from the caller.
+const env = {
+  PATH: process.env.PATH, NODE_ENV: 'test', SWARM_ROLE: 'standalone', DEV_LOGIN: '1',
+  DB_PATH: path.join(temp, 'app.db'), FILES_DIR: path.join(temp, 'files'),
+  CLI_PROFILES_DIR: path.join(temp, 'profiles'), SESSION_SECRET: 'model-menu-fixture',
+  PORT: String(apiPort), APP_URL: origin, SERVER_URL: origin, COMPUTER_PROVIDER: 'local',
+  SWARM_NO_SCHEDULER: '1', MEMORY_CONSOLIDATE_IDLE_MINUTES: '0', WHATSAPP_DISABLED: '1', INKBOX_TUNNEL: '0',
+  LLM_PROVIDER: 'direct', DIRECT_API_KEY: 'fixture-only', DIRECT_BASE_URL: `${modelBase}/v1`,
+  OPENROUTER_BASE_URL: `${modelBase}/v1`, COMPOSIO_API_KEY: 'fixture-only',
+};
+const preload = path.join(temp, 'mock-backends.mjs');
+await fs.writeFile(preload, `
+const realFetch = globalThis.fetch;
+globalThis.fetch = async (input, init) => {
+  const url = new URL(input instanceof Request ? input.url : input);
+  if (url.hostname === '127.0.0.1' || url.hostname === 'localhost') return realFetch(input, init);
+  if (url.hostname === 'backend.composio.dev') return Response.json({ items: [], next_cursor: null });
+  if (url.hostname === 'openrouter.ai' && url.pathname.endsWith('/models')) return Response.json({ data: [] });
+  throw new Error('Unexpected external request: ' + url.origin + url.pathname);
+};
+`);
+const children = [], logs = [];
+let browser, page;
+function start(args, cwd = root, extra = {}) {
+  const child = spawn(process.execPath, args, { cwd, env: { ...env, ...extra }, stdio: ['ignore', 'pipe', 'pipe'] });
+  children.push(child);
+  for (const stream of [child.stdout, child.stderr]) stream.on('data', data => logs.push(String(data)));
+  return child;
+}
+async function ready(url, child) {
+  for (let attempt = 0; attempt < 300; attempt++) {
+    assert.equal(child.exitCode, null, logs.join(''));
+    if (await fetch(url).then(response => response.ok, () => false)) return;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  throw new Error(`Local server did not start: ${logs.join('')}`);
+}
+
 const wait = async (check, label) => {
   for (let i = 0; i < 150; i++) {
     if (await check()) return;
@@ -30,8 +74,6 @@ const now = Date.now();
 const model = { id: 'test/reasoning', name: 'Test reasoning', short: 'Test reasoning', author: 'test', efforts: ['low', 'medium', 'high', 'xhigh'], defaultEffort: 'medium', billing: 'api', vision: true, reasoning: true, context: 0 };
 const initialBot = { id: 'bot_picker_fixture', name: 'Research', description: '', instructions: '', label: '', mode: 'personal', pinned: true, isPrimary: true, effort: 'medium', model: model.id, generation: 1, unread: 0, lastPreview: '', lastActivityAt: now, createdAt: now, voice: 'ara', voiceSpeed: 1, voiceLanguage: 'auto', kind: 'agent', onboarding: { status: 'active' }, avatarColor: 'blue', avatarShape: 'blob' };
 const rows = Array.from({ length: 60 }, (_, i) => ({ botId: initialBot.id, generation: 1, seq: i + 1, updatedSeq: i + 1, createdAt: now + i, kind: 'message', body: { type: 'message', role: i % 2 ? 'assistant' : 'user', text: `Fixture message ${i + 1}. A populated conversation makes the scroll control available for the picker regression.` } }));
-let browser, page;
-
 const settleMenu = () => page.locator('.mm-wrap').evaluate(el => Promise.all(el.getAnimations({ subtree: true }).filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity).map(animation => animation.finished)));
 const openMenu = async () => {
   await page.locator('.model-pill').click();
@@ -101,10 +143,14 @@ const assertEffortFits = async () => {
 };
 
 try {
-  await wait(() => fetch(origin).then(response => response.ok, () => false), 'local Vite');
+  await ready(`${modelBase}/v1/models`, start(['tests/mock-provider.mjs', String(modelPort)]));
+  await ready(`${apiBase}/api/health`, start(['--import', preload, '--import', 'tsx', 'server/src/index.ts']));
+  await ready(origin, start(['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', String(uiPort), '--strictPort'], path.join(root, 'web'), { SWARM_API: apiBase }));
   browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
-  for (const width of [1280, 1180, 1024, 768, 390]) {
+  for (const width of [1440, 1280, 1180, 1024, 768, 390]) {
     const context = await browser.newContext({ viewport: { width, height: 900 }, serviceWorkers: 'block' });
+    const login = await context.request.post(`${origin}/api/auth/dev`, { data: { email: 'model-menu@example.test', name: 'Test account' } });
+    assert.equal(login.status(), 200, 'local DEV_LOGIN creates a session in temporary SQLite');
     page = await context.newPage();
     page.setDefaultTimeout(10000);
     const errors = [], patches = [];
@@ -126,7 +172,7 @@ try {
         return route.fulfill({ json: { bot } });
       }
       let body = {};
-      if (path === '/api/auth/me') body = { user: { id: 'fixture_account', name: 'Test account', email: 'fixture@example.test' } };
+      if (path === '/api/auth/me') return route.continue();
       else if (path === '/api/bots') body = { bots: [bot], live: [{ botId: bot.id, isRunning: false }] };
       else if (path.endsWith('/rows')) body = { generation: 1, rows };
       else if (path.endsWith('/routines')) body = { routines: [] };
@@ -194,21 +240,42 @@ try {
       await assertEffortFits();
       await page.keyboard.press('Escape');
       await page.locator('.mm-wrap').waitFor({ state: 'detached' });
-      await openMenu();
-      await page.locator('.mm-row__effort').click();
-      await page.locator('.mm-flyout').waitFor();
-      await page.keyboard.press('Control+Shift+,');
-      await page.locator('.bot-details-pane').waitFor();
-      await page.locator('.mm-flyout').waitFor({ state: 'detached' });
-      await assertEffortFits();
-      await page.keyboard.press('Escape');
-      await page.getByRole('button', { name: 'API details', exact: true }).waitFor();
-      await page.locator('.mm-row__effort').click();
-    } else {
-      await openMenu();
-      await page.locator('.mm-row__effort').click();
-      await assertEffortFits();
     }
+    for (const view of ['model', 'effort']) {
+      // The phone scrim intentionally blocks header clicks, so use its shortcut.
+      for (const opening of width > 760 ? ['shortcut', 'button'] : ['shortcut']) {
+        await openMenu();
+        if (view === 'effort') {
+          await page.locator('.mm-row__effort').click();
+          await assertEffortFits();
+          if (width >= 1180) await page.locator('.mm-flyout').waitFor();
+        }
+        if (opening === 'shortcut') await page.keyboard.press('Control+Shift+,');
+        else await page.getByRole('button', { name: 'Show details', exact: true }).click();
+        await page.locator('.bot-details-pane').waitFor();
+        await page.locator('.mm-flyout').waitFor({ state: 'detached' });
+        await page.locator('.mm-wrap').waitFor({ state: 'detached' });
+        assert.equal(await page.locator('.model-pill').getAttribute('aria-expanded'), 'false', `${view} picker closes when Details opens by ${opening}`);
+        await page.waitForFunction(() => document.querySelector('#bot-details')?.contains(document.activeElement));
+        if (width === 1440 && view === 'effort' && opening === 'shortcut') {
+          await page.screenshot({ path: new URL('details-closes-effort-1440.png', evidence).pathname });
+        }
+        // Desktop pickers can reopen with Details still visible.
+        if (width >= 1180) {
+          await openMenu();
+          await page.locator('.mm-row__effort').click();
+          await assertEffortFits();
+          await assertStacking();
+          await page.locator('.model-pill').click();
+          await page.locator('.mm-wrap').waitFor({ state: 'detached' });
+        }
+        await page.keyboard.press('Control+Shift+,');
+        await page.locator('.bot-details-pane').waitFor({ state: 'detached' });
+      }
+    }
+    await openMenu();
+    await page.locator('.mm-row__effort').click();
+    await assertEffortFits();
     await page.getByRole('option', { name: /^High\b/ }).click();
     await wait(() => patches.length === 1, 'fake effort save');
     assert.deepEqual(patches[0], { model: model.id, effort: 'high' });
@@ -217,16 +284,20 @@ try {
     await page.locator('.jump-btn').click();
     assert.equal(await page.evaluate(() => window.__jumpClicks), 1, 'jump works again after closing');
     assert.deepEqual(errors, []);
-    console.log(`PASS ${width}: picker stacking, API details, effort containment, real pointer clicks${width >= 1180 ? ', expanded sidebar and Details, live column resize' : ''}`);
+    console.log(`PASS ${width}: picker stacking, API details, effort containment, Details closes both pickers, reopening, real pointer clicks${width >= 1180 ? ', expanded sidebar and Details, live column resize' : ''}`);
     await context.close();
     page = null;
   }
 } catch (error) {
   if (page) await page.screenshot({ path: new URL('failure.png', evidence).pathname });
-  console.error(logs.slice(-2000));
+  console.error(logs.join('').slice(-2000));
   throw error;
 } finally {
   await browser?.close();
-  vite.kill();
-  await new Promise(resolve => vite.exitCode !== null ? resolve() : vite.once('exit', resolve));
+  for (const child of children.reverse()) {
+    if (child.exitCode === null && child.signalCode === null) {
+      const exited = once(child, 'exit'); child.kill('SIGTERM'); await exited;
+    }
+  }
+  await fs.rm(temp, { recursive: true, force: true });
 }

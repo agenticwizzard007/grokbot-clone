@@ -55,10 +55,13 @@ export function ComposerModelMenu({ bot }: { bot: Bot }) {
   const [open, setOpen] = useState(false);
   const models = useModels();
   const mobile = useStore((s) => s.mobile);
+  const detailsOpen = useStore((s) => s.detailsOpen);
   const accountId = useStore(s => s.user?.id);
   const trigger = useRef<HTMLButtonElement>(null);
   const close = useCallback(() => { setOpen(false); trigger.current?.focus({ preventScroll: true }); }, []);
   useLayoutEffect(() => { setOpen(false); }, [accountId, bot.id]);
+  // Let Details take focus, and allow the picker to reopen while it stays open.
+  useLayoutEffect(() => { if (detailsOpen) setOpen(false); }, [detailsOpen]);
   useEffect(() => { void models.load(); }, [accountId, models.load]);
 
   const known = models.status === 'ready' && !models.error && !!models.provider && !!models.billing;
