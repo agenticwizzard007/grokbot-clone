@@ -188,7 +188,7 @@ try {
     const details = page.getByRole('complementary', { name: 'Conversation details', exact: true });
     if (!await details.isVisible()) await page.getByRole('button', { name: 'Show details', exact: true }).click();
     await details.getByRole('navigation', { name: 'Conversation details sections' }).getByRole('button', { name: 'Files', exact: true }).click();
-    await details.getByRole('button', { name: 'Saved reports', exact: true }).click();
+    await details.getByRole('button', { name: 'View saved reports', exact: true }).click();
   };
   await openReports();
   const saved = page.getByRole('region', { name: 'Saved reports', exact: true });
