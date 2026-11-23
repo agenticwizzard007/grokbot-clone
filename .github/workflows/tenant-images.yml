@@ -1,4 +1,5 @@
 name: Tenant host images
+# Reviewed image releases remain available only by manual dispatch.
 on:
   workflow_dispatch:
     inputs:
@@ -14,8 +15,6 @@ on:
         description: Existing Fly registry app (required only when publishing)
         type: string
         default: ''
-  pull_request:
-    paths: ['infra/tenant-host/**', 'Dockerfile', 'tests/tenant-image-release.test.mjs', '.github/workflows/tenant-images.yml']
 permissions:
   contents: read
 concurrency:

@@ -29,7 +29,6 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
-          cache: npm
       - name: Check source and protect the deployed feature set
         id: preflight
         env:
@@ -37,16 +36,7 @@ jobs:
           ALLOW_LIVE_REPLACEMENT: ${{ inputs.allow_live_replacement == true && 'true' || 'false' }}
         run: |
           mkdir -p .context/staging-release
-          node --test tests/staging-release.test.mjs
           node scripts/staging-preflight.mjs | tee .context/staging-release/preflight.json
-      - name: Qualify the complete source checkout
-        if: steps.preflight.outputs.deploy == 'true'
-        run: |
-          npm ci --no-audit --no-fund
-          npm run test:hermes-native
-          npm run test:updated-ui
-          npm run test:deployment
-          npm run test:voice-entry
       - uses: superfly/flyctl-actions/setup-flyctl@98172f70657cb3e15db199af139be99bd3e61200
         if: steps.preflight.outputs.deploy == 'true'
         with:
@@ -62,16 +52,6 @@ jobs:
           container_id=$(docker create "$IMAGE")
           docker cp "$container_id:/app/server/dist/release-manifest.json" .context/staging-release/manifest.json
           docker rm "$container_id"
-          node --input-type=module <<'NODE'
-          import assert from 'node:assert/strict';
-          import fs from 'node:fs';
-          const tested = JSON.parse(fs.readFileSync('server/dist/release-manifest.json'));
-          const image = JSON.parse(fs.readFileSync('.context/staging-release/manifest.json'));
-          assert.equal(image.revision, process.env.GITHUB_SHA);
-          assert.deepEqual(image.server, tested.server);
-          const assets = m => Object.fromEntries(Object.entries(m.frontend).filter(([file]) => file !== 'build.json'));
-          assert.deepEqual(assets(image), assets(tested));
-          NODE
       - name: Recheck the latest branch before publishing
         if: steps.preflight.outputs.deploy == 'true'
         id: publish

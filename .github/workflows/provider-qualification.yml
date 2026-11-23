@@ -1,10 +1,7 @@
 name: Provider harness self-tests
+# Automatic CI is paused to avoid per-push and per-PR test costs.
+# Re-enable this workflow in GitHub Actions before dispatching it manually.
 on:
-  pull_request:
-    paths: ['scripts/qualify-providers.mjs', 'tests/provider-qualification.test.mjs', 'examples/provider-qualification.example.json', 'docs/provider-qualification.md', '.github/workflows/provider-qualification.yml']
-  push:
-    branches: [main]
-    paths: ['scripts/qualify-providers.mjs', 'tests/provider-qualification.test.mjs', 'examples/provider-qualification.example.json', 'docs/provider-qualification.md', '.github/workflows/provider-qualification.yml']
   workflow_dispatch:
 permissions:
   contents: read
