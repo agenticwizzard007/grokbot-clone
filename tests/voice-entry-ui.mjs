@@ -43,7 +43,7 @@ try {
       avatarShape: 'blob', avatarColor: 'blue', mode: 'personal', pinned: true, effort: plan ? 'xhigh' : 'ultracode',
       model: modelId, voice: 'ara', voiceSpeed: 1, voiceLanguage: 'auto', generation: 1, unread: 0, lastPreview: '', lastActivityAt: 1, createdAt: 1 };
     const bots = [{ ...base, id: 'main' }, { ...base, id: 'research', name: 'Research agent', label: '', isPrimary: false }];
-    page.on('pageerror', e => { errors.push(e.message); console.error('Browser error:', e.message); });
+    page.on('pageerror', e => { errors.push(e.message); console.error('Browser error:', e.stack ?? e.message); });
     await page.addInitScript(selectedBot => {
       localStorage.setItem('swarm.selectedBot', selectedBot);
       localStorage.setItem('swarm.detailsOpen', '0');
@@ -66,6 +66,7 @@ try {
       else if (path === '/api/bots') body = { bots, live: running ? [{ botId: 'main', isRunning: true, activity: { kind: 'working' }, startedAt: Date.now() }] : [] };
       else if (path.endsWith('/rows')) body = { generation: 1, rows };
       else if (path.endsWith('/coworker-setups')) body = { setups: [] };
+      else if (path.endsWith('/suggested-apps')) body = { suggestions: [] };
       else if (path.endsWith('/routines')) body = { routines: [] };
       else if (path.endsWith('/tasks')) body = { tasks: [] };
       else if (path === '/api/settings') body = { settings: {}, computer: { provider: 'cloudvm' } };

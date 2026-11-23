@@ -8,9 +8,9 @@ import { ModelPicker, refreshModels } from './ModelPicker';
 import { LearningSettingsPanel } from './LearningSettings';
 import { UsageSection } from './UsageSection';
 import { relativeShort } from '../../lib/time';
-import { openConversation, useConfigUI, useVersion, type AppSection, type Theme } from '../../configStore';
+import { openConversation, useConfigUI, usePageTitle, useVersion, type AppSection, type Theme } from '../../configStore';
 import { useStore } from '../../store';
-import { computerStatusText } from '../DetailsPanel';
+import { computerStatusText } from './computerStatus';
 import { ToolkitLogo } from '../ToolkitLogo';
 import { ConfirmButton, Segmented, Switch } from './ui';
 import { McpSettings } from './McpSettings';
@@ -50,7 +50,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
   ] },
   { group: 'Bots', items: [
     { id: 'learning', label: 'Learning', keywords: 'hermes memory skills review approval refine history maintenance' },
-    { id: 'computer', label: 'Computer', keywords: 'vm cloud browser screen desktop pc companion sleep wake reset device access accessibility recording files automation' },
+    { id: 'computer', label: 'Computer', keywords: 'vm cloud browser screen desktop pc linux macos companion sleep wake reset device access accessibility recording files automation' },
     { id: 'permissions', label: 'Permissions', keywords: 'approvals always allow ask again tools' },
   ] },
   { group: 'Integrations', items: [
@@ -131,11 +131,12 @@ export function AppSettings() {
     };
   }, []);
 
+  const sectionLabel = NAV.flatMap(group => group.items).find(item => item.id === section)?.label;
+  usePageTitle(section ? compact && listView ? 'Settings' : `Settings · ${sectionLabel}` : null, 2);
   if (!section) return null;
   const pick = (id: AppSection) => { open(id); setListView(false); setQuery(''); };
   const q = query.trim();
   const groups = q ? NAV.map((g) => ({ ...g, items: g.items.filter((it) => matches(it, q)) })).filter((g) => g.items.length) : NAV;
-  const sectionLabel = NAV.flatMap(group => group.items).find(item => item.id === section)?.label;
   // Up/Down move between sections, like a native sidebar.
   const arrows = (e: ReactKeyboardEvent) => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
@@ -463,7 +464,7 @@ function ComputerSection() {
   }, [accountId]);
   useEffect(() => { load(); return () => { detailsEpoch.current++; }; }, [load, version, computer?.status, computer?.screens.length, computer?.provider, computer?.device?.name]);
 
-  const status = computer?.status ?? details?.computer.status;
+  const status = computer?.status;
   const running = status === 'running';
   const transitioning = status === 'starting' || status === 'resuming' || status === 'creating' || status === 'suspending';
   const act = async (kind: 'wake' | 'sleep') => {
@@ -581,11 +582,10 @@ function AskBeforeComputerRow() {
 }
 
 /** Local computers: Bots use a Chrome browser on the user's own PC through the companion program. */
-let computerRefresh = 0;
 function LocalComputerSection({ details, detailsError, reload }: { details: ComputerDetails | null; detailsError: string; reload: () => void }) {
   const accountId = useStore(s => s.user?.id);
   const current = useAccessPanel(accountId);
-  const computer = useStore((s) => s.computer) ?? details?.computer ?? null;
+  const computer = useStore((s) => s.computer);
   const bots = useStore((s) => s.bots);
   const [pairing, setPairing] = useState<Pairing | null>(null);
   const [busy, setBusy] = useState(false);
@@ -598,11 +598,8 @@ function LocalComputerSection({ details, detailsError, reload }: { details: Comp
   const here = details?.thisComputer;
   const refresh = () => {
     if (useStore.getState().user?.id !== accountId) return;
-    const request = ++computerRefresh;
     useConfigUI.getState().bump('access-computer');
-    void api.computer().then(({ computer: updated }) => {
-      if (request === computerRefresh && useStore.getState().user?.id === accountId) useStore.getState().set({ computer: updated });
-    }).catch(() => {});
+    void useStore.getState().loadComputer().catch(() => {});
   };
   const useHere = async () => {
     if (!accountId || !current()) return;
@@ -617,7 +614,7 @@ function LocalComputerSection({ details, detailsError, reload }: { details: Comp
   };
   const byId = new Map(bots.map((b) => [b.id, b]));
   const desktop = !!computer?.desktop;
-  const connectOnly = !!details && !connected && !nativeMac && !paired && !here?.available;
+  const connectOnly = !!computer && !!details && !connected && !nativeMac && !paired && !here?.available;
 
   // Once the PC connects, the one-time command has done its job.
   useEffect(() => { if (connected) setPairing(null); }, [connected]);
@@ -661,7 +658,7 @@ function LocalComputerSection({ details, detailsError, reload }: { details: Comp
       <PageHead title={connectOnly ? 'Connect your PC' : 'Computer'} sub={connectOnly ? 'Pair a computer to give your Bots access.' : nativeMac ? 'Manage this Mac’s device access and connection for your account.' : desktop
         ? 'Your Bots use your own computer: its full desktop and apps, your default browser, and a shell. They take turns, one Bot at a time.'
         : 'Your Bots use a Chrome browser on your own PC. Each Bot gets its own browser profile there, separate from yours.'} />
-      {!connectOnly && <DeviceAccessSection />}
+      <DeviceAccessSection />
       {detailsError && <div className="cfg-error" role="alert">{detailsError} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={reload}>Try again</button></div>}
       <section className="cfg-section">
         {!connectOnly && <h2 className="cfg-section__label">Status</h2>}

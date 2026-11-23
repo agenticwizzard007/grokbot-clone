@@ -1,3 +1,4 @@
+import { useDisplayText } from '../lib/useDisplayText';
 import { isInternalRow, userFacingLive } from '../lib/audience';
 import { CoworkerSetupCards } from './CoworkerSetupCards';
 import { Fragment, memo, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -69,17 +70,18 @@ function cornerClass(i: number, n: number) {
 
 const Bubble = memo(function Bubble({ row, side, pos, botName }: { row: Row; side: 'left' | 'right'; pos: string; botName: string }) {
   const b = row.body as MessageBody;
+  const clean = useDisplayText();
   return (
     <div className={`bubble-wrap is-${side}`} data-row-seq={row.seq}>
       <div className={`bubble is-${side === 'right' ? 'user' : 'agent'}${pos}${b.streaming ? ' is-streaming' : ''}`}>
-        <div className="bubble__sender">{side === 'right' ? 'You' : b.from?.name || botName}</div>
-        {side === 'right' ? <div className="bubble__plain">{b.text}</div> : <Markdown text={b.text || ' '} />}
+        <div className="bubble__sender">{side === 'right' ? 'You' : clean(b.from?.name || botName)}</div>
+        {side === 'right' ? <div className="bubble__plain">{b.text}</div> : <Markdown text={clean(b.text) || ' '} />}
         {b.citations && b.citations.length > 0 && (
           <div className="bubble__cites">
             {b.citations.slice(0, 6).map((c, i) => {
               let host = c.url;
               try { host = new URL(c.url).hostname.replace(/^www\./, ''); } catch { /* keep */ }
-              return <a key={i} className="cite-chip" href={c.url} target="_blank" rel="noreferrer noopener" title={c.title ?? c.url}>{host}</a>;
+              return <a key={i} className="cite-chip" href={c.url} target="_blank" rel="noreferrer noopener" title={clean(c.title ?? c.url)}>{clean(host)}</a>;
             })}
           </div>
         )}
@@ -101,16 +103,18 @@ function TextMark() {
 const isText = (kind: NonNullable<MessageBody['from']>['kind']) => kind === 'imessage' || kind === 'sms' || kind === 'whatsapp';
 
 function SenderLabel({ from }: { from: NonNullable<MessageBody['from']> }) {
+  const clean = useDisplayText();
   const bot = useStore((s) => (from.kind === 'bot' ? s.bots.find((b) => b.id === from.id) : undefined));
   return (
     <div className="sender-label">
       {bot ? <BotAvatarFor bot={bot} size={16} /> : from.kind === 'routine' ? <Icon name="clock" size={12} opacity={0.56} /> : from.kind === 'voice' ? <Icon name="voice_a" size={12} opacity={0.56} /> : isText(from.kind) ? <TextMark /> : <BotAvatar shape="blob" color="gray" size={16} />}
-      <span>{from.kind === 'routine' ? `Routine · ${from.name}` : from.kind === 'voice' ? 'Asked on a voice call' : from.kind === 'imessage' ? 'Sent by iMessage' : from.kind === 'sms' ? 'Sent by SMS' : from.kind === 'whatsapp' ? 'Sent by WhatsApp' : `From ${from.name}`}</span>
+      <span>{from.kind === 'routine' ? `Routine · ${clean(from.name)}` : from.kind === 'voice' ? 'Asked on a voice call' : from.kind === 'imessage' ? 'Sent by iMessage' : from.kind === 'sms' ? 'Sent by SMS' : from.kind === 'whatsapp' ? 'Sent by WhatsApp' : `From ${clean(from.name)}`}</span>
     </div>
   );
 }
 
 function Steps({ rows }: { rows: Row[] }) {
+  const clean = useDisplayText();
   const [open, setOpen] = useState(false);
   // Keep execution visible even when the user collapses completed history.
   const visible = open ? rows : rows.filter(r => ['queued', 'running', 'awaiting-approval'].includes((r.body as ToolCallBody).status));
@@ -127,11 +131,11 @@ function Steps({ rows }: { rows: Row[] }) {
             const c = r.body as ToolCallBody;
             return <li key={c.callId} className={`step is-${c.status}`}>
               <span className="step__dot" />
-              <span className="step__label">{appToolLabel(c.name, c.args) ?? c.label}</span>
+              <span className="step__label">{clean(appToolLabel(c.name, c.args) ?? c.label)}</span>
               {c.status === 'running' && <span className="step__summary">Running · <ElapsedTimer since={c.startedAt ?? r.createdAt} /></span>}
               {c.status === 'queued' && <span className="step__summary">Queued</span>}
               {c.status === 'awaiting-approval' && <span className="step__summary">Waiting for approval</span>}
-              {c.summary && c.summary !== 'done' && c.summary !== 'failed' && <span className="step__summary">{c.summary}</span>}
+              {c.summary && c.summary !== 'done' && c.summary !== 'failed' && <span className="step__summary">{clean(c.summary)}</span>}
               {c.status === 'done' && <span className="step__summary">Done{c.startedAt !== undefined && c.completedAt !== undefined ? ` · ${fmtElapsed(c.completedAt - c.startedAt)}` : ''}</span>}
               {c.status === 'error' && <span className="step__summary">Failed</span>}
               {c.status === 'denied' && !c.summary && <span className="step__summary">Not allowed</span>}
@@ -145,9 +149,10 @@ function Steps({ rows }: { rows: Row[] }) {
 }
 
 function SystemRow({ row }: { row: Row }) {
+  const clean = useDisplayText();
   const b = row.body;
-  if (b.type === 'event') return <div className="system-event" data-row-seq={row.seq}>{b.text}</div>;
-  if (b.type === 'notice') return <div className={`notice is-${b.tone ?? 'info'}`} data-row-seq={row.seq}>{b.text}</div>;
+  if (b.type === 'event') return <div className="system-event" data-row-seq={row.seq}>{clean(b.text)}</div>;
+  if (b.type === 'notice') return <div className={`notice is-${b.tone ?? 'info'}`} data-row-seq={row.seq}>{clean(b.text)}</div>;
   // display: contents keeps the card layout unchanged while giving deep links (search, Tasks) an anchor.
   if (b.type === 'card') return <div data-row-seq={row.seq} style={{ display: 'contents' }}><CardRow row={row} /></div>;
   return null;

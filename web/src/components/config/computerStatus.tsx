@@ -1,4 +1,4 @@
-import type { AgentSetupView, ComputerState } from '@shared/types';
+import type { ComputerState } from '@shared/types';
 import { useStore } from '../../store';
 
 /**
@@ -6,6 +6,7 @@ import { useStore } from '../../store';
  * and the Setup tab, so the same state reads the same words everywhere.
  */
 export function computerStatusText(computer: ComputerState | null): string {
+  if (!computer) return 'Checking status…';
   if (computer?.provider === 'local') return computer.status === 'running' ? 'Connected' : 'Not connected';
   switch (computer?.status) {
     case 'running': return 'Awake';
@@ -16,18 +17,14 @@ export function computerStatusText(computer: ComputerState | null): string {
   }
 }
 
-type SetupComputer = Pick<AgentSetupView['computer'], 'status'> | null | undefined;
+/** Live state is shared by all surfaces. Setup preparation is a separate prerequisite. */
+export const computerReadiness = computerStatusText;
 
-/** The Bot's setup must finish preparing its computer first; after that the live computer state applies. */
-export function computerReadiness(computer: ComputerState | null, setup?: SetupComputer): string {
-  return setup?.status === 'pending' ? 'Preparation pending' : computerStatusText(computer);
-}
-
-/** "Computer: Awake", "Computer: Preparation pending", "Computer: Not connected". */
-export const computerStatusLine = (computer: ComputerState | null, setup?: SetupComputer) => `Computer: ${computerReadiness(computer, setup)}`;
+/** "Computer: Awake", "Computer: Asleep", "Computer: Not connected". */
+export const computerStatusLine = (computer: ComputerState | null) => `Computer: ${computerReadiness(computer)}`;
 
 /** The status line as text, reading the live computer from the store. */
-export function ComputerStatusLine({ setup }: { setup?: SetupComputer }) {
+export function ComputerStatusLine() {
   const computer = useStore(state => state.computer);
-  return <>{computerStatusLine(computer, setup)}</>;
+  return <>{computerStatusLine(computer)}</>;
 }

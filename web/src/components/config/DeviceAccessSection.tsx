@@ -15,11 +15,12 @@ export function DeviceAccessSection() {
   }, []);
 
   if (nativeControls) return <section className="device-access-native" data-swarm-mac-control-slot="" aria-label="Device access approvals and macOS permissions" />;
-  // The Mac section only applies on macOS browsers and in the Mac app. Everyone else gets one line.
+  // The native permission controls apply only on macOS; PC pairing also supports Linux.
   if (!isNativeApp && !isMacPlatform()) return (
-    <section className="cfg-section device-access-note" aria-label="Use your Mac (optional)">
-      <h2 className="cfg-section__label">Use your Mac (optional)</h2>
-      <p className="cfg-field__hint">The Mac app lets Bots use your own Mac. Available for macOS.</p>
+    <section className="cfg-section device-access-note" aria-label="Linux and Mac computers">
+      <h2 className="cfg-section__label">Linux and Mac computers</h2>
+      <p className="cfg-field__hint">On Linux, use Connect your PC when PC pairing is available. Run the connect command in a terminal on that PC with Node.js 22+ and keep it running. Browser access also needs Google Chrome.</p>
+      <p className="cfg-field__hint">Accessibility, Screen Recording, Full Disk Access and Automation permissions apply only on macOS. The Mac app is optional and requires macOS.</p>
     </section>
   );
 

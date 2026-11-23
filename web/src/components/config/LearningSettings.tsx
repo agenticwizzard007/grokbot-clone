@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { learningApi, type LearningSettings as Settings, type LearningSettingsView, type LearningReview, type SkillMaintenanceOutcome } from '../../lib/learningApi';
 import { useNativeRefresh } from '../../lib/useNativeRefresh';
-import { useConfigUI } from '../../configStore';
+import { useBotSettingsDraft, useConfigUI } from '../../configStore';
 import { useStore } from '../../store';
 import './native-learning.css';
 
 const flags: { key: keyof Settings; label: string; hint: string }[] = [
-  { key: 'enabled', label: 'Learning enabled', hint: 'Allow learning for this account or Bot.' },
-  { key: 'automaticReview', label: 'Automatic reviews', hint: 'Review eligible finished turns in the background.' },
-  { key: 'memoryReview', label: 'Review memories', hint: 'Learn durable preferences and environment facts.' },
-  { key: 'skillReview', label: 'Review skills', hint: 'Improve reusable procedures and their resources.' },
+  { key: 'enabled', label: 'Learning enabled', hint: 'On: allow new learning reviews and skill maintenance using the options below. Off: stop new reviews and skill maintenance. Saved memories and skills remain available.' },
+  { key: 'automaticReview', label: 'Automatic reviews', hint: 'On: review eligible finished turns in the background while Learning is on. Off: start reviews yourself with Refine now.' },
+  { key: 'memoryReview', label: 'Review memories', hint: 'On: include durable preferences and environment facts in reviews. Off: skip memory review.' },
+  { key: 'skillReview', label: 'Review skills', hint: 'On: review reusable procedures and their resources. Off: skip skill review.' },
   { key: 'skillApproval', label: 'Require approval for skill changes', hint: 'On: every skill change waits for your review. Off allows automatic improvements only under a standing scope policy after independent frozen evaluations. Other unattended changes wait for review.' },
 ];
 export function LearningSettingsPanel({ botId }: { botId?: string }) {
@@ -21,6 +21,7 @@ function LearningSettingsForm({ botId }: { botId?: string }) {
   const [view, setView] = useState<LearningSettingsView | null>(null), [draft, setDraft] = useState<Settings | null>(null);
   const [error, setError] = useState(''), [busy, setBusy] = useState(false), [notice, setNotice] = useState(''), [attempt, setAttempt] = useState(0);
   const [showReviews, setShowReviews] = useState(false);
+  useBotSettingsDraft(`learning:${botId ?? 'account'}`, 'Learning', !!botId && !!view && !!draft && JSON.stringify(draft) !== JSON.stringify(view.settings));
   useEffect(() => {
     let active = true; setView(null); setDraft(null); setNotice(''); setError('');
     learningApi.settings(botId).then(r => { if (active) { setView(r); setDraft(r.settings); } }).catch(e => { if (active) setError(e.message); });
@@ -42,8 +43,8 @@ function LearningSettingsForm({ botId }: { botId?: string }) {
   return <div className="cfg-page learning-settings native-panel">
     {/* Account Settings pages share one page header; inside Bot settings the page already has its title. */}
     <header>{botId
-      ? <div><h2>Learning</h2><p>Account defaults apply unless this Bot has an override.</p></div>
-      : <div className="app-settings__head"><h1>Learning</h1><p>Account defaults for reviews, skill activation and maintenance.</p></div>}</header>
+      ? <div><h2>Learning</h2><p>Account defaults apply unless this Bot has an override. Saving overrides changes only this Bot. Use account defaults removes its overrides.</p></div>
+      : <div className="app-settings__head"><h1>Learning</h1><p>Defaults for learning across this account. Each Bot can override these settings.</p></div>}</header>
     {!showReviews && <>
     {error && <div className="cfg-error" role="alert">{error} <button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setAttempt(n => n + 1)}>Reload settings</button></div>}
     {!draft && !error && <p role="status">Loading learning settings…</p>}
@@ -51,7 +52,7 @@ function LearningSettingsForm({ botId }: { botId?: string }) {
       {botId && <div className="learning-inheritance"><strong>{overridden.length ? 'This bot has overrides' : 'Using account defaults'}</strong><p>{overridden.length ? 'Values without an override inherit the account defaults.' : 'All values are inherited from account settings.'} · Settings revision {view.revision}</p></div>}
       <div className="learning-fields learning-flags">{flags.map(field => <label className="native-check" key={field.key}>
         <input type="checkbox" checked={draft[field.key] as boolean} onChange={event => set(field.key, event.currentTarget.checked)} />
-        <span><strong>{field.label}</strong><small>{botId ? overridden.includes(field.key) ? 'Bot override.' : 'Inherited from the account.' : field.hint}</small></span>
+        <span><strong>{field.label}</strong><small>{botId && (overridden.includes(field.key) ? 'Bot override. ' : 'Inherited from the account. ')}{field.hint}</small></span>
       </label>)}</div>
       <details className="learning-disclosure"><summary><span><strong>Review limits and model route</strong><small>Set limits or override the review route.</small></span><span className="learning-disclosure__action">Review limits</span></summary>
         <div className="learning-grid">
@@ -105,7 +106,7 @@ function SkillMaintenance({ botId, settings }: { botId: string; settings?: Setti
     } catch (failure) { if (current()) setError((failure as Error).message); }
     finally { if (current()) { request.current = null; setBusy(false); } }
   };
-  const openSkills = () => useConfigUI.getState().openBotSettings(botId, 'skills');
+  const openSkills = () => useConfigUI.getState().requestLeaveBotSettings(() => useConfigUI.getState().openBotSettings(botId, 'skills'));
   return <section className="knowledge-maintenance" aria-label="Protected skill maintenance">
     <h3>Protected skill maintenance</h3>
     <p className="native-meta">Check eligible skills for staleness or archiving. Pinned, locked and routine-referenced skills stay protected. This is separate from Refine now.</p>

@@ -27,6 +27,15 @@ const { Hono } = await import('hono');
 const { api } = await import('../server/src/routes.js');
 const { roomsApi } = await import('../server/src/routes-rooms.js');
 const { preferencesApi } = await import('../server/src/routes-preferences.js');
+// Finish fixture loading before registering tests so Node 22 cannot run cleanup
+// while a later top-level import is still registering the remaining cases.
+const { AsyncResource } = await import('node:async_hooks');
+const { nativeToolHandler } = await import('../server/src/cli/native-tools.js');
+const { GROUP_TURN_TOOLS } = await import('../server/src/agent/tools.js');
+const { GROUP_APPS_REFUSAL } = await import('../server/src/agent/rooms.js');
+const { RoomCardRefused } = await import('../server/src/store.js');
+// Created outside any Bot turn, like WebSocket and HTTP runner callbacks.
+const foreignContext = new AsyncResource('qa-native-runner-transport');
 
 const app = new Hono().route('/api/rooms', roomsApi).route('/api/account', preferencesApi).route('/api', api);
 for (const id of ['owner', 'other']) db.prepare('INSERT INTO users(id,email,name,created_at) VALUES (?,?,?,?)').run(id, `${id}@example.com`, id, Date.now());
@@ -339,15 +348,6 @@ test('MF-013 voice path: update_agent changes to model or effort keep the setup 
 
 // ---------- R2F-001: group chat turns stay in the group and never ask for approval ----------
 
-const { AsyncResource } = await import('node:async_hooks');
-const { nativeToolHandler } = await import('../server/src/cli/native-tools.js');
-const { GROUP_TURN_TOOLS } = await import('../server/src/agent/tools.js');
-const { GROUP_APPS_REFUSAL } = await import('../server/src/agent/rooms.js');
-const { RoomCardRefused } = await import('../server/src/store.js');
-// Created outside any Bot turn: callbacks run through it arrive from a foreign async context,
-// the way WebSocket and HTTP runner callbacks do.
-const foreignContext = new AsyncResource('qa-native-runner-transport');
-
 /** A stubbed streaming model response that requests function calls (and optional text first). */
 function callStream(calls: { name: string; args: Record<string, unknown> }[], text = '') {
   return (async function* () {
@@ -380,8 +380,10 @@ const lastSeq = (botId: string) => listRows(botId).at(-1)?.seq ?? 0;
 test('R2F-001: group turns are offered no app, MCP, computer, delivery or card tools, and the prompt states the refusal', async () => {
   const { x, roomId } = groupPair('Tool Scope A', 'Tool Scope B', 'Scope group');
   const offered: string[][] = [];
+  const providerTools: string[] = [];
   const prompts: string[] = [];
   const create = mock.method(llmClient(360_000).responses, 'create', async (body: any) => {
+    providerTools.push(...(body.tools ?? []).filter((t: any) => t.type !== 'function').map((t: any) => t.type));
     offered.push((body.tools ?? []).filter((t: any) => t.type === 'function').map((t: any) => t.name));
     prompts.push(JSON.stringify(body.input));
     return textStream(GROUP_APPS_REFUSAL);
@@ -389,6 +391,7 @@ test('R2F-001: group turns are offered no app, MCP, computer, delivery or card t
   try { dispatchRoomMessage(roomId, '@Tool Scope A post hello in Slack', enqueue); await settleAgentJobs(); }
   finally { create.mock.restore(); }
   assert.equal(offered.length, 1);
+  assert.deepEqual(providerTools, [], 'built-in group model path offers no provider tools, including web_search and x_search');
   const names = offered[0];
   for (const name of names) assert.ok(GROUP_TURN_TOOLS.has(name), `${name} is allowed in group turns`);
   for (const banned of ['SWARM_APPS_SEARCH', 'SWARM_APPS_EXECUTE', 'list_app_connections', 'search_apps', 'request_app_connection', 'ask_user', 'deliver_artifact', 'send_to_bot', 'computer_click', 'open_browser', 'get_platform_state', 'present_draft']) {

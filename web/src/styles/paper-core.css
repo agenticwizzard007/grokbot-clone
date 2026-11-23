@@ -26,9 +26,10 @@
 .bubble__time { flex-shrink: 0; }
 .app .composer-area { width: 100%; max-width: 720px; margin: 0 auto; padding: 0; }
 .app .composer-shell { max-width: 720px; }
-.app .composer { max-width: 720px; padding: 16px; border: 1px solid var(--color-border-secondary); border-radius: 20px; box-shadow: none; gap: 14px; background-color: var(--color-bg-chrome); }
-.app .composer__input { padding: 0; min-height: 48px; font-size: 15px; line-height: 22px; }
-.app .composer__bar { padding: 0; gap: 10px; flex-wrap: wrap; }
+.app .composer { max-width: 720px; max-height: max(84px, 18dvh); padding: clamp(6px, 1.4vh, 16px); border: 1px solid var(--color-border-secondary); border-radius: 20px; box-shadow: none; gap: clamp(4px, 1vh, 14px); background-color: var(--color-bg-chrome); }
+.app .composer__input { padding: 0; min-height: 22px; max-height: 200px; font-size: 15px; line-height: 22px; }
+.app .composer__bar { padding: 0; gap: 10px; flex-wrap: nowrap; flex-shrink: 0; }
+.app .composer__plus-anchor, .app .composer__right { padding-block: 0; }
 .app .composer__left { gap: 8px; flex: 1 1 180px; }
 .app .composer__right { margin-left: auto; gap: 8px; }
 /* Reserve the send/stop button so starting a run cannot wrap the mobile controls. */
@@ -38,8 +39,8 @@
 .app .composer__cta { background: var(--color-primary); color: var(--color-on-primary); }
 .app .composer__voice { width: auto; padding: 0 14px; font-size: 13px; border-radius: 22px; }
 .app .composer__voice.is-in-call { background: var(--color-danger); color: white; }
-.app .model-pill { min-height: 44px; height: auto; flex-wrap: wrap; gap: 4px 6px; padding: 4px 6px; border-radius: 10px; }
-.app .model-pill__name { white-space: normal; overflow-wrap: anywhere; text-align: left; }
+.app .model-pill { min-height: 44px; height: auto; flex-wrap: nowrap; gap: 4px 6px; padding: 4px 6px; border-radius: 10px; }
+.app .model-pill__name { white-space: nowrap; text-overflow: ellipsis; text-align: left; }
 .app .model-pill__effort { font-size: 12px; }
 .app .composer__error { max-width: 720px; padding: 10px 12px; }
 .app .vcall { width: 100%; max-width: 720px; margin: 8px auto; }
@@ -72,8 +73,7 @@
   .app .chat__pill-name { font-size: 15px; }
   .app .transcript { padding: 4px 0 12px; }
   .app .bubble { width: 90%; max-width: 90%; padding: 14px; }
-  .app .composer { padding: 12px; gap: 10px; }
-  .app .composer__input { font-size: 16px; min-height: 44px; }
+  .app .composer__input { font-size: 16px; }
   .app .composer__bar { gap: 6px; }
   .app .composer__left { flex-basis: 140px; }
   .app .composer__voice { padding: 0 12px; }
@@ -81,12 +81,23 @@
   .app .chat .toast { top: 60px; bottom: auto; }
   .bots-view { padding: 24px 16px; }
 }
+@media (max-width: 480px) {
+  /* Keep the model and billing readable beside the reserved Send/Stop space. */
+  .app .composer__voice { width: 44px; padding: 0; gap: 0; }
+  .app .composer__voice-label { display: none; }
+  .app .model-pill { display: grid; grid-template-columns: auto minmax(0, 1fr); align-content: center; gap: 0 4px; padding: 3px 4px; }
+  .app .model-pill > .provider-icon, .app .model-pill__chev { display: none; }
+  .app .model-pill__name { grid-column: 1 / -1; grid-row: 1; }
+  .app .model-pill .model-billing { grid-column: 1; grid-row: 2; justify-self: start; }
+  .app .model-pill__effort { grid-column: 2; grid-row: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; justify-self: end; }
+  .app .model-pill__fast { grid-column: 2; grid-row: 1; justify-self: end; }
+  .app .model-pill:has(.model-pill__fast) .model-pill__name { padding-right: 16px; }
+}
 @media (max-height: 550px) {
   .app .chat:not(.tasks-view) { padding-top: 10px; padding-bottom: 10px; }
   .chat__context { margin-bottom: 4px; }
   .app .chat__header { padding-bottom: 8px; }
-  .app .composer { padding: 8px 12px; gap: 4px; }
-  .app .composer__input { min-height: 32px; max-height: 80px; }
+  .app .composer { padding: 6px 12px; gap: 4px; }
   .sidebar__titlebar { margin-bottom: 10px; }
   .sidebar-usage { padding-block: 8px; }
   .sidebar-usage__detail { display: none; }

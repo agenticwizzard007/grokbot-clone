@@ -11,13 +11,14 @@ const savedFile = (id: string) => `/api/deliverables/artifacts/${encodeURICompon
 const correctTime = (value: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
 /** R2F-036: plain names for the team records a synopsis reads (SynopsisSource.kind). */
 const SOURCE_NAMES: Record<string, string> = {
-  routine: 'routines', run: 'routine runs', coworker: 'Bot setups', workflow: 'workflows', task: 'workflow tasks', goal: 'goals', job: 'jobs',
-  artifact: 'saved reports', delivery: 'deliveries', request: 'team requests', decision: 'decisions waiting on you', learning: 'learning',
+  routine: 'routines', run: 'routine runs', coworker: 'Bot setups', workflow: 'workflows', task: 'workflow tasks', goal: 'goals', job: 'background work',
+  artifact: 'saved reports', delivery: 'deliveries', request: 'team requests', decision: 'decisions waiting on you', learning: 'learning updates',
 };
 export function synopsisSourceText(sources: Pick<SynopsisSource, 'kind'>[]): string {
-  const names = [...new Set(sources.map(source => SOURCE_NAMES[source.kind] ?? source.kind.replaceAll('_', ' ')))].slice(0, 4);
-  if (!names.length) return 'from your team’s records';
-  return `from your team’s ${names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0]}`;
+  const names = [...new Set(sources.flatMap(source => SOURCE_NAMES[source.kind] ? [SOURCE_NAMES[source.kind]] : []))].slice(0, 4);
+  const source = 'from your team’s work records in Swarm';
+  if (!names.length) return source;
+  return `${source}, including ${names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0]}`;
 }
 const timezoneOf = (user: unknown) => (user as { timezone?: string | null } | null)?.timezone ?? null;
 
@@ -36,7 +37,7 @@ function SynopsesSurface({ onUpdated, onReports, workspace, account, primaryKey 
   // R2F-017: a time zone change (Settings > Account here, or any tab after the store reloads the account) refreshes the line.
   const accountZone = useStore(state => timezoneOf(state.user));
   const announced = useVersion('synopses');
-  const [sources, setSources] = useState<SynopsisSource[] | null>(null);
+  const [sourcePage, setSourcePage] = useState<{ reportId: string; sources: SynopsisSource[] } | null>(null);
   const lifetime = useWorkLifetime();
   const pending = useRef(false);
   const activePage = useRef<AbortController>();
@@ -57,10 +58,12 @@ function SynopsesSurface({ onUpdated, onReports, workspace, account, primaryKey 
   }, [account, primaryKey, revision, accountZone, announced]);
   // R2F-036: the schedule line names what the latest synopsis was made from.
   const latestId = page?.reports.find(report => report.sourceCount > 0)?.id;
+  const sources = sourcePage?.reportId === latestId ? sourcePage?.sources ?? [] : [];
   useEffect(() => {
-    if (!latestId) { setSources(null); return; }
+    setSourcePage(null);
+    if (!latestId) return;
     const controller = new AbortController();
-    synopsisApi.sources(latestId, 0, controller.signal).then(result => { if (!controller.signal.aborted && current()) setSources(result.sources); }).catch(() => { if (!controller.signal.aborted) setSources(null); });
+    synopsisApi.sources(latestId, 0, controller.signal).then(result => { if (!controller.signal.aborted && current()) setSourcePage({ reportId: latestId, sources: result.sources }); }).catch(() => { if (!controller.signal.aborted) setSourcePage(null); });
     return () => controller.abort();
   }, [latestId]);
   const update = async <Result,>(run: () => Promise<Result>, applied: (result: Result) => void, refresh = true) => {

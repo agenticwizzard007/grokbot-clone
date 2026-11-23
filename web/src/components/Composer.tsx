@@ -15,9 +15,11 @@ import { detailsReplaceChat, useDetailsReplaceChat } from '../lib/useDetailsLayo
 import { useFreshConversation } from '../lib/useFreshConversation';
 import { expectRowsAfterSend } from '../lib/sseWatchdog';
 import { takeComposerHold, whenTypingIdle } from '../lib/typingGuard';
+import { useDisplayText } from '../lib/useDisplayText';
 
 const MAX_H = 200;
 const drafts = new Map<string, string>();
+const prefilledDrafts = new Set<string>();
 const pendingSends = new Map<string, symbol>();
 const sendErrors = new Map<string, string>();
 const draftListeners = new Set<(key: string) => void>();
@@ -30,7 +32,7 @@ function isActiveComposer(accountId: string | undefined, botId: string) {
     && !hasOpenModal() && ui.view === 'chat' && !ui.appSettings && !ui.botSettings && (!state.mobile || state.mobilePane === 'chat');
 }
 useStore.subscribe((state, previous) => {
-  if (state.user?.id !== previous.user?.id) { drafts.clear(); pendingSends.clear(); sendErrors.clear(); }
+  if (state.user?.id !== previous.user?.id) { drafts.clear(); prefilledDrafts.clear(); pendingSends.clear(); sendErrors.clear(); }
 });
 
 /** PD-R2-02: put a starting prompt in a Bot's composer draft (kept after any text already there). Nothing is sent. */
@@ -41,10 +43,12 @@ export function prefillComposer(botId: string, text: string) {
   const current = drafts.get(key)?.trimEnd() ?? '';
   if (current.includes(text.trim())) return;
   drafts.set(key, current ? `${current}\n${text}` : text);
+  prefilledDrafts.add(key);
   notifyDraft(key);
 }
 
 export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
+  const clean = useDisplayText();
   const accountId = useStore(s => s.user?.id);
   const draftKey = `${accountId}:${bot.id}`;
   const active = useRef(true);
@@ -61,6 +65,7 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   const [error, setError] = useState<string | null>(() => sendErrors.get(draftKey) ?? null);
   const [menu, setMenu] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const prefillPointerFocus = useRef(false);
   const moreRef = useRef<HTMLButtonElement>(null);
   const dictationCancelRef = useRef<HTMLButtonElement>(null);
   const dictationRange = useRef<{ text: string; start: number; end: number } | null>(null);
@@ -88,15 +93,27 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   }, [draftKey, accountId, bot.id]);
   useEffect(() => { drafts.set(draftKey, text); }, [draftKey, text]);
 
+  const placePrefillCaret = () => {
+    const el = ref.current;
+    if (el && prefilledDrafts.has(draftKey)) el.setSelectionRange(el.value.length, el.value.length);
+  };
+  useLayoutEffect(placePrefillCaret, [draftKey, text]);
+
   // Auto-grow.
   const grow = useCallback(() => {
     const el = ref.current;
     if (!el) return;
     // Hidden (display: none) measures 0; leave the natural one-line height until it's shown.
     if (!el.offsetParent) { el.style.height = ''; return; }
-    // R2F-023: CSS caps the height by the window height (short windows keep room for the conversation);
-    // use that cap here too, or a draft between the two limits is clipped without a scrollbar.
-    const max = Math.min(MAX_H, parseFloat(getComputedStyle(el).maxHeight) || MAX_H);
+    // Reserve the measured controls, padding and borders within the whole composer's viewport cap.
+    const composer = el.closest<HTMLElement>('.composer');
+    const bar = composer?.querySelector<HTMLElement>('.composer__bar');
+    if (!composer || !bar) return;
+    const style = getComputedStyle(composer);
+    const px = (value: string) => parseFloat(value) || 0;
+    const chrome = bar.getBoundingClientRect().height + px(style.paddingTop) + px(style.paddingBottom)
+      + px(style.borderTopWidth) + px(style.borderBottomWidth) + px(style.rowGap);
+    const max = Math.max(22, Math.min(MAX_H, px(style.maxHeight) - chrome));
     el.style.height = '0px';
     el.style.height = `${Math.min(el.scrollHeight, max)}px`;
     el.style.overflowY = el.scrollHeight > max ? 'auto' : 'hidden';
@@ -106,6 +123,13 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   const settingsOpen = useConfigUI(s => !!s.appSettings);
   useLayoutEffect(grow, [settingsOpen, grow]);
   useEffect(() => { window.addEventListener('resize', grow); return () => window.removeEventListener('resize', grow); }, [grow]);
+  useEffect(() => {
+    const bar = ref.current?.closest('.composer')?.querySelector('.composer__bar');
+    if (!bar) return;
+    const observer = new ResizeObserver(grow);
+    observer.observe(bar);
+    return () => observer.disconnect();
+  }, [grow]);
 
   // The Paper ring reflects the supported, selected effort in either billing mode.
   const catalog = useModels();
@@ -166,7 +190,20 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
     }
   };
 
-  const stop = () => api.interrupt(bot.id).catch((e) => setError(e.message));
+  const stop = async () => {
+    const origin = document.activeElement;
+    let moved = false;
+    const trackFocus = (event: FocusEvent) => {
+      if (event.target !== origin && event.target !== ref.current && event.target !== document.body) moved = true;
+    };
+    document.addEventListener('focusin', trackFocus);
+    try {
+      await api.interrupt(bot.id);
+      if (!moved && active.current && isActiveComposer(accountId, bot.id)) ref.current?.focus({ preventScroll: true });
+    } catch (e) {
+      if (active.current && isActiveComposer(accountId, bot.id)) setError((e as Error).message);
+    } finally { document.removeEventListener('focusin', trackFocus); }
+  };
   const fresh = useFreshConversation(bot.id);
 
   // Dictation: insert the transcript at the cursor.
@@ -221,7 +258,7 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
 
   return (
     <div className="composer-area" ref={area}>
-      {error && <div className="composer__error" role="alert">{error} <button type="button" className="link-btn" onClick={() => { sendErrors.delete(draftKey); setError(null); }}>Dismiss</button></div>}
+      {error && <div className="composer__error" role="alert">{clean(error)} <button type="button" className="link-btn" onClick={() => { sendErrors.delete(draftKey); setError(null); }}>Dismiss</button></div>}
       {dictation.state !== 'idle' && (
         <div className="composer__dictation">
           <span role="status">{dictation.state === 'starting' ? 'Opening microphone…' : dictation.state === 'recording' ? 'Dictating a message…' : 'Transcribing message…'}</span>
@@ -240,7 +277,15 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
           rows={1}
           value={text}
           placeholder={`Message ${bot.name}`}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => { prefilledDrafts.delete(draftKey); setText(e.target.value); }}
+          onFocus={placePrefillCaret}
+          onPointerDown={() => { prefillPointerFocus.current = document.activeElement !== ref.current && prefilledDrafts.has(draftKey); }}
+          onClick={() => {
+            // A pointer's native caret placement follows focus. Restore the initial prefill position
+            // after that placement, while later clicks in the focused field can move the caret normally.
+            if (prefillPointerFocus.current) placePrefillCaret();
+            prefillPointerFocus.current = false;
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); }
           }}
@@ -276,7 +321,7 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
             onClick={voice}
           >
             {inCall ? <PhoneOff size={16} aria-hidden /> : <Icon name="mic" />}
-            <span>{inCall ? 'End call' : switchingCall ? 'Switch call' : 'Live voice'}</span>
+            <span className="composer__voice-label">{inCall ? 'End call' : switchingCall ? 'Switch call' : 'Live voice'}</span>
           </button>
           {running && !hasText ? (
             <button type="button" className="composer__cta" onClick={stop} aria-label="Stop" title="Stop">

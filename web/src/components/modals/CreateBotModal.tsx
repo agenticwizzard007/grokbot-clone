@@ -161,11 +161,14 @@ function CreateBotForm({ inline, userId }: { inline: boolean; userId: string | u
             </div>
             <div className="setup-create__description"><strong>{mode === 'personal' ? 'Personal assistant' : 'Teammate'}</strong><p>{mode === 'personal' ? 'Works for you, with your apps.' : 'Works with your team on an agreed role and responsibilities.'}</p></div>
           </> : <>
-            {/* R2F-032: once a file is read, the native input (which then says "No file chosen") is hidden. */}
-            <label className={selection ? 'setup-create__file is-chosen' : 'setup-create__file'}>Setup file<input ref={fileInput} type="file" accept=".json,application/json" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; void chooseFile(file); }} /></label>
+            <div className="setup-create__file"><span>Setup file</span>
+              <input ref={fileInput} type="file" hidden aria-label="Setup file" accept=".json,application/json" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; void chooseFile(file); }} />
+              <div className="setup-create__chosen">{selection && <p className="setup-paper__subtitle">Selected: {selection.file}</p>}<button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => fileInput.current?.click()}>{selection ? 'Choose another file' : 'Choose setup file'}</button></div>
+            </div>
             {reading && <p role="status">Reading setup file…</p>}
-            {selection && <><div className="setup-create__chosen"><p className="setup-paper__subtitle">Selected: {selection.file}</p><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => fileInput.current?.click()}>Choose another file</button></div><label>Bot name<input className="text-input" value={importName} maxLength={60} onChange={event => { setImportName(event.target.value); setError(''); }} /><small>Choose a unique name in this account.</small></label></>}
-            {duplicate && <p className="cfg-error" role="alert">A Bot with this name already exists. Choose a different name.</p>}
+            {selection && <label>Bot name<input className="text-input" value={importName} maxLength={60} onChange={event => { setImportName(event.target.value); setError(''); }} /><small>Choose a unique name in this account.</small></label>}
+            {/* The imported Bot can reach the roster before the import response arrives. */}
+            {duplicate && !busy && <p className="cfg-error" role="alert">A Bot with this name already exists. Choose a different name.</p>}
             <div className="setup-create__description"><strong>Setup only</strong><p>Imports the role and saved setup, not tasks, schedules, sessions, or learned history. Review the new Bot’s setup before activating it.</p></div>
           </>}
         </fieldset>

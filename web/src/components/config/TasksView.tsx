@@ -169,12 +169,10 @@ function WorkWorkspace() {
   const selectedBot = bots.find((b) => b.id === botFilter);
   const unavailable = !!botFilter && !selectedBot;
   const heading = unavailable ? undefined : childHeading;
-  const primary = bots.find(bot => bot.isPrimary && bot.kind !== 'room');
-  // R2F-014: titles are fixed. A Bot is named only when the user filtered to it; the primary's name
-  // appears only in the Team subtitle (PD-06).
+  // Titles are fixed. A Bot is named only when the user filtered to it.
   const scope = selectedBot ? `${selectedBot.name} · ` : unavailable ? 'Bot unavailable · ' : '';
   const title = heading?.title ?? tab;
-  const subtitle = heading ? (tab === 'Reports' ? heading.subtitle : `${scope}${heading.subtitle}`) : tab === 'Team' ? `${primary ? `${primary.name}’s board` : 'Team board'} · ${scope}Owners, dependencies and evidence from current team records.` : tab === 'Goals' ? `${scope}Keep work running across turns and verify results against acceptance checks.` : `${scope}Download saved reports, save in Library or review where they will be sent.`;
+  const subtitle = heading ? (tab === 'Reports' ? heading.subtitle : `${scope}${heading.subtitle}`) : tab === 'Team' ? `Team board · ${scope}Owners, dependencies and evidence from current team records.` : tab === 'Goals' ? `${scope}Keep work running across turns and verify results against acceptance checks.` : `${scope}Download saved reports, save in Library or review where they will be sent.`;
 
   const { tasks, error, retry } = useTasks(botFilter, !unavailable && tab === 'Tasks');
   const attention = useNeedsYou(botFilter, !unavailable && tab === 'Tasks');
