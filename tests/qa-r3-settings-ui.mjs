@@ -105,7 +105,10 @@ const reload = async (hash = '') => { await page.goto(`${base}/?settings-fixture
 const title = value => page.waitForFunction(expected => document.title === expected, value);
 const openApp = async section => {
   await page.keyboard.press('Control+,');
-  await page.getByRole('navigation', { name: 'Settings sections', exact: true }).getByRole('button', { name: section === 'computer' ? 'Computer' : 'Learning', exact: true }).click();
+  await page.locator('.app-settings').waitFor({ state: 'visible' });
+  const sections = page.getByRole('navigation', { name: 'Settings sections', exact: true });
+  if (!await sections.isVisible()) await page.getByRole('button', { name: 'Back to Settings', exact: true }).click();
+  await sections.getByRole('button', { name: section === 'computer' ? 'Computer' : 'Learning', exact: true }).click();
 };
 const openBot = async (tab = 'general') => {
   if (await page.locator('.app.is-mobile.pane-list').count()) await page.locator('.pinned__tile').click();
@@ -125,7 +128,7 @@ const statusLine = details.locator('.agent-config__computer');
 const assertLine = async text => { await statusLine.filter({ hasText: text }).waitFor(); assert.equal(await statusLine.count(), 1); assert.equal(await statusLine.innerText(), text); };
 const assertPhoneList = async () => {
   await page.locator('.app.is-mobile.pane-list').waitFor();
-  assert.equal(await page.locator('.bot-settings-page').count(), 0);
+  await page.locator('.bot-settings-page').waitFor({ state: 'detached' });
   assert.equal(await page.locator('.sidebar').isVisible(), true);
   assert.equal(new URL(page.url()).hash, '');
 };
@@ -262,18 +265,43 @@ try {
   assert.equal(await page.getByRole('button', { name: 'Watch', exact: true }).getAttribute('title'), "Watch Coordinator Bot's screen");
   await page.getByText(/On Linux, use Connect your PC/).waitFor();
   await page.keyboard.press('Escape'); await title('Coordinator Bot · History');
-  await openBot('learning'); await title('Coordinator Bot · Learning');
-  const learning = page.locator('.bot-settings-page .learning-flags label').first();
-  assert.equal(await learning.getByRole('checkbox').isChecked(), false);
-  assert.match(await learning.innerText(), /Bot override\.[\s\S]*On:[\s\S]*Off:[\s\S]*Saved memories and skills remain available/);
-  assert.match(await page.locator('.bot-settings-page .learning-flags label').nth(1).innerText(), /Inherited from the account\.[\s\S]*On:[\s\S]*Off:/);
-  await openApp('learning'); await title('Settings · Learning');
-  const accountLearning = page.locator('.app-settings .learning-flags label').first();
-  assert.equal(await accountLearning.getByRole('checkbox').isChecked(), true);
-  assert.match(await accountLearning.innerText(), /On:[\s\S]*Off:/);
-  await page.getByText('Defaults for learning across this account. Each Bot can override these settings.', { exact: true }).waitFor();
-  await page.keyboard.press('Escape'); await title('Coordinator Bot · Learning');
-  await page.keyboard.press('Escape'); await title('Coordinator Bot · History');
+  // Exclusive app Settings replaces Bot Settings and returns to chat or its History panel.
+  for (const width of [390, 768, 1280, 1440]) {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    if (!await details.isVisible()) {
+      await page.getByRole('button', { name: 'Show details', exact: true }).click();
+      await detailTab('Setup').click();
+      await details.getByRole('tab', { name: 'History', exact: true }).click();
+    }
+    await title('Coordinator Bot · History');
+    await openBot('learning'); await title('Coordinator Bot · Learning');
+    await page.setViewportSize({ width, height: 1000 });
+    const learning = page.locator('.bot-settings-page .learning-flags label').first();
+    assert.equal(await learning.getByRole('checkbox').isChecked(), false);
+    assert.match(await learning.innerText(), /Bot override\.[\s\S]*On:[\s\S]*Off:[\s\S]*Saved memories and skills remain available/);
+    assert.match(await page.locator('.bot-settings-page .learning-flags label').nth(1).innerText(), /Inherited from the account\.[\s\S]*On:[\s\S]*Off:/);
+    await openApp('learning'); await title('Settings · Learning');
+    await page.locator('.bot-settings-page').waitFor({ state: 'detached' });
+    assert.equal(new URL(page.url()).hash, '#settings/learning');
+    const accountLearning = page.locator('.app-settings .learning-flags label').first();
+    assert.equal(await accountLearning.getByRole('checkbox').isChecked(), true);
+    assert.match(await accountLearning.innerText(), /On:[\s\S]*Off:/);
+    await page.getByText('Defaults for learning across this account. Each Bot can override these settings.', { exact: true }).waitFor();
+    await page.keyboard.press('Escape');
+    if (width === 390) {
+      await title('Settings');
+      await page.getByRole('navigation', { name: 'Settings sections', exact: true }).waitFor();
+      await page.locator('.bot-settings-page').waitFor({ state: 'detached' });
+      await page.keyboard.press('Escape');
+    }
+    await title(width === 390 ? 'Swarm' : 'Coordinator Bot · History');
+    await page.locator('.app-settings').waitFor({ state: 'detached' });
+    await page.locator('.bot-settings-page').waitFor({ state: 'detached' });
+    if (width === 390) await page.locator('.chat__pill').waitFor({ state: 'visible' });
+    else await details.waitFor({ state: 'visible' });
+    assert.equal(new URL(page.url()).hash, '');
+    console.log(`PASS settings-smoke ${width}px: Escape returns to the underlying chat with both settings surfaces closed`);
+  }
   await details.getByRole('button', { name: 'Close details', exact: true }).click(); await title('Swarm');
 
   // Linux guidance is present before pairing, including the minimal Connect your PC state.
@@ -328,9 +356,10 @@ try {
   await guard.getByRole('button', { name: 'Discard', exact: true }).click(); await assertPhoneList();
   await openBot('learning');
   await page.locator('.bot-settings-page .learning-flags input').first().check();
-  await openApp('learning');
-  await page.locator('.app-settings .learning-flags input').first().waitFor();
-  await page.getByRole('button', { name: 'Close settings', exact: true }).click();
+  await page.keyboard.press('Control+,');
+  await guard.waitFor();
+  await page.locator('.app-settings').waitFor({ state: 'detached' });
+  await guard.getByRole('button', { name: 'Keep editing', exact: true }).click();
   await page.getByRole('button', { name: 'Back to Bots', exact: true }).click(); await guard.waitFor();
   await guard.getByRole('button', { name: 'Keep editing', exact: true }).click();
   assert.equal(await page.locator('.bot-settings-page .learning-flags input').first().isChecked(), true);
