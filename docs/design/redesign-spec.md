@@ -34,7 +34,7 @@ Follow new content only when already within 40px of the bottom. Scrolling away p
 
 ## Settings and plan spacing
 
-Keep the incoming settings simplification's Lucide icons, grouped navigation, SettingRow icon support, controls and tests. A row contains a 20px icon, label plus optional helper line, and trailing control. Use 16px row padding, 16px icon/text/control gaps, 4px between label and helper, and 24px between groups. Long content wraps without displacing controls outside the viewport; phone rows may stack a full-width control beneath the text.
+Keep the incoming settings simplification's Lucide icons, grouped navigation, SettingRow icon support, controls and tests. A row contains a 20px icon, label plus optional helper line, and trailing control. Use 16px vertical row padding with flat, aligned group edges, 16px icon/text/control gaps, 4px between label and helper, and 24px between groups. Row labels use 15/24 medium and helpers use 14/20 regular. Long content wraps without displacing controls outside the viewport; phone rows may stack a full-width control beneath the text.
 
 Models & access uses 24px between its heading, `Choose how models are billed` group, provider tabs, plan connection block and advanced options. Inside each block use 16px padding and 8px or 16px gaps. Plan, Codex and Claude Code controls keep their official login, recovery, account-binding and disconnect behavior. Connections retains account email, status and connected-at details when supplied, plus explicit disconnect confirmation. Bot settings, Settings home, create Bot and sign-in use the same type, radius and spacing tokens. Sign-in retains existing provider gates and one primary action.
 
@@ -53,7 +53,7 @@ Repository sources inspected:
 - `web/src/styles/tokens.css`, `shell.css`, `paper-core.css`, `setup-paper.css`, `composer-models.css`, and self-hosted `web/public/assets/fonts/` and Swarm SVG assets.
 - Merged PRs #9, #12, #49, #71, #72, #73, #74 and #75 describe earlier settings, Paper, voice, accepted UI and later layout changes. No checked-in Grok Bot screenshots, Figma exports or native Paper exports were found.
 
-Initial main baseline: `3fbca49`. The settings simplification and 12-item visual polish workspaces were active at start; waited approximately 18 minutes, then rebased onto merged PRs #179 (account details), #180 (settings) and #181 (visual polish). Implementation waits for those PRs, up to the owner's 90-minute limit, and rebases onto latest main before each merge. Existing connection-detail, chat recovery, voice and chat-speed fixes are retained.
+Initial main baseline: `3fbca49`. The settings simplification and 12-item visual polish workspaces were active at start; waited approximately 18 minutes, then rebased onto merged PRs #179 (account details), #180 (settings) and #181 (visual polish). Also rebased onto #182 (chat opening speed) and #183 (stopped replies and voice recovery), then onto latest main before each merge. Existing connection-detail, chat recovery, voice and chat-speed fixes are retained.
 
 ## Delivery and verification
 

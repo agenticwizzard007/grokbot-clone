@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import { chromium } from 'playwright';
 
-const phase = process.env.REDESIGN_PHASE || 'chat';
+const phase = process.env.REDESIGN_PHASE || 'all';
 const shellChecks = phase !== 'baseline';
 const chatChecks = ['chat', 'settings', 'all'].includes(phase);
 const settingsChecks = ['settings', 'all'].includes(phase);
@@ -166,16 +166,33 @@ try {
     await goto('#settings/subscriptions');
     await page.getByRole('heading',{name:'Choose how models are billed',exact:true}).waitFor();
     await page.getByRole('tab',{name:'Claude Code',exact:true}).click();
-    if(settingsChecks){
+    const assertPlanSpacing=async()=>{
       const gaps=await page.locator('.subscription-settings').evaluate(el=>{
         const blocks=[...el.children].filter(c=>c.getBoundingClientRect().height>0 && getComputedStyle(c).position!=='absolute');
         return blocks.slice(1).map((b,i)=>b.getBoundingClientRect().top-blocks[i].getBoundingClientRect().bottom);
       });
       assert.ok(gaps.length>=3,'plan blocks are present');
       assert.ok(gaps.every(g=>Math.abs(g-24)<1),`${width}: consistent 24px plan gaps ${gaps}`);
-    }
+      const rows=await page.locator('.subscription-settings .access-row').evaluateAll(rows=>rows.map(row=>{
+        const s=getComputedStyle(row),text=row.querySelector('.cfg-row__text'),icon=row.querySelector('.settings-row__icon');
+        return {gap:parseFloat(s.columnGap),pad:parseFloat(s.paddingBottom),textGap:parseFloat(getComputedStyle(text).rowGap),iconX:icon.getBoundingClientRect().right,textX:text.getBoundingClientRect().left};
+      }));
+      assert.ok(rows.length>=6,'plan, CLI, API and provider rows retain controls');
+      for(const row of rows){assert.equal(row.gap,16);assert.equal(row.pad,16);assert.equal(row.textGap,4);assert.ok(Math.abs(row.textX-row.iconX-16)<1,'icon and label share 16px gap');}
+    };
+    if(settingsChecks)await assertPlanSpacing();
     await snap('models-access');
-    await page.getByRole('tab',{name:'Codex',exact:true}).click();await snap('models-codex');
+    await page.getByRole('tab',{name:'Codex',exact:true}).click();
+    if(settingsChecks)await assertPlanSpacing();
+    await snap('models-codex');
+    if(settingsChecks){
+      await page.locator('.subscription-settings__context > summary').click();
+      const details=await page.locator('.subscription-settings__details').evaluate(el=>({x:getComputedStyle(el).columnGap,y:getComputedStyle(el).rowGap}));
+      assert.deepEqual(details,{x:'24px',y:'16px'});
+      await page.locator('.subscription-settings__advanced > summary').click();
+      const advanced=await page.locator('.subscription-settings__advanced-content').evaluate(el=>({gap:getComputedStyle(el).rowGap,pad:getComputedStyle(el).paddingTop}));
+      assert.deepEqual(advanced,{gap:'24px',pad:'24px'});
+    }
     await goto('#settings/apps');await page.getByRole('heading',{name:'Connected apps',exact:true}).waitFor();await page.getByRole('button',{name:'Disconnect',exact:true}).waitFor();await snap('connections');
     await goto('#settings/general');await page.getByRole('heading',{name:'General',exact:true}).waitFor();await snap('settings-home');
     if(width<=760){await page.getByRole('button',{name:'Back to Settings',exact:true}).click();await snap('settings-list');}
