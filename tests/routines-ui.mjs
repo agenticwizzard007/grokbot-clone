@@ -15,6 +15,8 @@ try {
   let routines = [routine('daily-hi', 'Daily hi'), routine('weekly-recap', 'Weekly recap')];
   let runs = [];
   const calls = [];
+  let finishToggle;
+  let toggleFails = true;
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: 'reduce' });
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -35,6 +37,18 @@ try {
     }
     if (method === 'DELETE' && p === '/api/routines/daily-hi') { routines = routines.filter(r => r.id !== 'daily-hi'); return route.fulfill({ json: { ok: true } }); }
     if (method === 'DELETE' && p === '/api/routines/weekly-recap') return route.fulfill({ status: 500, json: { error: 'Routine store unavailable.' } });
+    if (method === 'PATCH' && p === '/api/routines/daily-hi') {
+      const item = routines.find(r => r.id === 'daily-hi');
+      if (toggleFails) {
+        await new Promise(resolve => { finishToggle = resolve; });
+        item.activationError = 'Routine pause failed. Check the connected app and retry.';
+        item.activationTarget = false;
+        return route.fulfill({ status: 502, json: { error: item.activationError } });
+      }
+      item.enabled = req.postDataJSON().enabled;
+      item.activationError = null; item.activationTarget = null;
+      return route.fulfill({ json: { routine: item } });
+    }
     if (method !== 'GET') { errors.push(`Unexpected mutation ${method} ${p}`); return route.abort(); }
     let body = {};
     if (p === '/api/auth/me') body = { user: { id: 'owner', name: 'Owner', email: 'owner@example.test' } };
@@ -97,6 +111,24 @@ try {
   await dialog.getByRole('button', { name: 'Run now', exact: true }).click();
   await history.getByText(/^Queued · .+ · Run now$/).waitFor({ timeout: 2000 });
   assert.equal(calls.filter(call => call === 'POST /api/routines/daily-hi/run').length, 1);
+
+  // P-07: keep the confirmed switch state until the provider answers, then show a durable retry.
+  const schedule = settings.getByRole('switch', { name: 'Daily hi schedule on', exact: true });
+  await schedule.click();
+  while (!finishToggle) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(await schedule.getAttribute('aria-checked'), 'true');
+  assert.equal(await schedule.isDisabled(), true);
+  finishToggle();
+  await settings.getByRole('alert').filter({ hasText: 'Routine pause failed.' }).waitFor();
+  assert.equal(await schedule.getAttribute('aria-checked'), 'true');
+  await page.reload();
+  const activationError = settings.getByRole('alert').filter({ hasText: 'Routine pause failed.' });
+  await activationError.waitFor();
+  await page.screenshot({ path: new URL('activation-failed.png', out).pathname });
+  toggleFails = false;
+  await activationError.getByRole('button', { name: 'Retry', exact: true }).click();
+  await activationError.waitFor({ state: 'detached' });
+  assert.equal(await schedule.getAttribute('aria-checked'), 'false');
 
   // PD-R2-02: ask the Bot to add a routine in chat, with a starting prompt to finish.
   await settings.getByRole('button', { name: 'Ask Quinn to add a routine', exact: true }).click();

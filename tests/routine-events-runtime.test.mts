@@ -56,7 +56,9 @@ test('local dev runtime processes a retained burst once after restart using mock
       };
       const {composio} = await import('./server/src/composio.ts');
       const toolkit = composio();
-      toolkit.triggers.subscribe = async () => {};
+      toolkit.triggers.subscribe = async () => { toolkit.triggers.pusherService.connection = { channel: { subscribed: true, bind() {}, unbind() {} } }; };
+      toolkit.triggers.enable = async () => ({});
+      toolkit.triggers.disable = async () => ({});
       toolkit.connectedAccounts.list = async () => ({items:[]});
       toolkit.create = async () => ({sessionId:'mock-session',tools:async () => []});
       const {onTrigger} = await import('./server/src/triggers.ts');

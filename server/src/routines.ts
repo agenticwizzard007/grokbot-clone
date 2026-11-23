@@ -22,7 +22,7 @@ export function initRoutines(enqueue: (botId: string, t: any) => string | void) 
 }
 
 export function scheduleRoutine(r: Pick<Routine, 'id' | 'botId' | 'name' | 'prompt' | 'schedule' | 'timezone'>) {
-  if (isEventSchedule(r.schedule)) { void setEventRoutineEnabled(r.id, true); return; }
+  if (isEventSchedule(r.schedule)) return setEventRoutineEnabled(r.id, true);
   unscheduleRoutine(r.id);
   try {
     const job = new Cron(r.schedule, { timezone: r.timezone || 'UTC', protect: true }, () => {
@@ -36,7 +36,7 @@ export function scheduleRoutine(r: Pick<Routine, 'id' | 'botId' | 'name' | 'prom
 
 export function unscheduleRoutine(id: string) {
   const row = db.prepare('SELECT schedule FROM routines WHERE id=?').get(id) as any;
-  if (row && isEventSchedule(row.schedule)) void setEventRoutineEnabled(id, false);
+  if (row && isEventSchedule(row.schedule)) return setEventRoutineEnabled(id, false);
   jobs.get(id)?.stop();
   jobs.delete(id);
 }

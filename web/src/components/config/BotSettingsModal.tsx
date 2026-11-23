@@ -487,12 +487,15 @@ function RoutineItem({ r, onFlash }: { r: Routine; onFlash: (t: string) => void 
   const [busy, setBusy] = useState(false);
   useEffect(() => setEnabled(r.enabled), [r.enabled]);
   const toggle = async (v: boolean) => {
-    setEnabled(v);
-    try { await configApi.setRoutine(r.id, v); onFlash(v ? 'Resumed' : 'Paused'); }
-    catch (e) {
-      setEnabled(!v);
-      toast((e as Error).message || `Couldn’t update ${r.name}.`, { tone: 'error' });
+    if (busy) return;
+    setBusy(true);
+    try {
+      const result = await configApi.setRoutine(r.id, v);
+      setEnabled(result.routine.enabled); onFlash(v ? 'Resumed' : 'Paused');
     }
+    catch (e) {
+      toast((e as Error).message || `Couldn’t update ${r.name}.`, { tone: 'error' });
+    } finally { setBusy(false); refresh(); }
   };
   const refresh = () => {
     void useStore.getState().loadRoutines(r.botId).catch(() => {});
@@ -519,6 +522,8 @@ function RoutineItem({ r, onFlash }: { r: Routine; onFlash: (t: string) => void 
       <div className="cfg-item__text">
         <div className="cfg-item__title">{r.name}</div>
         <div className="cfg-item__sub">{enabled ? [r.description || r.schedule, nextRunLabel(r.nextRunAt, r.timezone)].filter(Boolean).join(' · ') : 'Paused'}</div>
+        {r.activationPending && <div className="cfg-item__sub" role="status">Updating event subscription...</div>}
+        {r.activationError && <div className="cfg-error" role="alert">{r.activationError} <button type="button" disabled={busy} onClick={() => void toggle(r.activationTarget ?? !enabled)}>Retry</button></div>}
         <div className="cfg-item__prompt">{r.prompt}</div>
       </div>
       <div className="cfg-item__actions">
@@ -528,7 +533,7 @@ function RoutineItem({ r, onFlash }: { r: Routine; onFlash: (t: string) => void 
         <button type="button" className="cfg-icon-btn" title="Delete" aria-label={`Delete ${r.name}`} disabled={busy} onClick={() => void remove()}>
           <Glyph name="trash" size={14} />
         </button>
-        <Switch on={enabled} onChange={toggle} label={`${r.name} schedule on`} />
+        <Switch on={enabled} onChange={toggle} disabled={busy || r.activationPending} label={`${r.name} schedule on`} />
       </div>
     </div>
   );

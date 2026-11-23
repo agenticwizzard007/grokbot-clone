@@ -183,6 +183,8 @@ export function addColumn(table: string, col: string, ddl: string) {
 // Routine API operations need trigger metadata even when the scheduler is disabled.
 addColumn('routines', 'trigger_id', 'TEXT');
 addColumn('routines', 'trigger_config', 'TEXT');
+addColumn('routines', 'activation_target', 'INTEGER');
+addColumn('routines', 'activation_error', 'TEXT');
 addColumn('composio_sessions', 'key_fingerprint', 'TEXT');
 addColumn('approvals', 'binding_hash', 'TEXT');
 addColumn('bots', 'voice', "TEXT NOT NULL DEFAULT 'luna'");

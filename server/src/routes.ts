@@ -15,7 +15,7 @@ import { computers } from './computers/index.js';
 import { catalog, connectedToolkits, connectionsDetail, manageConnection, removeExpiredConnection, ExpiredConnectionRemovalError, disconnect, invalidateComposioSession } from './composio.js';
 import { ConnectionCardChanged, pendingConnectionCards, reconcileConnectionCards, startCardConnect } from './agent/connection-cards.js';
 import { runRoutine, scheduleRoutine, unscheduleRoutine } from './routines.js';
-import { deleteEventTrigger } from './triggers.js';
+import { deleteEventTrigger, isEventSchedule } from './triggers.js';
 import { dispatchRoomMessage } from './agent/rooms.js';
 import { acceptMessage, SubmissionConflict } from './agent/message-receipts.js';
 import { voiceApi } from './voice.js';
@@ -533,9 +533,12 @@ api.patch('/routines/:id', async (c) => {
     const limit = checkRoutineCreate(r.bot_id, r.schedule, { timezone: r.timezone, excludeRoutineId: r.id });
     if (limit) return c.json({ error: limit }, 429);
   }
-  db.prepare('UPDATE routines SET enabled=? WHERE id=?').run(enabled ? 1 : 0, r.id);
+  try {
+    if (enabled) await scheduleRoutine(toRoutine(r));
+    else await unscheduleRoutine(r.id);
+  } catch (e) { return c.json({ error: (e as Error).message }, 502); }
+  if (!isEventSchedule(r.schedule)) db.prepare('UPDATE routines SET enabled=? WHERE id=?').run(enabled ? 1 : 0, r.id);
   const next = toRoutine(db.prepare('SELECT * FROM routines WHERE id=?').get(r.id));
-  enabled ? scheduleRoutine(next) : unscheduleRoutine(r.id);
   hub.emit(c.get('user').id, { type: 'routines', botId: r.bot_id });
   return c.json({ routine: next });
 });
@@ -551,7 +554,8 @@ api.post('/routines/:id/run', (c) => {
 api.delete('/routines/:id', async (c) => {
   const r = db.prepare('SELECT r.* FROM routines r JOIN bots b ON b.id=r.bot_id WHERE r.id=? AND b.user_id=?').get(c.req.param('id'), c.get('user').id) as any;
   if (!r) return c.json({ error: 'not found' }, 404);
-  unscheduleRoutine(r.id);
+  try { await unscheduleRoutine(r.id); }
+  catch (e) { return c.json({ error: (e as Error).message }, 502); }
   await deleteEventTrigger(r.id);
   db.prepare('DELETE FROM routines WHERE id=?').run(r.id);
   hub.emit(c.get('user').id, { type: 'routines', botId: r.bot_id });
