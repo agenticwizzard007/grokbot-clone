@@ -1,11 +1,9 @@
-import { legacyWorkHeld } from './security/legacy-work.js';
 import { isTenant, tenantId } from './deployment.js';
 import { gatewayRequest } from './runtime/gateway-client.js';
 import { db, now } from './db.js';
-import { checkRoutineRun, noteSkipped, trackRun } from './routine-limits.js';
 import { APPS_OFF, composio } from './composio.js';
 import { env } from './env.js';
-import { appendRow } from './store.js';
+import { retainTriggerEvent, drainTriggerEvents } from './trigger-events.js';
 
 /**
  * Event routines: Composio triggers (e.g. GMAIL_NEW_GMAIL_MESSAGE, SLACK_RECEIVE_MESSAGE,
@@ -14,15 +12,19 @@ import { appendRow } from './store.js';
  * Delivery uses Composio's realtime subscription (no public webhook URL needed).
  */
 
-let enqueueFn: ((botId: string, t: any) => void) | null = null;
+let enqueueFn: ((botId: string, t: any) => string | void) | null = null;
+let drainTimer: ReturnType<typeof setInterval> | undefined;
+let drainScheduled = false;
 let subscribed = false;
 let subscriptionClient: ReturnType<typeof composio> | null = null;
 let subscriptionChange: Promise<void> = Promise.resolve();
 
 export const isEventSchedule = (schedule: string) => schedule.startsWith('event:');
 
-export async function initTriggers(enqueue: (botId: string, t: any) => void) {
+export async function initTriggers(enqueue: (botId: string, t: any) => string | void) {
   enqueueFn = enqueue;
+  drainTimer ??= setInterval(() => drainTriggerEvents(enqueueFn!), 1000).unref();
+  drainTriggerEvents(enqueue);
   if (isTenant) return;
   if (!env.composioEnabled) { console.log('[triggers] off: no COMPOSIO_API_KEY'); return; }
   const count = (db.prepare("SELECT COUNT(*) n FROM routines WHERE schedule LIKE 'event:%'").get() as any).n;
@@ -66,26 +68,15 @@ export function refreshTriggerSubscription(): Promise<void> {
   return subscriptionChange;
 }
 
-export function onTrigger(data: any) {
-  const ids = [data?.id, data?.metadata?.id, data?.metadata?.nanoId].filter(Boolean);
-  if (!ids.length) return;
-  const rows = db.prepare(`SELECT * FROM routines WHERE trigger_id IN (${ids.map(() => '?').join(',')}) AND enabled=1`).all(...ids) as any[];
-  for (const r of rows) {
-    const owner = (db.prepare('SELECT user_id FROM bots WHERE id=?').get(r.bot_id) as { user_id: string } | undefined)?.user_id;
-    if (legacyWorkHeld(owner)) continue;
-    const check = checkRoutineRun(r, 'event');
-    if (!check.ok) { noteSkipped(r, check.reason); continue; }
-    const payload = JSON.stringify(data.payload ?? data.originalPayload ?? {}, null, 1).slice(0, 8000);
-    db.prepare('UPDATE routines SET last_run_at=? WHERE id=?').run(now(), r.id);
-    appendRow(r.bot_id, 'event', { type: 'event', event: 'routine-run', text: `Routine triggered: ${r.name}`, ref: r.id });
-    enqueueFn?.(r.bot_id, {
-      type: 'routine',
-      routineId: r.id,
-      name: r.name,
-      prompt: `${r.prompt}\n\n[Event: ${data.triggerSlug ?? r.schedule.slice(6)}]\n${payload}`,
-    });
-    trackRun(r.id, r.bot_id);
-  }
+export function onTrigger(data: any, deliveryId?: string) {
+  retainTriggerEvent(data, deliveryId);
+  // The inbox's outer transaction must commit before any model work can start.
+  if (drainScheduled) return;
+  drainScheduled = true;
+  queueMicrotask(() => {
+    drainScheduled = false;
+    if (enqueueFn) drainTriggerEvents(enqueueFn);
+  });
 }
 
 export async function listTriggerTypes(toolkit: string) {
