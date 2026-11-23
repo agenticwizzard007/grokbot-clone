@@ -612,7 +612,8 @@ test('a setup agent discovers and verifies GitHub through MCP in one Claude sess
   assert.deepEqual(results().map(call => call.name), ['SWARM_APPS_SEARCH', 'SWARM_APPS_EXECUTE']);
   assert.match(JSON.stringify(results()[0]), /readOnly.*true/);
   assert.match(JSON.stringify(results()[1]), /verified-account/);
-  assert.deepEqual(dispatches, [[tool.slug, { userId: alice, connectedAccountId: 'github-alice', version: tool.version, arguments: {} }]]);
+  assert.deepEqual(dispatches.map(call => call.slice(0, 2)), [[tool.slug, { userId: alice, connectedAccountId: 'github-alice', version: tool.version, arguments: {} }]]);
+  assert.ok(dispatches.every(call => call[2]?.signal instanceof AbortSignal && call[2].maxRetries === 0));
   const rows = listRows(bot.id);
   const calls: any[] = rows.filter(row => row.body.type === 'tool-call').map(row => row.body);
   assert.deepEqual(calls.map(call => [call.name, call.status]), [['SWARM_APPS_SEARCH', 'done'], ['SWARM_APPS_EXECUTE', 'done']]);
@@ -694,11 +695,11 @@ test('Stop still cancels a continuation after a tool checkpoint', { timeout: 450
   const expires = Date.now() + 30000;
   while (!continued && Date.now() < expires) await new Promise(resolve => setTimeout(resolve, 10));
   assert.equal(continued, true);
-  interrupt(bot.id);
+  interrupt(bot.id, undefined, 'user');
   await runInBotQueue(bot.id, async () => {});
   assert.equal(executed, 60);
   await until(() => bridge.requests.some(request => request.method === 'cancel' && request.id === bridge.generations[1].id), 'Stop reaches the continued generation');
-  assert.ok(listRows(bot.id).some(row => row.body.type === 'notice' && row.body.text === 'Stopped.'));
+  assert.ok(listRows(bot.id).some(row => row.body.type === 'notice' && row.body.text === 'You stopped this request.'));
 });
 
 test('cancelled AbortSignal sends a cancel RPC for exactly the pending generation and permits later requests', async () => {

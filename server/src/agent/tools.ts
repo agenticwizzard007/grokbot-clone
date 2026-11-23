@@ -774,7 +774,7 @@ export async function executionPolicyFor(userId: string, toolName: string, args:
   if (typeof args?.connectionId === 'string' && Number.isSafeInteger(args?.revision) && args.revision > 0
     && /^[A-Z][A-Z0-9_]{2,199}$/.test(slug) && !slug.startsWith('COMPOSIO_')) {
     try {
-      const account = (await connectionsDetail(userId)).find(c => c.id === args.connectionId && c.status === 'ACTIVE');
+      const account = (await connectionsDetail(userId, { signal: AbortSignal.timeout(15_000) })).find(c => c.id === args.connectionId && c.status === 'ACTIVE');
       if (account && (account.revision === undefined || account.revision === args.revision)) {
         const result = await executeComposio(userId, 'SWARM_APPS_SEARCH', {
           toolkit: account.toolkit, query: slug, connectionId: account.id,
@@ -799,12 +799,24 @@ export function humanizeSlug(slug: string) {
 }
 
 export async function runComposioTool(ctx: ToolCtx, name: string, args: any): Promise<ToolResult> {
-  const r = await executeComposio(ctx.userId, name, args, { readOnly: isConfiguring(ctx.botId) || ctx.readOnlyApps === true });
-  const ok = r.successful !== false && !r.error && (!r.resultType || ['completed', 'success'].includes(r.resultType));
-  const payload = ok ? r.data : { error: 'The connected app reported a failed operation. Verify its outcome before retrying.', logId: r.logId };
-  let out = JSON.stringify(payload ?? null);
-  if (out.length > 60000) out = out.slice(0, 60000) + '…(truncated)';
-  return { output: out, summary: ok ? 'done' : 'failed' };
+  const app = String(args?.tool_slug ?? '').startsWith('GMAIL_') || args?.toolkit === 'gmail' ? 'Gmail' : 'The connected app';
+  const retry = 'Check the connection in Settings, then retry. Review activity before repeating any external action.';
+  try {
+    const r = await executeComposio(ctx.userId, name, args, { readOnly: isConfiguring(ctx.botId) || ctx.readOnlyApps === true });
+    const ok = r.successful !== false && !r.error && (!r.resultType || ['completed', 'success'].includes(r.resultType));
+    if (!ok) return { output: `${app} reported a failed operation. ${retry}`, summary: `${app} reported a failed operation. ${retry}`, isError: true };
+    let out = JSON.stringify(r.data ?? null);
+    if (out.length > 60000) out = out.slice(0, 60000) + '…(truncated)';
+    return { output: out, summary: 'done' };
+  } catch (error: any) {
+    // This local policy refusal is safe and must remain distinct from connection errors.
+    if (error?.message === 'Setup requires a provider-verified read-only app tool. Write or unknown tool metadata is refused.') throw error;
+    // Provider bodies can contain private app data. Expose classifications only.
+    const timedOut = ['TimeoutError', 'AbortError', 'APIConnectionTimeoutError'].includes(error?.name) || [408, 504].includes(error?.status);
+    const expired = [401, 403, 404, 409].includes(error?.status) || /connection not found/i.test(String(error?.message));
+    const reason = timedOut ? `${app} tool timed out.` : expired ? `${app} connection failed or expired.` : `${app} connection failed.`;
+    throw new Error(`${reason} ${retry}`);
+  }
 }
 
 export function activityFor(name: string, args?: unknown): { kind: ActivityKind; label: string } {

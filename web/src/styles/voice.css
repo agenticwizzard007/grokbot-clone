@@ -28,6 +28,7 @@
 .vcall__name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vcall__time { font-size: 12px; font-weight: var(--font-weight-regular); color: #FFFFFF8F; font-variant-numeric: tabular-nums; }
 .vcall__status { font-size: 12px; line-height: 16px; color: #FFFFFFAD; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vcall.is-error .vcall__btn { width: auto; min-width: 44px; padding: 0 8px; }
 .vcall.is-error .vcall__status { color: #FF8A93; white-space: normal; }
 .vcall__task { color: #FFFFFF73; }
 .vcall__shimmer {
@@ -120,6 +121,7 @@
 .vcall__name { font-size: 15px; font-weight: 500; }
 .vcall__status, .vcall__time, .vcall__task, .vcall__caption:is(.is-user, .is-empty), .vcall__line b { color: var(--color-text-secondary); }
 .vcall__caption.is-assistant, .vcall__line { color: var(--color-text-primary); }
+.vcall.is-error .vcall__btn { width: auto; min-width: 44px; padding: 0 8px; }
 .vcall.is-error .vcall__status { color: var(--color-danger-text); }
 .vcall__shimmer, .vcall__shimmer .vcall__task { color: var(--color-text-secondary); background: none; animation: none; }
 .vcall__btn, .vcall__toggle, .voice-preview { width: auto; min-height: 44px; padding: 0 14px; border: 0; border-radius: 12px; background: var(--color-bg-active); color: var(--color-text-primary); font-size: 14px; text-decoration: none; }

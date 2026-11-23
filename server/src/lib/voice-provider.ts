@@ -20,23 +20,28 @@ export function voiceProvider() {
   };
 }
 
+export class VoiceSessionError extends Error {}
+
 /** Validate realtime access rather than accepting a key that only has text-model permissions.
  * Never expose provider error bodies: they may contain credentials. */
-export async function mintVoiceSecret(key: string, baseUrl: string): Promise<{ value: string; expires_at: number }> {
+export async function mintVoiceSecret(key: string, baseUrl: string, signal?: AbortSignal): Promise<{ value: string; expires_at: number }> {
   const response = await fetch(`${baseUrl.replace(/\/$/, '')}/realtime/client_secrets`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ expires_after: { seconds: 300 } }),
     redirect: 'error',
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.any([AbortSignal.timeout(6500), ...(signal ? [signal] : [])]),
+  }).catch((error: unknown) => {
+    const timedOut = (error as Error)?.name === 'TimeoutError';
+    throw new VoiceSessionError(timedOut ? 'Voice session setup timed out. Check your connection and retry.' : 'The voice service could not be reached. Check your connection and retry.');
   });
-  if (!response.ok) throw new Error(response.status === 401 || response.status === 403
+  if (!response.ok) throw new VoiceSessionError(response.status === 401 || response.status === 403
     ? 'The voice provider rejected this key or its realtime permissions.'
     : `The voice provider could not start a session (HTTP ${response.status}). Check its credits and service status.`);
   const body = await response.json();
   if (typeof body?.value !== 'string' || !body.value.trim() || body.value === key ||
       typeof body.expires_at !== 'number' || !Number.isFinite(body.expires_at) || body.expires_at <= Date.now() / 1000) {
-    throw new Error('The voice provider returned an invalid session credential.');
+    throw new VoiceSessionError('The voice provider returned an invalid session credential.');
   }
   return { value: body.value, expires_at: body.expires_at };
 }

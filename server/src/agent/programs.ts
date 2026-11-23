@@ -1,3 +1,4 @@
+import { interruptionMessage } from './interruption.js';
 /** Hermes-derived bounded RPC execution, adapted natively for Swarm.
  * Source: tools/code_execution_tool.py and code_execution_rpc.py at
  * f0e7b68e439f8c1962fcf9dcb0341aadf1e2a898, Nous Research, MIT (see notices).
@@ -69,7 +70,7 @@ export async function runProgram(options: {
   const elapsed = previous?.elapsed_ms ?? 0;
   const remaining = args.timeout_ms - elapsed;
   if (remaining <= 0) return { run_id: options.callId, status: 'failed', error: 'Program execution budget exhausted.' };
-  if (options.signal?.aborted) return { run_id: options.callId, status: 'cancelled', error: 'Stopped.' };
+  if (options.signal?.aborted) return { run_id: options.callId, status: 'cancelled', error: interruptionMessage(options.signal) };
   const allowed = new Set(args.tools);
   if (args.tools.some(t => !permittedProgramTool(t))) throw new Error('Programs may use only explicitly listed app, MCP, knowledge and save_file tools.');
   db.prepare(`INSERT INTO code_runs(id,user_id,bot_id,job_id,binding,state,created_at,updated_at) VALUES(?,?,?,?,?,'running',?,?)
@@ -90,7 +91,7 @@ export async function runProgram(options: {
   const result = await new Promise<ProgramResult>(resolve => {
     const finish = (r: Omit<ProgramResult, 'run_id'>) => { if (!closed) { closed = true; dispatchController.abort(); resolve({ run_id: options.callId, stdout, tool_calls: nextStep, ...r }); } };
     timer = setTimeout(() => finish({ status: 'failed', error: 'Program time limit exceeded.' }), remaining);
-    abort = () => finish({ status: 'cancelled', error: 'Stopped. Completed action receipts are retained.' });
+    abort = () => finish({ status: 'cancelled', error: `${options.signal ? interruptionMessage(options.signal) : 'Program interrupted.'} Completed action receipts are retained.` });
     options.signal?.addEventListener('abort', abort, { once: true });
     worker.on('error', e => finish({ status: 'failed', error: String(e.message).slice(0, 1000) }));
     worker.on('exit', code => { if (!closed) finish({ status: 'failed', error: `Program worker exited (${code}).` }); });

@@ -211,6 +211,9 @@ export interface VoiceOption { id: string; name: string; gender?: string }
 
 export interface NoticeBody {
   type: 'notice'; text: string; tone?: 'info' | 'warn' | 'error';
+  /** Terminal runs must not retain an empty pending reply. Retry starts a fresh user request. */
+  terminal?: boolean;
+  retry?: { text: string };
   /** A durable snapshot keeps the affected activity available after transcript paging. */
   recovery?: { jobId: string; activity: Pick<ToolCallBody, 'label' | 'status' | 'summary'>[] };
 }

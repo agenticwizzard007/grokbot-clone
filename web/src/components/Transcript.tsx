@@ -1,3 +1,4 @@
+import { api } from '../lib/api';
 import { LoadFeedback } from './LoadFeedback';
 import { MessageSkeleton } from './ChatSkeleton';
 import { useDisplayText } from '../lib/useDisplayText';
@@ -158,9 +159,27 @@ function Steps({ rows }: { rows: Row[] }) {
 function SystemRow({ row }: { row: Row }) {
   const clean = useDisplayText();
   const b = row.body;
+  const [retrying, setRetrying] = useState(false);
+  const [retried, setRetried] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
+  const submissionId = useRef<string>();
+  const running = useStore(s => s.live[row.botId]?.isRunning);
+  const retry = async () => {
+    if (b.type !== 'notice' || !b.retry || retrying) return;
+    setRetrying(true); setRetryError(null);
+    submissionId.current ??= crypto.randomUUID();
+    try {
+      await api.send(row.botId, b.retry.text, submissionId.current);
+      setRetried(true);
+      await useStore.getState().loadRows(row.botId, { resync: true });
+    } catch (error) { setRetryError((error as Error).message); }
+    finally { setRetrying(false); }
+  };
   if (b.type === 'event') return <div className="system-event" data-row-seq={row.seq}>{clean(b.text)}</div>;
   if (b.type === 'notice') return <div className={`notice is-${b.tone ?? 'info'}`} data-row-seq={row.seq} data-recovery-job={b.recovery?.jobId}>
-    <div>{clean(b.text)}</div>
+    <div>{b.text === 'Stopped.' ? 'This request was interrupted before it finished. Send your request again to retry.' : clean(b.text)}</div>
+    {b.retry && <button type="button" className="btn btn--secondary" disabled={retrying || retried || running} onClick={() => void retry()}>{retrying ? 'Retrying...' : retried ? 'Retried' : 'Retry'}</button>}
+    {retryError && <div role="alert">{retryError}</div>}
     {b.recovery && <details className="recovery-activity">
       <summary>Review activity</summary>
       {b.recovery.activity.length ? <ul>{b.recovery.activity.map((step, index) => <li key={index}>
@@ -220,7 +239,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
     if (firstReply && responseHeight.current) separateReplies.add(firstReply.seq);
     return buildItems(visibleRows, groups, separateReplies);
   }, [visibleRows, groups, firstReply?.seq]);
-  const interruptedTurn = !running && visibleRows.some(row => row.seq > promptSeq && row.body.type === 'notice' && row.body.recovery);
+  const interruptedTurn = !running && visibleRows.some(row => row.seq > promptSeq && row.body.type === 'notice' && (row.body.recovery || row.body.terminal || row.body.tone === 'error' || row.body.text === 'Stopped.'));
   const pendingResponse = loaded && !firstReply && !interruptedTurn;
   const processing = pendingResponse && running && !live?.awaiting && live?.activity?.kind !== 'waiting_for_you' && !streamingNow;
   const empty = loaded && !paging?.error && !paging?.loading && visibleRows.length === 0 && groups.length === 0;

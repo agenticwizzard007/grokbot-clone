@@ -254,7 +254,8 @@ export async function executeComposio(userId: string, name: string, args: Record
   }
   // Development adapter still enforces private account selection and never executes Tool Router meta tools.
   const client = composio(), key = composioIdentity();
-  const accounts = (await connectionsDetail(userId)).filter(c => c.status === 'ACTIVE');
+  const requestOptions = { signal: AbortSignal.timeout(30_000), maxRetries: 0 };
+  const accounts = (await connectionsDetail(userId, requestOptions)).filter(c => c.status === 'ACTIVE');
   assertCurrentKey(key);
   if (name === 'SWARM_APPS_SEARCH') {
     const choices = accounts.filter(c => c.toolkit === args.toolkit && (!args.connectionId || c.id === args.connectionId));
@@ -262,10 +263,10 @@ export async function executeComposio(userId: string, name: string, args: Record
     // Composio's server-side query filter returns alphabetical matches (GitHub alone has 900+ tools), so fetch the
     // toolkit's metadata once and rank locally. Ranking orders provider metadata only; it never grants access.
     const fingerprint = createHash('sha256').update(key).digest('hex').slice(0, 16);
-    const all = await toolkitMetadata.get(`${fingerprint}:${choices[0].toolkit}`, () => client.tools.getRawComposioTools({ toolkits: [choices[0].toolkit], limit: 5000 }));
+    const all = await toolkitMetadata.get(`${fingerprint}:${choices[0].toolkit}`, () => client.tools.getRawComposioTools({ toolkits: [choices[0].toolkit], limit: 5000 }, undefined, requestOptions));
     assertCurrentKey(key);
     const tools = rankAppTools(all, String(args.query ?? ''), { limit: 20, preferReadOnly: options.readOnly === true });
-    const current = (await connectionsDetail(userId)).find(c => c.id === choices[0].id && c.toolkit === choices[0].toolkit && c.status === 'ACTIVE');
+    const current = (await connectionsDetail(userId, requestOptions)).find(c => c.id === choices[0].id && c.toolkit === choices[0].toolkit && c.status === 'ACTIVE');
     assertCurrentKey(key);
     if (!current) throw new Error('Connection not found.');
     return { data: { connectionId: choices[0].id, revision: 1, tools: publicAppTools(tools, choices[0].toolkit) } };
@@ -274,15 +275,16 @@ export async function executeComposio(userId: string, name: string, args: Record
   const slug = String(args.tool_slug ?? '');
   if (!account || !/^[A-Z][A-Z0-9_]{2,199}$/.test(slug) || slug.startsWith('COMPOSIO_') || args.revision !== 1) throw new Error('Connection not found.');
   appArguments(args.arguments);
-  const tool = await client.tools.getRawComposioToolBySlug(slug);
+  const tool = await client.tools.getRawComposioToolBySlug(slug, undefined, requestOptions);
   assertCurrentKey(key);
   if (tool.toolkit?.slug !== account.toolkit || !tool.version || tool.version === 'latest') throw new Error('Invalid tool selection.');
   if (tool.slug !== undefined && tool.slug !== slug) throw new Error('Invalid tool selection.');
   if (options.readOnly && !trustedReadOnly(tool)) throw new Error('Setup requires a provider-verified read-only app tool. Write or unknown tool metadata is refused.');
-  const current = (await connectionsDetail(userId)).find(c => c.id === account.id && c.toolkit === account.toolkit && c.status === 'ACTIVE');
+  const current = (await connectionsDetail(userId, requestOptions)).find(c => c.id === account.id && c.toolkit === account.toolkit && c.status === 'ACTIVE');
   assertCurrentKey(key);
   if (!current) throw new Error('Connection not found.');
-  return client.tools.execute(slug, { userId, connectedAccountId: account.id, version: tool.version, arguments: args.arguments });
+  requestOptions.signal.throwIfAborted();
+  return client.tools.execute(slug, { userId, connectedAccountId: account.id, version: tool.version, arguments: args.arguments }, requestOptions);
 }
 
 /** Which inner tool slugs a Composio meta-tool call would run (for approval checks). */

@@ -53,7 +53,7 @@ function dev(t: any) {
   ] : [], nextCursor: null }));
   t.mock.method(client.tools, 'getRawComposioToolBySlug', async () => { if (fail === 'metadata') throw new Error('Metadata provider failure.'); return tool; });
   t.mock.method(client.tools, 'getRawComposioTools', async () => [tool, rawTool('COMPOSIO_REMOTE_WORKBENCH'), { ...rawTool('GMAIL_GET_EMAIL'), toolkit: { slug: 'gmail' } }]);
-  t.mock.method(client.tools, 'execute', async (...args: any[]) => { calls.push(args); if (fail === 'execute') throw new Error('Provider execution failure.'); return { data: { repo: 'verified' }, successful: true, error: null, logId: 'test-log' }; });
+  t.mock.method(client.tools, 'execute', async (...args: any[]) => { assert.ok(args[2]?.signal instanceof AbortSignal); assert.equal(args[2].maxRetries, 0); calls.push(args.slice(0, 2)); if (fail === 'execute') throw new Error('Provider execution failure.'); return { data: { repo: 'verified' }, successful: true, error: null, logId: 'test-log' }; });
   const args = () => ({ connectionId: 'github-alice', revision: 1, tool_slug: tool.slug, arguments: { owner: 'alice', repo: 'project' } });
   return { client, calls, args, setTool: (value: any) => { tool = value; }, revoke: () => { available = false; }, fail: (value: string) => { fail = value; } };
 }
