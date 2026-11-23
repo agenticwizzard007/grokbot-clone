@@ -3,13 +3,21 @@ import { after, mock, test } from 'node:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { availableSuggestions, createSuggestionRanker, suggestionInput } from '../server/src/app-suggestions.js';
+import { availableSuggestions, createSuggestionRanker, fallbackSuggestions, suggestionInput } from '../server/src/app-suggestions.js';
 import { toolkitLogo } from '../web/src/lib/toolkitLogos.js';
 
 const toolkit = (slug: string, name: string, description: string) => ({ slug, name, description, categories: ['Work'], managedAuth: true, noAuth: false, logo: `https://logos.composio.dev/api/${slug}` });
 const catalogItems = [toolkit('github', 'GitHub', 'Repositories and pull requests'), toolkit('slack', 'Slack', 'Team messages'), toolkit('googlecalendar', 'Google Calendar', 'Events and schedules')];
 const context = { description: 'track GitHub PRs and post to Slack', instructions: 'Summarize review status', purpose: 'Coordinate engineering' };
 const choices = { suggestions: [{ slug: 'github', reason: 'Track GitHub pull requests.' }, { slug: 'slack', reason: 'Post updates to Slack.' }] };
+
+test('R1b: catalog fallback ranks named and semantic matches, filters connections and leaves vague work empty', () => {
+  const fallback = (ctx: typeof context, connected = new Set<string>()) => availableSuggestions({ suggestions: fallbackSuggestions(ctx, catalogItems) }, catalogItems, connected);
+  assert.deepEqual(fallback(context, new Set(['slack'])).map(item => item.slug), ['github']);
+  assert.deepEqual(fallback({ description: 'Manage my calendar', instructions: '', purpose: 'Old GitHub task' }).map(item => item.slug), ['googlecalendar']);
+  assert.deepEqual(fallback({ description: 'Help with things', instructions: '', purpose: '' }), []);
+  assert.deepEqual(fallback({ description: '', instructions: '', purpose: '' }), []);
+});
 
 test('catalog metadata wins over bundled logos and every logo URL is same-origin', () => {
   assert.equal(toolkitLogo(catalogItems[0]), '/api/toolkits/icon/github');
@@ -100,7 +108,7 @@ test('a hung ranking expires and the same context can be retried', async t => {
 });
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-suggestions-'));
-Object.assign(process.env, { SWARM_ROLE: 'standalone', DB_PATH: path.join(root, 'test.db'), FILES_DIR: path.join(root, 'files'), SESSION_SECRET: 'suggestions-fixture', COMPUTER_PROVIDER: 'local', COMPOSIO_API_KEY: 'fixture-project', DIRECT_API_KEY: 'fixture-key', LLM_PROVIDER: 'direct', OPENROUTER_API_KEY: '', INKBOX_TUNNEL: '0' });
+Object.assign(process.env, { DEV_LOGIN: '1', SWARM_ROLE: 'standalone', DB_PATH: path.join(root, 'test.db'), FILES_DIR: path.join(root, 'files'), SESSION_SECRET: 'suggestions-fixture', COMPUTER_PROVIDER: 'local', COMPOSIO_API_KEY: 'fixture-project', DIRECT_API_KEY: 'fixture-key', LLM_PROVIDER: 'direct', OPENROUTER_API_KEY: '', INKBOX_TUNNEL: '0' });
 const iconRequests: string[] = [];
 let items = catalogItems;
 mock.method(globalThis, 'fetch', async (input: any, init: any) => {
@@ -139,8 +147,10 @@ mock.method(composio().connectedAccounts, 'list', async () => ({ items: accounts
 const modelInputs: any[] = [];
 let heldModel: { entered: () => void; wait: Promise<void> } | undefined;
 let malformedModel = false;
+let failingModel = false;
 mock.method(llmClient(30_000).responses, 'create', async (body: any) => {
   modelInputs.push(body);
+  if (failingModel) throw new Error('Fixture provider failed with private credential details');
   if (heldModel) { heldModel.entered(); await heldModel.wait; }
   if (malformedModel) return { output_text: 'not JSON' };
   const input = JSON.parse(body.input[1].content);
@@ -190,15 +200,40 @@ test('logo route is catalog-bound, metadata-first, and returns sandboxed images 
   assert.equal(await toolkitIcon('https://logos.composio.dev/redirect'), null);
 });
 
-test('malformed model output fails closed and a retry can recover without cached errors', async () => {
+test('R1b: malformed model output falls back to the catalog and a retry uses the model again', async () => {
   malformedModel = true;
-  const failed = await suggest({ description: 'A different review purpose' });
-  assert.equal(failed.status, 503);
-  assert.doesNotMatch(await failed.text(), /not JSON/);
+  const failed = await suggest({ description: 'Review GitHub and Slack after malformed output' });
+  assert.equal(failed.status, 200);
+  assert.deepEqual((await failed.json() as any).suggestions.map((item: any) => item.slug), ['github', 'slack']);
   malformedModel = false;
-  const retry = await suggest({ description: 'A different review purpose' });
+  const retry = await suggest({ description: 'Review GitHub and Slack after malformed output' });
   assert.equal(retry.status, 200);
   assert.deepEqual((await retry.json() as any).suggestions.map((item: any) => item.slug), ['github', 'slack']);
+});
+
+test('R1b: provider errors return useful fallback suggestions without provider details', async () => {
+  failingModel = true;
+  try {
+    const response = await suggest({ description: 'Manage calendar events while the model is offline', instructions: '' });
+    assert.equal(response.status, 200);
+    const body = await response.json() as any;
+    assert.deepEqual(body.suggestions.map((item: any) => item.slug), ['googlecalendar']);
+    assert.doesNotMatch(JSON.stringify(body), /private credential/);
+  } finally { failingModel = false; }
+});
+
+test('R1b: a hung model falls back before the route deadline', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  heldModel = { entered: entered.resolve, wait: release.promise };
+  const pending = suggest({ description: 'Manage my calendar with a stalled ranker', instructions: '' });
+  try {
+    await entered.promise;
+    t.mock.timers.tick(6_000);
+    const response = await pending;
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json() as any).suggestions.map((item: any) => item.slug), ['googlecalendar']);
+  } finally { release.resolve(); heldModel = undefined; }
 });
 
 test('a stalled connection lookup times out the whole route and can be retried', async t => {
@@ -217,6 +252,7 @@ test('a stalled connection lookup times out the whole route and can be retried',
     t.mock.timers.tick(10_000);
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(response?.status, 503);
+    assert.equal((await response!.json() as any).code, 'connections_unavailable');
     assert.equal(aborted, true);
     await pending;
   } finally { list.mock.restore(); }
@@ -227,7 +263,13 @@ test('missing catalog configuration is an error, not a successful empty ranking'
   const previous = process.env.COMPOSIO_API_KEY;
   process.env.COMPOSIO_API_KEY = '';
   setEnvOverride('COMPOSIO_API_KEY', '');
-  try { assert.equal((await suggest()).status, 503); }
+  try {
+    const response = await suggest();
+    assert.equal(response.status, 503);
+    const body = await response.json() as any;
+    assert.equal(body.code, 'catalog_not_configured');
+    assert.match(body.error, /server administrator/);
+  }
   finally {
     process.env.COMPOSIO_API_KEY = previous;
     setEnvOverride('COMPOSIO_API_KEY', 'fixture-project');
@@ -254,10 +296,48 @@ test('a stalled catalog request times out without starting a model request', asy
     t.mock.timers.tick(10_000);
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(response?.status, 503);
+    assert.equal((await response!.json() as any).code, 'catalog_unavailable');
     assert.equal(modelInputs.length, before);
     await pending;
   } finally { fetch.mock.restore(); }
   assert.equal((await suggest()).status, 200);
+});
+
+test('R1b: quick connection failures explain the dependency and Retry can recover', async () => {
+  const list = mock.method(composio().connectedAccounts, 'list', async () => { throw new Error('503 private provider details'); });
+  try {
+    const response = await suggest();
+    assert.equal(response.status, 503);
+    const body = await response.json() as any;
+    assert.equal(body.code, 'connections_unavailable');
+    assert.match(body.error, /Connected app status/);
+    assert.doesNotMatch(body.error, /private provider/);
+  } finally { list.mock.restore(); }
+  assert.equal((await suggest()).status, 200);
+});
+
+test('R1b: catalog authorization failures are specific and a genuinely empty catalog is successful', async () => {
+  setEnvOverride('COMPOSIO_API_KEY', 'catalog-auth-fixture');
+  const originalFetch = globalThis.fetch;
+  const fetch = mock.method(globalThis, 'fetch', async (input: any, init: any) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    return url.hostname === 'backend.composio.dev' ? new Response('private provider details', { status: 401 }) : originalFetch(input, init);
+  });
+  try {
+    const response = await suggest();
+    assert.equal(response.status, 503);
+    const body = await response.json() as any;
+    assert.equal(body.code, 'catalog_authorization');
+    assert.match(body.error, /rejected the server credentials/);
+    assert.doesNotMatch(body.error, /private provider/);
+  } finally { fetch.mock.restore(); }
+  items = [];
+  const empty = await suggest();
+  assert.equal(empty.status, 200);
+  assert.deepEqual((await empty.json() as any).suggestions, []);
+  items = catalogItems;
+  setEnvOverride('COMPOSIO_API_KEY', 'catalog-restored-fixture');
+  mock.method(composio().connectedAccounts, 'list', async () => ({ items: [], nextCursor: null }));
 });
 
 test('catalog replacement during generation cannot return an app from the old project', async () => {

@@ -11,8 +11,10 @@ const { db } = await import('../server/src/db.js');
 (await import('../server/src/agent/subagents.js')).initSubagents();
 (await import('../server/src/agent/rooms.js')).initRooms();
 const { createBot } = await import('../server/src/bots.js');
-const { appendHistory, appendRow, getBot, getLive, getRow, listRows, setLive, clearConversation } = await import('../server/src/store.js');
-const { activateSetup, getSetup, repairActiveSetup, DEFAULT_SKIP_BOUNDARIES, DEFAULT_SKIP_WORKFLOW } = await import('../server/src/bot-setup.js');
+const { appendHistory, appendRow, getBot, getLive, getRow, listRows, setLive, clearConversation, loadHistory } = await import('../server/src/store.js');
+const { activateSetup, getSetup, repairActiveSetup, beginSetupInterview, DEFAULT_SKIP_BOUNDARIES, DEFAULT_SKIP_WORKFLOW } = await import('../server/src/bot-setup.js');
+const { hub } = await import('../server/src/lib/hub.js');
+const { isSetupRefusal, messageText } = await import('../server/src/agent/setup-reply.js');
 const { enqueue, settleAgentJobs } = await import('../server/src/agent/loop.js');
 const { llmClient } = await import('../server/src/lib/llm.js');
 const { functionSchemas } = await import('../server/src/agent/tools.js');
@@ -40,12 +42,17 @@ function fixture(owner = 'owner') {
   return { bot, question, confirmedAt };
 }
 const calls: any[] = [];
+let replies: string[] = [];
+let deltas = true;
 mock.method(llmClient(360_000).responses, 'create', async (body: any) => {
   calls.push(body);
   return (async function* () {
-    const text = 'Ready to summarize the supplied notes.';
+    const text = replies.shift() ?? 'Ready to summarize the supplied notes.';
     const item = { type: 'message', role: 'assistant', content: [{ type: 'output_text', text, annotations: [] }] };
-    yield { type: 'response.output_text.delta', delta: text };
+    if (deltas) for (const delta of text.match(/.{1,12}/gs) ?? []) {
+      yield { type: 'response.output_text.delta', delta };
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
     yield { type: 'response.output_item.done', item };
     yield { type: 'response.completed', response: { output: [item] } };
   })();
@@ -114,4 +121,96 @@ test('R1: pending setup stays pending and normal activation retires its question
   activateSetup(bot.id, setup.onboarding.revision);
   assert.equal(status(bot.id, question.seq), 'dismissed');
   assert.equal(getSetup(bot.id)!.onboarding.status, 'active');
+});
+
+for (const streamDeltas of [true, false]) test(`R1b: active history cannot replay the interview refusal, deltas=${streamDeltas}`, async () => {
+  const { bot } = fixture();
+  const before = listRows(bot.id).length;
+  const beforeHistory = loadHistory(bot.id);
+  const events: any[] = [];
+  const unsubscribe = hub.subscribe('owner', event => events.push(structuredClone(event)));
+  const start = calls.length;
+  replies = ["First, a quick note. I'm still being set up. Tap Skip setup to start working now, or answer: Which workflow?", 'Hi there, ready to help.'];
+  deltas = streamDeltas;
+  try {
+    enqueue(bot.id, { type: 'user', text: 'Say hi in five words' });
+    await settleAgentJobs();
+  } finally { unsubscribe(); deltas = true; replies = []; }
+  assert.equal(calls.length - start, 2, 'discarded refusal triggers an operational retry');
+  for (const call of calls.slice(start)) {
+    assert.doesNotMatch(call.input[0].content, /You are the setup consultant/);
+    assert.ok(!call.input.some((item: any) => item.role === 'assistant' && isSetupRefusal(messageText(item))));
+  }
+  const newMessages = listRows(bot.id).slice(before).filter(row => row.body.type === 'message' && row.body.role === 'assistant');
+  assert.equal(newMessages.length, 1);
+  assert.equal((newMessages[0].body as any).text, 'Hi there, ready to help.');
+  assert.ok(!isSetupRefusal(JSON.stringify(events)), 'no refusal was streamed through SSE');
+  assert.deepEqual(loadHistory(bot.id).slice(0, beforeHistory.length), beforeHistory, 'stored history is preserved');
+  assert.ok(!loadHistory(bot.id).slice(beforeHistory.length).some(item => isSetupRefusal(messageText(item))));
+});
+
+test('R1b: repeated model refusals stop at a bounded retry without saving them', async () => {
+  const { bot } = fixture();
+  const start = calls.length;
+  replies = Array(3).fill("I'm still being set up. Tap Skip setup to start working now.");
+  enqueue(bot.id, { type: 'user', text: 'Write a story about a river' });
+  await settleAgentJobs();
+  assert.equal(calls.length - start, 3);
+  assert.equal(listRows(bot.id).filter(row => row.body.type === 'message' && isSetupRefusal(row.body.text)).length, 1, 'only the original fixture refusal remains');
+  assert.ok(listRows(bot.id).some(row => row.body.type === 'notice' && row.body.text.includes('Please retry your request')));
+});
+
+for (const stage of ['interviewing', 'review']) test(`R1b: confirmed ${stage} status repairs consistently without inventing approval`, async () => {
+  const { bot, question } = fixture();
+  db.prepare('UPDATE bot_setups SET onboarding_status=? WHERE bot_id=?').run(stage, bot.id);
+  const roster = await (await request('/bots')).json() as any;
+  assert.deepEqual(roster.bots.find((item: any) => item.id === bot.id).onboarding, { status: 'active', revision: 33 });
+  const setup = await (await request(`/bots/${bot.id}/setup`)).json() as any;
+  assert.equal(setup.onboarding.status, 'active');
+  assert.equal(setup.onboarding.revision, 33);
+  assert.equal(status(bot.id, question.seq), 'dismissed');
+  assert.equal(getSetup(bot.id)!.onboarding.revision, 33, 'repair is idempotent');
+  beginSetupInterview(bot.id);
+  assert.equal(getSetup(bot.id)!.onboarding.status, 'interviewing', 'explicit restart clears activation evidence');
+});
+
+test('R1b: an already-dismissed interview card can leave a setup-only wait behind', () => {
+  const { bot, question, confirmedAt } = fixture();
+  repairActiveSetup(bot.id);
+  setLive(bot.id, { awaiting: { reason: 'Setup question', since: confirmedAt - 1000 }, activity: { kind: 'waiting_for_you', since: confirmedAt - 1000 } });
+  repairActiveSetup(bot.id);
+  assert.equal(status(bot.id, question.seq), 'dismissed');
+  assert.equal(getLive(bot.id).awaiting, null);
+  assert.equal(getLive(bot.id).activity, null);
+});
+
+test('R1b: explicit orphaned setup waits repair, but unknown waits and unconfirmed cards are preserved', () => {
+  const bot = createBot('owner', { name: 'Orphaned setup Bot' });
+  const confirmedAt = Date.now();
+  db.prepare("UPDATE bot_setups SET onboarding_status='active', confirmed_at=? WHERE bot_id=?").run(confirmedAt, bot.id);
+  setLive(bot.id, { awaiting: { reason: 'Setup interview', since: confirmedAt - 1000 }, activity: { kind: 'waiting_for_you', since: confirmedAt - 1000 } });
+  repairActiveSetup(bot.id);
+  assert.equal(getLive(bot.id).awaiting, null);
+  setLive(bot.id, { awaiting: { reason: 'An operational decision', since: confirmedAt - 1000 } });
+  repairActiveSetup(bot.id);
+  assert.ok(getLive(bot.id).awaiting);
+  const unconfirmed = fixture();
+  db.prepare('UPDATE bot_setups SET confirmed_at=NULL WHERE bot_id=?').run(unconfirmed.bot.id);
+  repairActiveSetup(unconfirmed.bot.id);
+  assert.equal(status(unconfirmed.bot.id, unconfirmed.question.seq), 'pending', 'no timestamp means no safe card cutoff');
+});
+
+for (const stage of ['interviewing', 'review']) test(`R1b: unconfirmed ${stage} stays in setup until the real Skip endpoint activates it`, async () => {
+  const bot = createBot('owner', { name: 'Configuring Bot' });
+  const s = getSetup(bot.id)!;
+  db.prepare('UPDATE bot_setups SET onboarding_status=?, brief=? WHERE bot_id=?').run(stage, JSON.stringify({ ...s.brief, workflows: [DEFAULT_SKIP_WORKFLOW], action_boundaries: DEFAULT_SKIP_BOUNDARIES, open_questions: [] }), bot.id);
+  assert.equal(getBot(bot.id)!.onboarding!.status, stage, 'complete brief alone is not activation');
+  assert.equal(getSetup(bot.id)!.onboarding.status, stage);
+  const skipped = await app.request(`/api/bots/${bot.id}/setup/skip`, { method: 'POST', headers: { cookie: 'swarm_session=owner' } });
+  assert.equal(skipped.status, 200);
+  assert.equal((await skipped.json() as any).bot.onboarding.status, 'active');
+  enqueue(bot.id, { type: 'user', text: 'Summarize these notes: the release is ready.' });
+  await settleAgentJobs();
+  assert.doesNotMatch(calls.at(-1).input[0].content, /You are the setup consultant/);
+  assert.equal((listRows(bot.id).at(-1)!.body as any).text, 'Ready to summarize the supplied notes.');
 });

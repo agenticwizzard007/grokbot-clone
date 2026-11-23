@@ -24,7 +24,7 @@ try {
     const page = await browser.newPage({ viewport: { width, height: 800 }, colorScheme: theme });
     page.setDefaultTimeout(8000);
     const errors = [], requests = [], connects = [], iconPaths = [];
-    let connected = false, held, recoverHang = false, holdSkip = false, heldSkip;
+    let connected = false, held, recoverHang = false, holdSkip = false, heldSkip, catalogRecovered = false;
     page.on('pageerror', error => errors.push(error.message));
     await page.addInitScript(() => {
       window.violations = [];
@@ -69,6 +69,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       }
       if (url.pathname.endsWith('/suggested-apps')) {
         const body = request.postDataJSON(); requests.push(body);
+        if (body.description === 'catalog failure' && !catalogRecovered) return route.fulfill({ status: 503, json: { code: 'catalog_authorization', error: 'The app catalog service rejected the server credentials. The server administrator needs to check them.' } });
         if (body.description === 'slow request') { held = route; return; }
         if (body.description === 'never resolves' && !recoverHang) { held = route; return; }
         if (body.description === 'no matching tools' || !body.description.trim()) return route.fulfill({ json: { suggestions: [] } });
@@ -98,6 +99,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     const geometry = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
     assert.ok(geometry.scroll <= geometry.width, JSON.stringify(geometry));
     await page.screenshot({ path: `.context/suggestions/chips-${width}-${theme}.png` });
+    await page.getByLabel('About', { exact: true }).fill('catalog failure');
+    await page.getByText('The app catalog service rejected the server credentials. The server administrator needs to check them.', { exact: false }).waitFor();
+    assert.equal(await page.getByText('Suggestions are unavailable right now.', { exact: false }).count(), 0);
+    await page.screenshot({ path: `.context/suggestions/catalog-error-${width}-${theme}.png` });
+    catalogRecovered = true;
+    await page.getByRole('button', { name: 'Retry', exact: true }).click();
+    await page.getByRole('button', { name: 'Connect GitHub', exact: true }).waitFor();
     // QA SO L-05: empty suggestions must point to a real settings section.
     await page.getByLabel('About', { exact: true }).fill('');
     const emptyNote = page.getByRole('region', { name: 'Suggested integrations' }).locator('.suggested-integrations__note');

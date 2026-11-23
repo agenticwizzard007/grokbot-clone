@@ -4,13 +4,13 @@ import { api } from '../lib/api';
 import { queueImportedSetup } from '../lib/setupApi';
 import { toast } from '../lib/toast';
 import { useStore } from '../store';
+import { isInSetup } from '../lib/botSetupState';
 import './setup-banner.css';
 
 /** Configuring Bots get a visible way to finish or skip setup (MF-010, PD-02). */
 type SetupAware = Pick<Bot, 'kind'> & { onboarding?: { status: string } | null };
 export function needsSetupBanner(bot: SetupAware): boolean {
-  // Bot payloads without onboarding come from older servers; treat them as active.
-  return bot.kind !== 'room' && !!bot.onboarding && bot.onboarding.status !== 'active';
+  return isInSetup(bot);
 }
 
 /** Open Details on the Setup tab, even if Details is already open on another tab. */
