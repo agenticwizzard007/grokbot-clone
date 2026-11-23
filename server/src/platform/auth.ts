@@ -1,3 +1,4 @@
+import { authBoundary, authFailure, authStage } from '../auth/events.js';
 import { Hono, type Context } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
@@ -52,30 +53,36 @@ export function platformAuth(directory: Directory, envelopes: TenantEnvelopes, r
   });
 
   for(const provider of ['google','openrouter','apple'] as const){
-    app.get(`/${provider}/start`,async c=>{
+    app.get(`/${provider}/start`,authBoundary(provider,'platform',async c=>{
+      authStage(c,'attempt');
       const s=await session(c),link=c.req.query('intent')==='link';
-      if(link&&!recent(s))return c.json({error:'Sign in again to link this identity.'},401);
+      if(link&&!recent(s)){authFailure(c,'reauth_required');return c.json({error:'Sign in again to link this identity.'},401);}
       const nativeId=getCookie(c,'swarm_native_attempt');
       const native=nativeId?(await directory.pool.query("SELECT link_session FROM auth_attempts WHERE hash=$1 AND provider='native' AND expires_at>now()",[hashToken(nativeId)])).rows[0]:null;
       const browser=opaqueToken(),nonce=opaqueToken(),verifier=opaqueToken();
       const id=await attempt(provider,browser,{nonce,verifier,native:native?nativeId:undefined,nativeLink:!!native?.link_session},native?.link_session??(link?s.hash:undefined));
       setCookie(c,`swarm_${provider}_attempt`,browser,{secure:true,httpOnly:true,path:`/api/auth/${provider}`,sameSite:provider==='apple'?'None':'Lax',maxAge:600});
       const callback=new URL(`/api/auth/${provider}/callback`,origin).href;
+      authStage(c,'provider');
       if(provider==='google')return c.redirect(googleAuthorization(callback,id,nonce,verifier));
       const url=new URL(provider==='apple'?'https://appleid.apple.com/auth/authorize':'https://openrouter.ai/auth');
       url.search=new URLSearchParams(provider==='apple'?{client_id:appleConfiguration().clients.web,redirect_uri:callback,response_type:'code',response_mode:'form_post',scope:'name email',state:id,nonce}:{callback_url:callback,state:id,code_challenge:challengeFor(verifier),code_challenge_method:'S256',key_label:'Swarm'}).toString();
       return c.redirect(url.href);
-    });
-    app.on(provider==='apple'?'POST':'GET',`/${provider}/callback`,async c=>{
+    },c=>c.redirect(`${origin}/?login=${provider}_invalid`,303)));
+    app.on(provider==='apple'?'POST':'GET',`/${provider}/callback`,authBoundary(provider,'platform',async c=>{
       try{
         const data=provider==='apple'?await c.req.parseBody():c.req.query();
-        if(typeof data.state!=='string'||typeof data.code!=='string'||data.error)throw new Error('Authorization failed.');
+        if(data.error){authFailure(c,`${provider}_denied`);throw new Error('Authorization failed.');}
+        if(typeof data.state!=='string'||typeof data.code!=='string')throw new Error('Authorization failed.');
+        authStage(c,'attempt');
         const a=await consume(data.state,provider,getCookie(c,`swarm_${provider}_attempt`)??'');
         deleteCookie(c,`swarm_${provider}_attempt`,{path:`/api/auth/${provider}`});
         if(a.link_session&&!a.data.nativeLink&&hashToken(getCookie(c,'swarm_session')??'')!==a.link_session)throw new Error('Link session changed.');
         const callback=new URL(`/api/auth/${provider}/callback`,origin).href;
-        const identity=provider==='google'?await exchangeGoogleCode(data.code,a.data.verifier,a.data.nonce,callback):provider==='apple'?await exchangeAppleCode(data.code,appleConfiguration().clients.web,a.data.nonce,true):await exchangeOpenRouterCode(data.code,a.data.verifier);
+        const identity=provider==='google'?await exchangeGoogleCode(data.code,a.data.verifier,a.data.nonce,callback,stage=>authStage(c,stage)):provider==='apple'?await exchangeAppleCode(data.code,appleConfiguration().clients.web,a.data.nonce,true,stage=>authStage(c,stage)):await exchangeOpenRouterCode(data.code,a.data.verifier,stage=>authStage(c,stage));
+        authStage(c,'account');
         const tenant=await directory.identity(provider,identity.subject,{name:'name' in identity?identity.name??'Swarm member':'Swarm member',email:'email' in identity?identity.email??undefined:undefined},a.link_session??undefined);
+        authStage(c,'delivery');
         await envelopes.create(tenant);
         if('key' in identity)await envelopes.event(tenant,`openrouter-${opaqueToken()}`,{type:'provider-key',provider:'openrouter',key:identity.key},a.link_session??undefined);
         if('refreshToken' in identity)await envelopes.event(tenant,`apple-${opaqueToken()}`,{type:'apple-revocation',clientId:appleConfiguration().clients.web,refreshToken:identity.refreshToken},a.link_session??undefined);
@@ -86,9 +93,10 @@ export function platformAuth(directory: Directory, envelopes: TenantEnvelopes, r
           const native=(await directory.pool.query('SELECT payload FROM auth_attempts WHERE hash=$1',[hashToken(a.data.native)])).rows[0];
           const callback=new URL('so.swarms.app://auth');callback.searchParams.set('code',code);callback.searchParams.set('state',open(native.payload.encrypted).state);return c.redirect(callback.href,303);
         }
+        authStage(c,'session');
         await login(c,tenant,a.link_session??undefined);return c.redirect(origin,303);
-      }catch{return c.redirect(`${origin}/?login=${provider}_invalid`,303);}
-    });
+      }catch(error){authFailure(c,error);return c.redirect(`${origin}/?login=${provider}_invalid`,303);}
+    },c=>c.redirect(`${origin}/?login=${provider}_invalid`,303)));
   }
   app.get('/native/start',async c=>{
     const ticket=c.req.query('ticket');
@@ -127,16 +135,20 @@ export function platformAuth(directory: Directory, envelopes: TenantEnvelopes, r
     const nonce=opaqueToken(),id=await attempt('apple-native',b.challenge,{nonce,client:b.client},b.intent==='link'?s.hash:undefined);
     return c.json({attempt:id,nonce});
   });
-  app.post('/apple/native/complete',async c=>{
+  app.post('/apple/native/complete',authBoundary('apple','platform',async c=>{
     try{
       const b=await c.req.json();if(!proof(b.attempt)||!proof(b.verifier)||typeof b.code!=='string'||b.code.length>4096)throw new Error();
+      authStage(c,'attempt');
       const a=await consume(b.attempt,'apple-native',challengeFor(b.verifier));
-      if(a.link_session&&hashToken(getCookie(c,'swarm_session')??'')!==a.link_session)throw new Error();
-      const client=appleConfiguration().clients[a.data.client as AppleClient],identity=await exchangeAppleCode(b.code,client,a.data.nonce,false);
+      if(a.link_session&&hashToken(getCookie(c,'swarm_session')??'')!==a.link_session)throw new Error('Link session changed.');
+      const client=appleConfiguration().clients[a.data.client as AppleClient],identity=await exchangeAppleCode(b.code,client,a.data.nonce,false,stage=>authStage(c,stage));
+      authStage(c,'account');
       const tenant=await directory.identity('apple',identity.subject,{name:typeof b.name==='string'?b.name.slice(0,80):'Swarm member',email:identity.email??undefined},a.link_session??undefined);
+      authStage(c,'delivery');
       await envelopes.create(tenant);await envelopes.event(tenant,`apple-${opaqueToken()}`,{type:'apple-revocation',clientId:client,refreshToken:identity.refreshToken},a.link_session??undefined);
+      authStage(c,'session');
       await login(c,tenant,a.link_session??undefined);return c.json({ok:true,linked:!!a.link_session});
-    }catch{return c.json({error:'apple_invalid'},401);}
-  });
+    }catch(error){authFailure(c,error);return c.json({error:'apple_invalid'},401);}
+  },c=>c.json({error:'apple_invalid'},401)));
   return app;
 }

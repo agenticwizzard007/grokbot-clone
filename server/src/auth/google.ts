@@ -1,3 +1,4 @@
+import { authBoundary, authFailure, authStage } from './events.js';
 import { legacyWritableRows } from '../platform/legacy-database-fence.js';
 import { Hono, type Context } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
@@ -26,7 +27,7 @@ const writeAttempts = (c: Context, ids: string[]) => {
 };
 const signedIn = () => `${env.appUrl}/?signed_in=1`;
 const callback = () => `${env.serverUrl.replace(/\/$/, '')}/api/auth/google/callback`;
-const fail = (c: Context, code: string) => c.redirect(finishNativeLogin(c, undefined, code) ?? `${env.appUrl}/?login=${code}`);
+const fail = (c: Context, code: string) => { authFailure(c, code); return c.redirect(finishNativeLogin(c, undefined, code) ?? `${env.appUrl}/?login=${code}`); };
 db.exec(`CREATE TABLE IF NOT EXISTS google_identities(subject TEXT PRIMARY KEY,user_id TEXT UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE);
  CREATE TABLE IF NOT EXISTS google_oidc_attempts(id TEXT PRIMARY KEY,nonce TEXT NOT NULL,verifier TEXT NOT NULL,
  link_user_id TEXT REFERENCES users(id) ON DELETE CASCADE,link_session TEXT REFERENCES auth_sessions(token) ON DELETE CASCADE,expires_at INTEGER NOT NULL);`);
@@ -154,8 +155,9 @@ if (!isTenant) {
   setInterval(() => { void sweepGoogleLoginAuthorizations().catch(() => {}); }, 5 * 60_000).unref();
 }
 export const googleAuth = new Hono();
-googleAuth.get('/start', async c => {
+googleAuth.get('/start', authBoundary('google', 'legacy', async c => {
   const linking = c.req.query('intent') === 'link';
+  authStage(c, 'attempt');
   const user = userFromCookieHeader(c.req.header('cookie'));
   if (linking && (!user || !recentlyAuthenticated(c))) return fail(c, 'google_link_required');
   db.prepare(`DELETE FROM google_oidc_attempts WHERE expires_at<=? AND nonce NOT IN ('${CLEANUP_NONCE}','${CLEANING_NONCE}') AND ${legacyWritableRows(db, 'google_oidc_attempts')}`).run(now());
@@ -170,7 +172,9 @@ googleAuth.get('/start', async c => {
     // Recorded before any authorization exists, so a crash or failure after creation is still cleaned up.
     db.prepare('INSERT INTO google_oidc_attempts VALUES (?,?,?,?,?,?)').run(cleanupId(id), CLEANUP_NONCE, sealSecret(JSON.stringify({ provisional, pending: true, created })), null, null, now() + COMPOSIO_TTL + 60_000);
     try {
+      authStage(c, 'provider');
       const { redirectUrl, connectedAccountId } = await startGoogleLogin(provisional, `${callback()}?state=${id}`);
+      authStage(c, 'attempt');
       db.prepare('UPDATE google_oidc_attempts SET verifier=? WHERE id=? AND nonce IN (?,?)').run(sealSecret(JSON.stringify({ provisional, account: connectedAccountId, created })), cleanupId(id), CLEANUP_NONCE, CLEANING_NONCE);
       db.transaction(() => {
         // A slow authorize response must not reopen an attempt already claimed by cleanup.
@@ -180,25 +184,32 @@ googleAuth.get('/start', async c => {
       }).immediate();
       writeAttempts(c, [...earlier, id]);
       return c.redirect(redirectUrl);
-    } catch {
+    } catch (error) {
+      authFailure(c, error);
       db.prepare('UPDATE google_oidc_attempts SET verifier=? WHERE id=? AND nonce IN (?,?)').run(sealSecret(JSON.stringify({ provisional, created })), cleanupId(id), CLEANUP_NONCE, CLEANING_NONCE);
       await releaseProvisional(cleanupId(id), provisional).catch(() => {});
       return fail(c, 'google_unavailable');
     }
   }
   try {
+    authStage(c, 'provider');
     const url = googleAuthorization(callback(), id, nonce, verifier);
+    authStage(c, 'attempt');
     db.prepare('INSERT INTO google_oidc_attempts VALUES (?,?,?,?,?,?)').run(id, nonce, sealSecret(verifier), linking ? user!.id : null, linking ? sessionHash(getCookie(c, 'swarm_session')!) : null, now() + TTL);
     writeAttempts(c, [...earlier, id]);
     return c.redirect(url);
-  } catch { return fail(c, 'google_unavailable'); }
-});
-googleAuth.get('/callback', async c => {
+  } catch (error) {
+    authFailure(c, error);
+    return fail(c, 'google_unavailable');
+  }
+}, c => fail(c, 'google_invalid')));
+googleAuth.get('/callback', authBoundary('google', 'legacy', async c => {
   const id = c.req.query('state');
   const held = attemptIds(c);
-  if (!id || !held.includes(id)) return fail(c, 'google_session');
+  if (!id || !held.includes(id)) { authFailure(c, 'Invalid attempt.'); return fail(c, 'google_session'); }
   // Consume only this attempt; any other attempt from this browser stays usable.
   writeAttempts(c, held.filter(v => v !== id));
+  authStage(c, 'attempt');
   const a = db.prepare('DELETE FROM google_oidc_attempts WHERE id=? AND nonce NOT IN (?,?) AND expires_at>? RETURNING *').get(id, CLEANUP_NONCE, CLEANING_NONCE, now()) as Attempt | undefined;
   if (!a) return fail(c, 'google_session');
   if (a.nonce === COMPOSIO_NONCE) {
@@ -212,10 +223,14 @@ googleAuth.get('/callback', async c => {
     if (returned && returned !== sealed.account) return finishWith('google_session');
     let userId: string;
     try {
+      authStage(c, 'provider');
       const identity = await googleIdentityFor(sealed.account, sealed.provisional);
+      authStage(c, 'account');
       userId = await resolveComposioGoogle(identity, sealed.provisional, a.id, a.link_user_id ? { userId: a.link_user_id, sessionHash: a.link_session! } : undefined);
+      authStage(c, 'session');
       createSession(c, userId);
     } catch (error) {
+      authFailure(c, error);
       if (error instanceof GoogleLoginError) return finishWith(error.code);
       if (error instanceof Error && error.message === 'google_session') return finishWith('google_session');
       const code = error instanceof Error && ['google_link_required', 'google_already_linked', 'email_link_required'].includes(error.message) ? (error.message === 'google_already_linked' ? 'google_already_linked' : 'google_link_required') : 'google_invalid';
@@ -227,15 +242,21 @@ googleAuth.get('/callback', async c => {
   }
   if (c.req.query('error')) return fail(c, 'google_denied');
   if (a.link_user_id && sessionHash(getCookie(c, 'swarm_session') ?? '') !== a.link_session) return fail(c, 'google_link_required');
+  authStage(c, 'request');
+  if (!c.req.query('code') || c.req.query('code')!.length > 4096) return fail(c, 'google_invalid');
+  authStage(c, 'attempt');
   try {
     const verifier = unsealSecret(a.verifier);
     if (!verifier) throw new Error('google_invalid');
-    const identity = await exchangeGoogleCode(c.req.query('code') ?? '', verifier, a.nonce, callback());
+    const identity = await exchangeGoogleCode(c.req.query('code') ?? '', verifier, a.nonce, callback(), stage => authStage(c, stage));
+    authStage(c, 'account');
     const userId = resolveGoogleAccount(identity, a.link_user_id ? { userId: a.link_user_id, sessionHash: a.link_session! } : undefined);
+    authStage(c, 'session');
     createSession(c, userId);
     return c.redirect(finishNativeLogin(c, userId) ?? signedIn());
   } catch (error) {
+    authFailure(c, error);
     const code = error instanceof Error && ['google_link_required', 'google_already_linked', 'email_link_required'].includes(error.message) ? 'google_link_required' : 'google_invalid';
     return fail(c, code);
   }
-});
+}, c => fail(c, 'google_invalid')));
