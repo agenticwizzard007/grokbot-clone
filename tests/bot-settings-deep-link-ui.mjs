@@ -75,7 +75,7 @@ try {
   const other = (await api('/bots', 'POST', { name: 'Target Bot' })).bot;
   browser = await chromium.launch({ executablePath: process.env.CHROME_BIN || process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
 
-  for (const width of [1280, 1024, 768, 390]) {
+  for (const width of [1440, 1280, 1024, 768, 390]) {
     const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion: 'reduce', serviceWorkers: 'block' });
     await context.addCookies([{ name: 'swarm_session', value: cookie.slice(cookie.indexOf('=') + 1), url: origin }]);
     await context.addInitScript(botId => {
@@ -285,7 +285,16 @@ try {
         await page.waitForFunction(() => location.hash === '');
       }
 
-      // Links can arrive while the initial Bot list is still loading behind Settings.
+      // Keep the held HTTP response as the only source of the initial roster.
+      await page.addInitScript(() => {
+        window.EventSource = class {
+          constructor() { setTimeout(() => this.onopen?.(), 0); }
+          close() {}
+        };
+      });
+      // Ordinary routes show the roster gate; scoped work routes retain their shell.
+      // Settings intent and a later Bot link must survive either loading surface.
+      for (const entry of ['', `#bot/${encodeURIComponent(bot.id)}/tasks`])
       for (const [target, link] of [[bot, rawLink(bot, 'skills')], [other, canonicalLink]]) for (const reopenSettings of [false, true]) {
         const releaseBots = Promise.withResolvers();
         await page.route('**/api/bots', async route => {
@@ -294,27 +303,39 @@ try {
         });
         try {
           const botsRequested = page.waitForRequest(request => new URL(request.url()).pathname === '/api/bots');
-          await page.goto(`${origin}/?delayed-bots=${reopenSettings}`);
-          await page.locator('.app').waitFor();
+          await page.goto(`${origin}/?delayed-bots=${reopenSettings}${entry}`);
           await botsRequested;
-          await openApp();
+          const loading = page.locator(entry ? '.tasks-view' : '.boot--data');
+          await loading.getByText('Loading Bots...', { exact: true }).waitFor();
+          const pendingApp = async () => {
+            await page.keyboard.press('Control+,');
+            await page.waitForFunction(async () => {
+              const ui = (await import('/src/configStore.ts')).useConfigUI.getState();
+              return ui.appSettings === 'general' && ui.botSettings === null && location.hash === '#settings/general';
+            });
+            await botSettings.waitFor({ state: 'detached' });
+            if (entry) await appDestination();
+            else await loading.waitFor({ state: 'visible' });
+          };
+          await pendingApp();
           await hashLink(link);
           assert.equal(await page.evaluate(async () => (await import('/src/store.ts')).useStore.getState().bots.length), 0);
           // A newer explicit Settings action cancels the pending navigation.
-          if (reopenSettings) await openApp();
+          if (reopenSettings) await pendingApp();
           releaseBots.resolve();
           await page.waitForFunction(async id => (await import('/src/store.ts')).useStore.getState().bots.some(bot => bot.id === id), target.id);
           if (reopenSettings) {
             assert.equal(await page.evaluate(async () => (await import('/src/configStore.ts')).useConfigUI.getState().appSettings), 'general');
             assert.equal(await page.evaluate(async () => (await import('/src/configStore.ts')).useConfigUI.getState().botSettings), null, 'A canceled link does not open a hidden Bot page');
-            await appSettings.waitFor({ state: 'visible' });
+            await appDestination();
           } else {
             await destination(target, 'skills');
-            await page.screenshot({ path: path.join(evidence, `${width}-delayed.png`) });
+            await page.screenshot({ path: path.join(evidence, `${width}-delayed-${entry ? 'work' : 'boot'}-${target.id}.png`) });
           }
         } finally {
           releaseBots.resolve();
-          await page.unroute('**/api/bots');
+          // Wait for released handlers before Playwright can fall back or close the page.
+          await page.unrouteAll({ behavior: 'wait' });
         }
         if (!reopenSettings) { await page.reload(); await destination(target, 'skills'); }
       }
