@@ -1,3 +1,4 @@
+import { authBoundary, authFailure, authStage } from './events.js';
 import { legacyWritableRows } from '../platform/legacy-database-fence.js';
 import crypto from 'node:crypto';
 import { Hono, type Context } from 'hono';
@@ -28,6 +29,7 @@ CREATE INDEX IF NOT EXISTS apple_login_expiry ON apple_login_attempts(expires_at
 type Attempt = { id: string; client: AppleClient; client_id: string; nonce: string; challenge: string | null; link_user_id: string | null; link_session: string | null; expires_at: number };
 
 function start(c: Context, client: AppleClient, challenge: string | null, linking: boolean) {
+  authStage(c, 'attempt');
   if (!appleAvailability()[client]) throw new AppleError('apple_unavailable');
   const user = userFromCookieHeader(c.req.header('cookie'));
   if (linking && (!user || !recentlyAuthenticated(c))) throw new AppleError('apple_link_signin');
@@ -64,14 +66,14 @@ export function resolveAppleAccount(identity: { subject: string; email: string |
 }
 
 const errorCode = (error: unknown) => error instanceof AppleError ? error.code : 'apple_invalid';
-const failure = (c: Context, code: string) => c.redirect(`${env.appUrl}/?login=${encodeURIComponent(code)}`, 303);
+const failure = (c: Context, code: string) => { authFailure(c, code); return c.redirect(`${env.appUrl}/?login=${encodeURIComponent(code)}`, 303); };
 const consume = (id: string) => db.prepare('DELETE FROM apple_login_attempts WHERE id=? AND expires_at>? RETURNING *').get(id, now()) as Attempt | undefined;
 
 export const appleAuth = new Hono();
 appleAuth.use('*', bodyLimit({ maxSize: 16 * 1024 }));
 appleAuth.use('*', async (c, next) => { c.header('Cache-Control', 'no-store'); c.header('Referrer-Policy', 'no-referrer'); await next(); });
 
-appleAuth.get('/start', (c) => {
+appleAuth.get('/start', authBoundary('apple', 'legacy', (c) => {
   try {
     const attempt = start(c, 'web', null, c.req.query('intent') === 'link');
     // Apple returns a cross-site POST; Lax cookies would not bind that callback to its browser.
@@ -79,52 +81,71 @@ appleAuth.get('/start', (c) => {
     const url = new URL('https://appleid.apple.com/auth/authorize');
     url.search = new URLSearchParams({ client_id: attempt.client_id, redirect_uri: appleConfiguration().redirectURI, response_type: 'code', response_mode: 'form_post', scope: 'name email', state: attempt.id, nonce: attempt.nonce }).toString();
     return c.redirect(url.href);
-  } catch (error) { return failure(c, errorCode(error)); }
-});
+  } catch (error) {
+    authFailure(c, error);
+    return failure(c, errorCode(error));
+  }
+}, c => failure(c, 'apple_invalid')));
 
-appleAuth.post('/callback', async (c) => {
+appleAuth.post('/callback', authBoundary('apple', 'legacy', async (c) => {
   const form = await c.req.parseBody();
   const state = form.state;
-  if (!validToken(state) || getCookie(c, COOKIE) !== state) return failure(c, 'apple_session');
+  if (!validToken(state) || getCookie(c, COOKIE) !== state) { authFailure(c, 'Invalid attempt.'); return failure(c, 'apple_session'); }
   deleteCookie(c, COOKIE, { path: '/api/auth/apple', secure: true, sameSite: 'None' });
+  authStage(c, 'attempt');
   const attempt = consume(state);
   if (!attempt || attempt.client !== 'web') return failure(c, 'apple_session');
   if (form.error) return failure(c, 'apple_denied');
+  authStage(c, 'request');
   if (typeof form.code !== 'string' || !form.code || form.code.length > 4096) return failure(c, 'apple_invalid');
   try {
-    const identity = await exchangeAppleCode(form.code, attempt.client_id, attempt.nonce, true);
+    const identity = await exchangeAppleCode(form.code, attempt.client_id, attempt.nonce, true, stage => authStage(c, stage));
     let name: string | undefined;
     // Apple sends the user's name only on first authorization. It is display text, never identity evidence.
     try {
       const user = typeof form.user === 'string' ? JSON.parse(form.user) : null;
       name = [user?.name?.firstName, user?.name?.lastName].filter(v => typeof v === 'string').join(' ').slice(0, 80);
     } catch { /* An absent display name does not prevent authentication. */ }
+    authStage(c, 'account');
     const id = resolveAppleAccount(identity, attempt, name);
+    authStage(c, 'session');
     createSession(c, id);
     return c.redirect(`${env.appUrl}/${attempt.link_user_id ? '#settings/account' : '?signed_in=1'}`, 303);
-  } catch (error) { return failure(c, errorCode(error)); }
-});
+  } catch (error) {
+    authFailure(c, error);
+    return failure(c, errorCode(error));
+  }
+}, c => failure(c, 'apple_invalid')));
 
-appleAuth.post('/native/start', async (c) => {
+appleAuth.post('/native/start', authBoundary('apple', 'legacy', async (c) => {
   const body = await c.req.json().catch(() => null);
-  if (!body || !['ios', 'macos'].includes(body.client) || !validToken(body.challenge)) return c.json({ error: 'apple_invalid' }, 400);
+  if (!body || !['ios', 'macos'].includes(body.client) || !validToken(body.challenge)) { authFailure(c, 'apple_invalid'); return c.json({ error: 'apple_invalid' }, 400); }
   try {
     const attempt = start(c, body.client, body.challenge, body.intent === 'link');
     return c.json({ attempt: attempt.id, nonce: attempt.nonce });
-  } catch (error) { return c.json({ error: errorCode(error) }, 400); }
-});
+  } catch (error) {
+    authFailure(c, error);
+    return c.json({ error: errorCode(error) }, 400);
+  }
+}, c => c.json({ error: 'apple_invalid' }, 401)));
 
-appleAuth.post('/native/complete', async (c) => {
+appleAuth.post('/native/complete', authBoundary('apple', 'legacy', async (c) => {
   const body = await c.req.json().catch(() => null);
-  if (!body || !validToken(body.attempt) || !validToken(body.verifier) || typeof body.code !== 'string' || !body.code || body.code.length > 4096 || (body.name !== undefined && typeof body.name !== 'string')) return c.json({ error: 'apple_invalid' }, 400);
+  if (!body || !validToken(body.attempt) || !validToken(body.verifier) || typeof body.code !== 'string' || !body.code || body.code.length > 4096 || (body.name !== undefined && typeof body.name !== 'string')) { authFailure(c, 'apple_invalid'); return c.json({ error: 'apple_invalid' }, 400); }
+  authStage(c, 'attempt');
   const pending = db.prepare('SELECT * FROM apple_login_attempts WHERE id=? AND expires_at>?').get(body.attempt, now()) as Attempt | undefined;
-  if (!pending?.challenge || pending.client === 'web' || !crypto.timingSafeEqual(Buffer.from(pending.challenge), Buffer.from(hash(body.verifier)))) return c.json({ error: 'apple_session' }, 401);
+  if (!pending?.challenge || pending.client === 'web' || !crypto.timingSafeEqual(Buffer.from(pending.challenge), Buffer.from(hash(body.verifier)))) { authFailure(c, 'apple_session'); return c.json({ error: 'apple_session' }, 401); }
   const attempt = consume(pending.id);
-  if (!attempt) return c.json({ error: 'apple_session' }, 401);
+  if (!attempt) { authFailure(c, 'apple_session'); return c.json({ error: 'apple_session' }, 401); }
   try {
-    const identity = await exchangeAppleCode(body.code, attempt.client_id, attempt.nonce, false);
+    const identity = await exchangeAppleCode(body.code, attempt.client_id, attempt.nonce, false, stage => authStage(c, stage));
+    authStage(c, 'account');
     const id = resolveAppleAccount(identity, attempt, body.name);
+    authStage(c, 'session');
     createSession(c, id);
     return c.json({ ok: true, linked: !!attempt.link_user_id });
-  } catch (error) { return c.json({ error: errorCode(error) }, 401); }
-});
+  } catch (error) {
+    authFailure(c, error);
+    return c.json({ error: errorCode(error) }, 401);
+  }
+}, c => c.json({ error: 'apple_invalid' }, 401)));

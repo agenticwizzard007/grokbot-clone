@@ -45,12 +45,14 @@ export async function verifyAppleIdentity(token: string, clientId: string, nonce
   return { subject: payload.sub, email: verifiedEmail };
 }
 
-export async function exchangeAppleCode(code: string, clientId: string, nonce: string, web: boolean) {
+export async function exchangeAppleCode(code: string, clientId: string, nonce: string, web: boolean, stage?: (value: 'provider' | 'identity') => void) {
+  stage?.('provider');
   const body = new URLSearchParams({ client_id: clientId, client_secret: await appleClientSecret(clientId), code, grant_type: 'authorization_code' });
   if (web) body.set('redirect_uri', appleConfiguration().redirectURI);
   const response = await fetch(`${ISSUER}/auth/token`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body, signal: AbortSignal.timeout(15_000), redirect: 'error' });
   if (!response.ok) throw new AppleError('apple_invalid');
   const result = await response.json() as { id_token?: unknown; refresh_token?: unknown };
+  stage?.('identity');
   if (typeof result.id_token !== 'string' || typeof result.refresh_token !== 'string' || !result.refresh_token || result.refresh_token.length > 8192) throw new AppleError('apple_invalid');
   const identity = await verifyAppleIdentity(result.id_token, clientId, nonce);
   return { ...identity, refreshToken: result.refresh_token };

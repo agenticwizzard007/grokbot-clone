@@ -38,15 +38,18 @@ export async function verifyPersonalOpenRouterKey(key: string) {
   if (body.data.expires_at && (!Number.isFinite(Date.parse(body.data.expires_at)) || Date.parse(body.data.expires_at) <= now())) throw new OpenRouterError('openrouter_key');
 }
 
-export async function exchangeOpenRouterCode(code: string, verifier: string): Promise<{ key: string; subject: string }> {
+export async function exchangeOpenRouterCode(code: string, verifier: string, stage?: (value: 'provider' | 'identity') => void): Promise<{ key: string; subject: string }> {
+  stage?.('provider');
   const result = await request('/auth/keys', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ code, code_verifier: verifier, code_challenge_method: 'S256' }),
   });
+  stage?.('identity');
   if (!validOpenRouterKey(result?.key)) throw new OpenRouterError('openrouter_invalid');
   // Only the authenticated OAuth exchange establishes identity. A pasted key,
   // its label, and creator_user_id (which may refer to a teammate) never do.
   if (typeof result.user_id !== 'string' || !result.user_id.trim() || result.user_id.length > 256) throw new OpenRouterError('openrouter_identity');
+  stage?.('provider');
   await verifyPersonalOpenRouterKey(result.key);
   return { key: result.key, subject: result.user_id };
 }

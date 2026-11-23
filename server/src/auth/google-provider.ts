@@ -16,15 +16,17 @@ export async function verifyGoogleIdentity(idToken: string, nonce: string, key: 
   if (payload.nonce !== nonce || typeof payload.sub !== 'string' || !payload.sub || payload.sub.length > 255 || payload.email_verified !== true || typeof payload.email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)) throw new Error('google_identity');
   return { subject: payload.sub, email: payload.email.toLowerCase(), name: typeof payload.name === 'string' ? payload.name.slice(0, 80) : undefined };
 }
-export async function exchangeGoogleCode(code: string, verifier: string, nonce: string, redirectUri: string): Promise<GoogleIdentity> {
+export async function exchangeGoogleCode(code: string, verifier: string, nonce: string, redirectUri: string, stage?: (value: 'provider' | 'identity') => void): Promise<GoogleIdentity> {
+  stage?.('provider');
   if (!googleAvailable() || !code || code.length > 4096) throw new Error('google_invalid');
   const response = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST', redirect: 'error', signal: AbortSignal.timeout(15_000),
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ grant_type: 'authorization_code', code, client_id: process.env.GOOGLE_CLIENT_ID!, client_secret: process.env.GOOGLE_CLIENT_SECRET!, redirect_uri: redirectUri, code_verifier: verifier }),
   });
-  if (!response.ok) throw new Error('google_denied');
+  if (!response.ok) throw new Error(response.status === 429 || response.status >= 500 ? 'google_unavailable' : 'google_denied');
   const value = await response.json() as { id_token?: unknown };
+  stage?.('identity');
   if (typeof value.id_token !== 'string' || value.id_token.length > 32_768) throw new Error('google_identity');
   return verifyGoogleIdentity(value.id_token, nonce);
 }
