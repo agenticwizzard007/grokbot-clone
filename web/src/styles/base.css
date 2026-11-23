@@ -24,6 +24,10 @@ button:disabled { cursor: default; }
 a { color: inherit; }
 :focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 1px; }
 .boot { height: 100%; background: var(--color-bg-chrome); }
+.boot--error { display: grid; place-items: center; padding: 24px; overflow-y: auto; }
+.boot__message { width: 100%; max-width: 400px; text-align: center; }
+.boot__message h1 { font-size: 20px; line-height: 28px; }
+.boot__message p { color: var(--color-text-secondary); }
 
 /* ---------- shared controls ---------- */
 .icon-btn {
