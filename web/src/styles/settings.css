@@ -60,7 +60,7 @@
 .app-settings .settings-nav__item.is-active .settings-nav__icon { color: var(--color-text-primary); }
 .app-settings .settings-nav__item:active .settings-nav__icon { transform: scale(0.92); }
 .app-settings .settings-nav__item:focus-visible { outline: 0; box-shadow: inset 0 0 0 2px var(--color-border-focus); }
-.settings-nav__empty { padding: 20px 10px; font-size: 13px; line-height: 18px; color: var(--color-text-tertiary); }
+.settings-nav__empty { padding: 20px 10px; font-size: 13px; line-height: 18px; color: var(--color-text-tertiary); overflow-wrap: anywhere; }
 
 /* ---------- page ---------- */
 .app-settings .app-settings__main { background: var(--color-bg-pane); scrollbar-width: thin; }
