@@ -343,8 +343,8 @@ export function beginSetupInterview(botId: string) {
   ].filter(Boolean).slice(0, 2);
   const hasBrief = !!b.description.trim() || s.source.messages.length > 0 || !!s.source.interviewMessages?.length;
   const text = hasBrief
-    ? `I’ll help you configure ${b.name}. My starting brief is: ${s.brief.purpose}\n\n${questions.length ? questions.map((q, i) => `${i + 1}. ${q}`).join('\n') : 'The job, workflow and action limits are already defined. Is anything missing, or should I prepare this setup for your review?'}\n\nYour saved role is visible in Configuration on the right.`
-    : `What job would you like ${b.name} to handle? Give me one example of what you’d provide and the result you’d want back.\n\nI’ll ask about any important gaps and save the role in Configuration on the right.`;
+    ? `I’ll help you configure ${b.name}. My starting brief is: ${s.brief.purpose}\n\n${questions.length ? questions.map((q, i) => `${i + 1}. ${q}`).join('\n') : 'The job, workflow and action limits are already defined. Is anything missing, or should I prepare this setup for your review?'}\n\nYour saved role is visible in Details > Setup.`
+    : `What job would you like ${b.name} to handle? Give me one example of what you’d provide and the result you’d want back.\n\nI’ll ask about any important gaps and save the role in Details > Setup.`;
   // greeting marks the opening question so a later rename can find it at any position (R2F-009).
   appendRow(botId, 'message', { type: 'message', role: 'assistant', text, greeting: true });
   appendHistory(botId, [{ role: 'assistant', content: text }]);

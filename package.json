@@ -47,7 +47,7 @@
     "test:quinn-understanding": "node --test tests/quinn-understanding.test.mjs",
     "qualify:quinn-understanding": "node --import tsx scripts/qualify-quinn-understanding.mjs",
     "test:updated-ui": "node --import tsx --test tests/cli-account-client.test.mts tests/ui-store.test.mts tests/bird-avatars.test.mts && node tests/updated-ui.mjs",
-    "test:qa": "node --import tsx --test --test-concurrency=1 tests/qa-ws1-api.test.mts tests/qa-ws2-runtime.test.mts tests/qa-ws2-apps.test.mts tests/qa-ws3-web-logic.test.mts tests/qa-ws3-conversation-search.test.mts tests/qa-ws4-settings.test.mts tests/qa-r2-ws3.test.mts tests/exchange-summary.test.mts tests/qa-r3-redact.test.mts tests/qa-r3-settings.test.mts tests/routine-delete.test.mts && node tests/card-long-identifiers-ui.mjs && node tests/qa-ui-i12-confirmation-title.mjs && node tests/app-row-overlap-ui.mjs && node tests/personal-assistant-header-ui.mjs && node tests/connect-popup-ui.mjs",
+    "test:qa": "node --import tsx --test --test-concurrency=1 tests/qa-ws1-api.test.mts tests/qa-ws2-runtime.test.mts tests/qa-ws2-apps.test.mts tests/qa-ws3-web-logic.test.mts tests/qa-ws3-conversation-search.test.mts tests/qa-ws4-settings.test.mts tests/qa-r2-ws3.test.mts tests/exchange-summary.test.mts tests/qa-r3-redact.test.mts tests/qa-r3-settings.test.mts tests/routine-delete.test.mts && node tests/card-long-identifiers-ui.mjs && node tests/qa-ui-i12-confirmation-title.mjs && node tests/app-row-overlap-ui.mjs && node tests/personal-assistant-header-ui.mjs && node tests/connect-popup-ui.mjs && node tests/setup-copy-ui.mjs",
     "test:plan-connections": "node --import tsx --test tests/plan-connections.test.mts && node tests/plan-connections-ui.mjs"
   },
   "engines": {
