@@ -18,6 +18,7 @@ import { runRoutine, scheduleRoutine, unscheduleRoutine } from './routines.js';
 import { deleteEventTrigger, isEventSchedule } from './triggers.js';
 import { dispatchRoomMessage } from './agent/rooms.js';
 import { acceptMessage, SubmissionConflict } from './agent/message-receipts.js';
+import { JobCapacityError } from './agent/jobs.js';
 import { voiceApi } from './voice.js';
 import { createBot, assertPrimaryRemovalAllowed, transferPrimary, botPatchSchema, botCreateSchema, BRIEF_FIELDS } from './bots.js';
 import { readJson, zodMessage } from './lib/json.js';
@@ -431,8 +432,8 @@ api.post('/bots/:id/messages', async (c) => {
     const receipt = acceptMessage(c.get('user').id, b.id, submissionId, text, () => {
       const row = appendRow(b.id, 'message', { type: 'message', role: 'user', text: text.trim() });
       const jobIds: string[] = [];
-      // enqueue schedules a promise; beginJob checks durable state after this transaction commits.
-      // If any group member cannot be admitted, all rows, jobs and the receipt roll back.
+      // Reserve every responder inside the receipt transaction. Events, live state and
+      // execution are deferred until commit and discarded if any reservation fails.
       if (b.kind === 'room') dispatchRoomMessage(b.id, text.trim(), (id, trigger) => { jobIds.push(enqueue(id, trigger)); });
       else jobIds.push(enqueue(b.id, { type: 'user', text: text.trim() }));
       return { row, jobIds };
@@ -441,6 +442,10 @@ api.post('/bots/:id/messages', async (c) => {
     return c.json(receipt);
   } catch (error) {
     if (error instanceof SubmissionConflict) return c.json({ error: error.message }, 409);
+    if (error instanceof JobCapacityError) {
+      c.header('Retry-After', '5');
+      return c.json({ error: error.message, code: 'chat_capacity', retryable: true }, 429);
+    }
     throw error;
   }
 });

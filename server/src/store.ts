@@ -1,6 +1,7 @@
 import { db, now } from './db.js';
 import { setupOnboarding } from './setup-state.js';
 import { hub } from './lib/hub.js';
+import { afterCommit } from './lib/commit-effects.js';
 import type { Bot, LiveState, Row, RowBody, RowKind, Routine, Task } from './types.js';
 import { currentJobId, executionAudience } from './usage-context.js';
 import { Cron } from 'croner';
@@ -103,9 +104,11 @@ export function onRowChange(fn: RowListener): () => void {
   return () => rowListeners.delete(fn);
 }
 function notifyRow(userId: string, row: Row, isNew: boolean) {
-  for (const fn of rowListeners) {
-    try { fn(userId, row, isNew); } catch (e) { console.warn('[rows] listener failed', (e as Error).message); }
-  }
+  afterCommit(() => {
+    for (const fn of rowListeners) {
+      try { fn(userId, row, isNew); } catch (e) { console.warn('[rows] listener failed', (e as Error).message); }
+    }
+  });
 }
 
 function toRow(r: any): Row {
@@ -239,10 +242,12 @@ export function getLive(botId: string): LiveState {
 }
 
 export function setLive(botId: string, patch: Partial<LiveState>) {
-  const next = { ...getLive(botId), ...patch, botId, audience: patch.awaiting || patch.activity?.kind === 'waiting_for_you' ? 'user' as const : patch.audience ?? executionAudience(botId) };
-  live.set(botId, next);
-  const b = getBotRow(botId);
-  if (b) hub.emit(b.user_id, { type: 'live', state: next });
+  afterCommit(() => {
+    const next = { ...getLive(botId), ...patch, botId, audience: patch.awaiting || patch.activity?.kind === 'waiting_for_you' ? 'user' as const : patch.audience ?? executionAudience(botId) };
+    live.set(botId, next);
+    const b = getBotRow(botId);
+    if (b) hub.emit(b.user_id, { type: 'live', state: next });
+  });
 }
 
 export const allLive = (userId: string) => listBots(userId).map((b) => getLive(b.id));

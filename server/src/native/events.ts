@@ -1,4 +1,5 @@
 import { hub } from '../lib/hub.js';
+import { afterCommit } from '../lib/commit-effects.js';
 import { db, now } from '../db.js';
 import { assertTenant } from '../deployment.js';
 import { assertLegacyWorkOpen } from '../security/legacy-work.js';
@@ -46,7 +47,7 @@ export function publishNativeEvent(input:{userId:string;botId?:string|null;kind:
  input.userId,input.botId??null,input.kind,input.sourceType,input.sourceId,input.sourceRevision==null?null:String(input.sourceRevision),input.jobId??null,input.correlationId??null,input.audience??'internal',JSON.stringify(input.data??{}),now()).lastInsertRowid);
  // Fan out only after the outer synchronous transaction commits. The event
  // itself is durable; reconnecting consumers resume from their saved cursor.
- queueMicrotask(()=>{if(db.open&&db.prepare('SELECT 1 FROM native_events WHERE seq=? AND user_id=?').get(seq,input.userId))hub.emit(input.userId,{type:'native',cursor:seq});});
+ afterCommit(()=>queueMicrotask(()=>{if(db.open&&db.prepare('SELECT 1 FROM native_events WHERE seq=? AND user_id=?').get(seq,input.userId))hub.emit(input.userId,{type:'native',cursor:seq});}));
  return seq;
 }
 export function listNativeEvents(userId:string,after=0,limit=100):NativeEvent[] {

@@ -24,6 +24,7 @@ import { localAccess } from '../computers/local-access.js';
 import { currentComputerRevision, executionAudience } from '../usage-context.js';
 import { approvalBinding } from '../security/approval.js';
 import { acceptJob, beginJob, finishJob, recoverJobs, beginTool, finishTool } from './jobs.js';
+import { afterCommit } from '../lib/commit-effects.js';
 import { BrowserRecovery } from './browser-recovery.js';
 import { assembleToolCatalog, resolveToolCall, validateToolArguments } from './tool-catalog.js';
 import { runProgram, isProgramResumable, recoverPrograms, cancelProgram } from './programs.js';
@@ -127,7 +128,7 @@ export function enqueue(botId: string, trigger: Trigger) {
     if (parent) { const t = JSON.parse(parent.trigger); trigger = { ...trigger, audience:t.audience, roomId:t.roomId, coordinationRequestId:t.coordinationRequestId, coordinationWakeId:t.coordinationWakeId,workflowId:t.workflowId,taskId:t.taskId,goalId:t.goalId,proactiveSlotKey:t.proactiveSlotKey,coordinationReportPeriod:t.coordinationReportPeriod }; }
   }
   const job = acceptJob(botId, trigger);
-  void beforeForegroundTurn(job.userId,botId).catch(()=>console.error('[learning] foreground admission fence failed'));
+  afterCommit(() => { void beforeForegroundTurn(job.userId,botId).catch(()=>console.error('[learning] foreground admission fence failed')); });
   if (question?.body.type === 'card' && question.body.card === 'question' && trigger.type === 'user') {
     updateRow(botId, question.seq, { ...question.body, status: 'answered', answer: question.body.answer ?? trigger.text, answerJobId: job.id });
   } else if (question?.body.type === 'card' && question.body.card === 'connect' && trigger.type === 'system') {
@@ -135,11 +136,13 @@ export function enqueue(botId: string, trigger: Trigger) {
   }
   return {job,trigger};
   })();
-  // Show the user right away that their message was accepted, even while it waits for a slot.
-  if (userFacing(admitted.trigger) && !aborts.has(botId)) {
-    setLive(botId, { isRunning: true, activity: { kind: 'queued', detail: waitingBehind(admitted.job.userId, botId), since: now() }, awaiting: null, startedAt: now() });
-  }
-  scheduleJob(admitted.job.id,admitted.job.userId,botId,admitted.trigger);
+  afterCommit(() => {
+    // Only committed admission can change live state or schedule execution.
+    if (userFacing(admitted.trigger) && !aborts.has(botId)) {
+      setLive(botId, { isRunning: true, activity: { kind: 'queued', detail: waitingBehind(admitted.job.userId, botId), since: now() }, awaiting: null, startedAt: now() });
+    }
+    scheduleJob(admitted.job.id,admitted.job.userId,botId,admitted.trigger);
+  });
   return admitted.job.id;
 }
 

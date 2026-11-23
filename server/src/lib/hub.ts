@@ -1,4 +1,5 @@
 import type { ServerEvent } from '../types.js';
+import { afterCommit } from './commit-effects.js';
 
 type Listener = (ev: ServerEvent) => void;
 
@@ -17,6 +18,10 @@ class Hub {
   }
 
   emit(userId: string, ev: ServerEvent) {
+    afterCommit(() => this.deliver(userId, ev));
+  }
+
+  private deliver(userId: string, ev: ServerEvent) {
     const set = this.listeners.get(userId);
     if (!set) return;
     for (const fn of set) {
