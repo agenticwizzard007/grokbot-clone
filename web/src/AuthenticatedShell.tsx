@@ -133,7 +133,8 @@ function Shell() {
     return () => window.removeEventListener('keydown', k);
   }, []);
 
-  if (rosterUnavailable) return <main className="boot boot--data"><RosterFeedback /></main>;
+  // Work routes keep their heading and neutral title while their roster resolves.
+  if (rosterUnavailable && view !== 'tasks') return <main className="boot boot--data"><RosterFeedback /></main>;
 
   return (
     <div className={`app${settingsOpen ? ' is-app-settings' : ''}${collapsed && !mobile ? ' is-sidebar-collapsed' : ''}${mobile ? ` is-mobile pane-${view === 'tasks' || (modal === 'create' || modal === 'group') || botSettings || detailsOpen ? 'chat' : pane}` : ''}`}>
