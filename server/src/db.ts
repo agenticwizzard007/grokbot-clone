@@ -180,6 +180,9 @@ export function addColumn(table: string, col: string, ddl: string) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
   if (!cols.some((c) => c.name === col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`);
 }
+// Routine API operations need trigger metadata even when the scheduler is disabled.
+addColumn('routines', 'trigger_id', 'TEXT');
+addColumn('routines', 'trigger_config', 'TEXT');
 addColumn('composio_sessions', 'key_fingerprint', 'TEXT');
 addColumn('approvals', 'binding_hash', 'TEXT');
 addColumn('bots', 'voice', "TEXT NOT NULL DEFAULT 'luna'");
