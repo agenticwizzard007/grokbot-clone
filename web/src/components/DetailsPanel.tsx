@@ -165,7 +165,7 @@ function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
       {tab === 'configuration' && <AgentConfiguration bot={bot} />}
       {tab === 'library' && (reports ? <DeliverablesPanel botId={bot.id} /> : <>
         <p className="setup-paper__subtitle">Files saved by {title}</p>
-        <DetailRow title="Saved reports"><button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setReports(true)}>Saved reports</button></DetailRow>
+        <DetailRow title="Saved reports"><button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setReports(true)}>View saved reports</button></DetailRow>
         <LibraryTab bot={bot} onClose={close} />
       </>)}
     </div>
