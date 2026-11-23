@@ -61,7 +61,12 @@ try {
       window.emitProcessingEvent(value);
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     }, event);
-    const live = changes => emit({ type: 'live', state: { botId: bot.id, audience: 'user', isRunning: true, startedAt: Date.now(), activity: null, awaiting: null, ...changes } });
+    let runStartedAt = null;
+    const live = changes => {
+      if (changes?.isRunning === false) runStartedAt = null;
+      else runStartedAt ??= Date.now();
+      return emit({ type: 'live', state: { botId: bot.id, audience: 'user', isRunning: true, startedAt: runStartedAt, activity: null, awaiting: null, ...changes } });
+    };
     await page.route('**/*', async route => {
       const request = route.request(), url = new URL(request.url()), path = url.pathname;
       if (url.origin !== origin) { unexpected.push(url.href); return route.abort(); }
@@ -189,7 +194,7 @@ try {
     await emit({ type: 'rows', botId: bot.id, generation, rows: [response] });
     await live();
     assert.equal(await panel.count(), 0, 'a pause after the first assistant message never restarts the default loader');
-    await page.locator('.activity-line').waitFor();
+    assert.equal(await page.locator('.activity-line').count(), 0, 'a delivered reply does not add another loading treatment');
     const tool = { ...row(3, 'assistant', ''), kind: 'tool-call', body: { type: 'tool-call', callId: 'lookup', name: 'search', label: 'Checking sources', args: {}, status: 'running' } };
     await emit({ type: 'rows', botId: bot.id, generation, rows: [tool] });
     assert.equal(await panel.count(), 0, 'a later tool row keeps established chat activity');
@@ -222,10 +227,12 @@ try {
     firstReply.body.streaming = false; firstReply.updatedSeq = 5;
     await emit({ type: 'rows', botId: bot.id, generation, rows: [firstReply, row(5, 'user', 'Continue.')] });
     assert.ok((await responseGroup.boundingBox()).height >= reserved, 'another user message does not revoke the reservation');
-    assert.equal(await panel.count(), 0);
+    await live({ isRunning: false });
+    await live();
+    await working();
     await live({ isRunning: false });
 
-    // A chat with older exchange history keeps its existing activity line.
+    // Older exchanges must not turn the main processing treatment into a small activity mark.
     generation++; rows = [];
     exchanges = [{ id: 'prior-exchange', firstSeq: 1, lastSeq: 1, createdAt: Date.now() - 60_000, messageCount: 1, version: 1,
       participants: bots.map(({ id, name, avatarColor, avatarShape }) => ({ id, name, avatarColor, avatarShape })) }];
@@ -233,8 +240,92 @@ try {
     await page.locator('.agent-exchange').waitFor();
     await emit({ type: 'rows', botId: bot.id, generation, rows: [row(1, 'user', 'Continue the existing research.')] });
     await live();
-    assert.equal(await panel.count(), 0, 'prior exchange history is an established chat');
-    await page.locator('.activity-line').waitFor();
+    await working();
+    await hasPixelMotion();
+    await live({ isRunning: false });
+
+    // Every reply gets the large loader, including after completed assistant messages.
+    generation++; exchanges = [];
+    rows = [row(1, 'user', 'Earlier request.'), row(2, 'assistant', 'Earlier response.')];
+    await emit({ type: 'cleared', botId: bot.id, generation });
+    await emit({ type: 'rows', botId: bot.id, generation, rows });
+    await page.locator('.bubble.is-agent').waitFor();
+    const nextPrompt = row(3, 'user', 'Say hi in five words. '.repeat(scenario.long ? 25 : 1));
+    await emit({ type: 'rows', botId: bot.id, generation, rows: [nextPrompt] });
+    const established = await geometry();
+    for (const kind of ['queued', 'thinking', 'working']) {
+      await live({ activity: { kind, detail: kind === 'thinking' ? 'Waiting for model response' : undefined, since: Date.now() } });
+      await working();
+      sameGeometry(established, await geometry());
+    }
+    await hasPixelMotion();
+    await page.screenshot({ path: new URL(`${label}-existing-working.png`, evidence).pathname });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await idle.waitFor();
+    assert.equal(await mark.locator('.flock-mark__moving:visible').count(), 0);
+    const still = await mark.screenshot();
+    await page.waitForTimeout(300);
+    assert.ok(still.equals(await mark.screenshot()), 'the existing-chat reduced-motion flock is static');
+    sameGeometry(established, await geometry());
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await live({ isRunning: false, activity: null, startedAt: null });
+    assert.equal(await moving.count(), 0, 'an existing-chat run ending without output stops motion');
+    sameGeometry(established, await geometry());
+    await live({ activity: { kind: 'thinking', detail: 'Waiting for model response', since: Date.now() } });
+    await working();
+    const nextReply = row(4, 'assistant', '', true);
+    await emit({ type: 'rows', botId: bot.id, generation, rows: [nextReply] });
+    await working();
+    sameGeometry(established, await geometry());
+    nextReply.body.text = 'Hi, glad you are here.'; nextReply.updatedSeq++;
+    await emit({ type: 'rows', botId: bot.id, generation, rows: [nextReply] });
+    await page.locator('.bubble.is-streaming').waitFor();
+    assert.equal(await panel.count(), 0, 'the current reply removes the main loader on its first text');
+    assert.equal(await page.locator('.transcript > .transcript__col > .activity-line .flock-mark__moving').count(), 0);
+    sameGeometry(established, await geometry());
+    // A queued prompt must not restart motion while the preceding answer still streams.
+    const queuedPrompt = row(5, 'user', 'Please continue.');
+    await emit({ type: 'rows', botId: bot.id, generation, rows: [queuedPrompt] });
+    assert.equal(await moving.count(), 0, 'a queued prompt does not animate over an active stream');
+    nextReply.body.streaming = false; nextReply.updatedSeq++;
+    await emit({ type: 'rows', botId: bot.id, generation, rows: [nextReply] });
+    assert.equal(await panel.count(), 0, 'finishing a stream does not restart the loader in the same run');
+    await live({ isRunning: false });
+    await live();
+    await working();
+    const queuedGeometry = await geometry();
+    const directReply = row(6, 'assistant', 'The next response.');
+    await emit({ type: 'rows', botId: bot.id, generation, rows: [directReply] });
+    assert.equal(await panel.count(), 0, 'a direct completed reply also removes the main loader');
+    sameGeometry(queuedGeometry, await geometry());
+    await live({ isRunning: false, startedAt: null });
+    assert.equal(await page.locator('.transcript .flock-mark__moving').count(), 0);
+
+    // Two prompts may both arrive before the first run produces any text.
+    generation++; rows = []; exchanges = [];
+    await emit({ type: 'cleared', botId: bot.id, generation });
+    await emit({ type: 'rows', botId: bot.id, generation, rows: [row(1, 'user', 'First queued request.')] });
+    await live();
+    await emit({ type: 'rows', botId: bot.id, generation, rows: [row(2, 'user', 'Second queued request.')] });
+    await working();
+    const answerA = row(3, 'assistant', 'First answer.', true);
+    await emit({ type: 'rows', botId: bot.id, generation, rows: [answerA] });
+    assert.equal(await moving.count(), 0);
+    answerA.body.streaming = false; answerA.updatedSeq++;
+    await emit({ type: 'rows', botId: bot.id, generation, rows: [answerA] });
+    await live({ isRunning: false });
+    const firstAnswerHeight = (await page.locator('.group.is-left').boundingBox()).height;
+    await live({ activity: { kind: 'thinking', detail: 'Waiting for model response', since: Date.now() } });
+    await working();
+    assert.equal((await page.locator('.group.is-left').boundingBox()).height, firstAnswerHeight, 'a second queued run does not resize the earlier answer');
+    const secondQueuedGeometry = await geometry();
+    const answerB = row(4, 'assistant', 'Second answer.', true);
+    await emit({ type: 'rows', botId: bot.id, generation, rows: [answerB] });
+    assert.equal(await moving.count(), 0, 'the second queued run stops its own loader at its first text');
+    sameGeometry(secondQueuedGeometry, await geometry());
+    assert.equal((await page.locator('.group.is-left').first().boundingBox()).height, firstAnswerHeight, 'the second answer inherits its own reservation');
+    answerB.body.streaming = false; answerB.updatedSeq++;
+    await emit({ type: 'rows', botId: bot.id, generation, rows: [answerB] });
     await live({ isRunning: false });
     if (width === 320 && !scenario.long) for (const returnToWide of [false, true]) {
       await page.setViewportSize({ width: 760, height: 900 });
@@ -267,7 +358,7 @@ try {
     }
     assert.deepEqual(unexpected, [], `${label}: no errors, external requests or unexpected writes`);
     await page.close();
-    console.log(`PASS ${label}: empty/first-turn processing, pixels, reduced motion, stop/stream, stable layout, fresh generation, queued prompts, tools and exchanges`);
+    console.log(`PASS ${label}: new/existing chat, waiting/queued/running, pixels, reduced motion, stop/stream, stable layout, fresh generation, tools and exchanges`);
   }
 } finally {
   await browser?.close();
