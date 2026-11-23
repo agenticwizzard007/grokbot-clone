@@ -48,6 +48,11 @@
 .sidebar-usage progress::-moz-progress-bar { background: var(--color-primary); }
 .sidebar__footer { position: relative; display: flex; align-items: center; gap: 4px; min-height: 48px; flex-shrink: 0; }
 .account { position: relative; display: flex; align-items: center; flex: 1 1 0; min-width: 0; }
+.account .menu { max-width: min(280px, calc(100vw - 32px)); max-height: min(320px, var(--account-menu-height, 320px)); }
+.account .menu__header { overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .account .menu { max-height: min(70dvh, 480px, var(--account-menu-height, 480px)); }
+}
 .account__btn { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; min-height: 44px; border-radius: 10px; padding: 8px; }
 .account__btn:hover { background: var(--color-bg-active); }
 .account__initials { display: none; align-items: center; justify-content: center; width: 36px; height: 36px; flex-shrink: 0; border-radius: 50%; background: var(--color-bg-active); color: var(--color-text-secondary); font-size: 14px; font-weight: 500; }
