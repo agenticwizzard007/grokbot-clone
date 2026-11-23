@@ -30,7 +30,6 @@
 .access-apps-catalog .apps-popular__head { padding-top: 0; }
 .access-apps-catalog .app-grid { grid-template-columns: minmax(0, 1fr); gap: 0 24px; }
 .access-apps-catalog .app-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px 12px; min-height: 74px; height: auto; padding: 12px 0; border-radius: 0; border-bottom: 1px solid var(--color-border-secondary); }
-.access-apps-catalog .app-row:hover { background: transparent; }
 .access-apps-catalog .app-row--expanded { grid-template-columns: auto minmax(0, 1fr); }
 .access-apps-catalog .app-row--expanded .access-app-row__actions { grid-column: 2; justify-content: flex-start; }
 .access-apps-catalog .app-row__text { gap: 3px; }

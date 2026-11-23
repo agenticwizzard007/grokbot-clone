@@ -89,12 +89,10 @@
 .apps-section__head { display: flex; align-items: center; justify-content: space-between; padding: 8px 0 6px; }
 .apps-section__title { margin: 0; font-size: 14px; font-weight: 500; line-height: 20px; letter-spacing: 0.14px; color: var(--color-ink); }
 .app-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; }
-.app-row { display: flex; align-items: center; gap: 12px; height: 64px; padding: 12px; border-radius: 16px; min-width: 0; }
-.app-row:hover { background: var(--color-bg-subtle); }
+.app-row { display: flex; align-items: center; gap: 12px; height: 64px; padding: 12px; border-radius: 16px; min-width: 0; cursor: default; }
 .app-row__text { display: flex; flex-direction: column; flex: 1 1 0; min-width: 0; }
 .app-row__name { font-size: 13px; font-weight: 500; line-height: 18px; color: var(--color-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.app-row__desc, .app-row__error { font-size: 12px; line-height: 16px; letter-spacing: 0.12px; color: var(--color-text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-height: 0; opacity: 0; transition: opacity 120ms; }
-.app-row:hover .app-row__desc { max-height: none; opacity: 1; }
+.app-row__desc, .app-row__error { font-size: 12px; line-height: 16px; letter-spacing: 0.12px; color: var(--color-text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-height: none; opacity: 1; }
 .app-row__error { max-height: 16px; opacity: 1; color: var(--color-danger-text); }
 .app-row__connect { display: flex; align-items: center; justify-content: center; height: 26px; width: 97px; flex-shrink: 0; border-radius: var(--radius-full); background: var(--color-bg-tertiary); font-size: 12px; line-height: 16px; letter-spacing: 0.12px; color: var(--color-ink); }
 .app-row__connect:hover:not(:disabled) { background: var(--color-bg-secondary-hover); }
