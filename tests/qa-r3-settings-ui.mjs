@@ -216,6 +216,7 @@ try {
   await card.locator('.coworker-setup__readiness').filter({ hasText: 'Computer: Asleep.' }).waitFor();
   await page.getByRole('button', { name: 'Show details', exact: true }).click();
   assert.equal(await details.getByRole('button', { name: 'Open computer', exact: true }).locator('small').innerText(), 'Asleep');
+  assert.equal(await details.getByRole('button', { name: 'Open computer', exact: true }).locator('strong').innerText(), "Bot's computer");
   await detailTab('Setup').click();
   await assertLine('Computer: Asleep');
   await title('Coordinator Bot · Setup');
@@ -257,6 +258,8 @@ try {
   await title('Coordinator Bot · History');
   await openApp('computer'); await title('Settings · Computer');
   await page.locator('.cloud-computer .cfg-row__title').filter({ hasText: "Bots' computer · Asleep" }).waitFor();
+  await page.getByText(/Reset closes every window on that Bot's screen/).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Watch', exact: true }).getAttribute('title'), "Watch Coordinator Bot's screen");
   await page.getByText(/On Linux, use Connect your PC/).waitFor();
   await page.keyboard.press('Escape'); await title('Coordinator Bot · History');
   await openBot('learning'); await title('Coordinator Bot · Learning');
