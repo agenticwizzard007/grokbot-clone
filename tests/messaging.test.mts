@@ -621,7 +621,8 @@ test('plain-text formatting', () => {
 
 // ---------- continue with phone number ----------
 
-const post = (path: string, body: unknown, cookie?: string) => app.request(path, { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json', 'x-forwarded-for': `10.0.0.${++evN % 250}`, ...(cookie ? { cookie } : {}) } });
+// Supply socket metadata for independent local clients; forwarding headers are untrusted by default.
+const post = (path: string, body: unknown, cookie?: string) => app.request(path, { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) } }, { incoming: { socket: { remoteAddress: `192.0.2.${++evN % 250}` } } });
 const codeIn = (t: string) => t.match(/is (\d{6})\./)![1];
 
 test('P-04: standalone sign-in and attach reject unavailable messaging without leaving a challenge', async () => {
