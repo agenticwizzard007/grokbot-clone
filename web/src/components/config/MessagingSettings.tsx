@@ -1,3 +1,5 @@
+import { SettingIcon } from './SettingRow';
+import { CircleUserRound, Mail, MessageCircle, Share2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   configApi,
@@ -32,7 +34,6 @@ const ago = (ts: number) => {
   const r = relativeShort(ts);
   return r === 'now' ? 'just now' : /^\d/.test(r) ? `${r} ago` : r.toLowerCase();
 };
-const statusDot = (s: MessagingLink['status']) => (s === 'connected' ? 'on' : s === 'pairing' ? 'busy' : 'off');
 const statusText: Record<MessagingLink['status'], string> = { connected: 'Connected', pairing: 'Connecting', disconnected: 'Disconnected', logged_out: 'Signed out', error: 'Error' };
 
 function PageHead({ title, sub }: { title: string; sub?: string }) {
@@ -103,7 +104,7 @@ function AccountMessagingSettings({ accountId }: { accountId: string }) {
       <PhoneSection status={status} setStatus={setStatus} code={code} setCode={setCode} />
       <AccountSection />
       {status.links.length > 0 && <>
-        <AccessRow title="Message preferences" description="Choose which Bots reply and what reaches your phone.">
+        <AccessRow icon={MessageCircle} title="Message preferences" description="Choose which Bots reply and what reaches your phone.">
           <button type="button" className="cfg-btn cfg-btn--secondary" aria-expanded={prefsOpen} onClick={() => setPrefsOpen(value => !value)}>{prefsOpen ? 'Hide preferences' : 'Manage preferences'}</button>
         </AccessRow>
         {prefsOpen && <PrefsSection status={status} setStatus={setStatus} />}
@@ -196,8 +197,7 @@ function PhoneSection({ status, setStatus, code, setCode }: SectionProps & { cod
       {status.links.length > 0 ? (
         <div className="cfg-card">
           {status.links.map((l) => (
-            <div key={l.channel} className="cfg-row">
-              <span className={`computer-status-dot is-${statusDot(l.status)}`} aria-hidden />
+            <div key={l.channel} className="cfg-row"><SettingIcon icon={MessageCircle} />
               <div className="cfg-row__text">
                 <div className="cfg-row__title">{l.channelName}{l.phone ? ` · ${fmtPhone(l.phone)}` : ''} · {statusText[l.status]}</div>
                 <div className="cfg-row__sub">{l.lastInboundAt ? `Last message from you ${ago(l.lastInboundAt)}` : 'No messages from you yet'}</div>
@@ -207,8 +207,7 @@ function PhoneSection({ status, setStatus, code, setCode }: SectionProps & { cod
             </div>
           ))}
           {canConnectWhatsApp && !hasWhatsApp && (
-            <div className="cfg-row msg-whatsapp-row">
-              <span className="msg-wa-tile"><WhatsAppIcon size={18} /></span>
+            <div className="cfg-row msg-whatsapp-row"><SettingIcon icon={MessageCircle} />
               <div className="cfg-row__text">
                 <div className="cfg-row__title">Connect WhatsApp</div>
                 <div className="cfg-row__sub">Add WhatsApp to this account so your Bots can reply there too.</div>
@@ -224,8 +223,7 @@ function PhoneSection({ status, setStatus, code, setCode }: SectionProps & { cod
         </div>
       ) : status.line ? (
         <div className="cfg-card">
-          <div className="cfg-row">
-            <span className="computer-status-dot is-off" aria-hidden />
+          <div className="cfg-row"><SettingIcon icon={MessageCircle} />
             <div className="cfg-row__text">
               <div className="cfg-row__title">Not connected</div>
               <div className="cfg-row__sub">Enter your number to text your Bots at {status.line.number}. We'll text you a code.</div>
@@ -322,7 +320,7 @@ function AccountSection() {
   };
   return (
     <section className="cfg-section access-messaging__account">
-      <AccessRow title="Google sign-in on desktop" description={googleLinked
+      <AccessRow icon={CircleUserRound} title="Google sign-in on desktop" description={googleLinked
         ? 'Google sign-in is connected. Use the linked Google account to access these same Bots on web or desktop.'
         : googleLogin
           ? 'Connect Google while signed in to this account to keep the same account and Bots on desktop.'
@@ -331,7 +329,7 @@ function AccountSection() {
           {busy === 'google' ? 'Opening…' : 'Connect Google'}
         </a>}
       </AccessRow>
-      <AccessRow title="Gmail for your Bots" description={gmailConnected ? 'Connected for Bots to read and send mail with your approval.' : 'Connect Gmail separately from your phone identity.'}>
+      <AccessRow icon={Mail} title="Gmail for your Bots" description={gmailConnected ? 'Connected for Bots to read and send mail with your approval.' : 'Connect Gmail separately from your phone identity.'}>
           {gmailError ? <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setAttempt(value => value + 1)}>Retry Gmail status</button> : <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy || !googleLogin || gmailConnected === null} onClick={() => void connectGmail()}>
             {busy === 'gmail' ? 'Opening…' : gmailConnected === null ? 'Checking…' : gmailConnected ? 'Manage Gmail' : 'Connect Gmail'}
           </button>}
@@ -370,7 +368,7 @@ function PrefsSection({ status, setStatus }: SectionProps) {
     <section className="cfg-section">
       <div className="cfg-section__label">How it works</div>
       <div className="cfg-card cfg-key">
-        <div className="cfg-key__form">
+        <div className="cfg-row cfg-key__form"><SettingIcon icon={MessageCircle} />
           <div className="cfg-row__text"><div className="cfg-row__title">Messages go to</div><div className="cfg-row__sub">Where plain texts go. Start a text with @Name to reach another Bot.</div></div>
           <select className="text-input msg-select" value={active} onChange={(e) => void patch({ activeBotId: e.target.value || null })} aria-label="Messages go to">
             <option value="">{primary ? `${primary.name} (primary)` : 'Primary Bot'}</option>
@@ -378,7 +376,7 @@ function PrefsSection({ status, setStatus }: SectionProps) {
             {status.prefs.activeBot && !bots.some((b) => b.id === status.prefs.activeBot!.id) && <option value={status.prefs.activeBot.id}>{status.prefs.activeBot.name}</option>}
           </select>
         </div>
-        <div className="cfg-key__form">
+        <div className="cfg-row cfg-key__form"><SettingIcon icon={MessageCircle} />
           <div className="cfg-row__text"><div className="cfg-row__title">Send me</div><div className="cfg-row__sub">Bot replies, approvals and questions that reach your phone.</div></div>
           <Segmented label="Send me" value={status.prefs.forward} onChange={(v) => void patch({ forward: v })}
             options={[{ value: 'all', label: 'Every Bot’s updates' }, { value: 'engaged', label: 'Only Bots I message by text' }]} />
@@ -408,7 +406,7 @@ function VoiceRepliesRow({ status, patch }: { status: MessagingStatus; patch: (p
     } catch (e) { setErr((e as Error).message); setPlaying(false); }
   };
   return (
-    <div className="cfg-key__form msg-voice">
+    <div className="cfg-row cfg-key__form msg-voice"><SettingIcon icon={MessageCircle} />
       <div className="cfg-row__text">
         <div className="cfg-row__title">Reply by voice</div>
         <div className="cfg-row__sub">
@@ -449,7 +447,7 @@ function InviteFriendsSection({ allowance }: { allowance: number }) {
     <section className="cfg-section">
       <div className="cfg-section__label">Invite friends</div>
       <div className="cfg-card cfg-key">
-        <div className="cfg-row">
+        <div className="cfg-row"><SettingIcon icon={Share2} />
           <div className="cfg-row__text">
             <div className="cfg-row__title">Share Swarm</div>
             <div className="cfg-row__sub">{allowance > 0 ? `Friends get their own Bots by text. You can invite ${allowance} ${allowance === 1 ? 'person' : 'people'}.` : 'Invites are turned off on this server.'}</div>
@@ -561,8 +559,7 @@ function InkboxSection({ owner, status, setStatus }: SectionProps & { owner: Mes
     <section className="cfg-section">
       <div className="cfg-section__label">Inkbox line</div>
       <div className="cfg-card cfg-key">
-        <div className="cfg-row">
-          <span className={`computer-status-dot is-${ink.configured ? 'on' : 'off'}`} aria-hidden />
+        <div className="cfg-row"><SettingIcon icon={MessageCircle} />
           <div className="cfg-row__text">
             <div className="cfg-row__title">Texting line · {ink.configured ? 'Set up' : ink.adminKeySet ? 'Key saved, line not set up' : 'Not set up'}</div>
             <div className="cfg-row__sub">One line for everyone on this server. People text it to reach their own Bots.</div>
@@ -588,12 +585,12 @@ function InkboxSection({ owner, status, setStatus }: SectionProps & { owner: Mes
 
         {ink.adminKeySet && !ink.configured && (
           <div className="msg-setup">
-            <div className="cfg-field">
+            <div className="cfg-field"><SettingIcon icon={MessageCircle} />
               <label className="cfg-field__label" htmlFor="inkbox-handle">Handle</label>
               <input id="inkbox-handle" className="text-input msg-input" value={handle} onChange={(e) => setHandle(e.target.value)} spellCheck={false} />
               <div className="cfg-field__hint">The name of this server’s Inkbox identity.</div>
             </div>
-            <div className="msg-switch-row">
+            <div className="cfg-row msg-switch-row"><SettingIcon icon={MessageCircle} />
               <div className="cfg-row__text"><div className="cfg-row__title">Also get a phone number for SMS</div><div className="cfg-row__sub">Without one, the line works over iMessage only.</div></div>
               <Switch on={withPhone} onChange={setWithPhone} label="Also get a phone number for SMS" />
             </div>
@@ -642,8 +639,7 @@ function WhatsAppSection({ owner }: { owner: MessagingOwner }) {
     <section className="cfg-section">
       <div className="cfg-section__label">WhatsApp</div>
       <div className="cfg-card">
-        <div className="cfg-row">
-          <span className={`computer-status-dot is-${wa?.enabled ? 'on' : 'off'}`} aria-hidden />
+        <div className="cfg-row"><SettingIcon icon={MessageCircle} />
           <div className="cfg-row__text">
             <div className="cfg-row__title">WhatsApp · {wa?.enabled ? 'Ready to test' : wa ? 'Not ready yet' : 'Not enabled'}</div>
             <div className="cfg-row__sub">Dedicated WhatsApp runs through the same Inkbox identity and webhook as iMessage.</div>
@@ -758,7 +754,7 @@ function SignupSection({ owner, setStatus }: { owner: MessagingOwner; setStatus:
     void put({ signupsPerDay: n(vals.signupsPerDay), dailyTurns: n(vals.dailyTurns), memberInvites: n(vals.memberInvites) });
   };
   const num = (key: keyof typeof vals, label: string, hint: string) => (
-    <label className="cfg-field msg-num">
+    <label className="cfg-field msg-num"><SettingIcon icon={MessageCircle} />
       <span className="cfg-field__label">{label}</span>
       <input className="text-input" type="number" min={0} step={1} inputMode="numeric" value={vals[key]} onChange={(e) => setVals((v) => ({ ...v, [key]: e.target.value }))} />
       <span className="cfg-field__hint">{hint}</span>
@@ -768,7 +764,7 @@ function SignupSection({ owner, setStatus }: { owner: MessagingOwner; setStatus:
     <section className="cfg-section">
       <div className="cfg-section__label">Sign-up by text</div>
       <div className="cfg-card cfg-key">
-        <div className="cfg-key__form msg-pad-top">
+        <div className="cfg-row cfg-key__form msg-pad-top"><SettingIcon icon={MessageCircle} />
           <div className="cfg-row__text"><div className="cfg-row__title">Who can sign up</div><div className="cfg-row__sub">{su.mode === 'invite' ? 'New numbers need an invite link, or join the waitlist for you to approve.' : su.mode === 'open' ? 'Anyone who texts the line gets an account, up to the daily limit.' : 'Nobody new can sign up by text.'}</div></div>
           <Segmented<SignupMode> label="Who can sign up" value={su.mode} onChange={(mode) => void put({ mode })}
             options={[{ value: 'invite', label: 'Invites + waitlist' }, { value: 'open', label: 'Open' }, { value: 'closed', label: 'Closed' }]} />
@@ -821,9 +817,9 @@ function InvitesSection({ version }: { version: number }) {
       <div className="cfg-section__label">Invite links</div>
       <div className="cfg-card cfg-key">
         <form className="msg-invite-form" onSubmit={create}>
-          <label className="cfg-field"><span className="cfg-field__label">Uses</span><input className="text-input" type="number" min={1} value={form.maxUses} onChange={(e) => setForm({ ...form, maxUses: e.target.value })} /></label>
-          <label className="cfg-field"><span className="cfg-field__label">Expires in days</span><input className="text-input" type="number" min={1} placeholder="Never" value={form.days} onChange={(e) => setForm({ ...form, days: e.target.value })} /></label>
-          <label className="cfg-field msg-invite-form__note"><span className="cfg-field__label">Note</span><input className="text-input" placeholder="Who it’s for (optional)" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} /></label>
+          <label className="cfg-field"><SettingIcon icon={MessageCircle} /><span className="cfg-field__label">Uses</span><input className="text-input" type="number" min={1} value={form.maxUses} onChange={(e) => setForm({ ...form, maxUses: e.target.value })} /></label>
+          <label className="cfg-field"><SettingIcon icon={MessageCircle} /><span className="cfg-field__label">Expires in days</span><input className="text-input" type="number" min={1} placeholder="Never" value={form.days} onChange={(e) => setForm({ ...form, days: e.target.value })} /></label>
+          <label className="cfg-field msg-invite-form__note"><SettingIcon icon={MessageCircle} /><span className="cfg-field__label">Note</span><input className="text-input" placeholder="Who it’s for (optional)" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} /></label>
           <button type="submit" className="cfg-btn cfg-btn--primary" disabled={busy}>{busy ? 'Creating…' : 'Create link'}</button>
         </form>
         {err && <div className="cfg-error cfg-error--inset">{err}</div>}
@@ -834,7 +830,7 @@ function InvitesSection({ version }: { version: number }) {
           const used = i.uses >= i.maxUses;
           return (
             <div key={i.code} className="msg-invite">
-              <div className="cfg-row">
+              <div className="cfg-row"><SettingIcon icon={MessageCircle} />
                 <div className="cfg-row__text">
                   <div className="cfg-row__title msg-mono">{i.url}</div>
                   <div className="cfg-row__sub">

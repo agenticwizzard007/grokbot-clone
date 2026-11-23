@@ -18,7 +18,12 @@ export interface MenuItem {
 export function Menu({ items, onClose, triggerRef, align = 'left', placement = 'below', children }: { items: MenuItem[]; onClose: () => void; triggerRef: RefObject<HTMLButtonElement>; align?: 'left' | 'right' | 'center'; placement?: 'below' | 'above'; children?: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const down = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); };
+    const down = (e: MouseEvent) => {
+      const target = e.target as Node;
+      // The trigger owns its toggle. Closing on mousedown here would let its
+      // subsequent click reopen the menu with the newly rendered false state.
+      if (ref.current && !ref.current.contains(target) && !triggerRef.current?.contains(target)) onClose();
+    };
     const key = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       e.preventDefault();

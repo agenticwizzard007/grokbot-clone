@@ -88,3 +88,9 @@
 .app .chat__bot-details { display: inline-flex; align-items: center; justify-content: center; width: 44px; min-width: 44px; height: 44px; border-radius: 12px; }
 .app .chat__bot-details:hover { background: var(--color-bg-hover); }
 .app .chat__bot-details[aria-expanded='true'] { background: var(--color-bg-active); }
+
+/* Keep Settings visible and dismissible while its lazy bundle loads. */
+.settings-loading { position: fixed; inset: 0 0 0 var(--app-settings-rail-width, 272px); z-index: 90; padding: 40px 32px; background: var(--color-bg-pane); }
+.settings-loading h1 { margin: 0 0 16px; font-size: var(--text-page-title); }
+.settings-loading p { margin-bottom: 20px; color: var(--color-text-secondary); }
+@media (max-width: 760px) { .settings-loading { left: 0; padding: 32px 16px; } }

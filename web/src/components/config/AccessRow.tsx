@@ -1,17 +1,15 @@
 import type { ReactNode } from 'react';
+import type { LucideIcon } from 'lucide-react';
+import { SettingRow } from './SettingRow';
 
-export function AccessRow({ title, description, status, children }: {
+export function AccessRow({ icon, title, description, status, children }: {
+  icon: LucideIcon;
   title: ReactNode;
   description?: ReactNode;
   status?: ReactNode;
   children?: ReactNode;
 }) {
-  return <div className="cfg-row access-row">
-    <div className="cfg-row__text">
-      <div className="cfg-row__title">{title}</div>
-      {description && <div className="cfg-row__sub">{description}</div>}
-      {status && <div className="cfg-row__sub">{status}</div>}
-    </div>
+  return <SettingRow icon={icon} title={title} sub={description} status={status} className="access-row">
     {children && <div className="access-row__actions">{children}</div>}
-  </div>;
+  </SettingRow>;
 }

@@ -1,3 +1,5 @@
+import { Blocks, Clock, Gauge, History, ShieldCheck } from 'lucide-react';
+import { SettingIcon } from './SettingRow';
 import { useEffect, useRef, useState } from 'react';
 import { learningApi, type LearningSettings as Settings, type LearningSettingsView, type LearningReview, type SkillMaintenanceOutcome } from '../../lib/learningApi';
 import { useNativeRefresh } from '../../lib/useNativeRefresh';
@@ -38,7 +40,7 @@ function LearningSettingsForm({ botId }: { botId?: string }) {
     finally { setBusy(false); }
   };
   const set = <K extends keyof Settings>(key: K, value: Settings[K]) => setDraft(s => s ? { ...s, [key]: value } : s);
-  const numberField = (key: keyof Settings, label: string, min: number, max?: number) => <label key={key}>{label}<input type="number" min={min} max={max} required value={draft?.[key] as number ?? ''} onChange={e => set(key, e.currentTarget.valueAsNumber)} /></label>;
+  const numberField = (key: keyof Settings, label: string, min: number, max?: number) => <label key={key}><SettingIcon icon={Clock} /><span>{label}</span><input type="number" min={min} max={max} required value={draft?.[key] as number ?? ''} onChange={e => set(key, e.currentTarget.valueAsNumber)} /></label>;
   const overridden = Object.keys(view?.overrides ?? {});
   return <div className="cfg-page learning-settings native-panel">
     {/* Account Settings pages share one page header; inside Bot settings the page already has its title. */}
@@ -50,30 +52,30 @@ function LearningSettingsForm({ botId }: { botId?: string }) {
     {!draft && !error && <p role="status">Loading learning settings…</p>}
     {draft && view && <form className="learning-fields" onSubmit={e => { e.preventDefault(); void save(); }}>
       {botId && <div className="learning-inheritance"><strong>{overridden.length ? 'This bot has overrides' : 'Using account defaults'}</strong><p>{overridden.length ? 'Values without an override inherit the account defaults.' : 'All values are inherited from account settings.'} · Settings revision {view.revision}</p></div>}
-      <div className="learning-fields learning-flags">{flags.map(field => <label className="native-check" key={field.key}>
+      <div className="learning-fields learning-flags">{flags.map(field => <label className="native-check" key={field.key}><SettingIcon icon={field.key === 'skillApproval' ? ShieldCheck : Blocks} />
         <input type="checkbox" checked={draft[field.key] as boolean} onChange={event => set(field.key, event.currentTarget.checked)} />
         <span><strong>{field.label}</strong><small>{botId && (overridden.includes(field.key) ? 'Bot override. ' : 'Inherited from the account. ')}{field.hint}</small></span>
       </label>)}</div>
-      <details className="learning-disclosure"><summary><span><strong>Review limits and model route</strong><small>Set limits or override the review route.</small></span><span className="learning-disclosure__action">Review limits</span></summary>
+      <details className="learning-disclosure"><summary><SettingIcon icon={Gauge} /><span><strong>Review limits and model route</strong><small>Set limits or override the review route.</small></span><span className="learning-disclosure__action">Review limits</span></summary>
         <div className="learning-grid">
           {numberField('memoryTurnInterval', 'Memory review interval (turns)', 1)}
           {numberField('skillIterationInterval', 'Skill review interval (tool iterations)', 1)}
           {numberField('maxIterations', 'Review step limit', 1, 128)}
-          <label>Aggregate input token limit<input type="number" value={draft.maxInputTokens ?? ''} placeholder="32,000 tokens by default" onChange={e => set('maxInputTokens', e.currentTarget.value === '' ? null : e.currentTarget.valueAsNumber)} /><small>Blank uses a bounded limit of at most 32,000 tokens. Zero explicitly disables the input limit.</small></label>
-          <label>Auxiliary model<input value={draft.auxiliaryModel ?? ''} onChange={e => set('auxiliaryModel', e.currentTarget.value || null)} /></label>
-          <label>Auxiliary provider<input value={draft.auxiliaryProvider ?? ''} onChange={e => set('auxiliaryProvider', e.currentTarget.value || null)} /></label>
+          <label><SettingIcon icon={Gauge} /><span>Aggregate input token limit</span><input type="number" value={draft.maxInputTokens ?? ''} placeholder="32,000 tokens by default" onChange={e => set('maxInputTokens', e.currentTarget.value === '' ? null : e.currentTarget.valueAsNumber)} /><small>Blank uses a bounded limit of at most 32,000 tokens. Zero explicitly disables the input limit.</small></label>
+          <label><SettingIcon icon={Blocks} /><span>Auxiliary model</span><input value={draft.auxiliaryModel ?? ''} onChange={e => set('auxiliaryModel', e.currentTarget.value || null)} /></label>
+          <label><SettingIcon icon={Blocks} /><span>Auxiliary provider</span><input value={draft.auxiliaryProvider ?? ''} onChange={e => set('auxiliaryProvider', e.currentTarget.value || null)} /></label>
         </div>
         <p className="native-meta">Blank uses the originating model and provider. An auxiliary route requires a currently connected adapter.</p>
         <p className="native-meta">Explicit source-backed corrections can update a preference in the same scope. Inferred replacements and removals wait for review. New knowledge stays private until you share it.</p>
       </details>
-      <details className="learning-disclosure"><summary><span><strong>Skill maintenance</strong><small>Adjust the maintenance schedule and proposals.</small></span><span className="learning-disclosure__action">Skill maintenance</span></summary><div className="learning-fields">
-        <label className="native-check"><input type="checkbox" checked={draft.curatorEnabled} onChange={e => set('curatorEnabled', e.currentTarget.checked)} />Enable periodic maintenance</label>
+      <details className="learning-disclosure"><summary><SettingIcon icon={Blocks} /><span><strong>Skill maintenance</strong><small>Adjust the maintenance schedule and proposals.</small></span><span className="learning-disclosure__action">Skill maintenance</span></summary><div className="learning-fields">
+        <label className="native-check"><SettingIcon icon={Blocks} /><input type="checkbox" checked={draft.curatorEnabled} onChange={e => set('curatorEnabled', e.currentTarget.checked)} />Enable periodic maintenance</label>
         <div className="learning-grid">{numberField('curatorIntervalHours', 'Maintenance interval (hours)', 1)}{numberField('curatorMinIdleHours', 'Minimum idle time (hours)', 0)}{numberField('curatorStaleDays', 'Mark stale after (days)', 1)}{numberField('curatorArchiveDays', 'Archive after (days)', 1)}</div>
-        <label className="native-check"><input type="checkbox" checked={draft.curatorConsolidate} onChange={e => set('curatorConsolidate', e.currentTarget.checked)} />Propose consolidation for review (off by default)</label>
+        <label className="native-check"><SettingIcon icon={Blocks} /><input type="checkbox" checked={draft.curatorConsolidate} onChange={e => set('curatorConsolidate', e.currentTarget.checked)} />Propose consolidation for review (off by default)</label>
         <p className="native-meta">Pinned, locked and routine-referenced packages are protected. Archived packages retain recoverable history.</p>
         {botId && <SkillMaintenance botId={botId} settings={view.settings} />}
       </div></details>
-      <div className="learning-disclosure learning-disclosure--row"><div><strong>Review history and activity</strong><small>{botId ? 'Only reviews for this Bot.' : 'Reviews across this account.'}</small></div><button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setShowReviews(true)}>Review history</button></div>
+      <div className="learning-disclosure learning-disclosure--row"><SettingIcon icon={History} /><div><strong>Review history and activity</strong><small>{botId ? 'Only reviews for this Bot.' : 'Reviews across this account.'}</small></div><button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setShowReviews(true)}>Review history</button></div>
       <div className="learning-actions"><button className="cfg-btn cfg-btn--primary" disabled={busy || JSON.stringify(draft) === JSON.stringify(view.settings)} type="submit">{busy ? 'Saving…' : botId ? 'Save Bot overrides' : 'Save learning settings'}</button>{botId && <button className="cfg-btn cfg-btn--secondary" disabled={busy || !Object.keys(view.overrides ?? {}).length} type="button" onClick={() => void save(true)}>Use account defaults</button>}</div>
       {notice && <p role="status">{notice}</p>}
     </form>}

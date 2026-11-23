@@ -1,5 +1,6 @@
+import { SettingIcon } from './SettingRow';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, CircleUserRound, FolderOpen, KeyRound, Server, ShieldCheck } from 'lucide-react';
 import type { McpServerInput, McpServerView } from '@shared/types';
 import { configApi } from '../../lib/configApi';
 import { accessApi, verifyAccessAccount } from '../../lib/accessApi';
@@ -58,7 +59,7 @@ function pairs(text: string, label: string): Record<string, string> | undefined 
 function FormRow({ label, hint, children }: { label: string; hint?: ReactNode; children: (ids: { id: string; describedBy?: string }) => ReactNode }) {
   const id = useId();
   return (
-    <div className="settings-field">
+    <div className="settings-field"><SettingIcon icon={Server} />
       <div className="settings-field__text">
         <label className="settings-field__label" htmlFor={id}>{label}</label>
         {hint && <div className="settings-field__hint" id={`${id}-hint`}>{hint}</div>}
@@ -83,7 +84,7 @@ function FolderPicker({ selected, onChange }: { selected: string[]; onChange: (f
   }, [folder, page]);
   const open = (value: string) => { setFolder(value); setPage(''); };
   const overlaps = (value: string) => selected.some(s => s === value || s.startsWith(value + '/') || value.startsWith(s + '/'));
-  return <div className="cfg-row"><div className="cfg-row__text">
+  return <div className="cfg-row"><SettingIcon icon={FolderOpen} /><div className="cfg-row__text">
     <div className="cfg-row__title">Shared folders</div>
     <p className="cfg-row__sub">Choose up to eight Library folders this server can read. Folder access includes their contents and subfolders. It cannot change your files.</p>
     {selected.map((value, index) => <div className="mcp-actions mcp-folder-row" key={value}><span className="mcp-folder-path">{value} · <code>/workspace/folders/{index + 1}</code></span><button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => onChange(selected.filter(s => s !== value))}>Remove folder</button></div>)}
@@ -143,12 +144,12 @@ function McpEditor({ server, recovered, locked, stdioAvailable = true, onSave, o
             {!draft.botIds.length && <span className="cfg-field__hint">No Bot can use this server until you pick one.</span>}
           </div>}
         </>}</FormRow>
-        <div className="cfg-row">
+        <div className="cfg-row"><SettingIcon icon={ShieldCheck} />
           <div className="cfg-row__text"><div className="cfg-row__title">Ask before using tools</div><div className="cfg-row__sub">You can allow single tools for good from their approval cards.</div></div>
           <Switch label="Ask before using tools" on={draft.requireApproval} onChange={v => set('requireApproval', v)} />
         </div>
         <details className="mcp-advanced">
-          <summary className="cfg-row">
+          <summary className="cfg-row"><SettingIcon icon={KeyRound} />
             <span className="cfg-row__text"><span className="cfg-row__title">{stdio ? 'Environment variables' : 'Authentication & headers'}</span><span className="cfg-row__sub">{stdio ? 'Optional. Secrets the command needs.' : 'Optional. A bearer token or custom headers.'}</span></span>
             <ChevronRight className="mcp-advanced__chev" size={18} strokeWidth={1.75} aria-hidden />
           </summary>
@@ -156,7 +157,7 @@ function McpEditor({ server, recovered, locked, stdioAvailable = true, onSave, o
             {stdio ? <>
               <FormRow label="Environment variables (JSON)" hint={server?.envNames.length ? `Saved: ${server.envNames.join(', ')}. Leave blank to keep them; enter {} to clear them.` : undefined}>{({ id, describedBy }) => <textarea id={id} aria-describedby={describedBy} className="text-input" spellCheck={false} autoComplete="off" rows={3} value={env} onChange={e => setEnv(e.target.value)} placeholder={'{"API_KEY": "your-key"}'} />}</FormRow>
             </> : <>
-              <div className="cfg-row"><div className="cfg-row__text"><div className="cfg-row__title">Sign in with OAuth</div><div className="cfg-row__sub">Save this server, then connect your account.</div></div><Switch label="Use OAuth" on={draft.oauth ?? false} onChange={value => set('oauth', value)} /></div>
+              <div className="cfg-row"><SettingIcon icon={CircleUserRound} /><div className="cfg-row__text"><div className="cfg-row__title">Sign in with OAuth</div><div className="cfg-row__sub">Save this server, then connect your account.</div></div><Switch label="Use OAuth" on={draft.oauth ?? false} onChange={value => set('oauth', value)} /></div>
               <FormRow label="Bearer token (optional)" hint={server?.hasBearerToken ? <label className="mcp-check"><input type="checkbox" checked={clearToken} onChange={e => { setClearToken(e.target.checked); setToken(''); }} />Remove saved token</label> : undefined}>{({ id }) => <input id={id} className="text-input" type="password" autoComplete="off" value={token} onChange={e => { setToken(e.target.value); setClearToken(false); }} placeholder={server?.hasBearerToken ? 'Saved — leave blank to keep' : 'Paste access token'} />}</FormRow>
               <FormRow label="Custom headers (JSON, optional)" hint={server?.headerNames.length ? `Saved: ${server.headerNames.join(', ')}. Leave blank to keep them; enter {} to clear them.` : 'Use the token or headers your MCP provider gives you.'}>{({ id, describedBy }) => <textarea id={id} aria-describedby={describedBy} className="text-input" rows={3} spellCheck={false} autoComplete="off" value={headers} onChange={e => setHeaders(e.target.value)} placeholder={'{"X-API-Key": "your-key"}'} />}</FormRow>
             </>}
@@ -176,7 +177,6 @@ function McpEditor({ server, recovered, locked, stdioAvailable = true, onSave, o
 
 const transportText = (s: McpServerView) => (s.transport === 'stdio' ? 'Local command' : s.transport === 'sse' ? 'Remote SSE' : 'Remote HTTP');
 const accessText = (s: McpServerView) => (s.botIds === null ? 'All my Bots' : `${s.botIds.length} selected Bot${s.botIds.length === 1 ? '' : 's'}`);
-const statusDot = (s: McpServerView) => (s.enabled && s.checkedAt && !s.error ? 'on' : s.enabled && s.error ? 'error' : 'off');
 const ago = (ts: number) => { const r = relativeShort(ts); return r === 'now' ? 'just now' : /^\d/.test(r) ? `${r} ago` : r.toLowerCase(); };
 /** "Remote HTTP · All my Bots · 12 tools · Verified 2m ago" */
 const summary = (s: McpServerView) => [transportText(s), accessText(s), `${s.tools.length} tool${s.tools.length === 1 ? '' : 's'}`,
@@ -281,8 +281,7 @@ function AccountMcpSettings({ accountId, accountEmail }: { accountId: string; ac
       {!locked && <section className="cfg-section access-mcp">
         <h2 className="cfg-section__label">Your servers</h2>
         {!servers.length ? <div className="cfg-empty">{canManage ? (stdioAvailable ? 'No MCP servers yet. Add a remote URL or a local MCP command.' : 'No MCP servers yet. Add a remote URL.') : 'No custom servers are available to this account.'}</div> : <div className="cfg-card">
-          {servers.map(s => <section className="cfg-row mcp-server" key={s.id} aria-label={s.name}>
-            <span className={`computer-status-dot is-${statusDot(s)}`} aria-hidden />
+          {servers.map(s => <section className="cfg-row mcp-server" key={s.id} aria-label={s.name}><SettingIcon icon={Server} />
             <div className="cfg-row__text">
               <div className="cfg-row__title">{s.name}</div>
               {s.enabled && s.error

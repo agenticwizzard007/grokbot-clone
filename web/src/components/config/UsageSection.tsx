@@ -1,5 +1,6 @@
+import { SettingIcon } from './SettingRow';
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { Download } from 'lucide-react';
+import { Clock, CircleUserRound, Download, Gauge } from 'lucide-react';
 import { useStore } from '../../store';
 import { AccessRow } from './AccessRow';
 import { configApi, type ProviderUsage, type UsageCoverage, type UsageRange, type UsageReport, type UsageRow } from '../../lib/configApi';
@@ -368,7 +369,7 @@ function ProviderCard({ data }: { data: ProviderUsage }) {
                 figure={`${fmtUsd(o.limitRemaining)} left of ${fmtUsd(o.limit)}`} note={o.limitReset ? `Resets ${o.limitReset}.` : undefined} />
             )}
             {o.budgets.filter(b => b.limitUsd != null).map((b, i) => b.spendUsd == null
-              ? <AccessRow key={i} title={`Budget${b.scope ? ` (${b.scope})` : ''}`} description="Spend not reported" status={`${fmtUsd(b.limitUsd)} limit`} />
+              ? <AccessRow icon={Gauge} key={i} title={`Budget${b.scope ? ` (${b.scope})` : ''}`} description="Spend not reported" status={`${fmtUsd(b.limitUsd)} limit`} />
               : <Meter key={i} label={`Budget${b.scope ? ` (${b.scope})` : ''}`} used={b.spendUsd} limit={b.limitUsd!}
                 figure={`${fmtUsd(b.spendUsd)} of ${fmtUsd(b.limitUsd)}`} note={b.resetInterval ? `Resets ${b.resetInterval}.` : undefined} />)}
           </>
@@ -443,8 +444,8 @@ function AccountUsageReport() {
     <div className="usage-page">
       <PageHead span={span} />
       <div className="usage-filters">
-        <label className="cfg-field"><span className="cfg-field__label">Report period</span><select className="text-input" value={range} onChange={event => setRange(event.target.value as UsageRange)}>{RANGES.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-        <label className="cfg-field"><span className="cfg-field__label">Scope</span><select className="text-input" value={scope} onChange={event => setScope(event.target.value === 'all' ? 'all' : 'me')} disabled={!canSeeAll}><option value="me">Me</option>{canSeeAll && <option value="all">Everyone</option>}</select><span className="cfg-field__hint">Everyone is limited to eligible administrators.</span></label>
+        <label className="cfg-field"><SettingIcon icon={Clock} /><span className="cfg-field__label">Report period</span><select className="text-input" value={range} onChange={event => setRange(event.target.value as UsageRange)}>{RANGES.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        <label className="cfg-field"><SettingIcon icon={CircleUserRound} /><span className="cfg-field__label">Scope</span><select className="text-input" value={scope} onChange={event => setScope(event.target.value === 'all' ? 'all' : 'me')} disabled={!canSeeAll}><option value="me">Me</option>{canSeeAll && <option value="all">Everyone</option>}</select><span className="cfg-field__hint">Everyone is limited to eligible administrators.</span></label>
       </div>
 
       {error && <div role="alert" className="cfg-error">{error} <button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setAttempt(value => value + 1)}>Retry report</button></div>}
@@ -475,7 +476,7 @@ function AccountUsageReport() {
                   </table>
                 </div>}
               </>}
-              <AccessRow title="Breakdown" description="Expand account, Bot, model and activity lists."><button type="button" className="cfg-btn cfg-btn--secondary" aria-expanded={breakdown} onClick={() => setBreakdown(value => !value)}>{breakdown ? 'Show less' : 'Show more'}</button></AccessRow>
+              <AccessRow icon={Gauge} title="Breakdown" description="Expand account, Bot, model and activity lists."><button type="button" className="cfg-btn cfg-btn--secondary" aria-expanded={breakdown} onClick={() => setBreakdown(value => !value)}>{breakdown ? 'Show less' : 'Show more'}</button></AccessRow>
               {breakdown && <>
                 {hasComputer && scope === 'me' && <ComputerCard data={data} />}
                 {data.byUser && <RankedList title="By account" rows={data.byUser} byCost={byCost} />}
@@ -487,7 +488,7 @@ function AccountUsageReport() {
           )}
           {scope === 'me' && (limit && limit.resetsAt > Date.now()
             ? <div className="usage-card"><Meter label="Messages today" used={limit.used} limit={limit.limit} figure={`${compact(limit.used)} of ${compact(limit.limit)}`} note={`Resets at midnight UTC (${inHours(limit.resetsAt)}).`} /></div>
-            : <AccessRow title="Plan limits" description="No current daily message allowance reported." status="Not reported" />)}
+            : <AccessRow icon={Gauge} title="Plan limits" description="No current daily message allowance reported." status="Not reported" />)}
         </div>
       )}
 

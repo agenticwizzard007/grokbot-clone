@@ -1,6 +1,7 @@
+import { SettingIcon } from './SettingRow';
 import { useModels } from '../../lib/models';
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, Copy, ExternalLink, RefreshCw, Terminal } from 'lucide-react';
+import { Check, ChevronDown, Copy, ExternalLink, RefreshCw, Terminal, BookOpen, KeyRound, Monitor } from 'lucide-react';
 import { cliApi, type CliProvider, type CliProviderStatus, type CliStatus } from '../../lib/cliApi';
 import { PLAN_PROVIDERS, planConnectionStatus } from '../../lib/planConnections';
 import { refreshModels } from './ModelPicker';
@@ -345,7 +346,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
       </section>}
 
       <section className="cfg-section" aria-label="Plan connection">
-        <AccessRow title={providerTab === 'claude' ? 'Claude plan' : 'ChatGPT plan'} description={`${PLAN_PROVIDERS.find(p => p.id === providerTab)!.plans} via the official ${providerTab === 'claude' ? 'Claude Code' : 'Codex'} CLI.`}
+        <AccessRow icon={Terminal} title={providerTab === 'claude' ? 'Claude plan' : 'ChatGPT plan'} description={`${PLAN_PROVIDERS.find(p => p.id === providerTab)!.plans} via the official ${providerTab === 'claude' ? 'Claude Code' : 'Codex'} CLI.`}
           status={<span role="status">{stale ? 'Status unavailable' : planConnectionStatus(status, providerTab, reportedPlan)}</span>}>
           {selected === providerTab
             ? <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy || loginRunning || authLocked} onClick={() => void select(null)}>Disconnect</button>
@@ -365,25 +366,25 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
       }} onConnected={() => { refreshModels(); void refresh(); }} />}
 
       <section className="cfg-section subscription-settings__auth" role="tabpanel" id="subscription-auth-panel" aria-labelledby={`subscription-tab-${providerTab}`}>
-        <AccessRow title="CLI connection" description="Clear saved CLI sign-ins and start over.">
+        <AccessRow icon={Terminal} title="CLI connection" description="Clear saved CLI sign-ins and start over.">
             <button type="button" className={`cfg-btn ${confirmReset ? 'cfg-btn--danger' : 'cfg-btn--secondary'}`} disabled={authLocked || !!busy} onClick={() => confirmReset ? reset() : setConfirmReset(true)}>{busy === 'reset' ? 'Resetting…' : confirmReset ? 'Confirm reset' : 'Reset connection'}</button>
             {confirmReset && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setConfirmReset(false)}>Cancel</button>}
         </AccessRow>
         {confirmReset && <p role="note">Reset removes the saved Claude Code and Codex logins from your Swarm server, revokes any computer bridge, cancels a sign-in in progress and clears cached status, then checks both CLIs again. Your selected subscription stays selected and blocked until you log in again or choose API providers.</p>}
-        <AccessRow title="CLI authentication" description="Use your subscription on the Swarm server or through an advanced bridge." status={selected ? undefined : authMethod === 'cli' ? 'Set up a plan below' : 'Not in use'}>
+        <AccessRow icon={Terminal} title="CLI authentication" description="Use your subscription on the Swarm server or through an advanced bridge." status={selected ? undefined : authMethod === 'cli' ? 'Set up a plan below' : 'Not in use'}>
           {authMethod === 'api' && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={disabled} onClick={() => setAuthMethod('cli')}>Set up CLI authentication</button>}
         </AccessRow>
-        <AccessRow title="API providers" description="Pay per use through a connected API provider." status={status && !selected ? 'In use' : undefined}>
+        <AccessRow icon={KeyRound} title="API providers" description="Pay per use through a connected API provider." status={status && !selected ? 'In use' : undefined}>
           <button type="button" className="cfg-btn cfg-btn--secondary" aria-pressed={authMethod === 'api'} disabled={disabled} onClick={() => void select(null)}>Use API providers</button>
           <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().openAppSettings('keys')}>Manage API keys</button>
         </AccessRow>
-        <AccessRow title={providerTab === 'claude' ? 'Claude Code' : 'Codex'} description={modeTitle} status={<span role="status">{busy === 'load' ? 'Checking status…' : !status ? 'Status unavailable' : stale ? 'Status unverified' : runtime === 'bridge' ? status.connected ? 'Computer bridge connected' : 'Computer bridge offline' : serverReady ? 'Connected' : 'Login required'}</span>}>
+        <AccessRow icon={Terminal} title={providerTab === 'claude' ? 'Claude Code' : 'Codex'} description={modeTitle} status={<span role="status">{busy === 'load' ? 'Checking status…' : !status ? 'Status unavailable' : stale ? 'Status unverified' : runtime === 'bridge' ? status.connected ? 'Computer bridge connected' : 'Computer bridge offline' : serverReady ? 'Connected' : 'Login required'}</span>}>
           {serverReady && selected !== providerTab && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={disabled} onClick={() => void select(providerTab)}>Use {providerTab === 'claude' ? 'Claude' : 'ChatGPT'}</button>}
         </AccessRow>
-        <AccessRow title="Authorization status" description="Refresh after signing in or reconnecting.">
+        <AccessRow icon={RefreshCw} title="Authorization status" description="Refresh after signing in or reconnecting.">
           <button type="button" className="cfg-btn cfg-btn--secondary" disabled={authLocked || !!busy || loginRunning} onClick={() => void refresh()}>{busy === 'refresh' ? 'Refreshing…' : 'Refresh status'}</button>
         </AccessRow>
-        <AccessRow title="Provider instructions" description="Review eligibility and official authentication steps.">
+        <AccessRow icon={BookOpen} title="Provider instructions" description="Review eligibility and official authentication steps.">
           <a className="cfg-btn cfg-btn--secondary" href={provider.docs} target="_blank" rel="noreferrer">Official auth docs</a>
         </AccessRow>
         <details className="subscription-settings__context">
@@ -405,14 +406,13 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
       </section>
 
       <details className="subscription-settings__advanced">
-        <summary><span>Connect your computer<small>Run the CLI on your computer only if you need the advanced bridge.</small></span><span className="cfg-btn cfg-btn--secondary">Advanced bridge <ChevronDown size={16} aria-hidden /></span></summary>
+        <summary className="cfg-row"><SettingIcon icon={Monitor} /><span>Connect your computer<small>Run the CLI on your computer only if you need the advanced bridge.</small></span><span className="cfg-btn cfg-btn--secondary">Advanced bridge <ChevronDown size={16} aria-hidden /></span></summary>
         <div className="subscription-settings__advanced-content">
       <section className="cfg-section" aria-labelledby="subscription-bridge-title">
         <h2 className="cfg-section__label" id="subscription-bridge-title">Computer bridge</h2>
         <div className="cfg-card">
           <p className="subscription-settings__inset">Generating a command switches model requests for this account to your computer. That computer must stay awake and online.</p>
-          <div className="cfg-row">
-            <Terminal size={20} strokeWidth={1.75} aria-hidden />
+          <div className="cfg-row"><SettingIcon icon={Terminal} />
             <div className="cfg-row__text">
               <div className="cfg-row__title">{runtime === 'server' ? 'Optional computer bridge' : !status ? 'Bridge status unknown' : stale ? 'Bridge status unverified' : status.connected ? 'Connected' : 'Disconnected'}</div>
               <div className="cfg-row__sub">{status?.device ? `Computer: ${status.device}` : 'Run the bridge on the computer where your CLIs are installed.'}</div>
@@ -461,7 +461,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
           const available = runtime === 'bridge' && !!status?.connected && !!health && ready(health) && !stale;
           return (
             <div className="cfg-card subscription-settings__provider" key={provider.id}>
-              <div className="cfg-row">
+              <div className="cfg-row"><SettingIcon icon={Terminal} />
                 <div className="cfg-row__text">
                   <div className="cfg-row__title">{provider.name}</div>
                   <div className="cfg-row__sub">{provider.plan}</div>
@@ -492,7 +492,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
         </div>
       </details>
 
-      <AccessRow title="Manage device access" description="Pair or manage the separate computer your Bots work on.">
+      <AccessRow icon={Monitor} title="Manage device access" description="Pair or manage the separate computer your Bots work on.">
         <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().openAppSettings('computer')}>Computer settings</button>
       </AccessRow>
       <div className="subscription-settings__actions">

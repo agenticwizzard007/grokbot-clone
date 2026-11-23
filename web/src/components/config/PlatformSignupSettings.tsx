@@ -1,3 +1,5 @@
+import { CircleUserRound, Share2 } from 'lucide-react';
+import { SettingIcon } from './SettingRow';
 import { useEffect, useRef, useState } from 'react';
 import { configApi, type MessagingInvite, type PlatformSignupPolicy, type PlatformWaitlistEntry } from '../../lib/configApi';
 import { verifyAccessAccount } from '../../lib/accessApi';
@@ -55,16 +57,16 @@ export function PlatformSignupSettings({ version }: { version: number }) {
       <div className="cfg-section__label">Signup administration</div>
       <div className="cfg-card cfg-key">
         <form className="cfg-key__form" onSubmit={e => { e.preventDefault(); void act(async () => { setPolicy((await configApi.savePlatformSignup(policy)).settings); }); }}>
-          <label className="cfg-field"><span className="cfg-field__label">Who can join by phone</span>
+          <label className="cfg-field"><SettingIcon icon={CircleUserRound} /><span className="cfg-field__label">Who can join by phone</span>
             <select className="text-input" value={policy.mode} onChange={e => setPolicy({ ...policy, mode: e.target.value as PlatformSignupPolicy['mode'] })} disabled={busy}>
               <option value="invite">Invitations and approved waitlist</option><option value="open">Open</option><option value="closed">Closed</option>
             </select>
           </label>
-          <label className="cfg-field"><span className="cfg-field__label">New phone accounts per day</span>
+          <label className="cfg-field"><SettingIcon icon={CircleUserRound} /><span className="cfg-field__label">New phone accounts per day</span>
             <input className="text-input" type="number" min="0" max="100000" required value={policy.signupsPerDay} onChange={e => setPolicy({ ...policy, signupsPerDay: e.target.valueAsNumber })} disabled={busy} />
             <span className="cfg-field__hint">0 removes the daily signup limit.</span>
           </label>
-          <label className="cfg-field"><span className="cfg-field__label">Invitations per member</span>
+          <label className="cfg-field"><SettingIcon icon={CircleUserRound} /><span className="cfg-field__label">Invitations per member</span>
             <input className="text-input" type="number" min="0" max="1000" required value={policy.memberInvites} onChange={e => setPolicy({ ...policy, memberInvites: e.target.valueAsNumber })} disabled={busy} />
           </label>
           <button className="cfg-btn cfg-btn--primary" disabled={busy}>Save signup settings</button>
@@ -78,11 +80,11 @@ export function PlatformSignupSettings({ version }: { version: number }) {
         <form className="msg-invite-form" onSubmit={e => { e.preventDefault(); void act(async () => {
           await configApi.createInvite({ maxUses: Number(inviteUses), expiresInDays: Number(inviteDays) }); await loadInvites();
         }); }}>
-          <label className="cfg-field"><span className="cfg-field__label">Uses</span><input className="text-input" type="number" min="1" max="100000" required value={inviteUses} onChange={e => setInviteUses(e.target.value)} disabled={busy} /></label>
-          <label className="cfg-field"><span className="cfg-field__label">Expires in days</span><input className="text-input" type="number" min="1" max="365" required value={inviteDays} onChange={e => setInviteDays(e.target.value)} disabled={busy} /></label>
+          <label className="cfg-field"><SettingIcon icon={CircleUserRound} /><span className="cfg-field__label">Uses</span><input className="text-input" type="number" min="1" max="100000" required value={inviteUses} onChange={e => setInviteUses(e.target.value)} disabled={busy} /></label>
+          <label className="cfg-field"><SettingIcon icon={CircleUserRound} /><span className="cfg-field__label">Expires in days</span><input className="text-input" type="number" min="1" max="365" required value={inviteDays} onChange={e => setInviteDays(e.target.value)} disabled={busy} /></label>
           <button className="cfg-btn cfg-btn--primary" disabled={busy}>Create invite</button>
         </form>
-        {invites.map(invite => <div className="cfg-row" key={invite.code}>
+        {invites.map(invite => <div className="cfg-row" key={invite.code}><SettingIcon icon={Share2} />
           <div className="cfg-row__text"><div className="cfg-row__title"><a href={invite.url}>{invite.code}</a></div><div className="cfg-row__sub">{invite.uses} of {invite.maxUses} used · {invite.revoked ? 'Revoked' : invite.expiresAt ? `Expires ${shortDate(invite.expiresAt)}` : 'No expiry'}</div></div>
           {!invite.revoked && <ConfirmButton className="cfg-btn cfg-btn--secondary" disabled={busy} confirmLabel="Revoke invite" onConfirm={() => act(async () => { await configApi.revokeInvite(invite.code); await loadInvites(); })}>Revoke</ConfirmButton>}
         </div>)}
@@ -94,7 +96,7 @@ export function PlatformSignupSettings({ version }: { version: number }) {
       <p className="cfg-field__hint">Approval lets this number join when they next verify their phone or message Swarm. Closing signups pauses all new phone accounts.</p>
       <div className="cfg-card">
         {!waiting.length && <div className="cfg-empty cfg-empty--flat">{loading ? 'Loading waitlist…' : 'Nobody is waiting.'}</div>}
-        {waiting.map(row => <div className="cfg-row" key={row.phone}>
+        {waiting.map(row => <div className="cfg-row" key={row.phone}><SettingIcon icon={CircleUserRound} />
           <div className="cfg-row__text"><div className="cfg-row__title">+{row.phone}</div><div className="cfg-row__sub">{row.channel} · {row.status} · {shortDate(row.createdAt)}</div></div>
           {row.status !== 'approved' && <button className="cfg-btn cfg-btn--primary" disabled={busy} onClick={() => void act(async () => { await configApi.decidePlatformWaitlist(row.phone, row.revision, 'approve'); await loadWaitlist(); })}>Approve</button>}
           {row.status !== 'declined' && <button className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => void act(async () => { await configApi.decidePlatformWaitlist(row.phone, row.revision, 'decline'); await loadWaitlist(); })}>Decline</button>}

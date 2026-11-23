@@ -1,3 +1,4 @@
+import { KeyRound } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { accessApi, verifyAccessAccount } from '../../lib/accessApi';
 import { needsReauth } from '../../lib/api';
@@ -64,7 +65,7 @@ export function PrivateKeysSettings({ accountId, onReauth }: { accountId: string
       }}>
         <label htmlFor={`private-${provider}-key`}>{title}</label>
         <input id={`private-${provider}-key`} className="text-input" type="password" autoComplete="off" spellCheck={false} value={values[provider]} onChange={event => setValues(previous => ({ ...previous, [provider]: event.target.value }))} disabled={busy} />
-        <AccessRow title={saved?.connected ? `Connected ${saved.hint ?? ''}` : 'No credential configured'} description={provider === 'voice' ? 'Used for supported voice features.' : 'Verify the key before selecting it for models.'}>
+        <AccessRow icon={KeyRound} title={saved?.connected ? `Connected ${saved.hint ?? ''}` : 'No credential configured'} description={provider === 'voice' ? 'Used for supported voice features.' : 'Verify the key before selecting it for models.'}>
           <button type="submit" className="cfg-btn cfg-btn--secondary" disabled={busy || !values[provider].trim()}>Save &amp; verify key</button>
           {!!saved?.connected && <ConfirmButton className="cfg-btn cfg-btn--secondary" disabled={busy} confirmLabel="Remove key" onConfirm={() => act(() => accessApi.removeCredential(provider), `${title} key removed.`)}>Disconnect</ConfirmButton>}
           {provider === 'direct' && !!saved?.connected && <ConfirmButton className="cfg-btn cfg-btn--secondary" disabled={busy} confirmLabel="Switch to API billing" onConfirm={() => act(accessApi.selectPrivateModels, 'Private model API selected.')}>Use for models</ConfirmButton>}
