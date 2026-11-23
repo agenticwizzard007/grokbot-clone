@@ -144,7 +144,7 @@ function CreateBotForm({ inline, userId }: { inline: boolean; userId: string | u
     <SetupPaperHeader backLabel={returnsToBots ? 'Back to Bots' : 'Back to chat'} title="Bots" onBack={close} onClose={close} disabled={busy} />
     <div className="setup-paper__column setup-create__column">
       <h1>{title}</h1>
-      {!completedImport && <p className="setup-paper__subtitle">{flow === 'create' ? 'Give your Bot a name and a look.' : 'Choose a bot-setup.json exported from Configuration files.'}</p>}
+      {!completedImport && <p className="setup-paper__subtitle">{flow === 'create' ? 'Give your Bot a name and a look.' : 'Choose a bot-setup.json exported from Details > Setup > Files.'}</p>}
       {completedImport ? <div className="setup-create__form">
         <div className="setup-create__description" role="status"><strong>Setup imported</strong><p>{completedImport.name} is in your Bots.</p></div>
         <div className="setup-paper__actions"><button type="button" className="cfg-btn cfg-btn--primary" onClick={() => openImportedSetup(completedImport.botId)}>Open imported setup</button></div>
