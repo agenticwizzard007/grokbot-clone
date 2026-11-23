@@ -22,9 +22,9 @@ The sidebar header is 40px with 16px below it. Sidebar padding is 16px; Bots row
 
 ## Composer
 
-The floating composer stays at the bottom of the chat flex column, outside the scrolling transcript. Its width matches the conversation. At rest it is at most 64px tall, with one 24px text line and 44px action targets. The plus sits at the left; the model/billing chip is one line inside the composer; the circular microphone is the far-right action. Typing replaces the microphone with Send in the same 44px slot. A running empty draft shows Stop in that slot. Live voice and dictation remain reachable through existing voice controls and the plus menu when Send or Stop occupies the slot.
+The floating composer stays at the bottom of the chat flex column, outside the scrolling transcript. Its width matches the conversation. At rest it is 62px tall (64px test ceiling), with one 24px text line and 44px action targets. The phone placeholder is the compact `Message`, with the complete Bot name retained in its accessible label. The plus sits at the left; the model/billing chip is one line inside the composer; the circular microphone is the far-right action. Typing replaces the microphone with Send in the same 44px slot. A running empty draft shows Stop in that slot. Live voice and dictation remain reachable through existing voice controls and the plus menu when Send or Stop occupies the slot.
 
-Long drafts grow upward within a viewport-aware cap, then scroll inside the textarea. At phone widths the model chip remains on one line and truncates its model name as necessary; the full selection remains accessible through its label and picker. Multiline mode moves the textarea above the same left/chip/right control row. Phone bottom padding is at least 16px and includes the real safe-area inset. No new fixed overlay covers the final message or keyboard.
+Long drafts grow upward within `clamp(112px, 24dvh, 240px)`, then scroll inside the textarea. At phone widths the model chip remains on one line and truncates its model name as necessary; the full selection remains accessible through its label and picker. Multiline mode moves the textarea above the same left/chip/right control row. Phone bottom padding is at least 16px and includes the real safe-area inset. No new fixed overlay covers the final message or keyboard.
 
 ## Transcript and scrolling
 

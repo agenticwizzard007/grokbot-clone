@@ -205,7 +205,7 @@ const rowRect = (anchor: HTMLElement) => (anchor.style.display === 'contents' &&
 
 export const Transcript = memo(function Transcript({ bot, generation, rows, live, loaded }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const readingPosition = useRef<{ firstSeq: number; seq: string; top: number } | null>(null);
+  const readingPosition = useRef<{ seq: string; top: number } | null>(null);
   const transcript = useStore(s => s.transcripts[bot.id]);
   const paging = transcript?.generation === generation ? transcript : undefined;
   const responseSlot = useRef<HTMLDivElement>(null);
@@ -274,20 +274,21 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
     if (!el) return;
     const top = el.getBoundingClientRect().top;
     const anchor = Array.from(el.querySelectorAll<HTMLElement>('[data-row-seq]')).find(row => rowRect(row).bottom > top);
-    readingPosition.current = anchor && rows.length ? { firstSeq: rows[0].seq, seq: anchor.dataset.rowSeq!, top: rowRect(anchor).top } : null;
+    readingPosition.current = anchor && rows.length ? { seq: anchor.dataset.rowSeq!, top: rowRect(anchor).top - top } : null;
   };
 
-  // Prepending history preserves the visible row even when message groups merge.
+  // Row updates preserve the visible anchor, including prepends and streaming edits.
   // New content still follows the bottom unless the user has scrolled up.
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     const previous = readingPosition.current;
-    if (!stick.current && previous && rows.length && rows[0].seq < previous.firstSeq) {
+    if (!stick.current && previous) {
       const anchor = el.querySelector<HTMLElement>(`[data-row-seq="${previous.seq}"]`);
-      if (anchor) el.scrollTop += rowRect(anchor).top - previous.top;
+      if (anchor) el.scrollTop += rowRect(anchor).top - el.getBoundingClientRect().top - previous.top;
     } else if (stick.current) el.scrollTop = el.scrollHeight;
     rememberPosition();
+    setShowJump(!stick.current && el.scrollHeight - el.scrollTop - el.clientHeight >= 40);
   }, [rows, live, loaded, bot.id, exchanges.exchanges]);
   // Lazy markdown can change height after the rows commit. Keep the latest
   // message in view, or preserve the reader's anchor while older content formats.
@@ -299,26 +300,30 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
       else {
         const position = readingPosition.current;
         const anchor = position && el.querySelector<HTMLElement>(`[data-row-seq="${position.seq}"]`);
-        if (anchor) el.scrollTop += rowRect(anchor).top - position!.top;
+        if (anchor) el.scrollTop += rowRect(anchor).top - el.getBoundingClientRect().top - position!.top;
       }
       rememberPosition();
+      setShowJump(!stick.current && el.scrollHeight - el.scrollTop - el.clientHeight >= 40);
     });
     observer.observe(column);
+    observer.observe(el);
     return () => observer.disconnect();
   }, [bot.id, rows]);
   // Jump to bottom when switching bots.
   useLayoutEffect(() => {
     stick.current = true;
+    readingPosition.current = null;
+    setShowJump(false);
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [bot.id]);
+  }, [bot.id, generation]);
 
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return; // a scroll event can arrive after the chat unmounts (for example when Create opens a new Bot)
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
     stick.current = dist < 40;
-    setShowJump(dist > 200);
+    setShowJump(!stick.current);
     rememberPosition();
     // Fetch one earlier window when the reader reaches the top. Initial bottom
     // positioning and short transcripts must not walk the entire history.
@@ -329,7 +334,11 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
 
   const jump = () => {
     const el = scrollRef.current;
-    el?.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    stick.current = true;
+    setShowJump(false);
+    // Immediate movement also respects reduced motion and cannot race new deltas.
+    el?.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
+    rememberPosition();
   };
 
   return (
@@ -380,8 +389,8 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
       </div>
     </div>
       {showJump && (
-        <button type="button" className="jump-btn" onClick={jump} aria-label="Scroll to bottom">
-          <Icon name="arrow_down" size={16} />
+        <button type="button" className="jump-btn" onClick={jump} aria-label="Jump to latest">
+          <Icon name="arrow_down" size={16} /><span>Jump to latest</span>
         </button>
       )}
     </div>

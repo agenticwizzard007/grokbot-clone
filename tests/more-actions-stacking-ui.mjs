@@ -115,7 +115,8 @@ try {
       if (width <= 760) await page.locator('.sidebar .bot-row').filter({ hasText: bot.name }).click();
       const transcript = page.locator('.transcript');
       await transcript.locator('[data-row-seq="60"]').waitFor();
-      assert.equal(await transcript.locator('[data-row-seq]').count(), 60);
+      // Initial history is bounded since the chat-open performance change.
+      assert.equal(await transcript.locator('[data-row-seq]').count(), 24);
       await page.evaluate(() => document.fonts.ready);
       await transcript.evaluate(el => { el.scrollTop = el.scrollHeight; });
       await page.waitForFunction(() => {
@@ -124,7 +125,7 @@ try {
       });
       await transcript.hover();
       await page.mouse.wheel(0, -10000);
-      const jump = page.getByRole('button', { name: 'Scroll to bottom', exact: true });
+      const jump = page.getByRole('button', { name: 'Jump to latest', exact: true });
       await jump.waitFor();
       const more = page.getByRole('button', { name: 'More actions', exact: true });
       writes.length = 0;
@@ -144,7 +145,8 @@ try {
           const overlaps = right > left && bottom > top;
           const points = overlaps ? [
             { x: (left + right) / 2, y: (top + bottom) / 2 },
-            { x: left + 1, y: top + 1 }, { x: right - 1, y: bottom - 1 },
+            { x: Math.min(left + 8, (left + right) / 2), y: Math.min(top + 8, (top + bottom) / 2) },
+            { x: Math.max(right - 8, (left + right) / 2), y: Math.max(bottom - 8, (top + bottom) / 2) },
           ] : [{ x: r.x + r.width / 2, y: r.y + r.height / 2 }];
           return { label: item.textContent.trim(), overlaps, points: points.map(point => ({
             ...point, onTop: item.contains(document.elementFromPoint(point.x, point.y)),
@@ -192,7 +194,7 @@ try {
     } finally { await context.close(); }
   }
   assert.deepEqual(failures, [], 'More actions must receive clicks above the jump button');
-  console.log('PASS N06: More actions stays above Scroll to bottom at 390 and 768');
+  console.log('PASS N06: More actions stays above Jump to latest at 390 and 768');
 } catch (error) {
   await fs.writeFile(path.join(evidence, 'server.log'), logs.join(''));
   throw error;

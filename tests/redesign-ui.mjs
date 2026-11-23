@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import { chromium } from 'playwright';
 
-const phase = process.env.REDESIGN_PHASE || 'shell';
+const phase = process.env.REDESIGN_PHASE || 'chat';
 const shellChecks = phase !== 'baseline';
 const chatChecks = ['chat', 'settings', 'all'].includes(phase);
 const settingsChecks = ['settings', 'all'].includes(phase);
@@ -115,23 +115,43 @@ try {
       await wait(async()=> (await composer.boundingBox()).height>64,'multiline growth');
       assert.ok((await composer.boundingBox()).height<=240,'multiline composer cap');
       assert.ok(await input.evaluate(el=>el.scrollHeight>el.clientHeight),'long drafts scroll inside textarea');
+      await input.fill('Hello');
+      await wait(async()=> (await composer.boundingBox()).height<=64,'shortened draft returns to single-line height');
     }
     await input.fill('');
+    if(chatChecks) await wait(async()=> (await composer.boundingBox()).height<=64,'cleared draft returns to single-line height');
     const transcript=page.locator('.transcript');
     await transcript.evaluate(el=>{el.scrollTop=Math.max(0,el.scrollHeight-el.clientHeight-500);});
     await page.locator('.jump-btn').waitFor();
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
     if(chatChecks){
       const before=await transcript.evaluate(el=>el.scrollTop);
       const next=row(33,'An update arrived while you were reading.','assistant');
       await page.evaluate(next=>window.emitRedesignEvent({type:'rows',botId:'quinn',generation:1,rows:[next]}),next);
       await page.locator('[data-row-seq="33"]').waitFor({state:'attached'});
-      assert.ok(Math.abs(await transcript.evaluate(el=>el.scrollTop)-before)<=2,'incoming row preserves scroll position');
+      const after=await transcript.evaluate(el=>el.scrollTop);
+      assert.ok(Math.abs(after-before)<=2,`incoming row preserves scroll position: ${before} to ${after}`);
       await page.getByRole('button',{name:'Jump to latest',exact:true}).waitFor();
+      const anchor=page.locator('[data-row-seq="28"]');
+      const anchorTop=(await anchor.boundingBox()).y;
+      const changed={...row(2,'Earlier content expands after formatting.\n\n'.repeat(14),'assistant'),updatedSeq:35};
+      await page.evaluate(next=>window.emitRedesignEvent({type:'rows',botId:'quinn',generation:1,rows:[next]}),changed);
+      await page.getByText('Earlier content expands after formatting.',{exact:false}).first().waitFor();
+      await wait(async()=>Math.abs((await anchor.boundingBox()).y-anchorTop)<=2,'earlier content preserves visible anchor');
+      await page.mouse.move(0,0);
+      await input.blur();
+      await wait(()=>transcript.evaluate(el=>!el.dataset.scrolling),'scroll thumb settles');
+      assert.equal(await transcript.evaluate(el=>getComputedStyle(el).getPropertyValue('--scroll-thumb').trim()),'transparent','thumb hidden at rest');
+      await transcript.hover();
+      assert.notEqual(await transcript.evaluate(el=>getComputedStyle(el).getPropertyValue('--scroll-thumb').trim()),'transparent','thumb visible on hover');
+      await page.mouse.move(0,0);
+      await transcript.evaluate(el=>el.scrollTop-=24);
+      await wait(()=>transcript.evaluate(el=>el.dataset.scrolling==='true'),'thumb visible while scrolling');
       const geometry=await transcript.evaluate(el=>{
-        const r=el.getBoundingClientRect(),s=getComputedStyle(el),edge=r.left+el.clientWidth-parseFloat(s.paddingRight);
+        const r=el.getBoundingClientRect(),s=getComputedStyle(el),edge=r.left+el.clientLeft+el.clientWidth-parseFloat(s.paddingRight);
         return {edge,rights:[...el.querySelectorAll('.bubble')].map(b=>b.getBoundingClientRect().right),gutter:s.scrollbarGutter};
       });
-      assert.ok(geometry.rights.every(right=>right<=geometry.edge+.5),'bubbles clear the scroll content edge');
+      assert.ok(geometry.rights.every(right=>right<=geometry.edge+.5),`bubbles clear the scroll content edge ${JSON.stringify(geometry)}`);
       assert.match(geometry.gutter,/stable/,'gutter reserves scrollbar space');
     }
     await snap('chat-scrolled');
@@ -167,6 +187,14 @@ try {
     await page.getByRole('button',{name:'New Bot',exact:true}).click();await page.getByRole('main',{name:'Create a Bot',exact:true}).waitFor();await snap('create-bot');
     await goto('');if(width<=760)await page.locator('.sidebar').waitFor();
     await page.locator('.bot-row').filter({hasText:'Launch team'}).click();await page.locator('.composer__input').waitFor();await snap('group-chat');
+    if(chatChecks){
+      const groupMic=await page.locator('.composer__voice').boundingBox();
+      await input.fill('Hello');
+      const groupSend=await page.getByRole('button',{name:'Send',exact:true}).boundingBox();
+      for(const key of ['x','y','width','height'])assert.ok(Math.abs(groupSend[key]-groupMic[key])<=2,`${width}: group mic/send same ${key}`);
+      assert.equal(await page.locator('.composer__voice:visible').count(),0,'group send replaces mic');
+      await input.fill('');
+    }
     signedOut=true;await page.goto(`${origin}/?signed-out-fixture`);await page.getByRole('heading',{name:'Welcome to Swarm',exact:true}).waitFor();await snap('sign-in');
     assert.deepEqual(errors,[],`${width}px browser errors`);
     console.log(`PASS ${width}px ${phase}: complete screen capture, no browser errors`);passes++;
