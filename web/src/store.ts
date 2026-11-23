@@ -61,10 +61,10 @@ interface State {
   viewerControl: boolean;
 
   checkAuth(): Promise<void>;
-  loadBots(): Promise<void>;
+  loadBots(opts?: { silent?: boolean }): Promise<void>;
   /** Select a Bot. `open: false` selects without navigating (phones stay on the list). */
   selectBot(id: string, opts?: { open?: boolean }): void;
-  loadRows(id: string): Promise<void>;
+  loadRows(id: string, opts?: { resync?: boolean }): Promise<void>;
   loadOlderRows(id: string): Promise<void>;
   ensureRowLoaded(id: string, generation: number, seq: number): Promise<boolean>;
   loadRoutines(id: string): Promise<void>;
@@ -159,7 +159,7 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  async loadBots() {
+  async loadBots(opts = {}) {
     const accountId = get().user?.id;
     if (!accountId) return;
     const epoch = accountEpoch;
@@ -191,7 +191,7 @@ export const useStore = create<State>((set, get) => ({
       if (firstLoad && selectedBotId && !get().mobile && readDetailsDefault(accountId)) set({ detailsOpen: true });
     } catch {
       requireActiveSession();
-      if (current()) set({ botsError: "Couldn't load your Bots. Check your connection and try again." });
+      if (current() && !opts.silent) set({ botsError: "Couldn't load your Bots. Check your connection and try again." });
     } finally {
       if (current()) set({ botsLoading: false });
     }
@@ -209,7 +209,7 @@ export const useStore = create<State>((set, get) => ({
     if (bot?.unread) api.markRead(id).catch(() => {});
   },
 
-  async loadRows(id) {
+  async loadRows(id, opts = {}) {
     const accountId = get().user?.id;
     if (!accountId || !get().bots.some(bot => bot.id === id)) return;
     const epoch = accountEpoch;
@@ -228,7 +228,21 @@ export const useStore = create<State>((set, get) => ({
       loading: true,
     } } }));
     try {
-      const { generation, rows } = await api.rows(id);
+      const { generation, rows: latest } = await api.rows(id);
+      const rows = [...latest];
+      // Reconnects must bridge a burst larger than one page and refresh revisions
+      // of already cached rows. Normal navigation still fetches just one window.
+      const floor = opts.resync && previous?.loaded && previous.generation === generation
+        ? Object.values(previous.bySeq).reduce((min, row) => Math.min(min, row.seq), Infinity) : undefined;
+      let page = latest;
+      while (floor !== undefined && page.length === ROW_PAGE_SIZE && page[0].seq > (floor === Infinity ? 0 : floor)) {
+        if (!current()) return;
+        const older = await api.rows(id, page[0].seq);
+        if (older.generation !== generation) throw new Error('Outdated transcript');
+        if (older.rows.length && older.rows[0].seq >= page[0].seq) throw new Error('Invalid transcript page');
+        page = older.rows;
+        rows.push(...page);
+      }
       requireActiveSession();
       if (!current()) return;
       const state = get();
@@ -251,7 +265,7 @@ export const useStore = create<State>((set, get) => ({
       // Ordinary load failures remain retryable, but confirmed expiry must reject.
       requireActiveSession();
       if (current() && get().transcripts[id]?.generation === expectedGeneration) set(s => ({ transcripts: { ...s.transcripts, [id]: {
-        ...s.transcripts[id], loading: false, error: "Couldn't load messages. Check your connection and try again.",
+        ...s.transcripts[id], loading: false, ...(!opts.resync ? { error: "Couldn't load messages. Check your connection and try again." } : {}),
       } } }));
     }
   },
