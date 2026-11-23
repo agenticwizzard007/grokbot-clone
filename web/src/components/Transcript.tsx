@@ -15,6 +15,7 @@ import { ElapsedTimer, fmtElapsed } from './BrailleSpinner';
 import { AgentExchangeGroup } from './AgentExchangeGroup';
 import { groupExchanges, type ExchangeGroup } from '../lib/agentExchanges';
 import { useAgentExchanges } from '../lib/useAgentExchanges';
+import { FlockMark } from './FlockMark';
 
 type Item =
   | { kind: 'exchange'; key: string; group: ExchangeGroup }
@@ -45,7 +46,8 @@ function buildItems(rows: Row[], exchanges: ExchangeGroup[], separateReplies: Se
       continue;
     }
     if (b.type === 'message') {
-      if (!b.text && (b.role === 'assistant' || !b.streaming)) continue;
+      // Blank model deltas do not replace the processing flock with a bubble.
+      if (b.role === 'assistant' ? !b.text.trim() : !b.text && !b.streaming) continue;
       const side = b.role === 'user' && (!b.from || b.from.kind === 'voice' || isText(b.from.kind)) ? 'right' : 'left';
       const sender = b.from ? `${b.from.kind}:${b.from.id}` : b.role;
       const lastRow = last?.kind === 'group' ? last.rows[last.rows.length - 1] : null;
@@ -180,7 +182,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
 
   const running = !!live?.isRunning;
   const waiting = !running && (!!live?.awaiting || live?.activity?.kind === 'waiting_for_you');
-  const streamingNow = visibleRows.some(row => row.body.type === 'message' && row.body.role === 'assistant' && row.body.streaming && row.body.text);
+  const streamingNow = visibleRows.some(row => row.body.type === 'message' && row.body.role === 'assistant' && row.body.streaming && row.body.text.trim());
   const promptSeq = visibleRows.findLast(row => row.body.type === 'message' && row.body.role === 'user'
     && row.body.from?.kind !== 'bot' && row.body.from?.kind !== 'routine')?.seq ?? 0;
   // A queued prompt can precede the previous run's answer. Use the run boundary
@@ -190,7 +192,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
     : promptSeq !== responseTurn.current.promptSeq
       ? { startedAt: null, promptSeq }
       : responseTurn.current;
-  const firstReply = visibleRows.find(row => row.body.type === 'message' && row.body.role === 'assistant' && row.body.text
+  const firstReply = visibleRows.find(row => row.body.type === 'message' && row.body.role === 'assistant' && row.body.text.trim()
     && (turn.startedAt != null ? row.createdAt >= turn.startedAt : row.seq > turn.promptSeq));
   const items = useMemo(() => {
     const separateReplies = new Set(responseHeights.current.keys());
@@ -302,7 +304,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
         {pendingResponse && (!empty || processing) && (
           <div ref={responseSlot} className={`first-response${empty ? ' first-response--empty' : ''}`} style={{ minHeight: responseHeight.current || undefined }}>
             <div className="first-response__mark" role={processing ? 'status' : undefined} aria-label={processing ? 'Working' : undefined}>
-              <BotAvatar shape={bot.avatarShape} color={bot.avatarColor} size={72} title={bot.name} working={processing} />
+              {processing ? <FlockMark size={72} working /> : <BotAvatar shape={bot.avatarShape} color={bot.avatarColor} size={72} title={bot.name} />}
             </div>
             {showActivity && live && <ActivityLine bot={bot} live={live} rows={visibleRows} />}
           </div>

@@ -98,8 +98,8 @@ try {
     if (width < 761) await page.locator(bot.isPrimary ? '.pinned__tile' : '.bot-row').filter({ hasText: bot.name }).click();
     const panel = page.locator('.first-response');
     const mark = panel.locator('.first-response__mark');
-    const moving = mark.locator('.bot-avatar--working > svg');
-    const idle = mark.locator('.bot-avatar > svg');
+    const moving = mark.locator('.flock-mark.is-working .flock-mark__moving:visible');
+    const idle = mark.locator('.flock-mark__static:visible');
     const geometry = () => page.evaluate(() => Object.fromEntries(['.composer-area', '.transcript', '.bubble-wrap.is-right'].map(selector => {
       const rect = document.querySelector(selector)?.getBoundingClientRect();
       return [selector, rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : null];
@@ -112,8 +112,10 @@ try {
     };
     const working = async () => {
       await moving.waitFor();
-      assert.equal(await moving.getAttribute('data-bird'), bot.avatarShape);
-      assert.equal(await mark.locator('.flock-mark, .bot-avatar__working').count(), 0);
+      assert.equal(await moving.getAttribute('src'), `/assets/swarms/flock-working-${theme === 'dark' ? 'night' : 'light'}.svg`);
+      assert.equal(await mark.locator('.bot-avatar').count(), 0);
+      const imageBox = await moving.boundingBox();
+      assert.equal(imageBox.width, 72); assert.equal(imageBox.height, 72);
       const box = await mark.boundingBox();
       assert.equal(box.width, 72); assert.equal(box.height, 72);
       const viewport = await page.locator('.transcript').boundingBox();
@@ -149,7 +151,7 @@ try {
     await live();
     await working();
     await hasPixelMotion();
-    assert.equal(await page.locator('.activity-line').count(), 0, 'the default first-turn animation is the Bot avatar');
+    assert.equal(await page.locator('.activity-line').count(), 0, 'the default first-turn animation is the 72px flock');
     sameGeometry(before, await geometry());
     assert.equal(await page.locator('.chat__header .bot-avatar > svg').count(), 1, 'the Bot identity shape stays in the header');
     await page.screenshot({ path: new URL(`${label}-working.png`, evidence).pathname });
@@ -263,7 +265,7 @@ try {
     assert.equal(await idle.evaluate(el => el.getAnimations().length), 0);
     const still = await mark.screenshot();
     await page.waitForTimeout(300);
-    assert.ok(still.equals(await mark.screenshot()), 'the existing-chat reduced-motion avatar is static');
+    assert.ok(still.equals(await mark.screenshot()), 'the existing-chat reduced-motion flock is static');
     sameGeometry(established, await geometry());
     await page.emulateMedia({ reducedMotion: 'no-preference' });
     await live({ isRunning: false, activity: null, startedAt: null });
@@ -274,6 +276,11 @@ try {
     const nextReply = row(4, 'assistant', '', true);
     await emit({ type: 'rows', botId: bot.id, generation, rows: [nextReply] });
     await working();
+    sameGeometry(established, await geometry());
+    nextReply.body.text = ' \n\t'; nextReply.updatedSeq++;
+    await emit({ type: 'rows', botId: bot.id, generation, rows: [nextReply] });
+    await working();
+    assert.equal(await page.locator('.bubble.is-streaming').count(), 0, 'blank text cannot replace the flock with a streaming dot');
     sameGeometry(established, await geometry());
     nextReply.body.text = 'Hi, glad you are here.'; nextReply.updatedSeq++;
     await emit({ type: 'rows', botId: bot.id, generation, rows: [nextReply] });
