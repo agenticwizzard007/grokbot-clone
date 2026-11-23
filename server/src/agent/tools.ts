@@ -1,4 +1,5 @@
 import { db, now } from '../db.js';
+import { botTargetChoice, listVisibleAgents, resolveBotTarget } from '../bots.js';
 import { BROWSER_TOOLS } from '../computers/browser-tools.js';
 import { captchaOutcome, handOffCaptcha, screenLink } from './captcha.js';
 import { BrowserRecovery, browserText } from './browser-recovery.js';
@@ -99,9 +100,10 @@ async function shot(ctx: ToolCtx, caption: string, actedScreen?: BotScreen): Pro
 
 const onScreen = async (ctx: ToolCtx) => computers.screen(ctx.userId, ctx.botId);
 
-function botByName(userId: string, name: string) {
-  return db.prepare('SELECT * FROM bots WHERE user_id=? AND lower(name)=lower(?)').get(userId, name.trim()) as any;
-}
+const botTargetProperties = {
+  bot_id: { type: 'string', description: 'Immutable Bot ID from the team roster or disambiguation choices. Preferred; takes precedence over bot_name.' },
+  bot_name: { type: 'string', description: 'Legacy display name. Only accepted when exactly one visible owned Bot matches, ignoring case.' },
+};
 
 export const TOOLS: ToolDef[] = [
   ...COORDINATION_TOOLS,
@@ -389,15 +391,14 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'send_to_bot',
-    description: "Send a message to another Bot on the user's team (by name) to delegate work or ask a question. Their reply will arrive later as a new message to you.",
-    parameters: obj({ bot_name: { type: 'string' }, message: { type: 'string' } }, ['bot_name', 'message']),
+    description: "Send a message to another Bot on the user's team using bot_id from the team roster to delegate work or ask a question. A unique bot_name is accepted for compatibility. If names are ambiguous, ask the user to choose before retrying by ID. Their reply will arrive later as a new message to you.",
+    parameters: obj({ ...botTargetProperties, message: { type: 'string' } }, ['message']),
     activity: 'messaging_named',
     label: 'Messaging a Bot',
     impl: async (a, ctx) => {
-      const target = botByName(ctx.userId, a.bot_name);
-      if (!target) return { output: `No bot named "${a.bot_name}". Team: ${(db.prepare('SELECT name FROM bots WHERE user_id=?').all(ctx.userId) as any[]).map((b) => b.name).join(', ')}` };
+      const target = resolveBotTarget(ctx.userId, a);
+      if (!target) return { output: `No matching Bot. Team: ${JSON.stringify(listVisibleAgents(ctx.userId).map(botTargetChoice))}`, isError: true };
       if (target.id === ctx.botId) return { output: 'That is you.' };
-      if (target.kind === 'room') return { output: `"${target.name}" is a group chat; use post_to_group instead.` };
       if (!selectedCli(ctx.userId) && ctx.depth >= 3) return { output: 'Internal request depth reached. Return this blocker to the current requester; keep internal output internal.' };
       const requestId = ctx.enqueueBotMessage(ctx.botId, target.id, String(a.message), ctx.depth + 1);
       return { output: `Request recorded for ${target.name}${requestId ? ` (${requestId})` : ""}. Execution may be deferred; a correlated result will return automatically.`, summary: `Requested ${target.name}` };
@@ -414,13 +415,13 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'replicate_bot',
     description: 'Create another permanent teammate from an existing Bot’s complete saved role and configuration, with a new name and fresh browser profile. Does not copy browser logins, running tasks, schedules or chat history. Primary Bot only.',
-    parameters: obj({ bot_name: { type: 'string' }, new_name: { type: 'string' } }, ['bot_name', 'new_name']),
+    parameters: obj({ ...botTargetProperties, new_name: { type: 'string' } }, ['new_name']),
     activity: 'working', label: 'Replicating a teammate', impl: replicateTeammate,
   },
   {
     name: 'retry_bot_setup',
     description: 'Finish or retry a saved teammate’s computer setup after a connection or provisioning failure. Reuses the same Bot; never creates a duplicate. Primary Bot only.',
-    parameters: obj({ bot_name: { type: 'string' } }, ['bot_name']),
+    parameters: obj(botTargetProperties),
     activity: 'working', label: 'Preparing a teammate’s computer', impl: retryTeammate,
   },
   {
@@ -482,23 +483,26 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'create_group',
-    description: "Create a group chat between the user and several Bots on the team (by name). It appears in the user's sidebar; when the user posts there, the relevant Bots answer.",
-    parameters: obj({ name: { type: 'string' }, bot_names: { type: 'array', items: { type: 'string' } } }, ['name', 'bot_names']),
+    description: "Create a group chat between the user and several Bots using bot_ids from the team roster. Unique bot_names are accepted for compatibility. Ask the user to disambiguate duplicate names before retrying by ID. It appears in the user's sidebar; when the user posts there, the relevant Bots answer.",
+    parameters: obj({ name: { type: 'string' }, bot_ids: { type: 'array', items: { type: 'string' }, description: 'Immutable Bot IDs. Preferred; takes precedence over bot_names.' }, bot_names: { type: 'array', items: { type: 'string' }, description: 'Legacy unique display names.' } }, ['name']),
     activity: 'working',
     label: 'Setting up a group',
     impl: async (a, ctx) => {
       const ids: string[] = [];
+      const names: string[] = [];
       const missing: string[] = [];
       const configuring: string[] = [];
-      for (const n of (a.bot_names ?? []) as string[]) {
-        const b = botByName(ctx.userId, n);
-        if (b && b.kind !== 'room' && isConfiguring(b.id)) configuring.push(b.name);
-        else if (b && b.kind !== 'room') ids.push(b.id); else missing.push(n);
+      const byId = a.bot_ids !== undefined;
+      const targets = z.array(z.string().trim().min(1)).parse(byId ? a.bot_ids : a.bot_names);
+      for (const n of targets) {
+        const b = resolveBotTarget(ctx.userId, byId ? { bot_id: n } : { bot_name: n });
+        if (b && isConfiguring(b.id)) configuring.push(b.name);
+        else if (b) { ids.push(b.id); names.push(b.name); } else missing.push(n);
       }
       if (configuring.length) return { output: `Activate ${configuring.join(', ')} before adding ${configuring.length > 1 ? 'them' : 'it'} to a group. Bots that are still being set up can't answer in groups.` };
-      if (ids.length < 2) return { output: `A group needs at least 2 Bots. Not found: ${missing.join(', ') || 'none'}.` };
+      if (missing.length || new Set(ids).size < 2) return { output: `A group needs at least 2 distinct Bots and every target must resolve. Not found: ${missing.join(', ') || 'none'}.`, isError: true };
       const id = createRoom(ctx.userId, String(a.name), [...new Set(ids)]);
-      appendRow(id, 'event', { type: 'event', event: 'bot-message', text: `Group created with ${(a.bot_names as string[]).filter((n) => !missing.includes(n)).join(', ')}` });
+      appendRow(id, 'event', { type: 'event', event: 'bot-message', text: `Group created with ${names.join(', ')}` });
       return { output: JSON.stringify({ ok: true, group_id: id, missing }), summary: `Created group ${a.name}` };
     },
   },

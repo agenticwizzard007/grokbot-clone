@@ -131,10 +131,33 @@ export function createBot(userId: string, b: CreateBotInput): Bot {
   return getBot(id)!;
 }
 
+export interface BotTarget { bot_id?: string; bot_name?: string }
+
+const visibleAgents = "SELECT * FROM bots WHERE user_id=? AND COALESCE(hidden,0)=0 AND COALESCE(kind,'agent')<>'room'";
+
+export function listVisibleAgents(userId: string) {
+  return db.prepare(`${visibleAgents} ORDER BY id`).all(userId) as any[];
+}
+
+export function botTargetChoice(bot: { id: string; name: string; label: string; description: string }) {
+  return { bot_id: bot.id, name: bot.name, label: bot.label, description: bot.description };
+}
+
+/** Legacy names are safe only when exactly one eligible Bot matches. */
 export function visibleAgentByName(userId: string, name: string) {
-  return db.prepare(
-    "SELECT * FROM bots WHERE user_id=? AND lower(name)=lower(?) AND COALESCE(hidden,0)=0 AND COALESCE(kind,'agent')<>'room'",
-  ).get(userId, name.trim()) as any;
+  const matches = db.prepare(`${visibleAgents} AND lower(name)=lower(?) ORDER BY id`).all(userId, name.trim()) as any[];
+  if (matches.length > 1) throw new Error(`Multiple Bots match ${JSON.stringify(name.trim())}. Ask which Bot is intended, then retry with bot_id. Choices: ${JSON.stringify(matches.map(botTargetChoice))}`);
+  return matches[0];
+}
+
+/** An explicit ID never falls back to a name, including after a rename or deletion. */
+export function resolveBotTarget(userId: string, target: BotTarget) {
+  if (target.bot_id !== undefined) {
+    if (typeof target.bot_id !== 'string' || !target.bot_id.trim()) throw new Error('Provide a nonempty bot_id.');
+    return db.prepare(`${visibleAgents} AND id=?`).get(userId, target.bot_id.trim()) as any;
+  }
+  if (typeof target.bot_name !== 'string' || !target.bot_name.trim()) throw new Error('Provide bot_id, or a unique bot_name from the team roster.');
+  return visibleAgentByName(userId, target.bot_name);
 }
 
 /** Call inside the same transaction as deletion/demotion. */
