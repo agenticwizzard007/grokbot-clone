@@ -79,7 +79,7 @@ export function PhoneAuth({ mode, onAttached, reauth = false }: { mode: 'signin'
         <AuthButton type="submit" disabled={busy} aria-busy={busy} icon={<Smartphone size={20} strokeWidth={1.75} />}>{busy ? 'One moment…' : mode === 'signin' ? 'Continue with phone' : 'Send me a code'}</AuthButton>
         {error && <div className="card__error phone-auth__error" role="alert">{error}</div>}
         {existing && <button type="button" className="btn btn--secondary phone-auth__btn" disabled={busy} onClick={() => void signInWithPhone()}>Sign out and continue with this phone</button>}
-        {mode === 'signin' && !reauth && <div className="phone-auth__hint phone-auth__signup"><strong>New here?</strong><p>If signup is available, we’ll create your account.</p></div>}
+        {mode === 'signin' && !reauth && <div className="phone-auth__hint phone-auth__signup"><strong>New here?</strong><p>If signup is available, we'll create your account.</p></div>}
       </form>
     );
   }

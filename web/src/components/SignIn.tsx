@@ -41,7 +41,7 @@ export function SignIn() {
           </div>
           <div className="signin__intro">
             <h1 className="signin__title">Welcome to Swarm</h1>
-            <p className="signin__sub">Choose how you’d like to sign in.</p>
+            <p className="signin__sub">Choose how you'd like to sign in.</p>
           </div>
         </header>
         {expired && <div className="signin__notice" role="status">That sign-in link has expired or was already used.</div>}
