@@ -488,7 +488,11 @@ function RoutineItem({ r, onFlash }: { r: Routine; onFlash: (t: string) => void 
   useEffect(() => setEnabled(r.enabled), [r.enabled]);
   const toggle = async (v: boolean) => {
     setEnabled(v);
-    try { await configApi.setRoutine(r.id, v); onFlash(v ? 'Resumed' : 'Paused'); } catch { setEnabled(!v); }
+    try { await configApi.setRoutine(r.id, v); onFlash(v ? 'Resumed' : 'Paused'); }
+    catch (e) {
+      setEnabled(!v);
+      toast((e as Error).message || `Couldn’t update ${r.name}.`, { tone: 'error' });
+    }
   };
   const refresh = () => {
     void useStore.getState().loadRoutines(r.botId).catch(() => {});
