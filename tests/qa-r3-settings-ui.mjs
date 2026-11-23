@@ -256,7 +256,7 @@ try {
   await page.locator('main.setup-create').getByRole('button', { name: 'Close', exact: true }).click();
   await title('Coordinator Bot · History');
   await openApp('computer'); await title('Settings · Computer');
-  await page.locator('.cloud-computer .cfg-row__title').filter({ hasText: 'Bots’ computer · Asleep' }).waitFor();
+  await page.locator('.cloud-computer .cfg-row__title').filter({ hasText: "Bots' computer · Asleep" }).waitFor();
   await page.getByText(/On Linux, use Connect your PC/).waitFor();
   await page.keyboard.press('Escape'); await title('Coordinator Bot · History');
   await openBot('learning'); await title('Coordinator Bot · Learning');
