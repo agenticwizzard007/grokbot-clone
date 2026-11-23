@@ -7,7 +7,6 @@ import { BotAvatar, BotAvatarFor } from '../avatar/BotAvatar';
 import { clock, dividerLabel } from '../lib/time';
 import { useStore } from '../store';
 import { ActivityLine } from './ActivityLine';
-import { FlockMark } from './FlockMark';
 import { CardRow } from './cards/Cards';
 import { Icon } from './Icon';
 import { Markdown } from './Markdown';
@@ -280,7 +279,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
         {pendingResponse && (!empty || processing) && (
           <div ref={responseSlot} className={`first-response${empty ? ' first-response--empty' : ''}`} style={{ minHeight: responseHeight.current || undefined }}>
             <div className="first-response__mark" role={processing ? 'status' : undefined} aria-label={processing ? 'Working' : undefined}>
-              <FlockMark size={72} working={processing} />
+              <BotAvatar shape={bot.avatarShape} color={bot.avatarColor} size={72} title={bot.name} working={processing} />
             </div>
             {showActivity && live && <ActivityLine bot={bot} live={live} rows={visibleRows} />}
           </div>
