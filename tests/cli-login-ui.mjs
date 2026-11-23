@@ -16,14 +16,16 @@ await fs.mkdir(screenshots, { recursive: true });
 const auditFile = path.join(temp, 'codes.jsonl');
 const executable = path.join(temp, 'fake-cli.mjs');
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
-const port = await new Promise(resolve => {
+const freePort = () => new Promise(resolve => {
   const reserve = http.createServer().listen(0, '127.0.0.1', () => {
     const value = reserve.address().port;
     reserve.close(() => resolve(value));
   });
 });
+const port = await freePort(), modelPort = await freePort();
 const base = `http://localhost:${port}`;
-let server, browser, page, logs = '';
+const modelBase = `http://127.0.0.1:${modelPort}`;
+let server, model, browser, page, logs = '';
 const errors = [];
 await fs.writeFile(executable, `#!${process.execPath}
 import fs from 'node:fs';
@@ -79,13 +81,15 @@ async function until(check) {
 }
 
 try {
+  model = spawn(process.execPath, ['tests/mock-provider.mjs', String(modelPort)], { env: { PATH: process.env.PATH }, stdio: 'ignore' });
+  await until(() => fetch(`${modelBase}/v1/models`).then(response => response.ok, () => false));
   server = spawn(process.execPath, ['--import', 'tsx', 'server/src/index.ts'], {
-    env: { ...process.env, NODE_ENV: 'test', SWARM_ROLE: 'standalone', PORT: String(port), SERVER_URL: base, APP_URL: base,
+    env: { PATH: process.env.PATH, NODE_ENV: 'test', SWARM_ROLE: 'standalone', PORT: String(port), SERVER_URL: base, APP_URL: base,
       DB_PATH: path.join(temp, 'app.db'), FILES_DIR: path.join(temp, 'files'), CLI_PROFILES_DIR: path.join(temp, 'profiles'),
       SESSION_SECRET: 'offline-cli-login-browser-fixture', DEV_LOGIN: '1', COMPUTER_PROVIDER: 'local', SWARM_NO_SCHEDULER: '1',
       MEMORY_CONSOLIDATE_IDLE_MINUTES: '0', SWARM_CLI_CODEX_PATH: executable, SWARM_CLI_CLAUDE_PATH: executable,
-      DIRECT_API_KEY: '', OPENROUTER_API_KEY: '', XAI_API_KEY: '', COMPOSIO_API_KEY: '', INKBOX_TUNNEL: '0', INKBOX_API_KEY: '', INKBOX_ADMIN_API_KEY: '',
-      DIRECT_BASE_URL: 'http://127.0.0.1:1/v1', OPENROUTER_BASE_URL: 'http://127.0.0.1:1/v1',
+      DIRECT_API_KEY: 'mock-key', LLM_PROVIDER: 'direct', OPENROUTER_API_KEY: '', XAI_API_KEY: '', COMPOSIO_API_KEY: '', INKBOX_TUNNEL: '0', INKBOX_API_KEY: '', INKBOX_ADMIN_API_KEY: '',
+      DIRECT_BASE_URL: `${modelBase}/v1`, OPENROUTER_BASE_URL: `${modelBase}/api/v1`,
     }, stdio: ['ignore', 'pipe', 'pipe'],
   });
   server.stdout.on('data', data => { logs += data; });
@@ -95,182 +99,165 @@ try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
   await useAccessViteAssets(context, base);
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base });
-  assert.equal((await context.request.post(`${base}/api/auth/dev`, { data: { email: 'cli-login-ui@example.test' } })).status(), 200);
-  let accountId = (await (await context.request.get(`${base}/api/auth/me`)).json()).user.id;
+  await context.route('**/*', async route => {
+    const url = new URL(route.request().url());
+    if (url.origin !== base) { errors.push(`Unexpected external request: ${url.origin}`); return route.abort(); }
+    if (url.pathname === '/api/apps') return route.fulfill({ json: { apps: [], connected: [], connectedApps: [], categories: [], total: 0 } });
+    if (url.pathname === '/api/apps/connections') return route.fulfill({ json: { connections: [] } });
+    return route.fallback();
+  });
   page = await context.newPage();
-  const resumeAt = async (provider, action = 'login', expiresAt = Date.now() + 600_000) => page.evaluate(target => sessionStorage.setItem('swarm.resume', JSON.stringify(target)), { section: 'subscriptions', provider, accountId, action, expiresAt });
-  const writes = [], deletes = [], resetBodies = [], botLoads = [];
-  const cliAccountIds = [];
+  page.setDefaultTimeout(15000);
   page.on('pageerror', error => errors.push(error.message));
-  page.on('request', request => { if (/\/api\/cli\/login\/[^/]+\/input$/.test(new URL(request.url()).pathname)) writes.push(request.postDataJSON().data); });
+  let accountId;
+  const loginCalls = [], writes = [], resetBodies = [], botLoads = [];
   page.on('request', request => {
     const url = new URL(request.url());
-    const { pathname } = url;
-    if (pathname === '/api/cli' || pathname.startsWith('/api/cli/')) cliAccountIds.push(url.searchParams.get('expectedUserId'));
-    if (request.method() === 'DELETE' && pathname.startsWith('/api/cli/login/')) deletes.push(pathname);
-    if (request.method() === 'POST' && pathname === '/api/cli/reset') resetBodies.push(request.postDataJSON());
-    if (pathname === '/api/bots') botLoads.push(pathname);
+    if (url.pathname === '/api/bots') botLoads.push(url.pathname);
+    if (!url.pathname.startsWith('/api/cli')) return;
+    assert.ok(url.searchParams.get('expectedUserId'), 'CLI calls carry the displayed account');
+    if (url.pathname === '/api/cli/reset' && request.method() === 'POST') resetBodies.push(request.postDataJSON());
+    if (url.pathname === '/api/cli/login' && request.method() === 'POST') loginCalls.push(request.postDataJSON());
+    if (/\/login\/[^/]+\/input$/.test(url.pathname)) writes.push(request.postDataJSON().data);
   });
-  await page.goto(`${base}/#settings/subscriptions`);
   const terminal = page.getByRole('region', { name: /login terminal$/ });
+  const recovery = page.getByRole('region', { name: 'Continue connection', exact: true });
+  const assertNoSignIn = async () => {
+    assert.equal(await page.getByRole('region', { name: /Confirm it.s you/ }).count(), 0);
+    assert.equal(await page.locator('input[type="tel"], input[type="email"]').count(), 0);
+    assert.equal(await page.getByRole('button', { name: /Continue with phone|Continue with OpenRouter|Sign in with (Apple|Google)/ }).count(), 0);
+    assert.equal(await page.locator('.subscription-settings a[href*="/api/auth/"]').count(), 0);
+  };
+  const fixture = async label => {
+    assert.equal((await context.request.post(`${base}/api/auth/dev`, { data: { email: `cli-${label}@example.test` } })).status(), 200);
+    accountId = (await (await context.request.get(`${base}/api/auth/me`)).json()).user.id;
+    const db = new Database(path.join(temp, 'app.db'));
+    const age = Date.now() - 2 * 3600_000;
+    db.prepare('UPDATE auth_sessions SET created_at=?,authenticated_at=? WHERE user_id=?').run(age, age, accountId);
+    db.close();
+  };
+  const resumeAt = (provider, action = 'login', expiresAt = Date.now() + 600_000) => page.evaluate(target => sessionStorage.setItem('swarm.resume', JSON.stringify(target)), { section: 'subscriptions', provider, accountId, action, expiresAt });
+  const cancelTerminal = () => terminal.getByRole('button', { name: 'Cancel login and close terminal', exact: true }).click();
+  const readyTerminal = () => until(() => terminal.getByLabel('Authorization code', { exact: true }).isEnabled());
 
-  for (const provider of ['claude', 'codex']) {
-    const name = provider === 'claude' ? 'Claude Code' : 'Codex';
-    if (provider === 'codex') {
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.getByRole('tab', { name: 'Codex', exact: true }).click();
+  for (const width of [1280, 390]) {
+    await fixture(`connect-${width}`);
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(base);
+    await page.getByRole('button', { name: 'Account & settings', exact: true }).waitFor();
+    await page.keyboard.press('Control+,');
+    await page.locator('.app-settings').waitFor();
+    const sections = page.getByRole('navigation', { name: 'Settings sections', exact: true });
+    if (!await sections.isVisible()) await page.getByRole('button', { name: 'Back to Settings', exact: true }).click();
+    await sections.getByRole('button', { name: 'Models & access', exact: true }).click();
+    await page.getByRole('heading', { name: 'Choose how models are billed', exact: true }).waitFor();
+    for (const provider of ['claude', 'codex']) {
+      const name = provider === 'claude' ? 'Claude Code' : 'Codex';
+      await page.getByRole('tab', { name, exact: true }).click();
+      const response = page.waitForResponse(r => new URL(r.url()).pathname === '/api/cli/login' && r.request().method() === 'POST');
+      await page.getByRole('button', { name: 'Connect plan', exact: true }).click();
+      assert.equal((await response).status(), 200, 'two-hour-old session reaches the real login endpoint');
+      const field = terminal.getByLabel('Authorization code', { exact: true });
+      await readyTerminal();
+      await assertNoSignIn();
+      assert.equal(await recovery.count(), 0);
+      assert.equal(await terminal.getByRole('button', { name: `Connect ${name}`, exact: true }).isDisabled(), true);
+      const code = `${provider}-fake-code#verified`;
+      await page.evaluate(value => navigator.clipboard.writeText(value), `  ${code}  `);
+      await field.click(); await page.keyboard.press('Control+V');
+      await until(async () => (await field.inputValue()).trim() === code);
+      assert.equal(await field.getAttribute('type'), 'password');
+      await terminal.getByRole('button', { name: 'Show code', exact: true }).click();
+      assert.equal(await field.getAttribute('type'), 'text');
+      await terminal.screenshot({ path: path.join(screenshots, `${provider}-${width}-connect.png`) });
+      await terminal.getByRole('button', { name: 'Hide code', exact: true }).click();
+      assert.equal(await field.getAttribute('type'), 'password');
+      if (provider === 'claude') await terminal.getByRole('button', { name: `Connect ${name}`, exact: true }).click();
+      else await field.press('Enter');
+      await terminal.getByText(`Code sent. Waiting for ${name} to finish signing in…`, { exact: true }).waitFor();
+      assert.equal(await terminal.getByRole('heading', { name: `${name} connected`, exact: true }).count(), 0);
+      await terminal.getByRole('heading', { name: `${name} connected`, exact: true }).waitFor();
+      assert.equal(await field.count(), 0);
+      assert.equal(await terminal.locator('.cli-login-terminal__screen').isVisible(), false);
+      await terminal.getByRole('button', { name: 'View login details', exact: true }).click();
+      assert.equal(await terminal.locator('.cli-login-terminal__screen').isVisible(), true);
+      await terminal.getByRole('button', { name: 'Hide login details', exact: true }).click();
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      await terminal.getByRole('button', { name: 'Done', exact: true }).click();
+      const status = await (await context.request.get(`${base}/api/cli`)).json();
+      assert.equal(status.selected, provider);
+      assert.equal(status.providers[provider].subscription, true);
     }
-    await page.getByRole('button', { name: 'Login', exact: true }).click();
-    const field = terminal.getByLabel('Authorization code', { exact: true });
-    const submit = terminal.getByRole('button', { name: `Connect ${name}`, exact: true });
-    await until(() => field.isEnabled());
-    assert.equal(await submit.isDisabled(), true);
-    const code = `${provider}-fake-code#verified`;
-    await page.evaluate(value => navigator.clipboard.writeText(value), `  ${code}  `);
-    await field.click();
-    await page.keyboard.press('Control+V');
-    await until(async () => (await field.inputValue()).trim() === code);
-    assert.equal(await field.getAttribute('type'), 'password');
-    await terminal.getByRole('button', { name: 'Show code', exact: true }).click();
-    assert.equal(await field.getAttribute('type'), 'text');
-    assert.equal((await field.inputValue()).trim(), code, 'pasted code is inspectable even though CLI echo is disabled');
-    await terminal.screenshot({ path: path.join(screenshots, `${provider}-code-visible.png`) });
-    await terminal.getByRole('button', { name: 'Hide code', exact: true }).click();
-    assert.equal(await field.getAttribute('type'), 'password');
-    if (provider === 'claude') await submit.click();
-    else await field.press('Enter');
-    await terminal.getByText(`Code sent. Waiting for ${name} to finish signing in…`, { exact: true }).waitFor();
-    assert.equal(await terminal.getByRole('heading', { name: `${name} connected`, exact: true }).count(), 0, 'sending a code alone must not show success');
-    await terminal.getByRole('heading', { name: `${name} connected`, exact: true }).waitFor();
-    assert.equal(await field.count(), 0, 'authorization code entry disappears once verified');
-    assert.equal(await terminal.locator('.cli-login-terminal__screen').isVisible(), false, 'completed terminal collapses into a clear success state');
-    assert.equal(await terminal.getByText(/subscription is verified and selected for all your Bots/).isVisible(), true);
-    const status = await (await context.request.get(`${base}/api/cli`)).json();
-    assert.equal(status.selected, provider);
-    assert.equal(status.providers[provider].subscription, true);
-    await terminal.screenshot({ path: path.join(screenshots, `${provider}-connected.png`) });
-    await terminal.getByRole('button', { name: 'View login details', exact: true }).click();
-    assert.equal(await terminal.locator('.cli-login-terminal__screen').isVisible(), true);
-    await terminal.getByRole('button', { name: 'Hide login details', exact: true }).click();
-    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-    await terminal.getByRole('button', { name: 'Done', exact: true }).click();
-    assert.equal(await terminal.count(), 0);
+    await page.getByRole('button', { name: 'Reset connection', exact: true }).click();
+    await page.getByRole('button', { name: 'Confirm reset', exact: true }).click();
+    await page.getByText(/Connection reset\. Both CLIs are signed out/).waitFor();
+    await assertNoSignIn();
+    const reset = await (await context.request.get(`${base}/api/cli`)).json();
+    assert.equal(reset.selected, 'codex');
+    assert.equal(reset.providers.claude.authenticated, false);
+    assert.equal(reset.providers.codex.authenticated, false);
   }
+  assert.deepEqual(writes, Array(2).fill(['claude-fake-code#verified\r', 'codex-fake-code#verified\r']).flat());
+  const received = (await fs.readFile(auditFile, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+  assert.deepEqual(received, Array(2).fill([{ provider: 'claude', code: 'claude-fake-code#verified' }, { provider: 'codex', code: 'codex-fake-code#verified' }]).flat());
 
-  // A CLI exiting successfully without real subscription auth must still fail.
-  await page.getByRole('button', { name: 'Log in again', exact: true }).click();
-  const field = terminal.getByLabel('Authorization code', { exact: true });
-  await until(() => field.isEnabled());
-  await field.fill('NOAUTH');
+  await fixture('recovery');
+  await page.goto(`${base}/#settings/subscriptions`);
+  // A return from authentication automatically starts the intended provider, once.
+  for (const [provider, callback] of [['claude', '/'], ['codex', '/?openrouter=connected#settings/keys']]) {
+    await resumeAt(provider);
+    const before = loginCalls.length;
+    await page.goto(`${base}${callback}`);
+    await readyTerminal();
+    assert.equal(loginCalls.length, before + 1);
+    assert.equal(loginCalls.at(-1).provider, provider);
+    assert.equal(await page.evaluate(() => sessionStorage.getItem('swarm.resume')), null);
+    await assertNoSignIn();
+    await cancelTerminal();
+  }
+  // Denied callbacks never auto-start. One Continue returns to connect with the valid session.
+  for (const callback of ['?login=google_denied', '?openrouter=openrouter_denied#settings/keys']) {
+    await resumeAt('codex');
+    const before = loginCalls.length;
+    await page.goto(`${base}/${callback}`);
+    await recovery.getByText('Sign-in did not complete. Try again to continue.', { exact: true }).waitFor();
+    assert.equal(loginCalls.length, before);
+    await assertNoSignIn();
+    await recovery.getByRole('button', { name: 'Continue connection', exact: true }).click();
+    await readyTerminal();
+    assert.equal(loginCalls.length, before + 1);
+    await cancelTerminal();
+  }
+  // A successful CLI exit without subscription proof still fails.
+  await page.getByRole('button', { name: 'Connect plan', exact: true }).click();
+  await readyTerminal();
+  await terminal.getByLabel('Authorization code', { exact: true }).fill('NOAUTH');
   await terminal.getByRole('button', { name: 'Connect Codex', exact: true }).click();
   await terminal.getByText(/could not verify a subscription login/).waitFor();
   assert.equal(await terminal.getByRole('heading', { name: 'Codex connected', exact: true }).count(), 0);
-  assert.equal(await terminal.getByRole('button', { name: 'Done', exact: true }).count(), 0);
   await terminal.getByRole('button', { name: 'Close login terminal', exact: true }).click();
-  assert.deepEqual(writes, ['claude-fake-code#verified\r', 'codex-fake-code#verified\r', 'NOAUTH\r'], 'each button/Enter submission sends exactly one trimmed code and Enter');
-  const received = (await fs.readFile(auditFile, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
-  assert.deepEqual(received, [{ provider: 'claude', code: 'claude-fake-code#verified' }, { provider: 'codex', code: 'codex-fake-code#verified' }, { provider: 'codex', code: 'NOAUTH' }]);
 
-  // Credential changes need a sign-in from the last 10 minutes. An aged session must get a way to
-  // sign in again in place instead of an empty failed terminal.
-  const db = new Database(path.join(temp, 'app.db'));
-  db.prepare('UPDATE auth_sessions SET authenticated_at=?').run(Date.now() - 11 * 60_000);
-  db.close();
-  // The unverified login above signed Codex out, so the primary action reads Login again.
-  await page.getByRole('button', { name: 'Login', exact: true }).click();
-  const reauth = page.getByRole('region', { name: 'Confirm it’s you', exact: true });
-  await reauth.waitFor();
-  assert.equal(await terminal.count(), 0, 'no dead terminal while a fresh sign-in is required');
-  assert.equal(await page.getByText(/Close this terminal and try Login again/).count(), 0);
-  await reauth.screenshot({ path: path.join(screenshots, 'reauth-prompt.png') });
-  await page.reload();
-  await reauth.waitFor();
-  assert.equal(await page.getByText(/You’re signed in again/).count(), 0, 'navigation alone does not prove fresh authentication');
-  await page.goto(`${base}/?login=google_denied`);
-  await reauth.getByText('Sign-in did not complete. Try again to continue.', { exact: true }).waitFor();
-  assert.equal(await page.getByText(/You’re signed in again/).count(), 0, 'provider denial does not become a success notice');
-  await page.goto(`${base}/?openrouter=openrouter_denied#settings/keys`);
-  await reauth.getByText('Sign-in did not complete. Try again to continue.', { exact: true }).waitFor();
-  assert.equal(await page.getByText(/You’re signed in again/).count(), 0, 'OpenRouter denial resumes a retry, not the keys page or a success notice');
-  assert.equal(await reauth.getByLabel('Dev sign-in email', { exact: true }).inputValue(), 'cli-login-ui@example.test');
-  await reauth.getByRole('button', { name: 'Continue with email', exact: true }).click();
-  await page.getByText(/You’re signed in again\. Choose Login to continue connecting ChatGPT via Codex/).waitFor();
-  assert.equal(await reauth.count(), 0);
-  await page.getByRole('button', { name: 'Login', exact: true }).click();
-  await until(() => terminal.getByLabel('Authorization code', { exact: true }).isEnabled());
-  assert.equal(await page.getByText(/signed in again/).count(), 0, 'the notice clears once a login starts');
-  await terminal.getByRole('button', { name: 'Cancel login and close terminal', exact: true }).click();
-  assert.equal(await terminal.count(), 0);
+  const loginRoute = url => url.origin === base && url.pathname === '/api/cli/login';
+  await page.route(loginRoute, route => route.fulfill({ status: 403, json: { error: 'Connection request denied.' } }));
+  await page.getByRole('button', { name: 'Connect plan', exact: true }).click();
+  await terminal.getByText(/Connection request denied\./).waitFor();
+  assert.equal(await recovery.count(), 0, '403 is not mistaken for a session failure');
+  await assertNoSignIn();
+  await terminal.getByRole('button', { name: 'Close login terminal', exact: true }).click();
+  await page.unroute(loginRoute);
 
-  // Provider sign-ins leave the page; a planned resume reopens Models & access on the same tab.
-  await resumeAt('claude');
-  await page.goto(`${base}/`);
-  await page.getByText(/You’re signed in again\. Choose Login to continue connecting Claude via Claude Code/).waitFor();
-  assert.equal(await page.getByRole('tab', { name: 'Claude Code', exact: true }).getAttribute('aria-selected'), 'true');
-  assert.equal(await page.evaluate(() => sessionStorage.getItem('swarm.resume')), null, 'a resume target is consumed once');
-
-  // Use the exact successful OpenRouter callback URL, which supplies its own keys deep link.
-  await resumeAt('codex');
-  await page.goto(`${base}/?openrouter=connected#settings/keys`);
-  await page.getByText(/You’re signed in again\. Choose Login to continue connecting ChatGPT via Codex/).waitFor();
-  assert.equal(await page.getByRole('tab', { name: 'Codex', exact: true }).getAttribute('aria-selected'), 'true');
-  assert.equal(await page.evaluate(() => sessionStorage.getItem('swarm.resume')), null, 'the callback consumes its resume target once');
-
-  // An ordinary keys deep link still wins over a pending resume, and a callback without a resume stays on keys.
-  await resumeAt('claude');
-  await page.goto(`${base}/#settings/keys`);
-  await page.getByRole('heading', { name: 'Your OpenRouter connection', exact: true, level: 1 }).waitFor();
-  assert.equal(await page.getByRole('tab', { name: 'Claude Code', exact: true }).count(), 0);
-  assert.equal(await page.evaluate(() => sessionStorage.getItem('swarm.resume')), null);
-  await page.goto(`${base}/?openrouter=connected#settings/keys`);
-  await page.getByRole('heading', { name: 'Your OpenRouter connection', exact: true, level: 1 }).waitFor();
-  assert.equal(await page.getByText(/signed in again/).count(), 0, 'a callback without a resume does not invent a reauthentication notice');
-  await page.goto(`${base}/#settings/subscriptions`);
-  await page.reload();
-  await page.getByRole('tab', { name: 'Claude Code', exact: true }).waitFor();
-  assert.equal(await page.getByText(/signed in again/).count(), 0, 'a later visit does not repeat the notice');
-
-  // Reset starts over for both providers and leaves the page ready to log in again.
-  await page.getByRole('button', { name: 'Reset connection', exact: true }).click();
-  await page.getByText(/removes the saved Claude Code and Codex logins/).waitFor();
-  await page.getByRole('button', { name: 'Confirm reset', exact: true }).click();
-  await page.getByText(/Connection reset\. Both CLIs are signed out/).waitFor();
-  const afterReset = await (await context.request.get(`${base}/api/cli`)).json();
-  assert.equal(afterReset.selected, 'codex', 'reset keeps the selection blocked rather than enabling API billing');
-  assert.equal(afterReset.providers.claude.authenticated, false);
-  assert.equal(afterReset.providers.codex.authenticated, false);
-  await page.screenshot({ path: path.join(screenshots, 'after-reset.png'), fullPage: false });
-  await page.getByRole('button', { name: 'Login', exact: true }).click();
-  await until(() => terminal.getByLabel('Authorization code', { exact: true }).isEnabled());
-  assert.equal(await page.getByText(/Connection reset/).count(), 0, 'the reset notice clears once a login starts');
-  await terminal.getByRole('button', { name: 'Cancel login and close terminal', exact: true }).click();
-  // A denied reset leaves the active terminal and its unsent authorization code intact.
-  await page.getByRole('button', { name: 'Login', exact: true }).click();
-  await until(() => terminal.getByLabel('Authorization code', { exact: true }).isEnabled());
-  await terminal.getByLabel('Authorization code', { exact: true }).fill('unsent-code');
-  const age = new Database(path.join(temp, 'app.db'));
-  age.prepare('UPDATE auth_sessions SET authenticated_at=? WHERE user_id=?').run(Date.now() - 11 * 60_000, accountId);
-  const deletesBefore = deletes.length;
-  await page.getByRole('button', { name: 'Reset connection', exact: true }).click();
-  await page.getByRole('button', { name: 'Confirm reset', exact: true }).click();
-  await reauth.waitFor();
-  assert.equal(await terminal.count(), 1);
-  assert.equal(await terminal.getByLabel('Authorization code', { exact: true }).inputValue(), 'unsent-code');
-  assert.equal(deletes.length, deletesBefore, 'step-up rejection must not issue terminal DELETE');
-  assert.equal(await page.getByRole('button', { name: 'Reset connection', exact: true }).isDisabled(), true, 'credential actions are gated during reauthentication');
-  await reauth.getByText(/choose Reset connection again/).waitFor();
-  await reauth.getByRole('button', { name: 'Not now', exact: true }).click();
-  age.prepare('UPDATE auth_sessions SET authenticated_at=? WHERE user_id=?').run(Date.now(), accountId);
-  age.close();
-  await page.getByRole('button', { name: 'Reset connection', exact: true }).click();
-  await page.getByRole('button', { name: 'Confirm reset', exact: true }).click();
-  await page.getByText(/Connection reset\. Both CLIs are signed out/).waitFor();
-  assert.equal(await terminal.count(), 0, 'successful reset closes the active terminal');
+  await page.route(loginRoute, route => route.fulfill({ status: 401, json: { error: 'unauthenticated' } }));
+  await page.getByRole('button', { name: 'Connect plan', exact: true }).click();
+  await recovery.waitFor();
+  await assertNoSignIn();
+  await page.unroute(loginRoute);
+  await recovery.getByRole('button', { name: 'Continue connection', exact: true }).click();
+  await readyTerminal();
+  await cancelTerminal();
 
   // A terminal-triggered status read begun before reset must not overwrite its result.
   // Use a fresh fixture identity to retain the real per-account login rate limit.
-  await context.request.post(`${base}/api/auth/dev`, { data: { email: 'cli-login-stale@example.test' } });
-  accountId = (await (await context.request.get(`${base}/api/auth/me`)).json()).user.id;
+  await fixture('stale-status');
   await page.goto(`${base}/?fixture=stale-status#settings/subscriptions`);
   await page.getByRole('tab', { name: 'Codex', exact: true }).click();
   await page.getByRole('button', { name: 'Login', exact: true }).click();
@@ -312,12 +299,12 @@ try {
   await page.route(cliResetRoute, async route => {
     const applied = await route.fetch();
     assert.equal(applied.status(), 200, 'the real server first stops the terminal and clears the profile');
-    await route.fulfill({ status: 401, json: { error: 'Sign in again to continue.', code: 'reauth_required' } });
+    await route.fulfill({ status: 401, json: { error: 'unauthenticated' } });
   });
   const resetCount = resetBodies.length;
   await page.getByRole('button', { name: 'Reset connection', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm reset', exact: true }).click();
-  await reauth.getByText(/Reset may already have stopped login sessions or removed saved connections/).waitFor();
+  await recovery.getByText(/Reset may already have stopped login sessions or removed saved connections/).waitFor();
   // Polling can observe cancellation before retirement, or a missing retired session.
   await terminal.getByText(/^(Failed|Cancelled)$/).waitFor();
   assert.equal(await terminal.getByLabel('Authorization code', { exact: true }).count(), 0);
@@ -326,48 +313,49 @@ try {
   assert.equal(resetBodies.length, resetCount + 1, 'late denial must not replay reset automatically');
   assert.equal((await (await context.request.get(`${base}/api/cli`)).json()).providers.codex.authenticated, false);
   await page.unroute(cliResetRoute);
-  await reauth.getByRole('button', { name: 'Not now', exact: true }).click();
+  await recovery.getByRole('button', { name: 'Not now', exact: true }).click();
   await terminal.getByRole('button', { name: 'Close login terminal', exact: true }).click();
 
-  // The cookie can change in another tab while this view still displays the initiating account.
-  await context.request.post(`${base}/api/auth/dev`, { data: { email: 'cli-login-other@example.test' } });
-  const resetResponse = page.waitForResponse(response => cliResetRoute(new URL(response.url())) && response.request().method() === 'POST');
+  // Genuine expiry still needs authentication. Preserve the destination through the redirect.
+  await fixture('expired');
+  await page.goto(`${base}/#settings/subscriptions`);
+  await resumeAt('claude');
+  const expired = new Database(path.join(temp, 'app.db'));
+  expired.prepare('UPDATE auth_sessions SET expires_at=? WHERE user_id=?').run(Date.now() - 1, accountId);
+  expired.close();
+  await page.reload();
+  await page.getByRole('heading', { name: 'Welcome to Swarm', exact: true }).waitFor();
+  assert.ok(await page.evaluate(() => sessionStorage.getItem('swarm.resume')));
+  await context.request.post(`${base}/api/auth/dev`, { data: { email: 'cli-expired@example.test' } });
+  await page.goto(`${base}/`);
+  await readyTerminal();
+  assert.equal(loginCalls.at(-1).provider, 'claude');
+  await assertNoSignIn();
+  await cancelTerminal();
+
+  // Switching accounts never resumes a login for the previous identity.
+  await resumeAt('codex');
+  const previousAccount = accountId;
+  await fixture('other');
+  const switchedReset = page.waitForResponse(response => new URL(response.url()).pathname === '/api/cli/reset' && response.request().method() === 'POST');
   await page.getByRole('button', { name: 'Reset connection', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm reset', exact: true }).click();
-  const mismatch = await resetResponse;
-  assert.equal(mismatch.status(), 409);
-  assert.equal(new URL(mismatch.url()).searchParams.get('expectedUserId'), accountId);
-  assert.ok(cliAccountIds.includes(accountId) && cliAccountIds.every(Boolean), 'UI CLI requests carry the rendered account ID');
-  assert.equal(resetBodies.at(-1).expectedUserId, accountId, 'confirmation is bound to the displayed account');
+  assert.equal((await switchedReset).status(), 409);
+  assert.equal(resetBodies.at(-1).expectedUserId, previousAccount);
   await page.getByText(/Your account changed\. Reload this page/).waitFor();
-  await resumeAt('codex');
-  const botsBefore = botLoads.length;
+  const before = loginCalls.length;
+  const loadsBefore = botLoads.length;
   await page.goto(`${base}/?fixture=other-account`);
   await page.getByText(/belongs to another account/).waitFor();
-  assert.equal(await page.getByText(/You’re signed in again/).count(), 0);
-  assert.ok(botLoads.length > botsBefore, 'a new account loads its own shell state');
-  const otherId = (await (await context.request.get(`${base}/api/auth/me`)).json()).user.id;
-  const otherDb = new Database(path.join(temp, 'app.db'));
-  otherDb.prepare('UPDATE auth_sessions SET authenticated_at=? WHERE user_id=?').run(Date.now() - 11 * 60_000, otherId);
-  otherDb.close();
-  await page.getByRole('button', { name: 'Login', exact: true }).click();
-  await reauth.waitFor();
-  await reauth.getByLabel('Dev sign-in email', { exact: true }).fill('cli-login-stale@example.test');
-  const beforeDevReload = botLoads.length;
-  await reauth.getByRole('button', { name: 'Continue with email', exact: true }).click();
-  await page.getByText(/belongs to another account/).waitFor();
-  assert.equal(await page.getByText(/You’re signed in again/).count(), 0, 'switching accounts is not same-account reauthentication');
-  assert.ok(botLoads.length > beforeDevReload, 'dev reauthentication reloads the account-scoped shell');
+  assert.equal(loginCalls.length, before);
+  assert.ok(botLoads.length > loadsBefore, 'the new account loads its own shell state');
+  assert.notEqual(accountId, previousAccount);
   await resumeAt('codex', 'login', Date.now() - 1);
-  const expiredResumeBoot = page.waitForResponse(response => new URL(response.url()).pathname === '/api/bots' && response.ok());
   await page.goto(`${base}/?fixture=expired-resume`);
-  await expiredResumeBoot;
   await page.getByRole('button', { name: 'Account & settings', exact: true }).waitFor();
-  assert.equal(await page.locator('.main-pane').getAttribute('hidden'), null, 'expired resume does not keep the application hidden behind Settings');
-  assert.equal(await page.getByRole('heading', { name: 'Choose how models are billed', exact: true, level: 1 }).count(), 0, 'expired resume targets are discarded');
-  assert.equal(await page.getByRole('tab', { name: 'Codex', exact: true }).count(), 0, 'expired resume does not reopen its provider tab');
+  assert.equal(await page.getByRole('heading', { name: 'Choose how models are billed', exact: true }).count(), 0);
   assert.deepEqual(errors, []);
-  console.log('CLI login UI passed: real clipboard paste, show/hide code, button/Enter submission, real PTY with echo disabled, verified success/Done, desktop/mobile, rejection of unverified login, in-place re-sign-in, resume after a sign-in round trip, and reset of both providers.');
+  console.log('CLI login UI passed: aged sessions, both providers at 390 and 1280, clipboard and PTY input, verified subscription success, reset, session recovery, automatic resume and account isolation.');
 } catch (error) {
   console.error(logs.slice(-4000));
   if (errors.length) console.error('Browser errors:', errors);
@@ -375,6 +363,7 @@ try {
   throw error;
 } finally {
   await browser?.close();
+  model?.kill('SIGTERM');
   if (server && server.exitCode === null) {
     server.kill('SIGTERM');
     await new Promise(resolve => {

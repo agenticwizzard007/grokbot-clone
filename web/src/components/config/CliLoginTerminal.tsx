@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { CheckCircle2, Eye, EyeOff, X } from 'lucide-react';
 import { cliApi, type CliProvider, type LoginSession } from '../../lib/cliApi';
-import { ApiError, needsReauth } from '../../lib/api';
+import { ApiError } from '../../lib/api';
 import { SwarmMark } from '../SwarmMark';
 import '@xterm/xterm/css/xterm.css';
 
@@ -40,19 +40,19 @@ function terminalTheme(element: HTMLElement) {
   };
 }
 
-export function CliLoginTerminal({ provider, onConnected, onClose, onStateChange, onReauthRequired }: {
+export function CliLoginTerminal({ provider, onConnected, onClose, onStateChange, onSessionRequired }: {
   provider: CliProvider;
   onConnected: () => void;
   onClose: () => void;
   onStateChange: (state: LoginSession['state']) => void;
-  /** The server wants a fresh Swarm sign-in before it starts a CLI login. The parent replaces this terminal. */
-  onReauthRequired?: () => void;
+  /** The browser session needs recovery. The parent preserves the connection destination. */
+  onSessionRequired?: () => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const codeInput = useRef<HTMLInputElement>(null);
   const sendCode = useRef<((data: string) => Promise<boolean>) | null>(null);
-  const callbacks = useRef({ onConnected, onClose, onStateChange, onReauthRequired });
-  callbacks.current = { onConnected, onClose, onStateChange, onReauthRequired };
+  const callbacks = useRef({ onConnected, onClose, onStateChange, onSessionRequired });
+  callbacks.current = { onConnected, onClose, onStateChange, onSessionRequired };
   const [state, setState] = useState<LoginSession['state'] | 'starting'>('starting');
   const [error, setError] = useState<string | null>(null);
   const [exitCode, setExitCode] = useState<number | null>(null);
@@ -110,6 +110,10 @@ export function CliLoginTerminal({ provider, onConnected, onClose, onStateChange
       failed = true;
       clearTimeout(timer);
       terminal.options.disableStdin = true;
+      if (err instanceof ApiError && err.status === 401 && callbacks.current.onSessionRequired) {
+        callbacks.current.onSessionRequired();
+        return;
+      }
       setState('failed');
       setCode('');
       setShowCode(false);
@@ -222,10 +226,7 @@ export function CliLoginTerminal({ provider, onConnected, onClose, onStateChange
         enqueue((id) => cliApi.resizeLogin(id, terminal.cols, terminal.rows, controller.signal));
         if (session?.state === 'running') codeInput.current?.focus();
         if (session && active(session.state)) timer = setTimeout(poll, 200);
-      } catch (err) {
-        if (!disposed && needsReauth(err) && callbacks.current.onReauthRequired) { callbacks.current.onReauthRequired(); return; }
-        fail(err);
-      }
+      } catch (err) { fail(err); }
     }, 0);
 
     return () => {
