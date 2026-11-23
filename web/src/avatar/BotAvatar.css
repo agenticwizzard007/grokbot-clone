@@ -1,11 +1,6 @@
 .bot-avatar__bird { display: block; color: var(--bird-fill); }
 [data-theme="dark"] .bot-avatar__bird { color: color-mix(in srgb, var(--bird-fill) 72%, white); }
 
-.bot-avatar__working {
-  position: absolute; right: -4px; bottom: -4px; z-index: 1; display: inline-flex; align-items: center; justify-content: center;
-  border-radius: 999px; background: var(--color-bg-elevated, #fff); box-shadow: 0 0 0 1.5px var(--color-bg-elevated, #fff);
-}
-
 @media (prefers-reduced-motion: no-preference) {
   .bot-avatar--working > svg { animation: bot-avatar-breathe 1.8s ease-in-out infinite; }
 }
