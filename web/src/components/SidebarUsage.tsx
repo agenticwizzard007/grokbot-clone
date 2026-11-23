@@ -10,9 +10,10 @@ export function SidebarUsage({ collapsed }: { collapsed: boolean }) {
   const known = catalog.status === 'ready' && !!catalog.provider && !!catalog.billing && !catalog.error;
   const reported = useReportedPlanUsage(known && plan ? catalog.usage : null);
   const window = reported.windows[0];
-  const label = catalog.status === 'loading' ? 'Checking connection…' : !known ? 'Check connection'
+  const pending = catalog.status === 'idle' || catalog.status === 'loading';
+  const label = pending ? 'Loading usage...' : !known ? 'Check connection'
     : plan ? catalog.plan || (catalog.provider === 'claude-cli' ? 'Claude subscription' : 'Codex subscription') : 'API credits';
-  const detail = !known ? 'Choose how your Bots run' : !plan ? 'Pay per use · View recorded spending'
+  const detail = pending ? 'Loading provider details...' : !known ? 'Choose how your Bots run' : !plan ? 'Pay per use · View recorded spending'
     : window ? `${window.label} · ${Number(window.usedPercent.toFixed(1))}% used` : reported.state === 'stale' ? 'Usage needs a refresh' : 'Provider usage unavailable';
   return <button type="button" className="sidebar-usage" aria-label={`Usage: ${label}. ${detail}`}
     title={collapsed ? `${label} · ${detail}` : undefined}
