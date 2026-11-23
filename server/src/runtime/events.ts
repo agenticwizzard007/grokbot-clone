@@ -32,7 +32,7 @@ export function initRuntimeEvents() {
       apply(payload,event){
         if(payload.type==='provider-key'&&payload.provider==='openrouter')saveOpenRouterKey(tenantId,payload.key,'oauth');
         else if(payload.type==='apple-revocation')saveAppleRefreshToken(tenantId,payload.clientId,payload.refreshToken);
-        else if(payload.type==='provider-trigger')onTrigger(payload.data);
+        else if(payload.type==='provider-trigger')onTrigger(payload.data,event.id);
         else if(payload.type==='messaging-link'){
           if(!['imessage','sms','whatsapp'].includes(payload.channel)||!/^\d{8,15}$/.test(payload.phone))throw new Error('Invalid messaging identity.');
           db.prepare('UPDATE users SET phone=? WHERE id=?').run(payload.phone,tenantId);

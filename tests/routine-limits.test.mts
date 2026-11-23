@@ -102,9 +102,9 @@ test('a run is skipped while the same routine\'s previous run is still going', a
   assert.equal(runRoutine(id, 'manual').ok, true, 'runs again once the previous turn finished');
 });
 
-test('event bursts are combined: one run per routine per 60 s', () => {
+test('event admission waits for the configured spacing window', () => {
   const id = addRoutine(b1.id, 'event:SLACK_RECEIVE_MESSAGE', 1, Date.now() - 10_000);
-  assert.deepEqual(checkRoutineRun(routine(id), 'event'), { ok: false, reason: 'events within 60 seconds of the last run are combined into it' });
+  assert.deepEqual(checkRoutineRun(routine(id), 'event'), { ok: false, reason: 'events are retained until 60 seconds after the last run' });
   db.prepare('UPDATE routines SET last_run_at=? WHERE id=?').run(Date.now() - 61_000, id);
   assert.equal(checkRoutineRun(routine(id), 'event').ok, true);
 });

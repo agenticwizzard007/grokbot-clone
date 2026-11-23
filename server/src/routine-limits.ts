@@ -103,7 +103,7 @@ export function checkRoutineRun(r: { id: string; bot_id: string; last_run_at: nu
     return { ok: false, reason: `routines run at most every ${L.minIntervalMin} minutes` };
   }
   if (kind === 'event' && L.eventGapSec && r.last_run_at && t - r.last_run_at < L.eventGapSec * 1000) {
-    return { ok: false, reason: `events within ${L.eventGapSec} seconds of the last run are combined into it` };
+    return { ok: false, reason: `events are retained until ${L.eventGapSec} seconds after the last run` };
   }
   if (kind !== 'manual' && L.pauseIfIdleDays && t - lastUserActivity(userId) > L.pauseIfIdleDays * DAY) {
     return { ok: false, reason: `paused: no message from you in ${L.pauseIfIdleDays} days (send any message to resume)` };

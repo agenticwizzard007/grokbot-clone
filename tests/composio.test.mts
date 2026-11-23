@@ -405,11 +405,15 @@ test('key changes move event subscriptions to the new client and stop old delive
   mock.method(oldClient.triggers, 'subscribe', async (callback: any) => { oldDelivery = callback; });
   const oldStop = mock.method(oldClient.triggers, 'unsubscribe', async () => {});
   const delivered: string[] = [];
-  await initTriggers((botId) => { delivered.push(botId); });
+  const { acceptJob, beginJob, finishJob } = await import('../server/src/agent/jobs.js');
+  const { onJobStarted, onJobFinished } = await import('../server/src/deliverables/runs.js');
+  let jobId = '';
+  await initTriggers((botId, trigger) => { delivered.push(botId); jobId = acceptJob(botId, trigger).id; return jobId; });
   db.prepare('INSERT INTO bots(id,user_id,name,created_at,updated_at) VALUES (?,?,?,?,?)').run('event-bot', 'owner', 'Events', Date.now(), Date.now());
   db.prepare('INSERT INTO routines(id,bot_id,name,prompt,schedule,created_at,trigger_id) VALUES (?,?,?,?,?,?,?)').run('event-routine', 'event-bot', 'Email', 'Read new email', 'event:GMAIL_NEW_GMAIL_MESSAGE', Date.now(), 'event-trigger');
   await refreshTriggerSubscription();
   oldDelivery({ id: 'event-trigger', payload: {} });
+  await Promise.resolve();
   assert.deepEqual(delivered, ['event-bot']);
   const { client: nextClient } = freshClient();
   let nextDelivery!: (event: any) => void;
@@ -420,10 +424,13 @@ test('key changes move event subscriptions to the new client and stop old delive
   assert.equal(nextStart.mock.callCount(), 1);
   oldDelivery({ id: 'event-trigger', payload: {} });
   assert.equal(delivered.length, 1);
-  // Event bursts within a minute are combined into one run (routine-limits.ts): let a minute pass.
+  beginJob(jobId); onJobStarted({ jobId, botId: 'event-bot' });
+  finishJob(jobId, true); onJobFinished({ jobId, botId: 'event-bot', status: 'completed' });
+  // A distinct event can run after completion and the configured spacing window.
   db.prepare('UPDATE routines SET last_run_at=? WHERE id=?').run(Date.now() - 61_000, 'event-routine');
   await new Promise((r) => setTimeout(r, 20));
-  nextDelivery({ id: 'event-trigger', payload: {} });
+  nextDelivery({ id: 'event-trigger', payload: { messageId: 'next-message' } });
+  await Promise.resolve();
   assert.equal(delivered.length, 2);
   setEnvOverride('COMPOSIO_API_KEY', null);
   await refreshTriggerSubscription();
