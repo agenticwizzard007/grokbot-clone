@@ -252,7 +252,10 @@ try {
   await desktop.row(ids.second).getByRole('button', { name: 'Use by default', exact: true }).click();
   await until(async () => /Active\s+Default/.test(await desktop.row(ids.second).innerText()));
   await until(async () => await desktop.row(ids.active).getByRole('button', { name: 'Disconnect', exact: true }).isEnabled());
+  const beforeDisconnect = desktop.mutations.length;
   await desktop.row(ids.active).getByRole('button', { name: 'Disconnect', exact: true }).click();
+  assert.equal(desktop.mutations.length, beforeDisconnect, 'disconnect waits for confirmation');
+  await desktop.row(ids.active).getByRole('button', { name: 'Confirm disconnect', exact: true }).click();
   await desktop.row(ids.active).waitFor({ state: 'detached' });
   assert.deepEqual(desktop.mutations, [
     { method: 'DELETE', path: `/api/apps/connections/${encodeURIComponent(ids.expired)}/expired`, action: 'remove-expired', id: ids.expired },
