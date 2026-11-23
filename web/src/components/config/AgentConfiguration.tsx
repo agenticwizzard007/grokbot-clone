@@ -86,6 +86,7 @@ function SetupConfiguration({ bot, navigation, userId }: { bot: Bot; navigation?
     selected?.focus({ preventScroll: true });
   };
 
+  // Skip setup returns the new Bot revision even if its setup event was missed.
   useEffect(() => {
     const version = ++request.current;
     const current = () => version === request.current && useStore.getState().user?.id === userId;
@@ -95,7 +96,7 @@ function SetupConfiguration({ bot, navigation, userId }: { bot: Bot; navigation?
       if (current()) { if (e instanceof ApiError && e.status === 404) { setAbsent(true); setData(null); } else setError(e.message); }
     }).finally(() => { if (current()) setLoading(false); });
     return () => { request.current += 1; };
-  }, [bot.id, version, refresh, userId]);
+  }, [bot.id, bot.onboarding?.revision, version, refresh, userId]);
 
   const mutate = async (run: () => Promise<void>) => {
     if (writing.current) return;
@@ -206,7 +207,7 @@ function SetupConfiguration({ bot, navigation, userId }: { bot: Bot; navigation?
       <Items label="Resources" items={brief.shared_resources.map(setupResourceText)} />
       <Items label="Handoffs" items={brief.handoff_notes} />
       {data.computer.status === 'pending' && <section className="agent-config__section agent-config__review" aria-label="Computer preparation">
-          <p>Preparation pending. Work waits for readiness.</p>
+          <p>{status === 'active' ? 'You can work in chat. Computer actions need a ready computer.' : 'Preparation pending. Work waits for readiness.'}</p>
           {data.computer.error && <p className="agent-config__muted">{data.computer.error}</p>}
           <button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={retryComputer}>Retry computer preparation</button>
       </section>}
