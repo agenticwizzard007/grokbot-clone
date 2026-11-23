@@ -15,6 +15,9 @@ const COOKIE = 'swarm_session';
 const LEGACY_COOKIE = 'grokbot_session';
 const TTL = 7 * 24 * 3600_000;
 const IDLE = 24 * 3600_000;
+// Queries using this predicate must alias auth_sessions as s.
+export const activeSessionPredicate = 's.expires_at>? AND s.created_at>? AND (CASE WHEN s.last_seen_at=0 THEN s.created_at ELSE s.last_seen_at END)>?';
+export const activeSessionBounds = (at = now()) => [at, at - TTL, at - IDLE] as const;
 export type AuthVars = { Variables: { user: User } };
 export const sessionHash = (t: string) => crypto.createHash('sha256').update(t).digest('hex');
 const cookieOptions = (maxAge = TTL / 1000) => ({ httpOnly: true, secure: new URL(env.serverUrl).protocol === 'https:', sameSite: 'Lax' as const, path: '/', maxAge });
@@ -63,7 +66,7 @@ export function revokeUserSessions(userId: string) {
 export function userFromSessionHash(hash: string | undefined): User | null {
   if (!hash) return null;
   const row = db.prepare(`SELECT u.*,s.last_seen_at FROM auth_sessions s JOIN users u ON u.id=s.user_id
-    WHERE s.token=? AND s.expires_at>? AND s.created_at>? AND (CASE WHEN s.last_seen_at=0 THEN s.created_at ELSE s.last_seen_at END)>?`).get(hash, now(), now() - TTL, now() - IDLE) as any;
+    WHERE s.token=? AND ${activeSessionPredicate}`).get(hash, ...activeSessionBounds()) as any;
   if (!row) return null;
   if (legacyAccountHeld(db, row.id)) return null;
   try { assertTenant(row.id); } catch { return null; }

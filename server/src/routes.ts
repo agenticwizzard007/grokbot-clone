@@ -8,7 +8,7 @@ import { db, now } from './db.js';
 import { env } from './env.js';
 import { newId } from './lib/ids.js';
 import { hub } from './lib/hub.js';
-import { clearSessionCookies, createSession, destroySession, requireUser, requireRecentAuth, recentlyAuthenticated, userFromCookieHeader, revokeSession, sessionHash, sessionFromCookie, type AuthVars } from './lib/auth.js';
+import { activeSessionPredicate, activeSessionBounds, clearSessionCookies, createSession, destroySession, requireUser, requireRecentAuth, recentlyAuthenticated, userFromCookieHeader, revokeSession, sessionHash, sessionFromCookie, type AuthVars } from './lib/auth.js';
 import { allLive, appendRow, clearConversation, emitBot, getBot, getBotRow, getRow, listBots, listRoutines, listRows, listTasks, toRoutine, updateRow } from './store.js';
 import { enqueue, interrupt, resolveApproval, runInBotQueue } from './agent/loop.js';
 import { computers } from './computers/index.js';
@@ -87,7 +87,7 @@ api.post('/auth/logout', requireUser, (c) => { destroySession(c); return c.json(
 
 api.get('/auth/sessions', requireUser, c => {
   const current = currentSessionHash();
-  const sessions = (db.prepare('SELECT token,created_at,expires_at,last_seen_at FROM auth_sessions WHERE user_id=? AND expires_at>?').all(c.get('user').id, now()) as any[]).map(({ token, ...row }) => ({ ...row, id: token, current: token === current }));
+  const sessions = (db.prepare(`SELECT token,created_at,expires_at,last_seen_at FROM auth_sessions s WHERE user_id=? AND ${activeSessionPredicate}`).all(c.get('user').id, ...activeSessionBounds()) as any[]).map(({ token, ...row }) => ({ ...row, id: token, current: token === current }));
   return c.json({ sessions });
 });
 api.delete('/auth/sessions/:id', requireUser, c => {
