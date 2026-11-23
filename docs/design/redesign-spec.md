@@ -53,7 +53,7 @@ Repository sources inspected:
 - `web/src/styles/tokens.css`, `shell.css`, `paper-core.css`, `setup-paper.css`, `composer-models.css`, and self-hosted `web/public/assets/fonts/` and Swarm SVG assets.
 - Merged PRs #9, #12, #49, #71, #72, #73, #74 and #75 describe earlier settings, Paper, voice, accepted UI and later layout changes. No checked-in Grok Bot screenshots, Figma exports or native Paper exports were found.
 
-Initial main baseline: `3fbca49`. The settings simplification and 12-item visual polish workspaces were still active at start. Implementation waits for those PRs, up to the owner's 90-minute limit, and rebases onto latest main before each merge. Existing connection-detail, chat recovery, voice and chat-speed fixes are retained.
+Initial main baseline: `3fbca49`. The settings simplification and 12-item visual polish workspaces were active at start; waited approximately 18 minutes, then rebased onto merged PRs #179 (account details), #180 (settings) and #181 (visual polish). Implementation waits for those PRs, up to the owner's 90-minute limit, and rebases onto latest main before each merge. Existing connection-detail, chat recovery, voice and chat-speed fixes are retained.
 
 ## Delivery and verification
 

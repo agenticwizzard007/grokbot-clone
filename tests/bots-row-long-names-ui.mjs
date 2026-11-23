@@ -130,7 +130,10 @@ try {
         for (const line of measured.lines) for (const bounds of [measured.text, measured.row]) {
           assert.ok(line.left >= bounds.left - 0.5 && line.right <= bounds.right + 0.5 && line.top >= bounds.top - 0.5 && line.bottom <= bounds.bottom + 0.5, 'Every name line stays inside the text column and row');
         }
-        assert.ok(fixture.name.length === 60 ? measured.lines.length > 1 : measured.lines.length === 1, 'Long names wrap and ordinary names stay on one line');
+        // The 752px directory can fit a 60-character name without a label.
+        // Require wrapping when the long label is present; containment above covers both cases.
+        if (fixture.label && fixture.name.length === 60) assert.ok(measured.lines.length > 1, 'Long name plus label wraps');
+        if (fixture.name.length < 60) assert.equal(measured.lines.length, 1, 'Ordinary names stay on one line');
       }
       assert.ok(await page.locator('.bots-view').evaluate(element => element.scrollWidth <= element.clientWidth), 'Bot list has no horizontal overflow');
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Viewport has no horizontal overflow');

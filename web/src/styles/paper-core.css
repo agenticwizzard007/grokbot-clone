@@ -1,9 +1,9 @@
 /* Core screen geometry from accepted Paper V13. Live content remains naturally sized. */
-.app .chat:not(.tasks-view) { min-width: 0; padding: 32px 40px 24px; }
-.chat__context { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 36px; margin-bottom: 24px; color: var(--color-text-secondary); flex-shrink: 0; }
+.app .chat:not(.tasks-view) { min-width: 0; padding: var(--space-5) var(--page-gutter) var(--space-4); }
+.chat__context { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; max-width: var(--content-width); min-height: var(--space-7); margin: 0 auto var(--space-2); color: var(--color-text-secondary); flex-shrink: 0; }
 .chat__back { display: inline-flex; align-items: center; gap: 10px; min-height: 36px; border-radius: 8px; padding: 4px 0; position: static; color: var(--color-text-secondary); }
 .chat__back:hover { color: var(--color-text-primary); }
-.app .chat__header { position: relative; inset: auto; display: flex; align-items: center; justify-content: flex-start; gap: 12px; height: auto; min-height: 58px; width: 100%; max-width: 720px; margin: 0 auto; padding: 0 0 18px; flex-shrink: 0; background: var(--color-bg-chrome); pointer-events: auto; }
+.app .chat__header { position: relative; inset: auto; display: flex; align-items: center; justify-content: flex-start; gap: 12px; height: auto; min-height: var(--space-9); width: 100%; max-width: var(--content-width); margin: 0 auto; padding: 0 0 var(--space-4); flex-shrink: 0; background: var(--color-bg-chrome); pointer-events: auto; }
 .app .chat__pill-anchor { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; max-width: none; }
 .app .chat__pill { justify-content: flex-start; padding: 0; border: 0; border-radius: 6px; background: none; box-shadow: none; width: fit-content; max-width: 100%; }
 /* The name opens the conversation menu: keep a comfortable touch target on touch screens. */
@@ -17,9 +17,9 @@
 .app .chat__details { position: relative; isolation: isolate; height: 44px; padding: 0 10px; background: transparent; font-size: 13px; }
 .chat__details::before { content: ''; position: absolute; z-index: -1; inset: 6px 0; border-radius: 8px; background: var(--color-bg-active); }
 .chat__details:hover::before { background: var(--color-bg-secondary-active); }
-.app .transcript-wrap { width: 100%; max-width: 720px; margin: 0 auto; }
+.app .transcript-wrap { width: 100%; max-width: var(--content-width); margin: 0 auto; }
 .app .transcript { padding: 8px 8px 16px; scrollbar-width: thin; scrollbar-gutter: stable both-edges; }
-.transcript__col { max-width: 720px; gap: 16px; justify-content: flex-start; }
+.transcript__col { max-width: var(--content-width); gap: 16px; justify-content: flex-start; }
 .transcript__col > .divider:first-child { margin-top: 16px; }
 .bubble-wrap { width: 100%; }
 .app .bubble { width: auto; max-width: min(80%, 560px); padding: 12px 14px; border-radius: 16px; box-shadow: none; }
@@ -28,9 +28,9 @@
 .app .bubble.is-user { background: var(--color-bg-active); color: var(--color-text-primary); }
 .bubble__sender { font-size: 12px; font-weight: 500; line-height: 18px; color: var(--color-text-secondary); margin-bottom: 6px; }
 .bubble__time { flex-shrink: 0; }
-.app .composer-area { width: 100%; max-width: 720px; margin: 0 auto; padding: 0; }
-.app .composer-shell { max-width: 720px; }
-.app .composer { max-width: 720px; max-height: max(84px, 18dvh); padding: clamp(6px, 1.4vh, 16px); border: 1px solid var(--color-border-secondary); border-radius: 20px; box-shadow: none; gap: clamp(4px, 1vh, 14px); background-color: var(--color-bg-chrome); }
+.app .composer-area { width: 100%; max-width: var(--content-width); margin: 0 auto; padding: 0; }
+.app .composer-shell { max-width: var(--content-width); }
+.app .composer { max-width: var(--content-width); max-height: max(84px, 18dvh); padding: clamp(6px, 1.4vh, 16px); border: 1px solid var(--color-border-secondary); border-radius: 20px; box-shadow: none; gap: clamp(4px, 1vh, 14px); background-color: var(--color-bg-chrome); }
 .app .composer__input { padding: 0; min-height: 22px; max-height: 200px; font-size: 15px; line-height: 22px; }
 .app .composer__bar { padding: 0; gap: 10px; flex-wrap: nowrap; flex-shrink: 0; }
 .app .composer__plus-anchor, .app .composer__right { padding-block: 0; }
@@ -46,8 +46,8 @@
 .app .model-pill { min-height: 44px; height: auto; flex-wrap: nowrap; gap: 4px 6px; padding: 4px 6px; border-radius: 10px; }
 .app .model-pill__name { white-space: nowrap; text-overflow: ellipsis; text-align: left; }
 .app .model-pill__effort { font-size: 12px; }
-.app .composer__error { max-width: 720px; padding: 10px 12px; }
-.app .vcall { width: 100%; max-width: 720px; margin: 12px auto; }
+.app .composer__error { max-width: var(--content-width); padding: 10px 12px; }
+.app .vcall { width: 100%; max-width: var(--content-width); margin: 12px auto; }
 .app .agent-exchange__panel { max-width: 100%; padding: 16px; border-radius: 16px; }
 .app .agent-exchange__toggle { min-height: 44px; font-size: 13px; line-height: 20px; }
 .app .steps__toggle { min-height: 36px; }
@@ -58,19 +58,19 @@
   .app .chat:not(.tasks-view) { padding: 24px; }
 }
 @media (max-width: 760px) {
-  .app .sidebar { padding: max(20px, var(--safe-top)) 18px max(12px, var(--safe-bottom)); }
-  .app .sidebar__titlebar { min-height: 36px; height: auto; padding: 0; margin-bottom: 20px; }
+  .app .sidebar { padding: max(var(--space-4), var(--safe-top)) var(--space-4) max(var(--space-4), var(--safe-bottom)); }
+  .app .sidebar__titlebar { min-height: var(--space-7); height: auto; padding: 0; margin-bottom: var(--space-4); }
   .app .sidebar__titlebar::before { content: none; }
   .app .sidebar__scroll { padding: 0; }
   .app .pinned { justify-content: flex-start; }
-  .app .pinned__tile { width: 100%; max-width: none; padding: 14px 10px; }
+  .app .pinned__tile { width: 100%; max-width: none; padding: var(--space-3); }
   .app .pinned__label { font-size: 15px; }
   .app .sidebar__footer { padding: 0; }
-  .app .chat:not(.tasks-view) { padding: max(12px, var(--safe-top)) max(16px, var(--safe-right)) max(12px, var(--safe-bottom)) max(16px, var(--safe-left)); }
-  .chat__context { margin-bottom: 12px; }
+  .app .chat:not(.tasks-view) { padding: max(var(--space-4), var(--safe-top)) max(var(--page-gutter), var(--safe-right)) max(var(--space-4), var(--safe-bottom)) max(var(--page-gutter), var(--safe-left)); }
+  .chat__context { margin-bottom: var(--space-2); }
   .app .chat__back { position: static; width: auto; height: auto; display: inline-flex; }
   .app .chat__back-badge { position: static; min-width: 20px; border-radius: 10px; padding: 1px 6px; color: var(--color-on-primary); background: var(--color-primary); font-size: 11px; }
-  .app .chat__header { gap: 8px; min-height: 54px; padding-bottom: 12px; }
+  .app .chat__header { gap: 8px; min-height: var(--space-9); padding-bottom: var(--space-4); }
   .app .chat__header > .bot-avatar { width: 28px !important; height: 28px !important; }
   .app .chat__details, .app .share-btn { padding: 0 10px; min-height: 44px; font-size: 13px; }
   .app .chat__header-right { gap: 6px; }

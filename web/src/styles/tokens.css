@@ -1,5 +1,25 @@
 /* Design tokens: light theme. */
 :root {
+  /* Shared 8px layout grid; 4px half steps are for compact component detail. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 40px;
+  --space-8: 48px;
+  --space-9: 64px;
+  --sidebar-width: 272px;
+  --sidebar-collapsed-width: 76px;
+  --content-width: 752px;
+  --page-gutter: 32px;
+  --font-heading: 'Instrument Sans', var(--font-stack);
+  --line-caption: 16px;
+  --line-body: 20px;
+  --line-message: 24px;
+  --line-title: 32px;
+
   --color-bg-chrome: rgb(255 255 255);
   --color-bg-sidebar: rgb(251 250 247);
   --color-bg-pane: #FFFFFF;
@@ -41,8 +61,8 @@
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-bubble: 16px;
-  --radius-composer: 20px;
-  --radius-card: 18px;
+  --radius-composer: 24px;
+  --radius-card: 16px;
   --radius-full: 9999px;
 
   /* --- font stacks and interaction states --- */
@@ -139,5 +159,5 @@
 
 /* Phones: page titles step down so they fit beside the back control. */
 @media (max-width: 760px) {
-  :root { --text-page-title: 22px; }
+  :root { --text-page-title: 22px; --line-title: 28px; --page-gutter: 16px; }
 }
