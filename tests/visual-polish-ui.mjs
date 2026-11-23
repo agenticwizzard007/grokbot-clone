@@ -235,7 +235,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       assert.equal(boxes.length,4);
       for(const box of boxes) { close(box.width,boxes[0].width,'All provider widths match'); close(box.x,boxes[0].x,'All provider left edges match'); assert.ok(box.height>=48); }
       const links = page.locator(`${container} a.auth-button`), linkBoxes=await links.evaluateAll(els=>els.map(el=>el.getBoundingClientRect().toJSON()));
-      for(let i=1;i<linkBoxes.length;i++) close(linkBoxes[i].y-linkBoxes[i-1].y-linkBoxes[i-1].height,12,'Provider gap');
+      for(let i=1;i<linkBoxes.length;i++) close(linkBoxes[i].y-linkBoxes[i-1].y-linkBoxes[i-1].height,16,'Provider gap');
       const primary=await styles(controls.first(),['backgroundColor']);
       for(let i=0;i<3;i++) {assert.notEqual((await styles(links.nth(i),['backgroundColor'])).backgroundColor,primary.backgroundColor);assert.equal((await styles(links.nth(i),['borderTopWidth'])).borderTopWidth,'1px');assert.ok(await contrast(links.nth(i))>=4.5);}
       assert.equal(await controls.evaluateAll(els=>new Set(els.map(el=>getComputedStyle(el).fontSize)).size),1,'Providers share text size');

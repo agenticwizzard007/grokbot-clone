@@ -14,7 +14,7 @@
 .setup-paper.setup-paper--dialog { width: min(900px, 96vw); max-width: none; height: min(840px, 92dvh); }
 .setup-paper__bar {
   min-height: 64px;
-  padding: 6px 24px;
+  padding: var(--space-2) var(--space-5);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -34,34 +34,34 @@
 .setup-paper__bar .setup-paper__close { min-width: 44px; }
 .setup-paper__flock { display: none; }
 .setup-paper__bar button:hover:not(:disabled), .setup-paper__tabs button:hover:not(:disabled) { background: var(--color-bg-hover); }
-.setup-paper__column { width: min(100% - 64px, 720px); margin: 0 auto; padding: 20px 0 52px; }
+.setup-paper__column { width: min(100% - 64px, var(--content-width)); margin: 0 auto; padding: var(--space-5) 0 var(--space-8); }
 .setup-paper__column > h1, .setup-paper__column > div > h1, .setup-paper .agent-config__title {
   margin: 0;
-  font: 650 var(--text-page-title)/1.15 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack);
+  font: 600 var(--text-page-title)/var(--line-title) 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack);
   letter-spacing: -.02em;
   overflow-wrap: anywhere;
 }
-.setup-paper__subtitle { margin: 7px 0 0; color: var(--color-text-secondary); }
-.setup-paper__tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 18px 0 20px; }
-.setup-paper__tabs button { min-height: 38px; padding: 7px 10px; border-radius: 8px; text-align: start; overflow-wrap: anywhere; }
+.setup-paper__subtitle { margin: var(--space-2) 0 0; color: var(--color-text-secondary); }
+.setup-paper__tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: var(--space-5) 0; }
+.setup-paper__tabs button { min-height: 44px; padding: var(--space-2) var(--space-3); border-radius: 8px; text-align: start; overflow-wrap: anywhere; }
 /* Active tabs change colour, not weight, so the row never shifts width. */
 .setup-paper__tabs button[aria-current], .setup-paper__tabs button[aria-checked='true'] { background: var(--color-bg-active); color: var(--color-text-primary); }
-.setup-paper .cfg-btn { min-height: 40px; height: auto; max-width: 100%; padding: 8px 13px; border-radius: 9px; white-space: normal; text-align: center; overflow-wrap: anywhere; }
+.setup-paper .cfg-btn { min-height: 44px; height: auto; max-width: 100%; padding: var(--space-2) var(--space-4); border-radius: var(--radius-md); white-space: normal; text-align: center; overflow-wrap: anywhere; }
 .setup-paper .cfg-btn--secondary { background: var(--color-bg-active); box-shadow: none; }
 .setup-paper .cfg-btn--secondary:hover:not(:disabled) { background: var(--color-bg-secondary-active); }
 .setup-paper__actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.setup-create__form { display: grid; gap: 17px; margin-top: 22px; }
-.setup-create__form fieldset { display: grid; min-width: 0; gap: 18px; padding: 0; margin: 0; border: 0; }
-.setup-create__form fieldset label { display: grid; gap: 7px; }
+.setup-create__form { display: grid; gap: var(--space-5); margin-top: var(--space-5); }
+.setup-create__form fieldset { display: grid; min-width: 0; gap: var(--space-4); padding: 0; margin: 0; border: 0; }
+.setup-create__form fieldset label { display: grid; gap: var(--space-2); }
 .setup-create__form input, .setup-create__form select {
-  width: 100%; min-width: 0; min-height: 44px; padding: 8px 12px; border: 1px solid var(--color-border-secondary); border-radius: 9px;
+  width: 100%; min-width: 0; min-height: 44px; padding: 8px 12px; border: 1px solid var(--color-border-secondary); border-radius: var(--radius-md);
   color: inherit; background: var(--color-bg-pane); font: inherit;
 }
 .setup-create__form :is(.setup-paper__subtitle, .setup-paper__tabs, .cfg-error) { margin: 0; }
 .setup-create__form small, .setup-create__description p { color: var(--color-text-secondary); }
-.setup-create__description { padding: 6px 0 15px; border-bottom: 1px solid var(--color-border-tertiary); }
-.setup-create__description p { margin: 3px 0 0; }
-.setup-create__file { display: grid; gap: 7px; }
+.setup-create__description { padding: var(--space-2) 0 var(--space-4); border-bottom: 1px solid var(--color-border-tertiary); }
+.setup-create__description p { margin: var(--space-1) 0 0; }
+.setup-create__file { display: grid; gap: var(--space-2); }
 .setup-create__file input[type='file'] { display: none; }
 .setup-create__chosen { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .bot-settings-page__content { min-width: 0; }
@@ -72,17 +72,21 @@
 .bot-settings-page__content .cfg-item__sub { white-space: normal; overflow-wrap: anywhere; }
 
 @media (max-width: 760px) {
-  .setup-paper__bar { min-height: 54px; padding: max(4px, env(safe-area-inset-top)) 10px 4px; border-bottom: 1px solid var(--color-border-tertiary); }
+  .setup-paper__bar { min-height: 56px; padding: max(4px, env(safe-area-inset-top)) 10px 4px; border-bottom: 1px solid var(--color-border-tertiary); }
   .setup-paper__bar--responsive { gap: 0; padding-inline: 4px; }
   .setup-paper__bar--responsive .setup-paper__back { min-width: 44px; }
   .setup-paper__back-label { display: none; }
   .setup-paper__bar--responsive .setup-paper__bar-title { display: inline-flex; align-items: center; gap: 8px; margin: 0; font-weight: 500; }
   .setup-paper__flock { display: inline-flex; }
   .setup-paper__bar--responsive .setup-paper__close { margin-left: auto; }
-  .setup-paper__column { width: calc(100% - 32px); padding: 17px 0 calc(28px + env(safe-area-inset-bottom)); }
-  .setup-paper__tabs { margin: 14px 0 17px; gap: 1px; }
+  .setup-paper__column { width: calc(100% - 32px); padding: var(--space-5) 0 max(var(--space-6), env(safe-area-inset-bottom)); }
+  .setup-paper__tabs { margin: var(--space-5) 0; gap: var(--space-1); }
   .setup-paper__tabs button, .setup-paper .cfg-btn { min-height: 44px; }
   .setup-paper__tabs button { padding-inline: 8px; }
   .setup-create__form input, .setup-create__form select { font-size: 16px; }
   .setup-create__form .setup-paper__actions { flex-direction: column; align-items: stretch; }
 }
+
+.bot-settings-page__content .cfg-page { gap: var(--space-5); }
+.bot-settings-page__content .cfg-field { gap: var(--space-2); }
+.bot-settings-page__content .cfg-row { gap: var(--space-4); padding-block: var(--space-4); }

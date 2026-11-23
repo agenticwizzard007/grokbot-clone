@@ -35,16 +35,16 @@
   width: min(100%, 432px); max-width: none; margin: auto; padding: 0;
   text-align: left; background: transparent; border: 0; box-shadow: none;
 }
-.access-signin .signin__header { align-items: center; gap: 28px; padding: 0; }
+.access-signin .signin__header { align-items: center; gap: var(--space-5); padding: 0; }
 .access-signin .signin__intro { margin: 0; gap: 8px; text-align: center; }
 .access-signin .signin__title {
   margin: 0; font-family: 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack);
-  font-size: 32px; line-height: 1.2; font-weight: 600; letter-spacing: -.025em;
+  font-size: 32px; line-height: 40px; font-weight: 600; letter-spacing: -.025em;
 }
-.access-signin .signin__sub { margin: 0; font-size: 15px; line-height: 1.5; }
+.access-signin .signin__sub { margin: 0; font-size: 15px; line-height: var(--line-message); }
 .access-signin .signin__notice, .access-signin .signin__error { margin: 0; padding: 12px; text-align: left; }
 
-.access-signin .phone-auth { align-items: stretch; gap: 12px; }
+.access-signin .phone-auth { align-items: stretch; gap: var(--space-4); }
 .access-signin .phone-auth__field { gap: 8px; }
 .access-signin .phone-auth__label { color: var(--color-text-primary); font-size: 14px; }
 .access-signin .phone-auth__input { min-width: 0; height: 48px; border-radius: 12px; font-size: 16px; }
@@ -58,7 +58,7 @@
 
 .access-signin .access-signin__alternatives { display: flex; flex-direction: column; gap: 16px; }
 .access-signin .signin__divider { margin: 0; font: 400 13px/20px var(--font-stack); letter-spacing: 0; }
-.access-signin .signin__providers { margin: 0; gap: 12px; }
+.access-signin .signin__providers { margin: 0; gap: var(--space-4); }
 .access-signin .access-signin__provider { display: flex; flex-direction: column; gap: 8px; }
 .access-signin .access-signin__disclosures { display: grid; gap: 8px; }
 .access-signin .access-signin__disclosures p { margin: 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.5; text-align: center; }
@@ -71,10 +71,10 @@
 
 @media (max-width: 760px) {
   .access-signin.signin {
-    padding: max(28px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(28px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+    padding: max(var(--space-6), env(safe-area-inset-top)) max(var(--space-4), env(safe-area-inset-right)) max(var(--space-6), env(safe-area-inset-bottom)) max(var(--space-4), env(safe-area-inset-left));
   }
   .access-signin .signin__card { margin-block: auto; }
   .access-signin .signin__brand { width: 148px; }
   .access-signin .signin__header { gap: 24px; }
-  .access-signin .signin__title { font-size: 28px; }
+  .access-signin .signin__title { font-size: 28px; line-height: 32px; }
 }
