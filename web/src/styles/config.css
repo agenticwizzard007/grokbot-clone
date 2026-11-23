@@ -75,6 +75,7 @@
 .cfg-picker { display: flex; flex-direction: column; gap: 6px; padding: 10px; border-radius: 14px; background: var(--color-bg-chrome); border: 0.5px solid var(--color-border-tertiary); }
 .cfg-picker .shape-grid { width: auto; padding: 0; }
 .cfg-picker .shape-cell { width: 44px; height: 44px; }
+.cfg-picker .swatches__row { max-width: 100%; flex-wrap: wrap; justify-content: center; }
 
 .cfg-savebar {
   display: flex; align-items: center; justify-content: flex-end; gap: 8px;
