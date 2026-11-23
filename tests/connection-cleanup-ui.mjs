@@ -261,9 +261,9 @@ try {
     { method: 'POST', path: `/api/apps/connections/${ids.second}/default`, action: 'default', id: ids.second },
     { method: 'DELETE', path: `/api/apps/connections/${ids.active}`, action: 'disconnect', id: ids.active },
   ], 'active management keeps the existing per-account endpoints');
+  await until(async () => await desktop.row(ids.second).getByRole('button', { name: 'Disconnect', exact: true }).isEnabled());
   assert.deepEqual(await desktop.accountIds(), Object.values(ids).filter(id => id !== ids.expired && id !== ids.active).sort(), 'disconnect removes only the selected account and retains every other record');
   assert.equal(await desktop.row(ids.second).locator('.cfg-row__title').innerText(), 'Gmail · Account 1', 'the surviving account keeps its identity after renumbering');
-  await until(async () => await desktop.row(ids.second).getByRole('button', { name: 'Disconnect', exact: true }).isEnabled());
   assert.equal(await desktop.row(ids.second).locator('.cfg-chip').getByText('Default', { exact: true }).count(), 1, 'the surviving account stays the default');
   assert.equal(await desktop.row(ids.second).getByRole('button', { name: 'Use by default', exact: true }).isDisabled(), true);
   console.log('PASS failures and compatibility: 503 retains records, 409 refreshes changed status, active default/disconnect keep their existing endpoints');
