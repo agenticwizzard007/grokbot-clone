@@ -10,10 +10,12 @@ function fixture(overrides = {}) {
       calls.push(endpoint);
       // Candidates are main pushes: the branch head is the candidate unless a newer push superseded it.
       if (endpoint === 'git/ref/heads/main') return { object: { sha: overrides.head ?? candidate } };
+      if (endpoint.startsWith('actions/workflows/staging.yml/runs?')) return { workflow_runs: overrides.runs ?? [] };
       if (endpoint.startsWith(`compare/${main}`)) return { status: overrides.mainStatus ?? 'ahead' };
       if (endpoint.startsWith(`compare/${live}`)) return { status: overrides.liveStatus ?? 'ahead' };
       throw Error('Unexpected request: ' + endpoint);
     }, liveVersion: async () => overrides.version ?? { revision: live },
+    queueLatest: async () => { calls.push('dispatch:main'); },
   } };
 }
 test('release retains both the latest main and previously deployed feature work', async () => {
@@ -21,15 +23,41 @@ test('release retains both the latest main and previously deployed feature work'
   assert.deepEqual(await checkRelease(input), { deploy: true, revision: candidate, main: candidate, previousRevision: live });
   assert.ok(calls.includes(`compare/${live}...${candidate}`));
 });
-test('superseded queued pushes never deploy', async () => {
-  const { calls, input } = fixture({ head: 'd'.repeat(40) });
-  assert.equal((await checkRelease(input)).deploy, false);
-  assert.equal(calls.length, 1);
-});
-test('a candidate that is no longer the main head never releases', async () => {
+test('a superseded checkout with a skipped tip dispatches recovery before exiting', async () => {
   const { calls, input } = fixture({ head: main });
-  assert.deepEqual(await checkRelease(input), { deploy: false, revision: candidate, reason: 'Superseded by a newer branch push' });
-  assert.equal(calls.length, 1);
+  const result = await checkRelease(input);
+  assert.equal(result.deploy, false);
+  assert.equal(result.tip, main);
+  assert.equal(calls.at(-1), 'dispatch:main');
+});
+test('an existing active deploy for the exact tip prevents duplicate dispatch', async () => {
+  for (const status of ['queued', 'in_progress', 'pending', 'waiting', 'requested']) {
+    const { calls, input } = fixture({ head: main, runs: [{ id: 42, head_sha: main, status }] });
+    const result = await checkRelease(input);
+    assert.equal(result.deploy, false);
+    assert.equal(result.replacementRun, 42);
+    assert.ok(!calls.includes('dispatch:main'));
+  }
+});
+test('completed or unrelated runs do not strand a skipped tip', async () => {
+  const { calls, input } = fixture({ head: main, runs: [
+    { id: 1, head_sha: main, status: 'completed', conclusion: 'success' },
+    { id: 2, head_sha: live, status: 'in_progress' },
+  ] });
+  assert.equal((await checkRelease(input)).deploy, false);
+  assert.equal(calls.at(-1), 'dispatch:main');
+});
+test('failed replacement dispatch cannot be reported as a successful skip', async () => {
+  const { input } = fixture({ head: main });
+  input.queueLatest = async () => { throw Error('Dispatch denied'); };
+  await assert.rejects(checkRelease(input), /Dispatch denied/);
+});
+test('scheduled recovery builds only when live is behind main', async () => {
+  const current = fixture({ version: { revision: candidate } }).input;
+  assert.equal((await checkRelease({ ...current, skipIfCurrent: true })).deploy, false);
+  assert.equal((await checkRelease({ ...fixture().input, skipIfCurrent: true })).deploy, true);
+  // Explicit dispatch still permits redeployment of the current revision.
+  assert.equal((await checkRelease(current)).deploy, true);
 });
 test('an older main or divergent branch cannot remove live features', async () => {
   for (const liveStatus of ['behind', 'diverged']) await assert.rejects(checkRelease(fixture({ liveStatus }).input), /omits live changes/);

@@ -15,11 +15,17 @@ flyctl tokens create deploy -a swarm-team --name github-staging --expiry 8760h |
   gh secret set FLY_STAGING_DEPLOY_TOKEN --repo agenticwizzard007/grokbot-clone
 ```
 
-Rotate this credential before its one-year expiry. Credentials are loaded only into publication/deployment steps, after qualification. The workflow does not run on pull-request or arbitrary feature-branch events.
+Rotate this credential before its one-year expiry. Credentials are loaded only into publication/deployment steps, after source and image verification. The workflow does not run on pull-request or arbitrary feature-branch events.
 
-Every candidate must contain both the latest `main` commit and the currently deployed commit. This prevents an older main build from removing live features. Only `main` is an eligible release source; if a reviewed manual release ever leaves production on a revision that is not an ancestor of `main`, an administrator dispatches the workflow with `allow_live_replacement` after review, and the decision is logged in the run. Superseded queued commits are skipped, checks repeat before deployment, and a single concurrency group serializes rollouts without cancelling an in-progress deployment.
+Every candidate must contain both the latest `main` commit and the currently deployed commit. This prevents an older main build from removing live features. Only `main` is an eligible release source; if a reviewed manual release ever leaves production on a revision that is not an ancestor of `main`, an administrator dispatches the workflow with `allow_live_replacement` after review, and the decision is logged in the run. Before a superseded checkout is skipped, preflight checks for a queued or running staging deploy for the exact current main tip. If none exists, it dispatches main and fails explicitly if dispatch fails. Checks repeat before publishing and deployment, and a single concurrency group serializes rollouts without cancelling an in-progress deployment.
 
-The workflow runs the native test/browser suite, deployment tests and voice entry tests; builds one complete frontend/backend image; compares its files with the tested outputs; creates and waits for a volume snapshot; publishes the image; deploys by immutable digest; and verifies every published frontend file and the running image identity. A missing credential, failed test, missing ancestor, failed backup or mismatched build causes an explicit failed run. Release/rollback evidence is retained as a GitHub Actions artifact. Failed verification is not reported as a successful release, and database migrations are not blindly reversed.
+Do not put `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]`, or `[actions skip]` in main merge commit messages, or use a `skip-checks` trailer. These suppress GitHub's push-triggered deploy as well as CI. Test workflows are disabled separately; skip markers are unnecessary. A scheduled recovery check runs every ten minutes (subject to GitHub scheduling delays) even when a push was skipped. It checks the current main revision and live identity and exits before any build if main is already live. Otherwise it uses the same deployment path. Manual `workflow_dispatch` remains available:
+
+```sh
+gh workflow run staging.yml --ref main --repo agenticwizzard007/grokbot-clone
+```
+
+The workflow builds one complete frontend/backend image, verifies its manifest and file hashes, creates and waits for a volume snapshot, publishes the image, deploys by immutable digest, and verifies published frontend files and the running image identity. It runs no test suites or browser tests. A missing credential, missing ancestor, failed backup, failed recovery dispatch, or mismatched build causes an explicit failed run. Release/rollback evidence is retained as a GitHub Actions artifact. Failed verification is not reported as a successful release, and database migrations are not blindly reversed.
 
 Account learning/supervision choices are persisted in the volume and are not reset by deployments. All current staging accounts were explicitly enabled by the owner; new accounts inherit enabled defaults.
 
