@@ -32,4 +32,10 @@ try {
     });
     assert.equal(code, 0, `${file} failed`);
   }
+  console.log('Running account-popover-ui.mjs');
+  const accountCode = await new Promise((resolve, reject) => {
+    active = spawn(process.execPath, ['tests/account-popover-ui.mjs'], { cwd: new URL('..', import.meta.url), env: { ...process.env, UI_ORIGIN: origin }, stdio: 'inherit' });
+    active.on('error', reject); active.on('exit', resolve);
+  });
+  assert.equal(accountCode, 0, 'account-popover-ui.mjs failed');
 } finally { active?.kill(); preview.kill(); }
