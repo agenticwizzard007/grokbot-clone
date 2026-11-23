@@ -59,9 +59,9 @@ test('picking a settings section updates the hash; reload would reopen it; closi
   assert.equal(useConfigUI.getState().appSettings, null);
 });
 
-test('opening Settings without a section does not invent a hash', () => {
+test('R4: opening Settings without a section names General in the hash', () => {
   useConfigUI.getState().openAppSettings();
-  assert.equal(location.hash, '');
+  assert.equal(location.hash, '#settings/general');
   assert.equal(useConfigUI.getState().appSettings, 'general');
   assert.equal(useConfigUI.getState().appSettingsHome, true);
   useConfigUI.getState().closeAppSettings();
@@ -142,15 +142,58 @@ test('Bot settings tabs are linkable with replaceState and one history entry per
   assert.equal(location.hash, botSettingsHash('coordinator', 'skills'));
   useConfigUI.getState().openBotSettings('coordinator', 'routines');
   assert.equal(location.hash, botSettingsHash('coordinator', 'routines'));
-  // Settings opened on top names its section; closing it names the Bot settings page again.
+  // App Settings replaces Bot settings; closing it cannot revive the previous page.
   useConfigUI.getState().openAppSettings('general');
   assert.equal(location.hash, '#settings/general', 'General is linkable');
+  assert.equal(useConfigUI.getState().botSettings, null);
   useConfigUI.getState().closeAppSettings();
-  assert.equal(location.hash, botSettingsHash('coordinator', 'routines'));
+  assert.equal(location.hash, '');
   useConfigUI.getState().closeBotSettings();
   assert.equal(location.hash, '');
   assert.equal(useConfigUI.getState().botSettings, null);
   assert.equal(history.pushes, pushes, 'tab and section changes never add history entries');
+});
+
+test('R4: either settings entry point closes the other surface and updates the hash', () => {
+  const ui = () => useConfigUI.getState();
+  for (const section of [undefined, 'subscriptions'] as const) {
+    ui().openAppSettings(section, 'codex');
+    ui().openBotSettings('coordinator', 'skills');
+    assert.equal(ui().appSettings, null);
+    assert.equal(ui().appSettingsHome, false);
+    assert.equal(ui().subscriptionProvider, null);
+    assert.deepEqual(ui().botSettings, { botId: 'coordinator', tab: 'skills' });
+    assert.equal(location.hash, botSettingsHash('coordinator', 'skills'));
+    ui().openAppSettings(section, 'codex');
+    assert.equal(ui().botSettings, null);
+    assert.equal(ui().appSettings, section ?? 'general');
+    assert.equal(location.hash, `#settings/${section ?? 'general'}`);
+  }
+  ui().closeAppSettings();
+});
+
+test('R4: switching to app Settings protects Bot drafts and keeps the visible route', () => {
+  const ui = () => useConfigUI.getState();
+  ui().openBotSettings('coordinator');
+  ui().setBotSettingsDraft('general', 'General');
+  ui().openAppSettings();
+  assert.equal(ui().appSettings, null);
+  assert.equal(location.hash, botSettingsHash('coordinator', 'general'));
+  assert.ok(ui().botSettingsLeave);
+  ui().resolveLeaveBotSettings(false);
+  assert.equal(ui().botSettingsDirty, true);
+  assert.equal(ui().appSettings, null);
+  // A section link changes the hash before requesting navigation.
+  location.hash = '#settings/usage';
+  ui().openAppSettings('usage');
+  assert.equal(location.hash, botSettingsHash('coordinator', 'general'));
+  ui().resolveLeaveBotSettings(true);
+  assert.equal(ui().botSettings, null);
+  assert.deepEqual(ui().botSettingsDrafts, {});
+  assert.equal(ui().botSettingsDirty, false);
+  assert.equal(ui().appSettings, 'usage');
+  assert.equal(location.hash, '#settings/usage');
+  ui().closeAppSettings();
 });
 
 test('a Bot settings link reopens that tab on reload', async () => {
