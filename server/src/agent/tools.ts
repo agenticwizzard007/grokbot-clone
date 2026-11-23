@@ -774,7 +774,7 @@ export async function executionPolicyFor(userId: string, toolName: string, args:
   if (typeof args?.connectionId === 'string' && Number.isSafeInteger(args?.revision) && args.revision > 0
     && /^[A-Z][A-Z0-9_]{2,199}$/.test(slug) && !slug.startsWith('COMPOSIO_')) {
     try {
-      const account = (await connectionsDetail(userId)).find(c => c.id === args.connectionId && c.status === 'ACTIVE');
+      const account = (await connectionsDetail(userId, { signal: AbortSignal.timeout(15_000) })).find(c => c.id === args.connectionId && c.status === 'ACTIVE');
       if (account && (account.revision === undefined || account.revision === args.revision)) {
         const result = await executeComposio(userId, 'SWARM_APPS_SEARCH', {
           toolkit: account.toolkit, query: slug, connectionId: account.id,
@@ -810,7 +810,7 @@ export async function runComposioTool(ctx: ToolCtx, name: string, args: any): Pr
     return { output: out, summary: 'done' };
   } catch (error: any) {
     // Provider bodies can contain private app data. Expose classifications only.
-    const timedOut = ['TimeoutError', 'AbortError', 'APIConnectionTimeoutError'].includes(error?.name);
+    const timedOut = ['TimeoutError', 'AbortError', 'APIConnectionTimeoutError'].includes(error?.name) || [408, 504].includes(error?.status);
     const expired = [401, 403, 404, 409].includes(error?.status) || /connection not found/i.test(String(error?.message));
     const reason = timedOut ? `${app} tool timed out.` : expired ? `${app} connection failed or expired.` : `${app} connection failed.`;
     return { output: `${reason} ${retry}`, summary: `${reason} ${retry}`, isError: true };

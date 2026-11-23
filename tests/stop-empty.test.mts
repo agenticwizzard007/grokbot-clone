@@ -41,13 +41,13 @@ async function until(check: () => boolean) {
   for (let i = 0; i < 200; i++) { if (check()) return; await new Promise(r => setTimeout(r, 5)); }
   assert.fail('Fixture did not reach running tool');
 }
-for (const scenario of ['failed', 'expired', 'timeout', 'empty']) {
+for (const scenario of ['failed', 'expired', 'timeout', 'gateway-timeout', 'empty']) {
   test(`S-01: ${scenario} ends with an actionable terminal error and retry`, async () => {
     const id = bot(scenario);
     enqueue(id, { type: 'user', text: 'Read the local fixture.' }); await settleAgentJobs();
     const rows = listRows(id), notice = rows.find(r => r.body.type === 'notice' && r.body.terminal)?.body as any;
     assert.equal(notice?.tone, 'error');
-    assert.match(notice.text, scenario === 'empty' ? /without a reply/i : scenario === 'timeout' ? /Gmail tool timed out/ : /Gmail.*failed/);
+    assert.match(notice.text, scenario === 'empty' ? /without a reply/i : scenario.includes('timeout') ? /Gmail tool timed out/ : /Gmail.*failed/);
     assert.deepEqual(notice.retry, { text: 'Read the local fixture.' });
     assert.doesNotMatch(notice.text, /Stopped\.|private fixture/);
     assert.equal(getLive(id).isRunning, false);

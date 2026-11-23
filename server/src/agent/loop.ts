@@ -1035,7 +1035,7 @@ export async function activeAppAccount(userId: string, args: any): Promise<{ ok:
   const slug = typeof args?.tool_slug === 'string' ? args.tool_slug : '';
   const app = appName(slug.split('_')[0]) ?? 'app';
   let accounts: Awaited<ReturnType<typeof connectionsDetail>>;
-  try { accounts = await connectionsDetail(userId, { details: true }); }
+  try { accounts = await connectionsDetail(userId, { details: true, signal: AbortSignal.timeout(15_000) }); }
   catch { return { ok: false, message: `The ${app} connection could not be confirmed, so nothing was done. Check it with list_app_connections and try again.` }; }
   const usable = accounts.filter(a => a.status === 'ACTIVE' && !a.isDisabled);
   const account = usable.find(a => a.id === args?.connectionId && toolkitMatches(a.toolkit, slug));

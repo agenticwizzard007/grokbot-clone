@@ -145,12 +145,13 @@ try {
     for (const width of [390, 1280]) for (const provider of ['claude', 'codex']) {
       await fixture(`retained-${provider}-${width}`);
       await page.setViewportSize({ width, height: 900 });
-      await fetch(`${fixtureAssets}/__fixture/settings?stale`);
+      await fetch(`${fixtureAssets}/__fixture/settings?all-stale`);
       await page.goto(`${base}/?fixture=retained-${provider}-${width}#settings/subscriptions`);
       await page.getByRole('tab', { name: provider === 'claude' ? 'Claude Code' : 'Codex', exact: true }).click();
       await page.getByRole('button', { name: 'Connect plan', exact: true }).click();
       await readyTerminal(); await assertNoSignIn(); await cancelTerminal();
       await resumeAt(provider);
+      await fetch(`${fixtureAssets}/__fixture/settings?stale`);
       // A retained caller can request the obsolete prompt from a failed callback,
       // even though the authenticated server no longer returns reauth_required.
       await page.route('**/api/cli/reauth?*', async route => {

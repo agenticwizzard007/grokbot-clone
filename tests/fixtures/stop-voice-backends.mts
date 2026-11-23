@@ -23,6 +23,7 @@ mock.method(client.tools, 'execute', async (_slug: string, body: any, options: a
   await new Promise(resolve => setTimeout(resolve, 700));
   if (scenario === 'failed') return { successful: false, error: 'private fixture provider detail' };
   if (scenario === 'expired') throw Object.assign(new Error('private fixture provider detail'), { status: 401 });
+  if (scenario === 'gateway-timeout') throw Object.assign(new Error('private fixture provider detail'), { status: 504 });
   if (scenario === 'timeout') throw new DOMException('fixture timeout', 'TimeoutError');
   return { successful: true, data: { result: 'Local fixture read completed.' } };
 });
