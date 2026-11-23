@@ -166,7 +166,7 @@ try {
       await transcript.evaluate(el => { el.scrollTop = 0; });
       const oldest = await transcript.locator('[data-row-seq="1"]').boundingBox();
       assert.ok(oldest.y >= 0 && oldest.y < 900, 'scrolling reaches the oldest message');
-      await page.getByRole('button', { name: 'Scroll to bottom', exact: true }).click();
+      await page.getByRole('button', { name: 'Jump to latest', exact: true }).click();
       await page.waitForFunction(() => {
         const el = document.querySelector('.transcript');
         return el.scrollHeight - el.scrollTop - el.clientHeight < 40;

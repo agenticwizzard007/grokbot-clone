@@ -200,7 +200,8 @@ try {
     await page.mouse.wheel(0, -10000);
     await page.locator('.jump-btn').waitFor();
     await openMenu();
-    await assertStacking(true);
+    // The compact chip now anchors toward the right; phone sheets still overlap.
+    await assertStacking(width === 390);
     if (width === 390) {
       const backdrop = await page.locator('.chat__header').evaluate(header => {
         const r = header.getBoundingClientRect();
@@ -236,9 +237,10 @@ try {
       // The open picker must also adapt when Details changes without a window resize.
       await page.keyboard.press('Control+Shift+,');
       await page.locator('.bot-details-pane').waitFor({ state: 'hidden' });
-      await page.locator('.mm-flyout').waitFor();
+      await page.getByRole('listbox', { name: 'Effort', exact: true }).waitFor();
       await assertEffortFits();
       await page.keyboard.press('Escape');
+      if (await page.locator('.mm-wrap').count()) await page.keyboard.press('Escape');
       await page.locator('.mm-wrap').waitFor({ state: 'detached' });
     }
     for (const view of ['model', 'effort']) {
@@ -248,7 +250,7 @@ try {
         if (view === 'effort') {
           await page.locator('.mm-row__effort').click();
           await assertEffortFits();
-          if (width >= 1180) await page.locator('.mm-flyout').waitFor();
+          if (width >= 1180) await page.getByRole('listbox', { name: 'Effort', exact: true }).waitFor();
         }
         if (opening === 'shortcut') await page.keyboard.press('Control+Shift+,');
         else await page.getByRole('button', { name: 'Show details', exact: true }).click();

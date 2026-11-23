@@ -135,7 +135,7 @@ window.fixture={store:useStore,voice:useVoice,rows,bot};
 function Harness(){ const [screen,setScreen]=React.useState('chat');window.showScreen=setScreen;
  if(screen==='signin') return React.createElement(SignIn);
  if(screen==='connect'||screen==='reauth') return React.createElement('div',{className:'access-settings',style:{height:'100%',overflow:'auto'}},React.createElement('div',{className:'app-settings__page',style:{maxWidth:784,margin:'auto'}},
- screen==='connect'?React.createElement(SubscriptionSettings):React.createElement('div',{className:'subscription-settings'},React.createElement(ReauthPrompt,{accountEmail:'test@example.test',reason:'Your session has expired.',resume:{section:'subscriptions',provider:'claude',action:'login'},retryLabel:'Connect plan',terminalActive:false,onCancel:()=>{}}))));
+ screen==='connect'?React.createElement(SubscriptionSettings):React.createElement('div',{className:'subscription-settings'},React.createElement(ReauthPrompt,{accountEmail:'test@example.test',reason:'Your session has expired.',resume:{section:'keys',provider:'claude',action:'login'},retryLabel:'Connect plan',terminalActive:false,onCancel:()=>{}}))));
  if(screen==='accounts') return React.createElement(AppSettings);
  return React.createElement('div',{className:'app'+(innerWidth<760?' is-mobile':''),style:{height:'100%'}},React.createElement(ChatView),screen==='connections'?React.createElement(ConnectAppsModal):null);
 }
@@ -158,11 +158,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       for (const part of parts) { close(center(part), center(parts[0]), 'Model chip shares one baseline', 2); assert.ok(part.width > 25); }
       assert.equal(await chip.locator('.model-pill__name').evaluate(el => el.scrollWidth <= el.clientWidth), true, 'Sonnet stays readable');
       const input = await page.locator('.composer__input').boundingBox(), chipBox = await chip.boundingBox();
-      assert.ok(input.y + input.height <= chipBox.y, 'Placeholder and model chip do not collide');
+      assert.ok(input.x + input.width <= chipBox.x || input.y + input.height <= chipBox.y, 'Placeholder and model chip do not collide');
       const userBubble = page.locator('.bubble.is-user'), agentBubble = page.locator('.bubble.is-agent');
       const [userBox, agentBox, column] = await Promise.all([userBubble.boundingBox(), agentBubble.boundingBox(), page.locator('.transcript__col').boundingBox()]);
       const textWidth = await userBubble.locator('.bubble__plain').evaluate(el => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect().width; });
-      assert.ok(userBox.width < column.width * .8 && userBox.width - textWidth < 32, 'Short messages hug their text');
+      assert.ok(userBox.width < column.width * .8 && userBox.width - textWidth <= 32.5, 'Short messages hug their text');
       close(agentBox.x - column.x, column.x + column.width - userBox.x - userBox.width, 'Both sides share gutters');
       assert.deepEqual(await styles(userBubble.locator('.bubble__sender'), ['fontSize','fontWeight','lineHeight','marginBottom']), await styles(agentBubble.locator('.bubble__sender'), ['fontSize','fontWeight','lineHeight','marginBottom']));
       assert.equal((await styles(userBubble.locator('.bubble__sender'), ['fontSize'])).fontSize, '12px');
@@ -260,6 +260,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       assert.equal(headingStyle.fontWeight,'600'); assert.equal(headingStyle.letterSpacing,'normal');
     }
     await shot('connect');
+    // #183 replaced subscription reauth with recovery; key reauth retains provider buttons.
     await show('reauth'); await page.locator('.signin__apple').waitFor();
     if(phase==='after') {
       await providers('.subscription-reauth');

@@ -100,7 +100,12 @@ try {
     await page.getByRole('textbox', { name: selectedBot === 'main' ? 'Message Quinn' : 'Message Research agent', exact: true }).waitFor();
     const count = path => requests.filter(r => r.path === path).length;
     const noChatAction = () => assert.equal(requests.filter(r => /\/(messages|fresh|interrupt)$/.test(r.path)).length, 0, 'voice start/end never submits, clears or interrupts chat');
-    const start = () => page.getByRole('button', { name: 'Start live voice with Quinn', exact: true });
+    const start = async () => {
+      const button = page.getByRole('button', { name: 'Start live voice with Quinn', exact: true });
+      if (await button.isVisible()) return button;
+      await page.getByRole('button', { name: 'More actions', exact: true }).click();
+      return page.getByRole('menuitem', { name: 'Start live voice with Quinn', exact: true });
+    };
     const dictate = async () => {
       await page.getByRole('button', { name: 'More actions', exact: true }).click();
       await page.getByRole('menuitem', { name: /Dictate a message/ }).click();
@@ -136,7 +141,7 @@ try {
   await area.evaluate(el => el.setSelectionRange(5, 9));
   await draft.page.screenshot({ path: new URL('desktop-entry.png', shots).pathname });
   await draft.page.locator('.composer-area').screenshot({ path: new URL('desktop-entry-controls.png', shots).pathname });
-  await draft.start().focus();
+  await (await draft.start()).focus();
   await draft.page.keyboard.press('Enter');
   await draft.page.locator('.vcall.is-live').waitFor();
   await waitFor(() => draft.frames.length > 0);
@@ -146,13 +151,13 @@ try {
   assert.equal(draft.requests.find(r => r.path === '/api/voice/session').body.botId, 'main');
   assert.equal(draft.count('/api/voice/stt'), 0, 'main microphone starts realtime, never dictation');
   await draft.page.screenshot({ path: new URL('desktop-live-draft.png', shots).pathname });
-  await draft.page.getByRole('button', { name: 'End call with Quinn', exact: true }).click();
+  await draft.page.getByRole('button', { name: 'End call', exact: true }).click();
   draft.noChatAction();
   // Live voice remains available while Send itself is awaiting its response.
   const sendGate = deferred(); draft.holdSend(sendGate);
   await draft.page.getByRole('button', { name: 'Send', exact: true }).click();
   await waitFor(() => draft.count('/api/bots/main/messages') === 1);
-  await draft.start().click();
+  await (await draft.start()).click();
   await draft.page.locator('.vcall.is-live').waitFor();
   assert.equal(draft.count('/api/bots/main/messages'), 1);
   assert.equal(await area.inputValue(), 'Keep this unfinished draft');
@@ -162,7 +167,7 @@ try {
   console.log('PASS typed draft/selection retained, keyboard call/audio, no dictation or chat dispatch, voice available during send');
 
   const busy = await fixture({ running: true });
-  await busy.start().click();
+  await (await busy.start()).click();
   await busy.page.locator('.vcall.is-live').waitFor();
   await busy.page.getByRole('button', { name: 'Stop', exact: true }).waitFor();
   await busy.page.getByRole('button', { name: 'End call', exact: true }).click();
@@ -174,7 +179,7 @@ try {
 
   const switcher = await fixture();
   await switcher.page.getByRole('textbox', { name: 'Message Quinn', exact: true }).fill('   ');
-  await switcher.start().click();
+  await (await switcher.start()).click();
   await switcher.page.locator('.vcall.is-live').waitFor();
   assert.equal(await switcher.page.getByRole('textbox', { name: 'Message Quinn', exact: true }).inputValue(), '   ');
   await switcher.page.locator('.bot-row').filter({ hasText: 'Research agent' }).click();
@@ -194,7 +199,7 @@ try {
 
   const gate = deferred();
   const connecting = await fixture({ sessionGate: gate });
-  await connecting.start().click();
+  await (await connecting.start()).click();
   await waitFor(() => connecting.count('/api/voice/session') === 1);
   await connecting.page.getByRole('button', { name: 'End call with Quinn', exact: true }).click();
   gate.resolve();
@@ -205,13 +210,13 @@ try {
   connecting.noChatAction(); await connecting.close();
   const denied = await fixture();
   await denied.page.evaluate(() => { window.__denyMic = true; });
-  await denied.start().click();
+  await (await denied.start()).click();
   await denied.page.locator('.vcall.is-error').waitFor();
   assert.match(await denied.page.locator('.vcall__status').innerText(), /microphone access/i);
   assert.equal(denied.count('/api/voice/session'), 0);
   assert.equal(denied.count('/api/voice/stt'), 0);
   await denied.page.evaluate(() => { window.__denyMic = false; });
-  await denied.start().click();
+  await (await denied.start()).click();
   await denied.page.locator('.vcall.is-live').waitFor();
   await denied.page.getByRole('button', { name: 'End call', exact: true }).click();
   denied.noChatAction(); await denied.close();
@@ -239,7 +244,7 @@ try {
   assert.equal(await textOnly.page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'More actions');
   assert.equal(textOnly.count('/api/voice/stt'), 1, 'cancel never submits recording');
   await textOnly.dictate();
-  await textOnly.start().click();
+  await (await textOnly.start()).click();
   await textOnly.page.locator('.vcall.is-live').waitFor();
   await textOnly.page.locator('.composer__dictation').waitFor({ state: 'detached' });
   assert.equal(await input.inputValue(), 'Before replaced after');
@@ -276,11 +281,11 @@ try {
     const box = mobile.page.getByRole('textbox', { name: 'Message Quinn', exact: true });
     await box.fill('Keep this mobile draft');
     await mobile.page.screenshot({ path: new URL(`mobile-${width}-${plan ? 'plan' : 'api'}-entry.png`, shots).pathname });
-    await mobile.start().focus();
+    await (await mobile.start()).focus();
     await mobile.page.keyboard.press('Space');
     await mobile.page.locator('.vcall.is-live').waitFor();
     assert.equal(await box.inputValue(), 'Keep this mobile draft');
-    const layout = await mobile.page.locator('.composer__bar').evaluate(el => {
+    const layout = await mobile.page.locator('.composer').evaluate(el => {
       const bar = el.getBoundingClientRect();
       const controls = [...el.querySelectorAll('button')].map(b => b.getBoundingClientRect());
       return { bar: { left: bar.left, right: bar.right }, fits: controls.every(b => b.left >= bar.left - 1 && b.right <= bar.right + 1), width: innerWidth };

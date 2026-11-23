@@ -104,18 +104,18 @@ try {
     await wait(() => page.locator('.composer').evaluate((el, maxHeight) => {
       const box = el.getBoundingClientRect();
       return box.width > 0 && box.height > 0 && box.height <= maxHeight
-        && [...el.querySelectorAll('.composer__input, .composer__bar, button')].every(child => {
+        && [...el.querySelectorAll('.composer__input, .composer__plus-anchor, .model-pill-anchor, .composer__right, button')].every(child => {
           const r = child.getBoundingClientRect();
           return r.width > 0 && r.height > 0 && r.top >= box.top - 1 && r.bottom <= box.bottom + 1
             && r.left >= box.left - 1 && r.right <= box.right + 1;
         });
-    }, viewport.height * 0.18 + 0.5), `whole composer and controls after resize to ${viewport.width}x${viewport.height}`);
+    }, Math.min(240, Math.max(112, viewport.height * 0.24)) + 0.5), `whole composer and controls after resize to ${viewport.width}x${viewport.height}`);
     const field = await composer.evaluate(el => ({ height: el.clientHeight, scroll: el.scrollHeight, overflow: getComputedStyle(el).overflowY }));
     assert.ok(field.scroll > field.height && field.overflow === 'auto', 'long draft scrolls inside');
     assert.equal(await composer.inputValue(), long, 'resize preserves the draft');
     const overflow = await page.locator('.composer').evaluate(el => {
       const box = el.getBoundingClientRect();
-      return [...el.querySelectorAll('.composer__input, .composer__bar, button')].filter(child => {
+      return [...el.querySelectorAll('.composer__input, .composer__plus-anchor, .model-pill-anchor, .composer__right, button')].filter(child => {
         const r = child.getBoundingClientRect();
         return r.top < box.top - 1 || r.bottom > box.bottom + 1 || r.left < box.left - 1 || r.right > box.right + 1;
       }).map(child => child.className);
@@ -167,17 +167,17 @@ try {
       await wait(() => page.locator('.composer').evaluate((el, cap) => {
         const box = el.getBoundingClientRect();
         return box.width > 0 && box.height > 0 && box.height <= cap
-          && [...el.querySelectorAll('.composer__input, .composer__bar, button')].every(child => {
+          && [...el.querySelectorAll('.composer__input, .composer__plus-anchor, .model-pill-anchor, .composer__right, button')].every(child => {
             const r = child.getBoundingClientRect();
             return r.width > 0 && r.height > 0 && r.top >= box.top - 1 && r.bottom <= box.bottom + 1
               && r.left >= box.left - 1 && r.right <= box.right + 1;
           });
-      }, viewport.height * 0.18 + 0.5), `${mode} contained controls after resize`);
+      }, Math.min(240, Math.max(112, viewport.height * 0.24)) + 0.5), `${mode} contained controls after resize`);
       const box = await page.locator('.composer').boundingBox();
       assert.ok(box && box.width > 0 && box.height > 0, 'visible composer has measurable bounds');
       const overflow = await page.locator('.composer').evaluate(el => {
         const box = el.getBoundingClientRect();
-        return [...el.querySelectorAll('.composer__input, .composer__bar, button')].filter(child => {
+        return [...el.querySelectorAll('.composer__input, .composer__plus-anchor, .model-pill-anchor, .composer__right, button')].filter(child => {
           const r = child.getBoundingClientRect(); return r.top < box.top - 1 || r.bottom > box.bottom + 1 || r.left < box.left - 1 || r.right > box.right + 1;
         }).map(child => child.className);
       });
@@ -185,8 +185,10 @@ try {
       await assertPill();
   }
   await page.evaluate(state => window.__emit({ type: 'live', state }), live(true));
-  // Idle, Send and Stop keep the same toolbar space even with a populated plan pill.
-  const toolbarGeometry = () => page.evaluate(() => Object.fromEntries(['.composer__bar', '.composer__right', '.model-pill'].map(selector => {
+  // Compare the compact row across actions; multiline layout is checked above.
+  await composer.fill('Hi');
+  await wait(()=>page.locator('.composer').evaluate(el=>el.getBoundingClientRect().height<=64),'compact draft settles after multiline layout');
+  const toolbarGeometry = () => page.evaluate(() => Object.fromEntries(['.composer', '.composer__right', '.model-pill'].map(selector => {
     const box = document.querySelector(selector).getBoundingClientRect();
     return [selector, { x: box.x, width: box.width, height: box.height }];
   })));
@@ -202,7 +204,7 @@ try {
   const idleBox = await toolbarGeometry();
   for (const box of [sendBox, stopBox]) {
     for (const selector of Object.keys(idleBox)) for (const key of ['x', 'width', 'height']) {
-      assert.ok(Math.abs(box[selector][key] - idleBox[selector][key]) < 1, `idle reserves Send/Stop space: ${selector} ${key}`);
+      assert.ok(Math.abs(box[selector][key] - idleBox[selector][key]) < 1, `idle reserves Send/Stop space: ${selector} ${key}: ${JSON.stringify({idleBox, box})}`);
     }
   }
   assert.equal(await page.locator('.composer__voice > [aria-hidden]').isVisible(), true, 'compact voice keeps its microphone icon');
@@ -220,7 +222,7 @@ try {
   }
   await page.evaluate(state => window.__emit({ type: 'live', state }), live(true));
   await page.setViewportSize({ width: 830, height: 480 });
-  console.log('PASS R3-093 whole composer stays within 18 percent and remeasures on resize');
+  console.log('PASS R3-093 whole composer stays within its viewport cap and remeasures on resize');
 
   await composer.fill('');
   await page.getByRole('button', { name: 'Stop', exact: true }).click();

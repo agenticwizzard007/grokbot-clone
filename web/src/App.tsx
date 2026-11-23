@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect } from 'react';
+import { installOverlayScrollbars } from './lib/overlayScrollbars';
 import { useStore } from './store';
 import { SignIn } from './components/SignIn';
 import { installVoiceEntry } from './voice/entry';
@@ -13,6 +14,7 @@ export function App() {
   const authError = useStore((s) => s.authError);
   const user = useStore((s) => s.user);
   useEffect(installVoiceEntry, []);
+  useEffect(installOverlayScrollbars, []);
   useEffect(() => { consumeSignedInRedirect(); useStore.getState().checkAuth(); }, []);
   // Public invite page: /join/<code> works signed in or out.
   const join = window.location.pathname.match(/^\/join\/([^/]+)/);

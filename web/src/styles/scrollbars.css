@@ -1,0 +1,15 @@
+/* Transparent tracks never cover content. Transcript clearance is reserved separately. */
+:where(.transcript, .sidebar__scroll, .bots-view, .setup-paper, .app-settings__main, #app-settings-sidebar-slot, .details, .composer__input, .signin, .menu) {
+  --scroll-thumb: transparent;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+:where(.transcript, .sidebar__scroll, .bots-view, .setup-paper, .app-settings__main, #app-settings-sidebar-slot, .details, .composer__input, .signin, .menu):is(:hover, :focus-within, [data-scrolling]) {
+  --scroll-thumb: color-mix(in srgb, var(--color-text-secondary) 48%, transparent);
+}
+:where(.transcript, .sidebar__scroll, .bots-view, .setup-paper, .app-settings__main, #app-settings-sidebar-slot, .details, .composer__input, .signin, .menu)::-webkit-scrollbar { width: 6px; height: 6px; }
+:where(.transcript, .sidebar__scroll, .bots-view, .setup-paper, .app-settings__main, #app-settings-sidebar-slot, .details, .composer__input, .signin, .menu)::-webkit-scrollbar-track { background: transparent; }
+:where(.transcript, .sidebar__scroll, .bots-view, .setup-paper, .app-settings__main, #app-settings-sidebar-slot, .details, .composer__input, .signin, .menu)::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: var(--radius-full); }
+@media (forced-colors: active) {
+  :where(.transcript, .sidebar__scroll, .bots-view, .setup-paper, .app-settings__main, #app-settings-sidebar-slot, .details, .composer__input, .signin, .menu) { scrollbar-color: auto; }
+}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { PhoneOff, TextCursorInput } from 'lucide-react';
+import { Mic, PhoneOff, TextCursorInput } from 'lucide-react';
 import type { Bot } from '@shared/types';
 import { api } from '../lib/api';
 import { acknowledgeSubmission, beginSubmission, pendingSubmission } from '../lib/chatSubmission';
@@ -66,6 +66,7 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   const [sending, setSending] = useState(() => pendingSends.has(draftKey));
   const [error, setError] = useState<string | null>(() => sendErrors.get(draftKey) ?? null);
   const [menu, setMenu] = useState(false);
+  const [multiline, setMultiline] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
   const prefillPointerFocus = useRef(false);
   const moreRef = useRef<HTMLButtonElement>(null);
@@ -107,18 +108,41 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
     if (!el) return;
     // Hidden (display: none) measures 0; leave the natural one-line height until it's shown.
     if (!el.offsetParent) { el.style.height = ''; return; }
-    // Reserve the measured controls, padding and borders within the whole composer's viewport cap.
     const composer = el.closest<HTMLElement>('.composer');
-    const bar = composer?.querySelector<HTMLElement>('.composer__bar');
-    if (!composer || !bar) return;
-    const style = getComputedStyle(composer);
+    if (!composer) return;
     const px = (value: string) => parseFloat(value) || 0;
-    const chrome = bar.getBoundingClientRect().height + px(style.paddingTop) + px(style.paddingBottom)
-      + px(style.borderTopWidth) + px(style.borderBottomWidth) + px(style.rowGap);
-    const max = Math.max(22, Math.min(MAX_H, px(style.maxHeight) - chrome));
-    el.style.height = '0px';
-    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
-    el.style.overflowY = el.scrollHeight > max ? 'auto' : 'hidden';
+    const style = getComputedStyle(composer);
+    const fieldStyle = getComputedStyle(el);
+    const line = px(fieldStyle.lineHeight);
+    const gap = px(style.columnGap);
+    const innerWidth = composer.clientWidth - px(style.paddingLeft) - px(style.paddingRight);
+    const chip = composer.querySelector<HTMLElement>('.model-pill-anchor');
+    const chipWidth = Math.min(chip?.scrollWidth ?? 0, px(style.getPropertyValue('--composer-chip-max')));
+    const controls = composer.querySelector<HTMLElement>('.composer__right')?.getBoundingClientRect().height ?? 44;
+    // Measure in an isolated field so the live grid's current row height cannot
+    // become the minimum height of the next draft. This also handles shrinking.
+    const measure = document.createElement('textarea');
+    measure.tabIndex = -1;
+    measure.setAttribute('aria-hidden', 'true');
+    Object.assign(measure.style, {
+      position: 'fixed', visibility: 'hidden', pointerEvents: 'none',
+      height: '0px', minHeight: '0px', maxHeight: 'none', padding: '0px', border: '0px',
+      font: fieldStyle.font, letterSpacing: fieldStyle.letterSpacing,
+      width: `${Math.max(32, innerWidth - 88 - chipWidth - gap * 3)}px`,
+    });
+    measure.value = el.value;
+    document.body.append(measure);
+    const expanded = el.value.length > 0 && (el.value.includes('\n') || measure.scrollHeight > line + 1);
+    measure.style.width = `${Math.max(32, innerWidth - 16)}px`;
+    const desired = expanded ? measure.scrollHeight + 16 : line;
+    measure.remove();
+    composer.classList.toggle('is-multiline', expanded);
+    setMultiline(expanded);
+    const chrome = px(style.paddingTop) + px(style.paddingBottom) + px(style.borderTopWidth) + px(style.borderBottomWidth)
+      + (expanded ? controls + px(style.rowGap) : 0);
+    const max = Math.max(line, Math.min(MAX_H, px(style.maxHeight) - chrome));
+    el.style.height = `${Math.min(desired, max)}px`;
+    el.style.overflowY = desired > max ? 'auto' : 'hidden';
   }, []);
   useLayoutEffect(grow, [text, onScreen, mobile, grow]);
   // Settings hide the chat pane without unmounting it; measure again when the window or the pane changes.
@@ -126,10 +150,20 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   useLayoutEffect(grow, [settingsOpen, grow]);
   useEffect(() => { window.addEventListener('resize', grow); return () => window.removeEventListener('resize', grow); }, [grow]);
   useEffect(() => {
-    const bar = ref.current?.closest('.composer')?.querySelector('.composer__bar');
-    if (!bar) return;
-    const observer = new ResizeObserver(grow);
-    observer.observe(bar);
+    const composer = ref.current?.closest('.composer');
+    if (!composer) return;
+    const widths = new Map<Element, number>();
+    const observer = new ResizeObserver(entries => {
+      let changed = false;
+      for (const entry of entries) {
+        if (widths.get(entry.target) !== entry.contentRect.width) changed = true;
+        widths.set(entry.target, entry.contentRect.width);
+      }
+      if (changed) grow();
+    });
+    observer.observe(composer);
+    // Catalog loads can change the chip width without resizing the outer composer.
+    if (ref.current) observer.observe(ref.current);
     return () => observer.disconnect();
   }, [grow]);
 
@@ -258,7 +292,6 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   };
 
   const hasText = text.trim().length > 0;
-  const multiline = text.includes('\n') || (ref.current?.scrollHeight ?? 0) > 44;
 
   return (
     <div className="composer-area" ref={area}>
@@ -275,26 +308,7 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
       <div className={`composer-shell effort-motion${ultra ? ' is-top-effort' : ''}${flare ? ' is-flaring' : ''}`} data-effort={effort ?? undefined}>
       {animated && <span className="composer__glow" aria-hidden />}
       <div className={`composer${multiline ? ' is-multiline' : ''}${animated ? ' has-effort' : ''}${ultra ? ' is-ultracode' : ''}`}>
-        <textarea
-          ref={ref}
-          className="composer__input"
-          rows={1}
-          value={text}
-          placeholder={`Message ${bot.name}`}
-          onChange={(e) => { prefilledDrafts.delete(draftKey); setText(e.target.value); }}
-          onFocus={placePrefillCaret}
-          onPointerDown={() => { prefillPointerFocus.current = document.activeElement !== ref.current && prefilledDrafts.has(draftKey); }}
-          onClick={() => {
-            // A pointer's native caret placement follows focus. Restore the initial prefill position
-            // after that placement, while later clicks in the focused field can move the caret normally.
-            if (prefillPointerFocus.current) placePrefillCaret();
-            prefillPointerFocus.current = false;
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); }
-          }}
-          aria-label={`Message ${bot.name}`}
-        />
+
         <div className="composer__bar">
         <div className="composer__left">
           <span className="composer__plus-anchor">
@@ -309,25 +323,45 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
                 items={[
                   { label: 'New conversation', onSelect: fresh },
                   { label: 'Connect apps', onSelect: () => setModal('apps') },
+                  ...(hasText || running ? [{ label: voiceLabel, icon: inCall ? PhoneOff : Mic, onSelect: voice }] : []),
                   ...(!anyCall && dictation.state === 'idle' ? [{ label: 'Dictate a message', hint: 'Text only', icon: TextCursorInput, onSelect: dictate }] : []),
                 ]}
               />
             )}
           </span>
+        <textarea
+          ref={ref}
+          className="composer__input"
+          rows={1}
+          value={text}
+          placeholder={mobile ? 'Message' : `Message ${bot.name}`}
+          onChange={(e) => { prefilledDrafts.delete(draftKey); setText(e.target.value); }}
+          onFocus={placePrefillCaret}
+          onPointerDown={() => { prefillPointerFocus.current = document.activeElement !== ref.current && prefilledDrafts.has(draftKey); }}
+          onClick={() => {
+            // A pointer's native caret placement follows focus. Restore the initial prefill position
+            // after that placement, while later clicks in the focused field can move the caret normally.
+            if (prefillPointerFocus.current) placePrefillCaret();
+            prefillPointerFocus.current = false;
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); }
+          }}
+          aria-label={`Message ${bot.name}`}
+        />
           <ComposerModelMenu bot={bot} />
         </div>
         <div className="composer__right">
-          <button
+          {!hasText && !running && <button
             type="button"
-            className={`${hasText || running ? 'composer__btn' : 'composer__cta'} composer__voice${inCall ? ' is-in-call' : ''}`}
+            className={`composer__cta composer__voice${inCall ? ' is-in-call' : ''}`}
             aria-label={voiceLabel}
             aria-pressed={inCall}
             title={switchingCall ? `End the current call and talk to ${bot.name}` : inCall ? 'End the call; agent work continues in chat' : `Talk to ${bot.name} live to coordinate work and hear results`}
             onClick={voice}
           >
             {inCall ? <PhoneOff size={16} aria-hidden /> : <Icon name="mic" />}
-            <span className="composer__voice-label">{inCall ? 'End call' : switchingCall ? 'Switch call' : 'Live voice'}</span>
-          </button>
+            </button>}
           {running && !hasText ? (
             <button type="button" className="composer__cta" onClick={stop} aria-label="Stop" title="Stop">
               <Icon name="stop" size={14} />
