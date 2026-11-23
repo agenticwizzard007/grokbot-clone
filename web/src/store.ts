@@ -4,6 +4,7 @@ import type { Bot, ComputerState, LiveState, Routine, Row, ServerEvent, User } f
 import { api } from './lib/api';
 import { noteRowsEvent } from './lib/sseWatchdog';
 import { readDetailsDefault } from './lib/detailsDefault';
+import { sessionExpired } from './lib/session';
 
 export type ModalKind = 'create' | 'search' | 'apps' | 'group' | null;
 
@@ -110,6 +111,7 @@ export const useStore = create<State>((set, get) => ({
   async checkAuth() {
     try {
       const { user, devLogin, googleLogin, googleLinked, appleLogin, appleLinked } = await api.me();
+      if (sessionExpired()) return;
       set({ user, devLogin, googleLogin: googleLogin !== false, appleLogin: !!appleLogin, appleLinked: !!appleLinked, googleLinked: !!googleLinked, authChecked: true });
       syncBrowserTimezone(user);
     } catch {
@@ -177,6 +179,7 @@ export const useStore = create<State>((set, get) => ({
 
   async loadRoutines(id) {
     const { routines } = await api.routines(id);
+    if (sessionExpired()) return;
     set((s) => ({ routines: { ...s.routines, [id]: routines } }));
   },
 
