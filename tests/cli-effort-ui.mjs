@@ -99,7 +99,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     for (const provider of ['codex', 'claude']) {
       source = provider; await setBot({ model: 'api/old', effort: 'ultracode', fast: true }); await page.evaluate(() => window.refreshCatalog());
       await page.locator('.model-pill__effort').getByText('Medium', { exact: true }).waitFor();
-      await checkEffort('medium', '12s');
+      await checkEffort('medium', '0s');
       await open();
       assert.equal(await page.getByRole('button', { name: 'Effort for No effort model', exact: true }).count(), 0);
       await page.getByRole('button', { name: 'Effort', exact: true }).click();
@@ -118,7 +118,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
         await open();
       }
       await page.getByRole('button', { name: 'Effort', exact: true }).click();
-      await choose('Low'); await checkEffort('low', '18s');
+      await choose('Low'); await checkEffort('low', '0s');
       assert.deepEqual(patches.at(-1), { model: `${provider}/primary`, effort: 'low', fast: false });
       await open(); await page.getByRole('button', { name: 'Effort for Limited effort model', exact: true }).click();
       assert.deepEqual((await options().allTextContents()).map(s => s.startsWith('High') ? 'high' : s.startsWith('Low') ? 'low' : s), ['high', 'low']);
@@ -133,7 +133,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       // Defaults from null, old API selection, the other CLI, and explicit aliases all remain configurable.
       for (const model of [null, 'api/old', `${provider === 'codex' ? 'claude' : 'codex'}/old`, `${provider}/default`]) {
         await setBot({ model, effort: 'high' });
-        await checkEffort(model === `${provider}/default` ? 'high' : 'medium', model === `${provider}/default` ? '9s' : '12s');
+        await checkEffort(model === `${provider}/default` ? 'high' : 'medium', '0s');
       }
       await setBot({ model: null, effort: 'high' });
       await page.getByRole('textbox', { name: 'Message Test bot', exact: true }).focus();
@@ -150,11 +150,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       defaultKnown = true; defaultAvailable = false; await page.evaluate(() => window.refreshCatalog());
       await open(); assert.equal(await page.getByRole('button', { name: 'Effort', exact: true }).count(), 0);
       await page.getByRole('button', { name: `Effort for ${provider === 'claude' ? 'Opus 5.5' : 'GPT-6.1 Sol'}`, exact: true }).click();
-      await choose('High'); await checkEffort('high', '9s');
+      await choose('High'); await checkEffort('high', '0s');
       defaultAvailable = true;
       await open(); await page.getByRole('searchbox', { name: 'Search models', exact: true }).fill('Limited');
       await page.getByRole('button', { name: 'Effort for Limited effort model', exact: true }).click();
-      assert.equal(await options().count(), 2); await choose('Low'); await checkEffort('low', '18s');
+      assert.equal(await options().count(), 2); await choose('Low'); await checkEffort('low', '0s');
       assert.equal(patches.at(-1).model, `${provider}/limited`, 'Search-result effort selects its model too');
       // Unavailable explicit models never silently become the default.
       await setBot({ model: `${provider}/removed` }); await page.evaluate(() => window.refreshCatalog());
@@ -242,7 +242,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       assert.deepEqual(patches.at(-1), { effort: 'low', model: `${provider}/primary` });
       await page.getByText('Saved', { exact: true }).waitFor();
       await page.evaluate(() => window.closeSettings());
-      await checkEffort('low', '18s');
+      await checkEffort('low', '0s');
     }
     source = 'openrouter'; await page.evaluate(() => window.refreshCatalog());
     await setBot({ model: 'api/plain' });

@@ -61,3 +61,15 @@ jobs:
           "$monitoring_tools/promtool" test rules swarm-alerts.test.yml
       # Real container/Fly/provider qualification has a separate controlled
       # inventory. This job must not claim those external gates passed.
+  effort-animation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Validate effort mapping and visible top-level animation
+        run: npm run test:models && node tests/cli-effort-ui.mjs && node tests/effort-animation-ui.mjs
