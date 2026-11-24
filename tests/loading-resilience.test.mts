@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { MetadataCache } from '../server/src/lib/metadata-cache.js';
 import { readDeadline } from '../web/src/lib/readDeadline.js';
+import { toolkitLogo } from '../web/src/lib/toolkitLogos.js';
 import { retryImport } from '../web/src/lib/retryImport.js';
 
 const settle = async () => { for (let i = 0; i < 15; i++) await Promise.resolve(); };
@@ -9,7 +10,7 @@ test('slow read-only upstream is aborted and leaves loading at its deadline', as
   t.mock.timers.enable({ apis: ['setTimeout'] });
   let signal: AbortSignal;
   const request = readDeadline(s => { signal = s; return new Promise(() => {}); });
-  const check = assert.rejects(request, /Unavailable/);
+  const check = assert.rejects(request, /unavailable/i);
   t.mock.timers.tick(4000); await check;
   assert.equal(signal!.aborted, true);
 });
@@ -53,6 +54,11 @@ test('chunk recovery rejects foreign URLs and expires stalled imports', async t 
   await assert.rejects(retryImport(async () => { throw new Error('https://foreign.test/evil.js'); }, async () => { assert.fail('foreign URL'); }, origin), /foreign/);
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const request = retryImport(() => new Promise(() => {}), async () => {}, origin);
-  const check = assert.rejects(request, /Unavailable/);
+  const check = assert.rejects(request, /unavailable/i);
   t.mock.timers.tick(4500); await check;
+});
+
+test('Google Tasks uses the shared letter avatar instead of checkbox-like metadata artwork', () => {
+  for (const slug of ['googletasks', 'google_tasks']) assert.equal(toolkitLogo({ slug, name: 'Google Tasks', logo: 'https://logos.composio.dev/api/googletasks' }), undefined);
+  assert.equal(toolkitLogo({ slug: 'gmail', name: 'Gmail' }), '/assets/toolkits/gmail.svg');
 });

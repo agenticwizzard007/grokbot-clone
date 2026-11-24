@@ -276,14 +276,14 @@ try {
     await title('Coordinator Bot · History');
     await openBot('learning'); await title('Coordinator Bot · Learning');
     await page.setViewportSize({ width, height: 1000 });
-    const learning = page.locator('.bot-settings-page .learning-flags label').first();
+    const learning = page.locator('.bot-settings-page .learning-flags .cfg-row').first();
     assert.equal(await learning.getByRole('checkbox').isChecked(), false);
     assert.match(await learning.innerText(), /Bot override\.[\s\S]*On:[\s\S]*Off:[\s\S]*Saved memories and skills remain available/);
-    assert.match(await page.locator('.bot-settings-page .learning-flags label').nth(1).innerText(), /Inherited from the account\.[\s\S]*On:[\s\S]*Off:/);
+    assert.match(await page.locator('.bot-settings-page .learning-flags .cfg-row').nth(1).innerText(), /Inherited from the account\.[\s\S]*On:[\s\S]*Off:/);
     await openApp('learning'); await title('Settings · Learning');
     await page.locator('.bot-settings-page').waitFor({ state: 'detached' });
     assert.equal(new URL(page.url()).hash, '#settings/learning');
-    const accountLearning = page.locator('.app-settings .learning-flags label').first();
+    const accountLearning = page.locator('.app-settings .learning-flags .cfg-row').first();
     assert.equal(await accountLearning.getByRole('checkbox').isChecked(), true);
     assert.match(await accountLearning.innerText(), /On:[\s\S]*Off:/);
     await page.getByText('Defaults for learning across this account. Each Bot can override these settings.', { exact: true }).waitFor();

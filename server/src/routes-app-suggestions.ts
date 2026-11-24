@@ -5,7 +5,7 @@ import { readJson } from './lib/json.js';
 import { catalog, connectionsDetail } from './composio.js';
 import { getBotRow } from './store.js';
 import { getSetup } from './bot-setup.js';
-import { llmClient, defaultModel, modelInfo } from './lib/llm.js';
+import { llmClient, defaultModel } from './lib/llm.js';
 import { recordModelUsage, withUsage } from './usage.js';
 import { availableSuggestions, createSuggestionRanker, fallbackSuggestions, SUGGESTION_PROMPT, withSuggestionTimeout } from './app-suggestions.js';
 import { toolkitIcon } from './toolkit-icons.js';
@@ -37,6 +37,7 @@ appSuggestionsApi.post('/bots/:id/suggested-apps', async c => {
       instructions: body.data.instructions ?? bot.instructions,
       purpose: getSetup(bot.id)?.brief.purpose ?? '',
     };
+    const started = performance.now();
     const suggestions = await withSuggestionTimeout(async signal => {
       dependency.stage = 'catalog';
       if (!env.composioEnabled) throw new Error('catalog_not_configured');
@@ -48,10 +49,10 @@ appSuggestionsApi.post('/bots/:id/suggested-apps', async c => {
       try {
         result = await withSuggestionTimeout(rankSignal => withUsage({ userId, botId: bot.id, kind: 'other' }, async () => {
           const model = defaultModel();
-          const info = await modelInfo(model, false, rankSignal);
           rankSignal.throwIfAborted();
-          return rank(userId, model, context, available, info?.context || undefined);
-        }), 6_000);
+          // The ranker's conservative default budget fits without a separate model discovery call.
+          return rank(userId, model, context, available);
+        }), Math.max(1, Math.min(1500, 2500 - (performance.now() - started))));
       } catch {
         // Model credentials, provider errors, invalid JSON and ranker timeouts
         // do not prevent a safe ranking of real catalog entries.
@@ -66,7 +67,8 @@ appSuggestionsApi.post('/bots/:id/suggested-apps', async c => {
       signal.throwIfAborted();
       const connected = new Set(accounts.filter(account => account.status === 'ACTIVE' && !account.isDisabled).map(account => account.toolkit));
       return availableSuggestions(fallback ? { suggestions: fallbackSuggestions(context, current) } : result, current, connected);
-    }, 10_000);
+    }, 4_000);
+    c.header('Server-Timing', `suggestions;dur=${(performance.now() - started).toFixed(1)}`);
     return c.json({ suggestions, hasContext: Object.values(context).some(text => text.trim()) });
   } catch (error) {
     // Report the failed dependency without exposing provider bodies or credentials.

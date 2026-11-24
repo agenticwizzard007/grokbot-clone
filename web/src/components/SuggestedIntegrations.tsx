@@ -4,10 +4,11 @@ import { verifyAccessAccount } from '../lib/accessApi';
 import { useStore } from '../store';
 import { ToolkitLogo } from './ToolkitLogo';
 import { useAccessPanel } from './config/useAccessPanel';
+import { cachedSuggestions, refreshSuggestions } from '../lib/appsCatalogCache';
 import '../styles/suggested-integrations.css';
 
 export const SUGGESTIONS_DEBOUNCE_MS = 450;
-export const SUGGESTIONS_TIMEOUT_MS = 12_000;
+export const SUGGESTIONS_TIMEOUT_MS = 4_500;
 
 function SuggestionCard({ app, refresh }: { app: SuggestedToolkit; refresh: () => void }) {
   const userId = useStore(state => state.user?.id);
@@ -47,47 +48,53 @@ export function SuggestedIntegrations({ botId, description, instructions }: { bo
   const userId = useStore(state => state.user?.id);
   const connectionsVersion = useStore(state => state.connectionsVersion);
   const [retry, setRetry] = useState(0);
-  const [result, setResult] = useState<{ key: string; apps: SuggestedToolkit[]; hasContext?: boolean; error?: string }>();
+  const [result, setResult] = useState<{ key: string; apps: SuggestedToolkit[]; hasContext?: boolean; error?: string; refreshing?: boolean }>();
   const loadingWindow = useRef<{ contextKey: string; deadline: number }>();
   const contextKey = JSON.stringify([userId, botId, description, instructions, retry]);
   const key = JSON.stringify([userId, botId, description, instructions, connectionsVersion, retry]);
+  const cacheKey = JSON.stringify([botId, description, instructions, connectionsVersion]);
   useEffect(() => {
     if (!userId) return;
     const controller = new AbortController();
     const isCurrent = () => !controller.signal.aborted && useStore.getState().user?.id === userId;
+    const cached = cachedSuggestions(userId, cacheKey);
+    if (cached) setResult({ key, apps: cached.suggestions, hasContext: cached.hasContext, refreshing: true });
     // Connection refreshes may invalidate a request, but cannot extend loading forever.
     if (loadingWindow.current?.contextKey !== contextKey) {
       loadingWindow.current = { contextKey, deadline: Date.now() + SUGGESTIONS_DEBOUNCE_MS + SUGGESTIONS_TIMEOUT_MS };
     }
     const timeout = () => {
-      if (isCurrent()) setResult({ key, apps: [], error: 'Finding relevant apps took too long. Try again.' });
+      if (isCurrent()) setResult({ key, apps: cached?.suggestions ?? [], hasContext: cached?.hasContext, error: 'Suggestions unavailable. Please retry.' });
       controller.abort();
     };
     const remaining = loadingWindow.current.deadline - Date.now();
     if (remaining <= 0) { timeout(); return; }
     const deadline = setTimeout(timeout, remaining);
     const timer = setTimeout(() => {
-      void api.suggestedApps(botId, { description, instructions }, controller.signal).then(response => {
+      void refreshSuggestions(userId, cacheKey, botId, { description, instructions }).then(response => {
         if (isCurrent()) {
           loadingWindow.current = undefined;
           setResult({ key, apps: response.suggestions, hasContext: response.hasContext });
         }
       }).catch(error => {
-        if (isCurrent()) setResult({ key, apps: [], error: error instanceof ApiError ? error.message : 'Could not reach app suggestions. Check your connection and retry.' });
+        if (isCurrent()) setResult({ key, apps: cached?.suggestions ?? [], hasContext: cached?.hasContext, error: error instanceof ApiError ? error.message : 'Suggestions unavailable. Please retry.' });
       }).finally(() => clearTimeout(deadline));
     }, SUGGESTIONS_DEBOUNCE_MS);
     return () => { clearTimeout(timer); clearTimeout(deadline); controller.abort(); };
-  }, [key, contextKey, botId, description, instructions, userId]);
+  }, [key, cacheKey, contextKey, botId, description, instructions, userId]);
   if (!userId) return null;
   const current = result?.key === key ? result : undefined;
   const refresh = () => setRetry(value => value + 1);
   return <section className="suggested-integrations bot-detail-section" aria-label="Suggested integrations" aria-busy={!current}>
     <h2>Suggested integrations</h2>
     {!current ? <p className="suggested-integrations__note" role="status">Finding relevant apps…</p>
-      : current.error ? <p className="suggested-integrations__note" role="status">{current.error} <button type="button" className="link-btn" onClick={refresh}>Retry</button></p>
-      : current.apps.length ? <ul className="suggested-integrations__list">{current.apps.map(app => <SuggestionCard key={`${key}:${app.slug}`} app={app} refresh={refresh} />)}</ul>
-      : <p className="suggested-integrations__note">{current.hasContext || description.trim() || instructions.trim()
+      : <>
+      {current.error && <p className="suggested-integrations__note" role="status">{current.error} <button type="button" className="link-btn" onClick={refresh}>Retry</button></p>}
+      {current.apps.length ? <><ul className="suggested-integrations__list">{current.apps.map(app => <SuggestionCard key={`${key}:${app.slug}`} app={app} refresh={refresh} />)}</ul>
+        {(current.refreshing || current.error) && <p className="suggested-integrations__note">Previously loaded suggestions{current.refreshing ? ' · Refreshing…' : ''}</p>}</>
+      : !current.error && <p className="suggested-integrations__note">{current.hasContext || description.trim() || instructions.trim()
         ? 'No matching additional apps for this Bot right now.'
         : "Describe this Bot's work in Bot settings > General to find relevant integrations."}</p>}
+      </>}
   </section>;
 }

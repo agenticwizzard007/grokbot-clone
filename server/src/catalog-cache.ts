@@ -11,7 +11,7 @@ export function createCatalogCache<T>(ttlMs = 60 * 60_000) {
       if (!pending) {
         const epoch = generation;
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(new DOMException('Catalog unavailable', 'TimeoutError')), 8000);
+        const timer = setTimeout(() => controller.abort(new DOMException('Catalog unavailable', 'TimeoutError')), 3500);
         const loading = Promise.race([load(controller.signal), new Promise<never>((_, reject) => {
           controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true });
         })]);
