@@ -118,6 +118,7 @@ for (const protocol of ['http1', 'http2'] as const) {
       assert.equal(response['content-type'], 'text/event-stream; charset=utf-8');
       assert.equal(response['content-length'], undefined);
       if (client) for (const header of ['connection', 'transfer-encoding', 'keep-alive']) assert.equal(response[header], undefined);
+      else assert.equal(response.connection, 'keep-alive', 'HTTP/1 adapter supplies valid connection framing');
       assert.equal((await received.next()).type, 'hello');
       assert.ok(Date.now() - started < 1500, 'headers and greeting arrive immediately');
       // Keep the event stream open while another authenticated request shares the connection.
