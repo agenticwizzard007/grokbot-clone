@@ -1,5 +1,5 @@
 // QA R4 and D-01: real local app, temporary SQLite, DEV_LOGIN, and mocked providers.
-// Run: node tests/bot-settings-deep-link-ui.mjs
+// Run: node tests/navigation-history-ui.mjs
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
@@ -120,11 +120,9 @@ try {
       const sections = page.getByRole('navigation', {name:'Settings sections'});
       for (const section of ['Account','Messaging','Usage']) {
         if (width === 390) {
-          // Section list Back is deliberately exercised separately below. A real
-          // fixture anchor allows consecutive section links on the phone too.
-          await page.locator('.app-settings__main').evaluate((element, section) => { const a=document.createElement('a');a.href=`#settings/${section.toLowerCase()}`;a.textContent='Next section';a.id='next-section';element.prepend(a); }, section);
-          await page.locator('#next-section').click();
-          await page.locator('#next-section').evaluateAll(elements => elements.forEach(e=>e.remove()));
+          await page.getByRole('button', {name:'Back to Settings',exact:true}).click();
+          await hash('#settings');
+          await sections.getByRole('button',{name:section,exact:true}).click();
         } else await sections.getByRole('button',{name:section,exact:true}).click();
         await hash(`#settings/${section.toLowerCase()}`);
       }
@@ -150,8 +148,27 @@ try {
         await page.getByRole('button',{name:'Back to Settings',exact:true}).click(); await hash('#settings');
         await reload('#settings'); await sections.waitFor();
         await page.getByRole('button',{name:'Back to chat',exact:true}).click();
-      } else await page.locator('.settings-nav__back').click();
+      } else {
+        await page.locator('.settings-nav__back').getByText('Back to chat', {exact:true}).waitFor();
+        await page.locator('.access-settings__bar').getByRole('button', {name:'Back to chat',exact:true}).waitFor();
+        await page.locator('.settings-nav__back').click();
+      }
       await hash(chat);
+      if (width === 390) {
+        await page.keyboard.press('Control+,'); await hash('#settings');
+        for (const section of ['Account', 'Messaging', 'General']) {
+          await sections.getByRole('button', {name:section,exact:true}).click();
+          await hash(`#settings/${section.toLowerCase()}`);
+          if (section !== 'General') {
+            await page.getByRole('button', {name:'Back to Settings',exact:true}).click(); await hash('#settings');
+            await back(`#settings/${section.toLowerCase()}`); await forward('#settings');
+            await reload('#settings');
+          }
+        }
+        for (const route of ['#settings/messaging', '#settings/account', '#settings', chat]) await back(route);
+        for (const route of ['#settings', '#settings/account', '#settings/messaging', '#settings/general']) await forward(route);
+        await page.getByRole('button', {name:'Close settings',exact:true}).click(); await hash(chat);
+      }
       await page.keyboard.press('Control+k'); await hash('#search');
       await page.getByRole('button',{name:'Close search',exact:true}).waitFor();
       await back(chat); await page.getByRole('dialog',{name:'Search',exact:true}).waitFor({state:'detached'});
@@ -164,6 +181,7 @@ try {
       await page.locator('.sidebar-island').click(); await hash('#tasks');
       for (const tab of ['Team','Goals','Reports']) { await page.getByRole('navigation',{name:'Work sections'}).getByRole('button',{name:tab,exact:true}).click(); await hash(`#${tab.toLowerCase()}`); }
       await reload('#reports');
+      await page.locator('.tasks-view__header').getByRole('button', {name: width === 390 ? 'Back to Bots' : 'Back to chat', exact:true}).waitFor();
       for (const tab of ['goals','team','tasks']) await back(`#${tab}`);
       await back(width === 390 ? '#bots' : chat); await forward('#tasks');
       await page.locator('.tasks-view__header button').first().click(); await hash(width === 390 ? '#bots' : chat);
@@ -185,14 +203,42 @@ try {
       await page.getByRole('tab',{name:'History',exact:true}).waitFor();
       await back(`${chat}/details/setup/files`); await back(`${chat}/details/setup/harness`); await back(`${chat}/details/setup`);
       await detailTabs.getByRole('button',{name:'Activity',exact:true}).click();
+      // A real persisted details entry remains a valid return after reload.
+      await page.keyboard.press('Alt+Shift+n'); await hash('#new-bot');
+      await reload('#new-bot');
+      await page.getByRole('button', {name:'Back to details',exact:true}).waitFor();
+      await snap('create-details-reload');
+      await page.getByRole('button', {name:'Back to details',exact:true}).click(); await hash(`${chat}/details/activity`);
+      await page.locator('.details').waitFor();
       await page.getByRole('button',{name:'Bot settings',exact:true}).click(); await hash(`${chat}/settings/general`);
       for (const tab of ['Skills','Memories','Routines','Learning','Analytics']) { await page.getByRole('navigation',{name:'Bot settings sections'}).getByRole('button',{name:tab,exact:true}).click(); await hash(`${chat}/settings/${tab.toLowerCase()}`); }
       await reload(`${chat}/settings/analytics`);
+      await page.getByRole('button', {name:'Back to details',exact:true}).waitFor();
       for (const tab of ['learning','routines','memories','skills','general']) await back(`${chat}/settings/${tab}`);
       await back(`${chat}/details/activity`); await page.locator('.details').waitFor();
       await page.getByRole('button',{name:'Close details',exact:true}).click(); await hash(chat);
       await reload(chat); await page.locator('.composer__input').waitFor();
+      // A persisted origin can disappear while this page is closed/reloaded.
+      await page.getByRole('button', {name:'Show details',exact:true}).click();
+      await page.keyboard.press('Alt+Shift+n'); await hash('#new-bot');
+      const withoutOrigin = async route => {
+        const response = await route.fetch();
+        const body = await response.json();
+        await route.fulfill({response, json:{...body, bots:body.bots.filter(item => item.id !== bot.id)}});
+      };
+      await context.route('**/api/bots', withoutOrigin);
+      await reload('#new-bot');
+      await page.getByRole('button', {name:'Back to Bots',exact:true}).waitFor();
+      await page.getByRole('button', {name:'Back to Bots',exact:true}).click(); await hash('#bots');
+      await context.unroute('**/api/bots', withoutOrigin);
+      await page.goto(`${origin}/?restored=1${chat}`); await page.locator('.composer__input').waitFor();
       await page.goto(`${origin}/#bot/deleted/settings/general`); await hash('#bots');
+      // Same Create URL without a known in-app trail must not reuse details.
+      await page.goto(`${origin}/?fresh=1#new-bot`); await reload('#new-bot');
+      const fallbackLabel = width === 390 ? 'Back to Bots' : 'Back to chat';
+      await page.getByRole('button', {name:fallbackLabel,exact:true}).waitFor();
+      await snap('create-parent-reload');
+      await page.locator('.setup-paper__back').click(); await hash(width === 390 ? '#bots' : chat);
       await page.goto(`${origin}/#new-bot/group`); await page.getByRole('button',{name:'Back to create a Bot',exact:true}).click(); await hash('#new-bot');
       await page.locator('.setup-paper__close').click(); await page.locator('.app').waitFor(); assert.equal(new URL(page.url()).origin, origin);
       await snap('safe-deep-link-back');

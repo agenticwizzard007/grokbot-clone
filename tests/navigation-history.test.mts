@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { APP_SECTIONS, BOT_TABS, parseScreen, screenHash, resolveScreen, parentScreen, ScreenHistory, type Screen } from '../web/src/lib/navigation.ts';
+import { APP_SECTIONS, BOT_TABS, backTarget, backLabel, outsideSurface, parseScreen, screenHash, resolveScreen, parentScreen, ScreenHistory, type Screen } from '../web/src/lib/navigation.ts';
 
 const chat: Screen = { kind: 'chat', bot: 'quinn' };
 const screens: Screen[] = [
@@ -109,4 +109,114 @@ test('unknown/deleted Bot links fall back only after the account roster resolves
 test('legacy scoped work links normalize without dropping their tab', () => {
   const route = resolveScreen({kind:'work',route:{tab:'Goals',botSlug:'quinn'}}, [{id:'quinn',name:'Quinn'}], true)!;
   assert.match(screenHash(route), /^#bot\/quinn~[^/]+\/goals$/);
+});
+
+for (const surface of [
+  { kind: 'settings', section: 'account' }, { kind: 'work', route: { tab: 'Tasks' } },
+  { kind: 'create' }, { kind: 'bot-settings', bot: 'quinn', tab: 'general' },
+] as Screen[]) test(`reload Back label and destination share the persisted trail: ${surface.kind}`, () => {
+  const f = fixture();
+  f.history.navigate(chat);
+  f.history.navigate({ kind: 'details', bot: 'quinn', tab: 'activity' });
+  f.history.navigate(surface);
+  f.reload();
+  const matches = (other: Screen) => outsideSurface(surface, other);
+  const target = backTarget(f.history.trail, { kind: 'bots' }, matches);
+  assert.equal(backLabel(target.screen), 'Back to details');
+  f.history.back({ kind: 'bots' }, matches);
+  assert.equal(f.browser.location.hash, screenHash(target.screen));
+});
+
+test('reload fallback label ignores a copied trail for a different hash or account', () => {
+  const f = fixture();
+  f.history.navigate({ kind: 'details', bot: 'quinn', tab: 'activity' });
+  f.history.navigate({ kind: 'create' });
+  // Address-bar/redirect changes can carry another entry's state into reload.
+  f.browser.location.hash = '#settings/account';
+  assert.deepEqual(f.history.trail, []);
+  f.reload();
+  const target = backTarget(f.history.trail, { kind: 'bots' });
+  assert.equal(backLabel(target.screen), 'Back to Bots');
+  f.history.back(target.screen);
+  assert.equal(f.browser.location.hash, '#bots');
+  f.history.navigate({ kind: 'create' }); f.account('b'); f.reload();
+  assert.equal(backLabel(backTarget(f.history.trail, chat).screen), 'Back to chat');
+  f.history.back(chat);
+  assert.equal(f.browser.location.hash, '#bot/quinn');
+});
+
+test('phone parent list navigation preserves sections without duplicate list entries, including reload', () => {
+  const f = fixture(); f.history.navigate(chat); f.history.navigate({ kind: 'settings' });
+  f.history.navigate({ kind: 'settings', section: 'account' });
+  for (const section of ['messaging', 'general'] as const) {
+    f.history.navigate({ kind: 'settings' });
+    assert.equal(f.browser.location.hash, '#settings');
+    f.browser.history.go(-1);
+    assert.match(f.browser.location.hash, /^#settings\//, 'parent navigation pushes rather than pops');
+    f.browser.history.go(1); f.reload();
+    f.history.navigate({ kind: 'settings', section });
+  }
+  const hashes = ['#bots', '#bot/quinn', '#settings', '#settings/account', '#settings/messaging', '#settings/general'];
+  assert.deepEqual(f.entries.map(entry => entry.hash), hashes);
+  for (const hash of hashes.slice(0, -1).reverse()) { f.browser.history.go(-1); assert.equal(f.browser.location.hash, hash); }
+  for (const hash of hashes.slice(1)) { f.browser.history.go(1); assert.equal(f.browser.location.hash, hash); }
+});
+
+test('phone direct section parent stays in-app and its next section preserves the deep link', () => {
+  const f = fixture('#settings/account');
+  f.history.navigate({ kind: 'settings' }); f.reload();
+  f.history.navigate({ kind: 'settings', section: 'messaging' });
+  assert.deepEqual(f.entries.map(entry => entry.hash), ['#settings/account', '#settings/messaging']);
+  f.browser.history.go(-1);
+  f.history.back({ kind: 'bots' }, screen => screen.kind !== 'settings');
+  assert.equal(f.browser.location.hash, '#bots');
+});
+
+// Exercise the store used by all visible Back controls, not only the router.
+test('all surface labels refresh from restored history and resolve deleted Bot destinations', async () => {
+  const { browserHistory } = await import('./fixtures/browser-history.mts');
+  const f = browserHistory('#bots');
+  const storage = { getItem: () => null, setItem() {}, removeItem() {}, length: 0, key: () => null };
+  Object.assign(globalThis, { window: f.window, history: f.history, localStorage: storage, sessionStorage: storage,
+    document: { documentElement: { dataset: {}, style: {} }, visibilityState: 'visible' } });
+  Object.defineProperty(globalThis, 'navigator', { value: { userAgent: 'node', platform: 'Linux' }, configurable: true });
+  const { useStore } = await import('../web/src/store.ts');
+  const { useConfigUI, navigation, returnLabel, backFromWork } = await import('../web/src/configStore.ts');
+  const bot = { id: 'quinn', name: 'Quinn' } as any;
+  useStore.setState({ user: { id: 'a' } as any, bots: [bot], botsLoaded: true, selectedBotId: bot.id, mobile: false });
+  const resolvedChat = resolveScreen(chat, [bot], true)!;
+  const details: Screen = { kind: 'details', bot: 'quinn', tab: 'activity' };
+  for (const surface of [{ kind: 'create' }, { kind: 'settings', section: 'account' },
+    { kind: 'work', route: { tab: 'Tasks' } }, { kind: 'bot-settings', bot: 'quinn', tab: 'general' }] as Screen[]) {
+    f.reset(screenHash(surface));
+    const seed = (trail: string[]) => f.history.replaceState({ swarmNavigation: { account: 'a', hash: f.location.hash, trail } }, '', f.location.hash);
+    seed([screenHash(details)]); navigation.initialize({ kind: 'bots' });
+    assert.equal(useConfigUI.getState().backLabel, 'Back to details');
+    // A still-mounted surface must react to a different restored origin too.
+    seed([screenHash(resolvedChat)]); navigation.initialize({ kind: 'bots' });
+    assert.equal(useConfigUI.getState().backLabel, 'Back to chat');
+    seed(['#bot/deleted/details/activity']); navigation.initialize({ kind: 'bots' });
+    assert.equal(returnLabel(), 'Back to Bots');
+    assert.equal(useConfigUI.getState().backLabel, 'Back to Bots');
+    seed([]); navigation.initialize({ kind: 'bots' });
+    assert.equal(useConfigUI.getState().backLabel, 'Back to chat');
+    if (surface.kind === 'settings') useConfigUI.getState().closeAppSettings();
+    else if (surface.kind === 'work') backFromWork();
+    else if (surface.kind === 'bot-settings') useConfigUI.getState().closeBotSettings();
+    else useStore.getState().setModal(null);
+    assert.equal(f.location.hash, screenHash(resolvedChat));
+  }
+  useStore.setState({ mobile: true }); f.reset('#new-bot'); navigation.initialize({ kind: 'bots' });
+  assert.equal(useConfigUI.getState().backLabel, 'Back to Bots');
+  useStore.getState().setModal(null);
+  assert.equal(f.location.hash, '#bots');
+  // A pending Bot link is not a deleted Bot. Keep the work shell while the
+  // roster is held, including when a newer Settings action cancels that link.
+  useStore.setState({ bots: [], botsLoaded: false, mobile: false });
+  f.reset('#bot/quinn/tasks'); navigation.initialize({ kind: 'bots' });
+  useConfigUI.getState().openAppSettings('general');
+  navigation.navigate({ kind: 'bot-settings', bot: 'quinn', tab: 'skills' });
+  useConfigUI.getState().openAppSettings('general');
+  assert.equal(useConfigUI.getState().view, 'tasks', 'unresolved origins retain their loading surface');
+  assert.equal(f.location.hash, '#settings/general');
 });

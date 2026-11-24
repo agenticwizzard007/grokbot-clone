@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 import { create } from 'zustand';
 import type { ServerEvent } from '@shared/types';
 import { useStore } from './store';
-import { APP_SECTIONS, navigationActions, parseScreen, resolveScreen, screenHash, ScreenHistory, type Screen, type DetailTab, type SetupTab } from './lib/navigation';
+import { APP_SECTIONS, backLabel, backTarget, outsideSurface, navigationActions, parseScreen, resolveScreen, screenHash, ScreenHistory, type Screen, type DetailTab, type SetupTab } from './lib/navigation';
 import { readDetailsDefault } from './lib/detailsDefault';
 import { botSlug, routeBot, linkedWork, type WorkRoute } from './lib/userRoutes';
 
@@ -40,6 +40,8 @@ interface ConfigUI {
   detailsReports: boolean;
   setDetailsTab(tab: DetailTab, setup?: SetupTab, reports?: boolean): void;
   showSettingsList(): void;
+  /** Published with each applied route so mounted controls follow restored history. */
+  backLabel: string;
   theme: Theme;
   /** Bumped by server events (tasks, memories) so open views refetch. Keys: 'tasks', 'memories:<botId>'. */
   versions: Record<string, number>;
@@ -145,19 +147,13 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
     const id = useStore.getState().selectedBotId;
     if (id) navigation.navigate({ kind: 'details', bot: botReference(id), tab, ...(setup && setup !== 'responsibilities' ? { setup } : {}), ...(reports ? { reports } : {}) });
   },
-  showSettingsList: () => {
-    const visit = [...navigation.trail].reverse().map(parseScreen);
-    const boundary = visit.findIndex(screen => screen?.kind !== 'settings');
-    if (visit.slice(0, boundary < 0 ? undefined : boundary).some(screen => screen?.kind === 'settings' && !screen.section))
-      navigation.back({ kind: 'settings' }, screen => screen.kind === 'settings' && !screen.section);
-    else navigation.navigate({ kind: 'settings' });
-  },
+  showSettingsList: () => navigation.navigate({ kind: 'settings' }),
+  backLabel: 'Back to Bots',
   theme: readTheme(),
   versions: {},
   openBotSettings: (botId, tab = 'general') => navigation.navigate({ kind: 'bot-settings', bot: botReference(botId), tab }),
   closeBotSettings: () => {
-    const bot = get().botSettings;
-    navigation.back(bot ? { kind: 'chat', bot: botReference(bot.botId) } : { kind: 'bots' }, screen => screen.kind !== 'bot-settings');
+    backFromSurface();
   },
   discardBotSettings: () => {
     set({ botSettingsDrafts: {}, botSettingsDirty: false, botSettingsLeave: null });
@@ -197,7 +193,7 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
     if (get().appSettings === 'subscriptions') set({ subscriptionProvider: subscriptionProvider ?? null });
   },
   closeAppSettings: () => {
-    if (get().appSettings) navigation.back(defaultScreen(), screen => screen.kind !== 'settings');
+    if (get().appSettings) backFromSurface();
   },
   clearResume: () => set({ resume: null }),
   setView: (view) => {
@@ -239,27 +235,24 @@ function defaultScreen(): Screen {
   const st = useStore.getState();
   return !st.mobile && st.selectedBotId ? { kind: 'chat', bot: botReference(st.selectedBotId) } : { kind: 'bots' };
 }
-function outsideSurface(screen: Screen, other: Screen) {
-  if (screen.kind === 'settings') return other.kind !== 'settings';
-  if (screen.kind === 'bot-settings') return other.kind !== 'bot-settings';
-  if (screen.kind === 'create' || screen.kind === 'group') return other.kind !== 'create' && other.kind !== 'group';
-  if (screen.kind === 'work') return other.kind !== 'work';
-  return other.kind !== screen.kind;
-}
-export function returnScreen(screen = navigation.screen, trail = navigation.trail): Screen {
-  if (!screen) return defaultScreen();
-  for (const hash of [...trail].reverse()) {
-    const other = parseScreen(hash);
-    if (other && outsideSurface(screen, other)) return other;
-  }
-  if (screen.kind === 'bot-settings' || screen.kind === 'details') return { kind: 'chat', bot: screen.bot };
+function returnFallback(screen: Screen | null): Screen {
+  if (screen?.kind === 'bot-settings' || screen?.kind === 'details') return { kind: 'chat', bot: screen.bot };
   return defaultScreen();
 }
-export function returnLabel() {
-  const screen = returnScreen();
-  return `Back to ${screen.kind === 'work' ? 'tasks' : screen.kind === 'details' ? 'details' : screen.kind === 'bots' ? 'Bots' : screen.kind === 'create' ? 'create a Bot' : screen.kind === 'bot-settings' ? 'Bot settings' : screen.kind === 'settings' ? 'Settings' : 'chat'}`;
+export function returnScreen(screen = navigation.screen, trail = navigation.trail): Screen {
+  const target = backTarget(trail, returnFallback(screen), other => !screen || outsideSurface(screen, other)).screen;
+  const st = useStore.getState();
+  // A deleted Bot or a renamed slug in persisted history must describe the
+  // screen that applyScreen will actually show when the control is clicked.
+  return resolveScreen(target, st.bots, st.botsLoaded) ?? target;
 }
-export function backFromWork() { navigation.back(defaultScreen(), screen => screen.kind !== 'work'); }
+export function returnLabel() { return backLabel(returnScreen()); }
+export const useReturnLabel = () => useConfigUI(s => s.backLabel);
+function backFromSurface() {
+  const current = navigation.screen;
+  navigation.back(returnFallback(current), other => !current || outsideSurface(current, other));
+}
+export function backFromWork() { backFromSurface(); }
 
 export let detailsCaller: HTMLElement | null = null;
 
@@ -293,6 +286,7 @@ function applyScreen(requested: Screen, normalize = true, trail = navigation.tra
     return;
   }
   useConfigUI.setState({
+    backLabel: backLabel(returnScreen(screen, trail)),
     view: base.kind === 'work' ? 'tasks' : base.kind === 'bots' ? 'bots' : 'chat',
     ...(base.kind === 'work' ? { workRoute: base.route } : {}),
     ...(base.kind === 'details' ? { detailsTab: base.tab, setupTab: base.setup ?? 'responsibilities', detailsReports: !!base.reports } : {}),
@@ -330,8 +324,7 @@ navigationActions.modal = modal => {
   if (modal === 'create' && useStore.getState().modal === 'group') navigation.back({ kind: 'create' }, screen => screen.kind === 'create');
   else if (modal) navigation.navigate({ kind: modal });
   else if (useStore.getState().modal) {
-    const current = navigation.screen;
-    navigation.back(defaultScreen(), screen => !current || outsideSurface(current, screen));
+    backFromSurface();
   }
 };
 window.addEventListener('popstate', navigation.restore);
