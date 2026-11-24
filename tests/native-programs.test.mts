@@ -97,3 +97,21 @@ test('deadline fences a dispatcher waiting for permission metadata before its ex
     dispatch: async action => { await new Promise(r => setTimeout(r, 1200)); action.signal.throwIfAborted(); writes++; return {}; } });
   assert.equal(result.status, 'failed'); assert.equal(writes, 0);
 });
+
+test('Stop terminates the worker without draining a slow tool or persisting its late output', async () => {
+  const controller = new AbortController(), entered = Promise.withResolvers<void>(), held = Promise.withResolvers<void>();
+  let toolSignal: AbortSignal | undefined;
+  const pending = runProgram({ ...base, callId: 'slow-tool-stop', signal: controller.signal,
+    args: { tools: ['mcp_read'], code: 'return tools.call("mcp_read",{value:1});', timeout_ms: 10000 },
+    dispatch: async action => { toolSignal = action.signal; entered.resolve(); await held.promise; return { output: 'LATE TOOL OUTPUT' }; } });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await entered.promise; controller.abort();
+    const result = await Promise.race([pending, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('Stop waited for the tool to drain')), 2000); })]);
+    assert.equal(result.status, 'cancelled'); assert.equal(toolSignal!.aborted, true);
+    assert.equal((db.prepare('SELECT state FROM code_runs WHERE id=?').get('slow-tool-stop') as any).state, 'cancelled');
+    held.resolve(); await new Promise(resolve => setImmediate(resolve));
+    const step = db.prepare('SELECT state,output FROM code_steps WHERE run_id=?').get('slow-tool-stop') as any;
+    assert.equal(step.state, 'unknown'); assert.equal(step.output, null);
+  } finally { clearTimeout(timer); held.resolve(); await pending; }
+});

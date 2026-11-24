@@ -174,7 +174,10 @@ export const useStore = create<State>((set, get) => ({
       requireActiveSession();
       if (!current()) return;
       const liveMap: Record<string, LiveState> = {};
-      for (const l of live) liveMap[l.botId] = l;
+      for (const l of live) {
+        const current = get().live[l.botId];
+        liveMap[l.botId] = (current?.revision ?? 0) > (l.revision ?? 0) ? current : l;
+      }
       const sel = get().selectedBotId;
       const selectedBotId = sel && bots.some((b) => b.id === sel) ? sel : (bots.find((b) => b.isPrimary) ?? bots[0])?.id ?? null;
       set(state => ({ bots: bots.map(bot => withLatestSetup(bot, state.bots.find(current => current.id === bot.id))), botsLoaded: true, botsError: null, live: liveMap, selectedBotId }));
@@ -374,6 +377,13 @@ export const useStore = create<State>((set, get) => ({
 
   handleEvent(ev) {
     const s = get();
+    // SSE can outlive the request that produced it. Only the current turn may
+    // alter chat state; transcript snapshots remain the source for older rows.
+    const runBotId = ev.runBotId ?? (ev.type === 'rows' ? ev.botId : ev.type === 'live' ? ev.state.botId : undefined);
+    const current = runBotId ? s.live[runBotId] : undefined;
+    if (ev.type === 'live') {
+      if ((ev.state.revision ?? 0) < (current?.revision ?? 0)) return;
+    } else if (ev.runId && current?.runId && (ev.runId !== current.runId || !current.isRunning)) return;
     // Time zone changes (PATCH /api/auth/me) refresh synopses; picked up by configStore.ts like the topics below.
     if ((ev as { type: string }).type === 'synopses') { window.dispatchEvent(new CustomEvent('swarm:event', { detail: ev })); return; }
     switch (ev.type) {

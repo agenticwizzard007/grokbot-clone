@@ -1,3 +1,4 @@
+import { assertRunWritable, canPublishRun, currentRun } from './agent/run-scope.js';
 import { db, now } from './db.js';
 import { setupOnboarding } from './setup-state.js';
 import { hub } from './lib/hub.js';
@@ -145,13 +146,14 @@ function roomTriggeredJob(botId: string, jobId: unknown): boolean {
 
 /** Append a new row. Returns its seq. */
 export function appendRow(botId: string, kind: RowKind, body: RowBody): Row {
+  assertRunWritable();
   // Last line of defence: a group turn never writes an approval, question, connect or draft card into a
   // member's own chat, whichever code path tries. The runtime already avoids this; log if it ever happens.
   if ((kind === 'card' || body.type === 'card') && roomTriggeredJob(botId, (body as { jobId?: unknown }).jobId ?? currentJobId())) {
     console.warn('[rows] refused a card row for a group chat turn', { botId, card: (body as { card?: string }).card });
     throw new RoomCardRefused();
   }
-  const jobId = body.jobId ?? (body.type === 'message' || body.type === 'tool-call' ? currentJobId() ?? undefined : undefined);
+  const jobId = body.jobId ?? (body.type === 'notice' ? currentRun()?.id : undefined) ?? (body.type === 'message' || body.type === 'tool-call' ? currentJobId() ?? undefined : undefined);
   body = { ...body, jobId, audience: body.type === 'card' ? 'user' : body.audience ?? executionAudience(botId) };
   const tx = db.transaction(() => {
     const b = db.prepare('SELECT user_id, generation, next_seq FROM bots WHERE id=?').get(botId) as any;
@@ -172,6 +174,7 @@ export function appendRow(botId: string, kind: RowKind, body: RowBody): Row {
 
 /** Rewrite an existing row's body (e.g. streaming text, card status). */
 export function updateRow(botId: string, seq: number, body: RowBody): Row | null {
+  assertRunWritable();
   const tx = db.transaction(() => {
     const b = db.prepare('SELECT user_id, generation FROM bots WHERE id=?').get(botId) as any;
     const existing = db.prepare('SELECT * FROM rows WHERE bot_id=? AND generation=? AND seq=?').get(botId, b.generation, seq) as any;
@@ -232,6 +235,7 @@ export function loadHistory(botId: string): any[] {
 }
 
 export function appendHistory(botId: string, items: any[]) {
+  assertRunWritable();
   if (!items.length) return;
   const b = getBotRow(botId);
   const start = ((db.prepare('SELECT MAX(idx) m FROM llm_items WHERE bot_id=? AND generation=?').get(botId, b.generation) as any).m ?? -1) + 1;
@@ -244,12 +248,20 @@ export function appendHistory(botId: string, items: any[]) {
 const live = new Map<string, LiveState>();
 
 export function getLive(botId: string): LiveState {
-  return live.get(botId) ?? { botId, isRunning: false, activity: null, awaiting: null, startedAt: null };
+  let state = live.get(botId);
+  if (!state) {
+    state = { botId, isRunning: false, activity: null, awaiting: null, startedAt: null, revision: now() };
+    live.set(botId, state);
+  }
+  return state;
 }
 
 export function setLive(botId: string, patch: Partial<LiveState>) {
+  const run = currentRun();
+  if (!canPublishRun(run)) return;
   afterCommit(() => {
-    const next = { ...getLive(botId), ...patch, botId, audience: patch.awaiting || patch.activity?.kind === 'waiting_for_you' ? 'user' as const : patch.audience ?? executionAudience(botId) };
+    if (!canPublishRun(run)) return;
+    const next = { ...getLive(botId), ...patch, botId, runId: patch.runId ?? (run?.botId === botId ? run.id : getLive(botId).runId), revision: Math.max(now(), (getLive(botId).revision ?? 0) + 1), audience: patch.awaiting || patch.activity?.kind === 'waiting_for_you' ? 'user' as const : patch.audience ?? executionAudience(botId) };
     live.set(botId, next);
     const b = getBotRow(botId);
     if (b) hub.emit(b.user_id, { type: 'live', state: next });

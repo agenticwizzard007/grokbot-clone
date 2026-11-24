@@ -60,8 +60,9 @@ export class ComposioProvider implements ConnectionProvider {
     if (t.slug !== slug) throw new Error('Invalid tool selection.');
     return { toolkit: t.toolkit?.slug ?? '', version: t.version ?? '', readOnly: trustedReadOnly(t) };
   }
-  execute(identity: string, id: string, slug: string, version: string, args: Record<string, unknown>) {
-    return this.sdk.tools.execute(slug, { userId: identity, connectedAccountId: id, version, arguments: args }, { signal: AbortSignal.timeout(60_000) });
+  execute(identity: string, id: string, slug: string, version: string, args: Record<string, unknown>, signal?: AbortSignal) {
+    const options = { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(60_000)]) : AbortSignal.timeout(60_000), maxRetries: 0 };
+    return this.sdk.tools.execute(slug, { userId: identity, connectedAccountId: id, version, arguments: args }, options);
   }
   async disconnect(id: string) { await this.sdk.connectedAccounts.delete(id); }
   async refresh(id: string) { await this.sdk.connectedAccounts.refresh(id); return { ok: true }; }

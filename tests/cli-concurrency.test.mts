@@ -532,3 +532,23 @@ test('API mode retains account ordering across different Bots', { timeout: 20_00
     create.mock.restore();
   }
 });
+
+for (const provider of ['codex', 'claude'] as const) test(`${provider}: Stop cancels the bridge generation and starts the next chat before any old result`, { timeout: 20_000 }, async () => {
+  const bridge = await selectedBridge(provider), bot = newBot('Stop then send');
+  await message(bot.id, 'Long bees request');
+  await until(() => bridge.generations.length === 1, 'first generation starts');
+  const old = bridge.forText('Long bees request');
+  assert.equal((await request(`/bots/${bot.id}/interrupt`, 'POST')).status, 200);
+  await message(bot.id, 'Short tea request');
+  await until(() => bridge.generations.length === 2, 'next generation starts without the old result');
+  assert.deepEqual(bridge.cancelled, [old.id]);
+  assert.equal(jobFor('Long bees request').state, 'cancelled');
+  const next = bridge.forText('Short tea request');
+  assert.ok(conversation(next).some(item => typeof item.content === 'string' && item.content.includes('This request was cancelled.')));
+  bridge.ws.send(JSON.stringify({ id: old.id, result: { text: JSON.stringify({ text: 'LATE BEES ESSAY', tool_calls: [] }) } }));
+  bridge.finish(next, 'Tea reply only.');
+  await drain();
+  assert.deepEqual(listRows(bot.id).filter(row => row.body.type === 'message' && row.body.role === 'assistant').map(row => row.body.text), ['Tea reply only.']);
+  assert.equal(listRows(bot.id).filter(row => row.body.type === 'notice' && row.body.text === 'You stopped this request.').length, 1);
+  assert.doesNotMatch(JSON.stringify(loadHistory(bot.id)), /LATE BEES ESSAY/);
+});

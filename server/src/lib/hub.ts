@@ -1,3 +1,4 @@
+import { canPublishRun, currentRun } from '../agent/run-scope.js';
 import type { ServerEvent } from '../types.js';
 import { afterCommit } from './commit-effects.js';
 
@@ -18,7 +19,10 @@ class Hub {
   }
 
   emit(userId: string, ev: ServerEvent) {
-    afterCommit(() => this.deliver(userId, ev));
+    const run = currentRun();
+    if (!canPublishRun(run)) return;
+    const tagged = run ? { ...ev, runId: run.id, runBotId: run.botId } : ev;
+    afterCommit(() => { if (canPublishRun(run)) this.deliver(userId, tagged); });
   }
 
   private deliver(userId: string, ev: ServerEvent) {

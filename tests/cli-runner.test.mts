@@ -311,9 +311,9 @@ test('output caps cover stderr, stdout and the Codex final file', async (t) => {
   }
 });
 
-test('timeout and AbortSignal kill the process tree and clean temporary files', async (t) => {
+for (const provider of ['codex', 'claude']) test(`${provider}: timeout and AbortSignal kill the process tree and clean temporary files`, async (t) => {
   for (const byAbort of [false, true]) {
-    const f = await fixture(t, 'codex', { generate: `
+    const f = await fixture(t, provider, { generate: `
       process.on('SIGTERM',()=>{});
       spawn(process.execPath, ['-e', "const fs=require('node:fs'); process.on('SIGTERM',()=>{}); setInterval(()=>fs.appendFileSync(" + JSON.stringify(${JSON.stringify(join(tmpdir(), 'unused'))}) + ",'x'),20)"], {stdio:'ignore'});
       setInterval(()=>{},1000);
@@ -324,7 +324,7 @@ test('timeout and AbortSignal kill the process tree and clean temporary files', 
     code = code.replace(JSON.stringify(join(tmpdir(), 'unused')), JSON.stringify(beat));
     await writeFile(f.executable, code);
     const controller = new AbortController();
-    const promise = runGeneration(request('codex', { timeoutMs: byAbort ? 4000 : 500 }), { ...f.options, signal: controller.signal });
+    const promise = runGeneration(request(provider, { timeoutMs: byAbort ? 4000 : 500 }), { ...f.options, signal: controller.signal });
     const rejection = assert.rejects(promise, byAbort ? /cancelled/ : /timed out/);
     await until(async () => { try { return (await stat(beat)).size > 0; } catch { return false; } });
     if (byAbort) controller.abort(new Error('auth-secret-sentinel'));

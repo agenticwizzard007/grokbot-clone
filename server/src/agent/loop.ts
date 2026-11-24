@@ -1,3 +1,4 @@
+import { abortable, currentRun, withRun, type RunScope } from './run-scope.js';
 import { connectedDate, connectionStatusLabel, fallbackAccountLabel } from '../connection-details.js';
 import { TurnInterruption, interruptionMessage, type InterruptionSource } from './interruption.js';
 import { recordModelUsage, withUsage } from '../usage.js';
@@ -84,6 +85,7 @@ const activeJobs = new Map<string, string>();
 const completions = new Map<string, {status:string;finalText:string;iterations:number;generation:number;model:string;provider:string;messagesSnapshot:any[];systemPrompt?:string;contextWindow?:number;temporary:boolean;foregroundEpoch:number;sourceSnapshot:ReturnType<typeof learningSourceSnapshot>}>();
 const modelSnapshots = new WeakMap<ToolCtx,{systemPrompt:string;contextWindow?:number;model:string;provider:string;contextRevision:string}>();
 const scheduledJobs = new Set<string>();
+const jobControllers = new Map<string, AbortController>();
 /** Drain accepted work before orderly shutdown or test storage teardown. */
 export async function settleAgentJobs() { while (queues.size) await Promise.allSettled([...queues.values()]); }
 
@@ -138,13 +140,13 @@ export function enqueue(botId: string, trigger: Trigger) {
   }
   return {job,trigger};
   })();
-  afterCommit(() => {
+  afterCommit(() => withRun(undefined, () => {
     // Only committed admission can change live state or schedule execution.
     if (userFacing(admitted.trigger) && !aborts.has(botId)) {
-      setLive(botId, { isRunning: true, activity: { kind: 'queued', detail: waitingBehind(admitted.job.userId, botId), since: now() }, awaiting: null, startedAt: now() });
+      setLive(botId, { isRunning: true, activity: { kind: 'queued', detail: waitingBehind(admitted.job.userId, botId), since: now() }, awaiting: null, startedAt: now(), runId: admitted.job.id });
     }
     scheduleJob(admitted.job.id,admitted.job.userId,botId,admitted.trigger);
-  });
+  }));
   return admitted.job.id;
 }
 
@@ -174,12 +176,19 @@ const accountConcurrency = () => {
 };
 interface AccountSlots { active: number; waiting: { foreground: boolean; start: () => void }[] }
 const accountSlots = new Map<string, AccountSlots>();
-function acquireAccountSlot(userId: string, foreground: boolean): Promise<() => void> {
+function acquireAccountSlot(userId: string, foreground: boolean, signal: AbortSignal): Promise<() => void> {
+  signal.throwIfAborted();
   let slots = accountSlots.get(userId);
   if (!slots) accountSlots.set(userId, slots = { active: 0, waiting: [] });
   const s = slots;
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      s.waiting = s.waiting.filter(w => w.start !== start);
+      signal.removeEventListener('abort', abort);
+      reject(signal.reason);
+    };
     const start = () => {
+      signal.removeEventListener('abort', abort);
       s.active++;
       let released = false;
       resolve(() => {
@@ -192,6 +201,7 @@ function acquireAccountSlot(userId: string, foreground: boolean): Promise<() => 
       });
     };
     if (s.active < accountConcurrency()) return start();
+    signal.addEventListener('abort', abort, { once: true });
     // Turns the user is waiting on go ahead of background work (routines, internal messages).
     const index = foreground ? s.waiting.findIndex(w => !w.foreground) : -1;
     if (index < 0) s.waiting.push({ foreground, start });
@@ -219,13 +229,20 @@ function hasPendingDecision(botId: string) {
 
 function scheduleJob(jobId: string, userId: string, botId: string, trigger: Trigger) {
   if (scheduledJobs.has(jobId)) return;
+  // Scheduling can originate inside another turn. Do not inherit its cancellation scope.
+  withRun(undefined, () => scheduleAdmittedJob(jobId, userId, botId, trigger));
+}
+function scheduleAdmittedJob(jobId: string, userId: string, botId: string, trigger: Trigger) {
   scheduledJobs.add(jobId);
+  const controller = new AbortController();
+  jobControllers.set(jobId, controller);
   const queuedAt = performance.now();
   const prev = queues.get(botId) ?? Promise.resolve();
   const subscription = !!selectedCli(userId);
   // Usage attribution: every model call in this turn (including compaction) is billed to this Bot and its owner.
   const next = prev.then(async () => {
-    const release = subscription ? () => {} : await acquireAccountSlot(userId, userFacing(trigger));
+    if (controller.signal.aborted) return;
+    const release = subscription ? () => {} : await acquireAccountSlot(userId, userFacing(trigger), controller.signal);
     try {
       // Independent work cannot replace an unresolved approval or answer a question.
       // Release the serial queue while it waits so another agent or a follow-up can run.
@@ -237,8 +254,7 @@ function scheduleJob(jobId: string, userId: string, botId: string, trigger: Trig
       if (!beginJob(jobId)) { clearQueuedLive(botId); return; }
       latency('queue', queuedAt, { botId });
       try {
-        await beforeForegroundTurn(userId,botId);
-        await withUsage({ userId,botId,jobId,reviewId:null,kind:'chat',audience:trigger.audience??(trigger.type==='bot'?'internal':'user') }, () => runTurn(botId,trigger,jobId));
+        await withUsage({ userId,botId,jobId,reviewId:null,kind:'chat',audience:trigger.audience??(trigger.type==='bot'?'internal':'user') }, () => runTurn(botId,trigger,jobId,controller));
         db.transaction(()=>{finishJob(jobId,true);const c=completions.get(jobId);if(c){recordCoordinationJobOutcome({userId,botId,jobId,status:c.status,finalText:c.finalText,trigger});recordJobCompletion({userId,botId,jobId,trigger,completion:c});}})();
       } catch { db.transaction(()=>{finishJob(jobId,false);const c=completions.get(jobId);if(c){recordCoordinationJobOutcome({userId,botId,jobId,status:c.status,finalText:c.finalText,trigger});recordJobCompletion({userId,botId,jobId,trigger,completion:c});}})(); }
     } finally { release(); }
@@ -248,6 +264,7 @@ function scheduleJob(jobId: string, userId: string, botId: string, trigger: Trig
   queues.set(botId, next);
   next.finally(() => {
     scheduledJobs.delete(jobId);
+    jobControllers.delete(jobId);
     if (queues.get(botId) === next) queues.delete(botId);
     // Answers, resumes and connection callbacks release the next independent job
     // only after their own continuation has cleared every pending decision.
@@ -291,22 +308,34 @@ configureCoordinationRuntime({ enqueue:(botId,t)=>{
 }, interrupt: (botId, jobId) => interrupt(botId, jobId, 'workflow') });
 
 /** The running turn's signal. Only server controls abort it, never SSE transport. */
-export const turnSignal = (botId: string): AbortSignal | undefined => aborts.get(botId)?.signal;
+export const turnSignal = (botId: string): AbortSignal | undefined => currentRun()?.botId === botId ? currentRun()!.signal : aborts.get(botId)?.signal;
 
 export function interrupt(botId: string, expectedJobId?: string, source: InterruptionSource = 'system') {
   // Stop from the chat also drops the user's messages still waiting in the queue.
   // beginJob only starts 'queued' jobs, so an already scheduled promise will not run them.
   if (expectedJobId === undefined) {
-    db.prepare(`UPDATE agent_jobs SET state='cancelled',finished_at=? WHERE bot_id=? AND state='queued'
+    const cancelled = db.prepare(`UPDATE agent_jobs SET state='cancelled',finished_at=? WHERE bot_id=? AND state='queued'
       AND json_extract(trigger,'$.type')='user' AND COALESCE(json_extract(trigger,'$.voiceAssignment'),0)=0
       AND json_extract(trigger,'$.workflowId') IS NULL AND json_extract(trigger,'$.coordinationRequestId') IS NULL
-      AND json_extract(trigger,'$.goalId') IS NULL AND json_extract(trigger,'$.taskId') IS NULL`).run(now(), botId);
-    if (!aborts.has(botId) && getLive(botId).activity?.kind === 'queued') { clearQueuedLive(botId); emitBot(botId); }
+      AND json_extract(trigger,'$.goalId') IS NULL AND json_extract(trigger,'$.taskId') IS NULL RETURNING id,trigger`).all(now(), botId) as { id: string; trigger: string }[];
+    for (const [id, controller] of jobControllers) {
+      if (db.prepare("SELECT 1 FROM agent_jobs WHERE id=? AND bot_id=? AND state='cancelled'").get(id, botId)) controller.abort(new TurnInterruption(source));
+    }
+    if (!aborts.has(botId) && getLive(botId).activity?.kind === 'queued') {
+      const job = cancelled.find(job => job.id === getLive(botId).runId) ?? cancelled.at(-1);
+      if (job) withRun(undefined, () => {
+        const trigger = JSON.parse(job.trigger) as Trigger;
+        appendRow(botId, 'notice', { type: 'notice', jobId: job.id, text: new TurnInterruption(source).message, tone: source === 'user' ? 'info' : 'error', terminal: true,
+          ...(source !== 'user' && trigger.type === 'user' ? { retry: { text: trigger.text } } : {}) });
+      });
+      clearQueuedLive(botId); emitBot(botId);
+    }
   }
   // Workflow controls target a durable job. Cancelling queued work must not
   // abort an unrelated chat that currently owns this Bot's serial queue.
   const matchesActive = expectedJobId === undefined || activeJobs.get(botId) === expectedJobId;
   if (matchesActive) aborts.get(botId)?.abort(new TurnInterruption(source));
+  if (expectedJobId && db.prepare('SELECT 1 FROM agent_jobs WHERE id=? AND bot_id=?').get(expectedJobId, botId)) jobControllers.get(expectedJobId)?.abort(new TurnInterruption(source));
   if (!aborts.has(botId) || !matchesActive) {
     const pending = db.prepare('SELECT state FROM pending_turns WHERE bot_id=?').get(botId) as { state: string } | undefined;
     const bot = getBotRow(botId);
@@ -374,12 +403,16 @@ function triggerItem(t: Trigger): any | null {
 
 // ---------- the turn ----------
 
-async function runTurn(botId: string, trigger: Trigger, jobId: string) {
+async function runTurn(botId: string, trigger: Trigger, jobId: string, ctrl: AbortController) {
+  const run: RunScope = { id: jobId, botId, signal: ctrl.signal, closed: false };
+  return withRun({ ...run, control: true }, () => runScopedTurn(botId, trigger, jobId, ctrl, run));
+}
+
+async function runScopedTurn(botId: string, trigger: Trigger, jobId: string, ctrl: AbortController, run: RunScope) {
   const turnStart = performance.now();
   const bot = getBotRow(botId);
   if (!bot) return;
   const userId: string = bot.user_id;
-  const ctrl = new AbortController();
   aborts.set(botId, ctrl);
   running.set(botId, trigger);
   activeJobs.set(botId, jobId);
@@ -403,9 +436,12 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
       ...functionSchemas(botId), ...mcpSchemas(userId, botId), ...await composioTools(userId),
       ...(isConfiguring(botId) ? [] : serverTools()),
     ];
-  setLive(botId, { isRunning: true, activity: { kind: 'thinking', since: now() }, awaiting: null, startedAt: now() });
+  setLive(botId, { isRunning: true, activity: { kind: 'thinking', since: now() }, awaiting: null, startedAt: now(), runId: jobId });
 
   try {
+    await abortable(ctrl.signal, () => withRun(run, async () => {
+    await beforeForegroundTurn(userId, botId);
+    ctrl.signal.throwIfAborted();
     // Settle a superseded approval before adopting the new job into a goal.
     // The old run may block its goal; that must not capture the replacement chat.
     const pendingRow = db.prepare('SELECT state FROM pending_turns WHERE bot_id=?').get(botId) as any;
@@ -543,16 +579,32 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
       if (st.outputs.some((o: any) => o.__endTurn)) break;
     }
     if (trigger.roomId) postRoomReply(botId, trigger.roomId, finalText, toolRows);
+    }));
   } catch (e: any) {
     outcome = ctrl.signal.aborted ? 'interrupted' : 'failed';
+    run.closed = true;
+    if (ctrl.signal.aborted) {
+      db.prepare("UPDATE agent_jobs SET state='cancelled',finished_at=? WHERE id=? AND state='running'").run(now(), jobId);
+    }
+    if (ctrl.signal.aborted && getBotRow(botId)?.generation === bot.generation) {
+      // Close the unfinished user request in model history. Otherwise the next model
+      // can answer both the cancelled prompt and the new prompt in a single reply.
+      appendHistory(botId, [{ role: 'assistant', content: 'This request was cancelled. Do not continue it or include its unfinished answer in a later reply. Wait for the next user request.' }]);
+      const rows = db.prepare("SELECT seq FROM rows WHERE bot_id=? AND generation=? AND json_extract(body,'$.jobId')=? AND json_extract(body,'$.streaming')=1").all(botId, bot.generation, jobId) as { seq: number }[];
+      for (const { seq } of rows) {
+        const row = getRow(botId, seq);
+        if (row?.body.type === 'message') updateRow(botId, seq, { ...row.body, streaming: false, interrupted: true });
+      }
+    }
     const userStopped = ctrl.signal.aborted && ctrl.signal.reason instanceof TurnInterruption && ctrl.signal.reason.source === 'user';
     const msg = ctrl.signal.aborted ? interruptionMessage(ctrl.signal) : `Something went wrong: ${e?.message ?? e}`;
-    appendRow(botId, 'notice', { type: 'notice', text: msg, tone: userStopped ? 'info' : 'error', terminal: true,
+    if (getBotRow(botId)?.generation === bot.generation) appendRow(botId, 'notice', { type: 'notice', text: msg, tone: userStopped ? 'info' : 'error', terminal: true,
       ...(!userStopped && trigger.type === 'user' ? { retry: { text: trigger.text } } : {}), ...audience });
     if (ctrl.signal.aborted) console.warn('[agent] turn interrupted', { botId, jobId, source: ctrl.signal.reason instanceof TurnInterruption ? ctrl.signal.reason.source : 'unknown' });
     else console.error('[agent] turn failed', botId);
     throw new Error('Task did not complete. Review its activity before retrying.');
   } finally {
+    run.closed = true;
     latency('turn', turnStart, { botId });
     aborts.delete(botId);
     running.delete(botId);
@@ -573,16 +625,18 @@ async function runTurn(botId: string, trigger: Trigger, jobId: string) {
       }
     } finally {
       if (!stillPending) {
-        for (const seq of toolRows) {
+        for (const seq of getBotRow(botId)?.generation === bot.generation ? toolRows : []) {
           const row = getRow(botId, seq);
           if (row?.body.type === 'tool-call' && ['queued', 'running'].includes(row.body.status)) {
-            updateRow(botId, seq, { ...row.body, status: 'denied', summary: ctrl.signal.aborted ? 'Stopped' : 'Not executed', completedAt: now() });
+            if (ctrl.signal.aborted && row.body.status === 'running') finishTool(botId, row.body.callId, false);
+            updateRow(botId, seq, { ...row.body, status: ctrl.signal.aborted && row.body.status === 'running' ? 'uncertain' : 'denied', summary: ctrl.signal.aborted ? 'Stopped' : 'Not executed', completedAt: now() });
           }
         }
+        emitBot(botId);
         setLive(botId, { isRunning: false, activity: null, awaiting: null, startedAt: null });
       }
       completions.set(jobId,{status:outcome,finalText,iterations,generation:bot.generation,model:modelFor(bot.model),provider:llmProvider(),messagesSnapshot:loadHistory(botId),temporary:!!bot.parent_bot_id,foregroundEpoch,sourceSnapshot:learningSourceSnapshot(botId,bot.generation),...modelSnapshots.get(ctx)});
-      emitBot(botId);
+      if (stillPending) emitBot(botId);
     }
   }
 }
@@ -758,10 +812,12 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
         } else res = impl ? await impl.impl(args, { ...ctx, depth: st.depth })
           : c.name.startsWith('mcp_') ? await runMcpTool(userId, botId, c.name, args)
           : await runComposioTool({ ...ctx, readOnlyApps: ctx.readOnlyApps === true || pol.readOnlyApps }, c.name, args);
+        assertTurnCanContinue();
         const successful = res.isError !== true && res.summary !== 'failed';
         finishTool(botId, c.call_id, successful);
         updateRow(botId, c.rowSeq, { ...body, status: successful ? 'done' : 'error', summary: res.summary, completedAt: now() });
       } catch (e: any) {
+        turnSignal(botId)?.throwIfAborted();
         finishTool(botId, c.call_id, false);
         res = { output: `Tool error: ${e?.message ?? e}`, isError: true, summary: String(e?.message ?? e).slice(0, 200), replan: /^(?:browser_|computer_|open_browser$|wait_for_browser_access$)/.test(c.name) };
         updateRow(botId, c.rowSeq, { ...body, status: 'error', summary: String(e?.message ?? e).slice(0, 200), completedAt: now() });
@@ -868,7 +924,7 @@ async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: Abo
   setLive(botId, { activity: { kind: 'thinking', detail: 'Preparing model context', since: now() } });
   // Runs inside the bot's serial queue, so compaction can't race a turn.
   const [history, prompt, info, allTools] = await Promise.all([
-    maybeCompact(botId, loadHistory(botId), { beforeModel: checkModelBudget }).catch(() => loadHistory(botId)),
+    maybeCompact(botId, loadHistory(botId), { beforeModel: checkModelBudget, signal }).catch(() => loadHistory(botId)),
     systemPrompt(userId, botId, ctx.jobId),
     modelInfo(model, bot.model === model, signal),
     ctx.availableTools?.() ?? toolsPromise,
@@ -922,6 +978,7 @@ async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: Abo
   try {
     stream = await llm().responses.create(body, { signal });
   } catch (e: any) {
+    signal.throwIfAborted();
     if (e?.status === 404 && /image input/i.test(e?.message ?? '')) {
       const prepared = textOnlyInput(body.input);
       if (!prepared.omitted) throw new Error('The selected API model has no endpoint available for image input. Choose another image-capable model or connect your plan in Settings → Subscriptions. No fallback was used.');
@@ -944,6 +1001,7 @@ async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: Abo
   let flushError: unknown;
   let final: any = null;
   const flush = (streaming: boolean) => {
+    if (signal.aborted) return;
     clearTimeout(flushTimer);
     flushTimer = undefined;
     // Validate the entire active response before any row or SSE text is emitted.
@@ -955,8 +1013,12 @@ async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: Abo
     lastFlush = Date.now();
   };
 
+  const abortStream = () => { clearTimeout(flushTimer); stream.controller?.abort(); };
+  signal.addEventListener('abort', abortStream, { once: true });
+  if (signal.aborted) abortStream();
   try {
     for await (const ev of stream as AsyncIterable<any>) {
+      signal.throwIfAborted();
       if (flushError) throw flushError;
       switch (ev.type) {
         case 'response.output_text.delta':
@@ -994,6 +1056,7 @@ async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: Abo
       }
     }
   } finally {
+    signal.removeEventListener('abort', abortStream);
     clearTimeout(flushTimer);
     if (msgSeq !== null) flush(false);
   }

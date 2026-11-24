@@ -263,10 +263,15 @@ export class LocalMcpProcess {
   }
   request(method, params, timeoutMs = 120_000) {
     if (this.dead) return Promise.reject(new Error('Playwright stopped'));
+    checkCommand();
+    const signal = commandSignal();
     const id = ++this.nextId;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`Playwright timed out (${method})`)); void this.close(); }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer });
+      const abort = () => { void this.close(); };
+      const clean = () => { clearTimeout(timer); signal?.removeEventListener('abort', abort); };
+      const timer = setTimeout(() => { this.pending.delete(id); clean(); reject(new Error(`Playwright timed out (${method})`)); void this.close(); }, timeoutMs);
+      this.pending.set(id, { resolve: value => { clean(); resolve(value); }, reject: error => { clean(); reject(error); }, timer });
+      signal?.addEventListener('abort', abort, { once: true });
       this.proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
     });
   }
@@ -1011,11 +1016,11 @@ function streamDesktop(display, size, fps, onFrame) {
 function exec(cmd, args, { input, timeoutMs = 30_000, env } = {}) {
   checkCommand();
   return new Promise((resolve, reject) => {
-    const p = spawn(cmd, args, { detached: DESKTOP && !MULTI, stdio: ['pipe', 'pipe', 'pipe'], ...(env ? { env } : {}) });
-    if (DESKTOP && !MULTI) cancelChild(p);
+    const p = spawn(cmd, args, { detached: true, stdio: ['pipe', 'pipe', 'pipe'], ...(env ? { env } : {}) });
+    cancelChild(p);
     const out = [];
     let err = '';
-    const t = setTimeout(() => { if (DESKTOP && !MULTI) killGroup(p.pid); else p.kill('SIGKILL'); reject(new Error(`${path.basename(cmd)} timed out`)); }, timeoutMs);
+    const t = setTimeout(() => { killGroup(p.pid); reject(new Error(`${path.basename(cmd)} timed out`)); }, timeoutMs);
     p.stdout.on('data', (d) => out.push(d));
     p.stderr.on('data', (d) => { err = (err + d).slice(-2000); });
     p.on('error', (e) => { clearTimeout(t); reject(e.code === 'ENOENT' ? new Error(`${cmd} isn't installed on this computer.`) : e); });
@@ -1422,7 +1427,7 @@ class Desktop {
     const [cmd, args] = user ? ['sudo', ['-n', '-u', user, '-H', '--', 'env', `DISPLAY=${env.DISPLAY ?? ''}`, sh, '-lc', `cd ${JSON.stringify(cwd)} 2>/dev/null; ${command}`]] : [sh, ['-lc', command]];
     return new Promise((resolve) => {
       const p = spawn(cmd, args, { cwd: user ? '/' : cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
-      if (DESKTOP && !MULTI) cancelChild(p);
+      cancelChild(p);
       let out = '';
       const add = (d) => { out = (out + d).slice(-40_000); };
       p.stdout.on('data', add);
@@ -1527,7 +1532,7 @@ if (DESKTOP) {
 /** A minimal MCP client over stdio (newline-delimited JSON-RPC). */
 class McpProcess {
   constructor(cli, args, cwd) {
-    this.proc = spawn(process.execPath, [cli, ...args], { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+    this.proc = spawn(process.execPath, [cli, ...args], { cwd, detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
     this.pending = new Map();
     this.nextId = 0;
     this.dead = false;
@@ -1558,10 +1563,15 @@ class McpProcess {
   }
   request(method, params, timeoutMs = 120_000) {
     if (this.dead) return Promise.reject(new Error('Playwright stopped'));
+    checkCommand();
+    const signal = commandSignal();
     const id = ++this.nextId;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`Playwright timed out (${method})`)); }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer });
+      const abort = () => this.close();
+      const clean = () => { clearTimeout(timer); signal?.removeEventListener('abort', abort); };
+      const timer = setTimeout(() => { this.pending.delete(id); clean(); reject(new Error(`Playwright timed out (${method})`)); }, timeoutMs);
+      this.pending.set(id, { resolve: value => { clean(); resolve(value); }, reject: error => { clean(); reject(error); }, timer });
+      signal?.addEventListener('abort', abort, { once: true });
       this.proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
     });
   }
@@ -1570,7 +1580,7 @@ class McpProcess {
     this.proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
     return this;
   }
-  close() { try { this.proc.kill(); } catch { /* gone */ } }
+  close() { this.dead = true; killGroup(this.proc.pid); }
 }
 
 const PLAYWRIGHT_MCP = MULTI || DESKTOP ? findPlaywrightMcp({ explicit: opt('playwright-mcp', process.env.PLAYWRIGHT_MCP_CLI), moduleUrl: import.meta.url }) : null;
@@ -1908,8 +1918,15 @@ async function handle(msg) {
     if (method === 'close') result = await closeBrowser(params.botId);
     else if (method === 'input') { const b = await browsers.get(params.botId); if (b) await b.input(params); return; }
     else if (METHODS[method]) {
-      const b = await browserFor(params.botId);
-      result = await METHODS[method](b, params);
+      checkCommand();
+      const signal = commandSignal();
+      const cancel = () => { void closeBrowser(params.botId); };
+      signal?.addEventListener('abort', cancel, { once: true });
+      try {
+        const b = await browserFor(params.botId);
+        checkCommand();
+        result = await METHODS[method](b, params);
+      } finally { signal?.removeEventListener('abort', cancel); }
       if (method !== 'screenshot' && method !== 'screencast.start' && method !== 'screencast.stop') log(`${params.botId} ${method}${method === 'open' ? ` ${params.url}` : method === 'key' ? ` ${params.keys}` : ''}`);
     } else throw new Error(`Unknown method ${method}`);
     if (id !== undefined) send({ id, result: result ?? {} });
@@ -1942,9 +1959,10 @@ let backoff = 1000;
 
 function connect() {
   if (stopping) return;
-  const controller = DESKTOP && !MULTI ? new AbortController() : null;
+  const controller = new AbortController();
   connectionCommands = controller;
   const botCommands = new Map();
+  const requests = new Map();
   const ws = new WebSocket(wsUrl);
   socket = ws;
   let welcomed = false;
@@ -1974,6 +1992,10 @@ function connect() {
       reportBrowsers();
       return;
     }
+    if (msg.method === 'cancel') {
+      requests.get(msg.params?.id)?.abort(new Error('Request stopped'));
+      return;
+    }
     if (msg.method) {
       if (socket !== ws || controller?.signal.aborted || stopping || (controller && !welcomed)) return;
       // Suppress responses from an obsolete socket, including after a reconnect.
@@ -1986,7 +2008,10 @@ function connect() {
           void runCommand(controller.signal, () => handle(msg));
         } else {
           if (!bot) { bot = new AbortController(); botCommands.set(botId, bot); }
-          void runCommand(AbortSignal.any([controller.signal, bot.signal]), () => handle(msg));
+          const request = new AbortController();
+          if (msg.id !== undefined) requests.set(msg.id, request);
+          void runCommand(AbortSignal.any([controller.signal, bot.signal, request.signal]), () => handle(msg))
+            .finally(() => { requests.delete(msg.id); });
         }
       } else void handle(msg);
     }

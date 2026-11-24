@@ -224,6 +224,9 @@ export type ActivityKind =
   | 'waiting_for_you' | 'drafting_file' | 'remembering' | 'queued';
 
 export interface LiveState {
+  /** Durable job identity and monotonically increasing live-state revision. */
+  runId?: string;
+  revision?: number;
   audience?: 'user'|'internal';
   botId: string;
   isRunning: boolean;
@@ -266,7 +269,7 @@ export interface Toolkit {
 }
 
 /** Server-sent events on GET /api/events */
-export type ServerEvent =
+export type ServerEvent = (
   | { type: 'native'; cursor: number }
   | { type: 'hello'; serverTime: number }
   | { type: 'rows'; botId: string; generation: number; rows: Row[] }
@@ -283,7 +286,7 @@ export type ServerEvent =
   | { type: 'messaging' }
   /** Daily synopsis or check-in schedule changed (for example the account time zone moved). */
   | { type: 'synopses' }
-  | { type: 'ping' };
+  | { type: 'ping' }) & { runId?: string; runBotId?: string };
 
 /**
  * How hard the model thinks. The OpenRouter levels, plus 'ultracode': the model's highest level,

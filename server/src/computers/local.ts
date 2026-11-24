@@ -1,3 +1,4 @@
+import { runSignal } from '../agent/run-scope.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { IncomingMessage, Server } from 'node:http';
@@ -168,13 +169,24 @@ function need(userId: string): Companion {
 function call<T = any>(userId: string, method: string, params: Record<string, unknown>, timeoutMs = 60_000): Promise<T> {
   let c: Companion;
   try { c = need(userId); } catch (e) { return Promise.reject(e); }
+  const signal = runSignal();
+  signal?.throwIfAborted();
   const id = ++c.nextId;
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
       c.pending.delete(id);
+      clean();
       reject(new ComputerError(`Your PC didn't respond in time (${method}).`, 504));
     }, timeoutMs);
-    c.pending.set(id, { resolve, reject, timer });
+    const clean = () => { clearTimeout(timer); signal?.removeEventListener('abort', abort); };
+    const abort = () => {
+      if (!c.pending.delete(id)) return;
+      clean();
+      try { c.ws.send(JSON.stringify({ method: 'cancel', params: { id } })); } catch { /* disconnected */ }
+      reject(signal!.reason);
+    };
+    c.pending.set(id, { resolve: value => { clean(); resolve(value); }, reject: error => { clean(); reject(error); }, timer });
+    signal?.addEventListener('abort', abort, { once: true });
     c.ws.send(JSON.stringify({ id, method, params }));
   });
 }
@@ -530,6 +542,7 @@ const botName = (botId: string) => (db.prepare('SELECT name FROM bots WHERE id=?
 async function takeDesktop(userId: string, botId: string) {
   const deadline = Date.now() + WAIT_MS;
   for (;;) {
+    runSignal()?.throwIfAborted();
     need(userId);
     const h = holders.get(userId);
     if (!h || h.botId === botId || h.until < Date.now() || !getLive(h.botId).isRunning) {

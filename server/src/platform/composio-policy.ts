@@ -32,7 +32,7 @@ export interface ConnectionProvider {
   /** One fresh provider snapshot for a listing, never reused for execution authorization. */
   ownedMany?(identity: string, ids: string[], details?: boolean): Promise<Map<string, ProviderConnection>>;
   tool(slug: string): Promise<{ toolkit: string; version: string; readOnly?: boolean }>;
-  execute(identity: string, connection: string, slug: string, version: string, args: Record<string, unknown>): Promise<unknown>;
+  execute(identity: string, connection: string, slug: string, version: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<unknown>;
   disconnect(id: string): Promise<void>;
   refresh(id: string): Promise<unknown>;
 }
@@ -80,7 +80,7 @@ export class ConnectionGateway {
     if (!choice) throw new Error('Choose a specific connected account.');
     return choice;
   }
-  async execute(tenant: string, input: { connectionId: string; revision: number; dispatchId: string; slug: string; arguments: Record<string, unknown>; readOnly?: boolean }) {
+  async execute(tenant: string, input: { connectionId: string; revision: number; dispatchId: string; slug: string; arguments: Record<string, unknown>; readOnly?: boolean }, signal?: AbortSignal) {
     if (!/^[A-Z][A-Z0-9_]{2,199}$/.test(input.slug) || input.slug.startsWith('COMPOSIO_')) throw new Error('Unsupported app operation.');
     if (!/^[A-Za-z0-9_-]{16,100}$/.test(input.dispatchId) || !Number.isSafeInteger(input.revision)) throw new Error('Invalid dispatch.');
     if (input.readOnly !== undefined && typeof input.readOnly !== 'boolean') throw new Error('Invalid execution mode.');
@@ -93,7 +93,8 @@ export class ConnectionGateway {
     if (!await this.registry.begin(tenant, row.id, row.revision, input.dispatchId, input.slug, hash)) throw new Error('Dispatch already exists or authorization changed. Inspect its outcome before retrying.');
     try {
       await this.authorize();
-      const result = await this.provider.execute(identity, row.id, input.slug, tool.version, input.arguments);
+      signal?.throwIfAborted();
+      const result = await this.provider.execute(identity, row.id, input.slug, tool.version, input.arguments, signal);
       await this.registry.finish(tenant, input.dispatchId, 'completed');
       return result;
     } catch {

@@ -1,3 +1,4 @@
+import { runSignal } from './agent/run-scope.js';
 import { createCatalogCache } from './catalog-cache.js';
 import { createConnectionDetailsCache, unfinishedAuthorization, type ConnectionDetails } from './connection-details.js';
 import { Composio } from '@composio/core';
@@ -246,16 +247,17 @@ export async function composioTools(userId: string): Promise<any[]> {
 }
 export interface ComposioExecutionResult { data?: unknown; error?: unknown; successful?: boolean; resultType?: string; logId?: string }
 export async function executeComposio(userId: string, name: string, args: Record<string, unknown>, options: { readOnly?: boolean } = {}): Promise<ComposioExecutionResult> {
+  const signal = runSignal();
   assertTenant(userId);
   if (!['SWARM_APPS_SEARCH','SWARM_APPS_EXECUTE'].includes(name)) throw new Error('Unsupported connected-app operation.');
   if (options.readOnly !== undefined && typeof options.readOnly !== 'boolean') throw new Error('Invalid execution mode.');
   if (isTenant) {
-    if (name === 'SWARM_APPS_SEARCH') return { data: await gatewayRequest(userId, 'search', { toolkit: args.toolkit, query: args.query, connectionId: args.connectionId, ...(options.readOnly !== undefined ? { readOnly: options.readOnly } : {}) }) };
-    return gatewayRequest<ComposioExecutionResult>(userId, 'execute', { connectionId: args.connectionId, revision: args.revision, slug: args.tool_slug, arguments: args.arguments, dispatchId: randomUUID(), ...(options.readOnly !== undefined ? { readOnly: options.readOnly } : {}) });
+    if (name === 'SWARM_APPS_SEARCH') return { data: await gatewayRequest(userId, 'search', { toolkit: args.toolkit, query: args.query, connectionId: args.connectionId, ...(options.readOnly !== undefined ? { readOnly: options.readOnly } : {}) }, { signal }) };
+    return gatewayRequest<ComposioExecutionResult>(userId, 'execute', { connectionId: args.connectionId, revision: args.revision, slug: args.tool_slug, arguments: args.arguments, dispatchId: randomUUID(), ...(options.readOnly !== undefined ? { readOnly: options.readOnly } : {}) }, { signal });
   }
   // Development adapter still enforces private account selection and never executes Tool Router meta tools.
   const client = composio(), key = composioIdentity();
-  const requestOptions = { signal: AbortSignal.timeout(30_000), maxRetries: 0 };
+  const requestOptions = { signal: runSignal(30_000)!, maxRetries: 0 };
   const accounts = (await connectionsDetail(userId, requestOptions)).filter(c => c.status === 'ACTIVE');
   assertCurrentKey(key);
   if (name === 'SWARM_APPS_SEARCH') {
