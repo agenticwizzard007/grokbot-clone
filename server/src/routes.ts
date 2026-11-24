@@ -1,3 +1,4 @@
+import { visibleConnections } from './connection-details.js';
 import { isEffort } from './types.js';
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
@@ -668,7 +669,8 @@ api.get('/apps', async (c) => {
   if (!env.composioEnabled) return c.json({ apps: [], connected: [], connectedApps: [], categories: [], total: 0, notConfigured: true });
   const search = (c.req.query('search') ?? '').toLowerCase();
   const category = c.req.query('category') ?? '';
-  const [all, accounts] = await Promise.all([catalog(), connectionsDetail(user.id, { details: true })]);
+  const [all, rawAccounts] = await Promise.all([catalog(), connectionsDetail(user.id, { details: true })]);
+  const accounts = visibleConnections(rawAccounts);
   const connected = new Set(accounts.filter(a => a.status === 'ACTIVE' && !a.isDisabled).map(a => a.toolkit));
   const withAccounts = (t: Omit<Toolkit, 'connected'>): Toolkit => ({ ...t, connected: connected.has(t.slug), accounts: accounts.filter(a => a.toolkit === t.slug) });
   let items: Toolkit[] = all.map(withAccounts);
@@ -690,7 +692,7 @@ api.get('/apps/connections', async c => {
   const pending = pendingConnectionCards(userId);
   const connections = await connectionsDetail(userId, { details: true });
   reconcileConnectionCards(userId, pending, connections);
-  return c.json({ connections });
+  return c.json({ connections: visibleConnections(connections) });
 });
 api.delete('/apps/connections/:id/expired', async c => {
   try {

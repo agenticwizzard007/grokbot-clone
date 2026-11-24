@@ -1,9 +1,13 @@
+import { createSettingsCache, settingsRead } from '../../lib/settingsReads';
 import { Monitor } from 'lucide-react';
 import { SettingIcon } from './SettingRow';
 import { useEffect, useRef, useState } from 'react';
 import { accessApi, verifyAccessAccount, type AccountSession } from '../../lib/accessApi';
 import { ApiError } from '../../lib/api';
 import { useStore } from '../../store';
+
+const sessionCache = createSettingsCache<AccountSession[]>();
+useStore.subscribe((state, previous) => { if (state.user?.id !== previous.user?.id) sessionCache.scope(state.user?.id); });
 
 function sessionDate(value: string | number | null) {
   if (value == null) return null;
@@ -12,7 +16,8 @@ function sessionDate(value: string | number | null) {
 }
 
 export function AccountSessions({ accountId }: { accountId: string }) {
-  const [sessions, setSessions] = useState<AccountSession[]>([]);
+  sessionCache.scope(accountId);
+  const [sessions, setSessions] = useState<AccountSession[]>(() => sessionCache.peek('sessions') ?? []);
   const [loading, setLoading] = useState(true);
   const [refresh, setRefresh] = useState(0);
   const [loadError, setLoadError] = useState('');
@@ -27,13 +32,14 @@ export function AccountSessions({ accountId }: { accountId: string }) {
   useEffect(() => {
     alive.current = true;
     const controller = new AbortController();
-    setLoading(true); setLoadError(''); setSessions([]);
-    void (async () => {
-      await verifyAccessAccount(accountId, controller.signal);
-      const { sessions: own } = await accessApi.sessions(controller.signal);
-      await verifyAccessAccount(accountId, controller.signal);
+    const saved = sessionCache.peek('sessions');
+    setLoading(!saved); setLoadError(''); setSessions(saved ?? []);
+    void sessionCache.refresh('sessions', () => settingsRead(async signal => {
+      await verifyAccessAccount(accountId, signal);
+      const { sessions: own } = await accessApi.sessions(signal);
+      await verifyAccessAccount(accountId, signal);
       return own.sort((first, next) => Number(next.current) - Number(first.current) || (sessionDate(next.last_seen_at)?.getTime() ?? 0) - (sessionDate(first.last_seen_at)?.getTime() ?? 0));
-    })().then(own => { if (current() && !controller.signal.aborted) setSessions(own); })
+    })).then(own => { if (current() && !controller.signal.aborted) setSessions(own); })
       .catch(err => { if (current() && !controller.signal.aborted) setLoadError(err instanceof Error ? err.message : 'Couldn’t load sessions.'); })
       .finally(() => { if (current() && !controller.signal.aborted) setLoading(false); });
     return () => { alive.current = false; controller.abort(); };
@@ -52,6 +58,8 @@ export function AccountSessions({ accountId }: { accountId: string }) {
         return;
       }
       if (!current()) return;
+      sessionCache.remove('sessions');
+      setSessions(own => own.filter(session => session.id !== target.id));
       setConfirming(null); setNotice('Session signed out.'); setRefresh(value => value + 1);
     } catch (err) {
       if (!current()) return;
@@ -69,7 +77,7 @@ export function AccountSessions({ accountId }: { accountId: string }) {
     <h2 id="account-sessions-title" className="cfg-section__label">Signed-in sessions</h2>
     <p className="access-section-note">Review where this account is signed in. Sign out of a session to end its access.</p>
     {loading && <p className="cfg-empty" role="status">Loading sessions…</p>}
-    {loadError && <><p className="cfg-error" role="alert">{loadError}</p><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setRefresh(value => value + 1)}>Try again</button></>}
+    {loadError && <><p className="cfg-error" role="alert">Unavailable. {loadError}</p><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setRefresh(value => value + 1)}>Retry</button></>}
     {!loading && !loadError && !sessions.length && <p className="cfg-empty">No active sessions were reported.</p>}
     {!!sessions.length && <div className="cfg-card">
       {sessions.map(session => {

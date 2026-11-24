@@ -65,6 +65,7 @@ const SECTIONS_LINKABLE: AppSection[] = ['general', 'keys', 'computer', 'messagi
 const SECTION_ALIASES: Record<string, AppSection> = { whatsapp: 'messaging' };
 const linkedSection = (): AppSection | null => {
   if (typeof window === 'undefined') return null;
+  if (/^#settings\/?$/.test(window.location.hash)) return 'general';
   const raw = window.location.hash.replace(/^#(settings\/)?/, '');
   const h = (SECTION_ALIASES[raw] ?? raw) as AppSection;
   return SECTIONS_LINKABLE.includes(h) ? h : null;

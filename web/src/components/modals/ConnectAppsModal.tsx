@@ -1,3 +1,5 @@
+import { cachedApps, refreshApps } from '../../lib/appsCatalogCache';
+import { connectionStatus } from '@shared/connection-details';
 import { ConnectedAccounts } from '../ConnectedAccountDetails';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, Search } from 'lucide-react';
@@ -25,6 +27,7 @@ type View = { kind: 'all' | 'popular' | 'categories' | 'connected' } | { kind: '
 function AppRow({ app, onChanged }: { app: Toolkit; onChanged: () => void }) {
   const accountId = useStore(s => s.user?.id);
   const current = useAccessPanel(accountId);
+  const reconnect = app.accounts?.some(a => connectionStatus(a.status, a.isDisabled) === 'needs_reauth');
   const [state, setState] = useState<'idle' | 'busy' | 'waiting' | 'confirm'>('idle');
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { setState('idle'); }, [app.connected]);
@@ -81,7 +84,7 @@ function AppRow({ app, onChanged }: { app: Toolkit; onChanged: () => void }) {
         <span className="app-row__connected is-static"><Icon name="check" size={12} opacity={0.56} />Built in</span>
       ) : (
         <div className="access-app-row__actions">
-          <button type="button" className="app-row__connect" onClick={connect} disabled={state === 'busy'} aria-label={state === 'idle' ? `Connect ${app.name}` : undefined}>{state === 'busy' ? 'Opening…' : state === 'waiting' ? 'Try again' : 'Connect'}</button>
+          <button type="button" className="app-row__connect" onClick={connect} disabled={state === 'busy'} aria-label={state === 'idle' ? `${reconnect ? 'Reconnect' : 'Connect'} ${app.name}` : undefined}>{state === 'busy' ? 'Opening…' : state === 'waiting' ? 'Try again' : reconnect ? 'Reconnect' : 'Connect'}</button>
           {state === 'waiting' && <button type="button" className="app-row__connect" onClick={onChanged}>Refresh status</button>}
         </div>
       )}
@@ -130,9 +133,9 @@ function AccountAppsCatalog({ accountId, close, inline }: { accountId: string; c
   const [view, setView] = useState<View>({ kind: 'popular' });
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
-  const [data, setData] = useState<AppsResponse | null>(null);
+  const [data, setData] = useState<AppsResponse | null>(() => cachedApps(accountId) ?? null);
   const [legacyConnectedApps, setLegacyConnectedApps] = useState<Toolkit[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !cachedApps(accountId));
   const [loadingMore, setLoadingMore] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
   const queryVersion = useRef(0);
@@ -148,11 +151,10 @@ function AccountAppsCatalog({ accountId, close, inline }: { accountId: string; c
   useEffect(() => {
     let alive = true;
     queryVersion.current++;
-    setLoading(true); setError(null); setLoadingMore(false); setPageError(null);
     const category = view.kind === 'category' ? view.category : '';
-    void verifyAccessAccount(accountId).then(async () => {
-      if (!alive || !current()) return;
-      const result = await api.apps(debounced, category);
+    const saved = cachedApps(accountId, debounced, category);
+    setData(saved ?? null); setLoading(!saved); setError(null); setLoadingMore(false); setPageError(null);
+    void refreshApps(accountId, debounced, category).then(result => {
       if (alive && current()) setData(result);
     }).catch((e) => { if (alive && current()) setError(e.message); })
       .finally(() => { if (alive && current()) setLoading(false); });
@@ -211,7 +213,7 @@ function AccountAppsCatalog({ accountId, close, inline }: { accountId: string; c
 
   let body: React.ReactNode;
   if (requestLoading) body = <div className="apps-empty" role="status">Loading apps…</div>;
-  else if (error) body = <div className="apps-empty" role="alert">Couldn’t load apps. {error} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={refresh}>Retry catalog</button></div>;
+  else if (error && !data) body = <div className="apps-empty" role="alert">Couldn’t load apps. {error} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={refresh}>Retry catalog</button></div>;
   else if (data?.notConfigured) body = <div className="apps-empty">The server owner needs to add a Composio project key in <button type="button" className="link-btn" onClick={() => { close(); useConfigUI.getState().openAppSettings('keys'); }}>Settings → API keys</button>. This enables connected apps for everyone. Then connect your own accounts here.</div>;
   else if (view.kind === 'connected') body = connectedSlugs.length ? (
     <>
@@ -274,6 +276,7 @@ function AccountAppsCatalog({ accountId, close, inline }: { accountId: string; c
         </div>
       </div>
       <div className="apps-modal__body">
+        {error && data && <div className="cfg-error" role="alert">Showing saved apps. Refresh unavailable. <button type="button" className="cfg-btn cfg-btn--secondary" onClick={refresh}>Retry catalog</button></div>}
         {body}
         {!requestLoading && !error && !data?.notConfigured && (view.kind === 'all' || view.kind === 'category') && data && (
           <div className="apps-pagination">

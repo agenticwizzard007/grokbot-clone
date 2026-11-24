@@ -12,7 +12,7 @@ const storage = {
   key: (index: number) => [...values.keys()][index] ?? null,
   get length() { return values.size; },
 };
-const location = { pathname: '/', search: '', hash: '' };
+const location = { pathname: '/', search: '', hash: '#settings' };
 const entries: { state: unknown; hash: string }[] = [{ state: null, hash: '' }];
 const history = {
   get state() { return entries.at(-1)!.state; },
@@ -35,12 +35,13 @@ Object.assign(globalThis, {
   document: { title: 'Swarm', documentElement: { dataset: {}, style: {} } },
 });
 const { useStore, enterChatPane } = await import('../web/src/store.ts');
-const { useConfigUI, botSettingsHash } = await import('../web/src/configStore.ts');
+const { useConfigUI, botSettingsHash, hasSettingsLink } = await import('../web/src/configStore.ts');
 const { computerStatusText, computerReadiness, computerStatusLine } = await import('../web/src/components/config/computerStatus.tsx');
 const { setupResourceText } = await import('../web/src/components/config/setupResources.ts');
 const user = { id: 'settings-account', email: 'settings@example.test', name: 'Account', avatarUrl: null };
 const computer = (status: ComputerState['status'], provider: ComputerState['provider'] = 'cloudvm'): ComputerState => ({ status, provider, screens: [], orgoId: null, error: null });
 const ui = () => useConfigUI.getState();
+const initialSettings = ui().appSettings;
 
 beforeEach(() => {
   entries.splice(0, entries.length, { state: null, hash: '' }); location.hash = '';
@@ -177,4 +178,13 @@ test('R3-041: resources preserve display names and access limits without connect
   assert.equal(setupResourceText('Slack account'), 'Slack account');
   assert.equal(setupResourceText('toolkit slack, revision 4, status FUTURE_CODE'), 'Slack, Check connection');
   assert.doesNotMatch(setupResourceText('Slack (toolkit slack, revision 2, status REVOKED)'), /toolkit|revision|REVOKED/);
+});
+
+
+test('bare settings deep link opens General on fresh load and existing section links still resolve', () => {
+  assert.equal(initialSettings, 'general');
+  for (const hash of ['#settings', '#settings/', '#settings/general', '#settings/apps', '#settings/account', '#settings/messaging', '#settings/keys', '#whatsapp']) {
+    location.hash = hash; assert.equal(hasSettingsLink(), true, hash);
+  }
+  location.hash = '#settings/unknown'; assert.equal(hasSettingsLink(), false);
 });

@@ -39,7 +39,7 @@ const deferred = () => {
 };
 const ids = {
   active: 'active-work-gmail', second: 'active-personal-gmail', disabled: 'active-disabled-gmail',
-  expired: 'expired/gmail?attempt=one & two', unfinished: 'expired-gmail-unfinished',
+  expired: 'expired/gmail?attempt=one & two', unfinished: 'expired-gmail-second', abandoned: 'expired-gmail-unfinished',
   pending: 'github-pending', initiated: 'github-initiated', revoked: 'github-revoked',
 };
 const initialAccounts = [
@@ -47,11 +47,13 @@ const initialAccounts = [
   { id: ids.second, toolkit: 'gmail', status: 'ACTIVE' },
   { id: ids.disabled, toolkit: 'gmail', status: 'ACTIVE', isDisabled: true, isDefault: true },
   { id: ids.expired, toolkit: 'gmail', status: 'EXPIRED' },
-  { id: ids.unfinished, toolkit: 'gmail', status: 'EXPIRED', authorizationIncomplete: true },
+  { id: ids.unfinished, toolkit: 'gmail', status: 'EXPIRED' },
+  { id: ids.abandoned, toolkit: 'gmail', status: 'EXPIRED', authorizationIncomplete: true },
   { id: ids.pending, toolkit: 'github', status: 'PENDING' },
   { id: ids.initiated, toolkit: 'github', status: 'AUTHORIZATION_PENDING' },
   { id: ids.revoked, toolkit: 'github', status: 'REVOKED' },
 ];
+const visibleIds = Object.values(ids).filter(id => ![ids.pending, ids.initiated, ids.abandoned].includes(id));
 let browser;
 const openPages = [];
 try {
@@ -133,6 +135,8 @@ try {
       else if (path === '/api/bots') body = { bots: [bot], live: [] };
       else if (path === '/api/needs-you') body = { items: [] };
       else if (path === '/api/models') body = { models: [], defaultModel: null };
+      else if (path === '/api/cli') body = { runtime: 'server', serverLoginAvailable: true, selected: null, connected: false, device: null,
+        providers: { claude: { installed: false, authenticated: false, subscription: false }, codex: { installed: false, authenticated: false, subscription: false } } };
       else if (path.endsWith('/rows')) body = { generation: 1, rows: [] };
       else if (path.endsWith('/coworker-setups')) body = { setups: [] };
       else if (path.endsWith('/routines')) body = { routines: [] };
@@ -177,7 +181,7 @@ try {
   await desktop.row(ids.active).waitFor();
   assert.equal(await desktop.row(ids.active).locator('.cfg-row__title').innerText(), 'Gmail · Account 1');
   assert.equal(await desktop.row(ids.second).locator('.cfg-row__title').innerText(), 'Gmail · Account 2');
-  assert.deepEqual(await desktop.accountIds(), Object.values(ids).sort(), 'every fixture account has a distinct row');
+  assert.deepEqual(await desktop.accountIds(), visibleIds.slice().sort(), 'every fixture account has a distinct row');
   await desktop.summary().getByText('Expired connections (2)', { exact: true }).waitFor();
   assert.equal(await desktop.expired.locator('details').evaluate(element => element.open), false, 'expired records start collapsed');
   assert.equal(await desktop.row(ids.expired).isVisible(), false);
@@ -185,9 +189,11 @@ try {
   assert.equal(await desktop.active.getByRole('button', { name: 'Disconnect', exact: true }).count(), 2);
   assert.match(await desktop.row(ids.active).innerText(), /Active\s+Connected date unavailable\s+Default/);
   assert.equal(await desktop.row(ids.active).getByRole('button', { name: 'Use by default', exact: true }).isDisabled(), true);
-  for (const [id, status] of [[ids.pending, 'Awaiting authorization'], [ids.initiated, 'Awaiting authorization'], [ids.revoked, 'Needs reauth'], [ids.disabled, 'Needs reauth\\s+Connected date unavailable\\s+Disabled']]) {
-    assert.match(await desktop.row(id).innerText(), new RegExp(status));
-    assert.equal(await desktop.row(id).getByRole('button').count(), 0, 'other statuses have no destructive or active-account controls');
+  for (const id of [ids.pending, ids.initiated, ids.abandoned]) assert.equal(await desktop.row(id).count(), 0, 'unfinished authorization is hidden');
+  for (const id of [ids.revoked, ids.disabled]) {
+    assert.match(await desktop.row(id).innerText(), /Needs reconnecting/);
+    assert.doesNotMatch(await desktop.row(id).innerText(), /Connected date/);
+    assert.equal(await desktop.row(id).getByRole('button', { name: 'Reconnect', exact: true }).count(), 1);
   }
   assert.equal(await desktop.other.getByTitle(`Connection ID: ${ids.disabled}`, { exact: true }).count(), 1, 'disabled ACTIVE accounts belong in Other connections');
   assert.equal(await desktop.active.getByTitle(`Connection ID: ${ids.disabled}`, { exact: true }).count(), 0);
@@ -207,7 +213,7 @@ try {
   assert.equal(await desktop.expired.getByRole('button', { name: 'Disconnect', exact: true }).count(), 0);
   assert.equal(await desktop.expired.getByRole('button', { name: 'Remove expired record', exact: true }).count(), 2);
   assert.equal((await desktop.row(ids.expired).innerText()).includes('Authorization was not completed'), false, 'unknown expiry reasons must stay honest');
-  assert.match(await desktop.row(ids.unfinished).innerText(), /Needs reauth\s+Connected date unavailable\s+Authorization was not completed/);
+  assert.match(await desktop.row(ids.unfinished).innerText(), /Needs reconnecting/);
   await desktop.row(ids.unfinished).scrollIntoViewIfNeeded();
   await desktop.page.screenshot({ animations: 'disabled', path: new URL('desktop-expanded.png', screenshots).pathname });
 
@@ -227,8 +233,8 @@ try {
   await desktop.row(ids.expired).waitFor({ state: 'detached' });
   assert.equal(await desktop.row(ids.unfinished).isVisible(), true, 'only the selected record is removed before refresh completes');
   assert.equal(await desktop.row(ids.active).count(), 1);
-  assert.equal(await desktop.row(ids.pending).count(), 1);
-  assert.deepEqual(await desktop.accountIds(), Object.values(ids).filter(id => id !== ids.expired).sort(), 'expired cleanup removes exactly the selected account');
+  assert.equal(await desktop.row(ids.pending).count(), 0);
+  assert.deepEqual(await desktop.accountIds(), visibleIds.filter(id => id !== ids.expired).sort(), 'expired cleanup removes exactly the selected account');
   refreshGate.resolve();
   await desktop.row(ids.unfinished).getByRole('button', { name: 'Remove expired record', exact: true }).waitFor({ state: 'visible' });
   await until(async () => await desktop.row(ids.unfinished).getByRole('button', { name: 'Remove expired record', exact: true }).isEnabled());
@@ -265,7 +271,7 @@ try {
     { method: 'DELETE', path: `/api/apps/connections/${ids.active}`, action: 'disconnect', id: ids.active },
   ], 'active management keeps the existing per-account endpoints');
   await until(async () => await desktop.row(ids.second).getByRole('button', { name: 'Disconnect', exact: true }).isEnabled());
-  assert.deepEqual(await desktop.accountIds(), Object.values(ids).filter(id => id !== ids.expired && id !== ids.active).sort(), 'disconnect removes only the selected account and retains every other record');
+  assert.deepEqual(await desktop.accountIds(), visibleIds.filter(id => id !== ids.expired && id !== ids.active).sort(), 'disconnect removes only the selected account and retains every other record');
   assert.equal(await desktop.row(ids.second).locator('.cfg-row__title').innerText(), 'Gmail · Account 1', 'the surviving account keeps its identity after renumbering');
   assert.equal(await desktop.row(ids.second).locator('.cfg-chip').getByText('Default', { exact: true }).count(), 1, 'the surviving account stays the default');
   assert.equal(await desktop.row(ids.second).getByRole('button', { name: 'Use by default', exact: true }).isDisabled(), true);
@@ -274,7 +280,7 @@ try {
   const mobile = await fixture({ mobile: true });
   await mobile.summary().waitFor();
   assert.equal(await mobile.other.getByTitle(`Connection ID: ${ids.disabled}`, { exact: true }).count(), 1);
-  assert.equal(await mobile.row(ids.disabled).getByRole('button').count(), 0, 'disabled ACTIVE accounts have no controls on mobile');
+  assert.equal(await mobile.row(ids.disabled).getByRole('button', { name: 'Reconnect', exact: true }).count(), 1, 'disabled accounts can reconnect on mobile');
   assert.equal(await mobile.expired.locator('details').evaluate(element => element.open), false);
   await mobile.summary().scrollIntoViewIfNeeded();
   await mobile.page.screenshot({ animations: 'disabled', path: new URL('mobile-collapsed.png', screenshots).pathname });
@@ -364,14 +370,14 @@ try {
     await current.confirmRemoval(id);
     await current.page.getByRole('alert').filter({ hasText: 'Cleanup refused:' }).waitFor();
     assert.equal(await current.expired.count(), 0, '409 status refresh removes expired-only cleanup controls');
-    assert.equal(await current.row(id).count(), 1, 'refused cleanup retains the same account record');
+    assert.equal(await current.row(id).count(), status === 'ACTIVE' ? 1 : 0, 'refused cleanup retains active rows and hides pending rows');
     assert.equal(await current.row(id).getByRole('button', { name: 'Remove expired record', exact: true }).count(), 0);
     if (status === 'ACTIVE') {
       assert.equal(await current.active.getByTitle(`Connection ID: ${id}`, { exact: true }).count(), 1);
       assert.equal(await current.row(id).getByRole('button', { name: 'Disconnect', exact: true }).count(), 1);
       assert.equal(await current.row(id).getByRole('button', { name: 'Use by default', exact: true }).count(), 1);
     } else {
-      assert.equal(await current.other.getByTitle(`Connection ID: ${id}`, { exact: true }).count(), 1);
+      assert.equal(await current.other.getByTitle(`Connection ID: ${id}`, { exact: true }).count(), 0);
       assert.equal(await current.row(id).getByRole('button').count(), 0, 'pending records have no destructive or active-account controls');
     }
     assert.deepEqual(current.mutations, [{ method: 'DELETE', path: `/api/apps/connections/${id}/expired`, action: 'remove-expired', id }], 'status conflict causes no fallback deletion');

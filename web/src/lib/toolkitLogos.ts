@@ -25,5 +25,5 @@ export function toolkitLogo({ slug, name, logo }: { slug?: string; name: string;
   if (slug && logo) return `/api/toolkits/icon/${encodeURIComponent(slug)}`;
   const bundled = BUNDLED[normalize(slug || name)];
   if (bundled) return `/assets/toolkits/${bundled}.svg`;
-  return slug ? `/api/toolkits/icon/${encodeURIComponent(slug)}` : undefined;
+  return undefined;
 }

@@ -9,6 +9,9 @@ mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
   if (url.hostname === 'telemetry.composio.dev') return Response.json({});
   if (url.hostname === 'backend.composio.dev' && url.pathname === '/api/v3.1/toolkits') return Response.json({ items: [
     { slug: 'gmail', name: 'Gmail', meta: { description: 'Read and send email.', categories: [] }, composio_managed_auth_schemes: ['OAUTH2'] },
+    { slug: 'agentphone', name: 'AgentPhone', meta: { description: 'Phone integration fixture.', categories: [] }, composio_managed_auth_schemes: ['OAUTH2'] },
+    { slug: 'pylon_mcp', name: 'Pylon MCP', meta: { logo: 'https://invalid.example/missing.png', categories: [] }, composio_managed_auth_schemes: ['OAUTH2'] },
+    { slug: 'rootly', name: 'Rootly', meta: { categories: [] }, composio_managed_auth_schemes: ['OAUTH2'] },
     { slug: 'github', name: 'GitHub', meta: { description: 'Work with repositories.', categories: [] }, composio_managed_auth_schemes: ['OAUTH2'] },
   ] });
   if (url.origin === 'http://model.invalid' && url.pathname === '/v1/models') return Response.json({ data: [] });
@@ -26,6 +29,7 @@ mock.method(client.connectedAccounts, 'get', async (id: string) => {
   const row = db.prepare('SELECT body FROM fixture_accounts WHERE id=?').get(id) as any;
   assert.ok(row); return JSON.parse(row.body);
 });
+mock.method(client.toolkits, 'get', async () => ({}));
 mock.method(client.tools, 'proxyExecute', async (input: any) => {
   assert.equal(input.endpoint, 'https://gmail.googleapis.com/gmail/v1/users/me/profile');
   assert.equal(input.method, 'GET');

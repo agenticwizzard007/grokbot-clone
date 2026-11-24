@@ -1,3 +1,5 @@
+import { prefetchApps } from '../../lib/appsCatalogCache';
+import { visibleConnections, connectionStatus } from '@shared/connection-details';
 import { ConnectedAccountDetails, ConnectedAccounts, type DisplayAccount } from '../ConnectedAccountDetails';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
@@ -23,7 +25,7 @@ import { OpenRouterSettings } from './OpenRouterSettings';
 import { PrivateKeysSettings } from './PrivateKeysSettings';
 import { AppleSignIn } from '../AppleSignIn';
 import { AuthLink } from '../AuthButton';
-import { api, needsReauth } from '../../lib/api';
+import { openPopup, api, needsReauth } from '../../lib/api';
 import { verifyAccessAccount } from '../../lib/accessApi';
 import { ConnectAppsCatalog } from '../modals/ConnectAppsModal';
 import { useCompactLayout } from '../../lib/useCompactLayout';
@@ -66,6 +68,8 @@ function restoreSettingsFocus(caller: HTMLElement | null) {
 
 /** Full-window settings, opened from the account menu or ⌘,. Phones get a section list that drills into each page. */
 export function AppSettings() {
+  const catalogAccountId = useStore(s => s.user?.id);
+  useEffect(() => { prefetchApps(catalogAccountId); }, [catalogAccountId]);
   const section = useConfigUI((s) => s.appSettings);
   const home = useConfigUI((s) => s.appSettingsHome);
   const close = useConfigUI((s) => s.closeAppSettings);
@@ -772,6 +776,7 @@ function AppsSection() {
 }
 
 function AccountAppsSection({ accountId }: { accountId: string }) {
+  const current = useAccessPanel(accountId);
   const version = useStore((s) => s.connectionsVersion);
   const [connections, setConnections] = useState<SettingsAppConnection[] | null>(null);
   const [apps, setApps] = useState<Toolkit[] | null>(null);
@@ -796,7 +801,7 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
       if (!r.ok) throw new Error(body.error ?? 'Could not load accounts.');
       if (!Array.isArray(body.connections)) throw new Error('Could not load accounts.');
       if (request === connectionsRequest.current) {
-        setConnections(body.connections);
+        setConnections(visibleConnections(body.connections));
         setConnectionsError('');
       }
     } catch (e) {
@@ -874,9 +879,10 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
       if (action === 'disconnect') setDisconnectId(null);
     }
   };
-  const active = connections?.filter(c => c.status === 'ACTIVE' && !c.isDisabled) ?? [];
-  const expired = connections?.filter(c => c.status === 'EXPIRED') ?? [];
-  const other = connections?.filter(c => c.status !== 'EXPIRED' && (c.status !== 'ACTIVE' || c.isDisabled)) ?? [];
+  const visible = visibleConnections(connections ?? []);
+  const active = visible.filter(c => connectionStatus(c.status, c.isDisabled) === 'active');
+  const expired = visible.filter(c => c.status === 'EXPIRED');
+  const other = visible.filter(c => c.status !== 'EXPIRED' && connectionStatus(c.status, c.isDisabled) !== 'active');
   const accountDetails = (c: SettingsAppConnection, index: number) => {
     const app = apps?.find(app => app.slug === c.toolkit);
     const name = toolkitDisplayName(c.toolkit, app?.name);
@@ -892,6 +898,22 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
       </div>
     </>;
   };
+  const reconnect = async (toolkit: string) => {
+    if (managing.current || !current()) return;
+    managing.current = true; setBusy(true); setError('');
+    const popup = openPopup('about:blank');
+    try {
+      await verifyAccessAccount(accountId);
+      if (!current()) { popup?.close(); return; }
+      const { redirectUrl } = await api.connect(toolkit);
+      if (!current()) { popup?.close(); return; }
+      if (popup && !popup.closed) popup.location.href = redirectUrl;
+      else if (!window.open(redirectUrl, '_blank') && !isNativeApp) throw new Error('Allow pop-ups and try again.');
+    } catch (e) { popup?.close(); if (current()) setError((e as Error).message); }
+    finally { managing.current = false; if (current()) setBusy(false); }
+  };
+  const reconnectAction = (c: SettingsAppConnection) => connectionStatus(c.status, c.isDisabled) === 'needs_reauth'
+    ? <button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => void reconnect(c.toolkit)}>Reconnect</button> : null;
   const openApps = () => { setDisconnectId(null); setCatalog(true); };
   if (catalog) return <ConnectAppsCatalog inline onClose={() => setCatalog(false)} />;
   return (
@@ -906,6 +928,7 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
         <button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy || refreshing} onClick={() => void refresh()}>Retry refresh</button>
       </div>}
       {error && <div className="cfg-error" role="alert">{error}</div>}
+      <button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy || refreshing} onClick={() => void refresh()}>{refreshing ? 'Refreshing…' : 'Refresh status'}</button>
       <section className="cfg-section" aria-label="Your apps">
         <h2 className="cfg-section__label">Your apps</h2>
         <div className="access-apps-settings__summary" role="status">
@@ -949,7 +972,7 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
         <h2 className="cfg-section__label">Other connections</h2>
         <p className="cfg-field__hint">These accounts are unavailable for Bots to use. Their current status is shown below.</p>
         <div className="cfg-card">
-          {other.map((c, index) => <div className="cfg-row access-apps-settings__row" key={c.id}><SettingIcon icon={CircleUserRound} />{accountDetails(c, index)}</div>)}
+          {other.map((c, index) => <div className="cfg-row access-apps-settings__row" key={c.id}><SettingIcon icon={CircleUserRound} />{accountDetails(c, index)}<div className="settings-row__actions">{reconnectAction(c)}</div></div>)}
         </div>
       </section>}
       {!!expired.length && <section className="cfg-section" aria-label="Expired connections">
@@ -964,6 +987,7 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
           {expired.map((c, index) => <div className="cfg-row access-apps-settings__row" key={c.id}><SettingIcon icon={CircleUserRound} />
             {accountDetails(c, index)}
             <div className="settings-row__actions">
+              {reconnectAction(c)}
               <ConfirmButton disabled={busy} confirmLabel="Confirm removal" title="Remove only this expired connection record" onConfirm={() => manage(c.id, 'remove-expired')}>Remove expired record</ConfirmButton>
             </div>
           </div>)}

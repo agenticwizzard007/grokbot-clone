@@ -41,6 +41,7 @@ beforeEach(() => {
     return { items: query.userIds[0] === 'owner' ? structuredClone(accounts) : [], nextCursor: null };
   });
   mock.method(client.connectedAccounts, 'get', async (id: string) => { retrieves.push(id); return accounts.find(a => a.id === id); });
+  mock.method(client.toolkits, 'get', async () => ({}));
   mock.method(client.tools, 'proxyExecute', async (input: any) => {
     assert.equal(input.endpoint, 'https://gmail.googleapis.com/gmail/v1/users/me/profile');
     assert.equal(input.method, 'GET');
@@ -76,7 +77,6 @@ test('both listing APIs include email, mapped status and actual connect date for
     ['ca_primary', 'name@gmail.com', 'active', createdAt],
     ['ca_secondary', 'second@gmail.com', 'active', '2026-11-20T11:00:00.000Z'],
     ['ca_expired', 'expired@gmail.com', 'needs_reauth', createdAt],
-    ['ca_failed', 'failed@gmail.com', 'failed', createdAt],
   ]);
   assert.doesNotMatch(JSON.stringify(payload), /access_token|fixture-private-value/);
   const catalog: any = await (await request('/apps')).json();
@@ -197,5 +197,5 @@ test('messaging apps command lists each account with its identity, status and da
   await handleInbound({ userId: 'owner', channel: 'imessage', waId: 'fixture-inbound', text: '/apps' });
   const text = await delivered;
   assert.match(text, /Gmail: name@gmail.com\n\s+Active · Connected 21 Nov 2026/);
-  assert.match(text, /Gmail: second@gmail.com\n\s+Needs reauth · Connected 21 Nov 2026/);
+  assert.match(text, /Gmail: second@gmail.com\n\s+Needs reconnecting/);
 });

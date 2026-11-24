@@ -22,7 +22,7 @@ test('R1b: catalog fallback ranks named and semantic matches, filters connection
 test('catalog metadata wins over bundled logos and every logo URL is same-origin', () => {
   assert.equal(toolkitLogo(catalogItems[0]), '/api/toolkits/icon/github');
   assert.equal(toolkitLogo({ slug: 'github', name: 'GitHub' }), '/assets/toolkits/github.svg');
-  assert.equal(toolkitLogo({ slug: 'otherapp', name: 'Other App' }), '/api/toolkits/icon/otherapp');
+  assert.equal(toolkitLogo({ slug: 'otherapp', name: 'Other App' }), undefined);
   assert.equal(toolkitLogo({ name: 'Unknown', logo: 'https://untrusted.example/logo.svg' }), undefined);
 });
 

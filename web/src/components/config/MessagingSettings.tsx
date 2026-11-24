@@ -1,3 +1,4 @@
+import { createSettingsCache, settingsRead } from '../../lib/settingsReads';
 import { SettingIcon } from './SettingRow';
 import { CircleUserRound, MessageCircle, ExternalLink } from 'lucide-react';
 import { ConnectedAccounts, type DisplayAccount } from '../ConnectedAccountDetails';
@@ -263,6 +264,8 @@ function PhoneSection({ status, setStatus, code, setCode }: SectionProps & { cod
 
 // ---------------------------------------------------------------------------
 // Account
+const gmailStatusCache = createSettingsCache<Awaited<ReturnType<typeof configApi.connectedApps>>>();
+useStore.subscribe((state, previous) => { if (state.user?.id !== previous.user?.id) gmailStatusCache.scope(state.user?.id); });
 
 function AccountSection() {
   const accountId = useStore(s => s.user?.id);
@@ -279,18 +282,20 @@ function AccountSection() {
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let alive = true;
-    setGmailConnected(null);
-    setGmailAccounts([]);
+    gmailStatusCache.scope(accountId);
+    const apply = (r: Awaited<ReturnType<typeof configApi.connectedApps>>) => {
+      setGmailAccounts(r.connectedApps?.find(a => a.slug === 'gmail')?.accounts ?? []);
+      setGmailConnected(r.connected.includes('gmail'));
+    };
+    const saved = gmailStatusCache.peek('gmail');
+    if (saved) apply(saved);
+    else { setGmailConnected(null); setGmailAccounts([]); }
     setGmailError(false);
-    configApi.connectedApps()
-      .then((r) => {
-        if (!alive) return;
-        setGmailAccounts(r.connectedApps?.find(a => a.slug === 'gmail')?.accounts ?? []);
-        setGmailConnected(r.connected.includes('gmail') || !!r.connectedApps?.some((a) => a.slug === 'gmail'));
-      })
-      .catch(() => { if (alive) setGmailError(true); });
+    void gmailStatusCache.refresh('gmail', () => settingsRead(signal => configApi.connectedApps(signal)))
+      .then(r => { if (alive && current()) apply(r); })
+      .catch(() => { if (alive && current()) setGmailError(true); });
     return () => { alive = false; };
-  }, [connectionsVersion, attempt]);
+  }, [accountId, current, connectionsVersion, attempt]);
 
   const connectGoogle = async (e: React.MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
@@ -338,7 +343,7 @@ function AccountSection() {
             {busy === 'gmail' ? 'Opening…' : gmailConnected === null ? 'Checking…' : gmailConnected ? 'Manage Gmail' : 'Connect Gmail'}
           </button>}
       </AccessRow>
-      {gmailError && <div className="cfg-error" role="alert">Gmail connection status could not be loaded.</div>}
+      {gmailError && <div className="cfg-error" role="alert">Unavailable. Gmail connection status could not be loaded.</div>}
       {!googleLogin && !gmailError && <p className="cfg-field__hint">Connected apps need a Composio project key from the server owner.</p>}
       <Note note={note} />
     </section>
