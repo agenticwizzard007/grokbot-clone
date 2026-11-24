@@ -51,3 +51,21 @@
 .draft-card__subject { overflow-wrap: anywhere; padding-top: 12px; font-size: 14px; font-weight: 600; line-height: 20px; }
 .draft-card__text { padding-top: 12px; font-size: 14px; line-height: 20px; letter-spacing: 0.14px; color: var(--color-ink); white-space: pre-wrap; overflow-wrap: anywhere; }
 .draft-card__actions { display: flex; gap: 8px; padding: 10px 16px 16px; }
+
+/* Exact action arguments are readable at both chat widths. Provider HTML is text only. */
+.tool-preview { min-width: 0; padding: 12px 16px 0; font-size: 14px; line-height: 1.5; color: var(--color-ink); }
+.tool-preview__fields { margin: 0; }
+.tool-preview__fields > div { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 8px; padding: 4px 0; }
+.tool-preview__fields dt { color: var(--color-text-secondary); }
+.tool-preview__fields dd { min-width: 0; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.tool-preview__body { min-width: 0; padding-top: 12px; }
+.tool-preview__text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.tool-preview__text.is-collapsed { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 10; max-height: 15em; overflow: hidden; }
+.tool-preview__expand { display: block; color: var(--color-text-primary); text-decoration: underline; padding: 8px 0; font-size: 13px; }
+.tool-preview__note { margin: 10px 0 0; font-size: 13px; color: var(--color-text-secondary); overflow-wrap: anywhere; }
+.tool-preview__details { min-width: 0; margin: 12px 16px 0; font-size: 13px; color: var(--color-text-secondary); }
+.tool-preview__details summary { cursor: pointer; padding: 4px 0; }
+.tool-preview__details pre { max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.draft-card__to-name { white-space: pre-wrap; overflow: visible; overflow-wrap: anywhere; }
+.draft-card__to-avatar { flex-shrink: 0; }
+.draft-card__content .draft-card__text { padding-top: 0; }

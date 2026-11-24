@@ -1,4 +1,4 @@
-import type { CardBody, VoiceOption } from '@shared/types';
+import type { VoiceOption } from '@shared/types';
 
 export interface VoiceSession {
   callId: string;
@@ -18,15 +18,12 @@ export interface VoiceSession {
 
 export interface VoiceOptions { voices: VoiceOption[]; languages: { code: string; name: string }[]; speeds: number[] }
 
-export interface VoiceConnectionRequest { botId: string; seq: number; toolkit: string; toolkitName: string }
-export interface VoiceApproval { botId: string; seq: number; body: Extract<CardBody, { card: 'approval' }> }
 export interface VoiceTranscriptEntry { id?: string; role: 'user' | 'assistant'; text: string }
 export interface VoiceToolResult {
   output: string;
   taskSeq?: number;
   taskBotId?: string;
   taskId?: string;
-  connectionRequest?: VoiceConnectionRequest;
 }
 export interface VoiceUpdate {
   audience?: 'user' | 'internal';
@@ -47,8 +44,6 @@ export interface VoiceUpdates {
   cursor: number;
   updates: VoiceUpdate[];
   tasks: VoiceTask[];
-  connectionRequests?: VoiceConnectionRequest[];
-  approvals?: VoiceApproval[];
 }
 
 export class VoiceApiError extends Error {

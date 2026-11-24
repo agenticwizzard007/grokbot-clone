@@ -147,6 +147,8 @@ export type CardBody =
       jobId?: string;
       title: string;
       detail: string;
+      /** Verified connected account label, separate from the exact action arguments. */
+      accountLabel?: string;
       tool: string;
       toolkit?: string;
       toolkitName?: string;
