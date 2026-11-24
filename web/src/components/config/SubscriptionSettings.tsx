@@ -35,7 +35,7 @@ function providerState(provider: CliProviderStatus | undefined, connected: boole
   if (!connected) return 'Bridge offline · status unverified';
   if (provider.error) return 'Needs attention';
   if (!provider.installed) return 'CLI not installed';
-  if (!provider.authenticated) return 'Login required';
+  if (!provider.authenticated) return 'Not connected';
   if (!provider.subscription) return 'Eligible subscription required';
   return 'Ready';
 }
@@ -207,7 +207,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
   const update = (result: CliStatus, epoch: number) => {
     if (!current(epoch)) return;
     setStatus(result);
-    setStale(false);
+    setStale(!!result.statusUnavailable);
     setReadError(null);
   };
   const readStatus = async () => {
@@ -346,7 +346,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
       <section className="cfg-section" aria-label="Plan connection">
         <AccessRow icon={Terminal} title={providerTab === 'claude' ? 'Claude plan' : 'ChatGPT plan'} description={`${PLAN_PROVIDERS.find(p => p.id === providerTab)!.plans} via the official ${providerTab === 'claude' ? 'Claude Code' : 'Codex'} CLI.`}
           status={<span role="status">{stale ? 'Status unavailable' : planConnectionStatus(status, providerTab, reportedPlan)}</span>}>
-          {(stale || status?.statusUnavailable) && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => void refresh()}>Retry status</button>}
+          {(stale || status?.statusUnavailable || health?.error) && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => void refresh()}>Retry status</button>}
           {selected === providerTab
             ? <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy || loginRunning || authLocked} onClick={() => void select(null)}>Disconnect</button>
             : planReady
@@ -377,11 +377,11 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
           <button type="button" className="cfg-btn cfg-btn--secondary" aria-pressed={authMethod === 'api'} disabled={disabled} onClick={() => void select(null)}>Use API providers</button>
           <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().openAppSettings('keys')}>Manage API keys</button>
         </AccessRow>
-        <AccessRow icon={Terminal} title={providerTab === 'claude' ? 'Claude Code' : 'Codex'} description={modeTitle} status={<span role="status">{busy === 'load' ? 'Checking status…' : !status ? 'Status unavailable' : stale ? 'Status unverified' : runtime === 'bridge' ? status.connected ? 'Computer bridge connected' : 'Computer bridge offline' : serverReady ? 'Connected' : 'Login required'}</span>}>
+        <AccessRow icon={Terminal} title={providerTab === 'claude' ? 'Claude Code' : 'Codex'} description={modeTitle} status={<span role="status">{busy === 'load' || status?.statusChecking && !serverReady ? 'Checking status…' : !status || status.statusUnavailable || stale || health?.error ? 'Status unavailable' : runtime === 'bridge' ? status.connected ? 'Computer bridge connected' : 'Computer bridge offline' : serverReady ? 'Connected' : 'Not connected'}</span>}>
           {serverReady && selected !== providerTab && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={disabled} onClick={() => void select(providerTab)}>Use {providerTab === 'claude' ? 'Claude' : 'ChatGPT'}</button>}
         </AccessRow>
         <AccessRow icon={RefreshCw} title="Authorization status" description="Refresh after signing in or reconnecting.">
-          <button type="button" className="cfg-btn cfg-btn--secondary" disabled={authLocked || !!busy || loginRunning} onClick={() => void refresh()}>{busy === 'refresh' ? 'Refreshing…' : 'Refresh status'}</button>
+          <button type="button" className="cfg-btn cfg-btn--secondary" disabled={authLocked || !!busy || loginRunning} onClick={() => void refresh()}>{busy === 'refresh' ? 'Refreshing…' : status?.statusUnavailable || stale || health?.error ? 'Retry' : 'Refresh status'}</button>
         </AccessRow>
         <AccessRow icon={ExternalLink} title="Provider instructions" description="Review eligibility and official authentication steps.">
           <a className="cfg-btn cfg-btn--secondary" href={provider.docs} target="_blank" rel="noreferrer">Official auth docs</a>
@@ -401,7 +401,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
         {verifyingResume && <p role="status">Verifying your sign-in…</p>}
         {notice && !recovery && <p className="subscription-settings__notice" role="status">{notice}</p>}
         {status?.serverLoginAvailable === false && <p>Server login is currently unavailable. Try Login for the server’s instructions, or use the computer bridge under Advanced.</p>}
-        {health?.error && <div className="cfg-error">{health.error}</div>}
+        {health?.error && <div className="cfg-error">Status unavailable. Retry.</div>}
       </section>
 
       <details className="subscription-settings__advanced">
@@ -422,7 +422,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
               {busy === 'pair' ? 'Generating…' : 'Generate connect command'}
             </button>
             <button type="button" className="cfg-btn cfg-btn--secondary" disabled={authLocked || !!busy || loginRunning} onClick={() => void refresh()}>
-              <RefreshCw size={14} aria-hidden />{busy === 'refresh' ? 'Refreshing…' : 'Refresh status'}
+              <RefreshCw size={14} aria-hidden />{busy === 'refresh' ? 'Refreshing…' : status?.statusUnavailable || stale || health?.error ? 'Retry' : 'Refresh status'}
             </button>
           </div>
           {command && (

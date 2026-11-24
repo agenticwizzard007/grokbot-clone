@@ -155,7 +155,7 @@ function executable(provider, options) {
   return path === undefined ? provider : isAbsolute(path) ? path : resolve(path);
 }
 
-async function providerStatus(provider, options, cwd, signal, timeoutMs = AUTH_TIMEOUT_MS) {
+async function providerStatus(provider, options, cwd, signal, timeoutMs = AUTH_TIMEOUT_MS, strictStatus = false) {
   const result = { installed: true, authenticated: false, subscription: false };
   try {
     const args = provider === 'codex' ? ['login', 'status'] : ['auth', 'status', '--json'];
@@ -165,12 +165,15 @@ async function providerStatus(provider, options, cwd, signal, timeoutMs = AUTH_T
     if (provider === 'codex') {
       const text = `${output.stdout}\n${output.stderr}`.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
       const chatgpt = /(?:^|\n)\s*Logged in using ChatGPT[ \t]*(?:\r?\n|$)/i.test(text);
+      if (strictStatus && !/Logged in using|Not logged in/i.test(text)) throw new RunnerError('Status unavailable. Retry.');
+      if (strictStatus && /Logged in using/i.test(text) && output.code !== 0) throw new RunnerError('Status unavailable. Retry.');
       const api = /(?:API[ -]?key|access token)/i.test(text);
       result.authenticated = output.code === 0 && (chatgpt || /Logged in using/i.test(text));
       result.subscription = output.code === 0 && chatgpt && !api;
     } else {
       let status;
       try { status = JSON.parse(output.stdout); } catch {}
+      if (strictStatus && (typeof status?.loggedIn !== 'boolean' || status.loggedIn && output.code !== 0)) throw new RunnerError('Status unavailable. Retry.');
       result.authenticated = output.code === 0 && status?.loggedIn === true;
       // authMethod alone cannot rule out Console OAuth on every CLI version.
       // Require explicit plan evidence before allowing subscription generation.
@@ -179,7 +182,7 @@ async function providerStatus(provider, options, cwd, signal, timeoutMs = AUTH_T
     }
     // A missing login is the common case after a server profile is created; only a
     // present-but-unrecognized login indicates the wrong account or an outdated CLI.
-    if (!result.subscription) result.error = result.authenticated ? SUBSCRIPTION_REQUIRED[provider]
+    if (!result.subscription && (!strictStatus || result.authenticated)) result.error = result.authenticated ? SUBSCRIPTION_REQUIRED[provider]
       : `${LABEL[provider]} is not signed in here yet. Use Login to sign in with your ${provider === 'claude' ? 'Claude' : 'ChatGPT'} subscription account.`;
   } catch (error) {
     aborted(signal);
@@ -194,7 +197,9 @@ export async function checkProviders(options = {}) {
   return Object.fromEntries(await Promise.all(['codex', 'claude'].map(async (provider) => {
     aborted(options.signal);
     const cwd = await mkdtemp(join(tmpdir(), 'swarm-cli-status-'));
-    try { return [provider, await providerStatus(provider, options, cwd, options.signal, 2500)]; }
+    try {
+      return [provider, await providerStatus(provider, options, cwd, options.signal, 12_000, true)];
+    }
     finally { await rm(cwd, { recursive: true, force: true }); }
   })));
 }

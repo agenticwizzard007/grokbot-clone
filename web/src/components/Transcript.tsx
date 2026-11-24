@@ -20,6 +20,8 @@ import { groupExchanges, type ExchangeGroup } from '../lib/agentExchanges';
 import { useAgentExchanges } from '../lib/useAgentExchanges';
 import { FlockMark } from './FlockMark';
 import { CompletedReplyAnnouncer } from './CompletedReplyAnnouncer';
+import { Copy } from 'lucide-react';
+import { toast } from '../lib/toast';
 
 type Item =
   | { kind: 'exchange'; key: string; group: ExchangeGroup }
@@ -92,6 +94,10 @@ const Bubble = memo(function Bubble({ row, side, pos, botName }: { row: Row; sid
           </div>
         )}
       </div>
+      {!b.streaming && <button type="button" className="bubble__copy" aria-label="Copy message" title="Copy message" onClick={async () => {
+        try { await navigator.clipboard.writeText(side === 'right' ? b.text : clean(b.text)); toast('Copied'); }
+        catch { toast('Could not copy. Select the text and copy it.', { tone: 'error' }); }
+      }}><Copy size={16} aria-hidden /></button>}
       <span className="bubble__time">{clock(row.createdAt)}</span>
     </div>
   );

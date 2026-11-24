@@ -38,6 +38,7 @@ export function startEvents(): () => void {
     if (stopped || sessionExpired()) return;
     const source = new EventSource('/api/events', { withCredentials: true });
     let openedAt = Date.now();
+    let reconnecting = false;
     es = source;
     source.onopen = () => {
       if (stopped || sessionExpired() || es !== source) return;
@@ -59,7 +60,8 @@ export function startEvents(): () => void {
       } catch (e) { console.warn('bad event', e); }
     };
     source.onerror = async () => {
-      if (stopped || sessionExpired() || es !== source) return;
+      if (stopped || sessionExpired() || es !== source || reconnecting) return;
+      reconnecting = true;
       needsResync = true;
       useStore.getState().set({ sseConnected: false });
       source.close();

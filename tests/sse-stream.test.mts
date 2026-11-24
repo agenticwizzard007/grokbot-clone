@@ -62,8 +62,10 @@ function frames() {
       buffer += chunk.toString();
       for (let end; (end = buffer.indexOf('\n\n')) >= 0;) {
         const frame = buffer.slice(0, end); buffer = buffer.slice(end + 2);
-        assert.match(frame, /^data: /);
-        const event = JSON.parse(frame.slice(6));
+        const data = frame.split('\n').find(line => line.startsWith('data: '));
+        assert.ok(data);
+        const event = JSON.parse(data.slice(6));
+        if (event.type === 'ping') assert.ok(frame.startsWith(': ping\n'), 'heartbeat includes a proxy comment');
         const waiter = pending.shift();
         if (waiter) waiter.resolve(event); else events.push(event);
       }

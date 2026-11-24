@@ -205,7 +205,11 @@ api.get('/events', (c) => {
           });
           wake = null;
           if (stream.aborted) break;
-          if (!queue.length) { await write(JSON.stringify({ type: 'ping' })); continue; }
+          if (!queue.length) {
+            // Comments keep intermediaries alive; data pings also feed the browser watchdog.
+            await stream.write(': ping\ndata: {"type":"ping"}\n\n');
+            continue;
+          }
         }
         while (queue.length && !stream.aborted) await write(queue.shift()!);
       }

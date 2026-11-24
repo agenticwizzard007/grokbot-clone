@@ -101,7 +101,7 @@ export async function refreshCli(userId: string, signal?: AbortSignal) {
   if (cliRuntime(userId) === 'server') { await refreshHosted(userId, signal); return cliStatus(userId); }
   const c = connections.get(userId);
   if (!c) return cliStatus(userId);
-  const result = await cliRequest(userId, 'status', {}, 3000, signal);
+  const result = await cliRequest(userId, 'status', {}, 14_000, signal);
   const providers = missing();
   for (const p of ['codex', 'claude'] as const) {
     const s = result?.[p];

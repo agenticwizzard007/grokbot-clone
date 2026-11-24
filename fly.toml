@@ -46,6 +46,14 @@ primary_region = "iad"
   auto_start_machines = true
   min_machines_running = 1
 
+  [http_service.http_options]
+    # The Node adapter serves HTTP/1; Fly terminates browser HTTP/2 at the edge.
+    h2_backend = false
+    idle_timeout = 600
+
+  [http_service.concurrency]
+    type = "requests"
+
   [[http_service.checks]]
     grace_period = "20s"
     interval = "30s"

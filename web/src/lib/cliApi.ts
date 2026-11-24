@@ -18,6 +18,7 @@ export interface CliStatus {
   device: string | null;
   providers: Record<CliProvider, CliProviderStatus>;
   statusUnavailable?: boolean;
+  statusChecking?: boolean;
 }
 
 let cachedStatus: CliStatus | null = null;
