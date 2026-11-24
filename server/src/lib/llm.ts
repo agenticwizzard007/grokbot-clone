@@ -1,3 +1,4 @@
+import { boundedResponseCreate } from './model-request-policy.js';
 import { normalizeModelEfforts } from './model-efforts.js';
 import { catalogModelId, cliModelCatalog } from '../cli/catalog.js';
 import { isTenant, assertTenant } from '../deployment.js';
@@ -45,10 +46,17 @@ export function llmClient(timeout: number, options: { subscriptionTimeoutMs?: nu
         apiKey,
         baseURL,
         timeout,
+        maxRetries: 0, // Explicit policy below owns retries, including quota errors.
         // OpenRouter app attribution (optional headers).
         defaultHeaders: p === 'openrouter' ? { 'HTTP-Referer': env.appUrl, 'X-Title': 'Swarm' } : undefined,
       }),
     };
+    // All API providers use Responses, including OpenRouter's Anthropic/Gemini adapters.
+    // Install the policy once so chat, tool loops, memory and voice text calls share it.
+    c.client.responses.create = boundedResponseCreate(
+      c.client.responses.create.bind(c.client.responses),
+      (model, signal) => modelInfo(model, false, signal), p, baseURL,
+    ) as typeof c.client.responses.create;
     // Bound retained clients/credentials in servers with many users.
     if (clients.size >= 200) clients.delete(clients.keys().next().value!);
     clients.set(slot, c);
@@ -183,6 +191,8 @@ export interface ModelInfo {
   vision: boolean;
   reasoning: boolean;
   context: number;
+  /** Provider maximum completion length, when advertised. */
+  maxOutputTokens?: number;
   /** USD per million tokens. */
   price: { input: number; output: number } | null;
 }
@@ -228,6 +238,7 @@ async function fetchModels(): Promise<ModelInfo[]> {
       vision: (m.architecture?.input_modalities ?? []).includes('image'),
       reasoning: (m.supported_parameters ?? []).includes('reasoning'),
       context: m.context_length ?? 0,
+      maxOutputTokens: Number(m.top_provider?.max_completion_tokens ?? m.max_completion_tokens) || undefined,
       price: { input: Number(m.pricing?.prompt ?? 0) * 1e6, output: Number(m.pricing?.completion ?? 0) * 1e6 },
     }))
     .map(normalizeModelEfforts)

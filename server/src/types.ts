@@ -214,6 +214,7 @@ export interface NoticeBody {
   /** Terminal runs must not retain an empty pending reply. Retry starts a fresh user request. */
   terminal?: boolean;
   retry?: { text: string };
+  credits?: { provider: string; billingUrl?: string; details: string };
   /** A durable snapshot keeps the affected activity available after transcript paging. */
   recovery?: { jobId: string; activity: Pick<ToolCallBody, 'label' | 'status' | 'summary'>[] };
 }

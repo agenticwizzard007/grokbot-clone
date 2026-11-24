@@ -1,3 +1,4 @@
+import { ApiCreditsError, isCreditError } from '../lib/model-request-policy.js';
 import { abortable, currentRun, withRun, type RunScope } from './run-scope.js';
 import { connectedDate, connectionStatusLabel, fallbackAccountLabel } from '../connection-details.js';
 import { TurnInterruption, interruptionMessage, type InterruptionSource } from './interruption.js';
@@ -597,8 +598,11 @@ async function runScopedTurn(botId: string, trigger: Trigger, jobId: string, ctr
       }
     }
     const userStopped = ctrl.signal.aborted && ctrl.signal.reason instanceof TurnInterruption && ctrl.signal.reason.source === 'user';
-    const msg = ctrl.signal.aborted ? interruptionMessage(ctrl.signal) : `Something went wrong: ${e?.message ?? e}`;
-    if (getBotRow(botId)?.generation === bot.generation) appendRow(botId, 'notice', { type: 'notice', text: msg, tone: userStopped ? 'info' : 'error', terminal: true,
+    const credits = !ctrl.signal.aborted && isCreditError(e)
+      ? (e instanceof ApiCreditsError ? e : new ApiCreditsError(e, llmProvider(), llmProvider() === 'openrouter' ? env.openrouterBaseUrl : env.directBaseUrl)).credits
+      : undefined;
+    const msg = ctrl.signal.aborted ? interruptionMessage(ctrl.signal) : credits ? 'Out of API credits' : `Something went wrong: ${e?.message ?? e}`;
+    if (getBotRow(botId)?.generation === bot.generation) appendRow(botId, 'notice', { type: 'notice', text: msg, tone: userStopped ? 'info' : 'error', terminal: true, ...(credits ? { credits } : {}),
       ...(!userStopped && trigger.type === 'user' ? { retry: { text: trigger.text } } : {}), ...audience });
     if (ctrl.signal.aborted) console.warn('[agent] turn interrupted', { botId, jobId, source: ctrl.signal.reason instanceof TurnInterruption ? ctrl.signal.reason.source : 'unknown' });
     else console.error('[agent] turn failed', botId);
@@ -924,7 +928,7 @@ async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: Abo
   setLive(botId, { activity: { kind: 'thinking', detail: 'Preparing model context', since: now() } });
   // Runs inside the bot's serial queue, so compaction can't race a turn.
   const [history, prompt, info, allTools] = await Promise.all([
-    maybeCompact(botId, loadHistory(botId), { beforeModel: checkModelBudget, signal }).catch(() => loadHistory(botId)),
+    maybeCompact(botId, loadHistory(botId), { beforeModel: checkModelBudget, signal }).catch(error => { if (isCreditError(error)) throw error; return loadHistory(botId); }),
     systemPrompt(userId, botId, ctx.jobId),
     modelInfo(model, bot.model === model, signal),
     ctx.availableTools?.() ?? toolsPromise,

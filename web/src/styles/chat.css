@@ -148,6 +148,9 @@
 }
 .notice.is-warn { background: var(--color-warn-bg); color: var(--color-warn-text); }
 .notice.is-error { background: var(--color-danger-bg); color: var(--color-danger-text); }
+.credit-notice p { margin: 6px 0; white-space: pre-wrap; }
+.credit-notice a { color: inherit; text-decoration: underline; }
+.credit-notice + .btn { margin-top: 8px; }
 .recovery-activity { margin-top: 8px; text-align: left; }
 .recovery-activity summary { cursor: pointer; font-weight: 600; }
 .recovery-activity ul { padding-left: 20px; }
