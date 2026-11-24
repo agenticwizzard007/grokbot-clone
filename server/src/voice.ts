@@ -1,5 +1,6 @@
 // Realtime voice is a native team coordinator: it reads app state, manages agents, and dispatches
 // work to their existing text loops. Call-scoped updates bring team inputs and outputs back to voice.
+import { VoiceRegistry, type ActiveCall, type VoiceToolOutput, type TranscriptLine, type TeamUpdate } from './voice-registry.js';
 import { Hono } from 'hono';
 import { usesPersonalOpenRouter } from './providers/openrouter.js';
 import { selectedCli } from './cli/store.js';
@@ -258,22 +259,7 @@ ${recent || '(no messages yet)'}`;
 
 // ---------- calls ----------
 
-interface TeamUpdate { id: number; botId: string; botName: string; kind: 'message' | 'input' | 'waiting' | 'status'; text: string }
-interface CallTask { id: string; botId: string; botName: string; request: string }
-interface ActiveCall {
-  id: string; botId: string; generation: number; userId: string; startedAt: number; startSeq: number; tasks: string[]; provider: string; model: string;
-  cursor: number; updates: TeamUpdate[]; seenRows: Map<string, string>; jobs: CallTask[];
-  jobStates: Map<string, string>;
-  toolCalls: Map<string, { signature: string; result: Promise<VoiceToolOutput> }>;
-  transcript: TranscriptLine[];
-  transcriptRevision: number;
-  sharedTranscripts: Map<string, TranscriptLine[]>;
-  connectionBaseline: Map<string, { generation: number; seq: number }>;
-  connectionsCheckedAt?: number;
-}
-interface TranscriptLine { id?: string; role: 'user' | 'assistant'; text: string }
-interface VoiceToolOutput { output: string; taskSeq?: number; taskBotId?: string; taskId?: string }
-const calls = new Map<string, ActiveCall>();
+const calls = new VoiceRegistry();
 
 const transcriptSchema = z.array(z.object({ id: z.string().min(1).max(200).optional(), role: z.enum(['user', 'assistant']), text: z.string().trim().min(1).max(2000) })).max(200);
 
@@ -359,6 +345,7 @@ onRowChange((userId, row) => {
     call.seenRows.set(key, bounded);
     if (call.seenRows.size > 1000) call.seenRows.delete(call.seenRows.keys().next().value!);
     pushUpdate(call, { botId: row.botId, botName: getBotRow(row.botId)?.name ?? 'Agent', kind, text: bounded });
+    calls.save(call);
     if (row.botId !== call.botId && call.jobs.some(task => task.botId === row.botId)) {
       rememberCoordination(call, call.botId, `Update from ${getBotRow(row.botId)?.name ?? 'Agent'} (${row.botId}). This may be progress or unrelated work; check the assignment status before concluding it succeeded.\n${bounded}`);
     }
@@ -371,6 +358,8 @@ voiceApi.post('/updates', async (c) => {
   const { botId, callId, after } = parsed.data;
   const call = calls.get(callId);
   if (!call || call.userId !== c.get('user').id || call.botId !== botId || ownBot(call.userId, botId)?.generation !== call.generation) return c.json({ error: 'Call not found.' }, 404);
+  call.lastActiveAt = now();
+  calls.save(call);
   // Only exact bound attempts can be reconciled. Legacy cards must not be guessed
   // from a service name. A provider failure leaves every card untouched.
   if (call.connectionsCheckedAt === undefined || now() - call.connectionsCheckedAt >= 15_000) {
@@ -412,6 +401,7 @@ voiceApi.post('/updates', async (c) => {
     return true;
   }).map(row => ({ botId: row.botId, seq: row.seq, toolkit: row.body.toolkit, toolkitName: row.body.toolkitName }));
   const approvals = actions.filter(row => row.body.card === 'approval');
+  calls.save(call);
   return c.json({ cursor: updates.at(-1)?.id ?? call.cursor, updates, tasks, connectionRequests, approvals });
 });
 
@@ -474,7 +464,7 @@ voiceApi.post('/session', async (c) => {
   const startRow = appendRow(bot.id, 'event', callEvent(`Voice call with ${bot.name} started`, { id: callId, phase: 'started' }));
   const connectionBaseline = new Map((db.prepare('SELECT id,generation,next_seq FROM bots WHERE user_id=?').all(user.id) as { id: string; generation: number; next_seq: number }[])
     .map(b => [b.id, { generation: b.generation, seq: b.next_seq - 1 }]));
-  calls.set(callId, { id: callId, botId: bot.id, generation: bot.generation, userId: user.id, startedAt: now(), startSeq: startRow.seq, tasks: [], provider: provider.provider, model: provider.model,
+  calls.set(callId, { id: callId, botId: bot.id, generation: bot.generation, userId: user.id, startedAt: now(), lastActiveAt: now(), startSeq: startRow.seq, tasks: [], provider: provider.provider, model: provider.model,
     cursor: 0, updates: [], seenRows: new Map(), jobs: [], jobStates: new Map(), toolCalls: new Map(), transcript: [], transcriptRevision: 0, sharedTranscripts: new Map(), connectionBaseline });
   emitBot(bot.id);
 
@@ -521,9 +511,14 @@ voiceApi.post('/tool', async (c) => {
     return c.json({ error: message }, /held|migrat|changed|not found/i.test(message) ? 409 : 422);
   }
   shareTranscript(call, botId);
-  const result = withUsage({ userId, botId }, () => runVoiceTool(call, bot, name, args)).catch((e: unknown) => ({ output: e instanceof z.ZodError ? 'Invalid tool arguments. Check the tool schema and try again.' : 'The native action could not be completed. Read the current agent state before retrying. Never automatically repeat an uncertain external write.' }));
+  const result = Promise.resolve().then(() => withUsage({ userId, botId }, () => runVoiceTool(call, bot, name, args))).catch((e: unknown) => ({ output: e instanceof z.ZodError ? 'Invalid tool arguments. Check the tool schema and try again.' : 'The native action could not be completed. Read the current agent state before retrying. Never automatically repeat an uncertain external write.' }));
   if (toolCallId) call.toolCalls.set(toolCallId, { signature, result });
-  return c.json(await result);
+  call.lastActiveAt = now();
+  calls.save(call); // Record tool identity before dispatch, even if the process dies mid-action.
+  const output = await result;
+  if (toolCallId) call.toolCalls.get(toolCallId)!.output = output;
+  calls.save(call);
+  return c.json(output);
 });
 
 async function runVoiceTool(call: ActiveCall, bot: any, name: string, a: Record<string, any>): Promise<VoiceToolOutput> {
@@ -681,10 +676,9 @@ voiceApi.post('/end', async (c) => {
   return c.json({ ok: true, seq: row.seq });
 });
 
-// Calls whose tab vanished without /end: close them after 2h so the map can't grow forever.
+// Expire abandoned calls after 2h without polling or tools, never by call duration.
 setInterval(() => {
-  for (const call of calls.values()) {
-    if (now() - call.startedAt < 2 * 3600_000) continue;
+  for (const call of calls.expired(now())) {
     calls.delete(call.id);
     if (ownBot(call.userId, call.botId)?.generation === call.generation) appendRow(call.botId, 'event', callEvent('Voice call ended', { id: call.id, phase: 'ended', tasks: call.tasks }));
   }

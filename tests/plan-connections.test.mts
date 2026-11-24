@@ -16,9 +16,23 @@ test('plan status distinguishes unprobed, offline, missing, authenticated and se
   assert.equal(planConnectionStatus(status, 'claude', 'max'), 'Connected as max');
   assert.equal(planConnectionStatus(status, 'claude'), 'Connected');
   status.providers.claude.error = 'CLI unavailable';
-  assert.equal(planConnectionStatus(status, 'claude', 'max'), 'Not connected');
+  assert.equal(planConnectionStatus(status, 'claude', 'max'), 'Status unavailable');
+  status.providers.claude.subscription = false;
+  assert.equal(planConnectionStatus(status, 'claude'), 'Not connected', 'an ineligible login needs connection guidance, not a failed-probe retry');
+  status.providers.claude.subscription = true;
   delete status.providers.claude.error;
   status.selected = null;
   assert.equal(planConnectionStatus(status, 'claude', 'max'), 'Not connected');
   assert.equal(status.providers.claude.authenticated, true, 'disconnect is a backend selection, not credential deletion');
+});
+
+
+test('pending probes show Checking and signed-out probes show Not connected', () => {
+  const status: CliStatus = { runtime: 'server', serverLoginAvailable: true, selected: null, connected: true, device: null,
+    providers: { claude: { installed: true, authenticated: false, subscription: false }, codex: { installed: true, authenticated: false, subscription: false } } };
+  for (const provider of ['claude', 'codex'] as const) {
+    assert.equal(planConnectionStatus({ ...status, statusChecking: true }, provider), 'Checking status…');
+    assert.equal(planConnectionStatus(status, provider), 'Not connected');
+    assert.equal(planConnectionStatus({ ...status, statusUnavailable: true }, provider), 'Status unavailable');
+  }
 });

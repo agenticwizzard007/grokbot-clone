@@ -262,3 +262,21 @@ test('streams reset just after hello still back off and a healthy heartbeat rest
     await settle();
   } finally { stop(); }
 });
+
+test('duplicate stream errors schedule one quiet reconnect while session validation is pending', async t => {
+  setup(t);
+  let resolve!: (response: Response) => void;
+  t.mock.method(globalThis, 'fetch', async () => new Promise<Response>(r => { resolve = r; }));
+  const warn = t.mock.method(console, 'warn', () => {}), error = t.mock.method(console, 'error', () => {});
+  const stop = startEvents();
+  try {
+    const source = sources[0]; source.onopen();
+    const first = source.onerror(), second = source.onerror();
+    resolve(Response.json({ user })); await Promise.all([first, second]);
+    t.mock.timers.tick(1000);
+    assert.equal(sources.length, 2);
+    t.mock.timers.tick(1000);
+    assert.equal(sources.length, 2);
+    assert.equal(warn.mock.callCount(), 0); assert.equal(error.mock.callCount(), 0);
+  } finally { stop(); }
+});

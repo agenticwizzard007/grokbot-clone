@@ -75,6 +75,13 @@
 
 .bubble-wrap { position: relative; display: flex; align-items: flex-end; gap: 8px; max-width: 100%; }
 .bubble-wrap.is-right { flex-direction: row-reverse; }
+.bubble__copy { flex: 0 0 44px; width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--color-text-secondary); cursor: pointer; }
+.bubble__copy:hover { background: var(--color-bg-active); }
+.bubble__copy:focus-visible { outline: 2px solid var(--color-text-secondary); outline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) {
+  .bubble__copy { opacity: 0; }
+  .bubble-wrap:hover .bubble__copy, .bubble-wrap:focus-within .bubble__copy { opacity: 1; }
+}
 .bubble__time {
   flex-shrink: 0; font-size: 12px; line-height: 16px; letter-spacing: 0.12px; color: var(--color-text-tertiary);
   padding-bottom: 9px; opacity: 0; transform: translateX(-4px); transition: opacity 160ms, transform 160ms var(--ease-out); white-space: nowrap; user-select: none;

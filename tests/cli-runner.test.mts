@@ -86,7 +86,9 @@ test('status recognizes only official auth and never exposes auth diagnostics', 
     const result = await checkProviders({ codexPath: '/missing/swarm-codex', claudePath: '/missing/swarm-claude', ...f.options });
     assert.equal(result[provider].installed, true);
     assert.equal(result[provider].subscription, expected, `${provider}: ${auth}`);
-    if (!expected) assert.match(result[provider].error, result[provider].authenticated ? (provider === 'claude' ? /Update the official Claude CLI and sign in with a subscription account/ : /official ChatGPT subscription login/) : /not signed in here yet/, `${provider}: ${auth}`);
+    if (!expected && result[provider].authenticated) assert.match(result[provider].error, provider === 'claude' ? /Update the official Claude CLI and sign in with a subscription account/ : /official ChatGPT subscription login/);
+    else if (provider === 'claude' && (String(auth).includes('invalid') || String(auth).includes('\"loggedIn\":\"true\"'))) assert.match(result[provider].error, /Status unavailable/);
+    else if (!expected) assert.equal(result[provider].error, undefined, 'a known signed-out state is not an error');
     assert.doesNotMatch(JSON.stringify(result), /auth-secret-sentinel|private@example/);
     assert.deepEqual((await f.audit())[0].files, [], 'auth runs in an empty temporary cwd');
   }

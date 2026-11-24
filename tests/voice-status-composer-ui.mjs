@@ -98,19 +98,19 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
         assert.equal(await page.locator('.composer__input').inputValue(), draft);
       }
     }
-    // Real CLI probes sleep forever; only production status deadlines stop them.
+    // Hung probes stay Checking while the bounded background check runs, then offer Retry.
     const startAt = performance.now(); await page.evaluate(() => window.settings());
     const plans = page.getByRole('region', { name: 'Plan connection', exact: true });
-    await plans.getByText('Not connected', { exact: true }).first().waitFor();
-    assert.equal(await plans.getByText('Not connected', { exact: true }).count(), 1);
-    const statusMs = performance.now() - startAt; assert.ok(statusMs < 3400, `${width}: status resolved in ${statusMs}ms`);
+    await plans.getByText('Status unavailable', { exact: true }).first().waitFor({ timeout: 20000 });
+    assert.equal(await plans.getByText('Status unavailable', { exact: true }).count(), 1);
+    const statusMs = performance.now() - startAt; assert.ok(statusMs < 18000, `${width}: status resolved in ${statusMs}ms`);
     assert.equal(await plans.getByText('Checking status…', { exact: true }).count(), 0);
     await page.getByRole('tab', {name:'Codex',exact:true}).click();
-    await plans.getByText('Not connected', { exact: true }).waitFor();
+    await plans.getByText('Status unavailable', { exact: true }).waitFor();
     await page.screenshot({ path: path.join(evidence, `status-${width}.png`) });
     await page.evaluate(() => window.closeSettings());
     const cachedAt = performance.now(); await page.evaluate(() => window.settings());
-    await plans.getByText('Not connected', { exact: true }).first().waitFor();
+    await plans.getByText('Status unavailable', { exact: true }).first().waitFor({ timeout: 20000 });
     assert.ok(performance.now() - cachedAt < 500, 'cached client status is immediate');
     await page.evaluate(() => window.closeSettings());
     holdModels = false;

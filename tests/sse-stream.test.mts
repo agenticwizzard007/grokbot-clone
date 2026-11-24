@@ -62,8 +62,10 @@ function frames() {
       buffer += chunk.toString();
       for (let end; (end = buffer.indexOf('\n\n')) >= 0;) {
         const frame = buffer.slice(0, end); buffer = buffer.slice(end + 2);
-        assert.match(frame, /^data: /);
-        const event = JSON.parse(frame.slice(6));
+        const data = frame.split('\n').find(line => line.startsWith('data: '));
+        assert.ok(data);
+        const event = JSON.parse(data.slice(6));
+        if (event.type === 'ping') assert.ok(frame.startsWith(': ping\n'), 'heartbeat includes a proxy comment');
         const waiter = pending.shift();
         if (waiter) waiter.resolve(event); else events.push(event);
       }
@@ -116,6 +118,7 @@ for (const protocol of ['http1', 'http2'] as const) {
       assert.equal(response['content-type'], 'text/event-stream; charset=utf-8');
       assert.equal(response['content-length'], undefined);
       if (client) for (const header of ['connection', 'transfer-encoding', 'keep-alive']) assert.equal(response[header], undefined);
+      else assert.equal(response.connection, 'keep-alive', 'HTTP/1 adapter supplies valid connection framing');
       assert.equal((await received.next()).type, 'hello');
       assert.ok(Date.now() - started < 1500, 'headers and greeting arrive immediately');
       // Keep the event stream open while another authenticated request shares the connection.
