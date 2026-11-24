@@ -101,7 +101,8 @@ function Shell() {
     st.loadBots().catch(console.error);
     st.loadComputer().catch(console.error);
     const stop = startEvents();
-    const preload = setTimeout(() => { void preloadTasks().catch(() => {}); }, 1200);
+    // Keep speculative Tasks assets out of the initial chat's network budget.
+    const preload = setTimeout(() => { void preloadTasks().catch(() => {}); }, 5000);
     // OAuth popups post back here; refresh connection-dependent views and the open transcript.
     const onMsg = (e: MessageEvent) => {
       if ((e.data as { type?: string })?.type !== 'swarm-connected') return;
