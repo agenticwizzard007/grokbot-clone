@@ -169,3 +169,13 @@ test('bare settings deep link opens General on fresh load and existing section l
   }
   location.hash = '#settings/unknown'; assert.equal(hasSettingsLink(), false);
 });
+
+test('account cleanup clears Details directly without navigating through private history', () => {
+  useStore.getState().selectBot('settings-bot');
+  useStore.getState().set({ detailsOpen: true });
+  const pushes = history.pushes;
+  useStore.getState().set({ user: null, selectedBotId: null, detailsOpen: false, modal: null });
+  assert.equal(useStore.getState().detailsOpen, false);
+  assert.equal(useStore.getState().modal, null);
+  assert.equal(history.pushes, pushes);
+});

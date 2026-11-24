@@ -433,7 +433,7 @@ export const useStore = create<State>((set, get) => ({
 
   set(p) {
     if (p.sidebarCollapsed !== undefined) lsSet(LS_SIDEBAR, p.sidebarCollapsed ? '1' : '0');
-    if (p.detailsOpen !== undefined && p.detailsOpen !== get().detailsOpen && navigationActions.details) {
+    if (!Object.hasOwn(p, 'user') && p.detailsOpen !== undefined && p.detailsOpen !== get().detailsOpen && navigationActions.details) {
       const { detailsOpen, ...rest } = p;
       set(rest); navigationActions.details(detailsOpen); return;
     }

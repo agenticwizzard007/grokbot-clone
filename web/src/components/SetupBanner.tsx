@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { Bot } from '@shared/types';
 import { api } from '../lib/api';
-import { queueImportedSetup } from '../lib/setupApi';
+import { openConversation, useConfigUI } from '../configStore';
 import { toast } from '../lib/toast';
 import { useStore } from '../store';
 import { isInSetup } from '../lib/botSetupState';
@@ -15,14 +15,8 @@ export function needsSetupBanner(bot: SetupAware): boolean {
 
 /** Open Details on the Setup tab, even if Details is already open on another tab. */
 export function openSetupDetails(botId: string) {
-  const state = useStore.getState();
-  const reopen = () => {
-    const current = useStore.getState();
-    if (current.user?.id) queueImportedSetup(current.user.id, botId);
-    current.set({ detailsOpen: true });
-  };
-  if (state.detailsOpen) { state.set({ detailsOpen: false }); requestAnimationFrame(reopen); }
-  else reopen();
+  if (useStore.getState().selectedBotId !== botId) openConversation(botId);
+  useConfigUI.getState().setDetailsTab('configuration');
 }
 
 export function SetupBanner({ bot }: { bot: Bot }) {

@@ -319,7 +319,7 @@ navigationActions.details = open => {
   const st = useStore.getState();
   if (!st.selectedBotId) return;
   const bot = botReference(st.selectedBotId);
-  if (open) navigation.navigate({ kind: 'details', bot, tab: useConfigUI.getState().detailsTab });
+  if (open) navigation.navigate({ kind: 'details', bot, tab: 'activity' });
   else navigation.back({ kind: 'chat', bot }, screen => screen.kind === 'chat' && screen.bot === bot);
 };
 navigationActions.list = () => navigation.back({ kind: 'bots' }, screen => screen.kind === 'bots');
