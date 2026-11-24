@@ -12,7 +12,7 @@ import { LearningSettingsPanel } from './LearningSettings';
 import { configApi, type BotPatch, type BotSettingsBundle, type KnowledgeSkill, type KnowledgeMemory } from '../../lib/configApi';
 import { SkillHistory, SkillReview, MemoryEvidence, ConversationSearch, MemoryArchive } from './KnowledgePanels';
 import { RoutineHistory } from './RoutineHistory';
-import { openConversation, returnLabel, useBotSettingsDraft, useConfigUI, usePageTitle, useVersion, type BotSettingsTab } from '../../configStore';
+import { openConversation, useReturnLabel, useBotSettingsDraft, useConfigUI, usePageTitle, useVersion, type BotSettingsTab } from '../../configStore';
 import { useStore } from '../../store';
 import { Icon } from '../Icon';
 import { SetupPaperHeader } from '../SetupPaperHeader';
@@ -42,6 +42,7 @@ const draftTabs = (labels: string[]) => {
 };
 
 function BotSettingsPage({ bot, tab, inline, userId }: { bot: Bot; tab: BotSettingsTab; inline: boolean; userId?: string }) {
+  const backTitle = useReturnLabel();
   const covered = useStore(state => state.modal === 'create' || state.modal === 'group');
   const routines = useStore(state => state.routines[bot.id]);
   const memVersion = useVersion(`memories:${bot.id}`);
@@ -121,7 +122,7 @@ function BotSettingsPage({ bot, tab, inline, userId }: { bot: Bot; tab: BotSetti
     memories: 'Review preferences and facts, including where they came from.', routines: 'Schedules and run history for this Bot.', learning: 'Review learning activity, settings, and protected maintenance.',
   };
   const content = <>
-      <SetupPaperHeader backLabel={sourcesOpen ? 'Back to memories' : returnLabel()} title={label} onBack={sourcesOpen ? () => setShowSources(false) : onClose} onClose={onClose} />
+      <SetupPaperHeader backLabel={sourcesOpen ? 'Back to memories' : backTitle} title={label} onBack={sourcesOpen ? () => setShowSources(false) : onClose} onClose={onClose} />
       <div className="setup-paper__column bot-settings-page__column" style={botVars(bot.avatarColor)}>
         <h1>{sourcesOpen ? 'Conversation sources' : bot.name}</h1>
         {leaving && <div className="cfg-guard" role="alertdialog" aria-label="Discard unsaved changes?">

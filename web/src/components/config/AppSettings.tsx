@@ -13,7 +13,7 @@ import { ModelPicker, refreshModels } from './ModelPicker';
 import { LearningSettingsPanel } from './LearningSettings';
 import { UsageSection } from './UsageSection';
 import { relativeShort } from '../../lib/time';
-import { openConversation, returnLabel, useConfigUI, usePageTitle, useVersion, type AppSection, type Theme } from '../../configStore';
+import { openConversation, useReturnLabel, useConfigUI, usePageTitle, useVersion, type AppSection, type Theme } from '../../configStore';
 import { useStore } from '../../store';
 import { computerStatusText } from './computerStatus';
 import { ConfirmButton, Segmented, Switch } from './ui';
@@ -75,7 +75,7 @@ export function AppSettings() {
   const close = useConfigUI((s) => s.closeAppSettings);
   const open = useConfigUI((s) => s.openAppSettings);
   const collapsed = useStore((s) => s.sidebarCollapsed);
-  const backTitle = returnLabel();
+  const backTitle = useReturnLabel();
   const showListRoute = () => useConfigUI.getState().showSettingsList();
   const compact = useCompactLayout();
   const [listView, setListView] = useState(home);

@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, Menu, RefreshCw } from 'lucide-react';
-import { backFromWork, returnLabel, useConfigUI, usePageTitle } from '../../configStore';
+import { backFromWork, useReturnLabel, useConfigUI, usePageTitle } from '../../configStore';
 import { botSlug, routeBot, type WorkTab } from '../../lib/userRoutes';
 import { backToList, useStore } from '../../store';
 import { RosterFeedback } from '../LoadFeedback';
@@ -20,6 +20,7 @@ export function TasksView() {
 }
 
 function WorkWorkspace() {
+  const backTitle = useReturnLabel();
   const bots = useStore((s) => s.bots);
   const botsLoaded = useStore((s) => s.botsLoaded);
   const rosterUnavailable = !botsLoaded && !bots.length;
@@ -71,7 +72,7 @@ function WorkWorkspace() {
     <main className="chat tasks-view" aria-labelledby="tasks-heading">
       <header className="tasks-view__header">
         {/* R2F-029: on wide screens the "Back to chat" text is part of the button, so clicking it works. */}
-        <button type="button" className={mobile ? 'icon-btn' : 'tasks-view__back'} onClick={backFromWork} aria-label={returnLabel()}><ChevronLeft size={20} aria-hidden />{!mobile && <span>{returnLabel()}</span>}</button>
+        <button type="button" className={mobile ? 'icon-btn' : 'tasks-view__back'} onClick={backFromWork} aria-label={backTitle}><ChevronLeft size={20} aria-hidden />{!mobile && <span>{backTitle}</span>}</button>
         {mobile && <span className="tasks-view__flock" aria-hidden />}
         {mobile && <span>{heading?.detail ? 'Saved reports' : title}</span>}
         {mobile && <button type="button" className="icon-btn" aria-label="Bot list" onClick={backToList}><Menu size={18} aria-hidden /></button>}

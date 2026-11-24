@@ -86,7 +86,29 @@ export function resolveScreen(screen: Screen, bots: { id: string; name: string }
   return screen;
 }
 
-export interface NavigationEntry { account: string; hash: string; trail: string[] }
+export function outsideSurface(screen: Screen, other: Screen) {
+  if (screen.kind === 'create' || screen.kind === 'group') return other.kind !== 'create' && other.kind !== 'group';
+  return other.kind !== screen.kind;
+}
+
+export function backLabel(screen: Screen): string {
+  const names: Record<Screen['kind'], string> = {
+    work: 'tasks', details: 'details', bots: 'Bots', create: 'create a Bot', group: 'group chat',
+    'bot-settings': 'Bot settings', settings: 'Settings', chat: 'chat', search: 'search', apps: 'apps',
+  };
+  return `Back to ${names[screen.kind]}`;
+}
+
+/** Shared by the visible label and the action, including safe parent fallbacks. */
+export function backTarget(trail: string[], fallback: Screen, matches: (screen: Screen) => boolean = () => true) {
+  for (let i = trail.length - 1; i >= 0; i--) {
+    const screen = parseScreen(trail[i]);
+    if (screen && matches(screen)) return { screen, delta: i - trail.length };
+  }
+  return { screen: fallback, delta: 0 };
+}
+
+export interface NavigationEntry { account: string; hash: string; trail: string[]; settingsParent?: boolean }
 interface Browser {
   location: Pick<Location, 'pathname' | 'search' | 'hash'>;
   history: Pick<History, 'state' | 'pushState' | 'replaceState' | 'go'>;
@@ -108,14 +130,18 @@ export class ScreenHistory {
     history[mode === 'push' ? 'pushState' : 'replaceState']({ ...history.state, swarmNavigation: entry }, '', location.pathname + location.search + entry.hash);
     this.current = entry;
   }
-  get trail(): string[] { return this.read()?.trail ?? []; }
+  get trail(): string[] {
+    const entry = this.read();
+    return entry?.hash === this.browser.location.hash ? entry.trail : [];
+  }
   get screen(): Screen | null { return parseScreen(this.browser.location.hash); }
   reset() { this.current = undefined; }
   initialize(fallback: Screen) {
     const screen = this.screen ?? fallback;
     const hash = screenHash(screen);
     const entry = this.read();
-    this.write({ account: this.account(), hash, trail: entry?.hash === this.browser.location.hash ? entry.trail : [] }, 'replace');
+    const persisted = entry?.hash === this.browser.location.hash ? entry : undefined;
+    this.write({ account: this.account(), hash, trail: persisted?.trail ?? [], ...(persisted?.settingsParent ? { settingsParent: true } : {}) }, 'replace');
     this.apply(screen);
   }
   navigate(screen: Screen, mode: 'push' | 'replace' = 'push') {
@@ -126,19 +152,21 @@ export class ScreenHistory {
         entry = { account: this.account(), hash: parseScreen(this.browser.location.hash) ? this.browser.location.hash : '#bots', trail: [] };
         this.write(entry, 'replace');
       }
-      if (hash !== entry.hash) this.write({ account: this.account(), hash, trail: mode === 'push' ? [...entry.trail, entry.hash] : entry.trail }, mode);
+      // A phone parent visit is a real navigation, so Back restores the section.
+      // Choosing the next section consumes that temporary list entry. The first
+      // list and every section remain walkable without accumulating list stops.
+      const settingsParent = screen.kind === 'settings' && !screen.section && parseScreen(entry.hash)?.kind === 'settings' && entry.hash !== '#settings';
+      const nextMode = entry.settingsParent && screen.kind === 'settings' && screen.section ? 'replace' : mode;
+      if (hash !== entry.hash) this.write({ account: this.account(), hash, trail: nextMode === 'push' ? [...entry.trail, entry.hash] : entry.trail, ...(settingsParent ? { settingsParent: true } : {}) }, nextMode);
       else this.current = entry;
       this.apply(screen);
     });
   }
   /** Close a whole surface (Settings, Create, details), retaining its Forward entries. */
   back(fallback: Screen, matches: (screen: Screen) => boolean = () => true) {
-    const trail = this.trail;
-    for (let i = trail.length - 1; i >= 0; i--) {
-      const screen = parseScreen(trail[i]);
-      if (screen && matches(screen)) { this.browser.history.go(i - trail.length); return; }
-    }
-    this.navigate(fallback, 'replace');
+    const target = backTarget(this.trail, fallback, matches);
+    if (target.delta) this.browser.history.go(target.delta);
+    else this.navigate(target.screen, 'replace');
   }
   restore = () => {
     if (this.undoing) { this.undoing = false; return; }
