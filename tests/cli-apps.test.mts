@@ -255,7 +255,7 @@ beforeEach(() => {
   mock.method(client.connectedAccounts, 'list', async (query: any) => {
     accountQueries.push(query);
     const id = query.userIds[0] === owner ? accountId() : 'foreign-account';
-    return { items: [{ id, toolkit: { slug: 'github' }, status: 'ACTIVE', data: { access_token: 'account-private-secret' } }], nextCursor: null };
+    return { items: [{ id, toolkit: { slug: 'github' }, status: 'ACTIVE', data: { login: 'fixture-github-user', access_token: 'account-private-secret' } }], nextCursor: null };
   });
   mock.method(client.connectedAccounts, 'get', async (id: string) => ({ id, toolkit: { slug: 'github' }, status: 'ACTIVE' }));
   mock.method(client.tools, 'getRawComposioTools', async () => [tool]);

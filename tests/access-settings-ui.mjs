@@ -235,7 +235,7 @@ try {
   await open('account');
   await heading('Your account').waitFor();
   await page.getByText('Fixture session list unavailable.').waitFor();
-  await button('Try again').click();
+  await button('Retry').click();
   const current = page.locator('.account-session').filter({ hasText: 'Current session' });
   const other = page.locator('.account-session').filter({ hasText: 'Android' });
   await other.getByText('Last active').waitFor();

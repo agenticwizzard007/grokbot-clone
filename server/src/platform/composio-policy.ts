@@ -63,7 +63,7 @@ export class ConnectionGateway {
         const current = await this.registry.get(tenant, row.id);
         if (!account || (!account.active && !(details && account.status)) || account.toolkit !== row.toolkit || !current || current.tenant !== tenant || current.state !== 'active' || current.revision !== row.revision || current.toolkit !== row.toolkit) continue;
         await this.authorize();
-        result.push({ ...current, ...(details ? { accountLabel: account.accountLabel, connectedAt: account.connectedAt, displayStatus: account.displayStatus, status: account.status, isDisabled: account.isDisabled } : {}) });
+        result.push({ ...current, ...(details ? { accountLabel: account.accountLabel, ...(account.authorizationIncomplete ? { authorizationIncomplete: true } : {}), connectedAt: account.connectedAt, displayStatus: account.displayStatus, status: account.status, isDisabled: account.isDisabled } : {}) });
       }
       return result;
     }

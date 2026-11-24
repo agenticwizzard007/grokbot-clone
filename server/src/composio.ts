@@ -1,4 +1,5 @@
-import { createConnectionDetailsCache, type ConnectionDetails } from './connection-details.js';
+import { createCatalogCache } from './catalog-cache.js';
+import { createConnectionDetailsCache, unfinishedAuthorization, type ConnectionDetails } from './connection-details.js';
 import { Composio } from '@composio/core';
 import { OpenAIResponsesProvider } from '@composio/openai';
 import { gatewayRequest } from './runtime/gateway-client.js';
@@ -29,7 +30,7 @@ export function composio() {
     accountDetailsCache.clear();
     sessionCache.clear();
     promptConnections.clear();
-    catalogCache = null;
+    catalogCache.clear();
     toolkitMetadata.clear();
   }
   return current.client;
@@ -39,8 +40,8 @@ export function composio() {
 export const APPS_OFF = "Connected apps aren't set up on this server (it needs a COMPOSIO_API_KEY).";
 
 const REST = 'https://backend.composio.dev/api/v3.1';
-async function rest<T = any>(path: string, headers: Record<string, string>): Promise<T> {
-  const res = await fetch(`${REST}${path}`, { headers, signal: AbortSignal.timeout(15_000) });
+async function rest<T = any>(path: string, headers: Record<string, string>, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(`${REST}${path}`, { headers, signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000) });
   if (!res.ok) throw new Error(`Composio returned ${res.status}. Check the server's Composio key in Settings → API keys.`);
   return res.json() as Promise<T>;
 }
@@ -48,13 +49,19 @@ async function rest<T = any>(path: string, headers: Record<string, string>): Pro
 // ---------- catalog (user-independent, cached) ----------
 
 type CatalogItem = Omit<Toolkit, 'connected'>;
-let catalogCache: { at: number; items: CatalogItem[] } | null = null;
+const catalogCache = createCatalogCache<CatalogItem[]>();
 
 export async function catalog(): Promise<CatalogItem[]> {
+  if (!isTenant && !env.composioEnabled) return [];
+  if (!isTenant) composio(); // Apply credential changes before consulting public metadata.
+  return catalogCache.get(isTenant ? tenantId : composioIdentity(), loadCatalog);
+}
+
+async function loadCatalog(signal: AbortSignal): Promise<CatalogItem[]> {
   if (isTenant) {
     const items: CatalogItem[] = []; const seen = new Set<string>(); let cursor: string | undefined;
     do {
-      const page = await gatewayRequest(tenantId, 'catalog', { cursor });
+      const page = await gatewayRequest(tenantId, 'catalog', { cursor }, { signal });
       items.push(...(page.items ?? []).map((t: any) => ({ slug: t.slug, name: t.name, logo: t.meta?.logo, description: t.meta?.description, categories: (t.meta?.categories ?? []).map((c: any) => c.name ?? c.id), managedAuth: true, noAuth: !!t.noAuth })));
       cursor = page.nextCursor ?? undefined;
       if (cursor && (seen.has(cursor) || seen.size >= 100)) throw new Error('Invalid catalog pagination.');
@@ -66,12 +73,11 @@ export async function catalog(): Promise<CatalogItem[]> {
   composio(); // Apply key changes before consulting a cache.
   const key = composioIdentity();
   const headers = composioHeaders();
-  if (catalogCache && Date.now() - catalogCache.at < 3600_000) return catalogCache.items;
   const items: CatalogItem[] = [];
   let cursor: string | undefined;
   const cursors = new Set<string>();
   do {
-    const r = await rest<any>(`/toolkits?sort_by=usage&limit=500${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, headers);
+    const r = await rest<any>(`/toolkits?sort_by=usage&limit=500${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, headers, signal);
     for (const t of r.items ?? []) {
       items.push({
         slug: t.slug,
@@ -88,7 +94,6 @@ export async function catalog(): Promise<CatalogItem[]> {
     if (cursor) cursors.add(cursor);
   } while (cursor);
   assertCurrentKey(key);
-  catalogCache = { at: Date.now(), items };
   return items;
 }
 
@@ -121,10 +126,6 @@ export interface AppConnection extends Partial<ConnectionDetails> {
   id: string; toolkit: string; status: string; revision?: number; isDefault?: boolean;
   isDisabled?: boolean; authorizationIncomplete?: boolean;
 }
-const UNFINISHED_AUTH_REASONS = new Set([
-  'Authorization was started but not completed within 10 minutes',
-  'Connection expired before authorization was started',
-]);
 
 export async function connectionsDetail(userId: string, options: { signal?: AbortSignal; details?: boolean } = {}): Promise<AppConnection[]> {
   assertTenant(userId);
@@ -142,7 +143,7 @@ export async function connectionsDetail(userId: string, options: { signal?: Abor
       ...(options.details ? await accountDetailsCache.details(client, userId, i, options.signal) : {}), id: i.id, toolkit: i.toolkit.slug, status: i.status,
       ...(i.isDisabled ? { isDisabled: true } : {}),
       // Project only a known classification, never raw provider reasons or credential state.
-      ...(i.status === 'EXPIRED' && UNFINISHED_AUTH_REASONS.has(i.statusReason?.trim().replace(/\.$/, '') ?? '')
+      ...(unfinishedAuthorization(i)
         ? { authorizationIncomplete: true } : {}),
     }))));
     cursor = r.nextCursor ?? undefined;
