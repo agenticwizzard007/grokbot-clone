@@ -42,6 +42,9 @@ test('restart restores the same call, cursor, maps, transcripts and completed to
   const { callId } = await (await post('session', { botId: bot.id })).json();
   const registry = new VoiceRegistry(), call = registry.get(callId)!;
   call.cursor = 12; call.transcript = [{ role: 'user', text: 'Keep this context' }];
+  call.updates = [{ id: 12, botId: bot.id, botName: 'Quinn', kind: 'status', text: 'Task complete' }];
+  call.jobs = [{ id: 'job-fixture', botId: bot.id, botName: 'Quinn', request: 'Read fixture' }];
+  call.jobStates.set('job-fixture', 'completed');
   call.seenRows.set('row-1', 'Already delivered'); call.connectionBaseline.set(bot.id, { generation: 1, seq: 1 });
   const output = { output: 'Action completed once' };
   call.toolCalls.set('provider-tool-id', { signature: 'action', result: Promise.resolve(output), output });
@@ -49,6 +52,8 @@ test('restart restores the same call, cursor, maps, transcripts and completed to
   registry.save(call);
   const restored = new VoiceRegistry().get(callId)!;
   assert.equal(restored.id, callId); assert.equal(restored.cursor, 12); assert.deepEqual(restored.transcript, call.transcript);
+  assert.deepEqual(restored.updates, call.updates); assert.deepEqual(restored.jobs, call.jobs);
+  assert.equal(restored.jobStates.get('job-fixture'), 'completed');
   assert.equal(restored.seenRows.get('row-1'), 'Already delivered');
   assert.deepEqual(restored.connectionBaseline.get(bot.id), { generation: 1, seq: 1 });
   assert.deepEqual(await restored.toolCalls.get('provider-tool-id')!.result, output);
