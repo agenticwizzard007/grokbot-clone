@@ -73,7 +73,7 @@ try {
     const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: 'reduce' });
     page.setDefaultTimeout(10000);
     const errors = [], forbiddenRequests = [];
-    page.on('pageerror', error => errors.push(error.message));
+    page.on('pageerror', error => { errors.push(error.message); console.error(error.message); });
     await page.addInitScript(id => {
       localStorage.setItem('swarm.selectedBot', id);
       localStorage.setItem('swarm.detailsOpen', '0');
@@ -115,15 +115,20 @@ try {
     });
     await page.goto(origin);
     await page.waitForFunction(async () => (await import('/src/store.ts')).useStore.getState().bots.length > 0);
-    await page.evaluate(async ({ botId, captions }) => {
+    await page.evaluate(async ({ botId }) => {
       const { useStore } = await import('/src/store.ts');
       useStore.getState().selectBot(botId);
       useStore.setState({ detailsOpen: false });
+    }, { botId: bot.id, captions });
+    await page.locator('.chat:not([aria-busy]) .composer__input').waitFor();
+    await page.evaluate(() => document.fonts.ready);
+    // Navigation mounts the call bar with an unmount cleanup. Seed only once the
+    // selected chat has mounted, so that cleanup cannot cancel the fixture call.
+    await page.evaluate(async ({ botId, captions }) => {
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const { useVoice } = await import('/src/voice/call.ts');
       useVoice.setState({ status: 'live', botId, callId: 'simulated-call', startedAt: Date.now(), muted: true, captions });
     }, { botId: bot.id, captions });
-    await page.locator('.composer__input').waitFor();
-    await page.evaluate(() => document.fonts.ready);
     await page.getByRole('button', { name: 'Show transcript', exact: true }).click();
     await assertCaptionWidth(page);
     await assertInViewport(page, '.composer');
@@ -133,9 +138,10 @@ try {
 
     if (width === 390) {
       await page.evaluate(async approval => {
-        (await import('/src/voice/call.ts')).useVoice.setState({ approvals: [approval] });
+        (await import('/src/store.ts')).useStore.getState().upsertRows(approval.botId, 1, [{ ...approval, generation: 1, kind: 'card', audience: 'user', createdAt: Date.now() }]);
       }, approval);
-      await page.locator('.vcall .approval-card').waitFor();
+      await page.locator('.transcript .approval-card').waitFor();
+      assert.equal(await page.locator('.vcall .card').count(), 0);
       // Resize the same expanded call, matching the reported short-viewport transition.
       for (const height of [460, 900]) {
         await page.setViewportSize({ width, height });
@@ -147,9 +153,7 @@ try {
         await assertCaptionWidth(page);
         // Check real hit testing without approving the synthetic request or starting audio.
         await page.getByRole('button', { name: 'Hide transcript', exact: true }).click({ trial: true });
-        for (const name of ["Don't allow", 'Always allow', 'Allow']) {
-          await page.getByRole('button', { name, exact: true }).click({ trial: true });
-        }
+        assert.equal(await page.locator('.vcall .card').count(), 0);
         await assertInViewport(page, '.composer');
         await assertInViewport(page, '.vcall__toggle');
         await page.locator('.composer__input').fill('Keep the synthetic draft');
@@ -161,7 +165,7 @@ try {
         await assertInViewport(page, '.composer');
         await assertInViewport(page, '.vcall__toggle');
         assert.equal(await page.locator('.composer__input').inputValue(), 'Keep the synthetic draft');
-        console.log(`PASS I14: approval actions, Hide transcript, and composer reachable at 390x${height}`);
+        console.log(`PASS I14: chat-only approval, Hide transcript, and composer reachable at 390x${height}`);
       }
       await page.setViewportSize({ width, height: 460 });
       await page.waitForFunction(() => innerHeight === 460);
@@ -184,11 +188,11 @@ try {
       await waitFor(() => page.locator('.vcall__log').evaluate(log => log.scrollTop === 0));
       await page.getByRole('button', { name: 'Hide transcript', exact: true }).click({ trial: true });
       await assertInViewport(page, '.composer');
-      await page.evaluate(async () => (await import('/src/voice/call.ts')).useVoice.setState({ approvals: [] }));
+      await page.evaluate(async approval => (await import('/src/store.ts')).useStore.getState().upsertRows(approval.botId, 1, [{ ...approval, generation: 1, kind: 'card', audience: 'user', createdAt: Date.now(), body: { ...approval.body, status: 'denied' } }]), approval);
       await page.locator('.vcall__requests').waitFor({ state: 'detached' });
       await assertInViewport(page, '.composer');
       await assertInViewport(page, '.vcall__toggle');
-      console.log('PASS I14: caption updates, transcript scrolling, multiline draft, and approval removal at 390x460');
+      console.log('PASS I14: caption updates, transcript scrolling, multiline draft, and chat approval resolution at 390x460');
     }
     assert.equal(await page.evaluate(() => window.__audioAttempts), 0, 'no microphone or audio context used');
     assert.deepEqual(forbiddenRequests, [], 'no writes, voice services, or external requests');

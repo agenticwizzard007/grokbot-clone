@@ -765,7 +765,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
       const mcp = c.name.startsWith('mcp_') ? findMcpTool(userId, c.name, botId) : undefined;
       const card = appendRow(botId, 'card', {
         type: 'card', card: 'approval', approvalId, jobId: ctx.jobId, title: `Allow ${getBotRow(botId).name} to ${pol.title.split(': ')[1] ?? pol.title}?`,
-        detail: describeArgs(args, accountLabel), tool: pol.key, toolkit: pol.toolkit, toolkitName: mcp?.server.config.name ?? appName(pol.toolkit), args, status: 'pending',
+        detail: describeArgs(args, accountLabel), accountLabel, tool: pol.key, toolkit: pol.toolkit, toolkitName: mcp?.server.config.name ?? appName(pol.toolkit), args, status: 'pending',
       });
       db.prepare('INSERT INTO approvals(id,bot_id,row_seq,call_id,tool,status,created_at,binding_hash) VALUES (?,?,?,?,?,?,?,?)').run(approvalId, botId, card.seq, c.call_id, pol.key, 'pending', now(), approvalBinding(userId, botId, c.call_id, c.name, args));
       updateRow(botId, c.rowSeq, { ...body, status: 'awaiting-approval' });
@@ -1126,7 +1126,7 @@ function describeArgs(args: any, accountLabel?: string): string {
   if (typeof args.tool_slug === 'string' && args.arguments && typeof args.arguments === 'object') {
     // Show the app and a readable account label; provider account ids stay out of the card.
     const app = appName(args.tool_slug.split('_')[0]) ?? 'App';
-    return `App: ${app}\nAccount: ${accountLabel ?? `Connected ${app} account`}\nAction: ${humanizeSlug(args.tool_slug)}\n${JSON.stringify(args.arguments, null, 2)}`.slice(0, 4000);
+    return `App: ${app}\nAccount: ${accountLabel ?? `Connected ${app} account`}\nAction: ${humanizeSlug(args.tool_slug)}`;
   }
   const inner = Array.isArray(args.tools) ? args.tools.map((t: any) => t.arguments ?? t.args ?? t) : [args];
   const flat = inner.map((a: any) => Object.entries(a ?? {}).filter(([, v]) => typeof v !== 'object' || v === null).slice(0, 6).map(([k, v]) => `${k}: ${String(v).slice(0, 160)}`).join('\n'));

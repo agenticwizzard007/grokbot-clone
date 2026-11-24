@@ -30,14 +30,12 @@
 .vcall__status { font-size: 12px; line-height: 16px; color: #FFFFFFAD; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vcall.is-error .vcall__btn { width: auto; min-width: 44px; padding: 0 8px; }
 .vcall.is-error .vcall__status { color: #FF8A93; white-space: normal; }
-.vcall__task { color: #FFFFFF73; }
 .vcall__shimmer {
   color: transparent;
   background: linear-gradient(90deg, #FFFFFF8F 0%, #FFFFFF8F 35%, #FFFFFF 50%, #FFFFFF8F 65%, #FFFFFF8F 100%);
   background-size: 250% 100%; -webkit-background-clip: text; background-clip: text;
   animation: shimmer 1.4s linear infinite;
 }
-.vcall__shimmer .vcall__task { color: transparent; }
 .vcall__actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .vcall__btn {
   display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: var(--radius-full);
@@ -68,23 +66,7 @@
 .vcall__line.is-user { color: #FFFFFFB3; }
 .vcall__line.is-empty { color: #FFFFFF73; }
 .vcall__toggle { align-self: flex-start; flex-shrink: 0; margin-top: 10px; font-size: 12px; color: #FFFFFF8F; text-decoration: underline; }
-.vcall__requests {
-  display: flex; flex-direction: column; gap: 10px; margin-top: 10px; padding: 2px;
-  min-height: 0; max-height: min(340px, 45dvh); overflow-y: auto; overscroll-behavior: contain;
-}
-.vcall__requests .card { width: 100%; flex-shrink: 0; color: var(--color-text-primary); }
-.vcall__requests .card__title { overflow-wrap: anywhere; }
-.vcall__requests .card__actions { flex-wrap: wrap; }
-.vcall__requests .card__actions .btn { min-height: 40px; min-width: 80px; }
-.vcall__connection { display: flex; align-items: flex-start; gap: 10px; padding: 10px; border-radius: 14px; background: #FFFFFF0F; }
-.vcall__connection > .toolkit-logo { flex-shrink: 0; }
-.vcall__connection-info { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
-.vcall__connect { min-height: 32px; padding: 6px 12px; border-radius: 10px; background: #FFFFFF; color: #1C1C1C; font-size: 13px; font-weight: var(--font-weight-semibold); overflow-wrap: anywhere; text-align: left; }
-.vcall__connect:hover:not(:disabled) { background: #FFFFFFDE; }
-.vcall__connect:disabled { opacity: 0.6; cursor: wait; }
-.vcall__connect:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
-.vcall__connection-hint { font-size: 12px; line-height: 16px; color: #FFFFFFAD; }
-.vcall__connection-error { font-size: 12px; line-height: 16px; color: #FF8A93; overflow-wrap: anywhere; }
+
 
 /* ---------- composer: live voice is the main microphone entry ---------- */
 .composer__voice { width: auto; min-height: 34px; padding: 0 10px; gap: 6px; border-radius: 18px; font-size: 12px; font-weight: var(--font-weight-medium); white-space: nowrap; }
@@ -119,11 +101,11 @@
 }
 .vcall__main { gap: 10px; }
 .vcall__name { font-size: 15px; font-weight: 500; }
-.vcall__status, .vcall__time, .vcall__task, .vcall__caption:is(.is-user, .is-empty), .vcall__line b { color: var(--color-text-secondary); }
+.vcall__status, .vcall__time, .vcall__caption:is(.is-user, .is-empty), .vcall__line b { color: var(--color-text-secondary); }
 .vcall__caption.is-assistant, .vcall__line { color: var(--color-text-primary); }
 .vcall.is-error .vcall__btn { width: auto; min-width: 44px; padding: 0 8px; }
 .vcall.is-error .vcall__status { color: var(--color-danger-text); }
-.vcall__shimmer, .vcall__shimmer .vcall__task { color: var(--color-text-secondary); background: none; animation: none; }
+.vcall__shimmer { color: var(--color-text-secondary); background: none; animation: none; }
 .vcall__btn, .vcall__toggle, .voice-preview { width: auto; min-height: 44px; padding: 0 14px; border: 0; border-radius: 12px; background: var(--color-bg-active); color: var(--color-text-primary); font-size: 14px; text-decoration: none; }
 .vcall__btn:hover, .vcall__btn.is-on { background: var(--color-bg-secondary-active); color: var(--color-text-primary); }
 .vcall__btn--end { background: #B42332; color: #FFFFFF; border-radius: var(--radius-full); }

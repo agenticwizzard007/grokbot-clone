@@ -437,7 +437,7 @@ test('a held call summary cannot overwrite a new-generation row after chat is cl
   } finally { release(); summaryGate = undefined; summaryStarted = undefined; }
 });
 
-test('fresh calls omit historical connect cards and show one current request per toolkit even at equal timestamps', async t => {
+test('fresh calls keep historical and current connection cards in chat only', async t => {
   const frozen = Date.now();
   t.mock.method(Date, 'now', () => frozen);
   const target = createBot('alice', { name: 'Connection cleanup target' });
@@ -447,16 +447,16 @@ test('fresh calls omit historical connect cards and show one current request per
   card(target.id, 'exa'); card(target.id, 'exa');
   const call = await session();
   try {
-    assert.equal((await updates(call.callId)).connectionRequests.length, 0, 'old cards are not inherited by a new call');
+    assert.equal('connectionRequests' in await updates(call.callId), false);
     card(target.id, 'exa');
     const newest = card(target.id, 'exa');
     const gmail = card(target.id, 'gmail');
     card(foreign.id, 'private-service');
-    const requests = (await updates(call.callId)).connectionRequests;
-    assert.equal(requests.length, 2);
-    assert.equal(requests.find((r: any) => r.toolkit === 'exa').seq, newest.seq);
-    assert.equal(requests.find((r: any) => r.toolkit === 'gmail').seq, gmail.seq);
-    assert.ok(requests.every((r: any) => r.botId === target.id));
+    const snapshot = await updates(call.callId);
+    assert.equal('connectionRequests' in snapshot, false);
+    assert.ok(snapshot.updates.some((u: any) => u.kind === 'waiting' && u.text.includes('Connect gmail in chat.')));
+    assert.ok(!JSON.stringify(snapshot).includes('private-service'));
+    for (const row of [newest, gmail]) assert.ok(db.prepare('SELECT 1 FROM rows WHERE bot_id=? AND seq=?').get(target.id, row.seq));
   } finally { await close(call.callId); clearConversation(target.id); }
 });
 
@@ -527,16 +527,17 @@ test('delegating to an agent exposes its existing connection blocker once, witho
   const card = appendRow(target.id, 'card', { type: 'card', card: 'connect', toolkit: 'exa', toolkitName: 'Exa', reason: 'Pending setup', status: 'pending' });
   const call = await session();
   try {
-    assert.equal((await updates(call.callId)).connectionRequests.length, 0);
+    assert.equal('connectionRequests' in await updates(call.callId), false);
     await tool(call.callId, 'send_task', { bot_id: target.id, request: 'Continue the requested setup.' }, 'connection-blocker-task');
     await settleAgentJobs();
     const result = await updates(call.callId);
-    assert.deepEqual(result.connectionRequests, [{ botId: target.id, seq: card.seq, toolkit: 'exa', toolkitName: 'Exa' }]);
+    assert.equal('connectionRequests' in result, false);
+    assert.equal((db.prepare("SELECT count(*) n FROM rows WHERE bot_id=? AND kind='card' AND json_extract(body,'$.card')='connect'").get(target.id) as any).n, 1);
     assert.equal(result.tasks[0].status, 'queued');
     updateRow(target.id, card.seq, { ...card.body, status: 'skipped' } as any);
     enqueue(target.id, { type: 'system', text: 'The user skipped connecting Exa. Continue without it.' });
     await settleAgentJobs();
-    assert.equal((await updates(call.callId)).connectionRequests.length, 0);
+    assert.equal('connectionRequests' in await updates(call.callId), false);
   } finally { await close(call.callId); clearConversation(target.id); }
 });
 

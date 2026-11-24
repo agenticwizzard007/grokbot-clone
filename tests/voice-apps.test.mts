@@ -169,13 +169,19 @@ const tool = async (call: any, name: string, args: unknown = {}, toolCallId?: st
   assert.equal(response.status, 200);
   return response.json() as Promise<any>;
 };
-const updates = async (call: any) => (await post('updates', { botId: call.botId, callId: call.callId })).json() as Promise<any>;
+const updates = async (call: any) => {
+  const snapshot: any = await (await post('updates', { botId: call.botId, callId: call.callId })).json();
+  assert.equal('approvals' in snapshot, false);
+  assert.equal('connectionRequests' in snapshot, false);
+  return snapshot;
+};
 const executeArgs = (slug = 'GITHUB_GET_REPOSITORY') => ({ connectionId: 'github-alice', revision: 1, tool_slug: slug, arguments: { repo: 'alice/project' } });
 const native = (call: any, args: ReturnType<typeof executeArgs>, id: string, requireApproval = true, readOnly = false) => {
   const dispatchId = `${call.callId}:${id}`;
   return { taskId: enqueue(chief.id, { type: 'native-tool', name: 'SWARM_APPS_EXECUTE', args, callId: dispatchId, requireApproval, readOnly }), dispatchId };
 };
-const pendingApproval = async (call: any, taskId: string) => (await updates(call)).approvals.find((approval: any) => approval.body.jobId === taskId);
+const chatCards = (call: any, card = 'approval') => (db.prepare("SELECT r.bot_id,r.seq,r.body FROM rows r JOIN bots b ON b.id=r.bot_id AND b.generation=r.generation WHERE b.user_id=(SELECT user_id FROM bots WHERE id=?) AND r.kind='card' AND json_extract(r.body,'$.card')=? AND json_extract(r.body,'$.status')='pending'").all(call.botId, card) as any[]).map(r => ({ botId: r.bot_id, seq: r.seq, body: JSON.parse(r.body) }));
+const pendingApproval = async (call: any, taskId: string) => chatCards(call).find(approval => approval.body.jobId === taskId);
 const jobState = (id: string) => (db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(id) as any)?.state;
 const counts = () => ({ connectionReads, discoveryReads, metadataReads, executed: executed.length,
   jobs: (db.prepare('SELECT count(*) n FROM agent_jobs').get() as any).n, textRequests });
@@ -280,7 +286,7 @@ test('persisted native-tool writes still await approval and publish their result
     assert.equal(executed.length, before + 1); assert.equal(jobState(resume.id), 'completed');
     const done = await updates(call);
     assert.ok(done.updates.some((u: any) => u.kind === 'message' && u.text.includes('alice/project')));
-    assert.ok(!done.approvals.some((a: any) => a.body.approvalId === approval.body.approvalId));
+    assert.ok(!chatCards(call).some((a: any) => a.body.approvalId === approval.body.approvalId));
     resolveApproval('alice', approval.body.approvalId, 'allow');
     await settleAgentJobs(); assert.equal(executed.length, before + 1);
   } finally { release(); await holding; setDiscovered([rawTool('GITHUB_GET_REPOSITORY')]); }
@@ -354,7 +360,7 @@ test('voice delegates connection requests to chat and receives owned confirmatio
     const assigned = await tool(call, 'send_task', { bot_id: configuring.id, request: 'Connect Slack for the requested team updates.' });
     await settleAgentJobs();
     const pending = await updates(call);
-    const request = pending.connectionRequests.find((r: any) => r.botId === configuring.id);
+    const request = chatCards(call, 'connect').find(r => r.botId === configuring.id);
     assert.ok(request);
     const row = db.prepare('SELECT body FROM rows WHERE bot_id=? AND seq=?').get(request.botId, request.seq) as any;
     const card = JSON.parse(row.body);
@@ -366,7 +372,7 @@ test('voice delegates connection requests to chat and receives owned confirmatio
     updateRow(request.botId, request.seq, { ...card, status: 'connected' });
     accounts.push({ id: 'slack-alice', toolkit: { slug: 'slack' }, status: 'ACTIVE' });
     const confirmed = await updates(call);
-    assert.ok(!confirmed.connectionRequests.some((r: any) => r.botId === request.botId && r.seq === request.seq));
+    assert.ok(!chatCards(call, 'connect').some((r: any) => r.botId === request.botId && r.seq === request.seq));
     assert.ok(confirmed.updates.some((u: any) => u.text.includes('authorization was confirmed')));
     connectionScenario = 'verify';
     await tool(call, 'send_task', { bot_id: configuring.id, request: 'Verify the connected Slack account.', mode: 'follow_up' });
@@ -391,14 +397,14 @@ for (const decision of ['allow', 'deny'] as const) {
       assert.notEqual(first.taskId, second.taskId);
       await settleAgentJobs();
       const pending = await updates(call);
-      const firstApproval = pending.approvals.find((approval: any) => approval.body.jobId === first.taskId);
+      const firstApproval = chatCards(call).find((approval: any) => approval.body.jobId === first.taskId);
       assert.ok(firstApproval); assert.deepEqual(firstApproval.body.args, firstArgs);
-      assert.ok(!pending.approvals.some((approval: any) => approval.body.jobId === second.taskId));
+      assert.ok(!chatCards(call).some((approval: any) => approval.body.jobId === second.taskId));
       assert.equal(jobState(second.taskId), 'queued'); assert.equal(executed.length, before);
       resolveApproval('alice', firstApproval.body.approvalId, decision); await settleAgentJobs();
       const between = await updates(call);
-      assert.ok(!between.approvals.some((approval: any) => approval.body.approvalId === firstApproval.body.approvalId));
-      const secondApproval = between.approvals.find((approval: any) => approval.body.jobId === second.taskId);
+      assert.ok(!chatCards(call).some((approval: any) => approval.body.approvalId === firstApproval.body.approvalId));
+      const secondApproval = chatCards(call).find((approval: any) => approval.body.jobId === second.taskId);
       assert.ok(secondApproval); assert.notEqual(secondApproval.body.approvalId, firstApproval.body.approvalId); assert.deepEqual(secondApproval.body.args, secondArgs);
       const completedFirst = db.prepare("SELECT state,finished_at FROM agent_jobs WHERE bot_id=? AND json_extract(trigger,'$.parentJobId')=? ORDER BY rowid DESC LIMIT 1").get(chief.id, first.taskId) as any;
       assert.equal(completedFirst.state, 'completed'); assert.equal(completedFirst.finished_at, sameMillisecond);
@@ -408,7 +414,7 @@ for (const decision of ['allow', 'deny'] as const) {
       resolveApproval('alice', secondApproval.body.approvalId, 'allow'); resolveApproval('alice', secondApproval.body.approvalId, 'allow');
       await settleAgentJobs();
       const done = await updates(call);
-      assert.ok(!done.approvals.some((approval: any) => [first.taskId, second.taskId].includes(approval.body.jobId)));
+      assert.ok(!chatCards(call).some((approval: any) => [first.taskId, second.taskId].includes(approval.body.jobId)));
       assert.equal(executed.slice(before).filter(result => result.input.arguments.repo === secondArgs.arguments.repo).length, 1);
       const completedSecond = db.prepare("SELECT state FROM agent_jobs WHERE bot_id=? AND json_extract(trigger,'$.parentJobId')=? ORDER BY rowid DESC LIMIT 1").get(chief.id, second.taskId) as any;
       assert.equal(completedSecond.state, 'completed');
@@ -509,7 +515,7 @@ for (const source of ['chat', 'voice delegation'] as const) {
           if (call) {
             const pending = await updates(call);
             assert.equal(pending.tasks.find((t: any) => t.id === jobId).status, 'waiting');
-            assert.ok(pending.approvals.some((a: any) => a.body.approvalId === approval.id));
+            assert.ok(chatCards(call).some((a: any) => a.body.approvalId === approval.id));
           }
           resolveApproval('alice', approval.id, 'allow');
           await settleAgentJobs();

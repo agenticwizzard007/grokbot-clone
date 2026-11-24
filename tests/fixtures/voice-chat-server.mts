@@ -1,0 +1,14 @@
+import { Hono } from 'hono';
+import { serve } from '@hono/node-server';
+await import('./voice-chat-backends.mjs');
+await import('../../server/src/db-config.js');
+const { initSubagents } = await import('../../server/src/agent/subagents.js');
+const { initRooms } = await import('../../server/src/agent/rooms.js');
+initSubagents(); initRooms();
+const { api } = await import('../../server/src/routes.js');
+const { cliApi } = await import('../../server/src/cli/routes.js');
+const { securityHeaders, withHeadSupport } = await import('../../server/src/security/request.js');
+const app = new Hono(); app.use('*', securityHeaders);
+app.get('/api/health', c => c.json({ ok: true }));
+app.route('/api/cli', cliApi); app.route('/api', api);
+serve({ fetch: withHeadSupport(app.fetch), port: Number(process.env.PORT), hostname: '127.0.0.1' });

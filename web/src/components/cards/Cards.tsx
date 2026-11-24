@@ -1,5 +1,6 @@
+import { PreviewBody, plainBodyText } from './PreviewBody';
 import { ConnectedAccountDetails, type DisplayAccount } from '../ConnectedAccountDetails';
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import type { CardBody, Row } from '@shared/types';
 import { api, openPopup } from '../../lib/api';
 import { useStore } from '../../store';
@@ -7,6 +8,9 @@ import { Icon } from '../Icon';
 import { ToolkitLogo } from '../ToolkitLogo';
 import { useRefocusOnResolve } from '../../lib/composerFocus';
 import { useDisplayText } from '../../lib/useDisplayText';
+
+// HTML parsing is loaded only for action cards, never on the initial chat path.
+const ActionPreview = lazy(() => import('./ToolPreview').then(m => ({ default: m.ActionPreview })));
 
 type Card<K extends CardBody['card']> = Extract<CardBody, { card: K }>;
 
@@ -35,6 +39,8 @@ export function ApprovalCard({ body }: { body: Card<'approval'> }) {
   const pending = body.status === 'pending';
   const decide = (d: 'allow' | 'always' | 'deny') => run(d, () => api.approve(body.approvalId, d));
   const name = clean(body.toolkitName ?? (body.toolkit ? humanizeToolkit(body.toolkit) : prettyTool(clean(body.tool))));
+  // Older persisted approvals stored their verified account label ahead of JSON.
+  const accountLabel = body.accountLabel ?? body.detail?.match(/^Account: ([^\n]*)$/m)?.[1];
   const ref = useRef<HTMLDivElement>(null);
   useRefocusOnResolve(pending, ref);
   return (
@@ -46,7 +52,8 @@ export function ApprovalCard({ body }: { body: Card<'approval'> }) {
           <div className="card__sub">{name}</div>
         </div>
       </div>
-      {body.detail && <div className="card__body">{clean(body.detail)}</div>}
+      {accountLabel && <div className="card__body">Account: {accountLabel}</div>}
+      <Suspense fallback={<div className="card__body" role="status">Loading preview…</div>}><ActionPreview tool={body.tool} args={body.args} /></Suspense>
       {pending ? (
         <>
           <div className="card__actions">
@@ -182,7 +189,7 @@ export function DraftCard({ row, body }: { row: Row; body: Card<'draft'> }) {
   const approvalId: string | undefined = body.approvalId || undefined;
   const pending = body.status === 'pending';
   const [copied, setCopied] = useState(false);
-  const copy = async () => { try { await navigator.clipboard.writeText(clean(body.subject ? `Subject: ${body.subject}\n\n${body.text}` : body.text)); setCopied(true); setTimeout(() => setCopied(false), 1200); } catch { /* ignore */ } };
+  const copy = async () => { try { await navigator.clipboard.writeText(body.subject ? `Subject: ${body.subject}\n\n${body.text}` : body.text); setCopied(true); setTimeout(() => setCopied(false), 1200); } catch { /* ignore */ } };
   const discard = () => run('discard', () => approvalId ? api.approve(approvalId, 'deny') : api.dismiss(row.botId, row.seq));
   const ref = useRef<HTMLDivElement>(null);
   useRefocusOnResolve(pending, ref);
@@ -199,10 +206,10 @@ export function DraftCard({ row, body }: { row: Row; body: Card<'draft'> }) {
         <div className="draft-card__to">
           <span className="draft-card__to-label">To</span>
           <span className="draft-card__to-avatar">{(body.to.trim()[0] ?? '?').toUpperCase()}</span>
-          <span className="draft-card__to-name">{clean(body.to)}</span>
+          <span className="draft-card__to-name">{body.to}</span>
         </div>
-        {body.subject && <div className="draft-card__subject">{clean(body.subject)}</div>}
-        <div className="draft-card__text">{clean(body.text)}</div>
+        {body.subject && <div className="draft-card__subject">{body.subject}</div>}
+        <PreviewBody text={plainBodyText(body.text)} className="draft-card__text" slack={body.channel === 'slack'} />
       </div>
       {pending ? (
         <div className="draft-card__actions">

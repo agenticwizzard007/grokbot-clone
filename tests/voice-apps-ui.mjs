@@ -1,212 +1,138 @@
-// Run: npm run build -w web && node tests/voice-apps-ui.mjs
-// Built app + real browser audio, with fake mic, realtime provider and HTTP APIs. No live accounts.
+// Real local chat persistence, SSE, approvals and voice controller. Fake providers only.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { once } from 'node:events';
 import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import http from 'node:http';
 import { chromium } from 'playwright';
-
-await fs.access(new URL('../web/dist/index.html', import.meta.url));
-const shots = new URL('../.context/voice-apps-ui/', import.meta.url);
-await fs.mkdir(shots, { recursive: true });
-const port = await new Promise(resolve => { const server = http.createServer().listen(0, '127.0.0.1', () => { const p = server.address().port; server.close(() => resolve(p)); }); });
-const vite = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', String(port)], { cwd: new URL('../web', import.meta.url), stdio: 'pipe' });
-let logs = '';
-vite.stdout.on('data', data => { logs += data; });
-vite.stderr.on('data', data => { logs += data; });
-const origin = `http://127.0.0.1:${port}`;
-const waitFor = async predicate => {
-  for (let n = 0; n < 100; n++) {
-    if (await predicate()) return;
-    await new Promise(resolve => setTimeout(resolve, 50));
-  }
-  throw new Error('Timed out waiting for mocked browser state');
-};
-const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
-const connection = { botId: 'research', seq: 21, toolkit: 'gmail', toolkitName: 'Gmail' };
-const approval = { botId: 'research', seq: 22, body: {
-  type: 'card', card: 'approval', approvalId: 'approval-send-mail', title: 'Send the agenda email?', detail: 'To Sam: the agenda for tomorrow.',
-  tool: 'GMAIL_SEND_EMAIL', toolkit: 'gmail', toolkitName: 'Gmail', args: {}, status: 'pending',
-} };
-let browser;
+const root = process.cwd(), tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-chat-ui-'));
+const evidence = path.join(root, '.context/voice-chat-ui'); await fs.mkdir(evidence, { recursive: true });
+async function port() { const s = http.createServer().listen(0, '127.0.0.1'); await once(s, 'listening'); const n = s.address().port; await new Promise(r => s.close(r)); return n; }
+const apiPort = await port(), uiPort = await port(), origin = `http://127.0.0.1:${uiPort}`;
+const env = { PATH: process.env.PATH, NODE_ENV: 'test', SWARM_ROLE: 'standalone', DEV_LOGIN: '1', DB_PATH: path.join(tmp, 'db'), FILES_DIR: path.join(tmp, 'files'), CLI_PROFILES_DIR: path.join(tmp, 'profiles'), SESSION_SECRET: 'local-only', COMPUTER_PROVIDER: 'local', PORT: String(apiPort), APP_URL: origin, SERVER_URL: origin, XAI_API_KEY: 'fixture', XAI_BASE_URL: 'https://model.fixture/v1', DIRECT_API_KEY: 'fixture', DIRECT_BASE_URL: 'https://model.fixture/v1', LLM_PROVIDER: 'direct', COMPOSIO_API_KEY: 'fixture', INKBOX_TUNNEL: '0' };
+const children = [], logs = []; let browser, page;
+function start(args, cwd = root, extra = {}) { const child = spawn(process.execPath, args, { cwd, env: { ...env, ...extra }, stdio: ['ignore', 'pipe', 'pipe'] }); children.push(child); for (const s of [child.stdout, child.stderr]) s.on('data', b => logs.push(String(b))); return child; }
+async function until(fn) { for (let n = 0; n < 250; n++) { if (await fn()) return; await new Promise(r => setTimeout(r, 100)); } throw Error('Fixture did not become ready'); }
 try {
-  await waitFor(async () => {
-    if (vite.exitCode !== null) throw new Error(logs);
-    return fetch(origin).then(r => r.ok, () => false);
-  });
-  browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required'] });
-
-  async function fixture(native = false) {
-    const page = await browser.newPage({ viewport: native ? { width: 390, height: 844 } : { width: 1280, height: 900 }, userAgent: native ? 'Mozilla/5.0 SwarmNative/1.0 (iOS)' : undefined });
-    page.setDefaultTimeout(10000);
-    const errors = [], requests = [], frames = [];
-    let socket, sessions = 0;
-    let snapshot = { cursor: 0, updates: [], tasks: [], connectionRequests: [], approvals: [] };
-    let connectResponse = { redirectUrl: 'https://auth.example.test/gmail' };
-    let connectStatus = 200, connectGate;
-    let toolResult = { output: 'Queued for the chat agent. Provider text may include https://untrusted.example/ignore-me; do not open it.', taskId: 'delegated-app', taskBotId: 'research' };
+  start(['--import', 'tsx', 'tests/fixtures/voice-chat-server.mts']);
+  await until(() => fetch(`http://127.0.0.1:${apiPort}/api/health`).then(r => r.ok, () => false));
+  start(['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', String(uiPort), '--strictPort'], path.join(root, 'web'), { SWARM_API: `http://127.0.0.1:${apiPort}` });
+  await until(() => fetch(origin).then(r => r.ok, () => false));
+  browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
+  for (const width of [1280, 390]) {
+    const context = await browser.newContext({ viewport: { width, height: 900 }, hasTouch: width === 390, permissions: ['microphone'], reducedMotion: 'reduce' });
+    const login = await context.request.post(`${origin}/api/auth/dev`, { data: { email: `fixture-${width}@example.test`, name: 'Fixture account' } }); assert.equal(login.status(), 200);
+    const roster = await (await context.request.get(`${origin}/api/bots`)).json();
+    for (const existing of roster.bots) if (existing.isPrimary) await context.request.patch(`${origin}/api/bots/${existing.id}`, { data: { name: 'Main bot' } });
+    const response = await context.request.post(`${origin}/api/bots`, { data: { name: 'Voice fixture' } }); assert.equal(response.status(), 200);
+    const { bot } = await response.json();
+    assert.equal((await context.request.post(`${origin}/api/bots/${bot.id}/setup/skip`)).status(), 200);
+    page = await context.newPage(); page.setDefaultTimeout(20000);
+    const errors = [], notes = []; let socket, session, polls = 0;
     page.on('pageerror', e => errors.push(e.message));
-    await page.addInitScript(() => {
-      localStorage.setItem('swarm.selectedBot', 'main');
-      localStorage.setItem('swarm.detailsOpen', '0');
-      window.__popups = [];
-      window.open = (url, target) => {
-        const record = { url, target, navigated: null, closed: false, userGesture: navigator.userActivation.isActive };
-        window.__popups.push(record);
-        return { location: { set href(value) { record.navigated = value; } }, close() { record.closed = true; } };
-      };
+    await page.addInitScript(id => { localStorage.setItem('swarm.selectedBot', id); localStorage.setItem('swarm.detailsOpen', '0'); }, bot.id);
+    await page.route('**/*', route => {
+      const url = new URL(route.request().url());
+      return url.origin === origin ? route.continue() : route.abort();
     });
-    const bot = { id: 'main', name: 'Main agent', isPrimary: true, label: '', description: '', instructions: '', avatarShape: 'blob', avatarColor: 'blue', mode: 'personal', pinned: true, effort: 'medium', model: null, voice: 'ara', voiceSpeed: 1, voiceLanguage: 'auto', generation: 1, unread: 0, lastPreview: '', lastActivityAt: 1, createdAt: 1 };
-    await page.route('**/api/**', async route => {
-      const path = new URL(route.request().url()).pathname;
-      const payload = route.request().postDataJSON();
-      requests.push({ path, body: payload });
-      let body = {};
-      if (path === '/api/auth/me') body = { user: { id: 'test-user', name: 'Alex', email: 'alex@example.test' }, devLogin: true };
-      else if (path === '/api/bots') body = { bots: [bot, { ...bot, id: 'research', name: 'Research agent', isPrimary: false }], live: [] };
-      else if (path.endsWith('/rows')) body = { generation: 1, rows: [] };
-      else if (path.endsWith('/coworker-setups')) body = { setups: [] };
-      else if (path.endsWith('/routines')) body = { routines: [] };
-      else if (path.endsWith('/tasks')) body = { tasks: [] };
-      else if (path === '/api/settings') body = { settings: {}, computer: { provider: 'cloudvm' } };
-      else if (path === '/api/computer') body = { computer: { status: 'absent', screens: [] } };
-      else if (path === '/api/events') return route.fulfill({ contentType: 'text/event-stream', body: 'data: {"type":"hello"}\n\n' });
-      else if (path === '/api/voice/session') body = { callId: `call-${++sessions}`, clientSecret: 'ephemeral', clientSecretProtocol: 'xai-client-secret', websocketUrl: 'wss://voice.example.test/realtime', sampleRate: 24000, session: {}, tools: [] };
-      else if (path === '/api/voice/updates') body = snapshot;
-      else if (path === '/api/voice/tool') {
-        assert.equal(payload.name, 'send_task', 'voice delegates app work to chat');
-        body = toolResult;
-      }
-      else if (path === '/api/apps/gmail/connect') {
-        const gate = connectGate, result = connectResponse, status = connectStatus;
-        if (gate) await gate.promise;
-        return route.fulfill({ status, json: result });
-      } else if (path.startsWith('/api/approvals/') || path === '/api/voice/end') body = { ok: true };
-      await route.fulfill({ json: body });
+    page.on('response', r => { if (new URL(r.url()).pathname === '/api/voice/updates') polls++; });
+    await page.route('**/api/voice/session', async route => {
+      const r = await route.fetch(); session = await r.json();
+      await route.fulfill({ response: r, json: { ...session, websocketUrl: `ws://127.0.0.1:${uiPort}/fixture-voice` } });
     });
-    await page.routeWebSocket('wss://voice.example.test/realtime', ws => {
+    await page.routeWebSocket('**/fixture-voice', ws => {
       socket = ws;
       ws.onMessage(raw => {
         const event = JSON.parse(String(raw));
         if (event.type === 'session.update') ws.send(JSON.stringify({ type: 'session.updated' }));
         if (event.type === 'response.create') {
-          ws.send(JSON.stringify({ type: 'response.created', response: { id: 'voice-reply' } }));
+          ws.send(JSON.stringify({ type: 'response.created', response: { id: 'fixture-response' } }));
+          ws.send(JSON.stringify({ type: 'response.output_audio_transcript.done', transcript: 'Review the email in chat.', item_id: 'caption' }));
           ws.send(JSON.stringify({ type: 'response.done', response: { output: [] } }));
         }
-        if (event.type === 'input_audio_buffer.append') frames.push(event.audio.length);
+        if (event.type === 'conversation.item.create') notes.push(JSON.stringify(event));
       });
     });
     await page.goto(origin);
-    async function start() {
-      if (native) {
-        await page.waitForFunction(() => typeof window.swarmStartMainVoice === 'function');
-        const id = randomUUID();
-        await waitFor(async () => await page.evaluate(id => window.swarmStartMainVoice(id), id) === 'started');
-      } else await page.getByRole('button', { name: 'Start live voice with Main agent', exact: true }).click();
-      await page.locator('.vcall.is-live').waitFor();
-    }
-    await start();
-    return {
-      page, errors, requests, frames, start,
-      popups: () => page.evaluate(() => window.__popups),
-      snapshot: value => { snapshot = { ...snapshot, ...value }; },
-      connect: (response, status = 200, gate) => { connectResponse = response; connectStatus = status; connectGate = gate; },
-      tool: async (result = toolResult) => {
-        toolResult = result;
-        socket.send(JSON.stringify({ type: 'response.function_call_arguments.done', call_id: `provider-${requests.length}`, name: 'send_task', arguments: JSON.stringify({ bot_id: 'research', request: 'Connect Gmail and prepare the agenda email.' }) }));
-        socket.send(JSON.stringify({ type: 'response.done', response: { output: [] } }));
-      },
-    };
+    if (width === 390) await page.locator('.bot-row').filter({ hasText: bot.name }).click();
+    await page.getByRole('button', { name: `Start live voice with ${bot.name}`, exact: true }).click();
+    const voice = page.locator('.vcall'); await page.locator('.vcall.is-live').waitFor();
+    socket.send(JSON.stringify({ type: 'response.function_call_arguments.done', call_id: 'fixture-email', name: 'send_task', arguments: JSON.stringify({ request: 'Prepare an email draft for review.' }) }));
+    socket.send(JSON.stringify({ type: 'response.done', response: { output: [] } }));
+    const approval = page.locator('.approval-card'); await approval.waitFor();
+    assert.equal(await approval.count(), 1);
+    assert.equal(await voice.locator('.card, .vcall__requests, .vcall__connection, .vcall__task').count(), 0);
+    assert.deepEqual(await voice.locator('button').allTextContents(), ['Mute', 'End', 'Review the email in chat.Show transcript']);
+    assert.equal(await voice.locator('.vcall__caption').count(), 1);
+    const preview = approval.getByRole('group', { name: 'Email preview', exact: true });
+    await preview.waitFor();
+    const text = await preview.innerText();
+    for (const value of ['Review team <review@example.test>', 'copy@example.test', 'private@example.test', 'Release review ✓', 'Signature will be added', 'Reply to: Release planning']) assert.ok(text.includes(value), value);
+    for (const value of ['recipient_email', 'thread_id', 'Europe/Paris', 'include_signature']) assert.ok(!(await approval.innerText()).includes(value), value);
+    assert.equal(await approval.locator('details').getAttribute('open'), null);
+    const body = approval.locator('.tool-preview__text');
+    assert.ok((await body.textContent()).includes('\n\nPlease review'));
+    await approval.getByRole('button', { name: 'Show full', exact: true }).click();
+    assert.ok((await body.innerText()).endsWith('Final paragraph.'));
+    assert.equal(await body.evaluate(e => e.scrollHeight <= e.clientHeight + 1), true);
+    await approval.getByRole('button', { name: 'Show less', exact: true }).click();
+    // Reconnect uses normal persisted rows and must not append a second copy.
+    await page.evaluate(() => window.dispatchEvent(new Event('swarm:resume')));
+    await until(() => polls >= 3);
+    assert.equal(await approval.count(), 1);
+    assert.equal(await voice.locator('.card').count(), 0);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    assert.equal(await approval.evaluate(e => e.scrollWidth <= e.clientWidth), true);
+    await approval.evaluate(el => el.scrollIntoView({ block: 'start' }));
+    await page.screenshot({ path: path.join(evidence, `pending-${width}.png`), fullPage: true });
+    await approval.screenshot({ path: path.join(evidence, `email-${width}.png`) });
+    await approval.getByRole('button', { name: "Don't allow", exact: true }).click();
+    await approval.getByText('Not allowed', { exact: true }).waitFor();
+    await until(() => notes.some(note => note.includes('declined in chat')));
+    assert.equal(await voice.locator('.card').count(), 0);
+    await page.reload();
+    if (width === 390 && await page.locator('.bot-row').filter({ hasText: bot.name }).isVisible()) await page.locator('.bot-row').filter({ hasText: bot.name }).click();
+    await approval.getByText('Not allowed', { exact: true }).waitFor();
+    assert.equal(await approval.count(), 1);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.screenshot({ path: path.join(evidence, `resolved-${width}.png`), fullPage: true });
+    // Readable previews also cover existing draft proposals and non-email actions.
+    await page.evaluate(async botId => {
+      const { useStore } = await import('/src/store.ts');
+      const base = { type: 'card', card: 'approval', approvalId: 'render-only', title: 'Review action', status: 'denied', detail: '{"legacy":"raw"}' };
+      const bodies = [
+        { ...base, tool: 'OUTLOOK_CREATE_DRAFT', args: { toRecipients: [{ emailAddress: { name: 'Review team', address: 'review@example.test' } }], subject: 'HTML review', body: { contentType: 'HTML', content: '<p>First &amp; safe</p><p>Second<br>line</p><img src=x onerror="window.__injected=true"><script>window.__injected=true</script>' } } },
+        { ...base, tool: 'SLACK_SEND_MESSAGE', args: { channel: '#release', text: '*Ready*\nReview <https://example.test|the notes>' } },
+        { ...base, tool: 'GOOGLECALENDAR_CREATE_EVENT', args: { summary: 'Planning', start: { dateTime: '2026-12-01T09:30:00+01:00', timeZone: 'Europe/Paris' }, end: { dateTime: '2026-12-01T10:30:00+01:00', timeZone: 'Europe/Paris' }, attendees: ['first@example.test', 'second@example.test'], location: 'Room 2', description: 'Full agenda\nSecond line' } },
+        { ...base, tool: 'CUSTOM_ACTION', args: { project_title: 'Release', description: 'Full generic description', timezone: 'hidden', nested: { raw: 'value' } } },
+        { type: 'card', card: 'draft', channel: 'email', to: 'review@example.test', subject: 'Draft proposal', text: 'First paragraph\n\n' + 'Complete draft text. '.repeat(90) + 'FINAL DRAFT', approvalId: '', status: 'pending' },
+      ];
+      useStore.getState().upsertRows(botId, 1, bodies.map((body, i) => ({ botId, generation: 1, seq: 500+i, updatedSeq: 500+i, kind: 'card', audience: 'user', createdAt: Date.now(), body })));
+    }, bot.id);
+    const outlook = page.locator('.approval-card').filter({ hasText: 'HTML review' });
+    await outlook.waitFor();
+    assert.equal(await outlook.locator('.tool-preview__text').innerText(), 'First & safe\n\nSecond\nline');
+    assert.equal(await outlook.locator('img, script, iframe').count(), 0);
+    assert.equal(await page.evaluate(() => !!window.__injected), false);
+    assert.equal(await page.locator('.tool-preview.is-slack strong').innerText(), 'Ready');
+    assert.ok((await page.locator('.tool-preview.is-calendar').innerText()).includes('Europe/Paris'));
+    assert.ok((await page.locator('.tool-preview.is-generic').innerText()).includes('Project title'));
+    const draft = page.locator('.draft-card');
+    await draft.getByRole('button', { name: 'Show full', exact: true }).click();
+    assert.ok((await draft.locator('.draft-card__text').innerText()).endsWith('FINAL DRAFT'));
+    await draft.getByRole('button', { name: 'Show less', exact: true }).click();
+    await outlook.locator('summary').click();
+    assert.ok((await outlook.locator('pre').innerText()).includes('contentType'));
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await outlook.locator('summary').click();
+    await outlook.screenshot({ path: path.join(evidence, `outlook-${width}.png`) });
+    await draft.screenshot({ path: path.join(evidence, `draft-${width}.png`) });
+    assert.deepEqual(errors, []);
+    console.log(`PASS ${width}: Outlook HTML, Slack formatting, Calendar, generic action and draft proposal, safe Details, full bodies, no overflow`);
+    console.log(`PASS ${width}: call-only panel, readable exact email, SSE delivery, reconnect dedupe, chat denial, reload persistence, no overflow`);
+    await context.close();
   }
-
-  const web = await fixture();
-  web.snapshot({ connectionRequests: [connection, { ...connection, botId: 'main', seq: 18 }], approvals: [approval] });
-  await waitFor(async () => await web.page.locator('.vcall__connection').count() === 2);
-  // The server chooses current requests; the client preserves distinct callback
-  // identities and only deduplicates repeat deliveries of the same request.
-  web.snapshot({ connectionRequests: [connection, { ...connection }, { ...connection }], approvals: [approval] });
-  await web.tool();
-  await waitFor(async () => await web.page.locator('.vcall__connection').count() === 1);
-  await web.page.getByRole('button', { name: 'Connect Gmail', exact: true }).waitFor();
-  assert.equal(await web.page.locator('.vcall__connection').count(), 1, 'duplicate deliveries of one authoritative request appear once');
-  await web.page.getByRole('button', { name: 'Allow', exact: true }).waitFor();
-  assert.deepEqual(await web.popups(), [], 'tool output URL never opens automatically; chat cards require a user gesture');
-  await waitFor(() => web.frames.length > 0);
-  await web.page.screenshot({ path: new URL('desktop.png', shots).pathname });
-
-  web.connect({ error: 'Please try again' }, 503);
-  await web.page.getByRole('button', { name: 'Connect Gmail', exact: true }).click();
-  await web.page.getByRole('alert').filter({ hasText: 'Please try again' }).waitFor();
-  assert.equal((await web.popups())[0].closed, true, 'failed connection closes the reserved popup and allows retry');
-  assert.equal((await web.popups())[0].userGesture, true);
-
-  const gate = deferred();
-  web.connect({ redirectUrl: 'https://auth.example.test/gmail' }, 200, gate);
-  await web.page.getByRole('button', { name: 'Connect Gmail', exact: true }).click();
-  assert.equal((await web.popups()).at(-1).url, 'about:blank', 'popup reserved before async connection resolves');
-  gate.resolve();
-  await waitFor(async () => (await web.popups()).at(-1).navigated === 'https://auth.example.test/gmail');
-  const connectRequest = web.requests.find(r => r.path === '/api/apps/gmail/connect');
-  assert.deepEqual(connectRequest.body, { botId: 'research', seq: 21 }, 'OAuth is bound to the requesting agent and card');
-  assert.ok((await web.popups()).every(p => p.navigated === null || p.navigated.startsWith('https://auth.example.test/')));
-  await web.page.getByText('Waiting for sign-in…', { exact: true }).waitFor();
-  await web.page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { origin: 'https://untrusted.example', data: { type: 'swarm-connected', toolkit: 'gmail', approvalId: 'approval-send-mail', status: 'allowed' } })));
-  assert.equal(await web.page.getByRole('button', { name: 'Connect Gmail', exact: true }).count(), 1, 'postmessage never resolves a connection');
-  assert.equal(await web.page.getByRole('button', { name: 'Allow', exact: true }).count(), 1, 'postmessage never resolves an approval');
-
-  await web.page.getByRole('button', { name: 'Allow', exact: true }).click();
-  await waitFor(() => web.requests.some(r => r.path === '/api/approvals/approval-send-mail'));
-  assert.deepEqual(web.requests.find(r => r.path === '/api/approvals/approval-send-mail').body, { decision: 'allow' });
-  assert.equal(await web.page.locator('.vcall .approval-card').count(), 1, 'decision response alone does not resolve server state');
-  web.snapshot({ connectionRequests: [], approvals: [] });
-  await web.page.locator('.vcall__requests').waitFor({ state: 'detached' });
-
-  // A late successful OAuth response must not open a redirect after hang-up or affect a new call.
-  web.snapshot({ connectionRequests: [connection] });
-  await web.page.getByRole('button', { name: 'Connect Gmail', exact: true }).waitFor();
-  const late = deferred();
-  web.connect({ redirectUrl: 'https://auth.example.test/late' }, 200, late);
-  await web.page.getByRole('button', { name: 'Connect Gmail', exact: true }).click();
-  const popupCount = (await web.popups()).length;
-  await web.page.getByRole('button', { name: 'End call', exact: true }).click();
-  web.snapshot({ connectionRequests: [], approvals: [] });
-  await web.start();
-  late.resolve();
-  await waitFor(async () => (await web.popups()).at(-1).closed);
-  assert.equal((await web.popups()).at(-1).navigated, null);
-  assert.equal((await web.popups()).length, popupCount);
-  assert.equal(await web.page.locator('.vcall__requests').count(), 0);
-  await web.page.getByRole('button', { name: 'End call', exact: true }).click();
-  assert.deepEqual(web.errors, []);
-  await web.page.close();
-  console.log('PASS desktop: user-gesture OAuth, errors/retry, trusted redirect, approvals, authoritative empty lists, spoofed messages and stale responses');
-
-  const native = await fixture(true);
-  native.snapshot({ connectionRequests: [connection], approvals: [approval] });
-  await native.page.getByRole('button', { name: 'Connect Gmail', exact: true }).waitFor();
-  await native.page.getByRole('button', { name: 'Allow', exact: true }).waitFor();
-  const nativeGate = deferred();
-  native.connect({ redirectUrl: 'https://auth.example.test/native' }, 200, nativeGate);
-  await native.page.getByRole('button', { name: 'Connect Gmail', exact: true }).click();
-  assert.deepEqual(await native.popups(), [], 'native flow does not create an empty popup');
-  nativeGate.resolve();
-  await waitFor(async () => (await native.popups()).length > 0);
-  assert.equal((await native.popups())[0].url, 'https://auth.example.test/native');
-  assert.equal((await native.popups())[0].target, '_blank');
-  const bounds = await native.page.locator('.vcall__requests button').evaluateAll(buttons => buttons.map(b => ({ left: b.getBoundingClientRect().left, right: b.getBoundingClientRect().right })));
-  assert.ok(bounds.every(b => b.left >= 0 && b.right <= 390), 'connection and all approval actions fit the phone width');
-  assert.equal(await native.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  await native.page.screenshot({ path: new URL('mobile-native.png', shots).pathname });
-  await native.page.getByRole('button', { name: "Don't allow", exact: true }).click();
-  await waitFor(() => native.requests.some(r => r.path === '/api/approvals/approval-send-mail'));
-  assert.deepEqual(native.requests.find(r => r.path === '/api/approvals/approval-send-mail').body, { decision: 'deny' });
-  await native.page.getByRole('button', { name: 'End call', exact: true }).click();
-  assert.equal(await native.page.locator('.vcall__requests').count(), 0);
-  assert.deepEqual(native.errors, []);
-  await native.page.close();
-  console.log('PASS native/mobile: final URL hand-off, usable connection/approval controls, denial and teardown');
-} finally {
-  await browser?.close();
-  vite.kill();
-}
+} catch (error) { console.error(logs.join('').slice(-6000)); if (page && !page.isClosed()) { console.error((await page.locator('body').innerText()).slice(-3000)); await page.screenshot({ path: path.join(evidence, 'failure.png') }); } throw error; }
+finally { await browser?.close(); for (const child of children.reverse()) if (child.exitCode === null && child.signalCode === null) { child.kill(); await once(child, 'exit'); } await fs.rm(tmp, { recursive: true, force: true }); }
