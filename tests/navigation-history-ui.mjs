@@ -130,10 +130,12 @@ try {
         await page.locator('.settings-nav__back').getByText('Back to chat',{exact:true}).waitFor();
         await snap('settings-sidebar-back');
         await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click();
-        const rail = page.getByRole('navigation', { name: 'Settings sidebar' });
+        const rail = page.locator('.sidebar');
         const railBack = await rail.getByRole('button', { name: 'Back to chat', exact: true }).boundingBox();
         const railExpand = await rail.getByRole('button', { name: 'Expand sidebar to browse settings', exact: true }).boundingBox();
         assert.ok(railBack && railExpand && railBack.y + railBack.height <= railExpand.y, 'collapsed Back and Expand controls do not overlap');
+        const brand = await rail.locator('.sidebar__brand').boundingBox();
+        assert.ok(brand && railBack.y + railBack.height <= brand.y, 'Back sits above the brand and all other rail icons');
         await snap('settings-collapsed-back');
         await rail.getByRole('button', { name: 'Expand sidebar to browse settings', exact: true }).click();
       }
@@ -242,6 +244,64 @@ try {
       await page.goto(`${origin}/#new-bot/group`); await page.getByRole('button',{name:'Back to create a Bot',exact:true}).click(); await hash('#new-bot');
       await page.locator('.setup-paper__close').click(); await page.locator('.app').waitFor(); assert.equal(new URL(page.url()).origin, origin);
       await snap('safe-deep-link-back');
+      if (width === 1280) {
+        const sidebar = page.locator('.sidebar');
+        for (const theme of ['Light', 'Dark']) {
+          for (const [label, destination] of [['chat', chat], ['tasks', '#tasks'], ['details', `${chat}/details/activity`]]) {
+            await page.goto(`${origin}/?rail=${theme}-${label}${destination}`);
+            await page.locator('.app').waitFor();
+            if (label === 'chat') await page.locator('.composer__input').waitFor();
+            if (label === 'tasks') await page.locator('.tasks-view__header').waitFor();
+            if (label === 'details') await page.locator('.details').waitFor();
+            await page.keyboard.press('Control+,'); await hash('#settings/general');
+            const compact = page.getByRole('switch', { name: 'Compact sidebar', exact: true });
+            if (await compact.getAttribute('aria-checked') !== 'true') await compact.click();
+            await reload('#settings/general');
+            await page.getByRole('radiogroup', { name: 'Theme', exact: true }).getByRole('radio', { name: theme, exact: true }).click();
+            const backButton = sidebar.getByRole('button', { name: `Back to ${label}`, exact: true });
+            await backButton.waitFor();
+            assert.equal(await backButton.getAttribute('title'), `Back to ${label}`);
+            assert.equal(await backButton.locator('svg.lucide-arrow-left').count(), 1, 'Back uses an arrow, distinct from Expand');
+            const box = await backButton.boundingBox();
+            assert.ok(box && box.width >= 44 && box.height >= 44, 'Back has a full icon-button target');
+            const railBox = await sidebar.boundingBox();
+            assert.ok(box.x >= railBox.x && box.x + box.width <= railBox.x + railBox.width && box.y >= railBox.y);
+            for (const otherButton of await sidebar.getByRole('button').all()) {
+              if (await otherButton.getAttribute('aria-label') === `Back to ${label}`) continue;
+              const otherBox = await otherButton.boundingBox();
+              if (otherBox) assert.ok(box.y + box.height <= otherBox.y, 'Back is above every other visible rail icon without overlap');
+            }
+            const expand = sidebar.getByRole('button', { name: 'Expand sidebar', exact: true });
+            assert.match(await expand.getAttribute('title'), /^Expand sidebar/);
+            await expand.click(); await hash('#settings/general');
+            await sidebar.locator('.settings-nav__back').getByText(`Back to ${label}`, { exact: true }).waitFor();
+            assert.equal(await sidebar.locator('.sidebar__back').count(), 0, 'expanding restores the labeled row');
+            await sidebar.getByRole('button', { name: 'Collapse sidebar', exact: true }).click();
+            await page.keyboard.press('Tab');
+            await backButton.focus();
+            assert.ok(await backButton.evaluate(el => el.matches(':focus-visible')));
+            await snap(`compact-back-${theme.toLowerCase()}-${label}`);
+            if (label === 'tasks') await page.keyboard.press('Enter');
+            else await backButton.click();
+            await hash(destination);
+            assert.equal(await sidebar.locator('.sidebar__back').count(), 0, 'Back is removed after leaving Settings');
+            console.log(`PASS compact rail ${theme}: Back to ${label} above all icons, separate Expand, reload and navigation`);
+          }
+          await sidebar.getByRole('button', { name: 'Expand sidebar', exact: true }).click();
+          const botsLabel = sidebar.locator('.sidebar__section-label');
+          assert.equal(await botsLabel.getAttribute('type'), 'button');
+          await botsLabel.click(); await hash('#bots');
+          await page.getByRole('heading', { name: 'Your Bots', exact: true }).waitFor();
+          for (const key of ['Enter', 'Space']) {
+            await sidebar.locator('.pinned__tile').click(); await hash(chat);
+            await page.keyboard.press('Tab');
+            await botsLabel.focus();
+            assert.ok(await botsLabel.evaluate(el => el.matches(':focus-visible')));
+            await page.keyboard.press(key); await hash('#bots');
+          }
+          console.log(`PASS Your Bots ${theme}: click, Enter and Space open #bots`);
+        }
+      }
       // Planned provider returns without a hash still reopen their saved section.
       await page.evaluate(target => sessionStorage.setItem('swarm.resume', JSON.stringify(target)), {
         section: 'subscriptions', provider: 'codex', accountId: (await api('/auth/me')).user.id,

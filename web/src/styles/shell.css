@@ -3,6 +3,11 @@
 .app.is-sidebar-collapsed { --app-settings-rail-width: var(--sidebar-collapsed-width); }
 .traffic-lights { display: none; }
 .sidebar { position: relative; display: flex; flex-direction: column; flex-shrink: 0; width: var(--app-settings-rail-width); height: 100%; padding: var(--space-4); background: var(--color-bg-sidebar); border-right: 1px solid var(--color-border-secondary); transition: width 180ms var(--ease-out); }
+#sidebar-back-slot:empty { display: none; }
+#sidebar-back-slot:not(:empty) { display: flex; justify-content: center; flex-shrink: 0; margin-bottom: 8px; }
+.sidebar__back { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; color: var(--color-text-primary); }
+.sidebar__back:hover { background: var(--color-bg-hover); }
+.sidebar__back:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
 .sidebar__titlebar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: var(--space-7); margin-bottom: var(--space-4); flex-shrink: 0; }
 .sidebar__brand { display: flex; align-items: center; width: 144px; min-width: 0; min-height: 36px; border-radius: 6px; }
 .sidebar__brand img { width: 100%; height: auto; max-height: 36px; }
