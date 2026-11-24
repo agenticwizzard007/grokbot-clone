@@ -1,3 +1,4 @@
+import { affordableOutputLimit, isCreditError, modelOutputLimit } from '../lib/model-request-policy.js';
 import { withUsage } from '../usage-context.js';
 import { defaultModel, llmClient, llmProvider } from '../lib/llm.js';
 import { recordModelUsage } from '../usage.js';
@@ -186,15 +187,17 @@ async function compactWithDirect(botId: string, old: any[], beforeModel?: Before
   return out;
 }
 
-async function compactWithSummary(botId: string, old: any[], beforeModel?: BeforeCompactionModel, signal?: AbortSignal): Promise<any[]> {
+async function compactWithSummary(botId: string, old: any[], beforeModel?: BeforeCompactionModel, signal?: AbortSignal, creditRetryLimit?: number): Promise<any[]> {
   const transcript = renderTranscript(old);
+  const budget = compactionOutputLimit(beforeModel);
   const res: any = await llm().responses.create({
     model: defaultModel(),
     input: [{ role: 'system', content: SUMMARY_PROMPT }, { role: 'user', content: transcript }],
     store: false,
     ...lowEffort(),
-    ...compactionOutputLimit(beforeModel),
-  } as any, { signal });
+    ...budget,
+    ...(creditRetryLimit !== undefined ? { max_output_tokens: Math.min(creditRetryLimit, budget.max_output_tokens ?? Infinity) } : {}),
+  } as any, { signal, ...(creditRetryLimit !== undefined ? { creditRetryUsed: true } : {}) } as any);
   await recordModelUsage({ botId, kind: 'compaction', model: defaultModel(), response: res });
   const text = String(res.output_text ?? '').trim();
   if (!text) throw new Error('summary was empty');
@@ -240,13 +243,18 @@ export async function maybeCompact(botId: string, items: any[], opts: { force?: 
     // Budget/abort rejection is control flow, not a provider failure to work around.
     opts.signal?.throwIfAborted();
     if (e instanceof CompactionGuardError) throw e.rejection;
+    // The compact endpoint cannot accept an output cap. Its one affordable retry
+    // uses a capped summary instead, and cannot trigger another credit retry.
+    const creditRetryLimit = isCreditError(e) ? affordableOutputLimit(e, modelOutputLimit(defaultModel())) : undefined;
+    if (isCreditError(e) && creditRetryLimit === undefined) throw e;
     console.warn(`[memory] compact via /responses/compact failed for ${botId}: ${e?.message ?? e}; falling back to a summary`);
     method = 'summary';
     try {
-      replaced = await compactWithSummary(botId, old, opts.beforeModel, opts.signal);
+      replaced = await compactWithSummary(botId, old, opts.beforeModel, opts.signal, creditRetryLimit);
     } catch (e2: any) {
       opts.signal?.throwIfAborted();
       if (e2 instanceof CompactionGuardError) throw e2.rejection;
+      if (isCreditError(e2)) throw e2;
       console.error(`[memory] summary fallback failed for ${botId}: ${e2?.message ?? e2}`);
       compactCooldown.set(botId, now() + 10 * 60_000);
       return items;
