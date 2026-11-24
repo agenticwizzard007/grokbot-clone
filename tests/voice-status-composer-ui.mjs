@@ -59,7 +59,7 @@ try {
       navigator.mediaDevices.getUserMedia = async constraints => {
         window.micRequests++;
         if (window.permissionPending) await new Promise(resolve => { window.grantMic = resolve; });
-        const stream = await open(constraints); window.streams.push(stream); return stream;
+        const stream = await open(constraints); window.streams.push(stream); window.micGrantedAt = performance.now(); return stream;
       };
       window.chipLabels = [];
       new MutationObserver(() => { const label = document.querySelector('.model-pill__name')?.textContent; if (label) window.chipLabels.push(label); }).observe(document, { childList: true, subtree: true, characterData: true });
@@ -76,7 +76,7 @@ import {useModels} from '/src/lib/models.ts';
 import '/src/styles/tokens.css';import '/src/styles/base.css';import '/src/styles/chat.css';import '/src/styles/composer-models.css';import '/src/styles/voice.css';import '/src/styles/mobile.css';import '/src/styles/paper-core.css';
 useStore.setState({user:${JSON.stringify(user)}, bots:[${JSON.stringify(bot)}], selectedBotId:${JSON.stringify(bot.id)}, mobile:innerWidth<760,mobilePane:'chat'});
 window.group=()=>useStore.setState({bots:[{...useStore.getState().bots[0],kind:'room',name:'Launch team'}]});
-window.settings=()=>useConfigUI.getState().openAppSettings('keys');
+window.settings=()=>useConfigUI.getState().openAppSettings('subscriptions','claude');
 window.closeSettings=()=>useConfigUI.getState().closeAppSettings();
 window.refreshModels=()=>useModels.getState().load(true);
 function Harness(){const bot=useStore(s=>s.bots[0]);const settings=useConfigUI(s=>s.appSettings);return React.createElement('div',{className:'app'},settings&&React.createElement(AppSettings),React.createElement('div',{style:{position:'fixed',bottom:24,left:16,right:16,maxWidth:752,margin:'auto'}},React.createElement(VoiceCallBar),React.createElement(Composer,{bot,running:false})));}
@@ -100,11 +100,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     }
     // Real CLI probes sleep forever; only production status deadlines stop them.
     const startAt = performance.now(); await page.evaluate(() => window.settings());
-    const plans = page.getByRole('region', { name: 'Connect a plan', exact: true });
+    const plans = page.getByRole('region', { name: 'Plan connection', exact: true });
     await plans.getByText('Not connected', { exact: true }).first().waitFor();
-    assert.equal(await plans.getByText('Not connected', { exact: true }).count(), 2);
+    assert.equal(await plans.getByText('Not connected', { exact: true }).count(), 1);
     const statusMs = performance.now() - startAt; assert.ok(statusMs < 3400, `${width}: status resolved in ${statusMs}ms`);
     assert.equal(await plans.getByText('Checking status…', { exact: true }).count(), 0);
+    await page.getByRole('tab', {name:'Codex',exact:true}).click();
+    await plans.getByText('Not connected', { exact: true }).waitFor();
     await page.screenshot({ path: path.join(evidence, `status-${width}.png`) });
     await page.evaluate(() => window.closeSettings());
     const cachedAt = performance.now(); await page.evaluate(() => window.settings());
@@ -127,11 +129,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     await call.getByText('Waiting for microphone permission', { exact: true }).waitFor();
     await page.waitForTimeout(10500);
     assert.equal(await call.getByRole('button', { name: 'Retry', exact: true }).count(), 0);
-    const grantedAt = performance.now();
     await page.evaluate(() => { window.permissionPending = false; window.grantMic(); });
     await call.getByText('Connecting…', { exact: true }).waitFor();
     await call.getByRole('button', { name: 'Retry', exact: true }).waitFor();
-    const deadlineMs = performance.now() - grantedAt;
+    const deadlineMs = await page.evaluate(() => performance.now() - window.micGrantedAt);
     assert.ok(deadlineMs >= 9900 && deadlineMs < 11000, `setup deadline ${deadlineMs}ms`);
     assert.match(await call.innerText(), /timed out.*voice connection/);
     voiceMode = 'success'; await call.getByRole('button', { name: 'Retry', exact: true }).click();
