@@ -44,7 +44,8 @@
 .details--sidebar .task-card__title { font-size: 14px; }
 .details--sidebar .task-card__note { font-size: 13px; }
 .details--sidebar .task-card__footer { margin-top: 12px; }
-.details--sidebar .work-row { padding: 14px; border: 1px solid var(--color-border-secondary); border-radius: 16px; background: var(--color-bg-pane); }
+.details--sidebar .work-row { min-width: 0; overflow-wrap: anywhere; padding: 14px; border: 1px solid var(--color-border-secondary); border-radius: 16px; background: var(--color-bg-pane); }
+.details--sidebar :is(.work-row > *, .details-page__row > div, .details-page__column) { min-width: 0; overflow-wrap: anywhere; }
 .details--sidebar .work-row h3 { font-size: 14px; font-weight: 500; margin: 0; }
 .details--sidebar .work-button { min-height: 44px; }
 .details--sidebar .voice-settings--compact { gap: 10px; padding: 16px; border: 1px solid var(--color-border-secondary); border-radius: 16px; background: var(--color-bg-pane); }

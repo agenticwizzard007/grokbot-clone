@@ -1,5 +1,5 @@
 import { Blocks, Clock3, Gauge, ShieldCheck } from 'lucide-react';
-import { SettingIcon } from './SettingRow';
+import { SettingIcon, SettingRow } from './SettingRow';
 import { useEffect, useRef, useState } from 'react';
 import { learningApi, type LearningSettings as Settings, type LearningSettingsView, type LearningReview, type SkillMaintenanceOutcome } from '../../lib/learningApi';
 import { useNativeRefresh } from '../../lib/useNativeRefresh';
@@ -52,11 +52,12 @@ function LearningSettingsForm({ botId }: { botId?: string }) {
     {!draft && !error && <p role="status">Loading learning settings…</p>}
     {draft && view && <form className="learning-fields" onSubmit={e => { e.preventDefault(); void save(); }}>
       {botId && <div className="learning-inheritance"><strong>{overridden.length ? 'This bot has overrides' : 'Using account defaults'}</strong><p>{overridden.length ? 'Values without an override inherit the account defaults.' : 'All values are inherited from account settings.'} · Settings revision {view.revision}</p></div>}
-      <div className="learning-fields learning-flags">{flags.map(field => <label className="native-check" key={field.key}><SettingIcon icon={field.key === 'skillApproval' ? ShieldCheck : Blocks} />
-        <input type="checkbox" checked={draft[field.key] as boolean} onChange={event => set(field.key, event.currentTarget.checked)} />
-        <span><strong>{field.label}</strong><small>{botId && (overridden.includes(field.key) ? 'Bot override. ' : 'Inherited from the account. ')}{field.hint}</small></span>
-      </label>)}</div>
-      <details className="learning-disclosure"><summary><SettingIcon icon={Gauge} /><span><strong>Review limits and model route</strong><small>Set limits or override the review route.</small></span><span className="learning-disclosure__action">Review limits</span></summary>
+      <div className="learning-fields learning-flags">{flags.map(field => <SettingRow key={field.key}
+        icon={field.key === 'skillApproval' ? ShieldCheck : Blocks} title={<label htmlFor={`learning-${field.key}`}>{field.label}</label>}
+        sub={`${botId ? overridden.includes(field.key) ? 'Bot override. ' : 'Inherited from the account. ' : ''}${field.hint}`}>
+        <input id={`learning-${field.key}`} type="checkbox" checked={draft[field.key] as boolean} onChange={event => set(field.key, event.currentTarget.checked)} />
+      </SettingRow>)}</div>
+      <details className="learning-disclosure"><summary className="cfg-row"><SettingIcon icon={Gauge} /><span className="cfg-row__text"><strong className="cfg-row__title">Review limits and model route</strong><small>Set limits or override the review route.</small></span><span className="learning-disclosure__action">Review limits</span></summary>
         <div className="learning-grid">
           {numberField('memoryTurnInterval', 'Memory review interval (turns)', 1)}
           {numberField('skillIterationInterval', 'Skill review interval (tool iterations)', 1)}
@@ -68,14 +69,14 @@ function LearningSettingsForm({ botId }: { botId?: string }) {
         <p className="native-meta">Blank uses the originating model and provider. An auxiliary route requires a currently connected adapter.</p>
         <p className="native-meta">Explicit source-backed corrections can update a preference in the same scope. Inferred replacements and removals wait for review. New knowledge stays private until you share it.</p>
       </details>
-      <details className="learning-disclosure"><summary><SettingIcon icon={Blocks} /><span><strong>Skill maintenance</strong><small>Adjust the maintenance schedule and proposals.</small></span><span className="learning-disclosure__action">Skill maintenance</span></summary><div className="learning-fields">
-        <label className="native-check"><SettingIcon icon={Blocks} /><input type="checkbox" checked={draft.curatorEnabled} onChange={e => set('curatorEnabled', e.currentTarget.checked)} />Enable periodic maintenance</label>
+      <details className="learning-disclosure"><summary className="cfg-row"><SettingIcon icon={Blocks} /><span className="cfg-row__text"><strong className="cfg-row__title">Skill maintenance</strong><small>Adjust the maintenance schedule and proposals.</small></span><span className="learning-disclosure__action">Skill maintenance</span></summary><div className="learning-fields">
+        <SettingRow icon={Blocks} title={<label htmlFor="learning-curator-enabled">Enable periodic maintenance</label>}><input id="learning-curator-enabled" type="checkbox" checked={draft.curatorEnabled} onChange={e => set('curatorEnabled', e.currentTarget.checked)} /></SettingRow>
         <div className="learning-grid">{numberField('curatorIntervalHours', 'Maintenance interval (hours)', 1)}{numberField('curatorMinIdleHours', 'Minimum idle time (hours)', 0)}{numberField('curatorStaleDays', 'Mark stale after (days)', 1)}{numberField('curatorArchiveDays', 'Archive after (days)', 1)}</div>
-        <label className="native-check"><SettingIcon icon={Blocks} /><input type="checkbox" checked={draft.curatorConsolidate} onChange={e => set('curatorConsolidate', e.currentTarget.checked)} />Propose consolidation for review (off by default)</label>
+        <SettingRow icon={Blocks} title={<label htmlFor="learning-curator-consolidate">Propose consolidation for review (off by default)</label>}><input id="learning-curator-consolidate" type="checkbox" checked={draft.curatorConsolidate} onChange={e => set('curatorConsolidate', e.currentTarget.checked)} /></SettingRow>
         <p className="native-meta">Pinned, locked and routine-referenced packages are protected. Archived packages retain recoverable history.</p>
         {botId && <SkillMaintenance botId={botId} settings={view.settings} />}
       </div></details>
-      <div className="learning-disclosure learning-disclosure--row"><SettingIcon icon={Clock3} /><div><strong>Review history and activity</strong><small>{botId ? 'Only reviews for this Bot.' : 'Reviews across this account.'}</small></div><button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setShowReviews(true)}>Review history</button></div>
+      <div className="learning-disclosure learning-disclosure--row cfg-row"><SettingIcon icon={Clock3} /><div className="cfg-row__text"><strong className="cfg-row__title">Review history and activity</strong><small>{botId ? 'Only reviews for this Bot.' : 'Reviews across this account.'}</small></div><button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setShowReviews(true)}>Review history</button></div>
       <div className="learning-actions"><button className="cfg-btn cfg-btn--primary" disabled={busy || JSON.stringify(draft) === JSON.stringify(view.settings)} type="submit">{busy ? 'Saving…' : botId ? 'Save Bot overrides' : 'Save learning settings'}</button>{botId && <button className="cfg-btn cfg-btn--secondary" disabled={busy || !Object.keys(view.overrides ?? {}).length} type="button" onClick={() => void save(true)}>Use account defaults</button>}</div>
       {notice && <p role="status">{notice}</p>}
     </form>}

@@ -27,6 +27,15 @@
 .learning-disclosure__action { display: inline-flex; justify-content: center; align-items: center; min-height: 40px; min-width: min(40%, 176px); padding: 8px 12px; border-radius: 10px; background: var(--color-bg-active); text-align: center; }
 .learning-disclosure[open] > summary { margin-bottom: 12px; }
 .learning-back { justify-self: start; }
+.learning-settings .cfg-row { align-items: flex-start; gap: 16px; padding-block: 16px; }
+.learning-settings .cfg-row > .settings-row__icon { margin-top: 2px; }
+.learning-settings .cfg-row__text { min-width: 0; flex: 1; display: grid; gap: 4px; }
+.learning-settings .cfg-row__title { font-size: 15px; line-height: 24px; font-weight: 500; }
+.learning-settings .cfg-row__sub, .learning-settings .cfg-row small { font-size: 14px; line-height: 20px; margin: 0; }
+.learning-settings input[type='checkbox'] { flex-shrink: 0; width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--color-primary); }
+.learning-grid > label { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 4px 16px; font-size: 15px; line-height: 24px; }
+.learning-grid > label > .settings-row__icon { margin-top: 2px; }
+.learning-grid > label > :is(input, small) { grid-column: 2; }
 .knowledge-maintenance { display: grid; gap: 8px; padding: 14px 0; border-block: 1px solid var(--color-border-tertiary); }
 .knowledge-source { min-width: 0; padding: 12px 0; border-block: 1px solid var(--color-border-tertiary); }
 .knowledge-source summary { cursor: pointer; font-weight: 600; }

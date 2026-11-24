@@ -51,12 +51,16 @@ export interface VoiceUpdates {
   approvals?: VoiceApproval[];
 }
 
+export class VoiceApiError extends Error {
+  constructor(public status: number, message: string) { super(message); }
+}
+
 async function post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
   const res = await fetch(`/api/voice${path}`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal });
   if (!res.ok) {
     let msg = res.statusText;
     try { msg = ((await res.json()) as { error?: string }).error ?? msg; } catch { /* not json */ }
-    throw new Error(msg || `HTTP ${res.status}`);
+    throw new VoiceApiError(res.status, msg || `HTTP ${res.status}`);
   }
   return res.json() as Promise<T>;
 }

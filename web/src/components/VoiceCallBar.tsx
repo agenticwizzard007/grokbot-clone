@@ -57,6 +57,7 @@ const fmt = (ms: number) => {
 
 /** In-call bar shown above the composer while a voice call is connecting, live, or just failed. */
 export function VoiceCallBar() {
+  useEffect(() => () => endCall(), []);
   const v = useVoice();
   const bot = useStore((s) => s.bots.find((b) => b.id === v.botId));
   const [now, setNow] = useState(Date.now());

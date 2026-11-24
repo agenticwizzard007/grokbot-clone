@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect } from 'react';
+import { TasksLoader, preloadTasks } from './components/TasksLoader';
 import { startEvents } from './lib/events';
 import { onReturnToList, PHONE_QUERY, restorePhoneSetup, showPhoneList, useStore } from './store';
 import { RosterFeedback } from './components/LoadFeedback';
@@ -27,7 +28,7 @@ import './styles/paper-core.css'; // accepted shared shell and core responsive g
 const ChatView = lazy(() => import('./components/ChatView').then(m => ({ default: m.ChatView })));
 const BotsView = lazy(() => import('./components/BotsView').then(m => ({ default: m.BotsView })));
 const DetailsPanel = lazy(() => import('./components/DetailsPanel').then(m => ({ default: m.DetailsPanel })));
-const TasksView = lazy(() => import('./components/config/TasksView').then(m => ({ default: m.TasksView })));
+
 const ComputerViewer = lazy(() => import('./components/ComputerViewer').then(m => ({ default: m.ComputerViewer })));
 const ConnectAppsModal = lazy(() => import('./components/modals/ConnectAppsModal').then(m => ({ default: m.ConnectAppsModal })));
 const CreateBotModal = lazy(() => import('./components/modals/CreateBotModal').then(m => ({ default: m.CreateBotModal })));
@@ -100,6 +101,7 @@ function Shell() {
     st.loadBots().catch(console.error);
     st.loadComputer().catch(console.error);
     const stop = startEvents();
+    const preload = setTimeout(() => { void preloadTasks().catch(() => {}); }, 1200);
     // OAuth popups post back here; refresh connection-dependent views and the open transcript.
     const onMsg = (e: MessageEvent) => {
       if ((e.data as { type?: string })?.type !== 'swarm-connected') return;
@@ -108,7 +110,7 @@ function Shell() {
       if (s.selectedBotId) s.loadRows(s.selectedBotId).catch(() => {});
     };
     window.addEventListener('message', onMsg);
-    return () => { stop(); window.removeEventListener('message', onMsg); };
+    return () => { clearTimeout(preload); stop(); window.removeEventListener('message', onMsg); };
   }, []);
 
   // Global shortcuts (listed in lib/shortcuts.ts and Settings > General): Mod+K search, Mod+B sidebar,
@@ -146,7 +148,7 @@ function Shell() {
         {modal === 'create' ? <CreateBotModal inline />
           : modal === 'group' ? <CreateGroupModal inline />
           : botSettings ? <BotSettingsModal inline />
-          : view === 'tasks' ? <TasksView />
+          : view === 'tasks' ? <TasksLoader />
           : view === 'bots' && !mobile ? <BotsView /> : <ChatView />}
       </Suspense>
       </div>

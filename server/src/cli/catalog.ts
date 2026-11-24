@@ -36,6 +36,14 @@ export async function cliCatalog(userId: string, provider: CliProvider, force = 
   return loadCatalog(userId, provider, force, signal, 30_000);
 }
 
+/** Passive UI reads share the existing account/runtime cache and never wait on a full CLI probe. */
+export async function cliDisplayCatalog(userId: string, provider: CliProvider) {
+  const hit = cache.get(`${userId}:${cliRuntime(userId)}:${provider}`);
+  const refresh = () => cliCatalog(userId, provider, false, AbortSignal.timeout(3500));
+  if (hit) { void refresh().catch(() => {}); return hit.value; }
+  return refresh();
+}
+
 /** Generation needs capabilities, not fresh quota. Auth is still checked by every generation. */
 export async function cliModelCatalog(userId: string, provider: CliProvider, signal?: AbortSignal) {
   return loadCatalog(userId, provider, false, signal, 5 * 60_000);

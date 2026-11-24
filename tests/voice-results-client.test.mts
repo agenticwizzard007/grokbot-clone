@@ -344,14 +344,14 @@ test('HTTP, network and timeout failures retry with the same cursor and preserve
   await f.tick();
   assert.equal(voice.useVoice.getState().working[0].id, 'still-running');
   f.setPoll(async () => { throw new TypeError('Network unavailable'); });
-  await f.tick();
+  await f.tick(3000);
   f.setPoll((_body, init) => new Promise((_resolve, reject) => init.signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })));
-  await f.tick();
-  await f.tick(10000);
+  await f.tick(6000);
+  await f.tick(4000);
   assert.equal(voice.useVoice.getState().working[0].id, 'still-running');
   assert.equal(f.warnings.length, 3);
   f.setPoll(async () => json({ cursor: 8, updates: [update(8, 'status', 'research', 'Run ended without a reply; goal success is unknown.')], tasks: [task('still-running', 'research', 'completed')] }));
-  await f.tick();
+  await f.tick(12000);
   assert.deepEqual(f.polls().slice(2).map(r => r.body.after), [7, 7, 7, 7]);
   assert.deepEqual(voice.useVoice.getState().working, []);
   done(f.ws);
@@ -464,7 +464,7 @@ test('connection and approval snapshots are authoritative independently of updat
   await f.tick();
   assert.equal(voice.useVoice.getState().approvals.length, 1, 'transient errors do not resolve approvals');
   f.setPoll(async () => json({ cursor: 0, updates: [], tasks: [], connectionRequests: [], approvals: [] }));
-  await f.tick();
+  await f.tick(3000);
   assert.deepEqual(voice.useVoice.getState().connectionRequests, []);
   assert.deepEqual(voice.useVoice.getState().approvals, []);
   f.setPoll(async () => json({ cursor: 0, updates: [], tasks: [], connectionRequests: [connection()], approvals: [approval()] }));
@@ -544,4 +544,37 @@ test('failed hand-offs clear only their optimism and preserve tool error and han
   const end = f.requests.find(r => r.path.endsWith('/end'))!;
   assert.deepEqual(end.body.transcript, [{ id: 'user-caption', role: 'user', text: 'Goodbye' }]);
   assert.equal(f.tools().length, 1, 'hang-up stays local');
+});
+
+for (const status of [401, 403, 404, 410]) test(`terminal voice updates ${status} stops polling and offers a fresh call`, async t => {
+  const f = await fixture(t);
+  f.setPoll(async () => json({ error: 'Call not found.' }, status));
+  await f.tick();
+  assert.equal(voice.useVoice.getState().status, 'error');
+  assert.match(voice.useVoice.getState().error!, /Retry/);
+  const count = f.polls().length;
+  await f.tick(60000);
+  assert.equal(f.polls().length, count);
+});
+
+test('pagehide ends the local call and prevents further update requests', async t => {
+  const f = await fixture(t);
+  f.listeners.get('pagehide')();
+  const count = f.polls().length;
+  await f.tick(60000);
+  assert.equal(f.polls().length, count);
+  assert.notEqual(voice.useVoice.getState().status, 'live');
+});
+
+test('temporary update failures back off, then reset after recovery', async t => {
+  const f = await fixture(t);
+  f.setPoll(async () => json({ error: 'Temporary' }, 503));
+  await f.tick();
+  assert.equal(f.polls().length, 2);
+  await f.tick(2999); assert.equal(f.polls().length, 2);
+  await f.tick(1); assert.equal(f.polls().length, 3);
+  await f.tick(5999); assert.equal(f.polls().length, 3);
+  f.setPoll(async () => json({ cursor: 0, updates: [], tasks: [] }));
+  await f.tick(1); assert.equal(f.polls().length, 4);
+  await f.tick(1500); assert.equal(f.polls().length, 5);
 });

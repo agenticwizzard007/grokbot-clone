@@ -42,7 +42,7 @@ const { attachCliSocket, cliStatus, cliRequest, disconnectCli, refreshCli, CLI_O
 const { cliResponsesClient, prepareCliRequest } = await import('../server/src/cli/responses.js');
 const { withNativeTools } = await import('../server/src/cli/native-tools.js');
 const { modelsApi } = await import('../server/src/routes-models.js');
-const { clearCliCatalog, cliCatalog, cliModelCatalog } = await import('../server/src/cli/catalog.js');
+const { clearCliCatalog, cliCatalog, cliModelCatalog, cliDisplayCatalog } = await import('../server/src/cli/catalog.js');
 const { cliApi } = await import('../server/src/cli/routes.js');
 const { requireUser } = await import('../server/src/lib/auth.js');
 const { llmClient, defaultModel, llmProvider, modelFor, modelInfo, serverTools, providerFields } = await import('../server/src/lib/llm.js');
@@ -1181,4 +1181,24 @@ test('an existing Codex selection on an old bridge requires an update without bl
   await choose(alice, 'claude');
   await cliResponsesClient(alice, 'claude', 3000).responses.create({ ...requestBody(), model: 'claude/default' });
   assert.equal(bridge.generations.length, 1);
+});
+
+
+test('passive usage reads share the CLI TTL and return stale metadata while a refresh stalls', async () => {
+  const bridge = await connect(alice); await choose(alice, 'claude');
+  const first = await cliDisplayCatalog(alice, 'claude');
+  assert.equal(first.models[0].id, 'claude/account-model');
+  const calls = () => bridge.requests.filter(r => r.method === 'catalog');
+  await cliDisplayCatalog(alice, 'claude');
+  assert.equal(calls().length, 1);
+  let time = Date.now();
+  const clock = mock.method(Date, 'now', () => time);
+  const original = bridge.catalog;
+  try {
+    time += 31_000;
+    bridge.catalog = () => HOLD;
+    assert.equal((await cliDisplayCatalog(alice, 'claude')).models[0].id, 'claude/account-model');
+    await until(() => calls().length === 2, 'background catalog refresh');
+    bridge.respond(calls()[1].id, original(calls()[1]));
+  } finally { clock.mock.restore(); }
 });
