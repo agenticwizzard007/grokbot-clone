@@ -4,7 +4,7 @@ import { DEFAULT_AVATAR_SHAPE } from '@shared/avatar-shapes';
 import { BirdPicker } from '../../avatar/BirdPicker';
 import { api } from '../../lib/api';
 import { COLOR_ORDER } from '../../lib/colors';
-import { openConversation, useConfigUI } from '../../configStore';
+import { openConversation, returnLabel, useConfigUI } from '../../configStore';
 import { queueImportedSetup, readSetupManifest, setupApi } from '../../lib/setupApi';
 import { useStore } from '../../store';
 import { SetupPaperHeader } from '../SetupPaperHeader';
@@ -32,7 +32,6 @@ export function CreateBotModal({ inline = false }: { inline?: boolean } = {}) {
 
 function CreateBotForm({ inline, userId }: { inline: boolean; userId: string | undefined }) {
   const setModal = useStore(s => s.setModal);
-  const returnsToBots = useConfigUI(state => state.view === 'bots');
   const [flow, setFlow] = useState<'create' | 'import'>('create');
   // Only the import flow needs the roster (duplicate names); typing a new name must not re-render on Bot updates.
   const bots = useStore(s => flow === 'import' ? s.bots : NO_BOTS);
@@ -146,7 +145,7 @@ function CreateBotForm({ inline, userId }: { inline: boolean; userId: string | u
 
   const title = flow === 'create' ? 'Create a Bot' : 'Import a saved setup';
   const content = <>
-    <SetupPaperHeader backLabel={returnsToBots ? 'Back to Bots' : 'Back to chat'} title="Bots" onBack={close} onClose={close} disabled={busy} />
+    <SetupPaperHeader backLabel={returnLabel()} title="Bots" onBack={close} onClose={close} disabled={busy} />
     <div className="setup-paper__column setup-create__column">
       <h1>{title}</h1>
       {!completedImport && <p className="setup-paper__subtitle">{flow === 'create' ? 'Give your Bot a name and a look.' : 'Choose a bot-setup.json exported from Details > Setup > Files.'}</p>}

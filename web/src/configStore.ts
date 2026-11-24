@@ -2,14 +2,16 @@ import './lib/legacy-storage'; // before reading saved preferences
 import { useEffect } from 'react';
 import { create } from 'zustand';
 import type { ServerEvent } from '@shared/types';
-import { backToList, enterChatPane, useStore } from './store';
-import { botSlug, routeBot, linkedWork, workHash, type WorkRoute } from './lib/userRoutes';
+import { useStore } from './store';
+import { APP_SECTIONS, navigationActions, parseScreen, resolveScreen, screenHash, ScreenHistory, type Screen, type DetailTab, type SetupTab } from './lib/navigation';
+import { readDetailsDefault } from './lib/detailsDefault';
+import { botSlug, routeBot, linkedWork, type WorkRoute } from './lib/userRoutes';
 
 /** UI state for bot settings, app settings, the Tasks view and the theme. Kept apart from store.ts on purpose. */
 
 export type Theme = 'system' | 'light' | 'dark';
-export type BotSettingsTab = 'general' | 'skills' | 'memories' | 'routines' | 'analytics' | 'learning';
-export type AppSection = 'general' | 'keys' | 'usage' | 'computer' | 'messaging' | 'permissions' | 'apps' | 'mcp' | 'account' | 'subscriptions' | 'learning';
+export type { AppSection, BotSettingsTab } from './lib/navigation';
+import type { AppSection, BotSettingsTab } from './lib/navigation';
 
 /** Where to continue after a sign-in that leaves the page (provider redirects, phone verification). */
 export type ResumeAction = 'login' | 'reset' | 'pair' | 'revoke';
@@ -33,6 +35,11 @@ interface ConfigUI {
   appSettingsHome: boolean;
   view: 'chat' | 'tasks' | 'bots';
   workRoute: WorkRoute;
+  detailsTab: DetailTab;
+  setupTab: SetupTab;
+  detailsReports: boolean;
+  setDetailsTab(tab: DetailTab, setup?: SetupTab, reports?: boolean): void;
+  showSettingsList(): void;
   theme: Theme;
   /** Bumped by server events (tasks, memories) so open views refetch. Keys: 'tasks', 'memories:<botId>'. */
   versions: Record<string, number>;
@@ -60,42 +67,19 @@ const readTheme = (): Theme => {
 };
 
 /** Deep link: /#settings/<section> (e.g. #settings/messaging, or just #messaging) opens Settings there. */
-const SECTIONS_LINKABLE: AppSection[] = ['general', 'keys', 'computer', 'messaging', 'permissions', 'apps', 'mcp', 'account', 'subscriptions', 'learning', 'usage'];
-/** Old links that now open a different section. */
-const SECTION_ALIASES: Record<string, AppSection> = { whatsapp: 'messaging' };
+const SECTIONS_LINKABLE = [...APP_SECTIONS];
 const linkedSection = (): AppSection | null => {
-  if (typeof window === 'undefined') return null;
-  if (/^#settings\/?$/.test(window.location.hash)) return 'general';
-  const raw = window.location.hash.replace(/^#(settings\/)?/, '');
-  const h = (SECTION_ALIASES[raw] ?? raw) as AppSection;
-  return SECTIONS_LINKABLE.includes(h) ? h : null;
+  const screen = typeof window !== 'undefined' ? parseScreen(window.location.hash) : null;
+  return screen?.kind === 'settings' ? screen.section ?? 'general' : null;
 };
-
-/** Settings links resolve after the account's Bots load. Legacy ID links are canonicalized. */
-const BOT_SETTINGS_TABS: BotSettingsTab[] = ['general', 'skills', 'memories', 'routines', 'analytics', 'learning'];
-export const botSettingsHash = (botId: string, tab: BotSettingsTab) => {
-  const bot = useStore.getState().bots.find(bot => bot.id === botId) ?? { id: botId, name: 'Bot' };
-  return `#bot/${encodeURIComponent(botSlug(bot))}/settings/${tab}`;
-};
-const botSettingsLink = (): { reference: string; tab: BotSettingsTab } | null => {
-  if (typeof window === 'undefined') return null;
-  const match = window.location.hash.match(/^#bot\/([^/]{1,128})\/settings(?:\/([a-z]+))?$/);
-  if (!match) return null;
-  let reference: string;
-  try { reference = decodeURIComponent(match[1]); } catch { return null; }
-  const tab = (match[2] ?? 'general') as BotSettingsTab;
-  return reference && BOT_SETTINGS_TABS.includes(tab) ? { reference, tab } : null;
-};
-/** Settings hash navigation is handled here, including the unsaved-draft guard. */
-export const hasSettingsLink = () => !!(linkedSection() || botSettingsLink());
-const linkedBotSettings = (): { botId: string; tab: BotSettingsTab } | null => {
-  const link = botSettingsLink();
-  const bot = link && routeBot(link.reference, useStore.getState().bots);
-  return bot && link ? { botId: bot.id, tab: link.tab } : null;
-};
-const replaceHash = (hash: string) => {
-  if (typeof window === 'undefined' || window.location.hash === hash || (!hash && !window.location.hash)) return;
-  history.replaceState(history.state, '', window.location.pathname + window.location.search + hash);
+export const botSettingsHash = (botId: string, tab: BotSettingsTab) => screenHash({ kind: 'bot-settings', bot: botReference(botId), tab });
+function botReference(id: string) {
+  const bot = useStore.getState().bots.find(bot => bot.id === id);
+  return bot ? botSlug(bot) : id;
+}
+export const hasSettingsLink = () => {
+  const screen = parseScreen(window.location.hash);
+  return screen?.kind === 'settings' || screen?.kind === 'bot-settings';
 };
 
 const SS_RESUME = 'swarm.resume';
@@ -143,11 +127,9 @@ export function applyTheme(t: Theme) {
 }
 
 const initialAppSection = initialSection();
-// Only an explicit link may uncover Settings when its Bot becomes available.
-let pendingBotSettingsLink = !initialAppSection && botSettingsLink() ? window.location.hash : null;
 
 export const useConfigUI = create<ConfigUI>((set, get) => ({
-  botSettings: initialAppSection ? null : linkedBotSettings(),
+  botSettings: null,
   botSettingsDrafts: {},
   botSettingsDirty: false,
   botSettingsLeave: null,
@@ -155,40 +137,31 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
   appSettings: initialAppSection,
   subscriptionProvider: null,
   resume: resumed,
-  appSettingsHome: false,
+  appSettingsHome: /^#settings\/?$/.test(window.location.hash),
   view: typeof window !== 'undefined' && linkedWork(window.location.hash) ? 'tasks' : 'chat',
   workRoute: (typeof window !== 'undefined' && linkedWork(window.location.hash)) || { tab: 'Tasks' },
+  detailsTab: 'activity', setupTab: 'responsibilities', detailsReports: false,
+  setDetailsTab: (tab, setup, reports) => {
+    const id = useStore.getState().selectedBotId;
+    if (id) navigation.navigate({ kind: 'details', bot: botReference(id), tab, ...(setup && setup !== 'responsibilities' ? { setup } : {}), ...(reports ? { reports } : {}) });
+  },
+  showSettingsList: () => {
+    const visit = [...navigation.trail].reverse().map(parseScreen);
+    const boundary = visit.findIndex(screen => screen?.kind !== 'settings');
+    if (visit.slice(0, boundary < 0 ? undefined : boundary).some(screen => screen?.kind === 'settings' && !screen.section))
+      navigation.back({ kind: 'settings' }, screen => screen.kind === 'settings' && !screen.section);
+    else navigation.navigate({ kind: 'settings' });
+  },
   theme: readTheme(),
   versions: {},
-  openBotSettings: (botId, tab = 'general') => {
-    pendingBotSettingsLink = null;
-    const open = () => {
-      if (get().appSettings) get().closeAppSettings();
-      // Keep a real list entry behind phone settings, including a reloaded deep link.
-      const store = useStore.getState();
-      const restoring = store.mobile && store.mobilePane === 'list' && linkedBotSettings()
-        && history.state?.swarmPane === 'chat' && history.state.swarmDoc === performance.timeOrigin;
-      if (restoring) store.set({ mobilePane: 'chat' });
-      else {
-        if (store.mobile && store.mobilePane === 'list' && linkedBotSettings()) replaceHash('');
-        enterChatPane();
-      }
-      // Every tab change replaces the URL, so one Settings visit leaves one history entry.
-      replaceHash(botSettingsHash(botId, tab));
-      set({ botSettings: { botId, tab } });
-    };
-    // Tabs of the same Bot keep the General draft; another Bot's settings would drop it.
-    if (get().botSettings && get().botSettings?.botId !== botId) get().requestLeaveBotSettings(open);
-    else open();
+  openBotSettings: (botId, tab = 'general') => navigation.navigate({ kind: 'bot-settings', bot: botReference(botId), tab }),
+  closeBotSettings: () => {
+    const bot = get().botSettings;
+    navigation.back(bot ? { kind: 'chat', bot: botReference(bot.botId) } : { kind: 'bots' }, screen => screen.kind !== 'bot-settings');
   },
-  closeBotSettings: () => { pendingBotSettingsLink = null; get().requestLeaveBotSettings(() => {
-    get().discardBotSettings();
-    if (useStore.getState().mobile) { set({ view: 'chat' }); backToList(); }
-  }); },
   discardBotSettings: () => {
-    pendingBotSettingsLink = null;
-    if (get().botSettings && !get().appSettings) replaceHash(get().view === 'tasks' ? workHash(get().workRoute) : '');
-    set({ botSettings: null, botSettingsDrafts: {}, botSettingsDirty: false, botSettingsLeave: null });
+    set({ botSettingsDrafts: {}, botSettingsDirty: false, botSettingsLeave: null });
+    if (get().botSettings) get().closeBotSettings();
   },
   setBotSettingsDraft: (id, label) => {
     const drafts = get().botSettingsDrafts;
@@ -198,13 +171,15 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
     set({ botSettingsDrafts: next, botSettingsDirty: Object.keys(next).length > 0 });
   },
   requestLeaveBotSettings: (next) => {
-    pendingBotSettingsLink = null;
     const state = get();
     if (!state.botSettings || !state.botSettingsDirty) { next(); return true; }
     // Show the question where it can be seen: over Settings, search or the apps dialog it would be hidden.
-    if (state.appSettings) state.closeAppSettings();
+    if (state.appSettings) set({ appSettings: null });
     const store = useStore.getState();
-    if (store.modal === 'search' || store.modal === 'apps') store.setModal(null);
+    if (store.modal === 'search' || store.modal === 'apps') {
+      if (navigation.screen?.kind === store.modal) store.setModal(null);
+      else useStore.setState({ modal: null });
+    }
     set({ botSettingsLeave: { next } });
     return false;
   },
@@ -215,43 +190,26 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
     pending?.next();
   },
   openAppSettings: (section, subscriptionProvider) => {
-    pendingBotSettingsLink = null;
-    const state = get();
-    const open = () => {
-      // Default entry points also name the visible section, including on phones.
-      replaceHash(`#settings/${section ?? 'general'}`);
-      set({ botSettings: null, botSettingsDrafts: {}, botSettingsDirty: false, botSettingsLeave: null,
-        appSettings: section ?? 'general', appSettingsHome: !section, subscriptionProvider: section === 'subscriptions' ? subscriptionProvider ?? null : null });
-    };
-    // A hash link may have changed the URL before the draft guard runs. Keep it on
-    // the Bot page until Discard completes the switch to app Settings.
-    if (!state.requestLeaveBotSettings(open) && state.botSettings) replaceHash(botSettingsHash(state.botSettings.botId, state.botSettings.tab));
+    const mobile = useStore.getState().mobile;
+    const current = navigation.screen;
+    const normalizeGeneral = !mobile && (section ?? 'general') === 'general' && current?.kind === 'settings' && !current.section;
+    navigation.navigate({ kind: 'settings', ...(section || !mobile ? { section: section ?? 'general' } : {}) }, normalizeGeneral ? 'replace' : 'push');
+    if (get().appSettings === 'subscriptions') set({ subscriptionProvider: subscriptionProvider ?? null });
   },
   closeAppSettings: () => {
-    pendingBotSettingsLink = null;
-    // Back on an open Bot settings page, the URL names that page again.
-    const bot = get().botSettings;
-    if (bot) replaceHash(botSettingsHash(bot.botId, bot.tab));
-    else if (get().view === 'tasks') replaceHash(workHash(get().workRoute));
-    else if (linkedSection()) replaceHash('');
-    set({ appSettings: null, appSettingsHome: false, subscriptionProvider: null });
+    if (get().appSettings) navigation.back(defaultScreen(), screen => screen.kind !== 'settings');
   },
   clearResume: () => set({ resume: null }),
   setView: (view) => {
-    pendingBotSettingsLink = null;
-    if (view === 'tasks') enterChatPane(); // phones: Tasks replaces the list, like a chat
-    set({ view });
-    if (!get().appSettings && !get().botSettings) {
-      if (view === 'tasks') replaceHash(workHash(get().workRoute));
-      else if (linkedWork(window.location.hash)) replaceHash('');
-    }
+    if (view === 'tasks') navigation.navigate({ kind: 'work', route: get().workRoute });
+    else if (view === 'bots') navigation.navigate({ kind: 'bots' });
+    else navigation.navigate(defaultScreen());
   },
   setWorkRoute: (workRoute) => {
-    pendingBotSettingsLink = null;
     const bot = workRoute.botSlug && routeBot(workRoute.botSlug, useStore.getState().bots);
     const route = bot ? { ...workRoute, botSlug: botSlug(bot) } : workRoute;
-    set({ workRoute: route });
-    if (get().view === 'tasks' && !get().appSettings && !get().botSettings) replaceHash(workHash(route));
+    if (get().view === 'tasks' && !get().appSettings && !get().botSettings) navigation.navigate({ kind: 'work', route });
+    else set({ workRoute: route });
   },
   setTheme: (theme) => {
     try { localStorage.setItem(LS_THEME, theme); } catch { /* ignore */ }
@@ -277,50 +235,124 @@ export function usePageTitle(title: string | null, layer = 0) {
   }, [title, layer]);
 }
 
-// Apply the saved theme as early as possible, and follow the OS while on "system".
-const restoreLinkedPage = () => {
-  pendingBotSettingsLink = null;
-  const section = linkedSection();
-  if (section) { useConfigUI.getState().openAppSettings(section); return; }
-  const bot = linkedBotSettings();
-  const ui = useConfigUI.getState();
-  const guarded = (next: () => void) => {
-    if (!ui.requestLeaveBotSettings(next) && ui.botSettings) replaceHash(botSettingsHash(ui.botSettings.botId, ui.botSettings.tab));
-  };
-  if (bot) {
-    // A deep link must uncover its destination, including any unsaved-draft guard.
-    const open = () => ui.openBotSettings(bot.botId, bot.tab);
-    if (ui.botSettings && ui.botSettings.botId !== bot.botId) guarded(open);
-    else open();
+function defaultScreen(): Screen {
+  const st = useStore.getState();
+  return !st.mobile && st.selectedBotId ? { kind: 'chat', bot: botReference(st.selectedBotId) } : { kind: 'bots' };
+}
+function outsideSurface(screen: Screen, other: Screen) {
+  if (screen.kind === 'settings') return other.kind !== 'settings';
+  if (screen.kind === 'bot-settings') return other.kind !== 'bot-settings';
+  if (screen.kind === 'create' || screen.kind === 'group') return other.kind !== 'create' && other.kind !== 'group';
+  if (screen.kind === 'work') return other.kind !== 'work';
+  return other.kind !== screen.kind;
+}
+export function returnScreen(screen = navigation.screen, trail = navigation.trail): Screen {
+  if (!screen) return defaultScreen();
+  for (const hash of [...trail].reverse()) {
+    const other = parseScreen(hash);
+    if (other && outsideSurface(screen, other)) return other;
+  }
+  if (screen.kind === 'bot-settings' || screen.kind === 'details') return { kind: 'chat', bot: screen.bot };
+  return defaultScreen();
+}
+export function returnLabel() {
+  const screen = returnScreen();
+  return `Back to ${screen.kind === 'work' ? 'tasks' : screen.kind === 'details' ? 'details' : screen.kind === 'bots' ? 'Bots' : screen.kind === 'create' ? 'create a Bot' : screen.kind === 'bot-settings' ? 'Bot settings' : screen.kind === 'settings' ? 'Settings' : 'chat'}`;
+}
+export function backFromWork() { navigation.back(defaultScreen(), screen => screen.kind !== 'work'); }
+
+export let detailsCaller: HTMLElement | null = null;
+
+function applyScreen(requested: Screen, normalize = true, trail = navigation.trail) {
+  const screen = resolveScreen(requested, useStore.getState().bots, useStore.getState().botsLoaded);
+  if (!screen) return; // the hash is the pending intent; a newer action replaces it
+  if ('bot' in requested && screen.kind === 'bots') useConfigUI.setState({ botSettingsDrafts: {}, botSettingsDirty: false, botSettingsLeave: null });
+  if (normalize && screenHash(screen) !== window.location.hash) { navigation.navigate(screen, 'replace'); return; }
+  const st = useStore.getState(), ui = useConfigUI.getState();
+  // Recover the underlying chat/details from the entry on reload, as well as while
+  // closing Settings. Keep Details mounted while Bot settings covers it.
+  const layered = ['settings', 'bot-settings', 'create', 'group', 'search', 'apps'].includes(screen.kind);
+  let base = screen;
+  if (layered) {
+    base = returnScreen(screen, trail);
+    if (['settings', 'bot-settings', 'create', 'group', 'search', 'apps'].includes(base.kind)) {
+      base = [...trail].reverse().map(parseScreen).find(value => value && ['chat', 'details', 'work', 'bots'].includes(value.kind)) ?? defaultScreen();
+    }
+    if (screen.kind === 'bot-settings' && (!('bot' in base) || base.bot !== screen.bot)) base = { kind: 'chat', bot: screen.bot };
+  }
+  const bot = 'bot' in base ? routeBot(base.bot, st.bots) : undefined;
+  if (bot && st.selectedBotId !== bot.id) st.selectBot(bot.id, { open: false });
+  if (base.kind === 'details' && !st.detailsOpen) detailsCaller = document.activeElement as HTMLElement | null;
+  const settingsBot = screen.kind === 'bot-settings' ? routeBot(screen.bot, st.bots) : undefined;
+  const keepDraft = settingsBot && settingsBot.id === ui.botSettings?.botId;
+  // Search overlays preserve every underlying surface. Only its own state changes.
+  if (screen.kind === 'search' || screen.kind === 'apps') {
+    const origin = trail.findLastIndex(hash => { const previous = parseScreen(hash); return previous && outsideSurface(screen, previous); });
+    applyScreen(returnScreen(screen, trail), false, origin < 0 ? [] : trail.slice(0, origin));
+    useStore.setState({ modal: screen.kind, viewerOpen: false });
     return;
   }
-  if (botSettingsLink()) { pendingBotSettingsLink = window.location.hash; return; }
-  const work = linkedWork(window.location.hash);
-  if (work) { guarded(() => {
-    ui.closeAppSettings(); ui.discardBotSettings();
-    // Back/Forward and address-bar hashes already created the destination entry.
-    // Mark the phone pane directly so setView does not push over Forward history.
-    if (useStore.getState().mobile) useStore.getState().set({ mobilePane: 'chat' });
-    ui.setWorkRoute(work); ui.setView('tasks');
-  }); return; }
-  if (!window.location.hash) guarded(() => {
-    ui.closeAppSettings(); ui.discardBotSettings(); ui.setView('chat');
+  useConfigUI.setState({
+    view: base.kind === 'work' ? 'tasks' : base.kind === 'bots' ? 'bots' : 'chat',
+    ...(base.kind === 'work' ? { workRoute: base.route } : {}),
+    ...(base.kind === 'details' ? { detailsTab: base.tab, setupTab: base.setup ?? 'responsibilities', detailsReports: !!base.reports } : {}),
+    appSettings: screen.kind === 'settings' ? screen.section ?? 'general' : null,
+    appSettingsHome: screen.kind === 'settings' && !screen.section,
+    subscriptionProvider: screen.kind === 'settings' && screen.section === 'subscriptions' ? ui.subscriptionProvider : null,
+    botSettings: settingsBot && screen.kind === 'bot-settings' ? { botId: settingsBot.id, tab: screen.tab } : null,
+    ...(!keepDraft ? { botSettingsDrafts: {}, botSettingsDirty: false, botSettingsLeave: null } : {}),
   });
+  useStore.setState({ modal: screen.kind === 'create' || screen.kind === 'group' ? screen.kind : null,
+    detailsOpen: base.kind === 'details', mobilePane: base.kind === 'bots' ? 'list' : 'chat' });
+}
+
+export const navigation = new ScreenHistory(window, () => useStore.getState().user?.id ?? '', applyScreen, (screen, proceed) => {
+  const ui = useConfigUI.getState();
+  const sameBot = screen.kind === 'bot-settings' && routeBot(screen.bot, useStore.getState().bots)?.id === ui.botSettings?.botId;
+  const keepsDrafts = sameBot && (screen.tab === ui.botSettings?.tab || Object.keys(ui.botSettingsDrafts).every(id => id === 'general'));
+  if (screen.kind === 'search' || screen.kind === 'apps' || keepsDrafts) { proceed(); return true; }
+  return ui.requestLeaveBotSettings(proceed);
+});
+navigationActions.chat = (id, replace) => {
+  const st = useStore.getState();
+  const bot = botReference(id);
+  navigation.navigate(!st.mobile && readDetailsDefault(st.user?.id) ? { kind: 'details', bot, tab: 'activity' } : { kind: 'chat', bot }, replace ? 'replace' : 'push');
 };
-window.addEventListener('hashchange', restoreLinkedPage);
+navigationActions.details = open => {
+  const st = useStore.getState();
+  if (!st.selectedBotId) return;
+  const bot = botReference(st.selectedBotId);
+  if (open) navigation.navigate({ kind: 'details', bot, tab: 'activity' });
+  else navigation.back({ kind: 'chat', bot }, screen => screen.kind === 'chat' && screen.bot === bot);
+};
+navigationActions.list = () => navigation.back({ kind: 'bots' }, screen => screen.kind === 'bots');
+navigationActions.modal = modal => {
+  if (modal === 'create' && useStore.getState().modal === 'group') navigation.back({ kind: 'create' }, screen => screen.kind === 'create');
+  else if (modal) navigation.navigate({ kind: modal });
+  else if (useStore.getState().modal) {
+    const current = navigation.screen;
+    navigation.back(defaultScreen(), screen => !current || outsideSurface(current, screen));
+  }
+};
+window.addEventListener('popstate', navigation.restore);
+window.addEventListener('hashchange', navigation.restore);
+let navigationAccount: string | undefined;
 useStore.subscribe((state, previous) => {
   if (previous.user && state.user?.id !== previous.user.id) {
-    pendingBotSettingsLink = null;
-    if (linkedWork(window.location.hash) || /^#bot\//.test(window.location.hash)) replaceHash('');
+    navigation.reset(); navigationAccount = undefined;
     useConfigUI.setState({ workRoute: { tab: 'Tasks' }, view: 'chat', botSettings: null, botSettingsDrafts: {}, botSettingsDirty: false, botSettingsLeave: null });
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
     return;
   }
-  if (state.bots !== previous.bots) {
-    const bot = linkedBotSettings();
-    if (bot && pendingBotSettingsLink === window.location.hash) restoreLinkedPage();
-    else if (bot && useConfigUI.getState().botSettings?.botId === bot.botId) useConfigUI.getState().openBotSettings(bot.botId, bot.tab);
-    const work = linkedWork(window.location.hash);
-    if (work) useConfigUI.getState().setWorkRoute(work);
+  if (!state.user || !state.botsLoaded) return;
+  if (navigationAccount !== state.user.id) {
+    navigationAccount = state.user.id;
+    const settings = useConfigUI.getState().appSettings;
+    const fallback: Screen = settings ? { kind: 'settings', section: settings } : defaultScreen();
+    navigation.initialize(fallback.kind === 'chat' && readDetailsDefault(state.user.id) ? { kind: 'details', bot: fallback.bot, tab: 'activity' } : fallback);
+  } else if (state.bots !== previous.bots) {
+    const screen = navigation.screen;
+    if (screen) applyScreen(screen);
   }
 });
 applyTheme(readTheme());
@@ -361,16 +393,7 @@ useStore.subscribe((s, prev) => {
 export const useVersion = (key: string) => useConfigUI((s) => s.versions[key] ?? 0);
 
 /** Canonical navigation from global bot lists/search: close panels from the previous caller. */
-export function openConversation(botId: string) {
-  useConfigUI.getState().requestLeaveBotSettings(() => {
-    const ui = useConfigUI.getState();
-    ui.closeAppSettings();
-    ui.discardBotSettings();
-    ui.setView('chat');
-    useStore.getState().setModal(null);
-    useStore.getState().selectBot(botId);
-  });
-}
+export function openConversation(botId: string) { navigationActions.chat?.(botId); }
 
 /** Registers an unsaved Bot settings draft while `dirty` (R2F-004). `label` names its tab in the dialog. */
 export function useBotSettingsDraft(id: string, label: string, dirty: boolean) {

@@ -1,3 +1,4 @@
+import { useConfigUI } from '../../configStore';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import '@fontsource-variable/instrument-sans/wght.css';
 import '../../styles/agent-configuration.css';
@@ -57,7 +58,8 @@ function SetupConfiguration({ bot, navigation, userId }: { bot: Bot; navigation?
   const [downloadError, setDownloadError] = useState('');
   const [downloading, setDownloading] = useState(false);
   const [refresh, setRefresh] = useState(0);
-  const [tab, setTab] = useState<'responsibilities' | 'harness' | 'files' | 'history'>('responsibilities');
+  const tab = useConfigUI(state => state.setupTab);
+  const setTab = (tab: 'responsibilities' | 'harness' | 'files' | 'history') => useConfigUI.getState().setDetailsTab('configuration', tab);
   const [selectedFile, setSelectedFile] = useState('AGENTS.md');
   const fileList = useRef<HTMLDivElement>(null);
   const fileReader = useRef<HTMLElement>(null);

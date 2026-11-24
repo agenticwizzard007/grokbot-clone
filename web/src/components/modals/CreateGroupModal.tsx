@@ -58,14 +58,7 @@ export function CreateGroupModal({ inline = false }: { inline?: boolean } = {}) 
     } catch (failure) { if (current()) setError(`${id ? 'Group created. Could not open it yet: ' : ''}${(failure as Error).message}`); }
     finally { submitting.current = false; if (current()) setBusy(false); }
   };
-  const cancel = () => {
-    if (submitting.current) return;
-    close();
-    if (!useStore.getState().mobile) {
-      useConfigUI.getState().setView('bots');
-      useStore.getState().set({ detailsOpen: false });
-    }
-  };
+  const cancel = close;
   const content = <>
     <header className="setup-paper__bar">
       <button type="button" className="setup-paper__back" onClick={() => { if (!submitting.current) setModal('create'); }} disabled={busy}><Icon name="chev_left" size={16} />Back to create a Bot</button>

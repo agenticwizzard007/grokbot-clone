@@ -13,7 +13,7 @@ import { ModelPicker, refreshModels } from './ModelPicker';
 import { LearningSettingsPanel } from './LearningSettings';
 import { UsageSection } from './UsageSection';
 import { relativeShort } from '../../lib/time';
-import { openConversation, useConfigUI, usePageTitle, useVersion, type AppSection, type Theme } from '../../configStore';
+import { openConversation, returnLabel, useConfigUI, usePageTitle, useVersion, type AppSection, type Theme } from '../../configStore';
 import { useStore } from '../../store';
 import { computerStatusText } from './computerStatus';
 import { ConfirmButton, Segmented, Switch } from './ui';
@@ -75,7 +75,8 @@ export function AppSettings() {
   const close = useConfigUI((s) => s.closeAppSettings);
   const open = useConfigUI((s) => s.openAppSettings);
   const collapsed = useStore((s) => s.sidebarCollapsed);
-  const view = useConfigUI(s => s.view);
+  const backTitle = returnLabel();
+  const showListRoute = () => useConfigUI.getState().showSettingsList();
   const compact = useCompactLayout();
   const [listView, setListView] = useState(home);
   const [query, setQuery] = useState('');
@@ -99,7 +100,7 @@ export function AppSettings() {
       e.preventDefault();
       const st = state.current;
       if (st.query && (e.target as HTMLElement | null)?.closest?.('.settings-search')) setQuery('');
-      else if (st.compact && !st.listView) setListView(true);
+      else if (st.compact && !st.listView) showListRoute();
       else close();
     };
     window.addEventListener('keydown', k);
@@ -132,9 +133,11 @@ export function AppSettings() {
   };
 
   const nav = collapsed && desktopSlot ? <nav className="access-nav access-nav--collapsed" aria-label="Settings sidebar">
+    <button type="button" className="access-settings__back" aria-label={backTitle} title={backTitle} onClick={close}><ChevronLeft size={18} aria-hidden /></button>
     <button type="button" className="access-nav__expand" aria-label="Expand sidebar to browse settings" title="Expand sidebar to browse settings" onClick={() => useStore.getState().set({ sidebarCollapsed: false })}><PanelLeftOpen size={20} aria-hidden /></button>
   </nav> : (
     <nav className={`settings-nav access-nav${compact ? ' access-nav--phone' : ''}`} aria-label="Settings sections" onKeyDown={arrows}>
+      {!compact && <button type="button" className="access-settings__back settings-nav__back" onClick={close}><ChevronLeft size={18} aria-hidden /><span>{backTitle}</span></button>}
       {compact ? <PageHead title={q ? 'Search settings' : 'Settings'} sub="Manage your Swarm workspace." /> : <h2 className="settings-nav__title">Settings</h2>}
       <label className="settings-search">
         <Search size={18} strokeWidth={1.75} aria-hidden />
@@ -157,14 +160,13 @@ export function AppSettings() {
   );
 
   const showList = compact && listView;
-  const backTitle = `Back to ${view === 'chat' ? 'chat' : view === 'bots' ? 'Bots' : 'tasks'}`;
   return <>
     {desktopSlot && createPortal(nav, desktopSlot)}
     {createPortal(<div className={`app-settings access-settings${appRoot ? ' access-settings--in-shell' : ''}${showList ? ' is-list' : ''}`} role={appRoot ? 'region' : 'dialog'} aria-modal={appRoot ? undefined : true} aria-label="Settings">
       {!compact && !desktopSlot && <aside className="app-settings__nav">{nav}</aside>}
       <div className="app-settings__main" ref={main}>
         <header className="access-settings__bar" tabIndex={-1} ref={heading}>
-          <button type="button" className="access-settings__back" onClick={compact && !showList ? () => setListView(true) : close} aria-label={compact ? (showList ? 'Back to Bots' : 'Back to Settings') : backTitle}>
+          <button type="button" className="access-settings__back" onClick={compact && !showList ? showListRoute : close} aria-label={compact ? (showList ? backTitle : 'Back to Settings') : backTitle}>
             <ChevronLeft size={18} strokeWidth={1.75} aria-hidden />{!compact && <span>{backTitle}</span>}
           </button>
           <span className="access-settings__bar-title">{compact && <SwarmMark size={24} />}{showList ? 'Settings' : sectionLabel}</span>

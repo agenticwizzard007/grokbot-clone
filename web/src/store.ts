@@ -5,6 +5,7 @@ import { api, INITIAL_ROW_PAGE_SIZE, ROW_PAGE_SIZE } from './lib/api';
 import { noteRowsEvent } from './lib/sseWatchdog';
 import { readDetailsDefault } from './lib/detailsDefault';
 import { requireActiveSession, sessionExpired } from './lib/session';
+import { navigationActions } from './lib/navigation';
 
 export type ModalKind = 'create' | 'search' | 'apps' | 'group' | null;
 
@@ -65,7 +66,7 @@ interface State {
   checkAuth(): Promise<void>;
   loadBots(opts?: { silent?: boolean }): Promise<void>;
   /** Select a Bot. `open: false` selects without navigating (phones stay on the list). */
-  selectBot(id: string, opts?: { open?: boolean }): void;
+  selectBot(id: string, opts?: { open?: boolean; replace?: boolean }): void;
   loadRows(id: string, opts?: { resync?: boolean }): Promise<void>;
   loadOlderRows(id: string): Promise<void>;
   ensureRowLoaded(id: string, generation: number, seq: number): Promise<boolean>;
@@ -83,17 +84,6 @@ let accountEpoch = 0;
 let rosterRequest = 0;
 const rowRequests = new Map<string, number>();
 const olderRequests = new Map<string, Promise<void>>();
-
-type InlineSetup = 'create' | 'group';
-type SetupHistory = { page: InlineSetup; depth: 1 | 2; accountId: string; documentStart: number };
-const isInlineSetup = (modal: ModalKind): modal is InlineSetup => modal === 'create' || modal === 'group';
-let setupTraversal: 'back' | 'close' | undefined;
-
-function setupEntry(accountId: string | undefined): SetupHistory | undefined {
-  const entry = history.state?.swarmSetup as SetupHistory | undefined;
-  return accountId && entry?.accountId === accountId && entry.documentStart === performance.timeOrigin
-    && isInlineSetup(entry.page) && (entry.depth === 1 || entry.depth === 2) ? entry : undefined;
-}
 
 /** Same breakpoints as styles/mobile.css. */
 export const PHONE_QUERY = '(max-width: 760px)';
@@ -184,16 +174,16 @@ export const useStore = create<State>((set, get) => ({
       // A link from a Bot ("solve this on my screen"): open that Bot's screen, ready to take control.
       const linked = new URLSearchParams(location.search).get('screen');
       if (linked && bots.some((b) => b.id === linked)) {
-        history.replaceState(null, '', location.pathname);
-        get().selectBot(linked);
+        history.replaceState(history.state, '', location.pathname + location.hash);
+        get().selectBot(linked, { replace: true });
         set({ viewerOpen: true, viewerControl: true });
         return;
       }
       if (selectedBotId !== sel || !get().transcripts[selectedBotId ?? '']) {
-        if (selectedBotId) get().selectBot(selectedBotId, { open: false });
+        if (get().selectedBotId) get().selectBot(get().selectedBotId!, { open: false });
       }
       // R2F-015: the chat restored after a reload follows "Open Bot details with each chat" too (never on phones).
-      if (firstLoad && selectedBotId && !get().mobile && readDetailsDefault(accountId)) set({ detailsOpen: true });
+      if (firstLoad && !location.hash && selectedBotId && !get().mobile && readDetailsDefault(accountId)) set({ detailsOpen: true });
     } catch {
       requireActiveSession();
       if (current() && !opts.silent) set({ botsError: "Couldn't load your Bots. Check your connection and try again." });
@@ -203,6 +193,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   selectBot(id, opts = {}) {
+    if (opts.open !== false && navigationActions.chat) { navigationActions.chat(id, opts.replace); return; }
     if (opts.open !== false) enterChatPane();
     // Bot details follow the saved "Open Bot details with each chat" preference (never on phones).
     set({ selectedBotId: id, ...(opts.open !== false ? { detailsOpen: !get().mobile && readDetailsDefault(get().user?.id) } : {}) });
@@ -435,27 +426,17 @@ export const useStore = create<State>((set, get) => ({
   },
 
   setModal(modal) {
-    const state = get();
-    const accountId = state.user?.id;
-    const entry = setupEntry(accountId);
-    if (setupTraversal === 'back') return;
-    if (isInlineSetup(modal) && state.mobile && accountId && !setupTraversal) {
-      if (entry?.page === modal) { set({ modal }); return; }
-      if (entry?.page === 'group' && entry.depth === 2 && modal === 'create') { setupTraversal = 'back'; history.back(); return; }
-      const setup: SetupHistory = { page: modal, depth: entry?.page === 'create' ? 2 : 1, accountId, documentStart: performance.timeOrigin };
-      const next = { ...history.state, swarmSetup: setup };
-      if (entry && setup.depth === 1) history.replaceState(next, '');
-      else history.pushState(next, '');
-    } else if (!isInlineSetup(modal) && isInlineSetup(state.modal) && entry && !setupTraversal) {
-      setupTraversal = 'close';
-      history.go(-entry.depth);
-    }
+    if (navigationActions.modal) { navigationActions.modal(modal); return; }
     // Search replaces the fullscreen viewer so its inert background cannot cover the dialog.
     set({ modal, ...(modal === 'search' ? { viewerOpen: false } : {}) });
   },
 
   set(p) {
     if (p.sidebarCollapsed !== undefined) lsSet(LS_SIDEBAR, p.sidebarCollapsed ? '1' : '0');
+    if (!Object.hasOwn(p, 'user') && p.detailsOpen !== undefined && p.detailsOpen !== get().detailsOpen && navigationActions.details) {
+      const { detailsOpen, ...rest } = p;
+      set(rest); navigationActions.details(detailsOpen); return;
+    }
     set(p);
   },
 }));
@@ -491,51 +472,11 @@ function syncBrowserTimezone(user: User | null) {
   }).catch(() => { /* try again next boot */ });
 }
 
-/** Phones: opening a chat (or Tasks) is a navigation, so the system back gesture returns to the list. */
-export function enterChatPane() {
-  const st = useStore.getState();
-  if (!st.mobile || st.mobilePane === 'chat') return;
-  // R2F-007: mark the entry as opened from the list, so Back may only walk history when the list is behind it.
-  if (setupTraversal !== 'close') history.pushState({ swarmPane: 'chat', swarmFrom: 'list', swarmDoc: performance.timeOrigin }, '');
-  st.set({ mobilePane: 'chat' });
-}
-
-/** The page shell resets its own view (Tasks, Goals, Reports) when the phone returns to the list. */
-const listListeners = new Set<() => void>();
-export function onReturnToList(listener: () => void): () => void {
-  listListeners.add(listener);
-  return () => { listListeners.delete(listener); };
-}
-export function showPhoneList() {
-  useStore.getState().set({ mobilePane: 'list', detailsOpen: false });
-  listListeners.forEach(listener => listener());
-}
-
-export function restorePhoneSetup() {
-  const st = useStore.getState();
-  const traversal = setupTraversal;
-  setupTraversal = undefined;
-  if (traversal === 'close') {
-    if (st.mobile && st.mobilePane === 'chat' && history.state?.swarmPane !== 'chat') history.pushState({ swarmPane: 'chat' }, '');
-    if (isInlineSetup(st.modal) && st.mobile) st.setModal(st.modal);
-    return true;
-  }
-  if (!st.mobile && !traversal) return false;
-  const entry = setupEntry(st.user?.id);
-  if (!entry && !isInlineSetup(st.modal)) return false;
-  st.set({ modal: entry?.page ?? null, ...(st.mobile ? { mobilePane: history.state?.swarmPane === 'chat' ? 'chat' : 'list' } : {}) });
-  return true;
-}
-
-/** Phones: leave a chat (or Tasks) for the Bot list, as the system back gesture would. */
+/** Pane changes are presentation only; screen history is shared at every width. */
+export function enterChatPane() { useStore.setState({ mobilePane: 'chat' }); }
 export function backToList() {
-  const state = history.state as { swarmPane?: string; swarmFrom?: string; swarmDoc?: number; swarmSetup?: unknown } | null;
-  // R2F-007: history.back() only when the entry behind this one is known to be the list. Any other entry
-  // (Goals, Settings, an older chat) would be shown instead, so otherwise switch panes and drop the marker.
-  const listBehind = !setupTraversal && state?.swarmPane === 'chat' && state.swarmFrom === 'list' && state.swarmDoc === performance.timeOrigin && !state.swarmSetup;
-  showPhoneList();
-  if (listBehind) history.back();
-  else if (!setupTraversal && state?.swarmPane === 'chat') history.replaceState({ ...state, swarmPane: undefined, swarmFrom: undefined }, '');
+  if (navigationActions.list) navigationActions.list();
+  else useStore.setState({ mobilePane: 'list', detailsOpen: false });
 }
 
 /** Rows for a bot, ordered by seq. */

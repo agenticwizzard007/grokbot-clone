@@ -128,7 +128,7 @@ try {
         const ui = (await import('/src/configStore.ts')).useConfigUI.getState();
         return { section: ui.appSettings, bot: ui.botSettings, hash: location.hash };
       });
-      assert.deepEqual(state, { section, bot: null, hash: `#settings/${section}` });
+      assert.deepEqual(state, { section, bot: null, hash: width === 390 && section === 'general' ? '#settings' : `#settings/${section}` });
     };
     const openApp = async (provider = null) => {
       if (provider) await page.evaluate(async selected => {
@@ -139,7 +139,7 @@ try {
     };
     const destination = async (target, tab) => {
       await appSettings.waitFor({ state: 'detached' });
-      await botSettings.getByRole('heading', { name: `${target.name} · ${tab[0].toUpperCase()}${tab.slice(1)}`, exact: true }).waitFor();
+      await botSettings.getByRole('heading', { name: target.name, exact: true }).waitFor();
       const active = botSettings.getByRole('navigation', { name: 'Bot settings sections' }).locator('[aria-current]');
       assert.equal(await active.innerText(), tab[0].toUpperCase() + tab.slice(1));
       assert.equal(await page.locator('.main-pane').getAttribute('hidden'), null);
@@ -276,13 +276,15 @@ try {
       await hashLink(rawLink(other, 'memories'));
       await destination(other, 'memories');
 
-      // Returning from the destination still restores the ordinary phone Bot list.
+      // Closing returns to the originating Settings list; explicit list navigation still works.
       if (width === 390) {
-        await botSettings.getByRole('button', { name: 'Back to Bots', exact: true }).click();
+        await botSettings.getByRole('button', { name: 'Back to Settings', exact: true }).click();
+        await appSettings.waitFor({ state: 'visible' });
+        await page.evaluate(async () => (await import('/src/configStore.ts')).useConfigUI.getState().setView('bots'));
         await page.locator('.app.is-mobile.pane-list').waitFor();
         await botSettings.waitFor({ state: 'detached' });
         await appSettings.waitFor({ state: 'detached' });
-        await page.waitForFunction(() => location.hash === '');
+        await page.waitForFunction(() => location.hash === '#bots');
       }
 
       // Keep the held HTTP response as the only source of the initial roster.
@@ -311,7 +313,7 @@ try {
             await page.keyboard.press('Control+,');
             await page.waitForFunction(async () => {
               const ui = (await import('/src/configStore.ts')).useConfigUI.getState();
-              return ui.appSettings === 'general' && ui.botSettings === null && location.hash === '#settings/general';
+              return ui.appSettings === 'general' && ui.botSettings === null && location.hash === ((await import('/src/store.ts')).useStore.getState().mobile ? '#settings' : '#settings/general');
             });
             await botSettings.waitFor({ state: 'detached' });
             if (entry) await appDestination();

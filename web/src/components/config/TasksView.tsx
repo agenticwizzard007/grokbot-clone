@@ -1,13 +1,13 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, Menu, RefreshCw } from 'lucide-react';
-import { useConfigUI, usePageTitle } from '../../configStore';
+import { backFromWork, returnLabel, useConfigUI, usePageTitle } from '../../configStore';
 import { botSlug, routeBot, type WorkTab } from '../../lib/userRoutes';
 import { backToList, useStore } from '../../store';
 import { RosterFeedback } from '../LoadFeedback';
 import { TeamBoard } from './TeamBoard';
 import { WorkflowsPanel } from './WorkflowsPanel';
 import { WorkReports } from './WorkReports';
-import { openWorkChat, workBotKey } from './workScope';
+import { workBotKey } from './workScope';
 import { useNeedsYou, useTasks } from './taskData';
 import { AttentionStatus, NeedsYouCard, TaskCard, TaskError, sortTasks, STATES, STATUS, workContext, setWorkContext, type Filter, type WorkContext } from './TaskCards';
 
@@ -33,7 +33,7 @@ function WorkWorkspace() {
   const route = useConfigUI(s => s.workRoute);
   const tab = route.tab;
   const botFilter = route.botSlug ? routeBot(route.botSlug, bots)?.id ?? 'unavailable' : undefined;
-  const { filter, caller } = context;
+  const { filter } = context;
   const updateContext = (patch: Partial<WorkContext> & { tab?: WorkTab; botId?: string }) => {
     const bot = bots.find(bot => bot.id === patch.botId);
     useConfigUI.getState().setWorkRoute({ tab: patch.tab ?? tab, botSlug: 'botId' in patch ? bot && botSlug(bot) : route.botSlug });
@@ -69,13 +69,13 @@ function WorkWorkspace() {
 
   return (
     <main className="chat tasks-view" aria-labelledby="tasks-heading">
-      {(mobile || caller) && <header className="tasks-view__header">
+      <header className="tasks-view__header">
         {/* R2F-029: on wide screens the "Back to chat" text is part of the button, so clicking it works. */}
-        <button type="button" className={mobile ? 'icon-btn' : 'tasks-view__back'} onClick={() => { if (caller && bots.some(bot => bot.id === caller)) openWorkChat(caller); else { useConfigUI.getState().setView('chat'); if (mobile) backToList(); } }} aria-label={caller ? 'Back to chat' : 'All Bots'}><ChevronLeft size={20} aria-hidden />{!mobile && <span>Back to chat</span>}</button>
+        <button type="button" className={mobile ? 'icon-btn' : 'tasks-view__back'} onClick={backFromWork} aria-label={returnLabel()}><ChevronLeft size={20} aria-hidden />{!mobile && <span>{returnLabel()}</span>}</button>
         {mobile && <span className="tasks-view__flock" aria-hidden />}
         {mobile && <span>{heading?.detail ? 'Saved reports' : title}</span>}
-        {mobile && <button type="button" className="icon-btn" aria-label="Bot list" onClick={() => { useConfigUI.getState().setView('chat'); backToList(); }}><Menu size={18} aria-hidden /></button>}
-      </header>}
+        {mobile && <button type="button" className="icon-btn" aria-label="Bot list" onClick={backToList}><Menu size={18} aria-hidden /></button>}
+      </header>
       <div className="tasks-view__scroll" ref={scroll}>
         <div className="tasks-view__inner work-ui">
           <div className="work-heading"><h1 id="tasks-heading" ref={pageHeading} tabIndex={-1}>{title === tab ? `${scope}${title}` : title}</h1>

@@ -17,6 +17,18 @@ export function App() {
   useEffect(installOverlayScrollbars, []);
   useEffect(() => { consumeSignedInRedirect(); useStore.getState().checkAuth(); }, []);
   useEffect(() => {
+    // A revoked session may traverse old app entries, but cannot restore a
+    // private route. Leave untagged entry links and auth callback hashes intact.
+    const clearExpiredRoute = () => {
+      const state = useStore.getState();
+      if (!state.authChecked || state.user || !history.state?.swarmNavigation) return;
+      const { swarmNavigation: _expired, ...rest } = history.state;
+      history.replaceState(rest, '', location.pathname + location.search);
+    };
+    window.addEventListener('popstate', clearExpiredRoute);
+    return () => window.removeEventListener('popstate', clearExpiredRoute);
+  }, []);
+  useEffect(() => {
     if (!user) return;
     // Start while the shell/Bot list loads, before a chat or Settings is opened.
     void import('./lib/models').then(({ useModels }) => {

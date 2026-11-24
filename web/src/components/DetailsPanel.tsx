@@ -7,7 +7,7 @@ import { displayName, useSelectedBot, useStore } from '../store';
 import { SetupPaperHeader } from './SetupPaperHeader';
 import { VoiceSettings } from './VoiceSettings';
 import { MembersCard } from './MembersCard';
-import { useConfigUI } from '../configStore';
+import { detailsCaller, useConfigUI } from '../configStore';
 import { LibraryTab } from './config/LibraryTab';
 import { DeliverablesPanel } from './config/DeliverablesPanel';
 import { BotTasks } from './config/TaskCards';
@@ -96,9 +96,14 @@ function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
   const returnFocus = useRef<HTMLElement | null>(null);
   const routines = useStore(state => state.routines[bot.id]);
   const live = userFacingLive(useStore(state => state.live[bot.id]));
-  const [tab, setTab] = useState<DetailTab>(() => hasImportedSetup(userId, bot.id) ? 'configuration' : 'activity');
-  const [reports, setReports] = useState(false);
-  useEffect(() => { clearImportedSetup(userId, bot.id); }, [userId, bot.id]);
+  const tab = useConfigUI(state => state.detailsTab);
+  const reports = useConfigUI(state => state.detailsReports);
+  const setTab = (tab: DetailTab) => useConfigUI.getState().setDetailsTab(tab);
+  const setReports = (reports: boolean) => useConfigUI.getState().setDetailsTab('library', undefined, reports);
+  useEffect(() => {
+    if (hasImportedSetup(userId, bot.id)) useConfigUI.getState().setDetailsTab('configuration');
+    clearImportedSetup(userId, bot.id);
+  }, [userId, bot.id]);
   const close = () => {
     useStore.getState().set({ detailsOpen: false });
     requestAnimationFrame(() => {
@@ -111,11 +116,16 @@ function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
   };
   useLayoutEffect(() => {
     const element = panel.current;
-    const previous = document.activeElement as HTMLElement | null;
+    const previous = detailsCaller && detailsCaller !== document.body ? detailsCaller : document.querySelector<HTMLElement>('.chat__bot-details');
     returnFocus.current = previous;
     element?.querySelector<HTMLButtonElement>('.setup-paper__close')?.focus({ preventScroll: true });
     return () => {
-      if (element?.contains(document.activeElement) && previous?.isConnected && previous.getClientRects().length) previous.focus({ preventScroll: true });
+      // History traversal is asynchronous. Wait until the chat is visible and
+      // its inert state has been removed before returning keyboard focus.
+      requestAnimationFrame(() => {
+        if (useStore.getState().detailsOpen || useStore.getState().modal || useConfigUI.getState().appSettings || useConfigUI.getState().botSettings) return;
+        if (previous?.isConnected && previous.getClientRects().length && !previous.closest('[inert], [hidden]')) previous.focus({ preventScroll: true });
+      });
     };
   }, []);
   useEffect(() => {
@@ -132,7 +142,7 @@ function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
   const label = reports ? 'Saved reports' : sections.find(section => section.id === tab)?.label;
   const navigation = <nav className="setup-paper__tabs details-page__tabs" aria-label="Conversation details sections">
     {sections.filter(section => bot.kind !== 'room' || section.id !== 'configuration').map(section =>
-      <button key={section.id} type="button" aria-current={tab === section.id || undefined} onClick={() => { setTab(section.id); setReports(false); }}>{section.label}</button>)}
+      <button key={section.id} type="button" aria-current={tab === section.id || undefined} onClick={() => { setTab(section.id); }}>{section.label}</button>)}
   </nav>;
   return <aside id="bot-details" ref={panel} className={`details details--page details--sidebar setup-paper${tab === 'configuration' ? ' details--configuration' : ''}`} aria-label="Conversation details">
     <SetupPaperHeader backLabel={reports ? 'Back to files' : 'Back to chat'} title={label} onBack={reports ? () => setReports(false) : close} onClose={close} closeLabel="Close details" />

@@ -1,18 +1,17 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { TasksLoader, preloadTasks } from './components/TasksLoader';
 import { startEvents } from './lib/events';
-import { onReturnToList, PHONE_QUERY, restorePhoneSetup, showPhoneList, useStore } from './store';
+import { PHONE_QUERY, useStore } from './store';
 import { RosterFeedback } from './components/LoadFeedback';
 import { ChatSkeleton } from './components/ChatSkeleton';
 import { Sidebar } from './components/Sidebar';
 import { SignedInAuthFeedback } from './components/SignedInAuthFeedback';
-import { botSettingsHash, hasSettingsLink, useConfigUI } from './configStore';
+import { useConfigUI } from './configStore';
 import { installVoiceShortcut } from './voice/shortcut';
 import { hasOpenModal } from './components/modals/Modal';
 import { ToastPortal } from './lib/toast';
 import { ConfirmPortal } from './lib/confirmDialog';
 import { isNewBotShortcut } from './lib/shortcuts';
-import { linkedWork } from './lib/userRoutes';
 
 import './styles/shell.css';
 import './styles/chat.css';
@@ -60,42 +59,12 @@ function Shell() {
       const st = useStore.getState();
       // R2F-007: also called on resize (device emulation can skip the media query event); only act on a real change.
       if (st.mobile === mq.matches) return;
-      st.set({ mobile: mq.matches, ...(mq.matches ? {} : { mobilePane: 'list' as const }) });
-      if (mq.matches && (st.modal === 'create' || st.modal === 'group')) st.setModal(st.modal);
+      st.set({ mobile: mq.matches });
     };
-    const onPop = () => {
-      if (restorePhoneSetup()) return;
-      const st = useStore.getState();
-      if (!st.mobile || st.mobilePane !== 'chat') return;
-      // Hash navigation already has a history entry. Let the route handler restore
-      // work or settings, including its draft guard, before handling a list return.
-      if (linkedWork(window.location.hash) || hasSettingsLink()) return;
-      const config = useConfigUI.getState();
-      if (config.botSettings && !config.appSettings) {
-        if (config.botSettingsDirty) {
-          // Keep editing must retain an in-app Back destination after the browser has popped it.
-          history.pushState({ swarmPane: 'chat', swarmFrom: 'list', swarmDoc: performance.timeOrigin }, '', botSettingsHash(config.botSettings.botId, config.botSettings.tab));
-          config.closeBotSettings();
-        } else { config.discardBotSettings(); showPhoneList(); }
-        return;
-      }
-      showPhoneList();
-    };
-    // Back to the list always lands on the chat view underneath, never on Tasks or Goals.
-    const stopList = onReturnToList(() => { if (useConfigUI.getState().view !== 'chat') useConfigUI.getState().setView('chat'); });
     mq.addEventListener('change', onChange);
     window.addEventListener('resize', onChange);
-    window.addEventListener('popstate', onPop);
-    return () => { stopList(); mq.removeEventListener('change', onChange); window.removeEventListener('resize', onChange); window.removeEventListener('popstate', onPop); };
+    return () => { mq.removeEventListener('change', onChange); window.removeEventListener('resize', onChange); };
   }, []);
-  // Entering phone width starts from the conversation; setup can be opened as its own page.
-  useEffect(() => {
-    if (mobile) useStore.getState().set({ detailsOpen: false });
-  }, [mobile]);
-  useEffect(() => {
-    if (mobile && botSettings) useConfigUI.getState().openBotSettings(botSettings.botId, botSettings.tab);
-  }, [mobile, botSettings?.botId, botSettings?.tab]);
-
   useEffect(() => {
     const st = useStore.getState();
     st.loadBots().catch(console.error);
@@ -121,7 +90,7 @@ function Shell() {
       const st = useStore.getState();
       if (isNewBotShortcut(e)) {
         if (st.modal === 'search' || st.modal === 'apps' || hasOpenModal()) return;
-        e.preventDefault(); useConfigUI.getState().requestLeaveBotSettings(() => { useConfigUI.getState().closeAppSettings(); useConfigUI.getState().discardBotSettings(); st.setModal('create'); });
+        e.preventDefault(); useConfigUI.getState().requestLeaveBotSettings(() => { st.setModal('create'); });
         return;
       }
       const mod = e.metaKey || e.ctrlKey;

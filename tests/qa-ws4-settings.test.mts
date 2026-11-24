@@ -1,6 +1,7 @@
 // WS4 QA fixes: settings hash sync, details default preference, goal status labels and small settings helpers.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { browserHistory } from './fixtures/browser-history.mts';
 
 // Minimal browser globals so the web stores load under node (no DOM, no network).
 const storage = new Map<string, string>();
@@ -12,31 +13,19 @@ const memoryStorage = {
   key: (i: number) => [...storage.keys()][i] ?? null,
   get length() { return storage.size; },
 };
-const location = { hash: '#settings/keys', pathname: '/', search: '' };
-const urls: string[] = [];
-const history = {
-  state: null as unknown,
-  replaceState(state: unknown, _title: string, url: string) {
-    this.state = state;
-    urls.push(url);
-    const [beforeHash, hash = ''] = url.split('#');
-    location.hash = hash ? `#${hash}` : '';
-    location.pathname = beforeHash.split('?')[0] || '/';
-  },
-  pushes: 0,
-  pushState() { this.pushes += 1; },
-};
+const fixture = browserHistory('#settings/keys');
+const { location, history, urls, window } = fixture;
 Object.defineProperty(globalThis, 'localStorage', { value: memoryStorage, configurable: true });
 Object.defineProperty(globalThis, 'sessionStorage', { value: memoryStorage, configurable: true });
 Object.defineProperty(globalThis, 'navigator', { value: { userAgent: 'node', platform: 'Linux x86_64' }, configurable: true });
 Object.assign(globalThis, {
   history,
-  window: { location, history, addEventListener() {}, dispatchEvent() { return true; } },
+  window,
   document: { documentElement: { dataset: {}, style: {} }, visibilityState: 'visible' },
 });
 globalThis.fetch = (async () => Response.json({ generation: 1, rows: [], routines: [] })) as typeof fetch;
 
-const { useConfigUI, openConversation, botSettingsHash } = await import('../web/src/configStore.ts');
+const { useConfigUI, openConversation, botSettingsHash, navigation } = await import('../web/src/configStore.ts');
 const { useStore } = await import('../web/src/store.ts');
 const { readDetailsDefault, writeDetailsDefault, detailsDefaultKey } = await import('../web/src/lib/detailsDefault.ts');
 const logic = await import('../web/src/components/config/settingsLogic.ts');
@@ -55,7 +44,7 @@ test('picking a settings section updates the hash; reload would reopen it; closi
   useConfigUI.getState().openAppSettings('computer');
   assert.equal(urls.length, writes, 'no redundant history writes for the same section');
   useConfigUI.getState().closeAppSettings();
-  assert.equal(location.hash, '');
+  assert.equal(location.hash, '#bots');
   assert.equal(useConfigUI.getState().appSettings, null);
 });
 
@@ -63,7 +52,7 @@ test('R4: opening Settings without a section names General in the hash', () => {
   useConfigUI.getState().openAppSettings();
   assert.equal(location.hash, '#settings/general');
   assert.equal(useConfigUI.getState().appSettings, 'general');
-  assert.equal(useConfigUI.getState().appSettingsHome, true);
+  assert.equal(useConfigUI.getState().appSettingsHome, false);
   useConfigUI.getState().closeAppSettings();
 });
 
@@ -73,7 +62,7 @@ test('details default is stored per account and drives detailsOpen on bot switch
   writeDetailsDefault('account-a', true);
   assert.equal(storage.get(detailsDefaultKey('account-a')), '1');
   assert.equal(readDetailsDefault('account-b'), false, 'another account is unaffected');
-  useStore.setState({ user: user('account-a'), mobile: false, bots: [], transcripts: {}, detailsOpen: false });
+  useStore.setState({ user: user('account-a'), mobile: false, bots: [1,2,3,4].map(n => ({id:`bot-${n}`,name:`Bot ${n}`})) as never, botsLoaded: true, transcripts: {}, detailsOpen: false });
   useStore.getState().selectBot('bot-1');
   assert.equal(useStore.getState().detailsOpen, true);
   // Closing the panel from a chat never writes the preference.
@@ -132,26 +121,22 @@ test('time zone options always include UTC and the saved zone', () => {
   assert.ok(logic.timeZoneOptions('Mars/Base').includes('Mars/Base'));
 });
 
-// R2F-028: Bot settings deep links (PD-R2-07 option A, hash sync only).
-test('Bot settings tabs are linkable with replaceState and one history entry per visit', () => {
-  useStore.setState({ bots: [{ id: 'coordinator', name: 'Coordinator Bot' }, { id: 'worker', name: 'Worker Bot' }] as never });
+// Settings tabs now share the same history model on every viewport.
+test('Bot settings tabs push and app Settings returns to its origin', () => {
+  useStore.setState({ bots: [{ id: 'coordinator', name: 'Coordinator Bot' }, { id: 'worker', name: 'Worker Bot' }] as never, botsLoaded: true });
+  fixture.reset('#bots'); navigation.initialize({ kind: 'bots' });
   const pushes = history.pushes;
-  useConfigUI.getState().openBotSettings('coordinator');
-  assert.equal(location.hash, botSettingsHash('coordinator', 'general'));
-  useConfigUI.getState().openBotSettings('coordinator', 'skills');
-  assert.equal(location.hash, botSettingsHash('coordinator', 'skills'));
-  useConfigUI.getState().openBotSettings('coordinator', 'routines');
-  assert.equal(location.hash, botSettingsHash('coordinator', 'routines'));
-  // App Settings replaces Bot settings; closing it cannot revive the previous page.
+  for (const tab of ['general', 'skills', 'routines'] as const) {
+    useConfigUI.getState().openBotSettings('coordinator', tab);
+    assert.equal(location.hash, botSettingsHash('coordinator', tab));
+  }
   useConfigUI.getState().openAppSettings('general');
-  assert.equal(location.hash, '#settings/general', 'General is linkable');
-  assert.equal(useConfigUI.getState().botSettings, null);
+  assert.equal(location.hash, '#settings/general'); assert.equal(useConfigUI.getState().botSettings, null);
   useConfigUI.getState().closeAppSettings();
-  assert.equal(location.hash, '');
+  assert.equal(location.hash, botSettingsHash('coordinator', 'routines'));
   useConfigUI.getState().closeBotSettings();
-  assert.equal(location.hash, '');
-  assert.equal(useConfigUI.getState().botSettings, null);
-  assert.equal(history.pushes, pushes, 'tab and section changes never add history entries');
+  assert.equal(location.hash, '#bots'); assert.equal(useConfigUI.getState().botSettings, null);
+  assert.equal(history.pushes, pushes + 4);
 });
 
 test('R4: either settings entry point closes the other surface and updates the hash', () => {
@@ -184,8 +169,7 @@ test('R4: switching to app Settings protects Bot drafts and keeps the visible ro
   assert.equal(ui().botSettingsDirty, true);
   assert.equal(ui().appSettings, null);
   // A section link changes the hash before requesting navigation.
-  location.hash = '#settings/usage';
-  ui().openAppSettings('usage');
+  fixture.link('#settings/usage');
   assert.equal(location.hash, botSettingsHash('coordinator', 'general'));
   ui().resolveLeaveBotSettings(true);
   assert.equal(ui().botSettings, null);
@@ -196,20 +180,19 @@ test('R4: switching to app Settings protects Bot drafts and keeps the visible ro
   ui().closeAppSettings();
 });
 
-test('a Bot settings link reopens that tab on reload', async () => {
-  location.hash = '#bot/worker/settings/memories';
-  const fresh = await import('../web/src/configStore.ts?reload=bot-settings');
-  assert.deepEqual(fresh.useConfigUI.getState().botSettings, { botId: 'worker', tab: 'memories' });
-  location.hash = '#bot/worker/settings/bogus';
-  const invalid = await import('../web/src/configStore.ts?reload=bot-settings-invalid');
-  assert.equal(invalid.useConfigUI.getState().botSettings, null, 'unknown tabs are ignored');
-  location.hash = '';
+test('a Bot settings link reopens that tab on reload', () => {
+  fixture.reset('#bot/worker/settings/memories'); navigation.reset();
+  navigation.initialize({ kind: 'bots' });
+  assert.deepEqual(useConfigUI.getState().botSettings, { botId: 'worker', tab: 'memories' });
+  fixture.reset('#bot/worker/settings/bogus'); navigation.reset();
+  navigation.initialize({ kind: 'bots' });
+  assert.equal(useConfigUI.getState().botSettings, null, 'unknown tabs fall back safely');
 });
 
 // R2F-004: unsaved Bot settings drafts guard every way out.
 test('leaving Bot settings with a draft waits for Discard; Cancel keeps the page', () => {
   const ui = () => useConfigUI.getState();
-  useStore.setState({ user: { id: 'account-a', email: 'account-a@example.test', name: 'account-a', avatarUrl: null } as never, mobile: false, bots: [], transcripts: {} });
+  useStore.setState({ user: { id: 'account-a', email: 'account-a@example.test', name: 'account-a', avatarUrl: null } as never, mobile: false, bots: [{id:'coordinator',name:'Coordinator Bot'},{id:'worker',name:'Worker Bot'}] as never, botsLoaded: true, transcripts: {} });
   ui().openBotSettings('coordinator');
   // Nothing changed: no question.
   ui().closeBotSettings();
@@ -239,6 +222,9 @@ test('leaving Bot settings with a draft waits for Discard; Cancel keeps the page
   ui().openBotSettings('coordinator');
   ui().setBotSettingsDraft('skill:1', 'Skills');
   ui().openBotSettings('coordinator', 'memories');
+  assert.ok(ui().botSettingsLeave, 'tab-local drafts ask before changing tabs');
+  ui().resolveLeaveBotSettings(true);
+  ui().setBotSettingsDraft('general', 'General');
   assert.equal(ui().botSettings?.tab, 'memories');
   ui().openBotSettings('worker');
   assert.equal(ui().botSettings?.botId, 'coordinator');

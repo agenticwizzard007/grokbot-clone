@@ -2,6 +2,7 @@
 // Gate: node --import tsx --test tests/qa-r3-settings.test.mts
 import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
+import { browserHistory } from './fixtures/browser-history.mts';
 import type { ComputerState } from '../server/src/types.ts';
 
 const values = new Map<string, string>();
@@ -12,30 +13,18 @@ const storage = {
   key: (index: number) => [...values.keys()][index] ?? null,
   get length() { return values.size; },
 };
-const location = { pathname: '/', search: '', hash: '#settings' };
-const entries: { state: unknown; hash: string }[] = [{ state: null, hash: '' }];
-const history = {
-  get state() { return entries.at(-1)!.state; },
-  replaceState(state: unknown, _title: string, url?: string) {
-    if (url) location.hash = new URL(url, 'http://localhost').hash;
-    entries[entries.length - 1] = { state, hash: location.hash };
-  },
-  pushState(state: unknown, _title: string, url?: string) {
-    if (url) location.hash = new URL(url, 'http://localhost').hash;
-    entries.push({ state, hash: location.hash });
-  },
-  back() { if (entries.length > 1) entries.pop(); location.hash = entries.at(-1)!.hash; },
-};
+const fixture = browserHistory('#settings');
+const { location, history, entries, window } = fixture;
 Object.defineProperty(globalThis, 'localStorage', { value: storage, configurable: true });
 Object.defineProperty(globalThis, 'sessionStorage', { value: storage, configurable: true });
 Object.defineProperty(globalThis, 'navigator', { value: { platform: 'Linux x86_64', userAgent: 'node' }, configurable: true });
 Object.assign(globalThis, {
   history,
-  window: { location, history, addEventListener() {}, dispatchEvent() { return true; } },
+  window,
   document: { title: 'Swarm', documentElement: { dataset: {}, style: {} } },
 });
-const { useStore, enterChatPane } = await import('../web/src/store.ts');
-const { useConfigUI, botSettingsHash, hasSettingsLink } = await import('../web/src/configStore.ts');
+const { useStore } = await import('../web/src/store.ts');
+const { useConfigUI, botSettingsHash, hasSettingsLink, navigation } = await import('../web/src/configStore.ts');
 const { computerStatusText, computerReadiness, computerStatusLine } = await import('../web/src/components/config/computerStatus.tsx');
 const { setupResourceText } = await import('../web/src/components/config/setupResources.ts');
 const user = { id: 'settings-account', email: 'settings@example.test', name: 'Account', avatarUrl: null };
@@ -44,79 +33,75 @@ const ui = () => useConfigUI.getState();
 const initialSettings = ui().appSettings;
 
 beforeEach(() => {
-  entries.splice(0, entries.length, { state: null, hash: '' }); location.hash = '';
+  fixture.reset('#bots'); navigation.reset();
   useConfigUI.setState({ botSettings: null, botSettingsDrafts: {}, botSettingsDirty: false, botSettingsLeave: null, appSettings: null, view: 'chat' });
-  useStore.setState({ bots: [{ id: 'settings-bot', name: 'Coordinator Bot' }] as never, user, mobile: false, mobilePane: 'list', selectedBotId: 'settings-bot', detailsOpen: false, computer: null });
+  useStore.setState({ bots: [{ id: 'settings-bot', name: 'Coordinator Bot' }] as never, user, mobile: false, mobilePane: 'list', selectedBotId: 'settings-bot', detailsOpen: false, computer: null, botsLoaded: true });
+  navigation.initialize({ kind: 'bots' });
 });
 
-test('R3-091: phone settings create one list return entry and tabs replace its URL', () => {
+test('R3-091: phone settings and each tab push, close returns to the list', () => {
   useStore.setState({ mobile: true });
   ui().openBotSettings('settings-bot');
   assert.equal(useStore.getState().mobilePane, 'chat');
   assert.equal(entries.length, 2);
-  assert.equal(entries[0].hash, '', 'the list must not retain a settings deep link');
+  assert.equal(entries[0].hash, '#bots');
   ui().openBotSettings('settings-bot', 'learning');
-  assert.equal(entries.length, 2, 'tab changes add no entries');
+  assert.equal(entries.length, 3);
   assert.equal(location.hash, botSettingsHash('settings-bot', 'learning'));
   assert.ok(!location.hash.includes('settings-bot'));
   ui().closeBotSettings();
   assert.equal(ui().botSettings, null);
   assert.equal(useStore.getState().mobilePane, 'list');
-  assert.equal(useStore.getState().selectedBotId, 'settings-bot');
-  assert.equal(location.hash, '', 'Back cannot reopen settings through hashchange');
-  assert.equal(entries.length, 1);
+  assert.equal(location.hash, '#bots');
+  assert.equal(history.index, 0);
+  history.go(1);
+  assert.equal(location.hash, botSettingsHash('settings-bot', 'general'));
 });
 
-test('R3-091: phone Back also lands on the list from a chat or a reloaded settings link', () => {
+test('R3-091: a reloaded direct settings link uses a safe chat parent', () => {
   useStore.setState({ mobile: true });
-  enterChatPane();
-  ui().openBotSettings('settings-bot');
-  assert.equal(entries.length, 2);
+  fixture.reset('#bot/settings-bot/settings/memories');
+  navigation.initialize({ kind: 'bots' });
   ui().closeBotSettings();
-  assert.equal(useStore.getState().mobilePane, 'list');
-  location.hash = '#bot/settings-bot/settings/memories';
-  history.replaceState(null, '', location.hash);
-  ui().openBotSettings('settings-bot', 'memories');
-  assert.equal(entries[0].hash, '');
-  ui().closeBotSettings();
-  assert.equal(location.hash, '');
-  assert.equal(useStore.getState().mobilePane, 'list');
+  assert.match(location.hash, /^#bot\/coordinator-bot~/);
+  assert.ok(!location.hash.includes('/settings'));
+  assert.equal(entries.length, 1, 'direct entry never traverses outside the app');
+  assert.equal(useStore.getState().mobilePane, 'chat');
 });
 
 test('R3-091: draft cancellation stays in settings and Discard returns to the list', () => {
-  useStore.setState({ mobile: true, detailsOpen: true });
-  useConfigUI.setState({ view: 'tasks' });
-  ui().openBotSettings('settings-bot');
-  ui().setBotSettingsDraft('general', 'General');
+  useStore.setState({ mobile: true });
+  ui().openBotSettings('settings-bot'); ui().setBotSettingsDraft('general', 'General');
   ui().closeBotSettings();
   assert.ok(ui().botSettingsLeave);
   assert.equal(useStore.getState().mobilePane, 'chat');
   ui().resolveLeaveBotSettings(false);
-  assert.ok(ui().botSettings);
-  assert.equal(ui().botSettingsDirty, true);
-  ui().closeBotSettings();
-  ui().resolveLeaveBotSettings(true);
-  assert.equal(ui().botSettings, null);
-  assert.equal(ui().botSettingsDirty, false);
-  assert.equal(ui().view, 'chat');
-  assert.equal(useStore.getState().mobilePane, 'list');
+  assert.ok(ui().botSettings); assert.equal(ui().botSettingsDirty, true);
+  ui().closeBotSettings(); ui().resolveLeaveBotSettings(true);
+  assert.equal(ui().botSettings, null); assert.equal(ui().botSettingsDirty, false);
+  assert.equal(ui().view, 'bots'); assert.equal(useStore.getState().mobilePane, 'list');
   assert.equal(useStore.getState().detailsOpen, false);
 });
 
-test('R3-091: desktop close still restores the current chat and details', () => {
-  useStore.setState({ mobilePane: 'chat', detailsOpen: true });
-  ui().openBotSettings('settings-bot');
-  ui().closeBotSettings();
-  assert.equal(entries.length, 1);
+test('R3-091: desktop close restores the current chat and details', () => {
+  useStore.getState().selectBot('settings-bot');
+  useStore.getState().set({ detailsOpen: true });
+  ui().setDetailsTab('configuration');
+  const pushes = history.pushes;
+  ui().setDetailsTab('configuration', 'responsibilities');
+  assert.equal(history.pushes, pushes, 'reselecting the default Setup tab does not push');
+  const origin = location.hash;
+  ui().openBotSettings('settings-bot'); ui().closeBotSettings();
+  assert.equal(location.hash, origin);
   assert.equal(useStore.getState().mobilePane, 'chat');
   assert.equal(useStore.getState().detailsOpen, true);
 });
 
-test('R3-091: Forward to an existing settings entry does not push another list entry', () => {
+test('R3-091: Forward to an existing settings entry does not push again', () => {
   useStore.setState({ mobile: true });
-  history.pushState({ swarmPane: 'chat', swarmFrom: 'list', swarmDoc: performance.timeOrigin }, '', '#bot/settings-bot/settings/general');
   ui().openBotSettings('settings-bot');
-  assert.equal(entries.length, 2);
+  history.back(); const pushes = history.pushes; history.go(1);
+  assert.equal(history.pushes, pushes); assert.equal(entries.length, 2);
   assert.equal(useStore.getState().mobilePane, 'chat');
   assert.equal(location.hash, botSettingsHash('settings-bot', 'general'));
 });
@@ -187,4 +172,19 @@ test('bare settings deep link opens General on fresh load and existing section l
     location.hash = hash; assert.equal(hasSettingsLink(), true, hash);
   }
   location.hash = '#settings/unknown'; assert.equal(hasSettingsLink(), false);
+  fixture.link('#settings');
+  const pushes = history.pushes;
+  ui().openAppSettings('general');
+  assert.equal(history.pushes, pushes, 'bare desktop Settings already shows General');
+  assert.equal(location.hash, '#settings/general');
+});
+
+test('account cleanup clears Details directly without navigating through private history', () => {
+  useStore.getState().selectBot('settings-bot');
+  useStore.getState().set({ detailsOpen: true });
+  const pushes = history.pushes;
+  useStore.getState().set({ user: null, selectedBotId: null, detailsOpen: false, modal: null });
+  assert.equal(useStore.getState().detailsOpen, false);
+  assert.equal(useStore.getState().modal, null);
+  assert.equal(history.pushes, pushes);
 });
