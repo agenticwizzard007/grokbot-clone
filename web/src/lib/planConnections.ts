@@ -13,7 +13,7 @@ export function planConnectionStatus(status: CliStatus | null, provider: CliProv
   if (status.statusUnavailable) return 'Status unavailable';
   const health = status.providers[provider];
   if (status.statusChecking && !subscriptionReady(health)) return 'Checking status…';
-  if (health.error) return 'Status unavailable';
+  if (health.error && (!health.authenticated || health.subscription)) return 'Status unavailable';
   if (!status.connected) return 'Not connected';
   if (!health.installed) return 'CLI missing';
   if (status.selected !== provider || !subscriptionReady(health)) return 'Not connected';

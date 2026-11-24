@@ -17,6 +17,9 @@ test('plan status distinguishes unprobed, offline, missing, authenticated and se
   assert.equal(planConnectionStatus(status, 'claude'), 'Connected');
   status.providers.claude.error = 'CLI unavailable';
   assert.equal(planConnectionStatus(status, 'claude', 'max'), 'Status unavailable');
+  status.providers.claude.subscription = false;
+  assert.equal(planConnectionStatus(status, 'claude'), 'Not connected', 'an ineligible login needs connection guidance, not a failed-probe retry');
+  status.providers.claude.subscription = true;
   delete status.providers.claude.error;
   status.selected = null;
   assert.equal(planConnectionStatus(status, 'claude', 'max'), 'Not connected');

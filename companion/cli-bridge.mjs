@@ -162,6 +162,7 @@ async function providerStatus(provider, options, cwd, signal, timeoutMs = AUTH_T
     if (provider === 'codex' && options.fileCredentials === true) args.push('-c', 'cli_auth_credentials_store="file"');
     const output = await deadline(signal, timeoutMs, (authSignal) => execute(executable(provider, options), args, { cwd, env: childEnvironment(options.env), signal: authSignal }));
     aborted(signal);
+    if (strictStatus && ![0, 1].includes(output.code)) throw new RunnerError('Status unavailable. Retry.');
     if (provider === 'codex') {
       const text = `${output.stdout}\n${output.stderr}`.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
       const chatgpt = /(?:^|\n)\s*Logged in using ChatGPT[ \t]*(?:\r?\n|$)/i.test(text);
