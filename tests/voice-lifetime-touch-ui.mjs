@@ -64,6 +64,9 @@ function Harness(){const [settings,setSettings]=React.useState(false);return Rea
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(Harness));
 ` }));
     await page.goto(origin);
+    // The transcript renders plain text before its lazy Markdown module lands.
+    // Exercise keyboard focus on the settled message rather than its first paint.
+    await page.getByRole('link', { name: 'a link' }).waitFor();
     const copy = page.getByRole('button', { name: 'Copy message', exact: true }).first(); await copy.waitFor();
     if (width === 390) { assert.equal(await copy.evaluate(el => getComputedStyle(el).opacity), '1'); await copy.tap(); }
     else { await copy.focus(); assert.equal(await copy.evaluate(el => getComputedStyle(el).opacity), '1'); await page.keyboard.press('Enter'); }
