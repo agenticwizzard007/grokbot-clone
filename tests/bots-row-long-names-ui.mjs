@@ -97,7 +97,7 @@ try {
     });
     try {
       await page.goto(origin);
-      await page.getByRole('complementary', { name: 'Your Bots' }).getByRole('button', { name: 'Your Bots', exact: true }).click();
+      await page.getByRole('complementary', { name: 'Your Bots' }).locator('.sidebar__section-label').click();
       await page.getByRole('heading', { name: 'Your Bots', exact: true }).waitFor();
       await page.locator('.bots-view__item').filter({ hasText: fixtures[0].name }).waitFor();
       await page.evaluate(() => document.fonts.ready);

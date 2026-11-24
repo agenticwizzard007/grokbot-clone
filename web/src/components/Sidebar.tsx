@@ -125,6 +125,7 @@ export function Sidebar() {
 
   return (
     <aside className={`sidebar${collapsed ? ' is-collapsed' : ''}`} aria-label="Your Bots">
+      <div id="sidebar-back-slot" />
       <div className="sidebar__titlebar">
         <button type="button" className="sidebar__brand" aria-label="Your Bots" onClick={showBots}>
           {collapsed ? <>
@@ -136,7 +137,7 @@ export function Sidebar() {
           </>}
         </button>
         <div className="sidebar__controls">
-          <button type="button" className="icon-btn icon-btn--plain" onClick={() => set({ sidebarCollapsed: !collapsed })} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={`Toggle sidebar (${shortcutLabel('sidebar')})`}>
+          <button type="button" className="icon-btn icon-btn--plain" onClick={() => set({ sidebarCollapsed: !collapsed })} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={`${collapsed ? 'Expand sidebar' : 'Collapse sidebar'} (${shortcutLabel('sidebar')})`}>
             <Icon name="sidebar" opacity={0.66} />
           </button>
         </div>
@@ -149,7 +150,7 @@ export function Sidebar() {
       <div className="sidebar__scroll">
         {mobile && <RosterFeedback />}
         <TasksIsland />
-        {!collapsed && bots.length > 0 && <p className="sidebar__section-label">Your Bots</p>}
+        {!collapsed && bots.length > 0 && <button type="button" className="sidebar__section-label" onClick={showBots}>Your Bots</button>}
         {primary && (
           <div className="pinned">
             <button type="button" className={`pinned__tile${selectedBotId === primary.id ? ' is-selected' : ''}`} onClick={() => selectBot(primary.id)} aria-label={displayName(primary)} title={displayName(primary)}>

@@ -3,7 +3,7 @@ import { visibleConnections, connectionStatus } from '@shared/connection-details
 import { ConnectedAccountDetails, ConnectedAccounts, type DisplayAccount } from '../ConnectedAccountDetails';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { Blocks, ChevronLeft, ChevronRight, CircleUserRound, Clock3, TextCursorInput, KeyRound, Monitor, PanelLeftOpen, Settings2, Search, ShieldCheck, X } from 'lucide-react';
+import { ArrowLeft, Blocks, ChevronLeft, ChevronRight, CircleUserRound, Clock3, TextCursorInput, KeyRound, Monitor, PanelLeftOpen, Settings2, Search, ShieldCheck, X } from 'lucide-react';
 import { NAV, matches, SettingsNavButton } from './settingsNavigation';
 import { SettingRow, SettingIcon } from './SettingRow';
 export { SettingRow } from './SettingRow';
@@ -90,6 +90,7 @@ export function AppSettings() {
     setPortalHost(document.querySelector<HTMLElement>('.app') ?? document.body);
   }, []);
   const desktopSlot = compact ? null : portalHost?.querySelector<HTMLElement>('#app-settings-sidebar-slot');
+  const backSlot = desktopSlot && collapsed ? portalHost?.querySelector<HTMLElement>('#sidebar-back-slot') : null;
   const appRoot = !compact && portalHost?.matches('.app') ? portalHost : null;
   const state = useRef({ query, compact, listView });
   state.current = { query, compact, listView };
@@ -133,7 +134,6 @@ export function AppSettings() {
   };
 
   const nav = collapsed && desktopSlot ? <nav className="access-nav access-nav--collapsed" aria-label="Settings sidebar">
-    <button type="button" className="access-settings__back" aria-label={backTitle} title={backTitle} onClick={close}><ChevronLeft size={18} aria-hidden /></button>
     <button type="button" className="access-nav__expand" aria-label="Expand sidebar to browse settings" title="Expand sidebar to browse settings" onClick={() => useStore.getState().set({ sidebarCollapsed: false })}><PanelLeftOpen size={20} aria-hidden /></button>
   </nav> : (
     <nav className={`settings-nav access-nav${compact ? ' access-nav--phone' : ''}`} aria-label="Settings sections" onKeyDown={arrows}>
@@ -161,6 +161,7 @@ export function AppSettings() {
 
   const showList = compact && listView;
   return <>
+    {backSlot && createPortal(<button type="button" className="sidebar__back" aria-label={backTitle} title={backTitle} onClick={close}><ArrowLeft size={20} aria-hidden /></button>, backSlot)}
     {desktopSlot && createPortal(nav, desktopSlot)}
     {createPortal(<div className={`app-settings access-settings${appRoot ? ' access-settings--in-shell' : ''}${showList ? ' is-list' : ''}`} role={appRoot ? 'region' : 'dialog'} aria-modal={appRoot ? undefined : true} aria-label="Settings">
       {!compact && !desktopSlot && <aside className="app-settings__nav">{nav}</aside>}
