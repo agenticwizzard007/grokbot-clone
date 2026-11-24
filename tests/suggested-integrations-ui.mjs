@@ -24,7 +24,7 @@ try {
     const page = await browser.newPage({ viewport: { width, height: 800 }, colorScheme: theme });
     page.setDefaultTimeout(8000);
     const errors = [], requests = [], connects = [], iconPaths = [];
-    let connected = false, held, recoverHang = false, holdSkip = false, heldSkip, catalogRecovered = false;
+    let connected = false, holdCached = false, held, recoverHang = false, holdSkip = false, heldSkip, catalogRecovered = false;
     page.on('pageerror', error => errors.push(error.message));
     await page.addInitScript(() => {
       window.violations = [];
@@ -54,7 +54,7 @@ function Harness() {
   const [description, setDescription] = React.useState('track GitHub PRs and post to Slack');
   const bot = useStore(state => state.bots[0]);
   return React.createElement('main', { style: { margin: '24px auto', padding: '16px', maxWidth: '640px' } },
-    React.createElement(SetupBanner, { bot }),
+    bot && React.createElement(SetupBanner, { bot }),
     React.createElement('label', { htmlFor: 'about' }, 'About'),
     React.createElement('textarea', { id: 'about', className: 'text-input', value: description, onChange: event => setDescription(event.target.value) }),
     React.createElement(SuggestedIntegrations, { botId: 'review-bot', description, instructions: '' }));
@@ -69,6 +69,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       }
       if (url.pathname.endsWith('/suggested-apps')) {
         const body = request.postDataJSON(); requests.push(body);
+        if (holdCached && body.description === 'track GitHub PRs and post to Slack') { held = route; return; }
         if (body.description === 'catalog failure' && !catalogRecovered) return route.fulfill({ status: 503, json: { code: 'catalog_authorization', error: 'The app catalog service rejected the server credentials. The server administrator needs to check them.' } });
         if (body.description === 'slow request') { held = route; return; }
         if (body.description === 'never resolves' && !recoverHang) { held = route; return; }
@@ -96,6 +97,19 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     assert.equal(await cards.filter({ hasText: 'GitHub' }).locator('img').getAttribute('src'), '/api/toolkits/icon/github', 'metadata precedes bundled artwork');
     assert.ok(iconPaths.includes('/api/toolkits/icon/slack'));
     assert.deepEqual(await page.evaluate(() => window.violations), []);
+    // Returning to a previously viewed draft shows cached suggestions during a stalled refresh.
+    await page.getByLabel('About', { exact: true }).fill('temporary edit');
+    await page.waitForTimeout(500);
+    holdCached = true;
+    await page.getByLabel('About', { exact: true }).fill('track GitHub PRs and post to Slack');
+    await page.getByText('Previously loaded suggestions · Refreshing…', { exact: true }).waitFor();
+    assert.equal(await cards.count(), 2);
+    assert.equal(await page.getByText('Finding relevant apps…', { exact: true }).count(), 0);
+    for (let i = 0; !held && i < 40; i++) await page.waitForTimeout(25);
+    assert.ok(held);
+    await held.fulfill({ json: { suggestions: [github, slack] } });
+    holdCached = false; held = undefined;
+    await page.getByText('Previously loaded suggestions · Refreshing…', { exact: true }).waitFor({ state: 'hidden' });
     const geometry = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
     assert.ok(geometry.scroll <= geometry.width, JSON.stringify(geometry));
     await page.screenshot({ path: `.context/suggestions/chips-${width}-${theme}.png` });
@@ -165,7 +179,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       await page.clock.runFor(500);
       for (let i = 0; !held && i < 40; i++) await new Promise(resolve => setTimeout(resolve, 25));
       assert.ok(held, 'the fixture must hold an actual suggestions request');
-      await page.clock.fastForward(12_000);
+      await page.clock.fastForward(4500);
       await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
       assert.equal(await page.getByText('Finding relevant apps…', { exact: true }).count(), 0);
       assert.equal(await page.getByRole('region', { name: 'Suggested integrations' }).getAttribute('aria-busy'), 'false');

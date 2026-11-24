@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { useStore } from '../store';
 import type { Bot, Effort } from '@shared/types';
 import { modelDisplayName } from './modelDisplay';
+import { readDeadline } from './readDeadline';
 
 /** The composer's model picker: the provider's models, the user's favourites, effort levels. */
 
@@ -25,8 +26,8 @@ export interface PickerModel {
   context: number;
 }
 
-async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const r = await fetch(`/api${path}`, { method, credentials: 'include', headers: body ? { 'content-type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined });
+async function req<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  const r = await fetch(`/api${path}`, { method, signal, credentials: 'include', headers: body ? { 'content-type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error ?? `Request failed (${r.status})`);
   return j as T;
@@ -56,7 +57,7 @@ export const useModels = create<ModelsState>((set, get) => ({
     const version = ++loadVersion;
     set({ status: 'loading', ...(force ? { provider: null, billing: null, canFast: false, models: [], byId: new Map(), usage: null, plan: null, defaultModel: null } : {}) });
     try {
-      const r = await req<{ provider: ModelProvider; billing: 'api' | 'plan'; defaultModel?: string | null; plan?: string | null; usage?: PlanUsage; canFast: boolean; models: PickerModel[]; favourites: string[]; error?: string }>('GET', '/models');
+      const r = await readDeadline(signal => req<{ provider: ModelProvider; billing: 'api' | 'plan'; defaultModel?: string | null; plan?: string | null; usage?: PlanUsage; canFast: boolean; models: PickerModel[]; favourites: string[]; error?: string }>('GET', '/models', undefined, signal), 5000);
       if (version !== loadVersion) return;
       set({ status: 'ready', provider: r.provider, billing: r.billing, defaultModel: r.defaultModel ?? null, plan: r.plan ?? null, usage: r.usage ?? null, canFast: r.canFast, models: r.models, byId: new Map(r.models.map((m) => [m.id, m])), favourites: r.favourites, error: r.error ?? null });
     } catch (e) {

@@ -34,7 +34,7 @@ try {
     const errors = []; page.on('pageerror', e => { errors.push(e.message); console.error(e.stack); });
     const bot = { id: `bot-${width}`, name: 'Quinn', kind: 'agent', avatarColor: 'blue', avatarShape: 'bird-flock', model: 'openai/gpt-5.5', effort: 'high' };
     const model = { id: bot.model, name: 'GPT-5.5', short: 'GPT-5.5', author: 'openai', efforts: ['high'], defaultEffort: 'high', billing: 'api', vision: true, reasoning: true };
-    let holdModels = true, heldModels = [], voiceMode = 'timeout';
+    let holdModels = true, heldModels = [], voiceMode = 'timeout', updatePolls = 0;
     await page.route('**/api/**', async route => {
       const p = new URL(route.request().url()).pathname;
       if (p === '/api/auth/me') return route.fulfill({ json: { user } });
@@ -45,7 +45,7 @@ try {
         return route.fulfill({ json: { provider: 'openrouter', billing: 'api', models: [model], defaultModel: model.id, favourites: [model.id] } });
       }
       if (p === '/api/voice/session') return route.fulfill({ json: { callId: 'local-call', clientSecret: 'local', websocketUrl: `ws://127.0.0.1:${uiPort}/fixture-voice`, sampleRate: 24000, session: {} } });
-      if (p === '/api/voice/updates') return route.fulfill({ json: { cursor: 0, tasks: [], updates: [] } });
+      if (p === '/api/voice/updates') { updatePolls++; return route.fulfill({ json: { cursor: 0, tasks: [], updates: [] } }); }
       if (p === '/api/settings/keys') return route.fulfill({ json: { isolated: true } });
       if (p === '/api/providers/openrouter') return route.fulfill({ json: { connected: false, active: false } });
       return route.fulfill({ json: {} });
@@ -79,7 +79,7 @@ window.group=()=>useStore.setState({bots:[{...useStore.getState().bots[0],kind:'
 window.settings=()=>useConfigUI.getState().openAppSettings('subscriptions','claude');
 window.closeSettings=()=>useConfigUI.getState().closeAppSettings();
 window.refreshModels=()=>useModels.getState().load(true);
-function Harness(){const bot=useStore(s=>s.bots[0]);const settings=useConfigUI(s=>s.appSettings);return React.createElement('div',{className:'app'},settings&&React.createElement(AppSettings),React.createElement('div',{style:{position:'fixed',bottom:24,left:16,right:16,maxWidth:752,margin:'auto'}},React.createElement(VoiceCallBar),React.createElement(Composer,{bot,running:false})));}
+function Harness(){const [showCall,setShowCall]=React.useState(true);window.unmountCall=()=>setShowCall(false);const bot=useStore(s=>s.bots[0]);const settings=useConfigUI(s=>s.appSettings);return React.createElement('div',{className:'app'},settings&&React.createElement(AppSettings),React.createElement('div',{style:{position:'fixed',bottom:24,left:16,right:16,maxWidth:752,margin:'auto'}},showCall&&React.createElement(VoiceCallBar),React.createElement(Composer,{bot,running:false})));}
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(Harness));
 ` }));
     await page.goto(origin);
@@ -140,6 +140,17 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     assert.equal(await page.evaluate(() => window.micRequests), 1);
     await call.getByRole('button', { name: 'End call', exact: true }).click();
     assert.equal(await page.evaluate(() => window.streams.every(s => s.getTracks().every(t => t.readyState === 'ended'))), true);
+    const endedPolls = updatePolls;
+    await page.waitForTimeout(1800);
+    assert.equal(updatePolls, endedPolls, 'updates stop after End call');
+    await page.getByRole('button', { name: 'More actions', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Talk live', exact: true }).click();
+    await call.locator('.vcall__time').waitFor();
+    await until(() => updatePolls > endedPolls);
+    await page.evaluate(() => window.unmountCall());
+    const unmountedPolls = updatePolls;
+    await page.waitForTimeout(1800);
+    assert.equal(updatePolls, unmountedPolls, 'updates stop after call UI unmount');
     assert.deepEqual(errors, []);
     console.log(`PASS ${width}px: 4 menus, keyboard/draft preservation, CLI status ${Math.round(statusMs)}ms, cached status, remembered chip, permission wait, deadline ${Math.round(deadlineMs)}ms, one mic request across Retry`);
     await context.close();

@@ -125,7 +125,7 @@ function BotSettingsPage({ bot, tab, inline, userId }: { bot: Bot; tab: BotSetti
   const content = <>
       <SetupPaperHeader backLabel={sourcesOpen ? 'Back to memories' : mobile ? 'Back to Bots' : detailsOpen ? 'Back to details' : 'Back to chat'} title={label} onBack={sourcesOpen ? () => setShowSources(false) : onClose} onClose={onClose} />
       <div className="setup-paper__column bot-settings-page__column" style={botVars(bot.avatarColor)}>
-        <h1>{sourcesOpen ? 'Conversation sources' : `${bot.name} · ${label}`}</h1>
+        <h1>{sourcesOpen ? 'Conversation sources' : bot.name}</h1>
         {leaving && <div className="cfg-guard" role="alertdialog" aria-label="Discard unsaved changes?">
           <div className="cfg-row__text"><div className="cfg-row__title">Discard unsaved changes?</div><div className="cfg-row__sub">Your edits on {draftTabs(Object.values(drafts))} have not been saved.</div></div>
           <div className="settings-row__actions">
@@ -133,13 +133,13 @@ function BotSettingsPage({ bot, tab, inline, userId }: { bot: Bot; tab: BotSetti
             <button type="button" className="cfg-btn cfg-btn--danger" onClick={() => { setGeneralDraft(null); useConfigUI.getState().resolveLeaveBotSettings(true); }}>Discard</button>
           </div>
         </div>}
-        {headings[tab] && <p className="setup-paper__subtitle">{sourcesOpen ? 'Find evidence in current or archived chats.' : headings[tab]}</p>}
         <nav ref={tabsNav} className="setup-paper__tabs" aria-label="Bot settings sections">
           {tabs.map((t) => (
             <button key={t.id} type="button" onClick={() => { setShowSources(false); setTab(t.id); }} aria-current={tab === t.id || undefined}>{t.label}</button>
           ))}
         </nav>
         <div className="bot-settings-page__content" key={tab}>
+          {headings[tab] && <p className="setup-paper__subtitle bot-settings-page__intro">{sourcesOpen ? 'Find evidence in current or archived chats.' : headings[tab]}</p>}
           {loadError && ['skills', 'memories', 'routines'].includes(tab) && <div className="cfg-error" role="alert">Couldn’t load settings: {loadError} <button className="cfg-btn cfg-btn--secondary" type="button" onClick={reload}>Retry</button></div>}
           {tab === 'general' && <GeneralTab bot={bot} onClose={discardAndClose} draft={generalDraft} setDraft={setGeneralDraft} />}
           {tab === 'skills' && <SkillsTab bot={bot} skills={data?.skills} onChange={reload} />}

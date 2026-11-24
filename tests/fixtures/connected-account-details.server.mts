@@ -11,6 +11,7 @@ mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
     { slug: 'gmail', name: 'Gmail', meta: { description: 'Read and send email.', categories: [] }, composio_managed_auth_schemes: ['OAUTH2'] },
     { slug: 'agentphone', name: 'AgentPhone', meta: { description: 'Phone integration fixture.', categories: [] }, composio_managed_auth_schemes: ['OAUTH2'] },
     { slug: 'pylon_mcp', name: 'Pylon MCP', meta: { logo: 'https://invalid.example/missing.png', categories: [] }, composio_managed_auth_schemes: ['OAUTH2'] },
+    { slug: 'googletasks', name: 'Google Tasks', meta: { logo: 'https://logos.composio.dev/api/googletasks', description: 'Manage task lists.', categories: [] }, composio_managed_auth_schemes: ['OAUTH2'] },
     { slug: 'rootly', name: 'Rootly', meta: { categories: [] }, composio_managed_auth_schemes: ['OAUTH2'] },
     { slug: 'github', name: 'GitHub', meta: { description: 'Work with repositories.', categories: [] }, composio_managed_auth_schemes: ['OAUTH2'] },
   ] });

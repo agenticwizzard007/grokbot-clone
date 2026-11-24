@@ -10,7 +10,7 @@ import { env } from './env.js';
 import { newId } from './lib/ids.js';
 import { hub } from './lib/hub.js';
 import { activeSessionPredicate, activeSessionBounds, clearSessionCookies, createSession, destroySession, requireUser, requireRecentAuth, recentlyAuthenticated, userFromCookieHeader, revokeSession, sessionHash, sessionFromCookie, type AuthVars } from './lib/auth.js';
-import { allLive, appendRow, clearConversation, emitBot, getBot, getBotRow, getRow, listBots, listRoutines, listRows, listRowChanges, listTasks, toRoutine, updateRow } from './store.js';
+import { appendRow, clearConversation, emitBot, getBot, getBotRow, getLive, getRow, listBots, listRoutines, listRows, listRowChanges, listTasks, toRoutine, updateRow } from './store.js';
 import { enqueue, interrupt, resolveApproval, runInBotQueue } from './agent/loop.js';
 import { computers } from './computers/index.js';
 import { catalog, connectedToolkits, connectionsDetail, manageConnection, removeExpiredConnection, ExpiredConnectionRemovalError, disconnect, invalidateComposioSession } from './composio.js';
@@ -231,10 +231,14 @@ const ownBot = (userId: string, id: string) => {
 };
 
 api.get('/bots', (c) => {
+  const started = performance.now();
   const userId = c.get('user').id;
   const bots = listBots(userId);
   for (const bot of bots) repairActiveSetup(bot.id);
-  return c.json({ bots, live: allLive(userId) });
+  // Reuse the roster instead of hydrating every Bot and its preview a second time.
+  const live = bots.map(bot => getLive(bot.id));
+  c.header('Server-Timing', `bots;dur=${(performance.now() - started).toFixed(1)}`);
+  return c.json({ bots, live });
 });
 
 api.post('/bots', async (c) => {

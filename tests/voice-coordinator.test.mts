@@ -539,3 +539,20 @@ test('delegating to an agent exposes its existing connection blocker once, witho
     assert.equal((await updates(call.callId)).connectionRequests.length, 0);
   } finally { await close(call.callId); clearConversation(target.id); }
 });
+
+test('production POST /api/voice/updates is mounted and distinguishes an ended call from a missing route', async () => {
+  const { api } = await import('../server/src/routes.js');
+  const production = new Hono().route('/api', api);
+  const call = await session();
+  const poll = () => production.request('/api/voice/updates', {
+    method: 'POST', headers: { cookie: 'swarm_session=alice', 'content-type': 'application/json' },
+    body: JSON.stringify({ botId: chief.id, callId: call.callId, after: 0 }),
+  });
+  const active = await poll();
+  assert.equal(active.status, 200);
+  assert.ok(Array.isArray((await active.json()).updates));
+  await close(call.callId);
+  const ended = await poll();
+  assert.equal(ended.status, 404);
+  assert.deepEqual(await ended.json(), { error: 'Call not found.' });
+});

@@ -3,7 +3,7 @@
 // deliver replies and requests for input; server task snapshots determine what is still working.
 import { create } from 'zustand';
 import { useStore } from '../store';
-import { voiceApi, type VoiceApproval, type VoiceConnectionRequest, type VoiceSession, type VoiceTask, type VoiceUpdate } from './api';
+import { voiceApi, VoiceApiError, type VoiceApproval, type VoiceConnectionRequest, type VoiceSession, type VoiceTask, type VoiceUpdate } from './api';
 import { MicCapture, PcmPlayer, base64ToPcm, createAudioContext, micErrorMessage, openMic, pcmToBase64 } from './audio';
 
 export interface Caption { id: string; role: 'user' | 'assistant'; text: string; final: boolean }
@@ -112,6 +112,7 @@ class VoiceCall {
   private flushWaiting = false;
   private updatesTimer: ReturnType<typeof setTimeout> | null = null;
   private updatesRequest: AbortController | null = null;
+  private updatesFailures = 0;
   private connectTimer: ReturnType<typeof setTimeout> | null = null;
   private setupDeadline = 0;
   private setupRequest = new AbortController();
@@ -121,6 +122,7 @@ class VoiceCall {
       const { transcript, transcriptRevision } = this.captureTranscript();
       voiceApi.endBeacon(this.botId, this.sess.callId, transcript, transcriptRevision);
     }
+    this.end();
     releaseMic();
   };
 
@@ -452,13 +454,14 @@ class VoiceCall {
     if (this.ended || !this.ready || !this.sess || this.updatesRequest) return;
     const controller = new AbortController();
     this.updatesRequest = controller;
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const timeout = setTimeout(() => controller.abort(), 4000);
     // Only retire optimistic hand-offs if the snapshot was requested after their tool response.
     const settled = [...this.optimistic].filter(([, o]) => !o.pending).map(([id]) => id);
     const connections = [...this.optimisticConnections];
     try {
       const result = await voiceApi.updates(this.botId, this.sess.callId, this.cursor, controller.signal);
       if (this.ended) return;
+      this.updatesFailures = 0;
       const updates = result.updates.filter((u) => u.id > this.cursor).sort((a, b) => a.id - b.id);
       const fresh: VoiceUpdate[] = [];
       let cursor = this.cursor;
@@ -494,11 +497,16 @@ class VoiceCall {
       }
     } catch (e) {
       // A failed poll says nothing about task completion. Keep the last snapshot and cursor.
-      if (!this.ended) console.warn('[voice] updates failed; retrying', e);
+      if (!this.ended && e instanceof VoiceApiError && [401, 403, 404, 410].includes(e.status)) {
+        this.end('This voice session has ended. Retry to start a new call.');
+      } else if (!this.ended) {
+        this.updatesFailures++;
+        console.warn('[voice] updates failed; retrying', e);
+      }
     } finally {
       clearTimeout(timeout);
       this.updatesRequest = null;
-      if (!this.ended) this.updatesTimer = setTimeout(() => { this.updatesTimer = null; void this.pollUpdates(); }, 1500);
+      if (!this.ended) this.updatesTimer = setTimeout(() => { this.updatesTimer = null; void this.pollUpdates(); }, Math.min(1500 * 2 ** this.updatesFailures, 30_000));
     }
   }
 

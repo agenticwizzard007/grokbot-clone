@@ -96,7 +96,7 @@ export function createSuggestionRanker(generate: (input: string, signal: AbortSi
     const key = createHash('sha256').update(JSON.stringify([userId, model, input])).digest('hex');
     const hit = cache.get(key);
     if (hit && hit.expires > Date.now()) return hit.result;
-    const result = withSuggestionTimeout(signal => generate(input, signal), 8_000).then(value => {
+    const result = withSuggestionTimeout(signal => generate(input, signal), 1_500).then(value => {
       // Validate before caching; a provider error must be retryable.
       availableSuggestions(value, catalog, new Set());
       return value;

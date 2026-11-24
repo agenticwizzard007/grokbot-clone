@@ -100,7 +100,7 @@ test('a hung ranking expires and the same context can be retried', async t => {
   const rank = createSuggestionRanker(async () => ++calls === 1 ? new Promise(() => {}) : choices);
   const pending = rank('owner', 'model', context, catalogItems).catch(() => { failed = true; });
   await new Promise(resolve => setImmediate(resolve));
-  t.mock.timers.tick(12_000);
+  t.mock.timers.tick(1500);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(failed, true, 'a provider that never settles must not keep the cache pending');
   await pending;
@@ -229,7 +229,7 @@ test('R1b: a hung model falls back before the route deadline', async t => {
   const pending = suggest({ description: 'Manage my calendar with a stalled ranker', instructions: '' });
   try {
     await entered.promise;
-    t.mock.timers.tick(6_000);
+    t.mock.timers.tick(1500);
     const response = await pending;
     assert.equal(response.status, 200);
     assert.deepEqual((await response.json() as any).suggestions.map((item: any) => item.slug), ['googlecalendar']);
@@ -249,7 +249,7 @@ test('a stalled connection lookup times out the whole route and can be retried',
     let response: Response | undefined;
     const pending = suggest().then(value => { response = value; });
     await entered.promise;
-    t.mock.timers.tick(10_000);
+    t.mock.timers.tick(4000);
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(response?.status, 503);
     assert.equal((await response!.json() as any).code, 'connections_unavailable');
@@ -293,7 +293,7 @@ test('a stalled catalog request times out without starting a model request', asy
     let response: Response | undefined;
     const pending = suggest().then(value => { response = value; });
     await entered.promise;
-    t.mock.timers.tick(10_000);
+    t.mock.timers.tick(4000);
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(response?.status, 503);
     assert.equal((await response!.json() as any).code, 'catalog_unavailable');

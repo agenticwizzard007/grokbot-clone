@@ -1,6 +1,7 @@
 import type { Bot, ComputerState, LiveState, Routine, Row, Toolkit, User } from '@shared/types';
 import { isNativeApp } from './native';
 import { requireActiveSession, revalidateSession } from './session';
+import { readDeadline } from './readDeadline';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public code?: string) { super(message); }
@@ -46,7 +47,7 @@ export const api = {
   logout: () => req<{ ok: true }>('POST', '/auth/logout'),
   deleteAccount: (expectedUserId: string) => req<{ ok: true }>('DELETE', '/account', { confirmation: 'DELETE', expectedUserId }),
 
-  bots: () => req<{ bots: Bot[]; live: LiveState[] }>('GET', '/bots'),
+  bots: () => readDeadline(signal => req<{ bots: Bot[]; live: LiveState[] }>('GET', '/bots', undefined, signal)),
   createBot: (b: Pick<Bot, 'name' | 'avatarShape' | 'avatarColor' | 'mode'>) => req<{ bot: Bot }>('POST', '/bots', b),
   markRead: (id: string) => req<{ ok: true }>('POST', `/bots/${id}/read`),
   rows: (id: string, beforeSeq?: number) => req<RowPage>('GET', `/bots/${id}/rows?${beforeSeq === undefined ? `limit=${INITIAL_ROW_PAGE_SIZE}` : `beforeSeq=${beforeSeq}&limit=${ROW_PAGE_SIZE}`}`),
@@ -75,7 +76,7 @@ export const api = {
   createRoom: (name: string, botIds: string[]) => req<{ id: string }>('POST', '/rooms', { name, botIds }),
 
   /** Everything waiting on the user across Bots: setup reviews, approvals, questions and connect cards (WS4). */
-  needsYou: () => req<{ items: NeedsYouItem[] }>('GET', '/needs-you'),
+  needsYou: () => readDeadline(signal => req<{ items: NeedsYouItem[] }>('GET', '/needs-you', undefined, signal)),
   /** Account preferences (WS4). */
   preferences: () => req<AccountPreferences>('GET', '/account/preferences'),
   updatePreferences: (p: AccountPreferences) => req<AccountPreferences>('PATCH', '/account/preferences', p),

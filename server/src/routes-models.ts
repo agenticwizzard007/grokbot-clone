@@ -1,4 +1,6 @@
-import { cliCatalog } from './cli/catalog.js';
+import { cliDisplayCatalog } from './cli/catalog.js';
+import { createHash } from 'node:crypto';
+import { MetadataCache } from './lib/metadata-cache.js';
 import { selectedCli } from './cli/store.js';
 import { Hono } from 'hono';
 import { db } from './db.js';
@@ -16,6 +18,13 @@ import { ANALYTICS_RANGES, botAnalytics, type AnalyticsRange } from './analytics
  */
 export const modelsApi = new Hono<AuthVars>();
 modelsApi.use('*', requireUser);
+modelsApi.use('/models', async (c, next) => {
+  const started = performance.now();
+  await next();
+  c.header('Server-Timing', `models;dur=${(performance.now() - started).toFixed(1)}`);
+  c.header('Cache-Control', 'no-store');
+});
+const directModels = new MetadataCache<string[]>();
 
 /** "Anthropic: Claude Opus 5.5" → "Opus 5.5"; "OpenAI: GPT-5.5" → "GPT-5.5". */
 export function shortName(m: Pick<ModelInfo, 'name' | 'author'>): string {
@@ -40,7 +49,7 @@ modelsApi.get('/models', async (c) => {
   if (cli) {
     c.header('Cache-Control', 'no-store');
     try {
-      const data = await cliCatalog(user.id, cli, true);
+      const data = await cliDisplayCatalog(user.id, cli);
       const ids = new Set(data.models.map(m => m.id));
       const saved = favouritesOf(user.id)?.filter(id => ids.has(id));
       return c.json({ provider, billing: 'plan', canFast: false, ...data, favourites: saved?.length ? saved : data.models.slice(0, 12).map(m => m.id) });
@@ -52,9 +61,15 @@ modelsApi.get('/models', async (c) => {
     try { models = (await openrouterModels()).map((m) => ({ ...m, short: shortName(m) })); }
     catch (e: any) { error = String(e?.message ?? e); }
   } else if (env.directKey) {
-    const r = await verifyDirectKey(env.directKey, env.directModel);
-    if (r.ok) models = r.models.map((id) => ({ id, name: id, short: id, author: 'custom', efforts: ['low', 'medium', 'high', 'xhigh'], defaultEffort: 'medium', vision: true, reasoning: true, context: 0, price: { input: 0, output: 0 } }));
-    else error = r.error;
+    try {
+      const key = createHash('sha256').update(JSON.stringify([user.id, env.directBaseUrl, env.directKey, env.directModel])).digest('hex');
+      const ids = await directModels.read(key, async signal => {
+        const r = await verifyDirectKey(env.directKey, env.directModel, signal);
+        if (!r.ok) throw new Error(r.error);
+        return r.models;
+      });
+      models = ids.map((id) => ({ id, name: id, short: id, author: 'custom', efforts: ['low', 'medium', 'high', 'xhigh'], defaultEffort: 'medium', vision: true, reasoning: true, context: 0, price: { input: 0, output: 0 } }));
+    } catch (e) { error = (e as Error).message; }
   }
   const ids = new Set(models.map((m) => m.id));
   const saved = favouritesOf(user.id);

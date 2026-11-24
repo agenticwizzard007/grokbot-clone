@@ -129,9 +129,9 @@ export async function verifyVoiceKey(key: string): Promise<{ ok: true } | { ok: 
   }
 }
 
-export async function verifyDirectKey(key: string, model: string): Promise<{ ok: true; models: string[]; modelOk: boolean } | { ok: false; error: string }> {
+export async function verifyDirectKey(key: string, model: string, signal?: AbortSignal): Promise<{ ok: true; models: string[]; modelOk: boolean } | { ok: false; error: string }> {
   try {
-    const r = await fetch(`${env.directBaseUrl}/models`, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(15_000) });
+    const r = await fetch(`${env.directBaseUrl}/models`, { headers: { Authorization: `Bearer ${key}` }, signal: signal ?? AbortSignal.timeout(15_000) });
     const body: any = await r.json().catch(() => ({}));
     if (!r.ok) return { ok: false, error: r.status === 400 || r.status === 401 || r.status === 403 ? 'direct provider rejected this key.' : `direct provider answered ${r.status}: ${String(body?.error?.message ?? body?.error ?? '').slice(0, 200)}` };
     const models: string[] = (body?.data ?? body?.models ?? []).map((m: any) => String(m.id ?? m)).filter(Boolean).sort();

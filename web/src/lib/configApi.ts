@@ -1,5 +1,6 @@
 import type { AgentInstructionPreview, AgentSetupView, CoworkerSetupView, Bot, ComputerState, LibraryFile, Memory, Routine, Skill, Task, Toolkit } from '@shared/types';
 import { ApiError } from './api';
+import { readDeadline } from './readDeadline';
 import type { McpServerInput, McpServerView } from '@shared/types';
 import { parsePhoneStart, PHONE_START_UNAVAILABLE, type PhoneStart } from '../../../server/src/messaging/phone-start';
 export type { PhoneStart } from '../../../server/src/messaging/phone-start';
@@ -221,8 +222,8 @@ export const configApi = {
   runRoutine: (id: string) => req<{ ok: true }>('POST', `/routines/${id}/run`),
   deleteRoutine: (id: string) => req<{ ok: true }>('DELETE', `/routines/${id}`),
 
-  tasks: () => req<{ tasks: Task[] }>('GET', '/tasks'),
-  botTasks: (botId: string) => req<{ tasks: Task[] }>('GET', `/bots/${botId}/tasks`),
+  tasks: () => readDeadline(signal => req<{ tasks: Task[] }>('GET', '/tasks', undefined, signal)),
+  botTasks: (botId: string) => readDeadline(signal => req<{ tasks: Task[] }>('GET', `/bots/${botId}/tasks`, undefined, signal)),
 
   files: (botId: string, path = '', wake = false) => req<LibraryListing>('GET', `/bots/${botId}/files?path=${encodeURIComponent(path)}${wake ? '&wake=1' : ''}`),
   downloadFile: (botId: string, path: string) => req<{ url: string }>('POST', `/bots/${botId}/files/download`, { path }),

@@ -64,7 +64,11 @@
 .setup-create__file { display: grid; gap: var(--space-2); }
 .setup-create__file input[type='file'] { display: none; }
 .setup-create__chosen { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.bot-settings-page__content { min-width: 0; }
+.bot-settings-page__content { min-width: 0; overflow-wrap: anywhere; }
+.bot-settings-page__content .cfg-page__head > div { min-width: 0; }
+.bot-settings-page__content .cfg-row__title { white-space: normal; overflow-wrap: anywhere; }
+.bot-settings-page__content .cfg-savebar { margin-inline: 0; padding-inline: 0; }
+.bot-settings-page__intro { margin: 0 0 var(--space-5); }
 .bot-settings-page__content > .cfg-page, .bot-settings-page__memories > .cfg-page { padding: 0; max-width: none; min-width: 0; }
 .bot-settings-page__content :is(.native-panel, .native-history) { grid-template-columns: minmax(0, 1fr); overflow-wrap: anywhere; }
 .bot-settings-page__content :is(.cfg-editor, .cfg-field__hint) { min-width: 0; overflow-wrap: anywhere; }

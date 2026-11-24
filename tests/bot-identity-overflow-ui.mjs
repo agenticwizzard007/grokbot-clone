@@ -10,7 +10,7 @@ await fs.mkdir(out, { recursive: true });
 const draftName = 'W'.repeat(60);
 const label = 'W'.repeat(40);
 const bot = {
-  id: 'identity-fixture', name: 'Fixture Bot', label, description: '', instructions: '',
+  id: 'identity-fixture', name: 'QA-Long-' + 'B'.repeat(80), label, description: '', instructions: '',
   avatarShape: 'square', avatarColor: 'blue', mode: 'personal', isPrimary: true, kind: 'agent',
   effort: 'medium', model: null, generation: 1, unread: 0, lastActivityAt: 1, createdAt: 1,
   voice: '', voiceSpeed: 1, voiceLanguage: 'auto', onboarding: { status: 'active' },
@@ -54,7 +54,7 @@ async function checkText(page, selector, column, pane, expected, width) {
 }
 
 try {
-  for (const width of [1440, 1280, 1024, 768, 390]) {
+  for (const width of (process.env.QA_WIDTHS ? process.env.QA_WIDTHS.split(',').map(Number) : [1440, 1280, 1024, 768, 390])) {
     const context = await browser.newContext({ viewport: { width, height: 900 }, colorScheme: 'light', reducedMotion: 'reduce', serviceWorkers: 'block' });
     const errors = [], writes = [], external = [];
     await context.addInitScript(() => {
@@ -78,7 +78,16 @@ try {
       if (path.endsWith('/rows')) return send({ generation: 1, rows: [] });
       if (path.endsWith('/routines')) return send({ routines: [] });
       if (path.endsWith('/tasks')) return send({ tasks: [] });
-      if (path.endsWith('/settings')) return send({ settings: {}, skills: [], memories: [], routines: [], tasks: [] });
+      if (path.endsWith('/learning/settings')) return send({ settings: {
+        enabled: true, automaticReview: true, memoryReview: true, skillReview: true, skillApproval: true,
+        memoryTurnInterval: 10, skillIterationInterval: 10, maxIterations: 16, maxInputTokens: 32000,
+        auxiliaryModel: null, auxiliaryProvider: null, curatorEnabled: true, curatorIntervalHours: 168,
+        curatorMinIdleHours: 2, curatorStaleDays: 14, curatorArchiveDays: 30, curatorConsolidate: false,
+      }, overrides: {}, revision: 1, accountRevision: 1, botId: bot.id });
+      if (path.endsWith('/analytics')) return send({ range: '7d', timezone: 'UTC', days: [{ day: '2026-11-23', messages: 0, minutesSaved: 0 }], totals: { messages: 0, minutesSaved: 0 }, breakdown: [], rates: { pageRead: 1, search: 1, message: 1, code: 1 } });
+      if (path.endsWith('/files')) return send({ status: 'ok', path: '', files: [] });
+      if (path.endsWith('/memories/pending')) return send({ changes: [] });
+      if (path.endsWith('/settings')) return send({ settings: {}, skills: [], memories: [], routines: [], tasks: [], memory: { historyChars: 0, compactAtChars: 1000, lastCompaction: null } });
       if (path.endsWith('/coworker-setups')) return send({ setups: [] });
       if (path === '/api/team/exchanges') return send({ exchanges: [], nextBefore: null });
       if (path === '/api/computer') return send({ computer: { status: 'stopped', provider: 'local', screens: [] } });
@@ -88,16 +97,37 @@ try {
     });
     const page = await context.newPage();
     page.setDefaultTimeout(10_000);
-    page.on('pageerror', error => errors.push(error.message));
+    page.on('pageerror', error => { errors.push(error.message); console.error(error.message); });
     await page.goto(origin);
     if (width <= 760) await page.locator('.pinned__tile').click();
-    await page.getByRole('button', { name: 'Open Fixture Bot details', exact: true }).click();
+    await page.getByRole('button', { name: `Open ${bot.name} details`, exact: true }).click();
     const details = page.getByRole('complementary', { name: 'Conversation details' });
     await details.locator('.bot-detail-identity p').waitFor();
     await page.evaluate(() => document.fonts.ready);
     await details.evaluate(element => element.scrollTo(0, 0));
     const labelGeometry = await checkText(page, '.bot-detail-identity p', '.bot-detail-identity', '.details', label, width);
     await page.screenshot({ path: new URL(`label-${width}.png`, out).pathname });
+    // I08: every Details tab must contain a saved, unbroken name, including the workflow card.
+    for (const tab of ['Activity', 'Tasks', 'Files', 'Setup']) {
+      await details.getByRole('navigation').getByRole('button', { name: tab, exact: true }).click();
+      await details.evaluate(el => el.scrollTo(0, 0));
+      await page.waitForTimeout(100);
+      const overflow = await details.evaluate(el => [el, ...el.querySelectorAll('.details-page__column, .work-row, .work-meta')]
+        .map(node => ({ className: node.className, scroll: node.scrollWidth, client: node.clientWidth }))
+        .filter(node => node.scroll > node.client));
+      assert.deepEqual(overflow, [], `${width}: ${tab} has no horizontal overflow`);
+      if (tab === 'Activity' || tab === 'Tasks') {
+        const meta = details.locator('.work-meta').filter({ hasText: 'Plan and review work' });
+        assert.equal(await meta.textContent(), `Plan and review work for ${bot.name}.`);
+        const fits = await meta.evaluate(el => {
+          const range = document.createRange(); range.selectNodeContents(el);
+          const rect = el.getBoundingClientRect();
+          return [...range.getClientRects()].every(line => line.left >= rect.left - .5 && line.right <= rect.right + .5);
+        });
+        assert.ok(fits, 'workflow name wraps without clipping');
+      }
+      await page.screenshot({ path: new URL(`details-${tab}-${width}.png`, out).pathname });
+    }
     await details.getByRole('button', { name: 'Close details', exact: true }).click();
     await page.locator('.chat__pill').click();
     await page.getByRole('menuitem', { name: 'Bot settings', exact: true }).click();
@@ -105,6 +135,34 @@ try {
     const nameInput = settings.getByRole('textbox', { name: 'Name', exact: true });
     assert.equal(await nameInput.getAttribute('maxlength'), '60');
     assert.equal(await settings.getByRole('textbox', { name: 'Label', exact: true }).getAttribute('maxlength'), '40');
+    const nav = settings.getByRole('navigation', { name: 'Bot settings sections' });
+    const position = await nav.boundingBox();
+    for (const tab of ['Skills', 'Memories', 'Routines', 'Learning', 'Analytics', 'General']) {
+      await nav.getByRole('button', { name: tab, exact: true }).click();
+      await settings.evaluate(el => el.scrollTo(0, 0));
+      await page.waitForTimeout(100);
+      const next = await nav.boundingBox();
+      assert.equal(next.x, position.x, `${width}: ${tab} tab bar x`);
+      assert.equal(next.y, position.y, `${width}: ${tab} tab bar y`);
+      if (!await settings.evaluate(el => el.scrollWidth <= el.clientWidth)) console.log(await settings.evaluate(el => [...el.querySelectorAll('*')].filter(n => n.scrollWidth > n.clientWidth && n.clientWidth > 0).map(n => [n.className, n.scrollWidth, n.clientWidth, n.textContent?.slice(0, 100)])));
+      assert.ok(await settings.evaluate(el => el.scrollWidth <= el.clientWidth), `${width}: ${tab} settings overflow`);
+      if (tab === 'Learning') {
+        await settings.getByRole('checkbox', { name: 'Learning enabled', exact: true }).waitFor();
+        const rows = await settings.locator('.learning-flags .cfg-row').evaluateAll(rows => rows.map(row => {
+          const icon = row.querySelector('.settings-row__icon').getBoundingClientRect();
+          const text = row.querySelector('.cfg-row__title').getBoundingClientRect();
+          const control = row.querySelector('input').getBoundingClientRect();
+          return { iconWidth: icon.width, iconHeight: icon.height, gap: text.x - icon.right, centers: icon.y - text.y - 2, controlGap: control.x - text.right };
+        }));
+        assert.equal(rows.length, 5);
+        for (const row of rows) {
+          assert.equal(row.iconWidth, 20); assert.equal(row.iconHeight, 20);
+          assert.equal(row.gap, 16); assert.ok(Math.abs(row.centers) <= 1);
+          assert.ok(row.controlGap >= 16);
+        }
+        await page.screenshot({ path: new URL(`learning-${width}.png`, out).pathname });
+      }
+    }
     await nameInput.fill(draftName);
     await settings.locator('.cfg-savebar.is-dirty').waitFor();
     await settings.evaluate(element => element.scrollTo(0, 0));

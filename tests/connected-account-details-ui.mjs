@@ -185,7 +185,15 @@ try {
     await page.locator('.apps-modal').getByRole('heading', { name: 'Connected', exact: true }).waitFor();
     await page.locator('.apps-modal').getByText('name@gmail.com', { exact: true }).waitFor();
     await checkLayout(page.locator('.apps-modal'));
-    await page.locator('.apps-modal').getByRole('button', { name: 'Close', exact: true }).click();
+    const modal = page.locator('.apps-modal');
+    await modal.getByRole('searchbox').fill('Google Tasks');
+    const tasksRow = modal.locator('.app-row').filter({ has: page.getByText('Google Tasks', { exact: true }) });
+    await tasksRow.getByRole('button', { name: 'Connect Google Tasks', exact: true }).waitFor();
+    assert.equal(await tasksRow.locator('.toolkit-logo').count(), 1);
+    assert.equal(await tasksRow.locator('.toolkit-logo__letter').innerText(), 'G');
+    assert.equal(await tasksRow.locator('input[type=checkbox], [role=checkbox], img').count(), 0, 'Google Tasks has no stray checkbox artwork or selection control');
+    await page.screenshot({ path: path.join(evidence, `google-tasks-${width}.png`), fullPage: true });
+    await modal.getByRole('button', { name: 'Close', exact: true }).click();
     // A legacy resolved chat card loads details for its bound account.
     await page.evaluate(async botId => (await import('/src/store.ts')).useStore.getState().selectBot(botId), bot.id);
     const chatCard = page.locator('.connect-card').filter({ hasText: 'name@gmail.com' });
