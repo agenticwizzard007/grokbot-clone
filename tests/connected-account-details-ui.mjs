@@ -75,6 +75,7 @@ try {
       .run(bot.id, botRow.generation, 100, 100, 'card', JSON.stringify(body), Date.now());
     const page = await context.newPage(); page.setDefaultTimeout(15000); page.on('pageerror', e => errors.push(e.message));
     await page.goto(base + '/#settings');
+    if (width <= 760) await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'General', exact: true }).click();
     await page.getByRole('heading', { name: 'General', exact: true }).waitFor();
     await page.screenshot({ path: path.join(evidence, `general-${width}.png`), fullPage: true });
     await page.waitForFunction(async () => !!(await import('/src/store.ts')).useStore.getState().user);

@@ -109,12 +109,8 @@ export function Sidebar() {
     };
   }, [accountMenu, collapsed]);
   // R2F-004: leaving Bot settings with unsaved edits asks first.
-  const createBot = () => useConfigUI.getState().requestLeaveBotSettings(() => { useConfigUI.getState().closeAppSettings(); useConfigUI.getState().discardBotSettings(); setModal('create'); });
-  const showBots = () => useConfigUI.getState().requestLeaveBotSettings(() => {
-    const ui = useConfigUI.getState(); ui.closeAppSettings(); ui.discardBotSettings(); setModal(null);
-    ui.setView(useStore.getState().mobile ? 'chat' : 'bots');
-    set({ mobilePane: 'list', detailsOpen: false });
-  });
+  const createBot = () => setModal('create');
+  const showBots = () => useConfigUI.getState().setView('bots');
   const logout = async () => {
     try { await api.logout(); }
     catch { toast('Couldn\'t sign out. Check your connection and try again.', { tone: 'error' }); return; }

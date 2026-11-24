@@ -79,7 +79,8 @@ try {
     if(width>1100){
       await composer.fill('Send while the details sidebar is open'); await composer.press('Enter');
       await page.waitForFunction(()=>document.querySelector('.composer__input')?.value==='');
-      assert.deepEqual(writes.at(-1),{path:'/api/bots/quinn/messages',method:'POST',body:{text:'Send while the details sidebar is open'}});
+      assert.deepEqual({ ...writes.at(-1), body: { ...writes.at(-1).body, submissionId: undefined } },{path:'/api/bots/quinn/messages',method:'POST',body:{text:'Send while the details sidebar is open',submissionId:undefined}});
+      assert.match(writes.at(-1).body.submissionId, /^[a-f0-9-]{36}$/);
       await composer.fill('Keep this draft while reviewing details');
     }
     // R2F-022: the tab bar and the close button keep their boxes (within 1 px) on every tab.
@@ -161,7 +162,7 @@ try {
       await page.locator('.bot-row').filter({hasText:'Nia'}).click();
       await guard.getByRole('button',{name:'Discard',exact:true}).click();
       await page.locator('.chat__pill-name').getByText('Nia',{exact:true}).waitFor();
-      assert.equal(await page.evaluate(()=>location.hash),'','leaving Bot settings clears its link');
+      assert.match(await page.evaluate(()=>location.hash),/^#bot\/nia~[^/]+$/,'leaving Bot settings names the destination chat');
       assert.ok(!writes.some(w=>w.path==='/api/bots/quinn'&&w.body?.description),'nothing was saved');
       await page.goto(`${origin}/#bot/quinn/settings/general`);
       await about.waitFor();

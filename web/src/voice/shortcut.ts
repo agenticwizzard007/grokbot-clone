@@ -24,11 +24,7 @@ export function installVoiceShortcut() {
     try {
       const config = useConfigUI.getState();
       const proceed = () => {
-        const ui = useConfigUI.getState();
-        ui.closeAppSettings();
-        ui.discardBotSettings();
-        ui.setView('chat');
-        useStore.getState().set({ modal: null, viewerOpen: false, detailsOpen: false });
+        useStore.setState({ viewerOpen: false });
         useStore.getState().selectBot(main.id);
         const call = useVoice.getState();
         if (isCallActive(call) && call.botId === main.id && call.muted) toggleMute();

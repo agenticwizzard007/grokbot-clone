@@ -41,7 +41,7 @@ function BotChat({ bot }: { accountId: string; bot: Bot }) {
   const [menu, setMenu] = useState(false);
   const menuTrigger = useRef<HTMLButtonElement>(null);
   const rows = useMemo(() => sortedRows(currentTranscript), [currentTranscript]);
-  const back = () => mobile ? backToList() : useConfigUI.getState().setView('bots');
+  const back = backToList;
   const fresh = useFreshConversation(bot.id);
   return <main className="chat">
     <div className="chat__context">
