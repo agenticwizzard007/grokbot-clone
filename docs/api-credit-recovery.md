@@ -26,3 +26,16 @@ The client policy covers foreground chat, each tool-loop turn, image/MCP schema 
 `node tests/api-credits-ui.mjs` uses temporary SQLite, DEV_LOGIN, a local HTTP provider and blocked external browser/backend traffic. At 390 and 1280 pixels it sends a request that fails with 402 then succeeds, sends an exhausted request, verifies the billing URL and expandable details, and reloads the persisted state. Screenshots are under `.context/api-credits/`.
 
 No real OpenRouter request was made. No OpenRouter key is configured in the workspace environment or a local .env file, so no clearly authorized dev/test key was available. No live account, production data or paid resources were accessed.
+
+The focused gate passes 143 tests (including 30 new cases) with no failures. Typecheck, the production build and `git diff --check` pass. Ten local browser suites pass: credit recovery, redesign, visual polish, account details, Settings simplification, delayed Settings loading, plan connections, Stop isolation, voice recovery and chat opening. The exercised voice recovery suite also passes on untouched main; this does not claim that the separately reported pre-existing voice cancellation failure is fixed.
+
+Chat-opening checks at 390/1280 pixels measured cold latest-message paints of 2,698/2,149 ms and warm paints of 37/37 ms. The shell remained below 60 ms, and held-chunk/SSE cases passed.
+
+Full unit comparison (`node --import tsx --test --test-concurrency=1 tests/*.test.mts tests/*.test.mjs`, Node 24.22.1):
+
+| Checkout | Passed | Failed | Skipped |
+| --- | ---: | ---: | ---: |
+| Untouched main, fea80f3 | 1967 | 71 | 24 |
+| Credit fix | 1994 | 71 | 24 |
+
+All failure names match after normalizing checkout paths. There are no new failures. The VM baseline has 71 failures, compared with the supplied historical baseline of 62; the full suite is not claimed to pass. Three additional direct-compaction cases pass in the 143-test focused gate, bringing the new coverage to 30 cases. The separately reported pre-existing voice cancellation browser failure is outside this change.
