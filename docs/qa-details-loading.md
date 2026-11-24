@@ -1,6 +1,6 @@
 # Details, voice polling and loading QA
 
-Local investigation of QA items 11 through 15, originally reported on 561fcc9. No live sign-in or real account data was used. The work includes voice setup PR #187 and builds on catalog PR #188.
+Local investigation of QA items 11 through 15, originally reported on 561fcc9. No live sign-in or real account data was used. The work includes voice setup PR #187 and builds on catalog PR #188 and cancellation PR #189.
 
 ## Findings and changes
 
@@ -14,7 +14,7 @@ Local investigation of QA items 11 through 15, originally reported on 561fcc9. N
 
 ## Events and Fly review
 
-The existing SSE handler writes complete frames, flushes an initial hello, sends data heartbeats every ten seconds, disables compression/buffering and omits HTTP/1-only headers. Local HTTP/1 and HTTP/2 tests verify those headers and heartbeats. The client uses one EventSource, closes failed streams, revalidates the session with a five-second limit, reconnects with bounded backoff and has a 45-second silent-stream watchdog. Roster requests and the Tasks import do not await the stream.
+The existing SSE handler writes complete frames, flushes an initial hello, sends data heartbeats every ten seconds, disables compression/buffering and omits HTTP/1-only headers. Local HTTP/1 and HTTP/2 tests verify those headers and heartbeats. The client uses one EventSource, closes failed streams, revalidates the session with a five-second limit, reconnects with bounded backoff and has a 45-second silent-stream watchdog. Roster requests and the Tasks import do not await the stream. The client previously reset backoff on every accepted connection, allowing repeated immediate protocol resets to reconnect every second. It now resets backoff only after ten seconds of valid delivery. Local tests cover repeated hello/reset cycles, heartbeat recovery and concurrent roster requests over both HTTP/1 and HTTP/2. No run cancellation or event ordering logic was changed.
 
 fly.toml has no h2_backend override, so Fly terminates public HTTP/2 and uses the normal HTTP/1 backend. There is no explicit proxy idle-timeout or concurrency setting. The health check is GET /api/health every 30 seconds with a five-second timeout and a 20-second grace period. The always-on machine is shared-cpu-1x with 1 GB RAM. This is a capacity concern for a shared application serving SQLite, SSE, provider metadata and hosted CLI processes together; measure CPU, RSS, event-loop delay and connection count under load before choosing new limits or capacity. No paid machine size, billing, autoscaling or deployment workflow was changed.
 

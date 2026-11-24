@@ -238,3 +238,27 @@ test('an empty cached conversation keeps an older cursor after a large missed bu
   assert.equal(useStore.getState().transcripts.selected.olderCursor, 697);
   assert.equal(reads.mock.callCount(), 1);
 });
+
+test('streams reset just after hello still back off and a healthy heartbeat restores normal retries', async t => {
+  setup(t);
+  t.mock.method(api, 'rows', async () => ({ generation: 1, rows: [] }));
+  const stop = startEvents();
+  try {
+    for (const delay of [1000, 2000, 4000]) {
+      const source = sources.at(-1)!;
+      source.onopen(); source.onmessage({ data: '{"type":"hello","serverTime":0}' });
+      await source.onerror();
+      const length = sources.length;
+      t.mock.timers.tick(delay - 1); assert.equal(sources.length, length);
+      t.mock.timers.tick(1); assert.equal(sources.length, length + 1);
+    }
+    const healthy = sources.at(-1)!;
+    healthy.onopen();
+    t.mock.timers.tick(10_000); healthy.onmessage({ data: '{"type":"ping"}' });
+    await healthy.onerror();
+    const length = sources.length;
+    t.mock.timers.tick(999); assert.equal(sources.length, length);
+    t.mock.timers.tick(1); assert.equal(sources.length, length + 1);
+    await settle();
+  } finally { stop(); }
+});

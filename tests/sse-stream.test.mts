@@ -118,6 +118,23 @@ for (const protocol of ['http1', 'http2'] as const) {
       if (client) for (const header of ['connection', 'transfer-encoding', 'keep-alive']) assert.equal(response[header], undefined);
       assert.equal((await received.next()).type, 'hello');
       assert.ok(Date.now() - started < 1500, 'headers and greeting arrive immediately');
+      // Keep the event stream open while another authenticated request shares the connection.
+      const rosterStarted = Date.now();
+      const roster = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+        const other = client ? client.request({ ':path': '/api/bots', cookie: cookies[protocol] })
+          : http.get(`${base}/api/bots`, { headers: { cookie: cookies[protocol] } });
+        other.once('error', reject);
+        other.once('response', response => {
+          let body = '';
+          const readable = client ? other : response;
+          readable.on('data', chunk => { body += chunk; });
+          readable.once('end', () => resolve({ status: client ? response[':status'] : response.statusCode, body }));
+        });
+        if (client) other.end();
+      });
+      assert.equal(roster.status, 200);
+      assert.ok(Array.isArray(JSON.parse(roster.body).bots));
+      assert.ok(Date.now() - rosterStarted < 1500, 'SSE does not block the roster request');
       assert.ok(SSE_HEARTBEAT_MS <= 10_000);
       for (let i = 0; i < 3; i++) {
         const previous = Date.now();

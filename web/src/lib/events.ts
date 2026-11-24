@@ -37,11 +37,12 @@ export function startEvents(): () => void {
   const open = () => {
     if (stopped || sessionExpired()) return;
     const source = new EventSource('/api/events', { withCredentials: true });
+    let openedAt = Date.now();
     es = source;
     source.onopen = () => {
       if (stopped || sessionExpired() || es !== source) return;
       watchdog.beat();
-      retry = 1000;
+      openedAt = Date.now();
       useStore.getState().set({ sseConnected: true });
       if (needsResync) resync();
       needsResync = true;
@@ -49,7 +50,13 @@ export function startEvents(): () => void {
     source.onmessage = (m) => {
       if (stopped || sessionExpired() || es !== source) return;
       watchdog.beat();
-      try { useStore.getState().handleEvent(JSON.parse(m.data) as ServerEvent); } catch (e) { console.warn('bad event', e); }
+      try {
+        const event = JSON.parse(m.data) as ServerEvent;
+        // A proxy can accept headers/hello, then immediately reset the stream.
+        // Keep backoff until a heartbeat interval of actual delivery has survived.
+        if (Date.now() - openedAt >= 10_000) retry = 1000;
+        useStore.getState().handleEvent(event);
+      } catch (e) { console.warn('bad event', e); }
     };
     source.onerror = async () => {
       if (stopped || sessionExpired() || es !== source) return;
