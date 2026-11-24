@@ -16,6 +16,16 @@ export function App() {
   useEffect(installVoiceEntry, []);
   useEffect(installOverlayScrollbars, []);
   useEffect(() => { consumeSignedInRedirect(); useStore.getState().checkAuth(); }, []);
+  useEffect(() => {
+    if (!user) return;
+    // Start while the shell/Bot list loads, before a chat or Settings is opened.
+    void import('./lib/models').then(({ useModels }) => {
+      if (useStore.getState().user?.id === user.id) void useModels.getState().load();
+    });
+    void import('./lib/cliApi').then(({ cliApi }) => {
+      if (useStore.getState().user?.id === user.id) void cliApi.status().catch(() => {});
+    });
+  }, [user?.id]);
   // Public invite page: /join/<code> works signed in or out.
   const join = window.location.pathname.match(/^\/join\/([^/]+)/);
   if (join) {

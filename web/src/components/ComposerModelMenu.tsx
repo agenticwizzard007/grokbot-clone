@@ -12,6 +12,7 @@ import { useConfigUI } from '../configStore';
 import { toast } from '../lib/toast';
 import { shortcutLabel } from '../lib/shortcuts';
 import { nextEffort } from '../lib/effortCycle';
+import { lastModelLabel, rememberModelLabel } from '../lib/modelMemory';
 
 /** OpenRouter's icon for the model's maker (served via our server), or a monogram. */
 export function ProviderIcon({ author, size = 16 }: { author: string; size?: number }) {
@@ -69,7 +70,8 @@ export function ComposerModelMenu({ bot }: { bot: Bot }) {
   const selection = modelSelection(bot, models);
   const current = known ? selection.current : undefined;
   const effort = known ? selection.effort : null;
-  const label = models.status === 'loading' || models.status === 'idle' ? 'Loading models…' : models.status === 'error' || models.error ? 'Models unavailable' : !known ? 'Provider default' : current ? fallbackShort(current.id, current.short) : (planMode ? 'CLI default' : bot.model ? fallbackShort(bot.model) : 'Default model');
+  const label = models.status === 'loading' || models.status === 'idle' ? lastModelLabel(accountId, bot) : models.status === 'error' || models.error ? 'Models unavailable' : !known ? 'Provider default' : current ? fallbackShort(current.id, current.short) : (planMode ? 'CLI default' : bot.model ? fallbackShort(bot.model) : 'Default model');
+  useEffect(() => { if (known) rememberModelLabel(accountId, bot, label); }, [accountId, bot.id, bot.model, known, label]);
   const efforts = effortsFor(current);
   const ultra = isTopEffort(effort, current);
 

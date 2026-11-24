@@ -61,9 +61,9 @@ export function micErrorMessage(e: unknown): string {
   const name = (e as { name?: string })?.name;
   if (name === 'NotAllowedError' || name === 'SecurityError') return isNativeApp
     ? 'Microphone access was blocked. Allow microphone access for Swarm in Settings, then try again.'
-    : 'Microphone access was blocked. Allow it in your browser’s site settings.';
-  if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'No microphone found.';
-  if (name === 'NotReadableError') return 'Your microphone is in use by another app.';
+    : 'Microphone permission was denied. Open your browser’s site settings, allow Microphone, then retry.';
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'No microphone device found. Connect a microphone, then retry.';
+  if (name === 'NotReadableError') return 'Your microphone device could not be opened. Close other apps using it, then retry.';
   if (!navigator.mediaDevices?.getUserMedia) return 'This browser can’t use the microphone here (it needs HTTPS or localhost).';
   return (e as Error)?.message || 'Could not open the microphone.';
 }
@@ -104,12 +104,12 @@ export class MicCapture {
     if (m) this.level = 0;
   }
 
-  stop() {
+  stop(releaseStream = true) {
     if (this.stopped) return;
     this.stopped = true;
     try { this.source?.disconnect(); this.node?.disconnect(); this.sink?.disconnect(); } catch { /* already gone */ }
     if (this.node) this.node.port.onmessage = null;
-    for (const t of this.stream.getTracks()) t.stop();
+    if (releaseStream) for (const t of this.stream.getTracks()) t.stop();
     this.source = this.node = this.sink = null;
   }
 }

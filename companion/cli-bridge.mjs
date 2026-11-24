@@ -155,12 +155,12 @@ function executable(provider, options) {
   return path === undefined ? provider : isAbsolute(path) ? path : resolve(path);
 }
 
-async function providerStatus(provider, options, cwd, signal) {
+async function providerStatus(provider, options, cwd, signal, timeoutMs = AUTH_TIMEOUT_MS) {
   const result = { installed: true, authenticated: false, subscription: false };
   try {
     const args = provider === 'codex' ? ['login', 'status'] : ['auth', 'status', '--json'];
     if (provider === 'codex' && options.fileCredentials === true) args.push('-c', 'cli_auth_credentials_store="file"');
-    const output = await deadline(signal, AUTH_TIMEOUT_MS, (authSignal) => execute(executable(provider, options), args, { cwd, env: childEnvironment(options.env), signal: authSignal }));
+    const output = await deadline(signal, timeoutMs, (authSignal) => execute(executable(provider, options), args, { cwd, env: childEnvironment(options.env), signal: authSignal }));
     aborted(signal);
     if (provider === 'codex') {
       const text = `${output.stdout}\n${output.stderr}`.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
@@ -194,7 +194,7 @@ export async function checkProviders(options = {}) {
   return Object.fromEntries(await Promise.all(['codex', 'claude'].map(async (provider) => {
     aborted(options.signal);
     const cwd = await mkdtemp(join(tmpdir(), 'swarm-cli-status-'));
-    try { return [provider, await providerStatus(provider, options, cwd, options.signal)]; }
+    try { return [provider, await providerStatus(provider, options, cwd, options.signal, 2500)]; }
     finally { await rm(cwd, { recursive: true, force: true }); }
   })));
 }

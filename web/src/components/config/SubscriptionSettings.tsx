@@ -2,7 +2,7 @@ import { SettingIcon } from './SettingRow';
 import { useModels } from '../../lib/models';
 import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, Copy, ExternalLink, RefreshCw, Terminal, KeyRound, Monitor } from 'lucide-react';
-import { cliApi, type CliProvider, type CliProviderStatus, type CliStatus } from '../../lib/cliApi';
+import { cliApi, getCachedCliStatus, type CliProvider, type CliProviderStatus, type CliStatus } from '../../lib/cliApi';
 import { PLAN_PROVIDERS, planConnectionStatus } from '../../lib/planConnections';
 import { refreshModels } from './ModelPicker';
 import { CliLoginTerminal } from './CliLoginTerminal';
@@ -68,8 +68,8 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
   const loginActive = useRef(false);
   const tabPicked = useRef(!!resumed?.provider || !!requestedProvider);
   const methodChosen = useRef(false);
-  const [status, setStatus] = useState<CliStatus | null>(null);
-  const [busy, setBusy] = useState<Action | null>('load');
+  const [status, setStatus] = useState<CliStatus | null>(getCachedCliStatus);
+  const [busy, setBusy] = useState<Action | null>(() => getCachedCliStatus() ? null : 'load');
   const [error, setError] = useState<string | null>(null);
   const [readError, setReadError] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
@@ -151,9 +151,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
       const controller = new AbortController();
       const epoch = statusEpoch.current;
       polling.current = controller;
-      cliApi.status(controller.signal).then(async (result) => {
-        // The initial hosted snapshot has no installation evidence until the official CLIs are probed.
-        if (initial && !result.connected && result.runtime === 'server' && result.serverLoginAvailable) result = await cliApi.refresh();
+      cliApi.status(controller.signal).then((result) => {
         if (!controller.signal.aborted) update(result, epoch);
       }).catch((err: unknown) => {
         if (!controller.signal.aborted && current(epoch)) {
@@ -348,6 +346,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
       <section className="cfg-section" aria-label="Plan connection">
         <AccessRow icon={Terminal} title={providerTab === 'claude' ? 'Claude plan' : 'ChatGPT plan'} description={`${PLAN_PROVIDERS.find(p => p.id === providerTab)!.plans} via the official ${providerTab === 'claude' ? 'Claude Code' : 'Codex'} CLI.`}
           status={<span role="status">{stale ? 'Status unavailable' : planConnectionStatus(status, providerTab, reportedPlan)}</span>}>
+          {(stale || status?.statusUnavailable) && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => void refresh()}>Retry status</button>}
           {selected === providerTab
             ? <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy || loginRunning || authLocked} onClick={() => void select(null)}>Disconnect</button>
             : planReady

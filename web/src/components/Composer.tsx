@@ -323,7 +323,7 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
                 items={[
                   { label: 'New conversation', onSelect: fresh },
                   { label: 'Connect apps', onSelect: () => setModal('apps') },
-                  ...(hasText || running ? [{ label: voiceLabel, icon: inCall ? PhoneOff : Mic, onSelect: voice }] : []),
+                  liveVoiceMenuItem(voice, inCall, switchingCall ? bot.name : undefined),
                   ...(!anyCall && dictation.state === 'idle' ? [{ label: 'Dictate a message', hint: 'Text only', icon: TextCursorInput, onSelect: dictate }] : []),
                 ]}
               />
@@ -384,4 +384,9 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
       </div>
     </div>
   );
+}
+
+/** The same live-call action is always available, including with a saved draft. */
+export function liveVoiceMenuItem(onSelect: () => void, inCall: boolean, switchTo?: string) {
+  return { label: inCall ? 'End live call' : 'Talk live', hint: switchTo ? `Switch to ${switchTo}` : undefined, icon: inCall ? PhoneOff : Mic, onSelect };
 }

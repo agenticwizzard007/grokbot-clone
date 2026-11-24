@@ -28,16 +28,25 @@ interface VoiceState {
   captions: Caption[];
   error: string | null;
   startedAt: number | null;
+  waitingForMic: boolean;
 }
 
 export const useVoice = create<VoiceState>(() => ({
   status: 'idle', botId: null, callId: null, muted: false, speaking: false, listening: false, thinking: false,
-  working: [], connectionRequests: [], approvals: [], captions: [], error: null, startedAt: null,
+  working: [], connectionRequests: [], approvals: [], captions: [], error: null, startedAt: null, waitingForMic: false,
 }));
 
 const setV = (p: Partial<VoiceState>) => useVoice.setState(p);
 
 let current: VoiceCall | null = null;
+// Retain granted tracks across a failed setup so Chrome's one-time permission
+// also covers Retry. Tracks are disabled while the error is displayed.
+let grantedMic: MediaStream | null = null;
+function releaseMic() {
+  grantedMic?.getTracks().forEach(t => t.stop());
+  grantedMic = null;
+  window.removeEventListener('pagehide', releaseMic);
+}
 
 /** Start from a user gesture, or the foreground native shortcut with WebKit audio playback enabled. */
 export function startCall(botId: string) {
@@ -54,7 +63,11 @@ export function startCall(botId: string) {
   }
 }
 
-export function endCall() { current?.end(); }
+export function endCall() {
+  current?.end();
+  releaseMic();
+  setV({ status: 'idle', botId: null, error: null, waitingForMic: false });
+}
 export function toggleMute() { current?.setMuted(!useVoice.getState().muted); }
 export function callLevels(): { out: number; mic: number } {
   return current && !current.ended ? { out: current.player.level(), mic: current.micLevel() } : { out: 0, mic: 0 };
@@ -100,13 +113,15 @@ class VoiceCall {
   private updatesTimer: ReturnType<typeof setTimeout> | null = null;
   private updatesRequest: AbortController | null = null;
   private connectTimer: ReturnType<typeof setTimeout> | null = null;
+  private setupDeadline = 0;
   private setupRequest = new AbortController();
-  private setupStage = 'microphone';
+  private setupStage: 'audio' | 'session token' | 'voice connection' = 'audio';
   private onUnload = () => {
     if (this.sess && !this.ended) {
       const { transcript, transcriptRevision } = this.captureTranscript();
       voiceApi.endBeacon(this.botId, this.sess.callId, transcript, transcriptRevision);
     }
+    releaseMic();
   };
 
   constructor(readonly botId: string) {
@@ -120,20 +135,25 @@ class VoiceCall {
   micLevel() { return useVoice.getState().muted ? 0 : this.mic?.level ?? 0; }
 
   async start() {
-    setV({ status: 'connecting', botId: this.botId, callId: null, muted: false, speaking: false, listening: false, thinking: false, working: [], connectionRequests: [], approvals: [], captions: [], error: null, startedAt: null });
-    // One deadline covers permission, audio worklet, token HTTP and socket handshake.
-    this.connectTimer = setTimeout(() => {
-      if (!this.ready) this.end(`Call setup timed out while waiting for ${this.setupStage}. Check permissions and your connection, then retry.`);
-    }, 10000);
+    setV({ status: 'connecting', botId: this.botId, callId: null, muted: false, speaking: false, listening: false, thinking: false, working: [], connectionRequests: [], approvals: [], captions: [], error: null, startedAt: null, waitingForMic: true });
+    window.removeEventListener('pagehide', releaseMic);
     window.addEventListener('pagehide', this.onUnload);
     let stream: MediaStream;
     try {
-      stream = await openMic();
+      if (grantedMic && !grantedMic.getTracks().some(t => t.readyState === 'live')) releaseMic();
+      stream = grantedMic ?? await openMic();
     } catch (e) {
-      this.end(micErrorMessage(e));
+      this.end(`Microphone setup failed. ${micErrorMessage(e)}`);
       return;
     }
     if (this.ended) { stream.getTracks().forEach((t) => t.stop()); return; }
+    grantedMic = stream;
+    stream.getTracks().forEach(t => { t.enabled = true; });
+    setV({ waitingForMic: false });
+    // Permission has no deadline. Every remaining setup step shares exactly 10s,
+    // measured from the grant, without restarting the timer at stage boundaries.
+    this.setupDeadline = performance.now() + 10000;
+    this.connectTimer = setTimeout(() => this.setupTimedOut(), 10000);
     try {
       this.setupStage = 'audio';
       this.mic = new MicCapture(this.ctx, stream, (pcm) => this.sendAudio(pcm));
@@ -148,18 +168,29 @@ class VoiceCall {
           ]);
         } finally { clearTimeout(timer); }
       }
-      if (this.ended) return;
+      if (this.setupExpired()) return;
       await this.mic.start();
-      if (this.ended) { this.mic.stop(); return; }
-      this.setupStage = 'the voice session';
-      this.sess = await voiceApi.session(this.botId, this.setupRequest.signal);
-      if (this.ended) { void voiceApi.end(this.botId, this.sess.callId, [], 'Call setup ended', ++this.transcriptRevision).catch(() => {}); return; }
+      if (this.setupExpired()) return;
+      this.setupStage = 'session token';
+      const session = await voiceApi.session(this.botId, this.setupRequest.signal);
+      if (this.setupExpired()) { void voiceApi.end(this.botId, session.callId, [], 'Call setup ended', ++this.transcriptRevision).catch(() => {}); return; }
+      this.sess = session;
       setV({ callId: this.sess.callId });
-      this.setupStage = 'the voice connection';
+      this.setupStage = 'voice connection';
       this.connect(this.sess);
     } catch (e) {
-      this.end((e as Error).message || 'Could not start the call');
+      const step = this.setupStage === 'audio' ? 'Microphone audio setup failed' : this.setupStage === 'session token' ? 'Could not get a voice session token from the server' : 'The voice connection failed';
+      this.end(`${step}. ${(e as Error).message || 'Please retry.'}`);
     }
+  }
+
+  private setupTimedOut() {
+    if (!this.ready) this.end(`Call setup timed out while waiting for ${this.setupStage}. ${this.setupStage === 'audio' ? 'Check your microphone device' : this.setupStage === 'session token' ? 'The voice server did not provide a session token' : 'Check your network connection'}, then retry.`);
+  }
+
+  private setupExpired() {
+    if (!this.ended && !this.ready && performance.now() >= this.setupDeadline) this.setupTimedOut();
+    return this.ended;
   }
 
   private connect(sess: VoiceSession) {
@@ -206,6 +237,7 @@ class VoiceCall {
     if (this.ended) return;
     switch (ev.type) {
       case 'session.updated':
+        if (this.setupExpired()) return;
         if (!this.ready) {
           this.ready = true;
           if (this.connectTimer) clearTimeout(this.connectTimer);
@@ -296,7 +328,7 @@ class VoiceCall {
         const code = ev.error?.code ?? ev.code ?? '';
         if (/cancel/i.test(String(code)) || /no active response/i.test(String(ev.error?.message ?? ''))) return;
         console.warn('[voice] realtime error', ev.error ?? ev);
-        if (!this.ready) this.end(ev.error?.message ?? 'Voice service error');
+        if (!this.ready) this.end(`Voice server error: ${ev.error?.message ?? 'The server rejected call setup. Please retry.'}`);
         return;
       }
     }
@@ -510,17 +542,21 @@ class VoiceCall {
     this.connectionRequests = [];
     this.optimisticConnections.clear();
     try { this.ws?.close(1000, 'call ended'); } catch { /* ignore */ }
-    this.mic?.stop();
+    this.mic?.stop(false);
+    if (error) {
+      grantedMic?.getTracks().forEach(t => { t.enabled = false; });
+      if (grantedMic) window.addEventListener('pagehide', releaseMic);
+    } else releaseMic();
     this.player.dispose();
     void this.ctx.close().catch(() => {});
     const { transcript, transcriptRevision } = this.captureTranscript();
     if (this.sess) void voiceApi.end(this.botId, this.sess.callId, transcript, error, transcriptRevision).catch((e) => console.warn('[voice] end failed', e));
     if (current === this) current = null;
     if (error) {
-      setV({ status: 'error', error, speaking: false, listening: false, thinking: false, working: [], connectionRequests: [], approvals: [] });
+      setV({ status: 'error', error, waitingForMic: false, speaking: false, listening: false, thinking: false, working: [], connectionRequests: [], approvals: [] });
       // Keep the reason and Retry available until the user acts.
     } else {
-      setV({ status: 'idle', botId: null, callId: null, speaking: false, listening: false, thinking: false, working: [], connectionRequests: [], approvals: [], startedAt: null });
+      setV({ status: 'idle', botId: null, callId: null, waitingForMic: false, speaking: false, listening: false, thinking: false, working: [], connectionRequests: [], approvals: [], startedAt: null });
     }
   }
 }

@@ -166,7 +166,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     await closeSettings();
     status = { ...status, runtime: 'bridge', connected: false };
     await openPlans(); await page.getByText('Not connected', { exact: true }).first().waitFor();
-    assert.equal(await page.getByText('CLI missing', { exact: true }).count(), 0);
+    await page.getByText('CLI missing', { exact: true }).waitFor({ state: 'hidden' }); // Cached status remains visible until revalidation completes.
     await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
     failStatus = true;
     await openPlans(); await page.getByText('Status unavailable', { exact: true }).first().waitFor();

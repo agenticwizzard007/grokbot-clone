@@ -22,9 +22,10 @@ const deferred = () => { let resolve!: (value?: any) => void; const promise = ne
 
 function fixture(t: TestContext, stage = '') {
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  let stopped = 0, sources = 0;
+  let stopped = 0, sources = 0, micRequests = 0;
   const pending = deferred(), sockets: Socket[] = [], requests: { url: string; signal?: AbortSignal }[] = [];
-  const stream = { getTracks: () => [{ stop: () => stopped++ }], getAudioTracks: () => [] };
+  const track = { enabled: true, readyState: 'live', stop: () => { stopped++; track.readyState = 'ended'; } };
+  const stream = { getTracks: () => [track], getAudioTracks: () => [track] };
   class Node { gain = { value: 0 }; fftSize = 512; port = { onmessage: null }; connect() { return this; } disconnect() {} getFloatTimeDomainData() {} }
   class Context {
     state = stage === 'audio' ? 'suspended' : 'running'; currentTime = 0; destination = new Node();
@@ -46,7 +47,7 @@ function fixture(t: TestContext, stage = '') {
   }
   t.after(() => voice.endCall());
   for (const [key, value] of Object.entries({ window: { AudioContext: Context, addEventListener() {}, removeEventListener() {} },
-    navigator: { userAgent: 'test', mediaDevices: { getUserMedia: () => stage === 'microphone' ? pending.promise : stage === 'denied' ? Promise.reject(new DOMException('denied', 'NotAllowedError')) : Promise.resolve(stream) } },
+    navigator: { userAgent: 'test', mediaDevices: { getUserMedia: () => { micRequests++; return stage === 'microphone' ? pending.promise : ['denied', 'device', 'busy'].includes(stage) ? Promise.reject(new DOMException('fixture', stage === 'denied' ? 'NotAllowedError' : stage === 'device' ? 'NotFoundError' : 'NotReadableError')) : Promise.resolve(stream); } } },
     AudioWorkletNode: Node, WebSocket: Socket,
   })) {
     const old = Object.getOwnPropertyDescriptor(globalThis, key);
@@ -62,7 +63,7 @@ function fixture(t: TestContext, stage = '') {
     }
     return Response.json(url.endsWith('/updates') ? { cursor: 0, updates: [], tasks: [] } : { ok: true });
   });
-  return { pending, sockets, requests, stream, stopped: () => stopped, sources: () => sources };
+  return { pending, sockets, requests, stream, stopped: () => stopped, sources: () => sources, micRequests: () => micRequests, track };
 }
 
 test('S-02: realtime handshake reaches live, clears deadline, and can end', async t => {
@@ -74,7 +75,7 @@ test('S-02: realtime handshake reaches live, clears deadline, and can end', asyn
   assert.ok(f.sockets[0].sent.some(e => e.type === 'response.create'));
   voice.endCall(); assert.equal(f.stopped(), 1); assert.equal(voice.useVoice.getState().status, 'idle');
 });
-for (const stage of ['microphone', 'audio', 'worklet', 'session', 'socket']) {
+for (const stage of ['audio', 'worklet', 'session', 'socket']) {
   test(`S-02: stalled ${stage} leaves connecting with a persistent actionable error`, async t => {
     const f = fixture(t, stage); voice.startCall('fixture'); await settle();
     t.mock.timers.tick(10001); await settle();
@@ -83,11 +84,13 @@ for (const stage of ['microphone', 'audio', 'worklet', 'session', 'socket']) {
     t.mock.timers.tick(60001); await settle();
     assert.equal(voice.useVoice.getState().status, 'error');
     if (stage === 'session') assert.equal(f.requests.find(r => r.url.endsWith('/session'))!.signal?.aborted, true);
-    // Late completions cannot revive the call or keep the microphone open.
-    f.pending.resolve(stage === 'microphone' ? f.stream : stage === 'session' ? Response.json({ callId: 'late' }) : undefined);
+    // Late completions cannot revive the call or reconnect audio capture.
+    f.pending.resolve(stage === 'session' ? Response.json({ callId: 'late' }) : undefined);
     await settle();
     assert.equal(voice.useVoice.getState().status, 'error');
-    assert.equal(f.stopped(), 1);
+    assert.equal(f.stopped(), 0, 'retain granted stream for retry');
+    assert.equal(f.track.enabled, false);
+    voice.endCall(); assert.equal(f.stopped(), 1);
     if (stage === 'worklet') assert.equal(f.sources(), 0);
   });
 }
@@ -101,8 +104,76 @@ for (const stage of ['denied', 'token', 'constructor']) {
 }
 test('S-02: socket errors fail immediately, and a retry connects', async t => {
   const f = fixture(t); voice.startCall('fixture'); await settle();
-  f.sockets[0].onerror?.(); assert.equal(voice.useVoice.getState().status, 'error');
+  f.sockets[0].onerror?.(); assert.equal(f.stopped(), 0); assert.equal(voice.useVoice.getState().status, 'error');
   voice.startCall('fixture'); await settle(); f.sockets[1].ready();
   assert.equal(voice.useVoice.getState().status, 'live');
+  assert.equal(f.micRequests(), 1, 'Retry reuses the granted stream');
+  assert.equal(f.track.enabled, true);
   f.sockets[0].ready(); assert.equal(voice.useVoice.getState().status, 'live');
+});
+
+
+test('permission prompt time is excluded and setup expires exactly 10s after permission', async t => {
+  const f = fixture(t, 'microphone'); voice.startCall('fixture'); await settle();
+  t.mock.timers.tick(120000); await settle();
+  assert.equal(voice.useVoice.getState().status, 'connecting');
+  assert.equal(voice.useVoice.getState().waitingForMic, true);
+  assert.equal(f.requests.length, 0);
+  f.pending.resolve(f.stream); await settle();
+  assert.equal(voice.useVoice.getState().waitingForMic, false);
+  t.mock.timers.tick(9999); await settle();
+  assert.equal(voice.useVoice.getState().status, 'connecting');
+  t.mock.timers.tick(1); await settle();
+  assert.equal(voice.useVoice.getState().status, 'error');
+  assert.match(voice.useVoice.getState().error!, /timed out.*voice connection/);
+});
+
+test('ending while permission is pending releases a late grant', async t => {
+  const f = fixture(t, 'microphone'); voice.startCall('fixture'); await settle();
+  voice.endCall(); f.pending.resolve(f.stream); await settle();
+  assert.equal(f.stopped(), 1);
+  assert.equal(voice.useVoice.getState().status, 'idle');
+  assert.equal(f.requests.length, 0);
+});
+
+for (const [stage, message] of [
+  ['denied', /permission was denied.*site settings.*allow Microphone/i],
+  ['device', /microphone device found/i], ['busy', /microphone device.*other apps/i],
+  ['token', /session token.*server.*token was rejected/i],
+  ['worklet', /microphone device/i], ['session', /session token.*server/i],
+] as const) {
+  test(`setup error identifies the failed ${stage} step`, async t => {
+    fixture(t, stage); voice.startCall('fixture'); await settle();
+    t.mock.timers.tick(10000); await settle();
+    assert.match(voice.useVoice.getState().error!, message);
+  });
+}
+
+test('provider rejection is identified as a voice server error', async t => {
+  const f = fixture(t); voice.startCall('fixture'); await settle();
+  f.sockets[0].onmessage?.({ data: JSON.stringify({ type: 'error', error: { message: 'Server unavailable' } }) });
+  assert.match(voice.useVoice.getState().error!, /Voice server error: Server unavailable/);
+});
+
+test('Retry reacquires only when the retained microphone track ended', async t => {
+  const f = fixture(t); voice.startCall('fixture'); await settle();
+  f.sockets[0].onerror?.(); f.track.readyState = 'ended';
+  voice.startCall('fixture'); await settle();
+  assert.equal(f.micRequests(), 2);
+});
+
+test('the setup deadline does not restart after audio worklet setup', async t => {
+  const f = fixture(t, 'worklet'); voice.startCall('fixture'); await settle();
+  t.mock.timers.tick(8000); f.pending.resolve(); await settle();
+  assert.equal(f.sockets.length, 1);
+  t.mock.timers.tick(1999); await settle(); assert.equal(voice.useVoice.getState().status, 'connecting');
+  t.mock.timers.tick(1); await settle(); assert.equal(voice.useVoice.getState().status, 'error');
+});
+
+test('a delayed handshake cannot beat an expired monotonic deadline', async t => {
+  let now = 0; t.mock.method(performance, 'now', () => now);
+  const f = fixture(t); voice.startCall('fixture'); await settle();
+  now = 10000; f.sockets[0].ready();
+  assert.equal(voice.useVoice.getState().status, 'error');
+  assert.match(voice.useVoice.getState().error!, /timed out.*voice connection/);
 });
