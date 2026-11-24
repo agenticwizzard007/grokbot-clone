@@ -131,6 +131,13 @@ try {
       if (width === 1280) {
         await page.locator('.settings-nav__back').getByText('Back to chat',{exact:true}).waitFor();
         await snap('settings-sidebar-back');
+        await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click();
+        const rail = page.getByRole('navigation', { name: 'Settings sidebar' });
+        const railBack = await rail.getByRole('button', { name: 'Back to chat', exact: true }).boundingBox();
+        const railExpand = await rail.getByRole('button', { name: 'Expand sidebar to browse settings', exact: true }).boundingBox();
+        assert.ok(railBack && railExpand && railBack.y + railBack.height <= railExpand.y, 'collapsed Back and Expand controls do not overlap');
+        await snap('settings-collapsed-back');
+        await rail.getByRole('button', { name: 'Expand sidebar to browse settings', exact: true }).click();
       }
       for (const section of ['messaging','account','general']) { await back(`#settings/${section}`); await page.locator('.access-settings__bar-title').getByText(section[0].toUpperCase()+section.slice(1),{exact:true}).waitFor(); }
       if (width === 390) await back('#settings');

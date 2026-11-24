@@ -95,7 +95,7 @@
 .access-nav:not(.access-nav--phone) .settings-search { margin: 2px 0 4px; height: 36px; }
 .access-nav:not(.access-nav--phone) .settings-nav__item { display: flex; justify-content: start; min-height: 34px; height: 34px; width: 100%; text-align: left; border-radius: 12px; }
 .access-nav:not(.access-nav--phone) .settings-nav__item.is-active { background: var(--color-bg-active); color: var(--color-primary); }
-.access-nav.access-nav--collapsed { display: flex; padding: 0; justify-content: center; }
+.access-nav.access-nav--collapsed { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 0; justify-content: center; }
 .access-nav__expand { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; color: var(--color-primary); background: var(--color-bg-active); }
 
 

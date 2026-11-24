@@ -143,7 +143,7 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
   detailsTab: 'activity', setupTab: 'responsibilities', detailsReports: false,
   setDetailsTab: (tab, setup, reports) => {
     const id = useStore.getState().selectedBotId;
-    if (id) navigation.navigate({ kind: 'details', bot: botReference(id), tab, ...(setup ? { setup } : {}), ...(reports ? { reports } : {}) });
+    if (id) navigation.navigate({ kind: 'details', bot: botReference(id), tab, ...(setup && setup !== 'responsibilities' ? { setup } : {}), ...(reports ? { reports } : {}) });
   },
   showSettingsList: () => {
     const visit = [...navigation.trail].reverse().map(parseScreen);
@@ -190,7 +190,10 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
     pending?.next();
   },
   openAppSettings: (section, subscriptionProvider) => {
-    navigation.navigate({ kind: 'settings', ...(section || !useStore.getState().mobile ? { section: section ?? 'general' } : {}) });
+    const mobile = useStore.getState().mobile;
+    const current = navigation.screen;
+    const normalizeGeneral = !mobile && (section ?? 'general') === 'general' && current?.kind === 'settings' && !current.section;
+    navigation.navigate({ kind: 'settings', ...(section || !mobile ? { section: section ?? 'general' } : {}) }, normalizeGeneral ? 'replace' : 'push');
     if (get().appSettings === 'subscriptions') set({ subscriptionProvider: subscriptionProvider ?? null });
   },
   closeAppSettings: () => {

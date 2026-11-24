@@ -86,6 +86,10 @@ test('R3-091: draft cancellation stays in settings and Discard returns to the li
 test('R3-091: desktop close restores the current chat and details', () => {
   useStore.getState().selectBot('settings-bot');
   useStore.getState().set({ detailsOpen: true });
+  ui().setDetailsTab('configuration');
+  const pushes = history.pushes;
+  ui().setDetailsTab('configuration', 'responsibilities');
+  assert.equal(history.pushes, pushes, 'reselecting the default Setup tab does not push');
   const origin = location.hash;
   ui().openBotSettings('settings-bot'); ui().closeBotSettings();
   assert.equal(location.hash, origin);
@@ -168,6 +172,11 @@ test('bare settings deep link opens General on fresh load and existing section l
     location.hash = hash; assert.equal(hasSettingsLink(), true, hash);
   }
   location.hash = '#settings/unknown'; assert.equal(hasSettingsLink(), false);
+  fixture.link('#settings');
+  const pushes = history.pushes;
+  ui().openAppSettings('general');
+  assert.equal(history.pushes, pushes, 'bare desktop Settings already shows General');
+  assert.equal(location.hash, '#settings/general');
 });
 
 test('account cleanup clears Details directly without navigating through private history', () => {
