@@ -10,6 +10,7 @@ export const subscriptionReady = (health: CliProviderStatus | undefined) => !!he
 /** A disconnected bridge has no current installation evidence. Never call its CLI missing. */
 export function planConnectionStatus(status: CliStatus | null, provider: CliProvider, plan: string | null = null) {
   if (!status) return 'Checking status…';
+  if (status.statusUnavailable) return 'Status unavailable';
   const health = status.providers[provider];
   if (!status.connected) return 'Not connected';
   if (!health.installed) return 'CLI missing';

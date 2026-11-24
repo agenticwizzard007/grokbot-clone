@@ -1,7 +1,7 @@
 import { Terminal } from 'lucide-react';
 import { SettingRow } from './config/SettingRow';
 import { useEffect, useState } from 'react';
-import { cliApi, type CliStatus } from '../lib/cliApi';
+import { cliApi, getCachedCliStatus, type CliStatus } from '../lib/cliApi';
 import { PLAN_PROVIDERS, planConnectionStatus, subscriptionReady } from '../lib/planConnections';
 import { useModels } from '../lib/models';
 import { useConfigUI } from '../configStore';
@@ -16,8 +16,9 @@ export function PlanConnections({ onClose, settings = false }: { onClose?: () =>
 
 function AccountPlanConnections({ onClose, settings }: { onClose?: () => void; settings: boolean }) {
   const catalog = useModels();
-  const [status, setStatus] = useState<CliStatus | null>(null);
+  const [status, setStatus] = useState<CliStatus | null>(getCachedCliStatus);
   const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
     let pending = false;
@@ -25,20 +26,20 @@ function AccountPlanConnections({ onClose, settings }: { onClose?: () => void; s
       if (pending || document.visibilityState !== 'visible') return;
       pending = true;
       try {
-        let next = await cliApi.status(controller.signal);
+        const next = await (attempt ? cliApi.refresh(controller.signal) : cliApi.status(controller.signal));
         if (!next.providers?.claude || !next.providers.codex) throw new Error('Status unavailable');
-        if (!next.connected && next.runtime === 'server' && next.serverLoginAvailable) next = await cliApi.refresh();
         if (!controller.signal.aborted) { setStatus(next); setFailed(false); }
-      } catch { if (!controller.signal.aborted) { setStatus(null); setFailed(true); } }
+      } catch { if (!controller.signal.aborted) setFailed(true); }
       finally { pending = false; }
     };
     void load();
     const timer = setInterval(() => void load(), 5000);
     document.addEventListener('visibilitychange', load);
     return () => { controller.abort(); clearInterval(timer); document.removeEventListener('visibilitychange', load); };
-  }, []);
+  }, [attempt]);
   return <section className="plan-connections" aria-label="Connect a plan">
     <p>Use a subscription through the official CLI. API keys remain available.</p>
+    {(failed || status?.statusUnavailable) && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setAttempt(value => value + 1)}>Retry status</button>}
     {PLAN_PROVIDERS.map(provider => {
       const active = status?.selected === provider.id;
       const available = !!status?.connected && subscriptionReady(status.providers[provider.id]);

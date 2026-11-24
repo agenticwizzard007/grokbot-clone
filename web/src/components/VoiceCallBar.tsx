@@ -98,7 +98,7 @@ export function VoiceCallBar() {
 
   const working = v.working.length > 0;
   const status =
-    v.status === 'connecting' ? 'Connecting…'
+    v.status === 'connecting' ? v.waitingForMic ? 'Waiting for microphone permission' : 'Connecting…'
     : v.status === 'error' ? v.error ?? 'Call ended'
     : v.speaking ? 'Speaking'
     : v.listening ? 'Listening'
@@ -143,7 +143,7 @@ export function VoiceCallBar() {
               End
             </button>
           ) : (
-            <button type="button" className="vcall__btn" onClick={() => useVoice.setState({ status: 'idle', botId: null, error: null })}>Dismiss</button>
+            <button type="button" className="vcall__btn" onClick={endCall}>Dismiss</button>
           )}
         </div>
       </div>

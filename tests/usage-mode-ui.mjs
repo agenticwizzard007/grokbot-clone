@@ -175,7 +175,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(e('div',{className:'
     let release;
     hold = new Promise(resolve => { release = resolve; });
     await page.evaluate(() => { void window.refreshUsage(); });
-    await modelName('Loading models…').waitFor();
+    assert.notEqual(await pill.locator('.model-pill__name').innerText(), 'Loading models…');
     await openDetails('Connection details');
     await heading('Checking your connection…').waitFor();
     assert.equal(await pill.locator('.model-billing, .model-pill__effort').count(), 0);

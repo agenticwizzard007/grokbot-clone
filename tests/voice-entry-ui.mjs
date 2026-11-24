@@ -104,7 +104,7 @@ try {
       const button = page.getByRole('button', { name: 'Start live voice with Quinn', exact: true });
       if (await button.isVisible()) return button;
       await page.getByRole('button', { name: 'More actions', exact: true }).click();
-      return page.getByRole('menuitem', { name: 'Start live voice with Quinn', exact: true });
+      return page.getByRole('menuitem', { name: 'Talk live', exact: true });
     };
     const dictate = async () => {
       await page.getByRole('button', { name: 'More actions', exact: true }).click();

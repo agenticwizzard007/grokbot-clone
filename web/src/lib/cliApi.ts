@@ -17,7 +17,14 @@ export interface CliStatus {
   connected: boolean;
   device: string | null;
   providers: Record<CliProvider, CliProviderStatus>;
+  statusUnavailable?: boolean;
 }
+
+let cachedStatus: CliStatus | null = null;
+export const getCachedCliStatus = () => cachedStatus;
+useStore.subscribe((state, previous) => {
+  if (state.user?.id !== previous.user?.id) cachedStatus = null;
+});
 
 export interface LoginSession {
   id: string;
@@ -64,10 +71,10 @@ async function jsonRequest<T>(...args: Parameters<typeof request>): Promise<T> {
 }
 
 export const cliApi = {
-  status: (signal?: AbortSignal): Promise<CliStatus> => jsonRequest('GET', '', undefined, signal),
+  status: (signal?: AbortSignal): Promise<CliStatus> => readStatus(false, signal),
   pair: (): Promise<{ command: string }> => jsonRequest('POST', '/pair'),
   select: async (provider: CliProvider | null): Promise<void> => { await request('PUT', '', { provider }); },
-  refresh: (): Promise<CliStatus> => jsonRequest('POST', '/refresh'),
+  refresh: (signal?: AbortSignal): Promise<CliStatus> => readStatus(true, signal),
   revoke: async (): Promise<void> => { await request('DELETE', '/pair'); },
   reset: (expectedUserId: string): Promise<CliStatus> => jsonRequest('POST', '/reset', { expectedUserId }),
   verifyAuth: async (expectedUserId: string, signal?: AbortSignal): Promise<void> => { await request('POST', '/reauth', { expectedUserId }, signal); },
@@ -77,3 +84,23 @@ export const cliApi = {
   resizeLogin: async (id: string, cols: number, rows: number, signal?: AbortSignal): Promise<void> => { await request('POST', `/login/${encodeURIComponent(id)}/resize`, { cols, rows }, signal); },
   cancelLogin: async (id: string): Promise<void> => { await request('DELETE', `/login/${encodeURIComponent(id)}`, undefined, undefined, true); },
 };
+
+async function readStatus(refresh: boolean, signal?: AbortSignal): Promise<CliStatus> {
+  const accountId = useStore.getState().user?.id;
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout>;
+  try {
+    const status = await Promise.race([
+      jsonRequest<CliStatus>(refresh ? 'POST' : 'GET', refresh ? '/refresh' : '', undefined,
+        signal ? AbortSignal.any([signal, controller.signal]) : controller.signal),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => { controller.abort(); reject(new Error('Status unavailable. Retry.')); }, 3500);
+      }),
+    ]);
+    if (signal?.aborted) throw new DOMException('Status request cancelled', 'AbortError');
+    if (useStore.getState().user?.id !== accountId) throw new ApiError(409, 'Your account changed. Reload this page before changing a connection.', 'account_changed');
+    // A malformed response must never become the next view's initial snapshot.
+    if (status.providers?.claude && status.providers.codex) cachedStatus = status;
+    return status;
+  } finally { clearTimeout(timer!); }
+}

@@ -97,11 +97,11 @@ function admittedRequest(userId: string, method: 'status' | 'generate' | 'catalo
   });
 }
 
-export async function refreshCli(userId: string) {
-  if (cliRuntime(userId) === 'server') { await refreshHosted(userId); return cliStatus(userId); }
+export async function refreshCli(userId: string, signal?: AbortSignal) {
+  if (cliRuntime(userId) === 'server') { await refreshHosted(userId, signal); return cliStatus(userId); }
   const c = connections.get(userId);
   if (!c) return cliStatus(userId);
-  const result = await cliRequest(userId, 'status', {}, 25_000);
+  const result = await cliRequest(userId, 'status', {}, 3000, signal);
   const providers = missing();
   for (const p of ['codex', 'claude'] as const) {
     const s = result?.[p];
@@ -109,7 +109,7 @@ export async function refreshCli(userId: string) {
     providers[p] = { installed: s.installed, authenticated: s.authenticated, subscription: s.subscription, ...(typeof s.error === 'string' ? { error: s.error.slice(0, 500) } : {}) };
   }
   if (!c.codexExecOnly) providers.codex.error = 'Update your computer bridge in Models & access before using Codex.';
-  if (connections.get(userId) === c) c.providers = providers;
+  if (!signal?.aborted && connections.get(userId) === c) c.providers = providers;
   return cliStatus(userId);
 }
 
