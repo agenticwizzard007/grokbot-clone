@@ -152,17 +152,26 @@ export function sseCoalesceKey(ev: ServerEvent): string | null {
   return null;
 }
 export class SseQueue {
-  private items: { key: string | null; data: string }[] = [];
+  private items: { key: string | null; data: string; type: ServerEvent['type']; botId?: string; runId?: string; running?: boolean }[] = [];
   get length() { return this.items.length; }
   /** Returns false when the subscriber is too far behind to keep. */
   push(ev: ServerEvent): boolean {
     const key = sseCoalesceKey(ev);
+    const botId = ev.type === 'live' ? ev.state.botId : ev.type === 'rows' ? ev.botId : undefined;
+    const runId = ev.type === 'live' ? ev.state.runId : ev.runId;
     if (key !== null) {
-      const i = this.items.findIndex((item) => item.key === key);
-      if (i >= 0) this.items.splice(i, 1);
+      const i = this.items.findLastIndex((item) => item.key === key);
+      // A run's start must arrive before its rows, and its stop before the next
+      // start. Coalescing across either boundary would make the client reject
+      // the new reply or accept old text under the wrong live state.
+      const boundary = i >= 0 && ev.type === 'live' && runId && (
+        this.items[i].runId !== runId || this.items[i].running !== ev.state.isRunning ||
+        this.items.slice(i + 1).some(item => item.botId === botId && item.type === 'rows')
+      );
+      if (i >= 0 && !boundary) this.items.splice(i, 1);
     }
     if (this.items.length >= SSE_QUEUE_CAP) return false;
-    this.items.push({ key, data: JSON.stringify(ev) });
+    this.items.push({ key, data: JSON.stringify(ev), type: ev.type, botId, runId, running: ev.type === 'live' ? ev.state.isRunning : undefined });
     return true;
   }
   shift(): string | undefined { return this.items.shift()?.data; }

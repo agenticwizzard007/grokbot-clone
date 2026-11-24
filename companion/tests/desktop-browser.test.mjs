@@ -212,3 +212,19 @@ test('Mac startup tolerates failed permission probes without blocking desktop sh
   assert.ok(warnings.some(warning => /Accessibility.*Swarm/.test(warning)));
   assert.ok(warnings.some(warning => /Screen Recording.*Swarm/.test(warning)));
 });
+
+test('request cancellation terminates an active browser tool and its descendants', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-browser-stop-'));
+  const controller = new AbortController();
+  const browser = new DesktopBrowser({ cli: fixture, dataDir: root, chrome: () => '/test/Chrome' });
+  t.after(async () => { await browser.closeAll(); fs.rmSync(root, { recursive: true, force: true }); });
+  await browser.call('bot', 'browser_snapshot');
+  const pending = runCommand(controller.signal, () => browser.call('bot', 'browser_wait_for', { time: 30 }));
+  const rejected = assert.rejects(pending, /stopped/i);
+  const pidFile = path.join(root, 'playwright/bot/child.pid');
+  await until(() => fs.existsSync(pidFile));
+  const child = Number(fs.readFileSync(pidFile));
+  controller.abort(); await rejected;
+  await until(() => !alive(child));
+  assert.equal((await browser.call('bot', 'browser_snapshot')).isError, false, 'next browser request can start');
+});

@@ -1,3 +1,4 @@
+import { runSignal } from '../agent/run-scope.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -153,12 +154,22 @@ async function runAdmittedTool(userId: string, botId: string, name: string, args
   const match = findMcpTool(userId, name, botId);
   if (!match) throw new Error('This MCP tool is no longer enabled for this agent. Check Settings → MCP servers.');
   const { server, tool } = match;
+  const signal = runSignal();
+  const pending = sessionFor(server, botId);
+  const key = `${server.userId}:${server.id}:${server.revision}:${botId}`;
+  const session = sessions.get(key);
+  const cancel = () => {
+    if (sessions.get(key) === session) sessions.delete(key);
+    void pending.then(client => client.close()).catch(() => {});
+  };
+  signal?.addEventListener('abort', cancel, { once: true });
   try {
-    const client = await sessionFor(server, botId);
+    const client = await pending;
     assertLegacyWorkOpen(userId);
     // Recheck after connecting: the user may have disabled or edited the server.
     if (getMcpServer(userId, server.id)?.revision !== server.revision || !findMcpTool(userId, name, botId)) throw new Error('This MCP tool is no longer enabled for this agent.');
-    const result = await client.callTool({ name: tool.name, arguments: args }, undefined, { timeout: CALL_MS });
+    signal?.throwIfAborted();
+    const result = await client.callTool({ name: tool.name, arguments: args }, undefined, { timeout: CALL_MS, signal });
     if (getMcpServer(userId, server.id)?.revision !== server.revision || !findMcpTool(userId, name, botId)) throw new Error('MCP authorization changed during execution; result discarded.');
     if (result.isError) throw new Error(JSON.stringify(result.content ?? result.structuredContent ?? 'MCP tool failed'));
     const content: any[] = [];
@@ -173,5 +184,6 @@ async function runAdmittedTool(userId: string, botId: string, name: string, args
     }
     if (result.structuredContent && remaining > 0) content.push({ type: 'input_text', text: JSON.stringify(result.structuredContent).slice(0, remaining) });
     return { output: content.length ? content : 'Tool completed without content.', summary: `${server.config.name}: ${tool.name}` };
-  } catch (error) { await closeMcpSessions(server.id); throw new Error(mcpError(error, server)); }
+  } catch (error) { if (signal?.aborted) throw error; await closeMcpSessions(server.id); throw new Error(mcpError(error, server)); }
+  finally { signal?.removeEventListener('abort', cancel); }
 }

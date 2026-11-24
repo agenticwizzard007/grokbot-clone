@@ -132,6 +132,7 @@ export async function runProgram(options: {
         db.prepare(`INSERT INTO code_steps(run_id,step,call_id,tool,binding,state) VALUES(?,?,?,?,?,'dispatching')
           ON CONFLICT(run_id,step) DO UPDATE SET state='dispatching'`).run(options.callId, step, callId, message.name, stepBinding);
         const outcome = await options.dispatch({ callId, name: message.name, args: callArgs, approvalId: previous?.approval_id ?? undefined, signal: dispatchController.signal });
+        options.signal?.throwIfAborted();
         if (outcome.paused) {
           db.prepare("UPDATE code_steps SET state='waiting' WHERE run_id=? AND step=?").run(options.callId, step);
           db.prepare("UPDATE code_runs SET approval_id=? WHERE id=?").run(outcome.approvalId ?? null, options.callId);
@@ -156,8 +157,10 @@ export async function runProgram(options: {
   clearTimeout(timer!);
   options.signal?.removeEventListener('abort', abort);
   await worker.terminate();
-  // Do not release the Bot queue while an already-started external action settles.
-  await Promise.allSettled([...active]);
+  // The worker is gone on stop. Retain uncertainty receipts without waiting for
+  // an external SDK that ignores cancellation or persisting its late output.
+  if (options.signal?.aborted) db.prepare("UPDATE code_steps SET state='unknown' WHERE run_id=? AND state='dispatching'").run(options.callId);
+  else await Promise.allSettled([...active]);
   const state = db.prepare('SELECT state FROM code_runs WHERE id=?').get(options.callId) as any;
   if (state?.state === 'cancelled') result.status = 'cancelled';
   db.prepare('UPDATE code_runs SET state=?,result=?,elapsed_ms=elapsed_ms+?,updated_at=? WHERE id=?').run(result.status, JSON.stringify(result), Math.ceil(performance.now() - started), now(), options.callId);

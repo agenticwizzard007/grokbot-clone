@@ -176,17 +176,17 @@ function compactionOutputLimit(beforeModel?: BeforeCompactionModel): { max_outpu
   } catch (error) { throw new CompactionGuardError(error); }
 }
 
-async function compactWithDirect(botId: string, old: any[], beforeModel?: BeforeCompactionModel): Promise<any[]> {
+async function compactWithDirect(botId: string, old: any[], beforeModel?: BeforeCompactionModel, signal?: AbortSignal): Promise<any[]> {
   // /responses/compact has no max_output_tokens parameter; guard admission only.
   compactionOutputLimit(beforeModel);
-  const res: any = await llm().post('/responses/compact', { body: { model: defaultModel(), input: old } });
+  const res: any = await llm().post('/responses/compact', { body: { model: defaultModel(), input: old }, signal });
   await recordModelUsage({ botId, kind: 'compaction', model: defaultModel(), response: res });
   const out = (res?.output ?? []) as any[];
   if (!out.length || !out.some((o) => o?.type === 'compaction' || o?.encrypted_content || o?.role)) throw new Error('compact returned no items');
   return out;
 }
 
-async function compactWithSummary(botId: string, old: any[], beforeModel?: BeforeCompactionModel): Promise<any[]> {
+async function compactWithSummary(botId: string, old: any[], beforeModel?: BeforeCompactionModel, signal?: AbortSignal): Promise<any[]> {
   const transcript = renderTranscript(old);
   const res: any = await llm().responses.create({
     model: defaultModel(),
@@ -194,7 +194,7 @@ async function compactWithSummary(botId: string, old: any[], beforeModel?: Befor
     store: false,
     ...lowEffort(),
     ...compactionOutputLimit(beforeModel),
-  } as any);
+  } as any, { signal });
   await recordModelUsage({ botId, kind: 'compaction', model: defaultModel(), response: res });
   const text = String(res.output_text ?? '').trim();
   if (!text) throw new Error('summary was empty');
@@ -210,7 +210,7 @@ const compactCooldown = new Map<string, number>();
  * (it is called from the agent loop before each model call), so it never races a turn.
  * Returns the history to send.
  */
-export async function maybeCompact(botId: string, items: any[], opts: { force?: boolean; beforeModel?: BeforeCompactionModel } = {}): Promise<any[]> {
+export async function maybeCompact(botId: string, items: any[], opts: { force?: boolean; beforeModel?: BeforeCompactionModel; signal?: AbortSignal } = {}): Promise<any[]> {
   const limit = memoryConfig.compactChars;
   const before = historySize(botId, items);
   if (!opts.force && before <= limit) return items;
@@ -235,15 +235,17 @@ export async function maybeCompact(botId: string, items: any[], opts: { force?: 
   try {
     if (memoryConfig.compactMethod === 'summary') throw new Error('direct provider compaction disabled by SWARM_COMPACT_METHOD=summary');
     if (llmProvider() !== 'direct') throw new Error('compaction endpoint is direct provider-only; using a summary');
-    replaced = await compactWithDirect(botId, old, opts.beforeModel);
+    replaced = await compactWithDirect(botId, old, opts.beforeModel, opts.signal);
   } catch (e: any) {
     // Budget/abort rejection is control flow, not a provider failure to work around.
+    opts.signal?.throwIfAborted();
     if (e instanceof CompactionGuardError) throw e.rejection;
     console.warn(`[memory] compact via /responses/compact failed for ${botId}: ${e?.message ?? e}; falling back to a summary`);
     method = 'summary';
     try {
-      replaced = await compactWithSummary(botId, old, opts.beforeModel);
+      replaced = await compactWithSummary(botId, old, opts.beforeModel, opts.signal);
     } catch (e2: any) {
+      opts.signal?.throwIfAborted();
       if (e2 instanceof CompactionGuardError) throw e2.rejection;
       console.error(`[memory] summary fallback failed for ${botId}: ${e2?.message ?? e2}`);
       compactCooldown.set(botId, now() + 10 * 60_000);
@@ -251,6 +253,7 @@ export async function maybeCompact(botId: string, items: any[], opts: { force?: 
     }
   }
 
+  opts.signal?.throwIfAborted();
   const next = [...replaced, ...keep];
   const ok = db.transaction(() => {
     // Guard: history must be exactly what we compacted (nothing appended meanwhile).

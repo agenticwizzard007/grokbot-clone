@@ -1,3 +1,4 @@
+import { runSignal } from './agent/run-scope.js';
 import { env } from './env.js';
 
 const BASE = 'https://www.orgo.ai/api';
@@ -9,6 +10,7 @@ export class OrgoError extends Error {
 }
 
 async function call<T = any>(method: string, path: string, body?: unknown, opts: { timeoutMs?: number; headers?: Record<string, string> } = {}): Promise<T> {
+  const parent = runSignal();
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 120_000);
   try {
@@ -20,7 +22,7 @@ async function call<T = any>(method: string, path: string, body?: unknown, opts:
         ...opts.headers,
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal: ctrl.signal,
+      signal: parent ? AbortSignal.any([parent, ctrl.signal]) : ctrl.signal,
     });
     const text = await res.text();
     let json: any = undefined;

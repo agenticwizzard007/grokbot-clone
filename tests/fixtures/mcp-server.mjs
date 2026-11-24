@@ -9,8 +9,12 @@ const calls = [];
 function server() {
   const s = new Server({ name: 'fixture', version: '1' }, { capabilities: { tools: {} } });
   s.setRequestHandler(ListToolsRequestSchema, async req => req.params?.cursor ? { tools: [{ name: 'fail', description: 'Returns a tool error.', inputSchema: { type: 'object', properties: {} } }] } : { tools: [{ name: 'echo', description: 'Echoes the supplied message.', inputSchema: { type: 'object', properties: { message: { type: 'string' } }, required: ['message'] } }], nextCursor: 'page2' });
-  s.setRequestHandler(CallToolRequestSchema, async req => {
-    calls.push({name:req.params.name,arguments:req.params.arguments});
+  s.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
+    const call = {name:req.params.name,arguments:req.params.arguments}; calls.push(call);
+    if (req.params.arguments?.message === '__slow_cancel__') await new Promise(resolve => {
+      const timer = setTimeout(resolve, 30000);
+      extra.signal.addEventListener('abort', () => { call.cancelled = true; clearTimeout(timer); resolve(); }, { once: true });
+    });
     return req.params.name === 'fail' ? { isError: true, content: [{ type: 'text', text: 'Fixture failure secret-fixture-token' }] } : { content: [{ type: 'text', text: `MCP says: ${req.params.arguments?.message}; env=${process.env.MCP_FIXTURE_VALUE ?? 'none'}; inherited=${!!process.env.DIRECT_API_KEY}` }] };
   });
   return s;

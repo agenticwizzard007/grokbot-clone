@@ -57,7 +57,7 @@ function buildItems(rows: Row[], exchanges: ExchangeGroup[], separateReplies: Se
       const lastRow = last?.kind === 'group' ? last.rows[last.rows.length - 1] : null;
       const lastBody = lastRow?.body as MessageBody | undefined;
       const lastSender = lastBody ? (lastBody.from ? `${lastBody.from.kind}:${lastBody.from.id}` : lastBody.role) : null;
-      if (last?.kind === 'group' && lastSender === sender && !separateReplies.has(row.seq) && row.createdAt - lastRow!.createdAt < GROUP_GAP) last.rows.push(row);
+      if (last?.kind === 'group' && lastSender === sender && lastRow?.body.jobId === row.body.jobId && !separateReplies.has(row.seq) && row.createdAt - lastRow!.createdAt < GROUP_GAP) last.rows.push(row);
       else items.push({ kind: 'group', key: `g${row.seq}`, side, from: b.from, rows: [row] });
       continue;
     }

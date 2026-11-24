@@ -180,3 +180,22 @@ test('session revocation while reading a configuration body prevents credential 
  assert.equal((await pending).status,401);assert.equal(getMcpServer('owner',server.id)!.revision,original.revision);
  db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at,authenticated_at) VALUES (session_hash(?),?,?,?,?)').run('owner','owner',Date.now(),Date.now()+60000,Date.now());
 });
+
+test('run cancellation reaches a running MCP tool and releases its session for the next request', async () => {
+ const { withRun } = await import('../server/src/agent/run-scope.js');
+ const created = await req('', 'POST', remote());
+ assert.equal(created.status, 201);
+ const id = (await created.json() as any).server.id;
+ const tested = await testMcpServer(getMcpServer('owner', id)!);
+ const name = mcpToolName(tested!, 'echo'), controller = new AbortController();
+ const pending = withRun({ id: 'mcp-cancel-run', botId: chief.id, signal: controller.signal, closed: false }, () => runMcpTool('owner', chief.id, name, { message: '__slow_cancel__' }));
+ const rejected = assert.rejects(pending);
+ const calls = async () => (await (await realFetch(base + '/_calls', { headers: { authorization: 'Bearer secret-fixture-token', 'x-fixture': 'header-secret' } })).json()) as any[];
+ async function until(check: () => Promise<boolean>) { for (let i = 0; i < 200; i++) { if (await check()) return; await new Promise(r => setTimeout(r, 10)); } assert.fail('MCP cancellation did not arrive'); }
+ await until(async () => (await calls()).some(call => call.arguments?.message === '__slow_cancel__'));
+ controller.abort(new Error('Stopped fixture'));
+ await rejected;
+ await until(async () => (await calls()).some(call => call.arguments?.message === '__slow_cancel__' && call.cancelled));
+ const next = await runMcpTool('owner', chief.id, name, { message: 'next turn' });
+ assert.match(JSON.stringify(next.output), /next turn/);
+});

@@ -73,7 +73,7 @@ export function composioGatewayApp(directory: Directory, runtime: RuntimeIdentit
       case 'connections': return c.json((await gateway.list(tenant, a.details === true)).map(r => ({ id: r.id, toolkit: r.toolkit, revision: r.revision, status: r.status ?? 'ACTIVE', isDefault: r.isDefault, isDisabled: r.isDisabled, accountLabel: r.accountLabel, displayStatus: r.displayStatus, connectedAt: r.connectedAt })));
       case 'disconnect': await gateway.disconnect(tenant, String(a.connectionId)); return c.json({ ok: true });
       case 'refresh': return c.json(await gateway.refresh(tenant, String(a.connectionId)));
-      case 'execute': return c.json(await gateway.execute(tenant, { connectionId: String(a.connectionId), revision: Number(a.revision), dispatchId: String(a.dispatchId), slug: String(a.slug), arguments: a.arguments ?? {}, readOnly: a.readOnly }) as any);
+      case 'execute': return c.json(await gateway.execute(tenant, { connectionId: String(a.connectionId), revision: Number(a.revision), dispatchId: String(a.dispatchId), slug: String(a.slug), arguments: a.arguments ?? {}, readOnly: a.readOnly }, c.req.raw.signal) as any);
       case 'default': {
         const { row } = await gateway.own(tenant, String(a.connectionId));
         await directory.transaction(async client => {
