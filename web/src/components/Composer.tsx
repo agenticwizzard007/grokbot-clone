@@ -171,8 +171,13 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   useEffect(() => {
     const resize = () => grow(true);
     window.addEventListener('resize', resize);
+    window.visualViewport?.addEventListener('resize', resize);
     document.fonts.addEventListener('loadingdone', resize);
-    return () => { window.removeEventListener('resize', resize); document.fonts.removeEventListener('loadingdone', resize); };
+    return () => {
+      window.removeEventListener('resize', resize);
+      window.visualViewport?.removeEventListener('resize', resize);
+      document.fonts.removeEventListener('loadingdone', resize);
+    };
   }, [grow]);
   useEffect(() => {
     const composer = ref.current?.closest('.composer');
