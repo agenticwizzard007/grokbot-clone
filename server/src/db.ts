@@ -221,6 +221,7 @@ addColumn('routines', 'activation_error', 'TEXT');
 addColumn('composio_sessions', 'key_fingerprint', 'TEXT');
 addColumn('approvals', 'binding_hash', 'TEXT');
 addColumn('bots', 'voice', "TEXT NOT NULL DEFAULT 'luna'");
+addColumn('bots', 'suggestions_snapshot', 'TEXT');
 addColumn('bots', 'model', 'TEXT'); // per-Bot model (OpenRouter id like "anthropic/claude-sonnet-5.5", or a direct provider model); NULL = server default
 addColumn('bots', 'voice_speed', 'REAL NOT NULL DEFAULT 1');
 addColumn('bots', 'voice_language', "TEXT NOT NULL DEFAULT 'auto'");

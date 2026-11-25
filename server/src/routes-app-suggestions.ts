@@ -11,6 +11,8 @@ import { availableSuggestions, createSuggestionRanker, fallbackSuggestions, SUGG
 import { toolkitIcon } from './toolkit-icons.js';
 import { env } from './env.js';
 import { SUGGESTION_FILTER_VERSION } from './suggestion-policy.js';
+import { SUGGESTION_SNAPSHOT_VERSION } from './suggestion-snapshot.js';
+import { saveSuggestions } from './suggestion-store.js';
 
 // Mounted under the main API's session and Bot body-limit middleware.
 export const appSuggestionsApi = new Hono<AuthVars>();
@@ -25,12 +27,14 @@ const rank = createSuggestionRanker(async (input, signal) => {
   return JSON.parse(text);
 });
 const draftSchema = z.object({ description: z.string().max(300).optional(), instructions: z.string().max(8000).optional() }).strict();
+let lastRequestAt = 0;
 
 appSuggestionsApi.post('/bots/:id/suggested-apps', async c => {
   const userId = c.get('user').id;
   const bot = getBotRow(c.req.param('id'));
   if (!bot || bot.user_id !== userId || bot.kind === 'room') return c.json({ error: 'Bot not found.' }, 404);
   const body = await readJson(c, draftSchema); if (!body.ok) return body.response;
+  const computedAt = lastRequestAt = Math.max(Date.now(), lastRequestAt + 1);
   const dependency: { stage: 'setup' | 'catalog' | 'connections' } = { stage: 'setup' };
   try {
     const context = {
@@ -71,7 +75,9 @@ appSuggestionsApi.post('/bots/:id/suggested-apps', async c => {
     }, 4_000);
     c.header('Server-Timing', `suggestions;dur=${(performance.now() - started).toFixed(1)}`);
     c.header('Cache-Control', 'no-store');
-    return c.json({ suggestions, hasContext: Object.values(context).some(text => text.trim()), filterVersion: SUGGESTION_FILTER_VERSION });
+    const result = { suggestions, hasContext: Object.values(context).some(text => text.trim()), filterVersion: SUGGESTION_FILTER_VERSION, computedAt };
+    saveSuggestions(userId, bot.id, { ...result, version: SUGGESTION_SNAPSHOT_VERSION, computedAt });
+    return c.json(result);
   } catch (error) {
     // Report the failed dependency without exposing provider bodies or credentials.
     const detail = error instanceof Error ? error.message : '';

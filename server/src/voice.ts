@@ -110,7 +110,7 @@ function recentMessages(botId: string, count: number, call?: ActiveCall) {
   const rows = db.prepare("SELECT seq, body, created_at FROM rows WHERE bot_id=? AND generation=? AND kind IN ('message','event','card') ORDER BY seq DESC LIMIT ?").all(botId, b.generation, count * 2) as any[];
   const out: { seq: number; at: number; who: string; text: string }[] = [];
   for (const r of rows) {
-    const body = serializeVoiceCall(JSON.parse(r.body) as RowBody, b.user_id, true);
+    const body = serializeVoiceCall(JSON.parse(r.body) as RowBody, b.user_id, true, { botId, generation: b.generation, seq: r.seq, createdAt: r.created_at });
     if (body.audience === 'internal') continue;
     const m = messageText(body);
     if (m) out.push({ seq: r.seq, at: r.created_at, who: m.role === 'user' ? `User${m.via ? ` (${m.via})` : ''}` : b.name, text: m.text });
@@ -590,7 +590,7 @@ async function runVoiceTool(call: ActiveCall, bot: any, name: string, a: Record<
       const hits: string[] = [];
       const ql = q.toLowerCase();
       for (const r of rows) {
-        const body = serializeVoiceCall(JSON.parse(r.body) as RowBody, userId, true);
+        const body = serializeVoiceCall(JSON.parse(r.body) as RowBody, userId, true, { botId: r.bot_id, generation: r.generation, seq: r.seq, createdAt: r.created_at });
     if (body.audience === 'internal') continue;
         let text = '';
         let who = '';

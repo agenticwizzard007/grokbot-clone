@@ -687,7 +687,7 @@ test('R8 mixed post-call decisions retain exact subjects, expire live and never 
 test('R8 legacy unlinked pills stay history and cannot supply pending voice context', async () => {
   const bot = createBot('alice', { name: 'Historical pill fixture' });
   const row = appendRow(bot.id, 'event', { type: 'event', event: 'voice-call', text: 'Voice call ended. 1 approval is still pending: Historical subject', call: { id: 'legacy', phase: 'ended', summary: '1 approval is still pending', transcript: [{ role: 'assistant', text: 'Still pending' }] } });
-  assert.match(callRecord(bot.id, row.seq).text, /still pending/);
+  assert.doesNotMatch(callRecord(bot.id, row.seq).text, /still pending|Historical subject/i);
   const call = await session(bot.id);
   assert.doesNotMatch(call.instructions, /still pending|Historical subject/i);
   const search = await (await post('alice', 'tool', { botId: bot.id, callId: call.callId, name: 'search_conversations', args: { query: 'Voice call' } })).json();
@@ -714,3 +714,60 @@ test('R8 delegated approval decisions update the originating call pill and its s
     assert.match(getBot(chief.id).lastPreview, /was not allowed/);
   } finally { off(); }
 });
+
+async function legacyPill(botId: string, subject: string, duplicate = false) {
+  const call = await session(botId);
+  const approval = gmailApproval(botId, subject);
+  if (duplicate) gmailApproval(botId, subject);
+  const ended = await (await post('alice', 'end', { botId, callId: call.callId })).json();
+  const body = { type: 'event', event: 'voice-call', audience: 'user', text: `Voice call ended · 41s. 1 approval from this call is still pending in chat: Gmail draft with subject ${JSON.stringify(subject)}`,
+    call: { id: call.callId, phase: 'ended', durationMs: 41000, summary: `1 approval from this call is still pending: ${JSON.stringify(subject)}`, transcript: [{ role: 'assistant', text: `Still pending: ${subject}` }] } };
+  db.prepare('UPDATE rows SET body=? WHERE bot_id=? AND seq=?').run(JSON.stringify(body), botId, ended.seq);
+  return { approval, seq: ended.seq, body };
+}
+
+test('R9 linked legacy pill derives declined state through rows, SSE, reload and voice without changing stored history', async () => {
+  const { hub } = await import('../server/src/lib/hub.js');
+  const bot = createBot('alice', { name: 'Legacy linked fixture' });
+  const { approval, seq, body } = await legacyPill(bot.id, 'Voice R7');
+  const before = JSON.stringify(body);
+  const events: any[] = []; const off = hub.subscribe('alice', event => events.push(event));
+  try {
+    db.prepare("UPDATE approvals SET status='denied' WHERE id=?").run(approval.id);
+    updateRow(bot.id, approval.row.seq, { ...approval.row.body, status: 'denied' } as any);
+    const pill = callRecord(bot.id, seq);
+    assert.match(pill.text, /Voice call ended · 41s.*was not allowed.*"Voice R7"/);
+    assert.doesNotMatch(JSON.stringify(pill), /pending/i);
+    assert.equal(pill.call.approvals[0].approvalId, approval.id);
+    assert.ok(events.some(event => event.type === 'rows' && event.rows.some((row: any) => row.seq === seq && /was not allowed/.test(row.body.text))));
+    assert.deepEqual(callRecord(bot.id, seq), pill, 'read-time derivation is idempotent');
+    assert.equal((db.prepare('SELECT body FROM rows WHERE bot_id=? AND seq=?').get(bot.id, seq) as any).body, before);
+    const next = await session(bot.id);
+    assert.match(next.instructions, /was not allowed.*Voice R7/);
+    assert.doesNotMatch(next.instructions, /still pending/i);
+    for (const [name, args] of [['recall_text_messages', {}], ['search_conversations', { query: 'Voice call ended' }]] as const) {
+      const result = await (await post('alice', 'tool', { botId: bot.id, callId: next.callId, name, args })).json();
+      assert.match(result.output, /was not allowed.*Voice R7/); assert.doesNotMatch(result.output, /still pending/i);
+    }
+    await post('alice', 'end', { botId: bot.id, callId: next.callId });
+  } finally { off(); }
+});
+
+for (const mismatch of ['duplicate subject', 'different subject', 'outside call', 'different Bot', 'different account', 'different generation']) {
+  test(`R9 legacy pill refuses ${mismatch} and never claims pending`, async () => {
+    const bot = createBot('alice', { name: 'Legacy ambiguity fixture' });
+    const { approval, seq } = await legacyPill(bot.id, 'Exact saved subject', mismatch === 'duplicate subject');
+    if (mismatch === 'different subject') db.prepare("UPDATE rows SET body=json_set(body,'$.args.arguments.subject','Another subject') WHERE bot_id=? AND seq=?").run(bot.id, approval.row.seq);
+    if (mismatch === 'outside call') db.prepare('UPDATE approvals SET created_at=0 WHERE id=?').run(approval.id);
+    if (mismatch === 'different generation') db.prepare('UPDATE rows SET generation=99 WHERE bot_id=? AND seq=?').run(bot.id, approval.row.seq);
+    if (mismatch === 'different Bot' || mismatch === 'different account') {
+      const other = createBot(mismatch === 'different account' ? 'bob' : 'alice', { name: 'Unrelated fixture' });
+      gmailApproval(other.id, 'Exact saved subject', 'denied');
+      db.prepare('DELETE FROM approvals WHERE id=?').run(approval.id);
+    }
+    const pill = callRecord(bot.id, seq);
+    assert.equal(pill.text, 'Voice call ended · 41s');
+    assert.deepEqual(pill.call.approvals, []);
+    assert.doesNotMatch(JSON.stringify(pill), /pending|Exact saved subject|Another subject/i);
+  });
+}

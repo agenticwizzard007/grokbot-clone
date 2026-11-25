@@ -133,6 +133,9 @@ mock.method(globalThis, 'fetch', async (input: any, init: any) => {
   throw new Error('Unexpected fixture network request');
 });
 const { db } = await import('../server/src/db.js');
+const { initSubagents } = await import('../server/src/agent/subagents.js');
+const { initRooms } = await import('../server/src/agent/rooms.js');
+initSubagents(); initRooms();
 const { setEnvOverride } = await import('../server/src/env.js');
 const { composio } = await import('../server/src/composio.js');
 const { createBot } = await import('../server/src/bots.js');
@@ -440,4 +443,54 @@ test('new customer setup briefs use plain connection words without rewriting Bot
   assert.deepEqual(brief.shared_resources, ['Slack needs to be reconnected.']);
   assert.deepEqual(brief.working_principles, ['Email waiting for connection.']);
   assert.deepEqual(db.prepare('SELECT instructions FROM bots WHERE id=?').get(bot.id), before);
+});
+
+test('R9 suggestions persist neutral catalog identity in the owned Bot payload and refresh replaces connections', async () => {
+  items = catalogItems;
+  setEnvOverride('COMPOSIO_API_KEY', 'r9-snapshot-fixture');
+  mock.method(composio().connectedAccounts, 'list', async () => ({ items: accounts, nextCursor: null }));
+  const { getBot } = await import('../server/src/store.js');
+  accounts = [];
+  const response = await suggest();
+  assert.equal(response.status, 200);
+  let snapshot = getBot(bot.id)!.suggestedApps!;
+  assert.equal(snapshot.version, 1);
+  assert.equal(snapshot.filterVersion, SUGGESTION_FILTER_VERSION);
+  assert.deepEqual(snapshot.suggestions.map(app => app.slug), ['github', 'slack']);
+  assert.equal(snapshot.suggestions[0].reason, 'GitHub was suggested for this Bot.');
+  const stored = (db.prepare('SELECT suggestions_snapshot FROM bots WHERE id=?').get(bot.id) as any).suggestions_snapshot;
+  assert.doesNotMatch(stored, /instructions|description|https:|Track pull|Post review/);
+  const roster = (owner: string) => app.request('/api/bots', { headers: { cookie: `swarm_session=${owner}` } });
+  const own = await (await roster('owner')).json() as any;
+  assert.deepEqual(own.bots.find((item: any) => item.id === bot.id).suggestedApps, snapshot);
+  const foreign = await (await roster('another-account')).json() as any;
+  assert.ok(!foreign.bots.some((item: any) => item.id === bot.id));
+  accounts = [{ id: 'fixture-slack', toolkit: { slug: 'slack' }, status: 'ACTIVE' }];
+  await suggest();
+  snapshot = getBot(bot.id)!.suggestedApps!;
+  assert.deepEqual(snapshot.suggestions.map(app => app.slug), ['github']);
+  accounts = [];
+});
+
+test('R9 snapshot schema, stale writes, ownership and deletion fail closed', async () => {
+  const { saveSuggestions } = await import('../server/src/suggestion-store.js');
+  const { getBot } = await import('../server/src/store.js');
+  const copy = createBot('owner', { name: 'Snapshot fixture' });
+  const value = { version: 1, filterVersion: SUGGESTION_FILTER_VERSION, computedAt: 200, hasContext: true, suggestions: [{ ...catalogItems[0], reason: 'Secret draft', logo: 'https://private.test/token' }] };
+  assert.equal(saveSuggestions('another-account', copy.id, value), false);
+  assert.equal(getBot(copy.id)!.suggestedApps, undefined);
+  assert.equal(saveSuggestions('owner', copy.id, value), true);
+  const saved = getBot(copy.id)!.suggestedApps;
+  assert.doesNotMatch(JSON.stringify(saved), /Secret|private|logo|description/);
+  assert.equal(saveSuggestions('owner', copy.id, { ...value, computedAt: 100, suggestions: [] }), false);
+  assert.deepEqual(getBot(copy.id)!.suggestedApps, saved);
+  for (const raw of ['{', JSON.stringify({ ...value, version: 0 }), JSON.stringify({ ...value, filterVersion: 'old' })]) {
+    db.prepare('UPDATE bots SET suggestions_snapshot=? WHERE id=?').run(raw, copy.id);
+    assert.equal(getBot(copy.id)!.suggestedApps, undefined);
+  }
+  assert.equal(saveSuggestions('owner', copy.id, { ...value, suggestions: [] }), true);
+  assert.deepEqual(getBot(copy.id)!.suggestedApps!.suggestions, [], 'computed empty results survive too');
+  db.prepare('DELETE FROM bots WHERE id=?').run(copy.id);
+  assert.equal(saveSuggestions('owner', copy.id, value), false, 'an in-flight result cannot recreate a deleted Bot');
+  assert.equal(getBot(copy.id), null);
 });

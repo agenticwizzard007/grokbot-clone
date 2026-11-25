@@ -59,6 +59,7 @@ export interface AgentInstructionPreview {
 }
 
 export interface Bot {
+  suggestedApps?: import('./suggestion-snapshot.js').SuggestionSnapshot;
   id: string;
   name: string;
   label: string;
