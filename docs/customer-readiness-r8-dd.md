@@ -27,19 +27,19 @@ No composer change was warranted. `Composer.tsx` renders one visible native text
 
 Two measurement textareas live in an `aria-hidden` host with `visibility: hidden`, zero dimensions, and strict containment. They measure height only. They cannot be the visible text, and their values are copied from the visible textarea. A selector for this check must use `.composer__input`, not an arbitrary textarea or its HTML `value` attribute.
 
-`tests/composer-dom-value-ui.mjs` builds the production app, mocks only local API/voice traffic, and sends 59 characters through three native input paths. It runs idle and with an animated voice meter, captions, and streaming rows at both widths and themes. A capture listener reads the actual DOM value synchronously on every trusted input event, then reads again in a microtask after React handling. Per-key CDP dispatch also reads `.value` with `Runtime.evaluate` immediately after every acknowledged key. It never assigns the textarea value to simulate typing.
+`tests/composer-dom-value-ui.mjs` builds the production app, mocks only local API/voice traffic, and sends 59 characters through three native input paths. It runs idle and with an animated voice meter, captions, and streaming rows at both widths and themes. A capture listener reads the actual DOM value synchronously on every trusted input event, then reads again when the event bubbles past the React root to window and in a following microtask. This avoids treating a microtask queued in the capture phase as a post-React measurement. Per-key CDP dispatch also reads `.value` with `Runtime.evaluate` immediately after every acknowledged key. It never assigns the textarea value to simulate typing.
 
 Measured on this VM with Chrome and Node 24.22.1:
 
-| Input path | Scenarios | Trusted input events | Completion for 59 characters | Largest input-to-microtask interval |
+| Input path | Scenarios | Trusted input events | Completion for 59 characters | Largest input-to-post-React interval |
 | --- | ---: | ---: | ---: | ---: |
-| CDP `Input.insertText` | 8 | 8 | 2.6 to 7.7 ms | 0.2 ms |
-| Playwright `keyboard.type`, 5 ms key delay | 8 | 472 | 504 to 738 ms | 0.2 ms |
-| CDP keyDown/keyUp, with a synchronous DOM read after each key | 8 | 472 | 200 to 337 ms | 0.2 ms |
+| CDP `Input.insertText` | 8 | 8 | 2.9 to 7.1 ms | 2 ms |
+| Playwright `keyboard.type`, 5 ms key delay | 8 | 472 | 506 to 625 ms | 1.2 ms |
+| CDP keyDown/keyUp, with a synchronous DOM read after each key | 8 | 472 | 223 to 395 ms | 1 ms |
 
-All 952 input observations contained exactly the expected prefix, and all post-React reads matched. Immediately after the final injection acknowledgement, every scenario had the complete value. There was no gradual restoration after typing completed and no divergence between the visible native field and its DOM value.
+All 952 input observations contained exactly the expected prefix, and all post-React and following microtask reads matched. Immediately after the final injection acknowledgement, every scenario had the complete value. There was no gradual restoration after typing completed and no divergence between the visible native field and its DOM value.
 
-The test also demonstrates the distinction between enqueueing input and delivering it to Chrome. A local producer returns after scheduling 59 key pairs at 100 ms intervals. It returns in 0.08 ms with an empty value, while delivery finishes 6.23 seconds later. During this active-voice case, the app's isolated typing meter reports p95 32 ms. The value advances only when another input event actually arrives. A screenshot requested after delivery sees all characters. The meter measures browser-event-to-presentation latency; it cannot measure time spent in an external injector before browser events exist. Its Event Timing method has a 16 ms reporting floor.
+The test also demonstrates the distinction between enqueueing input and delivering it to Chrome. A local producer returns after scheduling 59 key pairs at 100 ms intervals. It returns in 0.11 ms with an empty value, while delivery finishes 6.19 seconds later. During this active-voice case, the app's isolated typing meter reports p95 32 ms. The value advances only when another input event actually arrives. A screenshot requested after delivery sees all characters. The meter measures browser-event-to-presentation latency; it cannot measure time spent in an external injector before browser events exist. Its Event Timing method has a 16 ms reporting floor.
 
 These results reproduce the slow-delivery/fast-meter pattern through injection queueing, without an application DOM lag. They do not retrospectively prove the exact queue used in the original live xdotool run, because that run's key-event timestamps were not captured and no live account was accessed. A screenshot and an earlier CDP read are separate observations, not evidence of simultaneous divergence. To distinguish these cases in a future run, record injector completion, trusted input timestamps and values, the final CDP acknowledgement, and screenshot time on the same page.
 

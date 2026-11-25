@@ -34,8 +34,17 @@ try {
         if (!el.matches('.composer__input')) return;
         const sample = { data: event.data, value: el.value, at: performance.now(), trusted: event.isTrusted };
         window.__samples.push(sample);
-        queueMicrotask(() => { sample.afterReact = el.value; sample.commitMs = performance.now() - sample.at; });
       }, true);
+      // React's root listener has finished before input bubbles to window.
+      // A microtask queued by the capture listener could run before React.
+      window.addEventListener('input', event => {
+        const el = event.target;
+        if (!el.matches('.composer__input')) return;
+        const sample = window.__samples.at(-1);
+        sample.afterReact = el.value;
+        sample.commitMs = performance.now() - sample.at;
+        queueMicrotask(() => { sample.afterMicrotask = el.value; });
+      });
     });
     const cdp = await page.context().newCDPSession(page);
     for (const voice of [false, true]) {
@@ -70,6 +79,7 @@ try {
           assert.equal(sample.trusted, true);
           assert.equal(sample.value, mode === 'insertText' ? text : text.slice(0, i + 1));
           assert.equal(sample.afterReact, sample.value);
+          assert.equal(sample.afterMicrotask, sample.value);
         });
         results.push({ width, theme, voice, mode, completionMs, samples });
       }
