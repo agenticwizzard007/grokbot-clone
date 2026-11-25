@@ -362,29 +362,24 @@ function ProviderCard({ data }: { data: ProviderUsage }) {
   const o = data.openrouter;
   return (
     <section className="cfg-section">
-      <AccessRow icon={CircleUserRound} title="Provider account" />
-      <div className="usage-card">
-        {o ? (
-          <>
-            <div className="usage-card__title">OpenRouter{o.label ? ` · ${o.label}` : ''}</div>
-            <div className="usage-tiles usage-tiles--compact">
-              <Tile label="Today" value={fmtUsd(o.usage.today)} />
-              <Tile label="This week" value={fmtUsd(o.usage.week)} />
-              <Tile label="This month" value={fmtUsd(o.usage.month)} />
-              <Tile label="All time" value={fmtUsd(o.usage.allTime)} />
-            </div>
-            {o.limit != null && o.limitRemaining != null && (
-              <Meter label="Key credit limit" used={Math.max(0, o.limit - o.limitRemaining)} limit={o.limit}
-                figure={`${fmtUsd(o.limitRemaining)} left of ${fmtUsd(o.limit)}`} note={o.limitReset ? `Resets ${o.limitReset}.` : undefined} />
-            )}
-            {o.budgets.filter(b => b.limitUsd != null).map((b, i) => b.spendUsd == null
-              ? <AccessRow icon={Gauge} key={i} title={`Budget${b.scope ? ` (${b.scope})` : ''}`} description="Spend not reported" status={`${fmtUsd(b.limitUsd)} limit`} />
-              : <Meter key={i} label={`Budget${b.scope ? ` (${b.scope})` : ''}`} used={b.spendUsd} limit={b.limitUsd!}
-                figure={`${fmtUsd(b.spendUsd)} of ${fmtUsd(b.limitUsd)}`} note={b.resetInterval ? `Resets ${b.resetInterval}.` : undefined} />)}
-          </>
-        ) : null}
-        <div className="usage-card__note">{data.note}</div>
-      </div>
+      <AccessRow icon={CircleUserRound} title="Provider account" description={data.note} />
+      {o && <div className="usage-card">
+        <div className="usage-card__title">OpenRouter{o.label ? ` · ${o.label}` : ''}</div>
+        <div className="usage-tiles usage-tiles--compact">
+          <Tile label="Today" value={fmtUsd(o.usage.today)} />
+          <Tile label="This week" value={fmtUsd(o.usage.week)} />
+          <Tile label="This month" value={fmtUsd(o.usage.month)} />
+          <Tile label="All time" value={fmtUsd(o.usage.allTime)} />
+        </div>
+        {o.limit != null && o.limitRemaining != null && (
+          <Meter label="Key credit limit" used={Math.max(0, o.limit - o.limitRemaining)} limit={o.limit}
+            figure={`${fmtUsd(o.limitRemaining)} left of ${fmtUsd(o.limit)}`} note={o.limitReset ? `Resets ${o.limitReset}.` : undefined} />
+        )}
+        {o.budgets.filter(b => b.limitUsd != null).map((b, i) => b.spendUsd == null
+          ? <AccessRow icon={Gauge} key={i} title={`Budget${b.scope ? ` (${b.scope})` : ''}`} description="Spend not reported" status={`${fmtUsd(b.limitUsd)} limit`} />
+          : <Meter key={i} label={`Budget${b.scope ? ` (${b.scope})` : ''}`} used={b.spendUsd} limit={b.limitUsd!}
+            figure={`${fmtUsd(b.spendUsd)} of ${fmtUsd(b.limitUsd)}`} note={b.resetInterval ? `Resets ${b.resetInterval}.` : undefined} />)}
+      </div>}
     </section>
   );
 }

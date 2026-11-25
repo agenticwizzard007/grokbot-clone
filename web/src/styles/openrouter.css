@@ -4,6 +4,14 @@
 .openrouter-settings__key label { font-size: 14px; font-weight: 500; }
 .openrouter-settings__key .text-input { min-height: 48px; }
 .openrouter-settings__key .cfg-field__hint { margin: 0; }
+.openrouter-settings__key-fields { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px 16px; }
+.openrouter-settings__key-fields > .settings-row__icon { grid-row: 1 / 4; margin-top: 2px; }
+.openrouter-settings__key-fields > :is(label, input, p) { grid-column: 2; }
+.access-settings .openrouter-settings .cfg-row.access-row { column-gap: 16px; }
+@media (max-width: 760px) {
+  .access-settings .openrouter-settings .cfg-row.access-row { display: grid; grid-template-columns: 20px minmax(0, 1fr); }
+  .access-settings .openrouter-settings .access-row > .access-row__actions { grid-column: 2; margin-left: 0; max-width: 100%; width: 100%; }
+}
 .openrouter-settings__use, .openrouter-settings > .cfg-btn { align-self: start; margin-top: 24px; }
 .openrouter-settings > :is(.cfg-error, .cfg-key__ok, .cfg-field__hint) { margin: 14px 0 0; }
 .openrouter-settings .model-picker__pop { min-width: min(352px, calc(100vw - 42px)); inset-inline-start: auto; }

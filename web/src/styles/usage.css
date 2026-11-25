@@ -98,7 +98,8 @@
 .usage-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
 .usage-key--ai { background: var(--u-mark); }
 .usage-key--vm { background: var(--u-vm); }
-.usage-chart__col { display: flex; flex-direction: column; gap: 2px; background: none; border-radius: 0; }
+/* A fixed gap can exceed a tiny bar's height and push its segments below zero. */
+.usage-chart__col { display: flex; flex-direction: column; gap: min(2px, 10%); background: none; border-radius: 0; }
 .usage-chart__seg { min-height: 0; flex-basis: 0; }
 .usage-chart__seg.is-ai { background: var(--u-mark); }
 .usage-chart__seg.is-vm { background: var(--u-vm); }

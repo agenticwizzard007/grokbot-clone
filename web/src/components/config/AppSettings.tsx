@@ -1117,7 +1117,7 @@ function AccountSettings({ user }: { user: User }) {
             <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => { setError(null); setDeleting(true); }}>Delete account…</button>
           </SettingRow>
         </div>
-        <button type="button" className="cfg-btn cfg-btn--primary" disabled={!!busy} onClick={() => void act('signout')}>{busy ? 'Signing out…' : 'Sign out'}</button>
+        <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => void act('signout')}>{busy ? 'Signing out…' : 'Sign out'}</button>
         {error && <div className="cfg-error" role="alert">{error}</div>}
       </section>
       <AccountSessions accountId={user.id} />

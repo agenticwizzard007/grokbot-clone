@@ -75,7 +75,7 @@ try {
       assert.ok(geometry.bubble >= geometry.content * .75, 'long assistant bubble uses at least 75% of content width');
       const userWidth = await page.locator('.bubble.is-user').evaluate(el => el.getBoundingClientRect().width);
       assert.ok(userWidth <= geometry.content * .85 + 1 && userWidth >= geometry.content * .75);
-      assert.equal(await page.locator('.model-pill__name').innerText(), 'Codex');
+      assert.equal(await page.locator('.model-pill__name').innerText(), 'Codex · ChatGPT plan');
       assert.ok(await page.locator('.model-pill__name').evaluate(el => el.scrollWidth <= el.clientWidth), 'compact label is not truncated');
     } else assert.ok(geometry.bubble <= Math.min(560, geometry.content * .8) + 1, 'desktop bubble cap unchanged');
     assert.match(await page.locator('.model-pill').getAttribute('aria-label'), /Codex CLI default, Uses your ChatGPT plan/);

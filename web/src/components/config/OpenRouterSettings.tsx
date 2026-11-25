@@ -6,6 +6,7 @@ import { useStore } from '../../store';
 import { needsReauth } from '../../lib/api';
 import { ModelPicker, refreshModels } from './ModelPicker';
 import { AccessRow } from './AccessRow';
+import { SettingIcon } from './SettingRow';
 import { ConfirmButton } from './ui';
 import { useAccessPanel } from './useAccessPanel';
 import '../../styles/openrouter.css';
@@ -79,9 +80,12 @@ function AccountOpenRouterSettings({ accountId, onReauth }: { accountId: string;
         setKey('');
         void run(() => openrouterApi.saveKey(value), () => 'Key verified and saved.');
       }}>
-        <label htmlFor="personal-openrouter-key">{status.connected ? 'Replace your API key' : 'Or paste your API key'}</label>
-        <input id="personal-openrouter-key" type="password" className="text-input" value={key} onChange={e => setKey(e.target.value)} autoComplete="off" spellCheck={false} disabled={busy} />
-        <p className="cfg-field__hint">Your saved key is never shown. Pasting a key does not change your sign-in method.</p>
+        <div className="openrouter-settings__key-fields">
+          <SettingIcon icon={KeyRound} />
+          <label htmlFor="personal-openrouter-key">{status.connected ? 'Replace your API key' : 'Or paste your API key'}</label>
+          <input id="personal-openrouter-key" type="password" className="text-input" value={key} onChange={e => setKey(e.target.value)} autoComplete="off" spellCheck={false} disabled={busy} />
+          <p className="cfg-field__hint">Your saved key is never shown. Pasting a key does not change your sign-in method.</p>
+        </div>
         <AccessRow icon={Check} title="Save and verify" description="Keep your previous key if verification fails.">
           <button type="submit" className="cfg-btn cfg-btn--secondary" disabled={busy || !key.trim()}>Save &amp; verify key</button>
         </AccessRow>
