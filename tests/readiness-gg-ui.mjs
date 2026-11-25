@@ -22,6 +22,16 @@ const routes = ['#settings', ...sections.map(s => `#settings/${s}`), ...tabs.map
 const bar = '.access-settings__bar, .bot-settings-page > .setup-paper__bar';
 const ready = hash => hash.startsWith('#settings') ? '.access-settings__bar' : hash.includes('/settings/') ? '.bot-settings-page > .setup-paper__bar' : hash === '#team' ? '.tasks-view__header' : '.sidebar';
 const hashIs = (page, hash) => page.waitForFunction(hash => location.hash === hash, hash);
+async function parentVisible(page, hash) {
+  if (/^#bot\/[^/]+$/.test(hash)) {
+    await page.locator('.chat__header').waitFor();
+    await page.locator('.bot-settings-page').waitFor({ state: 'detached' });
+  } else if (hash === '#settings') {
+    await page.locator('.settings-nav__item').first().waitFor();
+    await page.locator('.access-settings__bar').getByRole('button', { name: 'Back to Settings', exact: true }).waitFor({ state: 'detached' });
+  } else if (hash === '#bots') await page.locator('.sidebar .bot-row').first().waitFor();
+}
+
 
 // Install before application code. Sample every paint for two seconds, including
 // font arrival and late API results. CLS excludes recent input; geometry does not.
@@ -217,10 +227,10 @@ try {
             : route.includes('/settings/') ? child.split('/settings/')[0]
             : route.includes('/details/') ? child.split('/details/')[0] : '#bots';
           assert.deepEqual(await page.evaluate(() => history.state.swarmNavigation.trail), []);
-          await back.tap(); await hashIs(page, parent);
+          await back.tap(); await hashIs(page, parent); await parentVisible(page, parent);
           // Repeat through actual browser history, where the parent is reusable.
           await page.evaluate(child => { location.hash = child; }, child);
-          await back.tap(); await hashIs(page, parent);
+          await back.tap(); await hashIs(page, parent); await parentVisible(page, parent);
           await page.goForward(); await hashIs(page, child);
           assert.deepEqual(errors, []);
           return { clicks: await page.evaluate(() => window.gg.events.filter(e => e.type === 'click').length) };
