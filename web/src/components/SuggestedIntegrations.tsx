@@ -84,7 +84,7 @@ export function SuggestedIntegrations({ botId, description, instructions, placem
           setResult({ key, apps: response.suggestions, hasContext: response.hasContext });
         }
       }).catch(error => {
-        if (isCurrent()) setResult({ key, apps: cached?.suggestions ?? [], hasContext: cached?.hasContext, error: error instanceof ApiError ? error.message : 'Suggestions unavailable. Please retry.' });
+        if (isCurrent()) setResult({ key, apps: cached?.suggestions ?? [], hasContext: cached?.hasContext, error: (error instanceof ApiError && error.message.trim()) || 'Suggestions unavailable. Please retry.' });
       }).finally(() => clearTimeout(deadline));
     }, SUGGESTIONS_DEBOUNCE_MS);
     return () => { clearTimeout(timer); clearTimeout(deadline); controller.abort(); };
