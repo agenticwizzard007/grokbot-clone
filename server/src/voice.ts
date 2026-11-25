@@ -133,7 +133,7 @@ export function activitySnapshot(botId: string, call?: ActiveCall) {
   const pending = (db.prepare("SELECT seq,body FROM rows WHERE bot_id=? AND generation=? AND kind='card' ORDER BY seq DESC LIMIT 20").all(botId, getBotRow(botId).generation) as any[])
     .filter(r => { const body = JSON.parse(r.body); return body.status === 'pending' && (body.card !== 'approval' || !!call && pendingVoiceApproval(botId, getBotRow(botId).generation, r.seq, body, call)); }).map(r => JSON.parse(r.body));
   const lines: string[] = [];
-  if (live.awaiting) lines.push(`Paused, waiting for the user: ${live.awaiting.reason} (since ${ago(live.awaiting.since)}).`);
+  if (live.awaiting) lines.push(pending.length ? 'Paused, waiting for the user in chat.' : 'Paused in chat.');
   else if (live.audience === 'internal' && live.isRunning) lines.push('Working on an internal team assignment.');
   else if (live.isRunning) lines.push(`Busy right now: ${ACTIVITY_WORDS[live.activity?.kind ?? 'working'] ?? 'working'}${live.activity?.detail ? ` (${live.activity.detail})` : ''}, started ${live.startedAt ? ago(live.startedAt) : 'recently'}.`);
   else lines.push('Idle: not working on anything right now.');
@@ -333,7 +333,7 @@ onRowChange((userId, row) => {
     text = body.card === 'approval' ? `Approval required in chat: ${voiceApprovalDetail(body)}` : body.card === 'question' ? body.question : body.card === 'connect' ? `Connect ${body.toolkitName} in chat.` : 'A draft is waiting for review in chat.';
   } else if (body.type === 'card' && body.card === 'approval') {
     kind = 'status';
-    text = `Approval ${body.status === 'denied' ? 'declined' : body.status === 'expired' ? 'expired' : 'granted'} in chat: ${body.title}. ${body.status === 'allowed' || body.status === 'always' ? 'The decision is not proof of execution. Wait for the chat agent’s result.' : 'Do not repeat the action unless the user asks.'}`;
+    text = `Approval ${body.status === 'denied' ? 'declined' : body.status === 'expired' ? 'expired' : 'granted'} in chat: ${voiceApprovalDetail(body)}. ${body.status === 'allowed' || body.status === 'always' ? 'The decision is not proof of execution. Wait for the chat agent’s result.' : 'Do not repeat the action unless the user asks.'}`;
   } else if (body.type === 'card' && body.card === 'connect' && body.status === 'connected') {
     kind = 'status'; text = `${body.toolkitName} authorization was confirmed by the app. Its chat agent owns access verification and continuation; check the task status and wait for its result instead of submitting the action again.`;
   } else if (body.type === 'card' && body.card === 'connect' && body.status === 'skipped') {
@@ -383,7 +383,11 @@ voiceApi.post('/updates', async (c) => {
     const generation = getBotRow(task.botId)?.generation;
     const pendingDecision = lineage.length && generation !== undefined && db.prepare(`SELECT 1 FROM rows WHERE bot_id=? AND generation=? AND kind='card'
       AND json_extract(body,'$.card') IN ('question','approval','connect') AND json_extract(body,'$.status')='pending'
-      AND json_extract(body,'$.jobId') IN (${lineage.map(() => '?').join(',')}) LIMIT 1`).get(task.botId, generation, ...lineage.map(j => j.id));
+      AND json_extract(body,'$.jobId') IN (${lineage.map(() => '?').join(',')})
+      AND (json_extract(body,'$.card')!='approval' OR EXISTS (
+        SELECT 1 FROM approvals a WHERE a.id=json_extract(rows.body,'$.approvalId') AND a.bot_id=rows.bot_id
+        AND a.row_seq=rows.seq AND a.status='pending' AND a.created_at>=?
+      )) LIMIT 1`).get(task.botId, generation, ...lineage.map(j => j.id), call.startedAt);
     const since = getLive(task.botId).awaiting?.since;
     // A question from later work on the same agent must not relabel an older completed job.
     const awaiting = !!pendingDecision || job?.state === 'running' && since !== undefined && job.started_at != null && since >= job.started_at;
