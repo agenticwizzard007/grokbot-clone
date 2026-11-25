@@ -131,41 +131,45 @@ try {
       // Fresh URLs never inherit the saved selected chat as their Back target.
       for (const [route, label] of [['#tasks','Tasks'], ['#team','Team'], ['#goals','Goals'], ['#reports','Reports'], ['#new-bot','Create a Bot']]) {
         await fresh(route); await title(label); await reload(route); await title(label);
-        await expectBack(route === '#new-bot' ? '.setup-paper__bar' : '.tasks-view__header', 'Back to Bots', '#bots');
+        if (route === '#new-bot') await expectBack('.setup-paper__bar', 'Back to Bots', '#bots');
+        else assert.equal(await page.locator('.tasks-view__header').getByRole('button', { name: /^Back/ }).count(), 0);
       }
       await fresh('#tasks');
       if (width === 1280) await page.locator('.sidebar__brand').click();
       else await link('#bots');
       await title('Bots');
-      await expectBack('#sidebar-back-slot', 'Back to Tasks', '#tasks');
+      assert.equal(await page.locator('#sidebar-back-slot button').count(), 0); await back('#tasks');
       await fresh('#settings/permissions'); await title('Settings · Permissions');
       if (width === 1280) await page.locator('.sidebar-island').click();
       else await link('#tasks');
       await hash('#tasks'); await title('Tasks');
-      await expectBack('.tasks-view__header', 'Back to Settings', '#settings/permissions');
+      assert.equal(await page.locator('.tasks-view__header').getByRole('button', { name: /^Back/ }).count(), 0); await back('#settings/permissions');
       await title('Settings · Permissions');
       console.log(`PASS ${width} ${theme}: direct entry and Settings then Tasks Back destinations`);
 
       // A form is not a group conversation, and an older origin cannot leak past Tasks.
       await fresh('#new-bot/group'); await title('New group chat');
       await page.keyboard.press('Control+,'); await hash(width === 390 ? '#settings' : '#settings/general');
-      await page.getByRole('button', {name:'Back to new group chat',exact:true}).first().waitFor();
+      if (width === 1280) await page.getByRole('button', {name:'Back to new group chat',exact:true}).first().waitFor();
+      else assert.equal(await page.getByRole('button', { name: /^Back/ }).count(), 0);
       if (width === 1280) await page.locator('.sidebar-island').click();
       else await link('#tasks');
       await hash('#tasks'); await page.keyboard.press('Control+,'); await hash(width === 390 ? '#settings' : '#settings/general');
-      await page.getByRole('button', {name:'Back to Tasks',exact:true}).first().waitFor();
+      if (width === 1280) await page.getByRole('button', {name:'Back to Tasks',exact:true}).first().waitFor();
+      else assert.equal(await page.getByRole('button', { name: /^Back/ }).count(), 0);
       if (width === 390) await page.getByRole('navigation', {name:'Settings sections'}).getByRole('button', {name:'Permissions',exact:true}).click();
       await reload(width === 390 ? '#settings/permissions' : '#settings/general');
       if (width === 390) {
         await page.getByRole('button', {name:'Back to Settings',exact:true}).click(); await hash('#settings');
       }
-      await page.getByRole('button', {name:'Back to Tasks',exact:true}).first().waitFor();
+      if (width === 1280) await page.getByRole('button', {name:'Back to Tasks',exact:true}).first().waitFor();
+      else assert.equal(await page.getByRole('button', { name: /^Back/ }).count(), 0);
       await closeSettings(); await hash('#tasks');
-      for (const [tab, previous] of [['Team','Tasks'],['Goals','Team'],['Reports','Goals']]) {
+      for (const tab of ['Team', 'Goals', 'Reports']) {
         await page.getByRole('navigation', {name:'Work sections'}).getByRole('button', {name:tab,exact:true}).click();
-        await title(tab); await page.locator('.tasks-view__header').getByRole('button', {name:`Back to ${previous}`,exact:true}).waitFor();
+        await title(tab); assert.equal(await page.locator('.tasks-view__header').getByRole('button', { name: /^Back/ }).count(), 0);
       }
-      await expectBack('.tasks-view__header', 'Back to Goals', '#goals'); await title('Goals');
+      await back('#goals'); await title('Goals');
       console.log(`PASS ${width} ${theme}: current origins, phone Settings parent history and work tab Back labels`);
 
       // The hidden Reports screen must not be exposed by role or the accessibility tree.

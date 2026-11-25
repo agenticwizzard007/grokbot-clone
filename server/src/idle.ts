@@ -1,3 +1,4 @@
+import { plural } from './lib/plural.js';
 import { db, now as dbNow } from './db.js';
 import { getLive } from './store.js';
 import { suspendComputer } from './computers/orgo-box.js';
@@ -67,7 +68,7 @@ export function createIdleWatcher(deps: IdleDeps, opts: { idleMs: number; dryRun
     if (turns || v > 0) {
       busyAt.set(userId, deps.now());
       announced.delete(userId);
-      return { action: 'busy', reason: turns ? 'turn running' : `${v} viewer(s)` };
+      return { action: 'busy', reason: turns ? 'turn running' : plural(v, 'viewer') };
     }
     const last = Math.max(busyAt.get(userId) ?? startedAt, lastBusy.get(userId) ?? 0, deps.lastActivity(userId));
     const idleMs = deps.now() - last;

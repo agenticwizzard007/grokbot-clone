@@ -110,7 +110,7 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
       await page.clock.pauseAt(new Date());
       await check('General refreshes a warm cache after an abandoned mount', async () => {
         await openGeneral();
-        await general.getByText('Finding relevant apps…').waitFor();
+        assert.equal(await general.getByText('Finding relevant apps…').count(), 0, 'cold cache does not flash a loading note before 500 ms');
         await tab('Skills'); // Unmount before the debounce, leaving the old loading deadline.
         await page.clock.runFor(6000);
         await page.goto(`${origin}/#bot/${bot.id}`);
@@ -160,12 +160,12 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
         await fresh(activity);
         assert.ok(requests.every(body => body.description === bot.description && body.instructions === bot.instructions), 'both mounts send identical saved context');
       });
-      await check('General draft changes do not show stale results and errors require no results', async () => {
+      await check('General draft changes retain last Bot suggestions during refresh and failure', async () => {
         await openGeneral(); await page.clock.runFor(500);
         await general.getByText('Slack', { exact: true }).waitFor();
         mode = 'error'; await page.getByLabel('About', { exact: true }).fill('Summarize calendar appointments'); await page.clock.runFor(500);
-        await general.getByText('Suggestions unavailable. Please retry.', { exact: false }).waitFor();
-        assert.equal(await general.locator('.suggested-integration').count(), 0);
+        await general.getByText("Couldn't refresh.", { exact: false }).waitFor();
+        assert.equal(await general.locator('.suggested-integration').count(), 1);
         mode = 'success'; await general.getByRole('button', { name: 'Retry', exact: true }).click(); await page.clock.runFor(500);
         await fresh(general);
       });

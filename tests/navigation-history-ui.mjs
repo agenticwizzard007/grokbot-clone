@@ -149,7 +149,8 @@ try {
       if (width === 390) {
         await page.getByRole('button',{name:'Back to Settings',exact:true}).click(); await hash('#settings');
         await reload('#settings'); await sections.waitFor();
-        await page.getByRole('button',{name:'Back to chat',exact:true}).click();
+        assert.equal(await page.getByRole('button', { name: /^Back/ }).count(), 0);
+        await page.getByRole('button',{name:'Close settings',exact:true}).click();
       } else {
         await page.locator('.settings-nav__back').getByText('Back to chat', {exact:true}).waitFor();
         await page.locator('.access-settings__bar').getByRole('button', {name:'Back to chat',exact:true}).waitFor();
@@ -183,10 +184,10 @@ try {
       await page.locator('.sidebar-island').click(); await hash('#tasks');
       for (const tab of ['Team','Goals','Reports']) { await page.getByRole('navigation',{name:'Work sections'}).getByRole('button',{name:tab,exact:true}).click(); await hash(`#${tab.toLowerCase()}`); }
       await reload('#reports');
-      await page.locator('.tasks-view__header').getByRole('button', {name: 'Back to Goals', exact:true}).waitFor();
+      assert.equal(await page.locator('.tasks-view__header').getByRole('button', { name: /^Back/ }).count(), 0);
       for (const tab of ['goals','team','tasks']) await back(`#${tab}`);
       await back(width === 390 ? '#bots' : chat); await forward('#tasks');
-      await page.locator('.tasks-view__header button').first().click(); await hash(width === 390 ? '#bots' : chat);
+      await back(width === 390 ? '#bots' : chat);
       // Create and group have distinct entries, including direct entry and reload.
       await page.keyboard.press('Alt+Shift+n'); await hash('#new-bot');
       await reload('#new-bot'); await page.getByRole('heading',{name:'Create a Bot',exact:true}).waitFor();

@@ -1,3 +1,4 @@
+import { plural } from '@shared/lib/plural';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { teamApi, type TeamState } from '../../lib/teamApi';
 import { useNativeRefresh } from '../../lib/useNativeRefresh';
@@ -85,7 +86,7 @@ export function TeamBoard({ botId, onGoals }: { botId?: string; onGoals?: () => 
         <p className="work-meta">Applies to all Bots in this account. Turning coordination off keeps existing work and history visible.</p>
         {setting && <p role="status">Saving coordination preference…</p>}
         {settingError && <p className="work-error" role="alert">{settingError}</p>}
-        {!!state.humanSources?.pending && !botId && <p className="work-meta">{state.humanSources.pending} user update(s) waiting for coordinator review.</p>}
+        {!!state.humanSources?.pending && !botId && <p className="work-meta">{plural(state.humanSources.pending, 'user update')} waiting for coordinator review.</p>}
         {Object.values(state.coverage ?? {}).some(coverage => coverage.omitted > 0) && <p className="work-meta">This snapshot is limited. More job records are available in work history.</p>}
       </div>
       {scoped(state.agents).map(agent => <div className="work-row" key={agent.botId}><div className="work-row__body">

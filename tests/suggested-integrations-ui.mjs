@@ -53,6 +53,8 @@ window.switchAccount = () => useStore.setState({ user: { id: 'another-account', 
 function Harness() {
   const [description, setDescription] = React.useState('track GitHub PRs and post to Slack');
   const [mount, setMount] = React.useState(0);
+  const [botId, setBotId] = React.useState('review-bot');
+  window.switchSuggestionBot = setBotId;
   window.remountSuggestions = () => setMount(value => value + 1);
   window.setSuggestionDraft = setDescription;
   const bot = useStore(state => state.bots[0]);
@@ -60,7 +62,7 @@ function Harness() {
     bot && React.createElement(SetupBanner, { bot }),
     React.createElement('label', { htmlFor: 'about' }, 'About'),
     React.createElement('textarea', { id: 'about', className: 'text-input', value: description, onChange: event => setDescription(event.target.value) }),
-    React.createElement(SuggestedIntegrations, { key: mount, botId: 'review-bot', description, instructions: '' }));
+    React.createElement(SuggestedIntegrations, { key: mount, botId, description, instructions: '' }));
 }
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(Harness));` });
       if (url.pathname.startsWith('/api/toolkits/icon/')) {
@@ -105,7 +107,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     await page.waitForTimeout(500);
     holdCached = true;
     await page.getByLabel('About', { exact: true }).fill('track GitHub PRs and post to Slack');
-    await page.getByText('Updating saved suggestions...', { exact: true }).waitFor();
+    assert.equal(await page.getByText('Updating saved suggestions...', { exact: true }).count(), 0);
     assert.equal(await cards.count(), 2);
     assert.equal(await page.getByText('Finding relevant apps…', { exact: true }).count(), 0);
     for (let i = 0; !held && i < 40; i++) await page.waitForTimeout(25);
@@ -117,7 +119,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     assert.ok(geometry.scroll <= geometry.width, JSON.stringify(geometry));
     await page.screenshot({ path: `.context/suggestions/chips-${width}-${theme}.png` });
     await page.getByLabel('About', { exact: true }).fill('catalog failure');
-    await page.getByText('The app catalog service rejected the server credentials. The server administrator needs to check them.', { exact: false }).waitFor();
+    await page.getByText("Couldn't refresh.", { exact: false }).waitFor();
+    assert.equal(await cards.count(), 2, 'warm refresh failure retains the last Bot suggestions');
     assert.equal(await page.getByText('Suggestions are unavailable right now.', { exact: false }).count(), 0);
     await page.screenshot({ path: `.context/suggestions/catalog-error-${width}-${theme}.png` });
     catalogRecovered = true;
@@ -239,6 +242,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       assert.equal(await page.getByText('Updating saved suggestions...', { exact: true }).count(), 0);
       await page.clock.resume();
     }
+    // A different Bot has a true cold cache and keeps the actionable API error.
+    catalogRecovered = false;
+    await page.evaluate(() => { window.switchSuggestionBot('cold-bot'); window.setSuggestionDraft('catalog failure'); });
+    await page.getByText('The app catalog service rejected the server credentials. The server administrator needs to check them.', { exact: false }).waitFor();
+    assert.equal(await cards.count(), 0, 'another Bot never inherits saved suggestions');
     assert.deepEqual(errors, []);
     await page.close();
   }
