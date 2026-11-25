@@ -77,7 +77,8 @@ export function SuggestedIntegrations({ botId, description, instructions, placem
     if (remaining <= 0) { timeout(); return; }
     const deadline = setTimeout(timeout, remaining);
     const timer = setTimeout(() => {
-      if (cached && isCurrent()) setResult({ key, apps: cached.suggestions, hasContext: cached.hasContext, refreshing: true });
+      if (!isCurrent()) return;
+      if (cached) setResult({ key, apps: cached.suggestions, hasContext: cached.hasContext, refreshing: true });
       void refreshSuggestions(userId, cacheKey, botId, { description, instructions }).then(response => {
         if (isCurrent()) {
           loadingDeadlines.delete(windowKey);

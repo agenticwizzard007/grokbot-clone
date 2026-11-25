@@ -217,7 +217,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       await page.clock.install();
       await page.clock.pauseAt(new Date());
       const duringChurn = () => requests.filter(request => request.description.startsWith('continuous edit'));
-      for (let i = 0; i < 18; i++) {
+      for (let i = 0; i < 17; i++) {
         await page.evaluate(i => {
           window.setSuggestionDraft(`continuous edit ${i}`);
           window.remountSuggestions();
@@ -226,6 +226,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
         await page.waitForFunction(i => document.querySelector('#about').value === `continuous edit ${i}`, i);
         await page.clock.runFor(300);
       }
+      await page.clock.runFor(300); // The final debounce would fire after the deadline without the abort guard.
       await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
       assert.deepEqual(duringChurn(), [], 'deadline works even when debounce never starts a request');
       assert.equal(await page.getByText('Finding relevant apps…', { exact: true }).count(), 0);
