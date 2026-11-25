@@ -30,4 +30,13 @@ To establish current connection state, the account's CLI status must be refreshe
 
 `tests/composer-model-label.test.mts` covers the combined Codex label and preservation of API, Claude and unavailable/unknown labels.
 
-Full baseline and final unit results, earlier regression suites, and post-rebase validation are recorded in the PR and completion report.
+Both full unit runs used Node 24.22.1 and `node --import tsx --test --test-concurrency=1 tests/*.test.mts tests/*.test.mjs`.
+
+| Run | Tests | Pass | Fail | Cancelled | Existing skips |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Untouched 1ef3439 | 2212 | 2116 | 72 | 0 | 24 |
+| Stream Q | 2214 | 2116 | 74 | 0 | 24 |
+
+The two additional full-run failures were the unchanged one-second cloud-drain tests in `legacy-background.test.mts`: foreign-metadata refusal and authorization recheck after inventory waits. Both failures reproduced in a separate run of that entire file on untouched 1ef3439 (11 pass, 2 fail), and the final branch rerun had the same 11 pass, 2 fail. Their actual failure is the existing drain deadline expiring before the expected ownership/revocation error. Comparing failure names, including this baseline reproduction and normalizing absolute checkout paths, leaves no new failures. No tests or CI were disabled or newly skipped.
+
+After fetching and rebasing on current origin/main, all 127 targeted unit tests and all 36 browser checks pass. Typecheck and build pass. Earlier model-selector, readiness M, phone-polish, Usage readiness, plan-connection, picker-layout, voice/composer and OpenRouter browser suites pass. Existing readiness M and selector assertions were updated only for the intentional combined Codex label.
