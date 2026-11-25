@@ -147,6 +147,7 @@ CREATE TABLE IF NOT EXISTS approvals (
   created_at INTEGER NOT NULL,
   resolved_at INTEGER
 );
+CREATE INDEX IF NOT EXISTS approvals_call ON approvals(bot_id, call_id, created_at);
 CREATE TABLE IF NOT EXISTS policies (
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   tool TEXT NOT NULL,

@@ -62,3 +62,20 @@ test('R10-1: legacy waiting rows hydrate expired decisions without rewriting his
   db.prepare('UPDATE rows SET body=? WHERE bot_id=? AND seq=?').run(JSON.stringify(a.step.body), a.bot.id, a.step.seq);
   assert.equal((getRow(a.bot.id, a.step.seq)!.body as any).approval, undefined);
 });
+
+test('R10-1: a page of legacy steps uses one indexed approval lookup', t => {
+  const a = fixture();
+  for (let n = 0; n < 24; n++) appendRow(a.bot.id, 'tool-call', { type: 'tool-call', callId: `call-${n}`, name: 'read_file', label: 'Read file', status: 'done' });
+  const reads: { sql: string; params: unknown[] }[] = [];
+  const prepare = db.prepare.bind(db);
+  t.mock.method(db, 'prepare', (sql: string) => {
+    const statement = prepare(sql), all = statement.all.bind(statement);
+    statement.all = (...params: unknown[]) => { if (/FROM approvals/.test(sql)) reads.push({ sql, params }); return all(...params); };
+    return statement;
+  });
+  const rows = listRows(a.bot.id);
+  assert.equal((rows.find(row => row.seq === a.step.seq)!.body as any).approval.id, a.id);
+  assert.equal(reads.length, 1);
+  const plan = prepare(`EXPLAIN QUERY PLAN ${reads[0].sql}`).all(...reads[0].params) as any[];
+  assert.ok(plan.some(row => /SEARCH a USING INDEX approvals_call/.test(row.detail)));
+});

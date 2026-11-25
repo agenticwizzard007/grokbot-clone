@@ -82,3 +82,12 @@ test('R10-1: delayed confirmation cannot cross an account change', async t => {
   response.resolve({ ok: true, status: 'denied' }); await request;
   assert.deepEqual(useStore.getState().approvalDecisions, {});
 });
+
+test('R10-1: a grant that expires before dispatch stays expired after delayed grant and waiting events', () => {
+  setup(); event(card('allowed', 5));
+  assert.equal(outcome(), 'Allowed once');
+  event(card('expired', 6));
+  assert.equal(outcome(), 'Expired');
+  event(step({ ...tool, approval: { id: approvalId, status: 'allowed' } }, 7), card('pending', 8));
+  assert.equal(outcome(), 'Expired');
+});

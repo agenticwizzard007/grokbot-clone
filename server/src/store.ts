@@ -11,7 +11,7 @@ import { applyExplicitPreferenceCorrections } from './knowledge/memory.js';
 import { isHumanUserMessage } from './knowledge/sessions.js';
 import { serializeVoiceCall, voiceCallsReferencing } from './voice-approvals.js';
 import { storedSuggestions } from './suggestion-store.js';
-import { approvalSteps, withStepApproval } from './step-approvals.js';
+import { approvalSteps, withStepApproval, withStepApprovals } from './step-approvals.js';
 
 // ---------- bots ----------
 
@@ -117,7 +117,7 @@ function notifyRow(userId: string, row: Row, isNew: boolean) {
 }
 
 function toRow(r: any): Row {
-  let body = withStepApproval(JSON.parse(r.body) as RowBody, r.bot_id, r.generation);
+  let body = JSON.parse(r.body) as RowBody;
   if (body.type === 'event' && body.event === 'voice-call') body = serializeVoiceCall(body, getBotRow(r.bot_id).user_id, false, { botId: r.bot_id, generation: r.generation, seq: r.seq, createdAt: r.created_at });
   return { botId: r.bot_id, generation: r.generation, seq: r.seq, updatedSeq: r.updated_seq, kind: r.kind, audience: body.audience, body, createdAt: r.created_at };
 }
@@ -218,26 +218,26 @@ export function updateRow(botId: string, seq: number, body: RowBody): Row | null
 export function getRow(botId: string, seq: number): Row | null {
   const b = getBotRow(botId);
   const r = db.prepare('SELECT * FROM rows WHERE bot_id=? AND generation=? AND seq=?').get(botId, b.generation, seq);
-  return r ? toRow(r) : null;
+  return r ? withStepApprovals([toRow(r)])[0] : null;
 }
 
 export function listRows(botId: string, opts: { beforeSeq?: number; limit?: number; afterRev?: number } = {}): Row[] {
   const b = getBotRow(botId);
   if (!b) return [];
   if (opts.afterRev !== undefined) {
-    return (db.prepare('SELECT * FROM rows WHERE bot_id=? AND generation=? AND updated_seq>? ORDER BY seq ASC').all(botId, b.generation, opts.afterRev) as any[]).map(toRow);
+    return withStepApprovals((db.prepare('SELECT * FROM rows WHERE bot_id=? AND generation=? AND updated_seq>? ORDER BY seq ASC').all(botId, b.generation, opts.afterRev) as any[]).map(toRow));
   }
   const limit = Math.min(opts.limit ?? 200, 500);
   const rows = (opts.beforeSeq
     ? db.prepare('SELECT * FROM rows WHERE bot_id=? AND generation=? AND seq<? ORDER BY seq DESC LIMIT ?').all(botId, b.generation, opts.beforeSeq, limit)
     : db.prepare('SELECT * FROM rows WHERE bot_id=? AND generation=? ORDER BY seq DESC LIMIT ?').all(botId, b.generation, limit)) as any[];
-  return rows.reverse().map(toRow);
+  return withStepApprovals(rows.reverse().map(toRow));
 }
 
 /** Bounded reconciliation of revisions since the last complete snapshot. */
 export function listRowChanges(botId: string, generation: number, afterRev: number, throughRev: number, minSeq: number): Row[] {
-  return (db.prepare('SELECT * FROM rows WHERE bot_id=? AND generation=? AND updated_seq>? AND updated_seq<=? AND seq>=? ORDER BY updated_seq ASC LIMIT 200')
-    .all(botId, generation, afterRev, throughRev, minSeq) as any[]).map(toRow);
+  return withStepApprovals((db.prepare('SELECT * FROM rows WHERE bot_id=? AND generation=? AND updated_seq>? AND updated_seq<=? AND seq>=? ORDER BY updated_seq ASC LIMIT 200')
+    .all(botId, generation, afterRev, throughRev, minSeq) as any[]).map(toRow));
 }
 
 export function clearConversation(botId: string) {

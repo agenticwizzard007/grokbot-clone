@@ -24,7 +24,9 @@ export function confirmedApprovals(current: ApprovalDecisions, rows: Row[]): App
       : body.type === 'card' && body.card === 'approval' ? { id: body.approvalId, status: body.status } : undefined;
     if (!approval || approval.status === 'pending') continue;
     const known = next[approval.id];
-    if (known && !known.pending) continue;
+    // A granted action can still expire before dispatch (for example, after a
+    // computer change). Expiry is final; delayed grants cannot restore it.
+    if (known && !known.pending && (known.status === approval.status || approval.status !== 'expired')) continue;
     if (next === current) next = { ...current };
     next[approval.id] = { status: approval.status };
   }
