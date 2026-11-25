@@ -47,7 +47,7 @@ try {
         days: days.map((day, i) => ({ day, ...coverage, tokens: i === 3 ? requests * 120 : 0, requests: i === 3 ? requests : 0, costUsd: i === 3 ? costUsd : 0, computerUsd: i === 3 ? vmCost : 0 })),
         computer: { costUsd: vmCost, runningHours: vmCost ? 5.4 : 0, asleepHours: vmCost ? 140 : 0, archivedHours: 0, now: vmCost ? { provider: 'cloudvm-fly', state: 'asleep', cpus: 2, memoryMb: 2816, diskGb: 10, perHourUsd: 0.0027 } : null },
         computerProvider: 'cloudvm', computerRates: { hoursPerMonth: 730, fly: { cpuMonth: 2.19, ramGbMonth: 6, rootfsGbMonth: 0.15, rootfsGb: 3, volumeGbMonth: 0.15 }, orgo: { runningHour: 0.055, stoppedHour: 0.0027 } },
-        byBot: [], byModel: [], byKind: [], limits: { dailyMessages: limited ? { used: 2, limit: 5, resetsAt: Date.now() + 3_600_000 } : null },
+        byBot: [], byModel: [], byKind: [], limits: { dailyMessages: limited ? { used: 2, limit: 5, resetsAt: Date.now() + (limited === 'expired' ? -3_600_000 : 3_600_000) } : null },
       };
     };
     fixture.respond = ({ path, url }) => {
@@ -153,6 +153,10 @@ try {
       if (mode === 'unknown') assert.match(await billing.innerText(), /Price not reported/);
       assert.doesNotMatch(await page.locator('.usage-page').innerText(), /0 requests with/);
     }
+    limited = 'expired';
+    await page.getByLabel('Report period').selectOption('30d');
+    await page.waitForFunction(() => document.querySelector('.usage-page') && !document.querySelector('.usage-page').textContent.includes('No daily message limit in Swarm'));
+    assert.equal(await page.locator('.usage-meter').count(), 0, 'an expired allowance never claims the plan is unlimited');
     assert.deepEqual(errors, []);
     await page.context().close();
     console.log(`PASS ${width}px ${theme}: billing sources, copy, sidebar, computer, time-zone parity, chart bounds, CSV focus and overflow`);

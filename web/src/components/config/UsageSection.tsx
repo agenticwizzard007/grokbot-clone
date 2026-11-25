@@ -484,9 +484,8 @@ function AccountUsageReport() {
               </>}
             </>
           )}
-          {scope === 'me' && (limit && limit.resetsAt > Date.now()
-            ? <div className="usage-card"><Meter label="Messages today (UTC)" used={limit.used} limit={limit.limit} figure={`${compact(limit.used)} of ${compact(limit.limit)}`} note={`Resets at midnight UTC (${inHours(limit.resetsAt)}).`} /></div>
-            : <AccessRow icon={Gauge} title="Plan limits" description="No daily message limit in Swarm. Provider limits still apply." />)}
+          {scope === 'me' && limit && limit.resetsAt > Date.now() && <div className="usage-card"><Meter label="Messages today (UTC)" used={limit.used} limit={limit.limit} figure={`${compact(limit.used)} of ${compact(limit.limit)}`} note={`Resets at midnight UTC (${inHours(limit.resetsAt)}).`} /></div>}
+          {scope === 'me' && !limit && <AccessRow icon={Gauge} title="Plan limits" description="No daily message limit in Swarm. Provider limits still apply." />}
         </div>
       )}
 
