@@ -165,7 +165,8 @@ export function rangeBounds(range: UsageRange, at = Date.now(), timezone = 'UTC'
 }
 
 export function usageTimezone(userId: string | null): string {
-  const user = userId ? db.prepare('SELECT timezone FROM users WHERE id=?').get(userId) as { timezone?: string | null } | undefined : null;
+  // Internal callers can use the base account schema before profile fields are installed.
+  const user = userId ? db.prepare('SELECT * FROM users WHERE id=?').get(userId) as { timezone?: string | null } | undefined : null;
   return reportTimezone(user?.timezone);
 }
 
