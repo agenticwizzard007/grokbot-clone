@@ -31,14 +31,14 @@ The gates are p95 input script time below 16ms, next-frame callback below 34ms, 
 
 Final production-build measurements, full unit failure-name comparison, targeted regression results, and deployment verification are recorded in the PR. Passive historical-message and composer renders fell from about 600/s and 7/s respectively to zero. Transcript renders from keystrokes and waiting ticks are zero. Streaming updates render the changing message, with no unchanged card renders. The baseline already memoized markdown parsing; the problem was history row rendering and geometry work, not reparsing every old markdown message.
 
-The final offscreen-history profile passed all four cases:
+The final rebased offscreen-history profile passed all four cases:
 
 | Width | Theme | Input script p95 | Event Timing presentation p95 | Maximum presentation |
 | --- | --- | ---: | ---: | ---: |
-| 1280 | Light | 3.0ms | 32ms | 40ms |
-| 1280 | Dark | 3.2ms | 40ms | 48ms |
-| 390 | Light | 4.4ms | 48ms | 56ms |
-| 390 | Dark | 3.1ms | 48ms | 48ms |
+| 1280 | Light | 1.9ms | 48ms | 56ms |
+| 1280 | Dark | 1.9ms | 32ms | 32ms |
+| 390 | Light | 2.0ms | 32ms | 32ms |
+| 390 | Dark | 2.2ms | 32ms | 32ms |
 
 This meets the requested sub-16ms script budget. Event Timing includes input queueing and presentation, and does not establish a literal sub-16ms physical-display latency on this VM.
 
