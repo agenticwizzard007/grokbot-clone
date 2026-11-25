@@ -1,4 +1,4 @@
-/** Display copy only: connection API values and executable instructions keep their types. */
+/** Connection statuses in customer prose. API values keep their machine-readable types. */
 export const setupConnectionWords: Record<string, string> = {
   ACTIVE: 'connected', CONNECTED: 'connected', EXPIRED: 'needs to be reconnected',
   INACTIVE: 'not connected', DISCONNECTED: 'not connected', REVOKED: 'needs to be reconnected',
@@ -16,6 +16,17 @@ export function customerSetupText(text: string): string {
   return text.replace(stateSentence, (_match, state: string) => setupConnectionWords[state])
     .replace(stateWord, state => setupConnectionWords[state])
     .replace(/\bconnection (?:has )?expired\b/gi, 'needs to be reconnected');
+}
+
+/** Only for newly generated prose. Retain lines copied from the saved instructions verbatim. */
+export function generatedSetupText(text: string, saved = ''): string {
+  if (saved && text.startsWith(saved)) return saved + generatedSetupText(text.slice(saved.length));
+  const savedLines = new Set(saved.split('\n'));
+  const clean = (line: string) => line.replace(stateSentence, (_match, state: string) => {
+    const words = setupConnectionWords[state];
+    return /^(connected|not connected|waiting)/.test(words) ? `is ${words}` : words;
+  }).replace(stateWord, state => setupConnectionWords[state]);
+  return text.split('\n').map(line => savedLines.has(line) ? line : clean(line)).join('\n');
 }
 
 /** A render-only copy of generated brief fields, without changing the saved specification. */

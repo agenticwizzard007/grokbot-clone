@@ -44,6 +44,40 @@ function draft(f: ReturnType<typeof fixture>, botId: string, extra = {}) {
 const jobCount = (botId: string) => (db.prepare('SELECT COUNT(*) n FROM agent_jobs WHERE bot_id=?').get(botId) as any).n;
 const post = (f: ReturnType<typeof fixture>, botId: string, body: unknown) => app.request(`/api/bots/${botId}/setup/activate`, { method: 'POST', headers: f.headers, body: JSON.stringify(body) });
 
+test('generated creation and both setup writers save plain connection prose without rewriting saved instructions', async () => {
+  const f = fixture();
+  f.spec.instructions = 'Slack is ACTIVE. Calendar is EXPIRED.';
+  f.spec.purpose = 'Summarize notes. Slack is ACTIVE.';
+  const bot = await created(f);
+  assert.equal(getBotRow(bot.id).instructions, 'Slack is connected. Calendar needs to be reconnected.');
+  assert.doesNotMatch(getBotRow(bot.id).description, /ACTIVE/);
+  assert.doesNotMatch(setup.setupFiles(bot.id)['AGENTS.md'], /\b(ACTIVE|EXPIRED)\b/);
+  const retry = decode(await createTeammate(f.spec, f.ctx));
+  assert.equal(retry.bot.id, bot.id);
+  const saved = 'User-written example: Slack is ACTIVE.';
+  const patch = await app.request(`/api/bots/${bot.id}`, { method: 'PATCH', headers: f.headers, body: JSON.stringify({ instructions: saved }) });
+  assert.equal(patch.status, 200);
+  assert.equal(getBotRow(bot.id).instructions, saved);
+  setup.prepareCoworkerSetup(f.userId, f.chief.id, draft(f, bot.id, { instructions: saved + '\nCalendar is INITIATED.' }));
+  assert.equal(getBotRow(bot.id).instructions, saved + '\nCalendar is waiting for connection.');
+  const prior = setup.getSetup(bot.id)!;
+  setup.saveSetupDraft(bot.id, f.userId, { ...prior.brief, revision: prior.onboarding.revision, stage: 'review', source_message_seqs: [], instructions: getBotRow(bot.id).instructions + '\nEmail is FAILED.' });
+  assert.equal(getBotRow(bot.id).instructions, saved + '\nCalendar is waiting for connection.\nEmail could not connect.');
+  setup.setupView(bot.id); setup.setupFiles(bot.id);
+  assert.ok(getBotRow(bot.id).instructions.startsWith(saved), 'reads and harness generation never rewrite stored user text');
+});
+
+test('plain connection wording cannot save instructions beyond the General and suggestion input limit', async () => {
+  const f = fixture(), bot = await created(f);
+  const instructions = 'Slack is EXPIRED. '.repeat(400);
+  assert.ok(instructions.length < 8000);
+  const prior = setup.getSetup(bot.id)!;
+  assert.throws(() => setup.prepareCoworkerSetup(f.userId, f.chief.id, draft(f, bot.id, { instructions })), /8000/);
+  assert.deepEqual(setup.getSetup(bot.id), prior, 'rejected generated text rolls back the whole setup revision');
+  assert.equal(getBotRow(bot.id).instructions, f.spec.instructions);
+  await assert.rejects(createTeammate({ ...f.spec, creation_request_id: 'oversized-copy', name: 'Long instructions', instructions }, f.ctx), /8000/);
+});
+
 test('a complete coworker is prepared centrally without a specialist interview or synthetic answer', async () => {
   const f = fixture(), bot = await created(f);
   assert.equal(setup.getSetup(bot.id)!.onboarding.status, 'review');

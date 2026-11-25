@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { setupResourceText, setupFileText } from '../web/src/components/config/setupResources.ts';
-import { customerSetupText, customerSetupValue, setupConnectionWords } from '../server/src/customer-setup-text.ts';
+import { customerSetupText, customerSetupValue, generatedSetupText, setupConnectionWords } from '../server/src/customer-setup-text.ts';
 import { historySummary } from '../web/src/components/config/historyCopy.ts';
 
 test('customer Setup copy translates connection states in older saved sentences', () => {
@@ -43,4 +43,22 @@ test('customer setup rendering maps every brief field without mutating saved tex
   const snapshot = JSON.stringify(source);
   assert.deepEqual(customerSetupValue(source), { purpose: 'Gmail connected', workflows: [{ steps: ['Slack needs to be reconnected'] }], style: '# Status\n\n- Email waiting for connection' });
   assert.equal(JSON.stringify(source), snapshot);
+});
+
+test('new generated instructions use plain connection words for every enum', () => {
+  for (const [state, words] of Object.entries(setupConnectionWords)) {
+    const output = generatedSetupText(`Slack is ${state}.\nConnection: ${state}`);
+    assert.ok(output.includes(words));
+    assert.doesNotMatch(output, new RegExp(`\\b${state}\\b`));
+  }
+  assert.equal(generatedSetupText('Slack is ACTIVE. Slack was EXPIRED.'), 'Slack is connected. Slack needs to be reconnected.');
+  assert.equal(generatedSetupText('Slack account is INITIATED. Slack is FAILED.'), 'Slack is waiting for connection. Slack could not connect.');
+});
+
+test('generated instruction additions preserve saved user text and copied lines', () => {
+  const saved = 'Keep the literal enum ACTIVE.\nSlack is EXPIRED.';
+  assert.equal(generatedSetupText(saved, saved), saved);
+  assert.equal(generatedSetupText(`${saved}\nCalendar is ACTIVE.`, saved), `${saved}\nCalendar is connected.`);
+  assert.equal(generatedSetupText(`${saved} Calendar is ACTIVE.`, saved), `${saved} Calendar is connected.`);
+  assert.equal(generatedSetupText(`Calendar is ACTIVE.\n${saved}`, saved), `Calendar is connected.\n${saved}`);
 });

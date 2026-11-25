@@ -71,12 +71,19 @@ export function SuggestedIntegrations({ botId, description, instructions, placem
     const controller = new AbortController();
     const isCurrent = () => !controller.signal.aborted && useStore.getState().user?.id === userId;
     const cached = cachedSuggestions(userId, cacheKey);
-    if (cached) setResult({ key, apps: cached.suggestions, hasContext: cached.hasContext });
+    if (cached) {
+      setResult({ key, apps: cached.suggestions, hasContext: cached.hasContext });
+      // A completed, current result ends any abandoned loading window for this panel.
+      // Details can fill the shared cache while General is unmounted. Give its fresh
+      // refresh the full request budget instead of rejecting it before it even starts.
+      loadingDeadlines.delete(windowKey);
+    }
     const timeout = () => {
       if (isCurrent()) setResult({ key, apps: cached?.suggestions ?? [], hasContext: cached?.hasContext, error: 'Suggestions unavailable. Please retry.' });
       controller.abort();
     };
-    const remaining = loadingDeadline(windowKey) - Date.now();
+    const expires = loadingDeadline(windowKey);
+    const remaining = expires - Date.now();
     if (remaining <= 0) { timeout(); return; }
     const deadline = setTimeout(timeout, remaining);
     const timer = setTimeout(() => {
@@ -84,12 +91,16 @@ export function SuggestedIntegrations({ botId, description, instructions, placem
       if (cached) setResult({ key, apps: cached.suggestions, hasContext: cached.hasContext, refreshing: true });
       void refreshSuggestions(userId, cacheKey, botId, { description, instructions }).then(response => {
         if (isCurrent()) {
-          loadingDeadlines.delete(windowKey);
           setResult({ key, apps: response.suggestions, hasContext: response.hasContext });
         }
       }).catch(error => {
         if (isCurrent()) setResult({ key, apps: cached?.suggestions ?? [], hasContext: cached?.hasContext, error: (error instanceof ApiError && error.message.trim()) || 'Suggestions unavailable. Please retry.' });
-      }).finally(() => clearTimeout(deadline));
+      }).finally(() => {
+        clearTimeout(deadline);
+        // Settling an abandoned request still completes its loading window, but
+        // must not clear a newer retry's deadline.
+        if (loadingDeadlines.get(windowKey) === expires) loadingDeadlines.delete(windowKey);
+      });
     }, SUGGESTIONS_DEBOUNCE_MS);
     return () => { clearTimeout(timer); clearTimeout(deadline); controller.abort(); };
   }, [key, cacheKey, windowKey, botId, description, instructions, userId]);
@@ -100,9 +111,10 @@ export function SuggestedIntegrations({ botId, description, instructions, placem
     <h2>Suggested integrations</h2>
     {!current ? <p className="suggested-integrations__note" role="status">Finding relevant apps…</p>
       : <>
-      {current.error && <p className="suggested-integrations__note" role="status">{current.error} <button type="button" className="link-btn" onClick={refresh}>Retry</button></p>}
+      {current.error && !current.apps.length && <p className="suggested-integrations__note" role="status">{current.error} <button type="button" className="link-btn" onClick={refresh}>Retry</button></p>}
       {current.apps.length ? <><ul className="suggested-integrations__list">{current.apps.map(app => <SuggestionCard key={`${key}:${app.slug}`} app={app} refresh={refresh} />)}</ul>
-        {(current.refreshing || current.error) && <p className="suggested-integrations__note">{current.refreshing ? 'Updating saved suggestions...' : 'Showing saved suggestions.'}</p>}</>
+        {current.error ? <p className="suggested-integrations__note">Couldn't refresh. <button type="button" className="link-btn" onClick={refresh}>Retry</button></p>
+          : current.refreshing && <p className="suggested-integrations__note">Updating saved suggestions...</p>}</>
       : !current.error && <p className="suggested-integrations__note">{current.hasContext || description.trim() || instructions.trim()
         ? 'No matching additional apps for this Bot right now.'
         : "Describe this Bot's work in Bot settings > General to find relevant integrations."}</p>}

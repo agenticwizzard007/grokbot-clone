@@ -12,6 +12,7 @@ import { appendRow, getBot, getBotRow } from '../store.js';
 import { publishNativeEvent } from '../native/events.js';
 import type { ToolDef, ToolCtx, ToolResult } from './tools.js';
 import { redactInternalIds } from '../lib/redact.js';
+import { generatedSetupText } from '../customer-setup-text.js';
 
 const primary = (ctx: ToolCtx) => assertSetupCoordinator(ctx.userId, ctx.botId);
 
@@ -80,6 +81,7 @@ export async function createTeammate(raw: unknown, ctx: ToolCtx): Promise<ToolRe
   a.source_message_seqs = [...new Set(a.source_message_seqs)].sort((left, right) => left - right);
   // Briefs are redacted by their schema; standing instructions never keep internal ids either (R2F-002).
   a.instructions = redactInternalIds(a.instructions);
+  const instructions = generatedSetupText(a.instructions);
   const brief = briefSchema.parse(a);
   const fingerprint = createHash('sha256').update(JSON.stringify(a)).digest('hex');
   const result = db.transaction(() => {
@@ -104,9 +106,10 @@ export async function createTeammate(raw: unknown, ctx: ToolCtx): Promise<ToolRe
     const alreadyCreated = !!bot;
     if (bot) {
       const existing = getSetup(bot.id);
-      if (!existing || existing.source.creatorBotId !== actor.id || JSON.stringify(existing.brief) !== JSON.stringify(brief) || bot.instructions !== a.instructions) throw new Error(`A Bot named "${a.name}" already exists. Hand work to it or use a different name; no changes were made.`);
+      if (!existing || existing.source.creatorBotId !== actor.id || JSON.stringify(existing.brief) !== JSON.stringify(brief) || ![a.instructions, instructions].includes(bot.instructions)) throw new Error(`A Bot named "${a.name}" already exists. Hand work to it or use a different name; no changes were made.`);
     } else {
-      bot = createBot(ctx.userId, { name: a.name, label: a.label, description: a.purpose, instructions: a.instructions, brief, source,
+      z.string().max(8000).parse(instructions);
+      bot = createBot(ctx.userId, { name: a.name, label: a.label, description: a.purpose, instructions, brief, source,
         avatarShape: a.avatar_shape, avatarColor: a.avatar_color, mode: a.mode ?? actor.mode, effort: a.effort ?? actor.effort, model: actor.model });
       const stage = setupMissing(brief).length ? 'interviewing' : 'review';
       db.prepare('UPDATE bot_setups SET onboarding_status=?,pending_handoff=? WHERE bot_id=?').run(stage, a.handoff_message?.trim() || null, bot.id);
