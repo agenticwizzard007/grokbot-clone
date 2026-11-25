@@ -130,7 +130,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     assert.equal(await emptyNote.innerText(), "Describe this Bot's work in Bot settings > General to find relevant integrations.");
     assert.ok(await emptyNote.evaluate(element => element.scrollWidth <= element.clientWidth), `empty note fits ${width}px`);
     await page.screenshot({ path: `.context/suggestions/empty-${width}-${theme}.png` });
+    const restoredDraft = page.waitForResponse(response => response.url().endsWith('/suggested-apps') && response.request().postDataJSON()?.description === 'track GitHub PRs and post to Slack');
     await page.getByLabel('About', { exact: true }).fill('track GitHub PRs and post to Slack');
+    await restoredDraft;
+    await page.getByText('Updating saved suggestions...', { exact: true }).waitFor({ state: 'hidden' });
     await page.getByRole('button', { name: 'Connect GitHub', exact: true }).waitFor();
     if (width === 900 && theme === 'light') {
       await page.getByRole('button', { name: 'Skip setup', exact: true }).click();
@@ -212,17 +215,19 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     if ([390, 1280].includes(width)) {
       // Draft changes and remounts before debounce used to renew the window forever.
       await page.clock.install();
-      const before = requests.length;
+      await page.clock.pauseAt(new Date());
+      const duringChurn = () => requests.filter(request => request.description.startsWith('continuous edit'));
       for (let i = 0; i < 18; i++) {
         await page.evaluate(i => {
           window.setSuggestionDraft(`continuous edit ${i}`);
           window.remountSuggestions();
           window.refreshConnections();
         }, i);
+        await page.waitForFunction(i => document.querySelector('#about').value === `continuous edit ${i}`, i);
         await page.clock.runFor(300);
       }
       await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
-      assert.equal(requests.length, before, 'deadline works even when debounce never starts a request');
+      assert.deepEqual(duringChurn(), [], 'deadline works even when debounce never starts a request');
       assert.equal(await page.getByText('Finding relevant apps…', { exact: true }).count(), 0);
       await page.evaluate(() => { window.remountSuggestions(); window.switchAccount(); });
       await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();

@@ -47,6 +47,7 @@ try {
         return send({ user });
       }
       if (request.method() !== 'GET') return send({ ok: true });
+      if (path === '/api/auth/sessions') return send({ sessions: [] });
       if (path === '/api/bots') return send({ bots, live: [] });
       if (path.endsWith('/rows')) return send({ generation: 1, rows });
       if (path.endsWith('/routines')) return send({ routines: [] });
