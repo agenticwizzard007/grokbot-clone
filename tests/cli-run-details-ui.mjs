@@ -41,13 +41,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     const details = page.locator('.subscription-settings__context');
     await details.locator('summary').click();
     await details.getByText('Reply without tools', { exact: true }).waitFor();
-    assert.match(await details.innerText(), /Last tool run[\s\S]*Request with tools[\s\S]*SWARM_APPS_EXECUTE[\s\S]*Pending approval/);
+    assert.match(await details.innerText(), /Last tool run[\s\S]*Request with tools[\s\S]*SWARM_APPS_EXECUTE[\s\S]*Approval requested/);
     assert.doesNotMatch(await details.innerText(), /timeout/);
     await details.scrollIntoViewIfNeeded();
     await page.screenshot({ path: `.context/r6-z-ui/${width}-${theme}-codex-runs.png` });
     await page.getByRole('tab', { name: 'Claude Code', exact: true }).click();
     if (!await details.evaluate(el => el.open)) await details.locator('summary').click();
-    assert.doesNotMatch(await details.innerText(), /SWARM_APPS_EXECUTE|Reply without tools|Pending approval/);
+    assert.doesNotMatch(await details.innerText(), /SWARM_APPS_EXECUTE|Reply without tools|Approval requested/);
     assert.match(await details.innerText(), /Error code[\s\S]*timeout/);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     assert.deepEqual(errors, []); assert.deepEqual(writes, []);
