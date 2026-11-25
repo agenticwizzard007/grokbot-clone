@@ -1,12 +1,6 @@
-import { useConfigUI } from '../../configStore';
-import { AppSettings } from './AppSettings';
+import { AppSettingsContent } from './AppSettings';
 
-/** Overlays owned by the settings feature: the app settings page; bot configuration is mounted in the main pane. */
+/** Page contents load behind the persistent Settings navigation frame. */
 export function ConfigLayer() {
-  const appSettings = useConfigUI((s) => !!s.appSettings);
-  return (
-    <>
-      {appSettings && <AppSettings />}
-    </>
-  );
+  return <AppSettingsContent />;
 }

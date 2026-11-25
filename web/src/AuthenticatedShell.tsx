@@ -7,6 +7,7 @@ import { ChatSkeleton } from './components/ChatSkeleton';
 import { Sidebar } from './components/Sidebar';
 import { SignedInAuthFeedback } from './components/SignedInAuthFeedback';
 import { useConfigUI } from './configStore';
+import { AppSettings } from './components/config/SettingsFrame';
 import { installVoiceShortcut } from './voice/shortcut';
 import { hasOpenModal } from './components/modals/Modal';
 import { ToastPortal } from './lib/toast';
@@ -34,7 +35,6 @@ const CreateBotModal = lazy(() => import('./components/modals/CreateBotModal').t
 const CreateGroupModal = lazy(() => import('./components/modals/CreateGroupModal').then(m => ({ default: m.CreateGroupModal })));
 const SearchModal = lazy(() => import('./components/modals/SearchModal').then(m => ({ default: m.SearchModal })));
 const BotSettingsModal = lazy(() => import('./components/config/BotSettingsModal').then(m => ({ default: m.BotSettingsModal })));
-const ConfigLayer = lazy(() => import('./components/config/ConfigLayer').then(m => ({ default: m.ConfigLayer })));
 
 function Shell() {
   useEffect(installVoiceShortcut, []);
@@ -129,11 +129,7 @@ function Shell() {
       {modal === 'apps' && <ConnectAppsModal />}
       {viewerOpen && <ComputerViewer />}
       </Suspense>
-      {settingsOpen && <Suspense fallback={<section className="settings-loading" aria-label="Settings">
-        <h1>Settings</h1>
-        <p role="status">Loading settings…</p>
-        <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().closeAppSettings()}>Close settings</button>
-      </section>}><ConfigLayer /></Suspense>}
+      {settingsOpen && <AppSettings />}
     </div>
   );
 }

@@ -96,12 +96,18 @@
 .app .chat__bot-details[aria-expanded='true'] { background: var(--color-bg-active); }
 
 /* Keep Settings visible and dismissible while its lazy bundle loads. */
-.settings-loading { position: fixed; inset: 0 0 0 var(--app-settings-rail-width, 272px); z-index: 90; padding: 40px 32px; background: var(--color-bg-pane); }
-.settings-loading h1 { margin: 0 0 16px; font-size: var(--text-page-title); }
-.settings-loading p { margin-bottom: 20px; color: var(--color-text-secondary); }
-@media (max-width: 760px) { .settings-loading { left: 0; padding: 32px 16px; } }
 
 /* Keep compact details flexible even when its lazy CSS loaded before the shell. */
 @media (max-width: 1100px) {
   .app .bot-details-pane { flex: 1 1 0; width: 100%; max-width: 100%; border: 0; }
+}
+
+/* Decide sidebar geometry from the route before a lazy page or portal mounts. */
+#app-settings-sidebar-slot:empty { display: none; }
+@media (min-width: 761px) {
+  .is-app-settings #app-settings-sidebar-slot { display: block; min-height: 48px; flex: 1 1 auto; overflow: auto; scrollbar-width: thin; }
+  .is-app-settings .sidebar:not(.is-collapsed) .sidebar__scroll { flex: 0 0 auto; overflow: visible; }
+  .is-app-settings .sidebar:not(.is-collapsed) .sidebar__scroll > :not(.sidebar-island) { display: none; }
+  .is-app-settings .sidebar.is-collapsed #sidebar-back-slot { display: flex; min-height: 44px; margin-bottom: 8px; }
+  .is-app-settings .sidebar.is-collapsed #app-settings-sidebar-slot { flex: 0 0 auto; }
 }
