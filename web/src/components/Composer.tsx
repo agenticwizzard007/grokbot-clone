@@ -68,6 +68,7 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   const [menu, setMenu] = useState(false);
   const [multiline, setMultiline] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const measureRef = useRef<{ compact: HTMLTextAreaElement; expanded: HTMLTextAreaElement; geometry?: { line: number; base: number; toolbar: number; max: number } } | null>(null);
   const prefillPointerFocus = useRef(false);
   const moreRef = useRef<HTMLButtonElement>(null);
   const dictationCancelRef = useRef<HTMLButtonElement>(null);
@@ -102,53 +103,82 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   };
   useLayoutEffect(placePrefillCaret, [draftKey, text]);
 
+  // Keep the measuring field mounted and isolated. Adding/removing it on each
+  // key invalidates document styles, including a long conversation's markdown.
+  useLayoutEffect(() => {
+    const host = document.createElement('div');
+    host.setAttribute('aria-hidden', 'true');
+    Object.assign(host.style, { position: 'fixed', top: '0', left: '0', width: '0', height: '0', overflow: 'hidden', visibility: 'hidden', contain: 'strict', pointerEvents: 'none' });
+    const compact = document.createElement('textarea');
+    compact.tabIndex = -1;
+    Object.assign(compact.style, { height: '0px', minHeight: '0px', maxHeight: 'none', padding: '0px', border: '0px' });
+    const expanded = compact.cloneNode() as HTMLTextAreaElement;
+    host.append(compact, expanded);
+    document.body.append(host);
+    measureRef.current = { compact, expanded };
+    return () => { measureRef.current = null; host.remove(); };
+  }, []);
+
   // Auto-grow.
-  const grow = useCallback(() => {
+  const grow = useCallback((refreshGeometry = false) => {
     const el = ref.current;
-    if (!el) return;
+    const measure = measureRef.current;
+    if (!el || !measure) return;
     // Hidden (display: none) measures 0; leave the natural one-line height until it's shown.
     if (!el.offsetParent) { el.style.height = ''; return; }
     const composer = el.closest<HTMLElement>('.composer');
     if (!composer) return;
-    const px = (value: string) => parseFloat(value) || 0;
-    const style = getComputedStyle(composer);
-    const fieldStyle = getComputedStyle(el);
-    const line = px(fieldStyle.lineHeight);
-    const gap = px(style.columnGap);
-    const innerWidth = composer.clientWidth - px(style.paddingLeft) - px(style.paddingRight);
-    const chip = composer.querySelector<HTMLElement>('.model-pill-anchor');
-    const chipWidth = Math.min(chip?.scrollWidth ?? 0, px(style.getPropertyValue('--composer-chip-max')));
-    const controls = composer.querySelector<HTMLElement>('.composer__right')?.getBoundingClientRect().height ?? 44;
-    // Measure in an isolated field so the live grid's current row height cannot
-    // become the minimum height of the next draft. This also handles shrinking.
-    const measure = document.createElement('textarea');
-    measure.tabIndex = -1;
-    measure.setAttribute('aria-hidden', 'true');
-    Object.assign(measure.style, {
-      position: 'fixed', visibility: 'hidden', pointerEvents: 'none',
-      height: '0px', minHeight: '0px', maxHeight: 'none', padding: '0px', border: '0px',
-      font: fieldStyle.font, letterSpacing: fieldStyle.letterSpacing,
-      width: `${Math.max(32, innerWidth - 88 - chipWidth - gap * 3)}px`,
-    });
-    measure.value = el.value;
-    document.body.append(measure);
-    const expanded = el.value.length > 0 && (el.value.includes('\n') || measure.scrollHeight > line + 1);
-    measure.style.width = `${Math.max(32, innerWidth - 16)}px`;
-    const desired = expanded ? measure.scrollHeight + 16 : line;
-    measure.remove();
-    composer.classList.toggle('is-multiline', expanded);
-    setMultiline(expanded);
-    const chrome = px(style.paddingTop) + px(style.paddingBottom) + px(style.borderTopWidth) + px(style.borderBottomWidth)
-      + (expanded ? controls + px(style.rowGap) : 0);
-    const max = Math.max(line, Math.min(MAX_H, px(style.maxHeight) - chrome));
+    // Geometry and fonts change on resize, pane/catalog changes or font load,
+    // not on each keystroke. Keep their style writes out of the typing path.
+    if (refreshGeometry || !measure.geometry) {
+      const px = (value: string) => parseFloat(value) || 0;
+      const style = getComputedStyle(composer);
+      const fieldStyle = getComputedStyle(el);
+      const innerWidth = composer.clientWidth - px(style.paddingLeft) - px(style.paddingRight);
+      const chip = composer.querySelector<HTMLElement>('.model-pill-anchor');
+      const chipWidth = Math.min(chip?.scrollWidth ?? 0, px(style.getPropertyValue('--composer-chip-max')));
+      const controls = composer.querySelector<HTMLElement>('.composer__right')?.getBoundingClientRect().height ?? 44;
+      for (const [field, width] of [[measure.compact, innerWidth - 88 - chipWidth - px(style.columnGap) * 3], [measure.expanded, innerWidth - 16]] as const) {
+        Object.assign(field.style, { font: fieldStyle.font, letterSpacing: fieldStyle.letterSpacing, width: `${Math.max(32, width)}px` });
+      }
+      measure.geometry = { line: px(fieldStyle.lineHeight), max: px(style.maxHeight),
+        base: px(style.paddingTop) + px(style.paddingBottom) + px(style.borderTopWidth) + px(style.borderBottomWidth),
+        toolbar: controls + px(style.rowGap) };
+    }
+    const { line, base, toolbar, max: maxHeight } = measure.geometry;
+    // Both writes precede reads, so there is one isolated text layout per frame.
+    measure.compact.value = measure.expanded.value = el.value;
+    const expanded = el.value.length > 0 && (el.value.includes('\n') || measure.compact.scrollHeight > line + 1);
+    const desired = expanded ? measure.expanded.scrollHeight + 16 : line;
+    if (composer.classList.contains('is-multiline') !== expanded) {
+      composer.classList.toggle('is-multiline', expanded);
+      setMultiline(expanded);
+    }
+    const max = Math.max(line, Math.min(MAX_H, maxHeight - base - (expanded ? toolbar : 0)));
     el.style.height = `${Math.min(desired, max)}px`;
     el.style.overflowY = desired > max ? 'auto' : 'hidden';
   }, []);
-  useLayoutEffect(grow, [text, onScreen, mobile, grow]);
+  useLayoutEffect(() => grow(true), [onScreen, mobile, grow]);
+  // Commit the controlled value immediately. Coalesce sizing into one frame
+  // instead of forcing layout inside every discrete keyboard event.
+  useLayoutEffect(() => {
+    const frame = requestAnimationFrame(() => grow());
+    return () => cancelAnimationFrame(frame);
+  }, [text, grow]);
   // Settings hide the chat pane without unmounting it; measure again when the window or the pane changes.
   const settingsOpen = useConfigUI(s => !!s.appSettings);
-  useLayoutEffect(grow, [settingsOpen, grow]);
-  useEffect(() => { window.addEventListener('resize', grow); return () => window.removeEventListener('resize', grow); }, [grow]);
+  useLayoutEffect(() => grow(true), [settingsOpen, grow]);
+  useEffect(() => {
+    const resize = () => grow(true);
+    window.addEventListener('resize', resize);
+    window.visualViewport?.addEventListener('resize', resize);
+    document.fonts.addEventListener('loadingdone', resize);
+    return () => {
+      window.removeEventListener('resize', resize);
+      window.visualViewport?.removeEventListener('resize', resize);
+      document.fonts.removeEventListener('loadingdone', resize);
+    };
+  }, [grow]);
   useEffect(() => {
     const composer = ref.current?.closest('.composer');
     if (!composer) return;
@@ -159,11 +189,13 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
         if (widths.get(entry.target) !== entry.contentRect.width) changed = true;
         widths.set(entry.target, entry.contentRect.width);
       }
-      if (changed) grow();
+      if (changed) grow(true);
     });
     observer.observe(composer);
     // Catalog loads can change the chip width without resizing the outer composer.
     if (ref.current) observer.observe(ref.current);
+    const chip = composer.querySelector('.model-pill-anchor');
+    if (chip) observer.observe(chip);
     return () => observer.disconnect();
   }, [grow]);
 

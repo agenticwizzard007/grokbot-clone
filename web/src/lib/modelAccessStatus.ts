@@ -37,6 +37,6 @@ export function modelAccessStatus(status: CliStatus | null, provider: CliProvide
   } else {
     currentRoute = `Your Bots currently use API providers; ${connected ? `choose Use ${info.name}` : `connect your ${info.name}`} to switch.`;
   }
-  const hasSavedState = !!health?.authenticated || !!health?.hasSavedState || status?.selected === provider;
+  const hasSavedState = !!health?.authenticated || !!health?.hasSavedState;
   return { connection, connected, currentlyInUse, details, currentRoute, action, hasSavedState, probeFailed };
 }

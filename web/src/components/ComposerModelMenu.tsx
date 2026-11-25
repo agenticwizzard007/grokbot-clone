@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, GripVertical, Minus, Search, Settings2, Star } from 'lucide-react';
 import type { Bot } from '@shared/types';
 import { configApi } from '../lib/configApi';
@@ -53,7 +53,7 @@ export function cycleEffort(bot: Bot, m: PickerModel | undefined) {
 
 export const toggleFast = (bot: Bot) => void patchBot(bot, { fast: !bot.fast });
 
-export function ComposerModelMenu({ bot }: { bot: Bot }) {
+export const ComposerModelMenu = memo(function ComposerModelMenu({ bot }: { bot: Bot }) {
   const [open, setOpen] = useState(false);
   const models = useModels();
   const mobile = useStore((s) => s.mobile);
@@ -71,8 +71,10 @@ export function ComposerModelMenu({ bot }: { bot: Bot }) {
   const selection = modelSelection(bot, models);
   const current = known ? selection.current : undefined;
   const effort = known ? selection.effort : null;
-  const label = models.status === 'loading' || models.status === 'idle' ? lastModelLabel(accountId, bot) : models.status === 'error' || models.error ? 'Models unavailable' : !known ? 'Provider default' : current ? fallbackShort(current.id, current.short) : (planMode ? 'CLI default' : bot.model ? fallbackShort(bot.model) : 'Default model');
-  useEffect(() => { if (known) rememberModelLabel(accountId, bot, label); }, [accountId, bot.id, bot.model, known, label]);
+  const loading = models.status === 'loading' || models.status === 'idle';
+  const label = loading ? lastModelLabel(accountId, bot) : models.status === 'error' || models.error ? 'Models unavailable' : !known ? 'Provider default' : current ? fallbackShort(current.id, current.short) : (planMode ? 'CLI default' : bot.model ? fallbackShort(bot.model) : 'Default model');
+  const rememberedLabel = composerModelLabel(label, models.provider, planMode);
+  useEffect(() => { if (known) rememberModelLabel(accountId, bot, rememberedLabel); }, [accountId, bot.id, bot.model, known, rememberedLabel]);
   const planLabel = models.provider === 'codex-cli' ? 'ChatGPT plan' : 'Claude plan';
   const billingDescription = planMode ? `Uses your ${planLabel}` : 'Uses API billing';
   const compactLabel = planMode ? (models.provider === 'codex-cli' ? 'Codex' : 'Claude') : label;
@@ -82,7 +84,7 @@ export function ComposerModelMenu({ bot }: { bot: Bot }) {
 
   return (
     <span className="model-pill-anchor">
-      <button ref={trigger} type="button" className={`model-pill${ultra ? ' is-ultracode' : ''}`} onClick={() => { if (!open) void models.load(true); setOpen(!open); }} aria-haspopup="dialog" aria-expanded={open}
+      <button ref={trigger} type="button" className={`model-pill${ultra ? ' is-ultracode' : ''}`} onClick={() => { if (!open && !loading) void models.load(true); setOpen(!open); }} aria-haspopup="dialog" aria-expanded={open} aria-busy={loading}
         title={`${label}${known ? `. ${billingDescription}` : ''}`}
         aria-label={`Model: ${label}${known ? `, ${billingDescription}` : ''}${efforts.length ? `, ${effort ? effortLabel(effort, current) : 'Default'} effort` : ''}${bot.fast && models.canFast ? ', fast' : ''}. Change`}>
         {current ? <ProviderIcon author={current.author} /> : known && !planMode && bot.model ? <ProviderIcon author={bot.model.split('/')[0]} /> : null}
@@ -95,7 +97,7 @@ export function ComposerModelMenu({ bot }: { bot: Bot }) {
       {open && <ModelMenu bot={bot} current={current} onClose={close} sheet={mobile} />}
     </span>
   );
-}
+});
 
 function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: PickerModel | undefined; onClose: () => void; sheet: boolean }) {
   const { models, byId, favourites, canFast, status, error, setFavourites, provider, billing, plan } = useModels();
@@ -113,6 +115,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
   const usageTrigger = useRef<HTMLButtonElement>(null);
   const connectionsTrigger = useRef<HTMLButtonElement>(null);
   const known = status === 'ready' && !error && !!provider && !!billing;
+  const loading = status === 'idle' || status === 'loading';
   const usageLabel = known ? billing === 'plan' ? 'Plan & usage' : 'API details' : 'Connection details';
   const back = () => {
     const fromUsage = view === 'usage';
@@ -278,7 +281,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
               <button type="button" className="link-btn" onClick={() => { onClose(); useConfigUI.getState().openAppSettings('subscriptions'); }}>Models &amp; access</button>
               {provider === 'codex-cli' && <> · <a href="https://chatgpt.com/codex/settings/usage" target="_blank" rel="noreferrer noopener">View ChatGPT plan usage</a></>}
             </div>}
-            {q.trim() ? (
+            {loading ? <div className="mm-empty" role="status">Loading models...</div> : error || status === 'error' ? <div className="mm-empty" role="status">Models unavailable. <button type="button" className="link-btn" onClick={() => void useModels.getState().load(true)}>Retry</button></div> : q.trim() ? (
               <ul className="mm-list">
                 {results.length === 0 && <li className="mm-empty">No models match “{q.trim()}”.</li>}
                 {results.map((m) => (
@@ -300,8 +303,6 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
               </ul>
             ) : (
               <ul className="mm-list" aria-label="Favourite models">
-                {status === 'loading' && !favs.length && <li className="mm-empty">Loading models…</li>}
-                {status !== 'loading' && error && !favs.length && <li className="mm-empty">Couldn’t load models: {error}</li>}
                 {favs.map((m, i) => modelRow(m, i))}
                 {current && !favourites.includes(current.id) && modelRow(current, null)}
                 {!favs.length && status === 'ready' && !error && <li className="mm-empty">Search to add favourites.</li>}

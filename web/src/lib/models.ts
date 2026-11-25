@@ -55,7 +55,7 @@ export const useModels = create<ModelsState>((set, get) => ({
   async load(force) {
     if (!force && (get().status === 'loading' || get().status === 'ready')) return;
     const version = ++loadVersion;
-    set({ status: 'loading', ...(force ? { provider: null, billing: null, canFast: false, models: [], byId: new Map(), usage: null, plan: null, defaultModel: null } : {}) });
+    set({ status: 'loading', error: null, ...(force ? { provider: null, billing: null, canFast: false, models: [], byId: new Map(), usage: null, plan: null, defaultModel: null } : {}) });
     try {
       const r = await readDeadline(signal => req<{ provider: ModelProvider; billing: 'api' | 'plan'; defaultModel?: string | null; plan?: string | null; usage?: PlanUsage; canFast: boolean; models: PickerModel[]; favourites: string[]; error?: string }>('GET', '/models', undefined, signal), 5000);
       if (version !== loadVersion) return;
