@@ -52,12 +52,15 @@ window.refreshConnections = () => useStore.setState(state => ({ connectionsVersi
 window.switchAccount = () => useStore.setState({ user: { id: 'another-account', name: 'Another account' } });
 function Harness() {
   const [description, setDescription] = React.useState('track GitHub PRs and post to Slack');
+  const [mount, setMount] = React.useState(0);
+  window.remountSuggestions = () => setMount(value => value + 1);
+  window.setSuggestionDraft = setDescription;
   const bot = useStore(state => state.bots[0]);
   return React.createElement('main', { style: { margin: '24px auto', padding: '16px', maxWidth: '640px' } },
     bot && React.createElement(SetupBanner, { bot }),
     React.createElement('label', { htmlFor: 'about' }, 'About'),
     React.createElement('textarea', { id: 'about', className: 'text-input', value: description, onChange: event => setDescription(event.target.value) }),
-    React.createElement(SuggestedIntegrations, { botId: 'review-bot', description, instructions: '' }));
+    React.createElement(SuggestedIntegrations, { key: mount, botId: 'review-bot', description, instructions: '' }));
 }
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(Harness));` });
       if (url.pathname.startsWith('/api/toolkits/icon/')) {
@@ -102,14 +105,14 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     await page.waitForTimeout(500);
     holdCached = true;
     await page.getByLabel('About', { exact: true }).fill('track GitHub PRs and post to Slack');
-    await page.getByText('Previously loaded suggestions · Refreshing…', { exact: true }).waitFor();
+    await page.getByText('Updating saved suggestions...', { exact: true }).waitFor();
     assert.equal(await cards.count(), 2);
     assert.equal(await page.getByText('Finding relevant apps…', { exact: true }).count(), 0);
     for (let i = 0; !held && i < 40; i++) await page.waitForTimeout(25);
     assert.ok(held);
     await held.fulfill({ json: { suggestions: [github, slack] } });
     holdCached = false; held = undefined;
-    await page.getByText('Previously loaded suggestions · Refreshing…', { exact: true }).waitFor({ state: 'hidden' });
+    await page.getByText('Updating saved suggestions...', { exact: true }).waitFor({ state: 'hidden' });
     const geometry = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
     assert.ok(geometry.scroll <= geometry.width, JSON.stringify(geometry));
     await page.screenshot({ path: `.context/suggestions/chips-${width}-${theme}.png` });
@@ -127,7 +130,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     assert.equal(await emptyNote.innerText(), "Describe this Bot's work in Bot settings > General to find relevant integrations.");
     assert.ok(await emptyNote.evaluate(element => element.scrollWidth <= element.clientWidth), `empty note fits ${width}px`);
     await page.screenshot({ path: `.context/suggestions/empty-${width}-${theme}.png` });
+    const restoredDraft = page.waitForResponse(response => response.url().endsWith('/suggested-apps') && response.request().postDataJSON()?.description === 'track GitHub PRs and post to Slack');
     await page.getByLabel('About', { exact: true }).fill('track GitHub PRs and post to Slack');
+    await restoredDraft;
+    await page.getByText('Updating saved suggestions...', { exact: true }).waitFor({ state: 'hidden' });
     await page.getByRole('button', { name: 'Connect GitHub', exact: true }).waitFor();
     if (width === 900 && theme === 'light') {
       await page.getByRole('button', { name: 'Skip setup', exact: true }).click();
@@ -205,6 +211,33 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       await page.evaluate(() => window.switchAccount());
       await held.fulfill({ json: { suggestions: [github] } }).catch(() => {});
       assert.equal(await cards.count(), 0, 'account switch immediately clears prior suggestions');
+    }
+    if ([390, 1280].includes(width)) {
+      // Draft changes and remounts before debounce used to renew the window forever.
+      await page.clock.install();
+      await page.clock.pauseAt(new Date());
+      const duringChurn = () => requests.filter(request => request.description.startsWith('continuous edit'));
+      for (let i = 0; i < 17; i++) {
+        await page.evaluate(i => {
+          window.setSuggestionDraft(`continuous edit ${i}`);
+          window.remountSuggestions();
+          window.refreshConnections();
+        }, i);
+        await page.waitForFunction(i => document.querySelector('#about').value === `continuous edit ${i}`, i);
+        await page.clock.runFor(300);
+      }
+      await page.clock.runFor(300); // The final debounce would fire after the deadline without the abort guard.
+      await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
+      assert.deepEqual(duringChurn(), [], 'deadline works even when debounce never starts a request');
+      assert.equal(await page.getByText('Finding relevant apps…', { exact: true }).count(), 0);
+      await page.evaluate(() => { window.remountSuggestions(); window.switchAccount(); });
+      await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
+      assert.equal(await page.getByText('Finding relevant apps…', { exact: true }).count(), 0, 'account switch/remount cannot renew an exhausted loading window');
+      await page.getByRole('button', { name: 'Retry', exact: true }).click();
+      await page.clock.runFor(500);
+      await page.getByRole('button', { name: 'Connect Slack', exact: true }).waitFor();
+      assert.equal(await page.getByText('Updating saved suggestions...', { exact: true }).count(), 0);
+      await page.clock.resume();
     }
     assert.deepEqual(errors, []);
     await page.close();

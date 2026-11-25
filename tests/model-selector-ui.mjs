@@ -63,7 +63,9 @@ createRoot(document.getElementById('root')).render(React.createElement(Harness))
   assert.equal(await page.locator('.usage-mode__trigger').count(),0);
   for(const provider of ['codex','claude']) {
    source=provider;await page.evaluate(()=>window.refreshModels());
-   await page.locator('.model-pill .model-billing').getByText('Plan',{exact:true}).waitFor();
+   await pill.and(page.getByRole('button',{name: new RegExp(`Uses your ${provider === 'codex' ? 'ChatGPT' : 'Claude'} plan`)})).waitFor();
+   if (width > 760) await page.locator('.model-pill .model-billing').getByText(provider === 'codex' ? 'ChatGPT plan' : 'Claude plan',{exact:true}).waitFor();
+   else assert.equal(await page.locator('.model-pill__name').innerText(), provider === 'codex' ? 'Codex' : 'Claude');
    await page.locator('.model-pill').click();
    await page.getByRole('dialog',{name:'Choose a model'}).waitFor();
    await page.locator('.mm-row__name').getByText('Account model',{exact:false}).waitFor();
@@ -77,7 +79,7 @@ createRoot(document.getElementById('root')).render(React.createElement(Harness))
    await planDetails.and(page.locator(':focus')).waitFor();
    assert.equal(await page.getByText('API model',{exact:true}).count(),0);
    await page.locator('.mm-row__main').click();
-   await page.waitForFunction(id=>document.querySelector('.model-pill__name')?.textContent==='Account model',`${provider}/account-special`);
+   await page.waitForFunction(id=>document.querySelector('.model-pill')?.getAttribute('title')?.startsWith('Account model.'),`${provider}/account-special`);
    assert.equal(bot.model,`${provider}/account-special`);assert.equal(bot.effort,'high');assert.equal(bot.fast,false);
    await page.locator('.model-pill').click();
    await page.getByRole('button',{name:'Effort',exact:true}).click();

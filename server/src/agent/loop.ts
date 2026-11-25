@@ -1140,6 +1140,7 @@ export function resolveApproval(userId: string, approvalId: string, decision: 'a
   const ap = db.prepare('SELECT a.*, b.user_id FROM approvals a JOIN bots b ON b.id=a.bot_id WHERE a.id=?').get(approvalId) as any;
   if (!ap || ap.user_id !== userId) throw new Error('not found');
   if (ap.status !== 'pending') return;
+  if (ap.tool === 'update_profile:timezone' && decision === 'always') decision = 'allow';
   const status = decision === 'deny' ? 'denied' : decision === 'always' ? 'always' : 'allowed';
   db.prepare('UPDATE approvals SET status=?, resolved_at=? WHERE id=?').run(status, now(), approvalId);
   if (decision === 'always') db.prepare("INSERT OR REPLACE INTO policies(user_id,tool,mode) VALUES (?,?,'always_allow')").run(userId, ap.tool);

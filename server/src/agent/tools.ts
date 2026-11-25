@@ -14,7 +14,7 @@ import { APPS_OFF, connectionsDetail, executeComposio, innerToolSlugs, isReadOnl
 import { env } from '../env.js';
 import { scheduleRoutine, unscheduleRoutine } from '../routines.js';
 import { createEventRoutine, deleteEventTrigger, describeEvent, listTriggerTypes } from '../triggers.js';
-import { accountTimezone, getCheckins, setCheckins } from '../proactive.js';
+import { accountTimezone, adoptAccountTimezone, getCheckins, setCheckins } from '../proactive.js';
 import { updateProfile } from '../accounts.js';
 import { createSubagent, deleteSubagent, listSubagents, subagentTree } from './subagents.js';
 import { selectedCli } from '../cli/store.js';
@@ -520,7 +520,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'update_profile',
-    description: "Save the user's name and/or IANA time zone (e.g. \"America/New_York\") to their account, and mark onboarding complete when the first-chat setup is done. Primary Bot only.",
+    description: "Save the user's name and/or IANA time zone (e.g. \"America/New_York\") to their account, and mark onboarding complete when the first-chat setup is done. Primary Bot only. Only change the account time zone when the user explicitly asks in this chat. Each time zone change requires confirmation.",
     parameters: obj({ name: { type: 'string' }, timezone: { type: 'string' }, onboarding_complete: { type: 'boolean' } }),
     activity: 'remembering',
     label: 'Updating your profile',
@@ -528,11 +528,14 @@ export const TOOLS: ToolDef[] = [
       const tz = typeof a.timezone === 'string' && a.timezone.trim() ? a.timezone.trim() : undefined;
       if (tz) {
         try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); } catch { return { output: `"${tz}" is not a valid IANA time zone. Use a name like "Europe/London".` }; }
-        const cur = getCheckins(ctx.userId);
-        setCheckins(ctx.userId, { ...cur, timezone: tz });
       }
       updateProfile(ctx.userId, { name: typeof a.name === 'string' ? a.name : undefined, timezone: tz, onboarded: a.onboarding_complete === true });
-      return { output: 'Saved.', summary: a.onboarding_complete ? 'Onboarding done' : 'Profile updated' };
+      if (tz) {
+        adoptAccountTimezone(ctx.userId, tz);
+        appendRow(ctx.botId, 'notice', { type: 'notice', text: `Account time zone changed to ${tz}. You can change it in Settings > Account.` });
+        hub.emit(ctx.userId, { type: 'synopses', timezone: tz });
+      }
+      return { output: 'Saved.', summary: tz ? `Account time zone set to ${tz}` : a.onboarding_complete ? 'Onboarding done' : 'Profile updated' };
     },
   },
   {
@@ -720,6 +723,10 @@ export function computerFamily(toolName: string): ComputerPolicyKey | null {
 export type Decision = 'allow' | 'ask' | 'block';
 
 export function policyFor(userId: string, toolName: string, args: any, botId?: string): { decision: Decision; key: string; toolkit?: string; title: string } {
+  if (toolName === 'update_profile' && typeof args?.timezone === 'string' && args.timezone.trim()) {
+    // Never let an old Always allow policy authorize future account-wide changes.
+    return { decision: 'ask', key: 'update_profile:timezone', title: `change your account time zone to ${args.timezone.trim()}` };
+  }
   if (toolName === 'deliver_artifact' || toolName === 'retry_delivery') {
     const key = `${toolName}:bot:${botId ?? ''}`;
     const policy = db.prepare('SELECT mode FROM policies WHERE user_id=? AND tool=?').get(userId, key) as { mode: string } | undefined;

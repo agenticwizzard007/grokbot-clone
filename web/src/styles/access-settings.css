@@ -223,3 +223,18 @@
 .access-settings .cfg-key .cfg-key__form + .cfg-key__form { margin-inline: 0; }
 .access-settings .cfg-key__icon-space { flex: 0 0 20px; }
 .access-settings .cfg-key__foot > a { display: inline-flex; align-items: center; min-height: 44px; padding-block: 8px; }
+
+.settings-timezone { position: relative; flex-shrink: 0; }
+.settings-timezone__trigger { width: 100%; min-height: 44px; height: auto; text-align: left; white-space: normal; }
+.settings-timezone__panel { position: absolute; z-index: 5; top: calc(100% + 4px); right: 0; width: min(320px, 100%); padding: 8px; border: 1px solid var(--color-border-secondary); border-radius: 12px; background: var(--color-bg-pane); box-shadow: var(--shadow-composer); }
+.settings-timezone__panel input { width: 100%; }
+.settings-timezone__options { max-height: 240px; overflow-y: auto; margin: 8px 0 0; padding: 0; list-style: none; }
+.settings-timezone__options li { padding: 10px 8px; min-height: 44px; cursor: pointer; border-radius: 6px; overflow-wrap: anywhere; }
+.settings-timezone__options li:hover, .settings-timezone__options li.is-active { background: var(--color-bg-active); }
+.settings-timezone__options li[aria-selected='true'] { font-weight: 600; }
+.settings-timezone__panel p { margin: 8px; color: var(--color-text-secondary); }
+.settings-timezone-suggestion { padding: 0 16px 16px 48px; }
+.settings-timezone-suggestion button { white-space: normal; text-align: left; }
+@media (max-width: 760px) {
+  .access-settings .settings-timezone { margin-left: 36px; }
+}

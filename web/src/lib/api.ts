@@ -80,7 +80,7 @@ export const api = {
   /** Account preferences (WS4). */
   preferences: () => req<AccountPreferences>('GET', '/account/preferences'),
   updatePreferences: (p: AccountPreferences) => req<AccountPreferences>('PATCH', '/account/preferences', p),
-  /** Account fields the user can change (WS3: browser time zone on boot; WS4: Settings > Account). */
+  /** Account fields the user explicitly changes in Settings > Account. */
   updateMe: (patch: { timezone: string }) => req<{ user?: User | null; ok?: true }>('PATCH', '/auth/me', patch),
   skipSetup: (botId: string) => req<{ ok: true; bot: Bot }>('POST', `/bots/${botId}/setup/skip`),
   conversationSearch: (q: string) => req<{ results: ConversationSearchHit[] }>('GET', `/conversation-search?q=${encodeURIComponent(q)}`),

@@ -23,29 +23,44 @@ export async function withSuggestionTimeout<T>(work: (signal: AbortSignal) => Pr
 }
 
 /** Model output is only a ranking. All identity and artwork come from the current catalog. */
-export function availableSuggestions(value: unknown, catalog: CatalogItem[], connected: Set<string>): SuggestedToolkit[] {
+export function availableSuggestions(value: unknown, catalog: CatalogItem[], connected: Set<string>, context?: SuggestionContext): SuggestedToolkit[] {
   const choices = (value as { suggestions?: unknown } | null)?.suggestions;
   if (!Array.isArray(choices)) throw new Error('Invalid suggestions response');
   const available = new Map(catalog.map(item => [item.slug, item]));
+  const relevance = context ? new Map(relevantCatalog(context, catalog).map(entry => [entry.item.slug, entry])) : null;
   const seen = new Set<string>();
   return choices.flatMap((choice: unknown) => {
     const item = choice as Partial<Choice> | null;
     if (!item || typeof item.slug !== 'string' || typeof item.reason !== 'string') return [];
     const toolkit = available.get(item.slug);
     const reason = item.reason.replace(/[\u2013\u2014]/g, '-').replace(/\s+/g, ' ').trim().slice(0, 160);
-    if (!toolkit || connected.has(item.slug) || seen.has(item.slug) || !reason) return [];
+    if (!toolkit || (relevance && !relevance.has(item.slug)) || connected.has(item.slug) || seen.has(item.slug) || !reason) return [];
     seen.add(item.slug);
     return [{ ...toolkit, reason }];
-  }).slice(0, 4);
+  }).sort((a, b) => Number(relevance?.get(b.slug)?.named ?? false) - Number(relevance?.get(a.slug)?.named ?? false)).slice(0, 4);
 }
 
 /** Conservative catalog-only fallback. Never fills empty results with popular apps. */
 export function fallbackSuggestions(context: SuggestionContext, catalog: CatalogItem[]) {
-  const query = `${context.description} ${context.instructions}`.trim() || context.purpose;
-  return rankCatalog(query, catalog).filter(({ named, score }) => named || score >= 2).map(({ item, named }) => ({
+  return relevantCatalog(context, catalog).slice(0, 4).map(({ item, named }) => ({
     slug: item.slug,
     reason: named ? `${item.name} is named in this Bot's work.` : `${item.name}: ${item.description || 'Matches the described work.'}`,
   }));
+}
+
+// Tool discovery scores are intentionally broad. Recommendations must instead
+// match the work itself, not generic verbs like summarize, send or monitor.
+const genericSuggestionTerms = new Set(tokens('bot help things work team summary summarize daily weekly activity updates monitor send post read manage automate assistant task message messages'));
+function relevantCatalog(context: SuggestionContext, catalog: CatalogItem[]) {
+  const query = `${context.description} ${context.instructions}`.trim() || context.purpose;
+  const meaningful = [...new Set(tokens(query))].filter(token => !genericSuggestionTerms.has(token));
+  return rankCatalog(query, catalog).filter(({ item, named }) => {
+    if (named) return true;
+    const identity = new Set(tokens(`${item.name} ${item.slug}`));
+    const description = new Set(tokens(item.description ?? ''));
+    return meaningful.some(token => identity.has(token))
+      || meaningful.filter(token => description.has(token)).length >= 2;
+  });
 }
 
 function rankCatalog(query: string, catalog: CatalogItem[]) {

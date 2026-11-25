@@ -62,7 +62,7 @@ api.get('/auth/me', (c) => {
   return c.json({ user, devLogin: env.devLogin, googleLogin: googleSignInAvailable(), googleLinked: !!user && googleLinked(user.id), appleLogin: appleAvailableForAgent(c.req.header('user-agent')), appleLinked });
 });
 
-/** MF-017: the browser sends its IANA time zone; synopses and check-ins that fell back to UTC follow it. */
+/** Explicit account time zone changes also update schedules that used the account default. */
 const validTimezone = (tz: string) => { try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true; } catch { return false; } };
 const mePatchSchema = z.object({ timezone: z.string().trim().min(1).max(100).refine(validTimezone, 'Use an IANA time zone such as Europe/London.') }).strict();
 api.patch('/auth/me', requireUser, async (c) => {
@@ -72,7 +72,7 @@ api.patch('/auth/me', requireUser, async (c) => {
   updateProfile(userId, { timezone });
   adoptAccountTimezone(userId, timezone);
   // R2F-017: synopsis lines and schedules that follow the account zone refresh without a manual Refresh.
-  hub.emit(userId, { type: 'synopses' });
+  hub.emit(userId, { type: 'synopses', timezone });
   return c.json({ user: { ...c.get('user'), timezone } });
 });
 

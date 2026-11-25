@@ -126,7 +126,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       await page.locator('.mm-row__main').first().waitFor();
       assert.equal(await page.locator('.mm-row__main').filter({ hasText: 'API model' }).count(), 0);
       if (provider === 'codex') {
-        await page.getByText('Codex chooses the model. Model list and plan limits are unavailable.', { exact: true }).waitFor();
+        await page.getByText('Codex picks the model for each request. Uses your ChatGPT plan. Check plan limits in your ChatGPT account.', { exact: true }).waitFor();
         assert.equal(await page.getByRole('button', { name: 'Effort', exact: true }).count(), 0);
       }
       await page.getByRole('button', { name: 'Connect plan', exact: true }).click();

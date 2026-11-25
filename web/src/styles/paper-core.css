@@ -159,3 +159,17 @@
   .app .composer:not(.is-multiline) .model-pill,
   .app .composer:not(.is-multiline) .model-pill__effort { font-size: 11px; }
 }
+
+/* Phone transcripts use the content column; copy controls get their own row. */
+@media (max-width: 760px) {
+  .app .transcript { padding-inline: 0; scrollbar-gutter: auto; }
+  .app .bubble-wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .app .bubble { max-width: 100%; justify-self: start; }
+  .app .bubble.is-user { max-width: 85%; justify-self: end; }
+  .app .bubble__copy { justify-self: start; }
+  .app .bubble-wrap.is-right .bubble__copy { justify-self: end; }
+  .app .bubble__time { display: none; }
+  /* The entire Bots screen scrolls, including usage and account actions. */
+  .app.is-mobile.pane-list .sidebar { overflow-y: auto; padding-bottom: max(16px, var(--safe-bottom)); }
+  .app.is-mobile.pane-list .sidebar__scroll { flex: 1 0 auto; overflow: visible; }
+}

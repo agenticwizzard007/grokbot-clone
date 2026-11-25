@@ -123,7 +123,7 @@ type SectionProps = { status: MessagingStatus; setStatus: (s: MessagingStatus) =
 
 function LinkCodePanel({ code }: { code: MessagingCode }) {
   const qr = code.whatsapp?.qr ?? code.qr;
-  const qrAlt = code.whatsapp?.qr ? 'QR code to message Swarm on WhatsApp' : `QR code to text ${code.number}`;
+  const qrAlt = code.whatsapp?.qr ? 'QR code to message Swarm on WhatsApp' : 'QR code to message your Bots';
   const whatsappLink = code.whatsapp?.number
     ? `https://wa.me/${code.whatsapp.number.replace(/\D/g, '')}?text=${encodeURIComponent(code.connectCommand)}`
     : code.whatsapp?.messageLink;
@@ -132,7 +132,8 @@ function LinkCodePanel({ code }: { code: MessagingCode }) {
       <img className="msg-qr" src={qr} alt={qrAlt} width={148} height={148} />
       <ol className="msg-steps">
         <li>
-          <div>Send <code className="msg-inline-code">{code.connectCommand}</code> to <b>{code.number}</b>.</div>
+          <div>Send <code className="msg-inline-code">{code.connectCommand}</code> to your Bot number.</div>
+          <Fact k="Bot number">{fmtPhone(code.number)}</Fact>
           <div className="msg-steps__actions">
             {whatsappLink && <a className="cfg-btn cfg-btn--whatsapp" href={whatsappLink}><WhatsAppIcon /> Connect WhatsApp</a>}
             <a className="cfg-btn cfg-btn--secondary" href={code.smsLink}>Open Messages</a>
@@ -201,7 +202,8 @@ function PhoneSection({ status, setStatus, code, setCode }: SectionProps & { cod
           {status.links.map((l) => (
             <div key={l.channel} className="cfg-row"><SettingIcon icon={MessageCircle} />
               <div className="cfg-row__text">
-                <div className="cfg-row__title">{l.channelName}{l.phone ? ` · ${fmtPhone(l.phone)}` : ''} · {statusText[l.status]}</div>
+                <div className="cfg-row__title">{l.channelName} · {statusText[l.status]}</div>
+                {l.phone && <Fact k="Your number">{fmtPhone(l.phone)}</Fact>}
                 <div className="cfg-row__sub">{l.lastInboundAt ? `Last message from you ${ago(l.lastInboundAt)}` : 'No messages from you yet'}</div>
               </div>
               <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => void test()}>{busy === 'test' ? 'Sending…' : 'Send a test'}</button>
@@ -228,7 +230,8 @@ function PhoneSection({ status, setStatus, code, setCode }: SectionProps & { cod
           <div className="cfg-row"><SettingIcon icon={MessageCircle} />
             <div className="cfg-row__text">
               <div className="cfg-row__title">Not connected</div>
-              <div className="cfg-row__sub">Enter your number to text your Bots at {status.line.number}. We'll text you a code.</div>
+              <div className="cfg-row__sub">Enter your number to connect with your Bots. We'll text you a code.</div>
+              <Fact k="Bot number">{fmtPhone(status.line.number)}</Fact>
             </div>
           </div>
           {canConnectWhatsApp && (

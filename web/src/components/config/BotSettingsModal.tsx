@@ -232,7 +232,7 @@ function GeneralTab({ bot, onClose, draft: generalDraft, setDraft }: { bot: Bot;
         <Field label="About" htmlFor="cfg-about">
           <textarea id="cfg-about" className="text-input cfg-textarea" rows={2} value={draft.description} maxLength={300} placeholder="What is this Bot for?" onChange={(e) => put('description', e.target.value)} />
         </Field>
-        <SuggestedIntegrations botId={bot.id} description={draft.description} instructions={draft.instructions} />
+        <SuggestedIntegrations placement="settings" botId={bot.id} description={draft.description} instructions={draft.instructions} />
         <Field label="Instructions" htmlFor="cfg-instructions" hint={`Standing guidance ${draft.name || 'this Bot'} always follows, like tone, priorities or things to avoid. It also learns from chat, skills and memories.`}>
           <textarea id="cfg-instructions" className="text-input cfg-textarea cfg-textarea--tall" rows={7} value={draft.instructions} maxLength={8000} placeholder="e.g. Keep updates to three bullets. Never email anyone outside the team without asking." onChange={(e) => put('instructions', e.target.value)} />
         </Field>

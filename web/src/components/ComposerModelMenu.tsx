@@ -72,16 +72,20 @@ export function ComposerModelMenu({ bot }: { bot: Bot }) {
   const effort = known ? selection.effort : null;
   const label = models.status === 'loading' || models.status === 'idle' ? lastModelLabel(accountId, bot) : models.status === 'error' || models.error ? 'Models unavailable' : !known ? 'Provider default' : current ? fallbackShort(current.id, current.short) : (planMode ? 'CLI default' : bot.model ? fallbackShort(bot.model) : 'Default model');
   useEffect(() => { if (known) rememberModelLabel(accountId, bot, label); }, [accountId, bot.id, bot.model, known, label]);
+  const planLabel = models.provider === 'codex-cli' ? 'ChatGPT plan' : 'Claude plan';
+  const billingDescription = planMode ? `Uses your ${planLabel}` : 'Uses API billing';
+  const compactLabel = planMode ? (models.provider === 'codex-cli' ? 'Codex' : 'Claude') : label;
   const efforts = effortsFor(current);
   const ultra = isTopEffort(effort, current);
 
   return (
     <span className="model-pill-anchor">
       <button ref={trigger} type="button" className={`model-pill${ultra ? ' is-ultracode' : ''}`} onClick={() => { if (!open) void models.load(true); setOpen(!open); }} aria-haspopup="dialog" aria-expanded={open}
-        aria-label={`Model: ${label}${known ? `, ${planMode ? 'Plan' : 'API'} connection` : ''}${efforts.length ? `, ${effort ? effortLabel(effort, current) : 'Default'} effort` : ''}${bot.fast && models.canFast ? ', fast' : ''}. Change`}>
+        title={`${label}${known ? `. ${billingDescription}` : ''}`}
+        aria-label={`Model: ${label}${known ? `, ${billingDescription}` : ''}${efforts.length ? `, ${effort ? effortLabel(effort, current) : 'Default'} effort` : ''}${bot.fast && models.canFast ? ', fast' : ''}. Change`}>
         {current ? <ProviderIcon author={current.author} /> : known && !planMode && bot.model ? <ProviderIcon author={bot.model.split('/')[0]} /> : null}
-        <span className="model-pill__name">{label}</span>
-        {known && <span className="model-billing">{planMode ? 'Plan' : 'API'}</span>}
+        <span className="model-pill__name">{mobile ? compactLabel : label}</span>
+        {known && !(mobile && planMode) && <span className="model-billing" title={billingDescription}>{planMode ? planLabel : 'API'}</span>}
         {efforts.length > 0 && <span className="model-pill__effort">{effort ? effortLabel(effort, current) : 'Default'}</span>}
         {bot.fast && models.canFast && <span className="model-pill__fast" title="Fast: fastest providers">⚡︎</span>}
         <ChevronDown size={14} strokeWidth={1.75} aria-hidden className="model-pill__chev" />
@@ -210,7 +214,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
           title={i !== null ? 'Alt+↑/↓ to reorder' : undefined}>
           <ProviderIcon author={m.author} />
           <span className="mm-row__name">{fallbackShort(m.id, m.short)}{m.resolvedModel && <small className="mm-row__resolved">{fallbackShort(m.resolvedModel)}</small>}</span>
-          <span className="model-billing">{billing === 'plan' ? 'Plan' : 'API'}</span>
+          <span className="model-billing" title={billing === 'plan' ? `Uses your ${provider === 'codex-cli' ? 'ChatGPT' : 'Claude'} plan` : 'Uses API billing'}>{billing === 'plan' ? 'Subscription' : 'API'}</span>
           {!m.vision && <span className="mm-row__meta">No images</span>}
         </button>
         {rowEffort(m)}
@@ -267,7 +271,11 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
               <Search size={16} strokeWidth={1.75} aria-hidden />
               <input ref={search} type="search" placeholder="Search models" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search models" />
             </label>
-            {known && billing === 'plan' && <p className="mm-empty">{provider === 'codex-cli' ? 'Codex chooses the model. Model list and plan limits are unavailable.' : `Available on ${plan ? `your ${plan.replaceAll('_', ' ')} plan` : 'your connected plan'} via Claude Code.`}</p>}
+            {known && billing === 'plan' && <div className="mm-empty">
+              <p>{provider === 'codex-cli' ? 'Codex picks the model for each request. Uses your ChatGPT plan. Check plan limits in your ChatGPT account.' : `Uses your Claude plan${plan ? ` (${plan.replaceAll('_', ' ')})` : ''} through Claude Code.`}</p>
+              <button type="button" className="link-btn" onClick={() => { onClose(); useConfigUI.getState().openAppSettings('subscriptions'); }}>Models &amp; access</button>
+              {provider === 'codex-cli' && <> · <a href="https://chatgpt.com/codex/settings/usage" target="_blank" rel="noreferrer noopener">View ChatGPT plan usage</a></>}
+            </div>}
             {q.trim() ? (
               <ul className="mm-list">
                 {results.length === 0 && <li className="mm-empty">No models match “{q.trim()}”.</li>}
@@ -277,7 +285,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
                     <button type="button" className="mm-row__main" onClick={() => choose(m)}>
                       <ProviderIcon author={m.author} />
                       <span className="mm-row__name">{fallbackShort(m.id, m.short)}{m.resolvedModel && <small className="mm-row__resolved">{fallbackShort(m.resolvedModel)}</small>}</span>
-          <span className="model-billing">{billing === 'plan' ? 'Plan' : 'API'}</span>
+          <span className="model-billing" title={billing === 'plan' ? `Uses your ${provider === 'codex-cli' ? 'ChatGPT' : 'Claude'} plan` : 'Uses API billing'}>{billing === 'plan' ? 'Subscription' : 'API'}</span>
           {!m.vision && <span className="mm-row__meta">No images</span>}
                       <span className="mm-row__meta">{m.author}</span>
                     </button>

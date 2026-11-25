@@ -29,7 +29,7 @@ try{
   await page.getByRole('navigation',{name:'Work sections'}).getByRole('button',{name:'Reports',exact:true}).click();
   await page.getByRole('button',{name:'Daily synopses',exact:true}).click();
  };
- // The app adopts the browser time zone on boot (MF-017); block that call here so the UTC fallback stays covered.
+ // Keep the account unset while checking the UTC fallback; the explicit picker save follows below.
  await page.route('**/api/auth/me',route=>route.request().method()==='PATCH'?route.abort():route.continue());
  await page.goto(base);await openSynopses();
  const panel=page.getByRole('region',{name:'Daily synopses',exact:true}),toggle=panel.getByRole('checkbox',{name:'Scheduled daily synopsis',exact:true});
@@ -49,10 +49,11 @@ try{
  // R2F-017: changing the account time zone in Settings refreshes the open synopsis line without Refresh.
  await page.unroute('**/api/auth/me');
  await page.evaluate(()=>{location.hash='#settings/account';});
- const zone=page.getByRole('combobox',{name:'Time zone',exact:true});
- await zone.waitFor();await zone.selectOption('Europe/London');
+ await page.getByRole('button',{name:'Time zone',exact:true}).click();
+ await page.getByRole('combobox',{name:'Search time zones',exact:true}).fill('London');
+ await page.getByRole('option',{name:/London/}).click();
  await until(async()=>(await api('/checkins')).timezone==='Europe/London','account zone saved');
- await page.getByRole('button',{name:'Back to tasks',exact:true}).click();
+ await page.getByRole('region',{name:'Settings',exact:true}).getByRole('button',{name:'Back to Reports',exact:true}).click();
  await panel.getByText(/· Europe\/London ·/).waitFor();
  assert.equal(await panel.getByText(/UTC fallback/).count(),0,'no stale UTC fallback after the zone change');
  // A zone change made elsewhere arrives as a 'synopses' event; the open line follows it without Refresh.
@@ -63,7 +64,7 @@ try{
  // Reload restores Reports directly on phones, where the sidebar is not mounted.
  await page.getByRole('navigation',{name:'Work sections'}).waitFor();
  assert.equal(new URL(page.url()).hash,'#reports');
- await page.waitForFunction(()=>document.title==='Reports');
+ await page.waitForFunction(()=>document.title==='Reports · Swarm');
  await page.getByRole('button',{name:'Daily synopses',exact:true}).click();
  await panel.scrollIntoViewIfNeeded();assert.ok(await panel.evaluate(el=>el.scrollWidth<=el.clientWidth+1),'synopsis fits phone');
  await page.screenshot({path:path.join(evidence,'synopsis-mobile.png'),fullPage:true});assert.deepEqual(errors,[]);

@@ -355,3 +355,27 @@ test('catalog replacement during generation cannot return an app from the old pr
   assert.equal(response.status, 200);
   assert.deepEqual((await response.json() as any).suggestions, []);
 });
+
+
+test('Slack summary recommendations exclude unrelated apps and rank named apps first', () => {
+  const catalog = [...catalogItems,
+    toolkit('bluefox_email', 'BlueFox Email', 'Send daily messages and summarize email activity'),
+    toolkit('googlechat', 'Google Chat', 'Send team messages and daily activity updates'),
+    toolkit('azure_monitor_activity_log', 'Azure Monitor Activity Log', 'Monitor and summarize daily activity'),
+  ];
+  const context = { description: 'Summarize Slack channels daily', instructions: 'Post a summary of team activity in Slack', purpose: 'Email updates' };
+  assert.deepEqual(fallbackSuggestions(context, catalog).map(item => item.slug), ['slack']);
+  const noisy = { suggestions: catalog.map(item => ({ slug: item.slug, reason: 'Could help with daily updates.' })) };
+  assert.deepEqual(availableSuggestions(noisy, catalog, new Set(), context).map(item => item.slug), ['slack']);
+  assert.deepEqual(availableSuggestions(noisy, catalog, new Set(['slack']), context), []);
+  assert.deepEqual(fallbackSuggestions({ description: 'Summarize daily team activity', instructions: '', purpose: '' }, catalog), []);
+  assert.deepEqual(availableSuggestions({ suggestions: [{ slug: 'googlecalendar', reason: 'Track dates.' }, { slug: 'slack', reason: 'Summarize Slack.' }] }, catalog, new Set(), { description: 'Summarize Slack and calendar events', instructions: '', purpose: '' }).map(item => item.slug), ['slack', 'googlecalendar']);
+});
+
+test('recommendations keep meaningful task matches and cap the result list', () => {
+  const catalog = Array.from({ length: 8 }, (_, i) => toolkit(`calendar${i}`, `Calendar ${i}`, 'Schedule meetings and events'));
+  const context = { description: 'Manage my calendar', instructions: '', purpose: '' };
+  assert.equal(fallbackSuggestions(context, catalog).length, 4);
+  const noisy = { suggestions: catalog.map(item => ({ slug: item.slug, reason: 'Organize calendar events.' })) };
+  assert.equal(availableSuggestions(noisy, catalog, new Set(), context).length, 4);
+});

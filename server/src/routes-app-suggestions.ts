@@ -66,7 +66,7 @@ appSuggestionsApi.post('/bots/:id/suggested-apps', async c => {
       const accounts = await connectionsDetail(userId, { signal });
       signal.throwIfAborted();
       const connected = new Set(accounts.filter(account => account.status === 'ACTIVE' && !account.isDisabled).map(account => account.toolkit));
-      return availableSuggestions(fallback ? { suggestions: fallbackSuggestions(context, current) } : result, current, connected);
+      return availableSuggestions(fallback ? { suggestions: fallbackSuggestions(context, current) } : result, current, connected, context);
     }, 4_000);
     c.header('Server-Timing', `suggestions;dur=${(performance.now() - started).toFixed(1)}`);
     return c.json({ suggestions, hasContext: Object.values(context).some(text => text.trim()) });
