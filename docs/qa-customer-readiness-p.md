@@ -27,4 +27,15 @@ U26's saved-report row had only an action, with no content read. Setup was a gen
 - Existing suggestion, saved-report row, setup-copy and customer-phone-polish browser suites are included in the regression checks.
 - The older active-setup browser test expected "Active configuration · Revision 32" on both untouched main and this branch. The UI already omitted that internal revision. Its assertion now checks the plain heading and verifies revision 32 in state.
 
-Full-suite baseline and final results are recorded in the PR after both runs finish. Baseline uses an isolated checkout of `1ef3439`, with the same dependencies and Node version as the changed checkout. No live sign-in or customer data is used.
+Full-suite results, using `node --import tsx --test --test-reporter=tap --test-concurrency=1 tests/*.test.mts tests/*.test.mjs`:
+
+| Checkout | Pass | Fail | Existing skips | Total |
+| --- | ---: | ---: | ---: | ---: |
+| Untouched `1ef3439` | 2,117 | 71 | 24 | 2,212 |
+| Stream P final run before rebasing onto PR #201 | 2,123 | 72 | 24 | 2,219 |
+
+The extra failing name, `cloud drain rechecks authorization after inventory waits and never issues a revoked stop`, also failed on untouched main in a supplemental run of `tests/legacy-background.test.mts`. That baseline rerun was 11 pass / 2 fail; the same unchanged file passed 13/13 on the branch rerun. Both baseline rerun failures were deadline races. Comparing all observed baseline names yields no new failure names. No tests were skipped or disabled by this change; the 24 skips are identical to the untouched baseline.
+
+The focused P and earlier resource-copy tests pass 43/43. After rebasing onto `f50b0df` (PR #201), the combined P/Q checks are recorded in the PR. The rebase preserves the new composer plan label as well as the suggestion response version in the shared readiness M fixture.
+
+Baseline uses an isolated checkout of `1ef3439`, with the same dependencies and Node version as the changed checkout. No live sign-in or customer data is used.
