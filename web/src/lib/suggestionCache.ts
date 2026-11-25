@@ -1,8 +1,9 @@
 import { SUGGESTION_FILTER_VERSION } from '../../../server/src/suggestion-policy';
 import type { SuggestedToolkit } from './api';
 import { createSettingsCache } from './settingsReads';
+import { readSuggestionSnapshot } from '../../../server/src/suggestion-snapshot';
 
-export type Suggestions = { suggestions: SuggestedToolkit[]; hasContext?: boolean; filterVersion?: string };
+export type Suggestions = { suggestions: SuggestedToolkit[]; hasContext?: boolean; filterVersion?: string; computedAt?: number };
 export const suggestionCacheKey = (key: string) => JSON.stringify([SUGGESTION_FILTER_VERSION, key]);
 export const SUGGESTION_STORAGE_KEY = 'swarm.suggestions';
 export const SUGGESTION_STORAGE_VERSION = 1;
@@ -31,6 +32,7 @@ export function createSuggestionCache(storage = createSettingsCache<Suggestions>
   let generation = 0;
   const latest = new Map<string, Suggestions>();
   const requests = new Map<string, number>();
+  const seeded = new Map<string, number>();
   const persist = () => {
     try {
       if (!owner) return;
@@ -50,7 +52,7 @@ export function createSuggestionCache(storage = createSettingsCache<Suggestions>
       if (scoped && owner === account) return;
       scoped = true;
       try { if (owner) localStorage.removeItem(SUGGESTION_STORAGE_KEY); } catch { /* optional display cache */ }
-      owner = account; generation++; latest.clear(); requests.clear(); storage.scope(account);
+      owner = account; generation++; latest.clear(); requests.clear(); seeded.clear(); storage.scope(account);
       try {
         const raw = localStorage.getItem(SUGGESTION_STORAGE_KEY);
         const saved = raw && raw.length <= MAX_CHARS ? JSON.parse(raw) : null;
@@ -67,6 +69,16 @@ export function createSuggestionCache(storage = createSettingsCache<Suggestions>
       } catch { /* a cold cache is safe */ }
     },
     last(botId: string) { return latest.get(botId); },
+    seed(botId: string, raw: unknown) {
+      const value = readSuggestionSnapshot(raw);
+      if (!owner || !value || value.computedAt <= (seeded.get(botId) ?? -1)) return;
+      seeded.set(botId, value.computedAt);
+      latest.set(botId, value);
+      persist();
+    },
+    remove(botId: string) {
+      latest.delete(botId); seeded.delete(botId); requests.delete(botId); persist();
+    },
     peek(key: string) {
       const value = storage.peek(suggestionCacheKey(key));
       return value?.filterVersion === SUGGESTION_FILTER_VERSION ? value : undefined;
@@ -81,6 +93,7 @@ export function createSuggestionCache(storage = createSettingsCache<Suggestions>
         return value;
       });
       if (botId && epoch === generation && requests.get(botId) === request) {
+        if (Number.isSafeInteger(value.computedAt)) seeded.set(botId, Math.max(seeded.get(botId) ?? -1, value.computedAt!));
         latest.delete(botId); latest.set(botId, value);
         if (latest.size > 80) { const oldest = latest.keys().next().value!; latest.delete(oldest); requests.delete(oldest); }
         persist();

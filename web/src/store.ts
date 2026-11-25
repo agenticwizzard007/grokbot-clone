@@ -459,6 +459,17 @@ useStore.subscribe((state, previous) => {
   });
 });
 
+// Bot payloads arrive before Settings mounts, including in a browser with no storage.
+// Hydrate synchronously so the very first panel render can read the server snapshot.
+useStore.subscribe((state, previous) => {
+  if (!state.user || state.bots === previous.bots) return;
+  suggestionCache.scope(state.user.id);
+  for (const bot of state.bots) suggestionCache.seed(bot.id, bot.suggestedApps);
+  if (state.user.id === previous.user?.id) {
+    for (const bot of previous.bots) if (!state.bots.some(current => current.id === bot.id)) suggestionCache.remove(bot.id);
+  }
+});
+
 /** Browser zone is a suggestion only. Account changes require an explicit selection. */
 export function browserTimezone(): string | null {
   try { const zone = Intl.DateTimeFormat().resolvedOptions().timeZone; return zone && zone !== 'Etc/Unknown' ? zone : null; } catch { return null; }

@@ -119,3 +119,26 @@ test('a confirmed signed-out cold load clears the previous session snapshot', t 
   cache.scope(undefined);
   assert.equal(data.has(SUGGESTION_STORAGE_KEY), false);
 });
+
+test('R9 server snapshots seed synchronously before render, refresh replaces them and deletion clears them', async t => {
+  const data = localSnapshot(t);
+  const cache = createSuggestionCache(); cache.scope('owner');
+  const saved = { ...suggestion, version: 1, computedAt: 100 };
+  cache.seed('bot', saved);
+  assert.equal(cache.last('bot')?.suggestions[0].slug, 'slack');
+  assert.doesNotMatch(data.get(SUGGESTION_STORAGE_KEY)!, /Private|private-token/);
+  await cache.refresh('connected', async () => ({ ...suggestion, suggestions: [] }), 'bot');
+  cache.seed('bot', saved);
+  assert.deepEqual(cache.last('bot')?.suggestions, [], 'repeated roster events cannot overwrite a newer local refresh');
+  cache.seed('bot', { ...saved, computedAt: 101 });
+  assert.equal(cache.last('bot')?.suggestions.length, 1);
+  await cache.refresh('new connection', async () => ({ ...suggestion, computedAt: 300, suggestions: [] }), 'bot');
+  cache.seed('bot', { ...saved, computedAt: 200 });
+  assert.deepEqual(cache.last('bot')?.suggestions, [], 'a delayed Bot payload cannot replace a later refresh');
+  cache.remove('bot');
+  assert.equal(cache.last('bot'), undefined);
+  assert.equal(data.has(SUGGESTION_STORAGE_KEY), false);
+  cache.scope('other');
+  cache.seed('bot', { ...saved, version: 0 });
+  assert.equal(cache.last('bot'), undefined);
+});
