@@ -22,3 +22,20 @@ There were three writers/display paths: TimeZoneRow displayed the browser zone w
 - Existing plan connections, model selector/menu, voice/composer and touch-copy browser regressions are also exercised.
 
 Full unit results are compared by failure name against a detached checkout of baseline main. Existing browser failures are also checked on baseline rather than attributed to this change.
+
+## Validation results
+
+Both full unit runs used Node 24.22.1 and `node --import tsx --test --test-reporter=tap --test-concurrency=1 tests/*.test.mts tests/*.test.mjs`.
+
+| Run | Tests | Pass | Fail | Cancelled/timeouts | Existing skips |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Baseline 6f2b15b | 2175 | 2074 | 75 | 2 | 24 |
+| Stream M before final rebase | 2184 | 2085 | 74 | 1 | 24 |
+
+This VM observed 75 baseline failures, rather than the 71 reported by the earlier audit. Comparing names finds no new failures after confirming the native-runtime 60-second timeout on both checkouts. The entire native-runtime file was rerun on both: each had 12 pass, zero fail and one cancelled timeout. No tests or CI were disabled or newly skipped.
+
+After rebasing onto 818b2d9, typecheck and build pass. Targeted account/time-zone/suggestions and merged navigation/copy/report-day unit checks have 105 pass and one existing failure: `cache shares identical requests, isolates accounts and accepts new edits while a slow result is pending`. That timeout also appears in the full baseline run. All nine added unit tests pass.
+
+The post-rebase readiness browser suite passes all four 390/1280 light/dark cases; suggestions pass all 12 width/theme cases, including the final debounce-after-deadline guard and empty-error Retry cases. The Reports browser flow, merged phone-polish suite and merged Usage suite pass. Earlier model selector/menu, plan-connection, voice/composer and touch-copy suites also pass. Browser failures in `qa-r3-chat-ui.mjs` (old broad redaction assertion) and `loading-resilience-ui.mjs` (old All Bots selector) reproduce on baseline and are outside this change.
+
+Rebase reconciliation retained both API key alignment and time zone picker CSS, routed Models & access to `subscriptions`, and updated the Reports fixture to expect the current Back to Reports label and document title.

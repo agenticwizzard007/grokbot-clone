@@ -53,7 +53,7 @@ try{
  await page.getByRole('combobox',{name:'Search time zones',exact:true}).fill('London');
  await page.getByRole('option',{name:/London/}).click();
  await until(async()=>(await api('/checkins')).timezone==='Europe/London','account zone saved');
- await page.getByRole('region',{name:'Settings',exact:true}).getByRole('button',{name:'Back to Tasks',exact:true}).click();
+ await page.getByRole('region',{name:'Settings',exact:true}).getByRole('button',{name:'Back to Reports',exact:true}).click();
  await panel.getByText(/· Europe\/London ·/).waitFor();
  assert.equal(await panel.getByText(/UTC fallback/).count(),0,'no stale UTC fallback after the zone change');
  // A zone change made elsewhere arrives as a 'synopses' event; the open line follows it without Refresh.
