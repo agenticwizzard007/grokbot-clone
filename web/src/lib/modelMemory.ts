@@ -9,7 +9,7 @@ export function lastModelLabel(accountId: string | undefined, bot: SavedModel): 
     const saved = accountId && JSON.parse(localStorage.getItem(key(accountId, bot)) ?? 'null');
     if (saved?.model === bot.model && typeof saved.label === 'string' && saved.label) return saved.label;
   } catch { /* Private browsing or unavailable storage. */ }
-  return bot.model ? modelDisplayName(bot.model) : 'Choose model';
+  return bot.model ? modelDisplayName(bot.model) : 'Loading model';
 }
 
 export function rememberModelLabel(accountId: string | undefined, bot: SavedModel, label: string) {

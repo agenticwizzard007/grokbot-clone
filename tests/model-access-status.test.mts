@@ -130,3 +130,15 @@ test('Claude signed out, real probe error and connected retain their own saved s
   assert.equal(modelAccessStatus(status, 'claude').connection, 'Connected');
   assert.equal(modelAccessStatus(status, 'claude').currentlyInUse, false);
 });
+
+
+test('a selected route without saved CLI state does not offer reset on either tab', () => {
+  for (const provider of ['claude', 'codex'] as const) {
+    const status = fixture(provider, false, false);
+    status.providers[provider].hasSavedState = false;
+    assert.equal(modelAccessStatus(status, provider).hasSavedState, false);
+    status.providers[provider].hasSavedState = true;
+    assert.equal(modelAccessStatus(status, provider).hasSavedState, true);
+    assert.equal(modelAccessStatus(status, provider === 'claude' ? 'codex' : 'claude').hasSavedState, false);
+  }
+});

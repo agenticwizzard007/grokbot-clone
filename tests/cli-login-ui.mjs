@@ -221,6 +221,7 @@ try {
       assert.equal(status.selected, provider);
       assert.equal(status.providers[provider].subscription, true);
     }
+    if (!await page.locator('.subscription-settings__advanced').evaluate(el => el.open)) await page.locator('.subscription-settings__advanced > summary').click();
     await page.getByRole('button', { name: 'Reset connection', exact: true }).click();
     await page.getByRole('button', { name: 'Confirm reset', exact: true }).click();
     await page.getByText(/Connection reset\. Both CLIs are signed out/).waitFor();
@@ -316,6 +317,7 @@ try {
   await terminal.getByLabel('Authorization code', { exact: true }).fill('NOAUTH');
   await terminal.getByRole('button', { name: 'Connect Codex', exact: true }).click();
   await statusStarted;
+  if (!await page.locator('.subscription-settings__advanced').evaluate(el => el.open)) await page.locator('.subscription-settings__advanced > summary').click();
   await page.getByRole('button', { name: 'Reset connection', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm reset', exact: true }).click();
   await page.getByText(/Connection reset\. Both CLIs are signed out/).waitFor();
@@ -324,8 +326,17 @@ try {
   assert.equal(await page.getByRole('button', { name: 'Log in again', exact: true }).count(), 0, 'an older ready snapshot cannot revive the reset connection');
   await page.unroute(cliStatusRoute);
 
-  // A late auth denial can arrive after real reset effects. Reconcile instead of promising no change.
+  // A late auth denial can arrive after real reset effects. Start from this
+  // tab's saved login, since an empty CLI profile correctly has no Reset control.
+  await fixture('late-reset');
+  await page.goto(`${base}/?fixture=late-reset#settings/subscriptions`);
+  await page.getByRole('tab', { name: 'Codex', exact: true }).click();
   await page.getByRole('button', { name: 'Connect ChatGPT plan', exact: true }).click();
+  await until(() => terminal.getByLabel('Authorization code', { exact: true }).isEnabled());
+  await terminal.getByLabel('Authorization code', { exact: true }).fill('codex-fake-code#verified');
+  await terminal.getByRole('button', { name: 'Connect Codex', exact: true }).click();
+  await terminal.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByRole('button', { name: 'Log in again', exact: true }).click();
   await until(() => terminal.getByLabel('Authorization code', { exact: true }).isEnabled());
   await terminal.getByLabel('Authorization code', { exact: true }).fill('unsent-late-reset');
   const cliResetRoute = url => url.origin === base && url.pathname === '/api/cli/reset';
@@ -335,6 +346,7 @@ try {
     await route.fulfill({ status: 401, json: { error: 'unauthenticated' } });
   });
   const resetCount = resetBodies.length;
+  if (!await page.locator('.subscription-settings__advanced').evaluate(el => el.open)) await page.locator('.subscription-settings__advanced > summary').click();
   await page.getByRole('button', { name: 'Reset connection', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm reset', exact: true }).click();
   await recovery.getByText(/Reset may already have stopped login sessions or removed saved connections/).waitFor();
@@ -375,6 +387,7 @@ try {
   const previousAccount = accountId;
   await fixture('other');
   const switchedReset = page.waitForResponse(response => new URL(response.url()).pathname === '/api/cli/reset' && response.request().method() === 'POST');
+  if (!await page.locator('.subscription-settings__advanced').evaluate(el => el.open)) await page.locator('.subscription-settings__advanced > summary').click();
   await page.getByRole('button', { name: 'Reset connection', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm reset', exact: true }).click();
   assert.equal((await switchedReset).status(), 409);

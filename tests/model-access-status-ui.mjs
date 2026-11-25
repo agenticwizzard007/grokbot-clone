@@ -105,8 +105,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       else assert.match(routeText, new RegExp(`^Your Bots currently use your ${fixture.selected === 'claude' ? 'Claude plan through Claude Code' : 'ChatGPT plan through Codex'}`));
       assert.equal(await panel.locator('p').filter({ hasText: /^Your Bots (currently use|are set to use)/ }).count(), fixture.statusUnavailable ? 0 : 1);
       assert.equal(await panel.getByLabel('Connected plan usage', { exact: true }).count(), active ? 1 : 0, 'usage belongs only to this tab');
-      const saved = fixture[provider] || status.providers[provider].hasSavedState || fixture.selected === provider;
-      assert.equal(await panel.getByRole('button', { name: 'Reset connection', exact: true }).count(), Number(!!saved), 'reset belongs only to a CLI with saved state');
+      const saved = fixture[provider] || status.providers[provider].hasSavedState;
+      assert.equal(await panel.getByRole('button', { name: 'Reset connection', exact: true }).count(), 0, 'reset stays hidden until Advanced is opened');
+      assert.equal(await panel.getByRole('button', { name: 'Disconnect', exact: true }).count(), Number(fixture.selected === provider), 'disconnect belongs only to the selected route');
       assert.equal(await connection.getByText(/Disconnect switches/).count(), Number(fixture.selected === provider), 'disconnect copy belongs only to the selected CLI');
       assert.equal(await panel.locator('.cfg-error').count(), 0, 'status errors are quiet inline text');
       if (probeError) {
@@ -118,6 +119,20 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       }
       await panel.locator('.subscription-settings__context > summary').click();
       await panel.locator('.subscription-settings__advanced > summary').click();
+      const advanced = panel.locator('.subscription-settings__advanced');
+      const reset = advanced.getByRole('button', { name: 'Reset connection', exact: true });
+      assert.equal(await reset.count(), Number(!!saved), 'Advanced reset belongs only to a CLI with saved state');
+      assert.equal(await advanced.locator('.cfg-btn--primary').filter({ hasText: 'Reset connection' }).count(), 0);
+      if (fixture.name.startsWith('both-')) {
+        await reset.scrollIntoViewIfNeeded();
+        await page.screenshot({ path: `.context/model-access-status/${fixture.name}-${provider}-${width}-${theme}-advanced.png` });
+        await reset.click();
+        await advanced.getByRole('button', { name: 'Confirm reset', exact: true }).waitFor();
+        const other = provider === 'claude' ? 'Codex' : 'Claude Code';
+        await page.getByRole('tab', { name: other, exact: true }).click();
+        assert.equal(await page.getByRole('button', { name: 'Confirm reset', exact: true }).count(), 0, 'switching tabs cancels confirmation');
+        await page.getByRole('tab', { name: cli, exact: true }).click();
+      }
       const overflow = await panel.evaluate(el => ({
         document: document.documentElement.scrollWidth > innerWidth,
         panel: el.scrollWidth > el.clientWidth + 1,
@@ -129,10 +144,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       assert.deepEqual(overflow, { document: false, panel: false, outside: [] }, `${width} ${theme} ${fixture.name} ${cli}: no horizontal overflow`);
       await panel.locator('.subscription-settings__advanced > summary').click();
       await panel.locator('.subscription-settings__context > summary').click();
-      if (['codex-only', 'claude-never-set-up', 'claude-probe-error'].includes(fixture.name) && provider === 'claude') {
+      if (fixture.name.startsWith('both-') || ['codex-only', 'claude-never-set-up', 'claude-probe-error'].includes(fixture.name) && provider === 'claude') {
         await panel.evaluate(el => el.closest('.app-settings__content')?.scrollTo(0, 0));
         await page.getByRole('tab', { name: cli, exact: true }).scrollIntoViewIfNeeded();
-        await page.screenshot({ path: `.context/model-access-status/${fixture.name}-${width}-${theme}.png` });
+        await page.screenshot({ path: `.context/model-access-status/${fixture.name}-${provider}-${width}-${theme}.png` });
       }
     }
     assert.deepEqual(mutations, [], 'viewing tabs must never start sign-in or change the model route');

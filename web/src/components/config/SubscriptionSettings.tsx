@@ -60,6 +60,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
   const [resumeLogin, setResumeLogin] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  useEffect(() => { setConfirmReset(false); }, [providerTab]);
   const [authMethod, setAuthMethod] = useState<'cli' | 'api'>('cli');
   const [loginProvider, setLoginProvider] = useState<CliProvider | null>(null);
   const [loginAttempt, setLoginAttempt] = useState(0);
@@ -365,11 +366,6 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
       }} onConnected={() => { refreshModels(); void refresh(); }} />}
 
       <section className="cfg-section subscription-settings__auth">
-        {(hasSavedState || loginProvider === providerTab) && <AccessRow icon={Terminal} title="CLI connection" description="Clear saved CLI sign-ins and start over.">
-            <button type="button" className={`cfg-btn ${confirmReset ? 'cfg-btn--danger' : 'cfg-btn--secondary'}`} disabled={authLocked || !!busy} onClick={() => confirmReset ? reset() : setConfirmReset(true)}>{busy === 'reset' ? 'Resetting…' : confirmReset ? 'Confirm reset' : 'Reset connection'}</button>
-            {confirmReset && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setConfirmReset(false)}>Cancel</button>}
-        </AccessRow>}
-        {confirmReset && (hasSavedState || loginProvider === providerTab) && <p role="note">Reset removes the saved Claude Code and Codex logins from your Swarm server, revokes any computer bridge, cancels a sign-in in progress and clears cached status, then checks both CLIs again. Your selected subscription stays selected and blocked until you log in again or choose API providers.</p>}
         <AccessRow icon={Terminal} title="CLI authentication" description="Manage sign-in on the Swarm server or use the computer bridge below.">
           {authMethod === 'api' && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={disabled} onClick={() => setAuthMethod('cli')}>Set up CLI authentication</button>}
           {(planReady || runtime === 'bridge' || status?.serverLoginAvailable === false || providerTab === 'codex' && health?.installed === false) && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={disabled} onClick={startLogin}>{loginRunning ? 'Login in progress…' : loginLabel}</button>}
@@ -411,8 +407,14 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
       </section>
 
       <details className="subscription-settings__advanced">
-        <summary className="cfg-row"><SettingIcon icon={Monitor} /><span>Connect your computer<small>Run the CLI on your computer only if you need the advanced bridge.</small></span><span className="cfg-btn cfg-btn--secondary">Advanced bridge <ChevronDown size={16} aria-hidden /></span></summary>
+        <summary className="cfg-row"><SettingIcon icon={Monitor} /><span>Advanced<small>Reset saved sign-ins or connect your computer.</small></span><span className="cfg-btn cfg-btn--secondary">Options <ChevronDown size={16} aria-hidden /></span></summary>
         <div className="subscription-settings__advanced-content">
+        {hasSavedState && <AccessRow icon={Terminal} title="CLI connection" description="Clear saved Claude Code and Codex sign-ins and start over.">
+            <button type="button" className={`cfg-btn ${confirmReset ? 'cfg-btn--danger' : 'cfg-btn--secondary'}`} disabled={authLocked || !!busy} onClick={() => confirmReset ? reset() : setConfirmReset(true)}>{busy === 'reset' ? 'Resetting…' : confirmReset ? 'Confirm reset' : 'Reset connection'}</button>
+            {confirmReset && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setConfirmReset(false)}>Cancel</button>}
+        </AccessRow>}
+        {confirmReset && hasSavedState && <p role="note">Reset removes the saved Claude Code and Codex logins from your Swarm server, revokes any computer bridge, cancels a sign-in in progress and clears cached status, then checks both CLIs again. Your selected subscription stays selected and blocked until you log in again or choose API providers.</p>}
+
       <section className="cfg-section" aria-labelledby="subscription-bridge-title">
         <h2 className="cfg-section__label" id="subscription-bridge-title">Computer bridge</h2>
         <div className="cfg-card">

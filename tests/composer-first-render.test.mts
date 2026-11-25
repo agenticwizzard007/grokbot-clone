@@ -63,8 +63,8 @@ test('model chip restores the last resolved default per account and Bot', t => {
   const bot = { id: 'bot-a', model: null };
   rememberModelLabel('alice', bot, 'Opus 5.5');
   assert.equal(lastModelLabel('alice', bot), 'Opus 5.5');
-  assert.equal(lastModelLabel('bob', bot), 'Choose model');
-  assert.equal(lastModelLabel('alice', { ...bot, id: 'bot-b' }), 'Choose model');
+  assert.equal(lastModelLabel('bob', bot), 'Loading model');
+  assert.equal(lastModelLabel('alice', { ...bot, id: 'bot-b' }), 'Loading model');
   assert.equal(lastModelLabel('alice', { ...bot, model: 'gpt-5.5' }), 'GPT 5.5');
   assert.match(components.render(bot), /model-pill__name[^>]*>Opus 5.5</);
 });
@@ -74,4 +74,23 @@ test('composer plus menu contains an accessible Talk live action using the live 
   const { item, html } = components.menu(() => calls++);
   assert.match(html, /role="menuitem"/); assert.match(html, /Talk live/);
   assert.ok(item.icon); item.onSelect(); assert.equal(calls, 1);
+});
+
+
+test('loading model memory preserves the visible plan label and isolates Bot preferences', t => {
+  const storage = new Map<string, string>();
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value) } });
+  t.after(() => { if (original) Object.defineProperty(globalThis, 'localStorage', original); else Reflect.deleteProperty(globalThis, 'localStorage'); });
+  const bot = { id: 'plan-bot', model: null };
+  rememberModelLabel('account-a', bot, 'Codex · ChatGPT plan');
+  assert.equal(lastModelLabel('account-a', bot), 'Codex · ChatGPT plan');
+  assert.equal(lastModelLabel('account-b', bot), 'Loading model');
+  assert.equal(lastModelLabel('account-a', { ...bot, id: 'other-bot' }), 'Loading model');
+  assert.equal(lastModelLabel('account-a', { ...bot, model: 'openai/gpt-5.5' }), 'GPT 5.5');
+  storage.set('swarm.model-label:account-a:plan-bot', '{invalid');
+  assert.equal(lastModelLabel('account-a', bot), 'Loading model');
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, get() { throw new Error('Storage unavailable'); } });
+  assert.doesNotThrow(() => rememberModelLabel('account-a', bot, 'Codex · ChatGPT plan'));
+  assert.equal(lastModelLabel('account-a', bot), 'Loading model');
 });
