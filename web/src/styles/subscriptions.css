@@ -11,6 +11,7 @@
   --subscription-selection: #EDEFFA30;
 }
 .subscription-settings { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+.subscription-settings__panel { display: flex; flex-direction: column; gap: inherit; min-width: 0; }
 .subscription-settings__brand { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 13px; line-height: 18px; color: var(--color-text-secondary); }
 .subscription-settings .swarm-mark { display: block; flex: none; color: var(--subscription-accent); }
 .subscription-settings p { margin: 0; font-size: 13px; line-height: 20px; color: var(--color-text-secondary); overflow-wrap: anywhere; }

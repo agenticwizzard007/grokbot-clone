@@ -148,7 +148,7 @@ try {
       await fetch(`${fixtureAssets}/__fixture/settings?all-stale`);
       await page.goto(`${base}/?fixture=retained-${provider}-${width}#settings/subscriptions`);
       await page.getByRole('tab', { name: provider === 'claude' ? 'Claude Code' : 'Codex', exact: true }).click();
-      await page.getByRole('button', { name: 'Connect plan', exact: true }).click();
+      await page.getByRole('button', { name: /^Connect (Claude|ChatGPT) plan$/ }).click();
       await readyTerminal(); await assertNoSignIn(); await cancelTerminal();
       await resumeAt(provider);
       await fetch(`${fixtureAssets}/__fixture/settings?stale`);
@@ -188,7 +188,7 @@ try {
       const name = provider === 'claude' ? 'Claude Code' : 'Codex';
       await page.getByRole('tab', { name, exact: true }).click();
       const response = page.waitForResponse(r => new URL(r.url()).pathname === '/api/cli/login' && r.request().method() === 'POST');
-      await page.getByRole('button', { name: 'Connect plan', exact: true }).click();
+      await page.getByRole('button', { name: /^Connect (Claude|ChatGPT) plan$/ }).click();
       assert.equal((await response).status(), 200, 'two-hour-old session reaches the real login endpoint');
       const field = terminal.getByLabel('Authorization code', { exact: true });
       await readyTerminal();
@@ -262,7 +262,7 @@ try {
     await cancelTerminal();
   }
   // A successful CLI exit without subscription proof still fails.
-  await page.getByRole('button', { name: 'Connect plan', exact: true }).click();
+  await page.getByRole('button', { name: /^Connect (Claude|ChatGPT) plan$/ }).click();
   await readyTerminal();
   await terminal.getByLabel('Authorization code', { exact: true }).fill('NOAUTH');
   await terminal.getByRole('button', { name: 'Connect Codex', exact: true }).click();
@@ -272,7 +272,7 @@ try {
 
   const loginRoute = url => url.origin === base && url.pathname === '/api/cli/login';
   await page.route(loginRoute, route => route.fulfill({ status: 403, json: { error: 'Connection request denied.' } }));
-  await page.getByRole('button', { name: 'Connect plan', exact: true }).click();
+  await page.getByRole('button', { name: /^Connect (Claude|ChatGPT) plan$/ }).click();
   await terminal.getByText(/Connection request denied\./).waitFor();
   assert.equal(await recovery.count(), 0, '403 is not mistaken for a session failure');
   await assertNoSignIn();
@@ -280,7 +280,7 @@ try {
   await page.unroute(loginRoute);
 
   await page.route(loginRoute, route => route.fulfill({ status: 401, json: { error: 'unauthenticated' } }));
-  await page.getByRole('button', { name: 'Connect plan', exact: true }).click();
+  await page.getByRole('button', { name: /^Connect (Claude|ChatGPT) plan$/ }).click();
   await recovery.waitFor();
   await assertNoSignIn();
   await page.unroute(loginRoute);
@@ -293,7 +293,7 @@ try {
   await fixture('stale-status');
   await page.goto(`${base}/?fixture=stale-status#settings/subscriptions`);
   await page.getByRole('tab', { name: 'Codex', exact: true }).click();
-  await page.getByRole('button', { name: 'Login', exact: true }).click();
+  await page.getByRole('button', { name: 'Connect ChatGPT plan', exact: true }).click();
   await until(() => terminal.getByLabel('Authorization code', { exact: true }).isEnabled());
   await terminal.getByLabel('Authorization code', { exact: true }).fill('codex-fake-code#verified');
   await terminal.getByRole('button', { name: 'Connect Codex', exact: true }).click();
@@ -325,7 +325,7 @@ try {
   await page.unroute(cliStatusRoute);
 
   // A late auth denial can arrive after real reset effects. Reconcile instead of promising no change.
-  await page.getByRole('button', { name: 'Login', exact: true }).click();
+  await page.getByRole('button', { name: 'Connect ChatGPT plan', exact: true }).click();
   await until(() => terminal.getByLabel('Authorization code', { exact: true }).isEnabled());
   await terminal.getByLabel('Authorization code', { exact: true }).fill('unsent-late-reset');
   const cliResetRoute = url => url.origin === base && url.pathname === '/api/cli/reset';
@@ -341,7 +341,7 @@ try {
   // Polling can observe cancellation before retirement, or a missing retired session.
   await terminal.getByText(/^(Failed|Cancelled)$/).waitFor();
   assert.equal(await terminal.getByLabel('Authorization code', { exact: true }).count(), 0);
-  await page.locator('.cfg-row__sub').getByText('ChatGPT via Codex · Blocked', { exact: true }).waitFor();
+  await page.getByText('Your Bots are set to use your ChatGPT plan through Codex, but that connection is not ready.', { exact: true }).waitFor();
   assert.equal(await page.getByText(/This request has not been applied|Your current terminal stays open/).count(), 0);
   assert.equal(resetBodies.length, resetCount + 1, 'late denial must not replay reset automatically');
   assert.equal((await (await context.request.get(`${base}/api/cli`)).json()).providers.codex.authenticated, false);
