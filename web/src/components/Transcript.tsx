@@ -22,6 +22,7 @@ import { FlockMark } from './FlockMark';
 import { CompletedReplyAnnouncer } from './CompletedReplyAnnouncer';
 import { Copy } from 'lucide-react';
 import { toast } from '../lib/toast';
+import { stepApprovalOutcome } from '../lib/stepApproval';
 
 type Item =
   | { kind: 'exchange'; key: string; group: ExchangeGroup }
@@ -142,8 +143,10 @@ function SenderLabel({ from }: { from: NonNullable<MessageBody['from']> }) {
 function Steps({ rows }: { rows: Row[] }) {
   const clean = useDisplayText();
   const [open, setOpen] = useState(false);
+  const decisions = useStore(s => s.approvalDecisions);
   // Keep execution visible even when the user collapses completed history.
-  const visible = open ? rows : rows.filter(r => ['queued', 'running', 'awaiting-approval', 'uncertain', 'interrupted'].includes((r.body as ToolCallBody).status));
+  const visible = open ? rows : rows.filter(r => stepApprovalOutcome(r.body as ToolCallBody, decisions)
+    || ['queued', 'running', 'awaiting-approval', 'uncertain', 'interrupted'].includes((r.body as ToolCallBody).status));
   const n = rows.length;
   return (
     <div className={`steps${open ? ' is-open' : ''}`}>
@@ -155,9 +158,11 @@ function Steps({ rows }: { rows: Row[] }) {
         <ul className="steps__list">
           {visible.map((r) => {
             const c = r.body as ToolCallBody;
-            return <li key={c.callId} className={`step is-${c.status}`}>
+            const outcome = stepApprovalOutcome(c, decisions);
+            return <li key={c.callId} className={`step is-${outcome?.status ?? c.status}`}>
               <span className="step__dot" />
               <span className="step__label">{clean(appToolLabel(c.name, c.args) ?? c.label)}</span>
+              {outcome ? <span className="step__summary">{outcome.label}</span> : <>
               {c.status === 'running' && <span className="step__summary">Running · <ElapsedTimer since={c.startedAt ?? r.createdAt} /></span>}
               {c.status === 'queued' && <span className="step__summary">Queued</span>}
               {c.status === 'awaiting-approval' && <span className="step__summary">Waiting for approval</span>}
@@ -167,6 +172,7 @@ function Steps({ rows }: { rows: Row[] }) {
               {c.status === 'denied' && !c.summary && <span className="step__summary">Not allowed</span>}
               {c.status === 'uncertain' && <span className="step__summary">Result unknown</span>}
               {c.status === 'interrupted' && <span className="step__summary">Interrupted</span>}
+              </>}
               {c.screenshot && <img className="step__shot" src={c.screenshot} alt="" />}
             </li>;
           })}

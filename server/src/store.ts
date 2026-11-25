@@ -11,6 +11,7 @@ import { applyExplicitPreferenceCorrections } from './knowledge/memory.js';
 import { isHumanUserMessage } from './knowledge/sessions.js';
 import { serializeVoiceCall, voiceCallsReferencing } from './voice-approvals.js';
 import { storedSuggestions } from './suggestion-store.js';
+import { approvalSteps, withStepApproval } from './step-approvals.js';
 
 // ---------- bots ----------
 
@@ -116,7 +117,7 @@ function notifyRow(userId: string, row: Row, isNew: boolean) {
 }
 
 function toRow(r: any): Row {
-  let body = JSON.parse(r.body) as RowBody;
+  let body = withStepApproval(JSON.parse(r.body) as RowBody, r.bot_id, r.generation);
   if (body.type === 'event' && body.event === 'voice-call') body = serializeVoiceCall(body, getBotRow(r.bot_id).user_id, false, { botId: r.bot_id, generation: r.generation, seq: r.seq, createdAt: r.created_at });
   return { botId: r.bot_id, generation: r.generation, seq: r.seq, updatedSeq: r.updated_seq, kind: r.kind, audience: body.audience, body, createdAt: r.created_at };
 }
@@ -188,6 +189,7 @@ export function updateRow(botId: string, seq: number, body: RowBody): Row | null
     const prior = JSON.parse(existing.body) as RowBody;
     const jobId = body.jobId ?? prior.jobId ?? (body.type === 'message' || body.type === 'tool-call' ? currentJobId() ?? undefined : undefined);
     body = { ...body, jobId, audience: body.type === 'card' ? 'user' : body.audience ?? prior.audience ?? executionAudience(botId) };
+    body = withStepApproval(body, botId, b.generation);
     const rev = bumpRev(botId);
     db.prepare('UPDATE rows SET body=?, updated_seq=? WHERE bot_id=? AND generation=? AND seq=?').run(JSON.stringify(body), rev, botId, b.generation, seq);
     const memoryChanged = existing.kind === 'message' && recordMessageSource(b.user_id, botId, b.generation, seq, rev, body);
@@ -200,6 +202,9 @@ export function updateRow(botId: string, seq: number, body: RowBody): Row | null
   hub.emit(res.userId, { type: 'rows', botId, generation: res.row.generation, rows: [res.row] });
   notifyRow(res.userId, res.row, false);
   if (body.type === 'card' && body.card === 'approval') {
+    for (const step of approvalSteps(botId, res.row.generation, body.approvalId, seq)) {
+      updateRow(botId, step.seq, JSON.parse(step.body));
+    }
     // Advance revisions as well as emitting SSE so reconnect reconciliation also
     // observes the changed pill, including calls delegated to a different bot.
     for (const call of voiceCallsReferencing(res.userId, botId, res.row.generation, seq, body.approvalId)) {

@@ -179,7 +179,7 @@
 .step.is-error .step__dot, .step.is-denied .step__dot { background: var(--color-danger); }
 .step.is-running .step__dot, .step.is-awaiting-approval .step__dot { background: var(--color-warn); }
 .step.is-uncertain .step__dot, .step.is-interrupted .step__dot { background: var(--color-warn); }
-.step.is-queued .step__dot { background: var(--color-text-tertiary); }
+.step.is-queued .step__dot, .step.is-expired .step__dot { background: var(--color-text-tertiary); }
 .step__label { overflow-wrap: anywhere; min-width: 0; }
 .step__summary { color: var(--color-text-tertiary); font-size: 12px; }
 .step__shot { flex-basis: 100%; max-width: 240px; border-radius: 6px; box-shadow: var(--color-border-tertiary) 0 0 0 0.5px; margin-top: 2px; }

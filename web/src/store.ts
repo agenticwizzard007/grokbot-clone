@@ -7,6 +7,7 @@ import { readDetailsDefault } from './lib/detailsDefault';
 import { requireActiveSession, sessionExpired } from './lib/session';
 import { navigationActions } from './lib/navigation';
 import { suggestionCache } from './lib/suggestionCache';
+import { confirmedApprovals, withKnownStepApproval, type ApprovalDecisions } from './lib/stepApproval';
 
 export type ModalKind = 'create' | 'search' | 'apps' | 'group' | null;
 
@@ -48,6 +49,7 @@ interface State {
   live: Record<string, LiveState>;
   selectedBotId: string | null;
   transcripts: Record<string, Transcript>;
+  approvalDecisions: ApprovalDecisions;
   routines: Record<string, Routine[]>;
   computer: ComputerState | null;
   /** Bumped on every `connections` event so open views can refetch. */
@@ -74,6 +76,7 @@ interface State {
   loadRoutines(id: string): Promise<void>;
   loadComputer(): Promise<void>;
   upsertRows(botId: string, generation: number, rows: Row[]): void;
+  decideApproval(id: string, decision: 'allow' | 'always' | 'deny'): Promise<void>;
   handleEvent(ev: ServerEvent): void;
   setModal(m: ModalKind): void;
   set(p: Partial<State>): void;
@@ -111,6 +114,7 @@ export const useStore = create<State>((set, get) => ({
   live: {},
   selectedBotId: lsGet(LS_SELECTED),
   transcripts: {},
+  approvalDecisions: {},
   routines: {},
   computer: null,
   connectionsVersion: 0,
@@ -236,7 +240,7 @@ export const useStore = create<State>((set, get) => ({
       const prev = get().transcripts[id];
       const paging = prev?.generation === generation ? prev : undefined;
       const bySeq: Record<number, Row> = { ...paging?.bySeq };
-      for (const row of rows) if (!bySeq[row.seq] || bySeq[row.seq].updatedSeq <= row.updatedSeq) bySeq[row.seq] = row;
+      for (const row of rows) if (!bySeq[row.seq] || bySeq[row.seq].updatedSeq <= row.updatedSeq) bySeq[row.seq] = withKnownStepApproval(row, bySeq[row.seq]);
       const olderCursor = paging?.olderCursor !== undefined && Object.keys(paging.bySeq).length > 0 ? paging.olderCursor : latest.olderCursor !== undefined ? latest.olderCursor
         : rows.length === INITIAL_ROW_PAGE_SIZE || rows.length === ROW_PAGE_SIZE ? rows[0].seq : null;
       const reconcile = previous?.loaded && previous.generation === generation;
@@ -254,7 +258,7 @@ export const useStore = create<State>((set, get) => ({
           if (!valid() || changes.generation !== generation) return;
           const transcript = get().transcripts[id];
           const merged = { ...transcript.bySeq };
-          for (const row of changes.rows) if (!merged[row.seq] || merged[row.seq].updatedSeq <= row.updatedSeq) merged[row.seq] = row;
+          for (const row of changes.rows) if (!merged[row.seq] || merged[row.seq].updatedSeq <= row.updatedSeq) merged[row.seq] = withKnownStepApproval(row, merged[row.seq]);
           set(s => ({ transcripts: { ...s.transcripts, [id]: { ...transcript, bySeq: merged } } }));
           if (changes.nextRev === null) break;
           if (changes.nextRev <= after) throw new Error('Invalid revision page');
@@ -301,7 +305,7 @@ export const useStore = create<State>((set, get) => ({
         if (!transcript || page.generation !== generation) return;
         const bySeq = { ...transcript.bySeq };
         for (const row of page.rows) {
-          if (!bySeq[row.seq] || row.updatedSeq >= bySeq[row.seq].updatedSeq) bySeq[row.seq] = row;
+          if (!bySeq[row.seq] || row.updatedSeq >= bySeq[row.seq].updatedSeq) bySeq[row.seq] = withKnownStepApproval(row, bySeq[row.seq]);
         }
         update({ bySeq, loadingOlder: false, olderCursor: page.olderCursor !== undefined ? page.olderCursor : page.rows.length === ROW_PAGE_SIZE ? page.rows[0].seq : null });
       } catch (error) {
@@ -360,10 +364,30 @@ export const useStore = create<State>((set, get) => ({
       const bySeq = { ...base.bySeq };
       for (const r of rows) {
         const cur = bySeq[r.seq];
-        if (!cur || r.updatedSeq >= cur.updatedSeq) bySeq[r.seq] = r;
+        if (!cur || r.updatedSeq >= cur.updatedSeq) bySeq[r.seq] = withKnownStepApproval(r, cur);
       }
       return { transcripts: { ...s.transcripts, [botId]: { ...base, generation, bySeq } } };
     });
+  },
+
+  async decideApproval(id, decision) {
+    if (get().approvalDecisions[id]) return;
+    const epoch = accountEpoch;
+    const status = decision === 'deny' ? 'denied' : decision === 'always' ? 'always' : 'allowed';
+    set(s => ({ approvalDecisions: { ...s.approvalDecisions, [id]: { status, pending: true } } }));
+    try {
+      const result = await api.approve(id, decision);
+      if (epoch !== accountEpoch || !get().approvalDecisions[id]?.pending) return;
+      set(s => ({ approvalDecisions: { ...s.approvalDecisions, [id]: { status: !result.status || result.status === 'pending' ? status : result.status } } }));
+    } catch {
+      if (epoch !== accountEpoch || !get().approvalDecisions[id]?.pending) return;
+      set(s => {
+        const approvalDecisions = { ...s.approvalDecisions };
+        delete approvalDecisions[id];
+        return { approvalDecisions };
+      });
+      throw new Error('Could not save your decision. Please try again.');
+    }
   },
 
   handleEvent(ev) {
@@ -452,11 +476,23 @@ useStore.subscribe((state, previous) => {
   accountEpoch++;
   rowRequests.clear();
   useStore.setState({
+    approvalDecisions: {},
     botsLoading: false, botsError: null,
     ...(state.bots === previous.bots ? { bots: [], botsLoaded: false } : {}),
     ...(state.transcripts === previous.transcripts ? { transcripts: {} } : {}),
     ...(state.live === previous.live ? { live: {} } : {}),
   });
+});
+
+// Cards and steps share one decision on click, HTTP confirmation, snapshots and SSE.
+useStore.subscribe((state, previous) => {
+  if (state.transcripts === previous.transcripts) return;
+  const rows = Object.entries(state.transcripts).flatMap(([id, transcript]) => {
+    const prior = previous.transcripts[id]?.bySeq;
+    return transcript.bySeq === prior ? [] : Object.values(transcript.bySeq).filter(row => row !== prior?.[row.seq]);
+  });
+  const approvalDecisions = confirmedApprovals(state.approvalDecisions, rows);
+  if (approvalDecisions !== state.approvalDecisions) useStore.setState({ approvalDecisions });
 });
 
 // Bot payloads arrive before Settings mounts, including in a browser with no storage.

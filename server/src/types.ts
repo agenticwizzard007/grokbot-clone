@@ -131,6 +131,8 @@ export interface ToolCallBody {
   /** Human phrase, e.g. "Clicking on screen". */
   label: string;
   status: 'queued' | 'running' | 'done' | 'error' | 'awaiting-approval' | 'denied' | 'interrupted' | 'uncertain';
+  /** Decision for this exact call, independent of execution progress. */
+  approval?: { id: string; status: ApprovalStatus };
   startedAt?: number;
   completedAt?: number;
   args?: unknown;
@@ -138,6 +140,8 @@ export interface ToolCallBody {
   /** Data URL thumbnail for computer actions. */
   screenshot?: string;
 }
+
+export type ApprovalStatus = 'pending' | 'allowed' | 'always' | 'denied' | 'expired';
 
 export type CardBody =
   | {
@@ -155,7 +159,7 @@ export type CardBody =
       toolkitName?: string;
       logo?: string;
       args: unknown;
-      status: 'pending' | 'allowed' | 'always' | 'denied' | 'expired';
+      status: ApprovalStatus;
     }
   | {
       type: 'card';

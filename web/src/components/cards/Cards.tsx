@@ -8,6 +8,7 @@ import { Icon } from '../Icon';
 import { ToolkitLogo } from '../ToolkitLogo';
 import { useRefocusOnResolve } from '../../lib/composerFocus';
 import { useDisplayText } from '../../lib/useDisplayText';
+import { APPROVAL_OUTCOME } from '../../lib/stepApproval';
 
 // HTML parsing is loaded only for action cards, never on the initial chat path.
 const ActionPreview = lazy(() => import('./ToolPreview').then(m => ({ default: m.ActionPreview })));
@@ -31,13 +32,13 @@ export const humanizeToolkit = (slug: string) => KNOWN[slug.toLowerCase()] ?? sl
 
 // ---------------- approval ----------------
 
-const APPROVAL_OUTCOME: Record<string, string> = { allowed: 'Allowed once', always: 'Always allowed', denied: 'Not allowed', expired: 'Expired' };
-
 export function ApprovalCard({ body }: { body: Card<'approval'> }) {
   const { busy, error, run } = useBusy();
   const clean = useDisplayText();
-  const pending = body.status === 'pending';
-  const decide = (d: 'allow' | 'always' | 'deny') => run(d, () => api.approve(body.approvalId, d));
+  const decision = useStore(s => s.approvalDecisions[body.approvalId]);
+  const status = decision?.status ?? body.status;
+  const pending = status === 'pending';
+  const decide = (d: 'allow' | 'always' | 'deny') => run(d, () => useStore.getState().decideApproval(body.approvalId, d));
   const name = clean(body.toolkitName ?? (body.toolkit ? humanizeToolkit(body.toolkit) : prettyTool(clean(body.tool))));
   // Older persisted approvals stored their verified account label ahead of JSON.
   const accountLabel = body.accountLabel ?? body.detail?.match(/^Account: ([^\n]*)$/m)?.[1];
@@ -61,12 +62,12 @@ export function ApprovalCard({ body }: { body: Card<'approval'> }) {
             {body.tool !== 'update_profile:timezone' && <button type="button" className="btn btn--secondary" disabled={!!busy} onClick={() => decide('always')}>Always allow</button>}
             <button type="button" className="btn btn--primary" disabled={!!busy} onClick={() => decide('allow')}>Allow</button>
           </div>
-          {error && <div className="card__error">{clean(error)}</div>}
+          {error && <div className="card__error" role="alert">{clean(error)}</div>}
         </>
       ) : (
-        <div className={`card__outcome is-${body.status}`}>
-          <Icon name={body.status === 'denied' || body.status === 'expired' ? 'close' : 'check'} size={12} opacity={0.7} />
-          {APPROVAL_OUTCOME[body.status] ?? body.status}
+        <div className={`card__outcome is-${status}`}>
+          <Icon name={status === 'denied' || status === 'expired' ? 'close' : 'check'} size={12} opacity={0.7} />
+          {APPROVAL_OUTCOME[status]}
         </div>
       )}
     </div>

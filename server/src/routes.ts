@@ -510,8 +510,10 @@ api.post('/bots/:id/fresh', (c) => {
 api.post('/approvals/:id', async (c) => {
   const body = await readJson(c, approvalDecisionSchema); if (!body.ok) return body.response;
   const { decision } = body.data;
-  try { resolveApproval(c.get('user').id, c.req.param('id'), decision); } catch { return c.json({ error: 'not found' }, 404); }
-  return c.json({ ok: true });
+  try {
+    const status = resolveApproval(c.get('user').id, c.req.param('id'), decision);
+    return c.json({ ok: true, status });
+  } catch { return c.json({ error: 'not found' }, 404); }
 });
 
 api.post('/bots/:id/cards/:seq/answer', async (c) => {
