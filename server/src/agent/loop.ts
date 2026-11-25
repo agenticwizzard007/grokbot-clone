@@ -11,7 +11,7 @@ import { env } from '../env.js';
 import { newId, sha256 } from '../lib/ids.js';
 import { hub } from '../lib/hub.js';
 import { appendHistory, appendRow, emitBot, getBotRow, getLive, getRow, loadHistory, setLive, updateRow } from '../store.js';
-import type { RowBody, ToolCallBody } from '../types.js';
+import type { ApprovalStatus, RowBody, ToolCallBody } from '../types.js';
 import { composioTools, connectionsDetail } from '../composio.js';
 import { appName } from '../tool-activity.js';
 import { systemPrompt } from './prompt.js';
@@ -1156,7 +1156,7 @@ export function resolveApproval(userId: string, approvalId: string, decision: 'a
   if(!['allow','always','deny'].includes(decision))throw new Error('Invalid approval decision.');
   const ap = db.prepare('SELECT a.*, b.user_id FROM approvals a JOIN bots b ON b.id=a.bot_id WHERE a.id=?').get(approvalId) as any;
   if (!ap || ap.user_id !== userId) throw new Error('not found');
-  if (ap.status !== 'pending') return;
+  if (ap.status !== 'pending') return ap.status as ApprovalStatus;
   if (ap.tool === 'update_profile:timezone' && decision === 'always') decision = 'allow';
   const status = decision === 'deny' ? 'denied' : decision === 'always' ? 'always' : 'allowed';
   db.prepare('UPDATE approvals SET status=?, resolved_at=? WHERE id=?').run(status, now(), approvalId);
@@ -1168,5 +1168,6 @@ export function resolveApproval(userId: string, approvalId: string, decision: 'a
   emitBot(ap.bot_id);
   hub.emit(userId, { type: 'tasks', botId: ap.bot_id });
   enqueue(ap.bot_id, { type: 'resume' });
+  return status;
   })();
 }

@@ -1,4 +1,4 @@
-import type { Bot, ComputerState, LiveState, Routine, Row, Toolkit, User } from '@shared/types';
+import type { ApprovalStatus, Bot, ComputerState, LiveState, Routine, Row, Toolkit, User } from '@shared/types';
 import { isNativeApp } from './native';
 import { requireActiveSession, revalidateSession } from './session';
 import { readDeadline } from './readDeadline';
@@ -56,7 +56,7 @@ export const api = {
   interrupt: (id: string) => req<{ ok: true }>('POST', `/bots/${id}/interrupt`),
   fresh: (id: string) => req<{ ok: true }>('POST', `/bots/${id}/fresh`),
 
-  approve: (approvalId: string, decision: 'allow' | 'always' | 'deny') => req<{ ok: true }>('POST', `/approvals/${approvalId}`, { decision }),
+  approve: (approvalId: string, decision: 'allow' | 'always' | 'deny') => req<{ ok: true; status: ApprovalStatus }>('POST', `/approvals/${approvalId}`, { decision }),
   answer: (id: string, seq: number, answer: string) => req<{ ok: true }>('POST', `/bots/${id}/cards/${seq}/answer`, { answer }),
   dismiss: (id: string, seq: number) => req<{ ok: true }>('POST', `/bots/${id}/cards/${seq}/dismiss`),
 

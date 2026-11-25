@@ -11,6 +11,7 @@ import { applyExplicitPreferenceCorrections } from './knowledge/memory.js';
 import { isHumanUserMessage } from './knowledge/sessions.js';
 import { serializeVoiceCall, voiceCallsReferencing } from './voice-approvals.js';
 import { storedSuggestions } from './suggestion-store.js';
+import { approvalSteps, withStepApproval, withStepApprovals } from './step-approvals.js';
 
 // ---------- bots ----------
 
@@ -188,6 +189,7 @@ export function updateRow(botId: string, seq: number, body: RowBody): Row | null
     const prior = JSON.parse(existing.body) as RowBody;
     const jobId = body.jobId ?? prior.jobId ?? (body.type === 'message' || body.type === 'tool-call' ? currentJobId() ?? undefined : undefined);
     body = { ...body, jobId, audience: body.type === 'card' ? 'user' : body.audience ?? prior.audience ?? executionAudience(botId) };
+    body = withStepApproval(body, botId, b.generation);
     const rev = bumpRev(botId);
     db.prepare('UPDATE rows SET body=?, updated_seq=? WHERE bot_id=? AND generation=? AND seq=?').run(JSON.stringify(body), rev, botId, b.generation, seq);
     const memoryChanged = existing.kind === 'message' && recordMessageSource(b.user_id, botId, b.generation, seq, rev, body);
@@ -200,6 +202,9 @@ export function updateRow(botId: string, seq: number, body: RowBody): Row | null
   hub.emit(res.userId, { type: 'rows', botId, generation: res.row.generation, rows: [res.row] });
   notifyRow(res.userId, res.row, false);
   if (body.type === 'card' && body.card === 'approval') {
+    for (const step of approvalSteps(botId, res.row.generation, body.approvalId, seq)) {
+      updateRow(botId, step.seq, JSON.parse(step.body));
+    }
     // Advance revisions as well as emitting SSE so reconnect reconciliation also
     // observes the changed pill, including calls delegated to a different bot.
     for (const call of voiceCallsReferencing(res.userId, botId, res.row.generation, seq, body.approvalId)) {
@@ -213,26 +218,26 @@ export function updateRow(botId: string, seq: number, body: RowBody): Row | null
 export function getRow(botId: string, seq: number): Row | null {
   const b = getBotRow(botId);
   const r = db.prepare('SELECT * FROM rows WHERE bot_id=? AND generation=? AND seq=?').get(botId, b.generation, seq);
-  return r ? toRow(r) : null;
+  return r ? withStepApprovals([toRow(r)])[0] : null;
 }
 
 export function listRows(botId: string, opts: { beforeSeq?: number; limit?: number; afterRev?: number } = {}): Row[] {
   const b = getBotRow(botId);
   if (!b) return [];
   if (opts.afterRev !== undefined) {
-    return (db.prepare('SELECT * FROM rows WHERE bot_id=? AND generation=? AND updated_seq>? ORDER BY seq ASC').all(botId, b.generation, opts.afterRev) as any[]).map(toRow);
+    return withStepApprovals((db.prepare('SELECT * FROM rows WHERE bot_id=? AND generation=? AND updated_seq>? ORDER BY seq ASC').all(botId, b.generation, opts.afterRev) as any[]).map(toRow));
   }
   const limit = Math.min(opts.limit ?? 200, 500);
   const rows = (opts.beforeSeq
     ? db.prepare('SELECT * FROM rows WHERE bot_id=? AND generation=? AND seq<? ORDER BY seq DESC LIMIT ?').all(botId, b.generation, opts.beforeSeq, limit)
     : db.prepare('SELECT * FROM rows WHERE bot_id=? AND generation=? ORDER BY seq DESC LIMIT ?').all(botId, b.generation, limit)) as any[];
-  return rows.reverse().map(toRow);
+  return withStepApprovals(rows.reverse().map(toRow));
 }
 
 /** Bounded reconciliation of revisions since the last complete snapshot. */
 export function listRowChanges(botId: string, generation: number, afterRev: number, throughRev: number, minSeq: number): Row[] {
-  return (db.prepare('SELECT * FROM rows WHERE bot_id=? AND generation=? AND updated_seq>? AND updated_seq<=? AND seq>=? ORDER BY updated_seq ASC LIMIT 200')
-    .all(botId, generation, afterRev, throughRev, minSeq) as any[]).map(toRow);
+  return withStepApprovals((db.prepare('SELECT * FROM rows WHERE bot_id=? AND generation=? AND updated_seq>? AND updated_seq<=? AND seq>=? ORDER BY updated_seq ASC LIMIT 200')
+    .all(botId, generation, afterRev, throughRev, minSeq) as any[]).map(toRow));
 }
 
 export function clearConversation(botId: string) {
