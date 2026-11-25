@@ -510,8 +510,9 @@ function measuredNativeUsage(provider, samples, final = false) {
 // Completed assistant events can precede an application stop. Keep only counters
 // actually reported so accounting can mark this lower bound as partial, without
 // waiting for a final result or synthesizing missing counts as measured zeros.
-function observedNativeUsage(provider) {
+function observedNativeUsage(provider, tools) {
   const decoder = new StringDecoder('utf8'), samples = new Map();
+  const names = new Set(tools.map(tool => tool.name)), failures = [];
   let buffer = '', turn = 0, anonymous = 0, finalUsage;
   const valid = value => Number.isSafeInteger(value) && value >= 0;
   const observe = chunk => {
@@ -520,6 +521,10 @@ function observedNativeUsage(provider) {
     while ((end = buffer.indexOf('\n')) >= 0) {
       const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
       let event; try { event = JSON.parse(line); } catch { continue; }
+      if (provider === 'codex' && event.type === 'item.completed' && event.item?.type === 'mcp_tool_call'
+        && event.item.server === 'swarm' && names.has(event.item.tool) && event.item.error && failures.length < 512) {
+        failures.push({ tool: event.item.tool, errorClass: /MCP tool call requires approval, but approval policy is never/.test(event.item.error.message ?? '') ? 'cli_approval_rejected' : 'mcp_transport' });
+      }
       if (provider === 'codex' && event?.type === 'turn.started') turn++;
       const counts = provider === 'claude' ? event?.type === 'assistant' && event.message?.usage : event?.type === 'turn.completed' && event.usage;
       if (!object(counts)) continue;
@@ -533,6 +538,7 @@ function observedNativeUsage(provider) {
   };
   const snapshot = () => measuredNativeUsage(provider, [...samples.values()]);
   return { observe, snapshot,
+    diagnostics: () => failures.length ? { nativeDiagnostics: failures } : {},
     complete: values => { finalUsage = measuredNativeUsage(provider, values, true); },
     result: () => finalUsage?.usage_status !== 'unavailable' ? finalUsage ?? snapshot() : snapshot(),
   };
@@ -570,10 +576,14 @@ async function readBounded(file, remaining) {
 async function generateCodex(params, options, cwd, signal) {
   const schemaFile = join(cwd, 'schema.json'), outputFile = join(cwd, 'output.json');
   await writeFile(schemaFile, params.schema, { mode: 0o600 });
+  // This loopback capability only delegates to Swarm's admission and approval
+  // dispatcher. Codex auto prompts for unannotated MCP tools, then rejects them
+  // under never before Swarm can persist its approval card. Approve delegation
+  // for this exact manifest only; keep the sandbox and all Swarm checks intact.
   const args = ['exec', '--json', '--output-schema', schemaFile, '--output-last-message', outputFile,
     '--ignore-user-config', '--ignore-rules', '--skip-git-repo-check', '--ephemeral', '--sandbox', 'read-only',
     '-c', 'model_provider="openai"', '-c', 'web_search="disabled"',
-    '-c', options.nativeMcp ? `mcp_servers={swarm={url=${JSON.stringify(options.nativeMcp.url)},http_headers={Authorization=${JSON.stringify('Bearer ' + options.nativeMcp.token)}},enabled_tools=${JSON.stringify(params.nativeTools.map(tool => tool.name))},tool_timeout_sec=${Math.ceil(nativeToolTimeout(params) / 1000)},required=true,default_tools_approval_mode="auto"}}` : 'mcp_servers={}', '-c', 'notify=[]', '-c', 'approval_policy="never"'];
+    '-c', options.nativeMcp ? `mcp_servers={swarm={url=${JSON.stringify(options.nativeMcp.url)},http_headers={Authorization=${JSON.stringify('Bearer ' + options.nativeMcp.token)}},enabled_tools=${JSON.stringify(params.nativeTools.map(tool => tool.name))},tool_timeout_sec=${Math.ceil(nativeToolTimeout(params) / 1000)},required=true,default_tools_approval_mode="approve"}}` : 'mcp_servers={}', '-c', 'notify=[]', '-c', 'approval_policy="never"'];
   if (options.fileCredentials === true) args.push('-c', 'cli_auth_credentials_store="file"');
   // shell_tool is the supported command-execution gate. unified_exec alone is
   // insufficient (newer releases ignore user opt-outs for that feature).
@@ -697,7 +707,7 @@ export async function runGeneration(params, options = {}) {
   return deadline(options.signal, valid.timeoutMs, async (signal) => {
     const cwd = await mkdtemp(join(tmpdir(), 'swarm-cli-generate-'));
     let mcp;
-    const nativeUsage = valid.nativeTools.length ? observedNativeUsage(valid.provider) : undefined;
+    const nativeUsage = valid.nativeTools.length ? observedNativeUsage(valid.provider, valid.nativeTools) : undefined;
     const controller = new AbortController();
     const abort = () => controller.abort(signal.reason instanceof RunnerError ? signal.reason : cancelled());
     signal.addEventListener('abort', abort, { once: true });
@@ -713,7 +723,7 @@ export async function runGeneration(params, options = {}) {
       if (mcp?.stopped) return { text: JSON.stringify({ text: '', tool_calls: [] }), stopped: true, ...nativeUsage.snapshot() };
       if (!mcp) return result;
       const { usage: _legacyUsage, ...nativeResult } = result;
-      return { ...nativeResult, ...nativeUsage.result() };
+      return { ...nativeResult, ...nativeUsage.result(), ...nativeUsage.diagnostics() };
     } catch (error) {
       if ((mcp?.stopped && !signal.aborted) || (controller.signal.reason instanceof RunnerError && controller.signal.reason.code === 'native_stop')) return { text: JSON.stringify({ text: '', tool_calls: [] }), stopped: true, ...nativeUsage.snapshot() };
       throw error;

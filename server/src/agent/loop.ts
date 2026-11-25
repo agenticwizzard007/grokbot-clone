@@ -15,7 +15,7 @@ import type { RowBody, ToolCallBody } from '../types.js';
 import { composioTools, connectionsDetail } from '../composio.js';
 import { appName } from '../tool-activity.js';
 import { systemPrompt } from './prompt.js';
-import { requestAppConnection } from './app-connections.js';
+import { requestAppConnection, connectionRequiredMessage } from './app-connections.js';
 import { isSetupRefusal, messageText, operationalHistory } from './setup-reply.js';
 import { deduplicateBrowserSnapshots, repairHistory } from './history.js';
 import { maybeCompact, noteUsage } from './memory.js';
@@ -1115,14 +1115,14 @@ export async function activeAppAccount(userId: string, args: any): Promise<{ ok:
   const app = appName(slug.split('_')[0]) ?? 'app';
   let accounts: Awaited<ReturnType<typeof connectionsDetail>>;
   try { accounts = await connectionsDetail(userId, { details: true, signal: AbortSignal.timeout(15_000) }); }
-  catch { return { ok: false, message: `The ${app} connection could not be confirmed, so nothing was done. Check it with list_app_connections and try again.` }; }
+  catch { return { ok: false, message: `The ${app} connection could not be confirmed because the app provider did not return its status. Open Connected apps to check the account, then ask again. Nothing was done.` }; }
   const usable = accounts.filter(a => a.status === 'ACTIVE' && !a.isDisabled);
   const account = usable.find(a => a.id === args?.connectionId && toolkitMatches(a.toolkit, slug));
   if (!account) {
     const matching = usable.some(a => toolkitMatches(a.toolkit, slug));
     return { ok: false, ...(matching ? {} : { toolkit: slug.split('_')[0].toLowerCase() }),
       message: matching ? `The ${app} account in this request is not connected. Use list_app_connections to select an active account.`
-        : `${app} is not connected. Connect it to continue your requested work. Nothing has been sent or saved.` };
+        : connectionRequiredMessage(app, accounts.some(a => toolkitMatches(a.toolkit, slug))) };
   }
   return { ok: true, label: `${account.accountLabel ?? fallbackAccountLabel(account.id)} · ${connectionStatusLabel(account.displayStatus ?? 'active')} · ${connectedDate(account.connectedAt)}` };
 }

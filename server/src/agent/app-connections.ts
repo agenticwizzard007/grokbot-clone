@@ -32,7 +32,11 @@ const requestSchema = z.object({
 
 const result = (data: unknown, extra: Omit<AppConnectionResult, 'output'> = {}): AppConnectionResult => ({ output: JSON.stringify(data), ...extra });
 const unavailable = () => result({ ok: false, available: false, status: 'unavailable',
-  error: 'Connected apps are unavailable right now. This does not mean that no apps are connected. Retry later or check app connection settings.' }, { summary: 'App connections unavailable' });
+  error: 'The app provider did not return your connection status. Open Connected apps to check the account, then ask again. This does not mean your apps are disconnected.' }, { summary: 'App connections unavailable' });
+
+export const connectionRequiredMessage = (app: string, reconnect: boolean) => reconnect
+  ? `${app} needs to be reconnected. Use the Connect card in the main chat to reconnect it. Nothing has been sent or saved.`
+  : `${app} is not connected. Connect it to continue your requested work. Nothing has been sent or saved.`;
 
 function ownBot(ctx: ToolCtx, generation?: number) {
   assertTenant(ctx.userId);
@@ -99,7 +103,8 @@ const requestTool = define('request_app_connection',
     const info = await toolkitInfo(args.toolkit);
     ownBot(ctx, generation);
     if (!info) return result({ ok: false, status: 'unknown_toolkit', error: 'Unknown app. Use search_apps to find a supported toolkit slug.' });
-    const active = (await connectionsDetail(ctx.userId, { details: true })).filter(connection => connection.toolkit === info.slug && connection.status === 'ACTIVE' && !connection.isDisabled).map(publicConnection);
+    const accounts = (await connectionsDetail(ctx.userId, { details: true })).filter(connection => connection.toolkit === info.slug);
+    const active = accounts.filter(connection => connection.status === 'ACTIVE' && !connection.isDisabled).map(publicConnection);
     ownBot(ctx, generation);
     if (active.length) return result({ ok: true, status: 'connected',
       ...(active.length === 1 ? { connection: active[0] } : { connections: active }),
@@ -116,11 +121,11 @@ const requestTool = define('request_app_connection',
       if (ctx.jobId && !body.jobId) updateRow(ctx.botId, seq, { ...body, jobId: ctx.jobId });
     } else {
       seq = appendRow(ctx.botId, 'card', { type: 'card', card: 'connect', jobId: ctx.jobId,
-        toolkit: info.slug, toolkitName: info.name, logo: info.logo, reason: args.reason, status: 'pending' }).seq;
+        toolkit: info.slug, toolkitName: info.name, logo: info.logo, reason: accounts.length ? connectionRequiredMessage(info.name, true) : args.reason, status: 'pending' }).seq;
     }
     const connectionRequest: AppConnectionRequest = { botId: ctx.botId, seq, toolkit: info.slug, toolkitName: info.name };
     return result({ ok: true, status: 'pending', connectionRequest,
-      note: `${info.name} is not connected. Use the Connect card in the main chat to connect it. No action approval has been requested and nothing has been sent or saved. Stop and wait until the provider confirms an active account.` },
+      note: `${connectionRequiredMessage(info.name, accounts.length > 0)} Use the Connect card in the main chat. No action approval has been requested. Stop and wait until the provider confirms an active account.` },
     { connectionRequest, summary: `Waiting to connect ${info.name}`, endTurn: true });
   });
 

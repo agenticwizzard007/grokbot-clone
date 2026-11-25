@@ -1,4 +1,5 @@
 import type { NativeToolCall, NativeToolHandler, NativeToolResult } from './native-tools.js';
+import { cliDiagnostic, cliErrorClass, safeToolName } from './diagnostics.js';
 
 export const hasNativeTools = (params: unknown): boolean => Array.isArray((params as any)?.nativeTools) && (params as any).nativeTools.length > 0;
 
@@ -10,6 +11,7 @@ function canonical(value: any): string {
 
 /** A callback capability belongs to exactly one generation, never its socket's other jobs. */
 export class ToolCallbacks {
+  private audit = cliDiagnostic();
   private active = true;
   private stopped = false;
   private requestBytes = 0;
@@ -26,6 +28,24 @@ export class ToolCallbacks {
   }
 
   run(value: unknown): Promise<NativeToolResult> {
+    const call = value as NativeToolCall;
+    const tool = safeToolName(call?.name);
+    const action = call?.name === 'SWARM_APPS_EXECUTE' ? safeToolName(call?.arguments?.tool_slug) : undefined;
+    try {
+      const result = this.admit(value);
+      this.audit?.({ event: 'tool', tool, action, admission: 'admitted' });
+      return result.then(reply => {
+        const text = typeof reply.output === 'string' ? reply.output : '';
+        let status: string | undefined;
+        try { status = JSON.parse(text)?.status; } catch { /* Most outputs are plain text. */ }
+        this.audit?.({ event: 'tool_result', tool, action, admission: status === 'pending_approval' ? 'pending_approval' : reply.isError ? 'refused' : 'returned',
+          ...(reply.isError ? { errorClass: cliErrorClass(text) } : {}), stopped: reply.stop === true });
+        return reply;
+      }, error => { this.audit?.({ event: 'tool_result', tool, action, admission: 'refused', errorClass: cliErrorClass(error) }); throw error; });
+    } catch (error) { this.audit?.({ event: 'tool', tool, action, admission: 'rejected', errorClass: cliErrorClass(error) }); throw error; }
+  }
+
+  private admit(value: unknown): Promise<NativeToolResult> {
     if (!this.active) throw new Error('CLI generation is no longer active.');
     if (!this.handler || !this.names.size) throw new Error('Native CLI tool callback is unavailable.');
     const call = value as NativeToolCall;
