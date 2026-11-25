@@ -11,16 +11,19 @@ export interface CliProviderStatus {
   error?: string;
 }
 
+export interface CliRun {
+  startedAt: number;
+  provider: CliProvider;
+  runtime: 'server' | 'bridge';
+  toolsOffered: number;
+  lastTool: string | null;
+  result: 'running' | 'completed' | 'pending_approval' | 'rejected_by_cli' | 'denied' | 'error' | 'cancelled' | 'no_tool_call';
+  errorCode: string | null;
+}
+
 export interface CliStatus {
-  lastRun?: {
-    startedAt: number;
-    provider: CliProvider;
-    runtime: 'server' | 'bridge';
-    toolsOffered: number;
-    lastTool: string | null;
-    result: 'running' | 'completed' | 'pending_approval' | 'rejected_by_cli' | 'denied' | 'error' | 'cancelled' | 'no_tool_call';
-    errorCode: string | null;
-  } | null;
+  lastRun?: CliRun | null;
+  runsByProvider?: Partial<Record<CliProvider, { latest: CliRun | null; lastToolRun: CliRun | null }>>;
   runtime: 'server' | 'bridge';
   serverLoginAvailable: boolean;
   selected: CliProvider | null;

@@ -2,7 +2,7 @@ import { SettingIcon } from './SettingRow';
 import { useModels } from '../../lib/models';
 import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, Copy, ExternalLink, RefreshCw, Terminal, KeyRound, Monitor } from 'lucide-react';
-import { cliApi, getCachedCliStatus, type CliProvider, type CliProviderStatus, type CliStatus } from '../../lib/cliApi';
+import { cliApi, getCachedCliStatus, type CliProvider, type CliProviderStatus, type CliStatus, type CliRun } from '../../lib/cliApi';
 import { modelAccessStatus } from '../../lib/modelAccessStatus';
 import { refreshModels } from './ModelPicker';
 import { CliLoginTerminal } from './CliLoginTerminal';
@@ -387,14 +387,8 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
           <div><dt>Provider</dt><dd>{provider.name}</dd></div>
           <div><dt>Eligible plan</dt><dd>{provider.plan}</dd></div>
           <div><dt>Login location</dt><dd>{runtime === 'bridge' ? 'Your computer · advanced bridge' : 'Swarm server · private account profile'}</dd></div>
-          <div><dt>Last CLI run</dt><dd>{status?.lastRun ? new Date(status.lastRun.startedAt).toLocaleString() : 'No run recorded yet'}</dd></div>
-          {status?.lastRun && <>
-            <div><dt>Run provider</dt><dd>{status.lastRun.provider === 'codex' ? 'Codex' : 'Claude Code'} · {status.lastRun.runtime === 'server' ? 'Swarm server' : 'Your computer'}</dd></div>
-            <div><dt>Tools offered</dt><dd>{status.lastRun.toolsOffered}</dd></div>
-            <div><dt>Last tool call</dt><dd>{status.lastRun.lastTool ?? 'None reached Swarm'}</dd></div>
-            <div><dt>Run result</dt><dd>{{ running: 'Running', completed: 'Completed', pending_approval: 'Pending approval', rejected_by_cli: 'Rejected by CLI', denied: 'Denied', error: 'Error', cancelled: 'Stopped', no_tool_call: 'No tool call' }[status.lastRun.result]}</dd></div>
-            {status.lastRun.errorCode && <div><dt>Run code</dt><dd>{status.lastRun.errorCode}</dd></div>}
-          </>}
+          <RunDetails title="Last CLI run" run={status?.runsByProvider?.[providerTab]?.latest ?? (status?.lastRun?.provider === providerTab ? status.lastRun : null)} />
+          <RunDetails title="Last tool run" run={status?.runsByProvider?.[providerTab]?.lastToolRun ?? null} />
           </dl>
         </details>
         {blocked && <p className="subscription-settings__blocked">The selected subscription is blocked until its login is ready. There is no automatic fallback to API providers.</p>}
@@ -517,4 +511,18 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
       </div>
     </div>
   );
+}
+
+function RunDetails({ title, run }: { title: string; run: CliRun | null }) {
+  return <>
+    <div><dt>{title}</dt><dd>{run ? new Date(run.startedAt).toLocaleString() : 'No run recorded yet'}</dd></div>
+    {run && <>
+      <div><dt>Run type</dt><dd>{run.toolsOffered > 0 ? 'Request with tools' : 'Reply without tools'}</dd></div>
+      <div><dt>Run location</dt><dd>{run.runtime === 'server' ? 'Swarm server' : 'Your computer'}</dd></div>
+      <div><dt>Tools offered</dt><dd>{run.toolsOffered}</dd></div>
+      <div><dt>Last tool call</dt><dd>{run.lastTool ?? 'None reached Swarm'}</dd></div>
+      <div><dt>Run result</dt><dd>{{ running: 'Running', completed: 'Completed', pending_approval: 'Pending approval', rejected_by_cli: 'Rejected by CLI', denied: 'Denied', error: 'Error', cancelled: 'Stopped', no_tool_call: 'No tool call' }[run.result]}</dd></div>
+      {run.errorCode && <div><dt>Error code</dt><dd>{run.errorCode}</dd></div>}
+    </>}
+  </>;
 }

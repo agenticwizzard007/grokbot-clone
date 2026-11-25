@@ -35,6 +35,7 @@ async function req<T>(method: string, path: string, body?: unknown, signal?: Abo
 
 interface ModelsState {
   status: 'idle' | 'loading' | 'ready' | 'error';
+  stale: boolean;
   provider: ModelProvider | null;
   billing: 'api' | 'plan' | null;
   defaultModel: string | null;
@@ -50,19 +51,46 @@ interface ModelsState {
 }
 
 let loadVersion = 0;
+let retryTimer: ReturnType<typeof setTimeout> | undefined;
+let retryAttempt = 0;
+let activeVersion: number | undefined;
+const retryDelays = [1000, 2000, 4000, 8000];
+function retryLoad(version: number) {
+  clearTimeout(retryTimer);
+  retryTimer = setTimeout(() => {
+    if (version === loadVersion) void useModels.getState().load(true);
+  }, retryDelays[retryAttempt++] ?? 30_000);
+}
 export const useModels = create<ModelsState>((set, get) => ({
-  status: 'idle', provider: null, billing: null, defaultModel: null, plan: null, usage: null, canFast: false, models: [], byId: new Map(), favourites: [], error: null,
+  status: 'idle', stale: false, provider: null, billing: null, defaultModel: null, plan: null, usage: null, canFast: false, models: [], byId: new Map(), favourites: [], error: null,
   async load(force) {
-    if (!force && (get().status === 'loading' || get().status === 'ready')) return;
+    // Session restoration owns the account identity. Never cache an anonymous
+    // response or let a previous account's request populate this account.
+    if (!useStore.getState().user?.id) return;
+    if (!force && (get().status === 'ready' || activeVersion !== undefined || retryTimer !== undefined)) return;
+    clearTimeout(retryTimer); retryTimer = undefined;
     const version = ++loadVersion;
-    set({ status: 'loading', error: null, ...(force ? { provider: null, billing: null, canFast: false, models: [], byId: new Map(), usage: null, plan: null, defaultModel: null } : {}) });
+    activeVersion = version;
+    set({ status: 'loading', error: null });
     try {
-      const r = await readDeadline(signal => req<{ provider: ModelProvider; billing: 'api' | 'plan'; defaultModel?: string | null; plan?: string | null; usage?: PlanUsage; canFast: boolean; models: PickerModel[]; favourites: string[]; error?: string }>('GET', '/models', undefined, signal), 5000);
+      const r = await readDeadline(signal => req<{ provider: ModelProvider; billing: 'api' | 'plan'; defaultModel?: string | null; plan?: string | null; usage?: PlanUsage; canFast: boolean; models: PickerModel[]; favourites: string[]; stale?: boolean; error?: string }>('GET', '/models', undefined, signal), 5000);
       if (version !== loadVersion) return;
-      set({ status: 'ready', provider: r.provider, billing: r.billing, defaultModel: r.defaultModel ?? null, plan: r.plan ?? null, usage: r.usage ?? null, canFast: r.canFast, models: r.models, byId: new Map(r.models.map((m) => [m.id, m])), favourites: r.favourites, error: r.error ?? null });
-    } catch (e) {
+      if (r.error) throw new Error(r.error);
+      if (r.stale && !r.models.length) {
+        set({ stale: true });
+      } else {
+        set({ status: 'ready', stale: !!r.stale, provider: r.provider, billing: r.billing, defaultModel: r.defaultModel ?? null, plan: r.plan ?? null, usage: r.usage ?? null, canFast: r.canFast, models: r.models, byId: new Map(r.models.map((m) => [m.id, m])), favourites: r.favourites, error: null });
+      }
+      if (r.stale) retryLoad(version);
+      else retryAttempt = 0;
+    } catch {
       if (version !== loadVersion) return;
-      set({ status: 'error', models: [], byId: new Map(), usage: null, plan: null, error: (e as Error).message });
+      // A failed read is recoverable, including an auth-restore race or abort.
+      // Keep display caches and neutral loading copy until the retry succeeds.
+      set({ status: 'loading', stale: true, error: null });
+      retryLoad(version);
+    } finally {
+      if (activeVersion === version) activeVersion = undefined;
     }
   },
   async setFavourites(ids) {
@@ -77,7 +105,17 @@ export const useModels = create<ModelsState>((set, get) => ({
 useStore.subscribe((state, previous) => {
   if (state.user?.id === previous.user?.id) return;
   loadVersion++;
-  useModels.setState({ status: 'idle', provider: null, billing: null, defaultModel: null, plan: null, usage: null, canFast: false, models: [], byId: new Map(), favourites: [], error: null });
+  clearTimeout(retryTimer); retryTimer = undefined; retryAttempt = 0; activeVersion = undefined;
+  useModels.setState({ status: 'idle', stale: false, provider: null, billing: null, defaultModel: null, plan: null, usage: null, canFast: false, models: [], byId: new Map(), favourites: [], error: null });
+});
+
+// Reconnection can complete login or restore a provider while this tab was away.
+const resumeModels = () => {
+  if (activeVersion === undefined && useStore.getState().user?.id) void useModels.getState().load(true);
+};
+if (typeof window !== 'undefined') window.addEventListener('focus', resumeModels);
+useStore.subscribe((state, previous) => {
+  if (state.sseConnected && !previous.sseConnected) resumeModels();
 });
 
 const ORDER = EFFORT_ORDER;

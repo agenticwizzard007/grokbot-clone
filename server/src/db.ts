@@ -50,6 +50,23 @@ CREATE TABLE IF NOT EXISTS cli_last_runs (
   result TEXT NOT NULL,
   error_code TEXT
 );
+CREATE TABLE IF NOT EXISTS cli_provider_runs (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL,
+  slot TEXT NOT NULL CHECK(slot IN ('latest','tools')),
+  generation_id TEXT NOT NULL,
+  started_at INTEGER NOT NULL,
+  runtime TEXT NOT NULL,
+  tools_offered INTEGER NOT NULL,
+  last_tool TEXT,
+  result TEXT NOT NULL,
+  error_code TEXT,
+  PRIMARY KEY(user_id,provider,slot)
+);
+INSERT OR IGNORE INTO cli_provider_runs
+  SELECT user_id,provider,'latest',generation_id,started_at,runtime,tools_offered,last_tool,result,error_code FROM cli_last_runs;
+INSERT OR IGNORE INTO cli_provider_runs
+  SELECT user_id,provider,'tools',generation_id,started_at,runtime,tools_offered,last_tool,result,error_code FROM cli_last_runs WHERE tools_offered>0;
 CREATE TABLE IF NOT EXISTS login_attempts (
   id TEXT PRIMARY KEY,
   provisional_user_id TEXT NOT NULL,
