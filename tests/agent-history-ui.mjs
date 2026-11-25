@@ -79,7 +79,7 @@ try {
   await refreshed.getByText('Technical details', { exact: true }).click();
   await history.getByText(/skill revision 37$/).waitFor();
   await history.getByText('New accepted procedure after the history page opened.',{exact:true}).waitFor();
-  await page.getByRole('button',{name:'Back to chat',exact:true}).click();
+  await page.getByRole('button',{name:'Close details',exact:true}).click();
   await page.setViewportSize({width:390,height:844});
   const pinned = page.locator('button.pinned__tile[title="Quinn"]');
   if (await pinned.isVisible()) await pinned.click();
