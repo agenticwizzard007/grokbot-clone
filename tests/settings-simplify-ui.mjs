@@ -42,7 +42,7 @@ try {
       };
       if (path.endsWith('/suggested-apps')) return { json: { suggestions: [] } };
       if (path.startsWith('/api/platform/')) return { json: { admin: false, settings: null } };
-      if (path === '/api/usage') return { json: { range: { key: url.searchParams.get('range'), from: 1794787200000, to: 1795392000000 }, scope: 'me', canSeeAll: false, canSeeProvider: false, provider: 'openrouter', totals: { costUsd: 0, estimatedUsd: 0, unpricedRequests: 0, unpricedVoice: 0, requests: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, reasoningTokens: 0, toolCalls: 0, voiceMinutes: 0, knownTokenRequests: 0 }, days: [], byBot: [], byModel: [], byKind: [], limits: { dailyMessages: null } } };
+      if (path === '/api/usage') return { json: { range: { key: url.searchParams.get('range'), from: 1794787200000, to: 1795392000000 }, scope: 'me', canSeeAll: false, canSeeProvider: false, provider: 'openrouter', timezone: 'UTC', billing: { sources: [], note: 'No requests this period.' }, totals: { costUsd: 0, estimatedUsd: 0, unpricedRequests: 0, unpricedVoice: 0, requests: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, reasoningTokens: 0, toolCalls: 0, voiceMinutes: 0, knownTokenRequests: 0 }, days: [], byBot: [], byModel: [], byKind: [], limits: { dailyMessages: null } } };
       return path in data ? { json: data[path] } : null;
     };
     const shot = async section => {

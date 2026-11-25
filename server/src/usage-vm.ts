@@ -1,3 +1,4 @@
+import { reportDay, reportDayStart, shiftDay } from './report-days.js';
 import { legacyWorkHeld } from './security/legacy-work.js';
 import { db, now } from './db.js';
 import { env } from './env.js';
@@ -143,33 +144,59 @@ export interface ComputerTotals {
   now: { provider: string; state: VmState; cpus: number | null; memoryMb: number | null; diskGb: number | null; perHourUsd: number } | null;
 }
 
-export function computerTotals(userId: string | null, fromDay: string, toDay: string): ComputerTotals {
-  const where = userId ? 'user_id=? AND day>=? AND day<=?' : 'day>=? AND day<=?';
-  const args = userId ? [userId, fromDay, toDay] : [fromDay, toDay];
-  const r = db.prepare(`SELECT COALESCE(SUM(cost_usd),0) cost,
-      COALESCE(SUM(CASE WHEN state='running' THEN seconds END),0) run, COALESCE(SUM(CASE WHEN state='asleep' THEN seconds END),0) sleep,
-      COALESCE(SUM(CASE WHEN state='archived' THEN seconds END),0) arch FROM vm_usage WHERE ${where}`).get(...args) as any;
+/** Legacy VM metering stores UTC daily aggregates, without individual sample timestamps.
+ * For another zone, allocate each recorded day's estimates by its overlap with local days.
+ * Keep this explicit in the report: exact intraday running times cannot be recovered.
+ */
+export function computerCsvRows(userId: string | null, fromDay: string, toDay: string, timezone = 'UTC', at = Date.now()): any[] {
+  const from = reportDayStart(fromDay, timezone);
+  const to = Math.min(at, reportDayStart(shiftDay(toDay, 1), timezone));
+  const utcFrom = reportDay(from, 'UTC'), utcTo = reportDay(Math.max(from, to - 1), 'UTC');
+  const rows = (userId
+    ? db.prepare('SELECT * FROM vm_usage WHERE user_id=? AND day>=? AND day<=? ORDER BY day, vm_key, state').all(userId, utcFrom, utcTo)
+    : db.prepare('SELECT * FROM vm_usage WHERE day>=? AND day<=? ORDER BY day, vm_key, state').all(utcFrom, utcTo)) as any[];
+  if (timezone === 'UTC') return rows;
+  const days: { day: string; from: number; to: number }[] = [];
+  for (let day = fromDay; day <= toDay; day = shiftDay(day, 1)) {
+    days.push({ day, from: reportDayStart(day, timezone), to: Math.min(at, reportDayStart(shiftDay(day, 1), timezone)) });
+  }
+  return rows.flatMap(row => {
+    const start = Date.parse(`${row.day}T00:00:00Z`);
+    const end = Math.min(start + 86_400_000, at);
+    if (end <= start) return [];
+    return days.flatMap(day => {
+      const overlap = Math.max(0, Math.min(end, day.to) - Math.max(start, day.from));
+      const share = overlap / (end - start);
+      return share > 0 ? [{ ...row, day: day.day, seconds: row.seconds * share, cost_usd: row.cost_usd * share }] : [];
+    });
+  });
+}
+
+export function computerTotals(userId: string | null, fromDay: string, toDay: string, timezone = 'UTC', at = Date.now()): ComputerTotals {
+  const rows = computerCsvRows(userId, fromDay, toDay, timezone, at);
   const mine = userId ? currentMachines().find((m) => m.userId === userId) : undefined;
+  const hours = (state: VmState) => rows.filter(row => row.state === state).reduce((sum, row) => sum + row.seconds / 3600, 0);
   return {
-    costUsd: r.cost, runningHours: r.run / 3600, asleepHours: r.sleep / 3600, archivedHours: r.arch / 3600,
+    costUsd: rows.reduce((sum, row) => sum + row.cost_usd, 0), runningHours: hours('running'), asleepHours: hours('asleep'), archivedHours: hours('archived'),
     now: mine ? { provider: mine.provider, state: mine.state, cpus: mine.cpus, memoryMb: mine.memoryMb, diskGb: mine.diskGb, perHourUsd: costPerSecond(mine) * 3600 } : null,
   };
 }
 
-/** Computer cost per day (for the daily chart) and per account (for the owner's view). */
-export function computerByDay(userId: string | null, fromDay: string, toDay: string): Map<string, number> {
-  const where = userId ? 'user_id=? AND day>=? AND day<=?' : 'day>=? AND day<=?';
-  const args = userId ? [userId, fromDay, toDay] : [fromDay, toDay];
-  return new Map((db.prepare(`SELECT day, SUM(cost_usd) cost FROM vm_usage WHERE ${where} GROUP BY day`).all(...args) as any[]).map((r) => [r.day, r.cost]));
+/** Computer estimates use the same local-day allocation in every report view and export. */
+export function computerByDay(userId: string | null, fromDay: string, toDay: string, timezone = 'UTC', at = Date.now()): Map<string, number> {
+  const result = new Map<string, number>();
+  for (const row of computerCsvRows(userId, fromDay, toDay, timezone, at)) result.set(row.day, (result.get(row.day) ?? 0) + row.cost_usd);
+  return result;
 }
 
-export function computerByUser(fromDay: string, toDay: string): Map<string, { costUsd: number; runningHours: number }> {
-  return new Map((db.prepare(`SELECT user_id, SUM(cost_usd) cost, SUM(CASE WHEN state='running' THEN seconds ELSE 0 END) run
-    FROM vm_usage WHERE day>=? AND day<=? GROUP BY user_id`).all(fromDay, toDay) as any[]).map((r) => [r.user_id ?? '', { costUsd: r.cost, runningHours: r.run / 3600 }]));
-}
-
-export function computerCsvRows(userId: string | null, fromDay: string, toDay: string): any[] {
-  return userId
-    ? db.prepare('SELECT * FROM vm_usage WHERE user_id=? AND day>=? AND day<=? ORDER BY day, vm_key, state').all(userId, fromDay, toDay)
-    : db.prepare('SELECT * FROM vm_usage WHERE day>=? AND day<=? ORDER BY day, vm_key, state').all(fromDay, toDay);
+export function computerByUser(fromDay: string, toDay: string, timezone = 'UTC', at = Date.now()): Map<string, { costUsd: number; runningHours: number }> {
+  const result = new Map<string, { costUsd: number; runningHours: number }>();
+  for (const row of computerCsvRows(null, fromDay, toDay, timezone, at)) {
+    const key = row.user_id ?? '';
+    const total = result.get(key) ?? { costUsd: 0, runningHours: 0 };
+    total.costUsd += row.cost_usd;
+    if (row.state === 'running') total.runningHours += row.seconds / 3600;
+    result.set(key, total);
+  }
+  return result;
 }

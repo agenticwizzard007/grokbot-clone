@@ -1,9 +1,10 @@
 import { SettingIcon } from './SettingRow';
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { Clock3, CircleUserRound, Download, Gauge } from 'lucide-react';
 import { useStore } from '../../store';
 import { AccessRow } from './AccessRow';
 import { configApi, type ProviderUsage, type UsageCoverage, type UsageRange, type UsageReport, type UsageRow } from '../../lib/configApi';
+import { billingProviderName, computerTimeNote, requestHeadline, reportRangeLabel, tokenCoverageNote } from '../../lib/usageCopy';
 import '../../styles/usage.css';
 
 /**
@@ -59,7 +60,7 @@ export function niceTicks(max: number): number[] {
 
 // ---------- pieces ----------
 
-/** Title, with whose usage (owners) beside it. Phones swap the description for the dates covered. */
+/** The same selected period is visible at every width. */
 function PageHead({ span }: { span: string | null }) {
   return (
     <div className="app-settings__head usage-head">
@@ -72,30 +73,37 @@ function PageHead({ span }: { span: string | null }) {
   );
 }
 
-/** The headline: what the period cost, and how it splits between AI and the computer. */
-function Hero({ ai, computer, days, sub, unpriced }: { ai: number; computer: number | null; days: number; sub?: string; unpriced: boolean }) {
-  const total = ai + (computer ?? 0);
-  const parts = computer != null && total > 0 ? [['ai', ai], ['vm', computer]].filter(([, v]) => (v as number) > 0) as [string, number][] : [];
+/** Requests and costs grouped by the billing source recorded in this period. */
+function Hero({ data, hasComputer }: { data: UsageReport; hasComputer: boolean }) {
+  const note = tokenCoverageNote(data.totals);
   return (
     <div className="usage-hero">
-      <div className="usage-hero__label">Recorded spend</div>
-      <div className="usage-hero__row">
-        <span className="usage-hero__value">{unpriced ? 'Not reported' : fmtUsd(total)}</span>
-        {days > 1 && total > 0 && <span className="usage-hero__rate">{fmtUsd(total / days)} a day</span>}
+      <div className="usage-report__summary">
+        <span>Requests this period</span>
+        <strong>{requestHeadline(data.totals.requests)}</strong>
+        {note && <p className="usage-card__note" role="status">{note}</p>}
       </div>
-      {computer != null ? (
-        <>
-          {parts.length > 0 && (
-            <div className="usage-split" role="img" aria-label={`AI ${fmtUsd(ai)}, computer ${fmtUsd(computer)} estimated`}>
-              {parts.map(([k, v]) => <i key={k} className={`usage-split__part usage-key--${k}`} style={{ flexGrow: v }} />)}
-            </div>
-          )}
-          <div className="usage-split__legend">
-            <span><i className="usage-key usage-key--ai" aria-hidden />AI <b>{fmtUsd(ai)}</b></span>
-            <span><i className="usage-key usage-key--vm" aria-hidden />Computer <b>{fmtUsd(computer)}</b> est.</span>
-          </div>
-        </>
-      ) : sub && <div className="usage-hero__sub">{sub}</div>}
+      <div className="usage-billing">
+        {data.billing.sources.map(source => {
+          const plan = source.source === 'subscription';
+          const provider = billingProviderName(source.provider);
+          const unpriced = source.unpricedRequests === source.requests;
+          return <div className="usage-billing__source" key={`${source.source}:${source.provider}`}>
+            <div className="usage-hero__label">{plan ? 'CLI plan usage' : 'API provider usage'} · {provider}</div>
+            <div className="usage-billing__value">{plan ? requestHeadline(source.requests) : unpriced ? 'Price not reported' : fmtUsd(source.costUsd)}</div>
+            <div className="usage-hero__sub">{plan
+              ? `Included in ${data.scope === 'all' ? "the request owner's" : 'your'} ${provider} subscription; no Swarm API charge.`
+              : `${requestHeadline(source.requests)} · Billed through ${provider}`}</div>
+            {source.estimatedUsd > 0 && <div className="usage-card__note">Includes {fmtUsd(source.estimatedUsd)} in estimated API cost.</div>}
+            {source.unpricedRequests > 0 && <div className="usage-card__note">Price not reported for {requestHeadline(source.unpricedRequests)}.</div>}
+          </div>;
+        })}
+        {hasComputer && <div className="usage-billing__source">
+          <div className="usage-hero__label">Computer time</div>
+          <div className="usage-billing__value">{fmtUsd(data.computer.costUsd)} estimated</div>
+        </div>}
+      </div>
+      <p className="usage-card__note usage-billing__note">{data.billing.note}</p>
     </div>
   );
 }
@@ -151,11 +159,11 @@ function Tile({ label, value, sub }: { label: string; value: string; sub?: strin
 }
 
 /**
- * Column chart, one column per UTC day. With computer costs it stacks two series (AI below, the
+ * Column chart, one column per account calendar day. With computer costs it stacks two series (AI below, the
  * computer above, a 2px surface gap between); otherwise a single series. Per-column tooltip on hover
  * and focus, a legend whenever there are two series, and a table view.
  */
-function DailyChart({ days, metric, withComputer }: { days: UsageReport['days']; metric: 'cost' | 'tokens'; withComputer: boolean }) {
+function DailyChart({ days, metric, withComputer, timezone }: { timezone: string; days: UsageReport['days']; metric: 'cost' | 'tokens'; withComputer: boolean }) {
   const [hover, setHover] = useState<number | null>(null);
   const stacked = metric === 'cost' && withComputer;
   const ai = (d: UsageReport['days'][number]) => (metric === 'cost' ? d.costUsd : d.tokens);
@@ -163,7 +171,7 @@ function DailyChart({ days, metric, withComputer }: { days: UsageReport['days'];
   const fmt = (v: number) => (metric === 'cost' ? fmtUsd(v) : compact(v));
   const figure = (day: UsageReport['days'][number]) => metric === 'tokens' ? tokenFigure(day.tokens, day) : fmt(value(day));
   const tokenDetail = (day: UsageReport['days'][number]) => day.requests > 0 && day.knownTokenRequests === 0 ? 'Token usage unavailable' : `${tokenFigure(day.tokens, day)} tokens`;
-  const ticks = niceTicks(Math.max(...days.map(value), 0));
+  const ticks = niceTicks(Math.max(...days.map(value), 0) * 1.15);
   const top = ticks[ticks.length - 1] || 1;
   const plot = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(600);
@@ -196,11 +204,11 @@ function DailyChart({ days, metric, withComputer }: { days: UsageReport['days'];
   const title = metric === 'cost' ? 'Daily cost' : 'Daily tokens';
   const peak = days.reduce((a, d) => (value(d) > value(a) ? d : a), days[0]);
   const detail = (d: UsageReport['days'][number]) =>
-    [stacked ? `AI ${fmtUsd(d.costUsd)} · computer ${fmtUsd(d.computerUsd)}` : metric === 'cost' ? tokenDetail(d) : fmtUsd(d.costUsd), plural(d.requests, 'request'), ...(incomplete(d) ? ['Incomplete token accounting'] : [])].join(' · ');
+    [stacked ? `AI ${fmtUsd(d.costUsd)} · computer ${fmtUsd(d.computerUsd)}` : metric === 'cost' ? tokenDetail(d) : fmtUsd(d.costUsd), plural(d.requests, 'request'), ...(incomplete(d) ? ['Incomplete token counts'] : [])].join(' · ');
   return (
     <div className="usage-card">
       <div className="usage-card__head">
-        <div className="usage-card__title">{title} <span className="usage-card__hint">UTC days</span></div>
+        <div className="usage-card__title">{title} <span className="usage-card__hint">{timezone}</span></div>
         {stacked && (
           <div className="usage-legend" aria-label="Legend">
             <span><i className="usage-key usage-key--ai" aria-hidden />AI</span>
@@ -210,7 +218,7 @@ function DailyChart({ days, metric, withComputer }: { days: UsageReport['days'];
       </div>
       {/* Phones: a fixed readout instead of a tooltip under the finger. */}
       <div className="usage-readout" aria-live="polite">
-        <div className="usage-readout__title">{h ? `${dayLong(h.day)} · ${figure(h)}` : value(peak) > 0 ? `Peak ${figure(peak)} on ${dayLabel(peak.day)}` : days.some(day => incomplete(day)) ? 'Token accounting incomplete' : 'Nothing yet this period'}</div>
+        <div className="usage-readout__title">{h ? `${dayLong(h.day)} · ${figure(h)}` : value(peak) > 0 ? `Peak ${figure(peak)} on ${dayLabel(peak.day)}` : days.some(day => incomplete(day)) ? 'Token counts incomplete' : 'Nothing yet this period'}</div>
         <div className="usage-readout__detail">{h ? detail(h) : 'Tap a bar to see that day'}</div>
       </div>
       <div className="usage-chart">
@@ -229,7 +237,7 @@ function DailyChart({ days, metric, withComputer }: { days: UsageReport['days'];
                   className={`usage-chart__slot${hover === i ? ' is-hover' : ''}`}
                   tabIndex={0}
                   role="img"
-                  aria-label={`${dayLabel(d.day)}: ${stacked ? `${fmtUsd(total)} (AI ${fmtUsd(d.costUsd)}, computer ${fmtUsd(d.computerUsd)})` : figure(d)}, ${tokenDetail(d)}, ${plural(d.requests, 'request')}${incomplete(d) ? ', incomplete token accounting' : ''}`}
+                  aria-label={`${dayLabel(d.day)}: ${stacked ? `${fmtUsd(total)} (AI ${fmtUsd(d.costUsd)}, computer ${fmtUsd(d.computerUsd)})` : figure(d)}, ${tokenDetail(d)}, ${plural(d.requests, 'request')}${incomplete(d) ? ', incomplete token counts' : ''}`}
                   onFocus={() => setHover(i)}
                   onBlur={() => setHover(null)}
                 >
@@ -250,7 +258,7 @@ function DailyChart({ days, metric, withComputer }: { days: UsageReport['days'];
                   <div className="usage-tip__row"><i className="usage-tip__key usage-key--vm" aria-hidden /><b>{fmtUsd(h.computerUsd)}</b> computer (est.)</div>
                 </>
               )}
-              <div className="usage-tip__label">{dayLabel(h.day)} · {metric === 'cost' ? tokenDetail(h) : fmtUsd(h.costUsd)} · {plural(h.requests, 'request')}{incomplete(h) ? ' · Incomplete token accounting' : ''}</div>
+              <div className="usage-tip__label">{dayLabel(h.day)} · {metric === 'cost' ? tokenDetail(h) : fmtUsd(h.costUsd)} · {plural(h.requests, 'request')}{incomplete(h) ? ' · Incomplete token counts' : ''}</div>
             </div>
           )}
         </div>
@@ -287,10 +295,11 @@ function ComputerCard({ data }: { data: UsageReport }) {
           </div>
         )}
         <div className="usage-tiles usage-tiles--compact">
-          <Tile label="Running" value={hours(c.runningHours)} />
+          <Tile label="Computer on" value={hours(c.runningHours)} />
           <Tile label="Asleep" value={hours(c.asleepHours + c.archivedHours)} />
           <Tile label="Estimated cost" value={fmtUsd(c.costUsd)} />
         </div>
+        <p className="usage-card__note">{computerTimeNote}{data.timezone && data.timezone !== 'UTC' && ' Daily computer estimates are split from UTC totals to fit your time zone.'}</p>
         <details className="usage-explain">
           <summary>How it’s estimated</summary>
           <p className="usage-card__note">{isOrgo
@@ -308,7 +317,7 @@ function rowSub(r: UsageRow): string {
   const parts: string[] = [];
   if (r.tokens > 0) parts.push(`${tokenFigure(r.tokens, r)} tokens`);
   else if (r.requests > 0 && r.knownTokenRequests === 0) parts.push('Token usage unavailable');
-  if (incomplete(r)) parts.push(`${plural(incomplete(r), 'request')} with incomplete token accounting`);
+  if (incomplete(r)) parts.push(`${plural(incomplete(r), 'request')} with incomplete token counts`);
   if (r.minutes > 0) parts.push(`${compact(Math.round(r.minutes))} min`);
   if (r.recordings > 0) parts.push(plural(r.recordings, 'recording'));
   if (r.characters > 0) parts.push(`${compact(r.characters)} characters`);
@@ -353,7 +362,7 @@ function ProviderCard({ data }: { data: ProviderUsage }) {
   const o = data.openrouter;
   return (
     <section className="cfg-section">
-      <div className="cfg-section__label">Provider account</div>
+      <AccessRow icon={CircleUserRound} title="Provider account" />
       <div className="usage-card">
         {o ? (
           <>
@@ -423,29 +432,18 @@ function AccountUsageReport() {
   const vm = data?.computer;
   const hasComputer = !!vm && (vm.costUsd > 0 || vm.runningHours > 0 || vm.asleepHours > 0 || vm.archivedHours > 0 || !!vm.now);
   const byCost = !!t && (t.costUsd > 0 || (hasComputer && vm!.costUsd > 0));
-  const subCost = useMemo(() => {
-    if (!t) return undefined;
-    const parts: string[] = [];
-    if (t.estimatedUsd > 0) parts.push(`${fmtUsd(t.estimatedUsd)} estimated`);
-    if (t.unpricedVoice > 0) parts.push('voice minutes have no reported price');
-    const other = t.unpricedRequests - t.unpricedVoice;
-    if (other > 0) parts.push(`${plural(other, 'request')} without a price`);
-    return parts.join(' · ') || 'As reported by the provider';
-  }, [t]);
   const limit = data?.limits.dailyMessages;
-  // Phones: "Month" keeps all four periods on one full-width row.
   const days = data?.days ?? [];
-  const span = days.length ? `${days.length > 1 ? `${dayLabel(days[0].day)} – ${dayLabel(days[days.length - 1].day)} · UTC days` : `${dayLabel(days[0].day)} · UTC`}` : null;
+  const span = reportRangeLabel(days, data?.timezone);
   const csv = `/api/usage/export.csv?range=${range}&scope=${scope}`;
   const voiceCalls = data?.byModel.filter((r) => r.minutes > 0).reduce((n, r) => n + r.requests, 0) ?? 0;
-  const provenance = `AI costs are what ${data?.provider === 'openrouter' ? 'OpenRouter' : 'the provider'} reports for each request.${hasComputer ? (data?.computer.now?.provider ?? data?.computerProvider) === 'orgo' ? ' Computer time is estimated from Orgo’s rates.' : ' Computer time is estimated from Fly.io’s published prices.' : ''}`;
 
   return (
     <div className="usage-page">
       <PageHead span={span} />
       <div className="usage-filters">
         <label className="cfg-field"><SettingIcon icon={Clock3} /><span className="cfg-field__label">Report period</span><select className="text-input" value={range} onChange={event => setRange(event.target.value as UsageRange)}>{RANGES.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-        <label className="cfg-field"><SettingIcon icon={CircleUserRound} /><span className="cfg-field__label">Scope</span><select className="text-input" value={scope} onChange={event => setScope(event.target.value === 'all' ? 'all' : 'me')} disabled={!canSeeAll}><option value="me">Me</option>{canSeeAll && <option value="all">Everyone</option>}</select><span className="cfg-field__hint">Everyone is limited to eligible administrators.</span></label>
+        <label className="cfg-field"><SettingIcon icon={CircleUserRound} /><span className="cfg-field__label">Scope</span><select className="text-input" value={scope} onChange={event => setScope(event.target.value === 'all' ? 'all' : 'me')} disabled={!canSeeAll}><option value="me">Me</option>{canSeeAll && <option value="all">Everyone</option>}</select>{!canSeeAll && <span className="cfg-field__hint">Only admins can view usage for everyone.</span>}</label>
       </div>
 
       {error && <div role="alert" className="cfg-error">{error} <button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setAttempt(value => value + 1)}>Retry report</button></div>}
@@ -453,15 +451,15 @@ function AccountUsageReport() {
 
       {data && t && (
         <div className="usage-root">
-          <Hero ai={t.costUsd} computer={hasComputer ? vm!.costUsd : null} days={days.length} sub={subCost} unpriced={!hasComputer && t.requests > 0 && t.unpricedRequests >= t.requests && t.costUsd === 0} />
-          <div className="usage-report__summary"><span>Reported requests and tokens</span><strong>{plural(t.requests, 'request')}{incomplete(t) > 0 ? ` · tokens not fully reported for ${plural(incomplete(t), 'request')}` : ''}</strong><p>Missing provider data isn’t counted as zero.</p></div>
-          {incomplete(t) > 0 && <p className="usage-card__note" role="status">Token accounting is incomplete: {plural(t.partialUsageRequests ?? 0, 'request')} with partial usage and {plural(t.unavailableUsageRequests ?? 0, 'request')} with unavailable usage. Subscription requests with unavailable usage are counted; token totals include only reported counters.</p>}
+          <Hero data={data} hasComputer={hasComputer} />
           <div className="usage-tiles">
             <Tile label={incomplete(t) ? 'Known tokens' : 'Tokens'} value={tokenFigure(t.inputTokens + t.outputTokens, t)} sub={`${t.knownInputRequests === 0 && t.requests > 0 ? 'Unavailable' : compact(t.inputTokens)} in · ${t.knownOutputRequests === 0 && t.requests > 0 ? 'Unavailable' : compact(t.outputTokens)} out${t.cachedTokens ? ` · ${compact(t.cachedTokens)} cached` : ''}`} />
             <Tile label="AI requests" value={compact(t.requests)} sub={t.toolCalls ? plural(t.toolCalls, 'web search', 'web searches') : undefined} />
             {t.voiceMinutes > 0 && <Tile label="Voice" value={`${compact(Math.round(t.voiceMinutes))} min`} sub={voiceCalls ? plural(voiceCalls, 'call') : undefined} />}
-            {hasComputer && <Tile label="Computer" value={hours(vm!.runningHours)} sub={`running · ${hours(vm!.asleepHours + vm!.archivedHours)} asleep`} />}
+            {hasComputer && <Tile label="Computer on" value={hours(vm!.runningHours)} sub={`${hours(vm!.asleepHours + vm!.archivedHours)} asleep`} />}
           </div>
+
+          {hasComputer && <p className="usage-card__note">{computerTimeNote}{data.timezone && data.timezone !== 'UTC' && ' Daily computer estimates are split from UTC totals to fit your time zone.'}</p>}
 
           {t.requests === 0 && !hasComputer ? (
             <div className="cfg-empty cfg-empty--flat">No AI usage in this period yet.</div>
@@ -469,9 +467,9 @@ function AccountUsageReport() {
             <>
               {days.length > 0 && <>
                 <Seg label="Report display" value={reportView} options={[{ value: 'chart', label: 'Chart' }, { value: 'table', label: 'Table' }]} onChange={setReportView} />
-                {reportView === 'chart' ? <DailyChart days={days} metric={byCost ? 'cost' : 'tokens'} withComputer={hasComputer} /> : <div className="usage-table" tabIndex={0} role="region" aria-label="Daily usage table">
+                {reportView === 'chart' ? <DailyChart timezone={data.timezone} days={days} metric={byCost ? 'cost' : 'tokens'} withComputer={hasComputer} /> : <div className="usage-table" tabIndex={0} role="region" aria-label="Daily usage table">
                   <table>
-                    <thead><tr><th>Day (UTC)</th><th>Recorded AI cost</th>{hasComputer && <th>Computer (est.)</th>}<th>Tokens</th><th>Requests</th></tr></thead>
+                    <thead><tr><th>Day ({data.timezone || 'UTC'})</th><th>Recorded AI cost</th>{hasComputer && <th>Computer (est.)</th>}<th>Tokens</th><th>Requests</th></tr></thead>
                     <tbody>{days.map(day => <tr key={day.day}><td>{dayLabel(day.day)}</td><td>{day.costUsd === 0 && t.unpricedRequests > 0 && day.requests > 0 ? 'No recorded cost' : fmtUsd(day.costUsd)}</td>{hasComputer && <td>{fmtUsd(day.computerUsd)}</td>}<td>{tokenFigure(day.tokens, day)}</td><td>{compact(day.requests)}</td></tr>)}</tbody>
                   </table>
                 </div>}
@@ -486,9 +484,8 @@ function AccountUsageReport() {
               </>}
             </>
           )}
-          {scope === 'me' && (limit && limit.resetsAt > Date.now()
-            ? <div className="usage-card"><Meter label="Messages today" used={limit.used} limit={limit.limit} figure={`${compact(limit.used)} of ${compact(limit.limit)}`} note={`Resets at midnight UTC (${inHours(limit.resetsAt)}).`} /></div>
-            : <AccessRow icon={Gauge} title="Plan limits" description="No current daily message allowance reported." status="Not reported" />)}
+          {scope === 'me' && limit && limit.resetsAt > Date.now() && <div className="usage-card"><Meter label="Messages today (UTC)" used={limit.used} limit={limit.limit} figure={`${compact(limit.used)} of ${compact(limit.limit)}`} note={`Resets at midnight UTC (${inHours(limit.resetsAt)}).`} /></div>}
+          {scope === 'me' && !limit && <AccessRow icon={Gauge} title="Plan limits" description="No daily message limit in Swarm. Provider limits still apply." />}
         </div>
       )}
 
@@ -499,7 +496,6 @@ function AccountUsageReport() {
       {data && (
         <div className="usage-foot">
           <a className="cfg-btn cfg-btn--primary" href={csv} download><Download size={16} strokeWidth={1.75} aria-hidden />Download CSV</a>
-          <p className="usage-foot__note">{provenance}</p>
         </div>
       )}
     </div>

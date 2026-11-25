@@ -50,7 +50,7 @@
 .usage-status.is-critical .usage-status__icon { color: var(--u-critical); }
 
 /* daily column chart */
-.usage-chart { display: flex; gap: 8px; height: 160px; }
+.usage-chart { display: flex; gap: 8px; height: 180px; padding: 10px 0; }
 .usage-chart__axis { display: flex; flex-direction: column; justify-content: space-between; font-size: 11px; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; text-align: right; min-width: 44px; transform: translateY(-6px); height: calc(100% + 12px); }
 .usage-chart__plot { position: relative; flex: 1; min-width: 0; }
 .usage-chart__grid { position: absolute; left: 0; right: 0; height: 1px; background: var(--u-grid); }
@@ -126,7 +126,7 @@
 .usage-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .usage-head__text { min-width: 0; }
 .usage-head > .cfg-seg { flex-shrink: 0; margin-top: 2px; }
-.usage-head__span { display: none; }
+.usage-head__span { display: block; }
 
 /* headline: the period's cost, split between AI and the computer */
 .usage-hero { display: flex; flex-direction: column; gap: 10px; padding: 2px 0 20px; }
@@ -233,12 +233,16 @@
 .usage-page :is(.usage-hero__value, .usage-report__summary strong) { font: 600 clamp(25px, 4vw, 34px)/1.16 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack); letter-spacing: -.025em; }
 .usage-report__summary { display: grid; gap: 9px; padding-top: 12px; }
 .usage-report__summary :is(span, p) { color: var(--color-text-secondary); margin: 0; font-size: 14px; }
+.usage-billing { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 16px; }
+.usage-billing__source { min-width: 0; overflow-wrap: anywhere; }
+.usage-billing__value { margin: 4px 0; font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.usage-page .usage-report__summary .usage-card__note { font-size: 12px; line-height: 18px; }
 .usage-page .usage-tile, .usage-page .usage-card { padding: 12px 0; border: 0; background: transparent; }
 .usage-page .usage-tiles { margin: 0; }
 .usage-page .usage-table { overflow-x: auto; margin: 0; }
 .usage-page .usage-table th, .usage-page .usage-table td { white-space: nowrap; }
 .usage-page .usage-foot { display: flex; }
-.usage-page .usage-foot .cfg-btn { align-self: start; }
+.usage-page .usage-foot .cfg-btn { align-self: start; text-decoration: none; }
 .usage-page .usage-foot__note { text-align: left; }
 @media (max-width: 760px) {
   .usage-page .usage-foot .cfg-btn { align-self: stretch; justify-content: center; }

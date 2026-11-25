@@ -13,9 +13,9 @@ export function SidebarUsage({ collapsed }: { collapsed: boolean }) {
   const pending = !known && (catalog.status === 'idle' || catalog.status === 'loading');
   const failed = catalog.status === 'error' || !!catalog.error;
   const label = pending ? 'Loading usage...' : !known ? 'Unavailable'
-    : plan ? summary?.plan || (summary?.provider === 'claude-cli' ? 'Claude subscription' : 'Codex subscription') : 'API credits';
+    : plan ? summary?.plan || (summary?.provider === 'claude-cli' ? 'Claude plan' : 'Codex plan') : 'API credits';
   const detail = pending ? 'Loading provider details...' : !known ? 'Retry provider details' : !plan ? 'Pay per use · View recorded spending'
-    : window ? `${window.label} · ${Number(window.usedPercent.toFixed(1))}% used` : reported.state === 'stale' ? 'Usage needs a refresh' : 'Provider usage unavailable';
+    : window ? `${window.label} · ${Number(window.usedPercent.toFixed(1))}% used` : reported.state === 'stale' ? 'Usage needs a refresh' : 'Usage limits not reported';
   return <button type="button" className="sidebar-usage" aria-label={`Usage: ${label}. ${detail}`}
     title={collapsed ? `${label} · ${detail}` : undefined}
     onClick={() => { if (failed) void catalog.load(true); else useConfigUI.getState().openAppSettings(known && !plan ? 'usage' : 'subscriptions'); }}>
