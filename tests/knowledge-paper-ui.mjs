@@ -136,16 +136,16 @@ try {
       await shot('import-recovered', upload);
       await openImport.click();
     }
-    await details.getByText('Setup interview · Revision 4').waitFor();
+    await details.getByText('Setup interview').waitFor();
     assert.equal(await btn(details, 'Review and activate').count(), 0, 'an imported interview cannot be activated before the backend marks it ready');
     setupStatus = 'review';
     await page.evaluate(() => window.dispatchEvent(new CustomEvent('swarm:event', { detail: { type: 'setup', botId: 'atlas' } })));
     await btn(details, 'Review and activate').click();
-    assert.equal(await btn(details, 'Activate agent · revision 5').isEnabled(), true);
+    assert.equal(await btn(details, 'Activate Bot').isEnabled(), true);
     assert.equal(writes.length, 2, 'import must not activate automatically');
     await shot('setup-review', details);
-    await btn(details, 'Activate agent · revision 5').click();
-    await details.getByText('Activated configuration revision 5.').waitFor();
+    await btn(details, 'Activate Bot').click();
+    await details.getByText('Setup activated.').waitFor();
     const harness = tabs.getByRole('tab', { name: 'Harness' });
     await harness.click();
     await details.getByText('Preview assembled instructions').click();

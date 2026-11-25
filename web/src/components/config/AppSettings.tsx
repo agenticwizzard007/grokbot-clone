@@ -150,7 +150,7 @@ export function AppSettings() {
         <div key={g.group} className="settings-nav__group" role="group" aria-label={g.group}>
           <h3 className="settings-nav__label">{g.group}</h3>
           <div className="settings-nav__items">
-            {g.items.map(it => <SettingsNavButton key={it.id} item={it} compact={compact} active={section === it.id} onSelect={pick} />)}
+            {g.items.map(it => <SettingsNavButton key={it.id} item={it} compact={compact} active={section === it.id && !(compact && listView)} onSelect={pick} />)}
           </div>
         </div>
       ))}
@@ -387,7 +387,7 @@ function ServerKeysSection({ accountId, onReauth }: { accountId: string; onReaut
               ))}
             </div>
           </div>
-          <div className="cfg-row cfg-key__form"><SettingIcon icon={KeyRound} />
+          <div className="cfg-row cfg-key__form"><span className="cfg-key__icon-space" aria-hidden="true" />
             <div className="cfg-row__text"><div className="cfg-row__title">Default model</div><div className="cfg-row__sub">Used by every Bot unless you pick one in its settings.</div></div>
             <ModelPicker key={`${chosen}-${pickerKey}`} provider={chosen} label="Default model" value={current} disabled={!canPick}
               onChange={(id) => { if (id && id !== current) void save(chosen === 'openrouter' ? 'openrouter_model' : 'model', id); }} />
@@ -961,7 +961,7 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
                 {accountDetails(c, index)}
                 <div className="settings-row__actions">
                   <button className="cfg-btn cfg-btn--secondary" type="button" disabled={busy || c.isDefault} onClick={() => void manage(c.id, 'default')}>Use by default</button>
-                  <button ref={disconnectId === c.id ? disconnectButton : undefined} className={`cfg-btn ${disconnectId === c.id ? 'cfg-btn--danger' : 'cfg-btn--secondary'}`} type="button" disabled={busy} onClick={() => {
+                  <button ref={disconnectId === c.id ? disconnectButton : undefined} className={`cfg-btn access-apps-settings__disconnect ${disconnectId === c.id ? 'cfg-btn--danger' : 'cfg-btn--secondary'}`} type="button" disabled={busy} onClick={() => {
                     if (disconnectId === c.id) void manage(c.id, 'disconnect');
                     else { setError(''); setDisconnectId(c.id); }
                   }}>{disconnectId === c.id ? (busy ? 'Disconnecting…' : 'Confirm disconnect') : 'Disconnect'}</button>

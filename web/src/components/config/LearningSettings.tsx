@@ -51,7 +51,7 @@ function LearningSettingsForm({ botId }: { botId?: string }) {
     {error && <div className="cfg-error" role="alert">{error} <button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setAttempt(n => n + 1)}>Reload settings</button></div>}
     {!draft && !error && <p role="status">Loading learning settings…</p>}
     {draft && view && <form className="learning-fields" onSubmit={e => { e.preventDefault(); void save(); }}>
-      {botId && <div className="learning-inheritance"><strong>{overridden.length ? 'This bot has overrides' : 'Using account defaults'}</strong><p>{overridden.length ? 'Values without an override inherit the account defaults.' : 'All values are inherited from account settings.'} · Settings revision {view.revision}</p></div>}
+      {botId && <div className="learning-inheritance"><strong>{overridden.length ? 'This bot has overrides' : 'Using account defaults'}</strong><p>{overridden.length ? 'Values without an override inherit the account defaults.' : 'All values are inherited from account settings.'}</p></div>}
       <div className="learning-fields learning-flags">{flags.map(field => <SettingRow key={field.key}
         icon={field.key === 'skillApproval' ? ShieldCheck : Blocks} title={<label htmlFor={`learning-${field.key}`}>{field.label}</label>}
         sub={`${botId ? overridden.includes(field.key) ? 'Bot override. ' : 'Inherited from the account. ' : ''}${field.hint}`}>
@@ -161,7 +161,7 @@ function LearningReviewsPage({ botId }: { botId?: string }) {
     {data?.reviews.map(r => <details className="native-history" key={r.id}><summary>{bots.find(b => b.id === r.botId)?.name ?? 'Bot'} · {r.reason} · {r.status} · {new Date(r.createdAt).toLocaleString()}</summary>
       <p>{r.summary || 'No change summary recorded.'}</p>{r.error && <p className="cfg-error">{r.error}</p>}
       <p className="native-meta">Selected route: {r.model ?? 'Model not recorded'} · {r.provider ?? 'Provider not recorded'}. Originating route: {r.originModel ?? 'Model not recorded'} · {r.originProvider ?? 'Provider not recorded'}.</p>
-      <p className="native-meta">{r.iterations} steps · Settings revision {r.settingsRevision}</p>
+      <p className="native-meta">{r.iterations} steps</p>
       <p className="native-meta">{!r.usageStatus || r.usageStatus === 'unavailable' ? 'Token usage unavailable.' : `Observed usage${r.usageStatus === 'partial' ? ' (partial)' : ''}: ${r.inputTokens.toLocaleString()} input / ${r.outputTokens.toLocaleString()} output tokens.`}{r.budgetInputTokens != null && ` Budget input count: ${r.budgetInputTokens.toLocaleString()} tokens; may include estimates for enforcing limits.`}</p>
       <small>Review {r.id}{r.parentJobId ? ` · Source job ${r.parentJobId}` : ''}{r.jobId ? ` · Review job ${r.jobId}` : ''} · Conversation {r.generation}</small>
       {['queued', 'running'].includes(r.status) && <button className="cfg-btn cfg-btn--secondary" type="button" disabled={busy} onClick={() => void action(() => learningApi.cancel(r.id))}>Cancel review</button>}

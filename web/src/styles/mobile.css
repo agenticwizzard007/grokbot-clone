@@ -218,11 +218,9 @@
   .cfg-icon-btn.cfg-btn--danger { height: 40px; }
 }
 
-/* Phones: Bot settings sections stay on one scrolling row so the bar never reflows between tabs, and a
-   routine's controls sit under its text instead of squeezing the name into a narrow column. */
+/* Phone tabs wrap as whole labels. Routine controls sit below their text. */
 @media (max-width: 760px) {
-  .bot-settings-page .setup-paper__tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-inline: -4px; padding-inline: 4px; }
-  .bot-settings-page .setup-paper__tabs::-webkit-scrollbar { display: none; }
+  .bot-settings-page .setup-paper__tabs { flex-wrap: wrap; overflow: visible; margin-inline: 0; padding-inline: 0; }
   .bot-settings-page .setup-paper__tabs button { flex: 0 0 auto; white-space: nowrap; overflow-wrap: normal; }
   .cfg-item--routine { flex-wrap: wrap; }
   .cfg-item--routine .cfg-item__text { flex: 1 1 calc(100% - 40px); }

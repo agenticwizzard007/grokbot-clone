@@ -100,9 +100,6 @@ function BotSettingsPage({ bot, tab, inline, userId }: { bot: Bot; tab: BotSetti
   ];
   const label = tabs.find(item => item.id === tab)?.label;
   const sourcesOpen = tab === 'memories' && showSources;
-  // On phones the section tabs scroll sideways: keep the open one in view.
-  const tabsNav = useRef<HTMLElement>(null);
-  useEffect(() => { tabsNav.current?.querySelector<HTMLElement>('[aria-current]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }); }, [tab]);
   useEffect(() => {
     if (!inline) return;
     const onKey = (event: KeyboardEvent) => {
@@ -130,7 +127,7 @@ function BotSettingsPage({ bot, tab, inline, userId }: { bot: Bot; tab: BotSetti
             <button type="button" className="cfg-btn cfg-btn--danger" onClick={() => { setGeneralDraft(null); useConfigUI.getState().resolveLeaveBotSettings(true); }}>Discard</button>
           </div>
         </div>}
-        <nav ref={tabsNav} className="setup-paper__tabs" aria-label="Bot settings sections">
+        <nav className="setup-paper__tabs" aria-label="Bot settings sections">
           {tabs.map((t) => (
             <button key={t.id} type="button" onClick={() => { setShowSources(false); setTab(t.id); }} aria-current={tab === t.id || undefined}>{t.label}</button>
           ))}

@@ -109,7 +109,7 @@ try {
     if (!await details.isVisible()) await page.getByRole('button', { name: 'Show details', exact: true }).click();
     await details.getByRole('navigation', { name: 'Conversation details sections' }).getByRole('button', { name: 'Setup', exact: true }).click();
     await details.getByRole('button', { name: 'Review and activate', exact: true }).click();
-    await details.getByRole('button', { name: /^Activate agent · revision / }).click();
+    await details.getByRole('button', { name: 'Activate Bot', exact: true }).click();
     await details.getByRole('button', { name: 'Refine setup', exact: true }).waitFor();
     assert.equal((await api(`/bots/${bot.id}/setup`)).onboarding.status, 'active');
 

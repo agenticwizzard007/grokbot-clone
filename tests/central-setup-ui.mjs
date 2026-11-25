@@ -98,7 +98,7 @@ try {
   assert.equal((await api(`/bots/${imported.id}/setup`, 'GET', undefined, 'central-browser-other-token')).status, 404);
   const details = page.getByRole('complementary', { name: 'Conversation details' });
   await details.getByRole('heading', { name: 'Imported Nia · Setup' }).waitFor();
-  assert.equal(await details.getByRole('button', { name: /Activate agent/ }).count(), 0);
+  assert.equal(await details.getByRole('button', { name: /Activate Bot/ }).count(), 0);
   // R2F-021 (WS3): the Setup tab always shows a one-line computer status.
   assert.match(await details.locator('.agent-config__computer').first().innerText(), /^Computer: \S/);
   await details.getByRole('button', { name: 'Continue setup in chat', exact: true }).click();

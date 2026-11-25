@@ -4,6 +4,7 @@ import { useStore } from '../../store';
 import { SourceMessages } from './KnowledgePanels';
 import type { MessageSource } from '../../lib/configApi';
 import './agent-history.css';
+import { historySummary } from './historyCopy';
 
 interface Entry { version:number;kind:string;sourceId:string;sourceRevision:string|null;action:string;actor:string|null;reason:string|null;runId:string|null;occurredAt:number;recordedAt:number;origin:'recorded'|'historical'|'baseline' }
 interface Change extends Entry {before:unknown;after:unknown;changes:{field:string;before:unknown;after:unknown}[];evidence:MessageSource[];review:{id:string;reason:string;model:string;provider:string;status:string}|null}
@@ -14,7 +15,7 @@ async function read<T>(botId:string,path:string,signal?:AbortSignal):Promise<T> 
   return response.json();
 }
 const label=(s:string)=>s.replaceAll('-',' ').replaceAll('_',' ');
-/** R2F-012: setup and profile changes carry the setup revision; rows without one say so the same way every time. */
+/** Keep exact change identifiers available in the technical disclosure. */
 export const revisionText=(entry:Pick<Entry,'kind'|'sourceRevision'>)=>entry.sourceRevision===null||entry.sourceRevision===''?'no revision':`${entry.kind==='setup'||entry.kind==='profile'?'setup':label(entry.kind)} revision ${entry.sourceRevision}`;
 const format=(value:unknown)=>value===null?'Not recorded':typeof value==='string'?value:JSON.stringify(value,null,2);
 export function AgentHistory({botId}:{botId:string}) {
@@ -52,9 +53,9 @@ function AgentHistoryPage({ botId, userId }: { botId: string; userId?: string })
   },[botId,refresh,userId]);
   return <section className="agent-history" aria-label="Agent change history">
     <header><h3>History</h3></header>
-    <p>See changes to this agent’s role, memories and skills, including proposals and evaluations. Learning is loaded into model context; these records do not rewrite the setup files.</p>
+    <p>See updates to this Bot’s role, memories and skills, along with suggestions awaiting review.</p>
     <button type="button" className="cfg-btn cfg-btn--primary" disabled={busy} onClick={()=>{requestRefresh();void load();}}>Refresh history</button>
-    {data && <p className="agent-config__muted">{data.coverage}</p>}
+    {data && <details><summary>Technical details</summary><p>{data.coverage}</p></details>}
     {!data && busy && <p role="status">Loading recorded changes…</p>}
     {latest!==null&&data&&latest>data.through&&<p role="status">New changes are available. Refresh history to include them.</p>}
     {error&&<p role="alert" className="cfg-error">{error}</p>}
@@ -75,19 +76,22 @@ function HistoryEntry({botId,entry}:{botId:string;entry:Entry}) {
     return()=>controller.abort();
   },[botId,entry.version,open,detail,attempt]);
   return <details className="agent-history__entry" onToggle={e=>setOpen(e.currentTarget.open)}>
-    <summary>Change {entry.version} · {label(entry.kind)} · {label(entry.action)}{` · ${revisionText(entry)}`}</summary>
+    <summary>{historySummary(entry.kind, entry.action)} · <time dateTime={new Date(entry.occurredAt).toISOString()}>{new Date(entry.occurredAt).toLocaleString()}</time></summary>
     <p><time dateTime={new Date(entry.occurredAt).toISOString()}>{new Date(entry.occurredAt).toLocaleString()}</time>{entry.origin==='historical'?' · From retained history':entry.origin==='baseline'?' · Starting snapshot':''}</p>
-    <p>Recorded actor: {entry.actor??'Not recorded'}{entry.reason?` · ${entry.reason}`:''}</p>
-    {entry.kind.endsWith('proposal')&&<p>A proposal is not an active revision. Approved changes have separate skill or memory entries.</p>}
-    {entry.kind==='evaluation'&&<p>This records an evaluation, not a change to the active procedure.</p>}
+    {entry.kind.endsWith('proposal')&&<p>A suggestion takes effect after approval. Approved changes appear as separate skill or memory entries.</p>}
+    {entry.kind==='evaluation'&&<p>This records a skill check. The saved skill has not changed.</p>}
     {error&&<p role="alert">{error} <button type="button" onClick={()=>setAttempt(n=>n+1)}>Retry</button></p>}
     {open&&!detail&&!error&&<p role="status">Loading change…</p>}
-    {detail&&<>
+    {!!detail?.evidence.length&&<SourceMessages sources={detail.evidence}/>}
+    {detail && !detail.changes.length&&<p>No content difference recorded.</p>}
+    <details><summary>Technical details</summary>
+      <p>Change {entry.version} · {revisionText(entry)}</p>
+      <p>Recorded actor: {entry.actor??'Not recorded'}{entry.reason?` · ${entry.reason}`:''}</p>
+      {detail&&<>
       {detail.review&&<p>Learning review: {detail.review.reason} · {detail.review.provider} / {detail.review.model} · {detail.review.status}</p>}
-      {!!detail.evidence.length&&<SourceMessages sources={detail.evidence}/>}
-      {!detail.changes.length&&<p>No content difference recorded.</p>}
       {detail.changes.map(c=><div className="agent-history__change" key={c.field}><h4>{label(c.field)}</h4><div className="agent-history__comparison"><section aria-label={`Before ${c.field}`}><strong>Before</strong><pre>{format(c.before)}</pre></section><section aria-label={`After ${c.field}`}><strong>After</strong><pre>{format(c.after)}</pre></section></div></div>)}
       <details><summary>Full recorded snapshots</summary><pre>{JSON.stringify({before:detail.before,after:detail.after,sourceId:detail.sourceId,runId:detail.runId},null,2)}</pre></details>
-    </>}
+      </>}
+    </details>
   </details>;
 }

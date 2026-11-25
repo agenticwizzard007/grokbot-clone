@@ -1,4 +1,4 @@
-import { Blocks, Gauge, KeyRound, ShieldCheck } from 'lucide-react';
+import { Blocks, Check, Gauge, KeyRound, LogIn, Server, ShieldCheck } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { openrouterApi, OPENROUTER_ERRORS, type OpenRouterStatus } from '../../lib/openrouterApi';
 import { verifyAccessAccount } from '../../lib/accessApi';
@@ -64,7 +64,7 @@ function AccountOpenRouterSettings({ accountId, onReauth }: { accountId: string;
     {!status ? (error ? <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => { setError(null); setAttempt(n => n + 1); }}>Retry OpenRouter status</button> : <p role="status">Loading OpenRouter…</p>) : <>
       <AccessRow icon={KeyRound} title="Personal key" description={status.hint ? `${status.source === 'oauth' ? 'Authorized key' : 'Manual key'} · ${status.hint}` : 'No personal key connected. Bots use the server’s API defaults below. Add a personal key to bill your own OpenRouter account.'}
         status={active ? status.connected ? 'OpenRouter · Active' : 'OpenRouter · Reconnect to continue' : status.connected ? 'OpenRouter · Connected' : 'Not connected'} />
-      <AccessRow icon={KeyRound} title="OpenRouter sign-in" description={status.linked ? 'Linked to this Swarm account.' : 'A manual key does not enable sign-in.'}>
+      <AccessRow icon={LogIn} title="OpenRouter sign-in" description={status.linked ? 'Linked to this Swarm account.' : 'A manual key does not enable sign-in.'}>
         {!(status.connected && status.linked) && <a className="cfg-btn cfg-btn--secondary openrouter-settings__oauth" href={oauth} aria-disabled={busy} onClick={e => {
           e.preventDefault();
           if (running.current || !current()) return;
@@ -82,14 +82,14 @@ function AccountOpenRouterSettings({ accountId, onReauth }: { accountId: string;
         <label htmlFor="personal-openrouter-key">{status.connected ? 'Replace your API key' : 'Or paste your API key'}</label>
         <input id="personal-openrouter-key" type="password" className="text-input" value={key} onChange={e => setKey(e.target.value)} autoComplete="off" spellCheck={false} disabled={busy} />
         <p className="cfg-field__hint">Your saved key is never shown. Pasting a key does not change your sign-in method.</p>
-        <AccessRow icon={KeyRound} title="Save and verify" description="Keep your previous key if verification fails.">
+        <AccessRow icon={Check} title="Save and verify" description="Keep your previous key if verification fails.">
           <button type="submit" className="cfg-btn cfg-btn--secondary" disabled={busy || !key.trim()}>Save &amp; verify key</button>
         </AccessRow>
       </form>
       {status.connected && <AccessRow icon={Blocks} title="Your default model" description="Set the model used with your personal credits.">
         <ModelPicker provider="openrouter" label="Your OpenRouter default model" value={status.model} disabled={busy} onChange={model => { if (model) void run(() => openrouterApi.update({ model }), () => 'Default model saved for your Bots.'); }} />
       </AccessRow>}
-      <AccessRow icon={KeyRound} title="Server API defaults" description="Use server settings instead when personal credits are active.">
+      <AccessRow icon={Server} title="Server API defaults" description="Use server settings instead when personal credits are active.">
         <button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy || !status.selected} onClick={() => void run(() => openrouterApi.update({ enabled: false }), () => 'Personal OpenRouter billing is off.')}>Use server API defaults</button>
       </AccessRow>
       <AccessRow icon={Gauge} title="Credits and spending" description="Manage keys and budgets at OpenRouter.">
