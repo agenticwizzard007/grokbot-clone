@@ -32,3 +32,16 @@ Run `npm run test:cli-real-apps`. The fixture resolves binaries through each ins
 The tests cover Codex and Claude, hosted and WebSocket companion transports, direct wrapper calls, app search/execute, described tool_call, deferred custom MCP tools, durable approval rows, main-chat SSE, pending results returned through the official CLI, voice delegation, allow-once identity, denial, stale replay, missing/expired/unavailable/blocked accounts, legacy name rejection, manifest limits, required startup and tool timeout. Local Playwright uses the real binaries at 1280 and 390 pixels in light and dark, checking the card, 16 body lines, denial, reload and overflow. No live app login or real user data is involved.
 
 An existing companion installation must download/restart the updated bridge to get the corrected Codex arguments. Hosted generations use the deployed bridge. The mock model proves tool reachability and approval behavior, but cannot establish a live language model's routing choices or external Gmail availability. The deployment revision is verified separately after merge.
+
+## Validation results on this VM
+
+Both full runs used Node 24.22.1 and `node --import tsx --test --test-reporter=tap --test-concurrency=1 tests/*.test.mts tests/*.test.mjs`. The baseline ran in an untouched detached checkout on this VM.
+
+| Full suite | Tests | Pass | Fail | Cancelled | Existing skips |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Baseline 6f67222 | 2272 | 2177 | 71 | 0 | 24 |
+| This change before latest-main rebase | 2308 | 2213 | 71 | 0 | 24 |
+
+There are no new failure names after normalizing the two checkout paths. All 36 added checks pass. No tests or CI workflows were disabled or newly skipped. The final guidance-only adjustment also passes all 17 app-connection tests. The branch rebases onto a7ce93a (#206), retaining its Claude saved-profile status handling and usage chart fixes.
+
+After the rebase, all 171 targeted tests pass with zero failures or skips, including the added tests and the merged Claude status tests. Typecheck and build pass. All four real-binary Playwright cases pass again at 1280 and 390 in light and dark.
