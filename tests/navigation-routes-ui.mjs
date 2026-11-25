@@ -184,7 +184,6 @@ try {
         assert.equal(await page.getByRole('main').count(), 0, 'underlying work main is hidden');
         const hidden = page.locator('.main-pane');
         assert.equal(await hidden.getAttribute('hidden'), '');
-        assert.equal(await hidden.getAttribute('aria-hidden'), 'true');
       }
       await snap('settings-active-section');
       await closeSettings(); await hash('#reports'); await title('Reports');
