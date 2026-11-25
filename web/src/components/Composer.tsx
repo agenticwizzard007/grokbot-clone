@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { Mic, PhoneOff, TextCursorInput } from 'lucide-react';
 import type { Bot } from '@shared/types';
 import { api } from '../lib/api';
@@ -49,7 +50,7 @@ export function prefillComposer(botId: string, text: string) {
   notifyDraft(key);
 }
 
-export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
+export const Composer = memo(function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   const clean = useDisplayText();
   const accountId = useStore(s => s.user?.id);
   const draftKey = `${accountId}:${bot.id}`;
@@ -200,7 +201,7 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   }, [grow]);
 
   // The Paper ring reflects the supported, selected effort in either billing mode.
-  const catalog = useModels();
+  const catalog = useModels(useShallow(({ provider, billing, defaultModel, byId }) => ({ provider, billing, defaultModel, byId })));
   const { current, effort } = modelSelection(bot, catalog);
   const animated = effort !== null && effort !== 'none';
   const ultra = isTopEffort(effort, current);
@@ -416,7 +417,11 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
       </div>
     </div>
   );
-}
+}, (previous, next) => previous.running === next.running && composerBotKeys.every(key => previous.bot[key] === next.bot[key]));
+
+// These are the Bot fields used by the composer, its model menu and dictation.
+// Preview, unread and presence updates belong to the sidebar, not the draft.
+const composerBotKeys = ['id', 'name', 'model', 'effort', 'fast', 'voiceLanguage', 'generation'] as const;
 
 /** The same live-call action is always available, including with a saved draft. */
 export function liveVoiceMenuItem(onSelect: () => void, inCall: boolean, switchTo?: string) {

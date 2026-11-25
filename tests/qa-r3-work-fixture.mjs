@@ -16,8 +16,8 @@ export const fixtureBots = () => ['Coordinator', 'Research Bot'].map((name, inde
   createdAt: now, lastActivityAt: now, voice: 'ara', voiceSpeed: 1, voiceLanguage: 'auto',
 }));
 
-export async function fixturePage(browser, viewport = { width: 1280, height: 900 }) {
-  const page = await browser.newPage({ viewport, reducedMotion: 'reduce', timezoneId: 'UTC' });
+export async function fixturePage(browser, viewport = { width: 1280, height: 900 }, contextOptions = {}) {
+  const page = await browser.newPage({ viewport, reducedMotion: 'reduce', timezoneId: 'UTC', ...contextOptions });
   page.setDefaultTimeout(8000);
   const fixture = { bots: fixtureBots(), routines: [], reports: [], sources: [], respond: null };
   const errors = [], writes = [], reads = [];
