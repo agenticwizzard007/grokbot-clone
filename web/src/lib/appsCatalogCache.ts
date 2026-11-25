@@ -1,11 +1,11 @@
-import { api, type AppsResponse, type SuggestedToolkit } from './api';
+import { api, type AppsResponse } from './api';
 import { verifyAccessAccount } from './accessApi';
 import { useStore } from '../store';
 import { createSettingsCache, settingsRead } from './settingsReads';
+import { createSuggestionCache } from './suggestionCache';
 
 const cache = createSettingsCache<AppsResponse>();
-type Suggestions = { suggestions: SuggestedToolkit[]; hasContext?: boolean };
-const suggestions = createSettingsCache<Suggestions>();
+const suggestions = createSuggestionCache();
 useStore.subscribe((state, previous) => {
   if (state.user?.id !== previous.user?.id) { cache.scope(state.user?.id); suggestions.scope(state.user?.id); }
 });

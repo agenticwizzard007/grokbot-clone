@@ -67,7 +67,7 @@ export const api = {
   ensureComputer: () => req<{ computer: ComputerState }>('POST', '/computer/ensure'),
 
   apps: (search = '', category = '', offset = 0, signal?: AbortSignal) => req<AppsResponse>('GET', `/apps?search=${encodeURIComponent(search)}&category=${encodeURIComponent(category)}&offset=${offset}`, undefined, signal),
-  suggestedApps: (botId: string, draft: { description: string; instructions: string }, signal?: AbortSignal) => req<{ suggestions: SuggestedToolkit[]; hasContext?: boolean }>('POST', `/bots/${encodeURIComponent(botId)}/suggested-apps`, draft, signal),
+  suggestedApps: (botId: string, draft: { description: string; instructions: string }, signal?: AbortSignal) => req<{ suggestions: SuggestedToolkit[]; hasContext?: boolean; filterVersion: string }>('POST', `/bots/${encodeURIComponent(botId)}/suggested-apps`, draft, signal),
   connect: (slug: string, botId?: string, seq?: number) => req<{ redirectUrl: string }>('POST', `/apps/${slug}/connect`, { botId, seq }),
   disconnect: (slug: string) => req<{ ok: true }>('DELETE', `/apps/${slug}`),
 

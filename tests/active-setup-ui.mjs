@@ -75,8 +75,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       return route.continue();
     });
     await page.goto(origin);
-    await page.getByText('Active configuration · Revision 32', { exact: true }).waitFor();
+    await page.getByText('Active configuration', { exact: true }).waitFor();
     await page.waitForFunction(() => window.currentBot().onboarding.status === 'active');
+    assert.equal(await page.evaluate(() => window.currentBot().onboarding.revision), 32);
     assert.equal(await page.getByRole('button', { name: 'Skip setup', exact: true }).count(), 0);
     await page.evaluate(() => window.replayStaleRoster());
     assert.equal(await page.getByRole('region', { name: 'Active Bot setup' }).count(), 0);
@@ -94,7 +95,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     assert.equal(await page.getByText('Finding relevant apps…', { exact: true }).count(), 0);
     await page.screenshot({ path: path.join(evidence, `timeout-${width}.png`) });
     recover = true;
-    for (const route of held) await route.fulfill({ json: { suggestions: [] } }).catch(() => {});
+    for (const route of held) await route.fulfill({ json: { filterVersion: 'purpose-2', suggestions: [] } }).catch(() => {});
     await page.getByRole('button', { name: 'Retry', exact: true }).click();
     await page.clock.runFor(500);
     await page.getByText('No matching additional apps for this Bot right now.', { exact: true }).waitFor();

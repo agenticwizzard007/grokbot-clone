@@ -157,8 +157,8 @@ test('R3-044: only the latest computer read for the same account may publish', a
 });
 
 test('R3-041: resources preserve display names and access limits without connection metadata jargon', () => {
-  assert.equal(setupResourceText("User's private Slack account connected account, toolkit slack, revision 1, status EXPIRED"), "User's private Slack account, Reconnect required");
-  assert.equal(setupResourceText('toolkit googlecalendar, revision 3, status ACTIVE'), 'Google Calendar, Connected');
+  assert.equal(setupResourceText("User's private Slack account connected account, toolkit slack, revision 1, status EXPIRED"), "User's private Slack account needs to be reconnected");
+  assert.equal(setupResourceText('toolkit googlecalendar, revision 3, status ACTIVE'), 'Google Calendar connected');
   assert.equal(setupResourceText('Files at https://example.test/notes, read only'), 'Files at https://example.test/notes, read only');
   assert.equal(setupResourceText('Slack account'), 'Slack account');
   assert.equal(setupResourceText('toolkit slack, revision 4, status FUTURE_CODE'), 'Slack, Check connection');

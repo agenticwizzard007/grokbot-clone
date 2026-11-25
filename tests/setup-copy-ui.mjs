@@ -66,7 +66,7 @@ try {
     const context = await browser.newContext({ viewport: { width, height: 900 } });
     await context.route('**/*', route => new URL(route.request().url()).origin === base ? route.fallback() : route.abort());
     // No toolkit discovery, account connections, or external artwork are needed for copy checks.
-    await context.route('**/api/bots/*/suggested-apps', route => route.fulfill({ json: { suggestions: [], status: 'ready' } }));
+    await context.route('**/api/bots/*/suggested-apps', route => route.fulfill({ json: { filterVersion: 'purpose-2', suggestions: [], status: 'ready' } }));
     await context.route('**/api/apps**', route => route.fulfill({ json: { apps: [], connected: [], connectedApps: [], connections: [], categories: [] } }));
     await context.route('**/api/toolkits/**', route => route.fulfill({ json: { items: [] } }));
     const login = await context.request.post(`${base}/api/auth/dev`, { data: { email: `setup-copy-${width}@example.test` } });

@@ -76,9 +76,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
         if (body.description === 'catalog failure' && !catalogRecovered) return route.fulfill({ status: 503, json: { code: 'catalog_authorization', error: 'The app catalog service rejected the server credentials. The server administrator needs to check them.' } });
         if (body.description === 'slow request') { held = route; return; }
         if (body.description === 'never resolves' && !recoverHang) { held = route; return; }
-        if (body.description === 'no matching tools' || !body.description.trim()) return route.fulfill({ json: { suggestions: [] } });
+        if (body.description === 'no matching tools' || !body.description.trim()) return route.fulfill({ json: { filterVersion: 'purpose-2', suggestions: [] } });
         const suggestions = body.description.includes('calendar') ? [calendar] : connected ? [slack] : [github, slack];
-        return route.fulfill({ json: { suggestions } });
+        return route.fulfill({ json: { filterVersion: 'purpose-2', suggestions } });
       }
       if (url.pathname.endsWith('/setup/skip')) {
         if (holdSkip) { heldSkip = route; return; }
@@ -110,7 +110,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     assert.equal(await page.getByText('Finding relevant apps…', { exact: true }).count(), 0);
     for (let i = 0; !held && i < 40; i++) await page.waitForTimeout(25);
     assert.ok(held);
-    await held.fulfill({ json: { suggestions: [github, slack] } });
+    await held.fulfill({ json: { filterVersion: 'purpose-2', suggestions: [github, slack] } });
     holdCached = false; held = undefined;
     await page.getByText('Updating saved suggestions...', { exact: true }).waitFor({ state: 'hidden' });
     const geometry = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
@@ -189,7 +189,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
       assert.equal(await page.getByText('Finding relevant apps…', { exact: true }).count(), 0);
       assert.equal(await page.getByRole('region', { name: 'Suggested integrations' }).getAttribute('aria-busy'), 'false');
-      await held.fulfill({ json: { suggestions: [calendar] } }).catch(() => {});
+      await held.fulfill({ json: { filterVersion: 'purpose-2', suggestions: [calendar] } }).catch(() => {});
       assert.equal(await page.getByRole('button', { name: 'Connect Google Calendar', exact: true }).count(), 0, 'a response after timeout must not replace the error');
       held = undefined; recoverHang = true;
       await page.getByRole('button', { name: 'Retry', exact: true }).click();
@@ -201,7 +201,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       assert.ok(held);
       await page.getByLabel('About', { exact: true }).fill('manage my calendar again');
       await page.getByRole('button', { name: 'Connect Google Calendar', exact: true }).waitFor();
-      await held.fulfill({ json: { suggestions: [github] } }).catch(() => {});
+      await held.fulfill({ json: { filterVersion: 'purpose-2', suggestions: [github] } }).catch(() => {});
       await page.waitForTimeout(100);
       assert.equal(await page.getByRole('button', { name: 'Connect GitHub', exact: true }).count(), 0, 'late old result cannot replace the newest draft');
       held = undefined;
@@ -209,7 +209,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       for (let i = 0; !held && i < 40; i++) await page.waitForTimeout(50);
       assert.ok(held);
       await page.evaluate(() => window.switchAccount());
-      await held.fulfill({ json: { suggestions: [github] } }).catch(() => {});
+      await held.fulfill({ json: { filterVersion: 'purpose-2', suggestions: [github] } }).catch(() => {});
       assert.equal(await cards.count(), 0, 'account switch immediately clears prior suggestions');
     }
     if ([390, 1280].includes(width)) {

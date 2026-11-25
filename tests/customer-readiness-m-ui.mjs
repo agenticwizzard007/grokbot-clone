@@ -40,8 +40,8 @@ try {
         if (suggestionMode === 'hang') return;
         if (suggestionMode === 'reject') return route.abort('failed');
         if (suggestionMode === 'blank-error') return send({ error: '' }, 503);
-        if (suggestionMode === 'empty') return send({ suggestions: [], hasContext: true });
-        return send({ suggestions: [{ slug: 'slack', name: 'Slack', reason: 'Slack is named in this Bot\'s work.', categories: [], noAuth: true }] });
+        if (suggestionMode === 'empty') return send({ filterVersion: 'purpose-2', suggestions: [], hasContext: true });
+        return send({ filterVersion: 'purpose-2', suggestions: [{ slug: 'slack', name: 'Slack', reason: 'Slack is named in this Bot\'s work.', categories: [], noAuth: true }] });
       }
       if (path === '/api/auth/me') {
         if (request.method() === 'PATCH') { writes.push(request.postDataJSON()); user = { ...user, ...request.postDataJSON() }; }

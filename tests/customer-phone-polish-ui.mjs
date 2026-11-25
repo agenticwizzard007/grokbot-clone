@@ -29,7 +29,7 @@ try {
       if (url.origin !== base) return route.abort();
       if (!path.startsWith('/api/')) return route.continue();
       const send = json => route.fulfill({ json });
-      if (path.endsWith('/suggested-apps')) return send({ suggestions: [] });
+      if (path.endsWith('/suggested-apps')) return send({ filterVersion: 'purpose-2', suggestions: [] });
       if (request.method() !== 'GET') { writes.push(`${request.method()} ${path}`); return route.fulfill({ status: 400, json: { error: 'Unexpected fixture write.' } }); }
       if (path === '/api/auth/me') return send({ user: { id: 'polish-account', email: 'polish@example.test', name: 'Account', timezone: 'UTC' } });
       if (path === '/api/bots') return send({ bots: [bot, { ...bot, id: 'second-bot', name: 'Writer Bot', isPrimary: false, description: '', label: '' }], live: [] });

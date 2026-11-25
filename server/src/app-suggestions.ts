@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { Toolkit } from './types.js';
 import { scoreTool, tokens } from './platform/app-discovery.js';
+import { SUGGESTION_FILTER_VERSION } from './suggestion-policy.js';
 
 export type SuggestionContext = { description: string; instructions: string; purpose: string };
 export type SuggestedToolkit = Omit<Toolkit, 'connected'> & { reason: string };
@@ -50,16 +51,25 @@ export function fallbackSuggestions(context: SuggestionContext, catalog: Catalog
 
 // Tool discovery scores are intentionally broad. Recommendations must instead
 // match the work itself, not generic verbs like summarize, send or monitor.
-const genericSuggestionTerms = new Set(tokens('bot help things work team summary summarize daily weekly activity updates monitor send post read manage automate assistant task message messages'));
+// A brand must be named in full. Sharing "email" with BlueFox Email or "chat"
+// with Google Chat is not evidence that the Bot needs those products.
+const genericNames = new Set('chat email mail message messages messaging summary summaries summarize summarise concise communication read send post manage team user latest bot assistant help helper work activity daily weekly update updates'.split(' '));
+const normalize = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+// Semantic matches require a concrete job and a matching catalog capability.
+// Categories and arbitrary pairs of words are deliberately not eligibility signals.
+const jobs = [
+  { purpose: /\b(calendar|scheduling|schedule meetings|meeting scheduling)\b/i, capability: /\b(calendar|scheduling|schedule meetings)\b/i },
+  { purpose: /\b(crm|customer relationship management|sales pipeline|sales leads)\b/i, capability: /\b(crm|customer relationship management|sales pipeline)\b/i },
+  { purpose: /\b(inbox|email triage|triage (?:my |the |incoming )?(?:emails?|mail)|organize (?:my |the )?emails?)\b/i, capability: /\b(inbox|mailbox|email client|read (?:and (?:organize|send) )?emails?)\b/i },
+  { purpose: /\b(repositories|repository|pull requests|source control)\b/i, capability: /\b(repositories|repository|pull requests|source control)\b/i },
+  { purpose: /\b(spreadsheets?)\b/i, capability: /\b(spreadsheets?)\b/i },
+  { purpose: /\b(invoicing|invoices|bookkeeping)\b/i, capability: /\b(invoicing|invoices|bookkeeping)\b/i },
+];
 function relevantCatalog(context: SuggestionContext, catalog: CatalogItem[]) {
   const query = `${context.description} ${context.instructions}`.trim() || context.purpose;
-  const meaningful = [...new Set(tokens(query))].filter(token => !genericSuggestionTerms.has(token));
   return rankCatalog(query, catalog).filter(({ item, named }) => {
     if (named) return true;
-    const identity = new Set(tokens(`${item.name} ${item.slug}`));
-    const description = new Set(tokens(item.description ?? ''));
-    return meaningful.some(token => identity.has(token))
-      || meaningful.filter(token => description.has(token)).length >= 2;
+    return jobs.some(job => job.purpose.test(query) && job.capability.test(`${item.name} ${item.description ?? ''}`));
   });
 }
 
@@ -67,7 +77,10 @@ function rankCatalog(query: string, catalog: CatalogItem[]) {
   const queryTokens = [...new Set(tokens(query))];
   const normalized = ` ${query.toLowerCase().replace(/[^a-z0-9]+/g, ' ')} `;
   return catalog.map(item => {
-    const named = [item.name, item.slug].some(name => normalized.includes(` ${name.toLowerCase().replace(/[^a-z0-9]+/g, ' ')} `));
+    const named = [item.name, item.slug].some(name => {
+      const identity = normalize(name);
+      return identity.split(' ').some(word => word && !genericNames.has(word)) && normalized.includes(` ${identity} `);
+    });
     const score = scoreTool({ slug: `${item.slug} ${item.name}`, description: `${item.description ?? ''} ${item.categories.join(' ')}` }, queryTokens, false).score;
     return { item, named, score: (named ? 10_000 : 0) + score };
   }).sort((a, b) => b.score - a.score || a.item.slug.localeCompare(b.item.slug));
@@ -108,7 +121,7 @@ export function createSuggestionRanker(generate: (input: string, signal: AbortSi
   return async (userId: string, model: string, context: SuggestionContext, catalog: CatalogItem[], contextTokens?: number) => {
     if (!catalog.length || !Object.values(context).some(text => text.trim())) return { suggestions: [] };
     const input = suggestionInput(context, catalog, contextTokens);
-    const key = createHash('sha256').update(JSON.stringify([userId, model, input])).digest('hex');
+    const key = createHash('sha256').update(JSON.stringify([SUGGESTION_FILTER_VERSION, userId, model, input])).digest('hex');
     const hit = cache.get(key);
     if (hit && hit.expires > Date.now()) return hit.result;
     const result = withSuggestionTimeout(signal => generate(input, signal), 1_500).then(value => {

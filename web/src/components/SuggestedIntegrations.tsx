@@ -5,6 +5,8 @@ import { useStore } from '../store';
 import { ToolkitLogo } from './ToolkitLogo';
 import { useAccessPanel } from './config/useAccessPanel';
 import { cachedSuggestions, refreshSuggestions } from '../lib/appsCatalogCache';
+import { useVersion } from '../configStore';
+import { SUGGESTION_FILTER_VERSION } from '../../../server/src/suggestion-policy';
 import '../styles/suggested-integrations.css';
 
 export const SUGGESTIONS_DEBOUNCE_MS = 450;
@@ -58,11 +60,12 @@ function SuggestionCard({ app, refresh }: { app: SuggestedToolkit; refresh: () =
 export function SuggestedIntegrations({ botId, description, instructions, placement = 'default' }: { botId: string; description: string; instructions: string; placement?: 'details' | 'settings' | 'default' }) {
   const userId = useStore(state => state.user?.id);
   const connectionsVersion = useStore(state => state.connectionsVersion);
+  const setupVersion = useVersion(`setup:${botId}`);
   const [retry, setRetry] = useState(0);
   const [result, setResult] = useState<{ key: string; apps: SuggestedToolkit[]; hasContext?: boolean; error?: string; refreshing?: boolean }>();
-  const key = JSON.stringify([userId, botId, description, instructions, connectionsVersion, retry]);
+  const key = JSON.stringify([SUGGESTION_FILTER_VERSION, userId, botId, description, instructions, connectionsVersion, setupVersion, retry]);
   const windowKey = JSON.stringify([placement, botId]);
-  const cacheKey = JSON.stringify([botId, description, instructions, connectionsVersion]);
+  const cacheKey = JSON.stringify([botId, description, instructions, connectionsVersion, setupVersion]);
   useEffect(() => {
     if (!userId) return;
     const controller = new AbortController();

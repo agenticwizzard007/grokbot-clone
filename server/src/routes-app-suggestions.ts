@@ -10,6 +10,7 @@ import { recordModelUsage, withUsage } from './usage.js';
 import { availableSuggestions, createSuggestionRanker, fallbackSuggestions, SUGGESTION_PROMPT, withSuggestionTimeout } from './app-suggestions.js';
 import { toolkitIcon } from './toolkit-icons.js';
 import { env } from './env.js';
+import { SUGGESTION_FILTER_VERSION } from './suggestion-policy.js';
 
 // Mounted under the main API's session and Bot body-limit middleware.
 export const appSuggestionsApi = new Hono<AuthVars>();
@@ -69,7 +70,8 @@ appSuggestionsApi.post('/bots/:id/suggested-apps', async c => {
       return availableSuggestions(fallback ? { suggestions: fallbackSuggestions(context, current) } : result, current, connected, context);
     }, 4_000);
     c.header('Server-Timing', `suggestions;dur=${(performance.now() - started).toFixed(1)}`);
-    return c.json({ suggestions, hasContext: Object.values(context).some(text => text.trim()) });
+    c.header('Cache-Control', 'no-store');
+    return c.json({ suggestions, hasContext: Object.values(context).some(text => text.trim()), filterVersion: SUGGESTION_FILTER_VERSION });
   } catch (error) {
     // Report the failed dependency without exposing provider bodies or credentials.
     const detail = error instanceof Error ? error.message : '';

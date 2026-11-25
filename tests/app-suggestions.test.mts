@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { availableSuggestions, createSuggestionRanker, fallbackSuggestions, suggestionInput } from '../server/src/app-suggestions.js';
+import { slackSummary, relevanceCatalog, noisyChoices } from './fixtures/slack-summary.mjs';
+import { SUGGESTION_FILTER_VERSION } from '../server/src/suggestion-policy.js';
 import { toolkitLogo } from '../web/src/lib/toolkitLogos.js';
 
 const toolkit = (slug: string, name: string, description: string) => ({ slug, name, description, categories: ['Work'], managedAuth: true, noAuth: false, logo: `https://logos.composio.dev/api/${slug}` });
@@ -67,7 +69,10 @@ test('never returns unavailable, duplicate or connected toolkits, nor model-supp
   assert.throws(() => availableSuggestions({}, catalogItems, new Set()), /Invalid/);
 });
 
-test('cache shares identical requests, isolates accounts and accepts new edits while a slow result is pending', async () => {
+test('cache shares identical requests, isolates accounts and accepts new edits while a slow result is pending', async t => {
+  // This test controls when providers settle. The separate hung-ranking test
+  // advances the deadline; module compilation under load must not race it here.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const pending: Array<(value: unknown) => void> = [];
   const rank = createSuggestionRanker(() => new Promise(resolve => pending.push(resolve)));
   const first = rank('owner', 'model', context, catalogItems);
@@ -131,7 +136,7 @@ const { db } = await import('../server/src/db.js');
 const { setEnvOverride } = await import('../server/src/env.js');
 const { composio } = await import('../server/src/composio.js');
 const { createBot } = await import('../server/src/bots.js');
-const { getSetup } = await import('../server/src/bot-setup.js');
+const { getSetup, briefSchema } = await import('../server/src/bot-setup.js');
 const { llmClient } = await import('../server/src/lib/llm.js');
 const { api } = await import('../server/src/routes.js');
 const { toolkitIcon } = await import('../server/src/toolkit-icons.js');
@@ -148,6 +153,7 @@ const modelInputs: any[] = [];
 let heldModel: { entered: () => void; wait: Promise<void> } | undefined;
 let malformedModel = false;
 let failingModel = false;
+let modelChoices: unknown;
 mock.method(llmClient(30_000).responses, 'create', async (body: any) => {
   modelInputs.push(body);
   if (failingModel) throw new Error('Fixture provider failed with private credential details');
@@ -155,7 +161,7 @@ mock.method(llmClient(30_000).responses, 'create', async (body: any) => {
   if (malformedModel) return { output_text: 'not JSON' };
   const input = JSON.parse(body.input[1].content);
   const selected = input.bot.description.includes('calendar') ? { suggestions: [{ slug: 'googlecalendar', reason: 'Manage calendar events.' }, { slug: 'unavailable', reason: 'Never visible.' }] } : choices;
-  return { output_text: JSON.stringify(selected), usage: { input_tokens: 10, output_tokens: 10, cost_in_usd_ticks: 0 } };
+  return { output_text: JSON.stringify(modelChoices ?? selected), usage: { input_tokens: 10, output_tokens: 10, cost_in_usd_ticks: 0 } };
 });
 const suggest = (body: unknown = {}, owner = 'owner') => app.request(`/api/bots/${bot.id}/suggested-apps`, { method: 'POST', headers: { cookie: `swarm_session=${owner}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
 after(() => { mock.restoreAll(); db.close(); fs.rmSync(root, { recursive: true, force: true }); });
@@ -378,4 +384,60 @@ test('recommendations keep meaningful task matches and cap the result list', () 
   assert.equal(fallbackSuggestions(context, catalog).length, 4);
   const noisy = { suggestions: catalog.map(item => ({ slug: item.slug, reason: 'Organize calendar events.' })) };
   assert.equal(availableSuggestions(noisy, catalog, new Set(), context).length, 4);
+});
+
+
+test('exact Slack summary fixture rejects generic chat, email and two-word description matches on both paths', () => {
+  assert.deepEqual(fallbackSuggestions(slackSummary, relevanceCatalog).map(item => item.slug), ['slack']);
+  assert.deepEqual(availableSuggestions(noisyChoices, relevanceCatalog, new Set(), slackSummary).map(item => item.slug), ['slack']);
+  assert.deepEqual(availableSuggestions(noisyChoices, relevanceCatalog, new Set(['slack']), slackSummary), []);
+  const noApp = { ...slackSummary, description: 'Return concise summaries of messages in this chat' };
+  assert.deepEqual(fallbackSuggestions(noApp, relevanceCatalog), []);
+  const genericNames = [toolkit('chat', 'Chat', 'Team messages'), toolkit('concise_summary', 'Concise Summary', 'Return summaries'), toolkit('message', 'Message', 'Communication')];
+  assert.deepEqual(fallbackSuggestions(slackSummary, genericNames), [], 'generic words do not become named apps even when they match the full name');
+});
+
+test('Gmail triage and CRM purpose retain strong named and capability matches', () => {
+  const gmail = { description: 'Triage my Gmail inbox', instructions: 'Summarize messages in chat', purpose: '' };
+  assert.deepEqual(fallbackSuggestions(gmail, relevanceCatalog).map(item => item.slug), ['gmail']);
+  const crm = { description: 'Manage my CRM and sales pipeline', instructions: 'Track opportunities', purpose: '' };
+  for (const context of [gmail, crm]) {
+    assert.deepEqual(availableSuggestions(noisyChoices, relevanceCatalog, new Set(), context).map(item => item.slug).sort(),
+      fallbackSuggestions(context, relevanceCatalog).map(item => item.slug).sort());
+  }
+  assert.deepEqual(fallbackSuggestions(crm, relevanceCatalog).map(item => item.slug).sort(), ['hubspot', 'salesforce']);
+});
+
+test('suggestion route filters cached noisy model choices and fallback with the exact Slack summary fixture', async () => {
+  items = relevanceCatalog;
+  setEnvOverride('COMPOSIO_API_KEY', 'exact-slack-fixture');
+  mock.method(composio().connectedAccounts, 'list', async () => ({ items: accounts, nextCursor: null }));
+  accounts = [];
+  modelChoices = noisyChoices;
+  try {
+    const draft = { description: slackSummary.description, instructions: slackSummary.instructions };
+    const response = await suggest(draft);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    const body = await response.json() as any;
+    assert.equal(body.filterVersion, SUGGESTION_FILTER_VERSION);
+    assert.deepEqual(body.suggestions.map((item: any) => item.slug), ['slack']);
+    const calls = modelInputs.length;
+    assert.deepEqual((await (await suggest(draft)).json() as any).suggestions, body.suggestions, 'both mounts share the filtered ranking');
+    accounts = [{ id: 'fixture-slack', toolkit: { slug: 'slack' }, status: 'ACTIVE' }];
+    assert.deepEqual((await (await suggest(draft)).json() as any).suggestions, []);
+    assert.equal(modelInputs.length, calls, 'cached model output is filtered against current connections');
+    accounts = [];
+    failingModel = true;
+    assert.deepEqual((await (await suggest({ ...draft, instructions: draft.instructions + ' Keep summaries short.' })).json() as any).suggestions.map((item: any) => item.slug), ['slack']);
+  } finally { modelChoices = undefined; failingModel = false; accounts = []; }
+});
+
+test('new customer setup briefs use plain connection words without rewriting Bot instructions', () => {
+  const before = db.prepare('SELECT instructions FROM bots WHERE id=?').get(bot.id);
+  const brief = briefSchema.parse({ ...getSetup(bot.id)!.brief, communication_style: 'Gmail account is ACTIVE.', shared_resources: ['Slack account was EXPIRED.'], working_principles: ['Email account is INITIATED.'] });
+  assert.equal(brief.communication_style, 'Gmail connected.');
+  assert.deepEqual(brief.shared_resources, ['Slack needs to be reconnected.']);
+  assert.deepEqual(brief.working_principles, ['Email waiting for connection.']);
+  assert.deepEqual(db.prepare('SELECT instructions FROM bots WHERE id=?').get(bot.id), before);
 });
