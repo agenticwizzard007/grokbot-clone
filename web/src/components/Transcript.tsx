@@ -4,7 +4,7 @@ import { MessageSkeleton } from './ChatSkeleton';
 import { useDisplayText } from '../lib/useDisplayText';
 import { isInternalRow, userFacingLive } from '../lib/audience';
 import { CoworkerSetupCards } from './CoworkerSetupCards';
-import { Fragment, memo, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Bot, LiveState, MessageBody, Row, ToolCallBody } from '@shared/types';
 import { BotAvatar, BotAvatarFor } from '../avatar/BotAvatar';
 import { clock, dividerLabel } from '../lib/time';
@@ -162,7 +162,7 @@ function Steps({ rows }: { rows: Row[] }) {
   );
 }
 
-function SystemRow({ row }: { row: Row }) {
+const SystemRow = memo(function SystemRow({ row }: { row: Row }) {
   const clean = useDisplayText();
   const b = row.body;
   const [retrying, setRetrying] = useState(false);
@@ -202,7 +202,7 @@ function SystemRow({ row }: { row: Row }) {
   // display: contents keeps the card layout unchanged while giving deep links (search, Tasks) an anchor.
   if (b.type === 'card') return <div data-row-seq={row.seq} style={{ display: 'contents' }}><CardRow row={row} /></div>;
   return null;
-}
+});
 
 const recoveryStatus: Record<ToolCallBody['status'], string> = {
   done: 'Completed', error: 'Failed', denied: 'Not allowed', uncertain: 'Result unknown',
@@ -280,13 +280,23 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
     return () => observer.disconnect();
   }, [pendingResponse, turn.startedAt, turn.promptSeq, empty, processing]);
 
-  const rememberPosition = () => {
+  const rememberPosition = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    // Following the bottom needs no history measurements. For a reader higher
+    // up, ordered row anchors let us find the visible row in logarithmic reads.
+    if (stick.current) { readingPosition.current = null; return; }
     const top = el.getBoundingClientRect().top;
-    const anchor = Array.from(el.querySelectorAll<HTMLElement>('[data-row-seq]')).find(row => rowRect(row).bottom > top);
-    readingPosition.current = anchor && rows.length ? { seq: anchor.dataset.rowSeq!, top: rowRect(anchor).top - top } : null;
-  };
+    const anchors = el.querySelectorAll<HTMLElement>('[data-row-seq]');
+    let low = 0, high = anchors.length;
+    while (low < high) {
+      const mid = (low + high) >>> 1;
+      if (rowRect(anchors[mid]).bottom > top) high = mid;
+      else low = mid + 1;
+    }
+    const anchor = anchors[low];
+    readingPosition.current = anchor ? { seq: anchor.dataset.rowSeq!, top: rowRect(anchor).top - top } : null;
+  }, []);
 
   // Row updates preserve the visible anchor, including prepends and streaming edits.
   // New content still follows the bottom unless the user has scrolled up.
@@ -300,7 +310,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
     } else if (stick.current) el.scrollTop = el.scrollHeight;
     rememberPosition();
     setShowJump(!stick.current && el.scrollHeight - el.scrollTop - el.clientHeight >= 40);
-  }, [rows, live, loaded, bot.id, exchanges.exchanges]);
+  }, [rows, loaded, bot.id, exchanges.exchanges, rememberPosition]);
   // Lazy markdown can change height after the rows commit. Keep the latest
   // message in view, or preserve the reader's anchor while older content formats.
   useLayoutEffect(() => {
@@ -319,7 +329,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
     observer.observe(column);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [bot.id, rows]);
+  }, [bot.id, rememberPosition]);
   // Jump to bottom when switching bots.
   useLayoutEffect(() => {
     stick.current = true;
@@ -400,9 +410,11 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
       </div>
     </div>
       {showJump && (
-        <button type="button" className="jump-btn" onClick={jump} aria-label="Jump to latest">
-          <Icon name="arrow_down" size={16} /><span>Jump to latest</span>
-        </button>
+        <div className="transcript__jump">
+          <button type="button" className="jump-btn" onClick={jump} aria-label="Jump to latest">
+            <Icon name="arrow_down" size={16} /><span>Jump to latest</span>
+          </button>
+        </div>
       )}
     </div>
   );
