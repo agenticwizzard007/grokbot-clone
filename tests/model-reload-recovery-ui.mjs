@@ -52,6 +52,12 @@ try {
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
     await page.waitForFunction(() => document.querySelector('.model-pill')?.getAttribute('aria-busy') === 'false');
     assert.ok(calls > before);
+    if (width === 390) {
+      await page.getByRole('button', { name: 'All Bots', exact: true }).click();
+      await page.locator('.sidebar-usage').waitFor({ state: 'visible' });
+      assert.match(await page.locator('.sidebar-usage').innerText(), /Codex plan[\s\S]*Usage limits not reported/);
+      await page.screenshot({ path: `.context/r6-z-ui/${width}-${theme}-sidebar.png` });
+    }
     assert.deepEqual(errors, []); assert.deepEqual(writes, []);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.context().close();
