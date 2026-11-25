@@ -27,7 +27,7 @@ import { COORDINATION_TOOLS } from './coordination-tools.js';
 import { z } from 'zod';
 import { findMcpTool } from '../mcp/store.js';
 import { platformState } from './platform-state.js';
-import { APP_CONNECTION_TOOLS } from './app-connections.js';
+import { APP_CONNECTION_TOOLS, requestAppConnection } from './app-connections.js';
 import { appToolLabel } from '../tool-activity.js';
 import { DISCOVERY_TOOLS } from './tool-catalog.js';
 import { PROGRAM_TOOLS } from './programs.js';
@@ -809,6 +809,16 @@ export async function runComposioTool(ctx: ToolCtx, name: string, args: any): Pr
   const app = String(args?.tool_slug ?? '').startsWith('GMAIL_') || args?.toolkit === 'gmail' ? 'Gmail' : 'The connected app';
   const retry = 'Check the connection in Settings, then retry. Review activity before repeating any external action.';
   try {
+    if (name === 'SWARM_APPS_SEARCH' && typeof args?.toolkit === 'string' && !ctx.roomId) {
+      // A successful empty account lookup is different from an unavailable provider.
+      // Offer the existing Connect card before discovery can fail with a generic error.
+      const accounts = await connectionsDetail(ctx.userId, { signal: AbortSignal.timeout(15_000) });
+      if (!accounts.some(account => account.toolkit === args.toolkit && account.status === 'ACTIVE' && !account.isDisabled)) {
+        const info = await toolkitInfo(args.toolkit);
+        if (info) return requestAppConnection({ toolkit: info.slug,
+          reason: `${info.name} is not connected. Connect it to continue your requested work.` }, ctx);
+      }
+    }
     const r = await executeComposio(ctx.userId, name, args, { readOnly: isConfiguring(ctx.botId) || ctx.readOnlyApps === true });
     const ok = r.successful !== false && !r.error && (!r.resultType || ['completed', 'success'].includes(r.resultType));
     if (!ok) return { output: `${app} reported a failed operation. ${retry}`, summary: `${app} reported a failed operation. ${retry}`, isError: true };

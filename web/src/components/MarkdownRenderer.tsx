@@ -1,6 +1,7 @@
-import { memo } from 'react';
+import React from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 
 const components: Components = {
   a: ({ node: _n, ...props }) => <a {...props} target="_blank" rel="noreferrer noopener" />,
@@ -10,10 +11,10 @@ const components: Components = {
 };
 
 /** Assistant message markdown: paragraphs, lists, blockquotes, inline code, code blocks (screen 02), tables. */
-export const Markdown = memo(function Markdown({ text }: { text: string }) {
+export const Markdown = React.memo(function Markdown({ text }: { text: string }) {
   return (
     <div className="md">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{text}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={components}>{text}</ReactMarkdown>
     </div>
   );
 });

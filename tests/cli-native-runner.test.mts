@@ -161,6 +161,21 @@ for (const provider of ['codex', 'claude']) test(`${provider}: stop kills the CL
   await assert.rejects(stat(events[0].cwd), { code: 'ENOENT' });
 });
 
+for (const provider of ['codex', 'claude']) test(`${provider}: CLI receives the pending result and an immediate final success is discarded`, async t => {
+  const pending = { status: 'pending_approval', approvalId: 'fixture-approval', executed: false };
+  const f = await fixture(t, provider, `
+    const pending=await client.callTool({name:'SWARM_READ',arguments:{value:'approval'}});
+    audit({kind:'pending',pending}); answer='invented success';
+  `);
+  const result = await runGeneration(request(provider), { ...f.options, onToolCall: async () => ({ output: JSON.stringify(pending), stop: true }) });
+  assert.equal(result.stopped, true);
+  assert.equal(JSON.parse(result.text).text, '');
+  const received = (await f.events()).find(e => e.kind === 'pending').pending;
+  assert.deepEqual(JSON.parse(received.content[0].text), pending);
+  assert.match(received.content[1].text, /Stop using tools/);
+  assert.equal(received._meta['swarm/stop'], true);
+});
+
 for (const provider of ['codex', 'claude']) test(`${provider}: stop retains observed usage as partial without fabricating missing counters`, async t => {
   const event = provider === 'claude'
     ? { type: 'assistant', message: { id: 'message-one', usage: { input_tokens: 7, cache_read_input_tokens: 3, output_tokens: -1 } } }

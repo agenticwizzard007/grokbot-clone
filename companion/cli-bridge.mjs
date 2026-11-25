@@ -369,7 +369,8 @@ async function nativeMcp(params, options, controller) {
     // deliberately disabled. Bound text below its documented 500k ceiling too.
     ...(params.provider === 'claude' ? { _meta: { 'anthropic/maxResultSizeChars': 500000 } } : {}) }));
   const names = new Set(tools.map(tool => tool.name)), calls = new Map();
-  let listed = false, closed = false, queue = Promise.resolve(), callBytes = 0;
+  let listed = false, closed = false, stopping = false, stopTimer, queue = Promise.resolve(), callBytes = 0;
+  const stopReason = new RunnerError('Native generation stopped by the application.', 'native_stop');
   const fail = error => {
     if (!signal.aborted && !closed) controller.abort(error instanceof RunnerError ? error : new RunnerError('Native tool execution failed.'));
   };
@@ -388,14 +389,14 @@ async function nativeMcp(params, options, controller) {
     if (calls.size >= 4096 || callBytes > MAX_BYTES) throw new RunnerError('Native tool requests exceeded the generation limit.');
     const result = queue.then(async () => {
       aborted(signal);
+      // Fence admission immediately, including requests already queued behind the
+      // approval. Leave them pending until shutdown so none can overtake its reply.
+      if (stopping) return bounded(() => new Promise(() => {}));
       const reply = await bounded(() => options.onToolCall({ id: prefix + ':' + key, name, arguments: args }));
       aborted(signal);
       if (!object(reply) || !Object.hasOwn(reply, 'output') || (reply.stop !== undefined && typeof reply.stop !== 'boolean')
         || (reply.isError !== undefined && typeof reply.isError !== 'boolean')) throw new RunnerError('Invalid native tool result.');
-      if (reply.stop === true) {
-        fail(new RunnerError('Native generation stopped by the application.', 'native_stop'));
-        aborted(signal);
-      }
+      if (reply.stop === true) stopping = true;
       const content = mcpContent(reply.output);
       if (params.provider === 'claude') {
         let remaining = reply.isError ? 9000 : 400000, truncated = false;
@@ -405,7 +406,8 @@ async function nativeMcp(params, options, controller) {
         }
         if (truncated) content.push({ type: 'text', text: '\n[Swarm truncated this tool result to keep it inline. Request a smaller result or use the application tool to paginate. Do not read local files.]' });
       }
-      const response = { result: { content, ...(reply.isError ? { isError: true } : {}) } };
+      if (stopping) content.push({ type: 'text', text: 'This turn has ended. Stop using tools and wait for Swarm to continue. Only the tool result establishes whether an action executed.' });
+      const response = { result: { content, ...(reply.isError ? { isError: true } : {}), ...(stopping ? { _meta: { 'swarm/stop': true } } : {}) } };
       if (Buffer.byteLength(JSON.stringify(response)) > MAX_BYTES) throw new RunnerError('Native tool result exceeded the 8 MB limit.');
       return response;
     });
@@ -445,10 +447,14 @@ async function nativeMcp(params, options, controller) {
       if (signal.aborted || closed) { res.destroy(); return; }
       const data = JSON.stringify({ jsonrpc: '2.0', id: request.id, ...reply });
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(data);
+      // Send the real pending result before terminating the CLI. Bound delivery
+      // even if the client drops its socket. Admission is already fenced above.
+      if (reply.result?._meta?.['swarm/stop']) stopTimer ??= setTimeout(() => fail(stopReason), 250);
     } catch (error) { fail(error); res.destroy(); }
   });
   const close = () => {
     closed = true;
+    clearTimeout(stopTimer);
     server.closeAllConnections();
     server.close();
   };
@@ -464,6 +470,7 @@ async function nativeMcp(params, options, controller) {
   server.on('error', () => fail(new RunnerError('Native MCP server failed.')));
   return {
     url: `http://127.0.0.1:${server.address().port}/mcp`, token,
+    get stopped() { return stopping; },
     ready: () => { if (!listed) throw new RunnerError(`${LABEL[params.provider]} did not load the native Swarm MCP tools. Update the official CLI and retry.`, 'configuration'); },
     close: () => { signal.removeEventListener('abort', close); close(); calls.clear(); },
   };
@@ -692,11 +699,12 @@ export async function runGeneration(params, options = {}) {
       if (valid.nativeTools.length) mcp = await nativeMcp(valid, options, controller);
       const result = await (valid.provider === 'codex' ? generateCodex : generateClaude)(valid, { ...options, nativeMcp: mcp, nativeUsage }, cwd, controller.signal);
       mcp?.ready();
+      if (mcp?.stopped) return { text: JSON.stringify({ text: '', tool_calls: [] }), stopped: true, ...nativeUsage.snapshot() };
       if (!mcp) return result;
       const { usage: _legacyUsage, ...nativeResult } = result;
       return { ...nativeResult, ...nativeUsage.result() };
     } catch (error) {
-      if (controller.signal.reason instanceof RunnerError && controller.signal.reason.code === 'native_stop') return { text: JSON.stringify({ text: '', tool_calls: [] }), stopped: true, ...nativeUsage.snapshot() };
+      if ((mcp?.stopped && !signal.aborted) || (controller.signal.reason instanceof RunnerError && controller.signal.reason.code === 'native_stop')) return { text: JSON.stringify({ text: '', tool_calls: [] }), stopped: true, ...nativeUsage.snapshot() };
       throw error;
     } finally {
       // Also release callbacks when a CLI exits while its tool call is pending.

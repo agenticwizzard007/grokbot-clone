@@ -15,6 +15,7 @@ import type { RowBody, ToolCallBody } from '../types.js';
 import { composioTools, connectionsDetail } from '../composio.js';
 import { appName } from '../tool-activity.js';
 import { systemPrompt } from './prompt.js';
+import { requestAppConnection } from './app-connections.js';
 import { isSetupRefusal, messageText, operationalHistory } from './setup-reply.js';
 import { deduplicateBrowserSnapshots, repairHistory } from './history.js';
 import { maybeCompact, noteUsage } from './memory.js';
@@ -542,7 +543,8 @@ async function runScopedTurn(botId: string, trigger: Trigger, jobId: string, ctr
         else if (state.replan) nativeBoundary = 'replan';
         else if (nativeCount >= CLI_TOOL_CHECKPOINT_INTERVAL) nativeBoundary = 'checkpoint';
         if (!nativeBoundary) setLive(botId, { activity: { kind: 'thinking', detail: selectedCli(userId) === 'claude' ? 'Waiting for Claude' : 'Waiting for Codex', since: now() } });
-        return { output: output ?? 'Waiting for user approval. This action has not executed.',
+        return { output: paused ? JSON.stringify({ status: 'pending_approval', approvalId: state.approvalId, executed: false,
+          message: 'An approval card is waiting in the main chat. This action has not executed. Stop and wait for the user to decide.' }) : output ?? 'No action result was returned.',
           isError: getRow(botId, row.seq)?.body.type === 'tool-call' && ['error', 'denied'].includes((getRow(botId, row.seq)!.body as ToolCallBody).status),
           ...(nativeBoundary ? { stop: true } : {}) };
       };
@@ -721,6 +723,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
     const ap = st.approvalId ? (db.prepare('SELECT * FROM approvals WHERE id=?').get(st.approvalId) as any) : null;
     const pol = await executionPolicyFor(userId, c.name, args, botId);
     let accountLabel: string | undefined;
+    let connectionRequired: ToolResult | undefined;
     if (c.name === 'SWARM_APPS_EXECUTE' && pol.decision !== 'block' && !(ap && ap.call_id === c.call_id)) {
       let refusal: string | undefined;
       if (ctx.roomId && !pol.readOnlyApps) {
@@ -729,9 +732,15 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
         // Never ask the user to approve an action on an account they have not connected.
         const account = await activeAppAccount(userId, args);
         if (account.ok) accountLabel = account.label;
-        else refusal = account.message;
+        else {
+          refusal = account.message;
+          if (account.toolkit && !ctx.roomId) {
+            const result = await requestAppConnection({ toolkit: account.toolkit, reason: account.message }, ctx);
+            if (result.endTurn) connectionRequired = result;
+          }
+        }
       }
-      if (refusal) {
+      if (refusal && !connectionRequired) {
         updateRow(botId, c.rowSeq, { ...body, status: 'denied', summary: refusal.slice(0, 200) });
         st.outputs.push({ type: 'function_call_output', call_id: c.call_id, output: refusal });
         st.calls.shift();
@@ -743,7 +752,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
     // approval/dispatch boundary with the current durable state.
     assertTurnCanContinue();
     if(invalidateStaleContext())break;
-    let decision = pol.decision;
+    let decision = connectionRequired ? 'block' : pol.decision;
     if (st.nativeRequireApproval && decision === 'allow') decision = 'ask';
     if (ap && ap.call_id === c.call_id) {
       if (ap.status === 'pending') return true;
@@ -778,7 +787,10 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
     }
 
     let res: ToolResult;
-    if (decision === 'block') {
+    if (connectionRequired) {
+      res = connectionRequired;
+      updateRow(botId, c.rowSeq, { ...body, status: 'denied', summary: res.summary });
+    } else if (decision === 'block') {
       res = { output: 'The user declined this action. Do not retry it. Find another way, or tell the user what you could not do.', summary: 'Not allowed' };
       updateRow(botId, c.rowSeq, { ...body, status: 'denied', summary: 'Not allowed' });
     } else {
@@ -1098,7 +1110,7 @@ const toolkitMatches = (toolkit: string, slug: string) => {
 };
 
 /** The requested app account must be an ACTIVE, enabled connection of this user for the tool's app. */
-export async function activeAppAccount(userId: string, args: any): Promise<{ ok: true; label: string } | { ok: false; message: string }> {
+export async function activeAppAccount(userId: string, args: any): Promise<{ ok: true; label: string } | { ok: false; message: string; toolkit?: string }> {
   const slug = typeof args?.tool_slug === 'string' ? args.tool_slug : '';
   const app = appName(slug.split('_')[0]) ?? 'app';
   let accounts: Awaited<ReturnType<typeof connectionsDetail>>;
@@ -1106,7 +1118,12 @@ export async function activeAppAccount(userId: string, args: any): Promise<{ ok:
   catch { return { ok: false, message: `The ${app} connection could not be confirmed, so nothing was done. Check it with list_app_connections and try again.` }; }
   const usable = accounts.filter(a => a.status === 'ACTIVE' && !a.isDisabled);
   const account = usable.find(a => a.id === args?.connectionId && toolkitMatches(a.toolkit, slug));
-  if (!account) return { ok: false, message: `The ${app} account in this request is not connected. Use request_app_connection to ask the user to connect it.` };
+  if (!account) {
+    const matching = usable.some(a => toolkitMatches(a.toolkit, slug));
+    return { ok: false, ...(matching ? {} : { toolkit: slug.split('_')[0].toLowerCase() }),
+      message: matching ? `The ${app} account in this request is not connected. Use list_app_connections to select an active account.`
+        : `${app} is not connected. Connect it to continue your requested work. Nothing has been sent or saved.` };
+  }
   return { ok: true, label: `${account.accountLabel ?? fallbackAccountLabel(account.id)} · ${connectionStatusLabel(account.displayStatus ?? 'active')} · ${connectedDate(account.connectedAt)}` };
 }
 

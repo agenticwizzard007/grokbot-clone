@@ -99,7 +99,7 @@ const requestTool = define('request_app_connection',
     const info = await toolkitInfo(args.toolkit);
     ownBot(ctx, generation);
     if (!info) return result({ ok: false, status: 'unknown_toolkit', error: 'Unknown app. Use search_apps to find a supported toolkit slug.' });
-    const active = (await connectionsDetail(ctx.userId, { details: true })).filter(connection => connection.toolkit === info.slug && connection.status === 'ACTIVE').map(publicConnection);
+    const active = (await connectionsDetail(ctx.userId, { details: true })).filter(connection => connection.toolkit === info.slug && connection.status === 'ACTIVE' && !connection.isDisabled).map(publicConnection);
     ownBot(ctx, generation);
     if (active.length) return result({ ok: true, status: 'connected',
       ...(active.length === 1 ? { connection: active[0] } : { connections: active }),
@@ -120,7 +120,7 @@ const requestTool = define('request_app_connection',
     }
     const connectionRequest: AppConnectionRequest = { botId: ctx.botId, seq, toolkit: info.slug, toolkitName: info.name };
     return result({ ok: true, status: 'pending', connectionRequest,
-      note: `Waiting for the user to authorize ${info.name} through the connect card. Authorization is not complete until the provider confirms an active account.` },
+      note: `${info.name} is not connected. Use the Connect card in the main chat to connect it. No action approval has been requested and nothing has been sent or saved. Stop and wait until the provider confirms an active account.` },
     { connectionRequest, summary: `Waiting to connect ${info.name}`, endTurn: true });
   });
 
