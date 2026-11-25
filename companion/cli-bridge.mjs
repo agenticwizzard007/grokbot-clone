@@ -2,7 +2,7 @@
 // Node 22+, no packages. Credentials stay in the CLIs' normal home/keychain stores.
 import { spawn } from 'node:child_process';
 import { constants } from 'node:fs';
-import { mkdir, mkdtemp, open, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, open, rm, stat, writeFile } from 'node:fs/promises';
 import { hostname, tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -158,6 +158,19 @@ function executable(provider, options) {
 async function providerStatus(provider, options, cwd, signal, timeoutMs = AUTH_TIMEOUT_MS, strictStatus = false) {
   const result = { installed: true, authenticated: false, subscription: false };
   try {
+    // Hosted Linux profiles use file credentials. A new or signed-out profile
+    // has nothing to verify, so do not turn CLI startup failures into auth errors.
+    // Saved credentials still require the official probe, including its errors.
+    if (provider === 'claude' && strictStatus && options.fileCredentials === true && process.platform === 'linux' && options.env?.CLAUDE_CONFIG_DIR) {
+      await access(executable(provider, options), constants.X_OK).catch(error => {
+        if (error.code === 'ENOENT') throw new RunnerError('CLI executable is not installed.', 'unavailable');
+        throw error;
+      });
+      result.hasSavedState = await stat(join(options.env.CLAUDE_CONFIG_DIR, '.credentials.json')).then(() => true, error => {
+        if (error.code === 'ENOENT') return false;
+        throw error;
+      });
+    }
     const args = provider === 'codex' ? ['login', 'status'] : ['auth', 'status', '--json'];
     if (provider === 'codex' && options.fileCredentials === true) args.push('-c', 'cli_auth_credentials_store="file"');
     const output = await deadline(signal, timeoutMs, (authSignal) => execute(executable(provider, options), args, { cwd, env: childEnvironment(options.env), signal: authSignal }));
@@ -176,6 +189,7 @@ async function providerStatus(provider, options, cwd, signal, timeoutMs = AUTH_T
       try { status = JSON.parse(output.stdout); } catch {}
       if (strictStatus && (typeof status?.loggedIn !== 'boolean' || status.loggedIn && output.code !== 0)) throw new RunnerError('Status unavailable. Retry.');
       result.authenticated = output.code === 0 && status?.loggedIn === true;
+      if (result.authenticated && result.hasSavedState === false) result.hasSavedState = true;
       // authMethod alone cannot rule out Console OAuth on every CLI version.
       // Require explicit plan evidence before allowing subscription generation.
       const plan = status && Object.hasOwn(status, 'subscriptionType') && CLAUDE_PLANS.has(status.subscriptionType);
@@ -189,6 +203,7 @@ async function providerStatus(provider, options, cwd, signal, timeoutMs = AUTH_T
     aborted(signal);
     result.installed = !(error instanceof RunnerError && error.code === 'unavailable');
     result.error = safeError(error);
+    if (provider === 'claude' && result.installed && result.hasSavedState === false) delete result.error;
   }
   return result;
 }

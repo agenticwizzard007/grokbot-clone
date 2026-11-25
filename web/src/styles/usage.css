@@ -54,9 +54,9 @@
 .usage-chart__axis { display: flex; flex-direction: column; justify-content: space-between; font-size: 11px; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; text-align: right; min-width: 44px; transform: translateY(-6px); height: calc(100% + 12px); }
 .usage-chart__plot { position: relative; flex: 1; min-width: 0; }
 .usage-chart__grid { position: absolute; left: 0; right: 0; height: 1px; background: var(--u-grid); }
-.usage-chart__cols { position: absolute; inset: 0; display: flex; align-items: stretch; gap: 2px; }
+.usage-chart__cols { position: absolute; inset: 0 0 1px; display: flex; align-items: stretch; gap: 2px; overflow: clip; }
 .usage-chart__slot { flex: 1; min-width: 0; display: flex; align-items: flex-end; justify-content: center; cursor: default; outline: none; border-radius: 4px; }
-.usage-chart__slot:focus-visible { box-shadow: 0 0 0 2px var(--u-mark); }
+.usage-chart__slot:focus-visible { box-shadow: inset 0 0 0 2px var(--u-mark); }
 .usage-chart__col { width: 100%; max-width: 24px; min-height: 0; background: var(--u-mark); border-radius: 4px 4px 0 0; }
 .usage-chart__xaxis { display: flex; gap: 2px; margin-left: 52px; margin-top: 6px; font-size: 11px; color: var(--color-text-secondary); }
 .usage-chart__xaxis span { flex: 1; min-width: 0; white-space: nowrap; overflow: visible; }
@@ -98,9 +98,11 @@
 .usage-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
 .usage-key--ai { background: var(--u-mark); }
 .usage-key--vm { background: var(--u-vm); }
-/* A fixed gap can exceed a tiny bar's height and push its segments below zero. */
-.usage-chart__col { display: flex; flex-direction: column; gap: min(2px, 10%); background: none; border-radius: 0; }
-.usage-chart__seg { min-height: 0; flex-basis: 0; }
+/* Keep every positive segment above the zero line, including subpixel estimates.
+   A stack needs room for both minimum heights and must not add a gap below them. */
+.usage-chart__col { display: flex; flex-direction: column; min-height: 1px; overflow: clip; background: none; border-radius: 0; }
+.usage-chart__col:has(> :nth-child(2)) { min-height: 2px; }
+.usage-chart__seg { min-height: 1px; flex-basis: 0; }
 .usage-chart__seg.is-ai { background: var(--u-mark); }
 .usage-chart__seg.is-vm { background: var(--u-vm); }
 .usage-chart__col > .usage-chart__seg:first-child { border-radius: 4px 4px 0 0; }

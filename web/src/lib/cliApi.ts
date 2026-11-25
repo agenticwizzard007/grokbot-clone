@@ -7,6 +7,7 @@ export interface CliProviderStatus {
   installed: boolean;
   authenticated: boolean;
   subscription: boolean;
+  hasSavedState?: boolean;
   error?: string;
 }
 

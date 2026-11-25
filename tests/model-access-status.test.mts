@@ -99,3 +99,34 @@ test('Models access: unavailable and pending probes never invent a connection or
   assert.equal(modelAccessStatus(status, 'codex').connection, 'Checking status…');
   assert.match(modelAccessStatus(status, 'claude').currentRoute, /connection is being checked/);
 });
+
+test('Claude never set up or missing has a neutral connection and no saved controls', () => {
+  for (const health of [
+    { ...signedOut, hasSavedState: false },
+    { ...signedOut, hasSavedState: false, error: 'Status unavailable. Retry.' },
+    { installed: false, authenticated: false, subscription: false, error: 'CLI executable is not installed.' },
+  ]) {
+    const status = fixture('codex', false, true);
+    status.providers.claude = health;
+    const tab = modelAccessStatus(status, 'claude');
+    assert.equal(tab.connection, 'Not connected');
+    assert.equal(tab.action, 'Connect Claude plan');
+    assert.equal(tab.hasSavedState, false);
+    assert.equal(tab.probeFailed, false);
+    assert.doesNotMatch(tab.details, /could not be verified/);
+    assert.equal(modelAccessStatus(status, 'codex').currentlyInUse, true);
+  }
+});
+
+test('Claude signed out, real probe error and connected retain their own saved state', () => {
+  const status = fixture('codex', false, true);
+  status.providers.claude = { ...signedOut, hasSavedState: true };
+  assert.equal(modelAccessStatus(status, 'claude').connection, 'Not connected');
+  assert.equal(modelAccessStatus(status, 'claude').hasSavedState, true);
+  status.providers.claude.error = 'Status unavailable. Retry.';
+  assert.equal(modelAccessStatus(status, 'claude').connection, 'Status unavailable');
+  assert.equal(modelAccessStatus(status, 'claude').probeFailed, true);
+  status.providers.claude = { ...ready, hasSavedState: true };
+  assert.equal(modelAccessStatus(status, 'claude').connection, 'Connected');
+  assert.equal(modelAccessStatus(status, 'claude').currentlyInUse, false);
+});

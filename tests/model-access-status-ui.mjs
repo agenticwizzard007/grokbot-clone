@@ -16,6 +16,10 @@ const vite = spawn(process.execPath, ['node_modules/vite/bin/vite.js', '--host',
 const signedIn = { installed: true, authenticated: true, subscription: true };
 const signedOut = { installed: true, authenticated: false, subscription: false };
 const fixtures = [
+  { name: 'claude-never-set-up', selected: 'codex', claude: false, codex: true, claudeHealth: { ...signedOut, hasSavedState: false } },
+  { name: 'claude-missing', selected: 'codex', claude: false, codex: true, claudeHealth: { ...signedOut, installed: false, error: 'CLI executable is not installed.' } },
+  { name: 'claude-signed-out', selected: 'codex', claude: false, codex: true, claudeHealth: { ...signedOut, hasSavedState: true } },
+  { name: 'claude-probe-error', selected: 'codex', claude: false, codex: true, claudeHealth: { ...signedOut, hasSavedState: true, error: 'Status unavailable. Retry.' } },
   { name: 'codex-only', selected: 'codex', claude: false, codex: true },
   { name: 'claude-only', selected: 'claude', claude: true, codex: false },
   { name: 'both-codex', selected: 'codex', claude: true, codex: true },
@@ -42,12 +46,15 @@ try {
     const user = { id: 'models-access-fixture', email: 'models@example.test', role: 'user' };
     const status = { runtime: fixture.runtime ?? 'server', serverLoginAvailable: true, connected: fixture.connected ?? true,
       selected: fixture.selected, device: 'Fixture computer', statusUnavailable: fixture.statusUnavailable,
-      providers: { claude: fixture.claude ? signedIn : signedOut, codex: fixture.codex ? signedIn : signedOut } };
+      providers: { claude: fixture.claudeHealth ?? (fixture.claude ? signedIn : signedOut), codex: fixture.codex ? signedIn : signedOut } };
     await page.route('**/api/**', async route => {
       const request = route.request(), path = new URL(request.url()).pathname;
       if (request.method() !== 'GET') mutations.push(`${request.method()} ${path}`);
       let json = {};
       if (path === '/api/cli') json = status;
+      if (path === '/api/cli/refresh' && fixture.name === 'claude-probe-error') return route.fulfill({ status: 503, json: { error: 'Status unavailable. Retry.' } });
+      if (path === '/api/cli/login') json = { id: 'fixture-login', provider: 'claude', state: 'running', output: 'Complete official sign-in.', cursor: 1, reset: false };
+      if (path === '/api/cli/login/fixture-login') json = { id: 'fixture-login', provider: 'claude', state: 'running', output: '', cursor: 1, reset: false };
       if (path === '/api/auth/me') json = { user };
       if (path === '/api/models') json = {
         provider: fixture.selected ? `${fixture.selected}-cli` : 'openrouter', billing: fixture.selected ? 'plan' : 'api',
@@ -78,13 +85,14 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       const panel = page.getByRole('tabpanel', { name: cli, exact: true });
       const connected = fixture[provider] && !fixture.statusUnavailable && status.connected;
       const active = connected && fixture.selected === provider;
-      const expected = fixture.statusUnavailable ? 'Status unavailable' : connected ? `Connected${active ? ' · Currently in use' : ''}` : 'Not connected';
+      const probeError = provider === 'claude' && fixture.name === 'claude-probe-error';
+      const expected = fixture.statusUnavailable || probeError ? 'Status unavailable' : connected ? `Connected${active ? ' · Currently in use' : ''}` : 'Not connected';
       assert.equal(await connection.getByRole('status').innerText(), expected, `${fixture.name}: ${cli} owns its connection status`);
       assert.equal(await connection.getByRole('status').count(), 1);
       assert.equal(await panel.locator('.cfg-row__title').filter({ hasText: new RegExp(`^${cli}$`) }).count(), 0, 'no duplicate runtime row');
       assert.equal(await panel.getByText(/\bActive\b/).count(), 0, 'no mixed Active label');
-      if (!fixture.statusUnavailable && status.connected) {
-        assert.match(await connection.innerText(), new RegExp(`${cli} installed · ${fixture[provider] ? 'Signed in' : 'Not signed in'}`));
+      if (!fixture.statusUnavailable && !probeError && status.connected) {
+        assert.match(await connection.innerText(), new RegExp(`${cli} ${status.providers[provider].installed ? 'installed' : 'not installed'} · ${fixture[provider] ? 'Signed in' : 'Not signed in'}`));
         if (!active) assert.equal(await connection.getByRole('button', { name: `${connected ? 'Use' : 'Connect'} ${plan}`, exact: true }).count(), 1);
         assert.equal(await connection.locator('button.cfg-btn--primary').count(), active ? 0 : 1, 'one primary connection action');
       }
@@ -97,7 +105,15 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       else assert.match(routeText, new RegExp(`^Your Bots currently use your ${fixture.selected === 'claude' ? 'Claude plan through Claude Code' : 'ChatGPT plan through Codex'}`));
       assert.equal(await panel.locator('p').filter({ hasText: /^Your Bots (currently use|are set to use)/ }).count(), fixture.statusUnavailable ? 0 : 1);
       assert.equal(await panel.getByLabel('Connected plan usage', { exact: true }).count(), active ? 1 : 0, 'usage belongs only to this tab');
-      for (const title of ['CLI connection', 'CLI authentication', 'API providers', 'Authorization status', 'Provider instructions']) {
+      const saved = fixture[provider] || status.providers[provider].hasSavedState || fixture.selected === provider;
+      assert.equal(await panel.getByRole('button', { name: 'Reset connection', exact: true }).count(), Number(!!saved), 'reset belongs only to a CLI with saved state');
+      assert.equal(await connection.getByText(/Disconnect switches/).count(), Number(fixture.selected === provider), 'disconnect copy belongs only to the selected CLI');
+      assert.equal(await panel.locator('.cfg-error').count(), 0, 'status errors are quiet inline text');
+      if (probeError) {
+        assert.match(await connection.innerText(), /Claude Code status could not be verified/);
+        await connection.getByRole('button', { name: 'Retry status', exact: true }).waitFor();
+      }
+      for (const title of ['CLI authentication', 'API providers', 'Authorization status', 'Provider instructions']) {
         await panel.locator('.cfg-row__title').getByText(title, { exact: true }).waitFor();
       }
       await panel.locator('.subscription-settings__context > summary').click();
@@ -113,13 +129,28 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       assert.deepEqual(overflow, { document: false, panel: false, outside: [] }, `${width} ${theme} ${fixture.name} ${cli}: no horizontal overflow`);
       await panel.locator('.subscription-settings__advanced > summary').click();
       await panel.locator('.subscription-settings__context > summary').click();
-      if (fixture.name === 'codex-only' && provider === 'claude') {
+      if (['codex-only', 'claude-never-set-up', 'claude-probe-error'].includes(fixture.name) && provider === 'claude') {
         await panel.evaluate(el => el.closest('.app-settings__content')?.scrollTo(0, 0));
         await page.getByRole('tab', { name: cli, exact: true }).scrollIntoViewIfNeeded();
         await page.screenshot({ path: `.context/model-access-status/${fixture.name}-${width}-${theme}.png` });
       }
     }
     assert.deepEqual(mutations, [], 'viewing tabs must never start sign-in or change the model route');
+    if (fixture.name === 'claude-never-set-up' || fixture.name === 'claude-missing') {
+      await page.getByRole('tab', { name: 'Claude Code', exact: true }).click();
+      const connect = connection.getByRole('button', { name: 'Connect Claude plan', exact: true });
+      assert.equal(await connect.isEnabled(), true);
+      await connect.click();
+      await page.getByLabel('Claude Code login terminal input').waitFor();
+      assert.ok(mutations.includes('POST /api/cli/login'), 'explicit Connect opens the existing login flow');
+      assert.equal(mutations.some(m => m === 'PUT /api/cli'), false, 'no route switch before authentication');
+    }
+    if (fixture.name === 'claude-probe-error') {
+      await page.getByRole('tab', { name: 'Claude Code', exact: true }).click();
+      await connection.getByRole('button', { name: 'Retry status', exact: true }).click();
+      await page.getByRole('note').filter({ hasText: 'Connection status could not be verified.' }).waitFor();
+      assert.equal(await page.locator('.subscription-settings .cfg-error').count(), 0, 'failed refresh also stays quiet');
+    }
     assert.deepEqual(errors, []);
     await context.close();
     console.log(`PASS ${width}px ${theme} ${fixture.name}: both tabs, own status, current route, actions, usage and overflow`);

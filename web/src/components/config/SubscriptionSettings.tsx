@@ -195,7 +195,9 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
     catch (err) {
       if (!mounted.current) return;
       if (needsSession(err)) { requestSession(action === 'reset' || action === 'pair' || action === 'revoke' ? action : 'login', err.message); return; }
-      setError(err instanceof Error ? err.message : 'Subscription request failed. Try again.');
+      const message = err instanceof Error ? err.message : 'Subscription request failed. Try again.';
+      if (action === 'refresh') setReadError(message);
+      else setError(message);
       setStale(true);
     } finally {
       working.current = false;
@@ -277,9 +279,9 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
   const runtime = status?.runtime ?? 'server';
   const provider = PROVIDERS.find((item) => item.id === providerTab)!;
   const health = status?.providers[providerTab];
-  const probeFailed = !!health?.error && (!health.authenticated || health.subscription);
   const reportedPlan = modelCatalog.provider === `${providerTab}-cli` && modelCatalog.status === 'ready' && !modelCatalog.error ? modelCatalog.plan : null;
   const tabStatus = modelAccessStatus(status, providerTab, stale, reportedPlan);
+  const { probeFailed, hasSavedState } = tabStatus;
   const planReady = tabStatus.connected;
   const disabled = !!busy || loginRunning || !status || stale || authLocked;
   const loginLabel = runtime === 'bridge' ? 'Use server login' : health?.authenticated ? 'Log in again' : 'Login';
@@ -347,11 +349,11 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
           {(stale || status?.statusUnavailable || probeFailed) && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => void refresh()}>Retry status</button>}
           {planReady
             ? selected !== providerTab && <button type="button" className="cfg-btn cfg-btn--primary" disabled={disabled} onClick={() => void select(providerTab)}>{tabStatus.action}</button>
-            : <button type="button" className="cfg-btn cfg-btn--primary" disabled={disabled || runtime === 'bridge' || !status?.serverLoginAvailable || (status.connected && !health?.installed)} onClick={startLogin}>{loginRunning ? 'Login in progress…' : tabStatus.action}</button>}
+            : <button type="button" className="cfg-btn cfg-btn--primary" disabled={disabled || runtime === 'bridge' || !status?.serverLoginAvailable || (providerTab === 'codex' && status.connected && !health?.installed)} onClick={startLogin}>{loginRunning ? 'Login in progress…' : tabStatus.action}</button>}
           {selected === providerTab && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy || loginRunning || authLocked} onClick={() => void select(null)}>Disconnect</button>}
         </AccessRow>
         <p className="subscription-settings__current-route">{tabStatus.currentRoute}</p>
-        <p>Complete sign-in with the official CLI on the computer running your Bots. Credentials stay in that CLI's profile. Disconnect switches your Bots to API billing and leaves the CLI signed in.</p>
+        <p>Complete sign-in with the official CLI on the computer running your Bots. Credentials stay in that CLI's profile.{selected === providerTab && ' Disconnect switches your Bots to API billing and leaves this CLI signed in.'}</p>
         {runtime === 'bridge' && !planReady && <p>Run <code>{provider.login}</code> on your computer, complete the official sign-in, then refresh status and choose Use {providerTab === 'claude' ? 'Claude' : 'ChatGPT'} plan.</p>}
         {status?.connected && !health?.installed && <p>Install the official {providerTab === 'claude' ? 'Claude Code' : 'Codex'} CLI on {runtime === 'bridge' ? 'your computer' : "your Bot's computer"}, then refresh status. <a href={provider.docs} target="_blank" rel="noreferrer">Installation and sign-in instructions</a></p>}
       </section>
@@ -363,14 +365,14 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
       }} onConnected={() => { refreshModels(); void refresh(); }} />}
 
       <section className="cfg-section subscription-settings__auth">
-        <AccessRow icon={Terminal} title="CLI connection" description="Clear saved CLI sign-ins and start over.">
+        {(hasSavedState || loginProvider === providerTab) && <AccessRow icon={Terminal} title="CLI connection" description="Clear saved CLI sign-ins and start over.">
             <button type="button" className={`cfg-btn ${confirmReset ? 'cfg-btn--danger' : 'cfg-btn--secondary'}`} disabled={authLocked || !!busy} onClick={() => confirmReset ? reset() : setConfirmReset(true)}>{busy === 'reset' ? 'Resetting…' : confirmReset ? 'Confirm reset' : 'Reset connection'}</button>
             {confirmReset && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setConfirmReset(false)}>Cancel</button>}
-        </AccessRow>
-        {confirmReset && <p role="note">Reset removes the saved Claude Code and Codex logins from your Swarm server, revokes any computer bridge, cancels a sign-in in progress and clears cached status, then checks both CLIs again. Your selected subscription stays selected and blocked until you log in again or choose API providers.</p>}
+        </AccessRow>}
+        {confirmReset && (hasSavedState || loginProvider === providerTab) && <p role="note">Reset removes the saved Claude Code and Codex logins from your Swarm server, revokes any computer bridge, cancels a sign-in in progress and clears cached status, then checks both CLIs again. Your selected subscription stays selected and blocked until you log in again or choose API providers.</p>}
         <AccessRow icon={Terminal} title="CLI authentication" description="Manage sign-in on the Swarm server or use the computer bridge below.">
           {authMethod === 'api' && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={disabled} onClick={() => setAuthMethod('cli')}>Set up CLI authentication</button>}
-          {(planReady || runtime === 'bridge' || status?.serverLoginAvailable === false || health?.installed === false) && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={disabled} onClick={startLogin}>{loginRunning ? 'Login in progress…' : loginLabel}</button>}
+          {(planReady || runtime === 'bridge' || status?.serverLoginAvailable === false || providerTab === 'codex' && health?.installed === false) && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={disabled} onClick={startLogin}>{loginRunning ? 'Login in progress…' : loginLabel}</button>}
         </AccessRow>
         <AccessRow icon={KeyRound} title="API providers" description="Pay per use through a connected API provider." status={status && !stale && !status.statusUnavailable && !selected ? 'Currently in use' : undefined}>
           <button type="button" className="cfg-btn cfg-btn--secondary" aria-pressed={authMethod === 'api'} disabled={disabled} onClick={() => void select(null)}>Use API providers</button>
@@ -392,11 +394,12 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
           </dl>
         </details>
         {blocked && <p className="subscription-settings__blocked">The selected subscription is blocked until its login is ready. There is no automatic fallback to API providers.</p>}
-        {(error || readError) && <div className="cfg-error" role="alert">{error || readError}</div>}
+        {error && <div className="cfg-error" role="alert">{error}</div>}
+        {readError && <p role="note">Connection status could not be verified. Refresh status to try again.</p>}
         {verifyingResume && <p role="status">Verifying your sign-in…</p>}
         {notice && !recovery && <p className="subscription-settings__notice" role="status">{notice}</p>}
         {status?.serverLoginAvailable === false && <p>Server login is currently unavailable. Try Login for the server’s instructions, or use the computer bridge under Advanced.</p>}
-        {health?.error && <div className="cfg-error">{probeFailed ? 'Status unavailable. Retry.' : health.error}</div>}
+        {health?.error && !probeFailed && hasSavedState && <p role="note">{health.error}</p>}
       </section>
 
       <details className="subscription-settings__advanced">
