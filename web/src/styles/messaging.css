@@ -129,6 +129,9 @@
 .phone-auth__link--inline { display: inline; padding: 0; border: 0; background: none; font: inherit; cursor: pointer; }
 .phone-auth__error { width: 100%; }
 .msg-phone-auth { display: flex; flex-direction: column; gap: 8px; max-width: 360px; margin: 0 auto; padding: 4px 14px 16px; }
+.access-settings .msg-phone-auth { max-width: none; margin: 0 0 0 36px; padding: 4px 0 16px; }
+.access-settings .cfg-row__text > .msg-facts__row { flex-direction: column; gap: 0; margin-top: 8px; }
+.access-settings .cfg-row__text > .msg-facts__row > .msg-facts__k { flex-basis: auto; }
 
 /* Contact card */
 .msg-card { display: flex; gap: 20px; padding: 14px; flex-wrap: wrap; }

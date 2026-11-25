@@ -13,6 +13,7 @@ import { toast } from '../lib/toast';
 import { shortcutLabel } from '../lib/shortcuts';
 import { nextEffort } from '../lib/effortCycle';
 import { lastModelLabel, rememberModelLabel } from '../lib/modelMemory';
+import { composerModelLabel } from '../lib/composerModelLabel';
 
 /** OpenRouter's icon for the model's maker (served via our server), or a monogram. */
 export function ProviderIcon({ author, size = 16 }: { author: string; size?: number }) {
@@ -75,6 +76,7 @@ export function ComposerModelMenu({ bot }: { bot: Bot }) {
   const planLabel = models.provider === 'codex-cli' ? 'ChatGPT plan' : 'Claude plan';
   const billingDescription = planMode ? `Uses your ${planLabel}` : 'Uses API billing';
   const compactLabel = planMode ? (models.provider === 'codex-cli' ? 'Codex' : 'Claude') : label;
+  const codexPlan = planMode && models.provider === 'codex-cli';
   const efforts = effortsFor(current);
   const ultra = isTopEffort(effort, current);
 
@@ -84,8 +86,8 @@ export function ComposerModelMenu({ bot }: { bot: Bot }) {
         title={`${label}${known ? `. ${billingDescription}` : ''}`}
         aria-label={`Model: ${label}${known ? `, ${billingDescription}` : ''}${efforts.length ? `, ${effort ? effortLabel(effort, current) : 'Default'} effort` : ''}${bot.fast && models.canFast ? ', fast' : ''}. Change`}>
         {current ? <ProviderIcon author={current.author} /> : known && !planMode && bot.model ? <ProviderIcon author={bot.model.split('/')[0]} /> : null}
-        <span className="model-pill__name">{mobile ? compactLabel : label}</span>
-        {known && !(mobile && planMode) && <span className="model-billing" title={billingDescription}>{planMode ? planLabel : 'API'}</span>}
+        <span className="model-pill__name">{composerModelLabel(mobile ? compactLabel : label, models.provider, planMode)}</span>
+        {known && !codexPlan && !(mobile && planMode) && <span className="model-billing" title={billingDescription}>{planMode ? planLabel : 'API'}</span>}
         {efforts.length > 0 && <span className="model-pill__effort">{effort ? effortLabel(effort, current) : 'Default'}</span>}
         {bot.fast && models.canFast && <span className="model-pill__fast" title="Fast: fastest providers">⚡︎</span>}
         <ChevronDown size={14} strokeWidth={1.75} aria-hidden className="model-pill__chev" />

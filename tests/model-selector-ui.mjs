@@ -64,8 +64,11 @@ createRoot(document.getElementById('root')).render(React.createElement(Harness))
   for(const provider of ['codex','claude']) {
    source=provider;await page.evaluate(()=>window.refreshModels());
    await pill.and(page.getByRole('button',{name: new RegExp(`Uses your ${provider === 'codex' ? 'ChatGPT' : 'Claude'} plan`)})).waitFor();
-   if (width > 760) await page.locator('.model-pill .model-billing').getByText(provider === 'codex' ? 'ChatGPT plan' : 'Claude plan',{exact:true}).waitFor();
-   else assert.equal(await page.locator('.model-pill__name').innerText(), provider === 'codex' ? 'Codex' : 'Claude');
+   if (provider === 'codex') {
+    assert.equal(await page.locator('.model-pill__name').innerText(), 'Codex · ChatGPT plan');
+    assert.equal(await pill.locator('.model-billing').count(), 0, 'plan is named once in the combined Codex label');
+   } else if (width > 760) await page.locator('.model-pill .model-billing').getByText('Claude plan',{exact:true}).waitFor();
+   else assert.equal(await page.locator('.model-pill__name').innerText(), 'Claude');
    await page.locator('.model-pill').click();
    await page.getByRole('dialog',{name:'Choose a model'}).waitFor();
    await page.locator('.mm-row__name').getByText('Account model',{exact:false}).waitFor();
