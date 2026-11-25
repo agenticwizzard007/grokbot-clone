@@ -39,6 +39,17 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS cli_last_runs (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  generation_id TEXT NOT NULL,
+  started_at INTEGER NOT NULL,
+  provider TEXT NOT NULL,
+  runtime TEXT NOT NULL,
+  tools_offered INTEGER NOT NULL,
+  last_tool TEXT,
+  result TEXT NOT NULL,
+  error_code TEXT
+);
 CREATE TABLE IF NOT EXISTS login_attempts (
   id TEXT PRIMARY KEY,
   provisional_user_id TEXT NOT NULL,

@@ -4,7 +4,7 @@ import { serve } from '@hono/node-server';
 import { installFakeCli } from './cli-apps-runner.mjs';
 import fs from 'node:fs';
 if (process.env.SWARM_TEST_REAL_CLI === '1') {
-  const { mockCliProvider, modelOutputs } = await import('./real-cli-provider.mjs');
+  const { mockCliProvider, modelOutputs, codeModeAction } = await import('./real-cli-provider.mjs');
   const { emailBody, emailArgs } = await import('./cli-apps-runner.mjs');
   const directory = path.join(process.env.CLI_PROFILES_DIR!, 'real-runner'); fs.mkdirSync(directory, { recursive: true });
   const fixture = await mockCliProvider(directory, (provider: string, body: any) => {
@@ -17,11 +17,12 @@ if (process.env.SWARM_TEST_REAL_CLI === '1') {
     const outputs = modelOutputs(provider, body);
     if (outputs.length >= 2) return { text: 'Approval is waiting in the main chat.' };
     const name = outputs.length ? 'SWARM_APPS_EXECUTE' : 'SWARM_APPS_SEARCH';
-    return { name: provider === 'claude' ? `mcp__swarm__${name}` : name, args: outputs.length
+    const action = { name: provider === 'claude' ? `mcp__swarm__${name}` : name, args: outputs.length
       ? { connectionId: 'fixture-gmail', revision: 1, tool_slug: 'GMAIL_CREATE_EMAIL_DRAFT', arguments: emailArgs }
       : { toolkit: 'gmail', query: 'create email draft', connectionId: 'fixture-gmail' } };
+    return provider === 'codex' ? codeModeAction(action) : action;
   });
-  process.env.SWARM_CLI_CODEX_PATH = fixture.install('codex');
+  process.env.SWARM_CLI_CODEX_PATH = fixture.install('codex', { codexModel: null });
   process.env.SWARM_CLI_CLAUDE_PATH = fixture.install('claude');
 } else installFakeCli(path.join(process.env.CLI_PROFILES_DIR!, 'fake-runner'));
 const { state } = await import('./cli-apps-backends.mjs');

@@ -254,7 +254,7 @@ test('REST status and mode validation fail closed and explicit null restores API
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('cache-control'), 'no-store');
   assert.deepEqual(await response.json(), {
-    selected: null, connected: false, device: null, runtime: 'bridge', serverLoginAvailable: true,
+    selected: null, connected: false, device: null, runtime: 'bridge', serverLoginAvailable: true, lastRun: null,
     providers: { codex: { installed: false, authenticated: false, subscription: false }, claude: { installed: false, authenticated: false, subscription: false } },
   });
   for (const body of [null, {}, { provider: 'openrouter' }, { provider: 'Codex' }, { provider: 1 }, { provider: {} }]) {

@@ -10,6 +10,7 @@ import type { NativeToolHandler } from './native-tools.js';
 import { hasNativeTools, ToolCallbacks } from './tool-callback.js';
 import { withCliDiagnostics } from './diagnostics.js';
 import { attribution } from '../usage-context.js';
+import { recordCliRun } from './run-diagnostics.js';
 
 export interface CliAuthStatus { installed: boolean; authenticated: boolean; subscription: boolean; error?: string }
 export type CliProviders = Record<CliProvider, CliAuthStatus>;
@@ -48,7 +49,7 @@ export function cliRequest(userId: string, method: 'status' | 'generate' | 'cata
     return cliRequest(userId, 'status', {}, timeoutMs, signal).then(providers => codexDefaultCatalog(providers.codex));
   }
   const work = () => withLegacyWork(userId, () => admittedRequest(userId, method, params, timeoutMs, signal, onToolCall));
-  return method === 'generate' ? withCliDiagnostics(params, cliRuntime(userId), work, attribution()) : work();
+  return method === 'generate' ? withCliDiagnostics(params, cliRuntime(userId), work, attribution(), recordCliRun(userId)) : work();
 }
 
 function admittedRequest(userId: string, method: 'status' | 'generate' | 'catalog', params: unknown, timeoutMs: number, signal?: AbortSignal, onToolCall?: NativeToolHandler): Promise<any> {
