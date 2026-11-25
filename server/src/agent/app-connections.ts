@@ -31,8 +31,9 @@ const requestSchema = z.object({
 }).strict();
 
 const result = (data: unknown, extra: Omit<AppConnectionResult, 'output'> = {}): AppConnectionResult => ({ output: JSON.stringify(data), ...extra });
-const unavailable = () => result({ ok: false, available: false, status: 'unavailable',
-  error: 'The app provider did not return your connection status. Open Connected apps to check the account, then ask again. This does not mean your apps are disconnected.' }, { summary: 'App connections unavailable' });
+const unavailable = (configured = true) => result({ ok: false, available: false, status: 'unavailable',
+  error: configured ? 'The app request could not be completed. Open Connected apps to check the account, then ask again. This does not mean your apps are disconnected.'
+    : 'Connected apps are not set up on this server. Ask the server owner to enable connected apps.' }, { summary: 'App connections unavailable' });
 
 export const connectionRequiredMessage = (app: string, reconnect: boolean) => reconnect
   ? `${app} needs to be reconnected. Use the Connect card in the main chat to reconnect it. Nothing has been sent or saved.`
@@ -66,7 +67,7 @@ function define<S extends z.ZodType>(name: string, description: string, schema: 
       catch { return result({ ok: false, status: 'not_found', error: 'Agent not found.' }); }
       const parsed = schema.safeParse(args);
       if (!parsed.success) return result({ ok: false, status: 'invalid_request', error: `Invalid arguments for ${name}. Follow the tool schema.` });
-      if (!env.composioEnabled) return unavailable();
+      if (!env.composioEnabled) return unavailable(false);
       try { return await action(parsed.data, ctx, generation); }
       catch { return unavailable(); } // SDK errors may contain credentials, URLs and provider payloads.
     },
