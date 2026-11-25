@@ -5,12 +5,12 @@ import { relativeShort } from '../../lib/time';
 import { useStore } from '../../store';
 import { formatBytes } from './ui';
 
-export function LibraryTab({ bot, onClose }: { bot: Bot; onClose?: () => void }) {
+export function LibraryTab({ bot }: { bot: Bot }) {
   const userId = useStore(state => state.user?.id);
-  return <ComputerLibrary key={JSON.stringify([userId, bot.id])} bot={bot} userId={userId} onClose={onClose} />;
+  return <ComputerLibrary key={JSON.stringify([userId, bot.id])} bot={bot} userId={userId} />;
 }
 
-function ComputerLibrary({ bot, userId, onClose }: { bot: Bot; userId?: string; onClose?: () => void }) {
+function ComputerLibrary({ bot, userId }: { bot: Bot; userId?: string }) {
   const awake = useStore(state => state.computer?.status === 'running');
   const [path, setPath] = useState('');
   const [list, setList] = useState<LibraryListing | null>(null);
@@ -65,7 +65,7 @@ function ComputerLibrary({ bot, userId, onClose }: { bot: Bot; userId?: string; 
     {downloadStatus && <p role="status">{downloadStatus}</p>}
     {!loading && list?.status === 'asleep' && <div className="details-page__row"><p>{bot.name}’s computer is asleep.</p><button type="button" className="cfg-btn cfg-btn--primary" onClick={() => void load(true)}>Wake and show files</button></div>}
     {!loading && list?.status === 'error' && <p className="cfg-error" role="alert">Couldn’t reach the computer. {list.error}</p>}
-    {!loading && !error && list?.status === 'ok' && !list.files.length && <p>{path ? 'This folder is empty.' : `No computer files saved by ${bot.name} yet.`}</p>}
+    {!loading && !error && list?.status === 'ok' && !list.files.length && <p>{path ? 'This folder is empty.' : 'No files yet. Files this Bot saves will appear here.'}</p>}
     {list?.status === 'ok' && list.files.map(file => <div key={file.name} className="details-page__row">
       <div><strong>{file.name}</strong><p>{file.isDir ? 'Folder' : formatBytes(file.size)} · {relativeShort(file.modifiedAt)}</p></div>
       <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!file.isDir && !!busyFile} onClick={() => file.isDir ? navigate(path ? `${path}/${file.name}` : file.name) : void download(file)}>
@@ -74,7 +74,6 @@ function ComputerLibrary({ bot, userId, onClose }: { bot: Bot; userId?: string; 
     </div>)}
     <div className="setup-paper__actions knowledge-files__actions">
       <button type="button" className="cfg-btn cfg-btn--primary" onClick={() => void load()} disabled={!!loading}>Refresh files</button>
-      {onClose && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={onClose}>Close details</button>}
     </div>
   </section>;
 }

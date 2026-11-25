@@ -98,7 +98,7 @@
 .app-row__heading, .access-apps-settings__name { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .access-apps-catalog .app-row--connected .app-row__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .access-apps-catalog .app-row--connected .app-row__desc,
-.access-apps-settings .access-apps-settings__description { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.access-apps-settings .access-apps-settings__description { display: block; overflow: visible; text-overflow: clip; white-space: normal; }
 .access-apps-catalog .app-row--connected .access-app-row__actions { align-self: start; }
 .access-apps-catalog .app-row--connected .app-row__connected { white-space: nowrap; overflow-wrap: normal; }
 .access-apps-settings .cfg-row.access-apps-settings__row { align-items: start; }
@@ -111,4 +111,10 @@
   @container access-app-grid (min-width: 620px) {
     .access-apps-catalog .apps-modal__body > .apps-section:last-of-type .app-row:nth-last-child(2):nth-child(odd) { border-bottom: 0; }
   }
+}
+
+.access-apps-settings .settings-row__actions { gap: 16px; }
+.access-apps-settings .access-apps-settings__disconnect { color: var(--color-danger-text); }
+@media (max-width: 760px) {
+  .access-apps-settings .settings-row__actions { flex-direction: column; align-items: stretch; }
 }

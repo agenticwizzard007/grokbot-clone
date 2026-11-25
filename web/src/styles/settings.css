@@ -202,7 +202,7 @@
   .app-settings .app-settings__head p { font-size: 15px; line-height: 21px; }
   .app-settings__head--action { flex-direction: column; align-items: stretch; }
   .app-settings__head--action > .cfg-btn { align-self: flex-start; }
-  .app-settings .cfg-section__label { padding: 0 4px; }
+  .app-settings .cfg-section__label { padding: 0; }
   .app-settings .cfg-row { padding: 14px var(--settings-inset); }
   .app-settings :is(.cfg-row, .cfg-key__form) > .cfg-row__text { flex-basis: 180px; }
   /* Two or more buttons go under the text on phones, lined up with it (past the 28px status lane). */

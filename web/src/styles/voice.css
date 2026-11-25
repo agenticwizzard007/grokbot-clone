@@ -134,3 +134,7 @@
 .voice-settings__notice p { margin: 6px 0 0; }
 .voice-settings__call { min-height: 44px; border-radius: 12px; background: var(--color-primary); color: var(--color-on-primary); }
 .voice-settings__call.is-active { background: var(--color-danger-bg); color: var(--color-danger-text); }
+
+.voice-settings__sample { flex-wrap: wrap; }
+.voice-settings__sample > div { flex: 1 1 160px; min-width: 0; }
+.voice-preview { flex: 0 0 auto; min-width: max-content; white-space: nowrap; overflow-wrap: normal; }

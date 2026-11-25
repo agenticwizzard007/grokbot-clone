@@ -128,7 +128,7 @@
   .access-settings.is-list .app-settings__main { background: var(--color-bg-pane); }
   .access-settings__bar { position: sticky; z-index: 2; top: 0; min-height: 56px; padding: max(0px, env(safe-area-inset-top)) 8px 0; border-bottom: 1px solid var(--access-divider); background: var(--color-bg-pane); }
   .access-settings__bar-title { flex: 1; }
-  .access-settings__back { flex: 0 0 36px; justify-content: center; }
+  .access-settings__back { flex: 0 0 44px; min-width: 44px; justify-content: center; }
   .access-nav--phone { padding: 24px 16px max(32px, env(safe-area-inset-bottom)); }
   .access-nav--phone .app-settings__head { margin-bottom: 24px; }
   .access-nav--phone .settings-search { height: 48px; margin: 0; padding: 0 14px; border: 1px solid var(--access-divider); border-radius: 12px; background: transparent; }
@@ -217,3 +217,9 @@
 .access-settings .subscription-settings__provider-body { gap: var(--space-4); }
 
 .access-settings .subscription-reauth__providers { gap: var(--space-4); }
+
+/* API key rows share the 20px icon lane and 16px gap used by Settings. */
+.access-settings .cfg-key .cfg-row { column-gap: 16px; }
+.access-settings .cfg-key .cfg-key__form + .cfg-key__form { margin-inline: 0; }
+.access-settings .cfg-key__icon-space { flex: 0 0 20px; }
+.access-settings .cfg-key__foot > a { display: inline-flex; align-items: center; min-height: 44px; padding-block: 8px; }

@@ -76,7 +76,7 @@ function ComputerRow() {
     </div>
     {(error || computer?.error) && <p className="cfg-error" role="alert">{error || computer?.error}</p>}
     {/* R2F-011: one click from Details to Settings > Computer, for every provider. */}
-    <button type="button" className="link-btn link-btn--small bot-detail-section__link" onClick={() => useConfigUI.getState().openAppSettings('computer')}>Computer settings</button>
+    <button type="button" className="cfg-btn cfg-btn--secondary bot-detail-section__link" onClick={() => useConfigUI.getState().openAppSettings('computer')}>Computer settings</button>
   </section>;
 }
 
@@ -176,7 +176,7 @@ function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
       {tab === 'library' && (reports ? <DeliverablesPanel botId={bot.id} /> : <>
         <p className="setup-paper__subtitle">Files saved by {title}</p>
         <DetailRow title="Saved reports"><button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setReports(true)}>View saved reports</button></DetailRow>
-        <LibraryTab bot={bot} onClose={close} />
+        <LibraryTab bot={bot} />
       </>)}
     </div>
   </aside>;

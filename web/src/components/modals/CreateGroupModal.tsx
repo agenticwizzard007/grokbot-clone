@@ -71,7 +71,7 @@ export function CreateGroupModal({ inline = false }: { inline?: boolean } = {}) 
         {bots.map(bot => {
           const locked = isInSetup(bot);
           return <label className={`group-create__member${locked ? ' is-locked' : ''}`} key={bot.id} title={locked ? activateBeforeGroup(bot.name) : undefined}>
-            <BotAvatarFor bot={bot} size={28} /><span><strong>{bot.name}</strong><small>{locked ? ACTIVATE_FIRST : bot.isPrimary ? 'Primary Bot' : bot.label || bot.description}</small></span>
+            <BotAvatarFor bot={bot} size={28} /><span><strong>{bot.name}</strong><small>{locked ? ACTIVATE_FIRST : (bot.description || bot.label || bot.instructions).trim().split(/\r?\n/)[0] || (bot.isPrimary ? 'Primary Bot' : 'Bot')}</small></span>
             <input type="checkbox" checked={!locked && picked.includes(bot.id)} onChange={() => { if (!locked) toggle(bot.id); }} disabled={locked || busy || !!createdId} aria-label={locked ? `${bot.name}, ${ACTIVATE_FIRST.toLowerCase()}` : bot.name} />
           </label>;
         })}
