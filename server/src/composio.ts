@@ -120,7 +120,7 @@ export async function connectedToolkits(userId: string, cached = false): Promise
     }
     return new Set(await entry.promise);
   }
-  return new Set((await connectionsDetail(userId)).filter((c) => c.status === 'ACTIVE').map((c) => c.toolkit));
+  return new Set((await connectionsDetail(userId)).filter((c) => c.status === 'ACTIVE' && !c.isDisabled).map((c) => c.toolkit));
 }
 
 export interface AppConnection extends Partial<ConnectionDetails> {
