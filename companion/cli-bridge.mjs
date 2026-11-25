@@ -2,7 +2,7 @@
 // Node 22+, no packages. Credentials stay in the CLIs' normal home/keychain stores.
 import { spawn } from 'node:child_process';
 import { constants } from 'node:fs';
-import { access, mkdir, mkdtemp, open, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, open, rm, stat, writeFile } from 'node:fs/promises';
 import { hostname, tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -162,10 +162,6 @@ async function providerStatus(provider, options, cwd, signal, timeoutMs = AUTH_T
     // has nothing to verify, so do not turn CLI startup failures into auth errors.
     // Saved credentials still require the official probe, including its errors.
     if (provider === 'claude' && strictStatus && options.fileCredentials === true && process.platform === 'linux' && options.env?.CLAUDE_CONFIG_DIR) {
-      await access(executable(provider, options), constants.X_OK).catch(error => {
-        if (error.code === 'ENOENT') throw new RunnerError('CLI executable is not installed.', 'unavailable');
-        throw error;
-      });
       result.hasSavedState = await stat(join(options.env.CLAUDE_CONFIG_DIR, '.credentials.json')).then(() => true, error => {
         if (error.code === 'ENOENT') return false;
         throw error;

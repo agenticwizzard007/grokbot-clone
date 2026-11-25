@@ -1,6 +1,7 @@
 // Local components, real CLI status HTTP route, slow fake CLI processes and browser audio.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import fs from 'node:fs/promises';
 import http from 'node:http';
@@ -29,6 +30,10 @@ try {
     const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion: 'reduce' });
     const account = await context.request.post(`${origin}/api/fixture/account`); assert.equal(account.status(), 200);
     const { user: accountUser } = await account.json();
+    // A saved login with a hung probe is an error; a never-set-up profile is neutral.
+    const profile = path.join(env.CLI_PROFILES_DIR, createHash('sha256').update(accountUser.id).digest('hex'), '.claude');
+    await fs.mkdir(profile, { recursive: true });
+    await fs.writeFile(path.join(profile, '.credentials.json'), '{}');
     const user = { ...accountUser, email: 'local@example.test', name: 'Local QA' };
     const page = lastPage = await context.newPage(); page.setDefaultTimeout(15000);
     const errors = []; page.on('pageerror', e => { errors.push(e.message); console.error(e.stack); });
@@ -98,7 +103,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
         assert.equal(await page.locator('.composer__input').inputValue(), draft);
       }
     }
-    // Hung probes stay Checking while the bounded background check runs, then offer Retry.
+    // Hung probes of saved state stay Checking during the bounded check, then offer Retry.
     const startAt = performance.now(); await page.evaluate(() => window.settings());
     const plans = page.getByRole('region', { name: 'Plan connection', exact: true });
     await plans.getByText('Status unavailable', { exact: true }).first().waitFor({ timeout: 20000 });

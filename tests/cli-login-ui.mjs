@@ -364,7 +364,11 @@ try {
   await readyTerminal();
   assert.equal(loginCalls.at(-1).provider, 'claude');
   await assertNoSignIn();
-  await cancelTerminal();
+  // Give this account its own saved connection so Reset is available for the
+  // account-switch authorization check below. Empty tabs no longer show Reset.
+  await terminal.getByLabel('Authorization code', { exact: true }).fill('claude-fake-code#verified');
+  await terminal.getByRole('button', { name: 'Connect Claude Code', exact: true }).click();
+  await terminal.getByRole('button', { name: 'Done', exact: true }).click();
 
   // Switching accounts never resumes a login for the previous identity.
   await resumeAt('codex');

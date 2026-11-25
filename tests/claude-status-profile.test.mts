@@ -37,3 +37,14 @@ test('bridge and generation probes do not assume hosted file credentials', async
   assert.match(status.claude.error, /Status unavailable/);
   assert.equal(status.claude.hasSavedState, undefined);
 });
+
+test('a missing Claude install preserves evidence of saved hosted credentials', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'swarm-claude-missing-status-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, '.credentials.json'), '{}');
+  const status = await checkProviders({ codexPath: '/missing/codex', claudePath: '/missing/claude', fileCredentials: true,
+    env: { PATH: process.env.PATH, HOME: root, CLAUDE_CONFIG_DIR: root } });
+  assert.equal(status.claude.installed, false);
+  assert.equal(status.claude.hasSavedState, true);
+  assert.equal(status.claude.authenticated, false);
+});
