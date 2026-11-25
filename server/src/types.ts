@@ -205,8 +205,22 @@ export interface VoiceCallRecord {
   phase: 'started' | 'ended';
   durationMs?: number;
   summary?: string;
+  /** Structured end-of-call facts. Approval status is resolved when serialized. */
+  baseText?: string;
+  discussion?: string;
+  approvals?: VoiceApprovalReference[];
   transcript?: { role: 'user' | 'assistant'; text: string }[];
   tasks?: string[];
+}
+
+export interface VoiceApprovalReference {
+  approvalId: string;
+  botId: string;
+  generation: number;
+  rowSeq: number;
+  botName: string;
+  /** Exact subject from saved arguments, or the saved card title. */
+  detail: string;
 }
 
 export interface VoiceOption { id: string; name: string; gender?: string }

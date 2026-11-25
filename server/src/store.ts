@@ -9,6 +9,7 @@ import { Cron } from 'croner';
 import { recordHumanSource } from './coordination/sources.js';
 import { applyExplicitPreferenceCorrections } from './knowledge/memory.js';
 import { isHumanUserMessage } from './knowledge/sessions.js';
+import { serializeVoiceCall, voiceCallsReferencing } from './voice-approvals.js';
 
 // ---------- bots ----------
 
@@ -50,7 +51,7 @@ export function toBot(r: any): Bot {
       AND (json_extract(body,'$.audience')='user' OR COALESCE(json_extract(body,'$.from.kind'),'')!='bot')
       ORDER BY seq DESC LIMIT 1`)
     .get(r.id, r.generation) as any;
-  const lastPreview = last ? previewFor(JSON.parse(last.body) as RowBody) : null;
+  const lastPreview = last ? previewFor(serializeVoiceCall(JSON.parse(last.body) as RowBody, r.user_id)) : null;
   // Order by the user's own activity so the sidebar does not reshuffle while Bots stream rows.
   const lastUser = db.prepare(`SELECT created_at FROM rows WHERE bot_id=? AND kind='message' AND json_extract(body,'$.role')='user'
     ORDER BY generation DESC, seq DESC LIMIT 1`).get(r.id) as { created_at: number } | undefined;
@@ -113,7 +114,9 @@ function notifyRow(userId: string, row: Row, isNew: boolean) {
 }
 
 function toRow(r: any): Row {
-  return { botId: r.bot_id, generation: r.generation, seq: r.seq, updatedSeq: r.updated_seq, kind: r.kind, audience: JSON.parse(r.body).audience, body: JSON.parse(r.body), createdAt: r.created_at };
+  let body = JSON.parse(r.body) as RowBody;
+  if (body.type === 'event' && body.event === 'voice-call') body = serializeVoiceCall(body, getBotRow(r.bot_id).user_id);
+  return { botId: r.bot_id, generation: r.generation, seq: r.seq, updatedSeq: r.updated_seq, kind: r.kind, audience: body.audience, body, createdAt: r.created_at };
 }
 
 function bumpRev(botId: string): number {
@@ -166,6 +169,7 @@ export function appendRow(botId: string, kind: RowKind, body: RowBody): Row {
     return { userId: b.user_id as string, memoryChanged, row: { botId, generation: b.generation, seq, updatedSeq: rev, kind, audience: body.audience, body, createdAt: t } as Row };
   });
   const { userId, row, memoryChanged } = tx();
+  row.body = serializeVoiceCall(row.body, userId);
   if (memoryChanged) hub.emit(userId, { type: 'memories', botId });
   hub.emit(userId, { type: 'rows', botId, generation: row.generation, rows: [row] });
   notifyRow(userId, row, true);
@@ -189,9 +193,18 @@ export function updateRow(botId: string, seq: number, body: RowBody): Row | null
   });
   const res = tx();
   if (!res) return null;
+  res.row.body = serializeVoiceCall(res.row.body, res.userId);
   if (res.memoryChanged) hub.emit(res.userId, { type: 'memories', botId });
   hub.emit(res.userId, { type: 'rows', botId, generation: res.row.generation, rows: [res.row] });
   notifyRow(res.userId, res.row, false);
+  if (body.type === 'card' && body.card === 'approval') {
+    // Advance revisions as well as emitting SSE so reconnect reconciliation also
+    // observes the changed pill, including calls delegated to a different bot.
+    for (const call of voiceCallsReferencing(res.userId, botId, res.row.generation, seq, body.approvalId)) {
+      updateRow(call.bot_id, call.seq, JSON.parse(call.body));
+      emitBot(call.bot_id);
+    }
+  }
   return res.row;
 }
 

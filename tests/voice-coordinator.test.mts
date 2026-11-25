@@ -635,7 +635,8 @@ test('R7 voice summary rechecks decisions after generation and excludes approval
     gmailApproval(bot.id, 'Created after end', 'pending', callStartedAt);
     release();
     for (let i = 0; i < 100 && !callRecord(bot.id, ended.seq)?.call?.summary; i++) await new Promise(resolve => setTimeout(resolve, 10));
-    assert.doesNotMatch(callRecord(bot.id, ended.seq).text, /approval|pending|Decided during|Created after/i);
+    assert.doesNotMatch(callRecord(bot.id, ended.seq).text, /pending|Created after/i);
+    assert.match(callRecord(bot.id, ended.seq).text, /was not allowed.*Decided during summary/);
   } finally { release(); summaryGate = undefined; summaryStarted = undefined; }
 });
 
@@ -645,4 +646,71 @@ test('R7 multiple pending approvals from a call use the exact count', async () =
   gmailApproval(bot.id, 'First draft'); gmailApproval(bot.id, 'Second draft');
   const record = await endWithSummary(bot.id, call.callId);
   assert.match(record.text, /2 approvals from this call are still pending in chat/);
+});
+
+test('R8 mixed post-call decisions retain exact subjects, expire live and never cross accounts', async () => {
+  const { hub } = await import('../server/src/lib/hub.js');
+  const { getRow } = await import('../server/src/store.js');
+  const bot = createBot('alice', { name: 'Mixed decisions fixture' });
+  const call = await session(bot.id);
+  const first = gmailApproval(bot.id, 'First saved subject');
+  const second = gmailApproval(bot.id, 'Second saved subject');
+  const ended = await (await post('alice', 'end', { botId: bot.id, callId: call.callId })).json();
+  assert.match(callRecord(bot.id, ended.seq).text, /2 approvals.*still pending/);
+  const events: any[] = [], foreignEvents: any[] = [];
+  const off = hub.subscribe('alice', event => events.push(event));
+  const offForeign = hub.subscribe('bob', event => foreignEvents.push(event));
+  try {
+    db.prepare("UPDATE approvals SET status='denied' WHERE id=?").run(first.id);
+    updateRow(bot.id, first.row.seq, { ...first.row.body, status: 'denied' } as any);
+    let pill = callRecord(bot.id, ended.seq);
+    assert.match(pill.text, /1 approval.*was not allowed.*First saved subject/);
+    assert.match(pill.text, /1 approval.*still pending.*Second saved subject/);
+    db.prepare("UPDATE approvals SET status='expired' WHERE id=?").run(second.id);
+    updateRow(bot.id, second.row.seq, { ...second.row.body, status: 'expired' } as any);
+    pill = callRecord(bot.id, ended.seq);
+    assert.match(pill.text, /approval from this call expired.*Second saved subject/);
+    assert.doesNotMatch(pill.text, /pending/);
+    assert.ok(events.some(e => e.type === 'rows' && e.rows.some((r: any) => r.seq === ended.seq && /approval from this call expired/.test(r.body.text))));
+    assert.deepEqual(foreignEvents, []);
+    // Serialization uses durable decisions even if the card and stored prose are stale.
+    db.prepare("UPDATE approvals SET status='allowed' WHERE id=?").run(second.id);
+    assert.match((getRow(bot.id, ended.seq)!.body as any).text, /was allowed.*Second saved subject/);
+    const { serializeVoiceCall } = await import('../server/src/voice-approvals.js');
+    assert.doesNotMatch((serializeVoiceCall(pill, 'bob') as any).text, /still pending|was allowed|was not allowed|call expired/);
+    db.prepare('DELETE FROM approvals WHERE id=?').run(first.id);
+    assert.match(callRecord(bot.id, ended.seq).text, /no current status available/);
+    assert.doesNotMatch(callRecord(bot.id, ended.seq).text, /pending/);
+  } finally { off(); offForeign(); }
+});
+
+test('R8 legacy unlinked pills stay history and cannot supply pending voice context', async () => {
+  const bot = createBot('alice', { name: 'Historical pill fixture' });
+  const row = appendRow(bot.id, 'event', { type: 'event', event: 'voice-call', text: 'Voice call ended. 1 approval is still pending: Historical subject', call: { id: 'legacy', phase: 'ended', summary: '1 approval is still pending', transcript: [{ role: 'assistant', text: 'Still pending' }] } });
+  assert.match(callRecord(bot.id, row.seq).text, /still pending/);
+  const call = await session(bot.id);
+  assert.doesNotMatch(call.instructions, /still pending|Historical subject/i);
+  const search = await (await post('alice', 'tool', { botId: bot.id, callId: call.callId, name: 'search_conversations', args: { query: 'Voice call' } })).json();
+  assert.doesNotMatch(search.output, /still pending|Historical subject/i);
+  await post('alice', 'end', { botId: bot.id, callId: call.callId });
+});
+
+test('R8 delegated approval decisions update the originating call pill and its sidebar preview', async () => {
+  const { hub } = await import('../server/src/lib/hub.js');
+  const target = createBot('alice', { name: 'Delegated approval fixture' });
+  const call = await session();
+  await tool(call.callId, 'send_task', { bot_id: target.id, request: 'Review the local fixture.' }, 'pill-delegation');
+  await settleAgentJobs();
+  const approval = gmailApproval(target.id, 'Delegated saved subject');
+  const ended = await (await post('alice', 'end', { botId: chief.id, callId: call.callId })).json();
+  assert.match(callRecord(chief.id, ended.seq).text, /still pending.*Delegated saved subject/);
+  const events: any[] = [];
+  const off = hub.subscribe('alice', event => events.push(event));
+  try {
+    db.prepare("UPDATE approvals SET status='denied' WHERE id=?").run(approval.id);
+    updateRow(target.id, approval.row.seq, { ...approval.row.body, status: 'denied' } as any);
+    assert.match(callRecord(chief.id, ended.seq).text, /was not allowed.*Delegated saved subject/);
+    assert.ok(events.some(e => e.type === 'rows' && e.botId === chief.id && e.rows.some((r: any) => r.seq === ended.seq && /was not allowed/.test(r.body.text))));
+    assert.match(getBot(chief.id).lastPreview, /was not allowed/);
+  } finally { off(); }
 });
