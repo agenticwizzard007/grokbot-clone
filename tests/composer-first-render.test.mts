@@ -90,6 +90,8 @@ test('loading model memory preserves the visible plan label and isolates Bot pre
   assert.equal(lastModelLabel('account-a', { ...bot, model: 'openai/gpt-5.5' }), 'GPT 5.5');
   storage.set('swarm.model-label:account-a:plan-bot', '{invalid');
   assert.equal(lastModelLabel('account-a', bot), 'Loading model');
+  storage.set('swarm.model-label:account-a:plan-bot', JSON.stringify({ model: null, label: 'CLI default' }));
+  assert.equal(lastModelLabel('account-a', bot), 'Loading model', 'legacy internal labels stay neutral until the catalog settles');
   Object.defineProperty(globalThis, 'localStorage', { configurable: true, get() { throw new Error('Storage unavailable'); } });
   assert.doesNotThrow(() => rememberModelLabel('account-a', bot, 'Codex · ChatGPT plan'));
   assert.equal(lastModelLabel('account-a', bot), 'Loading model');

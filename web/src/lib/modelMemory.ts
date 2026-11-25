@@ -7,7 +7,8 @@ const key = (accountId: string, bot: SavedModel) => `swarm.model-label:${account
 export function lastModelLabel(accountId: string | undefined, bot: SavedModel): string {
   try {
     const saved = accountId && JSON.parse(localStorage.getItem(key(accountId, bot)) ?? 'null');
-    if (saved?.model === bot.model && typeof saved.label === 'string' && saved.label) return saved.label;
+    // Older releases saved this internal fallback instead of the visible plan label.
+    if (saved?.model === bot.model && typeof saved.label === 'string' && saved.label && saved.label !== 'CLI default') return saved.label;
   } catch { /* Private browsing or unavailable storage. */ }
   return bot.model ? modelDisplayName(bot.model) : 'Loading model';
 }
