@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { APP_SECTIONS, BOT_TABS, backTarget, backLabel, outsideSurface, parseScreen, screenHash, resolveScreen, parentScreen, ScreenHistory, type Screen } from '../web/src/lib/navigation.ts';
+import { APP_SECTIONS, BOT_TABS, parentLabel, backTarget, backLabel, outsideSurface, parseScreen, screenHash, resolveScreen, parentScreen, ScreenHistory, type Screen } from '../web/src/lib/navigation.ts';
 
 const chat: Screen = { kind: 'chat', bot: 'quinn' };
 const screens: Screen[] = [
@@ -71,7 +71,7 @@ test('search close pops its entry without leaving a no-op Back', () => {
 });
 test('direct deep links and another account use a parent without leaving the app', () => {
   const f = fixture('#new-bot/group');
-  f.history.back(parentScreen(f.history.screen!));
+  f.history.back(parentScreen(f.history.screen!)!);
   assert.equal(f.browser.location.hash, '#new-bot');
   assert.equal(f.pushes, 0);
   f.history.navigate(chat);
@@ -140,7 +140,7 @@ test('reload fallback label ignores a copied trail for a different hash or accou
   f.history.back(target.screen);
   assert.equal(f.browser.location.hash, '#bots');
   f.history.navigate({ kind: 'create' }); f.account('b'); f.reload();
-  assert.equal(backLabel(backTarget(f.history.trail, chat).screen), 'Back to chat');
+  assert.equal(backLabel(backTarget(f.history.trail, chat).screen), 'Back to Bot chat');
   f.history.back(chat);
   assert.equal(f.browser.location.hash, '#bot/quinn');
 });
@@ -173,7 +173,7 @@ test('phone direct section parent stays in-app and its next section preserves th
 });
 
 // Exercise the store used by all visible Back controls, not only the router.
-test('all surface labels refresh from restored history and resolve deleted Bot destinations', async () => {
+test('structural labels ignore restored origins while surface Close resolves deleted Bot destinations', async () => {
   const { browserHistory } = await import('./fixtures/browser-history.mts');
   const f = browserHistory('#bots');
   const storage = { getItem: () => null, setItem() {}, removeItem() {}, length: 0, key: () => null };
@@ -181,7 +181,7 @@ test('all surface labels refresh from restored history and resolve deleted Bot d
     document: { documentElement: { dataset: {}, style: {} }, visibilityState: 'visible' } });
   Object.defineProperty(globalThis, 'navigator', { value: { userAgent: 'node', platform: 'Linux' }, configurable: true });
   const { useStore } = await import('../web/src/store.ts');
-  const { useConfigUI, navigation, returnLabel, backFromWork } = await import('../web/src/configStore.ts');
+  const { useConfigUI, navigation, returnLabel, backFromSurface } = await import('../web/src/configStore.ts');
   const bot = { id: 'quinn', name: 'Quinn' } as any;
   useStore.setState({ user: { id: 'a' } as any, bots: [bot], botsLoaded: true, selectedBotId: bot.id, mobile: false });
   const resolvedChat = resolveScreen(chat, [bot], true)!;
@@ -191,17 +191,17 @@ test('all surface labels refresh from restored history and resolve deleted Bot d
     f.reset(screenHash(surface));
     const seed = (trail: string[]) => f.history.replaceState({ swarmNavigation: { account: 'a', hash: f.location.hash, trail } }, '', f.location.hash);
     seed([screenHash(details)]); navigation.initialize({ kind: 'bots' });
-    assert.equal(useConfigUI.getState().backLabel, 'Back to details');
+    assert.equal(useConfigUI.getState().backLabel, parentLabel(surface, [bot]));
     // A still-mounted surface must react to a different restored origin too.
     seed([screenHash(resolvedChat)]); navigation.initialize({ kind: 'bots' });
-    assert.equal(useConfigUI.getState().backLabel, 'Back to chat');
+    assert.equal(useConfigUI.getState().backLabel, parentLabel(surface, [bot]));
     seed(['#bot/deleted/details/activity']); navigation.initialize({ kind: 'bots' });
-    assert.equal(returnLabel(), 'Back to Bots');
-    assert.equal(useConfigUI.getState().backLabel, 'Back to Bots');
+    assert.equal(returnLabel(), parentLabel(surface, [bot]));
+    assert.equal(useConfigUI.getState().backLabel, parentLabel(surface, [bot]));
     seed([]); navigation.initialize({ kind: 'bots' });
-    assert.equal(useConfigUI.getState().backLabel, surface.kind === 'bot-settings' ? 'Back to chat' : 'Back to Bots');
+    assert.equal(useConfigUI.getState().backLabel, parentLabel(surface, [bot]));
     if (surface.kind === 'settings') useConfigUI.getState().closeAppSettings();
-    else if (surface.kind === 'work') backFromWork();
+    else if (surface.kind === 'work') backFromSurface();
     else if (surface.kind === 'bot-settings') useConfigUI.getState().closeBotSettings();
     else useStore.getState().setModal(null);
     assert.equal(f.location.hash, surface.kind === 'bot-settings' ? screenHash(resolvedChat) : '#bots');

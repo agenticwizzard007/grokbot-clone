@@ -4,28 +4,65 @@ import { createSettingsCache } from './settingsReads';
 
 export type Suggestions = { suggestions: SuggestedToolkit[]; hasContext?: boolean; filterVersion?: string };
 export const suggestionCacheKey = (key: string) => JSON.stringify([SUGGESTION_FILTER_VERSION, key]);
+export const SUGGESTION_STORAGE_KEY = 'swarm.suggestions';
+export const SUGGESTION_STORAGE_VERSION = 1;
+const MAX_BOTS = 20;
+const MAX_CHARS = 32_000;
+
+// Persist catalog identity only. Drafts, message text, model-written reasons and
+// provider URLs stay in memory. A cold snapshot gets neutral copy until refreshed.
+function snapshot(value: Suggestions): Suggestions {
+  return { filterVersion: SUGGESTION_FILTER_VERSION, hasContext: !!value.hasContext,
+    suggestions: value.suggestions.slice(0, 4).map(app => ({
+      slug: app.slug, name: app.name, noAuth: !!app.noAuth, managedAuth: !!app.managedAuth, categories: [],
+      reason: `${app.name} was suggested for this Bot.`,
+    })) };
+}
+function valid(value: Suggestions | undefined): value is Suggestions {
+  return value?.filterVersion === SUGGESTION_FILTER_VERSION && Array.isArray(value.suggestions) && value.suggestions.length <= 4
+    && value.suggestions.every(app => app && typeof app.slug === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(app.slug)
+      && typeof app.name === 'string' && app.name.length > 0 && app.name.length <= 100 && typeof app.noAuth === 'boolean');
+}
 
 /** Old snapshots and responses from an older server must never reach either mount. */
 export function createSuggestionCache(storage = createSettingsCache<Suggestions>()) {
   let owner: string | undefined;
+  let scoped = false;
   let generation = 0;
   const latest = new Map<string, Suggestions>();
   const requests = new Map<string, number>();
-  const savedKey = (account: string) => `swarm.suggestions:${SUGGESTION_FILTER_VERSION}:${account}`;
-  const valid = (value: Suggestions | undefined) => value?.filterVersion === SUGGESTION_FILTER_VERSION && Array.isArray(value.suggestions)
-    && value.suggestions.every(app => app && typeof app.slug === 'string' && typeof app.name === 'string' && typeof app.reason === 'string');
   const persist = () => {
-    try { if (owner) sessionStorage.setItem(savedKey(owner), JSON.stringify([...latest])); } catch { /* optional display cache */ }
+    try {
+      if (!owner) return;
+      const bots = [...latest].filter(([, value]) => valid(value)).slice(-MAX_BOTS).map(([bot, value]) => [bot, snapshot(value)]);
+      let saved = '';
+      while (bots.length) {
+        saved = JSON.stringify({ version: SUGGESTION_STORAGE_VERSION, account: owner, filterVersion: SUGGESTION_FILTER_VERSION, bots });
+        if (saved.length <= MAX_CHARS) break;
+        bots.shift();
+      }
+      if (bots.length) localStorage.setItem(SUGGESTION_STORAGE_KEY, saved);
+      else localStorage.removeItem(SUGGESTION_STORAGE_KEY);
+    } catch { /* optional display cache */ }
   };
   return {
     scope(account: string | undefined) {
-      if (owner === account) return;
-      try { if (owner) sessionStorage.removeItem(savedKey(owner)); } catch { /* optional display cache */ }
+      if (scoped && owner === account) return;
+      scoped = true;
+      try { if (owner) localStorage.removeItem(SUGGESTION_STORAGE_KEY); } catch { /* optional display cache */ }
       owner = account; generation++; latest.clear(); requests.clear(); storage.scope(account);
       try {
-        const entries = account && JSON.parse(sessionStorage.getItem(savedKey(account)) || '[]');
-        if (Array.isArray(entries)) for (const [bot, value] of entries.slice(-80)) {
-          if (typeof bot === 'string' && valid(value)) latest.set(bot, value);
+        const raw = localStorage.getItem(SUGGESTION_STORAGE_KEY);
+        const saved = raw && raw.length <= MAX_CHARS ? JSON.parse(raw) : null;
+        if (!account || saved?.account !== account || saved?.version !== SUGGESTION_STORAGE_VERSION
+          || saved?.filterVersion !== SUGGESTION_FILTER_VERSION || !Array.isArray(saved?.bots)) {
+          localStorage.removeItem(SUGGESTION_STORAGE_KEY);
+          return;
+        }
+        for (const entry of saved.bots.slice(-MAX_BOTS)) {
+          if (!Array.isArray(entry)) continue;
+          const [bot, value] = entry;
+          if (typeof bot === 'string' && bot.length <= 256 && valid(value)) latest.set(bot, snapshot(value));
         }
       } catch { /* a cold cache is safe */ }
     },
@@ -52,3 +89,6 @@ export function createSuggestionCache(storage = createSettingsCache<Suggestions>
     },
   };
 }
+
+// Owned by the account lifecycle, even before a suggestions panel is lazy-loaded.
+export const suggestionCache = createSuggestionCache();

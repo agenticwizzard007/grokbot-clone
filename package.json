@@ -65,6 +65,7 @@
     "test:chat-open": "npm run build -w web && node --import tsx --test --test-concurrency=1 tests/chat-open.test.mts tests/transcript-paging.test.mts tests/sse-reconnect.test.mts tests/sse-stream.test.mts && node tests/chat-open-ui.mjs",
     "test:redesign": "node tests/redesign-ui.mjs",
     "test:input-latency": "node --import tsx --test tests/input-latency.test.mts && node tests/input-latency-ui.mjs",
+    "test:readiness-ee": "node --import tsx --test tests/structural-navigation.test.mts tests/navigation-labels.test.mts tests/navigation-history.test.mts tests/suggestion-cache.test.mts && node tests/readiness-ee-ui.mjs",
     "test:readiness-cc": "node --import tsx --test tests/plural-copy.test.mts tests/suggestion-cache.test.mts tests/navigation-labels.test.mts tests/navigation-history.test.mts && node tests/readiness-cc-ui.mjs"
   },
   "engines": {

@@ -136,7 +136,7 @@ try {
   await page.getByRole('button', { name: 'Computer settings', exact: false }).click();
   await nativeAccess.and(nativeSlot).waitFor();
   await page.waitForFunction(() => window.placements.at(-1)?.visible === true);
-  await page.getByRole('button', { name: 'Back to chat', exact: true }).click();
+  await page.keyboard.press('Escape');
   await nativeSlot.waitFor({ state: 'detached' });
   await page.waitForFunction(() => window.placements.at(-1)?.visible === false);
   assert.deepEqual(mutations, [], 'native settings navigation does not grant or pair');

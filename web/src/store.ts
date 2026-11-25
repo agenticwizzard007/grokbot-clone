@@ -6,6 +6,7 @@ import { noteRowsEvent } from './lib/sseWatchdog';
 import { readDetailsDefault } from './lib/detailsDefault';
 import { requireActiveSession, sessionExpired } from './lib/session';
 import { navigationActions } from './lib/navigation';
+import { suggestionCache } from './lib/suggestionCache';
 
 export type ModalKind = 'create' | 'search' | 'apps' | 'group' | null;
 
@@ -445,7 +446,9 @@ export const useStore = create<State>((set, get) => ({
 
 // Invalidate reads even when an account is left and then opened again before they settle.
 useStore.subscribe((state, previous) => {
+  if (state.authChecked && !previous.authChecked && !state.user) suggestionCache.scope(undefined);
   if (state.user?.id === previous.user?.id) return;
+  suggestionCache.scope(state.user?.id);
   accountEpoch++;
   rowRequests.clear();
   useStore.setState({

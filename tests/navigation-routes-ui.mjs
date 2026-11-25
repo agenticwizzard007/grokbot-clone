@@ -110,7 +110,7 @@ try {
     const link = async route => { await page.evaluate(value => { location.hash = value; }, route); await hash(route); };
     const closeSettings = async () => {
       if (width === 390) await page.getByRole('button', {name:'Close settings',exact:true}).click();
-      else await page.locator('.access-settings__bar button').click();
+      else await page.keyboard.press('Escape');
     };
     const expectBack = async (selector, label, destination) => {
       const control = page.locator(selector).getByRole('button', {name:label, exact:true});
@@ -150,19 +150,19 @@ try {
       // A form is not a group conversation, and an older origin cannot leak past Tasks.
       await fresh('#new-bot/group'); await title('New group chat');
       await page.keyboard.press('Control+,'); await hash(width === 390 ? '#settings' : '#settings/general');
-      if (width === 1280) await page.getByRole('button', {name:'Back to new group chat',exact:true}).first().waitFor();
+      if (width === 1280) await page.getByRole('button', {name:'Back to Settings',exact:true}).first().waitFor();
       else assert.equal(await page.getByRole('button', { name: /^Back/ }).count(), 0);
       if (width === 1280) await page.locator('.sidebar-island').click();
       else await link('#tasks');
       await hash('#tasks'); await page.keyboard.press('Control+,'); await hash(width === 390 ? '#settings' : '#settings/general');
-      if (width === 1280) await page.getByRole('button', {name:'Back to Tasks',exact:true}).first().waitFor();
+      if (width === 1280) await page.getByRole('button', {name:'Back to Settings',exact:true}).first().waitFor();
       else assert.equal(await page.getByRole('button', { name: /^Back/ }).count(), 0);
       if (width === 390) await page.getByRole('navigation', {name:'Settings sections'}).getByRole('button', {name:'Permissions',exact:true}).click();
       await reload(width === 390 ? '#settings/permissions' : '#settings/general');
       if (width === 390) {
         await page.getByRole('button', {name:'Back to Settings',exact:true}).click(); await hash('#settings');
       }
-      if (width === 1280) await page.getByRole('button', {name:'Back to Tasks',exact:true}).first().waitFor();
+      if (width === 1280) await page.getByRole('button', {name:'Back to Settings',exact:true}).first().waitFor();
       else assert.equal(await page.getByRole('button', { name: /^Back/ }).count(), 0);
       await closeSettings(); await hash('#tasks');
       for (const tab of ['Team', 'Goals', 'Reports']) {

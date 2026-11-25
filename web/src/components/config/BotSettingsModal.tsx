@@ -12,7 +12,7 @@ import { LearningSettingsPanel } from './LearningSettings';
 import { configApi, type BotPatch, type BotSettingsBundle, type KnowledgeSkill, type KnowledgeMemory } from '../../lib/configApi';
 import { SkillHistory, SkillReview, MemoryEvidence, ConversationSearch, MemoryArchive } from './KnowledgePanels';
 import { RoutineHistory } from './RoutineHistory';
-import { openConversation, useReturnLabel, useBotSettingsDraft, useConfigUI, useVersion, type BotSettingsTab } from '../../configStore';
+import { backToParent, openConversation, useReturnLabel, useBotSettingsDraft, useConfigUI, useVersion, type BotSettingsTab } from '../../configStore';
 import { useStore } from '../../store';
 import { Icon } from '../Icon';
 import { SetupPaperHeader } from '../SetupPaperHeader';
@@ -118,7 +118,7 @@ function BotSettingsPage({ bot, tab, inline, userId }: { bot: Bot; tab: BotSetti
     memories: 'Review preferences and facts, including where they came from.', routines: 'Schedules and run history for this Bot.', learning: 'Review learning activity, settings, and protected maintenance.',
   };
   const content = <>
-      <SetupPaperHeader backLabel={sourcesOpen ? 'Back to memories' : backTitle} title={label} onBack={sourcesOpen ? () => setShowSources(false) : onClose} onClose={onClose} />
+      <SetupPaperHeader backLabel={sourcesOpen ? 'Back to memories' : backTitle} title={label} onBack={sourcesOpen ? () => setShowSources(false) : backToParent} onClose={onClose} />
       <div className="setup-paper__column bot-settings-page__column" style={botVars(bot.avatarColor)}>
         <h1>{sourcesOpen ? 'Conversation sources' : bot.name}</h1>
         {leaving && <div className="cfg-guard" role="alertdialog" aria-label="Discard unsaved changes?">
