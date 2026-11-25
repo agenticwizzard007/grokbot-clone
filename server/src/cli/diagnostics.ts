@@ -46,7 +46,10 @@ export async function withCliDiagnostics<T>(params: any, runtime: string, work: 
       const hostFailure = Array.isArray(failures) && failures.find(f => f?.tool === null && ['cli_tool_host_disabled', 'cli_tool_host_unavailable'].includes(f?.errorClass));
       if (hostFailure) {
         log({ event: 'tool_host', admission: 'cli_rejected', errorClass: hostFailure.errorClass });
-        throw new Error(`The CLI tool host is ${hostFailure.errorClass === 'cli_tool_host_disabled' ? 'disabled' : 'unavailable'}. Open Settings > Models & access and share the Last CLI run code with the server owner so they can update the CLI installation. Then ask again.`);
+        const nextStep = runtime === 'server'
+          ? 'Open Settings > Models & access and share the Last CLI run code with the server owner so they can update Swarm and its CLI installation.'
+          : 'Open Settings > Models & access, update your CLI and reconnect your computer using a new connect command.';
+        throw new Error(`The CLI tool host is ${hostFailure.errorClass === 'cli_tool_host_disabled' ? 'disabled' : 'unavailable'}. ${nextStep} Then ask again.`);
       }
       if (Array.isArray(failures)) for (const failure of failures.slice(0, 512)) {
         if (!names.includes(failure?.tool)) continue;
