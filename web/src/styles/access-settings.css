@@ -208,7 +208,7 @@
 .access-settings .cfg-section { gap: var(--space-4); }
 .access-settings .subscription-settings { gap: var(--space-5); }
 .access-settings .subscription-settings__auth { gap: 0; }
-.access-settings .subscription-settings > section[aria-label='Plan connection'] > .access-row,
+.access-settings .subscription-settings__panel > section[aria-label='Plan connection'] > .access-row,
 .access-settings .subscription-settings__auth > .access-row:first-child { padding-top: 0; min-height: 0; }
 .access-settings .subscription-settings__details { gap: var(--space-4) var(--space-5); padding: var(--space-4) 0; }
 .access-settings .subscription-settings__advanced-content { gap: var(--space-5); padding-top: var(--space-5); }

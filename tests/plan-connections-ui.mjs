@@ -115,11 +115,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       await page.getByRole('tab', { name: provider === 'claude' ? 'Claude Code' : 'Codex', exact: true }).waitFor();
       assert.equal(await page.getByRole('tab', { name: provider === 'claude' ? 'Claude Code' : 'Codex', exact: true }).getAttribute('aria-selected'), 'true');
       const connection = page.getByRole('region', { name: 'Plan connection', exact: true });
-      await connection.getByRole('button', { name: 'Connect plan', exact: true }).click();
+      await connection.getByRole('button', { name: `Connect ${label} plan`, exact: true }).click();
       await page.getByRole('region', { name: /login terminal$/ }).waitFor();
       assert.equal(loginProvider, provider);
       loginComplete = true;
-      await connection.getByText(provider === 'claude' ? 'Connected as max' : 'Connected', { exact: true }).waitFor();
+      await connection.getByText('Connected · Currently in use', { exact: true }).waitFor();
+      if (provider === 'claude') await connection.getByText(/Claude Code installed · Signed in · Plan: max/).waitFor();
       await page.getByRole('button', { name: 'Done', exact: true }).click();
       await closeSettings();
       await page.locator('.model-pill').click();
@@ -138,7 +139,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
         assert.equal(status.selected, 'claude'); failSelection = false;
       }
       await connection.getByRole('button', { name: 'Disconnect', exact: true }).click();
-      await connection.getByText('Not connected', { exact: true }).waitFor();
+      await connection.getByText('Connected', { exact: true }).waitFor();
+      await connection.getByText(/^Your Bots currently use API providers;/).waitFor();
       assert.equal(status.providers[provider].authenticated, true);
       assert.ok(!mutations.some(m => m.path === '/api/cli/reset' || (m.path === '/api/cli/pair' && m.method === 'DELETE')), 'disconnect must not remove CLI credentials');
       await closeSettings(); await page.locator('.model-pill').filter({ hasText: 'API model' }).waitFor();
@@ -162,7 +164,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     status = { ...status, runtime: 'server', connected: true, providers: { ...status.providers, claude: { installed: false, authenticated: false, subscription: false } } };
     await openPlans(); await page.getByText('CLI missing', { exact: true }).waitFor();
     await page.getByRole('button', { name: 'Connect Claude plan', exact: true }).click();
-    assert.equal(await page.getByRole('region', { name: 'Plan connection', exact: true }).getByRole('button', { name: 'Connect plan', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('region', { name: 'Plan connection', exact: true }).getByRole('button', { name: 'Connect Claude plan', exact: true }).isDisabled(), true);
     await closeSettings();
     status = { ...status, runtime: 'bridge', connected: false };
     await openPlans(); await page.getByText('Not connected', { exact: true }).first().waitFor();
