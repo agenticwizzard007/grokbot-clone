@@ -482,7 +482,7 @@ function ComputerSection() {
         <h2 className="cfg-section__label">Screens in use</h2>
         <div className="cfg-card">
           {detailsError ? <div className="cfg-error" role="alert">{detailsError} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={load}>Try again</button></div> : !details ? <div className="cfg-empty cfg-empty--flat" role="status">Loading…</div> : details.screens.length === 0 ? (
-            <div className="cfg-empty cfg-empty--flat">No Bot has used the computer yet.</div>
+            <div className="cfg-empty cfg-empty--flat">No Bot screens are open.</div>
           ) : details.screens.map((s) => {
             const bot = byId.get(s.botId);
             return (

@@ -1,4 +1,6 @@
+import { reportDay, reportDayStart, reportTimezone, shiftDay } from './report-days.js';
 import { attribution } from './usage-context.js';
+import { billingNote, type BillingSource } from './usage-summary.js';
 export { withUsage } from './usage-context.js';
 import { db, now } from './db.js';
 import { llmProvider, openrouterModels } from './lib/llm.js';
@@ -155,19 +157,19 @@ function insert(r: {
 
 export type UsageRange = 'today' | '7d' | '30d' | 'month';
 
-/** UTC day windows, matching OpenRouter's daily/monthly windows and the free plan's midnight-UTC reset. */
-export function rangeBounds(range: UsageRange, at = Date.now()): { from: number; to: number; days: number } {
-  const d = new Date(at);
-  const today = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-  const day = 86_400_000;
-  if (range === 'today') return { from: today, to: at, days: 1 };
-  if (range === '7d') return { from: today - 6 * day, to: at, days: 7 };
-  if (range === 'month') {
-    const first = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
-    return { from: first, to: at, days: Math.round((today - first) / day) + 1 };
-  }
-  return { from: today - 29 * day, to: at, days: 30 };
+/** Calendar days in the report account's zone; daily message limits remain UTC. */
+export function rangeBounds(range: UsageRange, at = Date.now(), timezone = 'UTC'): { from: number; to: number; days: number } {
+  const today = reportDay(at, timezone);
+  const days = range === 'today' ? 1 : range === '7d' ? 7 : range === 'month' ? Number(today.slice(-2)) : 30;
+  return { from: reportDayStart(shiftDay(today, 1 - days), timezone), to: at, days };
 }
+
+export function usageTimezone(userId: string | null): string {
+  const user = userId ? db.prepare('SELECT timezone FROM users WHERE id=?').get(userId) as { timezone?: string | null } | undefined : null;
+  return reportTimezone(user?.timezone);
+}
+
+db.function('usage_day', { deterministic: true }, (at, timezone) => reportDay(Number(at), String(timezone)));
 
 const KIND_LABEL: Record<string, string> = {
   background_review: 'Background learning reviews', chat: 'Bot conversations', compaction: 'Memory: compacting history', memory: 'Memory: learning facts', voice: 'Voice calls',
@@ -190,8 +192,10 @@ const coverageSql = `COALESCE(SUM(CASE WHEN usage_status='partial' THEN 1 ELSE 0
 const coverage = (row: any = {}): UsageCoverage => ({ partialUsageRequests: row.partial ?? 0, unavailableUsageRequests: row.unavailable ?? 0, knownTokenRequests: row.known_tokens ?? 0, knownInputRequests: row.known_input ?? 0, knownOutputRequests: row.known_output ?? 0 });
 
 export interface UsageReport {
+  timezone: string;
   range: { key: UsageRange; from: number; to: number };
   totals: Totals;
+  billing: { sources: BillingSource[]; note: string };
   accounting: { unavailableUsage: 'counted'; tokenTotals: 'observed' };
   /** costUsd is AI only; computerUsd is the estimated computer (VM) cost that day. */
   days: ({ day: string; costUsd: number; computerUsd: number; tokens: number; requests: number } & UsageCoverage)[];
@@ -203,8 +207,9 @@ export interface UsageReport {
 }
 
 /** Usage for one account (userId) or for the whole server (userId null). */
-export function usageReport(userId: string | null, range: UsageRange): UsageReport {
-  const { from, to, days } = rangeBounds(range);
+export function usageReport(userId: string | null, range: UsageRange, timezone = usageTimezone(userId), at = Date.now()): UsageReport {
+  timezone = reportTimezone(timezone);
+  const { from, to, days } = rangeBounds(range, at, timezone);
   const where = userId ? 'user_id=? AND created_at>=? AND created_at<=?' : 'created_at>=? AND created_at<=?';
   const args = userId ? [userId, from, to] : [from, to];
   const SUMS = `COALESCE(SUM(cost_usd),0) cost, COALESCE(SUM(CASE WHEN cost_source='estimate' THEN cost_usd END),0) est,
@@ -217,14 +222,20 @@ export function usageReport(userId: string | null, range: UsageRange): UsageRepo
     outputTokens: t.outp, reasoningTokens: t.reas, requests: t.n, toolCalls: t.tools, voiceMinutes: t.mins, ...coverage(t),
   };
 
-  const fromDay = new Date(from).toISOString().slice(0, 10);
-  const toDay = new Date(to).toISOString().slice(0, 10);
-  const vmDays = computerByDay(userId, fromDay, toDay);
-  const dayRows = db.prepare(`SELECT strftime('%Y-%m-%d', created_at/1000, 'unixepoch') day, COALESCE(SUM(cost_usd),0) cost,
-      COALESCE(SUM(${measuredTokens}),0) tokens, COUNT(*) n, ${coverageSql} FROM usage_events WHERE ${where} GROUP BY day`).all(...args) as any[];
+  const fromDay = reportDay(from, timezone);
+  const sources = db.prepare(`SELECT CASE WHEN cost_source='subscription' THEN 'subscription' ELSE 'api' END source,
+      provider, COUNT(*) requests, COALESCE(SUM(cost_usd),0) costUsd,
+      COALESCE(SUM(CASE WHEN cost_source='estimate' THEN cost_usd END),0) estimatedUsd,
+      SUM(CASE WHEN cost_usd IS NULL THEN 1 ELSE 0 END) unpricedRequests
+    FROM usage_events WHERE ${where} GROUP BY source, provider ORDER BY source, provider`).all(...args) as BillingSource[];
+  const billing = { sources, note: billingNote(sources) };
+  const toDay = reportDay(to, timezone);
+  const vmDays = computerByDay(userId, fromDay, toDay, timezone, to);
+  const dayRows = db.prepare(`SELECT usage_day(created_at, ?) day, COALESCE(SUM(cost_usd),0) cost,
+      COALESCE(SUM(${measuredTokens}),0) tokens, COUNT(*) n, ${coverageSql} FROM usage_events WHERE ${where} GROUP BY day`).all(timezone, ...args) as any[];
   const byDay = new Map(dayRows.map((r) => [r.day, r]));
   const dayList = Array.from({ length: days }, (_, i) => {
-    const day = new Date(from + i * 86_400_000).toISOString().slice(0, 10);
+    const day = shiftDay(fromDay, i);
     const r = byDay.get(day);
     return { day, costUsd: r?.cost ?? 0, computerUsd: vmDays.get(day) ?? 0, tokens: r?.tokens ?? 0, requests: r?.n ?? 0, ...coverage(r) };
   });
@@ -244,10 +255,10 @@ export function usageReport(userId: string | null, range: UsageRange): UsageRepo
   const byModel = group('model').map((r) => ({ key: r.k, label: r.k, costUsd: r.cost, tokens: r.tokens, requests: r.n, ...extra(r) }));
   const byKind = group('kind').map((r) => ({ key: r.k, label: KIND_LABEL[r.k] ?? r.k, costUsd: r.cost, tokens: r.tokens, requests: r.n, ...extra(r) }));
 
-  const report: UsageReport = { range: { key: range, from, to }, totals, accounting: { unavailableUsage: 'counted', tokenTotals: 'observed' }, days: dayList, computer: computerTotals(userId, fromDay, toDay), byBot, byModel, byKind };
+  const report: UsageReport = { timezone, range: { key: range, from, to }, totals, billing, accounting: { unavailableUsage: 'counted', tokenTotals: 'observed' }, days: dayList, computer: computerTotals(userId, fromDay, toDay, timezone, to), byBot, byModel, byKind };
   if (!userId) {
     const users = new Map((db.prepare('SELECT id, name, email, phone FROM users').all() as any[]).map((u) => [u.id, u]));
-    const vmUsers = computerByUser(fromDay, toDay);
+    const vmUsers = computerByUser(fromDay, toDay, timezone, to);
     const nameOf = (id: string) => {
       const u = id ? users.get(id) : null;
       return u ? (u.name || u.email || (u.phone ? `+${u.phone}` : id)) : id ? 'Deleted account' : 'Not tied to an account';
@@ -266,12 +277,13 @@ export function usageReport(userId: string | null, range: UsageRange): UsageRepo
 }
 
 /** CSV of raw events (no message content is ever stored here). */
-export function usageCsv(userId: string | null, range: UsageRange): string {
-  const { from, to } = rangeBounds(range);
+export function usageCsv(userId: string | null, range: UsageRange, timezone = usageTimezone(userId), at = Date.now()): string {
+  timezone = reportTimezone(timezone);
+  const { from, to } = rangeBounds(range, at, timezone);
   const rows = (userId
     ? db.prepare('SELECT * FROM usage_events WHERE user_id=? AND created_at>=? AND created_at<=? ORDER BY created_at').all(userId, from, to)
     : db.prepare('SELECT * FROM usage_events WHERE created_at>=? AND created_at<=? ORDER BY created_at').all(from, to)) as any[];
-  const cols = ['time_utc', 'account', 'bot', 'activity', 'provider', 'model', 'input_tokens', 'cached_tokens', 'output_tokens', 'reasoning_tokens', 'tool_calls', 'units', 'unit', 'cost_usd', 'cost_source', 'usage_status'];
+  const cols = ['time_utc', 'account', 'bot', 'activity', 'provider', 'model', 'input_tokens', 'cached_tokens', 'output_tokens', 'reasoning_tokens', 'tool_calls', 'units', 'unit', 'cost_usd', 'cost_source', 'usage_status', 'day', 'timezone'];
   const esc = (v: unknown) => {
     const s = v == null ? '' : String(v);
     return /[",\n]/.test(s) || /^[=+\-@]/.test(s) ? `"${s.replace(/"/g, '""').replace(/^([=+\-@])/, "'$1")}"` : s;
@@ -279,14 +291,14 @@ export function usageCsv(userId: string | null, range: UsageRange): string {
   const lines = rows.map((r) => {
     const fields: string[] | null = r.token_fields === null ? null : JSON.parse(r.token_fields);
     const token = (key: string) => fields === null || fields.includes(key) ? r[key] : null;
-    return [new Date(r.created_at).toISOString(), r.user_id, r.bot_id, r.kind, r.provider, r.model, token('input_tokens'), token('cached_tokens'), token('output_tokens'), token('reasoning_tokens'), r.tool_calls, r.units, r.unit, r.cost_usd, r.cost_source, r.usage_status].map(esc).join(',');
+    return [new Date(r.created_at).toISOString(), r.user_id, r.bot_id, r.kind, r.provider, r.model, token('input_tokens'), token('cached_tokens'), token('output_tokens'), token('reasoning_tokens'), r.tool_calls, r.units, r.unit, r.cost_usd, r.cost_source, r.usage_status, reportDay(r.created_at, timezone), timezone].map(esc).join(',');
   });
-  const fromDay = new Date(from).toISOString().slice(0, 10);
-  const toDay = new Date(to).toISOString().slice(0, 10);
+  const fromDay = reportDay(from, timezone);
+  const toDay = reportDay(to, timezone);
   // Computer time: one row per day, computer and state (hours, estimated cost).
-  for (const v of computerCsvRows(userId, fromDay, toDay)) {
+  for (const v of computerCsvRows(userId, fromDay, toDay, timezone, to)) {
     const size = v.cpus ? `${v.cpus} vCPU${v.memory_mb ? ` / ${v.memory_mb} MB` : ''}${v.disk_gb ? ` / ${v.disk_gb} GB disk` : ''}` : '';
-    lines.push([`${v.day}T00:00:00.000Z`, v.user_id, '', `computer_${v.state}`, v.provider, size, 0, 0, 0, 0, 0, Math.round((v.seconds / 3600) * 1000) / 1000, 'hours', v.cost_usd, 'estimate', 'complete'].map(esc).join(','));
+    lines.push([new Date(reportDayStart(v.day, timezone)).toISOString(), v.user_id, '', `computer_${v.state}`, v.provider, size, 0, 0, 0, 0, 0, Math.round((v.seconds / 3600) * 1000) / 1000, 'hours', v.cost_usd, 'estimate', 'complete', v.day, timezone].map(esc).join(','));
   }
   return [cols.join(','), ...lines].join('\n') + '\n';
 }

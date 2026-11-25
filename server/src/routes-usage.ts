@@ -6,7 +6,7 @@ import { env } from './env.js';
 import { requireUser, type AuthVars } from './lib/auth.js';
 import { dailyUsage } from './messaging/signup.js';
 import { canManageServer } from './settings.js';
-import { usageCsv, usageReport, type UsageRange } from './usage.js';
+import { usageCsv, usageReport, usageTimezone, type UsageRange } from './usage.js';
 import { vmRates } from './usage-vm.js';
 
 /**
@@ -28,7 +28,7 @@ usageApi.get('/', (c) => {
   const user = c.get('user');
   const owner = canManageServer(user);
   const scope = c.req.query('scope') === 'all' && owner ? 'all' : 'me';
-  const report = usageReport(scope === 'all' ? null : user.id, parseRange(c.req.query('range')));
+  const report = usageReport(scope === 'all' ? null : user.id, parseRange(c.req.query('range')), usageTimezone(user.id));
   const daily = dailyUsage(user.id);
   return c.json({
     ...report,
@@ -49,7 +49,7 @@ let providerCache: { at: number; key: string; body: unknown } | null = null;
 
 usageApi.get('/provider', async (c) => {
   const cli = selectedCli(c.get('user').id);
-  if (cli) return c.json({ provider: `${cli}-cli`, openrouter: null, note: 'Model requests use your CLI subscription. Swarm records token counts and zero API charges; subscription fees, provider extra usage and third-party services are separate. Check your provider account for remaining allowance.' });
+  if (cli) return c.json({ provider: `${cli}-cli`, openrouter: null, note: `Your current connection uses your ${cli === 'codex' ? 'ChatGPT' : 'Claude'} subscription. Check your provider account for remaining limits and any extra usage charges. The report above includes all billing sources used in the selected period.` });
   const personal = usesPersonalOpenRouter(c.get('user').id);
   if (!personal && !canManageServer(c.get('user'))) return c.json({ error: 'Only the owner of this server can see the provider account.' }, 403);
   let key: string;
@@ -99,7 +99,7 @@ usageApi.get('/export.csv', (c) => {
   const user = c.get('user');
   const all = c.req.query('scope') === 'all' && canManageServer(user);
   const range = parseRange(c.req.query('range'));
-  return c.body(usageCsv(all ? null : user.id, range), 200, {
+  return c.body(usageCsv(all ? null : user.id, range, usageTimezone(user.id)), 200, {
     'Content-Type': 'text/csv; charset=utf-8',
     'Content-Disposition': `attachment; filename="swarm-usage-${all ? 'all' : 'me'}-${range}.csv"`,
     'X-Content-Type-Options': 'nosniff',

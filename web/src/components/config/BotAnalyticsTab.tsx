@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import type { Bot } from '@shared/types';
 import { configApi, type BotAnalytics } from '../../lib/configApi';
+import { reportRangeLabel } from '../../lib/usageCopy';
 import { niceTicks } from './UsageSection';
 import { Segmented } from './ui';
 import { cumulativeHours, slotCentre } from './analyticsSeries';
@@ -13,10 +14,6 @@ import '../../styles/analytics.css';
 type Range = '7d' | '30d' | '90d';
 const RANGES: { value: Range; label: string }[] = [{ value: '7d', label: '7 days' }, { value: '30d', label: '30 days' }, { value: '90d', label: '90 days' }];
 const dayLabel = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-const span = (a: string, b: string) => {
-  const [x, y] = [new Date(`${a}T00:00:00Z`), new Date(`${b}T00:00:00Z`)];
-  return x.getUTCMonth() === y.getUTCMonth() ? `${dayLabel(a)} – ${y.getUTCDate()}` : `${dayLabel(a)} – ${dayLabel(b)}`;
-};
 /** 0.5 → "30 min", 70 → "70 h", 7.5 → "7.5 h". */
 export const fmtHours = (min: number) => (min < 60 ? `${Math.round(min)} min` : `${Math.round((min / 60) * 10) / 10} h`);
 
@@ -50,7 +47,7 @@ export function BotAnalyticsTab({ bot }: { bot: Bot }) {
   return (
     <div className="cfg-page an-page">
       <div className="an-range">
-        <span className="an-range__span">{span(days[0].day, days[days.length - 1].day)} · {zoneLabel}</span>
+        <span className="an-range__span">{reportRangeLabel(days, data.timezone)}</span>
         {rangePicker}
       </div>
       <div className="an-cards">

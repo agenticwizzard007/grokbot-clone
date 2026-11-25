@@ -247,6 +247,59 @@ test('legacy subscription availability is inferred while valid zero counters rem
   assert.equal(report.totals.knownOutputRequests, 1);
 });
 
+for (const scenario of ['mixed', 'CLI only', 'API only', 'empty'] as const) {
+  test(`billing sources: ${scenario} period uses recorded billing and providers`, async () => {
+    clear();
+    const { selectCli } = await import('../server/src/cli/store.js');
+    selectCli(member, 'codex');
+    try {
+      const plan = scenario === 'mixed' || scenario === 'CLI only';
+      const api = scenario === 'mixed' || scenario === 'API only';
+      if (plan) for (const provider of ['codex-cli', 'claude-cli']) {
+        await usage.recordModelUsage({ userId: member, model: 'fixture', provider,
+          response: { billing: 'subscription', usage_status: 'unavailable' } });
+      }
+      if (api) await usage.recordModelUsage({ userId: member, model: 'fixture', provider: 'openrouter',
+        response: { usage: { input_tokens: 10, output_tokens: 2, cost: 42.99 } } });
+      // Another account and an older request must not affect this period's billing.
+      await usage.recordModelUsage({ userId: owner, model: 'fixture', provider: 'direct', response: { usage: { cost: 9 } } });
+      await usage.recordModelUsage({ userId: member, model: 'old', provider: 'direct', response: { id: 'old-billing', usage: { cost: 7 } } });
+      db.prepare("UPDATE usage_events SET created_at=0 WHERE request_id='old-billing'").run();
+      const { body: report } = await get(member, '/api/usage?range=today&scope=all');
+      assert.equal(report.scope, 'me');
+      const sources = report.billing.sources;
+      assert.deepEqual(sources.filter((row: any) => row.source === 'api'), api ? [{
+        source: 'api', provider: 'openrouter', requests: 1, costUsd: 42.99, estimatedUsd: 0, unpricedRequests: 0,
+      }] : []);
+      assert.deepEqual(sources.filter((row: any) => row.source === 'subscription').map((row: any) => [row.provider, row.requests, row.costUsd]),
+        plan ? [['claude-cli', 1, 0], ['codex-cli', 1, 0]] : []);
+      assert.equal(sources.reduce((sum: number, row: any) => sum + row.requests, 0), report.totals.requests);
+      near(sources.reduce((sum: number, row: any) => sum + row.costUsd, 0), report.totals.costUsd);
+      assert.equal(report.billing.note.includes('CLI requests use'), plan);
+      assert.equal(report.billing.note.includes('API requests are billed per request'), api);
+      assert.equal(report.billing.note.includes('no Swarm API charge'), plan);
+      assert.equal(report.billing.note.includes('No API or CLI plan requests'), !plan && !api);
+      assert.match(report.billing.note, /computer time is estimated/);
+      const { body: provider } = await get(member, '/api/usage/provider');
+      assert.match(provider.note, /current connection uses your ChatGPT subscription/);
+      assert.doesNotMatch(provider.note, /zero API charges|all.*requests use/);
+    } finally { selectCli(member, null); }
+  });
+}
+
+test('billing sources preserve estimated and missing API prices without claiming zero charges', async () => {
+  clear();
+  await usage.recordModelUsage({ userId: member, model: 'gpt-4.1', provider: 'openrouter', response: { usage: { input_tokens: 1000, output_tokens: 100 } } });
+  await usage.recordModelUsage({ userId: member, model: 'unknown', provider: 'openrouter', response: {} });
+  const report = usage.usageReport(member, 'today');
+  assert.equal(report.billing.sources.length, 1);
+  const source = report.billing.sources[0];
+  assert.equal(source.source, 'api'); assert.equal(source.requests, 2);
+  near(source.costUsd, 0.0045); near(source.estimatedUsd, source.costUsd);
+  assert.equal(source.unpricedRequests, 1);
+  assert.doesNotMatch(report.billing.note, /no Swarm API charge|zero/);
+});
+
 test('a real Bot turn records its model call against the user and Bot, with OpenRouter cost', async () => {
   clear();
   const bot = botOf(member);
@@ -394,4 +447,79 @@ test('computers: the owner sees computer cost per account (even with no AI use);
   assert.equal(mine.body.computer.now.state, 'running');
   const csv = String((await get(member, '/api/usage/export.csv?range=today')).body);
   assert.match(csv, /computer_running,cloudvm-fly,2 vCPU \/ 2816 MB \/ 10 GB disk,0,0,0,0,0,2,hours,/);
+});
+
+
+test('computer on time includes idle wake time without any Bot screen and survives sleep', async () => {
+  clear();
+  db.prepare('DELETE FROM vm_usage').run();
+  db.prepare('DELETE FROM vms').run();
+  db.prepare('INSERT INTO vms(vm_id,user_id,driver,status,memory_mb,cpus,volume_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)').run('vm_member', member, 'fly', 'running', 2816, 2, 'vol_1', Date.now(), Date.now());
+  const { computers } = await import('../server/src/computers/index.js');
+  assert.deepEqual(computers.screens(member), []);
+  vm.recordVmSeconds(5.4 * 3600);
+  setVm('suspended'); vm.recordVmSeconds(140 * 3600);
+  const report = usage.usageReport(member, '7d');
+  near(report.computer.runningHours, 5.4); near(report.computer.asleepHours, 140);
+  assert.equal(report.computer.now?.state, 'asleep');
+  assert.equal(report.totals.requests, 0);
+  assert.deepEqual(computers.screens(member), []);
+});
+
+test('account time zone buckets Usage, Analytics and CSV on the same days', async () => {
+  clear();
+  db.prepare('DELETE FROM vm_usage').run();
+  const { botAnalytics } = await import('../server/src/analytics.js');
+  const bot = botOf(member);
+  db.prepare('DELETE FROM rows WHERE bot_id=?').run(bot);
+  const at = Date.parse('2026-11-25T21:00:00Z');
+  db.prepare('UPDATE users SET timezone=? WHERE id=?').run('Asia/Dubai', member);
+  try {
+    for (const [index, time] of ['2026-11-19T19:59:59Z', '2026-11-19T20:00:00Z', '2026-11-22T19:59:59Z', '2026-11-22T20:00:00Z'].entries()) {
+      await usage.recordModelUsage({ userId: member, botId: bot, model: 'fixture', provider: 'openrouter', response: { id: `zone-${index}`, usage: { cost: 1, input_tokens: 1, output_tokens: 1 } } });
+      db.prepare('UPDATE usage_events SET created_at=? WHERE request_id=?').run(Date.parse(time), `zone-${index}`);
+      const row = appendRow(bot, 'message', { type: 'message', role: 'user', text: 'Local fixture' } as any);
+      db.prepare('UPDATE rows SET created_at=? WHERE bot_id=? AND generation=? AND seq=?').run(Date.parse(time), bot, row.generation, row.seq);
+    }
+    const report = usage.usageReport(member, '7d', undefined, at);
+    const analytics = botAnalytics(bot, '7d', at);
+    assert.equal(report.timezone, 'Asia/Dubai');
+    assert.deepEqual(report.days.map(day => day.day), analytics.days.map(day => day.day));
+    assert.equal(report.days[0].day, '2026-11-20');
+    assert.equal(report.totals.requests, 3, 'exclude the event just before the local period start');
+    assert.deepEqual(report.days.filter(day => day.requests).map(day => [day.day, day.requests]), [['2026-11-20', 1], ['2026-11-22', 1], ['2026-11-23', 1]]);
+    assert.deepEqual(report.days.map(day => day.requests), analytics.days.map(day => day.messages));
+    const [header, ...rows] = usage.usageCsv(member, '7d', undefined, at).trim().split('\n').map(line => line.split(','));
+    assert.deepEqual(rows.map(row => row[header.indexOf('day')]), ['2026-11-20', '2026-11-22', '2026-11-23']);
+    assert.ok(rows.every(row => row[header.indexOf('timezone')] === 'Asia/Dubai'));
+    assert.equal(rows[0][0], '2026-11-19T20:00:00.000Z', 'raw UTC timestamps stay available');
+    const bounds = usage.rangeBounds('today', at, 'Asia/Dubai');
+    assert.equal(bounds.from, Date.parse('2026-11-25T20:00:00Z'));
+    assert.equal(usage.rangeBounds('month', Date.parse('2026-11-30T21:00:00Z'), 'Asia/Dubai').days, 1);
+    const response = await get(member, '/api/usage?range=7d');
+    assert.equal(response.body.timezone, 'Asia/Dubai');
+    db.prepare('UPDATE users SET timezone=? WHERE id=?').run('Asia/Dubai', owner);
+    assert.equal((await get(owner, '/api/usage?range=7d&scope=all')).body.timezone, 'Asia/Dubai', 'Everyone uses the viewing account time zone');
+  } finally { db.prepare('UPDATE users SET timezone=NULL WHERE id IN (?,?)').run(member, owner); }
+  assert.equal(usage.usageReport(member, '7d', undefined, at).timezone, 'UTC');
+});
+
+test('computer daily estimates use one allocation for local chart, totals and CSV', () => {
+  db.prepare('DELETE FROM vm_usage').run();
+  db.prepare("UPDATE vms SET status='running', driver='fly' WHERE vm_id='vm_member'").run();
+  vm.recordVmSeconds(24 * 3600, Date.parse('2026-11-22T23:59:59Z'));
+  const at = Date.parse('2026-11-25T12:00:00Z');
+  const report = usage.usageReport(member, '7d', 'Asia/Dubai', at);
+  near(report.computer.runningHours, 24);
+  const daily = report.days.filter(day => day.computerUsd);
+  assert.deepEqual(daily.map(day => day.day), ['2026-11-22', '2026-11-23']);
+  near(daily[0].computerUsd, 20 * RUN_HOUR); near(daily[1].computerUsd, 4 * RUN_HOUR);
+  near(daily.reduce((sum, day) => sum + day.computerUsd, 0), report.computer.costUsd);
+  const [header, ...rows] = usage.usageCsv(member, '7d', 'Asia/Dubai', at).trim().split('\n').map(line => line.split(','));
+  const computer = rows.filter(row => row[header.indexOf('activity')] === 'computer_running');
+  assert.deepEqual(computer.map(row => row[header.indexOf('day')]), daily.map(day => day.day));
+  assert.deepEqual(computer.map(row => Number(row[header.indexOf('units')])), [20, 4]);
+  near(computer.reduce((sum, row) => sum + Number(row[header.indexOf('cost_usd')]), 0), report.computer.costUsd);
+  vm.recordVmSeconds(3600, Date.parse('2026-11-23T12:00:00Z'));
+  near(vm.computerTotals(member, '2026-11-22', '2026-11-22', 'UTC', at).runningHours, 24);
 });

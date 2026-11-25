@@ -147,6 +147,8 @@ export type UsageRange = 'today' | '7d' | '30d' | 'month';
 export interface UsageCoverage { partialUsageRequests?: number; unavailableUsageRequests?: number; knownTokenRequests?: number; knownInputRequests?: number; knownOutputRequests?: number }
 export interface UsageRow extends UsageCoverage { key: string; label: string; costUsd: number; tokens: number; requests: number; unpriced: number; minutes: number; recordings: number; characters: number; computerUsd?: number; computerHours?: number }
 export interface UsageReport {
+  timezone: string;
+  billing: { sources: import('@shared/usage-summary').BillingSource[]; note: string };
   range: { key: UsageRange; from: number; to: number };
   scope: 'me' | 'all';
   canSeeAll: boolean;

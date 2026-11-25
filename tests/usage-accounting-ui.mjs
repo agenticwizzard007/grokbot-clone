@@ -29,6 +29,7 @@ try {
       const row = { ...coverage, key: 'codex/default', label: 'Codex', tokens: inputTokens + outputTokens, requests, costUsd: 0, unpriced: 0, minutes: 0, recordings: 0, characters: 0 };
       return { range: { key: range, from: 0, to: Date.now() }, scope: 'me', canSeeAll: false, canSeeProvider: false, provider: 'codex-cli',
         accounting: { unavailableUsage: 'counted', tokenTotals: 'observed' },
+        billing: { sources: [{ source: 'subscription', provider: 'codex-cli', requests, costUsd: 0, estimatedUsd: 0, unpricedRequests: 0 }], note: 'CLI requests use your provider subscription, with no Swarm API charge; computer time is estimated.' },
         totals: { ...coverage, requests, inputTokens, outputTokens, cachedTokens: 0, reasoningTokens: 0, toolCalls: 0, voiceMinutes: 0, costUsd: 0, estimatedUsd: 0, unpricedRequests: 0, unpricedVoice: 0 },
         days: ['2026-11-10', '2026-11-11'].map(day => ({ ...row, day, computerUsd: 0 })),
         byBot: [row], byModel: [row], byKind: [row],
@@ -52,10 +53,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
 ` }));
     await page.goto(origin);
     const tokenTile = page.locator('.usage-tile').filter({ hasText: /^(Known tokens|Tokens)/ }).first();
-    await page.getByRole('status').filter({ hasText: 'Token accounting is incomplete' }).waitFor();
+    await page.getByRole('status').filter({ hasText: 'Token counts are incomplete' }).waitFor();
     assert.equal(await tokenTile.locator('.usage-tile__value').innerText(), 'Unavailable');
     assert.match(await tokenTile.innerText(), /Unavailable in · Unavailable out/);
-    assert.match(await page.getByRole('status').filter({ hasText: 'Token accounting is incomplete' }).innerText(), /2 requests with unavailable usage/);
+    assert.match(await page.getByRole('status').filter({ hasText: 'Token counts are incomplete' }).innerText(), /Token counts are incomplete for 2 requests; totals include only reported tokens/);
     await page.getByRole('button', { name: 'Show more', exact: true }).click();
     assert.equal(await page.locator('.usage-ranked__figure').first().innerText(), 'Unavailable');
     assert.match(await page.getByRole('img').first().getAttribute('aria-label'), /Token usage unavailable/);
@@ -67,7 +68,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     mode = 'mixed'; await page.getByLabel('Report period').selectOption('30d');
     await page.waitForFunction(() => document.querySelector('.usage-tile__value')?.textContent === '157 known');
     assert.match(await tokenTile.innerText(), /107 in · 50 out/);
-    assert.match(await page.getByRole('status').filter({ hasText: 'Token accounting is incomplete' }).innerText(), /1 request with partial usage and 1 request with unavailable usage/);
+    assert.match(await page.getByRole('status').filter({ hasText: 'Token counts are incomplete' }).innerText(), /Token counts are incomplete for 2 requests; totals include only reported tokens/);
     await page.screenshot({ path: `.context/hosted-mobile/usage-mixed-${width}.png`, fullPage: true });
 
     mode = 'partial'; await page.getByLabel('Report period').selectOption('today');
@@ -76,7 +77,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     mode = 'zero'; await page.getByLabel('Report period').selectOption('7d');
     await page.waitForFunction(() => document.querySelector('.usage-tile__value')?.textContent === '0');
     assert.match(await tokenTile.innerText(), /0 in · 0 out/);
-    assert.equal(await page.getByRole('status').filter({ hasText: 'Token accounting is incomplete' }).count(), 0);
+    assert.equal(await page.getByRole('status').filter({ hasText: 'Token counts are incomplete' }).count(), 0);
     assert.deepEqual(requests, ['7d', '30d', 'today', '7d']);
     assert.equal(await page.getByRole('link', { name: 'Download CSV' }).getAttribute('href'), '/api/usage/export.csv?range=7d&scope=me');
     assert.deepEqual(errors, []);
