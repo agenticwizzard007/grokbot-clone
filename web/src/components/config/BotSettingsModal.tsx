@@ -25,6 +25,7 @@ import { toast } from '../../lib/toast';
 import { prefillComposer } from '../Composer';
 import '../../styles/setup-paper.css';
 import { startFreshConversation } from '../../lib/useFreshConversation';
+import { conversationUsagePercent } from '../../lib/conversationUsage';
 import { SuggestedIntegrations } from '../SuggestedIntegrations';
 
 export function BotSettingsModal({ inline = false }: { inline?: boolean } = {}) {
@@ -401,7 +402,7 @@ function MemoriesTab({ bot, data, onChange, onSearch }: { bot: Bot; data: BotSet
     setHidden((h) => new Set(h).add(m.id));
     try { setMemoryError(''); await configApi.deleteMemory(m.id, m.revision); onChange(); } catch (e) { setMemoryError((e as Error).message); setHidden((h) => { const n = new Set(h); n.delete(m.id); return n; }); }
   };
-  const fill = data ? Math.min(100, Math.round((data.memory.historyChars / data.memory.compactAtChars) * 100)) : 0;
+  const fill = data ? conversationUsagePercent(data.memory.historyChars, data.memory.compactAtChars) : null;
   return (
     <div className="cfg-page">
       {memoryError && <div className="cfg-error" role="alert">{memoryError}</div>}
@@ -429,11 +430,11 @@ function MemoriesTab({ bot, data, onChange, onSearch }: { bot: Bot; data: BotSet
       <div className="knowledge-item knowledge-item__row"><div><strong>Conversation sources</strong><p>Search current and archived conversations.</p></div><button type="button" className="cfg-btn cfg-btn--secondary" onClick={onSearch}>Search sources</button></div>
       <MemoryArchive botId={bot.id} version={(data?.memories ?? []).map(m => `${m.id}:${m.revision}`).join(',')} />
       {data && (
-        <div className="cfg-meter" title="Older messages are summarized automatically when this fills up.">
-          <div className="cfg-meter__label"><span>Conversation memory</span><span>{fill}% full</span></div>
-          <div className="cfg-meter__track"><span style={{ width: `${fill > 0 ? Math.max(2, fill) : 0}%` }} /></div>
+        <div className="cfg-meter" title="Estimated size of saved conversation history before automatic summarizing.">
+          <div className="cfg-meter__label"><span>Conversation history</span><span>{fill === null ? 'Usage unavailable' : `${fill}% used`}</span></div>
+          <div className="cfg-meter__track"><span style={{ width: `${fill ?? 0}%` }} /></div>
           <div className="cfg-field__hint">
-            When it fills up, older messages get summarized so {bot.name} can keep going.
+            Estimated conversation size, including tool results. At 100%, older messages are summarized automatically. Saved memories are separate.
             {data.memory.lastCompaction ? ` Last summarized ${shortDate(data.memory.lastCompaction.created_at)}.` : ''}
           </div>
         </div>

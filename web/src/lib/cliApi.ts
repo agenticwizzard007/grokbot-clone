@@ -16,6 +16,7 @@ export interface CliRun {
   provider: CliProvider;
   runtime: 'server' | 'bridge';
   toolsOffered: number;
+  trigger?: 'approval_decision' | null;
   lastTool: string | null;
   result: 'running' | 'completed' | 'pending_approval' | 'rejected_by_cli' | 'denied' | 'error' | 'cancelled' | 'no_tool_call';
   errorCode: string | null;

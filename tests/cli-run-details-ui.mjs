@@ -6,11 +6,11 @@ const vite = await createServer({ root: `${process.cwd()}/web`, server: { host: 
 await vite.listen();
 const origin = `http://127.0.0.1:${vite.httpServer.address().port}`;
 const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
-await mkdir('.context/r6-z-ui', { recursive: true });
+await mkdir('.context/r7-bb-ui', { recursive: true });
 const user = { id: 'fixture', email: 'account@example.test', role: 'user' };
-const run = { startedAt: Date.now(), provider: 'codex', runtime: 'server', toolsOffered: 0, lastTool: null, result: 'no_tool_call', errorCode: null };
-const toolRun = { ...run, startedAt: Date.now() - 20_000, toolsOffered: 12, lastTool: 'SWARM_APPS_EXECUTE', result: 'pending_approval' };
-const claudeRun = { ...run, provider: 'claude', runtime: 'bridge', toolsOffered: 4, result: 'error', errorCode: 'timeout' };
+const run = { startedAt: Date.now(), provider: 'codex', runtime: 'server', toolsOffered: 19, trigger: 'approval_decision', lastTool: null, result: 'no_tool_call', errorCode: null };
+const toolRun = { ...run, startedAt: Date.now() - 20_000, toolsOffered: 19, trigger: null, lastTool: 'SWARM_APPS_EXECUTE', result: 'pending_approval' };
+const claudeRun = { ...run, provider: 'claude', runtime: 'bridge', trigger: null, toolsOffered: 4, lastTool: 'SWARM_APPS_SEARCH', result: 'error', errorCode: 'timeout' };
 const status = { runtime: 'server', serverLoginAvailable: true, selected: 'codex', connected: true, device: 'Swarm server',
   providers: { codex: { installed: true, authenticated: true, subscription: true }, claude: { installed: true, authenticated: true, subscription: true } },
   lastRun: run, runsByProvider: { codex: { latest: run, lastToolRun: toolRun }, claude: { latest: claudeRun, lastToolRun: claudeRun } } };
@@ -40,14 +40,23 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     await page.getByRole('tab', { name: 'Codex', exact: true }).click();
     const details = page.locator('.subscription-settings__context');
     await details.locator('summary').click();
-    await details.getByText('Reply without tools', { exact: true }).waitFor();
+    await details.getByText('Reply after your decision', { exact: true }).waitFor();
     assert.match(await details.innerText(), /Last tool run[\s\S]*Request with tools[\s\S]*SWARM_APPS_EXECUTE[\s\S]*Approval requested/);
     assert.doesNotMatch(await details.innerText(), /timeout/);
+    assert.equal(await details.getByText('Error code', { exact: true }).count(), 2);
+    assert.equal(await details.getByText('None', { exact: true }).count(), 2);
+    assert.equal(await details.getByText('19', { exact: true }).count(), 2);
+    run.result = 'running';
+    await page.reload();
+    await details.locator('summary').click();
+    await details.getByText('Running', { exact: true }).waitFor();
+    assert.match(await details.innerText(), /Last tool run[\s\S]*Approval requested/);
+    run.result = 'no_tool_call';
     await details.scrollIntoViewIfNeeded();
-    await page.screenshot({ path: `.context/r6-z-ui/${width}-${theme}-codex-runs.png` });
+    await page.screenshot({ path: `.context/r7-bb-ui/${width}-${theme}-codex-runs.png` });
     await page.getByRole('tab', { name: 'Claude Code', exact: true }).click();
     if (!await details.evaluate(el => el.open)) await details.locator('summary').click();
-    assert.doesNotMatch(await details.innerText(), /SWARM_APPS_EXECUTE|Reply without tools|Approval requested/);
+    assert.doesNotMatch(await details.innerText(), /SWARM_APPS_EXECUTE|Reply after your decision|Approval requested/);
     assert.match(await details.innerText(), /Error code[\s\S]*timeout/);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     assert.deepEqual(errors, []); assert.deepEqual(writes, []);

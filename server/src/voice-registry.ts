@@ -1,6 +1,6 @@
 import { db } from './db.js';
 
-export interface TeamUpdate { id: number; botId: string; botName: string; kind: 'message' | 'input' | 'waiting' | 'status'; text: string }
+export interface TeamUpdate { id: number; botId: string; botName: string; kind: 'message' | 'input' | 'waiting' | 'status'; text: string; approvalId?: string }
 interface CallTask { id: string; botId: string; botName: string; request: string }
 export interface ActiveCall {
   id: string; botId: string; generation: number; userId: string; startedAt: number; lastActiveAt: number; startSeq: number; tasks: string[]; provider: string; model: string;

@@ -517,12 +517,12 @@ function RunDetails({ title, run }: { title: string; run: CliRun | null }) {
   return <>
     <div><dt>{title}</dt><dd>{run ? new Date(run.startedAt).toLocaleString() : 'No run recorded yet'}</dd></div>
     {run && <>
-      <div><dt>Run type</dt><dd>{run.toolsOffered > 0 ? 'Request with tools' : 'Reply without tools'}</dd></div>
+      <div><dt>Run type</dt><dd>{run.trigger === 'approval_decision' ? 'Reply after your decision' : run.lastTool || run.result === 'pending_approval' ? 'Request with tools' : run.result === 'running' ? 'Waiting for a reply' : 'Reply without a tool call'}</dd></div>
       <div><dt>Run location</dt><dd>{run.runtime === 'server' ? 'Swarm server' : 'Your computer'}</dd></div>
       <div><dt>Tools offered</dt><dd>{run.toolsOffered}</dd></div>
       <div><dt>Last tool call</dt><dd>{run.lastTool ?? 'None reached Swarm'}</dd></div>
       <div><dt>Run result</dt><dd>{{ running: 'Running', completed: 'Completed', pending_approval: 'Approval requested', rejected_by_cli: 'Rejected by CLI', denied: 'Denied', error: 'Error', cancelled: 'Stopped', no_tool_call: 'No tool call' }[run.result]}</dd></div>
-      {run.errorCode && <div><dt>Error code</dt><dd>{run.errorCode}</dd></div>}
+      <div><dt>Error code</dt><dd>{run.errorCode ?? 'None'}</dd></div>
     </>}
   </>;
 }
