@@ -62,6 +62,7 @@ try {
     assert.equal(await chip.getAttribute('aria-busy'), 'true');
     assert.equal(await chip.locator('.model-billing, .model-pill__effort').count(), 0, 'cached copy never enables unverified billing or effort controls');
     await shot('cached-chip');
+    await page.locator('.composer-area').screenshot({ path: `.context/composer-model-loading/${width}-${theme}-cached-composer.png` });
     await chip.click(); await loading.waitFor(); await shot('cached-loading');
     pending.release();
     await page.waitForFunction(() => document.querySelector('.model-pill')?.getAttribute('aria-busy') === 'false');
