@@ -68,7 +68,9 @@ async function fresh(width, theme) {
     if (path === '/api/settings/keys') { const key = { set: false, source: null }; return { json: { canEdit: false, isolated: false, provider: { value: 'direct', chosen: 'direct' }, model: { value: 'fixture' }, openrouterModel: { value: 'fixture' }, openrouter: key, direct: key, composio: key, voice: key } }; }
     if (path === '/api/messaging') return { json: { account: {}, links: [], line: null, prefs: { voiceReplies: 'off' }, speech: {}, invites: { allowance: 0 } } };
     if (path === '/api/usage') return { json: smallComputerUsage };
-    if (path === '/api/apps') return { json: { apps: [], categories: [], total: 0 } };
+    if (path === '/api/apps') return { json: { apps: [], connected: [], connectedApps: [], categories: [], total: 0 } };
+    if (/^\/api\/bots\/[^/]+\/setup$/.test(path)) return { status: 404, json: { error: 'No saved configuration.' } };
+    if (/^\/api\/bots\/[^/]+\/files$/.test(path)) return { json: { status: 'ok', path: '', files: [] } };
     if (path === '/api/computer/details') return { json: { computer: { status: 'absent', screens: [] }, screens: [], hibernation: { idleMinutes: 15 } } };
     if (path.endsWith('/suggested-apps')) return { json: { filterVersion: 'purpose-2', hasContext: false, suggestions: [] } };
     return null;
