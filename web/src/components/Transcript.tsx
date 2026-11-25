@@ -78,8 +78,22 @@ function cornerClass(i: number, n: number) {
 const Bubble = memo(function Bubble({ row, side, pos, botName }: { row: Row; side: 'left' | 'right'; pos: string; botName: string }) {
   const b = row.body as MessageBody;
   const clean = useDisplayText();
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    // Measure before deferring layout, so prepended and searched history keeps
+    // its exact space. A whole sender group can span hundreds of messages.
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry || entry.contentRect.height <= 0) return;
+      element.style.containIntrinsicHeight = `auto ${entry.contentRect.height}px`;
+      element.style.contentVisibility = 'auto';
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
   return (
-    <div className={`bubble-wrap is-${side}`} data-row-seq={row.seq}>
+    <div ref={ref} className={`bubble-wrap is-${side}`} data-row-seq={row.seq}>
       <div className={`bubble is-${side === 'right' ? 'user' : 'agent'}${pos}${b.streaming ? ' is-streaming' : ''}`}>
         <div className="bubble__sender">{side === 'right' ? 'You' : clean(b.from?.name || botName)}</div>
         {side === 'right' ? <div className="bubble__plain">{b.text}</div> : <Markdown text={clean(b.text) || ' '} />}

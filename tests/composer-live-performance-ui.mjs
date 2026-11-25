@@ -159,12 +159,18 @@ try {
     await input.focus(); await frame(page);
     await page.evaluate(() => {
       window.__typing = [];
+      if (!PerformanceObserver.supportedEntryTypes.includes('event')) throw new Error('Event Timing support is required');
+      window.__eventPaint = [];
+      window.__eventObserver = new PerformanceObserver(list => window.__eventPaint.push(...list.getEntries().map(entry => entry.toJSON())));
+      window.__eventObserver.observe({ type: 'event', durationThreshold: 16 });
+      window.__longFrames = [];
+      new PerformanceObserver(list => window.__longFrames.push(...list.getEntries().map(entry => entry.toJSON()))).observe({ type: 'long-animation-frame' });
       const input = document.querySelector('.composer__input');
       let start, handlerStart;
       input.addEventListener('keydown', event => { start = event.timeStamp; handlerStart = performance.now(); }, true);
       window.addEventListener('input', event => {
         if (event.target !== input || !start) return;
-        const sample = { expected: input.value, inputDelayMs: handlerStart - start };
+        const sample = { expected: input.value, startedAt: start, inputDelayMs: handlerStart - start };
         queueMicrotask(() => {
           sample.scriptMs = performance.now() - handlerStart;
           sample.keydownToCommitMs = performance.now() - start;
@@ -173,14 +179,14 @@ try {
           requestAnimationFrame(() => {
             sample.frameMs = performance.now() - started;
             sample.paintedValue = input.value;
-            // Task after the rendering opportunity also includes layout and paint.
-            setTimeout(() => { sample.paintMs = performance.now() - started; window.__typing.push(sample); }, 0);
+            window.__typing.push(sample);
           });
         });
       });
     });
     const cdp = await page.context().newCDPSession(page);
     await cdp.send('Performance.enable');
+    if (process.env.UI_TRACE) await cdp.send('Tracing.start', { categories: 'devtools.timeline', transferMode: 'ReturnAsStream' });
     const metricsBefore = (await cdp.send('Performance.getMetrics')).metrics;
     const typingBefore = await counts(page);
     const text = 'A local typing performance check keeps the composer responsive while a long conversation stays ready. '.slice(0, 100);
@@ -189,14 +195,32 @@ try {
     await page.waitForFunction(() => window.__typing.length === 100);
     const typingAfter = await counts(page);
     const metricsAfter = (await cdp.send('Performance.getMetrics')).metrics;
+    if (process.env.UI_TRACE) {
+      const done = new Promise(resolve => cdp.once('Tracing.tracingComplete', resolve));
+      await cdp.send('Tracing.end');
+      const { stream } = await done;
+      let trace = '';
+      for (;;) { const part = await cdp.send('IO.read', { handle: stream }); trace += part.data; if (part.eof) break; }
+      await cdp.send('IO.close', { handle: stream });
+      await writeFile(`${evidence}/${width}-${theme}-trace.json`, trace);
+    }
     result.browserWork = Object.fromEntries(metricsAfter.filter(m => /Duration|LayoutCount|RecalcStyleCount/.test(m.name)).map(m => [m.name, m.value - metricsBefore.find(b => b.name === m.name).value]));
-    const samples = await page.evaluate(() => window.__typing);
+    await page.waitForTimeout(100);
+    const samples = await page.evaluate(() => {
+      const entries = [...window.__eventPaint, ...window.__eventObserver.takeRecords().map(entry => entry.toJSON())].filter(entry => entry.name === 'keydown');
+      window.__eventObserver.disconnect();
+      // Event Timing reports presentation latency in 8ms buckets. Events below
+      // its minimum 16ms reporting threshold are conservatively counted as 16ms.
+      return window.__typing.map(sample => ({ ...sample, eventPaintMs: entries.find(entry => Math.abs(entry.startTime - sample.startedAt) < 1)?.duration ?? 16 }));
+    });
+    await writeFile(`${evidence}/${width}-${theme}-keys.json`, JSON.stringify(samples, null, 2));
+    await writeFile(`${evidence}/${width}-${theme}-frames.json`, JSON.stringify(await page.evaluate(() => window.__longFrames), null, 2));
     const percentile = key => samples.map(s => s[key]).sort((a, b) => a - b)[94];
-    result.typing = { inputDelayP95Ms: percentile('inputDelayMs'), scriptP95Ms: percentile('scriptMs'), keydownToCommitP95Ms: percentile('keydownToCommitMs'), nextFrameP95Ms: percentile('frameMs'), paintP95Ms: percentile('paintMs'), maxPaintMs: Math.max(...samples.map(s => s.paintMs)), renders: diff(typingBefore, typingAfter), seconds: (typingAfter.at - typingBefore.at) / 1000 };
+    result.typing = { eventPaintP95Ms: percentile('eventPaintMs'), maxEventPaintMs: Math.max(...samples.map(s => s.eventPaintMs)), inputDelayP95Ms: percentile('inputDelayMs'), scriptP95Ms: percentile('scriptMs'), keydownToCommitP95Ms: percentile('keydownToCommitMs'), nextFrameP95Ms: percentile('frameMs'), renders: diff(typingBefore, typingAfter), seconds: (typingAfter.at - typingBefore.at) / 1000 };
     result.typing.rendersPerSecond = Object.fromEntries(Object.entries(result.typing.renders).map(([name, n]) => [name, n / result.typing.seconds]));
     check(samples.every((s, i) => s.value === text.slice(0, i + 1) && s.value === s.expected && s.paintedValue.startsWith(s.expected)), `${width} ${theme}: R6-2 each key is current by the next frame`);
     check(result.typing.scriptP95Ms < 16, `${width} ${theme}: R6-2 input script p95 under 16 ms (${result.typing.scriptP95Ms})`);
-    check(result.typing.nextFrameP95Ms < 34 && result.typing.paintP95Ms < 50 && result.typing.maxPaintMs < 150, `${width} ${theme}: R6-2 no queued multi-frame typing stalls (${result.typing.paintP95Ms})`);
+    check(result.typing.eventPaintP95Ms < 50 && result.typing.nextFrameP95Ms < 34 && result.typing.maxEventPaintMs < 150, `${width} ${theme}: R6-2 no queued multi-frame typing stalls (${result.typing.eventPaintP95Ms})`);
     check(result.typing.renders.Bubble < 100, `${width} ${theme}: R6-2 streaming renders only the changing reply`);
     assert.equal(await input.inputValue(), text);
     await page.evaluate(() => window.__stopLoad()); await page.waitForTimeout(500); await frame(page);
