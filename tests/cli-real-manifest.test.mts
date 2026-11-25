@@ -45,7 +45,7 @@ test('real Codex required MCP rejects an invalid generation token before any mod
   await assert.rejects(runGeneration({ provider: 'codex', model: 'default', timeoutMs: 15000, prompt: 'Use Swarm.', schema, nativeTools }, {
     codexPath: fixture.install('codex', { codexConfig: ['mcp_servers.swarm.http_headers.Authorization="Bearer invalid-generation-token"'] }),
     env: { PATH: process.env.PATH, HOME: directory }, onToolCall: async () => { calls++; return { output: 'Must not run.' }; },
-  }), /MCP|Codex/);
+  }), { code: 'mcp_auth', message: /Codex could not authenticate with the Swarm tool bridge.*Settings > Subscriptions/ });
   assert.equal(calls, 0); assert.equal(fixture.requests.length, 0);
 });
 

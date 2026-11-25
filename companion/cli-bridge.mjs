@@ -134,6 +134,12 @@ function execute(executable, args, { cwd, env, signal, input = '', onStdout }) {
 }
 
 function diagnostic(provider, output, fallback) {
+  // Required MCP startup failure is separate from subscription authentication.
+  // In particular, a loopback 401/403 must not ask the customer to log in again.
+  if (/required MCP servers failed to initialize/i.test(output)) {
+    const auth = /HTTP (?:401|403)\b/.test(output);
+    return new RunnerError(`${LABEL[provider]} ${auth ? 'could not authenticate with' : 'could not connect to'} the Swarm tool bridge. Update Swarm or reconnect your computer bridge in Settings > Subscriptions. The requested app action was not started.`, auth ? 'mcp_auth' : 'mcp_startup');
+  }
   if (/prompt was flagged as potentially violating (?:our|the) usage policy|\b(?:content|safety)_policy_violation\b/i.test(output)) {
     return new RunnerError(`${LABEL[provider]} declined this request under its usage policy. Review the request in the official CLI. No API fallback was used.`, 'policy');
   }

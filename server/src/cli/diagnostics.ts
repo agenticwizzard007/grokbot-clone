@@ -9,6 +9,8 @@ export const safeToolName = (name: unknown) => typeof name === 'string' && /^[A-
 /** Classify only. Never log exception messages, arguments, bodies or credentials. */
 export function cliErrorClass(error: unknown): string {
   const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  if (/could not authenticate with the Swarm tool bridge/i.test(message)) return 'mcp_auth';
+  if (/could not connect to the Swarm tool bridge/i.test(message)) return 'mcp_startup';
   if (/approval policy|CLI approval|blocked the Swarm tool handoff/i.test(message)) return 'cli_approval_rejected';
   if (/unavailable tool|invalid native CLI tool call|tool.*unavailable|tool.*not available/i.test(message)) return 'tool_unavailable';
   if (/timed out|timeout/i.test(message)) return 'timeout';

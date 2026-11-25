@@ -36,9 +36,9 @@ export class ToolCallbacks {
       this.audit?.({ event: 'tool', tool, action, admission: 'admitted' });
       return result.then(reply => {
         const text = typeof reply.output === 'string' ? reply.output : '';
-        let status: string | undefined;
-        try { status = JSON.parse(text)?.status; } catch { /* Most outputs are plain text. */ }
-        this.audit?.({ event: 'tool_result', tool, action, admission: status === 'pending_approval' ? 'pending_approval' : reply.isError ? 'refused' : 'returned',
+        let status: string | undefined, connectionRequired = false;
+        try { const parsed = JSON.parse(text); status = parsed?.status; connectionRequired = !!parsed?.connectionRequest; } catch { /* Most outputs are plain text. */ }
+        this.audit?.({ event: 'tool_result', tool, action, admission: status === 'pending_approval' ? 'pending_approval' : connectionRequired ? 'connection_required' : reply.isError ? 'refused' : 'returned',
           ...(reply.isError ? { errorClass: cliErrorClass(text) } : {}), stopped: reply.stop === true });
         return reply;
       }, error => { this.audit?.({ event: 'tool_result', tool, action, admission: 'refused', errorClass: cliErrorClass(error) }); throw error; });

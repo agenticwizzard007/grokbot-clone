@@ -831,9 +831,10 @@ export async function runComposioTool(ctx: ToolCtx, name: string, args: any): Pr
     // Provider bodies can contain private app data. Expose classifications only.
     const timedOut = ['TimeoutError', 'AbortError', 'APIConnectionTimeoutError'].includes(error?.name) || [408, 504].includes(error?.status);
     // A provider HTTP error alone does not prove a private account has expired.
-    // Only a fresh account lookup may produce reconnection guidance and a card.
+    // Only a fresh discovery lookup may produce reconnection guidance and a card.
+    // An execution failure can have an uncertain outcome, even if auth expired.
     const toolkit = typeof args?.toolkit === 'string' ? args.toolkit : String(args?.tool_slug ?? '').split('_')[0].toLowerCase();
-    if ([401, 403, 404, 409].includes(error?.status) || /connection not found/i.test(String(error?.message))) {
+    if (name === 'SWARM_APPS_SEARCH' && ([401, 403, 404, 409].includes(error?.status) || /connection not found/i.test(String(error?.message)))) {
       try {
         const accounts = await connectionsDetail(ctx.userId, { signal: AbortSignal.timeout(15_000) });
         if (!ctx.roomId && !accounts.some(a => a.toolkit === toolkit && a.status === 'ACTIVE' && !a.isDisabled)) {

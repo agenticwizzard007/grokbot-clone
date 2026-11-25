@@ -181,6 +181,24 @@ test('real Codex rejects a raw Gmail slug and a legacy flattened name, then call
   assert.equal(state.executions.length, 0);
 });
 
+test('real Codex: an uncertain approved write never becomes a reconnect card claiming nothing happened', { timeout: 30000 }, async t => {
+  const { composio } = await import('../server/src/composio.js');
+  let dispatches = 0;
+  t.mock.method(composio().tools, 'execute', async () => {
+    dispatches++; state.accountStatus = 'EXPIRED';
+    throw Object.assign(new Error('Private provider response sentinel'), { status: 401 });
+  });
+  const a = await account(t, 'codex', 'hosted', script('search'));
+  await a.chat();
+  const card = a.rows().find(r => r.body.card === 'approval'); assert.ok(card);
+  await a.request(`/approvals/${card.body.approvalId}`, { decision: 'allow' }); await runInBotQueue(a.bot.id, async () => {});
+  assert.equal(dispatches, 1);
+  assert.equal(a.rows().filter(r => r.body.card === 'connect').length, 0);
+  const notice = a.rows().filter(r => r.body.type === 'notice').map(r => r.body.text).join('\n');
+  assert.match(notice, /Gmail connection failed.*Check the app for changes/);
+  assert.doesNotMatch(notice, /Nothing has been sent|sentinel/);
+});
+
 for (const provider of ['codex', 'claude'] as const) {
   test(`real ${provider}: a tool absent from the initial manifest executes only through described tool_call and still needs approval`, { timeout: 30000 }, async t => {
     let step = 0;
