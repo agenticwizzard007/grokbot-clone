@@ -23,16 +23,16 @@ const label = (expected: string) => {
 };
 
 for (const mobile of [false, true]) {
-  test(`Settings then Tasks returns to the real Settings screen, phone=${mobile}`, () => {
-    reset('#settings/permissions', mobile); go('#tasks'); label('Back to Settings');
-    backFromWork(); assert.equal(f.location.hash, '#settings/permissions');
-    label('Back to Bots');
+  test(`browser Back from Tasks returns to the real Settings screen, phone=${mobile}`, () => {
+    reset('#settings/permissions', mobile); go('#tasks'); label('');
+    f.history.go(-1); assert.equal(f.location.hash, '#settings/permissions');
+    label('Back to Settings');
   });
   test(`Tasks then Settings replaces an older group form origin, phone=${mobile}`, () => {
     reset('#new-bot/group', mobile); go('#settings/account'); go('#tasks');
     useConfigUI.getState().openAppSettings();
-    label('Back to Tasks'); go('#settings/apps'); label('Back to Tasks');
-    navigation.initialize({ kind: 'bots' }); label('Back to Tasks');
+    label(mobile ? '' : 'Back to Settings'); go('#settings/apps'); label('Back to Settings');
+    navigation.initialize({ kind: 'bots' }); label('Back to Settings');
     useConfigUI.getState().closeAppSettings(); assert.equal(f.location.hash, '#tasks');
   });
   test(`direct entry and reload ignore selected chat and copied history, phone=${mobile}`, () => {
@@ -40,33 +40,33 @@ for (const mobile of [false, true]) {
       reset('#settings/general', mobile);
       // Address-bar entry carries stale state for another route.
       f.location.hash = hash; navigation.initialize({ kind: 'bots' });
-      label('Back to Bots'); navigation.initialize({ kind: 'bots' }); label('Back to Bots');
+      const expected = hash.startsWith('#settings') ? 'Back to Settings' : hash === '#new-bot' ? 'Back to Bots' : '';
+      label(expected); navigation.initialize({ kind: 'bots' }); label(expected);
       if (hash.startsWith('#settings')) useConfigUI.getState().closeAppSettings();
       else if (hash === '#new-bot') useStore.getState().setModal(null);
-      else backFromWork();
+      else backFromSurface();
       assert.equal(f.location.hash, '#bots');
     }
   });
 }
 
-test('group chat origin is used only for an actual room conversation', () => {
-  for (const [origin, expected] of [['#bot/room', 'Back to group chat'], ['#bot/fixture', 'Back to chat'], ['#new-bot/group', 'Back to new group chat'], ['#tasks', 'Back to Tasks']]) {
+test('Settings Back labels ignore the origin while Close restores it', () => {
+  for (const origin of ['#bot/room', '#bot/fixture', '#new-bot/group', '#tasks']) {
     reset(origin); const destination = f.location.hash;
-    go('#settings/general'); label(expected);
-    navigation.initialize({ kind: 'bots' }); label(expected);
+    go('#settings/general'); label('Back to Settings');
+    navigation.initialize({ kind: 'bots' }); label('Back to Settings');
     useConfigUI.getState().closeAppSettings(); assert.equal(f.location.hash, destination);
   }
 });
 
-test('work Back labels name the previous tab instead of skipping all work screens', () => {
+test('top-level work screens have no Back label and browser traversal retains every tab', () => {
   reset(); go('#tasks');
   for (const tab of ['Team', 'Goals', 'Reports']) {
-    const previous = f.location.hash;
     go(`#${tab.toLowerCase()}`);
-    label(`Back to ${parseScreen(previous)!.kind === 'work' ? (parseScreen(previous) as Extract<Screen, {kind:'work'}>).route.tab : 'Bots'}`);
+    label('');
   }
   for (const tab of ['Goals', 'Team', 'Tasks']) {
-    label(`Back to ${tab}`); backFromWork(); assert.equal(f.location.hash, `#${tab.toLowerCase()}`);
+    label(''); f.history.go(-1); assert.equal(f.location.hash, `#${tab.toLowerCase()}`);
   }
 });
 
@@ -94,8 +94,8 @@ test('every route title is named and section titles update synchronously', () =>
   assert.equal(backLabel({kind:'group'}), 'Back to new group chat');
 });
 
-test('Bots reached as a top-level destination returns to its real previous screen', () => {
-  reset('#reports'); go('#bots'); label('Back to Reports');
-  navigation.initialize({ kind: 'bots' }); label('Back to Reports');
+test('Bots has no Back label and closing its surface retains the previous screen', () => {
+  reset('#reports'); go('#bots'); label('');
+  navigation.initialize({ kind: 'bots' }); label('');
   backFromSurface(); assert.equal(f.location.hash, '#reports');
 });

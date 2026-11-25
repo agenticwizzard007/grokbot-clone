@@ -127,11 +127,11 @@ try {
         await hash(`#settings/${section.toLowerCase()}`);
       }
       if (width === 1280) {
-        await page.locator('.settings-nav__back').getByText('Back to chat',{exact:true}).waitFor();
+        await page.locator('.settings-nav__back').getByText('Back to Settings',{exact:true}).waitFor();
         await snap('settings-sidebar-back');
         await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click();
         const rail = page.locator('.sidebar');
-        const railBack = await rail.getByRole('button', { name: 'Back to chat', exact: true }).boundingBox();
+        const railBack = await rail.getByRole('button', { name: 'Back to Settings', exact: true }).boundingBox();
         const railExpand = await rail.getByRole('button', { name: 'Expand sidebar to browse settings', exact: true }).boundingBox();
         assert.ok(railBack && railExpand && railBack.y + railBack.height <= railExpand.y, 'collapsed Back and Expand controls do not overlap');
         const brand = await rail.locator('.sidebar__brand').boundingBox();
@@ -139,22 +139,25 @@ try {
         await snap('settings-collapsed-back');
         await rail.getByRole('button', { name: 'Expand sidebar to browse settings', exact: true }).click();
       }
-      for (const section of ['messaging','account','general']) { await back(`#settings/${section}`); await page.locator('.access-settings__bar-title').getByText(section[0].toUpperCase()+section.slice(1),{exact:true}).waitFor(); }
+      for (const section of width === 390 ? [] : ['messaging','account','general']) { await back(`#settings/${section}`); await page.locator('.access-settings__bar-title').getByText(section[0].toUpperCase()+section.slice(1),{exact:true}).waitFor(); }
       if (width === 390) await back('#settings');
       await back(chat);
       await page.locator('.composer__input').waitFor();
       if (width === 390) await forward('#settings');
-      await forward('#settings/general'); await forward('#settings/account');
-      await reload('#settings/account'); await page.getByRole('heading',{name:'Your account',exact:true}).waitFor();
+      if (width === 390) await forward('#settings/usage');
+      else { await forward('#settings/general'); await forward('#settings/account'); }
+      await reload(width === 390 ? '#settings/usage' : '#settings/account');
+      await page.getByRole('heading',{name:width === 390 ? 'Understand reported usage' : 'Your account',exact:true}).waitFor();
       if (width === 390) {
         await page.getByRole('button',{name:'Back to Settings',exact:true}).click(); await hash('#settings');
         await reload('#settings'); await sections.waitFor();
         assert.equal(await page.getByRole('button', { name: /^Back/ }).count(), 0);
         await page.getByRole('button',{name:'Close settings',exact:true}).click();
       } else {
-        await page.locator('.settings-nav__back').getByText('Back to chat', {exact:true}).waitFor();
-        await page.locator('.access-settings__bar').getByRole('button', {name:'Back to chat',exact:true}).waitFor();
-        await page.locator('.settings-nav__back').click();
+        await page.locator('.settings-nav__back').getByText('Back to Settings', {exact:true}).waitFor();
+        await page.locator('.access-settings__bar').getByRole('button', {name:'Back to Settings',exact:true}).waitFor();
+        await page.locator('.settings-nav__back').click(); await hash('#settings');
+        await page.keyboard.press('Escape');
       }
       await hash(chat);
       if (width === 390) {
@@ -164,12 +167,12 @@ try {
           await hash(`#settings/${section.toLowerCase()}`);
           if (section !== 'General') {
             await page.getByRole('button', {name:'Back to Settings',exact:true}).click(); await hash('#settings');
-            await back(`#settings/${section.toLowerCase()}`); await forward('#settings');
+            await forward(`#settings/${section.toLowerCase()}`); await back('#settings');
             await reload('#settings');
           }
         }
-        for (const route of ['#settings/messaging', '#settings/account', '#settings', chat]) await back(route);
-        for (const route of ['#settings', '#settings/account', '#settings/messaging', '#settings/general']) await forward(route);
+        for (const route of ['#settings', chat]) await back(route);
+        for (const route of ['#settings', '#settings/general']) await forward(route);
         await page.getByRole('button', {name:'Close settings',exact:true}).click(); await hash(chat);
       }
       await page.keyboard.press('Control+k'); await hash('#search');
@@ -206,17 +209,18 @@ try {
       await page.getByRole('tab',{name:'History',exact:true}).waitFor();
       await back(`${chat}/details/setup/files`); await back(`${chat}/details/setup/harness`); await back(`${chat}/details/setup`);
       await detailTabs.getByRole('button',{name:'Activity',exact:true}).click();
-      // A real persisted details entry remains a valid return after reload.
+      // Create has a fixed parent; browser Back still retains the details entry.
       await page.keyboard.press('Alt+Shift+n'); await hash('#new-bot');
       await reload('#new-bot');
-      await page.getByRole('button', {name:'Back to details',exact:true}).waitFor();
+      await page.getByRole('button', {name:'Back to Bots',exact:true}).waitFor();
       await snap('create-details-reload');
-      await page.getByRole('button', {name:'Back to details',exact:true}).click(); await hash(`${chat}/details/activity`);
+      await page.getByRole('button', {name:'Back to Bots',exact:true}).click(); await hash('#bots');
+      await back('#new-bot'); await back(`${chat}/details/activity`);
       await page.locator('.details').waitFor();
       await page.getByRole('button',{name:'Bot settings',exact:true}).click(); await hash(`${chat}/settings/general`);
       for (const tab of ['Skills','Memories','Routines','Learning','Analytics']) { await page.getByRole('navigation',{name:'Bot settings sections'}).getByRole('button',{name:tab,exact:true}).click(); await hash(`${chat}/settings/${tab.toLowerCase()}`); }
       await reload(`${chat}/settings/analytics`);
-      await page.getByRole('button', {name:'Back to details',exact:true}).waitFor();
+      await page.getByRole('button', {name:'Back to Fixture Bot chat',exact:true}).waitFor();
       for (const tab of ['learning','routines','memories','skills','general']) await back(`${chat}/settings/${tab}`);
       await back(`${chat}/details/activity`); await page.locator('.details').waitFor();
       await page.getByRole('button',{name:'Close details',exact:true}).click(); await hash(chat);
@@ -259,23 +263,23 @@ try {
             if (await compact.getAttribute('aria-checked') !== 'true') await compact.click();
             await reload('#settings/general');
             await page.getByRole('radiogroup', { name: 'Theme', exact: true }).getByRole('radio', { name: theme, exact: true }).click();
-            const backButton = sidebar.getByRole('button', { name: `Back to ${label}`, exact: true });
+            const backButton = sidebar.getByRole('button', { name: 'Back to Settings', exact: true });
             await backButton.waitFor();
-            assert.equal(await backButton.getAttribute('title'), `Back to ${label}`);
+            assert.equal(await backButton.getAttribute('title'), 'Back to Settings');
             assert.equal(await backButton.locator('svg.lucide-arrow-left').count(), 1, 'Back uses an arrow, distinct from Expand');
             const box = await backButton.boundingBox();
             assert.ok(box && box.width >= 44 && box.height >= 44, 'Back has a full icon-button target');
             const railBox = await sidebar.boundingBox();
             assert.ok(box.x >= railBox.x && box.x + box.width <= railBox.x + railBox.width && box.y >= railBox.y);
             for (const otherButton of await sidebar.getByRole('button').all()) {
-              if (await otherButton.getAttribute('aria-label') === `Back to ${label}`) continue;
+              if (await otherButton.getAttribute('aria-label') === 'Back to Settings') continue;
               const otherBox = await otherButton.boundingBox();
               if (otherBox) assert.ok(box.y + box.height <= otherBox.y, 'Back is above every other visible rail icon without overlap');
             }
             const expand = sidebar.getByRole('button', { name: 'Expand sidebar', exact: true });
             assert.match(await expand.getAttribute('title'), /^Expand sidebar/);
             await expand.click(); await hash('#settings/general');
-            await sidebar.locator('.settings-nav__back').getByText(`Back to ${label}`, { exact: true }).waitFor();
+            await sidebar.locator('.settings-nav__back').getByText('Back to Settings', { exact: true }).waitFor();
             assert.equal(await sidebar.locator('.sidebar__back').count(), 0, 'expanding restores the labeled row');
             await sidebar.getByRole('button', { name: 'Collapse sidebar', exact: true }).click();
             await page.keyboard.press('Tab');
@@ -284,9 +288,10 @@ try {
             await snap(`compact-back-${theme.toLowerCase()}-${label}`);
             if (label === 'Tasks') await page.keyboard.press('Enter');
             else await backButton.click();
-            await hash(destination);
-            assert.equal(await sidebar.locator('.sidebar__back').count(), 0, 'Back is removed after leaving Settings');
-            console.log(`PASS compact rail ${theme}: Back to ${label} above all icons, separate Expand, reload and navigation`);
+            await hash('#settings');
+            assert.equal(await sidebar.locator('.sidebar__back').count(), 0, 'Settings home has no Back control');
+            await page.keyboard.press('Escape'); await hash(destination);
+            console.log(`PASS compact rail ${theme}: Back to Settings above all icons from ${label}, separate Expand, reload and navigation`);
           }
           await sidebar.getByRole('button', { name: 'Expand sidebar', exact: true }).click();
           const botsLabel = sidebar.locator('.sidebar__section-label');

@@ -68,12 +68,19 @@ export function screenHash(screen: Screen): string {
   }
 }
 
-export function parentScreen(screen: Screen): Screen {
+/** Structural parents never depend on how a screen was opened. */
+export function parentScreen(screen: Screen): Screen | null {
   switch (screen.kind) {
+    case 'chat': case 'create': return { kind: 'bots' };
     case 'group': return { kind: 'create' };
-    case 'details': case 'bot-settings': return { kind: 'chat', bot: screen.bot };
-    case 'settings': return screen.section ? { kind: 'settings' } : { kind: 'bots' };
-    default: return { kind: 'bots' };
+    case 'details':
+      if (screen.reports) return { kind: 'details', bot: screen.bot, tab: 'library' };
+      if (screen.setup) return { kind: 'details', bot: screen.bot, tab: 'configuration' };
+      return { kind: 'chat', bot: screen.bot };
+    case 'bot-settings': return { kind: 'chat', bot: screen.bot };
+    case 'settings': return screen.section ? { kind: 'settings' } : null;
+    case 'work': return screen.route.botSlug ? { kind: 'work', route: { tab: screen.route.tab } } : null;
+    default: return null;
   }
 }
 
@@ -101,12 +108,18 @@ type NavigationBot = { id: string; name: string; kind?: string };
 
 export function backLabel(screen: Screen, bots: NavigationBot[] = []): string {
   if (screen.kind === 'work') return `Back to ${screen.route.tab}`;
-  if (screen.kind === 'chat' && routeBot(screen.bot, bots)?.kind === 'room') return 'Back to group chat';
+  if (screen.kind === 'chat') return `Back to ${routeBot(screen.bot, bots)?.name ?? 'Bot'} chat`;
+  if (screen.kind === 'details') return screen.tab === 'library' ? 'Back to files' : screen.tab === 'configuration' ? 'Back to setup' : 'Back to details';
   const names: Record<Screen['kind'], string> = {
     work: 'Tasks', details: 'details', bots: 'Bots', create: 'create a Bot', group: 'new group chat',
     'bot-settings': 'Bot settings', settings: 'Settings', chat: 'chat', search: 'search', apps: 'apps',
   };
   return `Back to ${names[screen.kind]}`;
+}
+
+export function parentLabel(screen: Screen, bots: NavigationBot[] = []): string {
+  const parent = parentScreen(screen);
+  return parent ? backLabel(parent, bots) : '';
 }
 
 /** Titles belong to the route, so hidden or lazy screens cannot overwrite them. */
@@ -207,6 +220,14 @@ export class ScreenHistory {
     const target = backTarget(this.trail, fallback, matches);
     if (target.delta) this.browser.history.go(target.delta);
     else this.navigate(target.screen, 'replace');
+  }
+  /** Reuse only the immediately preceding parent entry, retaining its scroll state
+   * and Forward entry. Unrelated history must never choose a Back destination. */
+  backTo(parent: Screen, resolve: (screen: Screen) => Screen | null = screen => screen) {
+    const previous = parseScreen(this.trail.at(-1) ?? '');
+    const resolved = previous && resolve(previous);
+    if (resolved && screenHash(resolved) === screenHash(parent)) this.browser.history.go(-1);
+    else this.navigate(parent);
   }
   restore = () => {
     if (this.undoing) { this.undoing = false; return; }

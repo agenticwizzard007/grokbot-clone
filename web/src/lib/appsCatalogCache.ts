@@ -2,12 +2,11 @@ import { api, type AppsResponse } from './api';
 import { verifyAccessAccount } from './accessApi';
 import { useStore } from '../store';
 import { createSettingsCache, settingsRead } from './settingsReads';
-import { createSuggestionCache } from './suggestionCache';
+import { suggestionCache as suggestions } from './suggestionCache';
 
 const cache = createSettingsCache<AppsResponse>();
-const suggestions = createSuggestionCache();
 useStore.subscribe((state, previous) => {
-  if (state.user?.id !== previous.user?.id) { cache.scope(state.user?.id); suggestions.scope(state.user?.id); }
+  if (state.user?.id !== previous.user?.id) cache.scope(state.user?.id);
 });
 const key = (search = '', category = '', offset = 0) => JSON.stringify([search, category, offset]);
 export function cachedApps(accountId: string, search = '', category = '', offset = 0) {

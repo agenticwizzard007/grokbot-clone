@@ -63,7 +63,7 @@ try {
     assert.equal(await general.getByText('Finding relevant apps…').count(), 0, 'cold cache has a 500 ms grace period');
     await general.getByText('Finding relevant apps…').waitFor();
     suggestionsGate.release(); await general.getByText('Slack', { exact: true }).waitFor();
-    assert.ok(await page.getByRole('button', { name: 'Back to chat', exact: true }).count());
+    assert.ok(await page.getByRole('button', { name: 'Back to Coordinator chat', exact: true }).count());
     await page.screenshot({ path: `${evidence}/${width}-${theme}-bot-settings.png` });
     for (const hash of [chatHash, '#bots', '#settings', '#bots']) {
       await page.goBack(); await page.waitForFunction(hash => location.hash === hash, hash);

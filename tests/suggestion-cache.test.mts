@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { type TestContext } from 'node:test';
 import { createSettingsCache } from '../web/src/lib/settingsReads.ts';
-import { createSuggestionCache, suggestionCacheKey, type Suggestions } from '../web/src/lib/suggestionCache.ts';
+import { createSuggestionCache, suggestionCacheKey, SUGGESTION_STORAGE_KEY, SUGGESTION_STORAGE_VERSION, type Suggestions } from '../web/src/lib/suggestionCache.ts';
 import { SUGGESTION_FILTER_VERSION } from '../server/src/suggestion-policy.ts';
 
 test('old saved suggestion snapshots and old server responses are never displayed', async () => {
@@ -24,9 +24,9 @@ test('old saved suggestion snapshots and old server responses are never displaye
 
 test('last suggestions survive draft changes and reload per Bot, version and account', async t => {
   const data = new Map<string, string>();
-  const original = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage');
-  t.after(() => original ? Object.defineProperty(globalThis, 'sessionStorage', original) : Reflect.deleteProperty(globalThis, 'sessionStorage'));
-  Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, value: { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => data.set(key, value), removeItem: (key: string) => data.delete(key) } });
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  t.after(() => original ? Object.defineProperty(globalThis, 'localStorage', original) : Reflect.deleteProperty(globalThis, 'localStorage'));
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => data.set(key, value), removeItem: (key: string) => data.delete(key) } });
   const first = { suggestions: [], hasContext: true, filterVersion: SUGGESTION_FILTER_VERSION };
   const cache = createSuggestionCache(); cache.scope('owner');
   await cache.refresh('first draft', async () => first, 'bot-a');
@@ -41,6 +41,81 @@ test('last suggestions survive draft changes and reload per Bot, version and acc
   finish(first); await old; assert.deepEqual(cache.last('bot-a'), latest);
   cache.scope('other'); assert.equal(cache.last('bot-a'), undefined);
   const cleared = createSuggestionCache(); cleared.scope('owner'); assert.equal(cleared.last('bot-a'), undefined);
-  data.set(`swarm.suggestions:${SUGGESTION_FILTER_VERSION}:owner`, JSON.stringify([['bot-a', { ...first, filterVersion: 'old' }]]));
+  data.set(SUGGESTION_STORAGE_KEY, JSON.stringify({ version: SUGGESTION_STORAGE_VERSION, filterVersion: SUGGESTION_FILTER_VERSION, account: 'owner', bots: [['bot-a', { ...first, filterVersion: 'old' }]] }));
   const outdated = createSuggestionCache(); outdated.scope('owner'); assert.equal(outdated.last('bot-a'), undefined);
+});
+
+function localSnapshot(t: TestContext) {
+  const data = new Map<string, string>();
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  t.after(() => original ? Object.defineProperty(globalThis, 'localStorage', original) : Reflect.deleteProperty(globalThis, 'localStorage'));
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: (key: string) => data.get(key) ?? null,
+    setItem: (key: string, value: string) => data.set(key, value), removeItem: (key: string) => data.delete(key),
+  } });
+  return data;
+}
+const suggestion: Suggestions = { filterVersion: SUGGESTION_FILTER_VERSION, hasContext: true, suggestions: [{
+  slug: 'slack', name: 'Slack', managedAuth: true, noAuth: false, categories: [], reason: 'Private draft text',
+  logo: 'https://example.test/private-token', description: 'Private message text',
+}] };
+
+test('cold suggestions persist only bounded catalog identity, never draft text or provider URLs', async t => {
+  const data = localSnapshot(t);
+  const cache = createSuggestionCache(); cache.scope('owner');
+  for (let index = 0; index < 90; index++) await cache.refresh(`Private instructions ${index}`, async () => suggestion, `bot-${index}`);
+  const raw = data.get(SUGGESTION_STORAGE_KEY)!;
+  assert.ok(raw.length <= 32_000);
+  assert.doesNotMatch(raw, /Private|private-token|https:/);
+  assert.equal(JSON.parse(raw).bots.length, 20);
+  const reload = createSuggestionCache(); reload.scope('owner');
+  assert.equal(reload.last('bot-0'), undefined);
+  assert.equal(reload.last('bot-89')?.suggestions[0].slug, 'slack');
+  assert.equal(reload.last('bot-89')?.suggestions[0].reason, 'Slack was suggested for this Bot.');
+});
+
+test('cold suggestions ignore schema changes, filter changes, another account and malformed snapshots', async t => {
+  const data = localSnapshot(t);
+  const saved = { version: SUGGESTION_STORAGE_VERSION, filterVersion: SUGGESTION_FILTER_VERSION, account: 'owner', bots: [['bot', suggestion]] };
+  for (const value of [{ ...saved, version: 0 }, { ...saved, filterVersion: 'old' }, { ...saved, account: 'other' }, { ...saved, bots: null }]) {
+    data.set(SUGGESTION_STORAGE_KEY, JSON.stringify(value));
+    const cache = createSuggestionCache(); cache.scope('owner');
+    assert.equal(cache.last('bot'), undefined);
+    assert.equal(data.has(SUGGESTION_STORAGE_KEY), false);
+  }
+  for (const value of ['{', JSON.stringify({ ...saved, bots: [null, {}, ['bot', {}]] }), 'x'.repeat(32_001)]) {
+    data.set(SUGGESTION_STORAGE_KEY, value);
+    const cache = createSuggestionCache(); cache.scope('owner'); assert.equal(cache.last('bot'), undefined);
+  }
+});
+
+test('sign-out and account switching erase snapshots and reject late responses', async t => {
+  const data = localSnapshot(t);
+  const cache = createSuggestionCache(); cache.scope('owner');
+  await cache.refresh('draft', async () => suggestion, 'bot');
+  let finish!: (value: Suggestions) => void;
+  const pending = cache.refresh('pending', () => new Promise(resolve => { finish = resolve; }), 'bot');
+  cache.scope(undefined);
+  assert.equal(data.has(SUGGESTION_STORAGE_KEY), false);
+  finish(suggestion); await pending;
+  assert.equal(cache.last('bot'), undefined); assert.equal(data.has(SUGGESTION_STORAGE_KEY), false);
+  cache.scope('owner'); await cache.refresh('draft', async () => suggestion, 'bot');
+  cache.scope('other'); assert.equal(cache.last('bot'), undefined);
+  assert.equal(data.has(SUGGESTION_STORAGE_KEY), false);
+});
+
+test('blocked local storage keeps in-memory suggestions usable', async t => {
+  localSnapshot(t);
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, get() { throw new Error('Storage blocked'); } });
+  const cache = createSuggestionCache(); cache.scope('owner');
+  await cache.refresh('draft', async () => suggestion, 'bot');
+  assert.deepEqual(cache.last('bot'), suggestion);
+});
+
+test('a confirmed signed-out cold load clears the previous session snapshot', t => {
+  const data = localSnapshot(t);
+  data.set(SUGGESTION_STORAGE_KEY, JSON.stringify({ version: SUGGESTION_STORAGE_VERSION, filterVersion: SUGGESTION_FILTER_VERSION, account: 'owner', bots: [['bot', suggestion]] }));
+  const cache = createSuggestionCache();
+  cache.scope(undefined);
+  assert.equal(data.has(SUGGESTION_STORAGE_KEY), false);
 });

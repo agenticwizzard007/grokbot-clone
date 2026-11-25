@@ -7,7 +7,7 @@ import { displayName, useSelectedBot, useStore } from '../store';
 import { SetupPaperHeader } from './SetupPaperHeader';
 import { VoiceSettings } from './VoiceSettings';
 import { MembersCard } from './MembersCard';
-import { detailsCaller, useConfigUI } from '../configStore';
+import { backToParent, detailsCaller, useReturnLabel, useConfigUI } from '../configStore';
 import { LibraryTab } from './config/LibraryTab';
 import { FilesSummary } from './config/FilesSummary';
 import { DeliverablesPanel } from './config/DeliverablesPanel';
@@ -93,6 +93,7 @@ export function DetailsPanel() {
 }
 
 function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
+  const backTitle = useReturnLabel();
   const panel = useRef<HTMLElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const routines = useStore(state => state.routines[bot.id]);
@@ -146,7 +147,7 @@ function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
       <button key={section.id} type="button" aria-current={tab === section.id || undefined} onClick={() => { setTab(section.id); }}>{section.label}</button>)}
   </nav>;
   return <aside id="bot-details" ref={panel} className={`details details--page details--sidebar setup-paper${tab === 'configuration' ? ' details--configuration' : ''}`} aria-label="Conversation details">
-    <SetupPaperHeader backLabel={reports ? 'Back to files' : 'Back to chat'} title={label} onBack={reports ? () => setReports(false) : close} onClose={close} closeLabel="Close details" />
+    <SetupPaperHeader backLabel={backTitle} title={label} onBack={backToParent} onClose={close} closeLabel="Close details" />
     <div className="setup-paper__column details-page__column">
       <div className="bot-detail-identity">
         <BotAvatarFor bot={bot} size={48} />

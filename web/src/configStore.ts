@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 import { create } from 'zustand';
 import type { ServerEvent } from '@shared/types';
 import { useStore } from './store';
-import { APP_SECTIONS, backLabel, backTarget, outsideSurface, navigationActions, parseScreen, resolveScreen, screenHash, screenTitle, ScreenHistory, type Screen, type DetailTab, type SetupTab } from './lib/navigation';
+import { APP_SECTIONS, parentLabel, parentScreen, backTarget, outsideSurface, navigationActions, parseScreen, resolveScreen, screenHash, screenTitle, ScreenHistory, type Screen, type DetailTab, type SetupTab } from './lib/navigation';
 import { readDetailsDefault } from './lib/detailsDefault';
 import { botSlug, routeBot, linkedWork, type WorkRoute } from './lib/userRoutes';
 
@@ -147,7 +147,7 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
     const id = useStore.getState().selectedBotId;
     if (id) navigation.navigate({ kind: 'details', bot: botReference(id), tab, ...(setup && setup !== 'responsibilities' ? { setup } : {}), ...(reports ? { reports } : {}) });
   },
-  showSettingsList: () => navigation.navigate({ kind: 'settings' }),
+  showSettingsList: () => navigation.backTo({ kind: 'settings' }),
   backLabel: 'Back to Bots',
   theme: readTheme(),
   versions: {},
@@ -230,13 +230,22 @@ export function returnScreen(screen = navigation.screen, trail = navigation.trai
   // screen that applyScreen will actually show when the control is clicked.
   return resolveScreen(target, st.bots, st.botsLoaded) ?? target;
 }
-export function returnLabel() { return backLabel(returnScreen(), useStore.getState().bots); }
+export function returnLabel() { return navigation.screen ? parentLabel(navigation.screen, useStore.getState().bots) : ''; }
 export const useReturnLabel = () => useConfigUI(s => s.backLabel);
+export function backToParent() {
+  const screen = navigation.screen;
+  const parent = screen && parentScreen(screen);
+  if (!parent) return;
+  const state = useStore.getState();
+  const resolve = (target: Screen) => resolveScreen(target, state.bots, state.botsLoaded);
+  const target = resolve(parent);
+  if (target) navigation.backTo(target, resolve);
+}
 export function backFromSurface() {
   const current = navigation.screen;
   navigation.back(returnFallback(current), other => !current || outsideSurface(current, other));
 }
-export function backFromWork() { backFromSurface(); }
+export function backFromWork() { backToParent(); }
 
 export let detailsCaller: HTMLElement | null = null;
 
@@ -272,7 +281,7 @@ function applyScreen(requested: Screen, normalize = true, trail = navigation.tra
     return;
   }
   useConfigUI.setState({
-    backLabel: backLabel(returnScreen(screen, trail), st.bots),
+    backLabel: parentLabel(screen, st.bots),
     view: base.kind === 'work' ? 'tasks' : base.kind === 'bots' ? 'bots' : 'chat',
     ...(base.kind === 'work' ? { workRoute: base.route } : {}),
     ...(base.kind === 'details' ? { detailsTab: base.tab, setupTab: base.setup ?? 'responsibilities', detailsReports: !!base.reports } : {}),
@@ -305,9 +314,9 @@ navigationActions.details = open => {
   if (open) navigation.navigate({ kind: 'details', bot, tab: 'activity' });
   else navigation.back({ kind: 'chat', bot }, screen => screen.kind === 'chat' && screen.bot === bot);
 };
-navigationActions.list = () => navigation.back({ kind: 'bots' }, screen => screen.kind === 'bots');
+navigationActions.list = () => navigation.backTo({ kind: 'bots' });
 navigationActions.modal = modal => {
-  if (modal === 'create' && useStore.getState().modal === 'group') navigation.back({ kind: 'create' }, screen => screen.kind === 'create');
+  if (modal === 'create' && useStore.getState().modal === 'group') navigation.backTo({ kind: 'create' });
   else if (modal) navigation.navigate({ kind: modal });
   else if (useStore.getState().modal) {
     backFromSurface();
