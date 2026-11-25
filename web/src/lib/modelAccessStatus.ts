@@ -5,7 +5,10 @@ import { PLAN_PROVIDERS, subscriptionReady } from './planConnections';
 export function modelAccessStatus(status: CliStatus | null, provider: CliProvider, stale = false, plan: string | null = null) {
   const info = PLAN_PROVIDERS.find(item => item.id === provider)!;
   const health = status?.providers[provider];
-  const unavailable = stale || !!status?.statusUnavailable || !!health?.error && (!health.authenticated || health.subscription);
+  const notInstalled = health?.installed === false && (!health.error || health.error === 'CLI executable is not installed.');
+  const notSetUp = provider === 'claude' && !health?.authenticated && (notInstalled || health?.hasSavedState === false);
+  const probeFailed = !notSetUp && !!health?.error && (!health.authenticated || health.subscription);
+  const unavailable = stale || !!status?.statusUnavailable || probeFailed;
   const checking = !status || !!status.statusChecking && !subscriptionReady(health);
   const connected = !unavailable && !checking && !!status?.connected && subscriptionReady(health);
   const currentlyInUse = connected && status?.selected === provider;
@@ -34,5 +37,6 @@ export function modelAccessStatus(status: CliStatus | null, provider: CliProvide
   } else {
     currentRoute = `Your Bots currently use API providers; ${connected ? `choose Use ${info.name}` : `connect your ${info.name}`} to switch.`;
   }
-  return { connection, connected, currentlyInUse, details, currentRoute, action };
+  const hasSavedState = !!health?.authenticated || !!health?.hasSavedState || status?.selected === provider;
+  return { connection, connected, currentlyInUse, details, currentRoute, action, hasSavedState, probeFailed };
 }

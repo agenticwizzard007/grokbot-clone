@@ -160,7 +160,7 @@ function Tile({ label, value, sub }: { label: string; value: string; sub?: strin
 
 /**
  * Column chart, one column per account calendar day. With computer costs it stacks two series (AI below, the
- * computer above, a 2px surface gap between); otherwise a single series. Per-column tooltip on hover
+ * computer above); otherwise a single series. Per-column tooltip on hover
  * and focus, a legend whenever there are two series, and a table view.
  */
 function DailyChart({ days, metric, withComputer, timezone }: { timezone: string; days: UsageReport['days']; metric: 'cost' | 'tokens'; withComputer: boolean }) {
@@ -203,8 +203,9 @@ function DailyChart({ days, metric, withComputer, timezone }: { timezone: string
   const tipShift = at < 0.2 ? '0%' : at > 0.8 ? '-100%' : '-50%';
   const title = metric === 'cost' ? 'Daily cost' : 'Daily tokens';
   const peak = days.reduce((a, d) => (value(d) > value(a) ? d : a), days[0]);
+  const computerOnly = (d: UsageReport['days'][number]) => stacked && d.costUsd === 0 && d.computerUsd > 0;
   const detail = (d: UsageReport['days'][number]) =>
-    [stacked ? `AI ${fmtUsd(d.costUsd)} · computer ${fmtUsd(d.computerUsd)}` : metric === 'cost' ? tokenDetail(d) : fmtUsd(d.costUsd), plural(d.requests, 'request'), ...(incomplete(d) ? ['Incomplete token counts'] : [])].join(' · ');
+    [stacked ? `AI ${fmtUsd(d.costUsd)} · computer (estimated) ${fmtUsd(d.computerUsd)}` : metric === 'cost' ? tokenDetail(d) : fmtUsd(d.costUsd), ...(computerOnly(d) ? ['Only estimated computer cost'] : []), plural(d.requests, 'request'), ...(incomplete(d) ? ['Incomplete token counts'] : [])].join(' · ');
   return (
     <div className="usage-card">
       <div className="usage-card__head">
@@ -242,7 +243,7 @@ function DailyChart({ days, metric, withComputer, timezone }: { timezone: string
                   className={`usage-chart__slot${hover === i ? ' is-hover' : ''}`}
                   tabIndex={0}
                   role="img"
-                  aria-label={`${dayLabel(d.day)}: ${stacked ? `${fmtUsd(total)} (AI ${fmtUsd(d.costUsd)}, computer ${fmtUsd(d.computerUsd)})` : figure(d)}, ${tokenDetail(d)}, ${plural(d.requests, 'request')}${incomplete(d) ? ', incomplete token counts' : ''}`}
+                  aria-label={`${dayLabel(d.day)}: ${stacked ? `${fmtUsd(total)} (AI ${fmtUsd(d.costUsd)}, computer (estimated) ${fmtUsd(d.computerUsd)})` : figure(d)}, ${tokenDetail(d)}, ${plural(d.requests, 'request')}${incomplete(d) ? ', incomplete token counts' : ''}`}
                   onFocus={() => setHover(i)}
                   onBlur={() => setHover(null)}
                 >
@@ -261,6 +262,7 @@ function DailyChart({ days, metric, withComputer, timezone }: { timezone: string
                 <>
                   <div className="usage-tip__row"><i className="usage-tip__key usage-key--ai" aria-hidden /><b>{fmtUsd(h.costUsd)}</b> AI</div>
                   <div className="usage-tip__row"><i className="usage-tip__key usage-key--vm" aria-hidden /><b>{fmtUsd(h.computerUsd)}</b> computer (est.)</div>
+                  {computerOnly(h) && <div className="usage-tip__label">Only estimated computer cost</div>}
                 </>
               )}
               <div className="usage-tip__label">{dayLabel(h.day)} · {metric === 'cost' ? tokenDetail(h) : fmtUsd(h.costUsd)} · {plural(h.requests, 'request')}{incomplete(h) ? ' · Incomplete token counts' : ''}</div>

@@ -101,7 +101,7 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
           }
         }
         // Real mixed spend keeps its previous size: 2.5 / axis top 3 times the plot height.
-        const plotHeight = await page.locator('.usage-chart__plot').evaluate(el => el.getBoundingClientRect().height);
+        const plotHeight = await page.locator('.usage-chart__cols').evaluate(el => el.getBoundingClientRect().height);
         assert.ok(Math.abs(geometry.slots[0].bars[0].height - plotHeight * 2.5 / 3) < 0.1);
         await fits();
       });

@@ -164,7 +164,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     status = { ...status, runtime: 'server', connected: true, providers: { ...status.providers, claude: { installed: false, authenticated: false, subscription: false } } };
     await openPlans(); await page.getByText('CLI missing', { exact: true }).waitFor();
     await page.getByRole('button', { name: 'Connect Claude plan', exact: true }).click();
-    assert.equal(await page.getByRole('region', { name: 'Plan connection', exact: true }).getByRole('button', { name: 'Connect Claude plan', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('region', { name: 'Plan connection', exact: true }).getByRole('button', { name: 'Connect Claude plan', exact: true }).isEnabled(), true, 'a missing Claude install keeps the explicit connect flow available');
     await closeSettings();
     status = { ...status, runtime: 'bridge', connected: false };
     await openPlans(); await page.getByText('Not connected', { exact: true }).first().waitFor();
