@@ -35,9 +35,15 @@ The final offscreen-history profile passed all four cases:
 
 | Width | Theme | Input script p95 | Event Timing presentation p95 | Maximum presentation |
 | --- | --- | ---: | ---: | ---: |
-| 1280 | Light | 4.3ms | 40ms | 40ms |
-| 1280 | Dark | 3.4ms | 48ms | 48ms |
-| 390 | Light | 3.2ms | 32ms | 40ms |
-| 390 | Dark | 3.2ms | 32ms | 40ms |
+| 1280 | Light | 3.0ms | 32ms | 40ms |
+| 1280 | Dark | 3.2ms | 40ms | 48ms |
+| 390 | Light | 4.4ms | 48ms | 56ms |
+| 390 | Dark | 3.1ms | 48ms | 48ms |
 
 This meets the requested sub-16ms script budget. Event Timing includes input queueing and presentation, and does not establish a literal sub-16ms physical-display latency on this VM.
+
+Existing composer growth/performance, model loading, voice status, long identifiers, transcript pagination/search/anchoring, and chat-open checks pass. The pagination check includes 1280, 1024, 768, and 390 widths. The new loaded-chat check covers both requested widths and themes. Typecheck and the production build pass. Integration with the parallel model-recovery changes also passes 97 targeted unit tests and all four model-loading/recovery browser cases.
+
+The complete unit command is `node --import tsx --test --test-reporter=tap --test-concurrency=1 tests/*.test.mts tests/*.test.mjs`. Untouched baseline and branch each report 2,328 tests: 2,232 pass, 72 fail, and 24 existing skips. One failure name differs between the complete runs; the exact branch timeout also reproduces on untouched baseline in the unchanged full test file, leaving no new failure names. The supplemental baseline file reports 11 pass and 2 fail, matching the branch rerun. Raw full-run logs and the supplemental baseline reproduction are retained separately in `.context/`.
+
+Two existing browser failures reproduce on untouched `5b4265d`: `effort-animation-ui.mjs` cannot find `.mm-item__value.is-ultracode`, and `voice-entry-ui.mjs` fails `dictation never competes with another agent call`. Chat-open's throttled shell deadline was intermittent on baseline and branch; the final original test passes both widths without changes to its assertions. The one-second `cloud drain rechecks authorization after inventory waits and never issues a revoked stop` unit deadline also reproduces in the complete unchanged `legacy-background.test.mts` file on the baseline. None of these unrelated tests or their assertions were changed.
