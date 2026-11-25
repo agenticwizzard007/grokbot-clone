@@ -499,7 +499,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
           {modelCatalog.status === 'loading' ? <p>Checking plan usage…</p> : planUsage.state === 'reported' ? planUsage.windows.map(w => <p key={w.label}>{w.label}: {w.usedPercent}% used{w.resetsAt !== null ? ` · Resets ${new Date(w.resetsAt).toLocaleString()}` : ''}</p>) : <p>{planUsage.state === 'stale' ? 'Reported usage has expired. ' : 'Usage limits were not reported. '}Check your provider account for current limits.</p>}
           {modelCatalog.usage && <p>Checked {new Date(modelCatalog.usage.checkedAt).toLocaleString()}</p>}
         </div>}
-        <p>A connected plan covers model usage. Platform-provided voice and external services are separate and have their own billing.</p>
+        <p>Plan billing covers model usage. Platform-provided voice and external services are separate and have their own billing.</p>
       </section>
       </div>
     </div>
