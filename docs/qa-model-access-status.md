@@ -17,3 +17,14 @@ Each tab has one plan status row and one current-route sentence. The duplicate r
 - Typecheck and build pass. No live sign-in or customer data is used.
 
 Full unit suites run with Node 24.22.1 and `node --import tsx --test --test-reporter=tap --test-concurrency=1 tests/*.test.mts tests/*.test.mjs`. Baseline is an untouched detached f941e2e checkout on this VM, with the same dependencies. Final comparison and post-rebase results are recorded in the PR.
+
+## Final comparison
+
+| Full run | Pass | Fail | Existing skips | Cancelled |
+| --- | ---: | ---: | ---: | ---: |
+| Untouched f941e2e | 2,124 | 73 | 24 | 0 |
+| Branch | 2,132 | 73 | 24 | 0 |
+
+All failure names match. The branch run includes the seven new mapping tests and one voice-control test inherited while rebasing onto f6e1501 (#204). After that clean rebase, the 129 focused unit tests and 36 new browser cases pass again. The merged change's unit checks pass 48/48 and its browser checks pass 24/24. Typecheck and build pass. No tests or workflows were disabled or newly skipped.
+
+The new browser regression also fails against untouched f941e2e at the duplicate runtime row assertion, confirming that it detects the original layout defect.
