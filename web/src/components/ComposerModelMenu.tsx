@@ -273,7 +273,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
             </label>
             {known && billing === 'plan' && <div className="mm-empty">
               <p>{provider === 'codex-cli' ? 'Codex picks the model for each request. Uses your ChatGPT plan. Check plan limits in your ChatGPT account.' : `Uses your Claude plan${plan ? ` (${plan.replaceAll('_', ' ')})` : ''} through Claude Code.`}</p>
-              <button type="button" className="link-btn" onClick={() => { onClose(); useConfigUI.getState().openAppSettings('keys'); }}>Models &amp; access</button>
+              <button type="button" className="link-btn" onClick={() => { onClose(); useConfigUI.getState().openAppSettings('subscriptions'); }}>Models &amp; access</button>
               {provider === 'codex-cli' && <> · <a href="https://chatgpt.com/codex/settings/usage" target="_blank" rel="noreferrer noopener">View ChatGPT plan usage</a></>}
             </div>}
             {q.trim() ? (

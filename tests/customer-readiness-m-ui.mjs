@@ -90,7 +90,7 @@ try {
     await page.getByText('Codex picks the model for each request. Uses your ChatGPT plan. Check plan limits in your ChatGPT account.', { exact: true }).waitFor();
     assert.equal(await page.getByRole('link', { name: 'View ChatGPT plan usage' }).getAttribute('href'), 'https://chatgpt.com/codex/settings/usage');
     await page.getByRole('button', { name: 'Models & access', exact: true }).click();
-    assert.equal(new URL(page.url()).hash, '#settings/keys');
+    assert.equal(new URL(page.url()).hash, '#settings/subscriptions');
     await page.goto(`${origin}/#bot/${bot.id}`);
     await page.locator('.chat__bot-details').click();
     const details = page.getByRole('complementary', { name: 'Conversation details' });
