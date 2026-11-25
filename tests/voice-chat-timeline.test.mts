@@ -89,3 +89,44 @@ test('voice connection request persists once in chat and reaches SSE without a v
     await request('/voice/end', { botId: bot.id, callId: call.callId });
   } finally { unsubscribe(); }
 });
+
+for (const decision of ['deny', 'allow', 'always'] as const) {
+  test(`R8 post-call pill follows ${decision} through SSE, reload and voice context`, async () => {
+    db.prepare('DELETE FROM policies WHERE user_id=?').run(userId);
+    const bot = createBot(userId, { name: 'Post-call fixture', isPrimary: true });
+    const call = await request('/voice/session', { botId: bot.id });
+    await request('/voice/tool', { botId: bot.id, callId: call.callId, name: 'send_task', args: { request: 'Prepare an email draft for review.' }, toolCallId: `post-call-${decision}` });
+    await settleAgentJobs();
+    const card = (await rows(bot.id)).find(r => r.body.card === 'approval');
+    const ended = await request('/voice/end', { botId: bot.id, callId: call.callId });
+    const pending = (await rows(bot.id)).find(r => r.seq === ended.seq);
+    assert.match(pending.body.text, /1 approval from this call is still pending.*Release review/);
+    assert.equal(pending.body.call.approvals[0].approvalId, card.body.approvalId);
+    const stored = JSON.parse((db.prepare('SELECT body FROM rows WHERE bot_id=? AND seq=?').get(bot.id, ended.seq) as any).body);
+    assert.doesNotMatch(stored.text, /pending/);
+    const events: any[] = [];
+    const unsubscribe = hub.subscribe(userId, event => events.push(event));
+    const wording = decision === 'deny' ? /was not allowed/ : /was allowed/;
+    try {
+      await request(`/approvals/${card.body.approvalId}`, { decision });
+      await settleAgentJobs();
+      const live = events.flatMap(e => e.type === 'rows' ? e.rows : []).find(r => r.seq === ended.seq && r.botId === bot.id);
+      assert.ok(live, 'decision publishes the linked call row to existing SSE clients');
+      assert.ok(live.updatedSeq > pending.updatedSeq);
+      assert.match(live.body.text, wording); assert.doesNotMatch(live.body.text, /pending/);
+      const reloaded = (await rows(bot.id)).find(r => r.seq === ended.seq);
+      assert.equal(reloaded.body.text, live.body.text);
+      const { listRows, listRowChanges } = await import('../server/src/store.js');
+      const changed = listRows(bot.id, { afterRev: pending.updatedSeq }).find(r => r.seq === ended.seq);
+      assert.match((changed!.body as any).text, wording);
+      assert.ok(listRowChanges(bot.id, 1, pending.updatedSeq, reloaded.updatedSeq, 1).some(r => r.seq === ended.seq));
+      const next = await request('/voice/session', { botId: bot.id });
+      assert.match(next.instructions, wording); assert.doesNotMatch(next.instructions, /still pending/);
+      const recalled = await request('/voice/tool', { botId: bot.id, callId: next.callId, name: 'recall_text_messages', args: {} });
+      assert.match(recalled.output, wording); assert.doesNotMatch(recalled.output, /still pending/);
+      const search = await request('/voice/tool', { botId: bot.id, callId: next.callId, name: 'search_conversations', args: { query: 'Voice call ended' } });
+      assert.match(search.output, wording); assert.doesNotMatch(search.output, /still pending/);
+      await request('/voice/end', { botId: bot.id, callId: next.callId });
+    } finally { unsubscribe(); }
+  });
+}

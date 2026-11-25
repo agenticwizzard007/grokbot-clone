@@ -1,6 +1,6 @@
 // Realtime voice is a native team coordinator: it reads app state, manages agents, and dispatches
 // work to their existing text loops. Call-scoped updates bring team inputs and outputs back to voice.
-import { callApprovalSummary, discussionSummary, pendingVoiceApproval, voiceApprovalDetail } from './voice-approvals.js';
+import { callApprovalReferences, discussionSummary, pendingVoiceApproval, serializeVoiceCall, voiceApprovalDetail } from './voice-approvals.js';
 import { VoiceRegistry, type ActiveCall, type VoiceToolOutput, type TranscriptLine, type TeamUpdate } from './voice-registry.js';
 import { Hono } from 'hono';
 import { usesPersonalOpenRouter } from './providers/openrouter.js';
@@ -110,7 +110,7 @@ function recentMessages(botId: string, count: number, call?: ActiveCall) {
   const rows = db.prepare("SELECT seq, body, created_at FROM rows WHERE bot_id=? AND generation=? AND kind IN ('message','event','card') ORDER BY seq DESC LIMIT ?").all(botId, b.generation, count * 2) as any[];
   const out: { seq: number; at: number; who: string; text: string }[] = [];
   for (const r of rows) {
-    const body = JSON.parse(r.body) as RowBody;
+    const body = serializeVoiceCall(JSON.parse(r.body) as RowBody, b.user_id, true);
     if (body.audience === 'internal') continue;
     const m = messageText(body);
     if (m) out.push({ seq: r.seq, at: r.created_at, who: m.role === 'user' ? `User${m.via ? ` (${m.via})` : ''}` : b.name, text: m.text });
@@ -590,7 +590,7 @@ async function runVoiceTool(call: ActiveCall, bot: any, name: string, a: Record<
       const hits: string[] = [];
       const ql = q.toLowerCase();
       for (const r of rows) {
-        const body = JSON.parse(r.body) as RowBody;
+        const body = serializeVoiceCall(JSON.parse(r.body) as RowBody, userId, true);
     if (body.audience === 'internal') continue;
         let text = '';
         let who = '';
@@ -667,21 +667,20 @@ voiceApi.post('/end', async (c) => {
   calls.delete(callId);
   shareTranscript(call, bot.id);
   const base = error ? `Voice call ended · ${fmtDuration(durationMs)} · ${clip(error, 120)}` : `Voice call ended · ${fmtDuration(durationMs)}`;
-  const record: VoiceCallRecord = { id: callId, phase: 'ended', durationMs, transcript: call.transcript, tasks: call.tasks };
+  const endSequences = new Map((db.prepare('SELECT id,next_seq FROM bots WHERE user_id=?').all(user.id) as { id: string; next_seq: number }[])
+    .map(b => [b.id, b.next_seq - 1]));
+  const record: VoiceCallRecord = { id: callId, phase: 'ended', durationMs, transcript: call.transcript, tasks: call.tasks,
+    baseText: base, approvals: callApprovalReferences(call, endedAt, endSequences) };
   const row = appendRow(bot.id, 'event', callEvent(base, record));
   emitBot(bot.id);
 
   // Summarise in the background and rewrite the row.
   // Usage: realtime voice minutes (billed by the provider per minute; the browser talks to it directly).
   recordUnits({ userId: user.id, botId: bot.id, kind: 'voice', model: call.model, provider: call.provider, units: Math.round((durationMs / 60_000) * 100) / 100, unit: 'minutes' });
-  const endSequences = new Map((db.prepare('SELECT id,next_seq FROM bots WHERE user_id=?').all(user.id) as { id: string; next_seq: number }[])
-    .map(b => [b.id, b.next_seq - 1]));
   const writeSummary = (discussion: string | null) => {
     // Sequence numbers are reused after clear; a late summary must not restore old speech.
     if (getBotRow(bot.id)?.generation !== call.generation) return;
-    const approval = callApprovalSummary(call, endedAt, endSequences);
-    const summary = [discussion, approval].filter(Boolean).join(' ');
-    if (summary) updateRow(bot.id, row.seq, callEvent(`${base}. ${summary}`, { ...record, summary }));
+    if (discussion) updateRow(bot.id, row.seq, callEvent(`${base}. ${discussion}`, { ...record, discussion }));
   };
   summarizeCall(bot.id, bot.name, call.transcript, call.tasks).then(writeSummary)
     .catch((e) => { console.warn('[voice] call summary failed:', e?.message); writeSummary(null); });
