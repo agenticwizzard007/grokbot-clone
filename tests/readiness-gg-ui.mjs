@@ -58,9 +58,10 @@ function observeNavigation(theme) {
   requestAnimationFrame(sample);
 }
 
-async function fresh(width, theme) {
-  const f = await fixturePage(browser, { width, height: 900 }, { colorScheme: theme, hasTouch: true, isMobile: width === 390 });
+async function fresh(width, theme, options = {}) {
+  const f = await fixturePage(browser, { width, height: 900 }, { colorScheme: theme, hasTouch: true, isMobile: width === 390, ...options });
   await f.page.addInitScript(observeNavigation, theme);
+  f.page.on('pageerror', error => console.error(`Page error at ${f.page.url()}: ${error.message}`));
   f.fixture.respond = async ({ path }) => {
     if (path.endsWith('/settings') || ['/api/usage', '/api/computer/details'].includes(path)) await new Promise(resolve => setTimeout(resolve, 350));
     if (path === '/api/cli') return { json: { runtime: 'server', selected: null, connected: false, providers: { codex: { installed: true, authenticated: false }, claude: { installed: true, authenticated: false } } } };
@@ -69,6 +70,7 @@ async function fresh(width, theme) {
     if (path === '/api/messaging') return { json: { account: {}, links: [], line: null, prefs: { voiceReplies: 'off' }, speech: {}, invites: { allowance: 0 } } };
     if (path === '/api/usage') return { json: smallComputerUsage };
     if (path === '/api/apps') return { json: { apps: [], connected: [], connectedApps: [], categories: [], total: 0 } };
+    if (/^\/api\/learning\/bots\/[^/]+\/history$/.test(path)) return { json: { entries: [], through: 0, latestVersion: 0, nextBefore: null, coverage: 'No recorded changes.' } };
     if (/^\/api\/bots\/[^/]+\/setup$/.test(path)) return { status: 404, json: { error: 'No saved configuration.' } };
     if (/^\/api\/bots\/[^/]+\/files$/.test(path)) return { json: { status: 'ok', path: '', files: [] } };
     if (path === '/api/computer/details') return { json: { computer: { status: 'absent', screens: [] }, screens: [], hibernation: { idleMinutes: 15 } } };
@@ -146,6 +148,13 @@ try {
         } finally { await page.context().close(); }
       });
     }
+    await check(`Settings entry with ordinary motion ${width} ${theme}`, async () => {
+      const { page, errors } = await fresh(width, theme, { reducedMotion: 'no-preference' });
+      try {
+        await page.goto(`${origin}/#settings/general`); await page.locator(bar).waitFor();
+        const detail = await stable(page); assert.deepEqual(errors, []); return detail;
+      } finally { await page.context().close(); }
+    });
     await check(`Settings root and section reserve the same header ${width} ${theme}`, async () => {
       const { page } = await fresh(width, theme);
       try {
