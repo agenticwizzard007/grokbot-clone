@@ -579,7 +579,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'present_draft',
-    description: 'Show the user a draft they will send themselves (an email, Slack or chat message) as a draft card with Copy. Nothing is sent and no approval is requested. Use this instead of pasting a draft into your reply.',
+    description: 'Show a copyable draft only when the user explicitly asks for text only or says they will copy and send it themselves (an email, Slack or chat message). Nothing is sent or saved in an app and no approval is requested. Otherwise, for an email draft when Gmail is connected, use its draft action through SWARM_APPS_SEARCH and SWARM_APPS_EXECUTE.',
     parameters: obj({
       channel: { type: 'string', enum: ['email', 'slack', 'message'] },
       to: { type: 'string', description: 'Recipient as the user would write it, for example a name, address or channel. Use an empty string if unknown.' },

@@ -33,7 +33,7 @@ server.listen(0, '127.0.0.1'); await once(server, 'listening');
 const address = server.address(); assert.ok(address && typeof address !== 'string');
 let serial = 0;
 const audit = () => fs.existsSync(path.join(root, 'audit.jsonl')) ? fs.readFileSync(path.join(root, 'audit.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line)) : [];
-beforeEach(() => { state.connected = true; state.unavailable = false; state.executions.length = 0; state.external.length = 0; fs.rmSync(path.join(root, 'audit.jsonl'), { force: true }); });
+beforeEach(() => { state.connected = true; state.disabled = false; state.unavailable = false; state.executions.length = 0; state.external.length = 0; fs.rmSync(path.join(root, 'audit.jsonl'), { force: true }); });
 after(async () => { await settleAgentJobs(); await new Promise<void>(resolve => server.close(() => resolve())); mock.restoreAll(); db.close(); fs.rmSync(root, { recursive: true, force: true }); });
 
 async function account(t: any, provider: 'codex' | 'claude', runtime: 'hosted' | 'companion') {
@@ -63,6 +63,28 @@ async function account(t: any, provider: 'codex' | 'claude', runtime: 'hosted' |
 }
 
 for (const provider of ['codex', 'claude'] as const) for (const runtime of ['hosted', 'companion'] as const) {
+  test(`${provider} ${runtime}: the original email request receives an explicit connected Gmail draft route and creates its approval`, { timeout: 30000 }, async t => {
+    const a = await account(t, provider, runtime);
+    await a.chat('Draft a Gmail email to test@example.com with subject Recheck and two paragraphs.');
+    const manifest = audit().find(e => e.kind === 'manifest');
+    assert.ok(manifest, JSON.stringify(a.rows()));
+    assert.equal(manifest.names.includes('GMAIL_CREATE_EMAIL_DRAFT'), false, 'Raw app actions are reached through the app wrappers');
+    for (const name of ['SWARM_APPS_SEARCH', 'SWARM_APPS_EXECUTE']) assert.ok(manifest.tools.some((tool: any) => tool.name === name && tool.inputSchema.properties));
+    const conversation = JSON.parse(manifest.prompt.split('\n\nConversation:\n')[1]);
+    const shared = conversation.find((item: any) => item.role === 'system').content;
+    assert.match(shared, /Gmail routing for this account: for an email draft, use GMAIL_CREATE_EMAIL_DRAFT; for a request to send email, use GMAIL_SEND_EMAIL/);
+    assert.match(shared, /SWARM_APPS_SEARCH \(toolkit="gmail", query="create email draft" or "send email"\)/);
+    assert.match(shared, /SWARM_APPS_EXECUTE with the returned tool_slug, connectionId, revision and arguments matching the discovered schema/);
+    assert.match(shared, /When the user asks for an email draft and Gmail is connected, call the Gmail draft action/);
+    assert.match(shared, /only if the user explicitly asks for text only/);
+    assert.match(shared, /Only say an action is pending approval after a tool returns an actual pending approval/);
+    const card = a.rows().find(r => r.body.card === 'approval');
+    assert.equal(card?.body.args.tool_slug, 'GMAIL_CREATE_EMAIL_DRAFT');
+    assert.equal(card.body.args.arguments.body, 'First paragraph.\n\nSecond paragraph.');
+    assert.equal(a.rows().filter(r => r.body.card === 'draft').length, 0);
+    assert.equal(state.executions.length, 0);
+  });
+
   for (const action of ['create draft', 'send email']) test(`${provider} ${runtime}: Gmail ${action} persists an approval, emits SSE, delivers pending to the CLI and denial blocks execution`, { timeout: 30000 }, async t => {
     const a = await account(t, provider, runtime);
     await a.chat(`Please ${action} in Gmail with 16 lines.`);
@@ -107,6 +129,7 @@ for (const provider of ['codex', 'claude'] as const) for (const runtime of ['hos
     assert.equal(state.executions.length, 0);
     const result = audit().find(e => e.kind === 'result' && e.name === 'SWARM_APPS_SEARCH');
     assert.match(result.reply.content[0].text, /No action approval has been requested/);
+    assert.doesNotMatch(audit().find(e => e.kind === 'manifest').prompt, /Gmail routing for this account/);
   });
 
   test(`${provider} ${runtime}: voice delegates to CLI main chat with the same persisted approval and denial`, { timeout: 30000 }, async t => {
@@ -142,6 +165,26 @@ for (const [toolkit, slug] of [['slack', 'SLACK_SEND_MESSAGE'], ['calendar', 'GO
   await runInBotQueue(a.bot.id, async () => {});
   assert.equal(state.executions.length, 1);
   assert.equal(state.executions[0].slug, slug);
+});
+
+for (const runtime of ['hosted', 'companion'] as const) test(`codex ${runtime}: an explicit text only request uses a copyable draft despite connected Gmail`, { timeout: 30000 }, async t => {
+  const a = await account(t, 'codex', runtime);
+  await a.chat('Draft an email with 16 lines, text only. I will copy and send it myself.');
+  const drafts = a.rows().filter(r => r.body.card === 'draft');
+  assert.equal(drafts.length, 1, JSON.stringify(a.rows()));
+  assert.equal(drafts[0].body.text, emailBody);
+  assert.equal(a.rows().filter(r => r.body.card === 'approval').length, 0);
+  assert.equal(audit().some(e => e.name === 'SWARM_APPS_EXECUTE'), false);
+  assert.equal(state.executions.length, 0);
+});
+
+test('a disabled Gmail account has no connected routing hint and offers the Connect card', { timeout: 30000 }, async t => {
+  state.disabled = true;
+  const a = await account(t, 'codex', 'hosted'); await a.chat('Create a draft in Gmail.');
+  assert.ok(a.rows().some(r => r.body.card === 'connect'), JSON.stringify(a.rows()));
+  assert.doesNotMatch(audit().find(e => e.kind === 'manifest').prompt, /Gmail routing for this account/);
+  assert.equal(a.rows().filter(r => r.body.card === 'approval').length, 0);
+  assert.equal(state.executions.length, 0);
 });
 
 for (const provider of ['codex', 'claude'] as const) test(`${provider}: deferred MCP tools discovered mid-run retain approval and denial checks`, { timeout: 30000 }, async t => {
@@ -184,4 +227,5 @@ test('unavailable app status does not claim Gmail is disconnected or create a Co
   assert.equal(a.rows().filter(r => ['connect', 'approval'].includes(r.body.card)).length, 0);
   assert.equal(state.executions.length, 0);
   assert.match(audit().find(e => e.kind === 'result' && e.name === 'SWARM_APPS_EXECUTE').reply.content[0].text, /could not be confirmed/);
+  assert.doesNotMatch(audit().find(e => e.kind === 'manifest').prompt, /Gmail routing for this account/);
 });

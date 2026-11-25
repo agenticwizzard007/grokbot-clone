@@ -1,5 +1,5 @@
 import { mock } from 'node:test';
-export const state = { connected: true, unavailable: false, executions: [] as any[], external: [] as string[] };
+export const state = { connected: true, disabled: false, unavailable: false, executions: [] as any[], external: [] as string[] };
 const toolkits = ['gmail', 'slack', 'googlecalendar'];
 mock.method(globalThis, 'fetch', async (input: any) => {
   const url = new URL(input instanceof Request ? input.url : input);
@@ -18,7 +18,7 @@ const tools = [
 ].map(([toolkit, slug]) => ({ slug, name: slug, description: slug, toolkit: { slug: toolkit }, version: '20261101_00', tags: ['createHint'], inputParameters: { type: 'object', additionalProperties: true } }));
 mock.method(client.connectedAccounts, 'list', async () => {
   if (state.unavailable) throw Error('Fixture provider unavailable');
-  return { items: state.connected ? toolkits.map(toolkit => ({ id: `fixture-${toolkit}`, toolkit: { slug: toolkit }, status: 'ACTIVE', data: { email: 'fixture@example.test' } })) : [] };
+  return { items: state.connected ? toolkits.map(toolkit => ({ id: `fixture-${toolkit}`, toolkit: { slug: toolkit }, status: 'ACTIVE', isDisabled: state.disabled, data: { email: 'fixture@example.test' } })) : [] };
 });
 mock.method(client.connectedAccounts, 'get', async (id: string) => ({ id, toolkit: { slug: id.replace('fixture-', '') }, status: 'ACTIVE', data: { email: 'fixture@example.test' } }));
 mock.method(client.tools, 'getRawComposioToolBySlug', async (slug: string) => tools.find(tool => tool.slug === slug));

@@ -40,7 +40,7 @@ export async function runFixture(directory) {
   const client = new Client({ name: 'cli-apps-fixture', version: '1' });
   await client.connect(new StreamableHTTPClientTransport(new URL(config.url), { requestInit: { headers: config.headers } }));
   const listing = await client.listTools();
-  audit({ kind: 'manifest', names: listing.tools.map(t => t.name), args, prompt });
+  audit({ kind: 'manifest', names: listing.tools.map(t => t.name), tools: listing.tools, args, prompt });
   const call = async (name, arguments_) => {
     const reply = await client.callTool({ name, arguments: arguments_ });
     audit({ kind: 'result', name, reply });
@@ -50,6 +50,11 @@ export async function runFixture(directory) {
   let text = emailBody;
   if (last?.type === 'function_call_output') {
     text = /declined/i.test(last.output) ? 'The action was not allowed. Nothing was sent or saved.' : 'The fake app action completed.';
+  } else if (JSON.stringify(last).includes('text only')) {
+    const description = await call('tool_describe', { tool_name: 'present_draft' });
+    await call('tool_call', { tool_name: description.name, schema_hash: description.schema_hash,
+      arguments: { channel: 'email', to: emailArgs.recipient_email, subject: emailArgs.subject, text: emailBody } });
+    text = 'The copyable draft is ready. Nothing was sent or saved in Gmail.';
   } else if (JSON.stringify(last).includes('stale account')) {
     const result = await call('SWARM_APPS_EXECUTE', { connectionId: 'stale-gmail', revision: 1, tool_slug: 'GMAIL_CREATE_EMAIL_DRAFT', arguments: emailArgs });
     if (result.status === 'pending') await new Promise(() => {});
@@ -63,6 +68,12 @@ export async function runFixture(directory) {
   } else if (!JSON.stringify(last).includes('plain reply')) {
     const connections = await call('list_app_connections', {});
     const requested = JSON.stringify(last);
+    // The original live request must have an explicit route in the system
+    // instructions, not rely on the fixture knowing a hidden Gmail action.
+    const originalRequest = requested.includes('Draft a Gmail email to test@example.com with subject Recheck and two paragraphs');
+    const system = conversation.find(item => item.role === 'system')?.content ?? '';
+    const hintedDraft = originalRequest ? /Gmail routing for this account: for an email draft, use (GMAIL_[A-Z_]+)/.exec(system)?.[1] : undefined;
+    if (originalRequest) assert.ok(hintedDraft, 'Connected Gmail draft action must be named in the supplied system instructions');
     const toolkit = /fixture slack/.test(requested) ? 'slack' : /fixture calendar/.test(requested) ? 'googlecalendar' : 'gmail';
     const connection = connections.connections.find(c => c.toolkit === toolkit);
     const discovery = await call('SWARM_APPS_SEARCH', { toolkit, query: requested.includes('send email') ? 'send email' : 'create draft', ...(connection ? { connectionId: connection.id } : {}) });
@@ -70,8 +81,11 @@ export async function runFixture(directory) {
       // The pending Connect result must reach the actual CLI before shutdown.
       await new Promise(() => {});
     }
-    const chosen = discovery.tools.find(t => t.slug.includes(requested.includes('send email') ? 'SEND' : 'DRAFT')) ?? discovery.tools[0];
-    const action = { connectionId: discovery.connectionId, revision: discovery.revision, tool_slug: chosen.slug, arguments: emailArgs };
+    const chosen = hintedDraft ? discovery.tools.find(t => t.slug === hintedDraft)
+      : discovery.tools.find(t => t.slug.includes(requested.includes('send email') ? 'SEND' : 'DRAFT')) ?? discovery.tools[0];
+    assert.ok(chosen, 'The hinted action must be discovered with its current schema');
+    const action = { connectionId: discovery.connectionId, revision: discovery.revision, tool_slug: chosen.slug,
+      arguments: originalRequest ? { ...emailArgs, body: 'First paragraph.\n\nSecond paragraph.' } : emailArgs };
     const result = await call('SWARM_APPS_EXECUTE', action);
     if (result.status === 'pending_approval') {
       // Deliberately attempt another write after the stop result. It must never
