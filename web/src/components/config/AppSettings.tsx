@@ -34,7 +34,8 @@ import { DeviceAccessSection } from './DeviceAccessSection';
 import { readDetailsDefault, writeDetailsDefault } from '../../lib/detailsDefault';
 import { toast } from '../../lib/toast';
 import { SHORTCUTS, shortcutKeys } from '../../lib/shortcuts';
-import { browserTimeZone, loadErrorText, timeZoneOptions, toolkitDisplayName } from './settingsLogic';
+import { TimeZonePicker } from './TimeZonePicker';
+import { browserTimeZone, canonicalTimeZone, buildTimeZoneOptions, loadErrorText, toolkitDisplayName } from './settingsLogic';
 import { AccountSessions } from './AccountSessions';
 import { ReauthPrompt } from './ReauthPrompt';
 import { useAccessReauth } from './useAccessReauth';
@@ -1004,11 +1005,12 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
 /** Account time zone: daily synopses, check-ins and analytics days follow it. */
 function TimeZoneRow({ user }: { user: User }) {
   const saved = (user as User & { timezone?: string | null }).timezone ?? null;
-  const [value, setValue] = useState(saved ?? browserTimeZone() ?? 'UTC');
+  const [value, setValue] = useState(saved ? canonicalTimeZone(saved) : '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  useEffect(() => { if (saved) setValue(saved); }, [saved]);
-  const zones = useMemo(() => timeZoneOptions(value), [value]);
+  useEffect(() => { setValue(saved ? canonicalTimeZone(saved) : ''); }, [saved]);
+  const browserZone = browserTimeZone();
+  const zones = useMemo(() => buildTimeZoneOptions(value || browserZone), [value, browserZone]);
   const change = async (next: string) => {
     if (busy || !next) return;
     const previous = value;
@@ -1016,18 +1018,18 @@ function TimeZoneRow({ user }: { user: User }) {
     try {
       const result = await api.updateMe({ timezone: next });
       const state = useStore.getState();
-      if (state.user?.id === user.id) state.set({ user: { ...(result?.user ?? state.user), timezone: next } as User });
-      toast(`Time zone set to ${next}`);
+      if (state.user?.id !== user.id) return;
+      state.set({ user: { ...(result?.user ?? state.user), timezone: next } as User });
+      toast(`Time zone set to ${zones.find(zone => zone.value === next)?.label ?? next}`);
     } catch (e) {
       if (useStore.getState().user?.id === user.id) { setValue(previous); setError(`Couldn’t save the time zone: ${(e as Error).message}`); }
     } finally { setBusy(false); }
   };
   return <>
-    <SettingRow icon={Clock3} title="Time zone" sub={saved ? 'Daily synopses, check-ins and analytics use this zone.' : 'Not set yet. Daily synopses and analytics use UTC until you choose one.'}>
-      <select className="text-input settings-timezone" aria-label="Time zone" value={value} disabled={busy} onChange={(e) => void change(e.target.value)}>
-        {zones.map(zone => <option key={zone} value={zone}>{zone.replace(/_/g, ' ')}</option>)}
-      </select>
+    <SettingRow icon={Clock3} title="Time zone" sub={saved ? 'Daily synopses, check-ins and analytics use this zone.' : 'No time zone is saved. Daily synopses, check-ins and analytics use UTC.'}>
+      <TimeZonePicker value={value} options={zones} disabled={busy} onChange={next => void change(next)} />
     </SettingRow>
+    {!saved && browserZone && <div className="settings-timezone-suggestion"><button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => void change(canonicalTimeZone(browserZone))}>Use {zones.find(zone => zone.value === canonicalTimeZone(browserZone))?.label ?? browserZone}</button></div>}
     {error && <div className="cfg-error cfg-error--inset" role="alert">{error}</div>}
   </>;
 }

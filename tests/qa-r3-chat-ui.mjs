@@ -134,21 +134,21 @@ try {
           inside: r.left >= box.left - 1 && r.right <= box.right + 1 && r.top >= box.top - 1 && r.bottom <= box.bottom + 1 };
       });
     });
-    assert.equal(parts.length, expectedEffort ? 3 : 2, 'model, billing and supported effort remain displayed');
+    assert.equal(parts.length, (page.viewportSize().width <= 760 ? 1 : 2) + Number(!!expectedEffort), 'compact model and supported effort remain displayed; desktop also labels the subscription');
     for (const part of parts) {
       assert.ok(part.width >= 24 && part.height > 0 && part.inside, `${part.name} has readable bounds inside the model pill`);
       if (part.name !== 'model-pill__name') assert.equal(part.clipped, false, `${part.name} stays fully readable`);
     }
     if (expectedEffort) assert.equal(await page.locator('.model-pill__effort').innerText(), expectedEffort);
     else assert.equal(await page.locator('.model-pill__effort').count(), 0, 'Codex does not invent an effort');
-    assert.equal(await page.locator('.model-pill').getAttribute('aria-label'), `Model: ${longModelName}, Plan connection${expectedEffort ? `, ${expectedEffort} effort` : ''}. Change`);
+    assert.equal(await page.locator('.model-pill').getAttribute('aria-label'), `Model: ${longModelName}, Uses your ${planModel === 'codex' ? 'ChatGPT' : 'Claude'} plan${expectedEffort ? `, ${expectedEffort} effort` : ''}. Change`);
     assert.equal(await page.locator('.composer-shell.is-top-effort').count(), planModel === 'medium' ? 1 : 0, 'top effort follows the selected model');
   };
   for (const mode of ['none', 'minimal', 'medium', 'codex']) {
     planModel = mode;
     expectedEffort = mode === 'codex' ? null : mode[0].toUpperCase() + mode.slice(1);
     await page.locator('.model-pill').click();
-    await wait(() => page.locator('.model-pill').getAttribute('aria-label').then(label => label === `Model: ${longModelName}, Plan connection${expectedEffort ? `, ${expectedEffort} effort` : ''}. Change`), `catalog ${mode}`);
+    await wait(() => page.locator('.model-pill').getAttribute('aria-label').then(label => label === `Model: ${longModelName}, Uses your ${planModel === 'codex' ? 'ChatGPT' : 'Claude'} plan${expectedEffort ? `, ${expectedEffort} effort` : ''}. Change`), `catalog ${mode}`);
     if (mode === 'codex') {
       assert.equal(await page.getByRole('button', { name: 'Effort', exact: true }).count(), 0);
       assert.equal(await page.locator('.mm-row__effort, .mm-foot__hint').count(), 0);

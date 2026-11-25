@@ -141,7 +141,6 @@ export const useStore = create<State>((set, get) => ({
       if (sessionExpired()) return;
       if (user !== null && (!user || typeof user.id !== 'string' || !user.id)) throw new Error('Invalid session response');
       set({ user, devLogin, googleLogin: googleLogin !== false, appleLogin: !!appleLogin, appleLinked: !!appleLinked, googleLinked: !!googleLinked, authChecked: true, authError: null });
-      syncBrowserTimezone(user);
     } catch {
       if (sessionExpired()) return;
       set({ authChecked: false, authError: "We couldn't check your session. Check your connection and try again." });
@@ -376,7 +375,10 @@ export const useStore = create<State>((set, get) => ({
       if ((ev.state.revision ?? 0) < (current?.revision ?? 0)) return;
     } else if (ev.runId && current?.runId && (ev.runId !== current.runId || !current.isRunning)) return;
     // Time zone changes (PATCH /api/auth/me) refresh synopses; picked up by configStore.ts like the topics below.
-    if ((ev as { type: string }).type === 'synopses') { window.dispatchEvent(new CustomEvent('swarm:event', { detail: ev })); return; }
+    if (ev.type === 'synopses') {
+      if (ev.timezone && get().user) set({ user: { ...get().user!, timezone: ev.timezone } as User });
+      window.dispatchEvent(new CustomEvent('swarm:event', { detail: ev })); return;
+    }
     switch (ev.type) {
       case 'hello':
       case 'ping':
@@ -454,24 +456,10 @@ useStore.subscribe((state, previous) => {
   });
 });
 
-/** MF-017: an account without a time zone adopts the browser's, so synopses and check-ins run at local time. */
+/** Browser zone is a suggestion only. Account changes require an explicit selection. */
 export function browserTimezone(): string | null {
   try { const zone = Intl.DateTimeFormat().resolvedOptions().timeZone; return zone && zone !== 'Etc/Unknown' ? zone : null; } catch { return null; }
 }
-function syncBrowserTimezone(user: User | null) {
-  const current = (user as (User & { timezone?: string | null }) | null)?.timezone;
-  if (!user || (current !== null && current !== undefined && current !== '')) return;
-  // Older servers omit the field entirely; only send when the server reports it as unset.
-  if (current === undefined) return;
-  const timezone = browserTimezone();
-  if (!timezone) return;
-  api.updateMe({ timezone }).then(result => {
-    const state = useStore.getState();
-    if (state.user?.id !== user.id) return;
-    state.set({ user: { ...(result?.user ?? state.user), timezone } as User });
-  }).catch(() => { /* try again next boot */ });
-}
-
 /** Pane changes are presentation only; screen history is shared at every width. */
 export function enterChatPane() { useStore.setState({ mobilePane: 'chat' }); }
 export function backToList() {

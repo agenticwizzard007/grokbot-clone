@@ -164,7 +164,7 @@ function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
           </section>
           <BotTasks bot={bot} />
           {bot.kind === 'room' ? <section className="bot-detail-section"><h2>Members</h2><div className="bot-detail-card"><MembersCard room={bot} /></div></section> : <>
-            <SuggestedIntegrations botId={bot.id} description={bot.description} instructions={bot.instructions} />
+            <SuggestedIntegrations placement="details" botId={bot.id} description={bot.description} instructions={bot.instructions} />
             <ComputerRow />
             <VoiceSettings bot={bot} compact onStartCall={() => { if (detailsReplaceChat()) close(); }} />
           </>}

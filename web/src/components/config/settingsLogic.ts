@@ -52,17 +52,49 @@ export function scopeNeedsYou(items: NeedsYouItem[] | null | undefined, botId?: 
   }).sort((a, b) => a.createdAt - b.createdAt);
 }
 
-/** IANA zones for the Time zone select, with the current value first if the runtime does not list it. */
+/** Modern IANA spellings for aliases still returned by some ICU/browser versions. */
+const timeZoneAliases: Record<string, string> = {
+  'Africa/Asmera': 'Africa/Asmara', 'America/Buenos_Aires': 'America/Argentina/Buenos_Aires',
+  'America/Catamarca': 'America/Argentina/Catamarca', 'America/Coral_Harbour': 'America/Atikokan',
+  'America/Cordoba': 'America/Argentina/Cordoba', 'America/Godthab': 'America/Nuuk',
+  'America/Indianapolis': 'America/Indiana/Indianapolis', 'America/Jujuy': 'America/Argentina/Jujuy',
+  'America/Louisville': 'America/Kentucky/Louisville', 'America/Mendoza': 'America/Argentina/Mendoza',
+  'Asia/Calcutta': 'Asia/Kolkata', 'Asia/Katmandu': 'Asia/Kathmandu', 'Asia/Rangoon': 'Asia/Yangon',
+  'Asia/Saigon': 'Asia/Ho_Chi_Minh', 'Asia/Ulan_Bator': 'Asia/Ulaanbaatar',
+  'Atlantic/Faeroe': 'Atlantic/Faroe', 'Europe/Kiev': 'Europe/Kyiv',
+  'Pacific/Enderbury': 'Pacific/Kanton', 'Pacific/Ponape': 'Pacific/Pohnpei', 'Pacific/Truk': 'Pacific/Chuuk',
+  'Etc/UTC': 'UTC', 'Etc/GMT': 'UTC', GMT: 'UTC',
+};
+export function canonicalTimeZone(zone: string): string {
+  let resolved = zone;
+  try { resolved = new Intl.DateTimeFormat('en', { timeZone: zone }).resolvedOptions().timeZone; } catch { /* Preserve an unknown saved value. */ }
+  return timeZoneAliases[resolved] ?? resolved;
+}
+
+/** IDs remain IANA values, including a saved zone absent from the runtime's list. */
 export function timeZoneOptions(current?: string | null): string[] {
   let zones: string[] = [];
   try {
     const supported = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf;
     zones = supported ? supported('timeZone') : [];
   } catch { zones = []; }
-  if (!zones.length) zones = ['UTC', 'Europe/London', 'Europe/Berlin', 'Asia/Dubai', 'Asia/Kolkata', 'Asia/Singapore', 'Asia/Tokyo', 'Australia/Sydney', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles'];
-  if (!zones.includes('UTC')) zones = ['UTC', ...zones];
-  if (current && !zones.includes(current)) zones = [current, ...zones];
-  return zones;
+  if (!zones.length) zones = ['Europe/London', 'Europe/Berlin', 'Asia/Dubai', 'Asia/Kolkata', 'Asia/Singapore', 'Asia/Tokyo', 'Australia/Sydney', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles'];
+  return [...new Set(['UTC', ...zones.map(zone => timeZoneAliases[zone] ?? zone), ...(current ? [canonicalTimeZone(current)] : [])])];
+}
+
+export interface TimeZoneOption { value: string; label: string; offset: number }
+/** Offsets reflect the supplied date, including daylight saving and fractional hours. */
+export function buildTimeZoneOptions(current?: string | null, date = new Date()): TimeZoneOption[] {
+  return timeZoneOptions(current).map(value => {
+    try {
+      const offsetName = new Intl.DateTimeFormat('en', { timeZone: value, timeZoneName: 'longOffset' })
+        .formatToParts(date).find(part => part.type === 'timeZoneName')?.value ?? 'GMT';
+      const match = offsetName.match(/GMT([+-])(\d{2}):(\d{2})/);
+      const offset = match ? (Number(match[2]) * 60 + Number(match[3])) * (match[1] === '-' ? -1 : 1) : 0;
+      const city = value === 'UTC' ? 'Coordinated Universal Time' : value.split('/').at(-1)!.replaceAll('_', ' ');
+      return { value, offset, label: `(${match ? offsetName.replace('GMT', 'UTC') : 'UTC+00:00'}) ${city}` };
+    } catch { return { value, offset: Infinity, label: `${value.replaceAll('_', ' ')} (unavailable)` }; }
+  }).sort((a, b) => a.offset - b.offset || a.label.localeCompare(b.label));
 }
 
 /** The browser's own zone, or null when it cannot be read. */
