@@ -6,7 +6,7 @@ import type { AgentSetupView, Bot } from '@shared/types';
 import { configApi } from '../../lib/configApi';
 import { setupApi } from '../../lib/setupApi';
 import { ApiError } from '../../lib/api';
-import { openConversation, usePageTitle, useVersion } from '../../configStore';
+import { openConversation, useVersion } from '../../configStore';
 import { useStore } from '../../store';
 import { Markdown } from '../Markdown';
 import { AgentHarness } from './AgentHarness';
@@ -46,7 +46,6 @@ export function AgentConfiguration({ bot, navigation }: { bot: Bot; navigation?:
 function SetupConfiguration({ bot, navigation, userId }: { bot: Bot; navigation?: ReactNode; userId?: string }) {
   const version = useVersion(`setup:${bot.id}`);
   const running = useStore((s) => s.live[bot.id]?.isRunning ?? false);
-  const covered = useStore(state => state.modal === 'create' || state.modal === 'group');
   const [data, setData] = useState<AgentSetupView | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -152,7 +151,6 @@ function SetupConfiguration({ bot, navigation, userId }: { bot: Bot; navigation?
   };
 
   const detailsTitle = tab === 'harness' ? `${bot.name} · Harness` : tab === 'history' ? `${bot.name} · History` : tab === 'files' ? 'Configuration files' : `${bot.name} · Setup`;
-  usePageTitle(covered ? null : detailsTitle);
   const header = <><h1 className="agent-config__title">{detailsTitle}</h1>
     <p className="setup-paper__subtitle">{data ? `${data.onboarding.status === 'active' ? 'Active configuration' : data.onboarding.status === 'review' ? 'Ready for review' : 'Setup interview'} · Revision ${data.onboarding.revision}` : absent ? 'No saved configuration.' : 'Role, standing instructions, files, and recorded changes.'}</p>{navigation}
     <p className="agent-config__computer" role="status"><ComputerStatusLine /></p></>;

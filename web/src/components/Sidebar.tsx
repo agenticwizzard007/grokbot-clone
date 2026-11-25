@@ -1,8 +1,8 @@
 import { RosterFeedback } from './LoadFeedback';
 import { userFacingLive } from '../lib/audience';
 import { memo, useCallback, useLayoutEffect, useRef, useState } from 'react';
-import { Blocks, ChevronDown, Gauge, KeyRound, LogOut, Monitor, Settings } from 'lucide-react';
-import { openConversation, useConfigUI } from '../configStore';
+import { ArrowLeft, Blocks, ChevronDown, Gauge, KeyRound, LogOut, Monitor, Settings } from 'lucide-react';
+import { backFromSurface, openConversation, useReturnLabel, useConfigUI } from '../configStore';
 import { TasksIsland } from './config/TasksIsland';
 import type { Bot } from '@shared/types';
 import { BotAvatarFor } from '../avatar/BotAvatar';
@@ -66,6 +66,8 @@ export function Sidebar() {
   const storeSelectedBotId = useStore((s) => s.selectedBotId);
   const modal = useStore((s) => s.modal);
   const chatVisible = useConfigUI((s) => sidebarHighlightsBot(s, modal));
+  const botsVisible = useConfigUI(s => s.view === 'bots' && !s.appSettings && !s.botSettings) && !modal;
+  const backTitle = useReturnLabel();
   const selectedBotId = chatVisible ? storeSelectedBotId : null; // nothing highlighted on Tasks, Settings, Bot settings or create pages
   const user = useStore((s) => s.user);
   // Phones show the full list as the home screen, never the collapsed rail.
@@ -125,7 +127,9 @@ export function Sidebar() {
 
   return (
     <aside className={`sidebar${collapsed ? ' is-collapsed' : ''}`} aria-label="Your Bots">
-      <div id="sidebar-back-slot" />
+      <div id="sidebar-back-slot">
+        {botsVisible && backTitle !== 'Back to Bots' && <button type="button" className={`sidebar__back${collapsed ? '' : ' sidebar__back--labeled'}`} aria-label={backTitle} title={backTitle} onClick={backFromSurface}><ArrowLeft size={20} aria-hidden />{!collapsed && <span>{backTitle}</span>}</button>}
+      </div>
       <div className="sidebar__titlebar">
         <button type="button" className="sidebar__brand" aria-label="Your Bots" onClick={showBots}>
           {collapsed ? <>

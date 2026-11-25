@@ -12,7 +12,7 @@ import { LearningSettingsPanel } from './LearningSettings';
 import { configApi, type BotPatch, type BotSettingsBundle, type KnowledgeSkill, type KnowledgeMemory } from '../../lib/configApi';
 import { SkillHistory, SkillReview, MemoryEvidence, ConversationSearch, MemoryArchive } from './KnowledgePanels';
 import { RoutineHistory } from './RoutineHistory';
-import { openConversation, useReturnLabel, useBotSettingsDraft, useConfigUI, usePageTitle, useVersion, type BotSettingsTab } from '../../configStore';
+import { openConversation, useReturnLabel, useBotSettingsDraft, useConfigUI, useVersion, type BotSettingsTab } from '../../configStore';
 import { useStore } from '../../store';
 import { Icon } from '../Icon';
 import { SetupPaperHeader } from '../SetupPaperHeader';
@@ -43,7 +43,6 @@ const draftTabs = (labels: string[]) => {
 
 function BotSettingsPage({ bot, tab, inline, userId }: { bot: Bot; tab: BotSettingsTab; inline: boolean; userId?: string }) {
   const backTitle = useReturnLabel();
-  const covered = useStore(state => state.modal === 'create' || state.modal === 'group');
   const routines = useStore(state => state.routines[bot.id]);
   const memVersion = useVersion(`memories:${bot.id}`);
   const [data, setData] = useState<BotSettingsBundle | null>(null);
@@ -104,7 +103,6 @@ function BotSettingsPage({ bot, tab, inline, userId }: { bot: Bot; tab: BotSetti
   // On phones the section tabs scroll sideways: keep the open one in view.
   const tabsNav = useRef<HTMLElement>(null);
   useEffect(() => { tabsNav.current?.querySelector<HTMLElement>('[aria-current]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }); }, [tab]);
-  usePageTitle(covered ? null : sourcesOpen ? 'Conversation sources' : `${bot.name} · ${label}`, 1);
   useEffect(() => {
     if (!inline) return;
     const onKey = (event: KeyboardEvent) => {

@@ -1,6 +1,11 @@
 import { botSlug, routeBot, linkedWork, workHash, type WorkRoute } from './userRoutes';
 
 export const APP_SECTIONS = ['general', 'keys', 'usage', 'computer', 'messaging', 'permissions', 'apps', 'mcp', 'account', 'subscriptions', 'learning'] as const;
+export const SETTINGS_LABELS: Record<AppSection, string> = {
+  general: 'General', keys: 'API keys', usage: 'Usage', computer: 'Computer', messaging: 'Messaging',
+  permissions: 'Permissions', apps: 'Connected apps', mcp: 'MCP servers', account: 'Account',
+  subscriptions: 'Models & access', learning: 'Learning',
+};
 export const BOT_TABS = ['general', 'skills', 'memories', 'routines', 'learning', 'analytics'] as const;
 export type AppSection = typeof APP_SECTIONS[number];
 export type BotSettingsTab = typeof BOT_TABS[number];
@@ -88,15 +93,50 @@ export function resolveScreen(screen: Screen, bots: { id: string; name: string }
 
 export function outsideSurface(screen: Screen, other: Screen) {
   if (screen.kind === 'create' || screen.kind === 'group') return other.kind !== 'create' && other.kind !== 'group';
+  if (screen.kind === 'work' && other.kind === 'work') return screenHash(screen) !== screenHash(other);
   return other.kind !== screen.kind;
 }
 
-export function backLabel(screen: Screen): string {
+type NavigationBot = { id: string; name: string; kind?: string };
+
+export function backLabel(screen: Screen, bots: NavigationBot[] = []): string {
+  if (screen.kind === 'work') return `Back to ${screen.route.tab}`;
+  if (screen.kind === 'chat' && routeBot(screen.bot, bots)?.kind === 'room') return 'Back to group chat';
   const names: Record<Screen['kind'], string> = {
-    work: 'tasks', details: 'details', bots: 'Bots', create: 'create a Bot', group: 'group chat',
+    work: 'Tasks', details: 'details', bots: 'Bots', create: 'create a Bot', group: 'new group chat',
     'bot-settings': 'Bot settings', settings: 'Settings', chat: 'chat', search: 'search', apps: 'apps',
   };
   return `Back to ${names[screen.kind]}`;
+}
+
+/** Titles belong to the route, so hidden or lazy screens cannot overwrite them. */
+export function screenTitle(screen: Screen, bots: NavigationBot[] = [], loaded = false): string {
+  const bot = 'bot' in screen ? routeBot(screen.bot, bots) : undefined;
+  const name = bot?.name ?? 'Bot';
+  let title: string;
+  switch (screen.kind) {
+    case 'bots': title = 'Bots'; break;
+    case 'chat': title = name; break;
+    case 'settings': title = screen.section ? `Settings · ${SETTINGS_LABELS[screen.section]}` : 'Settings'; break;
+    case 'work': {
+      const scoped = screen.route.botSlug && routeBot(screen.route.botSlug, bots);
+      const scope = scoped ? `${scoped.name} · ` : screen.route.botSlug && loaded ? 'Bot unavailable · ' : '';
+      title = `${scope}${screen.route.tab}`;
+      break;
+    }
+    case 'create': title = 'Create a Bot'; break;
+    case 'group': title = 'New group chat'; break;
+    case 'search': title = 'Search'; break;
+    case 'apps': title = 'Connect apps'; break;
+    case 'bot-settings': title = `${name} · ${screen.tab[0].toUpperCase()}${screen.tab.slice(1)}`; break;
+    case 'details': {
+      const tab = screen.tab === 'configuration' ? screen.setup ?? 'responsibilities' : screen.reports ? 'reports' : screen.tab;
+      const label = { activity: 'Activity', tasks: 'Tasks', library: 'Files', reports: 'Saved reports', responsibilities: 'Setup', harness: 'Harness', files: 'Configuration files', history: 'History' }[tab];
+      title = `${name} · ${label}`;
+      break;
+    }
+  }
+  return `${title} · Swarm`;
 }
 
 /** Shared by the visible label and the action, including safe parent fallbacks. */

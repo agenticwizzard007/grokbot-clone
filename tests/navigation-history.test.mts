@@ -199,12 +199,12 @@ test('all surface labels refresh from restored history and resolve deleted Bot d
     assert.equal(returnLabel(), 'Back to Bots');
     assert.equal(useConfigUI.getState().backLabel, 'Back to Bots');
     seed([]); navigation.initialize({ kind: 'bots' });
-    assert.equal(useConfigUI.getState().backLabel, 'Back to chat');
+    assert.equal(useConfigUI.getState().backLabel, surface.kind === 'bot-settings' ? 'Back to chat' : 'Back to Bots');
     if (surface.kind === 'settings') useConfigUI.getState().closeAppSettings();
     else if (surface.kind === 'work') backFromWork();
     else if (surface.kind === 'bot-settings') useConfigUI.getState().closeBotSettings();
     else useStore.getState().setModal(null);
-    assert.equal(f.location.hash, screenHash(resolvedChat));
+    assert.equal(f.location.hash, surface.kind === 'bot-settings' ? screenHash(resolvedChat) : '#bots');
   }
   useStore.setState({ mobile: true }); f.reset('#new-bot'); navigation.initialize({ kind: 'bots' });
   assert.equal(useConfigUI.getState().backLabel, 'Back to Bots');

@@ -102,7 +102,7 @@ const errors = [];
 page.on('pageerror', error => errors.push(error.message));
 let visits = 0;
 const reload = async (hash = '') => { await page.goto(`${base}/?settings-fixture=${++visits}${hash}`); await page.locator('.app').waitFor(); };
-const title = value => page.waitForFunction(expected => document.title === expected, value);
+const title = value => page.waitForFunction(expected => document.title === `${expected} · Swarm`, value);
 const openApp = async section => {
   await page.keyboard.press('Control+,');
   await page.locator('.app-settings').waitFor({ state: 'visible' });
@@ -147,7 +147,7 @@ try {
   const copied = await context.newPage();
   await copied.goto(settingsUrl);
   await copied.locator('.bot-settings-page .learning-flags').waitFor();
-  assert.equal(await copied.title(), 'Coordinator Bot · Learning');
+  assert.equal(await copied.title(), 'Coordinator Bot · Learning · Swarm');
   await copied.close();
   await reload(`#bot/${duplicate.id}/settings/general`);
   await title('Coordinator Bot · General');
@@ -156,9 +156,9 @@ try {
   assert.notEqual(new URL(duplicateUrl).hash.split('/')[1], new URL(settingsUrl).hash.split('/')[1]);
   state.reads = [];
   await page.reload(); await title('Coordinator Bot · General');
-  assert.ok(state.reads.includes(`/api/bots/${duplicate.id}/settings`), 'reload restores the correct duplicate Bot');
   const model = page.getByRole('button', { name: 'Bot model', exact: true });
   await model.getByText('Grok 4.7', { exact: true }).waitFor();
+  assert.ok(state.reads.includes(`/api/bots/${duplicate.id}/settings`), 'reload restores the correct duplicate Bot');
   assert.ok(!(await model.innerText()).includes('x-ai/grok-4.7'));
   await page.screenshot({ path: '.context/slug-settings.png' });
   duplicate.model = null;
@@ -166,7 +166,7 @@ try {
   await model.getByText('Default · Grok 4.7', { exact: true }).waitFor();
   assert.ok(!(await model.innerText()).includes('x-ai/grok-4.7'));
   duplicate.model = bot.model;
-  await page.keyboard.press('Escape'); await title('Swarm');
+  await page.keyboard.press('Escape'); await title('Coordinator Bot');
   await page.getByRole('button', { name: 'Tasks', exact: true }).click();
   for (const tab of ['Goals', 'Reports']) {
     await page.getByRole('navigation', { name: 'Work sections' }).getByRole('button', { name: tab, exact: true }).click();
@@ -178,7 +178,7 @@ try {
     await page.keyboard.press('Escape'); await title(tab);
     assert.equal(new URL(page.url()).hash, `#${tab.toLowerCase()}`);
   }
-  await page.locator('.pinned__tile').click(); await title('Swarm');
+  await page.locator('.pinned__tile').click(); await title('Coordinator Bot');
   assert.equal(new URL(page.url()).hash, '');
   await reload('#goals'); await title('Goals');
   await page.evaluate(() => { location.hash = '#reports'; }); await title('Reports');
@@ -251,12 +251,12 @@ try {
       assert.equal(await details.getByRole('button', { name: 'Retry computer preparation' }).count(), preparation === 'pending' ? 1 : 0);
     }
   }
-  for (const [tab, expected] of [['Harness', 'Coordinator Bot · Harness'], ['Files', 'Configuration files'], ['History', 'Coordinator Bot · History']]) {
+  for (const [tab, expected] of [['Harness', 'Coordinator Bot · Harness'], ['Files', 'Coordinator Bot · Configuration files'], ['History', 'Coordinator Bot · History']]) {
     await details.getByRole('tab', { name: tab, exact: true }).click(); await title(expected);
     await assertLine('Computer: Asleep');
   }
   await page.getByRole('button', { name: 'New Bot', exact: true }).click();
-  await page.locator('main.setup-create').waitFor(); await title('Swarm');
+  await page.locator('main.setup-create').waitFor(); await title('Create a Bot');
   await page.locator('main.setup-create').getByRole('button', { name: 'Close', exact: true }).click();
   await title('Coordinator Bot · History');
   await openApp('computer'); await title('Settings · Computer');
@@ -294,7 +294,7 @@ try {
       await page.locator('.bot-settings-page').waitFor({ state: 'detached' });
       await page.keyboard.press('Escape');
     }
-    await title(width === 390 ? 'Swarm' : 'Coordinator Bot · History');
+    await title(width === 390 ? 'Coordinator Bot' : 'Coordinator Bot · History');
     await page.locator('.app-settings').waitFor({ state: 'detached' });
     await page.locator('.bot-settings-page').waitFor({ state: 'detached' });
     if (width === 390) await page.locator('.chat__pill').waitFor({ state: 'visible' });
@@ -302,7 +302,7 @@ try {
     assert.equal(new URL(page.url()).hash, '');
     console.log(`PASS settings-smoke ${width}px: Escape returns to the underlying chat with both settings surfaces closed`);
   }
-  await details.getByRole('button', { name: 'Close details', exact: true }).click(); await title('Swarm');
+  await details.getByRole('button', { name: 'Close details', exact: true }).click(); await title('Coordinator Bot');
 
   // Linux guidance is present before pairing, including the minimal Connect your PC state.
   state.computer = computer('stopped', 'local');
@@ -330,7 +330,7 @@ try {
   assert.equal(await page.evaluate(() => history.length), workHistoryLength);
   await page.getByRole('button', { name: 'Bot list', exact: true }).click(); await assertPhoneList();
   await openBot(); await page.getByRole('button', { name: 'Back to Bots', exact: true }).click();
-  await assertPhoneList(); await title('Swarm');
+  await assertPhoneList(); await title('Bots');
   await openBot();
   const name = page.locator('.bot-settings-page').getByRole('textbox', { name: 'Name', exact: true });
   await name.fill('Edited Bot');

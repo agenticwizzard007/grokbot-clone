@@ -13,7 +13,7 @@ import { ModelPicker, refreshModels } from './ModelPicker';
 import { LearningSettingsPanel } from './LearningSettings';
 import { UsageSection } from './UsageSection';
 import { relativeShort } from '../../lib/time';
-import { openConversation, useReturnLabel, useConfigUI, usePageTitle, useVersion, type AppSection, type Theme } from '../../configStore';
+import { openConversation, useReturnLabel, useConfigUI, useVersion, type AppSection, type Theme } from '../../configStore';
 import { useStore } from '../../store';
 import { computerStatusText } from './computerStatus';
 import { ConfirmButton, Segmented, Switch } from './ui';
@@ -78,7 +78,7 @@ export function AppSettings() {
   const backTitle = useReturnLabel();
   const showListRoute = () => useConfigUI.getState().showSettingsList();
   const compact = useCompactLayout();
-  const [listView, setListView] = useState(home);
+  const listView = home;
   const [query, setQuery] = useState('');
   const main = useRef<HTMLDivElement>(null);
   const heading = useRef<HTMLElement>(null);
@@ -107,7 +107,7 @@ export function AppSettings() {
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
   }, [close]);
-  useEffect(() => { setListView(home); setQuery(''); }, [home, section]);
+  useEffect(() => { setQuery(''); }, [home, section]);
   useEffect(() => { main.current?.scrollTo({ top: 0 }); }, [section, listView]);
   useLayoutEffect(() => { heading.current?.focus({ preventScroll: true }); }, [portalHost, appRoot, compact, listView, section]);
   useLayoutEffect(() => {
@@ -118,9 +118,8 @@ export function AppSettings() {
   }, []);
 
   const sectionLabel = NAV.flatMap(group => group.items).find(item => item.id === section)?.label;
-  usePageTitle(section ? compact && listView ? 'Settings' : `Settings · ${sectionLabel}` : null, 2);
   if (!section || !portalHost) return null;
-  const pick = (id: AppSection) => { open(id); setListView(false); setQuery(''); };
+  const pick = (id: AppSection) => { open(id); setQuery(''); };
   const q = query.trim();
   const groups = q ? NAV.map((g) => ({ ...g, items: g.items.filter((it) => matches(it, q)) })).filter((g) => g.items.length) : NAV;
   // Up/Down move between sections, like a native sidebar.

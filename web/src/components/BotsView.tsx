@@ -1,7 +1,7 @@
 import { RosterFeedback } from './LoadFeedback';
 import { ChevronRight, Plus, Search } from 'lucide-react';
 import { BotAvatarFor } from '../avatar/BotAvatar';
-import { openConversation, useConfigUI } from '../configStore';
+import { navigation, openConversation } from '../configStore';
 import { displayName, useStore } from '../store';
 import { userFacingLive } from '../lib/audience';
 
@@ -15,7 +15,7 @@ export function BotsView() {
     <div className="bots-view__actions">
       <button type="button" className="btn btn--secondary" onClick={() => useStore.getState().setModal('search')}><Search size={18} aria-hidden /> Search Bots</button>
       <button type="button" className="btn btn--primary" onClick={() => useStore.getState().setModal('create')}><Plus size={18} aria-hidden /> Create a Bot</button>
-      <button type="button" className="btn btn--secondary" onClick={() => useConfigUI.getState().setView('tasks')}>All tasks</button>
+      <button type="button" className="btn btn--secondary" onClick={() => navigation.navigate({ kind: 'work', route: { tab: 'Tasks' } })}>All tasks</button>
     </div>
     <RosterFeedback />
     <div className="bots-view__list">{[...bots].sort((a,b) => Number(!!b.isPrimary) - Number(!!a.isPrimary) || b.lastActivityAt - a.lastActivityAt).map(bot => {

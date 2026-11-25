@@ -51,6 +51,7 @@ function Shell() {
   // Settings dialogs load lazily; only mount them while one is open.
   const settingsOpen = useConfigUI((s) => !!s.appSettings);
   const botSettings = useConfigUI(s => s.botSettings);
+  const mainHidden = settingsOpen || (mobile && view === 'bots' && !botSettings && modal !== 'create' && modal !== 'group');
 
   // Phone layout: follow the breakpoint, and let the system back gesture leave a chat for the list.
   useEffect(() => {
@@ -112,7 +113,7 @@ function Shell() {
   return (
     <div className={`app${settingsOpen ? ' is-app-settings' : ''}${collapsed && !mobile ? ' is-sidebar-collapsed' : ''}${mobile ? ` is-mobile pane-${view === 'tasks' || (modal === 'create' || modal === 'group') || botSettings || detailsOpen ? 'chat' : pane}` : ''}`}>
       <Sidebar />
-      <div className={`main-pane${detailsOpen && hasBot && view === 'chat' && !botSettings && modal !== 'create' && modal !== 'group' ? ' has-bot-details' : ''}`} hidden={settingsOpen}>
+      <div className={`main-pane${detailsOpen && hasBot && view === 'chat' && !botSettings && modal !== 'create' && modal !== 'group' ? ' has-bot-details' : ''}`} hidden={mainHidden} aria-hidden={mainHidden || undefined}>
       <div className="chat-pane">
       <Suspense fallback={view === 'chat' && !botSettings && !modal ? <ChatSkeleton /> : <main className="chat chat--empty" role="status">Loading...</main>}>
         {modal === 'create' ? <CreateBotModal inline />

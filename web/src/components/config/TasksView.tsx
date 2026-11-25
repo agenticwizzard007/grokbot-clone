@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, Menu, RefreshCw } from 'lucide-react';
-import { backFromWork, useReturnLabel, useConfigUI, usePageTitle } from '../../configStore';
+import { backFromWork, useReturnLabel, useConfigUI } from '../../configStore';
 import { botSlug, routeBot, type WorkTab } from '../../lib/userRoutes';
 import { backToList, useStore } from '../../store';
 import { RosterFeedback } from '../LoadFeedback';
@@ -49,7 +49,6 @@ function WorkWorkspace() {
   const heading = unavailable ? undefined : childHeading;
   // Titles are fixed. A Bot is named only when the user filtered to it.
   const scope = selectedBot ? `${selectedBot.name} · ` : unavailable && botsLoaded ? 'Bot unavailable · ' : '';
-  usePageTitle(`${scope}${tab}`);
   const title = heading?.title ?? tab;
   const subtitle = heading ? (tab === 'Reports' ? heading.subtitle : `${scope}${heading.subtitle}`) : tab === 'Team' ? `Team board · ${scope}Owners, dependencies and evidence from current team records.` : tab === 'Goals' ? `${scope}Keep work running across turns and verify results against acceptance checks.` : `${scope}Download saved reports, save in Library or review where they will be sent.`;
 
