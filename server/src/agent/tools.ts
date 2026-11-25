@@ -27,7 +27,7 @@ import { COORDINATION_TOOLS } from './coordination-tools.js';
 import { z } from 'zod';
 import { findMcpTool } from '../mcp/store.js';
 import { platformState } from './platform-state.js';
-import { APP_CONNECTION_TOOLS, requestAppConnection } from './app-connections.js';
+import { APP_CONNECTION_TOOLS, requestAppConnection, connectionRequiredMessage } from './app-connections.js';
 import { appToolLabel } from '../tool-activity.js';
 import { DISCOVERY_TOOLS } from './tool-catalog.js';
 import { PROGRAM_TOOLS } from './programs.js';
@@ -807,7 +807,7 @@ export function humanizeSlug(slug: string) {
 
 export async function runComposioTool(ctx: ToolCtx, name: string, args: any): Promise<ToolResult> {
   const app = String(args?.tool_slug ?? '').startsWith('GMAIL_') || args?.toolkit === 'gmail' ? 'Gmail' : 'The connected app';
-  const retry = 'Check the connection in Settings, then retry. Review activity before repeating any external action.';
+  const retry = 'Open Connected apps to check the account, then ask again. Check the app for changes before repeating this action.';
   try {
     if (name === 'SWARM_APPS_SEARCH' && typeof args?.toolkit === 'string' && !ctx.roomId) {
       // A successful empty account lookup is different from an unavailable provider.
@@ -816,7 +816,7 @@ export async function runComposioTool(ctx: ToolCtx, name: string, args: any): Pr
       if (!accounts.some(account => account.toolkit === args.toolkit && account.status === 'ACTIVE' && !account.isDisabled)) {
         const info = await toolkitInfo(args.toolkit);
         if (info) return requestAppConnection({ toolkit: info.slug,
-          reason: `${info.name} is not connected. Connect it to continue your requested work.` }, ctx);
+          reason: connectionRequiredMessage(info.name, accounts.some(account => account.toolkit === args.toolkit)) }, ctx);
       }
     }
     const r = await executeComposio(ctx.userId, name, args, { readOnly: isConfiguring(ctx.botId) || ctx.readOnlyApps === true });
@@ -830,8 +830,19 @@ export async function runComposioTool(ctx: ToolCtx, name: string, args: any): Pr
     if (error?.message === 'Setup requires a provider-verified read-only app tool. Write or unknown tool metadata is refused.') throw error;
     // Provider bodies can contain private app data. Expose classifications only.
     const timedOut = ['TimeoutError', 'AbortError', 'APIConnectionTimeoutError'].includes(error?.name) || [408, 504].includes(error?.status);
-    const expired = [401, 403, 404, 409].includes(error?.status) || /connection not found/i.test(String(error?.message));
-    const reason = timedOut ? `${app} tool timed out.` : expired ? `${app} connection failed or expired.` : `${app} connection failed.`;
+    // A provider HTTP error alone does not prove a private account has expired.
+    // Only a fresh discovery lookup may produce reconnection guidance and a card.
+    // An execution failure can have an uncertain outcome, even if auth expired.
+    const toolkit = typeof args?.toolkit === 'string' ? args.toolkit : String(args?.tool_slug ?? '').split('_')[0].toLowerCase();
+    if (name === 'SWARM_APPS_SEARCH' && ([401, 403, 404, 409].includes(error?.status) || /connection not found/i.test(String(error?.message)))) {
+      try {
+        const accounts = await connectionsDetail(ctx.userId, { signal: AbortSignal.timeout(15_000) });
+        if (!ctx.roomId && !accounts.some(a => a.toolkit === toolkit && a.status === 'ACTIVE' && !a.isDisabled)) {
+          return await requestAppConnection({ toolkit, reason: connectionRequiredMessage(app, accounts.some(a => a.toolkit === toolkit)) }, ctx);
+        }
+      } catch { /* Keep unavailable status distinct from a confirmed missing connection. */ }
+    }
+    const reason = timedOut ? `${app} tool timed out.` : `${app} connection failed.`;
     throw new Error(`${reason} ${retry}`);
   }
 }

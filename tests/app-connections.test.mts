@@ -100,11 +100,14 @@ test('an available empty list differs from disabled and failed provider lookups'
   accountFailure = true;
   const failed = (await run('list_app_connections')).data;
   assert.equal(failed.ok, false); assert.equal(failed.available, false); assert.equal(failed.status, 'unavailable');
+  assert.match(failed.error, /Open Connected apps.*does not mean your apps are disconnected/);
   assert.doesNotMatch(JSON.stringify(failed), /SECRET|oauth\.example/);
   setEnvOverride('COMPOSIO_API_KEY', '');
   const calls = accountQueries.length;
   for (const [name, args] of [['list_app_connections', {}], ['search_apps', {}], ['request_app_connection', { toolkit: 'github', reason: 'Validate access' }]] as const) {
-    assert.equal((await run(name, args)).data.status, 'unavailable');
+    const disabled = (await run(name, args)).data;
+    assert.equal(disabled.status, 'unavailable');
+    assert.match(disabled.error, /not set up on this server.*server owner/);
   }
   assert.equal(accountQueries.length, calls); assert.equal(cards().length, 0);
 });

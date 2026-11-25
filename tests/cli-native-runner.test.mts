@@ -63,7 +63,7 @@ for (const provider of ['codex', 'claude']) test(`${provider}: official MCP clie
   assert.doesNotMatch(JSON.stringify(started.env), /private-sentinel|untrusted/);
   if (provider === 'codex') {
     for (const expected of ['--ignore-user-config', '--ignore-rules', 'features.shell_tool=false', 'features.hooks=false', 'features.apps=false', 'features.plugins=false', 'features.multi_agent=false', 'read-only']) assert.ok(started.args.includes(expected), expected);
-    assert.match(started.args.find((arg: string) => arg.startsWith('mcp_servers=')), /required=true,default_tools_approval_mode="auto"/);
+    assert.match(started.args.find((arg: string) => arg.startsWith('mcp_servers=')), /required=true,default_tools_approval_mode="approve"/);
   } else {
     assert.ok(started.args.includes('--restricted')); assert.ok(!started.args.includes('--safe-mode')); assert.ok(!started.args.includes('--bare'));
     assert.equal(started.args[started.args.indexOf('--tools') + 1], '');

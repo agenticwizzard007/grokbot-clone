@@ -8,6 +8,8 @@ import { clearCliCatalog } from './catalog.js';
 import { codexDefaultCatalog } from './codex-default.js';
 import type { NativeToolHandler } from './native-tools.js';
 import { hasNativeTools, ToolCallbacks } from './tool-callback.js';
+import { withCliDiagnostics } from './diagnostics.js';
+import { attribution } from '../usage-context.js';
 
 export interface CliAuthStatus { installed: boolean; authenticated: boolean; subscription: boolean; error?: string }
 export type CliProviders = Record<CliProvider, CliAuthStatus>;
@@ -45,7 +47,8 @@ export function cliRequest(userId: string, method: 'status' | 'generate' | 'cata
     if (cliRuntime(userId) === 'bridge' && connections.has(userId) && !connections.get(userId)!.codexExecOnly) return Promise.reject(new Error('Update your computer bridge in Models & access before using Codex.'));
     return cliRequest(userId, 'status', {}, timeoutMs, signal).then(providers => codexDefaultCatalog(providers.codex));
   }
-  return withLegacyWork(userId, () => admittedRequest(userId, method, params, timeoutMs, signal, onToolCall));
+  const work = () => withLegacyWork(userId, () => admittedRequest(userId, method, params, timeoutMs, signal, onToolCall));
+  return method === 'generate' ? withCliDiagnostics(params, cliRuntime(userId), work, attribution()) : work();
 }
 
 function admittedRequest(userId: string, method: 'status' | 'generate' | 'catalog', params: unknown, timeoutMs: number, signal?: AbortSignal, onToolCall?: NativeToolHandler): Promise<any> {
