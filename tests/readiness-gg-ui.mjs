@@ -174,6 +174,7 @@ try {
       try {
         // Mutation observer records the first rendered coordinates. A real mouse
         // click uses those coordinates without Playwright waiting for stability.
+        await page.exposeBinding('ggClickModels', (_source, target) => page.mouse.click(target.x, target.y));
         await page.addInitScript(() => {
           new MutationObserver(() => {
             if (window.ggModelTarget) return;
@@ -181,12 +182,10 @@ try {
             if (!button) return;
             const r = button.getBoundingClientRect();
             window.ggModelTarget = { at: performance.now(), x: r.x + r.width / 2, y: r.y + r.height / 2 };
+            void window.ggClickModels(window.ggModelTarget);
           }).observe(document, { subtree: true, childList: true });
         });
         await page.goto(`${origin}/#settings`, { waitUntil: 'commit' });
-        await page.waitForFunction(() => window.ggModelTarget, null, { polling: 'raf' });
-        const target = await page.evaluate(() => window.ggModelTarget);
-        await page.mouse.click(target.x, target.y);
         await hashIs(page, '#settings/subscriptions');
         const elapsed = await page.evaluate(() => window.gg.events.find(e => e.type === 'click').at - window.ggModelTarget.at);
         assert.ok(elapsed < 100, `first click took ${elapsed} ms after first render`);
