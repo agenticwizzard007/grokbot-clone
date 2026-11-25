@@ -55,11 +55,14 @@ let retryTimer: ReturnType<typeof setTimeout> | undefined;
 let retryAttempt = 0;
 let activeVersion: number | undefined;
 const retryDelays = [1000, 2000, 4000, 8000];
-function retryLoad(version: number) {
+// A known background refresh is checked within eight seconds of completion.
+// Transport failures back off to thirty seconds.
+function retryLoad(version: number, refreshing = false) {
   clearTimeout(retryTimer);
+  const delay = retryDelays[retryAttempt++] ?? 30_000;
   retryTimer = setTimeout(() => {
     if (version === loadVersion) void useModels.getState().load(true);
-  }, retryDelays[retryAttempt++] ?? 30_000);
+  }, refreshing ? Math.min(delay, 8000) : delay);
 }
 export const useModels = create<ModelsState>((set, get) => ({
   status: 'idle', stale: false, provider: null, billing: null, defaultModel: null, plan: null, usage: null, canFast: false, models: [], byId: new Map(), favourites: [], error: null,
@@ -81,7 +84,7 @@ export const useModels = create<ModelsState>((set, get) => ({
       } else {
         set({ status: 'ready', stale: !!r.stale, provider: r.provider, billing: r.billing, defaultModel: r.defaultModel ?? null, plan: r.plan ?? null, usage: r.usage ?? null, canFast: r.canFast, models: r.models, byId: new Map(r.models.map((m) => [m.id, m])), favourites: r.favourites, error: null });
       }
-      if (r.stale) retryLoad(version);
+      if (r.stale) retryLoad(version, true);
       else retryAttempt = 0;
     } catch {
       if (version !== loadVersion) return;

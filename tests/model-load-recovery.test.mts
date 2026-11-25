@@ -33,7 +33,7 @@ test('cold stale catalogs retry with backoff until metadata is ready without a p
   account('cold'); let calls = 0;
   t.mock.method(globalThis, 'fetch', async () => Response.json(++calls < 6 ? { ...catalog, models: [], stale: true } : catalog));
   await useModels.getState().load();
-  for (const delay of [1000, 2000, 4000, 8000, 30_000]) {
+  for (const delay of [1000, 2000, 4000, 8000, 8000]) {
     assert.equal(useModels.getState().status, 'loading'); assert.equal(useModels.getState().error, null);
     t.mock.timers.tick(delay - 1); await settle(); const before = calls;
     t.mock.timers.tick(1); await settle(); assert.equal(calls, before + 1);
@@ -51,4 +51,18 @@ test('account switches discard late catalogs and reconnect retries immediately',
   t.mock.method(globalThis, 'fetch', async () => Response.json(catalog));
   useStore.setState({ sseConnected: true }); await settle();
   assert.equal(useModels.getState().status, 'ready');
+});
+
+
+test('transport failures back off to thirty seconds after the initial retries', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  account('offline'); let calls = 0;
+  t.mock.method(globalThis, 'fetch', async () => { calls++; throw new Error('Fixture offline'); });
+  await useModels.getState().load();
+  for (const delay of [1000, 2000, 4000, 8000, 30_000]) {
+    const before = calls;
+    t.mock.timers.tick(delay - 1); await settle(); assert.equal(calls, before);
+    t.mock.timers.tick(1); await settle(); assert.equal(calls, before + 1);
+    assert.equal(useModels.getState().status, 'loading'); assert.equal(useModels.getState().error, null);
+  }
 });

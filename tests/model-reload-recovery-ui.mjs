@@ -28,7 +28,7 @@ try {
       calls++;
       if (mode === 'aborted' && calls === 1) return route.abort('aborted');
       if (mode === 'auth-race' && calls === 1) return route.fulfill({ status: 401, json: { error: 'Session restoring' } });
-      if (mode === 'cold' && Date.now() - start < 12_000) return route.fulfill({ json: { ...catalog, models: [], stale: true } });
+      if (mode === 'cold' && Date.now() - start < 20_000) return route.fulfill({ json: { ...catalog, models: [], stale: true } });
       return route.fulfill({ json: catalog });
     });
     await page.goto(`${origin}/#bot/${fixture.bots[0].id}`);
@@ -39,7 +39,7 @@ try {
       await page.reload();
       await page.locator('.model-pill').waitFor();
       assert.equal(await name.innerText(), 'Codex · ChatGPT plan', 'cached resolved label survives reload');
-      await page.waitForFunction(() => document.querySelector('.model-pill')?.getAttribute('aria-busy') === 'false', null, { timeout: 25_000 });
+      await page.waitForFunction(() => document.querySelector('.model-pill')?.getAttribute('aria-busy') === 'false', null, { timeout: 30_000 });
       assert.equal(await name.innerText(), 'Codex · ChatGPT plan');
       assert.match(await page.locator('.sidebar-usage').getAttribute('aria-label'), /Codex plan.*Usage limits not reported/);
       assert.ok(calls >= 2, `${scenario} retried automatically`);
