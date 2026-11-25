@@ -391,6 +391,14 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
           <div><dt>Provider</dt><dd>{provider.name}</dd></div>
           <div><dt>Eligible plan</dt><dd>{provider.plan}</dd></div>
           <div><dt>Login location</dt><dd>{runtime === 'bridge' ? 'Your computer · advanced bridge' : 'Swarm server · private account profile'}</dd></div>
+          <div><dt>Last CLI run</dt><dd>{status?.lastRun ? new Date(status.lastRun.startedAt).toLocaleString() : 'No run recorded yet'}</dd></div>
+          {status?.lastRun && <>
+            <div><dt>Run provider</dt><dd>{status.lastRun.provider === 'codex' ? 'Codex' : 'Claude Code'} · {status.lastRun.runtime === 'server' ? 'Swarm server' : 'Your computer'}</dd></div>
+            <div><dt>Tools offered</dt><dd>{status.lastRun.toolsOffered}</dd></div>
+            <div><dt>Last tool call</dt><dd>{status.lastRun.lastTool ?? 'None reached Swarm'}</dd></div>
+            <div><dt>Run result</dt><dd>{{ running: 'Running', completed: 'Completed', pending_approval: 'Pending approval', rejected_by_cli: 'Rejected by CLI', denied: 'Denied', error: 'Error', cancelled: 'Stopped', no_tool_call: 'No tool call' }[status.lastRun.result]}</dd></div>
+            {status.lastRun.errorCode && <div><dt>Run code</dt><dd>{status.lastRun.errorCode}</dd></div>}
+          </>}
           </dl>
         </details>
         {blocked && <p className="subscription-settings__blocked">The selected subscription is blocked until its login is ready. There is no automatic fallback to API providers.</p>}

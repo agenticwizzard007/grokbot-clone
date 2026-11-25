@@ -7,10 +7,10 @@ import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { Hono } from 'hono';
 import { WebSocket } from 'ws';
-import { mockCliProvider, modelOutputs, modelTools } from './fixtures/real-cli-provider.mjs';
+import { mockCliProvider, modelOutputs, modelTools, usesCodeMode, codeModeAction } from './fixtures/real-cli-provider.mjs';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-real-apps-'));
-Object.assign(process.env, { NODE_ENV: 'test', SWARM_ROLE: 'standalone', DB_PATH: path.join(root, 'db'), FILES_DIR: path.join(root, 'files'), CLI_PROFILES_DIR: path.join(root, 'profiles'), SESSION_SECRET: 'fixture', COMPUTER_PROVIDER: 'local', COMPOSIO_API_KEY: 'fixture', XAI_API_KEY: 'fixture', XAI_BASE_URL: 'https://model.fixture/v1', DIRECT_API_KEY: '', OPENROUTER_API_KEY: '', LLM_PROVIDER: 'direct', INKBOX_TUNNEL: '0' });
+Object.assign(process.env, { NODE_ENV: 'production', DEV_LOGIN: '0', SWARM_ROLE: 'standalone', DB_PATH: path.join(root, 'db'), FILES_DIR: path.join(root, 'files'), CLI_PROFILES_DIR: path.join(root, 'profiles'), SESSION_SECRET: 'fixture', COMPUTER_PROVIDER: 'local', COMPOSIO_API_KEY: 'fixture', XAI_API_KEY: 'fixture', XAI_BASE_URL: 'https://model.fixture/v1', DIRECT_API_KEY: '', OPENROUTER_API_KEY: '', LLM_PROVIDER: 'direct', INKBOX_TUNNEL: '0' });
 const { state } = await import('./fixtures/cli-apps-backends.mjs');
 const { db } = await import('../server/src/db.js');
 const { createBot } = await import('../server/src/bots.js');
@@ -25,7 +25,8 @@ const { saveMcpServer } = await import('../server/src/mcp/store.js');
 const { selectCli, createCliPairing } = await import('../server/src/cli/store.js');
 const { attachCliSocket, cliStatus, disconnectCli } = await import('../server/src/cli/bridge.js');
 const { startBridge } = await import('../companion/cli-bridge.mjs');
-const app = new Hono().route('/api', api);
+const { cliApi } = await import('../server/src/cli/routes.js');
+const app = new Hono().route('/api/cli', cliApi).route('/api', api);
 const server = createServer(); attachCliSocket(server);
 server.listen(0, '127.0.0.1'); await once(server, 'listening');
 const address = server.address(); assert.ok(address && typeof address !== 'string');
@@ -43,7 +44,7 @@ async function account(t: any, provider: 'codex' | 'claude', runtime: 'hosted' |
   const logs: any[] = [];
   t.mock.method(console, 'info', (label: string, data: string) => { if (label === '[cli-generation]') logs.push(JSON.parse(data)); });
   const directory = path.join(root, String(++serial)); fs.mkdirSync(directory);
-  const fixture = await mockCliProvider(directory, (provider: string, body: any) => modelTools(provider, body).length ? choose(provider, body) : { text: 'Fixture auxiliary response.' });
+  const fixture = await mockCliProvider(directory, (provider: string, body: any) => (modelTools(provider, body).length || usesCodeMode(body)) ? choose(provider, body) : { text: 'Fixture auxiliary response.' });
   const executable = fixture.install(provider, config);
   process.env[provider === 'codex' ? 'SWARM_CLI_CODEX_PATH' : 'SWARM_CLI_CLAUDE_PATH'] = executable;
   const userId = `real-fixture-${serial}`;
@@ -63,13 +64,13 @@ async function account(t: any, provider: 'codex' | 'claude', runtime: 'hosted' |
     for (let n = 0; n < 500 && !cliStatus(userId).connected; n++) await new Promise(resolve => setTimeout(resolve, 10));
     assert.equal(cliStatus(userId).connected, true);
   }
-  t.after(async () => { controller.abort(); disconnectCli(userId); await bridge; unsubscribe(); await fixture.close(); assert.deepEqual(fixture.errors, []); assert.deepEqual(state.external, []); });
+  t.after(async () => { await settleAgentJobs(); controller.abort(); disconnectCli(userId); await bridge; unsubscribe(); await fixture.close(); assert.deepEqual(fixture.errors, []); assert.deepEqual(state.external, []); });
   const request = async (url: string, body?: unknown) => {
     const r = await app.request(`/api${url}`, { method: body === undefined ? 'GET' : 'POST', headers: { cookie: `swarm_session=${userId}`, 'content-type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     assert.equal(r.status, 200, `${url}: ${await r.clone().text()}`); return r.json() as Promise<any>;
   };
   const chat = async () => { await request(`/bots/${bot.id}/messages`, { text: 'Draft a Gmail email to test@example.com with subject Recheck and a two paragraph body about scheduling a product demo next week. Do not send it.' }); await runInBotQueue(bot.id, async () => {}); };
-  return { ...fixture, userId, bot, request, chat, events, logs, rows: () => listRows(bot.id) as any[] };
+  return { ...fixture, userId, bot, request, chat, events, logs, cliEvents: fixture.events, rows: () => listRows(bot.id) as any[] };
 }
 
 function script(route: 'direct' | 'search' | 'deferred') {
@@ -267,3 +268,85 @@ for (const provider of ['codex', 'claude'] as const) {
     assert.deepEqual(state.executions[0].input.arguments, email);
   });
 }
+
+
+test('real hosted Codex default model reproduces the disabled code-mode host', { timeout: 30000 }, async t => {
+  let step = 0;
+  const a = await account(t, 'codex', 'hosted', (_: string, body: any) => step++ === 0
+    ? codeModeAction({ name: 'SWARM_APPS_SEARCH', args: { toolkit: 'gmail', query: 'create email draft' } })
+    : { text: texts(modelOutputs('codex', body)).join('\n') }, { codexModel: null, codexConfig: ['features.code_mode_host=false'] });
+  await a.chat();
+  assert.ok(a.requests.some(r => usesCodeMode(r.body)));
+  const outputs = JSON.stringify(a.requests.flatMap(r => modelOutputs('codex', r.body)));
+  assert.match(outputs, /code-mode host is disabled/);
+  assert.ok(a.cliEvents('codex').some(e => e.item?.type === 'error' && /Code Mode is unavailable because code-mode host is disabled/.test(e.item.message)));
+  assert.ok(a.rows().some(r => /Settings > Models & access/.test(r.body.text ?? '')));
+  assert.equal((await a.request('/cli')).lastRun.errorCode, 'cli_tool_host_disabled');
+  assert.equal((await a.request('/cli')).lastRun.result, 'rejected_by_cli');
+  assert.equal(a.rows().filter(r => r.body.card === 'approval').length, 0);
+  assert.equal(state.executions.length, 0);
+});
+
+
+for (const route of ['direct', 'search', 'voice', 'allow', 'without Landlock'] as const) test(`real hosted Codex default model ${route}: approval persists, emits SSE, returns pending and records the run`, { timeout: 30000 }, async t => {
+  let step = 0;
+  const a = await account(t, 'codex', 'hosted', (_: string, body: any) => {
+    if (step++ === 0 && route !== 'direct') return codeModeAction({ name: 'SWARM_APPS_SEARCH', args: { toolkit: 'gmail', query: 'create email draft' } });
+    if (step === (route === 'direct' ? 1 : 2)) {
+      if (route !== 'direct') assert.match(JSON.stringify(modelOutputs('codex', body)), /GMAIL_CREATE_EMAIL_DRAFT/);
+      return codeModeAction({ name: 'SWARM_APPS_EXECUTE', args: executeArgs });
+    }
+    return { text: 'Approval is waiting in the main chat.' };
+  }, { codexModel: null, denyLandlock: route === 'without Landlock' });
+  let call: any, assigned: any;
+  if (route === 'voice') {
+    call = await a.request('/voice/session', { botId: a.bot.id });
+    assigned = await a.request('/voice/tool', { botId: a.bot.id, callId: call.callId, name: 'send_task', args: { request: 'Create a Gmail draft. Do not send it.' }, toolCallId: 'default-model-voice' });
+    await runInBotQueue(a.bot.id, async () => {});
+  } else await a.chat();
+  const card = a.rows().find(r => r.body.card === 'approval');
+  assert.ok(card, JSON.stringify({ rows: a.rows(), outputs: a.requests.flatMap(r => modelOutputs('codex', r.body)), events: a.cliEvents('codex') }));
+  assert.ok(a.events.some(e => e.type === 'rows' && e.rows.some((r: any) => r.body.approvalId === card.body.approvalId)), JSON.stringify(a.events));
+  const returned = JSON.stringify(a.requests.flatMap(r => modelOutputs('codex', r.body)));
+  assert.match(returned, /pending_approval/); assert.ok(returned.includes(card.body.approvalId));
+  assert.equal((db.prepare('SELECT status FROM approvals WHERE id=?').get(card.body.approvalId) as any).status, 'pending');
+  const diagnostic = (await a.request('/cli')).lastRun;
+  assert.equal(diagnostic.provider, 'codex'); assert.equal(diagnostic.runtime, 'server');
+  assert.ok(diagnostic.toolsOffered > 0); assert.equal(diagnostic.lastTool, 'SWARM_APPS_EXECUTE');
+  assert.equal(diagnostic.result, 'pending_approval'); assert.equal(diagnostic.errorCode, null);
+  assert.equal(state.executions.length, 0);
+  if (assigned) assert.equal(card.body.jobId, assigned.taskId);
+  const args = a.args('codex')[0];
+  for (const value of ['--ephemeral', '--ignore-user-config', 'read-only', 'approval_policy="never"', 'cli_auth_credentials_store="file"', 'features.shell_tool=false', 'features.code_mode_host=true']) assert.ok(args.includes(value), value);
+  await a.request(`/approvals/${card.body.approvalId}`, { decision: route === 'allow' ? 'allow' : 'deny' });
+  await runInBotQueue(a.bot.id, async () => {});
+  assert.equal(state.executions.length, route === 'allow' ? 1 : 0);
+  if (route === 'allow') {
+    assert.equal(state.executions[0].slug, 'GMAIL_CREATE_EMAIL_DRAFT');
+    assert.equal(state.executions[0].input.userId, a.userId);
+    assert.equal(state.executions[0].input.connectedAccountId, 'fixture-gmail');
+    assert.deepEqual(state.executions[0].input.arguments, email);
+  }
+  if (call) {
+    const updates = await a.request('/voice/updates', { botId: a.bot.id, callId: call.callId, after: 0 });
+    assert.ok(updates.updates.some((u: any) => u.text.includes('declined in chat')));
+    await a.request('/voice/end', { botId: a.bot.id, callId: call.callId });
+  }
+});
+
+
+test('real hosted Codex default model keeps local execution unavailable while app tools remain callable', { timeout: 30000 }, async t => {
+  let step = 0;
+  const forbidden = path.join(root, 'forbidden-write');
+  const a = await account(t, 'codex', 'hosted', () => step++ === 0 ? { code: `text({ globals: [typeof process, typeof require, typeof fetch, typeof Deno], tools: ALL_TOOLS.map(t => t.name) }); text(await tools.apply_patch(${JSON.stringify(`*** Begin Patch\n*** Add File: ${forbidden}\n+forbidden\n*** End Patch`)}));` } : { text: 'Capability check complete.' }, { codexModel: null, denyLandlock: true });
+  await a.chat();
+  const output = JSON.stringify(a.requests.flatMap(r => modelOutputs('codex', r.body)));
+  assert.match(output, /undefined/);
+  assert.match(output, /undefined.*undefined.*undefined.*undefined/);
+  assert.match(output, /mcp__swarm__SWARM_APPS_EXECUTE/);
+  assert.doesNotMatch(output, /exec_command|shell_command|read_file|write_file|spawn_agent/);
+  assert.match(output, /patch rejected|rejected by.*approval|not permitted/i);
+  assert.equal(fs.existsSync(forbidden), false);
+  assert.equal((await a.request('/cli')).lastRun.result, 'no_tool_call');
+  assert.equal(state.executions.length, 0);
+});

@@ -66,6 +66,16 @@ try {
     await approval.evaluate(el => el.scrollIntoView({ block: 'start' }));
     await page.screenshot({ path: path.join(evidence, `pending-${width}-${theme}.png`), fullPage: true });
     await approval.screenshot({ path: path.join(evidence, `card-${width}-${theme}.png`) });
+    await page.evaluate(async () => (await import('/src/configStore.ts')).useConfigUI.getState().openAppSettings('subscriptions'));
+    const details = page.locator('details').filter({ has: page.locator('summary', { hasText: 'Account and login details' }) });
+    await details.locator('summary').click();
+    await details.getByText('Pending approval', { exact: true }).waitFor();
+    assert.ok((await details.innerText()).includes('SWARM_APPS_EXECUTE'));
+    assert.ok((await details.innerText()).includes('Tools offered'));
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await details.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(evidence, `diagnostic-${width}-${theme}.png`), fullPage: true });
+    await page.evaluate(async () => (await import('/src/configStore.ts')).useConfigUI.getState().closeAppSettings());
     await approval.getByRole('button', { name: "Don't allow", exact: true }).click();
     await approval.getByText('Not allowed', { exact: true }).waitFor();
     await page.reload();

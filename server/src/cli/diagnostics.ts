@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
 
 type Fields = { event: string; tool?: string; action?: string; admission?: string; errorClass?: string; stopped?: boolean };
+export type CliDiagnosticEvent = Fields & { generationId: string; provider: string; runtime: string; manifestCount: number };
 const context = new AsyncLocalStorage<(fields: Fields) => void>();
 export const cliDiagnostic = () => context.getStore();
 export const safeToolName = (name: unknown) => typeof name === 'string' && /^[A-Za-z0-9_-]{1,200}$/.test(name) ? name : 'invalid_name';
@@ -9,6 +10,9 @@ export const safeToolName = (name: unknown) => typeof name === 'string' && /^[A-
 /** Classify only. Never log exception messages, arguments, bodies or credentials. */
 export function cliErrorClass(error: unknown): string {
   const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  if (/CLI tool host is disabled|code-mode host is disabled/i.test(message)) return 'cli_tool_host_disabled';
+  if (/CLI tool host is unavailable|failed to spawn code-mode host/i.test(message)) return 'cli_tool_host_unavailable';
+  if (/Server CLI login is disabled/i.test(message)) return 'cli_login_disabled';
   if (/could not authenticate with the Swarm tool bridge/i.test(message)) return 'mcp_auth';
   if (/could not connect to the Swarm tool bridge/i.test(message)) return 'mcp_startup';
   if (/approval policy|CLI approval|blocked the Swarm tool handoff/i.test(message)) return 'cli_approval_rejected';
@@ -24,17 +28,26 @@ export function cliErrorClass(error: unknown): string {
   return 'tool_or_runner_error';
 }
 
-export async function withCliDiagnostics<T>(params: any, runtime: string, work: () => Promise<T>, scope?: { botId: string | null; jobId: string | null }): Promise<T> {
+export async function withCliDiagnostics<T>(params: any, runtime: string, work: () => Promise<T>, scope?: { botId: string | null; jobId: string | null }, observe?: (event: CliDiagnosticEvent) => void): Promise<T> {
   const names: string[] = Array.isArray(params?.nativeTools) ? params.nativeTools.map((t: any) => safeToolName(t?.name)).sort() : [];
   const common = { generationId: randomUUID(), provider: params?.provider === 'claude' ? 'claude' : 'codex', runtime, botId: scope?.botId ?? null, jobId: scope?.jobId ?? null,
     manifestCount: names.length, manifestNamesHash: createHash('sha256').update(JSON.stringify(names)).digest('hex') };
-  const log = (fields: Fields) => console.info('[cli-generation]', JSON.stringify({ ...common, ...fields }));
+  const log = (fields: Fields) => {
+    console.info('[cli-generation]', JSON.stringify({ ...common, ...fields }));
+    // Store only calls from this manifest, never a rejected arbitrary name.
+    observe?.({ ...common, ...fields, ...(fields.tool && !names.includes(fields.tool) ? { tool: 'invalid_name' } : {}) });
+  };
   return context.run(log, async () => {
     log({ event: 'start' });
     try {
       const result = await work();
       // Runner diagnostics are a bounded classification, never raw CLI output.
       const failures = (result as any)?.nativeDiagnostics;
+      const hostFailure = Array.isArray(failures) && failures.find(f => f?.tool === null && ['cli_tool_host_disabled', 'cli_tool_host_unavailable'].includes(f?.errorClass));
+      if (hostFailure) {
+        log({ event: 'tool_host', admission: 'cli_rejected', errorClass: hostFailure.errorClass });
+        throw new Error(`The CLI tool host is ${hostFailure.errorClass === 'cli_tool_host_disabled' ? 'disabled' : 'unavailable'}. Open Settings > Models & access and share the Last CLI run code with the server owner so they can update the CLI installation. Then ask again.`);
+      }
       if (Array.isArray(failures)) for (const failure of failures.slice(0, 512)) {
         if (!names.includes(failure?.tool)) continue;
         log({ event: 'tool', tool: failure.tool, admission: 'cli_rejected', errorClass: failure.errorClass === 'cli_approval_rejected' ? 'cli_approval_rejected' : 'mcp_transport' });

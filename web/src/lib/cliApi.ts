@@ -12,6 +12,15 @@ export interface CliProviderStatus {
 }
 
 export interface CliStatus {
+  lastRun?: {
+    startedAt: number;
+    provider: CliProvider;
+    runtime: 'server' | 'bridge';
+    toolsOffered: number;
+    lastTool: string | null;
+    result: 'running' | 'completed' | 'pending_approval' | 'rejected_by_cli' | 'denied' | 'error' | 'cancelled' | 'no_tool_call';
+    errorCode: string | null;
+  } | null;
   runtime: 'server' | 'bridge';
   serverLoginAvailable: boolean;
   selected: CliProvider | null;

@@ -527,6 +527,13 @@ function observedNativeUsage(provider, tools) {
     while ((end = buffer.indexOf('\n')) >= 0) {
       const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
       let event; try { event = JSON.parse(line); } catch { continue; }
+      // Codex emits this as an error item, then can still complete the turn with
+      // model prose. Classify the CLI event itself, never guess from that prose.
+      if (provider === 'codex' && event.type === 'item.completed' && event.item?.type === 'error'
+        && /Code Mode is unavailable because|code-mode host is disabled|failed to spawn code-mode host/.test(event.item.message ?? '')
+        && failures.length < 512) {
+        failures.push({ tool: null, errorClass: /code-mode host is disabled/.test(event.item.message) ? 'cli_tool_host_disabled' : 'cli_tool_host_unavailable' });
+      }
       if (provider === 'codex' && event.type === 'item.completed' && event.item?.type === 'mcp_tool_call'
         && event.item.server === 'swarm' && names.has(event.item.tool) && event.item.error && failures.length < 512) {
         failures.push({ tool: event.item.tool, errorClass: /MCP tool call requires approval, but approval policy is never/.test(event.item.error.message ?? '') ? 'cli_approval_rejected' : 'mcp_transport' });
@@ -593,7 +600,12 @@ async function generateCodex(params, options, cwd, signal) {
   if (options.fileCredentials === true) args.push('-c', 'cli_auth_credentials_store="file"');
   // shell_tool is the supported command-execution gate. unified_exec alone is
   // insufficient (newer releases ignore user opt-outs for that feature).
-  for (const feature of ['shell_tool', 'shell_snapshot', 'unified_exec', 'code_mode', 'code_mode_host', 'multi_agent', 'apps', 'plugins', 'hooks', 'browser_use', 'browser_use_external', 'computer_use', 'image_generation', 'view_image', 'goals']) {
+  // Model metadata can require code-mode-only even when code_mode=false. Its
+  // V8 host orchestrates registered tools; it is not the shell execution host.
+  // Keep it available for those models while shell and local capabilities stay
+  // disabled. Every Swarm call still enters the exact MCP manifest and callback.
+  args.push('-c', 'features.code_mode_host=true');
+  for (const feature of ['shell_tool', 'shell_snapshot', 'unified_exec', 'code_mode', 'multi_agent', 'apps', 'plugins', 'hooks', 'browser_use', 'browser_use_external', 'computer_use', 'image_generation', 'view_image', 'goals']) {
     args.push('-c', `features.${feature}=false`);
   }
   for (const [index, image] of params.images.entries()) {

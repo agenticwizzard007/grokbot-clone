@@ -72,7 +72,7 @@ export function profilePath(userId: string): string {
 export async function hostedOptions(userId: string): Promise<RunnerOptions> {
   assertLegacyWorkOpen(userId);
   assertTenant(userId);
-  if (!serverLoginAvailable()) throw new Error('Server CLI login is disabled on this server.');
+  if (!serverLoginAvailable()) throw new Error('Server CLI login is disabled on this server. Open Settings > Models & access and use Connect your computer, or ask the server owner to enable server login.');
   if (!db.prepare('SELECT 1 FROM users WHERE id=?').get(userId)) throw new Error('Account no longer exists.');
   if (deleting.has(userId)) throw new Error('This CLI profile is being disconnected. Please try again shortly.');
   if (isTenant) return { tenantUserId: userId, env: {}, codexPath: '', claudePath: '' };

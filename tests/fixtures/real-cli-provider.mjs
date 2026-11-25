@@ -28,19 +28,20 @@ export async function mockCliProvider(directory, choose) {
       if (!req.url.includes('responses') && !req.url.includes('messages')) throw Error(`Unexpected local request: ${req.url}`);
       const provider = req.url.includes('responses') ? 'codex' : 'claude';
       requests.push({ provider, body });
-      const action = await choose(provider, body);
+      const action = req.url.includes('/aux/') ? { text: 'Fixture auxiliary response.' } : await choose(provider, body);
       const n = ++serial;
       const text = JSON.stringify({ text: action.text ?? 'Fixture complete.', tool_calls: [] });
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       const emit = (type, value) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...value })}\n\n`);
       if (provider === 'codex') {
-        const item = action.name ? { type: 'function_call', id: `fc_${n}`, call_id: `call_${n}`,
+        const item = action.code !== undefined ? { type: 'custom_tool_call', id: `ct_${n}`, call_id: `call_${n}`, name: 'exec', namespace: 'functions', input: action.code }
+          : action.name ? { type: 'function_call', id: `fc_${n}`, call_id: `call_${n}`,
           name: action.name, ...(action.namespace === null ? {} : { namespace: action.namespace ?? 'mcp__swarm' }), arguments: JSON.stringify(action.args ?? {}) }
           : { type: 'message', id: `msg_${n}`, role: 'assistant', status: 'completed', content: [{ type: 'output_text', text, annotations: [] }] };
         emit('response.created', { response: { id: `resp_${n}`, object: 'response', status: 'in_progress', output: [] } });
         emit('response.output_item.added', { output_index: 0, item: { ...item, ...(action.name ? { arguments: '' } : { content: [] }) } });
         if (action.name) emit('response.function_call_arguments.delta', { item_id: item.id, output_index: 0, delta: item.arguments });
-        else {
+        else if (action.code === undefined) {
           emit('response.content_part.added', { item_id: item.id, output_index: 0, content_index: 0, part: { type: 'output_text', text: '', annotations: [] } });
           emit('response.output_text.delta', { item_id: item.id, output_index: 0, content_index: 0, delta: text });
         }
@@ -61,7 +62,7 @@ export async function mockCliProvider(directory, choose) {
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const url = `http://127.0.0.1:${server.address().port}`;
-  function install(provider, { codexConfig = [] } = {}) {
+  function install(provider, { codexConfig = [], codexModel = 'gpt-5.4', denyLandlock = false } = {}) {
     const filename = path.join(directory, `${provider}-real.mjs`);
     const auditFile = path.join(directory, `${provider}-events.jsonl`);
     const argsFile = path.join(directory, `${provider}-args.jsonl`);
@@ -87,9 +88,12 @@ if (provider === 'claude' && !args.includes('--json-schema')) {
 }
 fs.appendFileSync(${JSON.stringify(argsFile)}, JSON.stringify(args.map((arg, i) => arg.startsWith('mcp_servers=') || args[i - 1] === '--mcp-config' ? arg.replace(/Bearer [a-f0-9]+/g, 'Bearer [fixture]') : arg)) + '\\n');
 const env = { ...process.env };
-if (provider === 'codex') args.splice(args.length - 1, 0, '-c', ${JSON.stringify(`model_providers.fixture={name="Local fixture",base_url="${url}/v1",wire_api="responses",requires_openai_auth=false}`)}, '-c', 'model_provider="fixture"', '-c', 'model="gpt-5.4"', ...${JSON.stringify(codexConfig.flatMap(c => ['-c', c]))});
+const modelUrl = ${JSON.stringify(url)} + (args.some(arg => arg.startsWith('mcp_servers={swarm=')) ? '/v1' : '/aux/v1');
+if (provider === 'codex') args.splice(args.length - 1, 0, '-c', 'model_providers.fixture={name="Local fixture",base_url=' + JSON.stringify(modelUrl) + ',wire_api="responses",requires_openai_auth=false,supports_websockets=false}', '-c', 'model_provider="fixture"', ...${JSON.stringify(codexModel ? ['-c', `model=${JSON.stringify(codexModel)}`] : [])}, ...${JSON.stringify(codexConfig.flatMap(c => ['-c', c]))});
 else Object.assign(env, { ANTHROPIC_BASE_URL: ${JSON.stringify(url)}, ANTHROPIC_AUTH_TOKEN: 'offline-fixture', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' });
-const child = spawn(${JSON.stringify(officialExecutable(provider))}, args, { env, stdio: ['pipe', 'pipe', 'pipe'] });
+const child = ${denyLandlock
+  ? `spawn('python3', [${JSON.stringify(new URL('./without-landlock.py', import.meta.url).pathname)}, ${JSON.stringify(officialExecutable(provider))}, ...args], { env, stdio: ['pipe', 'pipe', 'pipe'] })`
+  : `spawn(${JSON.stringify(officialExecutable(provider))}, args, { env, stdio: ['pipe', 'pipe', 'pipe'] })`};
 process.stdin.pipe(child.stdin);
 child.stdin.on('error', () => {});
 child.stdout.on('data', data => { fs.appendFileSync(${JSON.stringify(auditFile)}, data); process.stdout.write(data); });
@@ -104,11 +108,24 @@ child.on('exit', code => process.exit(code ?? 1));
 }
 
 export function modelTools(provider, body) {
-  return provider === 'codex' ? body.tools.find(t => t.type === 'namespace' && t.name === 'mcp__swarm')?.tools ?? []
+  return provider === 'codex' ? offeredTools(body).find(t => t.type === 'namespace' && t.name === 'mcp__swarm')?.tools ?? []
     : body.tools.filter(t => t.name.startsWith('mcp__swarm__')).map(t => ({ ...t, name: t.name.slice('mcp__swarm__'.length) }));
 }
 
 export function modelOutputs(provider, body) {
-  return provider === 'codex' ? body.input.filter(i => i.type === 'function_call_output').map(i => i.output)
+  return provider === 'codex' ? body.input.filter(i => ['function_call_output', 'custom_tool_call_output'].includes(i.type)).map(i => i.output)
     : body.messages.flatMap(m => Array.isArray(m.content) ? m.content.filter(c => c.type === 'tool_result').map(c => c.content) : []);
+}
+
+export function usesCodeMode(body) {
+  return offeredTools(body).some(t => t.name === 'exec' || t.tools?.some(t => t.name === 'exec'));
+}
+
+export function offeredTools(body) {
+  return body.tools ?? body.input?.filter(i => i.type === 'additional_tools').flatMap(i => i.tools) ?? [];
+}
+
+// Exercise the model-selected orchestration surface, including the exact MCP names.
+export function codeModeAction(action) {
+  return action.name ? { code: `text(await tools.mcp__swarm__${action.name}(${JSON.stringify(action.args ?? {})}));` } : action;
 }
