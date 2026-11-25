@@ -216,7 +216,7 @@ export async function checkProviders(options = {}) {
     aborted(options.signal);
     const cwd = await mkdtemp(join(tmpdir(), 'swarm-cli-status-'));
     try {
-      return [provider, await providerStatus(provider, options, cwd, options.signal, 12_000, true)];
+      return [provider, await providerStatus(provider, options, cwd, options.signal, Math.min(25_000, options.statusTimeoutMs || 12_000), true)];
     }
     finally { await rm(cwd, { recursive: true, force: true }); }
   })));

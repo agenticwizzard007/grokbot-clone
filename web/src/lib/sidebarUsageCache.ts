@@ -27,7 +27,7 @@ export function useSidebarUsageSummary() {
     try { sessionStorage.setItem(key(account), JSON.stringify(next)); } catch { /* optional cache */ }
   }, [account, known, catalog.provider, catalog.billing, catalog.plan, catalog.usage]);
   const stale = !known && cached && cached.account === account && Date.now() - cached.at < maxAge ? cached.value : null;
-  return { catalog, summary: known ? catalog : stale, stale: !!stale };
+  return { catalog, summary: known ? catalog : stale, stale: !!stale || catalog.stale };
 }
 // Clear persisted display data when this document signs out or changes accounts.
 useStore.subscribe((state, previous) => {

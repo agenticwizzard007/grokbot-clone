@@ -70,25 +70,21 @@ try {
 
     failed = true; pending = gate();
     await chip.click(); await loading.waitFor(); pending.release();
-    await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
-    assert.equal(await name.innerText(), 'Models unavailable', 'only a settled failure shows unavailable');
-    await shot('failed');
-    failed = false; pending = gate();
-    await page.getByRole('button', { name: 'Retry', exact: true }).click();
-    await loading.waitFor();
-    assert.equal(await name.innerText(), 'Codex · ChatGPT plan');
+    await page.waitForTimeout(250);
+    assert.equal(await name.innerText(), 'Codex · ChatGPT plan', 'failed reads preserve the label while automatic retry is pending');
     assert.doesNotMatch(await page.locator('body').innerText(), /Models unavailable/);
-    pending.release();
+    await shot('retry-pending');
+    failed = false;
     await page.waitForFunction(() => document.querySelector('.model-pill')?.getAttribute('aria-busy') === 'false');
     await page.keyboard.press('Escape');
 
-    // A true deadline failure still surfaces and remains retryable.
+    // The deadline bounds each attempt. Recovery never needs a picker click.
     pending = gate();
     await chip.click(); await loading.waitFor();
-    await page.getByRole('button', { name: 'Retry', exact: true }).waitFor({ timeout: 8000 });
-    assert.equal(await name.innerText(), 'Models unavailable');
+    await page.waitForTimeout(5500);
+    assert.equal(await name.innerText(), 'Codex · ChatGPT plan');
+    assert.doesNotMatch(await page.locator('body').innerText(), /Models unavailable/);
     pending.release();
-    await page.getByRole('button', { name: 'Retry', exact: true }).click();
     await page.waitForFunction(() => document.querySelector('.model-pill')?.getAttribute('aria-busy') === 'false');
     assert.equal(await name.innerText(), 'Codex · ChatGPT plan');
     assert.deepEqual(errors, []); assert.deepEqual(writes, []);

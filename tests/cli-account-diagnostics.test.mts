@@ -11,7 +11,7 @@ Object.assign(process.env, { NODE_ENV: 'test', SWARM_ROLE: 'standalone', DB_PATH
 const { db } = await import('../server/src/db.js');
 const { cliApi } = await import('../server/src/cli/routes.js');
 const { withCliDiagnostics, cliDiagnostic } = await import('../server/src/cli/diagnostics.js');
-const { recordCliRun, lastCliRun } = await import('../server/src/cli/run-diagnostics.js');
+const { recordCliRun, lastCliRun, cliRunsByProvider } = await import('../server/src/cli/run-diagnostics.js');
 const app = new Hono().route('/cli', cliApi);
 for (const id of ['owner', 'other']) {
   db.prepare('INSERT INTO users(id,email,name,created_at) VALUES(?,?,?,?)').run(id, `${id}@example.test`, 'Fixture', Date.now());
@@ -65,6 +65,28 @@ test('last CLI run sanitizes failures and distinguishes no call, denial and CLI 
   assert.equal((lastCliRun('owner') as any).result, 'no_tool_call');
 });
 
+test('provider runs preserve the last tool request through a reply without tools and another provider run', async () => {
+  await withCliDiagnostics(params, 'server', async () => {
+    cliDiagnostic()?.({ event: 'tool_result', tool: 'SWARM_APPS_EXECUTE', admission: 'pending_approval' });
+    return {};
+  }, undefined, recordCliRun('owner'));
+  await withCliDiagnostics({ ...params, nativeTools: [] }, 'server', async () => ({}), undefined, recordCliRun('owner'));
+  await assert.rejects(withCliDiagnostics({ ...params, provider: 'claude' }, 'bridge', async () => { throw Error('Provider timeout private-secret-sentinel'); }, undefined, recordCliRun('owner')));
+  const { runsByProvider: runs } = await (await request('owner')).json() as any;
+  assert.equal(runs.codex.latest.toolsOffered, 0);
+  assert.equal(runs.codex.latest.result, 'no_tool_call');
+  assert.equal(runs.codex.lastToolRun.toolsOffered, 1);
+  assert.equal(runs.codex.lastToolRun.result, 'pending_approval');
+  assert.equal(runs.codex.lastToolRun.lastTool, 'SWARM_APPS_EXECUTE');
+  assert.equal(runs.claude.latest.errorCode, 'timeout');
+  assert.equal(runs.claude.latest.provider, 'claude');
+  assert.doesNotMatch(JSON.stringify(runs), /sentinel|owner|generation/);
+  assert.deepEqual((cliRunsByProvider('other') as any).codex, { latest: null, lastToolRun: null });
+  const reopened = new Database(process.env.DB_PATH!, { readonly: true });
+  assert.equal((reopened.prepare("SELECT result FROM cli_provider_runs WHERE user_id='owner' AND provider='codex' AND slot='tools'").get() as any).result, 'pending_approval');
+  reopened.close();
+});
+
 test('an older concurrent run cannot replace the latest diagnostic or recreate a deleted account', async () => {
   let release!: () => void;
   const waiting = new Promise<void>(resolve => { release = resolve; });
@@ -78,4 +100,5 @@ test('an older concurrent run cannot replace the latest diagnostic or recreate a
   assert.deepEqual(lastCliRun('owner'), latest);
   db.prepare('DELETE FROM users WHERE id=?').run('owner');
   assert.equal(lastCliRun('owner'), null);
+  assert.equal((cliRunsByProvider('owner') as any).codex.lastToolRun, null);
 });

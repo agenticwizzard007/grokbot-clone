@@ -255,6 +255,7 @@ test('REST status and mode validation fail closed and explicit null restores API
   assert.equal(response.headers.get('cache-control'), 'no-store');
   assert.deepEqual(await response.json(), {
     selected: null, connected: false, device: null, runtime: 'bridge', serverLoginAvailable: true, lastRun: null,
+    runsByProvider: { codex: { latest: null, lastToolRun: null }, claude: { latest: null, lastToolRun: null } },
     providers: { codex: { installed: false, authenticated: false, subscription: false }, claude: { installed: false, authenticated: false, subscription: false } },
   });
   for (const body of [null, {}, { provider: 'openrouter' }, { provider: 'Codex' }, { provider: 1 }, { provider: {} }]) {
@@ -1197,8 +1198,29 @@ test('passive usage reads share the CLI TTL and return stale metadata while a re
   try {
     time += 31_000;
     bridge.catalog = () => HOLD;
-    assert.equal((await cliDisplayCatalog(alice, 'claude')).models[0].id, 'claude/account-model');
+    const stale = await cliDisplayCatalog(alice, 'claude');
+    assert.equal(stale.models[0].id, 'claude/account-model');
+    assert.equal(stale.stale, true);
     await until(() => calls().length === 2, 'background catalog refresh');
     bridge.respond(calls()[1].id, original(calls()[1]));
+  } finally { clock.mock.restore(); }
+});
+
+test('a failed background refresh preserves the last good catalog and marks it stale', async () => {
+  const bridge = await connect(alice); await choose(alice, 'claude');
+  const first = await cliDisplayCatalog(alice, 'claude');
+  const time = Date.now() + 31_000;
+  const clock = mock.method(Date, 'now', () => time);
+  try {
+    bridge.catalog = request => {
+      bridge.ws.send(JSON.stringify({ id: request.id, error: 'Fixture status temporarily unavailable' }));
+      return HOLD;
+    };
+    const stale = await cliDisplayCatalog(alice, 'claude');
+    assert.equal(stale.stale, true); assert.deepEqual(stale.models, first.models);
+    await until(() => bridge.requests.filter(r => r.method === 'catalog').length === 2, 'failed background refresh');
+    await new Promise(resolve => setTimeout(resolve, 20));
+    const again = await cliDisplayCatalog(alice, 'claude');
+    assert.deepEqual(again.models, first.models); assert.equal(again.stale, true);
   } finally { clock.mock.restore(); }
 });

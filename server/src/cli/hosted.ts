@@ -38,6 +38,7 @@ export interface RunnerOptions {
   claudePath: string;
   pythonPath?: string;
   fileCredentials?: boolean;
+  statusTimeoutMs?: number;
   signal?: AbortSignal;
   onData?: (data: string) => void;
   onToolCall?: NativeToolHandler;
@@ -125,11 +126,11 @@ async function admittedJob<T>(userId: string, signal: AbortSignal | undefined, f
   }
 }
 
-export async function refreshHosted(userId: string, signal?: AbortSignal): Promise<CliProviders> {
+export async function refreshHosted(userId: string, signal?: AbortSignal, statusTimeoutMs?: number): Promise<CliProviders> {
   const providers = await job(userId, signal, async (opts) => {
     const runner = await hostedRunner(); assertLegacyWorkOpen(userId);
     if (opts.signal?.aborted) throw new Error('CLI request cancelled.');
-    return runner.checkProviders(opts);
+    return runner.checkProviders({ ...opts, statusTimeoutMs });
   });
   if (!signal?.aborted && !legacyWorkHeld(userId) && !deleting.has(userId) && db.prepare('SELECT 1 FROM users WHERE id=?').get(userId)) statuses.set(userId, providers);
   return providers;

@@ -38,10 +38,25 @@ export async function cliCatalog(userId: string, provider: CliProvider, force = 
 
 /** Passive UI reads share the existing account/runtime cache and never wait on a full CLI probe. */
 export async function cliDisplayCatalog(userId: string, provider: CliProvider) {
-  const hit = cache.get(`${userId}:${cliRuntime(userId)}:${provider}`);
-  const refresh = () => cliCatalog(userId, provider, false, AbortSignal.timeout(3500));
-  if (hit) { void refresh().catch(() => {}); return hit.value; }
-  return refresh();
+  const key = `${userId}:${cliRuntime(userId)}:${provider}`;
+  const hit = cache.get(key);
+  // The display waiter owns no cancellation signal. A short HTTP read or a
+  // remount must not kill the account's cold CLI probe before it can cache data.
+  const refresh = cliCatalog(userId, provider);
+  if (hit) {
+    void refresh.catch(() => {});
+    return { ...hit.value, stale: Date.now() - hit.at >= 30_000 || pending.has(key) };
+  }
+  let timer: ReturnType<typeof setTimeout>;
+  try {
+    return await Promise.race([
+      refresh.then(value => ({ ...value, stale: false })),
+      new Promise<ReturnType<typeof normalize> & { stale: boolean }>(resolve => {
+        timer = setTimeout(() => resolve({ ...normalize({ models: [], defaultModel: null, plan: null,
+          usage: { available: false, checkedAt: 0, windows: [] } }, provider), stale: true }), 200);
+      }),
+    ]);
+  } finally { clearTimeout(timer!); }
 }
 
 /** Generation needs capabilities, not fresh quota. Auth is still checked by every generation. */
@@ -60,7 +75,10 @@ async function loadCatalog(userId: string, provider: CliProvider, force: boolean
     const revision = revisions.get(userId);
     const next: PendingCatalog = { controller: new AbortController(), promise: null!, waiters: 0, settled: false };
     next.promise = (async () => {
-      const raw = await cliRequest(userId, 'catalog', { provider }, 23_000, next.controller.signal);
+      const deadline = setTimeout(() => next.controller.abort(), 30_000);
+      let raw: unknown;
+      try { raw = await cliRequest(userId, 'catalog', { provider }, 30_000, next.controller.signal); }
+      finally { clearTimeout(deadline); }
       const value = normalize(raw, provider);
       if (selectedCli(userId) !== provider || cliRuntime(userId) !== runtime || revisions.get(userId) !== revision) throw new Error('The model connection changed. Refresh the model picker.');
       if (cache.size >= 200) cache.delete(cache.keys().next().value!);

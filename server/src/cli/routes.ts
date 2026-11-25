@@ -10,7 +10,7 @@ import { withCliMutation } from './lock.js';
 import { registerCompanion } from '../runtime/companion-registration.js';
 import { currentSessionHash } from '../security/request-context.js';
 import { createStatusReader } from './status-cache.js';
-import { lastCliRun } from './run-diagnostics.js';
+import { lastCliRun, cliRunsByProvider } from './run-diagnostics.js';
 
 const readStatus = createStatusReader(cliStatus, refreshCli);
 
@@ -27,7 +27,7 @@ cliApi.use('*', async (c, next) => {
   }
   await next();
 });
-cliApi.get('/', async (c) => c.json({ ...await readStatus(c.get('user').id), lastRun: lastCliRun(c.get('user').id) }));
+cliApi.get('/', async (c) => c.json({ ...await readStatus(c.get('user').id), lastRun: lastCliRun(c.get('user').id), runsByProvider: cliRunsByProvider(c.get('user').id) }));
 cliApi.onError((error, c) => {
   if (error instanceof CliLoginError) return c.json({ error: error.message }, error.status);
   return c.json({ error: 'The CLI connection could not complete this request. Please try again.' }, 500);
@@ -97,7 +97,7 @@ cliApi.delete('/login/:id', async (c) => {
   return c.json({ ok: true });
 });
 cliApi.post('/refresh', async (c) => {
-  try { return c.json({ ...await readStatus(c.get('user').id, true), lastRun: lastCliRun(c.get('user').id) }); }
+  try { return c.json({ ...await readStatus(c.get('user').id, true), lastRun: lastCliRun(c.get('user').id), runsByProvider: cliRunsByProvider(c.get('user').id) }); }
   catch (e) { return c.json({ error: (e as Error).message }, 502); }
 });
 cliApi.put('/', async (c) => {

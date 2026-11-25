@@ -46,7 +46,10 @@ export function cliRequest(userId: string, method: 'status' | 'generate' | 'cata
   // authenticated app-server account/model/quota APIs. Only probe official CLI auth.
   if (method === 'catalog' && (params as { provider?: unknown })?.provider === 'codex') {
     if (cliRuntime(userId) === 'bridge' && connections.has(userId) && !connections.get(userId)!.codexExecOnly) return Promise.reject(new Error('Update your computer bridge in Models & access before using Codex.'));
-    return cliRequest(userId, 'status', {}, timeoutMs, signal).then(providers => codexDefaultCatalog(providers.codex));
+    const status = cliRuntime(userId) === 'server'
+      ? refreshHosted(userId, signal, 25_000)
+      : cliRequest(userId, 'status', {}, timeoutMs, signal);
+    return status.then(providers => codexDefaultCatalog(providers.codex));
   }
   const work = () => withLegacyWork(userId, () => admittedRequest(userId, method, params, timeoutMs, signal, onToolCall));
   return method === 'generate' ? withCliDiagnostics(params, cliRuntime(userId), work, attribution(), recordCliRun(userId)) : work();
