@@ -20,7 +20,7 @@ import { defaultModel, llmProvider, openrouterModels } from './lib/llm.js';
 import { hub } from './lib/hub.js';
 import { refreshTriggerSubscription } from './triggers.js';
 import { runInBotQueue } from './agent/loop.js';
-import { consolidateBot, historySize, maybeCompact, memoryConfig } from './agent/memory.js';
+import { consolidateBot, estimateChars, maybeCompact, memoryConfig } from './agent/memory.js';
 import { idleConfig, viewerCount } from './idle.js';
 import { loadHistory } from './store.js';
 import { KnowledgeError } from './knowledge/common.js';
@@ -81,7 +81,7 @@ configApi.get('/bots/:id/settings', (c) => {
     tasks: listTasks(b.id),
     memory: {
       lastConsolidatedAt: job?.last_consolidated_at ?? null,
-      historyChars: historySize(b.id, loadHistory(b.id)),
+      historyChars: estimateChars(loadHistory(b.id)),
       compactAtChars: memoryConfig.compactChars,
       lastCompaction: lastCompaction ?? null,
     },

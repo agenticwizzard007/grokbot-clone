@@ -101,6 +101,46 @@ function script(route: 'direct' | 'search' | 'deferred') {
   };
 }
 
+test('R7 hosted Codex retains the approval tool run through a running and completed decision reply offering 19 tools', { timeout: 30000 }, async t => {
+  let decided = false;
+  let release!: () => void, started!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const running = new Promise<void>(resolve => { started = resolve; });
+  const choose = script('direct');
+  const a = await account(t, 'codex', 'hosted', async (provider: string, body: any) => {
+    if (decided) { started(); await gate; return { text: 'Nothing was saved.' }; }
+    return choose(provider, body);
+  });
+  t.after(() => release());
+  await a.chat();
+  const card = a.rows().find(r => r.body.card === 'approval');
+  const before = (await a.request('/cli')).runsByProvider.codex;
+  assert.equal(before.latest.toolsOffered, 19);
+  assert.equal(before.lastToolRun.lastTool, 'SWARM_APPS_EXECUTE');
+  assert.equal(before.lastToolRun.result, 'pending_approval');
+  decided = true;
+  try {
+    await a.request(`/approvals/${card.body.approvalId}`, { decision: 'deny' });
+    await running;
+    const during = (await a.request('/cli')).runsByProvider.codex;
+    assert.equal(during.latest.toolsOffered, 19);
+    assert.equal(during.latest.lastTool, null);
+    assert.equal(during.latest.result, 'running');
+    assert.equal(during.latest.trigger, 'approval_decision');
+    assert.equal(during.latest.errorCode, null);
+    assert.deepEqual(during.lastToolRun, before.lastToolRun);
+    assert.notDeepEqual(during.latest, during.lastToolRun);
+  } finally { release(); }
+  await runInBotQueue(a.bot.id, async () => {});
+  const after = (await a.request('/cli')).runsByProvider.codex;
+  assert.equal(after.latest.toolsOffered, 19);
+  assert.equal(after.latest.lastTool, null);
+  assert.equal(after.latest.result, 'no_tool_call');
+  assert.equal(after.latest.trigger, 'approval_decision');
+  assert.deepEqual(after.lastToolRun, before.lastToolRun);
+  assert.equal(state.executions.length, 0);
+});
+
 for (const provider of ['codex', 'claude'] as const) for (const runtime of ['hosted', 'companion'] as const) {
   for (const route of ['direct', 'search', 'deferred'] as const) test(`real ${provider} ${runtime} ${route}: Gmail approval persists, emits SSE, reaches the CLI and denial blocks execution`, { timeout: 30000 }, async t => {
     const a = await account(t, provider, runtime, script(route));

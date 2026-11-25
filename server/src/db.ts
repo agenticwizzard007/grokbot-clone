@@ -63,10 +63,10 @@ CREATE TABLE IF NOT EXISTS cli_provider_runs (
   error_code TEXT,
   PRIMARY KEY(user_id,provider,slot)
 );
-INSERT OR IGNORE INTO cli_provider_runs
+INSERT OR IGNORE INTO cli_provider_runs (user_id,provider,slot,generation_id,started_at,runtime,tools_offered,last_tool,result,error_code)
   SELECT user_id,provider,'latest',generation_id,started_at,runtime,tools_offered,last_tool,result,error_code FROM cli_last_runs;
-INSERT OR IGNORE INTO cli_provider_runs
-  SELECT user_id,provider,'tools',generation_id,started_at,runtime,tools_offered,last_tool,result,error_code FROM cli_last_runs WHERE tools_offered>0;
+INSERT OR IGNORE INTO cli_provider_runs (user_id,provider,slot,generation_id,started_at,runtime,tools_offered,last_tool,result,error_code)
+  SELECT user_id,provider,'tools',generation_id,started_at,runtime,tools_offered,last_tool,result,error_code FROM cli_last_runs WHERE last_tool IS NOT NULL OR result='pending_approval';
 CREATE TABLE IF NOT EXISTS login_attempts (
   id TEXT PRIMARY KEY,
   provisional_user_id TEXT NOT NULL,
@@ -209,6 +209,10 @@ export function addColumn(table: string, col: string, ddl: string) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
   if (!cols.some((c) => c.name === col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`);
 }
+addColumn('cli_last_runs', 'trigger', 'TEXT');
+addColumn('cli_provider_runs', 'trigger', 'TEXT');
+// Earlier versions promoted offered manifests, including runs with no tool call.
+db.exec("DELETE FROM cli_provider_runs WHERE slot='tools' AND last_tool IS NULL AND result!='pending_approval'");
 // Routine API operations need trigger metadata even when the scheduler is disabled.
 addColumn('routines', 'trigger_id', 'TEXT');
 addColumn('routines', 'trigger_config', 'TEXT');

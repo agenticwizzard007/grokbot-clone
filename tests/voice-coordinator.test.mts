@@ -15,6 +15,7 @@ let approvalToolName = '';
 let approvedWrites = 0;
 const modelInputs: any[][] = [];
 let summaryGate: Promise<void> | undefined;
+let summaryReply: string | undefined;
 let summaryStarted: (() => void) | undefined;
 const upstream = createServer(async (req, res) => {
   const chunks = [];
@@ -29,7 +30,7 @@ const upstream = createServer(async (req, res) => {
     await summaryGate;
   }
   if (body.stream) modelInputs.push(body.input);
-  const text = 'Finished the requested research; findings are ready.';
+  const text = !body.stream && summaryReply !== undefined ? summaryReply : 'Finished the requested research; findings are ready.';
   const lastInput = body.input?.at(-1);
   const scenario = lastInput?.role === 'user' ? String(lastInput.content) : '';
   const item = scenario.includes('question scenario') || scenario.includes('approval scenario')
@@ -432,7 +433,7 @@ test('a held call summary cannot overwrite a new-generation row after chat is cl
     release();
     await new Promise(resolve => setTimeout(resolve, 100));
     const current = db.prepare('SELECT body FROM rows WHERE bot_id=? AND generation=? AND seq=?').get(chief.id, row.generation, row.seq) as any;
-    assert.deepEqual(JSON.parse(current.body), row.body);
+    assert.deepEqual(JSON.parse(current.body), JSON.parse(JSON.stringify(row.body)));
     assert.ok(!JSON.stringify(loadHistory(chief.id)).includes('held-summary-context'));
   } finally { release(); summaryGate = undefined; summaryStarted = undefined; }
 });
@@ -556,4 +557,92 @@ test('production POST /api/voice/updates is mounted and distinguishes an ended c
   const ended = await poll();
   assert.equal(ended.status, 404);
   assert.deepEqual(await ended.json(), { error: 'Call not found.' });
+});
+
+
+let approvalFixture = 0;
+function gmailApproval(botId: string, subject: string, status = 'pending', createdAt = Date.now()) {
+  const id = `voice-approval-${++approvalFixture}`;
+  const row = appendRow(botId, 'card', { type: 'card', card: 'approval', approvalId: id,
+    title: 'Allow a Gmail draft?', detail: 'Review the draft', tool: 'SWARM_APPS_EXECUTE',
+    args: { tool_slug: 'GMAIL_CREATE_EMAIL_DRAFT', arguments: { subject } }, status: status as any });
+  db.prepare('INSERT INTO approvals(id,bot_id,row_seq,call_id,tool,status,created_at) VALUES(?,?,?,?,?,?,?)')
+    .run(id, botId, row.seq, id, 'SWARM_APPS_EXECUTE', status, createdAt);
+  return { id, row };
+}
+const callRecord = (botId: string, seq: number) => listRows(botId).find(row => row.seq === seq)?.body as any;
+async function endWithSummary(botId: string, callId: string) {
+  const result = await (await post('alice', 'end', { botId, callId,
+    transcript: [{ role: 'user', text: 'Draft the requested email.' }, { role: 'assistant', text: 'A pending chat approval has subject Recheck long.' }] })).json();
+  for (let i = 0; i < 100 && !callRecord(botId, result.seq)?.call?.summary; i++) await new Promise(resolve => setTimeout(resolve, 10));
+  return callRecord(botId, result.seq);
+}
+
+test('R7 voice summary names only the new pending Gmail approval, excluding older declined and pending cards', async () => {
+  const bot = createBot('alice', { name: 'Summary fixture' });
+  gmailApproval(bot.id, 'Recheck long', 'denied', Date.now() - 10000);
+  gmailApproval(bot.id, 'Older pending', 'pending', Date.now() - 10000);
+  const call = await session(bot.id);
+  assert.doesNotMatch(call.instructions, /Recheck long|Older pending/);
+  gmailApproval(bot.id, 'Voice recheck');
+  gmailApproval(foreign.id, 'Other account subject');
+  gmailApproval(researcher.id, 'Unrelated Bot subject');
+  const activity = await (await post('alice', 'tool', { botId: bot.id, callId: call.callId, name: 'peek_activity', args: {} })).json();
+  assert.match(activity.output, /Gmail draft with subject.*Voice recheck/);
+  assert.doesNotMatch(activity.output, /Recheck long|Older pending/);
+  summaryReply = "Reported a pending chat approval with subject 'Recheck long'.";
+  try {
+    const record = await endWithSummary(bot.id, call.callId);
+    assert.match(record.text, /still pending.*Voice recheck/);
+    assert.doesNotMatch(record.text, /Recheck long|Older pending|Other account|Unrelated Bot/);
+  } finally { summaryReply = undefined; }
+});
+
+test('R7 a call creating no approval has no approval sentence', async () => {
+  const bot = createBot('alice', { name: 'No approval fixture' });
+  gmailApproval(bot.id, 'Old pending', 'pending', Date.now() - 10000);
+  const call = await session(bot.id);
+  const record = await endWithSummary(bot.id, call.callId);
+  assert.doesNotMatch(record.text, /approval|pending|Recheck long|Old pending/i);
+});
+
+for (const status of ['denied', 'allowed', 'always', 'expired']) test(`R7 approval ${status} before call end is never summarized or delivered as pending`, async () => {
+  const bot = createBot('alice', { name: 'Decision fixture' });
+  const call = await session(bot.id);
+  const approval = gmailApproval(bot.id, 'Decided draft');
+  db.prepare('UPDATE approvals SET status=? WHERE id=?').run(status, approval.id);
+  // Even a stale pending card must not override the durable decision.
+  const feed = await (await post('alice', 'updates', { botId: bot.id, callId: call.callId, after: 0 })).json();
+  assert.ok(!feed.updates.some((u: any) => u.kind === 'waiting' && u.approvalId === approval.id));
+  const record = await endWithSummary(bot.id, call.callId);
+  assert.doesNotMatch(record.text, /approval|pending|Decided draft/i);
+});
+
+test('R7 voice summary rechecks decisions after generation and excludes approvals created after call end', async () => {
+  const bot = createBot('alice', { name: 'Delayed summary fixture' });
+  const call = await session(bot.id);
+  const approval = gmailApproval(bot.id, 'Decided during summary');
+  const callStartedAt = JSON.parse((db.prepare('SELECT state FROM voice_calls WHERE id=?').get(call.callId) as any).state).startedAt;
+  let release!: () => void;
+  summaryGate = new Promise<void>(resolve => { release = resolve; });
+  const started = new Promise<void>(resolve => { summaryStarted = resolve; });
+  try {
+    const ended = await (await post('alice', 'end', { botId: bot.id, callId: call.callId,
+      transcript: [{ role: 'user', text: 'held-summary-context draft request' }] })).json();
+    await started;
+    db.prepare("UPDATE approvals SET status='denied' WHERE id=?").run(approval.id);
+    // A coarse clock can give post-call work the same timestamp. The end sequence still excludes it.
+    gmailApproval(bot.id, 'Created after end', 'pending', callStartedAt);
+    release();
+    for (let i = 0; i < 100 && !callRecord(bot.id, ended.seq)?.call?.summary; i++) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.doesNotMatch(callRecord(bot.id, ended.seq).text, /approval|pending|Decided during|Created after/i);
+  } finally { release(); summaryGate = undefined; summaryStarted = undefined; }
+});
+
+test('R7 multiple pending approvals from a call use the exact count', async () => {
+  const bot = createBot('alice', { name: 'Multiple approval fixture' });
+  const call = await session(bot.id);
+  gmailApproval(bot.id, 'First draft'); gmailApproval(bot.id, 'Second draft');
+  const record = await endWithSummary(bot.id, call.callId);
+  assert.match(record.text, /2 approvals from this call are still pending in chat/);
 });

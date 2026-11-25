@@ -33,7 +33,7 @@ test('last CLI run is persisted, account scoped, authenticated and contains no c
   const { lastRun } = await response.json() as any;
   assert.equal(lastRun.result, 'pending_approval'); assert.equal(lastRun.toolsOffered, 1);
   assert.equal(lastRun.lastTool, 'SWARM_APPS_EXECUTE'); assert.equal(lastRun.errorCode, null);
-  assert.deepEqual(Object.keys(lastRun).sort(), ['errorCode', 'lastTool', 'provider', 'result', 'runtime', 'startedAt', 'toolsOffered']);
+  assert.deepEqual(Object.keys(lastRun).sort(), ['errorCode', 'lastTool', 'provider', 'result', 'runtime', 'startedAt', 'toolsOffered', 'trigger']);
   assert.doesNotMatch(JSON.stringify(lastRun), /sentinel|owner|generation/);
   assert.equal(((await (await request('other')).json()) as any).lastRun, null);
   assert.equal((await request('other', '?expectedUserId=owner')).status, 409);
@@ -70,10 +70,10 @@ test('provider runs preserve the last tool request through a reply without tools
     cliDiagnostic()?.({ event: 'tool_result', tool: 'SWARM_APPS_EXECUTE', admission: 'pending_approval' });
     return {};
   }, undefined, recordCliRun('owner'));
-  await withCliDiagnostics({ ...params, nativeTools: [] }, 'server', async () => ({}), undefined, recordCliRun('owner'));
+  await withCliDiagnostics(params, 'server', async () => ({}), undefined, recordCliRun('owner'));
   await assert.rejects(withCliDiagnostics({ ...params, provider: 'claude' }, 'bridge', async () => { throw Error('Provider timeout private-secret-sentinel'); }, undefined, recordCliRun('owner')));
   const { runsByProvider: runs } = await (await request('owner')).json() as any;
-  assert.equal(runs.codex.latest.toolsOffered, 0);
+  assert.equal(runs.codex.latest.toolsOffered, 1);
   assert.equal(runs.codex.latest.result, 'no_tool_call');
   assert.equal(runs.codex.lastToolRun.toolsOffered, 1);
   assert.equal(runs.codex.lastToolRun.result, 'pending_approval');
@@ -85,6 +85,30 @@ test('provider runs preserve the last tool request through a reply without tools
   const reopened = new Database(process.env.DB_PATH!, { readonly: true });
   assert.equal((reopened.prepare("SELECT result FROM cli_provider_runs WHERE user_id='owner' AND provider='codex' AND slot='tools'").get() as any).result, 'pending_approval');
   reopened.close();
+});
+
+test('tool records survive CLI-side rejection and newer running tool calls, and newer completed tools win concurrent finishes', async () => {
+  const { ToolCallbacks } = await import('../server/src/cli/tool-callback.js');
+  const recordTool = async (tool: string, gate = Promise.resolve()) => withCliDiagnostics({ ...params, nativeTools: [{ name: tool }] }, 'server', async () => {
+    const callbacks = new ToolCallbacks({ nativeTools: [{ name: tool }] }, async () => ({ output: 'Done' }));
+    await callbacks.run({ id: tool, name: tool, arguments: {} });
+    await gate;
+    callbacks.close();
+    return { text: 'Done', stopped: false, nativeDiagnostics: [] };
+  }, undefined, recordCliRun('other'));
+  await recordTool('FIRST_TOOL');
+  const first = (cliRunsByProvider('other') as any).codex.lastToolRun;
+  await assert.rejects(withCliDiagnostics(params, 'server', async () => ({ nativeDiagnostics: [{ tool: 'SWARM_APPS_EXECUTE', errorClass: 'cli_approval_rejected' }] }), undefined, recordCliRun('other')));
+  assert.deepEqual((cliRunsByProvider('other') as any).codex.lastToolRun, first);
+  assert.equal((lastCliRun('other') as any).lastTool, null);
+  let release!: () => void;
+  const older = recordTool('OLDER_TOOL', new Promise<void>(resolve => { release = resolve; }));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal((lastCliRun('other') as any).result, 'running');
+  assert.deepEqual((cliRunsByProvider('other') as any).codex.lastToolRun, first);
+  await recordTool('NEWER_TOOL');
+  release(); await older;
+  assert.equal((cliRunsByProvider('other') as any).codex.lastToolRun.lastTool, 'NEWER_TOOL');
 });
 
 test('an older concurrent run cannot replace the latest diagnostic or recreate a deleted account', async () => {
