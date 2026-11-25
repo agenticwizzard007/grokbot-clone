@@ -69,7 +69,10 @@ test('never returns unavailable, duplicate or connected toolkits, nor model-supp
   assert.throws(() => availableSuggestions({}, catalogItems, new Set()), /Invalid/);
 });
 
-test('cache shares identical requests, isolates accounts and accepts new edits while a slow result is pending', async () => {
+test('cache shares identical requests, isolates accounts and accepts new edits while a slow result is pending', async t => {
+  // This test controls when providers settle. The separate hung-ranking test
+  // advances the deadline; module compilation under load must not race it here.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const pending: Array<(value: unknown) => void> = [];
   const rank = createSuggestionRanker(() => new Promise(resolve => pending.push(resolve)));
   const first = rank('owner', 'model', context, catalogItems);
