@@ -27,7 +27,7 @@ const hashIs = (page, hash) => page.waitForFunction(hash => location.hash === ha
 // font arrival and late API results. CLS excludes recent input; geometry does not.
 function observeNavigation(theme) {
   localStorage.setItem('swarm.theme', theme);
-  const selectors = ['.settings-nav__item', '.access-settings__bar', '.access-settings__bar > button', '.access-settings__bar-title', '.bot-settings-page > .setup-paper__bar', '.setup-paper__tabs button', '.sidebar-island', '.sidebar .bot-row', '.sidebar .pinned__tile'];
+  const selectors = ['.settings-nav__item', '.access-settings__bar', '.access-settings__bar > button', '.access-settings__back-slot > button', '.access-settings__bar-title', '.bot-settings-page > .setup-paper__bar', '.setup-paper__tabs button', '.tasks-view__header', '.work-tabs button', '.sidebar-island', '.sidebar .bot-row', '.sidebar .pinned__tile'];
   window.gg = { samples: [], shifts: [], events: [], start: performance.now() };
   window.ggReset = () => { window.gg.samples = []; window.gg.shifts = []; window.gg.start = performance.now(); };
   for (const method of ['pushState', 'replaceState']) {
