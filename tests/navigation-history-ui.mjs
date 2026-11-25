@@ -183,7 +183,7 @@ try {
       await page.locator('.sidebar-island').click(); await hash('#tasks');
       for (const tab of ['Team','Goals','Reports']) { await page.getByRole('navigation',{name:'Work sections'}).getByRole('button',{name:tab,exact:true}).click(); await hash(`#${tab.toLowerCase()}`); }
       await reload('#reports');
-      await page.locator('.tasks-view__header').getByRole('button', {name: width === 390 ? 'Back to Bots' : 'Back to chat', exact:true}).waitFor();
+      await page.locator('.tasks-view__header').getByRole('button', {name: 'Back to Goals', exact:true}).waitFor();
       for (const tab of ['goals','team','tasks']) await back(`#${tab}`);
       await back(width === 390 ? '#bots' : chat); await forward('#tasks');
       await page.locator('.tasks-view__header button').first().click(); await hash(width === 390 ? '#bots' : chat);
@@ -237,21 +237,21 @@ try {
       await page.goto(`${origin}/#bot/deleted/settings/general`); await hash('#bots');
       // Same Create URL without a known in-app trail must not reuse details.
       await page.goto(`${origin}/?fresh=1#new-bot`); await reload('#new-bot');
-      const fallbackLabel = width === 390 ? 'Back to Bots' : 'Back to chat';
+      const fallbackLabel = 'Back to Bots';
       await page.getByRole('button', {name:fallbackLabel,exact:true}).waitFor();
       await snap('create-parent-reload');
-      await page.locator('.setup-paper__back').click(); await hash(width === 390 ? '#bots' : chat);
+      await page.locator('.setup-paper__back').click(); await hash('#bots');
       await page.goto(`${origin}/#new-bot/group`); await page.getByRole('button',{name:'Back to create a Bot',exact:true}).click(); await hash('#new-bot');
       await page.locator('.setup-paper__close').click(); await page.locator('.app').waitFor(); assert.equal(new URL(page.url()).origin, origin);
       await snap('safe-deep-link-back');
       if (width === 1280) {
         const sidebar = page.locator('.sidebar');
         for (const theme of ['Light', 'Dark']) {
-          for (const [label, destination] of [['chat', chat], ['tasks', '#tasks'], ['details', `${chat}/details/activity`]]) {
+          for (const [label, destination] of [['chat', chat], ['Tasks', '#tasks'], ['details', `${chat}/details/activity`]]) {
             await page.goto(`${origin}/?rail=${theme}-${label}${destination}`);
             await page.locator('.app').waitFor();
             if (label === 'chat') await page.locator('.composer__input').waitFor();
-            if (label === 'tasks') await page.locator('.tasks-view__header').waitFor();
+            if (label === 'Tasks') await page.locator('.tasks-view__header').waitFor();
             if (label === 'details') await page.locator('.details').waitFor();
             await page.keyboard.press('Control+,'); await hash('#settings/general');
             const compact = page.getByRole('switch', { name: 'Compact sidebar', exact: true });
@@ -281,7 +281,7 @@ try {
             await backButton.focus();
             assert.ok(await backButton.evaluate(el => el.matches(':focus-visible')));
             await snap(`compact-back-${theme.toLowerCase()}-${label}`);
-            if (label === 'tasks') await page.keyboard.press('Enter');
+            if (label === 'Tasks') await page.keyboard.press('Enter');
             else await backButton.click();
             await hash(destination);
             assert.equal(await sidebar.locator('.sidebar__back').count(), 0, 'Back is removed after leaving Settings');

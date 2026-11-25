@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 import { create } from 'zustand';
 import type { ServerEvent } from '@shared/types';
 import { useStore } from './store';
-import { APP_SECTIONS, backLabel, backTarget, outsideSurface, navigationActions, parseScreen, resolveScreen, screenHash, ScreenHistory, type Screen, type DetailTab, type SetupTab } from './lib/navigation';
+import { APP_SECTIONS, backLabel, backTarget, outsideSurface, navigationActions, parseScreen, resolveScreen, screenHash, screenTitle, ScreenHistory, type Screen, type DetailTab, type SetupTab } from './lib/navigation';
 import { readDetailsDefault } from './lib/detailsDefault';
 import { botSlug, routeBot, linkedWork, type WorkRoute } from './lib/userRoutes';
 
@@ -215,29 +215,13 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
   bump: (key) => set({ versions: { ...get().versions, [key]: (get().versions[key] ?? 0) + 1 } }),
 }));
 
-// A settings page can cover an open Setup page. Recompute the visible title on cleanup
-// so closing either layer cannot restore a title from a page that has already left.
-const pageTitles = new Map<symbol, { title: string; layer: number }>();
-export function usePageTitle(title: string | null, layer = 0) {
-  useEffect(() => {
-    if (!title) return;
-    const key = Symbol();
-    const update = () => {
-      const top = [...pageTitles.values()].sort((a, b) => b.layer - a.layer)[0];
-      document.title = top?.title ?? 'Swarm';
-    };
-    pageTitles.set(key, { title, layer }); update();
-    return () => { pageTitles.delete(key); update(); };
-  }, [title, layer]);
-}
-
 function defaultScreen(): Screen {
   const st = useStore.getState();
   return !st.mobile && st.selectedBotId ? { kind: 'chat', bot: botReference(st.selectedBotId) } : { kind: 'bots' };
 }
 function returnFallback(screen: Screen | null): Screen {
   if (screen?.kind === 'bot-settings' || screen?.kind === 'details') return { kind: 'chat', bot: screen.bot };
-  return defaultScreen();
+  return { kind: 'bots' };
 }
 export function returnScreen(screen = navigation.screen, trail = navigation.trail): Screen {
   const target = backTarget(trail, returnFallback(screen), other => !screen || outsideSurface(screen, other)).screen;
@@ -246,9 +230,9 @@ export function returnScreen(screen = navigation.screen, trail = navigation.trai
   // screen that applyScreen will actually show when the control is clicked.
   return resolveScreen(target, st.bots, st.botsLoaded) ?? target;
 }
-export function returnLabel() { return backLabel(returnScreen()); }
+export function returnLabel() { return backLabel(returnScreen(), useStore.getState().bots); }
 export const useReturnLabel = () => useConfigUI(s => s.backLabel);
-function backFromSurface() {
+export function backFromSurface() {
   const current = navigation.screen;
   navigation.back(returnFallback(current), other => !current || outsideSurface(current, other));
 }
@@ -257,7 +241,9 @@ export function backFromWork() { backFromSurface(); }
 export let detailsCaller: HTMLElement | null = null;
 
 function applyScreen(requested: Screen, normalize = true, trail = navigation.trail) {
-  const screen = resolveScreen(requested, useStore.getState().bots, useStore.getState().botsLoaded);
+  const roster = useStore.getState();
+  if (normalize) document.title = screenTitle(requested, roster.bots, roster.botsLoaded);
+  const screen = resolveScreen(requested, roster.bots, roster.botsLoaded);
   if (!screen) return; // the hash is the pending intent; a newer action replaces it
   if ('bot' in requested && screen.kind === 'bots') useConfigUI.setState({ botSettingsDrafts: {}, botSettingsDirty: false, botSettingsLeave: null });
   if (normalize && screenHash(screen) !== window.location.hash) { navigation.navigate(screen, 'replace'); return; }
@@ -286,7 +272,7 @@ function applyScreen(requested: Screen, normalize = true, trail = navigation.tra
     return;
   }
   useConfigUI.setState({
-    backLabel: backLabel(returnScreen(screen, trail)),
+    backLabel: backLabel(returnScreen(screen, trail), st.bots),
     view: base.kind === 'work' ? 'tasks' : base.kind === 'bots' ? 'bots' : 'chat',
     ...(base.kind === 'work' ? { workRoute: base.route } : {}),
     ...(base.kind === 'details' ? { detailsTab: base.tab, setupTab: base.setup ?? 'responsibilities', detailsReports: !!base.reports } : {}),
@@ -327,6 +313,7 @@ navigationActions.modal = modal => {
     backFromSurface();
   }
 };
+document.title = screenTitle(navigation.screen ?? defaultScreen(), useStore.getState().bots, useStore.getState().botsLoaded);
 window.addEventListener('popstate', navigation.restore);
 window.addEventListener('hashchange', navigation.restore);
 let navigationAccount: string | undefined;

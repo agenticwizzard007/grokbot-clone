@@ -6,6 +6,7 @@
 #sidebar-back-slot:empty { display: none; }
 #sidebar-back-slot:not(:empty) { display: flex; justify-content: center; flex-shrink: 0; margin-bottom: 8px; }
 .sidebar__back { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; color: var(--color-text-primary); }
+.sidebar__back--labeled { display: flex; justify-content: flex-start; gap: 8px; width: 100%; padding: 0 12px; }
 .sidebar__back:hover { background: var(--color-bg-hover); }
 .sidebar__back:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
 .sidebar__titlebar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: var(--space-7); margin-bottom: var(--space-4); flex-shrink: 0; }
