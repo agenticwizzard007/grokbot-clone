@@ -129,7 +129,7 @@ a { color: inherit; }
 .toast--global { overflow-wrap: break-word; }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0s !important; }
 }
 
 /* Menu items with icons: hover lifts the row and the icon, press darkens a step, keyboard focus shows a ring. */
