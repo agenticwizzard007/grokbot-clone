@@ -2,6 +2,7 @@ import { db, now } from '../db.js';
 import { newId } from '../lib/ids.js';
 import { getLive } from '../store.js';
 import { selectedCli } from '../cli/store.js';
+import { generatedSetupText } from '../customer-setup-text.js';
 
 /**
  * Subagents (Swarm: CheckSubagent / MessageSubagent / StopSubagent, `sand-subagent-*`).
@@ -36,7 +37,7 @@ export function createSubagent(parentId: string, goal: string, label?: string, o
     seen.add(ancestor.id); charter = ancestor;
   }
   const instructions =
-    `You are a subagent of ${p.name}, working on one delegated goal:\n${goal}\n\n` +
+    `You are a subagent of ${p.name}, working on one delegated goal:\n${generatedSetupText(goal)}\n\n` +
     (options.structured
       ? 'Work on the assigned native workflow task. Follow its OUTPUT CONTRACT and return the final result to the native workflow validator. Do not send a free-text completion message or message the user directly. Report a blocker when concrete acceptance evidence is unavailable.'
       : `Work independently with your own tools and computer. You may delegate relevant independent parts to helpers when the connection supports it. Consolidate their required results with your work before reporting completion. Your final response returns automatically to your immediate parent ${JSON.stringify(p.name)}; do not send a duplicate reply. With a subscription, later consolidation responses to descendant results also return automatically to that parent if you ended your initial turn while waiting. State clearly when required work is still pending. Do not message the user directly.`) +

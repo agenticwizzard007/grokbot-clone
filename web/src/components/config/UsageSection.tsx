@@ -230,7 +230,12 @@ function DailyChart({ days, metric, withComputer, timezone }: { timezone: string
           <div className="usage-chart__cols">
             {days.map((d, i) => {
               const total = value(d);
-              const vmShare = stacked && total > 0 ? d.computerUsd / total : 0;
+              // Computer totals can allocate fractions of a cent to otherwise empty days.
+              // Omit each cost series that rounds to zero cents before sizing the stack.
+              const aiAmount = metric === 'cost' && Number(d.costUsd.toFixed(2)) === 0 ? 0 : ai(d);
+              const vmAmount = stacked && Number(d.computerUsd.toFixed(2)) > 0 ? d.computerUsd : 0;
+              const paintedTotal = aiAmount + vmAmount;
+              const vmShare = paintedTotal > 0 ? vmAmount / paintedTotal : 0;
               return (
                 <div
                   key={d.day}
@@ -241,10 +246,10 @@ function DailyChart({ days, metric, withComputer, timezone }: { timezone: string
                   onFocus={() => setHover(i)}
                   onBlur={() => setHover(null)}
                 >
-                  <div className="usage-chart__col" style={{ height: `${(total / top) * 100}%` }}>
+                  {paintedTotal > 0 && <div className="usage-chart__col" style={{ height: `${(paintedTotal / top) * 100}%` }}>
                     {vmShare > 0 && <div className="usage-chart__seg is-vm" style={{ flexGrow: vmShare }} />}
                     {vmShare < 1 && <div className="usage-chart__seg is-ai" style={{ flexGrow: 1 - vmShare }} />}
-                  </div>
+                  </div>}
                 </div>
               );
             })}

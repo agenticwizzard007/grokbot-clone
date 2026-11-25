@@ -8,6 +8,7 @@ import { db, now } from './db.js';
 import { assertTenant } from './deployment.js';
 import { appendHistory, appendRow, emitBot, getBotRow, getLive, getRow, listRoutines, listTasks, setLive, updateRow } from './store.js';
 import { EFFORTS, type MessageBody, type ToolCallBody } from './types.js';
+import { generatedSetupText } from './customer-setup-text.js';
 
 export interface VoiceControlContext { userId: string; botId: string; callId: string; spokenTranscript?: { id?: string; role: string; text: string }[] }
 
@@ -213,6 +214,7 @@ export async function runVoiceControl(name: string, args: unknown, ctx: VoiceCon
       const { bot_id, ...patch } = schemas.update_agent.parse(raw);
       const bot = ownedAgent(ctx.userId, bot_id);
       if (patch.model !== undefined) patch.model = patch.model?.trim() || null;
+      if (patch.description !== undefined) patch.description = z.string().max(300).parse(generatedSetupText(patch.description, bot.description));
       db.transaction(() => {
         const current = db.prepare('SELECT * FROM bots WHERE id=? AND user_id=?').get(bot.id, ctx.userId) as Record<string, unknown>;
         const changed: string[] = [];

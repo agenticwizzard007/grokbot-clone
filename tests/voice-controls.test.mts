@@ -58,6 +58,18 @@ async function run(name: string, args: unknown, ctx = context()) {
   return JSON.parse(result.output);
 }
 const botCount = () => (db.prepare('SELECT count(*) n FROM bots').get() as any).n;
+
+test('voice descriptions and delegated instructions use plain connection prose and retain saved text', async () => {
+  const saved = 'User-written enum example: ACTIVE.';
+  db.prepare('UPDATE bots SET description=?,instructions=? WHERE id=?').run(saved, saved, secondary.id);
+  const result = await run('update_agent', { bot_id: secondary.id, description: `${saved} Slack is EXPIRED.` });
+  assert.equal(result.agent.description, `${saved} Slack needs to be reconnected.`);
+  const delegated = createSubagent(secondary.id, 'Slack is ACTIVE. Calendar is INITIATED.', 'Connection summary');
+  const instructions = getBotRow(delegated.id).instructions;
+  assert.match(instructions, /Slack is connected\. Calendar is waiting for connection\./);
+  assert.ok(instructions.includes(saved));
+  assert.equal(getBotRow(secondary.id).instructions, saved);
+});
 const jobs = (botId: string) => db.prepare('SELECT * FROM agent_jobs WHERE bot_id=? ORDER BY created_at,id').all(botId) as any[];
 const spec = () => ({
   name: 'Nia', label: 'Lead researcher', purpose: 'Research three sourced leads each Friday.',

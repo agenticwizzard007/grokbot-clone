@@ -11,7 +11,7 @@ import { publishNativeEvent } from './native/events.js';
 import { assertLegacyWorkOpen } from './security/legacy-work.js';
 import { redactInternalIds } from './lib/redact.js';
 import { setupOnboarding } from './setup-state.js';
-import { customerSetupText } from './customer-setup-text.js';
+import { customerSetupText, generatedSetupText } from './customer-setup-text.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS coworker_setup_handoffs (
  bot_id TEXT PRIMARY KEY REFERENCES bots(id) ON DELETE CASCADE,
@@ -407,7 +407,8 @@ export function saveSetupDraft(botId: string, userId: string, input: unknown) {
   db.transaction(() => {
     const result = db.prepare('UPDATE bot_setups SET brief=?, source=?, onboarding_status=?, revision=revision+1, confirmed_at=NULL, updated_at=? WHERE bot_id=? AND revision=?').run(JSON.stringify(brief), JSON.stringify(source), a.stage, now(), botId, a.revision);
     if (!result.changes) throw new Error('The configuration changed. Read the latest revision and retry.');
-    db.prepare('UPDATE bots SET instructions=?, description=?, updated_at=? WHERE id=?').run(redactInternalIds(a.instructions), brief.purpose.slice(0, 300), now(), botId);
+    const instructions = z.string().max(8000).parse(redactInternalIds(generatedSetupText(a.instructions, b.instructions)));
+    db.prepare('UPDATE bots SET instructions=?, description=?, updated_at=? WHERE id=?').run(instructions, brief.purpose.slice(0, 300), now(), botId);
     publishNativeEvent({ userId, botId, kind: 'setup.prepared', sourceType: 'setup', sourceId: botId, sourceRevision: a.revision + 1, data: { stage: a.stage } });
     writeSetupFiles(botId);
     const saved = setupChanges(prior.brief, brief);
@@ -479,7 +480,9 @@ export function prepareCoworkerSetup(userId: string, coordinatorId: string, inpu
     const source = { ...prior.source, sourceRefs: [...evidence.values()] };
     const changed = db.prepare('UPDATE bot_setups SET brief=?,source=?,onboarding_status=?,revision=revision+1,confirmed_at=NULL,updated_at=? WHERE bot_id=? AND revision=?').run(JSON.stringify(brief), JSON.stringify(source), a.stage, now(), a.bot_id, a.revision);
     if (!changed.changes) throw new Error('The configuration changed. Read the latest revision and retry.');
-    db.prepare('UPDATE bots SET instructions=?,description=?,updated_at=? WHERE id=? AND user_id=?').run(redactInternalIds(a.instructions), brief.purpose.slice(0, 300), now(), a.bot_id, userId);
+    const savedInstructions = getBotRow(a.bot_id)!.instructions;
+    const instructions = z.string().max(8000).parse(redactInternalIds(generatedSetupText(a.instructions, savedInstructions)));
+    db.prepare('UPDATE bots SET instructions=?,description=?,updated_at=? WHERE id=? AND user_id=?').run(instructions, brief.purpose.slice(0, 300), now(), a.bot_id, userId);
     publishNativeEvent({ userId, botId: a.bot_id, kind: 'setup.prepared', sourceType: 'setup', sourceId: a.bot_id, sourceRevision: a.revision + 1, data: { coordinatorId, stage: a.stage, sourceRefs: answers.map(({ text, ...ref }) => ref) } });
     writeSetupFiles(a.bot_id);
     if (a.stage !== prior.onboarding.status) emitSetupStatus(a.bot_id); else emitSetup(a.bot_id);
