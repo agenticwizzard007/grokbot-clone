@@ -12,18 +12,18 @@ Production Playwright fixture: 320 already-read messages with long Markdown, no 
 
 | Width | Theme | Delay ms | Baseline paint p50/p95/max ms | Changed paint p50/p95/max ms | Changed script p95 ms | Long tasks, both builds |
 | --- | --- | ---: | --- | --- | ---: | ---: |
-| 1280 | light | 0 | 16/24/24 | 16/16/24 | 0.5 | 0 |
-| 1280 | light | 20 | 16/16/16 | 16/16/24 | 0.8 | 0 |
-| 1280 | dark | 0 | 16/16/24 | 16/24/24 | 0.6 | 0 |
-| 1280 | dark | 20 | 16/16/16 | 16/16/24 | 0.7 | 0 |
-| 390 | light | 0 | 16/24/24 | 16/24/24 | 0.7 | 0 |
-| 390 | light | 20 | 16/16/16 | 16/16/16 | 0.8 | 0 |
-| 390 | dark | 0 | 16/16/24 | 16/24/24 | 0.6 | 0 |
-| 390 | dark | 20 | 16/16/16 | 16/16/16 | 0.7 | 0 |
+| 1280 | light | 0 | 16/24/24 | 16/24/24 | 0.4 | 0 |
+| 1280 | light | 20 | 16/16/16 | 16/16/16 | 0.6 | 0 |
+| 1280 | dark | 0 | 16/16/24 | 16/16/24 | 0.5 | 0 |
+| 1280 | dark | 20 | 16/16/16 | 16/16/16 | 0.6 | 0 |
+| 390 | light | 0 | 16/24/24 | 16/24/24 | 0.6 | 0 |
+| 390 | light | 20 | 16/16/16 | 16/16/16 | 0.6 | 0 |
+| 390 | dark | 0 | 16/16/24 | 16/16/24 | 0.5 | 0 |
+| 390 | dark | 20 | 16/16/16 | 16/16/16 | 0.5 | 0 |
 
-The zero-delay sentences completed in 166 to 190 ms in the changed build; 20 ms delay completed in 1318 to 1337 ms. Each DOM value was complete immediately after typing. The reported two-second empty DOM and 16 characters/second growth were not reproduced. The fixture supports an automation/probing artifact as a possibility, not a proven diagnosis of the live tester's result.
+The zero-delay sentences completed in 127 to 182 ms in the changed build; 20 ms delay completed in 1279 to 1335 ms. Each DOM value was complete immediately after typing. The reported two-second empty DOM and 16 characters/second growth were not reproduced. The fixture supports an automation/probing artifact as a possibility, not a proven diagnosis of the live tester's result.
 
-An independent frame-plus-task probe exaggerated zero-delay latency: p95 162 to 180 ms despite Event Timing p95 16 to 24 ms. Continuous automated input can defer timer tasks while the browser continues presenting frames. This is why the meter prefers Event Timing and discloses the fallback. At 20 ms input spacing, the frame-plus-task p95 was 18 to 19 ms. Raw local evidence is in `.context/input-latency{,-baseline}/results.json`.
+An independent frame-plus-task probe exaggerated zero-delay latency: p95 144 to 178 ms despite Event Timing p95 16 to 24 ms. Continuous automated input can defer timer tasks while the browser continues presenting frames. This is why the meter prefers Event Timing and discloses the fallback. At 20 ms input spacing, the frame-plus-task p95 was 17 to 18 ms. Raw local evidence is in `.context/input-latency{,-baseline}/results.json`.
 
 Code audit:
 
@@ -64,4 +64,4 @@ The new production fixture checks 1280 and 390 widths in light and dark: Bots to
 - `node tests/composer-performance-ui.mjs`
 - `node tests/composer-model-loading-ui.mjs`
 
-Screenshots and detailed logs are under `.context/`. Full-suite baseline comparison and merge/deployment revisions are reported with the PR.
+Screenshots and detailed logs are under `.context/`. Full local suite: 2255 pass, 71 fail, 24 existing skips, 0 cancelled. Untouched d8602e9: 2249 pass, 71 fail, 24 existing skips, 0 cancelled. No new failure names. Six unit tests and two browser fixtures were added. All 75 targeted unit tests pass. The production input matrix (8 cases), production navigation/copy/cache matrix (4 cases), and the earlier composer, model-loading, suggestions, readiness S and navigation browser fixtures pass. Build and both typechecks pass. Detailed failure-name comparison is saved locally in `.context/test-comparison.json`.
