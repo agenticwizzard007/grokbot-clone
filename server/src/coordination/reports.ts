@@ -1,3 +1,4 @@
+import { plural } from '../lib/plural.js';
 import './schema.js';
 import { db, now } from '../db.js';
 import { newId, sha256 } from '../lib/ids.js';
@@ -80,7 +81,7 @@ function observe(userId:string,from:number,through:number,emit:(s:ReportSource)=
  if(abbreviated)gaps.push(`${abbreviated} source observations contain abbreviated titles or details. Source references identify the original revisions; full detail is not preserved in this report projection.`);
  const reviewed=(db.prepare("SELECT seq FROM native_consumer_cursors WHERE user_id=? AND consumer='coordination-human-reviewed'").get(userId) as {seq:number}|undefined)?.seq??0;
  const pending=db.prepare("SELECT COUNT(*) count,MAX(seq) through FROM native_events WHERE user_id=? AND kind='coordination.human_source' AND seq>?").get(userId,reviewed) as {count:number;through:number|null};
- if(pending.count)gaps.push(`${pending.count} human conversation source revision(s) await Quinn review (reviewed through event ${reviewed}; pending through event ${pending.through}). Current user changes may not yet be reflected in operational records. Source text is not included in this report.`);
+ if(pending.count)gaps.push(`${plural(pending.count, 'human conversation source revision')} ${pending.count === 1 ? 'awaits' : 'await'} coordinator review (reviewed through event ${reviewed}; pending through event ${pending.through}). Current user changes may not yet be reflected in operational records. Source text is not included in this report.`);
  const supervision=db.prepare('SELECT * FROM coordination_supervision WHERE user_id=?').get(userId) as any;
  if(!supervision?.last_tick_at||through-supervision.last_tick_at>120000||supervision.last_error)gaps.push(`Coordination runtime observation is ${supervision?.last_error?'degraded':supervision?.last_tick_at?'stale':'unavailable'}; last verified tick: ${supervision?.last_tick_at?new Date(supervision.last_tick_at).toISOString():'none'}. Coworker setup and execution states above are last verified records, not a live availability check.`);
  gaps.push('Current canonical states were observed at the snapshot time; intermediate transitions before the watermark may be unavailable. No live coworker/provider poll was required. Unstructured deadline commitments are not inferred.');

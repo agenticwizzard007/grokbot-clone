@@ -1,3 +1,4 @@
+import { InputLatencyDiagnostics } from '../InputLatencyDiagnostics';
 import { prefetchApps } from '../../lib/appsCatalogCache';
 import { visibleConnections, connectionStatus } from '@shared/connection-details';
 import { ConnectedAccountDetails, ConnectedAccounts, type DisplayAccount } from '../ConnectedAccountDetails';
@@ -137,7 +138,7 @@ export function AppSettings() {
     <button type="button" className="access-nav__expand" aria-label="Expand sidebar to browse settings" title="Expand sidebar to browse settings" onClick={() => useStore.getState().set({ sidebarCollapsed: false })}><PanelLeftOpen size={20} aria-hidden /></button>
   </nav> : (
     <nav className={`settings-nav access-nav${compact ? ' access-nav--phone' : ''}`} aria-label="Settings sections" onKeyDown={arrows}>
-      {!compact && <button type="button" className="access-settings__back settings-nav__back" onClick={close}><ChevronLeft size={18} aria-hidden /><span>{backTitle}</span></button>}
+      {!compact && !home && <button type="button" className="access-settings__back settings-nav__back" onClick={close}><ChevronLeft size={18} aria-hidden /><span>{backTitle}</span></button>}
       {compact ? <PageHead title={q ? 'Search settings' : 'Settings'} sub="Manage your Swarm workspace." /> : <h2 className="settings-nav__title">Settings</h2>}
       <label className="settings-search">
         <Search size={18} strokeWidth={1.75} aria-hidden />
@@ -161,15 +162,15 @@ export function AppSettings() {
 
   const showList = compact && listView;
   return <>
-    {backSlot && createPortal(<button type="button" className="sidebar__back" aria-label={backTitle} title={backTitle} onClick={close}><ArrowLeft size={20} aria-hidden /></button>, backSlot)}
+    {backSlot && !home && createPortal(<button type="button" className="sidebar__back" aria-label={backTitle} title={backTitle} onClick={close}><ArrowLeft size={20} aria-hidden /></button>, backSlot)}
     {desktopSlot && createPortal(nav, desktopSlot)}
     {createPortal(<div className={`app-settings access-settings${appRoot ? ' access-settings--in-shell' : ''}${showList ? ' is-list' : ''}`} role={appRoot ? 'region' : 'dialog'} aria-modal={appRoot ? undefined : true} aria-label="Settings">
       {!compact && !desktopSlot && <aside className="app-settings__nav">{nav}</aside>}
       <div className="app-settings__main" ref={main}>
         <header className="access-settings__bar" tabIndex={-1} ref={heading}>
-          <button type="button" className="access-settings__back" onClick={compact && !showList ? showListRoute : close} aria-label={compact ? (showList ? backTitle : 'Back to Settings') : backTitle}>
+          {!home && <button type="button" className="access-settings__back" onClick={compact && !showList ? showListRoute : close} aria-label={compact ? (showList ? backTitle : 'Back to Settings') : backTitle}>
             <ChevronLeft size={18} strokeWidth={1.75} aria-hidden />{!compact && <span>{backTitle}</span>}
-          </button>
+          </button>}
           <span className="access-settings__bar-title">{compact && <SwarmMark size={24} />}{showList ? 'Settings' : sectionLabel}</span>
           {compact && <button type="button" className="access-settings__back access-settings__dismiss" onClick={close} aria-label="Close settings"><X size={18} strokeWidth={1.75} aria-hidden /></button>}
         </header>
@@ -238,6 +239,7 @@ function GeneralSection() {
           </SettingRow>
         </div>
       </section>
+      <InputLatencyDiagnostics />
       <section className="cfg-section">
         <h2 className="cfg-section__label">Keyboard shortcuts</h2>
         {IS_MAC && !isNativeApp && <div className="cfg-field__hint">On Windows and Linux, use Ctrl instead of ⌘ and Alt instead of ⌥.</div>}

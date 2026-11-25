@@ -63,7 +63,9 @@
     "test:qa": "node --import tsx --test --test-concurrency=1 tests/qa-ws1-api.test.mts tests/qa-ws2-runtime.test.mts tests/qa-ws2-apps.test.mts tests/qa-ws3-web-logic.test.mts tests/qa-ws3-conversation-search.test.mts tests/qa-ws4-settings.test.mts tests/qa-r2-ws3.test.mts tests/exchange-summary.test.mts tests/qa-r3-redact.test.mts tests/qa-r3-settings.test.mts tests/qa-r3-slug-routes.test.mts tests/routine-delete.test.mts && node tests/card-long-identifiers-ui.mjs && node tests/qa-ui-i12-confirmation-title.mjs && node tests/app-row-overlap-ui.mjs && node tests/personal-assistant-header-ui.mjs && node tests/connect-popup-ui.mjs && node tests/setup-copy-ui.mjs && node tests/saved-reports-label-ui.mjs && node tests/more-actions-stacking-ui.mjs && node tests/notice-long-references-ui.mjs",
     "test:plan-connections": "node --import tsx --test tests/plan-connections.test.mts && node tests/plan-connections-ui.mjs",
     "test:chat-open": "npm run build -w web && node --import tsx --test --test-concurrency=1 tests/chat-open.test.mts tests/transcript-paging.test.mts tests/sse-reconnect.test.mts tests/sse-stream.test.mts && node tests/chat-open-ui.mjs",
-    "test:redesign": "node tests/redesign-ui.mjs"
+    "test:redesign": "node tests/redesign-ui.mjs",
+    "test:input-latency": "node --import tsx --test tests/input-latency.test.mts && node tests/input-latency-ui.mjs",
+    "test:readiness-cc": "node --import tsx --test tests/plural-copy.test.mts tests/suggestion-cache.test.mts tests/navigation-labels.test.mts tests/navigation-history.test.mts && node tests/readiness-cc-ui.mjs"
   },
   "engines": {
     "node": ">=22"

@@ -33,7 +33,11 @@ export function cachedSuggestions(accountId: string, key: string) {
   suggestions.scope(accountId);
   return suggestions.peek(key);
 }
+export function lastSuggestions(accountId: string, botId: string) {
+  suggestions.scope(accountId);
+  return suggestions.last(botId);
+}
 export function refreshSuggestions(accountId: string, key: string, botId: string, draft: { description: string; instructions: string }) {
   suggestions.scope(accountId);
-  return suggestions.refresh(key, () => settingsRead(signal => api.suggestedApps(botId, draft, signal), undefined, 4500));
+  return suggestions.refresh(key, () => settingsRead(signal => api.suggestedApps(botId, draft, signal), undefined, 4500), botId);
 }

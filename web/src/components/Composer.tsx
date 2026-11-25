@@ -17,6 +17,7 @@ import { detailsReplaceChat, useDetailsReplaceChat } from '../lib/useDetailsLayo
 import { useFreshConversation } from '../lib/useFreshConversation';
 import { expectRowsAfterSend } from '../lib/sseWatchdog';
 import { takeComposerHold, whenTypingIdle } from '../lib/typingGuard';
+import { observeComposerInput, resetInputLatency } from '../lib/inputLatency';
 import { useDisplayText } from '../lib/useDisplayText';
 
 const MAX_H = 200;
@@ -35,7 +36,7 @@ function isActiveComposer(accountId: string | undefined, botId: string) {
     && !hasOpenModal() && ui.view === 'chat' && !ui.appSettings && !ui.botSettings && (!state.mobile || state.mobilePane === 'chat');
 }
 useStore.subscribe((state, previous) => {
-  if (state.user?.id !== previous.user?.id) { drafts.clear(); prefilledDrafts.clear(); pendingSends.clear(); sendErrors.clear(); }
+  if (state.user?.id !== previous.user?.id) { resetInputLatency(); drafts.clear(); prefilledDrafts.clear(); pendingSends.clear(); sendErrors.clear(); }
 });
 
 /** PD-R2-02: put a starting prompt in a Bot's composer draft (kept after any text already there). Nothing is sent. */
@@ -69,6 +70,7 @@ export const Composer = memo(function Composer({ bot, running }: { bot: Bot; run
   const [menu, setMenu] = useState(false);
   const [multiline, setMultiline] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => ref.current ? observeComposerInput(ref.current) : undefined, [accountId]);
   const measureRef = useRef<{ compact: HTMLTextAreaElement; expanded: HTMLTextAreaElement; geometry?: { line: number; base: number; toolbar: number; max: number } } | null>(null);
   const prefillPointerFocus = useRef(false);
   const moreRef = useRef<HTMLButtonElement>(null);

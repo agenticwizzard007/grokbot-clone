@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api, ApiError, openPopup, type SuggestedToolkit } from '../lib/api';
 import { verifyAccessAccount } from '../lib/accessApi';
 import { useStore } from '../store';
 import { ToolkitLogo } from './ToolkitLogo';
 import { useAccessPanel } from './config/useAccessPanel';
-import { cachedSuggestions, refreshSuggestions } from '../lib/appsCatalogCache';
+import { cachedSuggestions, lastSuggestions, refreshSuggestions } from '../lib/appsCatalogCache';
 import { useVersion } from '../configStore';
 import { SUGGESTION_FILTER_VERSION } from '../../../server/src/suggestion-policy';
 import '../styles/suggested-integrations.css';
@@ -62,17 +62,23 @@ export function SuggestedIntegrations({ botId, description, instructions, placem
   const connectionsVersion = useStore(state => state.connectionsVersion);
   const setupVersion = useVersion(`setup:${botId}`);
   const [retry, setRetry] = useState(0);
-  const [result, setResult] = useState<{ key: string; apps: SuggestedToolkit[]; hasContext?: boolean; error?: string; refreshing?: boolean }>();
+  const [result, setResult] = useState<{ key: string; apps: SuggestedToolkit[]; hasContext?: boolean; error?: string }>();
+  const [loadingKey, setLoadingKey] = useState('');
   const key = JSON.stringify([SUGGESTION_FILTER_VERSION, userId, botId, description, instructions, connectionsVersion, setupVersion, retry]);
   const windowKey = JSON.stringify([placement, botId]);
   const cacheKey = JSON.stringify([botId, description, instructions, connectionsVersion, setupVersion]);
+  // Read during render so both panel mounts and reloads show the last Bot result
+  // on their first frame, even after the draft or connection revision changes.
+  const cached = useMemo(() => userId ? cachedSuggestions(userId, cacheKey) ?? lastSuggestions(userId, botId) : undefined, [userId, cacheKey, botId, retry]);
+  useEffect(() => {
+    const timer = setTimeout(() => setLoadingKey(key), 500);
+    return () => clearTimeout(timer);
+  }, [key]);
   useEffect(() => {
     if (!userId) return;
     const controller = new AbortController();
     const isCurrent = () => !controller.signal.aborted && useStore.getState().user?.id === userId;
-    const cached = cachedSuggestions(userId, cacheKey);
-    if (cached) {
-      setResult({ key, apps: cached.suggestions, hasContext: cached.hasContext });
+    if (cachedSuggestions(userId, cacheKey)) {
       // A completed, current result ends any abandoned loading window for this panel.
       // Details can fill the shared cache while General is unmounted. Give its fresh
       // refresh the full request budget instead of rejecting it before it even starts.
@@ -88,7 +94,6 @@ export function SuggestedIntegrations({ botId, description, instructions, placem
     const deadline = setTimeout(timeout, remaining);
     const timer = setTimeout(() => {
       if (!isCurrent()) return;
-      if (cached) setResult({ key, apps: cached.suggestions, hasContext: cached.hasContext, refreshing: true });
       void refreshSuggestions(userId, cacheKey, botId, { description, instructions }).then(response => {
         if (isCurrent()) {
           setResult({ key, apps: response.suggestions, hasContext: response.hasContext });
@@ -103,18 +108,17 @@ export function SuggestedIntegrations({ botId, description, instructions, placem
       });
     }, SUGGESTIONS_DEBOUNCE_MS);
     return () => { clearTimeout(timer); clearTimeout(deadline); controller.abort(); };
-  }, [key, cacheKey, windowKey, botId, description, instructions, userId]);
+  }, [key, cacheKey, windowKey, botId, description, instructions, userId, cached]);
   if (!userId) return null;
-  const current = result?.key === key ? result : undefined;
+  const current = result?.key === key ? result : cached ? { apps: cached.suggestions, hasContext: cached.hasContext, error: undefined } : undefined;
   const refresh = () => { loadingDeadlines.delete(windowKey); setRetry(value => value + 1); };
   return <section className="suggested-integrations bot-detail-section" aria-label="Suggested integrations" aria-busy={!current}>
     <h2>Suggested integrations</h2>
-    {!current ? <p className="suggested-integrations__note" role="status">Finding relevant apps…</p>
+    {!current ? loadingKey === key && <p className="suggested-integrations__note" role="status">Finding relevant apps…</p>
       : <>
       {current.error && !current.apps.length && <p className="suggested-integrations__note" role="status">{current.error} <button type="button" className="link-btn" onClick={refresh}>Retry</button></p>}
       {current.apps.length ? <><ul className="suggested-integrations__list">{current.apps.map(app => <SuggestionCard key={`${key}:${app.slug}`} app={app} refresh={refresh} />)}</ul>
-        {current.error ? <p className="suggested-integrations__note">Couldn't refresh. <button type="button" className="link-btn" onClick={refresh}>Retry</button></p>
-          : current.refreshing && <p className="suggested-integrations__note">Updating saved suggestions...</p>}</>
+        {current.error && <p className="suggested-integrations__note">Couldn't refresh. <button type="button" className="link-btn" onClick={refresh}>Retry</button></p>}</>
       : !current.error && <p className="suggested-integrations__note">{current.hasContext || description.trim() || instructions.trim()
         ? 'No matching additional apps for this Bot right now.'
         : "Describe this Bot's work in Bot settings > General to find relevant integrations."}</p>}

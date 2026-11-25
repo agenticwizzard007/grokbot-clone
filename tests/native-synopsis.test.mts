@@ -254,7 +254,7 @@ test('synopsis freezes pending human-review metadata without raw source text or 
  appendRow(f.bot.id,'message',{type:'message',role:'user',text:'CONFIDENTIAL_SOURCE_BETA supplied only in the conversation.'});
  appendRow(other.bot.id,'message',{type:'message',role:'user',text:'FOREIGN_SOURCE_MUST_NOT_APPEAR'});
  publishNativeEvent({userId:f.userId,botId:f.bot.id,kind:'coordination.human_history',sourceType:'message',sourceId:'historical-context',data:{}});
- const id=create(f,'manual:pending-human'),r=await complete(f,id);assert.ok(r.gaps.some((g:string)=>g.startsWith('2 human conversation source revision(s) await Quinn review')));
+ const id=create(f,'manual:pending-human'),r=await complete(f,id);assert.ok(r.gaps.some((g:string)=>g.startsWith('2 human conversation source revisions await coordinator review')));
  assert.doesNotMatch(r.content!,/CONFIDENTIAL_SOURCE|FOREIGN_SOURCE/);assert.doesNotMatch(JSON.stringify(reports.reportSourcePage(f.userId,id)),/CONFIDENTIAL_SOURCE|FOREIGN_SOURCE/);
  const latest=(db.prepare("SELECT MAX(seq) seq FROM native_events WHERE user_id=? AND kind='coordination.human_source'").get(f.userId) as any).seq;
  db.prepare("INSERT INTO native_consumer_cursors(user_id,consumer,seq,updated_at) VALUES(?,'coordination-human-reviewed',?,?)").run(f.userId,latest,Date.now());
