@@ -9,6 +9,7 @@ import { VoiceSettings } from './VoiceSettings';
 import { MembersCard } from './MembersCard';
 import { detailsCaller, useConfigUI } from '../configStore';
 import { LibraryTab } from './config/LibraryTab';
+import { FilesSummary } from './config/FilesSummary';
 import { DeliverablesPanel } from './config/DeliverablesPanel';
 import { BotTasks } from './config/TaskCards';
 import { AgentConfiguration } from './config/AgentConfiguration';
@@ -175,7 +176,7 @@ function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
       {tab === 'configuration' && <AgentConfiguration bot={bot} />}
       {tab === 'library' && (reports ? <DeliverablesPanel botId={bot.id} /> : <>
         <p className="setup-paper__subtitle">Files saved by {title}</p>
-        <DetailRow title="Saved reports"><button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setReports(true)}>View saved reports</button></DetailRow>
+        <FilesSummary bot={bot} onReports={() => setReports(true)} />
         <LibraryTab bot={bot} />
       </>)}
     </div>

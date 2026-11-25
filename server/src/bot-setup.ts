@@ -11,6 +11,7 @@ import { publishNativeEvent } from './native/events.js';
 import { assertLegacyWorkOpen } from './security/legacy-work.js';
 import { redactInternalIds } from './lib/redact.js';
 import { setupOnboarding } from './setup-state.js';
+import { customerSetupText } from './customer-setup-text.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS coworker_setup_handoffs (
  bot_id TEXT PRIMARY KEY REFERENCES bots(id) ON DELETE CASCADE,
@@ -67,8 +68,8 @@ export function normalizeBriefStrings<T>(value: T): T {
 }
 
 /** Brief text is normalised and has internal ids replaced with neutral labels (R2F-002), on save and on read. */
-const cleanBriefText = (value: string) => redactInternalIds(normalizeModelText(value));
-const NO_IDS = 'Never include connection or account ids; name the app instead.';
+const cleanBriefText = (value: string) => customerSetupText(redactInternalIds(normalizeModelText(value)));
+const NO_IDS = 'Never include connection or account ids; name the app instead. Describe connection states in plain words, such as connected, needs to be reconnected, waiting for connection or could not connect. Never copy raw status enums into the saved brief.';
 const text = (max: number) => z.string().trim().min(1).max(max).transform(cleanBriefText);
 /** Identifiers and names keep their exact value. */
 const plain = (max: number) => z.string().trim().min(1).max(max).transform(normalizeModelText);

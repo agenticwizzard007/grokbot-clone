@@ -7,6 +7,7 @@ import { useStore } from '../../store';
 import { Icon } from '../Icon';
 import { Glyph } from './glyphs';
 import { ShieldCheck } from 'lucide-react';
+import { customerSetupText, customerSetupValue } from '../../../../server/src/customer-setup-text';
 
 function StandingInstructions({ bot, running, onSave }: { bot: Bot; running: boolean; onSave: () => void }) {
   const userId = useStore(state => state.user?.id);
@@ -61,7 +62,7 @@ function StandingInstructions({ bot, running, onSave }: { bot: Bot; running: boo
         <button type="button" className="cfg-btn cfg-btn--primary" disabled={saving || running || changedElsewhere || draft === original} onClick={save}>{saving ? 'Saving…' : 'Save instructions'}</button>
         <button type="button" className="cfg-btn cfg-btn--secondary" disabled={saving} onClick={() => { setEditing(false); setError(null); }}>Cancel</button>
       </div>
-    </div> : <p className={bot.instructions ? 'agent-config__text' : 'agent-config__muted'}>{bot.instructions || 'No additional standing instructions. The saved role and shared rules still apply.'}</p>}
+    </div> : <p className={bot.instructions ? 'agent-config__text' : 'agent-config__muted'}>{customerSetupText(bot.instructions) || 'No additional standing instructions. The saved role and shared rules still apply.'}</p>}
     {saved && <p className="agent-config__saved" role="status"><Icon name="check" size={14} />Instructions saved.</p>}
     {error && <p className="cfg-error" role="alert">{error}</p>}
   </section>;
@@ -94,7 +95,7 @@ function InstructionPreview({ botId, revision, version }: { botId: string; revis
       {error && <p className="cfg-error" role="alert">{error}</p>}
       {preview && <>
         <p className="agent-config__muted">{preview.stage === 'active' ? 'Active agent instructions' : 'Setup consultant instructions · operational tools restricted'} · {new Date(preview.capturedAt).toLocaleTimeString()}</p>
-        <pre className="agent-config__prompt" tabIndex={0} aria-label="Assembled system instructions">{preview.instructions}</pre>
+        <pre className="agent-config__prompt" tabIndex={0} aria-label="Assembled system instructions">{customerSetupText(preview.instructions)}</pre>
       </>}
       <button type="button" className="cfg-btn cfg-btn--secondary" disabled={loading} onClick={() => setRefresh((v) => v + 1)}><Icon name="refresh" size={14} />{error ? 'Retry preview' : 'Refresh preview'}</button>
     </div>
@@ -102,7 +103,7 @@ function InstructionPreview({ botId, revision, version }: { botId: string; revis
 }
 
 export function AgentHarness({ bot, data, running, version, onSave }: { bot: Bot; data: AgentSetupView; running: boolean; version: number; onSave: () => void }) {
-  const { brief } = data.manifest;
+  const brief = customerSetupValue(data.manifest.brief);
   return <>
     <StandingInstructions bot={bot} running={running} onSave={onSave} />
     <InstructionPreview botId={bot.id} revision={data.onboarding.revision} version={version} />

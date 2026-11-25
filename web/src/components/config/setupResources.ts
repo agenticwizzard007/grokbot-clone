@@ -1,11 +1,5 @@
 import { toolkitDisplayName } from './settingsLogic';
-
-const connectionStates: Record<string, string> = {
-  ACTIVE: 'Connected', CONNECTED: 'Connected', EXPIRED: 'Reconnect required',
-  INACTIVE: 'Not connected', DISCONNECTED: 'Not connected', REVOKED: 'Access revoked',
-  INITIATED: 'Connection pending', INITIALIZING: 'Connection pending', PENDING: 'Connection pending',
-  FAILED: 'Connection failed', ERROR: 'Connection unavailable',
-};
+import { customerSetupText, setupConnectionWords } from '../../../../server/src/customer-setup-text';
 
 /** Saved resource descriptions can contain connection metadata from older setup briefs. */
 export function setupResourceText(text: string): string {
@@ -18,10 +12,9 @@ export function setupResourceText(text: string): string {
   result = result
     .replace(/\s+(?:at|from)\s+revision\s*[:=]?\s*\d+\b/gi, '')
     .replace(/\brevision\s*[:=]?\s*\d+\b/gi, '')
-    .replace(/\bstatus(?:\s*[:=]\s*|\s+)([a-z][a-z_-]*)\b/gi, (_match, state: string) => connectionStates[state.toUpperCase()] ?? 'Check connection')
-    .replace(/\baccount\s+(?:the\s+)?connected account\b/gi, 'account')
-    .replace(/\b(?:account\s+)?(?:is|was)\s+(ACTIVE|CONNECTED|EXPIRED|INACTIVE|DISCONNECTED|REVOKED|INITIATED|INITIALIZING|PENDING|FAILED|ERROR)\b/g, (_match, state: string) => state === 'EXPIRED' ? 'connection expired' : connectionStates[state].toLowerCase())
-    .replace(/\b(ACTIVE|CONNECTED|EXPIRED|INACTIVE|DISCONNECTED|REVOKED|INITIATED|INITIALIZING|PENDING|FAILED|ERROR)\b/g, state => state === 'EXPIRED' ? 'connection expired' : connectionStates[state].toLowerCase());
+    .replace(/\bstatus(?:\s*[:=]\s*|\s+)([a-z][a-z_-]*)\b/gi, (_match, state: string) => setupConnectionWords[state.toUpperCase()] ?? 'Check connection')
+    .replace(/\baccount\s+(?:the\s+)?connected account\b/gi, 'account');
+  result = customerSetupText(result);
   for (const app of new Set(apps)) {
     if (!result.toLowerCase().includes(app.toLowerCase())) result = `${app}, ${result}`;
   }
@@ -29,7 +22,7 @@ export function setupResourceText(text: string): string {
     .replace(/[(\[]\s*[,;]?\s*[)\]]/g, '')
     .replace(/([([])\s*[,;]/g, '$1').replace(/[,;]\s*([)\]])/g, '$1')
     .replace(/\s+/g, ' ').replace(/^[\s,;]+|[\s,;]+$/g, '').trim()
-    .replace(/, (connection expired|connected|not connected|access revoked|connection pending|connection failed|connection unavailable)$/, ' $1');
+    .replace(/, (needs to be reconnected|connected|not connected|waiting for connection|could not connect|connection unavailable)$/, ' $1');
 }
 
 /** Format the displayed Markdown only. Downloads and agent instructions keep the original bytes. */
