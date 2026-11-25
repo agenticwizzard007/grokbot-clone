@@ -160,13 +160,14 @@ try {
     await page.evaluate(() => {
       window.__typing = [];
       const input = document.querySelector('.composer__input');
-      let start;
-      input.addEventListener('keydown', () => { start = performance.now(); }, true);
+      let start, handlerStart;
+      input.addEventListener('keydown', event => { start = event.timeStamp; handlerStart = performance.now(); }, true);
       window.addEventListener('input', event => {
         if (event.target !== input || !start) return;
-        const sample = { expected: input.value };
+        const sample = { expected: input.value, inputDelayMs: handlerStart - start };
         queueMicrotask(() => {
-          sample.scriptMs = performance.now() - start;
+          sample.scriptMs = performance.now() - handlerStart;
+          sample.keydownToCommitMs = performance.now() - start;
           sample.value = input.value;
           const started = start;
           requestAnimationFrame(() => {
@@ -191,7 +192,7 @@ try {
     result.browserWork = Object.fromEntries(metricsAfter.filter(m => /Duration|LayoutCount|RecalcStyleCount/.test(m.name)).map(m => [m.name, m.value - metricsBefore.find(b => b.name === m.name).value]));
     const samples = await page.evaluate(() => window.__typing);
     const percentile = key => samples.map(s => s[key]).sort((a, b) => a - b)[94];
-    result.typing = { scriptP95Ms: percentile('scriptMs'), nextFrameP95Ms: percentile('frameMs'), paintP95Ms: percentile('paintMs'), maxPaintMs: Math.max(...samples.map(s => s.paintMs)), renders: diff(typingBefore, typingAfter), seconds: (typingAfter.at - typingBefore.at) / 1000 };
+    result.typing = { inputDelayP95Ms: percentile('inputDelayMs'), scriptP95Ms: percentile('scriptMs'), keydownToCommitP95Ms: percentile('keydownToCommitMs'), nextFrameP95Ms: percentile('frameMs'), paintP95Ms: percentile('paintMs'), maxPaintMs: Math.max(...samples.map(s => s.paintMs)), renders: diff(typingBefore, typingAfter), seconds: (typingAfter.at - typingBefore.at) / 1000 };
     result.typing.rendersPerSecond = Object.fromEntries(Object.entries(result.typing.renders).map(([name, n]) => [name, n / result.typing.seconds]));
     check(samples.every((s, i) => s.value === text.slice(0, i + 1) && s.value === s.expected && s.paintedValue.startsWith(s.expected)), `${width} ${theme}: R6-2 each key is current by the next frame`);
     check(result.typing.scriptP95Ms < 16, `${width} ${theme}: R6-2 input script p95 under 16 ms (${result.typing.scriptP95Ms})`);
