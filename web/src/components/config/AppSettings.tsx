@@ -1026,7 +1026,7 @@ function TimeZoneRow({ user }: { user: User }) {
     } finally { setBusy(false); }
   };
   return <>
-    <SettingRow icon={Clock3} title="Time zone" sub={saved ? 'Daily synopses, check-ins and analytics use this zone.' : 'No time zone is saved. Daily synopses, check-ins and analytics use UTC.'}>
+    <SettingRow icon={Clock3} title="Time zone" sub={saved ? 'Schedules and analytics use this as the account default.' : 'No time zone is saved. UTC is the account default for schedules and analytics.'}>
       <TimeZonePicker value={value} options={zones} disabled={busy} onChange={next => void change(next)} />
     </SettingRow>
     {!saved && browserZone && <div className="settings-timezone-suggestion"><button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => void change(canonicalTimeZone(browserZone))}>Use {zones.find(zone => zone.value === canonicalTimeZone(browserZone))?.label ?? browserZone}</button></div>}
