@@ -1,4 +1,4 @@
-.suggested-integrations { margin: 16px 0; }
+.suggested-integrations { margin: 16px 0; min-block-size: 104px; overflow-anchor: none; }
 .suggested-integrations h2 { margin: 0 0 10px; font-size: 14px; font-weight: 600; }
 .suggested-integrations__list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
 .suggested-integration { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--color-border-secondary); border-radius: 12px; }
@@ -9,6 +9,7 @@
 .suggested-integration__actions { display: grid; gap: 6px; }
 .suggested-integration__status { font-size: 12px; color: var(--color-text-secondary); }
 @media (max-width: 420px) {
+  .suggested-integrations { min-block-size: 168px; }
   .suggested-integration { flex-wrap: wrap; }
   .suggested-integration__text { flex-basis: calc(100% - 48px); }
   .suggested-integration > button, .suggested-integration__actions { margin-left: 46px; }
