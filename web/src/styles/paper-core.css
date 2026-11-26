@@ -32,14 +32,14 @@
 .app .composer-shell { max-width: var(--content-width); }
 .app .composer {
   --composer-chip-max: 240px;
-  display: grid; grid-template-columns: 44px minmax(48px, 1fr) auto 44px; align-items: center;
+  display: grid; grid-template-columns: 44px minmax(48px, 1fr) auto 44px; align-items: end;
   max-width: var(--content-width); max-height: clamp(112px, 24dvh, 240px); min-height: 62px;
   padding: var(--space-2); gap: var(--space-2); border: 1px solid var(--color-border-secondary);
   border-radius: var(--radius-composer); box-shadow: var(--shadow-composer); background-color: var(--color-bg-chrome);
 }
 .app .composer__bar, .app .composer__left { display: contents; }
 .app .composer__plus-anchor { grid-column: 1; grid-row: 1; padding: 0; }
-.app .composer__input { grid-column: 2; grid-row: 1; width: 100%; padding: 0; min-height: 24px; max-height: 200px; font-size: 15px; line-height: var(--line-message); }
+.app .composer__input { grid-column: 2; grid-row: 1; width: 100%; padding: 10px 0; min-height: 44px; max-height: 200px; font-size: 15px; line-height: var(--line-message); }
 .app .composer .model-pill-anchor { grid-column: 3; grid-row: 1; max-width: var(--composer-chip-max); }
 .app .composer__right { grid-column: 4; grid-row: 1; padding: 0; margin: 0; }
 .app .composer__btn, .app .composer__cta { width: 44px; height: 44px; min-width: 44px; flex-shrink: 0; }
@@ -48,13 +48,10 @@
 .app .composer__voice { padding: 0; border-radius: var(--radius-full); }
 .app .composer__voice.is-in-call { background: #B42332; color: white; }
 .app .model-pill { min-height: 44px; height: 44px; display: inline-flex; flex-wrap: nowrap; white-space: nowrap; gap: var(--space-1); padding: 0 var(--space-1); border-radius: var(--radius-md); line-height: var(--line-body); }
+/* Reserve the same space even when the provider mark is absent or hidden. */
+.app .model-pill__provider { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; flex: 0 0 16px; }
 .app .model-pill__name { white-space: nowrap; text-overflow: ellipsis; text-align: left; }
 .app .model-pill__effort { font-size: 12px; }
-.app .composer.is-multiline { grid-template-columns: 44px minmax(0, 1fr) 44px; }
-.app .composer.is-multiline .composer__input { grid-column: 1 / -1; grid-row: 1; padding: var(--space-2); }
-.app .composer.is-multiline .composer__plus-anchor { grid-row: 2; }
-.app .composer.is-multiline .model-pill-anchor { grid-column: 2; grid-row: 2; max-width: 100%; justify-self: start; }
-.app .composer.is-multiline .composer__right { grid-column: 3; grid-row: 2; }
 .app .composer__error { max-width: var(--content-width); padding: 10px 12px; }
 .app .vcall { width: 100%; max-width: var(--content-width); margin: 12px auto; }
 .app .agent-exchange__panel { max-width: 100%; padding: 16px; border-radius: 16px; }
@@ -86,8 +83,7 @@
   .app .chat__pill-name { font-size: 15px; }
   .app .transcript { padding: 4px 8px 12px; }
   .app .composer__input { font-size: 16px; }
-  .app .composer { --composer-chip-max: 144px; }
-  .app .composer.is-multiline .model-pill-anchor { max-width: 100%; }
+  .app .composer { --composer-chip-max: clamp(72px, 25vw, 144px); }
   .app .composer .model-pill { font-size: 12px; }
   .app .composer-area { padding: 0; }
   .app .chat .toast { top: 60px; bottom: auto; }
@@ -98,7 +94,7 @@
   .app .composer__voice { width: 44px; padding: 0; gap: 0; }
   .app .composer__voice-label { display: none; }
   .app .model-pill { display: inline-flex; gap: 4px; padding: 4px; }
-  .app .model-pill > .provider-icon, .app .model-pill__chev { display: none; }
+  .app .model-pill__provider > .provider-icon, .app .model-pill__chev { display: none; }
   .app .model-pill__effort, .app .model-pill .model-billing { flex-shrink: 0; }
 }
 @media (max-height: 550px) {
@@ -154,10 +150,8 @@
 .group-create__member.is-locked small { color: var(--color-text-secondary); font-weight: 500; }
 
 @media (max-width: 360px) {
-  .app .composer:not(.is-multiline) { grid-template-columns: 44px minmax(24px, 1fr) auto 44px; }
-  .app .composer { --composer-chip-max: 128px; }
-  .app .composer:not(.is-multiline) .model-pill,
-  .app .composer:not(.is-multiline) .model-pill__effort { font-size: 11px; }
+  .app .composer .model-pill,
+  .app .composer .model-pill__effort { font-size: 11px; }
 }
 
 /* Phone transcripts use the content column; copy controls get their own row. */

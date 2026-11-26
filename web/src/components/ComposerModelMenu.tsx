@@ -88,7 +88,9 @@ export const ComposerModelMenu = memo(function ComposerModelMenu({ bot }: { bot:
       <button ref={trigger} type="button" className={`model-pill${ultra ? ' is-ultracode' : ''}`} onClick={() => { if (!open && !loading) void models.load(true); setOpen(!open); }} aria-haspopup="dialog" aria-expanded={open} aria-busy={loading}
         title={`${label}${known ? `. ${billingDescription}` : ''}`}
         aria-label={`Model: ${label}${known ? `, ${billingDescription}` : ''}${efforts.length ? `, ${effort ? effortLabel(effort, current) : 'Default'} effort` : ''}${bot.fast && models.canFast ? ', fast' : ''}. Change`}>
-        {current ? <ProviderIcon author={current.author} /> : known && !planMode && bot.model ? <ProviderIcon author={bot.model.split('/')[0]} /> : null}
+        <span className="model-pill__provider" aria-hidden>
+          {current ? <ProviderIcon author={current.author} /> : known && !planMode && bot.model ? <ProviderIcon author={bot.model.split('/')[0]} /> : null}
+        </span>
         <span className="model-pill__name">{composerModelLabel(mobile ? compactLabel : label, models.provider, planMode)}</span>
         {known && !codexPlan && !(mobile && planMode) && <span className="model-billing" title={billingDescription}>{planMode ? currentPlan : 'API'}</span>}
         {efforts.length > 0 && <span className="model-pill__effort">{effort ? effortLabel(effort, current) : 'Default'}</span>}
