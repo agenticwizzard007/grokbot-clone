@@ -121,7 +121,7 @@ export function SkillReview({ botId, version, onChange }: { botId: string; versi
   const proposalRow = (proposal: SkillProposal) => <details className="native-history" key={proposal.id}>
     <summary>{proposal.content.name} · {proposal.baseRevision ? `Base revision ${proposal.baseRevision}` : 'New skill'} · {proposal.status}</summary>
     <p>{proposal.reason}</p>
-    {proposal.status === 'pending' && <p className="native-meta">The current skill stays active until a change is approved.</p>}
+    {proposal.status === 'pending' && <p className="native-meta">{proposal.baseRevision ? 'The current skill stays active until you approve this change.' : 'This new skill will be active after you approve it.'}</p>}
     <pre aria-label="Proposed skill diff" className="knowledge-item__diff">{proposal.diff}</pre>
     <details><summary>Proposal evaluation</summary><EvaluationResults evaluations={proposal.evaluations ?? []} />
       {proposal.status === 'pending' && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => void review(proposal, 'evaluate')}>Evaluate frozen proposal</button>}
