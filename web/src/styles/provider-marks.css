@@ -9,6 +9,7 @@
   vertical-align: -3px;
   color: inherit;
 }
-.provider-label { overflow-wrap: anywhere; }
-.provider-label > .provider-icon { margin-inline-end: 6px; }
+.provider-label { display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%; vertical-align: bottom; }
+.provider-label > .provider-icon { align-self: center; }
+.provider-label__text { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 .provider-effort { display: flex; align-items: center; gap: 6px; min-width: 0; }

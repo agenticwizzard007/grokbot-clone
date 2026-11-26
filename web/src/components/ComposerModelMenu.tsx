@@ -15,7 +15,9 @@ import { toast } from '../lib/toast';
 import { shortcutLabel } from '../lib/shortcuts';
 import { nextEffort } from '../lib/effortCycle';
 import { lastModelLabel, rememberModelLabel } from '../lib/modelMemory';
-import { composerModelLabel } from '../lib/composerModelLabel';
+import { useComposerLabel } from '../lib/useComposerLabel';
+import { planMenuLabel } from '../lib/planConnections';
+import { composerLabelSteps, composerModelLabel } from '../lib/composerModelLabel';
 
 
 async function patchBot(bot: Bot, p: Partial<Pick<Bot, 'model' | 'effort' | 'fast'>>) {
@@ -66,22 +68,24 @@ export const ComposerModelMenu = memo(function ComposerModelMenu({ bot }: { bot:
   useEffect(() => { if (known) rememberModelLabel(accountId, bot, rememberedLabel); }, [accountId, bot.id, bot.model, known, rememberedLabel]);
   const currentPlan = planLabel(models.provider, models.plan);
   const billingDescription = planMode ? `Uses your ${currentPlan}` : 'Uses API billing';
-  const compactLabel = planMode ? (models.provider === 'codex-cli' ? 'Codex' : 'Claude') : label;
-  const codexPlan = planMode && models.provider === 'codex-cli';
   const efforts = effortsFor(current);
   const ultra = isTopEffort(effort, current);
+  const markProvider = providerBrand(current?.author) ?? current?.id ?? (known && planMode ? models.provider : loading ? providerBrand(label) ?? bot.model : bot.model);
+  const hasMark = !!(providerBrand(markProvider) ?? providerBrand(known ? models.provider : null));
+  const fullEffort = efforts.length ? effort ? effortLabel(effort, current) : 'Default' : '';
+  const shown = useComposerLabel(trigger, composerLabelSteps(label, known ? models.provider : null, planMode, models.plan, fullEffort, hasMark));
 
   return (
     <span className="model-pill-anchor">
-      <button ref={trigger} type="button" className={`model-pill${ultra ? ' is-ultracode' : ''}`} onClick={() => { if (!open && !loading) void models.load(true); setOpen(!open); }} aria-haspopup="dialog" aria-expanded={open} aria-busy={loading}
-        title={`${label}${known ? `. ${billingDescription}` : ''}`}
+      <button ref={trigger} type="button" className={`model-pill${ultra ? ' is-ultracode' : ''}${shown.compact ? ' is-compact' : ''}`} onClick={() => { if (!open && !loading) void models.load(true); setOpen(!open); }} aria-haspopup="dialog" aria-expanded={open} aria-busy={loading}
+        title={`${rememberedLabel}${known ? `. ${billingDescription}` : ''}${fullEffort ? `. ${fullEffort} effort` : ''}`}
         aria-label={`Model: ${label}${known ? `, ${billingDescription}` : ''}${efforts.length ? `, ${effort ? effortLabel(effort, current) : 'Default'} effort` : ''}${bot.fast && models.canFast ? ', fast' : ''}. Change`}>
         <span className="model-pill__provider" aria-hidden>
-          <ProviderMark provider={providerBrand(current?.author) ?? current?.id ?? (known && planMode ? models.provider : loading ? providerBrand(label) ?? bot.model : bot.model)} fallbackProvider={known ? models.provider : undefined} reserve />
+          <ProviderMark provider={markProvider} fallbackProvider={known ? models.provider : undefined} reserve />
         </span>
-        <span className="model-pill__name">{composerModelLabel(mobile ? compactLabel : label, models.provider, planMode)}</span>
-        {known && !codexPlan && !(mobile && planMode) && <span className="model-billing" title={billingDescription}>{planMode ? currentPlan : 'API'}</span>}
-        {efforts.length > 0 && <span className="model-pill__effort">{effort ? effortLabel(effort, current) : 'Default'}</span>}
+        <span className="model-pill__name">{shown.name}</span>
+        {known && shown.billing && <span className="model-billing" title={billingDescription}>{shown.billing}</span>}
+        {fullEffort && <span className="model-pill__effort">{shown.effort}</span>}
         {bot.fast && models.canFast && <span className="model-pill__fast" title="Fast: fastest providers">⚡︎</span>}
         <ChevronDown size={14} strokeWidth={1.75} aria-hidden className="model-pill__chev" />
       </button>
@@ -249,7 +253,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
     <>
       {sheet && <div className="mm-scrim" aria-hidden onClick={onClose} />}
       <div ref={ref} className={`mm-wrap${sheet ? ' is-sheet' : ''}`} style={sheet ? undefined : { marginLeft: menuOffset }}>
-      <div className={`model-menu${sheet ? ' is-sheet' : ''}`} role="dialog" aria-modal="true" tabIndex={-1} aria-label={view === 'connections' ? 'Connect a plan' : view === 'usage' ? 'Connection details' : 'Choose a model'}>
+      <div className={`model-menu${sheet ? ' is-sheet' : ''}`} role="dialog" aria-modal="true" tabIndex={-1} aria-label={view === 'connections' ? planMenuLabel(known ? billing : null) : view === 'usage' ? 'Connection details' : 'Choose a model'}>
         {view === 'usage' || view === 'connections' ? <>
           <div className="mm-sheet-head"><button type="button" className="mm-back" aria-label="Back to models" onClick={back}><ChevronLeft size={18} aria-hidden /><span>Back to models</span></button></div>
           {view === 'usage' ? <ModelUsageDetails onClose={onClose} /> : <div className="usage-mode__panel">
@@ -320,7 +324,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
             )}
             <div className="mm-section">
               <button ref={connectionsTrigger} type="button" className="mm-item" onClick={() => setView('connections')}>
-                <span>Connect plan</span><ChevronRight size={16} aria-hidden />
+                <span>{planMenuLabel(known ? billing : null)}</span><ChevronRight size={16} aria-hidden />
               </button>
               <button ref={usageTrigger} type="button" className="mm-item" onClick={() => setView('usage')}>
                 <span>{usageLabel}</span><ChevronRight size={16} aria-hidden />

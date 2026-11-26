@@ -36,3 +36,10 @@ test('pending probes show Checking and signed-out probes show Not connected', ()
     assert.equal(planConnectionStatus({ ...status, statusUnavailable: true }, provider), 'Status unavailable');
   }
 });
+
+test('picker offers Manage plans for a connected plan and Connect plan for API billing', async () => {
+  const { planMenuLabel } = await import('../web/src/lib/planConnections.ts');
+  assert.equal(planMenuLabel('plan'), 'Manage plans');
+  assert.equal(planMenuLabel('api'), 'Connect plan');
+  assert.equal(planMenuLabel(null), 'Plans');
+});

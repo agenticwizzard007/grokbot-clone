@@ -130,7 +130,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
         await page.getByText('Codex picks the model for each request. Uses your ChatGPT plan. Check plan limits in your ChatGPT account.', { exact: true }).waitFor();
         assert.equal(await page.getByRole('button', { name: 'Effort', exact: true }).count(), 0);
       }
-      await page.getByRole('button', { name: 'Connect plan', exact: true }).click();
+      assert.equal(await page.getByRole('button', { name: 'Connect plan', exact: true }).count(), 0);
+      await page.getByRole('button', { name: 'Manage plans', exact: true }).click();
       await page.getByRole('button', { name: `Manage ${label} plan`, exact: true }).click();
       if (provider === 'claude') {
         failSelection = true;
