@@ -7,6 +7,7 @@
     "web"
   ],
   "scripts": {
+    "test:cli-pending-runs": "node --import tsx --test --test-concurrency=1 tests/cli-pending-runs.test.mts tests/cli-account-diagnostics.test.mts tests/cli-diagnostics.test.mts tests/cli-real-app-approvals.test.mts && node tests/cli-pending-runs-ui.mjs",
     "test:readiness-mm": "node --import tsx --test --test-concurrency=1 tests/readiness-mm.test.mts tests/cli-account-diagnostics.test.mts tests/cli-diagnostics.test.mts tests/cli-native-tools.test.mts tests/cli-real-app-approvals.test.mts tests/plan-connections.test.mts tests/model-access-status.test.mts tests/bot-targeting.test.mts tests/qa-ws1-api.test.mts tests/routine-limits.test.mts && node tests/readiness-mm-ui.mjs",
     "test:cli-internal-parity": "node --import tsx --test --test-concurrency=1 tests/cli-internal-parity.test.mts && node tests/cli-skill-panel-ui.mjs",
     "test:api-approvals": "node --import tsx --test tests/api-approval-level.test.mts && node tests/api-approval-ui.mjs",

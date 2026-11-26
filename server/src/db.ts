@@ -148,6 +148,20 @@ CREATE TABLE IF NOT EXISTS approvals (
   resolved_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS approvals_call ON approvals(bot_id, call_id, created_at);
+CREATE TABLE IF NOT EXISTS cli_approval_runs (
+  approval_id TEXT PRIMARY KEY REFERENCES approvals(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL,
+  generation_id TEXT NOT NULL,
+  started_at INTEGER NOT NULL,
+  runtime TEXT NOT NULL,
+  tools_offered INTEGER NOT NULL,
+  last_tool TEXT,
+  result TEXT NOT NULL,
+  error_code TEXT,
+  trigger TEXT
+);
+CREATE INDEX IF NOT EXISTS cli_approval_runs_user ON cli_approval_runs(user_id,provider);
 CREATE TABLE IF NOT EXISTS policies (
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   tool TEXT NOT NULL,

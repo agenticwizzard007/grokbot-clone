@@ -29,7 +29,7 @@ if (process.env.SWARM_TEST_REAL_CLI === '1') {
       const action = !outputs.length ? { name: 'tool_describe', args: { tool_name: internal.name } }
         : found && outputs.length === 1 ? { name: 'tool_call', args: { tool_name: internal.name, schema_hash: found.schema_hash, arguments: internal.args } }
         : { text: 'Internal fixture completed.' };
-      return provider === 'codex' ? codeModeAction(action) : action;
+      return provider === 'codex' ? codeModeAction(action) : action.name ? { ...action, name: `mcp__swarm__${action.name}` } : action;
     }
     if (outputs.length >= 2) return { text: 'Approval is waiting in the main chat.' };
     const toolkit = requested.includes('fixture app write') ? 'slack' : 'gmail';
@@ -64,6 +64,17 @@ app.post('/api/fixture/cli', async c => {
   return c.json({ ok: true });
 });
 app.post('/api/fixture/connections', async c => { state.connectionScenario = (await c.req.json()).scenario; return c.json({ ok: true }); });
+app.post('/api/fixture/internal', async c => {
+  const { botId } = await c.req.json();
+  const owner = db.prepare('SELECT user_id,model FROM bots WHERE id=?').get(botId) as any;
+  const { createBot } = await import('../../server/src/bots.js');
+  const { enqueue, runInBotQueue } = await import('../../server/src/agent/loop.js');
+  const bot = createBot(owner.user_id, { name: 'Background fixture', isPrimary: true });
+  db.prepare('UPDATE bots SET model=? WHERE id=?').run(owner.model, bot.id);
+  enqueue(bot.id, { type: 'user', text: 'Create a fixture task.' });
+  await runInBotQueue(bot.id, async () => {});
+  return c.json(db.prepare('SELECT result,last_tool FROM cli_last_runs WHERE user_id=?').get(owner.user_id));
+});
 app.get('/api/fixture/state', c => c.json(state));
 app.route('/api/cli', cliApi); app.route('/api', api);
 serve({ fetch: withHeadSupport(app.fetch), port: Number(process.env.PORT), hostname: '127.0.0.1' });

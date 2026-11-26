@@ -565,7 +565,7 @@ async function runScopedTurn(botId: string, trigger: Trigger, jobId: string, ctr
         return { output: paused ? JSON.stringify({ status: 'pending_approval', approvalId: state.approvalId, executed: false,
           message: 'An approval card is waiting in the main chat. This action has not executed. Stop and wait for the user to decide.' }) : output ?? 'No action result was returned.',
           isError: getRow(botId, row.seq)?.body.type === 'tool-call' && ['error', 'denied'].includes((getRow(botId, row.seq)!.body as ToolCallBody).status),
-          diagnostic: { tool: resolved?.name ?? call.name, pendingApproval: !!pending },
+          diagnostic: { tool: resolved?.name ?? call.name, pendingApproval: !!pending, ...(pending ? { approvalId: state.approvalId } : {}) },
           ...(nativeBoundary ? { stop: true } : {}) };
       };
       iterations++;
