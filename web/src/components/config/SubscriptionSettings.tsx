@@ -176,7 +176,10 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
       else { polling.current?.abort(); polling.current = null; }
     };
     load();
-    const interval = setInterval(load, 5000);
+    let lastPoll = Date.now();
+    const interval = setInterval(() => {
+      if (getCachedCliStatus()?.statusChecking || Date.now() - lastPoll >= 5000) { lastPoll = Date.now(); load(); }
+    }, 1000);
     document.addEventListener('visibilitychange', visibility);
     return () => {
       mounted.current = false;
@@ -354,11 +357,11 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
       <div className="subscription-settings__panel" role="tabpanel" id="subscription-auth-panel" aria-labelledby={`subscription-tab-${providerTab}`}>
       <section className="cfg-section" aria-label="Plan connection">
         <AccessRow icon={Terminal} title={<ProviderLabel provider={providerTab}>{providerTab === 'claude' ? 'Claude plan' : 'ChatGPT plan'}</ProviderLabel>} description={<ProviderLabel provider={providerTab}>{tabStatus.details}</ProviderLabel>}
-          status={<span role="status">{tabStatus.connection}{tabStatus.currentlyInUse ? ' · Currently in use' : ''}</span>}>
-          {(stale || status?.statusUnavailable || probeFailed) && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => void refresh()}>Retry status</button>}
+          status={<><span role="status">{tabStatus.connection}{tabStatus.currentlyInUse ? ' · Currently in use' : ''}</span><span className="plan-check-hint" style={{ visibility: tabStatus.connected && tabStatus.checking ? 'visible' : 'hidden' }} aria-hidden={!tabStatus.checking}>Checking</span></>}>
+          {tabStatus.unavailable && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => void refresh()}>Retry status</button>}
           {planReady
             ? selected !== providerTab && <button type="button" className="cfg-btn cfg-btn--primary" disabled={disabled} onClick={() => void select(providerTab)}><ProviderMark provider={providerTab} />{tabStatus.action}</button>
-            : <button type="button" className="cfg-btn cfg-btn--primary" disabled={disabled || runtime === 'bridge' || !status?.serverLoginAvailable || (providerTab === 'codex' && status.connected && !health?.installed)} onClick={startLogin}>{!loginRunning && <ProviderMark provider={providerTab} />}{loginRunning ? 'Login in progress…' : tabStatus.action}</button>}
+            : tabStatus.canConnect && <button type="button" className="cfg-btn cfg-btn--primary" disabled={disabled || runtime === 'bridge' || !status?.serverLoginAvailable || (providerTab === 'codex' && status.connected && !health?.installed)} onClick={startLogin}>{!loginRunning && <ProviderMark provider={providerTab} />}{loginRunning ? 'Login in progress…' : tabStatus.action}</button>}
           {selected === providerTab && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy || loginRunning || authLocked} onClick={() => void select(null)}>Disconnect</button>}
         </AccessRow>
         <p className="subscription-settings__current-route"><ProviderText>{tabStatus.currentRoute}</ProviderText></p>

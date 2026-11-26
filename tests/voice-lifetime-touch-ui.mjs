@@ -92,7 +92,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     await page.getByRole('button', { name: 'End call', exact: true }).click();
     await page.getByRole('button', { name: 'Toggle status' }).click();
     const plan = page.getByRole('region', { name: 'Plan connection', exact: true });
-    await plan.getByText('Checking status…', { exact: true }).waitFor();
+    await plan.getByText('Checking', { exact: true }).waitFor();
     await plan.getByText('Not connected', { exact: true }).waitFor();
     assert.equal(await page.getByText(/CLI request timed out|Login required/).count(), 0);
     assert.equal(await plan.getByRole('button', { name: 'Connect plan' }).isEnabled(), true);

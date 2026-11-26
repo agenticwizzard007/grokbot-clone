@@ -10,7 +10,7 @@ import { useStore } from '../web/src/store.js';
 
 const settle = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
 
-test('server returns Checking in 200ms and aborts a hung background probe after 15s', async t => {
+test('server returns Checking in 200ms and aborts a hung background probe after 3s', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   let signal: AbortSignal | undefined;
   const read = createStatusReader(() => ({ connected: false }), async (_, next) => { signal = next; await new Promise(() => {}); });
@@ -18,18 +18,18 @@ test('server returns Checking in 200ms and aborts a hung background probe after 
   await settle(); t.mock.timers.tick(200); await settle();
   assert.deepEqual(await result, { connected: false, statusChecking: true });
   assert.equal(signal?.aborted, false);
-  t.mock.timers.tick(14800); await settle();
-  assert.deepEqual(await read('alice'), { connected: false, statusUnavailable: true });
+  t.mock.timers.tick(2800); await settle();
+  assert.deepEqual(await read('alice'), { connected: false, statusChecking: false, statusUnavailable: true });
   assert.equal(signal?.aborted, true);
 });
 
 test('slow successful background status becomes connected without a false timeout', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   let connected = false;
-  const read = createStatusReader(() => ({ connected }), async () => { await new Promise(resolve => setTimeout(resolve, 6000)); connected = true; });
+  const read = createStatusReader(() => ({ connected }), async () => { await new Promise(resolve => setTimeout(resolve, 1500)); connected = true; });
   const result = read('alice'); await settle(); t.mock.timers.tick(200); await settle();
   assert.equal((await result).statusChecking, true);
-  t.mock.timers.tick(5800); await settle();
+  t.mock.timers.tick(1300); await settle();
   assert.deepEqual(await read('alice'), { connected: true });
 });
 
@@ -95,10 +95,46 @@ test('client status cannot stay checking when the transport hangs', async t => {
   assert.equal(signal?.aborted, true);
 });
 
+test('client restores only this account and retains connected health through cold checks and failures', async t => {
+  const user = useStore.getState().user;
+  const values = new Map<string, string>();
+  const storage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+  } });
+  t.after(() => {
+    if (storage) Object.defineProperty(globalThis, 'localStorage', storage); else delete (globalThis as any).localStorage;
+    useStore.setState({ user });
+  });
+  const ready = { installed: true, authenticated: true, subscription: true };
+  const missing = { installed: false, authenticated: false, subscription: false };
+  let response: any = { runtime: 'server', selected: 'codex', connected: true, providers: { claude: ready, codex: ready } };
+  t.mock.method(globalThis, 'fetch', async () => { if (!response) throw Error('offline'); return Response.json(response); });
+  useStore.setState({ user: { id: 'persisted-a' } as any });
+  await cliApi.status();
+  useStore.setState({ user: { id: 'persisted-b' } as any });
+  assert.equal(getCachedCliStatus(), null);
+  useStore.setState({ user: { id: 'persisted-a' } as any });
+  assert.equal(getCachedCliStatus()?.providers.codex.subscription, true);
+  assert.equal(getCachedCliStatus()?.statusChecking, true);
+  response = { ...response, connected: false, statusChecking: true, providers: { claude: missing, codex: missing } };
+  assert.equal((await cliApi.status()).providers.codex.subscription, true);
+  response = null;
+  await assert.rejects(cliApi.status(), /offline/);
+  assert.equal(getCachedCliStatus()?.statusUnavailable, true);
+  assert.equal(getCachedCliStatus()?.providers.codex.subscription, true);
+  response = { runtime: 'server', selected: null, connected: true, providers: { claude: missing, codex: missing } };
+  assert.equal((await cliApi.status()).providers.codex.subscription, false);
+  useStore.setState({ user: { id: 'persisted-b' } as any });
+  useStore.setState({ user: { id: 'persisted-a' } as any });
+  assert.equal(getCachedCliStatus()?.providers.codex.subscription, false, 'confirmed sign-out replaces history');
+});
+
 test('explicit refresh preserves probe errors and the prior cached snapshot', async () => {
   const read = createStatusReader(() => ({ connected: true, selected: 'claude' }), async () => { throw Error('Invalid authentication status'); });
   await assert.rejects(read('alice', true), /Invalid authentication status/);
-  assert.deepEqual(await read('alice'), { connected: true, selected: 'claude', statusUnavailable: true });
+  assert.deepEqual(await read('alice'), { connected: true, selected: 'claude', statusChecking: false, statusUnavailable: true });
 });
 
 for (const signedIn of [true, false]) test(`slow official CLI probes report ${signedIn ? 'connected' : 'not connected'} after 4s without timeout`, async t => {

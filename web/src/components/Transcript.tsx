@@ -253,6 +253,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
   const responseHeights = useRef(new Map<number, number>());
   const responseTurn = useRef<{ startedAt: number | null; promptSeq: number }>({ startedAt: null, promptSeq: 0 });
   const stick = useRef(true);
+  const scrollPosition = useRef({ top: 0, height: 0, viewport: 0 });
   const [showJump, setShowJump] = useState(false);
   const connected = useStore(s => s.sseConnected);
   const exchanges = useAgentExchanges(bot.id, generation, loaded && bot.kind !== 'room', connected);
@@ -313,6 +314,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
   const rememberPosition = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    scrollPosition.current = { top: el.scrollTop, height: el.scrollHeight, viewport: el.clientHeight };
     // Following the bottom needs no history measurements. For a reader higher
     // up, ordered row anchors let us find the visible row in logarithmic reads.
     if (stick.current) { readingPosition.current = null; return; }
@@ -373,6 +375,18 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
     const el = scrollRef.current;
     if (!el) return; // a scroll event can arrive after the chat unmounts (for example when Create opens a new Bot)
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const previous = scrollPosition.current;
+    // A queued scroll event can run after markdown, fonts or the composer resize.
+    // Distance alone would turn that layout change into a request to read history.
+    // Leave bottom-following only when the scroll position actually moves up in
+    // the same layout. Our own positioning records its destination above.
+    if (stick.current && dist >= 40 && (el.scrollTop >= previous.top - 1
+      || el.scrollHeight !== previous.height || el.clientHeight !== previous.viewport)) {
+      el.scrollTop = el.scrollHeight;
+      rememberPosition();
+      setShowJump(false);
+      return;
+    }
     stick.current = dist < 40;
     setShowJump(!stick.current);
     rememberPosition();

@@ -15,7 +15,7 @@ export function createStatusReader<T extends { connected: boolean }>(
       state.pending = Promise.race([
         Promise.resolve().then(() => probe(key, controller.signal)),
         new Promise<never>((_, reject) => {
-          timer = setTimeout(() => { controller.abort(); reject(new Error('Status probe timed out')); }, 15_000);
+          timer = setTimeout(() => { controller.abort(); reject(new Error('Status probe timed out')); }, 3000);
         }),
       ]).then(() => { state.unavailable = false; state.error = undefined; }, error => { state.unavailable = true; state.error = error; })
         .finally(() => { clearTimeout(timer); state.checkedAt = Date.now(); state.pending = undefined; });
@@ -30,8 +30,8 @@ export function createStatusReader<T extends { connected: boolean }>(
       finally { clearTimeout(wait!); }
     }
     if (force && !state.pending && state.error) throw state.error;
-    // Keep a checked snapshot visible during routine revalidation, including a
-    // legitimate signed-out result. Only the first probe needs a Checking state.
-    return { ...snapshot(key), ...(state.pending && !Number.isFinite(state.checkedAt) ? { statusChecking: true } : state.unavailable ? { statusUnavailable: true } : {}) };
+    // Keep the snapshot visible during revalidation, with an explicit Checking
+    // hint so display consumers never mistake an empty snapshot for sign-out.
+    return { ...snapshot(key), ...(state.pending ? { statusChecking: true } : state.unavailable ? { statusChecking: false, statusUnavailable: true } : {}) };
   };
 }

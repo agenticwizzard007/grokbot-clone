@@ -10,6 +10,26 @@ const fixture = (selected: CliProvider | null, claude: boolean, codex: boolean):
   providers: { claude: { ...(claude ? ready : signedOut) }, codex: { ...(codex ? ready : signedOut) } },
 });
 
+test('plan actions require confirmed disconnection and retain connected cards while checking', () => {
+  for (const provider of ['claude', 'codex'] as const) {
+    for (const status of [null, { ...fixture(null, false, false), statusChecking: true }, { ...fixture(null, false, false), statusUnavailable: true }]) {
+      const state = modelAccessStatus(status, provider);
+      assert.equal(state.canConnect, false);
+      assert.equal(state.action, null);
+    }
+    const pending = modelAccessStatus({ ...fixture(provider, true, true), statusChecking: true }, provider);
+    assert.equal(pending.connection, 'Connected');
+    assert.equal(pending.currentlyInUse, true);
+    assert.equal(pending.checking, true);
+    assert.equal(pending.canConnect, false);
+    assert.equal(modelAccessStatus(fixture(null, false, false), provider).canConnect, true);
+    const failed = fixture(provider, true, true);
+    failed.providers[provider].error = 'Probe timed out';
+    assert.equal(modelAccessStatus(failed, provider).action, null);
+    assert.equal(modelAccessStatus(failed, provider).connection, 'Status unavailable');
+  }
+});
+
 test('Models access: Codex connected and Claude not connected', () => {
   const status = fixture('codex', false, true);
   const claude = modelAccessStatus(status, 'claude');
@@ -75,14 +95,15 @@ test('Models access: missing CLI, ineligible login and offline bridge cannot sho
   assert.match(modelAccessStatus(status, 'claude').details, /Signed in · Eligible plan not confirmed/);
   status.runtime = 'bridge'; status.connected = false;
   for (const provider of ['claude', 'codex'] as const) {
-    assert.equal(modelAccessStatus(status, provider).connection, 'Not connected');
+    assert.equal(modelAccessStatus(status, provider).connection, 'Status unavailable');
+    assert.equal(modelAccessStatus(status, provider).action, null);
     assert.match(modelAccessStatus(status, provider).details, /computer bridge is offline/);
     assert.doesNotMatch(modelAccessStatus(status, provider).details, /not installed/);
   }
 });
 
 test('Models access: unavailable and pending probes never invent a connection or active route', () => {
-  assert.equal(modelAccessStatus(null, 'claude').connection, 'Checking status…');
+  assert.equal(modelAccessStatus(null, 'claude').connection, 'Checking');
   const status = fixture('codex', false, true);
   for (const provider of ['claude', 'codex'] as const) {
     for (const tab of [modelAccessStatus(status, provider, true), modelAccessStatus({ ...status, statusUnavailable: true }, provider)]) {
@@ -96,7 +117,7 @@ test('Models access: unavailable and pending probes never invent a connection or
   assert.doesNotMatch(modelAccessStatus(status, 'claude').currentRoute, /currently use/);
   status.providers.codex = { ...signedOut };
   status.statusChecking = true;
-  assert.equal(modelAccessStatus(status, 'codex').connection, 'Checking status…');
+  assert.equal(modelAccessStatus(status, 'codex').connection, 'Checking');
   assert.match(modelAccessStatus(status, 'claude').currentRoute, /connection is being checked/);
 });
 
