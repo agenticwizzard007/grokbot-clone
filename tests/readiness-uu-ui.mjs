@@ -128,4 +128,7 @@ try {
   const page = browser?.contexts().at(-1)?.pages().at(-1);
   if (page) { console.error((await page.locator('body').innerText()).slice(-5000)); await page.screenshot({ path: `${evidence}/failure.png` }); }
   throw error;
-} finally { await browser?.close(); vite.kill(); await once(vite, 'exit'); }
+} finally {
+  await browser?.close();
+  if (vite.exitCode === null && vite.signalCode === null) { const exited = once(vite, 'exit'); vite.kill(); await exited; }
+}
