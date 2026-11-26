@@ -132,8 +132,19 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
   useLayoutEffect(() => {
     const anchor = ref.current?.parentElement;
     const chat = anchor?.closest('.chat');
+    const composer = anchor?.closest('.composer');
     const measure = () => {
-      const left = (anchor?.getBoundingClientRect().left ?? 4) - 4;
+      const anchorBox = anchor?.getBoundingClientRect();
+      const composerTop = composer?.getBoundingClientRect().top ?? anchorBox?.top ?? innerHeight;
+      const viewport = window.visualViewport;
+      const viewportTop = viewport?.offsetTop ?? 0;
+      const viewportBottom = viewportTop + (viewport?.height ?? innerHeight);
+      const menuBottom = Math.min(composerTop - 10, viewportBottom - 12);
+      // The chip anchors the menu horizontally; its top clears the entire input.
+      ref.current?.style.setProperty('--mm-available-height', `${Math.max(0, menuBottom - viewportTop - 12)}px`);
+      ref.current?.style.setProperty('--mm-anchor-gap', `${(anchorBox?.top ?? composerTop) - menuBottom}px`);
+      ref.current?.style.setProperty('--mm-bottom', `${innerHeight - menuBottom}px`);
+      const left = (anchorBox?.left ?? 4) - 4;
       // Details can narrow the chat without resizing the window.
       const right = Math.min(innerWidth, chat?.getBoundingClientRect().right ?? innerWidth) - 12;
       const offset = sheet ? 0 : Math.min(0, right - left - 340);
@@ -143,8 +154,17 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
     const observer = new ResizeObserver(measure);
     if (chat) observer.observe(chat);
     if (anchor) observer.observe(anchor);
+    if (composer) observer.observe(composer);
     measure(); window.addEventListener('resize', measure);
-    return () => { observer.disconnect(); window.removeEventListener('resize', measure); };
+    window.addEventListener('scroll', measure, true);
+    window.visualViewport?.addEventListener('resize', measure);
+    window.visualViewport?.addEventListener('scroll', measure);
+    return () => {
+      observer.disconnect(); window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure, true);
+      window.visualViewport?.removeEventListener('resize', measure);
+      window.visualViewport?.removeEventListener('scroll', measure);
+    };
   }, [sheet]);
   useEffect(() => {
     if (view === 'effort') (effortRef.current?.querySelector<HTMLElement>('[aria-selected="true"]') ?? effortRef.current?.querySelector<HTMLElement>('button'))?.focus();
@@ -175,7 +195,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
   const results = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return [];
-    return models.filter((m) => m.short.toLowerCase().includes(s) || m.name.toLowerCase().includes(s) || m.id.includes(s)).slice(0, 40);
+    return models.filter((m) => fallbackShort(m.id, m.short).toLowerCase().includes(s) || m.name.toLowerCase().includes(s) || m.id.includes(s)).slice(0, 40);
   }, [q, models]);
 
   const favs = favourites.map((id) => byId.get(id)).filter(Boolean) as PickerModel[];
@@ -184,7 +204,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
   const currentEffort = modelSelection(bot, useModels.getState()).effort;
   const effort = target?.id === current?.id ? currentEffort : null;
   const rowEffort = (m: PickerModel) => !editing && effortsFor(m).length > 0 && (
-    <button type="button" className="mm-row__effort" aria-label={`Effort for ${m.short}`} aria-haspopup="listbox" aria-expanded={view === 'effort' && target?.id === m.id}
+    <button type="button" className="mm-row__effort" aria-label={`Effort for ${fallbackShort(m.id, m.short)}`} aria-haspopup="listbox" aria-expanded={view === 'effort' && target?.id === m.id}
       onClick={e => openEffort(m, e.currentTarget)}>
       <span className={m.id === current?.id && isTopEffort(currentEffort, m) ? 'uc-text' : undefined}>{m.id === current?.id && currentEffort ? effortLabel(currentEffort, current) : 'Effort'}</span><ChevronRight size={12} aria-hidden />
     </button>
@@ -223,11 +243,11 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
         </button>
         {rowEffort(m)}
         {editing && i !== null ? (
-          <button type="button" className="mm-row__act" onClick={() => toggleFav(m.id)} aria-label={`Remove ${m.short} from favourites`}><Minus size={14} strokeWidth={2} /></button>
+          <button type="button" className="mm-row__act" onClick={() => toggleFav(m.id)} aria-label={`Remove ${fallbackShort(m.id, m.short)} from favourites`}><Minus size={14} strokeWidth={2} /></button>
         ) : selected ? (
           <Check size={16} strokeWidth={2} className="mm-row__check" aria-label="Selected" />
         ) : provider === 'openrouter' ? (
-          <a className="mm-row__act" href={`https://openrouter.ai/${m.id}`} target="_blank" rel="noreferrer noopener" aria-label={`${m.short} on OpenRouter`} onClick={(e) => e.stopPropagation()}><ArrowUpRight size={14} strokeWidth={1.75} /></a>
+          <a className="mm-row__act" href={`https://openrouter.ai/${m.id}`} target="_blank" rel="noreferrer noopener" aria-label={`${fallbackShort(m.id, m.short)} on OpenRouter`} onClick={(e) => e.stopPropagation()}><ArrowUpRight size={14} strokeWidth={1.75} /></a>
         ) : null}
       </li>
     );
@@ -266,7 +286,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
           </div>}
         </> : inlineEffort && view === 'effort' ? (
           <>
-            <div className="mm-sheet-head"><button type="button" className="mm-back" aria-label="Back to models" onClick={back}><ChevronLeft size={18} strokeWidth={1.75} /><ProviderMark provider={providerBrand(target?.author) ?? target?.id} fallbackProvider={provider} /><span>{target?.short} · Effort</span></button></div>
+            <div className="mm-sheet-head"><button type="button" className="mm-back" aria-label="Back to models" onClick={back}><ChevronLeft size={18} strokeWidth={1.75} /><ProviderMark provider={providerBrand(target?.author) ?? target?.id} fallbackProvider={provider} /><span>{target && fallbackShort(target.id, target.short)} · Effort</span></button></div>
             {effortList}
           </>
         ) : (
@@ -343,7 +363,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
           </>
         )}
       </div>
-      {!inlineEffort && view === 'effort' && <div className="mm-flyout"><div className="mm-effort-model"><ProviderMark provider={providerBrand(target?.author) ?? target?.id} fallbackProvider={provider} /> {target?.short}</div>{effortList}</div>}
+      {!inlineEffort && view === 'effort' && <div className="mm-flyout"><div className="mm-effort-model"><ProviderMark provider={providerBrand(target?.author) ?? target?.id} fallbackProvider={provider} /> {target && fallbackShort(target.id, target.short)}</div>{effortList}</div>}
       </div>
     </>
   );

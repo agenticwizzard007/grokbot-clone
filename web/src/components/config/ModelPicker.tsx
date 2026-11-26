@@ -68,7 +68,7 @@ export function ModelPicker({ value, onChange, defaultLabel, disabled, label = '
   const selected = value ? models.find((m) => m.id === value) : undefined;
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const list = q ? models.filter((m) => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q)) : models;
+    const list = q ? models.filter((m) => m.id.toLowerCase().includes(q) || modelDisplayName(m.id, m.name).toLowerCase().includes(q)) : models;
     return list.slice(0, 200);
   }, [models, query]);
 
@@ -81,7 +81,7 @@ export function ModelPicker({ value, onChange, defaultLabel, disabled, label = '
     <div className="model-picker" ref={box}>
       <button ref={trigger} type="button" className="model-picker__button text-input" disabled={disabled} onClick={() => { setQuery(''); setOpen((o) => !o); }} aria-controls={open ? panelId : undefined} aria-expanded={open} aria-label={label}>
         <ProviderMark provider={value ?? defaultLabel} fallbackProvider={provider ?? data?.provider} /><span className="model-picker__current">
-          {value ? modelDisplayName(value, selected?.name) : defaultLabel ? `Default · ${defaultLabel}` : 'Choose a model'}
+          {value ? modelDisplayName(value, selected?.name) : defaultLabel ? `Default · ${modelDisplayName('', defaultLabel)}` : 'Choose a model'}
         </span>
         {data?.billing && <span className="model-billing">{data.billing === 'plan' ? 'Plan' : 'API'}</span>}
         {selected && !selected.vision && <span className="cfg-chip cfg-chip--warn">No images</span>}
@@ -104,7 +104,7 @@ export function ModelPicker({ value, onChange, defaultLabel, disabled, label = '
             {defaultLabel && !query && (
               <button type="button" role="option" aria-selected={value === null} className={`model-picker__row${value === null ? ' is-selected' : ''}`} onClick={() => pick(null)}>
                 <span className="model-picker__name"><ProviderMark provider={defaultLabel} fallbackProvider={provider ?? data?.provider} />Default</span>
-                <span className="model-picker__meta">{defaultLabel}</span>
+                <span className="model-picker__meta">{modelDisplayName('', defaultLabel)}</span>
               </button>
             )}
             {shown.map((m) => (

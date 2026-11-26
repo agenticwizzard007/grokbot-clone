@@ -1,3 +1,4 @@
+import { modelDisplayName } from '../../lib/modelDisplay';
 import { ProviderLabel, ProviderMark } from '../ProviderMark';
 import { ApprovalLevelSettings } from './ApprovalLevelSettings';
 import { InputLatencyDiagnostics } from '../InputLatencyDiagnostics';
@@ -138,7 +139,7 @@ function KeyCard({ name, title, what, link, status, canEdit, required, onChange 
     try {
       const r = await configApi.saveKey(name, value.trim());
       setValue('');
-      setNote({ tone: 'ok', text: r.modelOk === false ? `Key works, but ${r.model.value} isn’t available on it. Pick a model above.` : 'Verified and saved. Bots use it right away.' });
+      setNote({ tone: 'ok', text: r.modelOk === false ? `Key works, but ${modelDisplayName(r.model.value)} isn't available on it. Pick a model above.` : 'Verified and saved. Bots use it right away.' });
       onChange(r);
     } catch (e) { setNote({ tone: 'error', text: (e as Error).message }); }
     finally { setBusy(null); }
@@ -234,9 +235,9 @@ function ServerKeysSection({ accountId, onReauth }: { accountId: string; onReaut
   };
   const status = !keyFor(chosen)
     ? keyFor(running) && running !== chosen
-      ? `Waiting for your ${nameOf(chosen)} key. Bots use ${running === 'openrouter' ? keys.openrouterModel.value : keys.model.value} through ${nameOf(running)} until then.`
+      ? `Waiting for your ${nameOf(chosen)} key. Bots use ${modelDisplayName(running === 'openrouter' ? keys.openrouterModel.value : keys.model.value)} through ${nameOf(running)} until then.`
       : `Add your ${nameOf(chosen)} key below so Bots can run.`
-    : `Bots use ${current} through ${nameOf(chosen)}.`;
+    : `Bots use ${modelDisplayName(current)} through ${nameOf(chosen)}.`;
   return (
     <>
       <section className="cfg-section">
