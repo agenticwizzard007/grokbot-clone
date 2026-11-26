@@ -193,6 +193,28 @@ test('R16 in-flight wrappers from an older server retain their inner approval an
   }
 });
 
+test('R16 old generic wrapper cards never authorize the inner action on upgrade', async () => {
+  setLevel('every_action'); db.exec('DELETE FROM policies');
+  for (const decision of ['deny', 'allow', 'always'] as const) {
+    const before = fileCount(), args = { filename: 'old-card.txt', content: 'Fixture' };
+    const approval = await run('save_file', args);
+    const state = JSON.parse((db.prepare('SELECT state FROM pending_turns WHERE bot_id=?').get(bot.id) as any).state);
+    const call = state.calls[0], wrapperArgs = wrapped('save_file', args);
+    state.calls = [{ ...call, name: 'tool_call', arguments: JSON.stringify(wrapperArgs) }];
+    const row = listRows(bot.id).find(r => r.seq === call.rowSeq)!;
+    updateRow(bot.id, row.seq, { ...row.body as any, name: 'tool_call', args: wrapperArgs });
+    db.prepare('UPDATE approvals SET tool=?,binding_hash=? WHERE id=?').run('api_max:tool_call', approvalBinding('owner', bot.id, call.call_id, 'tool_call', wrapperArgs), approval.id);
+    db.prepare('UPDATE pending_turns SET state=? WHERE bot_id=?').run(JSON.stringify(state), bot.id);
+    await decide(decision);
+    assert.equal(fileCount(), before); assert.equal(dispatch(call.call_id), undefined);
+    if (decision === 'deny') assert.equal(pending(), undefined);
+    else {
+      assert.equal(pending()?.tool, 'api_max:save_file');
+      await decide('allow'); assert.equal(fileCount(), before + 1); assert.equal(pending(), undefined);
+    }
+  }
+});
+
 test('R11 group tools show an actionable approval card and group notice instead of silent denial', async () => {
   const other = createBot('owner', { name: 'Other fixture', isPrimary: true });
   const roomId = createRoom('owner', 'Fixture room', [bot.id, other.id]);

@@ -708,6 +708,13 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
       if (c.name === 'tool_call' && !legacyWrapper) {
         // Approve the resolved action once, with its actual name and arguments.
         const resolved = await resolveToolCall(await ctx.availableTools!(), args);
+        const wrapperApproval = st.approvalId ? db.prepare('SELECT call_id,tool,status,binding_hash FROM approvals WHERE id=? AND bot_id=?').get(st.approvalId, botId) as any : undefined;
+        if (wrapperApproval?.call_id === c.call_id && wrapperApproval.tool === `${MAX_APPROVAL_PREFIX}tool_call`
+          && ['allowed', 'always'].includes(wrapperApproval.status)
+          && wrapperApproval.binding_hash === approvalBinding(userId, botId, c.call_id, 'tool_call', args)) {
+          // A decision on an old generic card is not permission for the named action.
+          st.approvalId = '';
+        }
         c = { ...c, name: resolved.name, arguments: JSON.stringify(resolved.args), schemaHash: args.schema_hash };
         st.calls[0] = c;
         args = resolved.args;
