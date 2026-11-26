@@ -19,6 +19,6 @@ export function ProviderLabel({ provider, children }: { provider?: string | null
 
 /** Keep existing status copy intact while placing each mark beside the name it describes. */
 export function ProviderText({ children }: { children: string }) {
-  return <>{children.split(/(Claude(?: (?:Max|Pro))? plan|Claude Code|ChatGPT plan|Codex|OpenRouter)/g).map((part, index) =>
+  return <>{children.split(/(Claude(?: (?:Max|Pro|Team|Ultra|Enterprise))? plan|Claude Code|ChatGPT plan|Codex|OpenRouter)/g).map((part, index) =>
     index % 2 ? <ProviderLabel key={index} provider={part}>{part}</ProviderLabel> : part)}</>;
 }
