@@ -90,6 +90,7 @@ async function account(t: any, provider: 'codex' | 'claude') {
       await runInBotQueue(bot.id, async () => {});
       assert.equal(actions.length, 0, `Unexecuted actions: ${actions.map(a => a.name)}`);
       assert.equal(listRows(bot.id).filter((r: any) => r.body.card === 'approval').length, 0);
+      assert.equal(events.some(e => e.type === 'rows' && e.rows.some((r: any) => r.body.card === 'approval')), false, 'no approval card was emitted to chat');
       assert.equal((db.prepare('SELECT count(*) n FROM approvals WHERE bot_id=?').get(bot.id) as any).n, 0);
     },
   };
