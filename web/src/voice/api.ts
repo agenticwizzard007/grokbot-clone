@@ -20,12 +20,14 @@ export interface VoiceOptions { voices: VoiceOption[]; languages: { code: string
 
 export interface VoiceTranscriptEntry { id?: string; role: 'user' | 'assistant'; text: string }
 export interface VoiceToolResult {
+  endCall?: boolean;
   output: string;
   taskSeq?: number;
   taskBotId?: string;
   taskId?: string;
 }
 export interface VoiceUpdate {
+  endCall?: boolean;
   audience?: 'user' | 'internal';
   id: number;
   botId: string;

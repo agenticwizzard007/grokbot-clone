@@ -1,3 +1,4 @@
+import { ApprovalLevelSettings } from './ApprovalLevelSettings';
 import { InputLatencyDiagnostics } from '../InputLatencyDiagnostics';
 import { prefetchApps } from '../../lib/appsCatalogCache';
 import { visibleConnections, connectionStatus, connectionSummary } from '@shared/connection-details';
@@ -601,7 +602,8 @@ function PermissionsSection() {
   };
   return (
     <>
-      <PageHead title="Permissions" sub="Choose which agent actions can run without asking again." />
+      <PageHead title="Permissions" sub="Choose when Bots ask before taking action." />
+      <ApprovalLevelSettings explain />
       <section className="cfg-section">
         <h2 className="cfg-section__label">Actions you’ve always allowed</h2>
         <p>These are individual tool approvals. Remove a choice to have your agents ask again.</p>
@@ -610,12 +612,13 @@ function PermissionsSection() {
             : policies === null ? <div className="cfg-empty cfg-empty--flat">Loading…</div> : policies.length === 0 ? (
             <div className="cfg-empty cfg-empty--flat">Nothing here yet. When you choose “Always allow” on an approval, it shows up here.</div>
           ) : policies.map((p) => {
-            const h = mcpNames[p.tool] ?? (p.tool.startsWith('mcp_') ? { app: 'MCP server', action: 'Previous tool permission' } : humanizeTool(p.tool));
+            const displayTool = p.tool.replace(/^api_max:/, '');
+            const h = mcpNames[displayTool.replace(/:bot:.*$/, '')] ?? (displayTool.startsWith('mcp_') ? { app: 'MCP server', action: 'Previous tool permission' } : humanizeTool(displayTool));
             return (
               <div key={p.tool} className="cfg-row"><SettingIcon icon={ShieldCheck} />
                 <div className="cfg-row__text">
                   <div className="cfg-row__title">{h.app}{h.action ? ` · ${h.action}` : ''}</div>
-                  <div className="cfg-row__sub">{p.mode === 'always_allow' ? 'Always allowed' : p.mode === 'blocked' ? 'Never allowed' : 'Asks first'}{!p.tool.startsWith('mcp_') && <> · <code className="cfg-code">{p.tool}</code></>}</div>
+                  <div className="cfg-row__sub">{p.tool.startsWith('api_max:') ? 'Ask before every action only · ' : 'Standard and CLI plans · '}{p.mode === 'always_allow' ? 'Always allowed' : p.mode === 'blocked' ? 'Never allowed' : 'Asks first'}{!displayTool.startsWith('mcp_') && <> · <code className="cfg-code">{displayTool}</code></>}</div>
                 </div>
                 <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => askAgain(p.tool)}>Ask again</button>
                 {rowError?.tool === p.tool && <div className="cfg-error cfg-error--inset" role="alert">{rowError.text}</div>}

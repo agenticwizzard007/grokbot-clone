@@ -94,6 +94,7 @@ class VoiceCall {
   /** Response the user talked over; its late audio deltas are dropped. */
   private interruptedId: string | null = null;
   private userSpeaking = false;
+  private approvedHangups = new Set<string>();
   private inflight = new Map<string, { name: string; promise: Promise<string> }>();
   private finishingTools = 0;
   private handledCalls = new Set<string>();
@@ -365,8 +366,7 @@ class VoiceCall {
     let args: Json = {};
     try { args = rawArgs ? JSON.parse(rawArgs) : {}; } catch { /* model sent bad JSON */ }
     let promise: Promise<string>;
-    if (name === 'end_the_call') promise = Promise.resolve('Ending the call.');
-    else {
+    {
       // Show hand-offs immediately. Any tool can return a queued task, including native team tools.
       const targetBotId = typeof args.bot_id === 'string' ? args.bot_id : this.botId;
       const placeholder: OptimisticTask = { pending: true, task: {
@@ -377,6 +377,7 @@ class VoiceCall {
       if (name === 'send_task') { this.optimistic.set(callId, placeholder); this.syncWorking(); }
       promise = voiceApi.tool(this.botId, this.sess!.callId, name, args, callId, transcript, transcriptRevision)
         .then((r) => {
+          if (name === 'end_the_call' && r.endCall) this.approvedHangups.add(callId);
           if (!this.ended) {
             if (r.taskId !== undefined || r.taskSeq !== undefined) {
               placeholder.pending = false;
@@ -406,7 +407,7 @@ class VoiceCall {
       if (this.ended) return;
       // Every output first, then a single response.create (direct provider parallel-call rule).
       batch.forEach(([callId], i) => this.send({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: callId, output: outputs[i] } }));
-      if (batch.some(([, b]) => b.name === 'end_the_call')) {
+      if (batch.some(([id, b]) => b.name === 'end_the_call' && this.approvedHangups.delete(id))) {
         await this.player.whenIdle(8000);
         if (!this.ended) this.end();
         return;
@@ -454,6 +455,11 @@ class VoiceCall {
       this.tasks = result.tasks;
       for (const id of settled) this.optimistic.delete(id);
       this.syncWorking();
+      if (fresh.some(update => update.endCall)) {
+        await this.player.whenIdle(8000);
+        if (!this.ended) this.end();
+        return;
+      }
       if (fresh.length) {
         for (const update of fresh) {
           this.notes.push(update);

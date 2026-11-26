@@ -1,3 +1,4 @@
+import { asksBeforeEveryAction } from './agent/approval-level.js';
 import { assertRunWritable, canPublishRun, currentRun } from './agent/run-scope.js';
 import { db, now } from './db.js';
 import { setupOnboarding } from './setup-state.js';
@@ -153,9 +154,10 @@ function roomTriggeredJob(botId: string, jobId: unknown): boolean {
 /** Append a new row. Returns its seq. */
 export function appendRow(botId: string, kind: RowKind, body: RowBody): Row {
   assertRunWritable();
-  // Last line of defence: a group turn never writes an approval, question, connect or draft card into a
-  // member's own chat, whichever code path tries. The runtime already avoids this; log if it ever happens.
-  if ((kind === 'card' || body.type === 'card') && roomTriggeredJob(botId, (body as { jobId?: unknown }).jobId ?? currentJobId())) {
+  // Group turns cannot write cards into a member's chat, except action approvals
+  // required by API maximum mode. Questions, connection and draft cards stay excluded.
+  if ((kind === 'card' || body.type === 'card') && roomTriggeredJob(botId, (body as { jobId?: unknown }).jobId ?? currentJobId())
+    && !(body.type === 'card' && body.card === 'approval' && asksBeforeEveryAction(getBotRow(botId)?.user_id))) {
     console.warn('[rows] refused a card row for a group chat turn', { botId, card: (body as { card?: string }).card });
     throw new RoomCardRefused();
   }

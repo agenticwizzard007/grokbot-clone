@@ -1,3 +1,4 @@
+import { ApprovalLevelSettings } from './ApprovalLevelSettings';
 import { SettingIcon } from './SettingRow';
 import { useModels } from '../../lib/models';
 import { useEffect, useRef, useState } from 'react';
@@ -374,6 +375,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
           <button type="button" className="cfg-btn cfg-btn--secondary" aria-pressed={authMethod === 'api'} disabled={disabled} onClick={() => void select(null)}>Use API providers</button>
           <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().openAppSettings('keys')}>Manage API keys</button>
         </AccessRow>
+        <ApprovalLevelSettings selectedCli={status?.selected} />
         <AccessRow icon={RefreshCw} title="Authorization status" description="Refresh after signing in or reconnecting.">
           <button type="button" className="cfg-btn cfg-btn--secondary" disabled={authLocked || !!busy || loginRunning} onClick={() => void refresh()}>{busy === 'refresh' ? 'Refreshing…' : status?.statusUnavailable || stale || probeFailed ? 'Retry' : 'Refresh status'}</button>
         </AccessRow>

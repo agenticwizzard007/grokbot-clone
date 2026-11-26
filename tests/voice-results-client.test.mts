@@ -527,13 +527,14 @@ test('failed hand-offs clear only their optimism and preserve tool error and han
   assert.equal(voice.useVoice.getState().muted, true);
   assert.ok(f.ws.sent.some(e => e.type === 'input_audio_buffer.clear'));
   f.ws.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'user-caption', transcript: 'Goodbye' });
+  f.setTool(async () => json({ output: 'Hanging up after your goodbye.', endCall: true }));
   f.ws.emit(toolEvent('hang-up', 'end_the_call', {}));
   done(f.ws);
   await settle();
   assert.equal(voice.useVoice.getState().status, 'idle');
   const end = f.requests.find(r => r.path.endsWith('/end'))!;
   assert.deepEqual(end.body.transcript, [{ id: 'user-caption', role: 'user', text: 'Goodbye' }]);
-  assert.equal(f.tools().length, 1, 'hang-up stays local');
+  assert.equal(f.tools().length, 2, 'hang-up checks the account policy before ending');
 });
 
 for (const status of [401, 403, 404, 410]) test(`terminal voice updates ${status} stops polling and offers a fresh call`, async t => {
@@ -567,4 +568,17 @@ test('temporary update failures back off, then reset after recovery', async t =>
   f.setPoll(async () => json({ cursor: 0, updates: [], tasks: [] }));
   await f.tick(1); assert.equal(f.polls().length, 4);
   await f.tick(1500); assert.equal(f.polls().length, 5);
+});
+
+
+test('maximum approval hang-up waits for the card decision and a denied call stays connected', async t => {
+  const f = await fixture(t);
+  f.setTool(async () => json({ output: 'Approval required in chat. Nothing has run.' }));
+  f.ws.emit(toolEvent('max-hang-up', 'end_the_call', {})); done(f.ws); await settle();
+  assert.equal(voice.useVoice.getState().status, 'live');
+  f.setPoll(async () => json({ cursor: 1, updates: [update(1, 'status', 'chief', 'The user declined this action.')], tasks: [] }));
+  await f.tick(); assert.equal(voice.useVoice.getState().status, 'live');
+  f.ws.emit(toolEvent('next-hang-up', 'end_the_call', {})); done(f.ws); await settle();
+  f.setPoll(async () => json({ cursor: 2, updates: [{ ...update(2, 'status'), endCall: true }], tasks: [] }));
+  await f.tick(); await settle(); assert.equal(voice.useVoice.getState().status, 'idle');
 });

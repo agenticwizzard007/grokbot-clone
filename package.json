@@ -7,6 +7,7 @@
     "web"
   ],
   "scripts": {
+    "test:api-approvals": "node --import tsx --test tests/api-approval-level.test.mts && node tests/api-approval-ui.mjs",
     "test:readiness-hh": "node --import tsx --test tests/suggestion-display.test.mts tests/suggestion-cache.test.mts && node tests/readiness-hh-ui.mjs",
     "test:composer-live": "node tests/composer-live-performance-ui.mjs",
     "test:composer-polish": "node --import tsx --test tests/composer-first-render.test.mts tests/composer-model-label.test.mts tests/model-access-status.test.mts && node tests/composer-model-loading-ui.mjs && node tests/composer-performance-ui.mjs && node tests/model-access-status-ui.mjs",

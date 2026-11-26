@@ -1,6 +1,6 @@
 import { db } from './db.js';
 
-export interface TeamUpdate { id: number; botId: string; botName: string; kind: 'message' | 'input' | 'waiting' | 'status'; text: string; approvalId?: string }
+export interface TeamUpdate { id: number; botId: string; botName: string; kind: 'message' | 'input' | 'waiting' | 'status'; text: string; approvalId?: string; endCall?: boolean }
 interface CallTask { id: string; botId: string; botName: string; request: string }
 export interface ActiveCall {
   id: string; botId: string; generation: number; userId: string; startedAt: number; lastActiveAt: number; startSeq: number; tasks: string[]; provider: string; model: string;
@@ -14,7 +14,7 @@ export interface ActiveCall {
   connectionsCheckedAt?: number;
 }
 export interface TranscriptLine { id?: string; role: 'user' | 'assistant'; text: string }
-export interface VoiceToolOutput { output: string; taskSeq?: number; taskBotId?: string; taskId?: string }
+export interface VoiceToolOutput { output: string; endCall?: boolean; taskSeq?: number; taskBotId?: string; taskId?: string }
 
 
 // Audio connects directly to the provider and survives an app server restart.
