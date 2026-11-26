@@ -5,7 +5,7 @@ import path from 'node:path';
 import { after, test, mock } from 'node:test';
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'api-approval-'));
 Object.assign(process.env, { SWARM_ROLE: 'standalone', NODE_ENV: 'test', DB_PATH: path.join(root, 'db'), FILES_DIR: path.join(root, 'files'), SESSION_SECRET: 'local-only', COMPUTER_PROVIDER: 'local', DIRECT_API_KEY: 'fixture', COMPOSIO_API_KEY: 'fixture', XAI_API_KEY: 'fixture', INKBOX_TUNNEL: '0', LLM_PROVIDER: 'direct' });
-const { db, appArgs, appExecutions, planAction, planDiscoveredAction, mockModelClient, offeredTools } = await import('./fixtures/api-approval-backends.mjs');
+const { db, appArgs, appExecutions, planAction, planActionSequence, planDiscoveredAction, mockModelClient, offeredTools, modelInputs } = await import('./fixtures/api-approval-backends.mjs');
 const { createBot } = await import('../server/src/bots.js');
 const { toolMap, functionSchemas, executionPolicyFor, policyFor } = await import('../server/src/agent/tools.js');
 const { accountPreferences, saveAccountPreferences } = await import('../server/src/settings.js');
@@ -548,7 +548,7 @@ test('R17 past-chat lookup stays gated with intent wording, bounded query and a 
       await decide('deny');
     }
     assert.equal(search.mock.callCount(), 0);
-    const text = 'YY create a skill named Fixture checklist. Check the result and report it.';
+    const text = 'Create a skill named Fixture checklist. Check the result and report it. Optionally search past chats for an older checklist.';
     const source = appendRow(bot.id, 'message', { type: 'message', role: 'user', text });
     // A model can still choose an optional older lookup. Its refusal must not
     // prevent the requested create action in the same API continuation.
@@ -562,6 +562,148 @@ test('R17 past-chat lookup stays gated with intent wording, bounded query and a 
     assert.equal(pending(), undefined);
     assert.equal(search.mock.callCount(), 0);
   } finally { search.mock.restore(); }
+});
+
+test('R18 explicit create detection preserves real lookups, negations and quoted examples', async () => {
+  const { explicitCreateKind, requestsEarlierContext } = await import('../server/src/agent/current-message-create.js');
+  for (const text of ['Create a skill called api-perm-test-r17', 'Please create a new skill called Checklist.', 'Can you create a skill called Checklist?', 'Make me a skill for reviews.']) assert.equal(explicitCreateKind(text), 'skill', text);
+  assert.equal(explicitCreateKind('Create a task called Review.'), 'task');
+  assert.equal(explicitCreateKind('Remember: my favorite color is teal.'), 'memory');
+  assert.equal(explicitCreateKind('Save a memory that my favorite color is teal.'), 'memory');
+  for (const text of ['Do not create a skill.', 'How do I create a skill?', 'The example is "Create a skill called test".', 'Find that earlier skill.', 'Update the existing skill.', 'Can you remember my name?', 'Remember the checklist?']) assert.equal(explicitCreateKind(text), null, text);
+  for (const text of ['Create a skill using our earlier conversation.', 'Create a task. Search your past chats for the details.', 'Create a skill from what we discussed.', 'Create a memory from what I told you.', 'Create a skill. Find that existing skill first.', `Create a skill. ${'Details. '.repeat(1000)} Search chat history.`]) assert.equal(requestsEarlierContext(text), true, text.slice(0, 100));
+  assert.equal(requestsEarlierContext('Create a skill called api-perm-test-r17'), false);
+  assert.equal(requestsEarlierContext('Create a skill called Checklist. Do not search past chats.'), false);
+  assert.equal(requestsEarlierContext('Create a skill called Checklist without searching past chats.'), false);
+  assert.equal(requestsEarlierContext('Create a skill. Do not search past chats, but use the existing skill.'), true);
+});
+
+test('R18 search-first model reaches the skill, task or memory card without reading older data', async () => {
+  setLevel('every_action'); db.exec('DELETE FROM policies');
+  const lookups = ['session_search', 'recall', 'list_skills'];
+  const searches = lookups.map(name => mock.method(toolMap.get(name)!, 'impl'));
+  const cards = () => (db.prepare('SELECT count(*) n FROM approvals WHERE bot_id=?').get(bot.id) as any).n;
+  try {
+    for (const [text, name] of [
+      ['Create a skill called api-perm-test-r17', 'propose_skill'],
+      ['Create a skill called api-perm-test-r18', 'manage_skill'],
+      ['Create a task called Review.', 'create_task'],
+      ['Remember: my favorite fixture color is teal.', 'remember'],
+    ]) for (const wrap of [false, true]) for (const decision of ['deny', 'allow'] as const) {
+      const source = appendRow(bot.id, 'message', { type: 'message', role: 'user', text });
+      const evidence = [{ botId: bot.id, generation: source.generation, seq: source.seq }];
+      const args = name === 'create_task' ? { title: 'Review' } : name === 'remember' ? { text: 'My favorite fixture color is teal.', evidence }
+        : { ...(name === 'manage_skill' ? { action: 'create' } : {}), expected_revision: 0, name: `Fixture ${name} ${wrap} ${decision}`, description: 'Current request', body: 'A new skill requested by the user.', reason: 'Requested in the current message', evidence };
+      const action = mock.method(toolMap.get(name)!, 'impl');
+      try {
+        const before = cards(), inputsBefore = modelInputs.length;
+        // Deliberately ignore the prompt and try all three preparation reads.
+        // Wrapped calls must be resolved before this same runtime guard runs.
+        const sequence = [...lookups.map(lookup => ({ name: lookup, args: lookup === 'list_skills' ? {} : { query: 'api-perm-test-r17' } })), { name, args }];
+        planActionSequence(sequence.map(call => wrap ? { name: 'tool_call', args: wrapped(call.name, call.args) } : call));
+        enqueue(bot.id, { type: 'user', text }); await settleAgentJobs();
+        assert.equal(pending()?.tool, `api_max:${name}`);
+        assert.equal(cards(), before + 1);
+        assert.equal(action.mock.callCount(), 0);
+        const inputs = modelInputs.slice(inputsBefore);
+        const prompt = inputs[0].find((item: any) => item.role === 'system')?.content;
+        assert.match(prompt, /Source reference for the current user message:/);
+        const outputs = inputs.flat().filter((item: any) => item.type === 'function_call_output').map((item: any) => String(item.output));
+        assert.ok(outputs.some((output: string) => output.includes('Lookup not performed.') && output.includes(`"seq":${source.seq}`)));
+        await decide(decision);
+        assert.equal(action.mock.callCount(), Number(decision === 'allow'));
+        if (decision === 'allow') assert.notEqual((await action.mock.calls[0].result).isError, true);
+        assert.equal(pending(), undefined);
+        assert.equal(cards(), before + 1);
+      } finally { action.mock.restore(); }
+    }
+    for (const search of searches) assert.equal(search.mock.callCount(), 0);
+  } finally { for (const search of searches) search.mock.restore(); }
+});
+
+test('R18 explicit older-context requests still ask before searching and can continue after decline', async () => {
+  setLevel('every_action'); db.exec('DELETE FROM policies');
+  const search = mock.method(toolMap.get('session_search')!, 'impl');
+  try {
+    for (const text of ['Search your past chats for the checklist.', 'Find that earlier skill.', 'Create a skill called Checklist. Optionally search past chats for a checklist.']) {
+      appendRow(bot.id, 'message', { type: 'message', role: 'user', text });
+      planAction('session_search', { query: 'checklist' });
+      enqueue(bot.id, { type: 'user', text }); await settleAgentJobs();
+      assert.equal(pending()?.tool, 'api_max:session_search');
+      const card = listRows(bot.id).find(r => r.seq === pending().row_seq)!.body as any;
+      assert.equal(card.title, `Allow ${bot.name} to search your past chats for checklist?`);
+      await decide('deny');
+      if (text.startsWith('Create')) {
+        const output = modelInputs.at(-1)!.findLast((item: any) => item.type === 'function_call_output')?.output;
+        assert.match(output, /Continue the explicit current-message create request with propose_skill/);
+        assert.match(output, /source reference/);
+      }
+    }
+    assert.equal(search.mock.callCount(), 0);
+  } finally { search.mock.restore(); }
+});
+
+test('R18 native OpenRouter chat route supplies current evidence and redirects a search-first Grok turn', async () => {
+  const { api } = await import('../server/src/routes.js');
+  const { llmClient, llmProvider } = await import('../server/src/lib/llm.js');
+  const { streamTool } = await import('./fixtures/api-approval-backends.mjs');
+  const nativeBot = createBot('owner', { name: 'Native API fixture', isPrimary: true, model: 'x-ai/grok-4.7' });
+  setLevel('every_action'); db.exec('DELETE FROM policies');
+  // This is a network-disabled fixture. No workspace key is read or replaced.
+  setEnvOverride('LLM_PROVIDER', 'openrouter');
+  setEnvOverride('OPENROUTER_API_KEY', 'local-native-key-never-sent');
+  let calls = 0;
+  const model = withUsage({ userId: 'owner', botId: nativeBot.id }, () => {
+    assert.equal(llmProvider(), 'openrouter');
+    return mock.method(llmClient(360_000).responses, 'create', async (body: any) => {
+      assert.equal(body.model, 'x-ai/grok-4.7');
+      const prompt = body.input.find((item: any) => item.role === 'system').content;
+      const source = JSON.parse(prompt.match(/Source reference for the current user message: (\{[^\n]+?\})\./)[1]);
+      const message = listRows(nativeBot.id).find(row => row.seq === source.seq)!.body as any;
+      assert.equal(message.text, 'Create a skill called api-perm-test-r17');
+      assert.ok(body.tools.findIndex((tool: any) => tool.name === 'propose_skill') < body.tools.findIndex((tool: any) => tool.name === 'session_search'), 'CORE set order is not the offered tool order');
+      if (++calls === 1) return streamTool('session_search', { query: 'api-perm-test-r17' });
+      if (calls === 2) {
+        const result = body.input.findLast((item: any) => item.type === 'function_call_output').output;
+        assert.match(result, /Lookup not performed/);
+        assert.ok(result.includes(JSON.stringify(source)));
+        return streamTool('propose_skill', { expected_revision: 0, name: 'api-perm-test-r17', description: 'Requested skill', body: 'Follow the current request.', reason: 'Requested in chat', evidence: [source] });
+      }
+      return streamTool();
+    });
+  });
+  try {
+    const response = await api.request(`/bots/${nativeBot.id}/messages`, { method: 'POST', headers: { cookie: 'swarm_session=fixture', 'content-type': 'application/json' }, body: JSON.stringify({ text: 'Create a skill called api-perm-test-r17' }) });
+    assert.equal(response.status, 200);
+    await settleAgentJobs();
+    assert.equal(pending(nativeBot.id)?.tool, 'api_max:propose_skill');
+    const cards = listRows(nativeBot.id).filter(row => row.body.type === 'card' && row.body.card === 'approval');
+    assert.equal(cards.length, 1);
+    resolveApproval('owner', pending(nativeBot.id).id, 'allow'); await settleAgentJobs();
+    assert.equal(pending(nativeBot.id), undefined);
+    assert.ok(db.prepare('SELECT 1 FROM knowledge_skill_proposals WHERE bot_id=?').get(nativeBot.id));
+  } finally {
+    model.mock.restore(); setEnvOverride('LLM_PROVIDER', 'direct'); setEnvOverride('OPENROUTER_API_KEY', null);
+  }
+});
+
+test('R18 current-create redirect leaves Standard, CLI, internal triggers and unbound sources unchanged', async () => {
+  const { redirectCreateLookup } = await import('../server/src/agent/current-message-create.js');
+  const { acceptJob } = await import('../server/src/agent/jobs.js');
+  const text = 'Create a skill called Source boundary.';
+  appendRow(bot.id, 'message', { type: 'message', role: 'user', text });
+  const job = acceptJob(bot.id, { type: 'user', text });
+  const ctx = { userId: 'owner', botId: bot.id, jobId: job.id } as any;
+  setLevel('standard'); assert.equal(redirectCreateLookup(ctx, 'session_search'), null);
+  setLevel('every_action'); assert.match(redirectCreateLookup(ctx, 'session_search')!, /Lookup not performed/);
+  for (const provider of ['claude', 'codex'] as const) {
+    selectCli('owner', provider); assert.equal(redirectCreateLookup(ctx, 'session_search'), null);
+  }
+  selectCli('owner', null);
+  for (const trigger of [{ type: 'system', text }, { type: 'user', text, audience: 'internal' }, { type: 'user', text: 'Create a skill without a stored source.' }]) {
+    assert.equal(redirectCreateLookup({ ...ctx, jobId: acceptJob(bot.id, trigger).id }, 'session_search'), null);
+  }
+  for (const name of ['tool_search', 'tool_describe', 'tool_call', 'propose_skill', 'manage_skill', 'create_task', 'remember', 'SWARM_APPS_EXECUTE']) assert.equal(redirectCreateLookup(ctx, name), null, name);
 });
 
 test('R17 current-message provenance follows approval resumes and excludes older, later or internal messages', async () => {

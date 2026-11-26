@@ -89,7 +89,7 @@ try {
       await closeSettings();
     };
     const before = await state();
-    for (const text of ['YY create a skill named Fixture checklist. Check the result and report it.', 'YY create a task named Fixture review.', 'YY remember: The fixture color preference is teal.', 'YY search past chats: checklist: weekly review', `YY search past chats: ${'Checklist details '.repeat(25)}`, 'JJ memory: My fixture color preference is green.', 'JJ file', 'JJ app', 'JJ wrapped file', 'WW draft']) {
+    for (const text of ['Create a skill called api-perm-test-r18', 'YY create a skill named Fixture checklist. Check the result and report it.', 'YY create a task named Fixture review.', 'YY remember: The fixture color preference is teal.', 'YY search past chats: checklist: weekly review', `YY search past chats: ${'Checklist details '.repeat(25)}`, 'JJ memory: My fixture color preference is green.', 'JJ file', 'JJ app', 'JJ wrapped file', 'WW draft']) {
       const cardCount = await page.locator('.approval-card').count();
       await send(text);
       const pending = page.locator('.approval-card').filter({ has: page.getByRole('button', { name: "Don't allow", exact: true }) });
@@ -99,7 +99,7 @@ try {
         assert.match(await pending.innerText(), /search your past chats for/);
         assert.doesNotMatch(await pending.innerText(), /to session search/);
         if (text.length < 120) assert.match(await pending.innerText(), /search your past chats for checklist: weekly review\?/);
-      } else if (text.startsWith('YY')) {
+      } else if (text.startsWith('YY') || text.startsWith('Create a skill')) {
         assert.doesNotMatch(await pending.innerText(), /session search|search your past chats/i);
         assert.match(await pending.innerText(), text.includes('skill') ? /propose skill/i : text.includes('task') ? /create task/i : /remember/i);
       }
@@ -141,6 +141,7 @@ try {
     assert.equal(await page.getByText('Provider search is unavailable', { exact: false }).count(), 0);
     assert.deepEqual(await state(), before, 'all denied actions remain undone');
     for (const [text, key] of [
+      ['Create a skill called api-perm-test-r18', 'skills'],
       ['YY create a skill named Fixture checklist. Check the result and report it.', 'skills'],
       ['YY create a task named Fixture review.', 'tasks'],
       ['YY remember: The fixture color preference is teal.', 'memories'],

@@ -29,6 +29,7 @@ export const appArgs = { connectionId: 'fixture-github', revision: 1, tool_slug:
 const { llmClient } = await import('../../server/src/lib/llm.js');
 let sequence = 0;
 export const offeredTools: any[][] = [];
+export const modelInputs: any[][] = [];
 export function streamTool(name?: string, args = {}) {
   const item = name ? { type: 'function_call', call_id: `fixture-${++sequence}`, name, arguments: JSON.stringify(args) }
     : { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Fixture turn finished.', annotations: [] }] };
@@ -38,6 +39,7 @@ export function streamTool(name?: string, args = {}) {
   })();
 }
 const plannedActions: { name: string; args: any }[] = [];
+export function planActionSequence(actions: { name: string; args: any }[]) { plannedActions.push(...actions); }
 export async function planDiscoveredAction(name: string, args: any) {
   const { functionSchemas } = await import('../../server/src/agent/tools.js');
   const { toolSchemaHash } = await import('../../server/src/agent/tool-catalog.js');
@@ -48,12 +50,20 @@ export let nextAction: { name: string; args: any } | undefined;
 export function planAction(name: string, args: any) { nextAction = { name, args }; }
 export function mockModelClient() { return mock.method(llmClient(360_000).responses, 'create', async (body: any) => {
   offeredTools.push(body.tools ?? []);
+  modelInputs.push(body.input ?? []);
   if (!body.stream) return { output: [], output_text: 'Local fixture.', usage: {} };
   if (plannedActions.length) { const action = plannedActions.shift()!; return streamTool(action.name, action.args); }
   if (nextAction) { const action = nextAction; nextAction = undefined; return streamTool(action.name, action.args); }
   const last = body.input?.at(-1);
+  if (last?.type === 'function_call_output' && String(last.output).startsWith('Lookup not performed.')) {
+    const prompt = body.input.find((item: any) => item.role === 'system')?.content ?? '';
+    const source = prompt.match(/Source reference for the current user message: (\{[^\n]+?\})\./);
+    assert.ok(source, 'The redirected model still receives current-message evidence');
+    return streamTool('propose_skill', { expected_revision: 0, name: 'api-perm-test-r18', description: 'Current request', body: 'Check the result and report it.', reason: 'Requested in the current message', evidence: [JSON.parse(source[1])] });
+  }
   if (last?.role === 'user') {
     const text = String(last.content);
+    if (text === 'Create a skill called api-perm-test-r18') return streamTool('session_search', { query: 'api-perm-test-r18' });
     if (text.startsWith('YY search past chats:')) return streamTool('session_search', { query: text.split('YY search past chats:')[1].trim() });
     if (/YY (?:create a skill named|create a task named|remember)/i.test(text)) {
       const prompt = body.input.find((item: any) => item.role === 'system')?.content ?? '';

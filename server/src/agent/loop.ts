@@ -2,6 +2,7 @@ import { isReviewApproval } from './review-approvals.js';
 import { apiRunDiagnostic, withApiRunDiagnostics } from './run-diagnostics.js';
 import { resumeVoiceApproval } from '../voice-action-approvals.js';
 import { asksBeforeEveryAction, MAX_APPROVAL_PREFIX } from './approval-level.js';
+import { currentMessageCreate, currentCreateGuidance, redirectCreateLookup } from './current-message-create.js';
 import { ApiCreditsError, isCreditError } from '../lib/model-request-policy.js';
 import { abortable, currentRun, withRun, type RunScope } from './run-scope.js';
 import { connectedDate, connectionStatusLabel, fallbackAccountLabel, visibleConnections } from '../connection-details.js';
@@ -755,6 +756,17 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
       continue;
     }
 
+    // A model may still search for evidence despite the direct-create prompt.
+    // Resolve wrappers and validate first, then return current-message guidance
+    // before policy can create a card. No lookup is executed or auto-approved.
+    const createRedirect = redirectCreateLookup(ctx, c.name);
+    if (createRedirect && !st.approvalId) {
+      updateRow(botId, c.rowSeq, { ...body, status: 'done', summary: 'Use the current request to create this item' });
+      st.outputs.push({ type: 'function_call_output', call_id: c.call_id, output: createRedirect });
+      st.calls.shift();
+      continue;
+    }
+
     // Was this call just approved/denied?
     const ap = st.approvalId ? (db.prepare('SELECT * FROM approvals WHERE id=?').get(st.approvalId) as any) : null;
     apiRunDiagnostic({ event: 'tool', tool: c.name, admission: 'admitted' });
@@ -834,6 +846,10 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
     } else if (decision === 'block') {
       apiRunDiagnostic({ event: 'tool_result', tool: c.name, admission: 'refused', errorClass: 'policy_denied' });
       res = { output: 'The user declined this action. Do not retry it. Find another way, or tell the user what you could not do.', summary: 'Not allowed' };
+      if (['session_search', 'recall', 'list_skills'].includes(c.name)) {
+        const create = currentMessageCreate(ctx);
+        if (create) res.output += ` ${currentCreateGuidance(create)} Use only details supplied in the current message; if the create depends on unavailable earlier details, ask the user to supply them.`;
+      }
       updateRow(botId, c.rowSeq, { ...body, status: 'denied', summary: 'Not allowed' });
     } else {
       const act = activityFor(c.name, args);
