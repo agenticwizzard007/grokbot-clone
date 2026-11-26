@@ -33,7 +33,13 @@ try {
     await page.goto(origin);
     if (width === 390) await page.locator('.pinned__tile').click();
     const settings = async section => { await page.evaluate(async section => (await import('/src/configStore.ts')).useConfigUI.getState().openAppSettings(section), section); await page.getByLabel('API approval level', { exact: true }).waitFor(); };
-    const closeSettings = () => page.evaluate(async id => { const ui = await import('/src/configStore.ts'); ui.useConfigUI.getState().closeAppSettings(); ui.openConversation(id); }, bot.id);
+    const closeSettings = async () => {
+      // Navigate directly to this Bot. Closing via history and immediately
+      // opening a chat lets the delayed popstate overwrite the fixture route.
+      await page.evaluate(async id => (await import('/src/configStore.ts')).openConversation(id), bot.id);
+      await page.locator('.app-settings').waitFor({ state: 'detached' });
+      await page.locator('.chat__header').waitFor();
+    };
     const state = async () => (await context.request.get(`${origin}/api/fixture/state`)).json();
     const send = async text => assert.equal((await context.request.post(`${origin}/api/bots/${bot.id}/messages`, { data: { text } })).status(), 200);
     const select = () => page.getByLabel('API approval level', { exact: true });

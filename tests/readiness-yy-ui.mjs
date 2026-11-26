@@ -1,6 +1,6 @@
 // Production assets, local fixtures, no live account or provider calls.
 import assert from 'node:assert/strict';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { build, preview } from '../web/node_modules/vite/dist/node/index.js';
 import { chromium } from 'playwright';
@@ -60,6 +60,7 @@ try {
         await page.reload();
         await page.getByText('research-bot-notes.txt', { exact: true }).first().waitFor();
         assert.equal(await page.locator('.work-reports-owner select').inputValue(), 'research-bot');
+        await page.screenshot({ path: `${evidence}/files-${width}-${theme}.png` });
       });
     }
     await check('files-explicit-choice', async () => {
@@ -81,6 +82,7 @@ try {
           await hash(route);
           await page.getByRole('dialog', { name: label, exact: true }).waitFor();
           assert.equal(new URL(page.url()).hash, route);
+          await page.screenshot({ path: `${evidence}/${label === 'Search' ? 'search' : 'apps'}-${width}-${theme}.png` });
           await page.keyboard.press('Escape');
           await page.getByRole('dialog', { name: label, exact: true }).waitFor({ state: 'detached' });
           assert.notEqual(new URL(page.url()).hash, route);
@@ -109,5 +111,6 @@ try {
     assert.deepEqual(errors, []);
     await page.close();
   }
-} finally { await browser.close(); await new Promise(resolve => vite.httpServer.close(resolve)); }
+} finally { await writeFile(`${evidence}/results.json`, JSON.stringify(results, null, 2)); await browser.close(); await new Promise(resolve => vite.httpServer.close(resolve)); }
+console.log(`${results.filter(result => result.pass).length} passed, ${results.filter(result => !result.pass).length} failed`);
 assert.equal(results.filter(result => !result.pass).length, 0, JSON.stringify(results.filter(result => !result.pass)));
