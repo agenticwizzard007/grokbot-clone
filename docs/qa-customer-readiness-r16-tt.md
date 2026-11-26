@@ -29,6 +29,13 @@ Updated the existing R11 wrapper expectations. The browser fixture checks both S
 
 ## Validation
 
-The full baseline and candidate suites use `node --import tsx --test --test-reporter=tap --test-concurrency=1 tests/*.test.mts tests/*.test.mjs` on this VM. Final results and deployment verification are recorded in the PR.
+The full baseline and candidate suites use `node --import tsx --test --test-reporter=tap --test-concurrency=1 tests/*.test.mts tests/*.test.mjs` on this VM with Node 24.22.1:
+
+- Untouched `30a1da3`: 2,722 passed, 70 failed, 24 existing skips, zero cancelled (2,816 tests).
+- Candidate: 2,731 passed, the same 70 failure names, the same 24 existing skips, zero cancelled (2,825 tests).
+- All nine added tests pass. The isolated API approval suite passes 24/24.
+- Typecheck and build pass. All four browser width/theme cases pass.
+
+No tests or CI workflows were disabled or newly skipped. Failure-name comparison and full logs are retained under `.context/`. Final checks after fetching and rebasing, plus deployment verification, are recorded in the PR.
 
 The customer live provider exercise still requires the test account's Model API key. The local API fixture uses the direct provider path and rejects external network calls.
