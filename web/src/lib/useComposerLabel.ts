@@ -21,8 +21,10 @@ export function useComposerLabel(trigger: RefObject<HTMLButtonElement>, steps: C
       const width = composer?.getBoundingClientRect().width ?? innerWidth;
       // Keep a useful input and both 44px action targets. This budget selects a
       // complete label; it never constrains or clips the resulting chip.
-      // 210px = 88px actions + 24px gaps + 18px padding/border + 80px input.
-      const available = Math.max(48, Math.min(width * 0.44, width - 210));
+      // On one row, reserve 200px for text plus actions, gaps and padding.
+      // On two rows, keep the existing compact label steps and their budget.
+      const separateRow = !composer || getComputedStyle(composer).getPropertyValue('--composer-chip-row');
+      const available = Math.max(48, Math.min(width * 0.44, width - (separateRow ? 210 : 330)));
       const gap = parseFloat(style.columnGap) || 4;
       const chosen = fittingComposerLabel(steps, available, step => {
         const texts = [step.name, step.billing, step.effort].filter(Boolean);

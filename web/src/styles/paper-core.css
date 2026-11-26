@@ -28,7 +28,7 @@
 .app .bubble.is-user { background: var(--color-bg-active); color: var(--color-text-primary); }
 .bubble__sender { font-size: 12px; font-weight: 500; line-height: var(--line-caption); color: var(--color-text-secondary); margin-bottom: var(--space-2); }
 .bubble__time { flex-shrink: 0; }
-.app .composer-area { width: 100%; max-width: var(--content-width); margin: 0 auto; padding: 0; }
+.app .composer-area { width: 100%; max-width: var(--content-width); margin: 0 auto; padding: 0; container: composer / inline-size; }
 .app .composer-shell { max-width: var(--content-width); }
 .app .composer {
   display: grid; grid-template-columns: 44px minmax(48px, 1fr) auto 44px; align-items: end;
@@ -46,6 +46,17 @@
 .app .composer__cta { background: var(--color-primary); color: var(--color-on-primary); }
 .app .composer__voice { padding: 0; border-radius: var(--radius-full); }
 .app .composer__voice.is-in-call { background: #B42332; color: white; }
+/* Placement follows available width only. Reserve a readable field before the
+   chip gets its own row, including when Details narrows a desktop chat. */
+@container composer (max-width: 540px) {
+  .app .composer { grid-template-columns: 44px minmax(0, 1fr) 44px; --composer-chip-row: 52px; max-height: clamp(114px, 24dvh, 240px); }
+  .app .composer .model-pill-anchor { grid-column: 2; grid-row: 2; }
+  .app .composer__right { grid-column: 3; }
+}
+/* At 320px, retain the page gutters and 44px targets with a 182px field. */
+@container composer (max-width: 300px) {
+  .app .composer { padding: var(--space-1); gap: var(--space-1); --composer-chip-row: 48px; }
+}
 .app .model-pill { min-height: 44px; height: 44px; display: inline-flex; flex-wrap: nowrap; white-space: nowrap; gap: var(--space-1); padding: 0 var(--space-1); border-radius: var(--radius-md); line-height: var(--line-body); }
 /* Reserve the same space while the provider is loading or unknown. */
 .app .model-pill__provider { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; flex: 0 0 16px; }

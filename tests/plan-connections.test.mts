@@ -37,9 +37,23 @@ test('pending probes show Checking and signed-out probes show Not connected', ()
   }
 });
 
-test('picker offers Manage plans for a connected plan and Connect plan for API billing', async () => {
+test('picker plan wording follows every connected plan regardless of the active route', async () => {
   const { planMenuLabel } = await import('../web/src/lib/planConnections.ts');
-  assert.equal(planMenuLabel('plan'), 'Manage plans');
-  assert.equal(planMenuLabel('api'), 'Connect plan');
+  const disconnected = { installed: true, authenticated: false, subscription: false };
+  const connected = { installed: true, authenticated: true, subscription: true };
+  const status: CliStatus = { runtime: 'server', serverLoginAvailable: true, connected: true, device: null, selected: null,
+    providers: { claude: disconnected, codex: disconnected } };
   assert.equal(planMenuLabel(null), 'Plans');
+  assert.equal(planMenuLabel(status), 'Connect plan');
+  assert.equal(planMenuLabel({ ...status, statusChecking: true }), 'Plans');
+  assert.equal(planMenuLabel({ ...status, statusUnavailable: true }), 'Plans');
+  for (const provider of ['codex', 'claude'] as const) for (const selected of [null, 'codex', 'claude'] as const) {
+    const ready = { ...status, selected, providers: { ...status.providers, [provider]: connected } };
+    assert.equal(planMenuLabel(ready), 'Manage plans', `${provider} connected, selected=${selected}`);
+    assert.equal(planMenuLabel({ ...ready, statusChecking: true }), 'Manage plans', 'known connection survives another pending probe');
+    assert.equal(planMenuLabel({ ...ready, statusUnavailable: true }), 'Plans');
+    assert.equal(planMenuLabel({ ...ready, connected: false }), 'Connect plan');
+    assert.equal(planMenuLabel({ ...ready, providers: { ...ready.providers, [provider]: { ...connected, error: 'Probe failed' } } }), 'Plans');
+    assert.equal(planMenuLabel({ ...ready, providers: { ...ready.providers, [provider]: { ...connected, subscription: false } } }), 'Connect plan');
+  }
 });

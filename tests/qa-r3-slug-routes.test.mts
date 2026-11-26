@@ -39,3 +39,23 @@ test('model labels prefer the catalog and humanize provider IDs while it is unav
   assert.equal(modelDisplayName('x-ai/grok-4.7', 'x-ai/grok-4.7'), 'Grok 4.7');
   assert.equal(modelDisplayName('openai/gpt-5.5'), 'GPT 5.5');
 });
+
+for (const [id, catalogName, expected] of [
+  ['claude-opus-5-5', null, 'Claude Opus 5.5'],
+  ['claude-sonnet-5-5', 'claude-sonnet-5-5', 'Claude Sonnet 5.5'],
+  ['claude-haiku-4-5', '', 'Claude Haiku 4.5'],
+  ['claude-opus-5-5-20251001', null, 'Claude Opus 5.5'],
+  ['claude-sonnet-5-5-20251001', null, 'Claude Sonnet 5.5'],
+  ['claude-haiku-4-5-20251001', null, 'Claude Haiku 4.5'],
+  ['claude-opus-4-20250514', null, 'Claude Opus 4'],
+  ['anthropic/claude-haiku-4-5-20251001', null, 'Claude Haiku 4.5'],
+  ['claude/opus-4-6', null, 'Opus 4.6'],
+  ['claude/default', 'claude-opus-5-5', 'Claude Opus 5.5'],
+  ['claude-opus-5-5', 'Opus 5.5 Preview', 'Opus 5.5 Preview'],
+  ['openai/gpt-5.5', 'GPT-5.5', 'GPT-5.5'],
+  ['openai/gpt-5.5', null, 'GPT 5.5'],
+  ['x-ai/grok-4.7', null, 'Grok 4.7'],
+  ['meta-llama/llama-3.3-70b', null, 'LLAMA 3.3 70b'],
+] as const) test(`model display: ${id} with ${catalogName ?? 'no catalog name'}`, () => {
+  assert.equal(modelDisplayName(id, catalogName), expected);
+});

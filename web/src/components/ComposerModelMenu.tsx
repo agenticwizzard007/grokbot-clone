@@ -1,5 +1,5 @@
 import { planLabel } from '../lib/planLabel';
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, GripVertical, Minus, Search, Settings2, Star } from 'lucide-react';
 import type { Bot } from '@shared/types';
 import { configApi } from '../lib/configApi';
@@ -17,6 +17,7 @@ import { nextEffort } from '../lib/effortCycle';
 import { lastModelLabel, rememberModelLabel } from '../lib/modelMemory';
 import { useComposerLabel } from '../lib/useComposerLabel';
 import { planMenuLabel } from '../lib/planConnections';
+import { getCachedCliStatus, subscribeCliStatus } from '../lib/cliApi';
 import { composerLabelSteps, composerModelLabel } from '../lib/composerModelLabel';
 
 
@@ -96,6 +97,9 @@ export const ComposerModelMenu = memo(function ComposerModelMenu({ bot }: { bot:
 
 function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: PickerModel | undefined; onClose: () => void; sheet: boolean }) {
   const { models, byId, favourites, canFast, status, error, setFavourites, provider, billing, plan } = useModels();
+  // Subscribe to the account snapshot populated by app startup and connection screens.
+  // Rendering this row must not start a provider probe.
+  const plansLabel = planMenuLabel(useSyncExternalStore(subscribeCliStatus, getCachedCliStatus, getCachedCliStatus));
   const [q, setQ] = useState('');
   const [view, setView] = useState<'main' | 'effort' | 'usage' | 'connections'>('main');
   const [effortModelId, setEffortModelId] = useState<string | null>(null);
@@ -253,7 +257,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
     <>
       {sheet && <div className="mm-scrim" aria-hidden onClick={onClose} />}
       <div ref={ref} className={`mm-wrap${sheet ? ' is-sheet' : ''}`} style={sheet ? undefined : { marginLeft: menuOffset }}>
-      <div className={`model-menu${sheet ? ' is-sheet' : ''}`} role="dialog" aria-modal="true" tabIndex={-1} aria-label={view === 'connections' ? planMenuLabel(known ? billing : null) : view === 'usage' ? 'Connection details' : 'Choose a model'}>
+      <div className={`model-menu${sheet ? ' is-sheet' : ''}`} role="dialog" aria-modal="true" tabIndex={-1} aria-label={view === 'connections' ? plansLabel : view === 'usage' ? 'Connection details' : 'Choose a model'}>
         {view === 'usage' || view === 'connections' ? <>
           <div className="mm-sheet-head"><button type="button" className="mm-back" aria-label="Back to models" onClick={back}><ChevronLeft size={18} aria-hidden /><span>Back to models</span></button></div>
           {view === 'usage' ? <ModelUsageDetails onClose={onClose} /> : <div className="usage-mode__panel">
@@ -324,7 +328,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
             )}
             <div className="mm-section">
               <button ref={connectionsTrigger} type="button" className="mm-item" onClick={() => setView('connections')}>
-                <span>{planMenuLabel(known ? billing : null)}</span><ChevronRight size={16} aria-hidden />
+                <span>{plansLabel}</span><ChevronRight size={16} aria-hidden />
               </button>
               <button ref={usageTrigger} type="button" className="mm-item" onClick={() => setView('usage')}>
                 <span>{usageLabel}</span><ChevronRight size={16} aria-hidden />

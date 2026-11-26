@@ -38,8 +38,17 @@ export interface CliStatus {
 
 let cachedStatus: CliStatus | null = null;
 export const getCachedCliStatus = () => cachedStatus;
+const statusListeners = new Set<() => void>();
+export const subscribeCliStatus = (listener: () => void) => {
+  statusListeners.add(listener);
+  return () => { statusListeners.delete(listener); };
+};
+function cacheStatus(status: CliStatus | null) {
+  cachedStatus = status;
+  statusListeners.forEach(listener => listener());
+}
 useStore.subscribe((state, previous) => {
-  if (state.user?.id !== previous.user?.id) cachedStatus = null;
+  if (state.user?.id !== previous.user?.id) cacheStatus(null);
 });
 
 export interface LoginSession {
@@ -116,7 +125,10 @@ async function readStatus(refresh: boolean, signal?: AbortSignal): Promise<CliSt
     if (signal?.aborted) throw new DOMException('Status request cancelled', 'AbortError');
     if (useStore.getState().user?.id !== accountId) throw new ApiError(409, 'Your account changed. Reload this page before changing a connection.', 'account_changed');
     // A malformed response must never become the next view's initial snapshot.
-    if (status.providers?.claude && status.providers.codex) cachedStatus = status;
+    if (status.providers?.claude && status.providers.codex) cacheStatus(status);
     return status;
+  } catch (error) {
+    if (!signal?.aborted && useStore.getState().user?.id === accountId) cacheStatus(null);
+    throw error;
   } finally { clearTimeout(timer!); }
 }
