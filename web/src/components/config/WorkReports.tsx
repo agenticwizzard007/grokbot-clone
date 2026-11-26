@@ -24,13 +24,13 @@ export function WorkReports({ botId, location, onLocation, onHeading }: { botId?
     if (!name) { onHeading(undefined); return; }
     // R2F-014: fixed titles; the Bot is named only after the user picked it.
     const scope = picked ? `${name} · ` : '';
-    if (activePage === 'reports') onHeading(review ?? { title: 'Reports', subtitle: `Saved reports · ${scope}Download saved reports, save in Library or review where they will be sent.` });
-    else if (activePage === 'synopses') onHeading({ title: 'Daily synopses', subtitle: 'Scheduled summaries are saved in Library.' });
+    if (activePage === 'reports') onHeading(review ?? { title: 'Files', subtitle: `${scope}View and download files saved by this Bot, or review where to send them.` });
+    else if (activePage === 'synopses') onHeading({ title: 'Daily synopses', subtitle: 'Scheduled summaries are saved in Files.' });
     else onHeading({ title: 'Routines', subtitle: `${scope}See what runs automatically and what happened on earlier runs.` });
   }, [name, activePage, onHeading, review, picked]);
   return <>
-    {!review && (!botId || !bot) && <label className="work-field work-reports-owner">Report Bot<select value={ownerId} disabled={!!botId} onChange={event => onLocation({ botId: event.currentTarget.value, page: 'reports', picked: true })}><option value="" disabled>Choose a Bot</option>{ownerId && !bot && <option value={ownerId} disabled>Bot unavailable</option>}{bots.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
-    {!bot && <p role="status">Choose an available agent to see its saved work.</p>}
+    {!review && (!botId || !bot) && <label className="work-field work-reports-owner">Bot<select value={ownerId} disabled={!!botId} onChange={event => onLocation({ botId: event.currentTarget.value, page: 'reports', picked: true })}><option value="" disabled>Choose a Bot</option>{ownerId && !bot && <option value={ownerId} disabled>Bot unavailable</option>}{bots.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
+    {!bot && <p role="status">Choose an available Bot to see its saved work.</p>}
     {bot && activePage === 'reports' && <>
       <DeliverablesPanel key={workBotKey(bot)} botId={bot.id} workspace onReview={setReview} onSynopses={bot.isPrimary ? () => setPage('synopses') : undefined} />
       {!review && <>

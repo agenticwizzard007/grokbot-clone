@@ -93,12 +93,12 @@ try {
     await page.getByRole('button', { name: 'Open Reports QA Bot details', exact: true }).click();
     const panel = page.getByRole('complementary', { name: 'Conversation details' });
     await panel.getByRole('navigation', { name: 'Conversation details sections' }).getByRole('button', { name: 'Files', exact: true }).click();
-    const row = panel.locator('.details-page__row').filter({ has: page.locator('strong', { hasText: /^Saved reports$/ }) });
+    const row = panel.locator('.details-page__row').filter({ has: page.locator('strong', { hasText: /^Files$/ }) });
     await row.waitFor();
     assert.equal(await row.count(), 1, 'Exactly one saved reports row');
-    assert.equal(await row.getByText('Saved reports', { exact: true }).count(), 1, 'The row label appears once');
-    assert.equal(await row.getByRole('button', { name: 'Saved reports', exact: true }).count(), 0, 'The action does not duplicate the label');
-    const action = row.getByRole('button', { name: 'View saved reports', exact: true });
+    assert.equal(await row.getByText('Files', { exact: true }).count(), 1, 'The row label appears once');
+    assert.equal(await row.getByRole('button', { name: 'Files', exact: true }).count(), 0, 'The action does not duplicate the label');
+    const action = row.getByRole('button', { name: 'View Files', exact: true });
     await action.scrollIntoViewIfNeeded();
     assert.ok(await action.isVisible(), 'Distinct reports action is visible');
     const geometry = await row.evaluate(element => {
@@ -117,11 +117,11 @@ try {
     const reportsLoaded = page.waitForResponse(response => new URL(response.url()).pathname === `/api/deliverables/bots/${bot.id}` && response.ok());
     await action.click();
     await reportsLoaded;
-    await panel.getByRole('heading', { name: 'No saved reports yet', exact: true }).waitFor();
+    await panel.getByRole('heading', { name: 'No files yet', exact: true }).waitFor();
     await panel.getByRole('button', { name: 'Back to files', exact: true }).click();
     await action.waitFor();
     await panel.getByRole('region', { name: 'Computer files' }).waitFor();
-    assert.equal(await row.getByText('Saved reports', { exact: true }).count(), 1, 'Returning to Files keeps one label');
+    assert.equal(await row.getByText('Files', { exact: true }).count(), 1, 'Returning to Files keeps one label');
     assert.deepEqual(errors, [], 'No page errors or external browser requests');
     await context.close();
     console.log(`PASS saved reports label ${width}px: distinct action, no clipping or overlap, reports open and Back to files works`);

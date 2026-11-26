@@ -163,7 +163,7 @@ try {
       const pages = [
         ['Team', 'Team', /^Team board · Owners, dependencies and evidence/],
         ['Goals', 'Goals', /^Keep work running across turns/],
-        ['Reports', 'Reports', /^Saved reports · Download saved reports/],
+        ['Files', 'Files', /^View and download files saved by this Bot/],
       ];
       for (const [tab, title, sub] of pages) {
         await tabBar.getByRole('button', { name: tab, exact: true }).click();
@@ -173,8 +173,8 @@ try {
         sameBoxes(await boxes(), board, `${tab} tab bar`);
       }
       for (const [open, title] of [['Daily synopses', 'Daily synopses'], ['Routines', 'Routines']]) {
-        await tabBar.getByRole('button', { name: 'Reports', exact: true }).click();
-        const backToReports = page.getByRole('button', { name: 'Back to saved reports', exact: true });
+        await tabBar.getByRole('button', { name: 'Files', exact: true }).click();
+        const backToReports = page.getByRole('button', { name: 'Back to Files', exact: true });
         if (await backToReports.count()) await backToReports.click();
         await page.getByRole('button', { name: open, exact: true }).click();
         await page.waitForFunction(t => document.querySelector('#tasks-heading')?.textContent === t, title);

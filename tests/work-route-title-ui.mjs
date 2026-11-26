@@ -109,7 +109,7 @@ try {
         await page.goto(`${base}/#bot/${reference}/${tab.toLowerCase()}`);
         // Reload also clears an empty roster retained by the preceding recovery case.
         await page.reload();
-        const expected = `${exists ? 'Reports QA Bot' : 'Bot unavailable'} · ${tab}`;
+        const expected = `${exists ? 'Reports QA Bot' : 'Bot unavailable'} · ${tab === 'Reports' ? 'Files' : tab}`;
         await page.waitForFunction(title => document.title === `${title} · Swarm`, expected);
         holdRoster = true;
         await page.reload();
@@ -118,8 +118,8 @@ try {
         for (let attempt = 0; !held.length && attempt < 100; attempt++) await page.waitForTimeout(20);
         assert.ok(held.length, 'Reload requests the roster');
         await page.waitForTimeout(2200);
-        assert.equal(await page.title(), `${tab} · Swarm`, 'Loading title is neutral');
-        assert.equal(await heading.innerText(), tab, 'Loading heading is neutral');
+        assert.equal(await page.title(), `${tab === 'Reports' ? 'Files' : tab} · Swarm`, 'Loading title is neutral');
+        assert.equal(await heading.innerText(), tab === 'Reports' ? 'Files' : tab, 'Loading heading is neutral');
         await page.locator('.tasks-view').getByText('Loading Bots...', { exact: true }).waitFor();
         assert.equal(await page.locator('.tasks-view').getByText(/Bot unavailable|This Bot is no longer available/).count(), 0, 'No missing Bot content while loading');
         assert.ok(!(await page.evaluate(() => window.titleHistory)).some(title => title.includes('Bot unavailable')), 'No unavailable title during the entire loading window');
@@ -144,15 +144,15 @@ try {
         for (const route of held.splice(0)) await route.fulfill({ status: 503, json: { error: 'Fixture unavailable' } });
         await retry.waitFor();
         await work.getByRole('alert').getByText("Couldn't load your Bots. Check your connection and try again.", { exact: true }).waitFor();
-        assert.equal(await page.title(), `${tab} · Swarm`, 'Failure does not confirm a missing Bot');
-        assert.equal(await page.locator('#tasks-heading').innerText(), tab);
+        assert.equal(await page.title(), `${tab === 'Reports' ? 'Files' : tab} · Swarm`, 'Failure does not confirm a missing Bot');
+        assert.equal(await page.locator('#tasks-heading').innerText(), tab === 'Reports' ? 'Files' : tab);
         await retry.click();
         await work.getByText('Retrying...', { exact: true }).waitFor();
         assert.equal(await retry.isDisabled(), true, 'Pending retry cannot be submitted twice');
         for (let attempt = 0; !held.length && attempt < 100; attempt++) await page.waitForTimeout(20);
         assert.ok(held.length, 'Retry requests the roster');
-        assert.equal(await page.title(), `${tab} · Swarm`, 'Pending retry keeps the neutral title');
-        assert.equal(await page.locator('#tasks-heading').innerText(), tab);
+        assert.equal(await page.title(), `${tab === 'Reports' ? 'Files' : tab} · Swarm`, 'Pending retry keeps the neutral title');
+        assert.equal(await page.locator('#tasks-heading').innerText(), tab === 'Reports' ? 'Files' : tab);
         assert.ok(!(await page.evaluate(() => window.titleHistory)).some(title => title.includes('Bot unavailable')), 'Failure and retry never claim the Bot is missing');
         assert.equal(await work.getByText(/Bot unavailable|This Bot is no longer available/).count(), 0);
         holdRoster = false;
@@ -160,7 +160,7 @@ try {
           if (empty) await route.fulfill({ json: { bots: [], live: [] } });
           else await route.fulfill({ response: await route.fetch() });
         }
-        const expected = `${empty ? 'Bot unavailable' : 'Reports QA Bot'} · ${tab}`;
+        const expected = `${empty ? 'Bot unavailable' : 'Reports QA Bot'} · ${tab === 'Reports' ? 'Files' : tab}`;
         await page.waitForFunction(title => document.title === `${title} · Swarm` && document.querySelector('#tasks-heading')?.textContent === title, expected);
         assert.equal(await page.locator('#tasks-heading').isVisible(), true);
         assert.equal(await work.locator('.load-feedback').count(), 0, 'Successful roster clears recovery feedback, including empty success');

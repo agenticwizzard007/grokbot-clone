@@ -89,7 +89,7 @@ try {
   await page.screenshot({ path: new URL('desktop-collapsed.png', evidence).pathname });
   await page.locator('.agent-exchange').screenshot({ path: new URL('summary-row.png', evidence).pathname });
   await toggle.focus(); await page.keyboard.press('Enter');
-  const region = page.getByRole('region', { name: 'Agent conversation' });
+  const region = page.getByRole('region', { name: 'Bot conversation' });
   await region.getByText('Check the current sources.', { exact: true }).waitFor();
   assert.equal(await region.locator('li').count(), 2);
   await region.getByRole('button', { name: 'Show more messages' }).click();
@@ -138,10 +138,10 @@ try {
   const updated = page.getByRole('button', { name: '6 messages with 3 Bots', exact: true });
   await updated.waitFor();
   listError = true; await emit({ type: 'native', cursor: 11 });
-  await page.getByText('Couldn’t refresh agent conversations.').waitFor();
+  await page.getByText('Couldn’t refresh Bot conversations.').waitFor();
   assert.ok(await updated.isVisible(), 'failed refresh retains the known summary');
   listError = false; await page.getByRole('button', { name: 'Retry', exact: true }).click();
-  await page.getByText('Couldn’t refresh agent conversations.').waitFor({ state: 'hidden' });
+  await page.getByText('Couldn’t refresh Bot conversations.').waitFor({ state: 'hidden' });
   detailError = true; await updated.click();
   await region.getByText('Couldn’t refresh this conversation.').waitFor();
   detailError = false; await region.getByRole('button', { name: 'Retry' }).click();
@@ -150,9 +150,9 @@ try {
   console.log('PASS live updates, failed list/detail refreshes and retry recovery');
 
   older = true; await emit({ type: 'native', cursor: 12 });
-  await page.getByRole('button', { name: 'Earlier agent conversations' }).click();
+  await page.getByRole('button', { name: 'Earlier Bot conversations' }).click();
   await page.getByRole('button', { name: '1 message with 2 Bots', exact: true }).waitFor();
-  assert.equal(await page.getByRole('button', { name: 'Earlier agent conversations' }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: 'Earlier Bot conversations' }).count(), 0);
   const hold = gate(); detailGate = hold;
   await updated.click(); await until(() => detailGate === undefined);
   await page.locator('.bot-row').filter({ hasText: 'Research' }).click();

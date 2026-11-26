@@ -9,9 +9,9 @@ import { SynopsesPanel } from './SynopsesPanel';
 import { useWorkLifetime, workBotKey } from './workScope';
 import './workArea.css';
 
-const outcome = (delivery: ArtifactDelivery) => ({ delivered: delivery.channel === 'library' ? 'Saved in Library' : 'Acknowledged', failed: 'Not sent', unknown: 'Unverified outcome', sending: 'Sending', pending: 'Waiting to send' }[delivery.status] ?? delivery.status);
+const outcome = (delivery: ArtifactDelivery) => ({ delivered: delivery.channel === 'library' ? 'Saved in Files' : 'Acknowledged', failed: 'Not sent', unknown: 'Unverified outcome', sending: 'Sending', pending: 'Waiting to send' }[delivery.status] ?? delivery.status);
 const latestAttempt = (delivery: ArtifactDelivery) => [...delivery.attempts].sort((first, second) => second.number - first.number)[0];
-const channelName: Record<DeliveryChannel, string> = { library: 'Library', imessage: 'iMessage', sms: 'SMS', whatsapp: 'WhatsApp' };
+const channelName: Record<DeliveryChannel, string> = { library: 'Files', imessage: 'iMessage', sms: 'SMS', whatsapp: 'WhatsApp' };
 function channelBlock(file: SavedDeliverable, channel: DeliveryChannel) {
   const deliveries = file.deliveries.filter(delivery => delivery.channel === channel);
   if (deliveries.some(delivery => delivery.status === 'unknown')) return `Verify the uncertain ${channelName[channel]} attempt before sending again on this channel.`;
@@ -86,7 +86,7 @@ function ReportList({ botId, generation, userId, isPrimary, workspace, onReview,
     action.current = true; setBusy(file.id); setPreview(null); setActionError('');
     try {
       const attempt = retry && latestAttempt(retry);
-      if (retry && !attempt) throw new Error('No previous attempt is available. Refresh this report.');
+      if (retry && !attempt) throw new Error('No previous attempt is available. Refresh this file.');
       const result = retry ? await deliverablesApi.retryPreview(retry.id) : await deliverablesApi.preview(file.id, channel);
       if (!current()) return;
       if (result.destination.target.channel !== channel) throw new Error('The delivery preview does not match the requested channel.');
@@ -102,7 +102,7 @@ function ReportList({ botId, generation, userId, isPrimary, workspace, onReview,
   };
   const reviewFile = files?.find(item => item.id === (preview?.artifactId ?? verification?.artifactId));
   const uncertain = reviewFile?.deliveries.find(item => item.id === verification?.deliveryId && item.status === 'unknown');
-  const reviewTitle = preview ? (preview.retry ? 'Confirm retry' : preview.destination.target.channel === 'library' ? 'Save in Library' : 'Confirm delivery') : uncertain ? 'Verify an uncertain outcome' : '';
+  const reviewTitle = preview ? (preview.retry ? 'Confirm retry' : preview.destination.target.channel === 'library' ? 'Save in Files' : 'Confirm delivery') : uncertain ? 'Verify an uncertain outcome' : '';
   const reviewSubtitle = reviewFile ? `${reviewFile.filename} · Saved ${new Date(reviewFile.createdAt).toLocaleString()}` : '';
   useEffect(() => {
     onReview?.(reviewTitle && reviewSubtitle ? { title: reviewTitle, subtitle: reviewSubtitle, detail: true } : undefined);
@@ -113,27 +113,27 @@ function ReportList({ botId, generation, userId, isPrimary, workspace, onReview,
   const cancelVerification = () => setVerification(undefined);
   return <>
     {isPrimary && !workspace && !reviewTitle && <SynopsesPanel onUpdated={() => void load()} />}
-    <section aria-label="Saved reports" className="work-ui work-deliverables">
-      {!workspace && <h2 className="work-title">Saved reports</h2>}
-      {readError && <p className="work-error" role="alert">{files ? 'Could not refresh. Showing the last loaded reports. ' : ''}{readError}</p>}
+    <section aria-label="Files" className="work-ui work-deliverables">
+      {!workspace && <h2 className="work-title">Files</h2>}
+      {readError && <p className="work-error" role="alert">{files ? 'Could not refresh. Showing the last loaded files. ' : ''}{readError}</p>}
       {actionError && <p className="work-error" role="alert">{actionError}</p>}
       {storageError && <p className="work-error" role="alert">Delivery paused on this device. {storageError}</p>}
       {reviewTitle && reviewFile && (preview || uncertain) ? <div className="work-delivery-review">
         {!workspace && <><h3 className="work-title">{reviewTitle}</h3><p className="work-meta">{reviewSubtitle}</p></>}
         {preview ? <>
-          <div className="work-row"><h3>Approved destination</h3><p className="work-meta">{preview.destination.recipient} · {preview.destination.target.channel === 'library' ? 'Saves this version without sending it.' : `Delivery uses the bound ${channelName[preview.destination.target.channel]} connection.`}</p></div>
-          <div className="work-delivery-callout"><h3>{preview.destination.target.channel === 'library' ? 'Confirm delivery to Library' : 'Confirm this exact version and recipient'}</h3><p>Review the saved version and recipient. If either changes, confirm the current details before proceeding.</p></div>
-          <div className="work-row"><h3>Acknowledgement</h3><p className="work-meta">{preview.destination.target.channel === 'library' ? 'Saving records a receipt in Library.' : 'Provider acceptance does not mean the recipient read the report.'}</p></div>
-          <details className="work-row"><summary>Delivery details</summary><dl><dt>Exact destination</dt><dd>{preview.destination.recipient}</dd><dt>File fingerprint</dt><dd><code>{preview.destination.artifact_sha256}</code></dd></dl></details>
+          <div className="work-row"><h3>Approved destination</h3><p className="work-meta">{preview.destination.target.channel === 'library' ? 'Files' : preview.destination.recipient} · {preview.destination.target.channel === 'library' ? 'Saves this version without sending it.' : `Delivery uses the bound ${channelName[preview.destination.target.channel]} connection.`}</p></div>
+          <div className="work-delivery-callout"><h3>{preview.destination.target.channel === 'library' ? 'Confirm delivery to Files' : 'Confirm this exact version and recipient'}</h3><p>Review the saved version and recipient. If either changes, confirm the current details before proceeding.</p></div>
+          <div className="work-row"><h3>Acknowledgement</h3><p className="work-meta">{preview.destination.target.channel === 'library' ? 'Saving records a receipt in Files.' : 'Provider acceptance does not mean the recipient read the file.'}</p></div>
+          <details className="work-row"><summary>Delivery details</summary><dl><dt>Exact destination</dt><dd>{preview.destination.target.channel === 'library' ? 'Files' : preview.destination.recipient}</dd><dt>File fingerprint</dt><dd><code>{preview.destination.artifact_sha256}</code></dd></dl></details>
           {previewBlock && <p className="work-meta" role="status">{previewBlock}</p>}
           <div className="work-actions is-stack"><button type="button" className="work-button is-primary" disabled={reviewDisabled || !!previewBlock} onClick={() => confirm(reviewFile, preview)}>Confirm {preview.retry ? 'retry' : 'delivery'}</button><button type="button" className="work-button" disabled={busy !== null} onClick={() => setPreview(null)}>Cancel</button></div>
         </> : uncertain && <UnknownDelivery key={uncertain.id} filename={reviewFile.filename} delivery={uncertain} disabled={reviewDisabled} onBack={cancelVerification} onReconcile={(result, evidence, attemptId) => void execute({ key: crypto.randomUUID(), artifactId: reviewFile.id, createdAt: Date.now(), kind: 'reconcile', deliveryId: uncertain.id, body: { outcome: result, evidence, expectedAttemptId: attemptId } })} />}
       </div> : <>
       {!!pending.length && <div className="work-row" role="status"><h3>Unresolved delivery requests</h3><p className="work-meta">Resuming reuses the approved destination, exact request and idempotency key.</p>{pending.map(request => <div className="work-row__body" key={request.key}><p className="work-meta">{request.kind} · {files?.find(file => file.id === request.artifactId)?.filename ?? 'Saved artifact'}</p><button type="button" className="work-button" disabled={busy !== null || !!storageError} onClick={() => void execute(request)}>Resume saved request</button></div>)}</div>}
-      {!files && loading && <p role="status">Loading reports…</p>}
+      {!files && loading && <p role="status">Loading files…</p>}
       {files?.length === 0 && <div className="work-row work-reports-empty" role="status">
-        <h3>No saved reports yet</h3>
-        <p className="work-meta">{isPrimary && onSynopses ? 'Ask this Bot for a report, or set up a daily synopsis.' : 'Ask this Bot for a report. Reports saved by this Bot appear here.'}</p>
+        <h3>No files yet</h3>
+        <p className="work-meta">{isPrimary && onSynopses ? 'Ask this Bot to save a file, or set up a daily synopsis.' : 'Ask this Bot to save a file. Files saved by this Bot appear here.'}</p>
         {isPrimary && onSynopses && <div className="work-actions"><button type="button" className="work-button" onClick={onSynopses}>Set up a daily synopsis</button></div>}
       </div>}
       {files?.map(file => {
@@ -146,8 +146,8 @@ function ReportList({ botId, generation, userId, isPrimary, workspace, onReview,
         return <article key={file.id} className="work-row">
           <div className="work-row__body work-row__body--report"><div><h3>{file.filename}</h3><p className="work-meta">{formatBytes(file.size)} · Saved {relativeShort(file.createdAt)} · Download does not send this file.</p>
             {file.deliveries.map(delivery => <p key={delivery.id} className="work-meta">{channelName[delivery.channel]}: {outcome(delivery)}</p>)}
-          </div><a href={file.downloadUrl} download={file.filename} className="work-button">Download report</a></div>
-          <div className="work-form"><label className="work-field">Delivery destination for {file.filename}<select aria-label={`Delivery destination for ${file.filename}`} value={channel} disabled={busy !== null || loading} onChange={event => { const value = event.currentTarget.value as DeliveryChannel; setChannels(previous => ({ ...previous, [file.id]: value })); setPreview(null); }}>{Object.entries(channelName).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><small>Choose Library to save without sending.</small></label>
+          </div><a href={file.downloadUrl} download={file.filename} className="work-button">Download file</a></div>
+          <div className="work-form"><label className="work-field">Delivery destination for {file.filename}<select aria-label={`Delivery destination for ${file.filename}`} value={channel} disabled={busy !== null || loading} onChange={event => { const value = event.currentTarget.value as DeliveryChannel; setChannels(previous => ({ ...previous, [file.id]: value })); setPreview(null); }}>{Object.entries(channelName).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><small>Choose Files to save without sending.</small></label>
             {blocked && <p className="work-meta" role="status">{blocked}</p>}
             <div className="work-actions"><button type="button" className="work-button" disabled={disabled || !!blocked} onClick={() => void inspect(file)}>{busy === file.id ? 'Updating…' : 'Review delivery destination'}</button></div>
           </div>

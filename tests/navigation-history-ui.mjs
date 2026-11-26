@@ -185,7 +185,7 @@ try {
       // Tasks and every work tab are restorable, at both widths.
       if (width === 390) { await page.getByRole('button',{name:'All Bots',exact:true}).click(); await hash('#bots'); }
       await page.locator('.sidebar-island').click(); await hash('#tasks');
-      for (const tab of ['Team','Goals','Reports']) { await page.getByRole('navigation',{name:'Work sections'}).getByRole('button',{name:tab,exact:true}).click(); await hash(`#${tab.toLowerCase()}`); }
+      for (const tab of ['Team','Goals','Reports']) { await page.getByRole('navigation',{name:'Work sections'}).getByRole('button',{name:tab === 'Reports' ? 'Files' : tab,exact:true}).click(); await hash(`#${tab.toLowerCase()}`); }
       await reload('#reports');
       assert.equal(await page.locator('.tasks-view__header').getByRole('button', { name: /^Back/ }).count(), 0);
       for (const tab of ['goals','team','tasks']) await back(`#${tab}`);
@@ -204,7 +204,7 @@ try {
       await hash(`${chat}/details/activity`);
       const detailTabs = page.getByRole('navigation',{name:'Conversation details sections'});
       for (const [label,slug] of [['Tasks','tasks'],['Files','files'],['Setup','setup']]) { await detailTabs.getByRole('button',{name:label,exact:true}).click(); await hash(`${chat}/details/${slug}`); }
-      for (const tab of ['Harness','Files','History']) { await page.getByRole('tablist',{name:'Agent configuration sections'}).getByRole('tab',{name:tab,exact:true}).click(); await hash(`${chat}/details/setup/${tab.toLowerCase()}`); }
+      for (const tab of ['Harness','Files','History']) { await page.getByRole('tablist',{name:'Bot configuration sections'}).getByRole('tab',{name:tab,exact:true}).click(); await hash(`${chat}/details/setup/${tab.toLowerCase()}`); }
       await reload(`${chat}/details/setup/history`);
       await page.getByRole('tab',{name:'History',exact:true}).waitFor();
       await back(`${chat}/details/setup/files`); await back(`${chat}/details/setup/harness`); await back(`${chat}/details/setup`);

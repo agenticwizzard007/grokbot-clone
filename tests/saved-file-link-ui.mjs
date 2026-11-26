@@ -40,7 +40,7 @@ try {
     await page.addInitScript(({ id, theme }) => { localStorage.setItem('swarm.selectedBot', id); localStorage.setItem('swarm.theme', theme); }, { id: primary.id, theme });
     await page.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
     await page.goto(`${origin}/#bot/${bot.id}`);
-    const link = page.getByRole('link', { name: 'View saved files', exact: true });
+    const link = page.getByRole('link', { name: 'View Files', exact: true });
     await link.waitFor();
     const href = await link.getAttribute('href');
     const hash = href.startsWith('#') ? href : new URL(href).hash;
@@ -51,14 +51,16 @@ try {
     const report = page.getByRole('heading', { name: 'library-fixture.md', exact: true });
     await report.waitFor();
     assert.equal(context.pages().length, 1);
+    assert.match(await page.locator('#tasks-heading').innerText(), /Files$/);
+    assert.match(await page.title(), /Files · Swarm$/);
     assert.ok(page.url().endsWith(hash));
     assert.match(await page.locator('.work-heading').innerText(), /QA-Temp-1/);
-    assert.equal(await page.getByRole('heading', { name: 'No saved reports yet', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('heading', { name: 'No files yet', exact: true }).count(), 0);
     assert.ok(lists.some(url => new URL(url).pathname === `/api/deliverables/bots/${bot.id}`));
     assert.equal(lists.some(url => new URL(url).pathname === `/api/deliverables/bots/${primary.id}`), false);
     assert.equal(await report.evaluate(el => { const r = el.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }), true);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-    const download = page.getByRole('link', { name: 'Download report', exact: true });
+    const download = page.getByRole('link', { name: 'Download file', exact: true });
     const bytes = await context.request.get(new URL(await download.getAttribute('href'), origin).href);
     assert.equal(bytes.status(), 200); assert.equal(await bytes.text(), '# Saved fixture report');
     await page.screenshot({ path: path.join(evidence, `${width}-${theme}-reports.png`), fullPage: true });
@@ -69,7 +71,7 @@ try {
     // A foreign or deleted Bot never falls back to the primary Bot.
     await page.goto(`${origin}/#bot/unavailable~0000000000000/reports`);
     await page.getByText('This Bot is no longer available.', { exact: false }).waitFor();
-    assert.equal(await page.getByRole('heading', { name: 'No saved reports yet', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('heading', { name: 'No files yet', exact: true }).count(), 0);
     assert.deepEqual(errors, []);
     console.log(`PASS R14 saved file ${width} ${theme}: non-primary scope, same tab, Back to chat, copied link, unavailable scope`);
     await context.close();

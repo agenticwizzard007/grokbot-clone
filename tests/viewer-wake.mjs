@@ -117,7 +117,7 @@ try {
     assert.equal(await viewer.getByRole('button', { name: 'Computer settings', exact: true }).count(), 1, `${scenario.provider}/${scenario.status}: one Computer settings button`);
     if (scenario.preparing) {
       await until(() => screenReady.length === 1);
-      await viewer.getByRole('status').getByText('Agent waking up', { exact: true }).waitFor();
+      await viewer.getByRole('status').getByText('Starting the computer', { exact: true }).waitFor();
       await viewer.getByText('Getting Chrome ready…', { exact: true }).waitFor();
       assert.equal(await viewer.getByRole('button', { name: 'Take control' }).count(), 0, 'controls wait for browser readiness');
       const orbit = viewer.locator('.viewer__wake-orbit');

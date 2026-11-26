@@ -265,7 +265,7 @@ try {
   await page.locator('.bot-row').filter({hasText:'Blank QA'}).click();
   if (!await config.isVisible()) await page.getByRole('button',{name:'Show details',exact:true}).click();
   await config.click();
-  await page.getByText('No specific job defined yet. Describe what you want this agent to handle in chat.',{exact:true}).waitFor();
+  await page.getByText('No specific job defined yet. Describe what you want this Bot to handle in chat.',{exact:true}).waitFor();
   assert.equal(await page.getByRole('heading',{name:'Expected results',exact:true}).count(),0);
   for (const placeholder of await page.getByText('None specified.',{exact:true}).all()) assert.equal(await placeholder.isVisible(),false);
   assert.ok((await api(`/bots/${blank.id}/rows`)).rows.some(r=>r.body.text?.includes('What job would you like Blank QA to handle?')));

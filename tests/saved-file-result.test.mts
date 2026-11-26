@@ -53,3 +53,13 @@ test('R15 Markdown omits repeated save navigation but retains other links, code 
   assert.doesNotMatch(render(`[View saved files](http://localhost:5199/${href})`, [href]), /<a |View saved files/);
   assert.match(render(`[Other page](http://localhost:5199/other${href})`, [href]), /<a /);
 });
+
+test('R16 Files links retain legacy reply support and suppress repeated navigation', () => {
+  for (const label of ['View Files', 'View saved files']) {
+    const text = `Saved fixture.txt. [${label}](${href})`;
+    const legacy = renderToStaticMarkup(React.createElement(Markdown, { text }));
+    assert.ok(legacy.includes(`>${label}</a>`));
+    assert.doesNotMatch(legacy, /target=/);
+    assert.equal(renderToStaticMarkup(React.createElement(Markdown, { text, savedFileLinks: [href] })), '<div class="md"><p>Saved fixture.txt. </p></div>');
+  }
+});

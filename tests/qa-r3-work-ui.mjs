@@ -32,11 +32,11 @@ try {
   await board.click();
   assert.match(await heading.innerText(), /Team board · Owners, dependencies and evidence/);
   assert.doesNotMatch(await heading.innerText(), /Coordinator/);
-  await tab('Reports').click();
-  await work.getByText('Ask this Bot for a report, or set up a daily synopsis.', { exact: true }).waitFor();
+  await tab('Files').click();
+  await work.getByText('Ask this Bot to save a file, or set up a daily synopsis.', { exact: true }).waitFor();
   assert.doesNotMatch(await heading.innerText(), /Coordinator/);
-  await work.getByRole('combobox', { name: 'Report Bot' }).selectOption('research-bot');
-  await work.getByText('Ask this Bot for a report. Reports saved by this Bot appear here.', { exact: true }).waitFor();
+  await work.getByRole('combobox', { name: 'Bot' }).selectOption('research-bot');
+  await work.getByText('Ask this Bot to save a file. Files saved by this Bot appear here.', { exact: true }).waitFor();
   assert.match(await heading.innerText(), /Research Bot/);
   assert.doesNotMatch(await heading.innerText(), /Coordinator/);
 
@@ -50,9 +50,9 @@ try {
   await board.click();
   assert.match(await heading.innerText(), /Team board · Research Bot · /);
   assert.doesNotMatch(await heading.innerText(), /Coordinator/);
-  await tab('Reports').click();
-  await work.getByText('Ask this Bot for a report. Reports saved by this Bot appear here.', { exact: true }).waitFor();
-  assert.equal(await work.getByRole('combobox', { name: 'Report Bot' }).count(), 0);
+  await tab('Files').click();
+  await work.getByText('Ask this Bot to save a file. Files saved by this Bot appear here.', { exact: true }).waitFor();
+  assert.equal(await work.getByRole('combobox', { name: 'Bot' }).count(), 0);
   assert.match(await heading.innerText(), /Research Bot/);
   await work.getByRole('button', { name: 'Routines', exact: true }).click();
   const routines = work.getByRole('region', { name: 'Routines', exact: true });
@@ -134,8 +134,8 @@ try {
   await page.locator('.sidebar').getByRole('button', { name: 'Tasks', exact: true }).click();
   await tab('Tasks').click();
   await work.getByRole('combobox', { name: 'Filter tasks by bot' }).selectOption('all');
-  await tab('Reports').click();
-  await work.getByRole('combobox', { name: 'Report Bot' }).selectOption('coordinator');
+  await tab('Files').click();
+  await work.getByRole('combobox', { name: 'Bot' }).selectOption('coordinator');
   await work.getByRole('button', { name: 'Daily synopses', exact: true }).click();
   const synopses = work.getByRole('region', { name: 'Daily synopses', exact: true });
   const source = synopses.locator('.synopsis-source');

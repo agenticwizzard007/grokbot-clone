@@ -109,7 +109,7 @@ test('R3-091: Forward to an existing settings entry does not push again', () => 
 test('R3-044: every shared status surface uses the same live readiness words', () => {
   const expected: Record<ComputerState['status'], string> = {
     absent: 'Asleep', stopped: 'Asleep', suspended: 'Asleep', running: 'Awake',
-    creating: 'Agent waking up', starting: 'Agent waking up', resuming: 'Agent waking up',
+    creating: 'Starting the computer', starting: 'Starting the computer', resuming: 'Starting the computer',
     suspending: 'Going to sleep…', error: 'Unreachable',
   };
   for (const [status, label] of Object.entries(expected)) {

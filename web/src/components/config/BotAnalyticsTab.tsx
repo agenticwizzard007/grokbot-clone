@@ -83,7 +83,7 @@ export function BotAnalyticsTab({ bot }: { bot: Bot }) {
           <summary>Show as a table</summary>
           <div className="an-table__scroll"><table>
             <thead><tr><th>Day ({zoneLabel})</th><th>Messages</th><th>Time saved</th></tr></thead>
-            <tbody>{days.map(day => <tr key={day.day}><td>{dayLabel(day.day)}</td><td>{day.messages}</td><td>{day.minutesSaved ? fmtHours(day.minutesSaved) : '—'}</td></tr>)}</tbody>
+            <tbody>{days.map(day => <tr key={day.day}><td>{dayLabel(day.day)}</td><td>{day.messages}</td><td>{day.minutesSaved ? fmtHours(day.minutesSaved) : '-'}</td></tr>)}</tbody>
           </table></div>
         </details>
         <details><summary>Inspect a day</summary><label>Day ({zoneLabel}) <select aria-label={`Day (${zoneLabel})`} value={selectedDay.day} onChange={event => setInspectDay(event.target.value)}>{days.map(day => <option key={day.day} value={day.day}>{dayLabel(day.day)}</option>)}</select></label><p>{selectedDay.messages} messages · {fmtHours(selectedDay.minutesSaved)} estimated time saved</p></details>

@@ -606,7 +606,7 @@ function PermissionsSection() {
       <ApprovalLevelSettings explain />
       <section className="cfg-section">
         <h2 className="cfg-section__label">Actions you’ve always allowed</h2>
-        <p>These are individual tool approvals. Remove a choice to have your agents ask again.</p>
+        <p>These are individual tool approvals. Remove a choice to have your Bots ask again.</p>
         <div className="cfg-card">
           {loadError ? <div className="cfg-error" role="alert">Couldn’t load permissions. {loadError} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={load}>Retry</button></div>
             : policies === null ? <div className="cfg-empty cfg-empty--flat">Loading…</div> : policies.length === 0 ? (

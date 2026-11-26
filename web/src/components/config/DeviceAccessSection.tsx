@@ -39,7 +39,7 @@ export function DeviceAccessSection() {
         </div>
         <div className="cfg-row"><SettingIcon icon={ShieldCheck} />
           <div className="cfg-row__text">
-            <div className="cfg-row__title">Agent access</div>
+            <div className="cfg-row__title">Bot access</div>
             <div className="cfg-row__sub">Terminal, Files, Browsers, and Desktop &amp; apps require review in the Mac app.</div>
           </div>
         </div>

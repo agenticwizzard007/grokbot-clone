@@ -746,7 +746,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
     // Enforce the interview boundary even if a model fabricates a tool call or an old
     // pending call is resumed. Configuring an agent must not launch operational work.
     if (!allowedDuringSetup(botId, c.name)) {
-      updateRow(botId, c.rowSeq, { ...body, status: 'denied', summary: 'Complete agent setup first' });
+      updateRow(botId, c.rowSeq, { ...body, status: 'denied', summary: 'Complete Bot setup first' });
       st.outputs.push({ type: 'function_call_output', call_id: c.call_id, output: 'This agent is still being configured. Continue the interview with ask_user and save_agent_setup. Native connection discovery, authorization and provider-verified read-only access checks are available; operational tools become available after the user activates the specification in Configuration.' });
       st.calls.shift();
       continue;

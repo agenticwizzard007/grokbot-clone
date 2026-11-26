@@ -42,7 +42,7 @@ try {
   const card = page.getByRole('article', { name: 'Nia setup' });
   // R2F-021 (WS3): the card words the computer state with the shared helper used by Activity and Setup.
   const readiness = await card.locator('.coworker-setup__readiness').innerText();
-  assert.match(readiness, /^Computer: (Preparation pending|Not connected|Connected|Awake|Asleep|Agent waking up|Going to sleep…|Unreachable)\. /, readiness);
+  assert.match(readiness, /^Computer: (Preparation pending|Not connected|Connected|Awake|Asleep|Starting the computer|Going to sleep…|Unreachable)\. /, readiness);
   await card.getByRole('button', { name: 'Review Nia configuration' }).click();
   await card.getByRole('button', { name: 'Activate Nia · revision 1' }).waitFor();
   await card.getByText('Original user answers').click();

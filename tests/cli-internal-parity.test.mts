@@ -113,7 +113,7 @@ for (const provider of ['codex', 'claude'] as const) {
       { name: 'create_task', args: { title: 'Wording fixture task' }, title: 'Wording fixture task', expected: /Created the task/, wrapped: true },
       { name: 'manage_skill', args: { ...a.skill('wording-managed-skill'), action: 'create' }, title: 'wording-managed-skill', expected: /active now/, wrapped: true },
       { name: 'propose_skill', args: a.skill('wording-proposed-skill'), title: 'wording-proposed-skill', expected: /active now/ },
-      { name: 'save_file', args: { filename: 'wording-report.md', content: '# Fixture report' }, title: 'wording-report.md', expected: /Saved .* to your Library/, wrapped: true },
+      { name: 'save_file', args: { filename: 'wording-report.md', content: '# Fixture report' }, title: 'wording-report.md', expected: /Saved .* to Files/, wrapped: true },
     ];
     for (const action of cases) {
       await a.chat([action]);
@@ -122,7 +122,7 @@ for (const provider of ['codex', 'claude'] as const) {
       assert.match(reply.text, action.expected);
       assert.equal(stripInternalIds(reply.text), reply.text, 'visible chat redaction preserves the confirmation and link');
       assert.doesNotMatch(reply.text, /\bID\b|\brevision\b|\b(?:task|skl|skill|mem|file)_[a-z0-9]+|\/api\/deliverables\//i);
-      if (action.name === 'save_file') assert.match(reply.text, /\[View saved files\]\(#bot\/[^\s/]+\/reports\)/);
+      if (action.name === 'save_file') assert.match(reply.text, /\[View Files\]\(#bot\/[^\s/]+\/reports\)/);
     }
     assert.ok(a.fixture.args(provider).length >= cases.length, 'each reply ran through the installed official binary');
   });

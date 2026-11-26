@@ -16,7 +16,7 @@ const routes: [string, string | null, string][] = [
   ['#bot/fixture/details', '#bot/fixture', 'Back to Fixture Bot chat'],
   ['#bot/fixture/details/files/reports', '#bot/fixture/details/files', 'Back to files'],
   ...['responsibilities', 'harness', 'files', 'history'].map(tab => [`#bot/fixture/details/setup/${tab}`, '#bot/fixture/details/setup', 'Back to setup'] as [string, string, string]),
-  ...['Tasks', 'Team', 'Goals', 'Reports'].map(tab => [`#bot/fixture/${tab.toLowerCase()}`, `#${tab.toLowerCase()}`, `Back to ${tab}`] as [string, string, string]),
+  ...['Tasks', 'Team', 'Goals', 'Reports'].map(tab => [`#bot/fixture/${tab.toLowerCase()}`, `#${tab.toLowerCase()}`, `Back to ${tab === 'Reports' ? 'Files' : tab}`] as [string, string, string]),
 ];
 for (const [hash, target, label] of routes) test(`structural parent: ${hash}`, () => {
   const screen = parseScreen(hash)!;

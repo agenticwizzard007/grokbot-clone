@@ -84,7 +84,7 @@ try {
     suggestionsGate.release();
     await link('#tasks'); await page.locator('.tasks-view').waitFor(); await noBack();
     for (const tab of ['Team', 'Goals', 'Reports']) {
-      await page.getByRole('navigation', { name: 'Work sections' }).getByRole('button', { name: tab, exact: true }).click();
+      await page.getByRole('navigation', { name: 'Work sections' }).getByRole('button', { name: tab === 'Reports' ? 'Files' : tab, exact: true }).click();
       await page.waitForFunction(tab => location.hash === `#${tab.toLowerCase()}`, tab); await noBack();
       if (tab === 'Team') await page.getByText('4 user updates waiting for coordinator review.', { exact: true }).waitFor();
     }

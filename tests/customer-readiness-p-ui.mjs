@@ -102,13 +102,13 @@ try {
     await expectSlack(activitySuggestions);
 
     const files = async () => { await detailTab('Activity').click(); await detailTab('Files').click(); };
-    const reportEmpty = 'No saved reports yet. Ask the Bot to save a report and it will appear here.';
+    const reportEmpty = 'No files yet. Ask the Bot to save a file and it will appear here.';
     const setupEmpty = 'No saved setup yet. Open Setup to describe what this Bot should do.';
     await files();
     await details.getByText(reportEmpty, { exact: true }).waitFor(); await details.getByText(setupEmpty, { exact: true }).waitFor();
     await fits('empty Files'); await shot('files-empty');
     savedReport = true; await files();
-    await details.getByText('Reports saved by this Bot are ready to view.', { exact: true }).waitFor();
+    await details.getByText('Files saved by this Bot are ready to view.', { exact: true }).waitFor();
     await details.getByText(setupEmpty, { exact: true }).waitFor(); assert.equal(await details.getByText(reportEmpty, { exact: true }).count(), 0);
     savedReport = false; savedSetup = true; await files();
     await details.getByText(reportEmpty, { exact: true }).waitFor();

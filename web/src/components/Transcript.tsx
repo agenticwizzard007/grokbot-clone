@@ -158,8 +158,8 @@ function Steps({ rows }: { rows: Row[] }) {
       {rows.map(row => {
         const saved = savedFileResult(row.body);
         return saved && <div key={row.seq} className="saved-file-result" data-row-seq={row.seq}>
-          <span>Saved {saved.filename} to your Library.</span>
-          <a href={saved.href}>View saved files</a>
+          <span>Saved {saved.filename} to Files.</span>
+          <a href={saved.href}>View Files</a>
         </div>;
       })}
       {visible.length > 0 && (
@@ -401,8 +401,8 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
         {paging?.olderCursor != null && <button type="button" className="transcript__older" disabled={paging.loadingOlder} onClick={() => useStore.getState().loadOlderRows(bot.id).catch(() => {})}>{paging.loadingOlder ? 'Loading earlier messages...' : 'Earlier messages'}</button>}
         {paging?.olderError && <p className="transcript__error" role="status">{paging.olderError}</p>}
         {empty && !processing && <EmptyChat bot={bot} />}
-        {exchanges.more && <button type="button" className="agent-exchange__more" disabled={exchanges.loading} onClick={exchanges.loadMore}>Earlier agent conversations</button>}
-        {exchanges.error && <p className="agent-exchange__error" role="status">Couldn’t refresh agent conversations. <button type="button" onClick={exchanges.retry}>Retry</button></p>}
+        {exchanges.more && <button type="button" className="agent-exchange__more" disabled={exchanges.loading} onClick={exchanges.loadMore}>Earlier Bot conversations</button>}
+        {exchanges.error && <p className="agent-exchange__error" role="status">Couldn’t refresh Bot conversations. <button type="button" onClick={exchanges.retry}>Retry</button></p>}
         {items.map((it) => {
           switch (it.kind) {
             case 'exchange':

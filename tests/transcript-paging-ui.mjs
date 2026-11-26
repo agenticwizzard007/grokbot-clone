@@ -195,7 +195,7 @@ try {
       await open();
       olderMode = 'hold';
       const cancelled = await search(deep.anchor, deep);
-      await cancelled.dialog.getByText('Loading message...', { exact: true }).waitFor();
+      await cancelled.dialog.getByText('Loading the message...', { exact: true }).waitFor();
       for (let attempt = 0; !held && attempt < 100; attempt++) await new Promise(resolve => setTimeout(resolve, 20));
       assert.ok(held, 'search reaches a held older page');
       await page.keyboard.press('Escape');

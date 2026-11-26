@@ -141,7 +141,7 @@ function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
   const openSettings = () => useConfigUI.getState().openBotSettings(bot.id);
   const openRoutines = () => useConfigUI.getState().openBotSettings(bot.id, 'routines');
   const title = displayName(bot);
-  const label = reports ? 'Saved reports' : sections.find(section => section.id === tab)?.label;
+  const label = reports ? 'Files' : sections.find(section => section.id === tab)?.label;
   const navigation = <nav className="setup-paper__tabs details-page__tabs" aria-label="Conversation details sections">
     {sections.filter(section => bot.kind !== 'room' || section.id !== 'configuration').map(section =>
       <button key={section.id} type="button" aria-current={tab === section.id || undefined} onClick={() => { setTab(section.id); }}>{section.label}</button>)}

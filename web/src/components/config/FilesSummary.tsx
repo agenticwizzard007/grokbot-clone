@@ -12,18 +12,18 @@ import { SetupConnectionHelp } from './SetupConnectionHelp';
 export function FilesSummary({ bot, onReports }: { bot: Bot; onReports: () => void }) {
   const userId = useStore(state => state.user?.id);
   const setupVersion = useVersion(`setup:${bot.id}`);
-  const [reports, setReports] = useState('Checking saved reports...');
+  const [reports, setReports] = useState('Checking files...');
   const [setup, setSetup] = useState<AgentSetupView | null>();
   const [setupError, setSetupError] = useState('');
   useEffect(() => {
     const controller = new AbortController();
     const current = () => !controller.signal.aborted && useStore.getState().user?.id === userId;
-    setReports('Checking saved reports...'); setSetup(undefined); setSetupError('');
+    setReports('Checking files...'); setSetup(undefined); setSetupError('');
     void settingsRead(signal => deliverablesApi.list(bot.id, signal), controller.signal).then(({ artifacts }) => {
       if (current()) setReports(artifacts.some(file => file.botId === bot.id)
-        ? 'Reports saved by this Bot are ready to view.'
-        : 'No saved reports yet. Ask the Bot to save a report and it will appear here.');
-    }).catch(() => { if (current()) setReports('Could not check saved reports. Open saved reports to try again.'); });
+        ? 'Files saved by this Bot are ready to view.'
+        : 'No files yet. Ask the Bot to save a file and it will appear here.');
+    }).catch(() => { if (current()) setReports('Could not check files. Open Files to try again.'); });
     if (bot.kind !== 'room') void settingsRead(signal => configApi.agentSetup(bot.id, signal), controller.signal).then(value => {
       if (current()) setSetup(value);
     }).catch(error => {
@@ -36,8 +36,8 @@ export function FilesSummary({ bot, onReports }: { bot: Bot; onReports: () => vo
   const hasSetup = setup && Object.values(setup.files).some(text => text.trim());
   const resources = setup?.manifest.brief.shared_resources.map(setupResourceText).filter(text => /needs to be reconnected|could not connect|connection unavailable/i.test(text)) ?? [];
   return <>
-    <div className="details-page__row"><div><strong>Saved reports</strong><p role="status">{reports}</p></div>
-      <button className="cfg-btn cfg-btn--secondary" type="button" onClick={onReports}>View saved reports</button>
+    <div className="details-page__row"><div><strong>Files</strong><p role="status">{reports}</p></div>
+      <button className="cfg-btn cfg-btn--secondary" type="button" onClick={onReports}>View Files</button>
     </div>
     {bot.kind !== 'room' && <div className="details-page__row"><div><strong>Setup</strong>
       <p role="status">{setupError || (setup === undefined ? 'Checking saved setup...' : hasSetup ? 'Saved instructions and configuration files for this Bot.' : 'No saved setup yet. Open Setup to describe what this Bot should do.')}</p>

@@ -398,7 +398,7 @@ export const Composer = memo(function Composer({ bot, running }: { bot: Bot; run
             aria-pressed={inCall}
             aria-busy={connecting}
             disabled={connecting}
-            title={connecting ? 'Connecting…' : switchingCall ? `End the current call and talk to ${bot.name}` : inCall ? 'End the call; agent work continues in chat' : `Talk to ${bot.name} live to coordinate work and hear results`}
+            title={connecting ? 'Connecting…' : switchingCall ? `End the current call and talk to ${bot.name}` : inCall ? 'End the call; Bot work continues in chat' : `Talk to ${bot.name} live to coordinate work and hear results`}
             onClick={voice}
           >
             {connecting ? <LoaderCircle size={16} className="composer__voice-spinner" aria-hidden /> : inCall ? <PhoneOff size={16} aria-hidden /> : <Icon name="mic" />}

@@ -226,7 +226,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'save_file',
-    description: 'Save a report, notes, CSV, code or markdown as an immutable Library artifact. Confirms the filename and links to Library. Use list_deliverables to find its ID before deliver_artifact.',
+    description: 'Save a report, notes, CSV, code or markdown as an immutable saved file. Confirms the filename and links to Files. Use list_deliverables to find its ID before deliver_artifact.',
     parameters: obj({ filename: { type: 'string', description: 'e.g. briefing-2026-11-09.md' }, content: { type: 'string' } }, ['filename', 'content']),
     activity: 'drafting_file',
     label: 'Saving notes',
@@ -235,7 +235,7 @@ export const TOOLS: ToolDef[] = [
       if (!name || /^\.+$/.test(name)) name = 'file.txt';
       recordArtifact({ userId: ctx.userId, botId: ctx.botId, jobId: ctx.jobId, filename: name, content: String(a.content) });
       const library = workHash({ tab: 'Reports', botSlug: botSlug(getBotRow(ctx.botId)!) });
-      return { output: `Saved ${name} to your Library. [View saved files](${library})`, summary: `Saved ${name}`, savedFile: { filename: name, href: library } };
+      return { output: `Saved ${name} to Files. [View Files](${library})`, summary: `Saved ${name}`, savedFile: { filename: name, href: library } };
     },
   },
   {
