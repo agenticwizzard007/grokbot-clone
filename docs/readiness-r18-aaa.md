@@ -33,3 +33,23 @@ Classification uses only the exact job-bound human message. Requests mentioning 
 Five R18 regression tests in `tests/api-approval-level.test.mts` cover intent classification, a search-first model followed by direct/wrapped skill/task/memory actions, genuine lookup and decline behavior, the native OpenRouter HTTP chat route with `x-ai/grok-4.7`, and Standard/CLI/internal/source boundaries. The existing #235 tests remain enabled. The browser fixture adds a search-first skill request with both Allow and Don't allow at desktop/mobile widths in both themes.
 
 The native OpenRouter route test uses a network-disabled model fixture. A real Grok 4.7 run is the remaining verification gap: this workspace has no `OPENROUTER_API_KEY`, equivalent OpenRouter environment entry, project env file containing one, or local provider-settings database. No live secret was retrieved and no replacement key was invented for a real request.
+
+
+Final local results on this VM:
+
+| Run | Passed | Failed | Existing skips | Total |
+| --- | ---: | ---: | ---: | ---: |
+| Untouched main, 1957a7fc | 2746 | 71 | 24 | 2841 |
+| This branch | 2752 | 70 | 24 | 2846 |
+
+There are zero new failure names. The baseline failure "real codex companion: voice uses the main chat approval and denial" did not recur; no change to that path is claimed. Full-suite logs and the normalized failure-name comparison are in `.context/r18-baseline.log`, `.context/r18-full-suite.log` and `.context/r18-suite-comparison.json`. The detached baseline has no tracked changes.
+
+Both focused runs passed all 147 tests, including the CLI approval regressions. After the final fetch/rebase, the approval, diagnostics and tool-discovery run passed 44/44. Typecheck and production build passed again. All four API approval browser scenarios passed at 1280 and 390 in light and dark, with both approval decisions on the search-first skill case. No tests or workflows were disabled or newly skipped.
+
+New test names:
+
+- R18 explicit create detection preserves real lookups, negations and quoted examples
+- R18 search-first model reaches the skill, task or memory card without reading older data
+- R18 explicit older-context requests still ask before searching and can continue after decline
+- R18 native OpenRouter chat route supplies current evidence and redirects a search-first Grok turn
+- R18 current-create redirect leaves Standard, CLI, internal triggers and unbound sources unchanged
