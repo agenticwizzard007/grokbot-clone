@@ -20,8 +20,10 @@ The complete unit command is `node --import tsx --test --test-reporter=tap --tes
 | Full unit suite | Pass | Fail | Existing skips | Cancelled |
 | --- | ---: | ---: | ---: | ---: |
 | Untouched main 1957a7fc | 2747 | 70 | 24 | 0 |
-| This branch | 2751 | 70 | 24 | 0 |
+| BBB before the final rebase | 2751 | 70 | 24 | 0 |
 
-All 70 failure names match exactly, with four additional passing unit tests and no new failure names. The full suite is not claimed to be green. No tests or CI were disabled or newly skipped. The focused command has 14 passing unit tests and 86 browser cases (60 provider, 4 keyboard, 6 connection, 4 loading and 12 composer layout cases); both performance suites add four passing viewport/theme cases each. Typecheck and the web/server build pass.
+All 70 failure names match exactly, with four additional passing unit tests and no new failure names. This full comparison was completed before rebasing onto main `bfff367e966a8b5491c4a5518386a8d501430543` (#237). The rebase had no conflicts and retained all AAA changes. The post-rebase validation also runs the inherited API approval unit file, which passes 34/34, and repeats the complete focused BBB command, typecheck and build. The full suite is not claimed to be green. No tests or CI were disabled or newly skipped. The focused command has 14 passing unit tests and 86 browser cases (60 provider, 4 keyboard, 6 connection, 4 loading and 12 composer layout cases); both performance suites add four passing viewport/theme cases each. Typecheck and the web/server build pass.
 
 An early expanded browser run treated the existing read-only suggested-apps POST as a mutation. The fixture now permits that specific request and still rejects other unexpected writes; no product behavior was changed for that test artifact.
+
+The rebase invalidated an in-flight Vite loading test through Hot Module Replacement. The complete command was restarted after the rebase, without changing that test's assertions.
