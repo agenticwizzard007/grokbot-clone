@@ -25,6 +25,9 @@ const catalogMakers = [
   ['unlisted-maker', 'openrouter'],
 ].map(([author, mark]) => ({ ...model(`${author}/catalog-model`, `Catalog complete extended model for ${author}`, author), mark }));
 const cases = [
+  { name: 'claude-fable', provider: 'claude-cli', selected: 'claude', billing: 'plan', plan: 'max', plans: ['claude'], plansLabel: 'Manage plans', mark: 'claude', models: [
+    { ...model('claude/claude-fable-5-2', 'Claude Fable 5 2', 'anthropic'), resolvedModel: 'claude-fable-5-2' },
+  ] },
   { name: 'catalog-makers', provider: 'openrouter', selected: null, billing: 'api', plans: [], statusChecking: true, plansLabel: 'Plans', mark: 'zai', models: catalogMakers },
   { name: 'claude', provider: 'claude-cli', selected: 'claude', billing: 'plan', plan: 'max', plans: ['claude'], plansLabel: 'Manage plans', mark: 'claude', models: [
     { ...model('claude/default', 'Opus', 'anthropic'), resolvedModel: 'claude-opus-5-5' },
@@ -142,6 +145,7 @@ try {
       assert.ok(Math.abs(iconBox.y + 8 - (textBox.y + textBox.height / 2)) < 1, 'mark aligns with the label');
       if (sample.models.length) assert.equal(await pill.locator('.model-pill__effort').isVisible(), true);
       await readable(pill);
+      if (sample.name === 'claude-fable') assert.match(await pill.getAttribute('aria-label'), /Claude Fable 5\.2/);
       {
         const input = page.locator('.composer__input');
         assert.ok((await input.boundingBox()).width >= (width === 320 ? 180 : 200), 'field has priority over the model chip');
@@ -157,6 +161,7 @@ try {
       const picker = page.getByRole('dialog', { name: 'Choose a model', exact: true });
       await markVisible(picker, sample.mark);
       await readable(picker);
+      if (sample.name === 'claude-fable') assert.equal(await picker.locator('.mm-row__resolved').innerText(), 'Claude Fable 5.2');
       assert.equal(await picker.getByRole('button', { name: sample.plansLabel, exact: true }).count(), 1);
       assert.equal(statusReads, readsBeforePicker, 'rendering the plan row does not request provider status');
       for (const row of await picker.locator('.mm-row__name').all()) assert.doesNotMatch(await row.innerText(), /\b\d \d\b/, 'version digits retain their dot');
@@ -174,6 +179,7 @@ try {
         await picker.getByRole('button', { name: 'Effort', exact: true }).first().click();
         const effortHeading = page.locator('.mm-effort-model, .mm-sheet-head .mm-back').filter({ has: page.locator('.provider-icon') });
         await markVisible(effortHeading, sample.mark);
+        if (sample.name === 'claude-fable') assert.match(await effortHeading.innerText(), /Claude Fable 5\.2/);
         await page.keyboard.press('Escape');
       }
       await page.keyboard.press('Escape');
@@ -216,6 +222,7 @@ try {
       await page.goto(`${origin}/#bot/${bot.id}/settings/general`);
       const botModel = page.getByRole('button', { name: 'Bot model', exact: true });
       await markVisible(botModel, sample.mark);
+      if (sample.name === 'claude-fable') assert.match(await botModel.innerText(), /Claude Fable 5\.2/);
       if (sample.models.length) {
         await markVisible(page.locator('.cfg-field').filter({ has: page.getByRole('radiogroup', { name: 'Thinking effort', exact: true }) }), sample.mark);
         await botModel.click();
@@ -230,6 +237,10 @@ try {
       if (sample.provider !== 'direct') await markVisible(page.locator('.usage-billing'), sample.selected ? sample.mark : 'openrouter');
       await page.getByRole('button', { name: 'Show more', exact: true }).click();
       await markVisible(page.locator('.usage-ranked__label'), sample.mark);
+      if (sample.name === 'claude-fable') {
+        assert.equal(await page.locator('.usage-ranked__label').innerText(), 'Claude Fable 5.2');
+        assert.match(await page.locator('.usage-ranked__row').getAttribute('aria-label'), /Claude Fable 5\.2/);
+      }
       await markVisible(page.locator('.usage-card__title'), 'openrouter');
       await readable(page.locator('.app-settings'));
       await page.screenshot({ path: `${evidence}/${sample.name}-${width}-${theme}-usage.png` });
@@ -240,6 +251,7 @@ try {
       await history.locator('.native-history > summary').click();
       await markVisible(history, sample.mark);
       await readable(history);
+      if (sample.name === 'claude-fable') assert.equal(await history.getByText('Claude Fable 5.2', { exact: true }).count(), 2);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'run route labels fit');
       assert.deepEqual(errors, []); assert.deepEqual(writes.filter(write => !write.path.endsWith('/suggested-apps')), [], 'only the read-only suggestion POST is permitted');
       console.log(`PASS provider logos: ${sample.name} ${width} ${theme}, composer, picker, effort, sidebar, Models & access, Bot settings, Usage, Search and run routes`);

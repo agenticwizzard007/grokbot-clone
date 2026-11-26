@@ -1,3 +1,4 @@
+import { modelDisplayName } from '../../lib/modelDisplay';
 import { ProviderLabel } from '../ProviderMark';
 import { Blocks, Clock3, Gauge, ShieldCheck } from 'lucide-react';
 import { SettingIcon, SettingRow } from './SettingRow';
@@ -161,7 +162,7 @@ function LearningReviewsPage({ botId }: { botId?: string }) {
     {data?.reviews.length === 0 && <p>No learning reviews recorded yet.</p>}
     {data?.reviews.map(r => <details className="native-history" key={r.id}><summary>{bots.find(b => b.id === r.botId)?.name ?? 'Bot'} · {r.reason} · {r.status} · {new Date(r.createdAt).toLocaleString()}</summary>
       <p>{r.summary || 'No change summary recorded.'}</p>{r.error && <p className="cfg-error">{r.error}</p>}
-      <p className="native-meta">Selected route: <ProviderLabel provider={r.model}>{r.model ?? 'Model not recorded'}</ProviderLabel> · <ProviderLabel provider={r.provider}>{r.provider ?? 'Provider not recorded'}</ProviderLabel>. Originating route: <ProviderLabel provider={r.originModel}>{r.originModel ?? 'Model not recorded'}</ProviderLabel> · <ProviderLabel provider={r.originProvider}>{r.originProvider ?? 'Provider not recorded'}</ProviderLabel>.</p>
+      <p className="native-meta">Selected route: <ProviderLabel provider={r.model}>{r.model ? modelDisplayName(r.model) : 'Model not recorded'}</ProviderLabel> · <ProviderLabel provider={r.provider}>{r.provider ?? 'Provider not recorded'}</ProviderLabel>. Originating route: <ProviderLabel provider={r.originModel}>{r.originModel ? modelDisplayName(r.originModel) : 'Model not recorded'}</ProviderLabel> · <ProviderLabel provider={r.originProvider}>{r.originProvider ?? 'Provider not recorded'}</ProviderLabel>.</p>
       <p className="native-meta">{r.iterations} steps</p>
       <p className="native-meta">{!r.usageStatus || r.usageStatus === 'unavailable' ? 'Token usage unavailable.' : `Observed usage${r.usageStatus === 'partial' ? ' (partial)' : ''}: ${r.inputTokens.toLocaleString()} input / ${r.outputTokens.toLocaleString()} output tokens.`}{r.budgetInputTokens != null && ` Budget input count: ${r.budgetInputTokens.toLocaleString()} tokens; may include estimates for enforcing limits.`}</p>
       <small>Review {r.id}{r.parentJobId ? ` · Source job ${r.parentJobId}` : ''}{r.jobId ? ` · Review job ${r.jobId}` : ''} · Conversation {r.generation}</small>

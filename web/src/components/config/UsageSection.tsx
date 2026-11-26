@@ -1,3 +1,4 @@
+import { modelDisplayName } from '../../lib/modelDisplay';
 import { ProviderLabel, ProviderMark } from '../ProviderMark';
 import { SettingIcon } from './SettingRow';
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
@@ -352,8 +353,8 @@ function RankedList({ title, rows, byCost, models = false }: { title: string; ro
       <div className="usage-card__title">{title}</div>
       <ul className="usage-ranked">
         {shown.map((r) => (
-          <li key={r.key || r.label} className="usage-ranked__row" tabIndex={0} aria-label={`${r.label}: ${rowFigure(r, true)}, ${rowSub(r)}`}>
-            <span className="usage-ranked__label">{models ? <ProviderLabel provider={r.key}>{r.label}</ProviderLabel> : r.label}</span>
+          <li key={r.key || r.label} className="usage-ranked__row" tabIndex={0} aria-label={`${models ? modelDisplayName(r.key, r.label) : r.label}: ${rowFigure(r, true)}, ${rowSub(r)}`}>
+            <span className="usage-ranked__label">{models ? <ProviderLabel provider={r.key}>{modelDisplayName(r.key, r.label)}</ProviderLabel> : r.label}</span>
             <span className="usage-ranked__figure">{rowFigure(r, byCost)}</span>
             <div className="usage-ranked__bar" aria-hidden>{v(r) > 0 && <div style={{ width: `${(v(r) / max) * 100}%` }} />}</div>
             <span className="usage-ranked__sub">{rowSub(r)}</span>

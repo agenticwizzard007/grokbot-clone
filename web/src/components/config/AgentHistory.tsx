@@ -1,3 +1,4 @@
+import { modelDisplayName } from '../../lib/modelDisplay';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNativeRefresh } from '../../lib/useNativeRefresh';
 import { useStore } from '../../store';
@@ -88,7 +89,7 @@ function HistoryEntry({botId,entry}:{botId:string;entry:Entry}) {
       <p>Change {entry.version} · {revisionText(entry)}</p>
       <p>Recorded actor: {entry.actor??'Not recorded'}{entry.reason?` · ${entry.reason}`:''}</p>
       {detail&&<>
-      {detail.review&&<p>Learning review: {detail.review.reason} · {detail.review.provider} / {detail.review.model} · {detail.review.status}</p>}
+      {detail.review&&<p>Learning review: {detail.review.reason} · {detail.review.provider} / {modelDisplayName(detail.review.model)} · {detail.review.status}</p>}
       {detail.changes.map(c=><div className="agent-history__change" key={c.field}><h4>{label(c.field)}</h4><div className="agent-history__comparison"><section aria-label={`Before ${c.field}`}><strong>Before</strong><pre>{format(c.before)}</pre></section><section aria-label={`After ${c.field}`}><strong>After</strong><pre>{format(c.after)}</pre></section></div></div>)}
       <details><summary>Full recorded snapshots</summary><pre>{JSON.stringify({before:detail.before,after:detail.after,sourceId:detail.sourceId,runId:detail.runId},null,2)}</pre></details>
       </>}

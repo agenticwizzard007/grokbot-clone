@@ -8,7 +8,7 @@ export function lastModelLabel(accountId: string | undefined, bot: SavedModel): 
   try {
     const saved = accountId && JSON.parse(localStorage.getItem(key(accountId, bot)) ?? 'null');
     // Older releases saved this internal fallback instead of the visible plan label.
-    if (saved?.model === bot.model && typeof saved.label === 'string' && saved.label && saved.label !== 'CLI default') return saved.label;
+    if (saved?.model === bot.model && typeof saved.label === 'string' && saved.label && saved.label !== 'CLI default') return modelDisplayName('', saved.label);
   } catch { /* Private browsing or unavailable storage. */ }
   return bot.model ? modelDisplayName(bot.model) : 'Loading model';
 }
