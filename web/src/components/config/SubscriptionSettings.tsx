@@ -1,3 +1,4 @@
+import { ProviderLabel, ProviderMark, ProviderText } from '../ProviderMark';
 import { OpenRouterSettings } from './OpenRouterSettings';
 import { CredentialReauthPrompt } from './ReauthPrompt';
 import { planLabel } from '../../lib/planLabel';
@@ -327,7 +328,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
             tabPicked.current = true; setProviderTab(next); setAuthMethod('cli');
             document.getElementById(`subscription-tab-${next}`)?.focus();
           }}>
-            {id === 'claude' ? 'Claude Code' : 'Codex'}
+            <ProviderMark provider={id} />{id === 'claude' ? 'Claude Code' : 'Codex'}
           </button>
         ))}
       </div>
@@ -352,15 +353,15 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
 
       <div className="subscription-settings__panel" role="tabpanel" id="subscription-auth-panel" aria-labelledby={`subscription-tab-${providerTab}`}>
       <section className="cfg-section" aria-label="Plan connection">
-        <AccessRow icon={Terminal} title={providerTab === 'claude' ? 'Claude plan' : 'ChatGPT plan'} description={tabStatus.details}
+        <AccessRow icon={Terminal} title={<ProviderLabel provider={providerTab}>{providerTab === 'claude' ? 'Claude plan' : 'ChatGPT plan'}</ProviderLabel>} description={<ProviderLabel provider={providerTab}>{tabStatus.details}</ProviderLabel>}
           status={<span role="status">{tabStatus.connection}{tabStatus.currentlyInUse ? ' · Currently in use' : ''}</span>}>
           {(stale || status?.statusUnavailable || probeFailed) && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => void refresh()}>Retry status</button>}
           {planReady
-            ? selected !== providerTab && <button type="button" className="cfg-btn cfg-btn--primary" disabled={disabled} onClick={() => void select(providerTab)}>{tabStatus.action}</button>
-            : <button type="button" className="cfg-btn cfg-btn--primary" disabled={disabled || runtime === 'bridge' || !status?.serverLoginAvailable || (providerTab === 'codex' && status.connected && !health?.installed)} onClick={startLogin}>{loginRunning ? 'Login in progress…' : tabStatus.action}</button>}
+            ? selected !== providerTab && <button type="button" className="cfg-btn cfg-btn--primary" disabled={disabled} onClick={() => void select(providerTab)}><ProviderMark provider={providerTab} />{tabStatus.action}</button>
+            : <button type="button" className="cfg-btn cfg-btn--primary" disabled={disabled || runtime === 'bridge' || !status?.serverLoginAvailable || (providerTab === 'codex' && status.connected && !health?.installed)} onClick={startLogin}>{!loginRunning && <ProviderMark provider={providerTab} />}{loginRunning ? 'Login in progress…' : tabStatus.action}</button>}
           {selected === providerTab && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy || loginRunning || authLocked} onClick={() => void select(null)}>Disconnect</button>}
         </AccessRow>
-        <p className="subscription-settings__current-route">{tabStatus.currentRoute}</p>
+        <p className="subscription-settings__current-route"><ProviderText>{tabStatus.currentRoute}</ProviderText></p>
         <p>Complete sign-in with the official CLI on the computer running your Bots. Credentials stay in that CLI's profile.{selected === providerTab && ' Disconnect switches your Bots to API billing and leaves this CLI signed in.'}</p>
         {runtime === 'bridge' && !planReady && <p>Run <code>{provider.login}</code> on your computer, complete the official sign-in, then refresh status and choose Use {providerTab === 'claude' ? 'Claude' : 'ChatGPT'} plan.</p>}
         {status?.connected && !health?.installed && <p>Install the official {providerTab === 'claude' ? 'Claude Code' : 'Codex'} CLI on {runtime === 'bridge' ? 'your computer' : "your Bot's computer"}, then refresh status. <a href={provider.docs} target="_blank" rel="noreferrer">Installation and sign-in instructions</a></p>}
@@ -394,9 +395,9 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
           <summary>Account and login details</summary>
           <dl className="subscription-settings__details">
           <div><dt>Swarm account</dt><dd>{accountEmail.endsWith('@openrouter.invalid') ? 'Your OpenRouter sign-in' : accountEmail}</dd></div>
-          <div><dt>Provider</dt><dd>{status && !selected ? 'API providers' : provider.name}</dd></div>
+          <div><dt>Provider</dt><dd>{status && !selected ? 'API providers' : <ProviderLabel provider={providerTab}>{provider.name}</ProviderLabel>}</dd></div>
           {(!status || selected) && <>
-          <div><dt>Eligible plan</dt><dd>{provider.plan}</dd></div>
+          <div><dt>Eligible plan</dt><dd><ProviderLabel provider={providerTab}>{provider.plan}</ProviderLabel></dd></div>
           <div><dt>Login location</dt><dd>{runtime === 'bridge' ? 'Your computer · advanced bridge' : 'Swarm server · private account profile'}</dd></div>
           </>}
           {status && !selected ? <>
@@ -481,8 +482,8 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
             <div className="cfg-card subscription-settings__provider" key={provider.id}>
               <div className="cfg-row"><SettingIcon icon={Terminal} />
                 <div className="cfg-row__text">
-                  <div className="cfg-row__title">{provider.name}</div>
-                  <div className="cfg-row__sub">{provider.plan}</div>
+                  <div className="cfg-row__title"><ProviderLabel provider={provider.id}>{provider.name}</ProviderLabel></div>
+                  <div className="cfg-row__sub"><ProviderLabel provider={provider.id}>{provider.plan}</ProviderLabel></div>
                 </div>
                 {isSelected && <span className="cfg-chip">Selected{blocked ? ' · Blocked' : ''}</span>}
               </div>
@@ -519,7 +520,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
         <p>When a plan is currently in use, all your Bots share it across desktop, phone and linked iMessage or WhatsApp. Your provider's usage limits and extra usage charges still apply.</p>
         <p>Browser and computer tools use the computer selected in Settings. Choose a server-hosted computer there to use those tools while your personal computer is off.</p>
         {tabStatus.currentlyInUse && modelCatalog.provider === `${providerTab}-cli` && modelCatalog.billing === 'plan' && <div className="cfg-card" aria-label="Connected plan usage">
-          <p>{modelCatalog.plan ? `Reported plan: ${planLabel(modelCatalog.provider, modelCatalog.plan)}` : 'Plan name unavailable from the CLI.'}</p>
+          <p>{modelCatalog.plan && <ProviderMark provider={modelCatalog.provider} />} {modelCatalog.plan ? `Reported plan: ${planLabel(modelCatalog.provider, modelCatalog.plan)}` : 'Plan name unavailable from the CLI.'}</p>
           {modelCatalog.status === 'loading' ? <p>Checking plan usage…</p> : planUsage.state === 'reported' ? planUsage.windows.map(w => <p key={w.label}>{w.label}: {w.usedPercent}% used{w.resetsAt !== null ? ` · Resets ${new Date(w.resetsAt).toLocaleString()}` : ''}</p>) : <p>{planUsage.state === 'stale' ? 'Reported usage has expired. ' : 'Usage limits were not reported. '}Check your provider account for current limits.</p>}
           {modelCatalog.usage && <p>Checked {new Date(modelCatalog.usage.checkedAt).toLocaleString()}</p>}
         </div>}

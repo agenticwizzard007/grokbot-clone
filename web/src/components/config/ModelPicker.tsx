@@ -1,3 +1,4 @@
+import { ProviderMark } from '../ProviderMark';
 import { useStore } from '../../store';
 import { useModels } from '../../lib/models';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
@@ -79,7 +80,7 @@ export function ModelPicker({ value, onChange, defaultLabel, disabled, label = '
   return (
     <div className="model-picker" ref={box}>
       <button ref={trigger} type="button" className="model-picker__button text-input" disabled={disabled} onClick={() => { setQuery(''); setOpen((o) => !o); }} aria-controls={open ? panelId : undefined} aria-expanded={open} aria-label={label}>
-        <span className="model-picker__current">
+        <ProviderMark provider={value ?? defaultLabel} /><span className="model-picker__current">
           {value ? modelDisplayName(value, selected?.name) : defaultLabel ? `Default · ${defaultLabel}` : 'Choose a model'}
         </span>
         {data?.billing && <span className="model-billing">{data.billing === 'plan' ? 'Plan' : 'API'}</span>}
@@ -102,13 +103,13 @@ export function ModelPicker({ value, onChange, defaultLabel, disabled, label = '
           <div className="model-picker__list" role="listbox" aria-label={`${label} options`}>
             {defaultLabel && !query && (
               <button type="button" role="option" aria-selected={value === null} className={`model-picker__row${value === null ? ' is-selected' : ''}`} onClick={() => pick(null)}>
-                <span className="model-picker__name">Default</span>
+                <span className="model-picker__name"><ProviderMark provider={defaultLabel} />Default</span>
                 <span className="model-picker__meta">{defaultLabel}</span>
               </button>
             )}
             {shown.map((m) => (
               <button type="button" role="option" aria-selected={m.id === value} key={m.id} className={`model-picker__row${m.id === value ? ' is-selected' : ''}`} onClick={() => pick(m.id)}>
-                <span className="model-picker__name">{modelDisplayName(m.id, m.name)}{(m.billing ?? data?.billing) && <span className="model-billing">{(m.billing ?? data?.billing) === 'plan' ? 'Plan' : 'API'}</span>}{!m.vision && <span className="cfg-chip cfg-chip--warn">No images</span>}</span>
+                <span className="model-picker__name"><ProviderMark provider={m.id} />{modelDisplayName(m.id, m.name)}{(m.billing ?? data?.billing) && <span className="model-billing">{(m.billing ?? data?.billing) === 'plan' ? 'Plan' : 'API'}</span>}{!m.vision && <span className="cfg-chip cfg-chip--warn">No images</span>}</span>
                 {price(m) && <span className="model-picker__meta">{price(m)}</span>}
               </button>
             ))}

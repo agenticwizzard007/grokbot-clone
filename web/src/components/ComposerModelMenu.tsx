@@ -3,9 +3,9 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, GripVertical, Minus, Search, Settings2, Star } from 'lucide-react';
 import type { Bot } from '@shared/types';
 import { configApi } from '../lib/configApi';
-import { defaultEffortFor, effortDescription, effortLabel, isTopEffort, ICON_AUTHORS, effectiveEffort, effortsFor, fallbackShort, modelSelection, useModels, type PickerModel } from '../lib/models';
+import { defaultEffortFor, effortDescription, effortLabel, isTopEffort, effectiveEffort, effortsFor, fallbackShort, modelSelection, useModels, type PickerModel } from '../lib/models';
 import { useStore } from '../store';
-import { ClaudeMascot } from './ClaudeMascot';
+import { ProviderMark } from './ProviderMark';
 import { ModelUsageDetails } from './ModelUsageDetails';
 import { PlanConnections } from './PlanConnections';
 import { useConfigUI } from '../configStore';
@@ -16,20 +16,7 @@ import { nextEffort } from '../lib/effortCycle';
 import { lastModelLabel, rememberModelLabel } from '../lib/modelMemory';
 import { composerModelLabel } from '../lib/composerModelLabel';
 
-/** OpenRouter's icon for the model's maker (served via our server), or a monogram. */
-export function ProviderIcon({ author, size = 16 }: { author: string; size?: number }) {
-  const [failed, setFailed] = useState(false);
-  if (author === 'openai') return <svg className="provider-icon" width={size} height={size} viewBox="20 20 88 88" aria-hidden="true"><use href="/assets/providers/openai.svg#mark" /></svg>;
-  // Claude models: Claude's own mascot, never the Anthropic logo.
-  if (author === 'anthropic') return <span className="provider-icon is-claude" style={{ width: size, height: size }}><ClaudeMascot size={size} /></span>;
-  if (ICON_AUTHORS.has(author) && !failed) {
-    return <img className="provider-icon" src={`/api/models/icon/${encodeURIComponent(author)}`} width={size} height={size} alt="" onError={() => setFailed(true)} />;
-  }
-  const hue = [...author].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
-  return <span className="provider-icon is-mono" style={{ width: size, height: size, fontSize: size * 0.62, background: `hsl(${hue} 45% 92%)`, color: `hsl(${hue} 45% 32%)` }} aria-hidden>{(author[0] ?? '?').toUpperCase()}</span>;
-}
 
-/** Save a change to the Bot and reflect it at once (the server echoes it over the event stream too). */
 async function patchBot(bot: Bot, p: Partial<Pick<Bot, 'model' | 'effort' | 'fast'>>) {
   const st = useStore.getState();
   st.set({ bots: st.bots.map((b) => (b.id === bot.id ? { ...b, ...p } : b)) });
@@ -89,7 +76,7 @@ export const ComposerModelMenu = memo(function ComposerModelMenu({ bot }: { bot:
         title={`${label}${known ? `. ${billingDescription}` : ''}`}
         aria-label={`Model: ${label}${known ? `, ${billingDescription}` : ''}${efforts.length ? `, ${effort ? effortLabel(effort, current) : 'Default'} effort` : ''}${bot.fast && models.canFast ? ', fast' : ''}. Change`}>
         <span className="model-pill__provider" aria-hidden>
-          {current ? <ProviderIcon author={current.author} /> : known && !planMode && bot.model ? <ProviderIcon author={bot.model.split('/')[0]} /> : null}
+          <ProviderMark provider={current?.author ?? (known && planMode ? models.provider : loading ? label : bot.model)} reserve />
         </span>
         <span className="model-pill__name">{composerModelLabel(mobile ? compactLabel : label, models.provider, planMode)}</span>
         {known && !codexPlan && !(mobile && planMode) && <span className="model-billing" title={billingDescription}>{planMode ? currentPlan : 'API'}</span>}
@@ -220,7 +207,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
         {i !== null ? <GripVertical size={14} strokeWidth={1.75} className="mm-row__grip" aria-hidden /> : <span className="mm-row__grip" aria-hidden />}
         <button type="button" className="mm-row__main" onClick={() => choose(m)} onKeyDown={i !== null ? rowKeys(i) : undefined} aria-current={selected || undefined}
           title={i !== null ? 'Alt+↑/↓ to reorder' : undefined}>
-          <ProviderIcon author={m.author} />
+          <ProviderMark provider={m.author} />
           <span className="mm-row__name">{fallbackShort(m.id, m.short)}{m.resolvedModel && <small className="mm-row__resolved">{fallbackShort(m.resolvedModel)}</small>}</span>
           <span className="model-billing" title={billing === 'plan' ? `Uses your ${planLabel(provider, plan)}` : 'Uses API billing'}>{billing === 'plan' ? 'Subscription' : 'API'}</span>
           {!m.vision && <span className="mm-row__meta">No images</span>}
@@ -270,7 +257,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
           </div>}
         </> : inlineEffort && view === 'effort' ? (
           <>
-            <div className="mm-sheet-head"><button type="button" className="mm-back" aria-label="Back to models" onClick={back}><ChevronLeft size={18} strokeWidth={1.75} /><span>{target?.short} · Effort</span></button></div>
+            <div className="mm-sheet-head"><button type="button" className="mm-back" aria-label="Back to models" onClick={back}><ChevronLeft size={18} strokeWidth={1.75} /><ProviderMark provider={target?.author} /><span>{target?.short} · Effort</span></button></div>
             {effortList}
           </>
         ) : (
@@ -280,7 +267,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
               <input ref={search} type="search" placeholder="Search models" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search models" />
             </label>
             {known && billing === 'plan' && <div className="mm-empty">
-              <p>{provider === 'codex-cli' ? 'Codex picks the model for each request. Uses your ChatGPT plan. Check plan limits in your ChatGPT account.' : `Uses your ${planLabel(provider, plan)} through Claude Code.`}</p>
+              <p><ProviderMark provider={provider} /> {provider === 'codex-cli' ? 'Codex picks the model for each request. Uses your ChatGPT plan. Check plan limits in your ChatGPT account.' : `Uses your ${planLabel(provider, plan)} through Claude Code.`}</p>
               <button type="button" className="link-btn" onClick={() => { onClose(); useConfigUI.getState().openAppSettings('subscriptions'); }}>Models &amp; access</button>
               {provider === 'codex-cli' && <> · <a href="https://chatgpt.com/codex/settings/usage" target="_blank" rel="noreferrer noopener">View ChatGPT plan usage</a></>}
             </div>}
@@ -291,7 +278,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
                   <li key={m.id} className={`mm-row${m.id === current?.id ? ' is-selected' : ''}`}>
                     <span className="mm-row__grip" aria-hidden />
                     <button type="button" className="mm-row__main" onClick={() => choose(m)}>
-                      <ProviderIcon author={m.author} />
+                      <ProviderMark provider={m.author} />
                       <span className="mm-row__name">{fallbackShort(m.id, m.short)}{m.resolvedModel && <small className="mm-row__resolved">{fallbackShort(m.resolvedModel)}</small>}</span>
           <span className="model-billing" title={billing === 'plan' ? `Uses your ${planLabel(provider, plan)}` : 'Uses API billing'}>{billing === 'plan' ? 'Subscription' : 'API'}</span>
           {!m.vision && <span className="mm-row__meta">No images</span>}
@@ -347,7 +334,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
           </>
         )}
       </div>
-      {!inlineEffort && view === 'effort' && <div className="mm-flyout"><div className="mm-effort-model">{target?.short}</div>{effortList}</div>}
+      {!inlineEffort && view === 'effort' && <div className="mm-flyout"><div className="mm-effort-model"><ProviderMark provider={target?.author} /> {target?.short}</div>{effortList}</div>}
       </div>
     </>
   );

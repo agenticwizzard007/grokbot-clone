@@ -1,5 +1,5 @@
 /**
- * Claude's pixel mascot, used for every Claude (Anthropic) model instead of the Anthropic logo.
+ * Decorative Claude Code pixel mascot. Plan and model labels use ProviderMark.
  * Drawn on an 11×6 pixel grid so it stays crisp at 16px. It blinks now and then; on hover of its
  * row or pill it hops and its legs patter (see composer-models.css). Still under reduced motion.
  */

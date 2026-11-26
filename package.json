@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "test:readiness-yy": "node --import tsx --test --test-concurrency=1 tests/api-approval-level.test.mts tests/api-run-diagnostics.test.mts tests/navigation-history.test.mts tests/navigation-labels.test.mts tests/structural-navigation.test.mts tests/qa-r3-settings.test.mts tests/native-knowledge.test.mts tests/plan-connections.test.mts && node tests/api-approval-ui.mjs && node tests/readiness-yy-ui.mjs",
+    "test:readiness-zz": "node --import tsx --test tests/provider-brand.test.mts tests/composer-first-render.test.mts tests/composer-model-label.test.mts && node tests/provider-logos-ui.mjs",
     "test:readiness-vv": "node --import tsx --test tests/openrouter.test.mts tests/plan-connections.test.mts tests/settings-connections-regressions.test.mts && node tests/readiness-vv-ui.mjs",
     "test:readiness-uu": "node --import tsx --test tests/saved-file-result.test.mts tests/readiness-mm.test.mts tests/qa-r3-settings.test.mts tests/navigation-labels.test.mts tests/structural-navigation.test.mts && node tests/readiness-uu-ui.mjs",
     "test:saved-file-result": "node --import tsx --test tests/saved-file-result.test.mts tests/readiness-mm.test.mts tests/chat-line-breaks.test.mts && node tests/saved-file-result-ui.mjs && node tests/saved-file-link-ui.mjs",

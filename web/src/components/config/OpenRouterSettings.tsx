@@ -1,3 +1,4 @@
+import { ProviderLabel, ProviderText } from '../ProviderMark';
 import { Blocks, Check, Gauge, KeyRound, LogIn, Server, ShieldCheck } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useModels } from '../../lib/models';
@@ -71,15 +72,15 @@ function AccountOpenRouterSettings({ accountId, onReauth, onChanged, refreshToke
       : 'In use now: server API defaults. Usage is billed to the account that supplies those credentials.';
   return <section className="cfg-section openrouter-settings" aria-labelledby="personal-openrouter-title">
     <div className="app-settings__head">
-      <h1 id="personal-openrouter-title">Your OpenRouter connection</h1>
+      <h1 id="personal-openrouter-title"><ProviderLabel provider="openrouter">Your OpenRouter connection</ProviderLabel></h1>
       <p>Add your own OpenRouter key here. Your ChatGPT or Claude plan stays signed in when you add, replace or remove a key.</p>
     </div>
     {!status ? (error ? <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => { setError(null); setAttempt(n => n + 1); }}>Retry OpenRouter status</button> : <p role="status">Loading OpenRouter…</p>) : <>
       <AccessRow icon={KeyRound} title="Personal key" description={status.hint ? `${status.source === 'oauth' ? 'Authorized key' : 'Manual key'} · ${status.hint}` : 'No personal key saved. Add one to pay OpenRouter directly for API turns.'}
-        status={active ? status.connected ? 'OpenRouter · Active' : 'OpenRouter · Reconnect to continue' : status.connected ? 'OpenRouter · Connected' : 'Not connected'} />
-      <p className="openrouter-settings__route" role="status">{route}</p>
+        status={<ProviderLabel provider={active || status.connected ? 'openrouter' : null}>{active ? status.connected ? 'OpenRouter · Active' : 'OpenRouter · Reconnect to continue' : status.connected ? 'OpenRouter · Connected' : 'Not connected'}</ProviderLabel>} />
+      <p className="openrouter-settings__route" role="status"><ProviderText>{route}</ProviderText></p>
       <p className="cfg-field__hint">Choose Use API providers to use your saved OpenRouter key, even if personal credits are off. You pay OpenRouter for those turns. Connected plans stay signed in.</p>
-      <AccessRow icon={LogIn} title="OpenRouter sign-in" description={status.linked ? 'Linked to this Swarm account.' : 'A manual key does not enable sign-in.'}>
+      <AccessRow icon={LogIn} title={<ProviderLabel provider="openrouter">OpenRouter sign-in</ProviderLabel>} description={status.linked ? 'Linked to this Swarm account.' : 'A manual key does not enable sign-in.'}>
         {!(status.connected && status.linked) && <a className="cfg-btn cfg-btn--secondary openrouter-settings__oauth" href={oauth} aria-disabled={disabled || busy} onClick={e => {
           e.preventDefault();
           if (disabled || running.current || !current()) return;

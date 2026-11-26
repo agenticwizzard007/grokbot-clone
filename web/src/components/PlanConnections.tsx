@@ -1,3 +1,4 @@
+import { ProviderLabel, ProviderText } from './ProviderMark';
 import { Terminal } from 'lucide-react';
 import { SettingRow } from './config/SettingRow';
 import { useEffect, useState } from 'react';
@@ -49,9 +50,9 @@ function AccountPlanConnections({ onClose, settings }: { onClose?: () => void; s
         onClose?.(); useConfigUI.getState().openAppSettings('subscriptions', provider.id);
       }}>{active ? 'Manage' : available ? 'Use subscription' : 'Connect plan'}</button>;
       return settings
-        ? <SettingRow key={provider.id} icon={Terminal} title={provider.name} sub={`Via ${provider.cli}`} status={<span role="status">{connectionStatus}</span>}>{control}</SettingRow>
+        ? <SettingRow key={provider.id} icon={Terminal} title={<ProviderLabel provider={provider.id}>{provider.name}</ProviderLabel>} sub={<>Via <ProviderLabel provider={provider.id}>{provider.cli}</ProviderLabel></>} status={<span role="status"><ProviderText>{connectionStatus}</ProviderText></span>}>{control}</SettingRow>
         : <div className="plan-connections__provider" key={provider.id}>
-          <div><strong>{provider.name}</strong><small>Via {provider.cli}</small><span role="status">{connectionStatus}</span></div>
+          <div><strong><ProviderLabel provider={provider.id}>{provider.name}</ProviderLabel></strong><small>Via <ProviderLabel provider={provider.id}>{provider.cli}</ProviderLabel></small><span role="status"><ProviderText>{connectionStatus}</ProviderText></span></div>
           {control}
         </div>;
     })}

@@ -1,3 +1,4 @@
+import { ProviderMark } from './ProviderMark';
 import { planLabel } from '../lib/planLabel';
 import { RefreshCw } from 'lucide-react';
 import { useModels } from '../lib/models';
@@ -21,7 +22,7 @@ export function ModelUsageDetails({ onClose }: { onClose: () => void }) {
   return <section className={`usage-mode__panel${planMode ? ' is-plan' : ''}`} aria-label="Connection and usage">
     <header className="usage-mode__heading">
       <span className="usage-mode__eyebrow">{loading ? 'Connection' : failed ? 'Connection needs attention' : !known ? 'Connection' : planMode ? 'Plan' : 'API credits'}</span>
-      <h2>{loading ? 'Checking your connection…' : failed ? 'Check your connection' : !known ? 'Choose how your Bots run' : planMode ? `Your ${planLabel(catalog.provider, catalog.plan)}` : name}</h2>
+      <h2>{known && <><ProviderMark provider={catalog.provider} /> </>}{loading ? 'Checking your connection…' : failed ? 'Check your connection' : !known ? 'Choose how your Bots run' : planMode ? `Your ${planLabel(catalog.provider, catalog.plan)}` : name}</h2>
       <p>{loading ? 'Getting the latest connection and usage information.' : failed ? 'We couldn’t verify this connection. Refresh or manage it to check its status.' : !known ? 'Connect a subscription or an API key in Settings.' : planMode ? 'Your Bots use this subscription connection. Provider limits and extra usage settings apply.' : 'Model requests use the connected API key and are billed by usage.'}</p>
     </header>
     {known && (planMode ? <div className="usage-mode__usage">
@@ -30,7 +31,7 @@ export function ModelUsageDetails({ onClose }: { onClose: () => void }) {
         <progress aria-label={w.label} max={100} value={w.usedPercent} />
         <span className="usage-mode__muted">{w.resetsAt !== null ? `Resets ${dateLabel(w.resetsAt)}` : 'Reset time unavailable'}</span>
       </div>) : <p className="usage-mode__empty">{usageState === 'stale' ? 'Usage needs a refresh. Previous limits may no longer be current.' : 'Usage isn’t available from your provider right now. Check your provider account for current limits.'}</p>}
-      {checkedAt !== null && <p className="usage-mode__muted">Last checked {dateLabel(checkedAt)} · {catalog.provider === 'claude-cli' ? 'Claude' : 'Codex'}</p>}
+      {checkedAt !== null && <p className="usage-mode__muted">Last checked {dateLabel(checkedAt)} · <ProviderMark provider={catalog.provider} /> {catalog.provider === 'claude-cli' ? 'Claude' : 'Codex'}</p>}
     </div> : <div className="usage-mode__api-note"><strong>Pay per use</strong><p>View recorded spending in Usage. Your provider manages key balances and budgets.</p></div>)}
     <p className="usage-mode__scope">Model usage only. Voice and other services have separate billing.</p>
     <PlanConnections onClose={onClose} />

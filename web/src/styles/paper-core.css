@@ -94,7 +94,7 @@
   .app .composer__voice { width: 44px; padding: 0; gap: 0; }
   .app .composer__voice-label { display: none; }
   .app .model-pill { display: inline-flex; gap: 4px; padding: 4px; }
-  .app .model-pill__provider > .provider-icon, .app .model-pill__chev { display: none; }
+  .app .model-pill__chev { display: none; }
   .app .model-pill__effort, .app .model-pill .model-billing { flex-shrink: 0; }
 }
 @media (max-height: 550px) {

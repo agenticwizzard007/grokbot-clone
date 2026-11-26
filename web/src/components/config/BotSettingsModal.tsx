@@ -1,3 +1,4 @@
+import { ProviderMark } from '../ProviderMark';
 import { useModels, effortsFor, effectiveEffort, effortLabel, effortDescription, defaultEffortFor, modelSelection } from '../../lib/models';
 import { BotModelField } from './BotModelField';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
@@ -238,7 +239,7 @@ function GeneralTab({ bot, onClose, draft: generalDraft, setDraft }: { bot: Bot;
           <textarea id="cfg-instructions" className="text-input cfg-textarea cfg-textarea--tall" rows={7} value={draft.instructions} maxLength={8000} placeholder="e.g. Keep updates to three bullets. Never email anyone outside the team without asking." onChange={(e) => put('instructions', e.target.value)} />
         </Field>
         <Field label="Thinking effort" hint={supportedEfforts.length ? selectedEffort ? effortDescription(selectedEffort, modelInfo) : 'Uses the provider default.' : 'Select a model to see its supported effort levels. The default uses the provider’s settings.'}>
-          {supportedEfforts.length > 0 && <Segmented label="Thinking effort" value={shownEffort} options={supportedEfforts} onChange={chooseEffort} />}
+          {supportedEfforts.length > 0 && <div className="provider-label"><ProviderMark provider={modelInfo?.author} /><Segmented label="Thinking effort" value={shownEffort} options={supportedEfforts} onChange={chooseEffort} /></div>}
         </Field>
         <Field label="Model" hint="Which AI model this Bot thinks with. Default follows your active API or plan connection.">
           <BotModelField value={draft.model} onChange={chooseModel} />

@@ -1,3 +1,4 @@
+import { ProviderLabel } from '../ProviderMark';
 import { KeyRound } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { accessApi, verifyAccessAccount } from '../../lib/accessApi';
@@ -63,7 +64,7 @@ export function PrivateKeysSettings({ accountId, onReauth }: { accountId: string
         setValues(previous => ({ ...previous, [provider]: '' }));
         void act(() => accessApi.saveCredential(provider, key), `${title} key verified and saved.`);
       }}>
-        <label htmlFor={`private-${provider}-key`}>{title}</label>
+        <label htmlFor={`private-${provider}-key`}><ProviderLabel provider={provider === "voice" ? "xai" : null}>{title}</ProviderLabel></label>
         <input id={`private-${provider}-key`} className="text-input" type="password" autoComplete="off" spellCheck={false} value={values[provider]} onChange={event => setValues(previous => ({ ...previous, [provider]: event.target.value }))} disabled={busy} />
         <AccessRow icon={KeyRound} title={saved?.connected ? `Connected ${saved.hint ?? ''}` : 'No credential configured'} description={provider === 'voice' ? 'Used for supported voice features.' : 'Verify the key before selecting it for models.'}>
           <button type="submit" className="cfg-btn cfg-btn--secondary" disabled={busy || !values[provider].trim()}>Save &amp; verify key</button>
