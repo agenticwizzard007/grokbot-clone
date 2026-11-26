@@ -63,7 +63,7 @@ for (const mode of ['codex', 'standard']) {
     db.prepare("INSERT INTO policies(user_id,tool,mode) VALUES(?,?,'always_allow')").run(mode, slug);
     assert.equal((await executionPolicyFor(mode, 'SWARM_APPS_EXECUTE', args(slug), bots[mode].id)).decision, 'allow');
   });
-  for (const slug of ['GMAIL_FETCH_EMAILS', 'GMAIL_LIST_DRAFTS', 'GMAIL_GET_DRAFT', 'GMAIL_GET_SEND_AS_ALIAS', 'WORDPRESS_GET_POST', 'SLACK_LIST_MESSAGES', 'NOTION_RETRIEVE_PAGE', 'GOOGLECALENDAR_LIST_EVENTS', 'GOOGLEDRIVE_GET_FILE', 'ANYAPP_PEEK']) test(`R11-2 ${mode}: attested read ${slug} stays free`, async () => {
+  for (const slug of ['GMAIL_FETCH_EMAILS', 'GMAIL_LIST_DRAFTS', 'GMAIL_GET_DRAFT', 'GMAIL_GET_SEND_AS_ALIAS', 'WORDPRESS_GET_POST', 'GITHUB_GET_WORKFLOW_RUN', 'GITHUB_LIST_OPEN_ISSUES', 'GITHUB_GET_COMMIT', 'SLACK_LIST_MESSAGES', 'NOTION_RETRIEVE_PAGE', 'GOOGLECALENDAR_LIST_EVENTS', 'GOOGLEDRIVE_GET_FILE', 'ANYAPP_PEEK']) test(`R11-2 ${mode}: attested read ${slug} stays free`, async () => {
     accounts = [account(slug.split('_')[0].toLowerCase())]; tools = [tool(slug)];
     const policy = await executionPolicyFor(mode, 'SWARM_APPS_EXECUTE', args(slug), bots[mode].id);
     assert.equal(policy.decision, 'allow'); assert.equal(policy.readOnlyApps, true);
