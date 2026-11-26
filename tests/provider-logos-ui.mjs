@@ -22,7 +22,7 @@ const catalogMakers = [
   ['upstage', 'upstage'], ['xiaomi', 'xiaomimimo'], ['google', 'gemini'], ['meta-llama', 'meta'],
   ['mistralai', 'mistral'], ['deepseek', 'deepseek'], ['qwen', 'qwen'], ['moonshotai', 'moonshot'], ['cohere', 'cohere'],
   ['unlisted-maker', 'openrouter'],
-].map(([author, mark]) => ({ ...model(`${author}/catalog-model`, `Catalog ${author}`, author), mark }));
+].map(([author, mark]) => ({ ...model(`${author}/catalog-model`, `Catalog complete extended model for ${author}`, author), mark }));
 const cases = [
   { name: 'catalog-makers', provider: 'openrouter', selected: null, billing: 'api', mark: 'zai', models: catalogMakers },
   { name: 'claude', provider: 'claude-cli', selected: 'claude', billing: 'plan', plan: 'max', mark: 'claude', models: [model('claude/opus-4-6', 'Opus 4.6', 'anthropic')] },
@@ -64,6 +64,12 @@ async function inspectMark(mark) {
   return mark;
 }
 async function readable(scope) {
+  for (const row of await scope.locator('.mm-row').all()) {
+    assert.equal(await row.evaluate(el => {
+      const box = el.getBoundingClientRect(), label = el.querySelector('.mm-row__name').getBoundingClientRect();
+      return label.top >= box.top - 1 && label.bottom <= box.bottom + 1;
+    }), true, 'wrapped model labels stay inside their own row without overlapping adjacent rows');
+  }
   for (const mark of await scope.locator('svg.provider-icon').all()) if (await mark.isVisible()) await inspectMark(mark);
   for (const label of await scope.locator('.provider-label__text, .model-pill__name, .model-pill__effort, .mm-row__name, .mm-row__resolved, .mm-back > span, .model-picker__current, .model-picker__name, .model-picker__meta').all()) {
     if (!await label.isVisible()) continue;
@@ -147,6 +153,7 @@ try {
       if (sample.name === 'catalog-makers') {
         await picker.getByRole('searchbox', { name: 'Search models', exact: true }).fill('/');
         for (const item of catalogMakers) await markVisible(picker.locator('.mm-row__main').filter({ hasText: item.short }), item.mark);
+        await readable(picker);
         await picker.getByRole('searchbox', { name: 'Search models', exact: true }).fill('');
       }
       if (sample.models.length) {
