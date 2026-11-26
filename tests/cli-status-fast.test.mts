@@ -124,6 +124,10 @@ test('client restores only this account and retains connected health through col
   await assert.rejects(cliApi.status(), /offline/);
   assert.equal(getCachedCliStatus()?.statusUnavailable, true);
   assert.equal(getCachedCliStatus()?.providers.codex.subscription, true);
+  response = { runtime: 'server', selected: 'codex', connected: true, providers: { claude: ready, codex: { ...missing, error: 'Probe failed' } } };
+  await cliApi.status();
+  response = { ...response, statusChecking: true };
+  assert.equal((await cliApi.status()).providers.codex.subscription, true, 'retry shows the last verified health instead of the prior failed probe');
   response = { runtime: 'server', selected: null, connected: true, providers: { claude: missing, codex: missing } };
   assert.equal((await cliApi.status()).providers.codex.subscription, false);
   useStore.setState({ user: { id: 'persisted-b' } as any });

@@ -65,15 +65,20 @@ useStore.subscribe((state, previous) => {
 
 function preserveStatus(next: CliStatus): CliStatus {
   const previous = cachedStatus;
-  if (!previous || previous.runtime !== next.runtime || !next.statusChecking && !next.statusUnavailable) return next;
+  if (!next.statusChecking && !next.statusUnavailable) return next;
+  const stored = restoreStatus(useStore.getState().user?.id);
+  const history = stored?.runtime === next.runtime ? stored : null;
+  const prior = previous?.runtime === next.runtime ? previous : history;
+  if (!prior) return next;
   const providers = { ...next.providers };
   for (const provider of ['codex', 'claude'] as const) {
     // Pending snapshots contain empty health, not evidence of a disconnected plan.
-    if (!providers[provider].authenticated && !providers[provider].error && previous.providers[provider].subscription) {
-      providers[provider] = previous.providers[provider];
+    const known = prior.providers[provider].subscription && !prior.providers[provider].error ? prior.providers[provider] : history?.providers[provider];
+    if (known?.subscription && !known.error && (!providers[provider].authenticated || providers[provider].error)) {
+      providers[provider] = known;
     }
   }
-  return { ...next, connected: next.connected || previous.connected, providers };
+  return { ...next, connected: next.connected || prior.connected || !!history?.connected, providers };
 }
 
 function persistStatus(accountId: string | undefined, status: CliStatus) {
