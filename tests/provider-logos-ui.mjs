@@ -71,6 +71,7 @@ try {
       const icon = await markVisible(pill, sample.mark);
       assert.deepEqual(await icon.boundingBox(), beforeArtwork, 'loading the artwork does not move or resize its slot');
       const iconBox = await icon.boundingBox(), textBox = await pill.locator('.model-pill__name').boundingBox();
+      assert.ok(textBox.width > 0, 'the model name keeps visible space beside the mark and effort');
       assert.ok(iconBox.x + iconBox.width <= textBox.x + 1, 'mark precedes the plan/model label');
       assert.ok(Math.abs(iconBox.y + 8 - (textBox.y + textBox.height / 2)) < 1, 'mark aligns with the label');
       if (sample.models.length) assert.equal(await pill.locator('.model-pill__effort').isVisible(), true);
