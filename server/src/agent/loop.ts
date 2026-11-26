@@ -1,6 +1,6 @@
 import { isReviewApproval } from './review-approvals.js';
 import { resumeVoiceApproval } from '../voice-action-approvals.js';
-import { asksBeforeEveryAction, MAX_APPROVAL_PREFIX, PROVIDER_SEARCH_DISABLED } from './approval-level.js';
+import { asksBeforeEveryAction, MAX_APPROVAL_PREFIX } from './approval-level.js';
 import { ApiCreditsError, isCreditError } from '../lib/model-request-policy.js';
 import { abortable, currentRun, withRun, type RunScope } from './run-scope.js';
 import { connectedDate, connectionStatusLabel, fallbackAccountLabel, visibleConnections } from '../connection-details.js';
@@ -35,7 +35,7 @@ import { approvalBinding } from '../security/approval.js';
 import { acceptJob, beginJob, finishJob, recoverJobs, beginTool, finishTool } from './jobs.js';
 import { afterCommit } from '../lib/commit-effects.js';
 import { BrowserRecovery } from './browser-recovery.js';
-import { assembleToolCatalog, resolveToolCall, validateToolArguments } from './tool-catalog.js';
+import { assembleToolCatalog, resolveToolCall, toolSchemaHash, validateToolArguments } from './tool-catalog.js';
 import { runProgram, isProgramResumable, recoverPrograms, cancelProgram } from './programs.js';
 import { configureWorkflowRuntime, workflowPreTurn, checkWorkflowBudget, workflowToolGate, workflowAfterTurn, recoverWorkflows } from './workflows.js';
 import { onJobStarted, onJobFinished, recoverDeliverables, drainDeliveries } from '../deliverables/index.js';
@@ -70,7 +70,7 @@ interface PendingState {
   /** Keep paused approvals bound to the computer on which this batch was planned. */
   computerRevision?: number;
   /** function_call items still to process, in order. */
-  calls: { call_id: string; name: string; arguments: string; rowSeq: number }[];
+  calls: { call_id: string; name: string; arguments: string; rowSeq: number; schemaHash?: string }[];
   /** outputs already produced for this batch. */
   outputs: any[];
   approvalId: string;
@@ -437,7 +437,6 @@ async function runScopedTurn(botId: string, trigger: Trigger, jobId: string, ctr
   // Every row they write to the member's own transcript is explicitly internal.
   if (trigger.roomId) ctx.readOnlyApps = true;
   const audience = turnAudience(ctx);
-  if (asksBeforeEveryAction(userId) && trigger.type !== 'resume') appendRow(trigger.roomId ?? botId, 'notice', { type: 'notice', text: PROVIDER_SEARCH_DISABLED, tone: 'info', audience: 'user' });
   ctx.availableTools = trigger.roomId
     ? async () => functionSchemas(botId).filter(t => allowedInGroupTurn(t.name))
     : async () => [
@@ -702,16 +701,29 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
     let args = safeParse(c.arguments) ?? {};
     const row = getRow(botId, c.rowSeq);
     let body = { ...(row?.body ?? {}), jobId: ctx.jobId } as ToolCallBody & { jobId?: string };
+    // Resume wrappers already dispatched by an older server through their original
+    // inner call identity. New wrappers resolve before policy and never enter this path.
+    const legacyWrapper = c.name === 'tool_call' && st.approvedWrappers?.includes(c.call_id);
     try {
-      if (c.name === 'tool_call' && !asksBeforeEveryAction(userId)) {
+      if (c.name === 'tool_call' && !legacyWrapper) {
+        // Approve the resolved action once, with its actual name and arguments.
         const resolved = await resolveToolCall(await ctx.availableTools!(), args);
-        c = { ...c, name: resolved.name, arguments: JSON.stringify(resolved.args) };
+        const wrapperApproval = st.approvalId ? db.prepare('SELECT call_id,tool,status,binding_hash FROM approvals WHERE id=? AND bot_id=?').get(st.approvalId, botId) as any : undefined;
+        if (wrapperApproval?.call_id === c.call_id && wrapperApproval.tool === `${MAX_APPROVAL_PREFIX}tool_call`
+          && ['allowed', 'always'].includes(wrapperApproval.status)
+          && wrapperApproval.binding_hash === approvalBinding(userId, botId, c.call_id, 'tool_call', args)) {
+          // A decision on an old generic card is not permission for the named action.
+          st.approvalId = '';
+        }
+        c = { ...c, name: resolved.name, arguments: JSON.stringify(resolved.args), schemaHash: args.schema_hash };
+        st.calls[0] = c;
         args = resolved.args;
-        body = { ...body, name: c.name, args };
+        body = { ...body, name: c.name, args, label: activityFor(c.name, args).label };
       }
       if (ctx.availableTools) {
         const definition = (await ctx.availableTools()).find(t => t.type === 'function' && t.name === c.name);
         if (!definition) throw new Error('This tool is no longer available to this Bot.');
+        if (c.schemaHash && c.schemaHash !== toolSchemaHash(definition)) throw new Error('The tool schema changed. Describe it again before executing.');
         await validateToolArguments(definition, args);
       }
       turnSignal(botId)?.throwIfAborted();
@@ -775,7 +787,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
     if(invalidateStaleContext())break;
     let decision = connectionRequired ? 'block' : pol.decision;
     if (st.nativeRequireApproval && decision === 'allow') decision = 'ask';
-    if (st.approvedWrappers?.includes(c.call_id) && ['execute_code', 'tool_call'].includes(c.name)) decision = 'allow';
+    if (legacyWrapper || st.approvedWrappers?.includes(c.call_id) && c.name === 'execute_code') decision = 'allow';
     if (ap && ap.call_id === c.call_id) {
       if (ap.status === 'pending') return true;
       decision = ap.bot_id === botId && ['allowed', 'always'].includes(ap.status)
@@ -827,9 +839,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
         if (!beginTool(botId, c.call_id, c.name, approvalBinding(userId, botId, c.call_id, c.name, args))
           && !(c.name === 'execute_code' && isProgramResumable(c.call_id, botId)) && !st.approvedWrappers?.includes(c.call_id)) throw new Error('This action has already been dispatched. Reconcile its outcome before requesting another action.');
         const impl = toolMap.get(c.name);
-        if (c.name === 'tool_call') {
-          st.approvedWrappers ??= [];
-          if (!st.approvedWrappers.includes(c.call_id)) st.approvedWrappers.push(c.call_id);
+        if (legacyWrapper) {
           const resolved = await resolveToolCall(await ctx.availableTools!(), args);
           const innerId = `${c.call_id}:resolved`;
           const existing = db.prepare("SELECT seq FROM rows WHERE bot_id=? AND generation=? AND kind='tool-call' AND json_extract(body,'$.callId')=? ORDER BY seq DESC LIMIT 1").get(botId, getBotRow(botId).generation, innerId) as { seq: number } | undefined;

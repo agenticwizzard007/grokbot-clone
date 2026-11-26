@@ -41,6 +41,7 @@ try {
     assert.equal(await select().inputValue(), 'standard');
     await select().selectOption('every_action'); await until(async () => (await (await context.request.get(`${origin}/api/account/preferences`)).json()).apiApprovalLevel === 'every_action');
     await page.getByText('Every action asks first', { exact: false }).waitFor();
+    await page.getByText('Provider search is unavailable at this level.', { exact: false }).waitFor();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.screenshot({ path: path.join(evidence, `permissions-${width}-${theme}.png`), fullPage: true });
     await settings('subscriptions'); await until(async () => await select().inputValue() === 'every_action');
@@ -49,12 +50,19 @@ try {
     await page.screenshot({ path: path.join(evidence, `models-${width}-${theme}.png`), fullPage: true });
     await closeSettings();
     const before = await state();
-    for (const text of ['JJ memory: My fixture color preference is green.', 'JJ file', 'JJ app']) {
+    for (const text of ['JJ memory: My fixture color preference is green.', 'JJ file', 'JJ app', 'JJ wrapped file']) {
+      const cardCount = await page.locator('.approval-card').count();
       await send(text);
       const pending = page.locator('.approval-card').filter({ has: page.getByRole('button', { name: "Don't allow", exact: true }) });
       await pending.waitFor();
+      assert.equal(await page.locator('.approval-card').count(), cardCount + 1);
+      if (text === 'JJ wrapped file') {
+        assert.match(await pending.innerText(), /save file/i);
+        assert.doesNotMatch(await pending.innerText(), /tool call/i);
+      }
       assert.equal((await state()).files, before.files); assert.equal((await state()).memories, before.memories); assert.equal((await state()).executions, before.executions);
       await pending.scrollIntoViewIfNeeded();
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       await page.screenshot({ path: path.join(evidence, `card-${text.split(' ')[1].replace(':', '')}-${width}-${theme}.png`), fullPage: true });
       await pending.getByRole('button', { name: "Don't allow", exact: true }).click();
       await until(async () => (await state()).pending === 0);
@@ -64,11 +72,23 @@ try {
     await helperCard.waitFor(); assert.match(await helperCard.innerText(), /Fixture helper/);
     await helperCard.getByRole('button', { name: "Don't allow", exact: true }).click();
     await until(async () => (await state()).pending === 0);
-    await send('JJ search the web'); await page.getByText('Provider search is unavailable while Ask before every action is on.', { exact: false }).first().waitFor();
+    const finished = await page.getByText('Fixture turn finished.', { exact: true }).count();
+    await send('JJ search the web');
+    await until(async () => await page.getByText('Fixture turn finished.', { exact: true }).count() > finished);
+    assert.equal(await page.getByText('Provider search is unavailable', { exact: false }).count(), 0);
     assert.deepEqual(await state(), before, 'all denied actions remain undone');
+    const cards = await page.locator('.approval-card').count();
+    await send('JJ wrapped file');
+    const saveCard = page.locator('.approval-card').filter({ has: page.getByRole('button', { name: "Don't allow", exact: true }) });
+    await saveCard.waitFor(); assert.match(await saveCard.innerText(), /save file/i);
+    assert.equal((await state()).files, before.files);
+    await saveCard.getByRole('button', { name: 'Allow', exact: true }).click();
+    await until(async () => (await state()).files === before.files + 1);
+    assert.equal(await page.locator('.approval-card').count(), cards + 1);
+    assert.equal((await state()).pending, 0);
     await settings('permissions'); await select().selectOption('standard'); await until(async () => (await (await context.request.get(`${origin}/api/account/preferences`)).json()).apiApprovalLevel === 'standard'); await closeSettings();
     await send('JJ memory: My fixture breakfast preference is oats.'); await until(async () => (await state()).memories > before.memories);
-    await send('JJ file'); await until(async () => (await state()).files > before.files);
+    await send('JJ file'); await until(async () => (await state()).files > before.files + 1);
     await send('JJ app'); await until(async () => (await state()).executions > before.executions);
     assert.equal((await state()).pending, 0);
     await context.request.post(`${origin}/api/fixture/cli`, { data: { botId: bot.id, provider: theme === 'light' ? 'codex' : 'claude' } });
@@ -76,7 +96,7 @@ try {
       await settings(section); await page.getByText('This applies when you use API providers.', { exact: false }).waitFor(); assert.equal(await select().isDisabled(), true); await closeSettings();
     }
     assert.deepEqual(errors, []);
-    console.log(`PASS ${width} ${theme}: both settings, max cards, denied actions unchanged, search disabled, Standard automatic, CLI disabled`);
+    console.log(`PASS ${width} ${theme}: both settings, one named wrapper card, deny unchanged, allow saves, no search notices, Standard automatic, CLI disabled`);
     await context.close();
   }
 } catch (error) { console.error(logs.join('').slice(-6000)); if (page && !page.isClosed()) { console.error((await page.locator('body').innerText()).slice(-4000)); await page.screenshot({ path: path.join(evidence, 'failure.png') }); } throw error; }

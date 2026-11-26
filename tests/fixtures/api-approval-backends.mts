@@ -44,6 +44,11 @@ mock.method(llmClient(360_000).responses, 'create', async (body: any) => {
   if (last?.role === 'user') {
     const text = String(last.content);
     if (text.includes('JJ memory:')) return streamTool('remember', { text: text.split('JJ memory:')[1].trim() });
+    if (text.includes('JJ wrapped file')) {
+      const { functionSchemas } = await import('../../server/src/agent/tools.js');
+      const { toolSchemaHash } = await import('../../server/src/agent/tool-catalog.js');
+      return streamTool('tool_call', { tool_name: 'save_file', schema_hash: toolSchemaHash(functionSchemas().find(t => t.name === 'save_file')!), arguments: { filename: 'wrapped-fixture.txt', content: 'Local wrapped file' } });
+    }
     if (text.includes('JJ file')) return streamTool('save_file', { filename: 'approval-fixture.txt', content: 'Local fixture file' });
     if (text.includes('JJ app')) return streamTool('SWARM_APPS_EXECUTE', appArgs);
   }
