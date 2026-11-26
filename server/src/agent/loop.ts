@@ -1,6 +1,7 @@
 import { ApiCreditsError, isCreditError } from '../lib/model-request-policy.js';
 import { abortable, currentRun, withRun, type RunScope } from './run-scope.js';
-import { connectedDate, connectionStatusLabel, fallbackAccountLabel } from '../connection-details.js';
+import { connectedDate, connectionStatusLabel, fallbackAccountLabel, visibleConnections } from '../connection-details.js';
+import { AppToolFailure } from './app-errors.js';
 import { TurnInterruption, interruptionMessage, type InterruptionSource } from './interruption.js';
 import { recordModelUsage, withUsage } from '../usage.js';
 import { selectedCli } from '../cli/store.js';
@@ -513,6 +514,7 @@ async function runScopedTurn(botId: string, trigger: Trigger, jobId: string, ctr
       if (!budget.allowed) throw new Error(budget.reason ?? 'Workflow budget exhausted.');
       ctx.remainingTokens = budget.remainingTokens;
       let nativeCount = 0;
+      let nativeFailure: AppToolFailure | undefined;
       let nativeBoundary: 'approval' | 'end' | 'replan' | 'checkpoint' | undefined;
       const nativeCall: NativeToolHandler = async call => {
         ctrl.signal.throwIfAborted();
@@ -536,7 +538,14 @@ async function runScopedTurn(botId: string, trigger: Trigger, jobId: string, ctr
         toolRows.push(row.seq);
         const state: PendingState = { jobId, computerRevision: currentComputerRevision() ?? localAccess(userId).revision,
           calls: [{ ...item, rowSeq: row.seq }], outputs: [], approvalId: '', depth };
-        const paused = await processCalls(ctx, state);
+        let paused = false;
+        try { paused = await processCalls(ctx, state); }
+        catch (error) {
+          if (!(error instanceof AppToolFailure)) throw error;
+          // Return the persisted, sanitized failure to MCP before ending the job.
+          // Throwing from its handler would replace it with a generic runner failure.
+          nativeFailure = error;
+        }
         const output = state.outputs.find(value => value.call_id === item.call_id)?.output;
         if (paused) nativeBoundary = 'approval';
         else if (state.outputs.some(value => value.__endTurn)) nativeBoundary = 'end';
@@ -551,6 +560,7 @@ async function runScopedTurn(botId: string, trigger: Trigger, jobId: string, ctr
       iterations++;
       ctx.learningIteration=iterations;
       const result = await withNativeTools(userId, nativeCall, () => callModel(ctx, tools, ctrl.signal));
+      if (nativeFailure) throw nativeFailure;
       appendHistory(botId, result.output);
       finalText = result.output.filter((item: any) => item.type === 'message').flatMap((item: any) => item.content ?? []).filter((part: any) => part.type === 'output_text').map((part: any) => part.text).join('\n');
       if (nativeBoundary === 'approval' || nativeBoundary === 'end') return;
@@ -867,7 +877,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
     appendHistory(botId, st.outputs.map(({ __endTurn, ...o }: any) => o));
     db.prepare('DELETE FROM pending_turns WHERE bot_id=?').run(botId);
   }
-  if (failure) throw new Error(failure);
+  if (failure) throw new AppToolFailure(failure);
   setLive(botId, { isRunning: true, activity: { kind: 'thinking', since: now() }, awaiting: null });
   return false;
 }
@@ -1114,7 +1124,7 @@ export async function activeAppAccount(userId: string, args: any): Promise<{ ok:
   const slug = typeof args?.tool_slug === 'string' ? args.tool_slug : '';
   const app = appName(slug.split('_')[0]) ?? 'app';
   let accounts: Awaited<ReturnType<typeof connectionsDetail>>;
-  try { accounts = await connectionsDetail(userId, { details: true, signal: AbortSignal.timeout(15_000) }); }
+  try { accounts = visibleConnections(await connectionsDetail(userId, { details: true, signal: AbortSignal.timeout(15_000) })); }
   catch { return { ok: false, message: `The ${app} connection could not be confirmed because the app provider did not return its status. Open Connected apps to check the account, then ask again. Nothing was done.` }; }
   const usable = accounts.filter(a => a.status === 'ACTIVE' && !a.isDisabled);
   const account = usable.find(a => a.id === args?.connectionId && toolkitMatches(a.toolkit, slug));

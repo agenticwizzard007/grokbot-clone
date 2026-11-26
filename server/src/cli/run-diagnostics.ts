@@ -3,7 +3,7 @@ import { assertTenant } from '../deployment.js';
 import { attribution } from '../usage-context.js';
 import { safeToolName, type CliDiagnosticEvent } from './diagnostics.js';
 
-const errorCodes = new Set(['cli_tool_host_disabled', 'cli_tool_host_unavailable', 'cli_login_disabled', 'mcp_auth', 'mcp_startup', 'cli_approval_rejected', 'tool_unavailable', 'timeout', 'cli_auth', 'mcp_configuration', 'app_reconnect', 'app_connection', 'policy_denied', 'cancelled', 'invalid_arguments', 'tool_or_runner_error', 'mcp_transport']);
+const errorCodes = new Set(['cli_tool_host_disabled', 'cli_tool_host_unavailable', 'cli_login_disabled', 'mcp_auth', 'mcp_startup', 'cli_approval_rejected', 'tool_unavailable', 'timeout', 'cli_auth', 'mcp_configuration', 'app_reconnect', 'app_connection', 'policy_denied', 'cancelled', 'invalid_arguments', 'tool_or_runner_error', 'mcp_transport', 'app_timeout', 'app_auth', 'app_access', 'app_rate_limit', 'app_provider', 'app_selection', 'app_arguments', 'app_tool_selection', 'app_operation']);
 type Result = 'running' | 'completed' | 'pending_approval' | 'rejected_by_cli' | 'denied' | 'error' | 'cancelled' | 'no_tool_call';
 
 /** Bounded, content-free latest and tool records per provider, deleted with the account. */

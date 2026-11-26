@@ -236,7 +236,7 @@ test('real Codex: an uncertain approved write never becomes a reconnect card cla
   assert.equal(dispatches, 1);
   assert.equal(a.rows().filter(r => r.body.card === 'connect').length, 0);
   const notice = a.rows().filter(r => r.body.type === 'notice').map(r => r.body.text).join('\n');
-  assert.match(notice, /Gmail connection failed.*Check the app for changes/);
+  assert.match(notice, /Gmail:.*rejected authorization.*Check the app for changes/);
   assert.doesNotMatch(notice, /Nothing has been sent|sentinel/);
 });
 
@@ -389,4 +389,62 @@ test('real hosted Codex default model keeps local execution unavailable while ap
   assert.equal(fs.existsSync(forbidden), false);
   assert.equal((await a.request('/cli')).lastRun.result, 'no_tool_call');
   assert.equal(state.executions.length, 0);
+});
+
+for (const scenario of ['subjects', 'provider error', 'auth error', 'timeout', 'stale revision', 'missing', 'expired'] as const) test(`R11-3 real hosted Codex: Gmail read ${scenario}`, { timeout: 30000 }, async t => {
+  const { composio, resetAppDiscovery } = await import('../server/src/composio.js');
+  resetAppDiscovery();
+  const sdk = composio();
+  const read = { slug: 'GMAIL_FETCH_EMAILS', toolkit: { slug: 'gmail' }, version: '20261101_00', tags: ['readOnlyHint'],
+    inputParameters: { type: 'object', properties: { user_id: { type: 'string' }, max_results: { type: 'integer' } } } };
+  t.mock.method(sdk.tools, 'getRawComposioTools', async () => [read]);
+  t.mock.method(sdk.tools, 'getRawComposioToolBySlug', async () => read);
+  let dispatches = 0;
+  t.mock.method(sdk.tools, 'execute', async (_slug: string, input: any) => {
+    dispatches++; assert.equal(input.connectedAccountId, 'fixture-gmail'); assert.equal(input.arguments.user_id, 'me');
+    assert.match(input.userId, /^real-fixture-/);
+    if (scenario === 'provider error') throw Object.assign(new Error('PRIVATE_PROVIDER_BODY'), { status: 503 });
+    if (scenario === 'auth error') throw Object.assign(new Error('PRIVATE_PROVIDER_BODY'), { status: 401 });
+    if (scenario === 'timeout') throw new DOMException('PRIVATE_PROVIDER_BODY', 'TimeoutError');
+    return { successful: true, data: { subjects: ['Fixture one', 'Fixture two', 'Fixture three'] } };
+  });
+  if (scenario === 'missing') state.connected = false;
+  if (scenario === 'expired') state.accountStatus = 'EXPIRED';
+  let step = 0;
+  const a = await account(t, 'codex', 'hosted', (_provider: string, body: any) => {
+    const action = [
+      { name: 'list_app_connections', args: {} },
+      { name: 'SWARM_APPS_SEARCH', args: { toolkit: 'gmail', query: 'fetch 3 email subjects', connectionId: 'fixture-gmail' } },
+      { name: 'SWARM_APPS_EXECUTE', args: { connectionId: 'fixture-gmail', revision: scenario === 'stale revision' ? 2 : 1, tool_slug: 'GMAIL_FETCH_EMAILS', arguments: { user_id: 'me', max_results: 3 } } },
+      { text: 'Fixture one, Fixture two, Fixture three.' },
+    ][Math.min(step++, 3)];
+    return usesCodeMode(body) ? codeModeAction(action) : action;
+  }, { codexModel: null });
+  await a.request(`/bots/${a.bot.id}/messages`, { text: 'Read 3 Gmail subjects.' }); await runInBotQueue(a.bot.id, async () => {});
+  const rows = a.rows(), notices = rows.filter(r => r.body.type === 'notice').map(r => r.body.text).join('\n');
+  assert.doesNotMatch(notices, /connection failed|Native tool execution failed|PRIVATE_PROVIDER_BODY/);
+  assert.equal(rows.filter(r => r.body.card === 'approval').length, scenario === 'stale revision' ? 1 : 0);
+  if (scenario === 'subjects') {
+    assert.equal(dispatches, 1); assert.ok(rows.some(r => r.body.role === 'assistant' && r.body.text?.includes('Fixture three')));
+    assert.ok(a.requests.some(r => JSON.stringify(modelOutputs('codex', r.body)).includes('Fixture one')));
+  } else if (scenario === 'missing' || scenario === 'expired') {
+    assert.equal(dispatches, 0); assert.equal(rows.filter(r => r.body.card === 'connect').length, 1);
+    assert.match(JSON.stringify(rows), scenario === 'expired' ? /needs to be reconnected/ : /is not connected/);
+  } else if (scenario === 'stale revision') {
+    assert.equal(dispatches, 0);
+    const card = rows.find(r => r.body.card === 'approval');
+    await a.request(`/approvals/${card.body.approvalId}`, { decision: 'allow' }); await runInBotQueue(a.bot.id, async () => {});
+    assert.equal(dispatches, 0);
+    assert.match(JSON.stringify(a.rows()), /connection revision is no longer available/);
+  } else {
+    assert.equal(dispatches, 1);
+    assert.match(notices, scenario === 'provider error' ? /temporarily unavailable/ : scenario === 'auth error' ? /rejected authorization/ : /timed out/);
+    assert.ok(rows.some(r => r.body.name === 'SWARM_APPS_EXECUTE' && r.body.status === 'error'));
+    const code = scenario === 'provider error' ? 'app_provider' : scenario === 'auth error' ? 'app_auth' : 'app_timeout';
+    assert.ok(a.logs.some(log => log.event === 'tool_result' && log.errorClass === code));
+    const status = await a.request('/cli');
+    assert.equal(status.runsByProvider.codex.lastToolRun.lastTool, 'SWARM_APPS_EXECUTE');
+    assert.equal(status.runsByProvider.codex.lastToolRun.errorCode, code);
+    assert.equal(status.runsByProvider.codex.lastToolRun.result, 'error');
+  }
 });

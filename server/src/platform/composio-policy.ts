@@ -1,19 +1,23 @@
 import type { ConnectionDetails } from '../connection-details.js';
 import { createHash } from 'node:crypto';
 import type { Tool } from '@composio/core';
+import { isExternalAppWrite } from '../agent/external-actions.js';
 
 /** The SDK ToolSchema exposes tags?: string[]; schema.readOnly and slug names are not attestations. */
-export function trustedReadOnly(tool: Pick<Tool, 'tags'>): boolean {
-  return Array.isArray(tool.tags) && tool.tags.includes('readOnlyHint') &&
+export function trustedReadOnly(tool: Pick<Tool, 'tags'> & { slug?: string }): boolean {
+  return !isExternalAppWrite(tool.slug ?? '') && Array.isArray(tool.tags) && tool.tags.includes('readOnlyHint') &&
     !tool.tags.some(tag => ['createHint', 'updateHint', 'destructiveHint'].includes(tag));
 }
 export function publicAppTools(tools: Tool[], toolkit: string) {
   return tools.filter(t => /^[A-Z][A-Z0-9_]{2,199}$/.test(t.slug) && !t.slug.startsWith('COMPOSIO_') && t.toolkit?.slug === toolkit)
     .map(t => ({ slug: t.slug, description: t.description, parameters: t.inputParameters, readOnly: trustedReadOnly(t) }));
 }
-export function appArguments(args: unknown): asserts args is Record<string, unknown> {
+export function appArguments(args: unknown, slug?: string): asserts args is Record<string, unknown> {
   if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Invalid app arguments.');
   for (const key of ['tenantId', 'userId', 'user_id', 'connectedAccountId', 'connected_account_id', 'authConfigId', 'sessionId']) {
+    // Gmail's mailbox selector is a tool argument, not Composio's execution identity.
+    // Only the authenticated mailbox literal is permitted, never an account override.
+    if (key === 'user_id' && slug?.startsWith('GMAIL_') && (args as Record<string, unknown>)[key] === 'me') continue;
     if (Object.hasOwn(args, key)) throw new Error('Connection identity overrides are forbidden.');
   }
 }
@@ -84,11 +88,11 @@ export class ConnectionGateway {
     if (!/^[A-Z][A-Z0-9_]{2,199}$/.test(input.slug) || input.slug.startsWith('COMPOSIO_')) throw new Error('Unsupported app operation.');
     if (!/^[A-Za-z0-9_-]{16,100}$/.test(input.dispatchId) || !Number.isSafeInteger(input.revision)) throw new Error('Invalid dispatch.');
     if (input.readOnly !== undefined && typeof input.readOnly !== 'boolean') throw new Error('Invalid execution mode.');
-    appArguments(input.arguments);
+    appArguments(input.arguments, input.slug);
     const { row, identity } = await this.own(tenant, input.connectionId, input.revision);
     const tool = await this.provider.tool(input.slug);
     if (tool.toolkit !== row.toolkit || !tool.version || tool.version === 'latest') throw new Error('Tool does not belong to the selected app or has no pinned version.');
-    if (input.readOnly && tool.readOnly !== true) throw new Error('Setup requires a provider-verified read-only app tool. Write or unknown tool metadata is refused.');
+    if (input.readOnly && (tool.readOnly !== true || isExternalAppWrite(input.slug))) throw new Error('Setup requires a provider-verified read-only app tool. Write or unknown tool metadata is refused.');
     const hash = createHash('sha256').update(JSON.stringify(input.arguments)).digest('hex');
     if (!await this.registry.begin(tenant, row.id, row.revision, input.dispatchId, input.slug, hash)) throw new Error('Dispatch already exists or authorization changed. Inspect its outcome before retrying.');
     try {

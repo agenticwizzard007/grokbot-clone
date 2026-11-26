@@ -133,6 +133,7 @@ test('dev surfaces provider failures once and preserves unsuccessful SDK envelop
 function gateway(t: any) {
   const row = { id: 'github-alice', tenant_id: 'alice', toolkit: 'github', state: 'active', revision: 3, is_default: true };
   let tool: any = rawTool(), fail = '', onMetadata = () => {};
+  let accountState: any = {};
   const dispatches = new Map<string, string>(), calls: any[] = [];
   const query = async (sql: string, args: any[] = []) => {
     let rows: any[] = [];
@@ -150,7 +151,7 @@ function gateway(t: any) {
   const runtime: any = { verify: async (token: string) => { if (!['alice', 'bob'].includes(token)) throw new Error('revoked'); return { tenant: token }; } };
   const probe = new ComposioProvider('test-project');
   t.mock.method(Object.getPrototypeOf(probe.sdk.connectedAccounts), 'list', async ({ userIds }: any) => ({ items: userIds[0] === 'provider-alice' && row.state === 'active'
-    ? [{ id: row.id, status: 'ACTIVE', toolkit: { slug: 'github' } }] : [], nextCursor: null }));
+    ? [{ id: row.id, status: 'ACTIVE', toolkit: { slug: 'github' }, ...accountState }] : [], nextCursor: null }));
   t.mock.method(Object.getPrototypeOf(probe.sdk.tools), 'getRawComposioToolBySlug', async () => { onMetadata(); if (fail === 'metadata') throw new Error('never-project-secret'); return tool; });
   t.mock.method(Object.getPrototypeOf(probe.sdk.tools), 'getRawComposioTools', async () => [tool, rawTool('COMPOSIO_PROXY_EXECUTE'), { ...rawTool(), toolkit: { slug: 'gmail' } }]);
   t.mock.method(Object.getPrototypeOf(probe.sdk.tools), 'execute', async (...args: any[]) => { calls.push(args); if (fail === 'execute') throw new Error('never-project-secret'); return { data: { repo: 'verified' }, successful: true, error: null }; });
@@ -160,7 +161,7 @@ function gateway(t: any) {
     const response = await app.request('/rpc', { method: 'POST', headers: { authorization: `Bearer ${user}`, 'content-type': 'application/json' }, body: JSON.stringify({ operation, input }) });
     return { status: response.status, body: await response.json() as any };
   };
-  return { row, calls, dispatches, input, rpc, setTool: (value: any) => { tool = value; }, fail: (value: string) => { fail = value; }, onMetadata: (fn: () => void) => { onMetadata = fn; } };
+  return { row, calls, dispatches, input, rpc, setAccount: (value: any) => { accountState = value; }, setTool: (value: any) => { tool = value; }, fail: (value: string) => { fail = value; }, onMetadata: (fn: () => void) => { onMetadata = fn; } };
 }
 
 test('gateway RPC projects exact discovery metadata and permits attested reads with pinned account identity', async t => {
@@ -259,4 +260,18 @@ test('tenant adapter forwards readOnly and returns one SDK envelope rather than 
     COMPOSIO_GATEWAY_URL: 'https://gateway.test', RUNTIME_TOKEN_FILE: '/run/swarm/test-token' };
   for (const name of ['COMPOSIO_API_KEY', 'COMPOSIO_WEBHOOK_SECRET', 'FLY_API_TOKEN', 'DATABASE_URL', 'MIGRATION_DATABASE_URL', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'INKBOX_ADMIN_API_KEY', 'INKBOX_API_KEY', 'DIRECT_API_KEY', 'OPENROUTER_API_KEY', 'XAI_API_KEY', 'GOOGLE_CLIENT_SECRET', 'APPLE_PRIVATE_KEY']) delete childEnv[name];
   assert.match(execFileSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', script], { env: childEnv, encoding: 'utf8', timeout: 15_000 }), /tenant envelope verified/);
+});
+
+
+test('R11-4 tenant RPC preserves unfinished authorization classification for the shared Settings and agent filter', async t => {
+  const { connectionSummary } = await import('../server/src/connection-details.js');
+  const f = gateway(t);
+  f.setAccount({ status: 'EXPIRED', statusReason: 'Authorization was started but not completed within 10 minutes',
+    data: { email: 'fixture@example.test' }, createdAt: '2026-11-01T00:00:00Z' });
+  const result = await f.rpc('connections', { details: true });
+  assert.equal(result.status, 200);
+  assert.equal(result.body[0].authorizationIncomplete, true);
+  assert.equal(connectionSummary(result.body).connections.length, 0);
+  assert.doesNotMatch(JSON.stringify(result.body), /statusReason|Authorization was started/);
+  assert.equal(f.calls.length, 0);
 });

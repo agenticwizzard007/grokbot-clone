@@ -68,7 +68,8 @@
     "test:input-latency": "node --import tsx --test tests/input-latency.test.mts && node tests/input-latency-ui.mjs",
     "test:readiness-gg": "node --import tsx --test tests/structural-navigation.test.mts tests/navigation-history.test.mts tests/navigation-labels.test.mts && node tests/readiness-gg-ui.mjs",
     "test:readiness-ee": "node --import tsx --test tests/structural-navigation.test.mts tests/navigation-labels.test.mts tests/navigation-history.test.mts tests/suggestion-cache.test.mts && node tests/readiness-ee-ui.mjs",
-    "test:readiness-cc": "node --import tsx --test tests/plural-copy.test.mts tests/suggestion-cache.test.mts tests/navigation-labels.test.mts tests/navigation-history.test.mts && node tests/readiness-cc-ui.mjs"
+    "test:readiness-cc": "node --import tsx --test tests/plural-copy.test.mts tests/suggestion-cache.test.mts tests/navigation-labels.test.mts tests/navigation-history.test.mts && node tests/readiness-cc-ui.mjs",
+    "test:readiness-kk": "node --import tsx --test --test-concurrency=1 tests/readiness-kk.test.mts tests/app-text-policy.test.mts tests/app-readonly.test.mts tests/app-connections.test.mts tests/connected-account-details.test.mts tests/settings-connections-regressions.test.mts tests/account-time-zone.test.mts tests/stop-empty.test.mts && node --import tsx --test --test-name-pattern=R11-3 tests/cli-real-app-approvals.test.mts && node tests/readiness-kk-ui.mjs"
   },
   "engines": {
     "node": ">=22"

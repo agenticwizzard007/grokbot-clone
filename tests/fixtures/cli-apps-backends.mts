@@ -1,5 +1,5 @@
 import { mock } from 'node:test';
-export const state = { connected: true, disabled: false, unavailable: false, accountStatus: 'ACTIVE', executions: [] as any[], external: [] as string[] };
+export const state = { connectionScenario: 'all', connected: true, disabled: false, unavailable: false, accountStatus: 'ACTIVE', executions: [] as any[], external: [] as string[] };
 const toolkits = ['gmail', 'slack', 'googlecalendar'];
 mock.method(globalThis, 'fetch', async (input: any) => {
   const url = new URL(input instanceof Request ? input.url : input);
@@ -18,6 +18,15 @@ const tools = [
 ].map(([toolkit, slug]) => ({ slug, name: slug, description: slug, toolkit: { slug: toolkit }, version: '20261101_00', tags: ['createHint'], inputParameters: { type: 'object', additionalProperties: true } }));
 mock.method(client.connectedAccounts, 'list', async () => {
   if (state.unavailable) throw Error('Fixture provider unavailable');
+  if (state.connectionScenario !== 'all') {
+    const base = { createdAt: '2026-11-01T00:00:00Z', data: { email: 'fixture@example.test' } };
+    const gmail = { ...base, id: 'fixture-gmail', toolkit: { slug: 'gmail' }, status: 'ACTIVE' };
+    const slack = { ...base, id: 'fixture-slack', toolkit: { slug: 'slack' }, status: 'EXPIRED' };
+    return { items: state.connectionScenario === 'zero' ? [] : state.connectionScenario === 'expired' ? [gmail, slack]
+      : [gmail, { ...slack, statusReason: 'Authorization was started but not completed within 10 minutes' },
+        { ...base, id: 'fixture-notion', toolkit: { slug: 'notion' }, status: 'INITIATED' },
+        { ...base, id: 'fixture-whatsapp', toolkit: { slug: 'whatsapp' }, status: 'FAILED' }] };
+  }
   return { items: state.connected ? toolkits.map(toolkit => ({ id: `fixture-${toolkit}`, toolkit: { slug: toolkit }, status: state.accountStatus, isDisabled: state.disabled, data: { email: 'fixture@example.test' } })) : [] };
 });
 mock.method(client.connectedAccounts, 'get', async (id: string) => ({ id, toolkit: { slug: id.replace('fixture-', '') }, status: 'ACTIVE', data: { email: 'fixture@example.test' } }));

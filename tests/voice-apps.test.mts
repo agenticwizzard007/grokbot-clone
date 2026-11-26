@@ -331,7 +331,7 @@ test('persisted failed/uncertain app dispatches cannot be replayed by re-enqueui
       await settleAgentJobs(); assert.equal(executed.length, afterFirst);
     }
     assert.equal(executed.length, before + 2);
-    assert.ok((await updates(call)).updates.some((u: any) => u.kind === 'message' && u.text.includes('failed operation')));
+    assert.ok((await updates(call)).updates.some((u: any) => u.kind === 'message' && u.text.includes('app request could not be completed')));
   } finally { providerFailure = false; providerThrow = false; }
 });
 
@@ -348,7 +348,7 @@ test('approved persisted SDK failure reaches voice and marks its durable dispatc
     assert.equal((db.prepare('SELECT state FROM tool_dispatches WHERE bot_id=? AND call_id=?').get(chief.id, assigned.dispatchId) as any).state, 'uncertain');
     const activity = db.prepare("SELECT body FROM rows WHERE bot_id=? AND kind='tool-call' AND json_extract(body,'$.callId')=?").get(chief.id, assigned.dispatchId) as any;
     assert.equal(JSON.parse(activity.body).status, 'error');
-    assert.ok((await updates(call)).updates.some((u: any) => u.kind === 'message' && u.text.includes('failed operation')));
+    assert.ok((await updates(call)).updates.some((u: any) => u.kind === 'message' && u.text.includes('app request could not be completed')));
   } finally { providerFailure = false; setDiscovered([rawTool('GITHUB_GET_REPOSITORY')]); }
 });
 

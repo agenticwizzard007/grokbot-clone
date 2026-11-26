@@ -1,6 +1,6 @@
 import { InputLatencyDiagnostics } from '../InputLatencyDiagnostics';
 import { prefetchApps } from '../../lib/appsCatalogCache';
-import { visibleConnections, connectionStatus } from '@shared/connection-details';
+import { visibleConnections, connectionStatus, connectionSummary } from '@shared/connection-details';
 import { ConnectedAccountDetails, ConnectedAccounts, type DisplayAccount } from '../ConnectedAccountDetails';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Blocks, ChevronRight, CircleUserRound, Clock3, TextCursorInput, KeyRound, Monitor, PanelLeftOpen, Settings2, ShieldCheck } from 'lucide-react';
@@ -753,6 +753,7 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
     }
   };
   const visible = visibleConnections(connections ?? []);
+  const connectedCount = connectionSummary(connections ?? []).connectedCount;
   const active = visible.filter(c => connectionStatus(c.status, c.isDisabled) === 'active');
   const expired = visible.filter(c => c.status === 'EXPIRED');
   const other = visible.filter(c => c.status !== 'EXPIRED' && connectionStatus(c.status, c.isDisabled) !== 'active');
@@ -805,7 +806,7 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
       <section className="cfg-section" aria-label="Your apps">
         <h2 className="cfg-section__label">Your apps</h2>
         <div className="access-apps-settings__summary" role="status">
-          <strong>{apps === null ? (appsError ? 'Apps unavailable' : 'Checking…') : apps.length ? `${apps.length} app${apps.length === 1 ? '' : 's'} connected` : 'No apps connected yet'}</strong>
+          <strong>{connections === null ? (connectionsError ? 'Apps unavailable' : 'Checking…') : connectedCount ? `${connectedCount} app${connectedCount === 1 ? '' : 's'} connected` : 'No apps connected yet'}</strong>
           <p className="cfg-field__hint">Bots ask before doing anything that changes data in an app.</p>
         </div>
         {!!apps?.length && (

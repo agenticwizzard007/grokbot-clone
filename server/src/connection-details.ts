@@ -28,6 +28,12 @@ export function connectedDate(value: string | null | undefined): string {
 }
 
 type DisplayConnection = { id: string; status: string; isDisabled?: boolean; authorizationIncomplete?: boolean };
+/** Shared customer-facing snapshot. Connected means at least one usable account. */
+export function connectionSummary<T extends DisplayConnection & { toolkit: string }>(accounts: T[]) {
+  const connections = visibleConnections(accounts);
+  const connected = [...new Set(connections.filter(c => connectionStatus(c.status, c.isDisabled) === 'active').map(c => c.toolkit))];
+  return { connections, connected, connectedCount: connected.length };
+}
 /** Presentation only. Never remove provider records or change execution authorization. */
 export function visibleConnections<T extends DisplayConnection>(accounts: T[]): T[] {
   const seen = new Set<string>();
