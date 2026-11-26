@@ -4,7 +4,7 @@ import { toolManagement, withManagement } from '../knowledge/access.js';
 import { manageSkill } from '../knowledge/skills.js';
 import { listMemories, manageMemory, type MemoryMutation } from '../knowledge/memory.js';
 import { db } from '../db.js';
-import { skillConfirmation, memoryConfirmation } from './knowledge-confirmations.js';
+import { skillConfirmation, memoryConfirmation, knowledgeToolResult } from './knowledge-confirmations.js';
 const str = { type: 'string' };
 const ref = { type: 'object', properties: { botId: str, generation: { type: 'integer', minimum: 1 }, seq: { type: 'integer', minimum: 1 }, contentHash: { type: 'string', pattern: '^[a-f0-9]{64}$' }, kind: { type: 'string', enum: ['tool'] } }, required: ['botId', 'generation', 'seq'], additionalProperties: false };
 const evidence = { type: 'array', items: ref, maxItems: 12 };
@@ -15,7 +15,7 @@ function tool(name: string, description: string, parameters: Record<string, unkn
             try {
                 return withManagement(toolManagement(ctx), () => {
                     const result = fn(a, ctx);
-                    return { output: name === 'manage_skill' ? skillConfirmation(result) : memoryConfirmation(result) };
+                    return knowledgeToolResult(name === 'manage_skill' ? skillConfirmation(result) : memoryConfirmation(result), result);
                 });
             }
             catch (e) {

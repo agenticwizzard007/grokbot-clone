@@ -1,3 +1,4 @@
+import type { ToolResult } from './tools.js';
 // Mutation results are spoken to customers. Keep handles and revisions in the
 // read/list tools, not in confirmations that a model might abbreviate.
 export function skillConfirmation(result: any): string {
@@ -15,3 +16,13 @@ export function memoryConfirmation(result: any): string {
   if (result.deleted) return 'Forgot the saved memory.';
   return `Saved to memory: ${result.memory.text}`;
 }
+
+// The detached reviewer needs exact mutation proofs to advance its concurrency
+// guard. Keep them outside the result object so no transport can serialize them.
+const mutations = new WeakMap<ToolResult, unknown>();
+export function knowledgeToolResult(output: string, value: unknown): ToolResult {
+  const result = { output };
+  mutations.set(result, value);
+  return result;
+}
+export function knowledgeMutation(result: ToolResult): unknown { return mutations.get(result); }

@@ -10,7 +10,7 @@ import { previewProcedure } from '../knowledge/evaluation.js';
 import { db, now } from '../db.js';
 import { newId } from '../lib/ids.js';
 import { hash } from '../knowledge/access.js';
-import { skillConfirmation, memoryConfirmation } from './knowledge-confirmations.js';
+import { skillConfirmation, memoryConfirmation, knowledgeToolResult } from './knowledge-confirmations.js';
 
 const string = { type: 'string' };
 const revision = { type: 'integer', minimum: 0 };
@@ -24,7 +24,7 @@ function tool(name: string, description: string, parameters: Record<string, unkn
       const output = name === 'propose_skill' ? skillConfirmation(result)
         : ['remember', 'correct_memory', 'forget_memory'].includes(name) ? memoryConfirmation(result)
         : JSON.stringify({ ok: true, ...result as object });
-      return { output };
+      return knowledgeToolResult(output, result);
     }); }
     catch (e) { return { output: JSON.stringify({ ok: false, error: e instanceof KnowledgeError ? e.message : 'Knowledge operation failed', status: e instanceof KnowledgeError ? e.status : 500 }), isError: true }; }
   } };
