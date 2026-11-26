@@ -202,7 +202,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(e('div',{className:'
     await modelName('Codex').waitFor();
     await badge('Plan').waitFor();
     await openDetails('Plan & usage');
-    await heading('Your ChatGPT Plus plan').waitFor();
+    await heading('Your Codex plan').waitFor();
     assert.equal(await page.getByText('Your Claude Max plan', { exact: true }).count(), 0);
     assert.ok(await noHorizontalOverflow());
     assert.deepEqual(errors, []);

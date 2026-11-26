@@ -1,3 +1,4 @@
+import { planLabel } from '../../lib/planLabel';
 import { ApprovalLevelSettings } from './ApprovalLevelSettings';
 import { SettingIcon } from './SettingRow';
 import { useModels } from '../../lib/models';
@@ -504,7 +505,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
         <p>When a plan is currently in use, all your Bots share it across desktop, phone and linked iMessage or WhatsApp. Your provider's usage limits and extra usage charges still apply.</p>
         <p>Browser and computer tools use the computer selected in Settings. Choose a server-hosted computer there to use those tools while your personal computer is off.</p>
         {tabStatus.currentlyInUse && modelCatalog.provider === `${providerTab}-cli` && modelCatalog.billing === 'plan' && <div className="cfg-card" aria-label="Connected plan usage">
-          <p>{modelCatalog.plan ? `Reported plan: ${modelCatalog.plan}` : 'Plan name unavailable from the CLI.'}</p>
+          <p>{modelCatalog.plan ? `Reported plan: ${planLabel(modelCatalog.provider, modelCatalog.plan)}` : 'Plan name unavailable from the CLI.'}</p>
           {modelCatalog.status === 'loading' ? <p>Checking plan usage…</p> : planUsage.state === 'reported' ? planUsage.windows.map(w => <p key={w.label}>{w.label}: {w.usedPercent}% used{w.resetsAt !== null ? ` · Resets ${new Date(w.resetsAt).toLocaleString()}` : ''}</p>) : <p>{planUsage.state === 'stale' ? 'Reported usage has expired. ' : 'Usage limits were not reported. '}Check your provider account for current limits.</p>}
           {modelCatalog.usage && <p>Checked {new Date(modelCatalog.usage.checkedAt).toLocaleString()}</p>}
         </div>}

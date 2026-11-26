@@ -1,3 +1,4 @@
+import { planLabel } from '../lib/planLabel';
 import { useEffect, useState } from 'react';
 import { ChevronRight, Gauge } from 'lucide-react';
 import { useConfigUI } from '../configStore';
@@ -22,7 +23,7 @@ export function SidebarUsage({ collapsed }: { collapsed: boolean }) {
     return () => clearTimeout(timer);
   }, [refreshing]);
   const label = pending ? 'Loading usage...' : !known ? 'Unavailable'
-    : plan ? summary?.plan || (summary?.provider === 'claude-cli' ? 'Claude plan' : 'Codex plan') : 'API credits';
+    : plan ? planLabel(summary?.provider, summary?.plan) : 'API credits';
   const detail = pending ? 'Loading provider details...' : !known ? 'Retry provider details' : !plan ? 'Pay per use · View recorded spending'
     : window ? `${window.label} · ${Number(window.usedPercent.toFixed(1))}% used` : reported.state === 'stale' ? 'Usage needs a refresh' : 'Usage limits not reported';
   return <button type="button" className="sidebar-usage" aria-label={`Usage: ${label}. ${detail}`}

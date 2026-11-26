@@ -1,16 +1,10 @@
+import { planLabel } from '../lib/planLabel';
 import { RefreshCw } from 'lucide-react';
-import { useModels, type ModelProvider } from '../lib/models';
+import { useModels } from '../lib/models';
 import { useConfigUI } from '../configStore';
 import { useReportedPlanUsage } from '../lib/accessPlanUsage';
 import { PlanConnections } from './PlanConnections';
 import '../styles/model-usage.css';
-
-function connectionName(provider: ModelProvider | null, plan: string | null) {
-  const name = provider === 'claude-cli' ? 'Claude' : provider === 'codex-cli' ? 'ChatGPT' : provider === 'openrouter' ? 'OpenRouter' : 'Direct API';
-  if (!plan || !provider?.endsWith('-cli')) return name;
-  const label = plan.trim().replaceAll('_', ' ').replace(/\b[a-z]/g, c => c.toUpperCase());
-  return label.toLowerCase().startsWith(name.toLowerCase()) ? label : `${name} ${label}`;
-}
 
 const dateLabel = (time: number) => new Date(time).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
@@ -21,13 +15,13 @@ export function ModelUsageDetails({ onClose }: { onClose: () => void }) {
   const failed = !loading && (catalog.status === 'error' || !!catalog.error);
   const known = !loading && !failed && catalog.billing !== null && catalog.provider !== null;
   const planMode = known && catalog.billing === 'plan';
-  const name = known ? connectionName(catalog.provider, catalog.plan) : '';
+  const name = known ? catalog.provider === 'openrouter' ? 'OpenRouter' : 'Direct API' : '';
   const { windows, checkedAt, state: usageState } = useReportedPlanUsage(planMode ? catalog.usage : null);
   const manage = () => { onClose(); useConfigUI.getState().openAppSettings(planMode || !known ? 'subscriptions' : 'keys'); };
   return <section className={`usage-mode__panel${planMode ? ' is-plan' : ''}`} aria-label="Connection and usage">
     <header className="usage-mode__heading">
       <span className="usage-mode__eyebrow">{loading ? 'Connection' : failed ? 'Connection needs attention' : !known ? 'Connection' : planMode ? 'Plan' : 'API credits'}</span>
-      <h2>{loading ? 'Checking your connection…' : failed ? 'Check your connection' : !known ? 'Choose how your Bots run' : planMode ? catalog.plan ? `Your ${name} plan` : `${name} subscription` : name}</h2>
+      <h2>{loading ? 'Checking your connection…' : failed ? 'Check your connection' : !known ? 'Choose how your Bots run' : planMode ? `Your ${planLabel(catalog.provider, catalog.plan)}` : name}</h2>
       <p>{loading ? 'Getting the latest connection and usage information.' : failed ? 'We couldn’t verify this connection. Refresh or manage it to check its status.' : !known ? 'Connect a subscription or an API key in Settings.' : planMode ? 'Your Bots use this subscription connection. Provider limits and extra usage settings apply.' : 'Model requests use the connected API key and are billed by usage.'}</p>
     </header>
     {known && (planMode ? <div className="usage-mode__usage">

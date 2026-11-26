@@ -30,7 +30,7 @@ test('Models access: Claude connected and Codex not connected', () => {
   assert.equal(codex.action, 'Connect ChatGPT plan');
   assert.equal(codex.details, 'Codex installed · Not signed in · Eligible plan not confirmed');
   assert.equal(codex.currentRoute, 'Your Bots currently use your Claude plan through Claude Code; connect your ChatGPT plan to switch.');
-  assert.equal(modelAccessStatus(status, 'claude', false, 'max_5x').details, 'Claude Code installed · Signed in · Plan: max 5x');
+  assert.equal(modelAccessStatus(status, 'claude', false, 'max_5x').details, 'Claude Code installed · Signed in · Claude Max plan');
 });
 
 test('Models access: both connected, only the selected plan is currently in use', () => {

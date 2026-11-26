@@ -101,20 +101,20 @@ function script(route: 'direct' | 'search' | 'deferred') {
   };
 }
 
-test('R7 hosted Codex retains the approval tool run through a running and completed decision reply offering 19 tools', { timeout: 30000 }, async t => {
+for (const provider of ['codex', 'claude'] as const) test(`R7 hosted ${provider} retains the approval tool run through a running and completed decision reply offering 19 tools`, { timeout: 30000 }, async t => {
   let decided = false;
   let release!: () => void, started!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
   const running = new Promise<void>(resolve => { started = resolve; });
   const choose = script('direct');
-  const a = await account(t, 'codex', 'hosted', async (provider: string, body: any) => {
+  const a = await account(t, provider, 'hosted', async (provider: string, body: any) => {
     if (decided) { started(); await gate; return { text: 'Nothing was saved.' }; }
     return choose(provider, body);
   });
   t.after(() => release());
   await a.chat();
   const card = a.rows().find(r => r.body.card === 'approval');
-  const before = (await a.request('/cli')).runsByProvider.codex;
+  const before = (await a.request('/cli')).runsByProvider[provider];
   assert.equal(before.latest.toolsOffered, 19);
   assert.equal(before.lastToolRun.lastTool, 'SWARM_APPS_EXECUTE');
   assert.equal(before.lastToolRun.result, 'pending_approval');
@@ -122,7 +122,7 @@ test('R7 hosted Codex retains the approval tool run through a running and comple
   try {
     await a.request(`/approvals/${card.body.approvalId}`, { decision: 'deny' });
     await running;
-    const during = (await a.request('/cli')).runsByProvider.codex;
+    const during = (await a.request('/cli')).runsByProvider[provider];
     assert.equal(during.latest.toolsOffered, 19);
     assert.equal(during.latest.lastTool, null);
     assert.equal(during.latest.result, 'running');
@@ -132,7 +132,7 @@ test('R7 hosted Codex retains the approval tool run through a running and comple
     assert.notDeepEqual(during.latest, during.lastToolRun);
   } finally { release(); }
   await runInBotQueue(a.bot.id, async () => {});
-  const after = (await a.request('/cli')).runsByProvider.codex;
+  const after = (await a.request('/cli')).runsByProvider[provider];
   assert.equal(after.latest.toolsOffered, 19);
   assert.equal(after.latest.lastTool, null);
   assert.equal(after.latest.result, 'no_tool_call');
@@ -165,8 +165,16 @@ for (const provider of ['codex', 'claude'] as const) for (const runtime of ['hos
     assert.ok(a.logs.some(e => e.event === 'tool_result' && e.admission === 'pending_approval'));
     assert.doesNotMatch(JSON.stringify(a.logs), /test@example.com|First paragraph|Bearer|offline-fixture/);
     assert.equal(state.executions.length, 0);
+    const pendingRun = (await a.request('/cli')).runsByProvider[provider].lastToolRun;
+    assert.equal(pendingRun.lastTool, 'SWARM_APPS_EXECUTE', 'Resolved app action, not the tool_call wrapper');
+    assert.equal(pendingRun.result, 'pending_approval');
+    assert.equal(pendingRun.errorCode, null);
     await a.request(`/approvals/${approval.id}`, { decision: 'deny' });
     await runInBotQueue(a.bot.id, async () => {});
+    const decidedRun = (await a.request('/cli')).runsByProvider[provider];
+    assert.equal(decidedRun.latest.trigger, 'approval_decision');
+    assert.equal(decidedRun.latest.result, 'no_tool_call', JSON.stringify({ run: decidedRun.latest, notices: a.rows().filter(r => r.body.type === 'notice').map(r => r.body.text) }));
+    assert.deepEqual(decidedRun.lastToolRun, pendingRun);
     assert.equal(a.rows().find(r => r.seq === card.seq).body.status, 'denied');
     assert.equal(a.rows().filter(r => r.body.card === 'approval').length, 1);
     assert.equal(state.executions.length, 0);
@@ -447,4 +455,31 @@ for (const scenario of ['subjects', 'provider error', 'auth error', 'timeout', '
     assert.equal(status.runsByProvider.codex.lastToolRun.errorCode, code);
     assert.equal(status.runsByProvider.codex.lastToolRun.result, 'error');
   }
+});
+
+for (const provider of ['codex', 'claude'] as const) test(`R12 real ${provider}: completed internal task output reaches the reply with its title and full ID`, { timeout: 30000 }, async t => {
+  let step = 0;
+  const a = await account(t, provider, 'hosted', (_: string, body: any) => {
+    const call = (name: string, args: unknown) => ({ name: provider === 'claude' ? `mcp__swarm__${name}` : name, args });
+    if (step++ === 0) return call('tool_describe', { tool_name: 'create_task' });
+    if (step === 2) {
+      const described = objects(provider, body).find((o: any) => o.name === 'create_task' && o.schema_hash);
+      assert.ok(described);
+      return call('tool_call', { tool_name: 'create_task', schema_hash: described.schema_hash, arguments: { title: 'Task fixture 1' } });
+    }
+    // Echo the actual tool output through the real CLI reply and chat persistence path.
+    return { text: texts(modelOutputs(provider, body).at(-1)).join('\n') };
+  });
+  await a.request(`/bots/${a.bot.id}/messages`, { text: 'Create a task titled Task fixture 1.' });
+  await runInBotQueue(a.bot.id, async () => {});
+  const task = db.prepare('SELECT id FROM tasks WHERE bot_id=? AND title=?').get(a.bot.id, 'Task fixture 1') as { id: string };
+  assert.ok(task);
+  const reply = a.rows().filter(r => r.body.role === 'assistant').map(r => r.body.text).join('\n');
+  assert.match(reply, /Created the task "Task fixture 1"/);
+  assert.ok(reply.includes(task.id));
+  assert.doesNotMatch(reply, /\(ID task\)|\{"task_id"/);
+  const run = (await a.request('/cli')).runsByProvider[provider].lastToolRun;
+  assert.equal(run.lastTool, 'create_task');
+  assert.equal(run.result, 'completed');
+  assert.equal(run.errorCode, null);
 });

@@ -1,3 +1,4 @@
+import { planLabel } from './planLabel';
 import type { CliProvider, CliProviderStatus, CliStatus } from './cliApi';
 
 export const PLAN_PROVIDERS = [
@@ -17,5 +18,5 @@ export function planConnectionStatus(status: CliStatus | null, provider: CliProv
   if (!status.connected) return 'Not connected';
   if (!health.installed) return 'CLI missing';
   if (status.selected !== provider || !subscriptionReady(health)) return 'Not connected';
-  return plan ? `Connected as ${plan.replaceAll('_', ' ')}` : 'Connected';
+  return plan ? `Connected with ${planLabel(provider, plan)}` : 'Connected';
 }

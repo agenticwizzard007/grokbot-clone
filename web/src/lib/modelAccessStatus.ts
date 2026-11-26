@@ -1,3 +1,4 @@
+import { planLabel } from './planLabel';
 import type { CliProvider, CliStatus } from './cliApi';
 import { PLAN_PROVIDERS, subscriptionReady } from './planConnections';
 
@@ -18,7 +19,7 @@ export function modelAccessStatus(status: CliStatus | null, provider: CliProvide
   if (unavailable) details = `${info.cli} status could not be verified. Refresh status to try again.`;
   else if (!checking && !status?.connected) details = `${info.cli} status cannot be verified while ${status?.runtime === 'bridge' ? 'your computer bridge is offline' : 'the CLI runtime is unavailable'}.`;
   else if (!checking && health) {
-    details = `${info.cli} ${health.installed ? 'installed' : 'not installed'} · ${health.authenticated ? 'Signed in' : 'Not signed in'} · ${health.subscription ? plan ? `Plan: ${plan.replaceAll('_', ' ')}` : 'Eligible plan confirmed' : 'Eligible plan not confirmed'}`;
+    details = `${info.cli} ${health.installed ? 'installed' : 'not installed'} · ${health.authenticated ? 'Signed in' : 'Not signed in'} · ${health.subscription ? plan ? planLabel(provider, plan) : 'Eligible plan confirmed' : 'Eligible plan not confirmed'}`;
   }
 
   let currentRoute: string;

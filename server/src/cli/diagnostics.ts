@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
 
-type Fields = { event: string; tool?: string; action?: string; admission?: string; errorClass?: string; stopped?: boolean };
+type Fields = { event: string; tool?: string; action?: string; resolvedTool?: string; admission?: string; errorClass?: string; stopped?: boolean };
 export type CliDiagnosticEvent = Fields & { generationId: string; provider: string; runtime: string; manifestCount: number };
 const context = new AsyncLocalStorage<(fields: Fields) => void>();
 export const cliDiagnostic = () => context.getStore();
@@ -42,6 +42,7 @@ export async function withCliDiagnostics<T>(params: any, runtime: string, work: 
   const common = { generationId: randomUUID(), provider: params?.provider === 'claude' ? 'claude' : 'codex', runtime, botId: scope?.botId ?? null, jobId: scope?.jobId ?? null,
     manifestCount: names.length, manifestNamesHash: createHash('sha256').update(JSON.stringify(names)).digest('hex') };
   const log = (fields: Fields) => {
+    if (fields.resolvedTool) fields = { ...fields, resolvedTool: safeToolName(fields.resolvedTool) };
     console.info('[cli-generation]', JSON.stringify({ ...common, ...fields }));
     // Store only calls from this manifest, never a rejected arbitrary name.
     observe?.({ ...common, ...fields, ...(fields.tool && !names.includes(fields.tool) ? { tool: 'invalid_name' } : {}) });

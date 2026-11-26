@@ -7,6 +7,7 @@
     "web"
   ],
   "scripts": {
+    "test:readiness-mm": "node --import tsx --test --test-concurrency=1 tests/readiness-mm.test.mts tests/cli-account-diagnostics.test.mts tests/cli-diagnostics.test.mts tests/cli-native-tools.test.mts tests/cli-real-app-approvals.test.mts tests/plan-connections.test.mts tests/model-access-status.test.mts tests/bot-targeting.test.mts tests/qa-ws1-api.test.mts tests/routine-limits.test.mts && node tests/readiness-mm-ui.mjs",
     "test:api-approvals": "node --import tsx --test tests/api-approval-level.test.mts && node tests/api-approval-ui.mjs",
     "test:readiness-hh": "node --import tsx --test tests/suggestion-display.test.mts tests/suggestion-cache.test.mts && node tests/readiness-hh-ui.mjs",
     "test:composer-live": "node tests/composer-live-performance-ui.mjs",
