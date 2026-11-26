@@ -48,10 +48,13 @@ function releaseMic() {
 
 /** Start from a user gesture, or the foreground native shortcut with WebKit audio playback enabled. */
 export function startCall(botId: string) {
+  // Reserve setup before creating browser audio, including for other start controls.
+  if (useVoice.getState().status === 'connecting') return;
   if (current && !current.ended) {
     if (current.botId === botId) return;
     current.end();
   }
+  setV({ status: 'connecting', botId, callId: null, muted: false, speaking: false, listening: false, thinking: false, working: [], captions: [], error: null, startedAt: null, waitingForMic: false });
   try {
     current = new VoiceCall(botId);
     void current.start();
@@ -133,7 +136,7 @@ class VoiceCall {
   micLevel() { return useVoice.getState().muted ? 0 : this.mic?.level ?? 0; }
 
   async start() {
-    setV({ status: 'connecting', botId: this.botId, callId: null, muted: false, speaking: false, listening: false, thinking: false, working: [], captions: [], error: null, startedAt: null, waitingForMic: true });
+    setV({ waitingForMic: true });
     window.removeEventListener('pagehide', releaseMic);
     window.addEventListener('pagehide', this.onUnload);
     let stream: MediaStream;
