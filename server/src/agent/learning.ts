@@ -1,3 +1,4 @@
+import { knowledgeMutation } from './knowledge-confirmations.js';
 import { asksBeforeEveryAction } from './approval-level.js';
 import { approveReviewAction, expireReviewApprovals } from './review-approvals.js';
 import { randomUUID } from 'node:crypto';
@@ -369,9 +370,9 @@ export async function runLearningReview(id: string): Promise<Review | undefined>
                 // Advance only revisions actually produced by this review. A concurrent
                 // external edit or revoked grant must never become the new accepted baseline.
                 if (!result.isError) {
-                    let output: any;
+                    let output: any = knowledgeMutation(result);
                     try {
-                        output = JSON.parse(String(result.output));
+                        if (output === undefined) output = JSON.parse(String(result.output));
                     }
                     catch { }
                     const advance = (value: any, operation: any) => {

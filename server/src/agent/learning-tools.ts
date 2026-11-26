@@ -4,6 +4,7 @@ import { toolManagement, withManagement } from '../knowledge/access.js';
 import { manageSkill } from '../knowledge/skills.js';
 import { listMemories, manageMemory, type MemoryMutation } from '../knowledge/memory.js';
 import { db } from '../db.js';
+import { skillConfirmation, memoryConfirmation, knowledgeToolResult } from './knowledge-confirmations.js';
 const str = { type: 'string' };
 const ref = { type: 'object', properties: { botId: str, generation: { type: 'integer', minimum: 1 }, seq: { type: 'integer', minimum: 1 }, contentHash: { type: 'string', pattern: '^[a-f0-9]{64}$' }, kind: { type: 'string', enum: ['tool'] } }, required: ['botId', 'generation', 'seq'], additionalProperties: false };
 const evidence = { type: 'array', items: ref, maxItems: 12 };
@@ -12,7 +13,10 @@ const object = (properties: Record<string, unknown>, required: string[] = []) =>
 function tool(name: string, description: string, parameters: Record<string, unknown>, fn: (a: any, ctx: ToolCtx) => unknown): ToolDef {
     return { name, description, parameters, activity: 'remembering', label: description.split('.')[0], impl: async (a, ctx) => {
             try {
-                return withManagement(toolManagement(ctx), () => ({ output: JSON.stringify({ ok: true, ...fn(a, ctx) as object }) }));
+                return withManagement(toolManagement(ctx), () => {
+                    const result = fn(a, ctx);
+                    return knowledgeToolResult(name === 'manage_skill' ? skillConfirmation(result) : memoryConfirmation(result), result);
+                });
             }
             catch (e) {
                 return { output: JSON.stringify({ ok: false, error: e instanceof Error ? e.message : 'Knowledge operation failed', status: e instanceof KnowledgeError ? e.status : 500 }), isError: true };

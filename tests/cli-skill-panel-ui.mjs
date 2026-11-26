@@ -52,8 +52,41 @@ try {
     await page.getByText('This new skill will be active after you approve it.', { exact: true }).waitFor(); await shot('pending-new');
     await page.locator('summary').filter({ hasText: 'source-check · Base revision' }).click();
     await page.getByText('The current skill stays active until you approve this change.', { exact: true }).waitFor(); await shot('pending-update');
+    // A newer proposal for the same name replaces the older pending candidate.
+    await seed('reviewed-source-check');
+    await page.reload(); await open('skills');
+    await page.getByText('2 pending review.', { exact: true }).waitFor();
+    await open('learning'); await toggle.uncheck();
+    await page.getByRole('button', { name: 'Save Bot overrides', exact: true }).click();
+    await until(async () => !(await (await context.request.get(`${origin}/api/learning/settings?botId=${bot.id}`)).json()).settings.skillApproval);
+    await seed('reviewed-source-check');
+    await seed('source-check', { skillId: active.skill.id, revision: active.skill.revision });
+    await page.reload(); await open('skills');
+    await page.getByText('No pending proposals.', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Edit reviewed-source-check', exact: true }).waitFor();
+    await page.locator('summary').filter({ hasText: 'Learned skill changes' }).click();
+    await page.locator('summary').filter({ hasText: 'Earlier skill proposals' }).click();
+    assert.equal(await page.locator('summary').filter({ hasText: 'superseded' }).count(), 3);
+    assert.equal(await page.getByRole('button', { name: 'Approve', exact: true }).count(), 0);
+    await shot('superseded');
+    const saved = await context.request.post(`${origin}/api/fixture/file`, { data: { botId: bot.id } });
+    assert.equal(saved.status(), 200);
+    const { output } = await saved.json();
+    assert.match(output, /Saved library-fixture.md to your Library/);
+    assert.ok(!output.includes('/api/deliverables/'));
+    await page.goto(`${origin}/#bot/${bot.id}`);
+    const link = page.getByRole('link', { name: 'View saved files', exact: true });
+    await link.waitFor(); assert.ok((await link.getAttribute('href')).startsWith(origin));
+    await shot('file-reply');
+    const opened = context.waitForEvent('page'); await link.click();
+    const library = await opened; library.setDefaultTimeout(15000); page = library;
+    await library.getByRole('heading', { name: 'library-fixture.md', exact: true }).waitFor();
+    const download = library.getByRole('link', { name: 'Download report', exact: true });
+    const bytes = await context.request.get(new URL(await download.getAttribute('href'), origin).href);
+    assert.equal(bytes.status(), 200); assert.equal(await bytes.text(), '# Saved fixture report');
+    await library.close();
     assert.deepEqual(errors, []);
-    console.log(`PASS ${provider} ${width} ${theme}: active skill, no pending review or card, explicit review setting and accurate new/update copy`);
+    console.log(`PASS ${provider} ${width} ${theme}: active skill, accurate new/update review copy, newer proposals and normal activation supersede stale proposals`);
     await context.close();
   }
 } catch (error) { console.error(logs.join('').slice(-5000)); if (page && !page.isClosed()) { console.error((await page.locator('body').innerText()).slice(-4000)); await page.screenshot({ path: path.join(evidence, 'failure.png') }); } throw error; }

@@ -162,7 +162,8 @@ test('direct propose_skill calls project advertised content and never persist hi
     scope: 'account', project_id: 'injected', locked: true, pinned: true, managed: false,
   }, { userId: 'owner', botId: 'alpha', depth: 0, enqueueBotMessage() {} }));
   assert.equal(result.isError, undefined);
-  const proposal = JSON.parse(result.output as string).proposal;
+  assert.match(String(result.output), /for review.*not active yet/);
+  const proposal = skills.listSkillProposals('owner', 'alpha')[0];
   const approved = skills.resolveSkillProposal('owner', proposal.id, 'approve', 0).skill!;
   assert.equal(approved.scope, 'private'); assert.equal(approved.projectId, null);
   assert.equal(approved.locked, false); assert.equal(approved.pinned, false); assert.equal(approved.managed, true);
@@ -181,7 +182,7 @@ for (const scope of ['account', 'project'] as const) test(`text-only proposals p
     return KNOWLEDGE_TOOLS.find(t => t.name === 'propose_skill')!.impl({ ...seedContent, body: 'Improved wording', skill_id: shared.id, expected_revision: 2, reason: 'Wording only', evidence }, { userId: 'owner', botId: 'alpha', depth: 0, enqueueBotMessage() {} });
   });
   assert.equal(result.isError, undefined, String(result.output));
-  const approved = skills.resolveSkillProposal('owner', JSON.parse(result.output as string).proposal.id, 'approve', 2).skill!;
+  const approved = skills.resolveSkillProposal('owner', skills.listSkillProposals('owner', 'alpha')[0].id, 'approve', 2).skill!;
   assert.equal(approved.scope, shared.scope); assert.equal(approved.projectId, shared.projectId);
   assert.equal(approved.pinned, true); assert.equal(approved.managed, false); assert.equal(approved.locked, shared.locked);
   assert.deepEqual(approved.resources, shared.resources); assert.equal(approved.body, 'Improved wording');
@@ -216,6 +217,46 @@ test('stale approvals never overwrite an owner edit and stale proposals can be r
   fails(() => skills.resolveSkillProposal('owner', p.id, 'approve', 1), 409);
   assert.equal(skills.getSkill('owner', s.id).body, 'Owner edited first');
   assert.equal(skills.resolveSkillProposal('owner', p.id, 'reject', 1).status, 'rejected');
+});
+
+test('R13 same-name activation hides legacy pending proposals without rewriting history or hiding unrelated changes', () => {
+  const evidence = [message('Save the weekly reporting procedure.')];
+  const old = skills.stageSkillProposal('owner', 'alpha', { expectedRevision: 0, content: seedContent, reason: 'First request', evidence });
+  const before = db.prepare('SELECT * FROM knowledge_skill_proposals WHERE id=?').get(old.id);
+  skills.createSkill('owner', 'sibling', seedContent);
+  assert.equal(skills.listSkillProposals('owner', 'alpha')[0].status, 'pending', 'another Bot cannot supersede this proposal');
+  const active = skills.createSkill('owner', 'alpha', { ...seedContent, name: ' weekly REPORT ' });
+  let proposals = skills.listSkillProposals('owner', 'alpha');
+  assert.equal(proposals.filter(p => p.status === 'pending').length, 0);
+  assert.equal(proposals[0].status, 'superseded');
+  assert.deepEqual(db.prepare('SELECT * FROM knowledge_skill_proposals WHERE id=?').get(old.id), before);
+  fails(() => skills.resolveSkillProposal('owner', old.id, 'approve', 0), 409);
+  const edit = skills.stageSkillProposal('owner', 'alpha', { skillId: active.id, expectedRevision: 1, content: { ...seedContent, body: 'New steps' }, reason: 'Edit the active skill', evidence });
+  const unrelated = skills.stageSkillProposal('owner', 'alpha', { expectedRevision: 0, content: { ...seedContent, name: 'Different procedure' }, reason: 'Separate request', evidence });
+  proposals = skills.listSkillProposals('owner', 'alpha');
+  assert.deepEqual(proposals.filter(p => p.status === 'pending').map(p => p.id).sort(), [edit.id, unrelated.id].sort());
+  skills.updateSkill('owner', active.id, { name: 'Renamed procedure', body: 'Owner supplied current steps' }, 1);
+  assert.deepEqual(skills.listSkillProposals('owner', 'alpha').filter(p => p.status === 'pending').map(p => p.id), [unrelated.id]);
+  skills.deleteSkill('owner', active.id, 2);
+  assert.equal(skills.listSkillProposals('owner', 'alpha').find(p => p.id === old.id)?.status, 'superseded', 'later renames and archives cannot revive the obsolete proposal');
+});
+
+test('R13 newer same-name proposals supersede older candidates and approval leaves no pending review', () => {
+  const evidence = [message('Save the current reporting procedure.')];
+  const propose = () => skills.stageSkillProposal('owner', 'alpha', { expectedRevision: 0, content: seedContent, reason: 'Current request', evidence });
+  const old = propose(), current = propose();
+  assert.deepEqual(skills.listSkillProposals('owner', 'alpha').filter(p => p.status === 'pending').map(p => p.id), [current.id]);
+  fails(() => skills.resolveSkillProposal('owner', old.id, 'approve', 0), 409);
+  assert.equal(skills.resolveSkillProposal('owner', current.id, 'approve', 0).status, 'approved');
+  assert.equal(skills.listSkillProposals('owner', 'alpha').filter(p => p.status === 'pending').length, 0);
+  assert.equal(skills.listSkillProposals('owner', 'alpha').find(p => p.id === old.id)?.status, 'superseded');
+});
+
+test('R13 proposing an already active name does not claim that obsolete changes await review', async () => {
+  skills.createSkill('owner', 'alpha', seedContent);
+  const result = await KNOWLEDGE_TOOLS.find(t => t.name === 'propose_skill')!.impl({ ...seedContent, expected_revision: 0, reason: 'Repeated request', evidence: [message('Save the weekly reporting procedure.')] }, { userId: 'owner', botId: 'alpha', depth: 0, enqueueBotMessage() {} });
+  assert.equal(result.output, 'The skill "Weekly report" is already saved. This proposal does not need review.');
+  assert.equal(skills.listSkillProposals('owner', 'alpha').filter(p => p.status === 'pending').length, 0);
 });
 
 test('proposals validate sources, scope, generation and run attribution', () => {
@@ -489,7 +530,7 @@ test('legacy text-only remember is grounded in one unique real user source and f
   const ctx = { botId: 'alpha', userId: 'owner', depth: 0, enqueueBotMessage() {} };
   const remember = KNOWLEDGE_TOOLS.find(t => t.name === 'remember')!;
   const valid = await remember.impl({ text: 'Prefers provider independence.' }, ctx);
-  assert.equal(valid.isError, undefined); assert.deepEqual(JSON.parse(valid.output as string).memory.evidence, [ref]);
+  assert.equal(valid.isError, undefined); assert.match(String(valid.output), /^Saved to memory:/); assert.deepEqual(memory.listMemories('owner', 'alpha')[0].evidence, [ref]);
   const invented = await remember.impl({ text: 'Owns a private spaceship.' }, ctx); assert.equal(invented.isError, true);
   message('I prefer provider independence.');
   const ambiguous = await remember.impl({ text: 'Prefers provider independence.' }, ctx); assert.equal(ambiguous.isError, true);

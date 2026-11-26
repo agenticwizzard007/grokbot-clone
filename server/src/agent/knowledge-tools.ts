@@ -10,6 +10,7 @@ import { previewProcedure } from '../knowledge/evaluation.js';
 import { db, now } from '../db.js';
 import { newId } from '../lib/ids.js';
 import { hash } from '../knowledge/access.js';
+import { skillConfirmation, memoryConfirmation, knowledgeToolResult } from './knowledge-confirmations.js';
 
 const string = { type: 'string' };
 const revision = { type: 'integer', minimum: 0 };
@@ -18,7 +19,13 @@ const evidence = { type: 'array', items: ref, minItems: 1, maxItems: 12 };
 const object = (properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', properties, required, additionalProperties: false });
 function tool(name: string, description: string, parameters: Record<string, unknown>, fn: (a: any, ctx: Parameters<ToolDef['impl']>[1]) => unknown): ToolDef {
   return { name, description, parameters, activity: 'remembering', label: description.split('.')[0], impl: async (a, ctx) => {
-    try { ownedBot(ctx.userId, ctx.botId); return withManagement(toolManagement(ctx),()=>({ output: JSON.stringify({ ok: true, ...fn(a, ctx) as object }) })); }
+    try { ownedBot(ctx.userId, ctx.botId); return withManagement(toolManagement(ctx), () => {
+      const result = fn(a, ctx);
+      const output = name === 'propose_skill' ? skillConfirmation(result)
+        : ['remember', 'correct_memory', 'forget_memory'].includes(name) ? memoryConfirmation(result)
+        : JSON.stringify({ ok: true, ...result as object });
+      return knowledgeToolResult(output, result);
+    }); }
     catch (e) { return { output: JSON.stringify({ ok: false, error: e instanceof KnowledgeError ? e.message : 'Knowledge operation failed', status: e instanceof KnowledgeError ? e.status : 500 }), isError: true }; }
   } };
 }

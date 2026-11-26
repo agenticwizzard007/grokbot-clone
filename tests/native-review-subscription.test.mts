@@ -210,7 +210,8 @@ for (const provider of ['claude', 'codex'] as const) {
         const conversation = JSON.parse(turns[1].params.prompt.split('Conversation:\n')[1]);
         assert.deepEqual(conversation.at(-2), call);
         assert.deepEqual(conversation.at(-1), managementResult, 'second request must contain the exact correlated Swarm result');
-        assert.equal(JSON.parse(conversation.at(-1).output).memory.id, memory.id);
+        assert.equal(conversation.at(-1).output, `Saved to memory: ${memory.text}`);
+        assert.ok(!conversation.at(-1).output.includes(memory.id));
       }));
   });
 
