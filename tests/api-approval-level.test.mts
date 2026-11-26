@@ -196,3 +196,20 @@ test('R11 all voice coordinator tools require maximum grants while Standard and 
   }
   selectCli('owner', null);
 });
+
+
+test('R11 hidden helper approvals are actionable in the parent chat and resolve the original helper call', async () => {
+  const { createSubagent } = await import('../server/src/agent/subagents.js');
+  const { needsYou } = await import('../server/src/routes-attention.js');
+  setLevel('every_action'); db.exec('DELETE FROM policies');
+  const helper = createSubagent(bot.id, 'Inspect fixture memory', 'Fixture helper');
+  planAction('recall', { query: 'fixture' });
+  enqueue(helper.id, { type: 'user', text: 'Inspect fixture memory' }); await settleAgentJobs();
+  const approval = pending(helper.id); assert.ok(approval);
+  const mirror = listRows(bot.id).find(r => r.body.type === 'card' && r.body.card === 'approval' && r.body.approvalId === approval.id)!;
+  assert.ok(mirror, 'visible parent contains the card');
+  assert.deepEqual(needsYou('owner').filter(i => i.id === `approval:${approval.id}`).map(i => [i.botId, i.seq]), [[bot.id, mirror.seq]]);
+  resolveApproval('owner', approval.id, 'deny'); await settleAgentJobs();
+  assert.equal((listRows(bot.id).find(r => r.seq === mirror.seq)!.body as any).status, 'denied');
+  assert.equal(pending(helper.id), undefined);
+});

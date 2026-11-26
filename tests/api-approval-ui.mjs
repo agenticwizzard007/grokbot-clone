@@ -59,6 +59,11 @@ try {
       await pending.getByRole('button', { name: "Don't allow", exact: true }).click();
       await until(async () => (await state()).pending === 0);
     }
+    await context.request.post(`${origin}/api/fixture/helper`, { data: { botId: bot.id } });
+    const helperCard = page.locator('.approval-card').filter({ has: page.getByRole('button', { name: "Don't allow", exact: true }) });
+    await helperCard.waitFor(); assert.match(await helperCard.innerText(), /Fixture helper/);
+    await helperCard.getByRole('button', { name: "Don't allow", exact: true }).click();
+    await until(async () => (await state()).pending === 0);
     await send('JJ search the web'); await page.getByText('Provider search is unavailable while Ask before every action is on.', { exact: false }).first().waitFor();
     assert.deepEqual(await state(), before, 'all denied actions remain undone');
     await settings('permissions'); await select().selectOption('standard'); await until(async () => (await (await context.request.get(`${origin}/api/account/preferences`)).json()).apiApprovalLevel === 'standard'); await closeSettings();

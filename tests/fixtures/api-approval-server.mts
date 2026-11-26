@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
-const { db, appExecutions } = await import('./api-approval-backends.mjs');
+const { db, appExecutions, planAction } = await import('./api-approval-backends.mjs');
 const { api } = await import('../../server/src/routes.js');
 const { preferencesApi } = await import('../../server/src/routes-preferences.js');
 const { cliApi } = await import('../../server/src/cli/routes.js');
@@ -12,6 +12,14 @@ app.post('/api/fixture/cli', async c => {
   const { botId, provider } = await c.req.json();
   const bot = db.prepare('SELECT user_id FROM bots WHERE id=?').get(botId) as any;
   selectCli(bot.user_id, provider); return c.json({ ok: true });
+});
+app.post('/api/fixture/helper', async c => {
+  const { botId } = await c.req.json();
+  const { createSubagent } = await import('../../server/src/agent/subagents.js');
+  const { enqueue } = await import('../../server/src/agent/loop.js');
+  const helper = createSubagent(botId, 'Inspect local fixture memory', 'Fixture helper');
+  planAction('recall', { query: 'fixture' }); enqueue(helper.id, { type: 'user', text: 'Inspect fixture memory' });
+  return c.json({ ok: true });
 });
 app.get('/api/fixture/state', c => c.json({ executions: appExecutions.length,
   files: (db.prepare('SELECT count(*) n FROM output_artifacts').get() as any).n,

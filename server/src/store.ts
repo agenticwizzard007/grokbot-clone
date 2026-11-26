@@ -1,3 +1,4 @@
+import { approvalDisplayBot } from './agent/approval-display.js';
 import { asksBeforeEveryAction } from './agent/approval-level.js';
 import { assertRunWritable, canPublishRun, currentRun } from './agent/run-scope.js';
 import { db, now } from './db.js';
@@ -178,6 +179,10 @@ export function appendRow(botId: string, kind: RowKind, body: RowBody): Row {
   if (memoryChanged) hub.emit(userId, { type: 'memories', botId });
   hub.emit(userId, { type: 'rows', botId, generation: row.generation, rows: [row] });
   notifyRow(userId, row, true);
+  if (body.type === 'card' && body.card === 'approval' && !body.approvalSourceBotId && asksBeforeEveryAction(userId)) {
+    const displayBot = approvalDisplayBot(botId);
+    if (displayBot !== botId) appendRow(displayBot, 'card', { ...body, jobId: undefined, approvalSourceBotId: botId });
+  }
   return row;
 }
 
@@ -204,6 +209,13 @@ export function updateRow(botId: string, seq: number, body: RowBody): Row | null
   hub.emit(res.userId, { type: 'rows', botId, generation: res.row.generation, rows: [res.row] });
   notifyRow(res.userId, res.row, false);
   if (body.type === 'card' && body.card === 'approval') {
+    if (!body.approvalSourceBotId) {
+      const displayBot = approvalDisplayBot(botId);
+      if (displayBot !== botId) {
+        const copies = db.prepare("SELECT r.seq,r.body FROM rows r JOIN bots b ON b.id=r.bot_id AND b.generation=r.generation WHERE r.bot_id=? AND r.kind='card' AND json_extract(r.body,'$.approvalId')=? AND json_extract(r.body,'$.approvalSourceBotId')=?").all(displayBot, body.approvalId, botId) as { seq: number; body: string }[];
+        for (const copy of copies) updateRow(displayBot, copy.seq, { ...JSON.parse(copy.body), status: body.status });
+      }
+    }
     for (const step of approvalSteps(botId, res.row.generation, body.approvalId, seq)) {
       updateRow(botId, step.seq, JSON.parse(step.body));
     }
