@@ -47,7 +47,7 @@ for (const scenario of ['failed', 'expired', 'timeout', 'gateway-timeout', 'empt
     enqueue(id, { type: 'user', text: 'Read the local fixture.' }); await settleAgentJobs();
     const rows = listRows(id), notice = rows.find(r => r.body.type === 'notice' && r.body.terminal)?.body as any;
     assert.equal(notice?.tone, 'error');
-    assert.match(notice.text, scenario === 'empty' ? /without a reply/i : scenario.includes('timeout') ? /Gmail tool timed out/ : /Gmail.*failed/);
+    assert.match(notice.text, scenario === 'empty' ? /without a reply/i : scenario.includes('timeout') ? /Gmail:.*timed out/ : scenario === 'expired' ? /Gmail:.*rejected authorization/ : /Gmail:.*could not be completed/);
     assert.deepEqual(notice.retry, { text: 'Read the local fixture.' });
     assert.doesNotMatch(notice.text, /Stopped\.|private fixture/);
     assert.equal(getLive(id).isRunning, false);

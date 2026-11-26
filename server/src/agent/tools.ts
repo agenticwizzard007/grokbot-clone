@@ -37,6 +37,10 @@ import { WORKFLOW_TOOLS } from './workflow-tools.js';
 import { DELIVERABLE_TOOLS } from './deliverable-tools.js';
 import { recordArtifact } from '../deliverables/index.js';
 import { accountPreferences } from '../settings.js';
+import { isExternalAppWrite, isExternalOnBehalfAction } from './external-actions.js';
+import { appFailure } from './app-errors.js';
+import { safeToolName } from '../cli/diagnostics.js';
+import { visibleConnections } from '../connection-details.js';
 
 export interface ToolCtx {
   userId: string;
@@ -520,7 +524,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'update_profile',
-    description: "Save the user's name and/or IANA time zone (e.g. \"America/New_York\") to their account, and mark onboarding complete when the first-chat setup is done. Primary Bot only. Only change the account time zone when the user explicitly asks in this chat. Each time zone change requires confirmation.",
+    description: "Save the user's name and/or IANA time zone (e.g. \"America/New_York\") to their account, and mark onboarding complete when the first-chat setup is done. Primary Bot only. Only change the account time zone when the user explicitly asks in this chat.",
     parameters: obj({ name: { type: 'string' }, timezone: { type: 'string' }, onboarding_complete: { type: 'boolean' } }),
     activity: 'remembering',
     label: 'Updating your profile',
@@ -723,20 +727,20 @@ export function computerFamily(toolName: string): ComputerPolicyKey | null {
 export type Decision = 'allow' | 'ask' | 'block';
 
 export function policyFor(userId: string, toolName: string, args: any, botId?: string): { decision: Decision; key: string; toolkit?: string; title: string } {
-  if (toolName === 'update_profile' && typeof args?.timezone === 'string' && args.timezone.trim()) {
+  if (!selectedCli(userId) && toolName === 'update_profile' && typeof args?.timezone === 'string' && args.timezone.trim()) {
     // Never let an old Always allow policy authorize future account-wide changes.
     return { decision: 'ask', key: 'update_profile:timezone', title: `change your account time zone to ${args.timezone.trim()}` };
   }
   if (toolName === 'deliver_artifact' || toolName === 'retry_delivery') {
     const key = `${toolName}:bot:${botId ?? ''}`;
     const policy = db.prepare('SELECT mode FROM policies WHERE user_id=? AND tool=?').get(userId, key) as { mode: string } | undefined;
-    return { decision: policy?.mode === 'blocked' ? 'block' : toolName === 'deliver_artifact' && args?.channel === 'library' || policy?.mode === 'always_allow' ? 'allow' : 'ask', key, title: toolName === 'retry_delivery' ? 'retry delivery of the saved report' : `deliver the saved report via ${String(args?.channel ?? 'messaging')}` };
+    return { decision: policy?.mode === 'blocked' ? 'block' : !isExternalOnBehalfAction(toolName, args) || policy?.mode === 'always_allow' ? 'allow' : 'ask', key, title: toolName === 'retry_delivery' ? 'retry delivery of the saved report' : `deliver the saved report via ${String(args?.channel ?? 'messaging')}` };
   }
   if (toolName.startsWith('mcp_')) {
     const match = botId ? findMcpTool(userId, toolName, botId) : undefined;
     const key = `${toolName}:bot:${botId ?? ''}`;
     const policy = db.prepare('SELECT mode FROM policies WHERE user_id=? AND tool=?').get(userId, key) as { mode: string } | undefined;
-    return { decision: !match || policy?.mode === 'blocked' ? 'block' : policy?.mode === 'always_allow' || !match.server.config.requireApproval ? 'allow' : 'ask', key, title: match ? `MCP: use ${match.tool.name} on ${match.server.config.name}` : 'MCP: use an unavailable tool' };
+    return { decision: !match || policy?.mode === 'blocked' ? 'block' : policy?.mode === 'always_allow' || !match.server.config.requireApproval && !isExternalAppWrite(match.tool.name) ? 'allow' : 'ask', key, title: match ? `MCP: use ${match.tool.name} on ${match.server.config.name}` : 'MCP: use an unavailable tool' };
   }
   if (toolMap.has(toolName)) {
     // Bots' own computers run without approval by default. The account can opt in to asking first.
@@ -753,7 +757,7 @@ export function policyFor(userId: string, toolName: string, args: any, botId?: s
   let key = slugs[0];
   for (const slug of slugs) {
     const p = db.prepare('SELECT mode FROM policies WHERE user_id=? AND tool=?').get(userId, slug) as any;
-    const mode = p?.mode ?? (isReadOnlySlug(slug) ? 'always_allow' : 'needs_approval');
+    const mode = p?.mode ?? (!isExternalOnBehalfAction(toolName, args) && isReadOnlySlug(slug) && !isExternalAppWrite(slug) ? 'always_allow' : 'needs_approval');
     if (mode === 'blocked') return { decision: 'block', key: slug, title: humanizeSlug(slug) };
     if (mode === 'needs_approval') { decision = 'ask'; key = slug; }
   }
@@ -781,7 +785,7 @@ export async function executionPolicyFor(userId: string, toolName: string, args:
   if (typeof args?.connectionId === 'string' && Number.isSafeInteger(args?.revision) && args.revision > 0
     && /^[A-Z][A-Z0-9_]{2,199}$/.test(slug) && !slug.startsWith('COMPOSIO_')) {
     try {
-      const account = (await connectionsDetail(userId, { signal: AbortSignal.timeout(15_000) })).find(c => c.id === args.connectionId && c.status === 'ACTIVE');
+      const account = (await connectionsDetail(userId, { signal: AbortSignal.timeout(15_000) })).find(c => c.id === args.connectionId && c.status === 'ACTIVE' && !c.isDisabled);
       if (account && (account.revision === undefined || account.revision === args.revision)) {
         const result = await executeComposio(userId, 'SWARM_APPS_SEARCH', {
           toolkit: account.toolkit, query: slug, connectionId: account.id,
@@ -790,7 +794,7 @@ export async function executionPolicyFor(userId: string, toolName: string, args:
         const exact = Array.isArray(discovery?.tools) ? discovery.tools.filter(t => t?.slug === slug) : [];
         readOnlyApps = result.successful !== false && !result.error
           && discovery?.connectionId === account.id && discovery.revision === args.revision
-          && exact.length === 1 && exact[0].readOnly === true;
+          && exact.length === 1 && exact[0].readOnly === true && !isExternalOnBehalfAction(toolName, args, true);
       }
     } catch { /* Unavailable or untrusted metadata never grants permission. */ }
   }
@@ -807,12 +811,18 @@ export function humanizeSlug(slug: string) {
 
 export async function runComposioTool(ctx: ToolCtx, name: string, args: any): Promise<ToolResult> {
   const app = String(args?.tool_slug ?? '').startsWith('GMAIL_') || args?.toolkit === 'gmail' ? 'Gmail' : 'The connected app';
-  const retry = 'Open Connected apps to check the account, then ask again. Check the app for changes before repeating this action.';
+  const caution = name === 'SWARM_APPS_EXECUTE' && !ctx.readOnlyApps ? ' Check the app for changes before repeating this action.' : '';
+  const failed = (error: unknown): ToolResult => {
+    const failure = appFailure(error);
+    const message = `${app}: ${failure.message}${caution}`;
+    console.warn('[app-operation]', { tool: safeToolName(name), action: safeToolName(args?.tool_slug ?? name), code: failure.code });
+    return { output: message, summary: message, isError: true };
+  };
   try {
     if (name === 'SWARM_APPS_SEARCH' && typeof args?.toolkit === 'string' && !ctx.roomId) {
       // A successful empty account lookup is different from an unavailable provider.
       // Offer the existing Connect card before discovery can fail with a generic error.
-      const accounts = await connectionsDetail(ctx.userId, { signal: AbortSignal.timeout(15_000) });
+      const accounts = visibleConnections(await connectionsDetail(ctx.userId, { signal: AbortSignal.timeout(15_000) }));
       if (!accounts.some(account => account.toolkit === args.toolkit && account.status === 'ACTIVE' && !account.isDisabled)) {
         const info = await toolkitInfo(args.toolkit);
         if (info) return requestAppConnection({ toolkit: info.slug,
@@ -821,7 +831,7 @@ export async function runComposioTool(ctx: ToolCtx, name: string, args: any): Pr
     }
     const r = await executeComposio(ctx.userId, name, args, { readOnly: isConfiguring(ctx.botId) || ctx.readOnlyApps === true });
     const ok = r.successful !== false && !r.error && (!r.resultType || ['completed', 'success'].includes(r.resultType));
-    if (!ok) return { output: `${app} reported a failed operation. ${retry}`, summary: `${app} reported a failed operation. ${retry}`, isError: true };
+    if (!ok) return failed(r.error);
     let out = JSON.stringify(r.data ?? null);
     if (out.length > 60000) out = out.slice(0, 60000) + '…(truncated)';
     return { output: out, summary: 'done' };
@@ -829,21 +839,19 @@ export async function runComposioTool(ctx: ToolCtx, name: string, args: any): Pr
     // This local policy refusal is safe and must remain distinct from connection errors.
     if (error?.message === 'Setup requires a provider-verified read-only app tool. Write or unknown tool metadata is refused.') throw error;
     // Provider bodies can contain private app data. Expose classifications only.
-    const timedOut = ['TimeoutError', 'AbortError', 'APIConnectionTimeoutError'].includes(error?.name) || [408, 504].includes(error?.status);
     // A provider HTTP error alone does not prove a private account has expired.
     // Only a fresh discovery lookup may produce reconnection guidance and a card.
     // An execution failure can have an uncertain outcome, even if auth expired.
     const toolkit = typeof args?.toolkit === 'string' ? args.toolkit : String(args?.tool_slug ?? '').split('_')[0].toLowerCase();
     if (name === 'SWARM_APPS_SEARCH' && ([401, 403, 404, 409].includes(error?.status) || /connection not found/i.test(String(error?.message)))) {
       try {
-        const accounts = await connectionsDetail(ctx.userId, { signal: AbortSignal.timeout(15_000) });
+        const accounts = visibleConnections(await connectionsDetail(ctx.userId, { signal: AbortSignal.timeout(15_000) }));
         if (!ctx.roomId && !accounts.some(a => a.toolkit === toolkit && a.status === 'ACTIVE' && !a.isDisabled)) {
           return await requestAppConnection({ toolkit, reason: connectionRequiredMessage(app, accounts.some(a => a.toolkit === toolkit)) }, ctx);
         }
       } catch { /* Keep unavailable status distinct from a confirmed missing connection. */ }
     }
-    const reason = timedOut ? `${app} tool timed out.` : `${app} connection failed.`;
-    throw new Error(`${reason} ${retry}`);
+    return failed(error);
   }
 }
 

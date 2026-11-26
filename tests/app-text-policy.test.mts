@@ -80,8 +80,8 @@ test('verified reads auto-allow regardless of slug verbs and pin fresh provider 
 
 test('read-looking writes, unknown/conflicting metadata and fake hints require approval', async t => {
   const f = fixture(t), slug = 'GITHUB_GET_AND_DELETE';
-  assert.equal(policyFor('alice', 'SWARM_APPS_EXECUTE', args(slug), active.id).decision, 'allow');
-  for (const tags of [undefined, [], ['destructiveHint'], ['readOnlyHint', 'updateHint'], ['readOnlyHint', 'createHint'], { readOnlyHint: true }]) {
+  assert.equal(policyFor('alice', 'SWARM_APPS_EXECUTE', args(slug), active.id).decision, 'ask');
+  for (const tags of [undefined, [], ['readOnlyHint'], ['destructiveHint'], ['readOnlyHint', 'updateHint'], ['readOnlyHint', 'createHint'], { readOnlyHint: true }]) {
     f.setTools([{ ...rawTool(slug), tags, readOnlyHint: true, readOnly: true }]); resetAppDiscovery();
     const policy = await executionPolicyFor('alice', 'SWARM_APPS_EXECUTE', args(slug), active.id);
     assert.equal(policy.decision, 'ask'); assert.equal(policy.readOnlyApps, false);

@@ -6,6 +6,7 @@ import { env } from '../env.js';
 import { appendRow, getBotRow, updateRow } from '../store.js';
 import type { ActivityKind, CardBody } from '../types.js';
 import type { ToolCtx, ToolResult } from './tools.js';
+import { connectionSummary, connectionStatus } from '../connection-details.js';
 
 export interface AppConnectionRequest { botId: string; seq: number; toolkit: string; toolkitName: string }
 export interface AppConnectionResult extends ToolResult { connectionRequest?: AppConnectionRequest }
@@ -53,7 +54,8 @@ function publicConnection(connection: Connection) {
   // The standalone adapter explicitly executes revision 1. Tenant revisions are
   // provider/gateway facts; never substitute a guessed tenant revision.
   return { id: connection.id, toolkit: connection.toolkit, status: connection.status,
-    accountLabel: connection.accountLabel, displayStatus: connection.displayStatus, connectedAt: connection.connectedAt,
+    isDisabled: connection.isDisabled ?? false,
+    accountLabel: connection.accountLabel, displayStatus: connectionStatus(connection.status, connection.isDisabled), connectedAt: connection.connectedAt,
     revision: connection.revision ?? (isTenant ? null : 1), isDefault: connection.isDefault ?? false };
 }
 
@@ -75,11 +77,12 @@ function define<S extends z.ZodType>(name: string, description: string, schema: 
 }
 
 const listTool = define('list_app_connections',
-  'List all of this user’s private app accounts, including account IDs, connection revisions and current statuses. Unavailable provider data is distinct from no connections. Never returns credentials.',
+  'List this user’s private app accounts using the same statuses and connectedCount as Settings. Only active usable apps count as connected. Expired or revoked accounts need reconnecting; unfinished sign-ins are absent. Includes account IDs and connection revisions, never credentials.',
   listSchema, async (_args, ctx, generation) => {
-    const connections = (await connectionsDetail(ctx.userId, { details: true })).map(publicConnection);
+    const snapshot = connectionSummary(await connectionsDetail(ctx.userId, { details: true }));
+    const connections = snapshot.connections.map(publicConnection);
     ownBot(ctx, generation);
-    return result({ ok: true, available: true, status: connections.length ? 'available' : 'none', connections });
+    return result({ ok: true, available: true, status: connections.length ? 'available' : 'none', connections, connected: snapshot.connected, connectedCount: snapshot.connectedCount });
   });
 
 const searchTool = define('search_apps',
@@ -104,7 +107,7 @@ const requestTool = define('request_app_connection',
     const info = await toolkitInfo(args.toolkit);
     ownBot(ctx, generation);
     if (!info) return result({ ok: false, status: 'unknown_toolkit', error: 'Unknown app. Use search_apps to find a supported toolkit slug.' });
-    const accounts = (await connectionsDetail(ctx.userId, { details: true })).filter(connection => connection.toolkit === info.slug);
+    const accounts = connectionSummary(await connectionsDetail(ctx.userId, { details: true })).connections.filter(connection => connection.toolkit === info.slug);
     const active = accounts.filter(connection => connection.status === 'ACTIVE' && !connection.isDisabled).map(publicConnection);
     ownBot(ctx, generation);
     if (active.length) return result({ ok: true, status: 'connected',

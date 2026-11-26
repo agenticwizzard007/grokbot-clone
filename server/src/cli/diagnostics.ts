@@ -10,6 +10,15 @@ export const safeToolName = (name: unknown) => typeof name === 'string' && /^[A-
 /** Classify only. Never log exception messages, arguments, bodies or credentials. */
 export function cliErrorClass(error: unknown): string {
   const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  if (/app request timed out/i.test(message)) return 'app_timeout';
+  if (/app rejected authorization/i.test(message)) return 'app_auth';
+  if (/app denied access/i.test(message)) return 'app_access';
+  if (/app is receiving too many requests/i.test(message)) return 'app_rate_limit';
+  if (/app service is temporarily unavailable/i.test(message)) return 'app_provider';
+  if (/connection revision is no longer available/i.test(message)) return 'app_selection';
+  if (/app rejected the request arguments/i.test(message)) return 'app_arguments';
+  if (/selected tool is no longer available for this app/i.test(message)) return 'app_tool_selection';
+  if (/app request could not be completed/i.test(message)) return 'app_operation';
   if (/CLI tool host is disabled|code-mode host is disabled/i.test(message)) return 'cli_tool_host_disabled';
   if (/CLI tool host is unavailable|failed to spawn code-mode host/i.test(message)) return 'cli_tool_host_unavailable';
   if (/Server CLI login is disabled/i.test(message)) return 'cli_login_disabled';

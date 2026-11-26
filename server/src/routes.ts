@@ -1,4 +1,4 @@
-import { visibleConnections } from './connection-details.js';
+import { visibleConnections, connectionSummary } from './connection-details.js';
 import { isEffort } from './types.js';
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
@@ -689,8 +689,9 @@ api.get('/apps', async (c) => {
   const search = (c.req.query('search') ?? '').toLowerCase();
   const category = c.req.query('category') ?? '';
   const [all, rawAccounts] = await Promise.all([catalog(), connectionsDetail(user.id, { details: true })]);
-  const accounts = visibleConnections(rawAccounts);
-  const connected = new Set(accounts.filter(a => a.status === 'ACTIVE' && !a.isDisabled).map(a => a.toolkit));
+  const snapshot = connectionSummary(rawAccounts);
+  const accounts = snapshot.connections;
+  const connected = new Set(snapshot.connected);
   const withAccounts = (t: Omit<Toolkit, 'connected'>): Toolkit => ({ ...t, connected: connected.has(t.slug), accounts: accounts.filter(a => a.toolkit === t.slug) });
   let items: Toolkit[] = all.map(withAccounts);
   if (search) items = items.filter((t) => t.name.toLowerCase().includes(search) || t.slug.includes(search) || t.description?.toLowerCase().includes(search));
@@ -711,7 +712,7 @@ api.get('/apps/connections', async c => {
   const pending = pendingConnectionCards(userId);
   const connections = await connectionsDetail(userId, { details: true });
   reconcileConnectionCards(userId, pending, connections);
-  return c.json({ connections: visibleConnections(connections) });
+  return c.json(connectionSummary(connections));
 });
 api.delete('/apps/connections/:id/expired', async c => {
   try {

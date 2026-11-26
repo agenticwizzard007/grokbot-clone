@@ -84,7 +84,7 @@ test('both listing APIs include email, mapped status and actual connect date for
   assert.deepEqual(catalog.connectedApps[0].accounts, payload.connections);
   assert.deepEqual(catalog.apps.find((a: any) => a.slug === 'gmail').accounts, payload.connections);
   assert.deepEqual(retrieves, []); assert.deepEqual(profiles, []);
-  assert.deepEqual(await (await request('/apps/connections', 'other')).json(), { connections: [] });
+  assert.deepEqual(await (await request('/apps/connections', 'other')).json(), { connections: [], connected: [], connectedCount: 0 });
 });
 
 test('Gmail falls back to users.getProfile emailAddress and caches the identity between list loads', async () => {

@@ -15,11 +15,28 @@ if (process.env.SWARM_TEST_REAL_CLI === '1') {
     const request = conversation.filter((item: any) => item.role === 'user').at(-1);
     if (JSON.stringify(request).includes('plain reply')) return { text: emailBody };
     const outputs = modelOutputs(provider, body);
+    const requested = JSON.stringify(request);
+    const internal = requested.includes('fixture memory') ? { name: 'remember', args: { text: 'I prefer fixture memory checks.' } }
+      : requested.includes('fixture file') ? { name: 'save_file', args: { filename: 'fixture.txt', content: 'Local fixture file.' } }
+      : requested.includes('fixture task') ? { name: 'create_task', args: { title: 'Local fixture task' } } : null;
+    if (internal) {
+      const unpack = (value: any): any[] => {
+        if (typeof value === 'string') { try { return unpack(JSON.parse(value)); } catch { return []; } }
+        if (!value || typeof value !== 'object') return [];
+        return [value, ...Object.values(value).flatMap(unpack)];
+      };
+      const found = outputs.flatMap(unpack).find((value: any) => value.name === internal.name && value.schema_hash);
+      const action = !outputs.length ? { name: 'tool_describe', args: { tool_name: internal.name } }
+        : found && outputs.length === 1 ? { name: 'tool_call', args: { tool_name: internal.name, schema_hash: found.schema_hash, arguments: internal.args } }
+        : { text: 'Internal fixture completed.' };
+      return provider === 'codex' ? codeModeAction(action) : action;
+    }
     if (outputs.length >= 2) return { text: 'Approval is waiting in the main chat.' };
+    const toolkit = requested.includes('fixture app write') ? 'slack' : 'gmail';
     const name = outputs.length ? 'SWARM_APPS_EXECUTE' : 'SWARM_APPS_SEARCH';
     const action = { name: provider === 'claude' ? `mcp__swarm__${name}` : name, args: outputs.length
-      ? { connectionId: 'fixture-gmail', revision: 1, tool_slug: 'GMAIL_CREATE_EMAIL_DRAFT', arguments: emailArgs }
-      : { toolkit: 'gmail', query: 'create email draft', connectionId: 'fixture-gmail' } };
+      ? { connectionId: `fixture-${toolkit}`, revision: 1, tool_slug: toolkit === 'slack' ? 'SLACK_SEND_MESSAGE' : 'GMAIL_CREATE_EMAIL_DRAFT', arguments: emailArgs }
+      : { toolkit, query: toolkit === 'slack' ? 'send message' : 'create email draft', connectionId: `fixture-${toolkit}` } };
     return provider === 'codex' ? codeModeAction(action) : action;
   });
   process.env.SWARM_CLI_CODEX_PATH = fixture.install('codex', { codexModel: null });
@@ -46,6 +63,7 @@ app.post('/api/fixture/cli', async c => {
   await refreshHosted(bot.user_id);
   return c.json({ ok: true });
 });
+app.post('/api/fixture/connections', async c => { state.connectionScenario = (await c.req.json()).scenario; return c.json({ ok: true }); });
 app.get('/api/fixture/state', c => c.json(state));
 app.route('/api/cli', cliApi); app.route('/api', api);
 serve({ fetch: withHeadSupport(app.fetch), port: Number(process.env.PORT), hostname: '127.0.0.1' });
