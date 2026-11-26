@@ -10,11 +10,27 @@ const { cliApi } = await import('../../server/src/cli/routes.js');
 const { selectCli } = await import('../../server/src/cli/store.js');
 const { toolMap } = await import('../../server/src/agent/tools.js');
 const { appendRow } = await import('../../server/src/store.js');
-const { listSkills, listSkillProposals } = await import('../../server/src/knowledge/skills.js');
+const { listSkills, listSkillProposals, stageSkillProposal } = await import('../../server/src/knowledge/skills.js');
+const { toolManagement, withManagement } = await import('../../server/src/knowledge/access.js');
 const { acceptJob } = await import('../../server/src/agent/jobs.js');
 const { securityHeaders, withHeadSupport } = await import('../../server/src/security/request.js');
 const app = new Hono(); app.use('*', securityHeaders);
 app.get('/api/health', c => c.json({ ok: true }));
+// Reproduce the pre-#223 propose_skill implementation with disposable data.
+// It staged an attended CLI turn, including its real source and job attribution.
+app.post('/api/fixture/legacy-skill', async c => {
+  const { botId, provider, name, unavailableEvidence } = await c.req.json();
+  const { user_id: userId } = db.prepare('SELECT user_id FROM bots WHERE id=?').get(botId) as any;
+  selectCli(userId, provider);
+  const source = appendRow(botId, 'message', { type: 'message', role: 'user', text: `Save the ${name} skill to verify sources.` });
+  const job = acceptJob(botId, { type: 'user', text: 'Save this skill.' });
+  const proposal = withManagement(toolManagement({ userId, botId, jobId: job.id, depth: 0 }), () => stageSkillProposal(userId, botId, {
+    expectedRevision: 0, content: { name, description: 'Verify sources', body: '1. Read original sources.\n2. Cite each source.' },
+    reason: 'Requested in chat.', evidence: [{ botId, generation: source.generation, seq: source.seq }], runId: job.id,
+  }));
+  if (unavailableEvidence) db.prepare('DELETE FROM rows WHERE bot_id=? AND generation=? AND seq=?').run(botId, source.generation, source.seq);
+  return c.json({ proposal });
+});
 app.post('/api/fixture/file', async c => {
   const { botId } = await c.req.json();
   const { user_id: userId } = db.prepare('SELECT user_id FROM bots WHERE id=?').get(botId) as any;

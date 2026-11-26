@@ -259,6 +259,78 @@ test('R13 proposing an already active name does not claim that obsolete changes 
   assert.equal(skills.listSkillProposals('owner', 'alpha').filter(p => p.status === 'pending').length, 0);
 });
 
+for (const decision of ['approve', 'reject'] as const) test(`R14 legacy attended CLI new-skill proposal stays actionable and owner can ${decision}`, async t => {
+  const { acceptJob } = await import('../server/src/agent/jobs.js');
+  const { selectCli } = await import('../server/src/cli/store.js');
+  const { toolManagement, withManagement } = await import('../server/src/knowledge/access.js');
+  selectCli('owner', 'claude'); t.after(() => selectCli('owner', null));
+  const source = message('Save the original source-check procedure.');
+  const job = acceptJob('alpha', { type: 'user', text: 'Save this skill.' });
+  // The pre-#223 adapter staged even attended CLI calls. Attendance was derived
+  // from this job, but execution mode was not frozen on the saved proposal.
+  const proposal = withManagement(toolManagement({ userId: 'owner', botId: 'alpha', jobId: job.id, depth: 0 }), () => skills.stageSkillProposal('owner', 'alpha', {
+    expectedRevision: 0, content: { ...seedContent, name: 'source-check-original' }, reason: 'Requested in chat.', evidence: [source], runId: job.id,
+  }));
+  skills.createSkill('owner', 'alpha', { ...seedContent, name: 'source-check-later' });
+  const before = db.prepare('SELECT * FROM knowledge_skill_proposals WHERE id=?').get(proposal.id) as any;
+  assert.equal(before.actor, 'foreground'); assert.equal(before.settings_revision, '0:0');
+  const headers = { cookie: cookie('owner'), 'content-type': 'application/json' };
+  const list = async () => (await (await knowledgeApi.request('/bots/alpha/skill-proposals', { headers })).json()).proposals;
+  assert.deepEqual((await list()).filter((p: any) => p.status === 'pending').map((p: any) => p.id), [proposal.id]);
+  skills.listSkills('owner', 'alpha');
+  assert.deepEqual(db.prepare('SELECT * FROM knowledge_skill_proposals WHERE id=?').get(proposal.id), before, 'opening Skills cannot infer past authorization from the current plan');
+  assert.equal((await knowledgeApi.request(`/skill-proposals/${proposal.id}/review`, { method: 'POST', headers: { ...headers, cookie: cookie('other') }, body: JSON.stringify({ decision, expectedBaseRevision: 0 }) })).status, 404);
+  const response = await knowledgeApi.request(`/skill-proposals/${proposal.id}/review`, { method: 'POST', headers, body: JSON.stringify({ decision, expectedBaseRevision: 0 }) });
+  assert.equal(response.status, 200); const result = await response.json();
+  assert.equal(result.status, decision === 'approve' ? 'approved' : 'rejected');
+  assert.equal((await list()).filter((p: any) => p.status === 'pending').length, 0);
+  assert.equal((await list()).find((p: any) => p.id === proposal.id).status, result.status);
+  assert.equal(skills.listSkills('owner', 'alpha').some(s => s.name === 'source-check-original'), decision === 'approve');
+  if (decision === 'approve') {
+    const history = skills.listSkillHistory('owner', result.skill.id)[0];
+    assert.equal(result.skill.lifecycle, 'active'); assert.equal(history.actor, 'owner');
+    assert.equal(history.runId, job.id); assert.deepEqual(history.evidence, [source]);
+  }
+});
+
+test('R14 legacy new-skill approval accepts missing actor metadata without inventing source evidence', () => {
+  const source = message('Save the source-check procedure.');
+  db.prepare(`INSERT INTO knowledge_skill_proposals(id,bot_id,skill_id,base_revision,generation,snapshot,reason,evidence,created_at)
+    VALUES('legacy-proposal','alpha','legacy-target',0,1,?,'Requested in chat.',?,1)`).run(JSON.stringify(seedContent), JSON.stringify([source]));
+  assert.equal(skills.listSkillProposals('owner', 'alpha')[0].actor, 'legacy');
+  const approved = skills.resolveSkillProposal('owner', 'legacy-proposal', 'approve', 0);
+  assert.equal(approved.skill!.lifecycle, 'active');
+  assert.deepEqual(skills.listSkillHistory('owner', approved.skill!.id)[0].evidence, [source]);
+});
+
+test('R14 loading proposals keeps approval-on new skills and current-revision edits pending', async () => {
+  const { patchLearningSettings } = await import('../server/src/knowledge/settings.js');
+  const evidence = [message('Save the procedure and revise the current skill.')];
+  const active = skills.createSkill('owner', 'alpha', seedContent);
+  const edit = skills.stageSkillProposal('owner', 'alpha', { skillId: active.id, expectedRevision: 1, content: { ...seedContent, body: 'Revised steps' }, reason: 'Requested edit.', evidence });
+  patchLearningSettings('owner', { botId: 'alpha', expectedRevision: 0, settings: { skillApproval: true } });
+  const fresh = skills.stageSkillProposal('owner', 'alpha', { expectedRevision: 0, content: { ...seedContent, name: 'Another procedure' }, reason: 'Requested new skill.', evidence });
+  for (let n = 0; n < 2; n++) {
+    assert.deepEqual(skills.listSkillProposals('owner', 'alpha').filter(p => p.status === 'pending').map(p => p.id).sort(), [edit.id, fresh.id].sort());
+    assert.deepEqual(skills.listSkills('owner', 'alpha'), [active]);
+  }
+});
+
+for (const invalidation of ['missing evidence', 'changed evidence', 'changed conversation'] as const) test(`R14 ${invalidation} blocks approval but owner can dismiss the leftover`, async () => {
+  const evidence = [message('Save the original procedure.')];
+  const proposal = skills.stageSkillProposal('owner', 'alpha', { expectedRevision: 0, content: seedContent, reason: 'Requested in chat.', evidence });
+  if (invalidation === 'missing evidence') db.prepare('DELETE FROM rows WHERE bot_id=?').run('alpha');
+  if (invalidation === 'changed evidence') db.prepare("UPDATE rows SET body=? WHERE bot_id=?").run(JSON.stringify({ type: 'message', role: 'user', text: 'Corrected source.' }), 'alpha');
+  if (invalidation === 'changed conversation') db.prepare('UPDATE bots SET generation=2 WHERE id=?').run('alpha');
+  const headers = { cookie: cookie('owner'), 'content-type': 'application/json' };
+  const review = (decision: string) => knowledgeApi.request(`/skill-proposals/${proposal.id}/review`, { method: 'POST', headers, body: JSON.stringify({ decision, expectedBaseRevision: 0 }) });
+  assert.equal((await review('approve')).status, invalidation === 'missing evidence' ? 422 : 409);
+  assert.equal(skills.listSkillProposals('owner', 'alpha')[0].status, 'pending');
+  assert.equal(skills.listSkills('owner', 'alpha').length, 0);
+  assert.equal((await review('reject')).status, 200);
+  assert.equal(skills.listSkillProposals('owner', 'alpha')[0].status, 'rejected');
+});
+
 test('proposals validate sources, scope, generation and run attribution', () => {
   const ref = message('A learned procedure'); const foreignRef = message('Private procedure', { botId: 'foreign' });
   const input = { expectedRevision: 0, content: seedContent, reason: 'Learned', evidence: [ref] };

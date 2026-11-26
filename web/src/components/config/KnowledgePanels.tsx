@@ -94,6 +94,7 @@ function ProcedurePolicy({skill,onChange}:{skill:KnowledgeSkill;onChange:()=>voi
 
 export function SkillReview({ botId, version, onChange }: { botId: string; version: string; onChange: () => void }) {
   const [proposals, setProposals] = useState<SkillProposal[] | null>(null);
+  const [reviewError, setReviewError] = useState<{ id: string; message: string } | null>(null);
   const [archive, setArchive] = useState<KnowledgeSkill[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
@@ -107,36 +108,43 @@ export function SkillReview({ botId, version, onChange }: { botId: string; versi
   }, [botId, version, refresh]);
   const review = async (p: SkillProposal, decision: 'approve' | 'reject' | 'evaluate') => {
     if (busy || p.status !== 'pending') return;
-    setBusy(p.id); setError('');
+    setBusy(p.id); setReviewError(null);
     try {
       if (decision === 'evaluate') await learningApi.evaluateProposal(p.id);
       else await configApi.reviewSkill(p.id, decision, p.baseRevision);
       setRefresh(r => r + 1); onChange();
     }
-    catch (e) { setError((e as Error).message); }
+    catch (e) { setReviewError({ id: p.id, message: (e as Error).message }); }
     finally { setBusy(null); }
   };
   const pending = proposals?.filter(proposal => proposal.status === 'pending') ?? [];
   const reviewed = proposals?.filter(proposal => proposal.status !== 'pending') ?? [];
-  const proposalRow = (proposal: SkillProposal) => <details className="native-history" key={proposal.id}>
-    <summary>{proposal.content.name} · {proposal.baseRevision ? `Base revision ${proposal.baseRevision}` : 'New skill'} · {proposal.status}</summary>
-    <p>{proposal.reason}</p>
-    {proposal.status === 'pending' && <p className="native-meta">{proposal.baseRevision ? 'The current skill stays active until you approve this change.' : 'This new skill will be active after you approve it.'}</p>}
-    <pre aria-label="Proposed skill diff" className="knowledge-item__diff">{proposal.diff}</pre>
-    <details><summary>Proposal evaluation</summary><EvaluationResults evaluations={proposal.evaluations ?? []} />
-      {proposal.status === 'pending' && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => void review(proposal, 'evaluate')}>Evaluate frozen proposal</button>}
+  const proposalRow = (proposal: SkillProposal) => <article className="native-history" key={proposal.id} aria-label={`${proposal.content.name} proposal`}>
+    <details>
+      <summary>{proposal.content.name} · {proposal.baseRevision ? `Base revision ${proposal.baseRevision}` : 'New skill'} · {proposal.status}</summary>
+      <p>{proposal.reason}</p>
+      <pre aria-label="Proposed skill diff" className="knowledge-item__diff">{proposal.diff}</pre>
+      <details><summary>Proposal evaluation</summary><EvaluationResults evaluations={proposal.evaluations ?? []} />
+        {proposal.status === 'pending' && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => void review(proposal, 'evaluate')}>Evaluate frozen proposal</button>}
+      </details>
+      <SourceMessages sources={proposal.evidence} />
     </details>
-    <SourceMessages sources={proposal.evidence} />
+    {proposal.status === 'pending' && <p className="native-meta">{proposal.baseRevision ? 'The current skill stays active until you approve this change.' : 'This new skill will be active after you approve it.'}</p>}
+    {proposal.status === 'pending' && reviewError?.id === proposal.id && <div className="cfg-error" role="alert">
+      <p>{reviewError.message}</p><p>This proposal is still pending. You can dismiss it or ask your Bot for a fresh proposal.</p>
+      <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => { setReviewError(null); setRefresh(value => value + 1); }}>Refresh skill changes</button>
+    </div>}
     {proposal.status === 'pending' && <div className="cfg-editor__actions">
-      <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => void review(proposal, 'reject')}>Reject</button>
+      <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => void review(proposal, 'reject')}>Dismiss</button>
       <button type="button" className="cfg-btn cfg-btn--primary" disabled={!!busy} onClick={() => void review(proposal, 'approve')}>{busy === proposal.id ? 'Updating…' : 'Approve'}</button>
     </div>}
-  </details>;
+  </article>;
   return <div>
     {error && <div className="cfg-error" role="alert">{error} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setRefresh(value => value + 1)}>Refresh skill changes</button></div>}
     <details className="knowledge-item">
       <summary className="knowledge-item__row"><span><strong>Learned skill changes</strong><small>{pending.length ? `${pending.length} pending review.` : proposals ? 'No pending proposals.' : 'Review proposed steps and sources.'}</small></span><span className="knowledge-item__action">Review changes</span></summary>
       {!proposals && !error && <p role="status">Loading proposed changes…</p>}
+      {!!pending.length && <p className="native-meta">Review each proposal below. Approve applies the change. Dismiss moves it to earlier proposals without changing your skills.</p>}
       {pending.map(proposalRow)}
       {!!reviewed.length && <details className="knowledge-item__details"><summary>Earlier skill proposals ({reviewed.length})</summary>{reviewed.map(proposalRow)}</details>}
     </details>
