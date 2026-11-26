@@ -15,4 +15,13 @@ The branch starts at untouched main `1957a7fc80f5fb6ebe777f4768d7f62c809b0e13` (
 
 The unchanged #234 suite covers 12 composer cases, 24 voice states, 8 sibling inputs and 36 viewport checks. Loading/cache/timeout/retry, connection flows, and both typing performance suites are also exercised. Existing performance selectors now use the full accessible title where a phone intentionally shows a complete shorter label.
 
-The complete unit command is `node --import tsx --test --test-reporter=tap --test-concurrency=1 tests/*.test.mts tests/*.test.mjs`. Baseline runs in a detached untouched main worktree on this VM. Full-suite counts and the final baseline comparison are recorded below after both runs finish. Evidence and screenshots are in `.context/`.
+The complete unit command is `node --import tsx --test --test-reporter=tap --test-concurrency=1 tests/*.test.mts tests/*.test.mjs`. Baseline runs in a detached untouched main worktree on this VM. Evidence and screenshots are in `.context/`.
+
+| Full unit suite | Pass | Fail | Existing skips | Cancelled |
+| --- | ---: | ---: | ---: | ---: |
+| Untouched main 1957a7fc | 2747 | 70 | 24 | 0 |
+| This branch | 2751 | 70 | 24 | 0 |
+
+All 70 failure names match exactly, with four additional passing unit tests and no new failure names. The full suite is not claimed to be green. No tests or CI were disabled or newly skipped. The focused command has 14 passing unit tests and 86 browser cases (60 provider, 4 keyboard, 6 connection, 4 loading and 12 composer layout cases); both performance suites add four passing viewport/theme cases each. Typecheck and the web/server build pass.
+
+An early expanded browser run treated the existing read-only suggested-apps POST as a mutation. The fixture now permits that specific request and still rejects other unexpected writes; no product behavior was changed for that test artifact.
