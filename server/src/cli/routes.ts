@@ -12,8 +12,13 @@ import { currentSessionHash } from '../security/request-context.js';
 import { createStatusReader } from './status-cache.js';
 import { lastCliRun, cliRunsByProvider, apiRuns } from './run-diagnostics.js';
 import { db, now } from '../db.js';
+import { storedPlanStatus } from './status-history.js';
 
-const readStatus = createStatusReader(cliStatus, refreshCli);
+const readStatus = createStatusReader(userId => {
+  const current = cliStatus(userId);
+  const saved = current.runtime === 'server' && !current.connected ? storedPlanStatus(userId) : undefined;
+  return saved ? { ...current, connected: true, providers: saved, statusChecking: true } : current;
+}, (userId, signal) => refreshCli(userId, signal, 2000));
 
 export const cliApi = new Hono<AuthVars>();
 cliApi.use('*', requireUser);

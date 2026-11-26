@@ -3,7 +3,7 @@ import { Terminal } from 'lucide-react';
 import { SettingRow } from './config/SettingRow';
 import { useEffect, useState } from 'react';
 import { cliApi, getCachedCliStatus, type CliStatus } from '../lib/cliApi';
-import { PLAN_PROVIDERS, planConnectionStatus, subscriptionReady } from '../lib/planConnections';
+import { PLAN_PROVIDERS, planConnectionStatus, planState } from '../lib/planConnections';
 import { useModels } from '../lib/models';
 import { useConfigUI } from '../configStore';
 import { useStore } from '../store';
@@ -34,25 +34,27 @@ function AccountPlanConnections({ onClose, settings }: { onClose?: () => void; s
       finally { pending = false; }
     };
     void load();
-    const timer = setInterval(() => void load(), 5000);
+    const timer = setInterval(() => void load(), status?.statusChecking ? 1000 : 5000);
     document.addEventListener('visibilitychange', load);
     return () => { controller.abort(); clearInterval(timer); document.removeEventListener('visibilitychange', load); };
-  }, [attempt]);
+  }, [attempt, !!status?.statusChecking]);
   return <section className="plan-connections" aria-label="Connect a plan">
     <p>Use a subscription through the official CLI. API keys remain available.</p>
-    {(failed || status?.statusUnavailable) && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setAttempt(value => value + 1)}>Retry status</button>}
+    {PLAN_PROVIDERS.some(provider => planState(status, provider.id, failed).unavailable) && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setAttempt(value => value + 1)}>Retry status</button>}
     {PLAN_PROVIDERS.map(provider => {
       const active = status?.selected === provider.id;
-      const available = !!status?.connected && subscriptionReady(status.providers[provider.id]);
+      const state = planState(status, provider.id, failed);
+      const available = state.connected;
       const plan = catalog.provider === `${provider.id}-cli` && catalog.status === 'ready' && !catalog.error ? catalog.plan : null;
       const connectionStatus = failed ? 'Status unavailable' : planConnectionStatus(status, provider.id, plan);
-      const control = <button type="button" className={settings ? 'cfg-btn cfg-btn--secondary' : undefined} aria-label={`${active ? 'Manage' : 'Connect'} ${provider.name}`} onClick={() => {
+      const label = <span role="status"><span><ProviderText>{connectionStatus}</ProviderText></span><small className="plan-connections__hint" style={{ visibility: available && state.checking ? 'visible' : 'hidden' }} aria-hidden={!available || !state.checking}>Checking</small></span>;
+      const control = (available || state.canConnect) && <button type="button" className={settings ? 'cfg-btn cfg-btn--secondary' : undefined} aria-label={`${available ? active ? 'Manage' : 'Use' : 'Connect'} ${provider.name}`} onClick={() => {
         onClose?.(); useConfigUI.getState().openAppSettings('subscriptions', provider.id);
-      }}>{active ? 'Manage' : available ? 'Use subscription' : 'Connect plan'}</button>;
+      }}>{available ? active ? 'Manage' : 'Use subscription' : 'Connect plan'}</button>;
       return settings
-        ? <SettingRow key={provider.id} icon={Terminal} title={<ProviderLabel provider={provider.id}>{provider.name}</ProviderLabel>} sub={<>Via <ProviderLabel provider={provider.id}>{provider.cli}</ProviderLabel></>} status={<span role="status"><ProviderText>{connectionStatus}</ProviderText></span>}>{control}</SettingRow>
+        ? <SettingRow key={provider.id} icon={Terminal} title={<ProviderLabel provider={provider.id}>{provider.name}</ProviderLabel>} sub={<>Via <ProviderLabel provider={provider.id}>{provider.cli}</ProviderLabel></>} status={label}>{control}</SettingRow>
         : <div className="plan-connections__provider" key={provider.id}>
-          <div><strong><ProviderLabel provider={provider.id}>{provider.name}</ProviderLabel></strong><small>Via <ProviderLabel provider={provider.id}>{provider.cli}</ProviderLabel></small><span role="status"><ProviderText>{connectionStatus}</ProviderText></span></div>
+          <div><strong><ProviderLabel provider={provider.id}>{provider.name}</ProviderLabel></strong><small>Via <ProviderLabel provider={provider.id}>{provider.cli}</ProviderLabel></small>{label}</div>
           {control}
         </div>;
     })}

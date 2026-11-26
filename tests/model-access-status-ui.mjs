@@ -86,7 +86,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       const connected = fixture[provider] && !fixture.statusUnavailable && status.connected;
       const active = connected && fixture.selected === provider;
       const probeError = provider === 'claude' && fixture.name === 'claude-probe-error';
-      const expected = fixture.statusUnavailable || probeError ? 'Status unavailable' : connected ? `Connected${active ? ' · Currently in use' : ''}` : 'Not connected';
+      const expected = fixture.statusUnavailable || probeError || !status.connected ? 'Status unavailable' : connected ? `Connected${active ? ' · Currently in use' : ''}` : 'Not connected';
       assert.equal(await connection.getByRole('status').innerText(), expected, `${fixture.name}: ${cli} owns its connection status`);
       assert.equal(await connection.getByRole('status').count(), 1);
       assert.equal(await panel.locator('.cfg-row__title').filter({ hasText: new RegExp(`^${cli}$`) }).count(), 0, 'no duplicate runtime row');
@@ -98,7 +98,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       }
       const sentence = panel.locator('.subscription-settings__current-route');
       assert.equal(await sentence.count(), 1);
-      const routeText = await sentence.innerText();
+      const routeText = (await sentence.innerText()).replace(/\s+/g, ' ');
       if (fixture.statusUnavailable) assert.match(routeText, /could not be verified/);
       else if (fixture.selected && (!fixture[fixture.selected] || !status.connected)) assert.match(routeText, /connection is not ready/);
       else if (!fixture.selected) assert.match(routeText, /^Your Bots currently use API providers;/);
@@ -130,7 +130,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
         await advanced.getByRole('button', { name: 'Confirm reset', exact: true }).waitFor();
         const other = provider === 'claude' ? 'Codex' : 'Claude Code';
         await page.getByRole('tab', { name: other, exact: true }).click();
-        assert.equal(await page.getByRole('button', { name: 'Confirm reset', exact: true }).count(), 0, 'switching tabs cancels confirmation');
+        await page.getByRole('button', { name: 'Confirm reset', exact: true }).waitFor({ state: 'detached' });
         await page.getByRole('tab', { name: cli, exact: true }).click();
       }
       const overflow = await panel.evaluate(el => ({

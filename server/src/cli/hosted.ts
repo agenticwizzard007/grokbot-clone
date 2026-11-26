@@ -11,6 +11,7 @@ import { isolatedRunner } from '../runtime/subscription-client.js';
 import { assertLegacyWorkOpen, legacyWorkHeld, withLegacyWork } from '../security/legacy-work.js';
 import type { NativeToolHandler } from './native-tools.js';
 import { hasNativeTools, ToolCallbacks } from './tool-callback.js';
+import { clearPlanStatus, savePlanStatus } from './status-history.js';
 
 const require = createRequire(import.meta.url);
 // Claude uses OS Keychain on macOS; deleting a profile directory would leave
@@ -132,7 +133,10 @@ export async function refreshHosted(userId: string, signal?: AbortSignal, status
     if (opts.signal?.aborted) throw new Error('CLI request cancelled.');
     return runner.checkProviders({ ...opts, statusTimeoutMs });
   });
-  if (!signal?.aborted && !legacyWorkHeld(userId) && !deleting.has(userId) && db.prepare('SELECT 1 FROM users WHERE id=?').get(userId)) statuses.set(userId, providers);
+  if (!signal?.aborted && !legacyWorkHeld(userId) && !deleting.has(userId) && db.prepare('SELECT 1 FROM users WHERE id=?').get(userId)) {
+    statuses.set(userId, providers);
+    savePlanStatus(userId, providers);
+  }
   return providers;
 }
 
@@ -169,6 +173,7 @@ export async function deleteHostedProfile(userId: string) {
   deleting.add(userId);
   try {
     statuses.delete(userId);
+    clearPlanStatus(userId);
     // Cancellation stops child processes asynchronously; wait before removing credentials.
     await stopHostedJobsAndWait(userId);
     if (isTenant) await isolatedRunner.deleteProfiles({ tenantUserId: userId, env: {}, codexPath: '', claudePath: '' });

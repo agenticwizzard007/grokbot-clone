@@ -65,7 +65,10 @@ function connect(options: RunnerOptions, message: Record<string, unknown>) {
 }
 export const isolatedRunner = {
   async checkProviders(options: RunnerOptions) {
-    const [codex, claude] = await Promise.all((['codex', 'claude'] as const).map(provider => connect(options, { operation: 'status', provider }).done));
+    const probeOptions = options.statusTimeoutMs ? { ...options, signal: AbortSignal.any([
+      ...(options.signal ? [options.signal] : []), AbortSignal.timeout(options.statusTimeoutMs),
+    ]) } : options;
+    const [codex, claude] = await Promise.all((['codex', 'claude'] as const).map(provider => connect(probeOptions, { operation: 'status', provider }).done));
     if (codex.codexExecOnly !== true) codex.error = 'Update the isolated CLI runner before using Codex.';
     return { codex, claude };
   },

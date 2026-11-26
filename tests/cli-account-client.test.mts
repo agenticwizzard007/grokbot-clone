@@ -7,7 +7,7 @@ const originalFetch = globalThis.fetch;
 const account = (id: string | null) => useStore.setState({ user: id ? { id, email: `${id}@example.test`, name: id, avatarUrl: null } : null });
 afterEach(() => { globalThis.fetch = originalFetch; account(null); });
 
-test('CLI status subscriptions reuse the account snapshot without probing and clear on account changes or failure', async () => {
+test('CLI status subscriptions reuse the account snapshot, clear on account change and mark failure unavailable', async () => {
   account('fixture-account');
   const health = { installed: true, authenticated: true, subscription: true };
   const status: CliStatus = { runtime: 'server', serverLoginAvailable: true, selected: null, connected: true, device: null, providers: { claude: health, codex: health } };
@@ -26,7 +26,7 @@ test('CLI status subscriptions reuse the account snapshot without probing and cl
     await cliApi.status();
     globalThis.fetch = async () => Response.json({ error: 'Unavailable' }, { status: 503 });
     await assert.rejects(cliApi.status());
-    assert.equal(getCachedCliStatus(), null);
+    assert.deepEqual(getCachedCliStatus(), { ...status, statusChecking: false, statusUnavailable: true });
     assert.equal(changes, 4);
   } finally { unsubscribe(); }
   account(null);

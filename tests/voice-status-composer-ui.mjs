@@ -118,7 +118,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     await plans.getByText('Status unavailable', { exact: true }).first().waitFor({ timeout: 20000 });
     assert.equal(await plans.getByText('Status unavailable', { exact: true }).count(), 1);
     const statusMs = performance.now() - startAt; assert.ok(statusMs < 18000, `${width}: status resolved in ${statusMs}ms`);
-    assert.equal(await plans.getByText('Checking status…', { exact: true }).count(), 0);
+    assert.equal(await plans.getByRole('status').getByText('Checking', { exact: true }).count(), 0);
     await page.getByRole('tab', {name:'Codex',exact:true}).click();
     await plans.getByText('Status unavailable', { exact: true }).waitFor();
     await page.screenshot({ path: path.join(evidence, `status-${width}-${theme}.png`) });

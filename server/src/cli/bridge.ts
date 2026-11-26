@@ -104,8 +104,8 @@ function admittedRequest(userId: string, method: 'status' | 'generate' | 'catalo
   });
 }
 
-export async function refreshCli(userId: string, signal?: AbortSignal) {
-  if (cliRuntime(userId) === 'server') { await refreshHosted(userId, signal); return cliStatus(userId); }
+export async function refreshCli(userId: string, signal?: AbortSignal, statusTimeoutMs?: number) {
+  if (cliRuntime(userId) === 'server') { await refreshHosted(userId, signal, statusTimeoutMs); return cliStatus(userId); }
   const c = connections.get(userId);
   if (!c) return cliStatus(userId);
   const result = await cliRequest(userId, 'status', {}, 14_000, signal);

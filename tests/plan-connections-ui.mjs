@@ -107,7 +107,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       [initial.providers, false, 'Connect plan'],
       [{ ...initial.providers, codex: ready }, false, 'Manage plans'],
       [{ ...initial.providers, claude: ready }, false, 'Manage plans'],
-      [initial.providers, true, 'Plans'],
+      [initial.providers, true, 'Manage plans'],
     ]) {
       status = { ...initial, providers, statusChecking: checking };
       const before = statusReads;
@@ -174,7 +174,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     await page.getByRole('button', { name: 'Manage API keys', exact: true }).click();
     await page.getByRole('region', { name: 'Connect a plan', exact: true }).waitFor();
     assert.equal(await page.evaluate(() => window.settingsSection()), 'keys');
-    await page.getByRole('button', { name: 'Connect Claude plan', exact: true }).click();
+    await page.getByRole('button', { name: 'Use Claude plan', exact: true }).click();
     await page.getByRole('region', { name: 'Plan connection', exact: true }).waitFor();
     await page.locator('.subscription-settings__advanced > summary').click();
     await page.getByRole('button', { name: 'Generate connect command', exact: true }).click();
@@ -185,13 +185,14 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     await page.screenshot({ path: `.context/plan-connections/masked-pairing-${width}-${theme}.png` });
     await closeSettings();
 
+    loginComplete = false; // A completed fixture login cannot sign in again during later status scenarios.
     status = { ...status, runtime: 'server', connected: true, providers: { ...status.providers, claude: { installed: false, authenticated: false, subscription: false } } };
     await openPlans(); await page.getByText('CLI missing', { exact: true }).waitFor();
     await page.getByRole('button', { name: 'Connect Claude plan', exact: true }).click();
     assert.equal(await page.getByRole('region', { name: 'Plan connection', exact: true }).getByRole('button', { name: 'Connect Claude plan', exact: true }).isEnabled(), true, 'a missing Claude install keeps the explicit connect flow available');
     await closeSettings();
     status = { ...status, runtime: 'bridge', connected: false };
-    await openPlans(); await page.getByText('Not connected', { exact: true }).first().waitFor();
+    await openPlans(); await page.getByText('Status unavailable', { exact: true }).first().waitFor();
     await page.getByText('CLI missing', { exact: true }).waitFor({ state: 'hidden' }); // Cached status remains visible until revalidation completes.
     await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
     failStatus = true;
