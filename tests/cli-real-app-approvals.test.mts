@@ -173,7 +173,7 @@ for (const provider of ['codex', 'claude'] as const) for (const runtime of ['hos
     await runInBotQueue(a.bot.id, async () => {});
     const decidedRun = (await a.request('/cli')).runsByProvider[provider];
     assert.equal(decidedRun.latest.trigger, 'approval_decision');
-    assert.equal(decidedRun.latest.result, 'no_tool_call');
+    assert.equal(decidedRun.latest.result, 'no_tool_call', JSON.stringify({ run: decidedRun.latest, notices: a.rows().filter(r => r.body.type === 'notice').map(r => r.body.text) }));
     assert.deepEqual(decidedRun.lastToolRun, pendingRun);
     assert.equal(a.rows().find(r => r.seq === card.seq).body.status, 'denied');
     assert.equal(a.rows().filter(r => r.body.card === 'approval').length, 1);
