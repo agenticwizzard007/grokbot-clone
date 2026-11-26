@@ -62,4 +62,12 @@ Tests cover Active-only, Active plus expired, zero, unfinished OAuth, duplicate 
 
 ## Validation
 
-Run `npm run test:readiness-kk` for the focused regression suite, real hosted Codex fixture, and browser fixture. Full baseline and final suite counts are recorded in the PR after completion. Existing CI workflow configuration and Fly deployment are unchanged.
+Run `npm run test:readiness-kk` for the focused regression suite, real hosted Codex fixture, and browser fixture. Validation completed on this VM:
+
+- Untouched 614b8d2 full suite: 2,371 passed, 70 failed, 24 existing skips (2,465 tests).
+- Branch full suite: 2,640 passed, the same 70 failure names, the same 24 skips (2,734 tests). No new failure names.
+- Final focused suite after rebasing: 347 passed, plus 7 official hosted Codex cases; zero failures and zero skips. This includes the additional read-resource and tenant-projection cases added during review.
+- Browser fixture: all four combinations of 1280/390 and light/dark passed. Existing connected-account browser regression also passed at both widths.
+- Typecheck and production build passed after rebase. The branch was mergeable.
+
+The full suite command was `node --import tsx --test --test-concurrency=1 tests/*.test.mts tests/*.test.mjs` in both checkouts. No tests or CI workflows were disabled or newly skipped. Existing CI workflow configuration and Fly deployment are unchanged.
