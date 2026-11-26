@@ -50,6 +50,8 @@ test('cold status route responds before slow probes with persisted display healt
   assert.equal(checked.providers.codex.subscription, true, 'fast Codex result survives slow Claude');
   assert.match(checked.providers.claude.error, /timed out/i);
   assert.equal(storedPlanStatus('status-a')?.claude.subscription, true, 'failure retains last-known history');
+  savePlanStatus('status-a', { codex: { ...ready, subscription: false, error: 'Eligible plan required' }, claude: ready });
+  assert.equal(storedPlanStatus('status-a')?.codex.subscription, false, 'confirmed ineligible billing replaces history');
   await deleteHostedProfile('status-a');
   assert.equal(storedPlanStatus('status-a'), undefined, 'reset removes display history');
 });

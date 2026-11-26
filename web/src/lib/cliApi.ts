@@ -77,14 +77,15 @@ function preserveStatus(next: CliStatus): CliStatus {
 }
 
 function persistStatus(accountId: string | undefined, status: CliStatus) {
-  if (!accountId || status.statusChecking || status.statusUnavailable) return;
+  if (!accountId || !status.connected || status.statusChecking || status.statusUnavailable) return;
   try {
     // Store display facts only, never diagnostics, credentials or terminal output.
     const { runtime, serverLoginAvailable, selected, connected } = status;
     const previous = restoreStatus(accountId);
     const providers = Object.fromEntries((['codex', 'claude'] as const).map(provider => {
       const health = status.providers[provider];
-      const known = health.error && previous?.runtime === runtime ? previous.providers[provider] : health;
+      const failed = health.error && (!health.authenticated || health.subscription);
+      const known = failed && previous?.runtime === runtime ? previous.providers[provider] : health;
       const { installed, authenticated, subscription, hasSavedState } = known;
       return [provider, { installed, authenticated, subscription, hasSavedState, ...(known.error ? { error: 'Status unavailable. Retry.' } : {}) }];
     }));

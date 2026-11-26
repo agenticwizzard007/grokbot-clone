@@ -18,7 +18,8 @@ export function savePlanStatus(userId: string, providers: CliProviders) {
   const saved = { ...providers };
   for (const provider of ['codex', 'claude'] as const) {
     // A failed check must not erase the last verified connection.
-    if (saved[provider].error && previous?.[provider]) saved[provider] = previous[provider];
+    const health = saved[provider];
+    if (health.error && (!health.authenticated || health.subscription) && previous?.[provider]) saved[provider] = previous[provider];
   }
   db.prepare('INSERT OR REPLACE INTO cli_status_history(user_id,providers) VALUES (?,?)').run(userId, JSON.stringify(saved));
 }
