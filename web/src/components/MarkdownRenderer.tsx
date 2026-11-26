@@ -23,7 +23,7 @@ export const Markdown = React.memo(function Markdown({ text, savedFileLinks }: {
     a: props => {
       const hash = inAppHash(props.href);
       // The completed tool result owns this navigation, even if the model repeats it.
-      if (hash && savedFileLinks.includes(hash)) return null;
+      if (hash && savedFileLinks.includes(hash)) return props.children === 'View saved files' ? null : <>{props.children}</>;
       return <MarkdownLink {...props} />;
     },
   } : components, [savedFileLinks]);

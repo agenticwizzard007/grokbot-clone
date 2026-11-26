@@ -44,6 +44,7 @@ test('R15 Markdown omits repeated save navigation but retains other links, code 
   assert.match(legacy, /View saved files<\/a>/);
   assert.doesNotMatch(legacy, /target=/);
   assert.equal(render(text, [href]), '<div class="md"><p>Saved fixture.txt. </p></div>');
+  assert.equal(render(`Read [fixture.txt](${href}) for details.`, [href]), '<div class="md"><p>Read fixture.txt for details.</p></div>');
   assert.match(render(`[Other Bot](#bot/other~0123456789abc/reports)`, [href]), /<a href=/);
   assert.match(render(`[Reference](https://example.test/${href})`, [href]), /target="_blank"/);
   assert.match(render('`' + text + '`', [href]), /<code>.*View saved files/);
