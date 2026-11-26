@@ -63,7 +63,7 @@ window.setAccount('alice');
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement('main',{className:'app-settings__page',style:{maxWidth:'760px',margin:'0 auto',padding:'24px'}},React.createElement(SubscriptionSettings)));
 ` }));
     await page.goto(origin);
-    await page.getByText('Checking', { exact: true }).waitFor();
+    await page.getByRole('region', { name: 'Plan connection', exact: true }).getByRole('status').getByText('Checking', { exact: true }).waitFor();
     assert.equal(await page.getByRole('button', { name: 'Login', exact: true }).isDisabled(), true, 'unknown runtime cannot initiate a hosted login');
     assert.equal(await page.getByRole('button', { name: 'Use API providers', exact: true }).isDisabled(), true);
     initial.resolve();
