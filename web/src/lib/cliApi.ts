@@ -13,8 +13,8 @@ export interface CliProviderStatus {
 
 export interface CliRun {
   startedAt: number;
-  provider: CliProvider;
-  runtime: 'server' | 'bridge';
+  provider: CliProvider | 'direct' | 'openrouter';
+  runtime: 'server' | 'bridge' | 'api';
   toolsOffered: number;
   trigger?: 'approval_decision' | null;
   lastTool: string | null;
@@ -23,6 +23,7 @@ export interface CliRun {
 }
 
 export interface CliStatus {
+  apiRuns?: { latest: CliRun | null; lastToolRun: CliRun | null };
   lastRun?: CliRun | null;
   runsByProvider?: Partial<Record<CliProvider, { latest: CliRun | null; lastToolRun: CliRun | null }>>;
   runtime: 'server' | 'bridge';

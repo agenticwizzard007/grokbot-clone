@@ -394,11 +394,18 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
           <summary>Account and login details</summary>
           <dl className="subscription-settings__details">
           <div><dt>Swarm account</dt><dd>{accountEmail.endsWith('@openrouter.invalid') ? 'Your OpenRouter sign-in' : accountEmail}</dd></div>
-          <div><dt>Provider</dt><dd>{provider.name}</dd></div>
+          <div><dt>Provider</dt><dd>{status && !selected ? 'API providers' : provider.name}</dd></div>
+          {(!status || selected) && <>
           <div><dt>Eligible plan</dt><dd>{provider.plan}</dd></div>
           <div><dt>Login location</dt><dd>{runtime === 'bridge' ? 'Your computer · advanced bridge' : 'Swarm server · private account profile'}</dd></div>
-          <RunDetails title="Last CLI run" run={status?.runsByProvider?.[providerTab]?.latest ?? (status?.lastRun?.provider === providerTab ? status.lastRun : null)} />
-          <RunDetails title="Last tool run" run={status?.runsByProvider?.[providerTab]?.lastToolRun ?? null} />
+          </>}
+          {status && !selected ? <>
+            <RunDetails title="Last model run" run={status.apiRuns?.latest ?? null} />
+            <RunDetails title="Last tool run" run={status.apiRuns?.lastToolRun ?? null} />
+          </> : <>
+            <RunDetails title="Last CLI run" run={status?.runsByProvider?.[providerTab]?.latest ?? (status?.lastRun?.provider === providerTab ? status.lastRun : null)} />
+            <RunDetails title="Last tool run" run={status?.runsByProvider?.[providerTab]?.lastToolRun ?? null} />
+          </>}
           </dl>
         </details>
         {blocked && <p className="subscription-settings__blocked">The selected subscription is blocked until its login is ready. There is no automatic fallback to API providers.</p>}
@@ -528,7 +535,7 @@ function RunDetails({ title, run }: { title: string; run: CliRun | null }) {
     <div><dt>{title}</dt><dd>{run ? new Date(run.startedAt).toLocaleString() : 'No run recorded yet'}</dd></div>
     {run && <>
       <div><dt>Run type</dt><dd>{run.trigger === 'approval_decision' ? 'Reply after your decision' : run.lastTool || run.result === 'pending_approval' ? 'Request with tools' : run.result === 'running' ? 'Waiting for a reply' : 'Reply without a tool call'}</dd></div>
-      <div><dt>Run location</dt><dd>{run.runtime === 'server' ? 'Swarm server' : 'Your computer'}</dd></div>
+      <div><dt>Run location</dt><dd>{run.runtime === 'api' ? 'API provider' : run.runtime === 'server' ? 'Swarm server' : 'Your computer'}</dd></div>
       <div><dt>Tools offered</dt><dd>{run.toolsOffered}</dd></div>
       <div><dt>Last tool call</dt><dd>{run.lastTool ?? 'None reached Swarm'}</dd></div>
       <div><dt>Run result</dt><dd>{{ running: 'Running', completed: 'Completed', pending_approval: 'Approval requested', rejected_by_cli: 'Rejected by CLI', denied: 'Not allowed', allowed: 'Allowed', error: 'Error', cancelled: 'Stopped', no_tool_call: 'No tool call' }[run.result]}</dd></div>

@@ -49,8 +49,27 @@ try {
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.screenshot({ path: path.join(evidence, `models-${width}-${theme}.png`), fullPage: true });
     await closeSettings();
+    await context.request.post(`${origin}/api/fixture/cli-history`, { data: { botId: bot.id } });
+    const diagnostics = async () => (await context.request.get(`${origin}/api/cli`)).json();
+    const oldCli = (await diagnostics()).lastRun;
+    const panels = async (result, screenshot) => {
+      await settings('subscriptions');
+      const details = page.locator('.subscription-settings__context');
+      if (!await details.evaluate(el => el.open)) await details.locator('summary').click();
+      await page.getByText('Last model run', { exact: true }).waitFor();
+      await page.getByText('Last tool run', { exact: true }).waitFor();
+      await until(async () => (await details.innerText()).includes(result));
+      assert.equal(await page.getByText('Last CLI run', { exact: true }).count(), 0);
+      assert.doesNotMatch(await details.innerText(), /create_task/);
+      assert.match(await details.innerText(), /SWARM_APPS_EXECUTE/);
+      await page.getByText('Last model run', { exact: true }).scrollIntoViewIfNeeded();
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      await details.screenshot({ path: path.join(evidence, `${screenshot}-${width}-${theme}.png`) });
+      assert.deepEqual((await diagnostics()).lastRun, oldCli, 'API records preserve CLI history');
+      await closeSettings();
+    };
     const before = await state();
-    for (const text of ['JJ memory: My fixture color preference is green.', 'JJ file', 'JJ app', 'JJ wrapped file']) {
+    for (const text of ['JJ memory: My fixture color preference is green.', 'JJ file', 'JJ app', 'JJ wrapped file', 'WW draft']) {
       const cardCount = await page.locator('.approval-card').count();
       await send(text);
       const pending = page.locator('.approval-card').filter({ has: page.getByRole('button', { name: "Don't allow", exact: true }) });
@@ -64,8 +83,23 @@ try {
       await pending.scrollIntoViewIfNeeded();
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       await page.screenshot({ path: path.join(evidence, `card-${text.split(' ')[1].replace(':', '')}-${width}-${theme}.png`), fullPage: true });
+      if (text === 'WW draft') {
+        assert.match(await pending.innerText(), /create email draft/i);
+        assert.equal((await diagnostics()).apiRuns.lastToolRun.result, 'pending_approval');
+        await panels('Approval requested', 'api-pending-runs');
+      }
       await pending.getByRole('button', { name: "Don't allow", exact: true }).click();
       await until(async () => (await state()).pending === 0);
+      if (text === 'WW draft') {
+        await panels('Not allowed', 'api-denied-runs');
+        await page.reload();
+        await panels('Not allowed', 'api-denied-reload-runs');
+        await send('WW draft'); await pending.waitFor();
+        await pending.getByRole('button', { name: 'Allow', exact: true }).click();
+        await until(async () => (await state()).executions === before.executions + 1);
+        await panels('Allowed', 'api-allowed-runs');
+        before.executions++;
+      }
     }
     await context.request.post(`${origin}/api/fixture/helper`, { data: { botId: bot.id } });
     const helperCard = page.locator('.approval-card').filter({ has: page.getByRole('button', { name: "Don't allow", exact: true }) });
@@ -96,7 +130,7 @@ try {
       await settings(section); await page.getByText('This applies when you use API providers.', { exact: false }).waitFor(); assert.equal(await select().isDisabled(), true); await closeSettings();
     }
     assert.deepEqual(errors, []);
-    console.log(`PASS ${width} ${theme}: both settings, one named wrapper card, deny unchanged, allow saves, no search notices, Standard automatic, CLI disabled`);
+    console.log(`PASS ${width} ${theme}: both settings, named cards, API pending/denied/allowed panels and reload, CLI history retained, deny unchanged, allow saves, Standard automatic, CLI disabled`);
     await context.close();
   }
 } catch (error) { console.error(logs.join('').slice(-6000)); if (page && !page.isClosed()) { console.error((await page.locator('body').innerText()).slice(-4000)); await page.screenshot({ path: path.join(evidence, 'failure.png') }); } throw error; }

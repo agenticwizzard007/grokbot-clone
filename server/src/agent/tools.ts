@@ -739,6 +739,11 @@ export function policyFor(userId: string, toolName: string, args: any, botId?: s
     return { decision: 'ask', key: 'update_profile:timezone', title: `change your account time zone to ${args.timezone.trim()}` };
   }
   if (asksBeforeEveryAction(userId)) {
+    // Catalog lookup only describes available tools. The resolved action still
+    // passes through policy before it can read data or change anything.
+    if (toolName === 'tool_search' || toolName === 'tool_describe') {
+      return { decision: 'allow', key: toolName, title: toolName };
+    }
     // Maximum grants are exact-tool and account scoped, separate from Standard grants.
     const action = toolName === 'SWARM_APPS_EXECUTE' ? `${toolName}:${String(args?.tool_slug ?? '')}` : toolName;
     const key = `${MAX_APPROVAL_PREFIX}${action}${toolName.startsWith('mcp_') || ['deliver_artifact', 'retry_delivery'].includes(toolName) ? `:bot:${botId ?? ''}` : ''}`;
