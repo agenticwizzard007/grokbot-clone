@@ -1,5 +1,6 @@
 // QA P-11: real local auth and SQLite, Vite UI, mocked model/toolkit backends.
 import assert from 'node:assert/strict';
+import { boxFullyVisible } from './ui-box-assertions.mjs';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import fs from 'node:fs/promises';
@@ -67,9 +68,9 @@ try {
   await ready(`${apiBase}/api/health`, start(['--import', preload, '--import', 'tsx', 'server/src/index.ts']));
   await ready(base, start(['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', String(uiPort), '--strictPort'], path.join(root, 'web'), { SWARM_API: apiBase }));
   browser = await chromium.launch({ executablePath: process.env.CHROME_BIN || process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
-  for (const width of [1280, 390]) {
-    const context = await browser.newContext({ viewport: { width, height: 900 }, serviceWorkers: 'block' });
-    const login = await context.request.post(`${base}/api/auth/dev`, { data: { email: `attention-${width}@example.test`, name: 'QA account' } });
+  for (const width of [320, 390, 500, 768, 1280]) for (const theme of ['light', 'dark']) {
+    const context = await browser.newContext({ viewport: { width, height: 900 }, serviceWorkers: 'block', colorScheme: theme, reducedMotion: 'reduce' });
+    const login = await context.request.post(`${base}/api/auth/dev`, { data: { email: `attention-${width}-${theme}@example.test`, name: 'QA account' } });
     assert.equal(login.status(), 200);
     const { bots } = await (await context.request.get(`${base}/api/bots`)).json();
     const bot = bots.find(item => item.isPrimary);
@@ -78,6 +79,7 @@ try {
     const page = await context.newPage(), errors = [];
     page.setDefaultTimeout(10000);
     await page.clock.install();
+    await page.addInitScript(theme => { localStorage.setItem('swarm.theme', theme); localStorage.setItem('swarm.sidebarCollapsed', '0'); }, theme);
     page.on('pageerror', error => errors.push(error.message));
     await page.addInitScript(() => {
       window.EventSource = class {
@@ -109,17 +111,36 @@ try {
     const all = work.locator('.task-filter.is-all');
     const alert = work.getByRole('alert').filter({ hasText: 'Pending input could not' });
     const retry = alert.getByRole('button', { name: 'Retry pending input', exact: true });
-    const unknown = async () => {
-      assert.equal(await pending.locator('.task-filter__count').innerText(), '?');
-      assert.equal(await all.locator('.task-filter__count').innerText(), '?');
+    const dimensions = async locator => {
+      const box = await locator.boundingBox();
+      return { width: box.width, height: box.height };
+    };
+    const sidebarCount = page.locator('.sidebar-island__count');
+    let filterSize;
+    const unknown = async (state = 'unavailable') => {
+      for (const filter of [pending, all]) {
+        const count = filter.locator('.task-filter__count');
+        assert.equal(await count.innerText(), '·');
+        assert.equal(await count.getAttribute('aria-label'), `${filter === pending ? 'Pending input count' : 'Task count'} ${state}`);
+        await boxFullyVisible(count, { width: 32, height: 20 });
+        if (filterSize) assert.deepEqual(await dimensions(count), filterSize);
+      }
       assert.equal(await work.getByText(/all caught up|No tasks are waiting|No pending tasks|No tasks yet/).count(), 0);
     };
+    await page.goto(base + '/#bots');
+    await sidebarCount.waitFor();
+    assert.equal(await sidebarCount.getAttribute('aria-label'), 'Pending input count loading');
+    assert.equal(await sidebarCount.innerText(), '·');
+    await boxFullyVisible(sidebarCount, { width: 32, height: 20 });
+    const sidebarSize = await dimensions(sidebarCount);
+    await page.screenshot({ path: path.join(evidence, `sidebar-loading-${width}-${theme}.png`) });
     await page.goto(base + '/#tasks');
     await work.getByText(task.title, { exact: true }).waitFor();
     // Lazy panels can render before the initial transcript's debounced count refresh.
     await page.waitForFunction(async id => (await import('/src/store.ts')).useStore.getState().transcripts[id]?.loaded, bot.id);
     await page.clock.runFor(350);
-    await unknown();
+    filterSize = await dimensions(pending.locator('.task-filter__count'));
+    await unknown('loading');
     await work.getByText('Loading pending input...', { exact: true }).waitFor();
     failing = true;
     await release();
@@ -142,13 +163,14 @@ try {
     await retry.click();
     await alert.getByRole('button', { name: 'Retrying...', exact: true }).waitFor();
     assert.equal(await alert.getByRole('button').isDisabled(), true);
-    await unknown();
+    await unknown('loading');
     for (let attempt = 0; reads === beforeRetry && attempt < 100; attempt++) await page.waitForTimeout(20);
     assert.ok(reads > beforeRetry, 'Retry issues another attention request');
     await release();
     await work.getByText(item.title, { exact: true }).waitFor();
     await alert.waitFor({ state: 'hidden' });
     assert.equal(await pending.locator('.task-filter__count').innerText(), '1');
+    assert.deepEqual(await dimensions(pending.locator('.task-filter__count')), filterSize);
     // Refresh failure retains the actionable card and labels the snapshot stale.
     failing = true;
     await refresh();
@@ -160,7 +182,7 @@ try {
     await work.getByRole('combobox', { name: 'Filter tasks by bot' }).selectOption(bot.id);
     await alert.waitFor();
     await unknown();
-    await page.screenshot({ path: path.join(evidence, `stale-${width}.png`) });
+    await page.screenshot({ path: path.join(evidence, `stale-${width}-${theme}.png`) });
     failing = false;
     items = [];
     await retry.click();
@@ -176,7 +198,7 @@ try {
     const beforeEmptyRetry = reads;
     await retry.click();
     await alert.getByRole('button', { name: 'Retrying...', exact: true }).waitFor();
-    await unknown();
+    await unknown('loading');
     for (let attempt = 0; reads === beforeEmptyRetry && attempt < 100; attempt++) await page.waitForTimeout(20);
     await release();
     await work.getByRole('heading', { name: 'No pending tasks', exact: true }).waitFor();
@@ -209,7 +231,46 @@ try {
       await details.getByText(/No tasks yet/).waitFor();
       await detailsAlert.waitFor({ state: 'hidden' });
     }
-    console.log(`PASS ${width}px: loading, initial failure, retry failure, recovery, stale cards and zero, scoped state, independent task errors`);
+    // Check the visible sidebar through real delayed chat requests, including
+    // task-list failures independently of the attention endpoint.
+    await page.goto(base + '/#bots');
+    await refresh();
+    await page.waitForFunction(() => document.querySelector('.sidebar-island__count')?.dataset.state === 'ready');
+    const checkSidebar = async (state, text, label) => {
+      await page.waitForFunction(({ state, text }) => {
+        const count = document.querySelector('.sidebar-island__count');
+        return count?.dataset.state === state && count.textContent.trim() === text;
+      }, { state, text });
+      assert.equal(await sidebarCount.getAttribute('aria-label'), label);
+      await boxFullyVisible(sidebarCount, sidebarSize);
+      assert.deepEqual(await dimensions(sidebarCount), sidebarSize);
+    };
+    await checkSidebar('ready', '', '0 waiting on you');
+    for (const total of [1, 10, 100]) {
+      items = Array.from({ length: total }, (_, index) => ({ ...item, id: `question-${index}`, seq: index + 1 }));
+      await refresh();
+      await checkSidebar('ready', total > 99 ? '99+' : String(total), `${total} waiting on you`);
+    }
+    failing = true;
+    await refresh();
+    await checkSidebar('unavailable', '·', 'Pending input count unavailable');
+    holding = true;
+    failing = false;
+    await refresh();
+    await checkSidebar('loading', '·', 'Pending input count loading');
+    items = [];
+    await release();
+    await checkSidebar('ready', '', '0 waiting on you');
+    taskFailing = true;
+    await refresh();
+    await checkSidebar('unavailable', '·', 'Pending input count unavailable');
+    taskFailing = false;
+    await refresh();
+    await checkSidebar('ready', '', '0 waiting on you');
+    await page.goto(base + '/#tasks');
+    await page.waitForFunction(() => document.querySelector('.task-filter.is-all .task-filter__count')?.textContent === '0');
+    for (const filter of await work.locator('.task-filter__count').all()) assert.deepEqual(await dimensions(filter), filterSize);
+    console.log(`PASS ${width}px ${theme}: stable sidebar/filter slots, loading, initial failure, retry failure, recovery, stale cards and zero, scoped state, independent task errors`);
     assert.deepEqual(errors, [], 'No page errors or external browser requests');
     await context.close();
   }

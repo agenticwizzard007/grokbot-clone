@@ -6,6 +6,7 @@ import { api, openPopup } from '../../lib/api';
 import { useStore } from '../../store';
 import { Icon } from '../Icon';
 import { ToolkitLogo } from '../ToolkitLogo';
+import { BuiltinToolIcon } from './BuiltinToolIcon';
 import { useRefocusOnResolve } from '../../lib/composerFocus';
 import { useDisplayText } from '../../lib/useDisplayText';
 import { APPROVAL_OUTCOME } from '../../lib/stepApproval';
@@ -47,7 +48,7 @@ export function ApprovalCard({ body }: { body: Card<'approval'> }) {
   return (
     <div ref={ref} className={`card approval-card${pending ? '' : ' is-resolved'}`}>
       <div className="card__head">
-        <ToolkitLogo slug={body.toolkit} name={name} size={44} />
+        {body.toolkit || body.toolkitName ? <ToolkitLogo slug={body.toolkit} name={name} logo={body.logo} size={44} /> : <BuiltinToolIcon tool={body.tool} />}
         <div className="card__titles">
           <div className="card__title">{clean(body.title)}</div>
           <div className="card__sub">{name}</div>

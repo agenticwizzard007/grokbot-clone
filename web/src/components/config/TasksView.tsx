@@ -9,6 +9,8 @@ import { WorkflowsPanel } from './WorkflowsPanel';
 import { WorkReports } from './WorkReports';
 import { workBotKey } from './workScope';
 import { useNeedsYou, useTasks } from './taskData';
+import { taskCountState } from '../../lib/taskCount';
+import { TaskCount } from './TaskCount';
 import { AttentionStatus, NeedsYouCard, TaskCard, TaskError, sortTasks, STATES, STATUS, workContext, setWorkContext, type Filter, type WorkContext } from './TaskCards';
 
 const TABS: WorkTab[] = ['Tasks', 'Team', 'Goals', 'Reports'];
@@ -61,7 +63,10 @@ function WorkWorkspace() {
   const counts = useMemo(() => ({ all: scoped.length + waitingItems.length, needs_input: scoped.filter((t) => t.state === 'needs_input').length + waitingItems.length, working: scoped.filter((t) => t.state === 'working').length, done: scoped.filter((t) => t.state === 'done').length }), [scoped, waitingItems.length]);
   const shownStates = filter === 'all' ? STATES.filter(state => counts[state] > 0) : [filter];
   const empty = tasks !== null && counts[filter] === 0 && (attentionKnown || (filter !== 'all' && filter !== 'needs_input'));
-  const countLabel = (state: Filter) => tasks === null || (!attentionKnown && (state === 'all' || state === 'needs_input')) ? '?' : counts[state];
+  const countLabel = (state: Filter) => <TaskCount className="task-filter__count" count={counts[state]} name={state === 'needs_input' ? 'Pending input count' : state === 'all' ? 'Task count' : `${STATUS[state].label} task count`} label={`${counts[state]} ${state === 'all' ? 'tasks' : STATUS[state].label.toLowerCase()}`} state={taskCountState([
+    { known: tasks !== null, error },
+    ...(state === 'all' || state === 'needs_input' ? [{ known: attention.items !== null, ...attention }] : []),
+  ])} />;
   // R2F-022: only the board content widens; the heading and tab bar keep one width and position on every tab.
   const board = tab === 'Tasks' && filter === 'all' && tasks !== null && !empty;
   useLayoutEffect(() => { if (scroll.current) scroll.current.scrollTop = 0; }, [tab, heading?.title]);
@@ -97,7 +102,7 @@ function WorkWorkspace() {
           <div className="tasks-toolbar">
             <div className="task-filters" role="group" aria-label="Filter tasks by status">
               {(['all', ...STATES] as const).map((state) => <button key={state} type="button" aria-pressed={filter === state} className={`task-filter is-${state}${filter === state ? ' is-selected' : ''}`} onClick={() => setFilter(state)}>
-                <span>{state === 'all' ? 'All tasks' : STATUS[state].label}</span><span className="task-filter__count">{countLabel(state)}</span>
+                <span>{state === 'all' ? 'All tasks' : STATUS[state].label}</span>{countLabel(state)}
               </button>)}
             </div>
             <label className="work-field">Filter by Bot<select className="tasks-bot-filter" aria-label="Filter tasks by bot" value={botFilter ?? 'all'} onChange={(event) => updateContext({ botId: event.currentTarget.value === 'all' ? undefined : event.currentTarget.value })}>

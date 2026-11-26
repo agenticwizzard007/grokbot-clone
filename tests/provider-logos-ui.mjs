@@ -1,5 +1,6 @@
 // Local production app and synthetic accounts only. Never contacts a live provider.
 import assert from 'node:assert/strict';
+import { boxFullyVisible } from './ui-box-assertions.mjs';
 import { cp, mkdir } from 'node:fs/promises';
 import { preview } from '../web/node_modules/vite/dist/node/index.js';
 import path from 'node:path';
@@ -42,25 +43,8 @@ async function inspectMark(mark) {
     const check = () => { if (el.getBBox().width > 0) { clearTimeout(timeout); resolve(); } else requestAnimationFrame(check); };
     check();
   }));
-  const box = await mark.boundingBox();
-  assert.equal(box.width, 16, 'brand slot width is fixed');
-  assert.equal(box.height, 16, 'brand slot height is fixed');
   assert.equal(await mark.getAttribute('aria-hidden'), 'true', 'visible text supplies the accessible name');
-  assert.equal(await mark.evaluate(el => getComputedStyle(el).flexShrink), '0');
-  await mark.scrollIntoViewIfNeeded();
-  const containment = await mark.evaluate(el => {
-    const rect = el.getBoundingClientRect(), parent = el.parentElement.getBoundingClientRect();
-    const problems = [];
-    if (rect.left < parent.left - 1 || rect.right > parent.right + 1 || rect.top < parent.top - 1 || rect.bottom > parent.bottom + 1) problems.push('outside parent');
-    for (let ancestor = el.parentElement; ancestor; ancestor = ancestor.parentElement) {
-      const style = getComputedStyle(ancestor), box = ancestor.getBoundingClientRect();
-      if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) problems.push('hidden');
-      if (/(hidden|clip|auto|scroll)/.test(style.overflowX) && (rect.left < box.left - 1 || rect.right > box.right + 1)) problems.push(`clipped horizontally by ${ancestor.className}`);
-      if (/(hidden|clip)/.test(style.overflowY) && (rect.top < box.top - 1 || rect.bottom > box.bottom + 1)) problems.push(`clipped vertically by ${ancestor.className}`);
-    }
-    return problems;
-  });
-  assert.deepEqual(containment, [], 'entire mark is inside its container and clipping ancestors');
+  await boxFullyVisible(mark, { width: 16, height: 16 });
   return mark;
 }
 async function readable(scope) {
@@ -70,11 +54,22 @@ async function readable(scope) {
       return label.top >= box.top - 1 && label.bottom <= box.bottom + 1;
     }), true, 'wrapped model labels stay inside their own row without overlapping adjacent rows');
   }
-  for (const mark of await scope.locator('svg.provider-icon').all()) if (await mark.isVisible()) await inspectMark(mark);
-  for (const label of await scope.locator('.provider-label__text, .model-pill__name, .model-pill__effort, .mm-row__name, .mm-row__resolved, .mm-back > span, .model-picker__current, .model-picker__name, .model-picker__meta').all()) {
+  for (const mark of await scope.locator('svg.provider-icon').all()) {
+    // Closed disclosures intentionally do not render their body. Every other mark
+    // must be visible, including marks accidentally hidden by responsive CSS.
+    if (await mark.evaluate(el => {
+      for (let node = el.parentElement; node; node = node.parentElement) if (node.tagName === 'DETAILS' && !node.open && !node.querySelector(':scope > summary')?.contains(el)) return true;
+      return false;
+    })) continue;
+    await inspectMark(mark);
+    // Some labels are plain text beside a mark instead of ProviderLabel spans.
+    const parent = mark.locator('..');
+    assert.equal(await parent.evaluate(el => el.scrollWidth <= el.clientWidth && getComputedStyle(el).textOverflow !== 'ellipsis'), true, `complete mark container: ${await parent.innerText()}`);
+  }
+  for (const label of await scope.locator('.provider-label__text, .model-pill__name, .model-pill__effort, .mm-row__name, .mm-row__resolved, .mm-back > span, .model-picker__current, .model-picker__name, .model-picker__meta, .model-billing, .provider-effort [role="radio"], .usage-card__title, .usage-ranked__label').all()) {
     if (!await label.isVisible()) continue;
     const text = await label.innerText();
-    assert.equal(await label.evaluate(el => el.scrollWidth <= el.clientWidth + 1 && getComputedStyle(el).textOverflow !== 'ellipsis'), true, `complete label: ${text}`);
+    assert.equal(await label.evaluate(el => el.scrollWidth <= el.clientWidth && getComputedStyle(el).textOverflow !== 'ellipsis'), true, `complete label: ${text}`);
   }
 }
 try {
@@ -96,10 +91,11 @@ try {
       if (path === '/api/learning/reviews') return { json: { reviews: [{ id: 'local-review', botId: bot.id, status: 'completed', reason: 'Local review', model: bot.model ?? 'codex/default', provider: sample.provider, originModel: bot.model ?? 'codex/default', originProvider: sample.provider, createdAt: Date.now(), iterations: 1, inputTokens: 20, outputTokens: 10, usageStatus: 'complete', generation: 1, summary: 'Local fixture run.' }], nextBefore: null } };
       if (path === '/api/cli') return { json: { selected: sample.selected, connected: true, runtime: 'server', serverLoginAvailable: true, providers: { claude: health, codex: health } } };
       if (path === '/api/providers/openrouter') return { json: { provider: sample.provider, connected: true, linked: true, active: !sample.selected, selected: !sample.selected, model: bot.model, settingsUrl: 'https://openrouter.ai/settings/credits' } };
+      if (path === '/api/usage/provider') return { json: { note: 'Local provider account fixture.', openrouter: { label: 'Local complete provider account label', usage: { today: 0, week: 0, month: 0, allTime: 0 }, budgets: [] } } };
       if (path === '/api/usage') {
         const coverage = { partialUsageRequests: 0, unavailableUsageRequests: 0, knownTokenRequests: 1, knownInputRequests: 1, knownOutputRequests: 1 };
         const row = { ...coverage, key: bot.model ?? 'codex/default', label: sample.models[0]?.short ?? 'Codex', tokens: 120, requests: 1, costUsd: 0, unpriced: 0, minutes: 0, recordings: 0, characters: 0 };
-        return { json: { timezone: 'UTC', range: { key: '7d', from: 0, to: Date.now() }, scope: 'me', canSeeAll: false, canSeeProvider: false, provider: sample.provider,
+        return { json: { timezone: 'UTC', range: { key: '7d', from: 0, to: Date.now() }, scope: 'me', canSeeAll: false, canSeeProvider: true, provider: sample.provider,
           totals: { ...coverage, requests: 1, inputTokens: 100, outputTokens: 20, cachedTokens: 0, reasoningTokens: 0, toolCalls: 0, voiceMinutes: 0, costUsd: 0, estimatedUsd: 0, unpricedRequests: 0, unpricedVoice: 0 },
           billing: { sources: [{ source: sample.selected ? 'subscription' : 'api', provider: sample.provider, requests: 1, costUsd: 0, estimatedUsd: 0, unpricedRequests: 0 }], note: 'Local fixture usage.' },
           days: [{ ...row, day: '2026-11-25', computerUsd: 0 }], byBot: [], byModel: [row], byKind: [],
@@ -187,6 +183,7 @@ try {
         await markVisible(trigger, brand);
         await trigger.click();
         await markVisible(page.getByRole('region', { name: 'Plan connection', exact: true }).locator('.cfg-row__title'), brand);
+        await readable(page.locator('.app-settings'));
       }
       if (sample.selected) await markVisible(page.locator('.subscription-settings__current-route'), sample.mark);
       await markVisible(page.locator('#personal-openrouter-title'), 'openrouter');
@@ -195,6 +192,8 @@ try {
       if (sample.selected) await markVisible(page.locator('.subscription-settings__context'), 'openai');
       else assert.equal(await page.locator('.subscription-settings__context .provider-icon').count(), 0, 'API run diagnostics do not name a provider or model');
       await readable(page.locator('.subscription-settings__context'));
+      await page.locator('.subscription-settings__advanced > summary').click();
+      await readable(page.locator('.subscription-settings__advanced'));
       await page.screenshot({ path: `${evidence}/${sample.name}-${width}-${theme}-access.png` });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'no page overflow');
       await page.goto(`${origin}/#bot/${bot.id}/settings/general`);
@@ -204,6 +203,7 @@ try {
         await markVisible(page.locator('.cfg-field').filter({ has: page.getByRole('radiogroup', { name: 'Thinking effort', exact: true }) }), sample.mark);
         await botModel.click();
         await markVisible(page.getByRole('listbox', { name: 'Bot model options', exact: true }), sample.mark);
+        await readable(page.getByRole('listbox', { name: 'Bot model options', exact: true }));
         await page.keyboard.press('Escape');
       }
       await readable(page.locator('.bot-settings-page'));
@@ -213,7 +213,9 @@ try {
       if (sample.provider !== 'direct') await markVisible(page.locator('.usage-billing'), sample.selected ? sample.mark : 'openrouter');
       await page.getByRole('button', { name: 'Show more', exact: true }).click();
       await markVisible(page.locator('.usage-ranked__label'), sample.mark);
+      await markVisible(page.locator('.usage-card__title'), 'openrouter');
       await readable(page.locator('.app-settings'));
+      await page.screenshot({ path: `${evidence}/${sample.name}-${width}-${theme}-usage.png` });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'settings and usage fit');
       await page.goto(`${origin}/#settings/learning`);
       await page.getByRole('button', { name: 'Review history', exact: true }).click();

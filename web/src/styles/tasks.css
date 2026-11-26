@@ -23,7 +23,8 @@
 .task-filter { display: inline-flex; align-items: center; gap: 14px; min-height: 44px; border-radius: 12px; padding: 0 13px; color: var(--color-text-secondary); }
 .task-filter.is-selected { color: var(--work-accent); background: var(--work-tint); }
 .task-filter:hover:not(.is-selected) { background: var(--color-bg-hover); }
-.task-filter__count { color: var(--color-text-secondary); }
+.task-filter__count { display: inline-block; flex: 0 0 32px; width: 32px; height: 20px; line-height: 20px; text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--color-text-secondary); }
+.task-filter__count.is-neutral { border-radius: var(--radius-full); background: var(--color-bg-hover); }
 .task-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
 .task-column__header h2 { font: 500 15px/1.4 var(--font-stack); margin: 0 0 24px; color: var(--color-text-primary); }
 .task-column__cards, .bot-task-cards { display: grid; gap: 16px; }
