@@ -11,6 +11,7 @@ import { registerCompanion } from '../runtime/companion-registration.js';
 import { currentSessionHash } from '../security/request-context.js';
 import { createStatusReader } from './status-cache.js';
 import { lastCliRun, cliRunsByProvider } from './run-diagnostics.js';
+import { db, now } from '../db.js';
 
 const readStatus = createStatusReader(cliStatus, refreshCli);
 
@@ -118,7 +119,12 @@ cliApi.put('/', async (c) => {
     }
     const noLongerAuthorized = mutationAuthorization(c);
     if (noLongerAuthorized) return noLongerAuthorized;
-    selectCli(userId, body.provider);
+    db.transaction(() => {
+      // API mode always prefers a saved personal key. Server billing requires
+      // a separate explicit choice in the provider settings.
+      if (body.provider === null) db.prepare("UPDATE provider_connections SET enabled=1,updated_at=? WHERE user_id=? AND provider='openrouter' AND encrypted_key IS NOT NULL").run(now(), userId);
+      selectCli(userId, body.provider);
+    })();
     return c.json(cliStatus(userId));
   });
 });

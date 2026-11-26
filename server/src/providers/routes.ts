@@ -84,7 +84,7 @@ providerApi.put('/openrouter', async (c) => {
     if (body.enabled !== undefined) {
       db.prepare("UPDATE provider_connections SET enabled=?,updated_at=? WHERE user_id=? AND provider='openrouter'").run(Number(body.enabled), now(), userId);
       // An explicit provider choice is required to leave subscription billing.
-      selectCli(userId, null);
+      if (body.enabled === true) selectCli(userId, null);
     }
   })();
   return c.json(providerStatus(userId));

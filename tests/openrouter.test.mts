@@ -65,6 +65,7 @@ const { initSubagents } = await import('../server/src/agent/subagents.js');
 const { initRooms } = await import('../server/src/agent/rooms.js');
 initSubagents(); initRooms();
 const { api } = await import('../server/src/routes.js');
+const { cliApi } = await import('../server/src/cli/routes.js');
 const { configApi } = await import('../server/src/routes-config.js');
 const { usageApi } = await import('../server/src/routes-usage.js');
 const { userFromCookieHeader } = await import('../server/src/lib/auth.js');
@@ -77,7 +78,7 @@ const { transcribe, synthesize } = await import('../server/src/lib/speech.js');
 const { runInBotQueue, enqueue } = await import('../server/src/agent/loop.js');
 const { createBot } = await import('../server/src/bots.js');
 const { appendRow, listRows, loadHistory } = await import('../server/src/store.js');
-const app = new Hono().route('/api', api).route('/api', configApi).route('/api/usage', usageApi);
+const app = new Hono().route('/api/cli', cliApi).route('/api', api).route('/api', configApi).route('/api/usage', usageApi);
 const sessionCookie = (r: Response) => r.headers.getSetCookie().find(v => v.startsWith('swarm_session='))?.split(';')[0];
 const sessionUser = (r: Response) => userFromCookieHeader(sessionCookie(r));
 function account() {
@@ -112,7 +113,10 @@ function callback(flow: Awaited<ReturnType<typeof start>>, subject: string | nul
 async function connect(user: ReturnType<typeof account>, key = newKey()) {
   keys.set(key, { is_management_key: false });
   const res = await request(user.cookie, '/key', 'PUT', { key });
-  assert.equal(res.status, 200, await res.clone().text());
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(JSON.stringify(body).includes(key), false);
+  assert.equal(body.hint, `…${key.slice(-4)}`);
   return key;
 }
 after(() => { mock.restoreAll(); db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
@@ -222,13 +226,74 @@ test('simultaneous users, per-user defaults, queued Bot ownership, and rotated k
   assert.equal((await models.json()).provider, 'openrouter');
 });
 
-test('subscription choice stays authoritative; switching to OpenRouter is explicit', async () => {
-  const user = account(); selectCli(user.id, 'codex'); await connect(user);
-  withUsage({ userId: user.id }, () => assert.equal(llmProvider(), 'codex-cli'));
-  const status = await (await request(user.cookie)).json(); assert.equal(status.active, false);
-  assert.equal((await request(user.cookie, '', 'PUT', { enabled: true })).status, 200);
-  assert.equal(selectedCli(user.id), null);
-  withUsage({ userId: user.id }, () => assert.equal(llmProvider(), 'openrouter'));
+for (const plan of ['codex', 'claude'] as const) {
+  test(`${plan}: save, replace, failed verification, disable and remove preserve the selected plan and mask secrets`, async () => {
+    const user = account(); selectCli(user.id, plan);
+    const key = await connect(user);
+    assert.equal(selectedCli(user.id), plan);
+    const replacement = await connect(user);
+    assert.equal(selectedCli(user.id), plan);
+    assert.match(openrouterConnection(user.id)!.encrypted_key!, /^private1:/);
+    const rejected = newKey();
+    const failure = await request(user.cookie, '/key', 'PUT', { key: rejected });
+    assert.equal(failure.status, 400);
+    assert.equal((await failure.text()).includes(rejected), false);
+    assert.equal(personalOpenRouterKey(user.id), replacement);
+    assert.equal(selectedCli(user.id), plan);
+    for (const response of [await request(user.cookie), await request(user.cookie, '', 'PUT', { enabled: false }), await request(user.cookie, '', 'PUT', { model: 'test/alternate' })]) {
+      assert.equal(response.status, 200);
+      const body = await response.json();
+      assert.equal(body.hint, `…${replacement.slice(-4)}`);
+      assert.equal(body.active, false);
+      assert.equal(JSON.stringify(body).includes(replacement), false);
+      assert.equal(JSON.stringify(body).includes(key), false);
+      assert.equal('encrypted_key' in body, false);
+      assert.equal('key' in body, false);
+      assert.equal(selectedCli(user.id), plan);
+      withUsage({ userId: user.id }, () => assert.equal(llmProvider(), `${plan}-cli`));
+    }
+    const removed = await request(user.cookie, '/key', 'DELETE', {});
+    assert.equal(removed.status, 200);
+    assert.equal((await removed.json()).hint, null);
+    assert.equal(selectedCli(user.id), plan);
+  });
+}
+
+for (const action of ['enable personal credits', 'Use API providers'] as const) {
+  test(`${action} enables a disabled saved key and never bills the platform key`, async () => {
+    const user = account(), key = await connect(user);
+    await request(user.cookie, '', 'PUT', { enabled: false });
+    selectCli(user.id, 'codex');
+    const response = action === 'enable personal credits'
+      ? await request(user.cookie, '', 'PUT', { enabled: true })
+      : await app.request('/api/cli', { method: 'PUT', headers: { cookie: user.cookie, 'content-type': 'application/json' }, body: JSON.stringify({ provider: null }) });
+    assert.equal(response.status, 200);
+    assert.equal(selectedCli(user.id), null);
+    assert.equal(openrouterConnection(user.id)!.enabled, 1);
+    const before = calls.length;
+    await withUsage({ userId: user.id }, async () => {
+      assert.equal(llmProvider(), 'openrouter');
+      await llmClient(2000).responses.create({ model: defaultModel(), input: 'Personal API billing' });
+      inferenceRejected = true;
+      try { await assert.rejects(llmClient(2000).responses.create({ model: defaultModel(), input: 'Revoked key' })); }
+      finally { inferenceRejected = false; }
+    });
+    assert.ok(calls.length > before);
+    assert.ok(calls.slice(before).every(call => call.key === key));
+  });
+}
+
+test('personal key writes and removal still require recent authentication', async () => {
+  const user = account(), key = await connect(user);
+  selectCli(user.id, 'codex');
+  db.prepare('UPDATE auth_sessions SET authenticated_at=? WHERE token=session_hash(?)').run(Date.now() - 3600000, user.id);
+  for (const method of ['PUT', 'DELETE']) {
+    const response = await request(user.cookie, '/key', method, { key: newKey() });
+    assert.equal(response.status, 401);
+    assert.equal((await response.json()).code, 'reauth_required');
+    assert.equal(personalOpenRouterKey(user.id), key);
+    assert.equal(selectedCli(user.id), 'codex');
+  }
 });
 
 test('disconnect and corrupt ciphertext fail closed, while identity survives key removal', async () => {
