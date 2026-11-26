@@ -79,7 +79,7 @@ export const api = {
   needsYou: () => readDeadline(signal => req<{ items: NeedsYouItem[] }>('GET', '/needs-you', undefined, signal)),
   /** Account preferences (WS4). */
   preferences: () => req<AccountPreferences>('GET', '/account/preferences'),
-  updatePreferences: (p: AccountPreferences) => req<AccountPreferences>('PATCH', '/account/preferences', p),
+  updatePreferences: (p: Partial<AccountPreferences>) => req<AccountPreferences>('PATCH', '/account/preferences', p),
   /** Account fields the user explicitly changes in Settings > Account. */
   updateMe: (patch: { timezone: string }) => req<{ user?: User | null; ok?: true }>('PATCH', '/auth/me', patch),
   skipSetup: (botId: string) => req<{ ok: true; bot: Bot }>('POST', `/bots/${botId}/setup/skip`),
@@ -87,7 +87,7 @@ export const api = {
 };
 
 export interface NeedsYouItem { id: string; type: 'setup_review' | 'approval' | 'question' | 'connect'; botId: string; botName: string; title: string; createdAt: number; seq: number | null }
-export interface AccountPreferences { askBeforeComputer: boolean }
+export interface AccountPreferences { askBeforeComputer: boolean; apiApprovalLevel: 'standard' | 'every_action' }
 export interface ConversationSearchHit { botId: string; botName: string; seq: number; generation: number; role: string; text: string; createdAt: number }
 
 /** Open a Composio redirect in a centered popup. */

@@ -1,3 +1,4 @@
+import { asksBeforeEveryAction, MAX_APPROVAL_PREFIX } from './approval-level.js';
 import { db, now } from '../db.js';
 import { botTargetChoice, listVisibleAgents, resolveBotTarget } from '../bots.js';
 import { BROWSER_TOOLS } from '../computers/browser-tools.js';
@@ -731,6 +732,15 @@ export function policyFor(userId: string, toolName: string, args: any, botId?: s
     // Never let an old Always allow policy authorize future account-wide changes.
     return { decision: 'ask', key: 'update_profile:timezone', title: `change your account time zone to ${args.timezone.trim()}` };
   }
+  if (asksBeforeEveryAction(userId)) {
+    // Maximum grants are exact-tool and account scoped, separate from Standard grants.
+    const action = toolName === 'SWARM_APPS_EXECUTE' ? `${toolName}:${String(args?.tool_slug ?? '')}` : toolName;
+    const key = `${MAX_APPROVAL_PREFIX}${action}${toolName.startsWith('mcp_') || ['deliver_artifact', 'retry_delivery'].includes(toolName) ? `:bot:${botId ?? ''}` : ''}`;
+    const saved = db.prepare('SELECT mode FROM policies WHERE user_id=? AND tool=?').get(userId, key) as { mode: string } | undefined;
+    return { decision: saved?.mode === 'always_allow' ? 'allow' : saved?.mode === 'blocked' ? 'block' : 'ask', key,
+      ...(toolName === 'SWARM_APPS_EXECUTE' ? { toolkit: String(args?.tool_slug ?? '').split('_')[0].toLowerCase() } : {}),
+      title: toolName === 'SWARM_APPS_EXECUTE' ? humanizeSlug(String(args?.tool_slug ?? 'app action')) : action.replace(/_/g, ' ').toLowerCase() };
+  }
   if (toolName === 'deliver_artifact' || toolName === 'retry_delivery') {
     const key = `${toolName}:bot:${botId ?? ''}`;
     const policy = db.prepare('SELECT mode FROM policies WHERE user_id=? AND tool=?').get(userId, key) as { mode: string } | undefined;
@@ -773,7 +783,7 @@ export type ExecutionPolicy = ReturnType<typeof policyFor> & { readOnlyApps: boo
  */
 export async function executionPolicyFor(userId: string, toolName: string, args: any, botId?: string): Promise<ExecutionPolicy> {
   const base = policyFor(userId, toolName, args, botId);
-  if (toolName !== 'SWARM_APPS_EXECUTE') return { ...base, readOnlyApps: false };
+  if (asksBeforeEveryAction(userId) || toolName !== 'SWARM_APPS_EXECUTE') return { ...base, readOnlyApps: false };
   const slug = typeof args?.tool_slug === 'string' ? args.tool_slug : '';
   const savedDecision = (): Decision | undefined => {
     const saved = db.prepare('SELECT mode FROM policies WHERE user_id=? AND tool=?').get(userId, slug) as { mode: string } | undefined;
@@ -798,6 +808,7 @@ export async function executionPolicyFor(userId: string, toolName: string, args:
       }
     } catch { /* Unavailable or untrusted metadata never grants permission. */ }
   }
+  if (asksBeforeEveryAction(userId)) return { ...policyFor(userId, toolName, args, botId), readOnlyApps: false };
   // A user may change a saved policy while discovery is in flight.
   const current = savedDecision();
   return { ...base, decision: current ?? (readOnlyApps ? 'allow' : 'ask'), readOnlyApps: current ? false : readOnlyApps };

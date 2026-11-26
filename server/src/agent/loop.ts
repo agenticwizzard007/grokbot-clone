@@ -1,3 +1,6 @@
+import { isReviewApproval } from './review-approvals.js';
+import { resumeVoiceApproval } from '../voice-action-approvals.js';
+import { asksBeforeEveryAction, MAX_APPROVAL_PREFIX, PROVIDER_SEARCH_DISABLED } from './approval-level.js';
 import { ApiCreditsError, isCreditError } from '../lib/model-request-policy.js';
 import { abortable, currentRun, withRun, type RunScope } from './run-scope.js';
 import { connectedDate, connectionStatusLabel, fallbackAccountLabel, visibleConnections } from '../connection-details.js';
@@ -20,7 +23,7 @@ import { requestAppConnection, connectionRequiredMessage } from './app-connectio
 import { isSetupRefusal, messageText, operationalHistory } from './setup-reply.js';
 import { deduplicateBrowserSnapshots, repairHistory } from './history.js';
 import { maybeCompact, noteUsage } from './memory.js';
-import { activityFor, allowedDuringSetup, allowedInGroupTurn, COMPUTER_POLICY_TITLES, executionPolicyFor, functionSchemas, humanizeSlug, runComposioTool, toolMap, type ToolCtx, type ToolResult } from './tools.js';
+import { activityFor, allowedDuringSetup, allowedInGroupTurn, COMPUTER_POLICY_TITLES, policyFor, executionPolicyFor, functionSchemas, humanizeSlug, runComposioTool, toolMap, type ToolCtx, type ToolResult } from './tools.js';
 import { postToRoomById, setupNotice } from './rooms.js';
 import { isConfiguring, repairActiveSetup } from '../bot-setup.js';
 import { mcpSchemas, runMcpTool } from '../mcp/client.js';
@@ -71,6 +74,7 @@ interface PendingState {
   /** outputs already produced for this batch. */
   outputs: any[];
   approvalId: string;
+  approvedWrappers?: string[];
   depth: number;
 }
 
@@ -433,6 +437,7 @@ async function runScopedTurn(botId: string, trigger: Trigger, jobId: string, ctr
   // Every row they write to the member's own transcript is explicitly internal.
   if (trigger.roomId) ctx.readOnlyApps = true;
   const audience = turnAudience(ctx);
+  if (asksBeforeEveryAction(userId) && trigger.type !== 'resume') appendRow(trigger.roomId ?? botId, 'notice', { type: 'notice', text: PROVIDER_SEARCH_DISABLED, tone: 'info', audience: 'user' });
   ctx.availableTools = trigger.roomId
     ? async () => functionSchemas(botId).filter(t => allowedInGroupTurn(t.name))
     : async () => [
@@ -692,7 +697,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
     const row = getRow(botId, c.rowSeq);
     let body = { ...(row?.body ?? {}), jobId: ctx.jobId } as ToolCallBody & { jobId?: string };
     try {
-      if (c.name === 'tool_call') {
+      if (c.name === 'tool_call' && !asksBeforeEveryAction(userId)) {
         const resolved = await resolveToolCall(await ctx.availableTools!(), args);
         c = { ...c, name: resolved.name, arguments: JSON.stringify(resolved.args) };
         args = resolved.args;
@@ -764,13 +769,14 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
     if(invalidateStaleContext())break;
     let decision = connectionRequired ? 'block' : pol.decision;
     if (st.nativeRequireApproval && decision === 'allow') decision = 'ask';
+    if (st.approvedWrappers?.includes(c.call_id) && ['execute_code', 'tool_call'].includes(c.name)) decision = 'allow';
     if (ap && ap.call_id === c.call_id) {
       if (ap.status === 'pending') return true;
       decision = ap.bot_id === botId && ['allowed', 'always'].includes(ap.status)
         && ap.binding_hash === approvalBinding(userId, botId, c.call_id, c.name, args)
         && decision !== 'block' ? 'allow' : 'block';
       st.approvalId = '';
-    } else if (decision === 'ask' && ctx.roomId) {
+    } else if (decision === 'ask' && ctx.roomId && !asksBeforeEveryAction(userId)) {
       // A group turn never asks for approval and never writes a card in the member's own chat (R2F-001).
       // The ask becomes a denial; it is never turned into an allow.
       const refusal = 'Group chat turns can\'t ask for approval. Nothing was done. Answer in the group, or ask the user to request this in your own chat.';
@@ -783,15 +789,16 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
       const approvalId = newId('apr');
       const mcp = c.name.startsWith('mcp_') ? findMcpTool(userId, c.name, botId) : undefined;
       const card = appendRow(botId, 'card', {
-        type: 'card', card: 'approval', approvalId, jobId: ctx.jobId, title: `Allow ${getBotRow(botId).name} to ${pol.title.split(': ')[1] ?? pol.title}?`,
-        detail: describeArgs(args, accountLabel), accountLabel, tool: pol.key, toolkit: pol.toolkit, toolkitName: mcp?.server.config.name ?? appName(pol.toolkit), args, status: 'pending',
+        type: 'card', card: 'approval', approvalId, audience: 'user', jobId: ctx.jobId, title: `Allow ${getBotRow(botId).name} to ${pol.title.split(': ')[1] ?? pol.title}?`,
+        detail: describeArgs(args, accountLabel), accountLabel, tool: pol.key.startsWith(MAX_APPROVAL_PREFIX) ? pol.key.slice(MAX_APPROVAL_PREFIX.length).replace(/^SWARM_APPS_EXECUTE:/, '') : pol.key, toolkit: pol.toolkit, toolkitName: mcp?.server.config.name ?? appName(pol.toolkit), args, status: 'pending',
       });
       db.prepare('INSERT INTO approvals(id,bot_id,row_seq,call_id,tool,status,created_at,binding_hash) VALUES (?,?,?,?,?,?,?,?)').run(approvalId, botId, card.seq, c.call_id, pol.key, 'pending', now(), approvalBinding(userId, botId, c.call_id, c.name, args));
       updateRow(botId, c.rowSeq, { ...body, status: 'awaiting-approval' });
       st.approvalId = approvalId;
+      if (ctx.roomId) appendRow(ctx.roomId, 'notice', { type: 'notice', text: `${getBotRow(botId).name} is waiting for approval. Open this Bot's chat to allow or decline the action.`, tone: 'info' });
       if (options.onPause) options.onPause(st);
       else db.prepare('INSERT OR REPLACE INTO pending_turns(bot_id,state) VALUES (?,?)').run(botId, JSON.stringify(st));
-      setLive(botId, { isRunning: false, activity: { kind: 'waiting_for_you', since: now() }, awaiting: { reason: Object.hasOwn(COMPUTER_POLICY_TITLES, pol.key) ? pol.title : humanizeSlug(pol.key), since: now() } });
+      setLive(botId, { isRunning: false, activity: { kind: 'waiting_for_you', since: now() }, awaiting: { reason: asksBeforeEveryAction(userId) || Object.hasOwn(COMPUTER_POLICY_TITLES, pol.key) ? pol.title : humanizeSlug(pol.key), since: now() } });
       hub.emit(userId, { type: 'tasks', botId });
       return true;
     }
@@ -812,24 +819,44 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
       const toolStart = performance.now();
       try {
         if (!beginTool(botId, c.call_id, c.name, approvalBinding(userId, botId, c.call_id, c.name, args))
-          && !(c.name === 'execute_code' && isProgramResumable(c.call_id, botId))) throw new Error('This action has already been dispatched. Reconcile its outcome before requesting another action.');
+          && !(c.name === 'execute_code' && isProgramResumable(c.call_id, botId)) && !st.approvedWrappers?.includes(c.call_id)) throw new Error('This action has already been dispatched. Reconcile its outcome before requesting another action.');
         const impl = toolMap.get(c.name);
-        if (c.name === 'execute_code') {
+        if (c.name === 'tool_call') {
+          st.approvedWrappers ??= [];
+          if (!st.approvedWrappers.includes(c.call_id)) st.approvedWrappers.push(c.call_id);
+          const resolved = await resolveToolCall(await ctx.availableTools!(), args);
+          const innerId = `${c.call_id}:resolved`;
+          const existing = db.prepare("SELECT seq FROM rows WHERE bot_id=? AND generation=? AND kind='tool-call' AND json_extract(body,'$.callId')=? ORDER BY seq DESC LIMIT 1").get(botId, getBotRow(botId).generation, innerId) as { seq: number } | undefined;
+          const innerRow = existing ?? appendRow(botId, 'tool-call', { type: 'tool-call', callId: innerId, name: resolved.name, args: resolved.args, label: activityFor(resolved.name, resolved.args).label, status: 'queued', ...turnAudience(ctx) });
+          const inner: PendingState = { ...st, calls: [{ call_id: innerId, name: resolved.name, arguments: JSON.stringify(resolved.args), rowSeq: innerRow.seq }], outputs: [] };
+          const paused = await processCalls(ctx, inner, { nested: true, signal: options.signal, onPause: pending => {
+            st.approvalId = pending.approvalId;
+            if (options.onPause) options.onPause(st);
+            else db.prepare('INSERT OR REPLACE INTO pending_turns(bot_id,state) VALUES (?,?)').run(botId, JSON.stringify(st));
+          } });
+          if (paused) return true;
+          st.approvalId = '';
+          res = { output: inner.outputs[0]?.output, summary: (getRow(botId, innerRow.seq)?.body as ToolCallBody)?.summary };
+        } else if (c.name === 'execute_code') {
+          st.approvedWrappers ??= [];
+          if (!st.approvedWrappers.includes(c.call_id)) st.approvedWrappers.push(c.call_id);
           const program = await runProgram({ userId, botId, jobId: ctx.jobId, callId: c.call_id, args,
             catalog: ctx.availableTools!, signal: turnSignal(botId), dispatch: async action => {
               const existing = db.prepare("SELECT seq FROM rows WHERE bot_id=? AND generation=? AND kind='tool-call' AND json_extract(body,'$.callId')=? ORDER BY seq DESC LIMIT 1").get(botId, getBotRow(botId).generation, action.callId) as { seq: number } | undefined;
               const innerRow = existing ?? appendRow(botId, 'tool-call', { type: 'tool-call', callId: action.callId, name: action.name, args: action.args, label: activityFor(action.name, action.args).label, status: 'queued', ...turnAudience(ctx) });
-              const inner: PendingState = { jobId: ctx.jobId, computerRevision: st.computerRevision, calls: [{ call_id: action.callId, name: action.name, arguments: JSON.stringify(action.args), rowSeq: innerRow.seq }], outputs: [], approvalId: action.approvalId ?? '', depth: st.depth };
+              const inner: PendingState = { jobId: ctx.jobId, computerRevision: st.computerRevision, approvedWrappers: st.approvedWrappers, calls: [{ call_id: action.callId, name: action.name, arguments: JSON.stringify(action.args), rowSeq: innerRow.seq }], outputs: [], approvalId: action.approvalId ?? '', depth: st.depth };
               const paused = await processCalls(ctx, inner, { nested: true, signal: action.signal, onPause: pending => {
                 st.approvalId = pending.approvalId;
-                db.prepare('INSERT OR REPLACE INTO pending_turns(bot_id,state) VALUES (?,?)').run(botId, JSON.stringify(st));
+                if (options.onPause) options.onPause(st);
+                else db.prepare('INSERT OR REPLACE INTO pending_turns(bot_id,state) VALUES (?,?)').run(botId, JSON.stringify(st));
               } });
               const status = (getRow(botId, innerRow.seq)?.body as ToolCallBody)?.status;
               return { paused, approvalId: inner.approvalId, output: inner.outputs[0]?.output, isError: status === 'error' || status === 'denied' };
             } });
           if (program.status === 'waiting') {
             st.approvalId = program.approval_id ?? '';
-            db.prepare('INSERT OR REPLACE INTO pending_turns(bot_id,state) VALUES (?,?)').run(botId, JSON.stringify(st));
+            if (options.onPause) options.onPause(st);
+            else db.prepare('INSERT OR REPLACE INTO pending_turns(bot_id,state) VALUES (?,?)').run(botId, JSON.stringify(st));
             updateRow(botId, c.rowSeq, { ...body, status: 'awaiting-approval', summary: 'Program paused for an action approval' });
             return true;
           }
@@ -1170,14 +1197,23 @@ export function resolveApproval(userId: string, approvalId: string, decision: 'a
   if (ap.tool === 'update_profile:timezone' && decision === 'always') decision = 'allow';
   const status = decision === 'deny' ? 'denied' : decision === 'always' ? 'always' : 'allowed';
   db.prepare('UPDATE approvals SET status=?, resolved_at=? WHERE id=?').run(status, now(), approvalId);
-  if (decision === 'always') db.prepare("INSERT OR REPLACE INTO policies(user_id,tool,mode) VALUES (?,?,'always_allow')").run(userId, ap.tool);
   const card = getRow(ap.bot_id, ap.row_seq);
+  if (decision === 'always') {
+    // Scope a grant to the mode the user is choosing now, including cards opened before a mode switch.
+    const step = db.prepare("SELECT body FROM rows WHERE bot_id=? AND kind='tool-call' AND json_extract(body,'$.callId')=? ORDER BY seq DESC LIMIT 1").get(ap.bot_id, ap.call_id) as { body: string } | undefined;
+    const reviewAction = isReviewApproval(approvalId) && card?.body.type === 'card' && card.body.card === 'approval'
+      ? { name: card.body.tool, args: card.body.args } : undefined;
+    const action = step ? JSON.parse(step.body) as ToolCallBody : reviewAction;
+    const key = action ? policyFor(userId, action.name, action.args ?? {}, ap.bot_id).key : ap.tool;
+    db.prepare("INSERT OR REPLACE INTO policies(user_id,tool,mode) VALUES (?,?,'always_allow')").run(userId, key);
+  }
   if (card && card.body.type === 'card' && card.body.card === 'approval') updateRow(ap.bot_id, ap.row_seq, { ...card.body, status });
+  const separateContinuation = isReviewApproval(approvalId) || resumeVoiceApproval(approvalId);
   // The decision is made: drop "Waiting for you" now instead of when the resumed turn starts.
-  setLive(ap.bot_id, { awaiting: null, activity: null });
+  if (!separateContinuation) setLive(ap.bot_id, { awaiting: null, activity: null });
   emitBot(ap.bot_id);
   hub.emit(userId, { type: 'tasks', botId: ap.bot_id });
-  enqueue(ap.bot_id, { type: 'resume' });
+  if (!separateContinuation) enqueue(ap.bot_id, { type: 'resume' });
   return status;
   })();
 }

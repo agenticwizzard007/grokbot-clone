@@ -1,3 +1,4 @@
+import { approvalDisplayBot } from './agent/approval-display.js';
 import { Hono } from 'hono';
 import { db } from './db.js';
 import { requireUser, type AuthVars } from './lib/auth.js';
@@ -30,6 +31,7 @@ export function needsYou(userId: string): NeedsYouItem[] {
     SELECT s.bot_id, s.onboarding_status, s.updated_at, b.name AS bot_name
     FROM bot_setups s JOIN bots b ON b.id=s.bot_id
     WHERE b.user_id=? AND COALESCE(b.kind,'agent')<>'room' AND s.onboarding_status IN ('review','interviewing')`).all(userId) as { bot_id: string; onboarding_status: string; updated_at: number; bot_name: string }[];
+  const mirrored = new Set(cards.flatMap(row => { try { const body = JSON.parse(row.body); return body.approvalSourceBotId ? [body.approvalId] : []; } catch { return []; } }));
   const pendingApproval = db.prepare("SELECT 1 FROM approvals WHERE id=? AND bot_id=? AND status='pending'");
   const interviewing = new Map(setups.filter((s) => s.onboarding_status === 'interviewing').map((s) => [s.bot_id, s]));
   const interviewQuestion = new Map<string, { seq: number; question: string; createdAt: number }>();
@@ -39,7 +41,10 @@ export function needsYou(userId: string): NeedsYouItem[] {
     try { body = JSON.parse(row.body); } catch { continue; }
     const base = { botId: row.bot_id, botName: row.bot_name, createdAt: row.created_at, seq: row.seq };
     if (body.card === 'approval') {
-      if (!pendingApproval.get(body.approvalId, row.bot_id)) continue;
+      const source = body.approvalSourceBotId ?? row.bot_id;
+      if (body.approvalSourceBotId && approvalDisplayBot(source) !== row.bot_id) continue;
+      if (!body.approvalSourceBotId && mirrored.has(body.approvalId)) continue;
+      if (!pendingApproval.get(body.approvalId, source)) continue;
       items.push({ ...base, id: `approval:${body.approvalId}`, type: 'approval', title: short(body.title || `Allow ${body.tool ?? 'an action'}?`) });
     } else if (body.card === 'question') {
       // A setup interview question is the setup review item for that bot, not a separate question.

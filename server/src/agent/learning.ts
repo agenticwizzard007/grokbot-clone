@@ -1,3 +1,5 @@
+import { asksBeforeEveryAction } from './approval-level.js';
+import { approveReviewAction, expireReviewApprovals } from './review-approvals.js';
 import { randomUUID } from 'node:crypto';
 import { db, now } from '../db.js';
 import { acceptJob, beginJob } from './jobs.js';
@@ -97,6 +99,7 @@ export function listLearningReviews(userId: string, opts: {
     return { reviews: rows.slice(0, limit).map(view), nextBefore: rows.length > limit ? rows[limit - 1].cursor : null };
 }
 function terminal(row: any, status: string, error?: string) {
+    expireReviewApprovals(row.job_id);
     db.prepare("UPDATE knowledge_learning_reviews SET status=?,finished_at=?,error=? WHERE id=? AND status IN ('queued','running')").run(status, now(), error ?? null, row.id);
     db.prepare("UPDATE agent_jobs SET state=?,finished_at=? WHERE id=? AND state IN ('queued','running')").run(status === 'completed' ? 'completed' : status === 'failed' ? 'uncertain' : 'cancelled', now(), row.job_id);
     publishNativeEvent({ userId: row.user_id, botId: writable(row.user_id, row.bot_id) ? row.bot_id : undefined, kind: `learning.review.${status}`, sourceType: 'learning-review', sourceId: row.id, jobId: row.job_id, data: { status, error: error ?? null } });
@@ -353,6 +356,8 @@ export async function runLearningReview(id: string): Promise<Review | undefined>
                 // validation worker runs. Never dispatch on the earlier check.
                 guard();
                 if (invalid) return { output: invalid, isError: true };
+                if (asksBeforeEveryAction(r.user_id) && !await approveReviewAction({ userId: r.user_id, botId: r.bot_id, jobId: r.job_id }, name, args, ctrl.signal, guard)) return { output: 'The user did not allow this review action. Nothing was done.', isError: true };
+                guard();
                 if (r.reason === 'curator' && name === 'list_skills')
                     return { output: JSON.stringify({ ok: true, skills: authorizedSkills(r.user_id, r.bot_id).filter(s => s.botId === r.bot_id && !curatorProtected(r.bot_id, s)).map(({ id, name, description, revision }) => ({ id, name, description, revision })), nextOffset: null }) };
                 if (r.reason === 'curator' && name === 'manage_skill' && args.skill_id) {

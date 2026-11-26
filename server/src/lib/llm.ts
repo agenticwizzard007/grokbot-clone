@@ -1,3 +1,4 @@
+import { asksBeforeEveryAction } from '../agent/approval-level.js';
 import { boundedResponseCreate } from './model-request-policy.js';
 import { normalizeModelEfforts } from './model-efforts.js';
 import { catalogModelId, cliModelCatalog } from '../cli/catalog.js';
@@ -86,7 +87,7 @@ export function withFast(model: string, fast: boolean): string {
 
 /** Server-side tools the provider runs itself. */
 export function serverTools(): any[] {
-  if (selectedCli(currentUserId())) return [];
+  if (selectedCli(currentUserId()) || asksBeforeEveryAction(currentUserId())) return [];
   return llmProvider() === 'openrouter' ? [{ type: 'openrouter:web_search' }] : [{ type: 'web_search' }, { type: 'x_search' }];
 }
 

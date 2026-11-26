@@ -148,6 +148,8 @@ export type CardBody =
       type: 'card';
       card: 'approval';
       approvalId: string;
+      /** Helper-owned approval shown in a visible parent conversation. */
+      approvalSourceBotId?: string;
       /** Durable run that requested the decision, used to follow continuations. */
       jobId?: string;
       title: string;

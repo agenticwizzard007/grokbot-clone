@@ -170,18 +170,22 @@ db.exec(`CREATE TABLE IF NOT EXISTS account_preferences (
   updated_at INTEGER NOT NULL
 )`);
 
-export interface AccountPreferences { askBeforeComputer: boolean }
+if (!(db.pragma('table_info(account_preferences)') as { name: string }[]).some(c => c.name === 'api_approval_level')) {
+  db.exec("ALTER TABLE account_preferences ADD COLUMN api_approval_level TEXT NOT NULL DEFAULT 'standard'");
+}
+
+export interface AccountPreferences { askBeforeComputer: boolean; apiApprovalLevel: 'standard' | 'every_action' }
 
 /** Defaults apply until the account saves a preference. */
 export function accountPreferences(userId: string): AccountPreferences {
-  const row = db.prepare('SELECT ask_before_computer FROM account_preferences WHERE user_id=?').get(userId) as { ask_before_computer: number } | undefined;
-  return { askBeforeComputer: row?.ask_before_computer === 1 };
+  const row = db.prepare('SELECT ask_before_computer,api_approval_level FROM account_preferences WHERE user_id=?').get(userId) as { ask_before_computer: number; api_approval_level: string } | undefined;
+  return { askBeforeComputer: row?.ask_before_computer === 1, apiApprovalLevel: row?.api_approval_level === 'every_action' ? 'every_action' : 'standard' };
 }
 
 export function saveAccountPreferences(userId: string, patch: Partial<AccountPreferences>): AccountPreferences {
   const next = { ...accountPreferences(userId), ...patch };
-  db.prepare(`INSERT INTO account_preferences(user_id,ask_before_computer,updated_at) VALUES (?,?,?)
-    ON CONFLICT(user_id) DO UPDATE SET ask_before_computer=excluded.ask_before_computer, updated_at=excluded.updated_at`)
-    .run(userId, next.askBeforeComputer ? 1 : 0, now());
+  db.prepare(`INSERT INTO account_preferences(user_id,ask_before_computer,api_approval_level,updated_at) VALUES (?,?,?,?)
+    ON CONFLICT(user_id) DO UPDATE SET ask_before_computer=excluded.ask_before_computer, api_approval_level=excluded.api_approval_level, updated_at=excluded.updated_at`)
+    .run(userId, next.askBeforeComputer ? 1 : 0, next.apiApprovalLevel, now());
   return next;
 }

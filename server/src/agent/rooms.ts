@@ -1,3 +1,4 @@
+import { asksBeforeEveryAction } from './approval-level.js';
 import { db, now } from '../db.js';
 import { newId } from '../lib/ids.js';
 import { hub } from '../lib/hub.js';
@@ -77,7 +78,7 @@ export function dispatchRoomMessage(roomId: string, text: string, enqueue: (botI
         `${mentioned.length ? 'You were @mentioned.' : 'The user addressed the whole group.'}\n` +
         `Recent group messages:\n${recent}\n\n` +
         `Reply to the group with post_to_group (group_name "${room.name}"), or end with a short plain reply; your final reply is posted to the group for you. ` +
-        `Answer from the group conversation and what you already know. Group chats can't use other apps: no connected apps, email, Slack, MCP tools, your computer or browser, and no approvals. ` +
+        `Answer from the group conversation and what you already know. Group chats can't use other apps: no connected apps, email, Slack, MCP tools, your computer or browser${asksBeforeEveryAction(room.user_id) ? '. Every offered tool asks for approval in your own chat unless explicitly always allowed at this level. Wait for that decision.' : ', and no approvals.'} ` +
         `If you are asked to send, post, read or check anything in another app, do not look it up; reply exactly: "${GROUP_APPS_REFUSAL}" ` +
         `Keep it short and don't repeat what other Bots already said. If you have nothing to add, call stay_silent.`,
     });

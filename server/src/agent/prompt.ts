@@ -1,3 +1,4 @@
+import { asksBeforeEveryAction, MAX_APPROVAL_INSTRUCTIONS } from './approval-level.js';
 import { db } from '../db.js';
 import { botTargetChoice, listVisibleAgents } from '../bots.js';
 import { getBotRow, listRoutines } from '../store.js';
@@ -20,7 +21,7 @@ export async function systemPrompt(userId: string, botId: string, jobId?:string)
   const bot = getBotRow(botId);
   const user = db.prepare('SELECT * FROM users WHERE id=?').get(userId) as any;
   const setup = getSetup(botId);
-  const nativeState = [platformContext(userId, botId),coordinationPrompt(userId,botId,jobId),
+  const nativeState = [asksBeforeEveryAction(userId) ? MAX_APPROVAL_INSTRUCTIONS : '', platformContext(userId, botId),coordinationPrompt(userId,botId,jobId),
     setup && setup.onboarding.status !== 'active' ? '' : learningContext(userId,botId,jobId)].filter(Boolean).join('\n\n');
   if (setup && setup.onboarding.status !== 'active') {
     return `You are the setup consultant for ${bot.name}${bot.label ? ` (${bot.label})` : ''}, working with ${user?.name ?? 'the user'} to define this agent’s exact job. This is a temporary onboarding role in the agent’s own chat.

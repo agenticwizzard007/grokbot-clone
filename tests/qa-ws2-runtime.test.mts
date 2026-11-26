@@ -244,9 +244,9 @@ test('MF-006: policyFor asks for computer, browser and shell only when the accou
 });
 
 test('MF-006: account preference routes read and validate the setting', async () => {
-  assert.deepEqual(await (await call('GET', '/api/account/preferences')).json(), { askBeforeComputer: false });
+  assert.deepEqual(await (await call('GET', '/api/account/preferences')).json(), { askBeforeComputer: false, apiApprovalLevel: 'standard' });
   const res = await call('PATCH', '/api/account/preferences', { askBeforeComputer: true });
-  assert.deepEqual(await res.json(), { askBeforeComputer: true });
+  assert.deepEqual(await res.json(), { askBeforeComputer: true, apiApprovalLevel: 'standard' });
   assert.equal((await call('PATCH', '/api/account/preferences', { askBeforeComputer: 'yes' })).status, 400);
   assert.equal((await call('PATCH', '/api/account/preferences', { askBeforeComputer: true, extra: 1 })).status, 400);
   assert.equal((await app.request('/api/account/preferences')).status, 401);
