@@ -3,7 +3,7 @@ import { ChevronDown } from 'lucide-react';
 import type { Bot } from '@shared/types';
 import { useStore } from '../store';
 import { voiceApi, type VoiceOptions } from '../voice/api';
-import { endCall, isCallActive, previewVoice, startCall, useVoice } from '../voice/call';
+import { endCall, previewVoice, startCall, useVoice } from '../voice/call';
 
 const speedLabel = (speed: number) => `${Number(speed.toFixed(2))}×`;
 
@@ -43,7 +43,8 @@ function BotVoiceSettings({ bot, accountId, compact, onStartCall }: { bot: Bot; 
   const [error, setError] = useState<{ title: string; detail: string } | null>(null);
   const mounted = useRef(false);
   const pending = useRef(false);
-  const inCall = useVoice(state => isCallActive(state) && state.botId === bot.id);
+  const connecting = useVoice(state => state.status === 'connecting');
+  const inCall = useVoice(state => state.status === 'live' && state.botId === bot.id);
   const current = () => mounted.current && useStore.getState().user?.id === accountId;
 
   useEffect(() => {
@@ -91,9 +92,11 @@ function BotVoiceSettings({ bot, accountId, compact, onStartCall }: { bot: Bot; 
     </>}
     <div className="voice-settings__sample"><div><strong>Voice sample</strong><p>Preview the selected voice without starting a call.</p></div><button type="button" className="voice-preview" onClick={() => void preview()} disabled={previewing || saving}>{previewing ? 'Playing…' : 'Preview'}</button></div>
     {error && <div className="voice-settings__notice" role="alert"><strong>{error.title}</strong><p>{error.detail}</p></div>}
-    <button type="button" className={`voice-settings__call${inCall ? ' is-active' : ''}`} onClick={() => {
-      if (inCall) endCall();
+    <button type="button" className={`voice-settings__call${inCall ? ' is-active' : ''}`} disabled={connecting} aria-busy={connecting} onClick={() => {
+      const call = useVoice.getState();
+      if (call.status === 'connecting') return;
+      if (call.status === 'live' && call.botId === bot.id) endCall();
       else { void startCall(bot.id); onStartCall?.(); }
-    }}>{inCall ? 'End voice chat' : 'Start voice chat'}</button>
+    }}>{connecting ? 'Connecting…' : inCall ? 'End voice chat' : 'Start voice chat'}</button>
   </section>;
 }

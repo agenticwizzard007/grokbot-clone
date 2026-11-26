@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { Mic, PhoneOff, TextCursorInput } from 'lucide-react';
+import { LoaderCircle, Mic, PhoneOff, TextCursorInput } from 'lucide-react';
 import type { Bot } from '@shared/types';
 import { api } from '../lib/api';
 import { acknowledgeSubmission, beginSubmission, pendingSubmission } from '../lib/chatSubmission';
@@ -296,13 +296,14 @@ export const Composer = memo(function Composer({ bot, running }: { bot: Bot; run
     });
   };
   const anyCall = useVoice((s) => isCallActive(s));
+  const connecting = useVoice((s) => s.status === 'connecting');
   const callBotId = useVoice((s) => s.botId);
-  const inCall = anyCall && callBotId === bot.id;
-  const switchingCall = anyCall && !inCall;
+  const inCall = anyCall && !connecting && callBotId === bot.id;
+  const switchingCall = anyCall && !connecting && !inCall;
   const dictation = useDictation(insertText, setError, bot.voiceLanguage, {
     contextKey: `${bot.id}:${bot.generation}`, enabled: !anyCall && onScreen,
   });
-  const voiceLabel = inCall ? `End call with ${bot.name}` : switchingCall ? `Switch call to ${bot.name}` : `Start live voice with ${bot.name}`;
+  const voiceLabel = connecting ? 'Connecting…' : inCall ? `End call with ${bot.name}` : switchingCall ? `Switch call to ${bot.name}` : `Start live voice with ${bot.name}`;
   const wasDictating = useRef(false);
   useEffect(() => {
     const active = dictation.state !== 'idle';
@@ -319,10 +320,13 @@ export const Composer = memo(function Composer({ bot, running }: { bot: Bot; run
     dictation.start();
   };
   const voice = () => {
+    // Read the store at click time so repeated events cannot toggle pending setup.
+    const call = useVoice.getState();
+    if (call.status === 'connecting') return;
     // Keep AudioContext creation inside the user gesture; cancellation is synchronous.
     dictation.cancel();
     setError(null);
-    try { if (inCall) endCall(); else startCall(bot.id); }
+    try { if (call.status === 'live' && call.botId === bot.id) endCall(); else startCall(bot.id); }
     catch (e) { setError((e as Error).message || 'Could not start live voice'); }
   };
 
@@ -358,7 +362,7 @@ export const Composer = memo(function Composer({ bot, running }: { bot: Bot; run
                 items={[
                   { label: 'New conversation', onSelect: fresh },
                   { label: 'Connect apps', onSelect: () => setModal('apps') },
-                  liveVoiceMenuItem(voice, inCall, switchingCall ? bot.name : undefined),
+                  liveVoiceMenuItem(voice, inCall, switchingCall ? bot.name : undefined, connecting),
                   ...(!anyCall && dictation.state === 'idle' ? [{ label: 'Dictate a message', hint: 'Text only', icon: TextCursorInput, onSelect: dictate }] : []),
                 ]}
               />
@@ -392,10 +396,12 @@ export const Composer = memo(function Composer({ bot, running }: { bot: Bot; run
             className={`composer__cta composer__voice${inCall ? ' is-in-call' : ''}`}
             aria-label={voiceLabel}
             aria-pressed={inCall}
-            title={switchingCall ? `End the current call and talk to ${bot.name}` : inCall ? 'End the call; agent work continues in chat' : `Talk to ${bot.name} live to coordinate work and hear results`}
+            aria-busy={connecting}
+            disabled={connecting}
+            title={connecting ? 'Connecting…' : switchingCall ? `End the current call and talk to ${bot.name}` : inCall ? 'End the call; agent work continues in chat' : `Talk to ${bot.name} live to coordinate work and hear results`}
             onClick={voice}
           >
-            {inCall ? <PhoneOff size={16} aria-hidden /> : <Icon name="mic" />}
+            {connecting ? <LoaderCircle size={16} className="composer__voice-spinner" aria-hidden /> : inCall ? <PhoneOff size={16} aria-hidden /> : <Icon name="mic" />}
             </button>}
           {running && !hasText ? (
             <button type="button" className="composer__cta" onClick={stop} aria-label="Stop" title="Stop">
@@ -426,6 +432,6 @@ export const Composer = memo(function Composer({ bot, running }: { bot: Bot; run
 const composerBotKeys = ['id', 'name', 'model', 'effort', 'fast', 'voiceLanguage', 'generation'] as const;
 
 /** The same live-call action is always available, including with a saved draft. */
-export function liveVoiceMenuItem(onSelect: () => void, inCall: boolean, switchTo?: string) {
-  return { label: inCall ? 'End live call' : 'Talk live', hint: switchTo ? `Switch to ${switchTo}` : undefined, icon: inCall ? PhoneOff : Mic, onSelect };
+export function liveVoiceMenuItem(onSelect: () => void, inCall: boolean, switchTo?: string, connecting = false) {
+  return { label: connecting ? 'Connecting…' : inCall ? 'End live call' : 'Talk live', hint: switchTo ? `Switch to ${switchTo}` : undefined, icon: connecting ? LoaderCircle : inCall ? PhoneOff : Mic, onSelect };
 }

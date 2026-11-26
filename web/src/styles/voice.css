@@ -28,6 +28,7 @@
 .vcall__name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vcall__time { font-size: 12px; font-weight: var(--font-weight-regular); color: #FFFFFF8F; font-variant-numeric: tabular-nums; }
 .vcall__status { font-size: 12px; line-height: 16px; color: #FFFFFFAD; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vcall.is-connecting .vcall__status { white-space: normal; }
 .vcall.is-error .vcall__btn { width: auto; min-width: 44px; padding: 0 8px; }
 .vcall.is-error .vcall__status { color: #FF8A93; white-space: normal; }
 .vcall__shimmer {
@@ -73,6 +74,9 @@
 .composer__voice.is-in-call { background: var(--color-danger); color: #FFFFFF; }
 .composer__voice.is-in-call:hover:not(:disabled) { background: #941B28; }
 .composer__voice:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
+.composer__voice-spinner { animation: voice-connect-spin 1s linear infinite; }
+@keyframes voice-connect-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .composer__voice-spinner { animation: none; } }
 .composer__dictation { max-width: 960px; margin: 0 auto 8px; padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; border-radius: 12px; background: var(--color-bg-tertiary); font-size: 13px; line-height: 18px; color: var(--color-text-secondary); }
 .composer__dictation-actions { display: flex; gap: 12px; }
 @media (max-width: 767px) {

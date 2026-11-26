@@ -86,14 +86,14 @@ export function VoiceCallBar() {
         </div>
         <div className="vcall__actions">
           {v.status === 'error' && <button type="button" className="vcall__btn" onClick={() => startCall(bot.id)}>Retry</button>}
-          {active && (
+          {v.status === 'live' && (
             <button type="button" className={`vcall__btn${v.muted ? ' is-on' : ''}`} onClick={toggleMute} aria-pressed={v.muted} aria-label={v.muted ? 'Unmute' : 'Mute'} title={v.muted ? 'Unmute' : 'Mute'}>
               {v.muted ? 'Unmute' : 'Mute'}
             </button>
           )}
           {active ? (
-            <button type="button" className="vcall__btn vcall__btn--end" onClick={endCall} aria-label="End call" title="End call">
-              End
+            <button type="button" className="vcall__btn vcall__btn--end" onClick={endCall} aria-label={v.status === 'connecting' ? 'Cancel call setup' : 'End call'} title={v.status === 'connecting' ? 'Cancel call setup' : 'End call'}>
+              {v.status === 'connecting' ? 'Cancel' : 'End'}
             </button>
           ) : (
             <button type="button" className="vcall__btn" onClick={endCall}>Dismiss</button>

@@ -23,6 +23,7 @@ const deferred = () => { let resolve!: (value?: any) => void; const promise = ne
 function fixture(t: TestContext, stage = '') {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   let stopped = 0, sources = 0, micRequests = 0;
+  const constructionStatuses: string[] = [];
   const pending = deferred(), sockets: Socket[] = [], requests: { url: string; signal?: AbortSignal }[] = [];
   const track = { enabled: true, readyState: 'live', stop: () => { stopped++; track.readyState = 'ended'; } };
   const stream = { getTracks: () => [track], getAudioTracks: () => [track] };
@@ -30,7 +31,7 @@ function fixture(t: TestContext, stage = '') {
   class Context {
     state = stage === 'audio' ? 'suspended' : 'running'; currentTime = 0; destination = new Node();
     audioWorklet = { addModule: () => stage === 'worklet' ? pending.promise : Promise.resolve() };
-    constructor() { if (stage === 'constructor') throw new Error('Unsupported audio'); }
+    constructor() { constructionStatuses.push(voice.useVoice.getState().status); if (stage === 'constructor') throw new Error('Unsupported audio'); }
     createGain() { return new Node(); } createAnalyser() { return new Node(); }
     createMediaStreamSource() { sources++; return new Node(); }
     resume() { return stage === 'audio' ? pending.promise : Promise.resolve(); }
@@ -63,8 +64,55 @@ function fixture(t: TestContext, stage = '') {
     }
     return Response.json(url.endsWith('/updates') ? { cursor: 0, updates: [], tasks: [] } : { ok: true });
   });
-  return { pending, sockets, requests, stream, stopped: () => stopped, sources: () => sources, micRequests: () => micRequests, track };
+  return { pending, sockets, requests, stream, constructionStatuses, stopped: () => stopped, sources: () => sources, micRequests: () => micRequests, track };
 }
+
+test('R15-2: connecting is published before browser audio construction and microphone access', t => {
+  const f = fixture(t, 'microphone');
+  voice.startCall('fixture');
+  assert.deepEqual(f.constructionStatuses, ['connecting']);
+  assert.equal(voice.useVoice.getState().status, 'connecting');
+  assert.equal(voice.useVoice.getState().waitingForMic, true);
+  assert.equal(f.micRequests(), 1);
+});
+
+for (const stage of ['microphone', 'session', 'socket']) {
+  test(`R15-2: repeated starts during ${stage} keep the original setup`, async t => {
+    const f = fixture(t, stage);
+    voice.startCall('fixture');
+    voice.startCall('fixture');
+    await settle();
+    t.mock.timers.tick(2000); await settle();
+    voice.startCall('fixture');
+    voice.startCall('another-bot');
+    await settle();
+    assert.equal(voice.useVoice.getState().status, 'connecting');
+    assert.equal(voice.useVoice.getState().botId, 'fixture');
+    assert.equal(f.constructionStatuses.length, 1);
+    assert.equal(f.micRequests(), 1);
+    assert.equal(f.stopped(), 0);
+    assert.equal(f.requests.filter(r => r.url.endsWith('/session')).length, stage === 'microphone' ? 0 : 1);
+    assert.equal(f.requests.filter(r => r.url.endsWith('/end')).length, 0);
+    if (stage === 'microphone') f.pending.resolve(f.stream);
+    if (stage === 'session') f.pending.resolve(Response.json({ callId: 'fixture', clientSecret: 'fake', websocketUrl: 'ws://localhost/fixture', session: {} }));
+    await settle();
+    assert.equal(f.sockets.length, 1);
+    f.sockets[0].ready();
+    assert.equal(voice.useVoice.getState().status, 'live');
+    voice.toggleMute(); assert.equal(voice.useVoice.getState().muted, true);
+    voice.toggleMute(); assert.equal(voice.useVoice.getState().muted, false);
+    voice.endCall(); assert.equal(voice.useVoice.getState().status, 'idle');
+    assert.equal(f.stopped(), 1);
+  });
+}
+
+test('R15-2: successful setup reaches live without waiting for a timeout', async t => {
+  const f = fixture(t);
+  voice.startCall('fixture'); await settle();
+  assert.equal(f.sockets.length, 1, 'audio and token complete without advancing timers');
+  f.sockets[0].ready();
+  assert.equal(voice.useVoice.getState().status, 'live');
+});
 
 test('S-02: realtime handshake reaches live, clears deadline, and can end', async t => {
   const f = fixture(t); voice.startCall('fixture'); await settle();

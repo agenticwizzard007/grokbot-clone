@@ -201,7 +201,8 @@ try {
   const connecting = await fixture({ sessionGate: gate });
   await (await connecting.start()).click();
   await waitFor(() => connecting.count('/api/voice/session') === 1);
-  await connecting.page.getByRole('button', { name: 'End call with Quinn', exact: true }).click();
+  assert.equal(await connecting.page.locator('.composer__voice').isDisabled(), true);
+  await connecting.page.getByRole('button', { name: 'Cancel call setup', exact: true }).click();
   gate.resolve();
   await waitFor(() => connecting.count('/api/voice/end') === 1);
   assert.equal(connecting.sockets.length, 0, 'late session never opens realtime after cancellation');
