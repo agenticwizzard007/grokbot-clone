@@ -131,6 +131,24 @@ for (const provider of ['codex', 'claude']) test(`R12 ${provider} keeps the reso
   assert.equal(run.errorCode, null);
 });
 
+for (const provider of ['codex', 'claude']) for (const outcome of ['finish', 'failure']) test(`R13 ${provider} late tool callbacks cannot reopen a generation after ${outcome}`, async () => {
+  const { ToolCallbacks } = await import('../server/src/cli/tool-callback.js');
+  let callbacks!: InstanceType<typeof ToolCallbacks>;
+  const work = withCliDiagnostics({ ...params, provider }, 'server', async () => {
+    callbacks = new ToolCallbacks(params, async () => ({ output: 'Done' }));
+    await callbacks.run({ id: 'first', name: 'SWARM_APPS_EXECUTE', arguments: {} });
+    callbacks.close();
+    if (outcome === 'failure') throw new Error('Provider timeout');
+    return {};
+  }, undefined, recordCliRun('other'));
+  if (outcome === 'failure') await assert.rejects(work, /timeout/); else await work;
+  const before = lastCliRun('other') as any;
+  assert.equal(before.result, outcome === 'finish' ? 'completed' : 'error');
+  assert.throws(() => callbacks.run({ id: 'late', name: 'SWARM_APPS_EXECUTE', arguments: {} }), /no longer active/);
+  assert.deepEqual(lastCliRun('other'), before);
+  assert.deepEqual((cliRunsByProvider('other') as any)[provider].latest, before);
+});
+
 test('an older concurrent run cannot replace the latest diagnostic or recreate a deleted account', async () => {
   let release!: () => void;
   const waiting = new Promise<void>(resolve => { release = resolve; });

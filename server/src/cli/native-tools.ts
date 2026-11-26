@@ -8,7 +8,7 @@ export interface NativeToolCall {
 export interface NativeToolResult {
   output: unknown; isError?: boolean; stop?: boolean;
   /** Server-resolved action, used for diagnostics only, never model-supplied. */
-  diagnostic?: { tool: string; pendingApproval: boolean };
+  diagnostic?: { tool: string; pendingApproval: boolean; approvalId?: string };
 }
 export type NativeToolHandler = (call: NativeToolCall) => Promise<NativeToolResult>;
 interface Context { userId: string; call: NativeToolHandler; drain: () => Promise<void>; close: () => void }

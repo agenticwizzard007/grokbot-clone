@@ -5,6 +5,22 @@ import { safeToolName, type CliDiagnosticEvent } from './diagnostics.js';
 
 const errorCodes = new Set(['cli_tool_host_disabled', 'cli_tool_host_unavailable', 'cli_login_disabled', 'mcp_auth', 'mcp_startup', 'cli_approval_rejected', 'tool_unavailable', 'timeout', 'cli_auth', 'mcp_configuration', 'app_reconnect', 'app_connection', 'policy_denied', 'cancelled', 'invalid_arguments', 'tool_or_runner_error', 'mcp_transport', 'app_timeout', 'app_auth', 'app_access', 'app_rate_limit', 'app_provider', 'app_selection', 'app_arguments', 'app_tool_selection', 'app_operation']);
 type Result = 'running' | 'completed' | 'pending_approval' | 'rejected_by_cli' | 'denied' | 'error' | 'cancelled' | 'no_tool_call';
+const runColumns = `started_at AS startedAt,provider,runtime,tools_offered AS toolsOffered,
+  last_tool AS lastTool,result,error_code AS errorCode,trigger`;
+const pendingApprovals = `SELECT r.approval_id FROM cli_approval_runs r JOIN approvals a ON a.id=r.approval_id
+  WHERE r.user_id=? AND a.status='pending'`;
+
+function pruneApprovalRuns(userId: string) {
+  db.prepare(`DELETE FROM cli_approval_runs WHERE user_id=? AND NOT EXISTS (
+    SELECT 1 FROM approvals a WHERE a.id=cli_approval_runs.approval_id AND a.status='pending'
+  )`).run(userId);
+}
+
+function pendingRuns(userId: string) {
+  // Decisions, expiry and deletion release the pin even before a reply starts.
+  pruneApprovalRuns(userId);
+  return db.prepare(`SELECT ${runColumns} FROM cli_approval_runs WHERE approval_id IN (${pendingApprovals}) ORDER BY started_at DESC`).all(userId) as Array<{ provider: string }>;
+}
 
 /** Bounded, content-free latest and tool records per provider, deleted with the account. */
 export function recordCliRun(userId: string) {
@@ -12,12 +28,17 @@ export function recordCliRun(userId: string) {
   const scope = attribution();
   let result: Result = 'running', lastTool: string | null = null, errorCode: string | null = null;
   let startedAt = 0, trigger: string | null = null;
+  let finished = false;
   return (event: CliDiagnosticEvent) => {
+    // A transport callback may arrive after its generation has settled. It must
+    // not reopen a completed/failed record. A persisted approval still matters.
+    if (finished && event.admission !== 'pending_approval') return;
     try {
       db.transaction(() => {
         const provider = event.provider === 'claude' ? 'claude' : 'codex';
         const runtime = event.runtime === 'server' ? 'server' : 'bridge';
         if (event.event === 'start') {
+          pruneApprovalRuns(userId);
           // Order starts even when concurrent generations start in the same millisecond.
           const previous = db.prepare('SELECT started_at FROM cli_last_runs WHERE user_id=?').get(userId) as { started_at: number } | undefined;
           startedAt = Math.max(Date.now(), (previous?.started_at ?? 0) + 1);
@@ -50,21 +71,31 @@ export function recordCliRun(userId: string) {
               : errorCode?.startsWith('cli_tool_host_') || errorCode === 'cli_approval_rejected' ? 'rejected_by_cli' : 'error';
           } else if (event.event === 'finish' && result === 'running') result = event.stopped ? 'cancelled' : lastTool ? 'completed' : 'no_tool_call';
         }
-        const finished = event.event === 'finish' || event.event === 'failure';
+        finished ||= event.event === 'finish' || event.event === 'failure';
         const visibleResult = finished || result === 'pending_approval' ? result : 'running';
+        if (event.admission === 'pending_approval' && event.approvalId) {
+          // Only server-issued approvals owned by this account and Bot can pin a
+          // run. Keep each unresolved card so concurrent approvals remain visible.
+          db.prepare(`INSERT INTO cli_approval_runs(approval_id,user_id,provider,generation_id,started_at,runtime,tools_offered,last_tool,result,error_code,trigger)
+            SELECT a.id,b.user_id,?,?,?,?,?,?,?,NULL,? FROM approvals a JOIN bots b ON b.id=a.bot_id
+            WHERE a.id=? AND b.user_id=? AND b.id=? AND a.status='pending'
+            ON CONFLICT(approval_id) DO NOTHING`)
+            .run(provider, event.generationId, startedAt, runtime, event.manifestCount, lastTool, result, trigger, event.approvalId, userId, scope.botId);
+        }
         // An older concurrent run must not overwrite a newer run or resurrect a deleted account.
         db.prepare('UPDATE cli_last_runs SET last_tool=?,result=?,error_code=? WHERE user_id=? AND generation_id=?')
           .run(lastTool, visibleResult, errorCode, userId, event.generationId);
         db.prepare("UPDATE cli_provider_runs SET last_tool=?,result=?,error_code=? WHERE user_id=? AND slot='latest' AND generation_id=?")
           .run(lastTool, visibleResult, errorCode, userId, event.generationId);
         // Preserve the previous tool record while a new run is still running, even if it offers tools.
-        if (finished && (lastTool || result === 'pending_approval')) {
+        if ((finished || result === 'pending_approval') && (lastTool || result === 'pending_approval')) {
           db.prepare(`INSERT INTO cli_provider_runs(user_id,provider,slot,generation_id,started_at,runtime,tools_offered,last_tool,result,error_code,trigger)
             SELECT id,?,'tools',?,?,?,?,?,?,?,? FROM users WHERE id=?
             ON CONFLICT(user_id,provider,slot) DO UPDATE SET generation_id=excluded.generation_id,started_at=excluded.started_at,
             runtime=excluded.runtime,tools_offered=excluded.tools_offered,last_tool=excluded.last_tool,result=excluded.result,error_code=excluded.error_code,trigger=excluded.trigger
-            WHERE excluded.started_at >= cli_provider_runs.started_at`)
-            .run(provider, event.generationId, startedAt, runtime, event.manifestCount, lastTool, result, errorCode, trigger, userId);
+            WHERE excluded.started_at >= cli_provider_runs.started_at
+              AND (excluded.result='pending_approval' OR NOT EXISTS (${pendingApprovals} AND r.provider=?))`)
+            .run(provider, event.generationId, startedAt, runtime, event.manifestCount, lastTool, result, errorCode, trigger, userId, userId, provider);
         }
       })();
     } catch { console.warn('[cli-generation] account diagnostic storage unavailable'); }
@@ -73,16 +104,18 @@ export function recordCliRun(userId: string) {
 
 export function lastCliRun(userId: string) {
   assertTenant(userId);
-  return db.prepare(`SELECT started_at AS startedAt,provider,runtime,tools_offered AS toolsOffered,
-    last_tool AS lastTool,result,error_code AS errorCode,trigger FROM cli_last_runs WHERE user_id=?`).get(userId) ?? null;
+  return pendingRuns(userId)[0] ?? db.prepare(`SELECT ${runColumns} FROM cli_last_runs WHERE user_id=?`).get(userId) ?? null;
 }
 
 export function cliRunsByProvider(userId: string) {
   assertTenant(userId);
-  const read = db.prepare(`SELECT started_at AS startedAt,provider,runtime,tools_offered AS toolsOffered,
-    last_tool AS lastTool,result,error_code AS errorCode,trigger FROM cli_provider_runs WHERE user_id=? AND provider=? AND slot=?`);
-  return Object.fromEntries(['codex', 'claude'].map(provider => [provider, {
-    latest: read.get(userId, provider, 'latest') ?? null,
-    lastToolRun: read.get(userId, provider, 'tools') ?? null,
-  }]));
+  const pending = pendingRuns(userId);
+  const read = db.prepare(`SELECT ${runColumns} FROM cli_provider_runs WHERE user_id=? AND provider=? AND slot=?`);
+  return Object.fromEntries(['codex', 'claude'].map(provider => {
+    const approval = pending.find(run => run.provider === provider);
+    return [provider, {
+      latest: approval ?? read.get(userId, provider, 'latest') ?? null,
+      lastToolRun: approval ?? read.get(userId, provider, 'tools') ?? null,
+    }];
+  }));
 }

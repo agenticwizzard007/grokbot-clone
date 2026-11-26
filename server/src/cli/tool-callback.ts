@@ -38,7 +38,7 @@ export class ToolCallbacks {
         const text = typeof reply.output === 'string' ? reply.output : '';
         let status: string | undefined, connectionRequired = false;
         try { const parsed = JSON.parse(text); status = parsed?.status; connectionRequired = !!parsed?.connectionRequest; } catch { /* Most outputs are plain text. */ }
-        this.audit?.({ event: 'tool_result', tool, action, ...(reply.diagnostic ? { resolvedTool: safeToolName(reply.diagnostic.tool) } : {}), admission: reply.diagnostic?.pendingApproval || status === 'pending_approval' ? 'pending_approval' : connectionRequired ? 'connection_required' : reply.isError ? 'refused' : 'returned',
+        this.audit?.({ event: 'tool_result', tool, action, ...(reply.diagnostic ? { resolvedTool: safeToolName(reply.diagnostic.tool), approvalId: reply.diagnostic.approvalId } : {}), admission: reply.diagnostic?.pendingApproval || status === 'pending_approval' ? 'pending_approval' : connectionRequired ? 'connection_required' : reply.isError ? 'refused' : 'returned',
           ...(reply.isError ? { errorClass: cliErrorClass(text) } : {}), stopped: reply.stop === true });
         // Diagnostic metadata stays on the server, outside the CLI protocol.
         const { diagnostic: _diagnostic, ...result } = reply;

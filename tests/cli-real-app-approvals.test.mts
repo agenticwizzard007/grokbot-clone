@@ -141,6 +141,73 @@ for (const provider of ['codex', 'claude'] as const) test(`R7 hosted ${provider}
   assert.equal(state.executions.length, 0);
 });
 
+for (const provider of ['codex', 'claude'] as const) for (const decision of ['allow', 'deny'] as const) test(`R13 real ${provider}: pending Gmail survives later internal generations until ${decision}`, { timeout: 60000 }, async t => {
+  const choose = script('direct');
+  let phase = 'approval', step = 0;
+  let release!: () => void, started!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const running = new Promise<void>(resolve => { started = resolve; });
+  const a = await account(t, provider, 'hosted', async (provider: string, body: any) => {
+    if (phase === 'approval') return choose(provider, body);
+    if (phase === 'decision') return { text: 'Your decision was recorded.' };
+    if (step++ === 0) {
+      started(); await gate;
+      return { name: provider === 'claude' ? 'mcp__swarm__tool_describe' : 'tool_describe', args: { tool_name: 'create_task' } };
+    }
+    if (step === 2) {
+      const described = objects(provider, body).find((o: any) => o.name === 'create_task' && o.schema_hash);
+      assert.ok(described, JSON.stringify(modelOutputs(provider, body)));
+      return { name: provider === 'claude' ? 'mcp__swarm__tool_call' : 'tool_call', args: { tool_name: described.name, schema_hash: described.schema_hash, arguments: { title: 'Local fixture task' } } };
+    }
+    return { text: 'Internal check completed.' };
+  });
+  t.after(() => release());
+  await a.chat();
+  const card = a.rows().find(r => r.body.card === 'approval');
+  const before = (await a.request('/cli')).runsByProvider[provider];
+  assert.equal(before.latest.result, 'pending_approval');
+  assert.equal(before.lastToolRun.lastTool, 'SWARM_APPS_EXECUTE');
+  // Another Bot can run internal work while the first waits for its decision.
+  const background = createBot(a.userId, { name: 'Internal fixture', isPrimary: true });
+  db.prepare('UPDATE bots SET model=? WHERE id=?').run(`${provider}/default`, background.id);
+  const internal = async () => {
+    await a.request(`/bots/${background.id}/messages`, { text: 'Create a local fixture task.' });
+    await runInBotQueue(background.id, async () => {});
+  };
+  phase = 'internal';
+  const work = internal();
+  let during: any;
+  try {
+    await running;
+    during = await a.request('/cli');
+  } finally { release(); await work; }
+  const completed = await a.request('/cli');
+  const stored = db.prepare('SELECT result,last_tool FROM cli_last_runs WHERE user_id=?').get(a.userId) as any;
+  assert.equal(stored.result, 'completed');
+  assert.equal(stored.last_tool, 'create_task');
+  assert.deepEqual(completed.runsByProvider[provider], before);
+  assert.deepEqual(completed.lastRun, before.latest);
+  assert.deepEqual(during.runsByProvider[provider], before);
+  assert.deepEqual(during.lastRun, before.latest);
+  assert.ok(a.logs.some(e => e.event === 'tool_result' && e.resolvedTool === 'create_task' && e.admission === 'returned'), JSON.stringify({ logs: a.logs.filter(e => e.event === 'tool_result'), rows: listRows(background.id) }));
+  phase = 'decision';
+  await a.request(`/approvals/${card.body.approvalId}`, { decision });
+  await runInBotQueue(a.bot.id, async () => {});
+  const after = (await a.request('/cli')).runsByProvider[provider];
+  assert.equal(after.latest.trigger, 'approval_decision');
+  assert.equal(after.latest.result, 'no_tool_call');
+  assert.deepEqual(after.lastToolRun, before.lastToolRun);
+  assert.equal(state.executions.length, decision === 'allow' ? 1 : 0);
+  phase = 'internal'; step = 0;
+  await internal();
+  const later = (await a.request('/cli')).runsByProvider[provider];
+  assert.equal(later.latest.result, 'completed');
+  assert.equal(later.lastToolRun.result, 'completed');
+  assert.equal(later.lastToolRun.lastTool, 'create_task');
+  const starts = a.logs.filter(e => e.event === 'start');
+  assert.ok(starts.every(start => a.logs.some(e => e.generationId === start.generationId && ['finish', 'failure'].includes(e.event))), 'Every finished generation has a terminal diagnostic');
+});
+
 for (const provider of ['codex', 'claude'] as const) for (const runtime of ['hosted', 'companion'] as const) {
   for (const route of ['direct', 'search', 'deferred'] as const) test(`real ${provider} ${runtime} ${route}: Gmail approval persists, emits SSE, reaches the CLI and denial blocks execution`, { timeout: 30000 }, async t => {
     const a = await account(t, provider, runtime, script(route));
