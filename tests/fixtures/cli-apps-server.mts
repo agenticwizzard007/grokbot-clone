@@ -11,12 +11,14 @@ if (process.env.SWARM_TEST_REAL_CLI === '1') {
     const text = (provider === 'codex' ? body.input : body.messages).flatMap((item: any) => Array.isArray(item.content) ? item.content : typeof item.content === 'string' ? [{ text: item.content }] : []).find((part: any) => typeof part.text === 'string' && part.text.includes('\n\nConversation:\n'))?.text;
     if (!text) return { text: 'Fixture auxiliary response.' };
     const conversation = JSON.parse(text.split('\n\nConversation:\n')[1]);
-    if (conversation.at(-1)?.type === 'function_call_output') return { text: 'Nothing was sent or saved.' };
+    const decision = conversation.at(-1)?.type === 'function_call_output';
+    if (decision && process.env.SWARM_TEST_DECISION_TOOLS !== '1') return { text: 'Nothing was sent or saved.' };
     const request = conversation.filter((item: any) => item.role === 'user').at(-1);
     if (JSON.stringify(request).includes('plain reply')) return { text: emailBody };
     const outputs = modelOutputs(provider, body);
     const requested = JSON.stringify(request);
-    const internal = requested.includes('fixture memory') ? { name: 'remember', args: { text: 'I prefer fixture memory checks.' } }
+    const internal = decision ? { name: 'read_team_job', args: { jobId: (db.prepare("SELECT id FROM agent_jobs WHERE state='completed' ORDER BY created_at DESC LIMIT 1").get() as any).id } }
+      : requested.includes('fixture memory') ? { name: 'remember', args: { text: 'I prefer fixture memory checks.' } }
       : requested.includes('fixture file') ? { name: 'save_file', args: { filename: 'fixture.txt', content: 'Local fixture file.' } }
       : requested.includes('fixture task') ? { name: 'create_task', args: { title: 'Local fixture task' } } : null;
     if (internal) {
@@ -73,6 +75,7 @@ app.post('/api/fixture/internal', async c => {
   db.prepare('UPDATE bots SET model=? WHERE id=?').run(owner.model, bot.id);
   enqueue(bot.id, { type: 'user', text: 'Create a fixture task.' });
   await runInBotQueue(bot.id, async () => {});
+  if (process.env.SWARM_TEST_DECISION_TOOLS === '1') db.prepare('UPDATE bots SET is_primary=CASE WHEN id=? THEN 1 ELSE 0 END WHERE user_id=?').run(botId, owner.user_id);
   return c.json(db.prepare('SELECT result,last_tool FROM cli_last_runs WHERE user_id=?').get(owner.user_id));
 });
 app.get('/api/fixture/state', c => c.json(state));

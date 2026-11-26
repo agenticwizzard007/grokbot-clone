@@ -4,7 +4,18 @@ import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 
 const components: Components = {
-  a: ({ node: _n, ...props }) => <a {...props} target="_blank" rel="noreferrer noopener" />,
+  a: ({ node: _n, ...props }) => {
+    // Hash navigation keeps the transcript and its Back history in this tab.
+    let inApp = props.href?.startsWith('#') ?? false;
+    if (!inApp && props.href && typeof window !== 'undefined') {
+      try {
+        const url = new URL(props.href, window.location.href);
+        inApp = url.origin === window.location.origin && url.pathname === window.location.pathname
+          && url.search === window.location.search && !!url.hash;
+      } catch { /* Invalid links retain the external-link behavior. */ }
+    }
+    return <a {...props} target={inApp ? undefined : '_blank'} rel="noreferrer noopener" />;
+  },
   table: ({ node: _n, ...props }) => (
     <div className="md-table"><table {...props} /></div>
   ),

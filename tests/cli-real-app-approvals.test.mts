@@ -128,7 +128,7 @@ for (const provider of ['codex', 'claude'] as const) test(`R7 hosted ${provider}
     assert.equal(during.latest.result, 'running');
     assert.equal(during.latest.trigger, 'approval_decision');
     assert.equal(during.latest.errorCode, null);
-    assert.deepEqual(during.lastToolRun, before.lastToolRun);
+    assert.deepEqual(during.lastToolRun, { ...before.lastToolRun, result: 'denied' });
     assert.notDeepEqual(during.latest, during.lastToolRun);
   } finally { release(); }
   await runInBotQueue(a.bot.id, async () => {});
@@ -137,19 +137,28 @@ for (const provider of ['codex', 'claude'] as const) test(`R7 hosted ${provider}
   assert.equal(after.latest.lastTool, null);
   assert.equal(after.latest.result, 'no_tool_call');
   assert.equal(after.latest.trigger, 'approval_decision');
-  assert.deepEqual(after.lastToolRun, before.lastToolRun);
+  assert.deepEqual(after.lastToolRun, { ...before.lastToolRun, result: 'denied' });
   assert.equal(state.executions.length, 0);
 });
 
 for (const provider of ['codex', 'claude'] as const) for (const decision of ['allow', 'deny'] as const) test(`R13 real ${provider}: pending Gmail survives later internal generations until ${decision}`, { timeout: 60000 }, async t => {
   const choose = script('direct');
-  let phase = 'approval', step = 0;
+  let phase = 'approval', step = 0, decisionStep = 0;
+  let jobId = '';
   let release!: () => void, started!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
   const running = new Promise<void>(resolve => { started = resolve; });
   const a = await account(t, provider, 'hosted', async (provider: string, body: any) => {
     if (phase === 'approval') return choose(provider, body);
-    if (phase === 'decision') return { text: 'Your decision was recorded.' };
+    if (phase === 'decision') {
+      if (decisionStep++ === 0) return { name: provider === 'claude' ? 'mcp__swarm__tool_describe' : 'tool_describe', args: { tool_name: 'read_team_job' } };
+      if (decisionStep === 2) {
+        const described = objects(provider, body).find((o: any) => o.name === 'read_team_job' && o.schema_hash);
+        assert.ok(described);
+        return { name: provider === 'claude' ? 'mcp__swarm__tool_call' : 'tool_call', args: { tool_name: described.name, schema_hash: described.schema_hash, arguments: { jobId } } };
+      }
+      return { text: 'Your decision was recorded.' };
+    }
     if (step++ === 0) {
       started(); await gate;
       return { name: provider === 'claude' ? 'mcp__swarm__tool_describe' : 'tool_describe', args: { tool_name: 'create_task' } };
@@ -190,13 +199,18 @@ for (const provider of ['codex', 'claude'] as const) for (const decision of ['al
   assert.deepEqual(during.runsByProvider[provider], before);
   assert.deepEqual(during.lastRun, before.latest);
   assert.ok(a.logs.some(e => e.event === 'tool_result' && e.resolvedTool === 'create_task' && e.admission === 'returned'), JSON.stringify({ logs: a.logs.filter(e => e.event === 'tool_result'), rows: listRows(background.id) }));
+  jobId = (db.prepare('SELECT id FROM agent_jobs WHERE bot_id=? ORDER BY created_at DESC LIMIT 1').get(background.id) as any).id;
+  // read_team_job is available to the coordinator for this account.
+  db.prepare('UPDATE bots SET is_primary=CASE WHEN id=? THEN 1 ELSE 0 END WHERE user_id=?').run(a.bot.id, a.userId);
   phase = 'decision';
   await a.request(`/approvals/${card.body.approvalId}`, { decision });
   await runInBotQueue(a.bot.id, async () => {});
   const after = (await a.request('/cli')).runsByProvider[provider];
   assert.equal(after.latest.trigger, 'approval_decision');
-  assert.equal(after.latest.result, 'no_tool_call');
-  assert.deepEqual(after.lastToolRun, before.lastToolRun);
+  assert.equal(after.latest.result, 'completed');
+  assert.equal(after.latest.lastTool, 'read_team_job');
+  assert.ok(a.logs.some(e => e.event === 'tool_result' && e.resolvedTool === 'read_team_job' && e.admission === 'returned'));
+  assert.deepEqual(after.lastToolRun, { ...before.lastToolRun, result: decision === 'allow' ? 'allowed' : 'denied' });
   assert.equal(state.executions.length, decision === 'allow' ? 1 : 0);
   phase = 'internal'; step = 0;
   await internal();
@@ -241,7 +255,7 @@ for (const provider of ['codex', 'claude'] as const) for (const runtime of ['hos
     const decidedRun = (await a.request('/cli')).runsByProvider[provider];
     assert.equal(decidedRun.latest.trigger, 'approval_decision');
     assert.equal(decidedRun.latest.result, 'no_tool_call', JSON.stringify({ run: decidedRun.latest, notices: a.rows().filter(r => r.body.type === 'notice').map(r => r.body.text) }));
-    assert.deepEqual(decidedRun.lastToolRun, pendingRun);
+    assert.deepEqual(decidedRun.lastToolRun, { ...pendingRun, result: 'denied' });
     assert.equal(a.rows().find(r => r.seq === card.seq).body.status, 'denied');
     assert.equal(a.rows().filter(r => r.body.card === 'approval').length, 1);
     assert.equal(state.executions.length, 0);

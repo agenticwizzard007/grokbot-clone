@@ -7,6 +7,7 @@ import { BrowserRecovery, browserText } from './browser-recovery.js';
 import { waitForBrowserAccess } from './browser-access.js';
 import { checkRoutineCreate } from '../routine-limits.js';
 import { newId } from '../lib/ids.js';
+import { botSlug, workHash } from '../lib/user-routes.js';
 import { hub } from '../lib/hub.js';
 import { computers } from '../computers/index.js';
 import type { BotScreen } from '../computers/types.js';
@@ -232,7 +233,7 @@ export const TOOLS: ToolDef[] = [
       let name = String(a.filename).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
       if (!name || /^\.+$/.test(name)) name = 'file.txt';
       recordArtifact({ userId: ctx.userId, botId: ctx.botId, jobId: ctx.jobId, filename: name, content: String(a.content) });
-      const library = new URL('/#reports', env.appUrl).href;
+      const library = workHash({ tab: 'Reports', botSlug: botSlug(getBotRow(ctx.botId)!) });
       return { output: `Saved ${name} to your Library. [View saved files](${library})`, summary: `Saved ${name}` };
     },
   },

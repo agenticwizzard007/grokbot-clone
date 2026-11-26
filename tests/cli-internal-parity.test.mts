@@ -122,7 +122,7 @@ for (const provider of ['codex', 'claude'] as const) {
       assert.match(reply.text, action.expected);
       assert.equal(stripInternalIds(reply.text), reply.text, 'visible chat redaction preserves the confirmation and link');
       assert.doesNotMatch(reply.text, /\bID\b|\brevision\b|\b(?:task|skl|skill|mem|file)_[a-z0-9]+|\/api\/deliverables\//i);
-      if (action.name === 'save_file') assert.match(reply.text, /\[View saved files\]\(https?:\/\/[^\s]+\/#reports\)/);
+      if (action.name === 'save_file') assert.match(reply.text, /\[View saved files\]\(#bot\/[^\s/]+\/reports\)/);
     }
     assert.ok(a.fixture.args(provider).length >= cases.length, 'each reply ran through the installed official binary');
   });

@@ -9,6 +9,7 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-pending-runs-'));
 Object.assign(process.env, { NODE_ENV: 'test', SWARM_ROLE: 'standalone', DB_PATH: path.join(root, 'db'), FILES_DIR: path.join(root, 'files'), SESSION_SECRET: 'fixture' });
 const { db } = await import('../server/src/db.js');
 const { createBot } = await import('../server/src/bots.js');
+const { acceptJob } = await import('../server/src/agent/jobs.js');
 const { withUsage } = await import('../server/src/usage-context.js');
 const { withCliDiagnostics, cliDiagnostic } = await import('../server/src/cli/diagnostics.js');
 const { recordCliRun, lastCliRun, cliRunsByProvider } = await import('../server/src/cli/run-diagnostics.js');
@@ -19,7 +20,7 @@ for (const provider of ['codex', 'claude']) test(`R13 ${provider} pins unresolve
   db.prepare('INSERT INTO users(id,email,name,created_at) VALUES(?,?,?,?)').run(userId, `${provider}@example.test`, 'Fixture', Date.now());
   const bot = createBot(userId, { name: 'Fixture' });
   const params = { provider, nativeTools: [{ name: 'tool_call' }, { name: 'read_team_job' }] };
-  const run = (work: () => Promise<unknown>) => withUsage({ botId: bot.id }, () => withCliDiagnostics(params, 'server', work, undefined, recordCliRun(userId)));
+  const run = (work: () => Promise<unknown>) => withUsage({ botId: bot.id, jobId: acceptJob(bot.id, { type: 'user' }).id }, () => withCliDiagnostics(params, 'server', work, undefined, recordCliRun(userId)));
   const approve = async (id: string, gate = Promise.resolve()) => {
     db.prepare('INSERT INTO approvals(id,bot_id,row_seq,call_id,tool,status,created_at) VALUES(?,?,1,?,?,?,?)').run(id, bot.id, id, 'SWARM_APPS_EXECUTE', 'pending', Date.now());
     return run(async () => {
@@ -57,7 +58,7 @@ for (const provider of ['codex', 'claude']) test(`R13 ${provider} pins unresolve
     const second = (cliRunsByProvider(userId) as any)[provider].latest;
     assert.ok(second.startedAt > first.startedAt);
     await internal();
-    db.prepare("UPDATE approvals SET status='denied' WHERE id=?").run(secondId);
+    db.prepare("UPDATE approvals SET status='denied',resolved_at=? WHERE id=?").run(Date.now(), secondId);
     assert.deepEqual((cliRunsByProvider(userId) as any)[provider].latest, first, 'Another pending card keeps its own requesting run');
     db.prepare("UPDATE approvals SET status='expired' WHERE id=?").run(firstId);
     assert.equal((lastCliRun(userId) as any).result, 'completed');
