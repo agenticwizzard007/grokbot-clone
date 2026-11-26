@@ -27,8 +27,9 @@ export function parseScreen(hash: string): Screen | null {
   if (hash === '#new-bot/group') return { kind: 'group' };
   if (hash === '#search' || hash === '#apps/connect') return { kind: hash === '#search' ? 'search' : 'apps' };
   if (/^#settings\/?$/.test(hash)) return { kind: 'settings' };
-  const section = hash.replace(/^#(?:settings\/)?/, '').replace(/^whatsapp$/, 'messaging');
+  const section = hash.replace(/^#(?:settings\/)?/, '').replace(/^whatsapp$/, 'messaging').replace(/^api-keys$/, 'keys');
   if (APP_SECTIONS.includes(section as AppSection)) return { kind: 'settings', section: section as AppSection };
+  if (hash.startsWith('#settings/')) return { kind: 'settings' };
   const work = linkedWork(hash);
   if (work) return { kind: 'work', route: work };
   const match = hash.match(/^#bot\/([^/]{1,256})(?:\/(.*))?$/);
@@ -233,13 +234,19 @@ export class ScreenHistory {
     if (this.undoing) { this.undoing = false; return; }
     const { location } = this.browser;
     if (this.current?.hash === location.hash && this.read()?.hash === location.hash) return; // popstate also emits hashchange
-    const screen = this.screen;
-    if (!screen) return; // OAuth callback fragments belong to authCallback.ts
+    // Authentication fragments are consumed by the sign-in flow. Other unknown
+    // hashes must not leave the previous page under a URL that names no screen.
+    if (/^#(?:access_token|id_token|error|code)=/.test(location.hash)) return;
     const previous = this.current;
+    const screen = this.screen ?? (previous?.account === this.account() ? parseScreen(previous.hash) : null) ?? { kind: 'bots' };
+    const hash = screenHash(screen);
     let entry = this.read();
     // An anchor/address-bar hash adds a browser entry while copying the old state.
     if (!entry || entry.hash !== location.hash) {
-      entry = { account: this.account(), hash: location.hash, trail: previous?.account === this.account() ? [...previous.trail, previous.hash] : [] };
+      entry = { account: this.account(), hash, trail: previous?.account === this.account() ? [...previous.trail, previous.hash] : [] };
+      this.write(entry, 'replace');
+    } else if (entry.hash !== hash) {
+      entry = { ...entry, hash };
       this.write(entry, 'replace');
     }
     const destination = entry;

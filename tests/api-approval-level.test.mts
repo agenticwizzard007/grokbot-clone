@@ -502,6 +502,87 @@ test('R16 WW discovery asks first for the actual task, skill or browser action a
   }
 });
 
+test('R17 current-message skill, task and memory creates ask for the action first and use current evidence', async () => {
+  setLevel('every_action'); db.exec('DELETE FROM policies');
+  const cards = () => (db.prepare('SELECT count(*) n FROM approvals WHERE bot_id=?').get(bot.id) as any).n;
+  const search = mock.method(toolMap.get('session_search')!, 'impl');
+  try {
+    for (const [text, name] of [
+      ['YY create a skill named Fixture checklist. Check the result and report it.', 'propose_skill'],
+      ['YY create a task named Fixture review.', 'create_task'],
+      ['YY remember: The fixture color preference is teal.', 'remember'],
+    ]) for (const decision of ['deny', 'allow'] as const) {
+      const action = mock.method(toolMap.get(name)!, 'impl');
+      try {
+        const source = appendRow(bot.id, 'message', { type: 'message', role: 'user', text });
+        const before = cards();
+        enqueue(bot.id, { type: 'user', text }); await settleAgentJobs();
+        assert.equal(pending()?.tool, `api_max:${name}`);
+        const card = listRows(bot.id).find(r => r.seq === pending().row_seq)!.body as any;
+        if (name !== 'create_task') {
+          assert.equal(card.args.evidence[0].seq, source.seq);
+          assert.equal(card.args.evidence[0].generation, source.generation);
+        }
+        assert.equal(action.mock.callCount(), 0);
+        await decide(decision);
+        assert.equal(action.mock.callCount(), Number(decision === 'allow'));
+        if (decision === 'allow') assert.notEqual((await action.mock.calls[0].result).isError, true);
+        assert.equal(pending(), undefined);
+        assert.equal(cards(), before + 1);
+      } finally { action.mock.restore(); }
+    }
+    assert.equal(search.mock.callCount(), 0);
+  } finally { search.mock.restore(); }
+});
+
+test('R17 past-chat lookup stays gated with intent wording, bounded query and a decline does not block a new skill', async () => {
+  setLevel('every_action'); db.exec('DELETE FROM policies');
+  const search = mock.method(toolMap.get('session_search')!, 'impl');
+  try {
+    for (const query of ['the checklist: weekly review', 'Long query '.repeat(40), '']) {
+      await run('session_search', { query });
+      const card = listRows(bot.id).find(r => r.seq === pending().row_seq)!.body as any;
+      assert.ok(card.title.startsWith(`Allow ${bot.name} to search your past chats`));
+      if (query.length > 120) { assert.ok(card.title.endsWith('...?')); assert.ok(card.title.length < 200); }
+      else if (query) assert.ok(card.title.endsWith(` for ${query}?`));
+      await decide('deny');
+    }
+    assert.equal(search.mock.callCount(), 0);
+    const text = 'YY create a skill named Fixture checklist. Check the result and report it.';
+    const source = appendRow(bot.id, 'message', { type: 'message', role: 'user', text });
+    // A model can still choose an optional older lookup. Its refusal must not
+    // prevent the requested create action in the same API continuation.
+    planAction('session_search', { query: 'an older checklist' });
+    enqueue(bot.id, { type: 'user', text }); await settleAgentJobs();
+    assert.equal(pending()?.tool, 'api_max:session_search');
+    planAction('propose_skill', { expected_revision: 0, name: 'Fixture checklist after decline', description: 'Current request', body: 'Check the result and report it.', reason: 'Requested in the current message', evidence: [{ botId: bot.id, generation: source.generation, seq: source.seq }] });
+    await decide('deny');
+    assert.equal(pending()?.tool, 'api_max:propose_skill');
+    await decide('allow');
+    assert.equal(pending(), undefined);
+    assert.equal(search.mock.callCount(), 0);
+  } finally { search.mock.restore(); }
+});
+
+test('R17 current-message provenance follows approval resumes and excludes older, later or internal messages', async () => {
+  const { currentUserMessageRef } = await import('../server/src/knowledge/sessions.js');
+  const { acceptJob } = await import('../server/src/agent/jobs.js');
+  const text = 'Create a skill named Source fixture.';
+  const source = appendRow(bot.id, 'message', { type: 'message', role: 'user', text });
+  const job = acceptJob(bot.id, { type: 'user', text });
+  const ref = currentUserMessageRef('owner', bot.id, job.id);
+  assert.equal(ref?.seq, source.seq);
+  const later = appendRow(bot.id, 'message', { type: 'message', role: 'user', text });
+  db.prepare('UPDATE rows SET created_at=created_at+10000 WHERE bot_id=? AND seq=?').run(bot.id, later.seq);
+  const resume = acceptJob(bot.id, { type: 'resume', parentJobId: job.id });
+  assert.deepEqual(currentUserMessageRef('owner', bot.id, resume.id), ref);
+  for (const trigger of [{ type: 'system', text }, { type: 'user', text, audience: 'internal' }, { type: 'user', text: 'No matching current message' }, { type: 'user', text, roomId: 'fixture-room' }]) {
+    assert.equal(currentUserMessageRef('owner', bot.id, acceptJob(bot.id, trigger).id), null);
+  }
+  const other = createBot('owner', { name: 'Other fixture' });
+  assert.equal(currentUserMessageRef('owner', other.id, job.id), null);
+});
+
 test('R16 WW API turns record pending, denied and allowed actions for direct, native and personal OpenRouter without replacing CLI history', async () => {
   const { apiRuns, lastCliRun, cliRunsByProvider, recordCliRun } = await import('../server/src/cli/run-diagnostics.js');
   const { withCliDiagnostics, cliDiagnostic } = await import('../server/src/cli/diagnostics.js');
@@ -531,6 +612,8 @@ test('R16 WW API turns record pending, denied and allowed actions for direct, na
         await decide(decision);
         assert.equal(apiRuns('owner').lastToolRun.result, decision === 'deny' ? 'denied' : 'allowed');
         assert.equal(apiRuns('owner').latest.result, decision === 'deny' ? 'denied' : 'completed');
+        assert.equal(apiRuns('owner').latest.errorCode, null);
+        assert.equal(apiRuns('owner').lastToolRun.errorCode, null);
         assert.equal(fileCount(), before + Number(decision === 'allow'));
         assert.deepEqual(lastCliRun('owner'), oldCli); assert.deepEqual(cliRunsByProvider('owner'), oldProviders);
         assert.doesNotMatch(JSON.stringify(apiRuns('owner')), /sentinel|never-sent|arguments|message/);

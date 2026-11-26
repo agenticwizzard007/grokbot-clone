@@ -539,7 +539,7 @@ function RunDetails({ title, run }: { title: string; run: CliRun | null }) {
       <div><dt>Tools offered</dt><dd>{run.toolsOffered}</dd></div>
       <div><dt>Last tool call</dt><dd>{run.lastTool ?? 'None reached Swarm'}</dd></div>
       <div><dt>Run result</dt><dd>{{ running: 'Running', completed: 'Completed', pending_approval: 'Approval requested', rejected_by_cli: 'Rejected by CLI', denied: 'Not allowed', allowed: 'Allowed', error: 'Error', cancelled: 'Stopped', no_tool_call: 'No tool call' }[run.result]}</dd></div>
-      <div><dt>Error code</dt><dd>{run.errorCode ?? 'None'}</dd></div>
+      <div><dt>Error code</dt><dd>{run.result === 'denied' ? 'None' : run.errorCode ?? 'None'}</dd></div>
     </>}
   </>;
 }

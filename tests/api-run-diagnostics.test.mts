@@ -84,5 +84,16 @@ test('R16 WW decisions update both API panels before a continuation starts', asy
     db.prepare('UPDATE approvals SET status=?,resolved_at=? WHERE id=?').run(status, Date.now(), status);
     assert.equal(apiRuns('decision').latest?.result, status);
     assert.equal(apiRuns('decision').lastToolRun?.result, status);
+    assert.equal(apiRuns('decision').latest?.errorCode, null);
+    assert.equal(apiRuns('decision').lastToolRun?.errorCode, null);
+    if (status === 'denied') {
+      await withUsage({ userId: 'decision', botId: bot.id }, () => withApiRunDiagnostics('decision', 'direct', new AbortController().signal, async () => {
+        apiRunDiagnostic({ event: 'tool_result', tool: 'save_file', admission: 'refused', errorClass: 'policy_denied' });
+      }));
+      assert.equal(apiRuns('decision').latest?.result, 'denied');
+      assert.equal(apiRuns('decision').latest?.errorCode, null);
+      const stored = db.prepare("SELECT result,error_code FROM cli_provider_runs WHERE user_id='decision' AND provider='direct' AND slot='latest'").get();
+      assert.deepEqual(stored, { result: 'denied', error_code: null });
+    }
   }
 });

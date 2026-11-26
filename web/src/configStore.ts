@@ -35,6 +35,9 @@ interface ConfigUI {
   appSettingsHome: boolean;
   view: 'chat' | 'tasks' | 'bots';
   workRoute: WorkRoute;
+  /** Last Bot actually visited in chat or work, never the roster's automatic fallback. */
+  workBotId: string | null;
+  rememberWorkBot(botId: string): void;
   detailsTab: DetailTab;
   setupTab: SetupTab;
   detailsReports: boolean;
@@ -142,6 +145,13 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
   appSettingsHome: /^#settings\/?$/.test(window.location.hash),
   view: typeof window !== 'undefined' && linkedWork(window.location.hash) ? 'tasks' : 'chat',
   workRoute: (typeof window !== 'undefined' && linkedWork(window.location.hash)) || { tab: 'Tasks' },
+  workBotId: null,
+  rememberWorkBot: botId => {
+    const state = useStore.getState();
+    if (!state.user || !state.bots.some(bot => bot.id === botId && bot.kind !== 'room')) return;
+    if (get().workBotId !== botId) set({ workBotId: botId });
+    try { sessionStorage.setItem(`swarm.workBot:${state.user.id}`, botId); } catch { /* storage can be unavailable */ }
+  },
   detailsTab: 'activity', setupTab: 'responsibilities', detailsReports: false,
   setDetailsTab: (tab, setup, reports) => {
     const id = useStore.getState().selectedBotId;
@@ -269,6 +279,10 @@ function applyScreen(requested: Screen, normalize = true, trail = navigation.tra
     if (screen.kind === 'bot-settings' && (!('bot' in base) || base.bot !== screen.bot)) base = { kind: 'chat', bot: screen.bot };
   }
   const bot = 'bot' in base ? routeBot(base.bot, st.bots) : undefined;
+  if (normalize && !layered) {
+    const contextBot = bot ?? (base.kind === 'work' && base.route.botSlug ? routeBot(base.route.botSlug, st.bots) : undefined);
+    if (contextBot) ui.rememberWorkBot(contextBot.id);
+  }
   if (bot && st.selectedBotId !== bot.id) st.selectBot(bot.id, { open: false });
   if (base.kind === 'details' && !st.detailsOpen) detailsCaller = document.activeElement as HTMLElement | null;
   const settingsBot = screen.kind === 'bot-settings' ? routeBot(screen.bot, st.bots) : undefined;
@@ -329,13 +343,16 @@ let navigationAccount: string | undefined;
 useStore.subscribe((state, previous) => {
   if (previous.user && state.user?.id !== previous.user.id) {
     navigation.reset(); navigationAccount = undefined;
-    useConfigUI.setState({ workRoute: { tab: 'Tasks' }, view: 'chat', botSettings: null, botSettingsDrafts: {}, botSettingsDirty: false, botSettingsLeave: null });
+    useConfigUI.setState({ workRoute: { tab: 'Tasks' }, workBotId: null, view: 'chat', botSettings: null, botSettingsDrafts: {}, botSettingsDirty: false, botSettingsLeave: null });
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
     return;
   }
   if (!state.user || !state.botsLoaded) return;
   if (navigationAccount !== state.user.id) {
     navigationAccount = state.user.id;
+    let workBotId: string | null = null;
+    try { workBotId = sessionStorage.getItem(`swarm.workBot:${state.user.id}`); } catch { /* storage can be unavailable */ }
+    useConfigUI.setState({ workBotId: state.bots.some(bot => bot.id === workBotId && bot.kind !== 'room') ? workBotId : null });
     const settings = useConfigUI.getState().appSettings;
     const fallback: Screen = settings ? { kind: 'settings', section: settings } : defaultScreen();
     navigation.initialize(fallback.kind === 'chat' && readDetailsDefault(state.user.id) ? { kind: 'details', bot: fallback.bot, tab: 'activity' } : fallback);

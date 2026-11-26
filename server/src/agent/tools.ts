@@ -733,6 +733,12 @@ export function computerFamily(toolName: string): ComputerPolicyKey | null {
 
 export type Decision = 'allow' | 'ask' | 'block';
 
+function sessionSearchTitle(args: any): string {
+  const query = typeof args?.query === 'string' ? args.query.replace(/\s+/g, ' ').trim() : '';
+  const preview = query.length > 120 ? `${query.slice(0, 117).trimEnd()}...` : query;
+  return `search your past chats${preview ? ` for ${preview}` : ''}`;
+}
+
 export function policyFor(userId: string, toolName: string, args: any, botId?: string): { decision: Decision; key: string; toolkit?: string; title: string } {
   if (!selectedCli(userId) && toolName === 'update_profile' && typeof args?.timezone === 'string' && args.timezone.trim()) {
     // Never let an old Always allow policy authorize future account-wide changes.
@@ -750,7 +756,8 @@ export function policyFor(userId: string, toolName: string, args: any, botId?: s
     const saved = db.prepare('SELECT mode FROM policies WHERE user_id=? AND tool=?').get(userId, key) as { mode: string } | undefined;
     return { decision: saved?.mode === 'always_allow' ? 'allow' : saved?.mode === 'blocked' ? 'block' : 'ask', key,
       ...(toolName === 'SWARM_APPS_EXECUTE' ? { toolkit: String(args?.tool_slug ?? '').split('_')[0].toLowerCase() } : {}),
-      title: toolName === 'SWARM_APPS_EXECUTE' ? humanizeSlug(String(args?.tool_slug ?? 'app action')) : action.replace(/_/g, ' ').toLowerCase() };
+      title: toolName === 'session_search' ? sessionSearchTitle(args)
+        : toolName === 'SWARM_APPS_EXECUTE' ? humanizeSlug(String(args?.tool_slug ?? 'app action')) : action.replace(/_/g, ' ').toLowerCase() };
   }
   if (toolName === 'deliver_artifact' || toolName === 'retry_delivery') {
     const key = `${toolName}:bot:${botId ?? ''}`;

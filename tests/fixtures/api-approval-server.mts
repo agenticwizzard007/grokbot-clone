@@ -35,6 +35,8 @@ app.post('/api/fixture/helper', async c => {
 app.get('/api/fixture/state', c => c.json({ executions: appExecutions.length,
   files: (db.prepare('SELECT count(*) n FROM output_artifacts').get() as any).n,
   memories: (db.prepare('SELECT count(*) n FROM memories').get() as any).n,
+  tasks: (db.prepare('SELECT count(*) n FROM tasks').get() as any).n,
+  skills: (db.prepare('SELECT count(*) n FROM knowledge_skill_proposals').get() as any).n,
   pending: (db.prepare("SELECT count(*) n FROM approvals WHERE status='pending'").get() as any).n }));
 app.route('/api/account', preferencesApi); app.route('/api/cli', cliApi); app.route('/api', api);
 serve({ fetch: withHeadSupport(app.fetch), port: Number(process.env.PORT), hostname: '127.0.0.1' });

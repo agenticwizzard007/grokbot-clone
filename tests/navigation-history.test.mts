@@ -17,7 +17,9 @@ for (const screen of screens) test(`hash round trip: ${screenHash(screen)}`, () 
 test('legacy links, malformed routes and auth fragments', () => {
   assert.deepEqual(parseScreen('#whatsapp'), { kind: 'settings', section: 'messaging' });
   assert.deepEqual(parseScreen('#bot/quinn/settings'), { kind: 'bot-settings', bot: 'quinn', tab: 'general' });
-  for (const hash of ['general', '#bot/id/details/toString', '', '#access_token=secret', '#bot/%ZZ', '#settings/missing', '#bot/id/details/nope', '#bot/id/settings/nope', '#bot/id/details/activity/history']) assert.equal(parseScreen(hash), null, hash);
+  assert.deepEqual(parseScreen('#settings/api-keys'), { kind: 'settings', section: 'keys' });
+  assert.deepEqual(parseScreen('#settings/missing'), { kind: 'settings' });
+  for (const hash of ['general', '#bot/id/details/toString', '', '#access_token=secret', '#bot/%ZZ', '#bot/id/details/nope', '#bot/id/settings/nope', '#bot/id/details/activity/history']) assert.equal(parseScreen(hash), null, hash);
 });
 
 function fixture(hash = '#bots') {
@@ -49,6 +51,30 @@ test('screen changes push, repeated selections do not, normalization replaces', 
   for (const hash of ['#settings/messaging', '#settings/account', '#settings/general', '#bot/quinn']) { f.browser.history.go(-1); assert.equal(f.browser.location.hash, hash); }
   f.browser.history.go(1);
   assert.equal(f.browser.location.hash, '#settings/general');
+});
+
+test('R17 typed hashes open overlays, canonical settings or the previous valid screen', () => {
+  const f = fixture('#reports');
+  for (const [hash, canonical, expected] of [
+    ['#search', '#search', { kind: 'search' }],
+    ['#apps/connect', '#apps/connect', { kind: 'apps' }],
+    ['#settings/api-keys', '#settings/keys', { kind: 'settings', section: 'keys' }],
+    ['#settings/keys', '#settings/keys', { kind: 'settings', section: 'keys' }],
+    ['#settings/missing', '#settings', { kind: 'settings' }],
+    ['#typo', '#settings', { kind: 'settings' }],
+  ] as const) {
+    f.browser.location.hash = hash;
+    f.history.restore();
+    assert.equal(f.browser.location.hash, canonical);
+    assert.deepEqual(f.applied.at(-1), expected);
+    const count = f.applied.length;
+    f.history.restore();
+    assert.equal(f.applied.length, count, 'paired popstate/hashchange applies once');
+  }
+  f.browser.location.hash = '#access_token=fixture'; f.history.restore();
+  assert.equal(f.browser.location.hash, '#access_token=fixture', 'auth callback retains its fragment');
+  const fresh = fixture('#typo');
+  assert.equal(fresh.browser.location.hash, '#bots');
 });
 test('reload keeps the route, origin and Forward; closing skips only the current surface', () => {
   const f = fixture();

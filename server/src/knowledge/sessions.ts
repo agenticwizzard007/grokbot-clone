@@ -30,6 +30,32 @@ export function validateEvidence(userId: string, botId: string, refs: unknown, r
 }
 export function refsOnly(refs: MessageRef[]): MessageRef[] { return refs.map(({ botId, generation, seq, contentHash,kind }) => ({ botId, generation, seq, ...(kind?{kind}:{}), ...(contentHash ? { contentHash } : {}) })); }
 
+/** Supply provenance for the current request without searching older chats.
+ * Bind to the durable user job, excluding later messages and internal triggers. */
+export function currentUserMessageRef(userId: string, botId: string, jobId?: string): MessageRef | null {
+  if (!jobId) return null;
+  const bot = ownedBot(userId, botId);
+  const readJob = db.prepare('SELECT trigger,created_at FROM agent_jobs WHERE id=? AND user_id=? AND bot_id=?');
+  let job = readJob.get(jobId, userId, botId) as { trigger: string; created_at: number } | undefined;
+  let trigger = job && JSON.parse(job.trigger);
+  const seen = new Set([jobId]);
+  // A resumed approval still belongs to the original request, even if another
+  // user message arrived while its card was waiting.
+  while (trigger?.type === 'resume' && typeof trigger.parentJobId === 'string') {
+    if (seen.has(trigger.parentJobId) || seen.size >= 1000) return null;
+    seen.add(trigger.parentJobId);
+    job = readJob.get(trigger.parentJobId, userId, botId) as typeof job;
+    trigger = job && JSON.parse(job.trigger);
+  }
+  if (trigger?.type !== 'user' || trigger.audience === 'internal' || trigger.roomId || typeof trigger.text !== 'string') return null;
+  const row = db.prepare(`SELECT * FROM rows WHERE bot_id=? AND generation=? AND kind='message' AND created_at<=?
+    AND json_extract(body,'$.role')='user' AND json_extract(body,'$.text')=?
+    AND coalesce(json_extract(body,'$.audience'),'user')!='internal'
+    AND coalesce(json_extract(body,'$.from.kind'),'') IN ('','human','user','voice','imessage','sms','whatsapp')
+    AND coalesce(json_extract(body,'$.streaming'),0)=0 ORDER BY seq DESC LIMIT 1`).get(botId, bot.generation, job!.created_at, trigger.text);
+  return row ? refsOnly([shape(row, bot.generation)])[0] : null;
+}
+
 const GROUNDING_STOP = new Set('a an the i me my user users he she they his her their is are am at in on to of for that this remember prefers prefer'.split(' '));
 function groundingWords(text: string): Set<string> {
   return new Set((text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter(w => !GROUNDING_STOP.has(w)).map(w => w.length > 4 && w.endsWith('s') ? w.slice(0, -1) : w));

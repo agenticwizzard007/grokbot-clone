@@ -40,11 +40,15 @@ try {
     await settings('permissions'); await until(() => select().isEnabled());
     assert.equal(await select().inputValue(), 'standard');
     await select().selectOption('every_action'); await until(async () => (await (await context.request.get(`${origin}/api/account/preferences`)).json()).apiApprovalLevel === 'every_action');
-    await page.getByText('Every action asks first', { exact: false }).waitFor();
+    await page.getByText('Every action asks first, including reading past chats', { exact: false }).waitFor();
     await page.getByText('Provider search is unavailable at this level.', { exact: false }).waitFor();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.screenshot({ path: path.join(evidence, `permissions-${width}-${theme}.png`), fullPage: true });
     await settings('subscriptions'); await until(async () => await select().inputValue() === 'every_action');
+    await page.getByText('Every action asks first, including reading past chats', { exact: false }).waitFor();
+    await page.getByText('Provider search is unavailable at this level.', { exact: false }).waitFor();
+    await page.getByText('Only Always allow choices made at this level can skip later prompts.', { exact: false }).waitFor();
+    assert.doesNotMatch(await page.locator('.api-approval-settings').innerText(), /[\u2013\u2014\u2019]/);
     await select().scrollIntoViewIfNeeded();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.screenshot({ path: path.join(evidence, `models-${width}-${theme}.png`), fullPage: true });
@@ -62,6 +66,16 @@ try {
       assert.equal(await page.getByText('Last CLI run', { exact: true }).count(), 0);
       assert.doesNotMatch(await details.innerText(), /create_task/);
       assert.match(await details.innerText(), /SWARM_APPS_EXECUTE/);
+      if (result === 'Not allowed') {
+        const runs = (await diagnostics()).apiRuns;
+        for (const run of [runs.latest, runs.lastToolRun]) {
+          assert.equal(run.result, 'denied'); assert.equal(run.errorCode, null);
+        }
+        assert.doesNotMatch(await details.innerText(), /policy_denied/);
+        const codes = details.locator('dt').filter({ hasText: /^Error code$/ });
+        assert.equal(await codes.count(), 2);
+        for (const code of await codes.all()) assert.equal(await code.locator('..').locator('dd').innerText(), 'None');
+      }
       await page.getByText('Last model run', { exact: true }).scrollIntoViewIfNeeded();
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       await details.screenshot({ path: path.join(evidence, `${screenshot}-${width}-${theme}.png`) });
@@ -69,17 +83,26 @@ try {
       await closeSettings();
     };
     const before = await state();
-    for (const text of ['JJ memory: My fixture color preference is green.', 'JJ file', 'JJ app', 'JJ wrapped file', 'WW draft']) {
+    for (const text of ['YY create a skill named Fixture checklist. Check the result and report it.', 'YY create a task named Fixture review.', 'YY remember: The fixture color preference is teal.', 'YY search past chats: checklist: weekly review', `YY search past chats: ${'Checklist details '.repeat(25)}`, 'JJ memory: My fixture color preference is green.', 'JJ file', 'JJ app', 'JJ wrapped file', 'WW draft']) {
       const cardCount = await page.locator('.approval-card').count();
       await send(text);
       const pending = page.locator('.approval-card').filter({ has: page.getByRole('button', { name: "Don't allow", exact: true }) });
       await pending.waitFor();
       assert.equal(await page.locator('.approval-card').count(), cardCount + 1);
+      if (text.startsWith('YY search past chats:')) {
+        assert.match(await pending.innerText(), /search your past chats for/);
+        assert.doesNotMatch(await pending.innerText(), /to session search/);
+        if (text.length < 120) assert.match(await pending.innerText(), /search your past chats for checklist: weekly review\?/);
+      } else if (text.startsWith('YY')) {
+        assert.doesNotMatch(await pending.innerText(), /session search|search your past chats/i);
+        assert.match(await pending.innerText(), text.includes('skill') ? /propose skill/i : text.includes('task') ? /create task/i : /remember/i);
+      }
       if (text === 'JJ wrapped file') {
         assert.match(await pending.innerText(), /save file/i);
         assert.doesNotMatch(await pending.innerText(), /tool call/i);
       }
       assert.equal((await state()).files, before.files); assert.equal((await state()).memories, before.memories); assert.equal((await state()).executions, before.executions);
+      assert.equal((await state()).tasks, before.tasks); assert.equal((await state()).skills, before.skills);
       await pending.scrollIntoViewIfNeeded();
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       await page.screenshot({ path: path.join(evidence, `card-${text.split(' ')[1].replace(':', '')}-${width}-${theme}.png`), fullPage: true });
@@ -111,6 +134,19 @@ try {
     await until(async () => await page.getByText('Fixture turn finished.', { exact: true }).count() > finished);
     assert.equal(await page.getByText('Provider search is unavailable', { exact: false }).count(), 0);
     assert.deepEqual(await state(), before, 'all denied actions remain undone');
+    for (const [text, key] of [
+      ['YY create a skill named Fixture checklist. Check the result and report it.', 'skills'],
+      ['YY create a task named Fixture review.', 'tasks'],
+      ['YY remember: The fixture color preference is teal.', 'memories'],
+    ]) {
+      await send(text);
+      const createCard = page.locator('.approval-card').filter({ has: page.getByRole('button', { name: "Don't allow", exact: true }) });
+      await createCard.waitFor();
+      assert.doesNotMatch(await createCard.innerText(), /session search|search your past chats/i);
+      await createCard.getByRole('button', { name: 'Allow', exact: true }).click();
+      await until(async () => (await state())[key] === before[key] + 1);
+      before[key]++;
+    }
     const cards = await page.locator('.approval-card').count();
     await send('JJ wrapped file');
     const saveCard = page.locator('.approval-card').filter({ has: page.getByRole('button', { name: "Don't allow", exact: true }) });

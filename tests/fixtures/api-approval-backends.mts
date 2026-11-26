@@ -1,4 +1,5 @@
 import { mock } from 'node:test';
+import assert from 'node:assert/strict';
 export const appExecutions: unknown[] = [];
 mock.method(globalThis, 'fetch', async input => {
   const url = new URL(input instanceof Request ? input.url : String(input));
@@ -53,6 +54,22 @@ export function mockModelClient() { return mock.method(llmClient(360_000).respon
   const last = body.input?.at(-1);
   if (last?.role === 'user') {
     const text = String(last.content);
+    if (text.startsWith('YY search past chats:')) return streamTool('session_search', { query: text.split('YY search past chats:')[1].trim() });
+    if (/YY (?:create a skill named|create a task named|remember)/i.test(text)) {
+      const prompt = body.input.find((item: any) => item.role === 'system')?.content ?? '';
+      assert.match(prompt, /Do not start with session_search/);
+      const source = prompt.match(/Source reference for the current user message: (\{[^\n]+?\})\./);
+      assert.ok(source, 'The API prompt supplies current-message evidence without a past-chat lookup');
+      const evidence = [JSON.parse(source[1])];
+      if (/create a skill named/i.test(text)) {
+        const definition = body.tools.find((tool: any) => tool.name === 'propose_skill');
+        assert.match(definition.description, /current user message/);
+        assert.doesNotMatch(definition.description, /Cite source message refs from session_search/);
+        return streamTool('propose_skill', { expected_revision: 0, name: 'Fixture checklist', description: 'A local checklist', body: 'Check the result and report it.', reason: 'Requested in the current message', evidence });
+      }
+      if (/create a task named/i.test(text)) return streamTool('create_task', { title: 'Fixture review' });
+      return streamTool('remember', { text: 'The fixture color preference is teal.', evidence });
+    }
     if (text.includes('WW draft')) return streamTool('SWARM_APPS_EXECUTE', { ...appArgs, connectionId: 'fixture-gmail', tool_slug: 'GMAIL_CREATE_EMAIL_DRAFT' });
     if (text.includes('JJ memory:')) return streamTool('remember', { text: text.split('JJ memory:')[1].trim() });
     if (text.includes('JJ wrapped file')) {
