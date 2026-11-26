@@ -277,6 +277,7 @@ try {
         // Routine history is local view state, with no standalone URL. Enter its
         // owning Reports route directly, then open the history before one tap.
         await page.goto(`${origin}/#reports`);
+        await page.locator('.work-reports-owner select').selectOption('coordinator');
         await page.getByRole('button', { name: 'Routines', exact: true }).tap();
         await page.getByRole('button', { name: 'Run history', exact: true }).tap();
         await page.getByRole('button', { name: 'Back to routines', exact: true }).tap();

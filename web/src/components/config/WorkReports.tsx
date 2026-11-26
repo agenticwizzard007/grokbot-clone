@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '../../store';
+import { useConfigUI } from '../../configStore';
 import { DeliverablesPanel, type DeliveryReviewHeading } from './DeliverablesPanel';
 import { SynopsesPanel } from './SynopsesPanel';
 import { WorkRoutines } from './WorkRoutines';
@@ -12,8 +13,8 @@ export type ReportLocation = { botId: string; page: ReportPage; picked?: boolean
 export function WorkReports({ botId, location, onLocation, onHeading }: { botId?: string; location?: ReportLocation; onLocation: (location: ReportLocation) => void; onHeading: (heading?: { title: string; subtitle: string; detail?: boolean }) => void }) {
   const [review, setReview] = useState<DeliveryReviewHeading>();
   const bots = useStore(state => state.bots).filter(bot => bot.kind !== 'room');
-  const primary = bots.find(bot => bot.isPrimary);
-  const ownerId = botId ?? location?.botId ?? primary?.id ?? bots[0]?.id ?? '';
+  const contextBotId = useConfigUI(state => state.workBotId);
+  const ownerId = botId ?? contextBotId ?? location?.botId ?? '';
   const page = location?.botId === ownerId ? location.page : 'reports';
   const picked = !!botId || (location?.botId === ownerId && !!location.picked);
   const setPage = (next: ReportPage) => onLocation({ botId: ownerId, page: next, picked });
@@ -29,7 +30,10 @@ export function WorkReports({ botId, location, onLocation, onHeading }: { botId?
     else onHeading({ title: 'Routines', subtitle: `${scope}See what runs automatically and what happened on earlier runs.` });
   }, [name, activePage, onHeading, review, picked]);
   return <>
-    {!review && (!botId || !bot) && <label className="work-field work-reports-owner">Bot<select value={ownerId} disabled={!!botId} onChange={event => onLocation({ botId: event.currentTarget.value, page: 'reports', picked: true })}><option value="" disabled>Choose a Bot</option>{ownerId && !bot && <option value={ownerId} disabled>Bot unavailable</option>}{bots.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
+    {!review && (!botId || !bot) && <label className="work-field work-reports-owner">Bot<select value={ownerId} disabled={!!botId} onChange={event => {
+      useConfigUI.getState().rememberWorkBot(event.currentTarget.value);
+      onLocation({ botId: event.currentTarget.value, page: 'reports', picked: true });
+    }}><option value="" disabled>Choose a Bot</option>{ownerId && !bot && <option value={ownerId} disabled>Bot unavailable</option>}{bots.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
     {!bot && <p role="status">Choose an available Bot to see its saved work.</p>}
     {bot && activePage === 'reports' && <>
       <DeliverablesPanel key={workBotKey(bot)} botId={bot.id} workspace onReview={setReview} onSynopses={bot.isPrimary ? () => setPage('synopses') : undefined} />

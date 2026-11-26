@@ -37,12 +37,10 @@ export function ApprovalLevelSettings({ selectedCli, explain = false }: { select
       </select>
     </label>
     {!!cli && <p>This applies when you use API providers. Your selected CLI plan keeps its current permissions.</p>}
-    {explain && <p>{cli
+    {explain && (cli || !maximum) && <p>{cli
       ? 'With a CLI plan, Bots use memory, tasks, skills, files and reads of connected apps without asking. Actions on your behalf in outside services, such as sending or drafting email or messages, changing a connected app or posting, ask first unless you have always allowed them.'
-      : maximum
-        ? 'Every action asks first, including memory, tasks, skills, files, connected app reads and computer use. Nothing runs until you approve it. Only Always allow choices made at this level can skip later prompts.'
-        : 'With Standard, Bots use memory, tasks, skills, files and verified reads of connected apps without asking. Sending or drafting email or messages, changing a connected app and posting ask first unless you have always allowed them. Unverified app reads and tools from other servers may also ask. Computer actions follow your Computer settings.'}</p>}
-    {!cli && maximum && <p>Provider search is unavailable at this level. Ask your Bot to use its browser with approval. Standard permissions do not apply here. Always allow choices made at this level are saved separately and return when you turn it on again. Account time zone changes always ask once.</p>}
+      : 'With Standard, Bots use memory, tasks, skills, files and verified reads of connected apps without asking. Sending or drafting email or messages, changing a connected app and posting ask first unless you have always allowed them. Unverified app reads and tools from other servers may also ask. Computer actions follow your Computer settings.'}</p>}
+    {!cli && maximum && <p>Every action asks first, including reading past chats, saving memories, tasks, skills or files, reading connected apps and using your computer. Provider search is unavailable at this level. Ask your Bot to use its browser with approval. Standard permissions do not apply here. Only Always allow choices made at this level can skip later prompts. These choices are saved separately and return when you turn it on again. Account time zone changes always ask once.</p>}
     {!explain && !cli && !maximum && <p>Standard keeps your current permissions. Choose Ask before every action to approve each action before it runs.</p>}
     {error && <p className="cfg-error" role="alert">{error}</p>}
   </section>;

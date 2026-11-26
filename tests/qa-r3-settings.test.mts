@@ -168,10 +168,9 @@ test('R3-041: resources preserve display names and access limits without connect
 
 test('bare settings deep link opens General on fresh load and existing section links still resolve', () => {
   assert.equal(initialSettings, 'general');
-  for (const hash of ['#settings', '#settings/', '#settings/general', '#settings/apps', '#settings/account', '#settings/messaging', '#settings/keys', '#whatsapp']) {
+  for (const hash of ['#settings', '#settings/', '#settings/general', '#settings/apps', '#settings/account', '#settings/messaging', '#settings/keys', '#settings/api-keys', '#settings/unknown', '#whatsapp']) {
     location.hash = hash; assert.equal(hasSettingsLink(), true, hash);
   }
-  location.hash = '#settings/unknown'; assert.equal(hasSettingsLink(), false);
   fixture.link('#settings');
   const pushes = history.pushes;
   ui().openAppSettings('general');

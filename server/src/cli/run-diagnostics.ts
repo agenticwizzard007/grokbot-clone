@@ -87,6 +87,7 @@ function recordRun(userId: string, api: boolean) {
           else if (event.event === 'failure' || ['refused', 'rejected'].includes(event.admission ?? '')) {
             result = errorCode === 'policy_denied' ? 'denied' : errorCode === 'cancelled' ? 'cancelled'
               : errorCode?.startsWith('cli_tool_host_') || errorCode === 'cli_approval_rejected' ? 'rejected_by_cli' : 'error';
+            if (api && result === 'denied') errorCode = null;
           } else if (event.event === 'finish' && result === 'running') result = event.stopped ? 'cancelled' : lastTool ? 'completed' : 'no_tool_call';
         }
         finished ||= event.event === 'finish' || event.event === 'failure';

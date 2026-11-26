@@ -91,6 +91,7 @@ try {
       await viewer.getByRole('button', { name: 'Close computer', exact: true }).click();
     }
     await open('#reports');
+    await page.locator('.work-reports-owner select').selectOption('coordinator');
     await page.getByRole('button', { name: 'Daily synopses', exact: true }).click();
     await page.getByText(/quiet hours 22:00 to 07:00/).waitFor();
     assert.doesNotMatch(await page.locator('.synopsis-panel').innerText(), /Library|Saved reports|[—–]/);

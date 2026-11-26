@@ -811,7 +811,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
       const approvalId = newId('apr');
       const mcp = c.name.startsWith('mcp_') ? findMcpTool(userId, c.name, botId) : undefined;
       const card = appendRow(botId, 'card', {
-        type: 'card', card: 'approval', approvalId, audience: 'user', jobId: ctx.jobId, title: `Allow ${getBotRow(botId).name} to ${pol.title.split(': ')[1] ?? pol.title}?`,
+        type: 'card', card: 'approval', approvalId, audience: 'user', jobId: ctx.jobId, title: `Allow ${getBotRow(botId).name} to ${pol.title.replace(/^MCP: /, '')}?`,
         detail: describeArgs(args, accountLabel), accountLabel, tool: pol.key.startsWith(MAX_APPROVAL_PREFIX) ? pol.key.slice(MAX_APPROVAL_PREFIX.length).replace(/^SWARM_APPS_EXECUTE:/, '') : pol.key, toolkit: pol.toolkit, toolkitName: mcp?.server.config.name ?? appName(pol.toolkit), args, status: 'pending',
       });
       db.prepare('INSERT INTO approvals(id,bot_id,row_seq,call_id,tool,status,created_at,binding_hash) VALUES (?,?,?,?,?,?,?,?)').run(approvalId, botId, card.seq, c.call_id, pol.key, 'pending', now(), approvalBinding(userId, botId, c.call_id, c.name, args));
