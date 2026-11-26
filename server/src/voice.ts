@@ -536,7 +536,8 @@ async function gatedVoiceTool(call: ActiveCall, bot: any, name: string, args: Re
     if (policy.decision === 'block') return { output: 'This action is blocked in Permissions. Nothing was done.' };
     if (policy.decision === 'ask') {
       const approvalId = newId('apr');
-      const actionId = toolCallId ?? newId('voice_tool');
+      // Provider tool IDs are unique only within a call, while chat rows span calls.
+      const actionId = newId('voice_tool');
       db.transaction(() => {
         appendRow(bot.id, 'tool-call', { type: 'tool-call', callId: actionId, name, args, label: policy.title, status: 'awaiting-approval' });
         const card = appendRow(bot.id, 'card', { type: 'card', card: 'approval', approvalId, title: `Allow ${bot.name} to ${policy.title}?`, detail: 'Requested during your voice call. Review the action before allowing it.', tool: name, args, status: 'pending' });

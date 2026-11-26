@@ -234,3 +234,32 @@ test('R11 catalog-wrapped code retains each approval and programs still refuse u
   await decide('allow'); assert.equal(pending()?.tool, 'api_max:save_file');
   await decide('deny'); assert.equal(pending(), undefined);
 });
+
+test('R11 review Always allow belongs to the mode selected when the card is resolved', async () => {
+  const { approveReviewAction } = await import('../server/src/agent/review-approvals.js');
+  setLevel('every_action'); db.exec('DELETE FROM policies');
+  const running = approveReviewAction({ userId: 'owner', botId: bot.id, jobId: 'fixture-review' }, 'recall', {}, new AbortController().signal, () => {});
+  for (let n = 0; n < 100 && !pending(); n++) await new Promise(r => setTimeout(r, 10));
+  assert.equal(pending()?.tool, 'api_max:recall');
+  setLevel('standard'); resolveApproval('owner', pending().id, 'always');
+  assert.equal(await running, true);
+  assert.ok(db.prepare("SELECT 1 FROM policies WHERE tool='recall'").get());
+  setLevel('every_action'); assert.equal((await pol('recall')).decision, 'ask', 'a Standard decision cannot create a maximum grant');
+});
+
+test('R11 voice approvals stay independent when separate calls reuse a provider tool ID', async () => {
+  setLevel('every_action'); db.exec('DELETE FROM policies');
+  const actionIds: string[] = [];
+  for (const decision of ['deny', 'allow'] as const) {
+    const { callId } = await (await voicePost('session', { botId: bot.id })).json() as any;
+    await voicePost('tool', { botId: bot.id, callId, name: 'get_platform_state', args: {}, toolCallId: 'reused-provider-id' });
+    const approval = pending(); assert.ok(approval); actionIds.push(approval.call_id);
+    resolveApproval('owner', approval.id, decision);
+    const step = () => listRows(bot.id).find(r => r.body.type === 'tool-call' && r.body.callId === approval.call_id)?.body as any;
+    for (let n = 0; n < 100 && step()?.status === 'awaiting-approval'; n++) await new Promise(r => setTimeout(r, 10));
+    assert.equal(step().status, decision === 'deny' ? 'denied' : 'done');
+    await voicePost('end', { botId: bot.id, callId });
+  }
+  assert.notEqual(actionIds[0], actionIds[1]);
+  assert.deepEqual(actionIds.map(id => (listRows(bot.id).find(r => r.body.type === 'tool-call' && r.body.callId === id)?.body as any)?.status), ['denied', 'done']);
+});

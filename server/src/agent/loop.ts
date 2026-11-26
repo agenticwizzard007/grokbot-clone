@@ -1197,14 +1197,16 @@ export function resolveApproval(userId: string, approvalId: string, decision: 'a
   if (ap.tool === 'update_profile:timezone' && decision === 'always') decision = 'allow';
   const status = decision === 'deny' ? 'denied' : decision === 'always' ? 'always' : 'allowed';
   db.prepare('UPDATE approvals SET status=?, resolved_at=? WHERE id=?').run(status, now(), approvalId);
+  const card = getRow(ap.bot_id, ap.row_seq);
   if (decision === 'always') {
     // Scope a grant to the mode the user is choosing now, including cards opened before a mode switch.
     const step = db.prepare("SELECT body FROM rows WHERE bot_id=? AND kind='tool-call' AND json_extract(body,'$.callId')=? ORDER BY seq DESC LIMIT 1").get(ap.bot_id, ap.call_id) as { body: string } | undefined;
-    const action = step ? JSON.parse(step.body) as ToolCallBody : undefined;
+    const reviewAction = isReviewApproval(approvalId) && card?.body.type === 'card' && card.body.card === 'approval'
+      ? { name: card.body.tool, args: card.body.args } : undefined;
+    const action = step ? JSON.parse(step.body) as ToolCallBody : reviewAction;
     const key = action ? policyFor(userId, action.name, action.args ?? {}, ap.bot_id).key : ap.tool;
     db.prepare("INSERT OR REPLACE INTO policies(user_id,tool,mode) VALUES (?,?,'always_allow')").run(userId, key);
   }
-  const card = getRow(ap.bot_id, ap.row_seq);
   if (card && card.body.type === 'card' && card.body.card === 'approval') updateRow(ap.bot_id, ap.row_seq, { ...card.body, status });
   const separateContinuation = isReviewApproval(approvalId) || resumeVoiceApproval(approvalId);
   // The decision is made: drop "Waiting for you" now instead of when the resumed turn starts.
