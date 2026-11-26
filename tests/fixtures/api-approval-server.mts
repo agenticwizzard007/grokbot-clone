@@ -8,6 +8,17 @@ const { selectCli } = await import('../../server/src/cli/store.js');
 const { securityHeaders, withHeadSupport } = await import('../../server/src/security/request.js');
 const app = new Hono(); app.use('*', securityHeaders);
 app.get('/api/health', c => c.json({ ok: true }));
+app.post('/api/fixture/cli-history', async c => {
+  const { botId } = await c.req.json();
+  const bot = db.prepare('SELECT user_id FROM bots WHERE id=?').get(botId) as any;
+  const { recordCliRun } = await import('../../server/src/cli/run-diagnostics.js');
+  const record = recordCliRun(bot.user_id);
+  const common = { generationId: `fixture-${botId}`, provider: 'claude', runtime: 'server', manifestCount: 1 };
+  record({ ...common, event: 'start' });
+  record({ ...common, event: 'tool_result', tool: 'create_task', admission: 'returned' });
+  record({ ...common, event: 'finish' });
+  return c.json({ ok: true });
+});
 app.post('/api/fixture/cli', async c => {
   const { botId, provider } = await c.req.json();
   const bot = db.prepare('SELECT user_id FROM bots WHERE id=?').get(botId) as any;

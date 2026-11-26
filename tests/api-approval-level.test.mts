@@ -5,7 +5,7 @@ import path from 'node:path';
 import { after, test, mock } from 'node:test';
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'api-approval-'));
 Object.assign(process.env, { SWARM_ROLE: 'standalone', NODE_ENV: 'test', DB_PATH: path.join(root, 'db'), FILES_DIR: path.join(root, 'files'), SESSION_SECRET: 'local-only', COMPUTER_PROVIDER: 'local', DIRECT_API_KEY: 'fixture', COMPOSIO_API_KEY: 'fixture', XAI_API_KEY: 'fixture', INKBOX_TUNNEL: '0', LLM_PROVIDER: 'direct' });
-const { db, appArgs, appExecutions, planAction, offeredTools } = await import('./fixtures/api-approval-backends.mjs');
+const { db, appArgs, appExecutions, planAction, planDiscoveredAction, mockModelClient, offeredTools } = await import('./fixtures/api-approval-backends.mjs');
 const { createBot } = await import('../server/src/bots.js');
 const { toolMap, functionSchemas, executionPolicyFor, policyFor } = await import('../server/src/agent/tools.js');
 const { accountPreferences, saveAccountPreferences } = await import('../server/src/settings.js');
@@ -52,6 +52,10 @@ test('R11 matrix: every native tool, app discovery, attested reads, writes and M
     assert.equal(standard.decision, expected, `Standard ${name}`);
     for (const provider of ['claude', 'codex'] as const) { selectCli('owner', provider); setLevel('every_action'); assert.deepEqual(await pol(name, args), standard, `CLI unchanged ${provider} ${name}`); }
     selectCli('owner', null);
+    if (name === 'tool_search' || name === 'tool_describe') {
+      assert.equal((await pol(name, args)).decision, 'allow', `catalog-only ${name}`);
+      continue;
+    }
     const maximum = await pol(name, args); assert.equal(maximum.decision, 'ask', `max ${name}`);
     save(standard.key); assert.equal((await pol(name, args)).decision, 'ask', `Standard grant cannot bypass max ${name}`);
     save(maximum.key); assert.equal((await pol(name, args)).decision, 'allow', `max grant ${name}`);
@@ -466,4 +470,74 @@ test('R16 learning review memory and skill mutations wait for Allow and do nothi
       assert.deepEqual(effects(), { ...before, [effect]: before[effect] + Number(decision === 'allow') });
     } finally { learning.configureLearningModelExecutor(); }
   }
+});
+
+
+test('R16 WW discovery asks first for the actual task, skill or browser action and denial never dispatches', async () => {
+  setLevel('every_action'); db.exec('DELETE FROM policies');
+  const evidence = appendRow(bot.id, 'message', { type: 'message', role: 'user', text: 'Create API perm test and api-perm-test, then find Vienna weather.' });
+  const skill = { expected_revision: 0, name: 'api-perm-test', description: 'Local permission fixture', body: 'Local fixture instructions', reason: 'Requested fixture', evidence: [{ botId: bot.id, generation: evidence.generation, seq: evidence.seq }] };
+  for (const [name, args] of [
+    ['create_task', { title: 'API perm test' }],
+    ['propose_skill', skill], ['manage_skill', { ...skill, action: 'create' }],
+    ['open_browser', { url: 'https://example.test/search?q=Vienna+weather' }],
+  ] as const) {
+    const action = mock.method(toolMap.get(name)!, 'impl');
+    const search = mock.method(toolMap.get('tool_search')!, 'impl');
+    const describe = mock.method(toolMap.get('tool_describe')!, 'impl');
+    try {
+      const before = listRows(bot.id).filter(r => r.body.type === 'card' && r.body.card === 'approval').length;
+      await planDiscoveredAction(name, args);
+      enqueue(bot.id, { type: 'user', text: 'Discover and run the local fixture action' }); await settleAgentJobs();
+      assert.equal(search.mock.callCount(), 1); assert.equal(describe.mock.callCount(), 1);
+      assert.equal(pending()?.tool, `api_max:${name}`);
+      const card = listRows(bot.id).find(r => r.seq === pending().row_seq)!.body as any;
+      assert.match(card.title, new RegExp(name.replaceAll('_', ' ')));
+      assert.doesNotMatch(card.title, /tool search|tool describe|tool call/i);
+      assert.equal(action.mock.callCount(), 0);
+      await decide('deny');
+      assert.equal(action.mock.callCount(), 0); assert.equal(pending(), undefined);
+      assert.equal(listRows(bot.id).filter(r => r.body.type === 'card' && r.body.card === 'approval').length, before + 1);
+    } finally { action.mock.restore(); search.mock.restore(); describe.mock.restore(); }
+  }
+});
+
+test('R16 WW API turns record pending, denied and allowed actions for direct, native and personal OpenRouter without replacing CLI history', async () => {
+  const { apiRuns, lastCliRun, cliRunsByProvider, recordCliRun } = await import('../server/src/cli/run-diagnostics.js');
+  const { withCliDiagnostics, cliDiagnostic } = await import('../server/src/cli/diagnostics.js');
+  const { saveOpenRouterKey } = await import('../server/src/providers/openrouter.js');
+  setLevel('every_action'); db.exec('DELETE FROM policies');
+  await withCliDiagnostics({ provider: 'claude', nativeTools: [{ name: 'create_task' }] }, 'server', async () => {
+    cliDiagnostic()?.({ event: 'tool_result', tool: 'create_task', admission: 'returned' });
+  }, undefined, recordCliRun('owner'));
+  const oldCli = lastCliRun('owner'), oldProviders = cliRunsByProvider('owner');
+  for (const route of ['direct', 'native-openrouter', 'personal-openrouter']) {
+    setEnvOverride('LLM_PROVIDER', route === 'native-openrouter' ? 'openrouter' : 'direct');
+    setEnvOverride('OPENROUTER_API_KEY', 'local-native-key-never-sent');
+    if (route === 'personal-openrouter') saveOpenRouterKey('owner', 'local-personal-key-never-sent', 'manual');
+    const model = withUsage({ userId: 'owner', botId: bot.id }, () => mockModelClient());
+    try {
+      for (const decision of ['deny', 'allow'] as const) {
+        const before = fileCount();
+        await run('tool_call', wrapped('save_file', { filename: 'private-filename-sentinel.txt', content: 'private-content-sentinel' }));
+        const waiting = apiRuns('owner');
+        assert.equal(waiting.latest.result, 'pending_approval');
+        assert.deepEqual(waiting.lastToolRun, waiting.latest);
+        assert.equal(waiting.latest.lastTool, 'save_file');
+        assert.equal(waiting.latest.runtime, 'api');
+        assert.equal(waiting.latest.provider, route === 'direct' ? 'direct' : 'openrouter');
+        assert.ok(waiting.latest.toolsOffered > 0);
+        assert.equal(fileCount(), before);
+        await decide(decision);
+        assert.equal(apiRuns('owner').lastToolRun.result, decision === 'deny' ? 'denied' : 'allowed');
+        assert.equal(apiRuns('owner').latest.result, decision === 'deny' ? 'denied' : 'completed');
+        assert.equal(fileCount(), before + Number(decision === 'allow'));
+        assert.deepEqual(lastCliRun('owner'), oldCli); assert.deepEqual(cliRunsByProvider('owner'), oldProviders);
+        assert.doesNotMatch(JSON.stringify(apiRuns('owner')), /sentinel|never-sent|arguments|message/);
+        assert.deepEqual(Object.keys(apiRuns('owner').lastToolRun).sort(), ['errorCode', 'lastTool', 'provider', 'result', 'runtime', 'startedAt', 'toolsOffered', 'trigger']);
+      }
+    } finally { model.mock.restore(); }
+  }
+  db.prepare("DELETE FROM provider_connections WHERE user_id='owner'").run();
+  setEnvOverride('LLM_PROVIDER', 'direct'); setEnvOverride('OPENROUTER_API_KEY', null);
 });

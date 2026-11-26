@@ -1,4 +1,5 @@
 import { isReviewApproval } from './review-approvals.js';
+import { apiRunDiagnostic, withApiRunDiagnostics } from './run-diagnostics.js';
 import { resumeVoiceApproval } from '../voice-action-approvals.js';
 import { asksBeforeEveryAction, MAX_APPROVAL_PREFIX } from './approval-level.js';
 import { ApiCreditsError, isCreditError } from '../lib/model-request-policy.js';
@@ -412,7 +413,9 @@ function triggerItem(t: Trigger): any | null {
 
 async function runTurn(botId: string, trigger: Trigger, jobId: string, ctrl: AbortController) {
   const run: RunScope = { id: jobId, botId, signal: ctrl.signal, closed: false };
-  return withRun({ ...run, control: true }, () => runScopedTurn(botId, trigger, jobId, ctrl, run));
+  const work = () => withRun({ ...run, control: true }, () => runScopedTurn(botId, trigger, jobId, ctrl, run));
+  const bot = getBotRow(botId);
+  return bot && !selectedCli(bot.user_id) ? withApiRunDiagnostics(bot.user_id, llmProvider(), ctrl.signal, work) : work();
 }
 
 async function runScopedTurn(botId: string, trigger: Trigger, jobId: string, ctrl: AbortController, run: RunScope) {
@@ -754,6 +757,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
 
     // Was this call just approved/denied?
     const ap = st.approvalId ? (db.prepare('SELECT * FROM approvals WHERE id=?').get(st.approvalId) as any) : null;
+    apiRunDiagnostic({ event: 'tool', tool: c.name, admission: 'admitted' });
     const pol = await executionPolicyFor(userId, c.name, args, botId);
     let accountLabel: string | undefined;
     let connectionRequired: ToolResult | undefined;
@@ -811,6 +815,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
         detail: describeArgs(args, accountLabel), accountLabel, tool: pol.key.startsWith(MAX_APPROVAL_PREFIX) ? pol.key.slice(MAX_APPROVAL_PREFIX.length).replace(/^SWARM_APPS_EXECUTE:/, '') : pol.key, toolkit: pol.toolkit, toolkitName: mcp?.server.config.name ?? appName(pol.toolkit), args, status: 'pending',
       });
       db.prepare('INSERT INTO approvals(id,bot_id,row_seq,call_id,tool,status,created_at,binding_hash) VALUES (?,?,?,?,?,?,?,?)').run(approvalId, botId, card.seq, c.call_id, pol.key, 'pending', now(), approvalBinding(userId, botId, c.call_id, c.name, args));
+      apiRunDiagnostic({ event: 'tool_result', tool: c.name, admission: 'pending_approval', approvalId });
       updateRow(botId, c.rowSeq, { ...body, status: 'awaiting-approval' });
       st.approvalId = approvalId;
       if (ctx.roomId) appendRow(ctx.roomId, 'notice', { type: 'notice', text: `${getBotRow(botId).name} is waiting for approval. Open this Bot's chat to allow or decline the action.`, tone: 'info' });
@@ -824,8 +829,10 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
     let res: ToolResult;
     if (connectionRequired) {
       res = connectionRequired;
+      apiRunDiagnostic({ event: 'tool_result', tool: c.name, admission: 'connection_required' });
       updateRow(botId, c.rowSeq, { ...body, status: 'denied', summary: res.summary });
     } else if (decision === 'block') {
+      apiRunDiagnostic({ event: 'tool_result', tool: c.name, admission: 'refused', errorClass: 'policy_denied' });
       res = { output: 'The user declined this action. Do not retry it. Find another way, or tell the user what you could not do.', summary: 'Not allowed' };
       updateRow(botId, c.rowSeq, { ...body, status: 'denied', summary: 'Not allowed' });
     } else {
@@ -883,10 +890,12 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
           : await runComposioTool({ ...ctx, readOnlyApps: ctx.readOnlyApps === true || pol.readOnlyApps }, c.name, args);
         assertTurnCanContinue();
         const successful = res.isError !== true && res.summary !== 'failed';
+        apiRunDiagnostic({ event: 'tool_result', tool: c.name, admission: successful ? 'returned' : 'refused', ...(successful ? {} : { errorClass: 'tool_or_runner_error' }) });
         finishTool(botId, c.call_id, successful);
         updateRow(botId, c.rowSeq, { ...body, status: successful ? 'done' : 'error', summary: res.summary, savedFile: successful ? res.savedFile : undefined, completedAt: now() });
       } catch (e: any) {
         turnSignal(botId)?.throwIfAborted();
+        apiRunDiagnostic({ event: 'tool_result', tool: c.name, admission: 'refused', errorClass: 'tool_or_runner_error' });
         finishTool(botId, c.call_id, false);
         res = { output: `Tool error: ${e?.message ?? e}`, isError: true, summary: String(e?.message ?? e).slice(0, 200), replan: /^(?:browser_|computer_|open_browser$|wait_for_browser_access$)/.test(c.name) };
         updateRow(botId, c.rowSeq, { ...body, status: 'error', summary: String(e?.message ?? e).slice(0, 200), completedAt: now() });
@@ -1007,6 +1016,7 @@ async function callModel(ctx: ToolCtx, toolsPromise: Promise<any[]>, signal: Abo
   }
   modelSnapshots.set(ctx,{systemPrompt:prompt,contextWindow:info?.context,model,provider:llmProvider(),contextRevision:preparedRevision});
   const { tools, manifest } = assembleToolCatalog(allTools);
+  apiRunDiagnostic({ event: 'tools', manifestCount: tools.length });
   // The model is only called when no approval is pending, so every orphaned call can be repaired.
   let input = [{ role: 'system', content: prompt + (ctx.workflowPrompt ? `\n\n${ctx.workflowPrompt}` : '') + (manifest ? `\n\n## Available tools\n${manifest}` : '') }, ...prepareInput(pruneImages(deduplicateBrowserSnapshots(repairHistory(operational ? operationalHistory(history) : history))), model)];
   if (setupRetries) input.push({ role: 'system', content: 'The previous response repeated an obsolete setup refusal and was discarded. Answer the latest user request using the active configuration. Setup is already complete.' });
