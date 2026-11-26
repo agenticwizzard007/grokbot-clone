@@ -22,4 +22,8 @@ All checks use local fixtures and placeholder provider keys. No live sign-in or 
 
 Run `npm run test:readiness-yy` for the focused suite. Full-suite runs use `node --import tsx --test --test-concurrency=1 tests/*.test.mts tests/*.test.mjs`, once in a detached untouched origin/main checkout and once in this branch. Logs, comparison JSON and screenshots are in `.context/` on this VM.
 
-Composer layout, composer pill styles, provider icons and provider artwork are outside this change. Merge requires stream XX on main, a rebase, final targeted verification and no new full-suite failure names. The existing Fly deploy must succeed and the public version revision must equal the latest main HEAD.
+Final local results: untouched c1c6c67 has 2,741 passes, 70 failures and 24 existing skips (2,835 tests). This branch has 2,745 passes, the identical 70 failure names and the same 24 existing skips (2,839 tests). Absolute checkout prefixes were normalized when comparing file-level test-hook failures. No tests were disabled or newly skipped.
+
+Stream XX landed as 0ed2d593496d51cc58f6b0a3f11e2613ce3f4f40. The rebase was clean. After rebasing, the focused suite passed 225 unit tests, the four API approval width/theme scenarios and all 48 Files/hash checks. A further 75 CLI diagnostics and approval tests passed. Typecheck and production build passed. Earlier verification also passed all 124 CLI regression tests, 20 existing navigation scenarios and four existing Files/synopsis scenarios.
+
+Composer layout, composer pill styles, provider icons and provider artwork are outside this change. Stream XX's Fly deployment succeeded and its public revision was verified before this PR was released. This PR's existing Fly deploy must also succeed and its public version revision must equal the latest main HEAD.
