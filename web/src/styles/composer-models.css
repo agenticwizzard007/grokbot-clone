@@ -33,7 +33,7 @@
 /* ---------- the menu (opens above the pill) ---------- */
 .mm-wrap { position: absolute; left: -4px; bottom: calc(100% + var(--mm-anchor-gap, 10px)); z-index: 50; display: flex; align-items: flex-end; gap: 8px; }
 .model-menu {
-  width: 340px; max-height: min(var(--mm-available-height, calc(100dvh - 24px)), calc(100dvh - 24px)); display: flex; flex-direction: column; overflow: hidden;
+  width: 340px; max-height: min(var(--mm-available-height, calc(100dvh - 24px)), calc(100dvh - 24px)); display: flex; flex-direction: column; overflow-y: auto;
   border-radius: 14px; background: var(--color-bg-elevated); box-shadow: var(--shadow-modal), 0 0 0 0.5px var(--color-border-secondary);
   animation: mm-in 140ms var(--ease-out);
 }
@@ -42,7 +42,8 @@
 .mm-search input { flex: 1; min-width: 0; border: 0; outline: none; background: none; font-size: 15px; color: var(--color-text-primary); }
 .mm-search input::placeholder { color: var(--color-text-tertiary); }
 .mm-search input::-webkit-search-cancel-button { display: none; }
-.mm-list { list-style: none; margin: 0; padding: 6px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; min-height: 0; }
+/* Scroll the menu as one surface so fixed controls cannot squeeze a row out of view. */
+.mm-list { list-style: none; margin: 0; padding: 6px; display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
 .mm-empty { flex-shrink: 0; padding: 10px; font-size: 13px; color: var(--color-text-secondary); }
 .mm-row { display: flex; flex-shrink: 0; align-items: center; gap: 6px; min-height: 40px; padding: 6px 8px 6px 6px; border-radius: 8px; }
 .mm-row:hover, .mm-row.is-selected { background: var(--color-bg-hover); }
