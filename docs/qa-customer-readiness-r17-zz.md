@@ -14,10 +14,22 @@ Last model/CLI/tool run diagnostics and approval cards do not currently display 
 
 ## Validation
 
-`tests/provider-logos-ui.mjs` runs the local production app with synthetic accounts at 390 and 1280 in light and dark. Its 24 cases cover Claude Max, Codex with an empty catalog, Grok through OpenRouter, direct Grok with a generic author, OpenAI API, and a catalog spanning 28 additional makers or route fallbacks, asserts fixed 16px loaded artwork and decorative accessibility, delays artwork to detect movement, and checks the sidebar, picker, Models & access, Bot settings and Usage. Screenshots are saved under `.context/provider-logos/`.
+`tests/provider-logos-ui.mjs` runs the local production app with synthetic accounts at 390 and 1280 in light and dark. Its 24 cases cover Claude Max, Codex with an empty catalog, Grok through OpenRouter, direct Grok with a generic author, OpenAI API, and a catalog spanning 28 makers or route fallbacks, asserts fixed 16px loaded artwork and decorative accessibility, delays artwork to detect movement, and checks the sidebar, picker, Models & access, Bot settings and Usage. Screenshots are saved under `.context/provider-logos/`.
 
 The first-render tests also assert the OpenAI mark for a saved GPT model and the Claude mark for a remembered Opus model. `tests/provider-brand.test.mts` checks plan/model aliases and keeps unknown connections neutral.
 
 The existing Models & access UI assertion `switching tabs cancels confirmation` failed on both this branch and untouched main at c1c6c67 on this VM. It is outside logo rendering and was not changed. A concurrent Vite dependency-cache collision also caused a settings picker run to fail with a null useRef error; with separate baseline Vite caches the unchanged picker checks passed at all four widths.
 
-After rebasing onto XX, the layout suite uses the real Claude SVG and visible effort instead of its synthetic mark. It checks logo visibility, 16px dimensions, position during one-line typing, plus/send/voice positions, and growth/scroll behavior across 12 chat cases, 24 voice states and 36 viewport checks. The same helper also checks the logo in the existing composer performance suite. The first complete layout run passed. Final full-suite counts and performance measurements will be recorded in the PR before merge. All tests use local fixtures. No live sign-in or real user data is used.
+After rebasing onto XX, the layout suite uses the real Claude SVG and visible effort instead of its synthetic mark. It checks logo visibility, 16px dimensions, position during one-line typing, plus/send/voice positions, and growth/scroll behavior across 12 chat cases, 24 voice states and 36 viewport checks. The same helper also checks the logo in the existing composer performance suite. All final layout cases pass. The existing composer typing and live-performance suites pass at 390 and 1280 in both themes. The final typing p95 is 0.9 to 1.0 ms, maximum 3.3 ms, with zero transcript rerenders for 100 edits across 240 messages. All tests use local fixtures. No live sign-in or real user data is used.
+
+
+## Final full-suite comparison
+
+Command: `node --import tsx --test --test-reporter=tap --test-concurrency=1 tests/*.test.mts tests/*.test.mjs`, Node 24.22.1 on this VM.
+
+- Untouched baseline c1c6c67: 2,741 passed, 70 failed, 24 existing skips, zero cancelled (2,835 tests).
+- Candidate rebased on 28c0c8b, including XX and YY: 2,747 passed, 70 failed, 24 existing skips, zero cancelled (2,841 tests).
+- All 70 failure names match exactly. No new failures, skips or cancellations. Four additional tests came from main's YY change; two were added here.
+- Typecheck, full build, 24 logo browser cases, 12 extended layout cases, both existing composer performance suites and YY's 48 browser checks pass.
+
+Raw logs and the normalized failure-name comparison are under `.context/`. No test or CI workflow was disabled. The PR records the final merge and public Fly revision verification.
