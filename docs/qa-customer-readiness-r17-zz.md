@@ -4,7 +4,7 @@
 
 The phone rule in paper-core.css hid the composer provider icon. ProviderIcon also used the Claude Code pixel mascot for Anthropic, while plan connections with no reported model had no icon at all. Other settings and usage labels were plain text.
 
-ProviderMark now renders local, recognizable monochrome brand SVGs in a fixed 16px square. Claude uses the starburst, OpenAI uses the knot, and OpenRouter, xAI and the other supported catalog authors use their own marks. The marks inherit the label color in light and dark themes. Their paths and provenance are recorded alongside the assets. Unknown custom API endpoints do not claim another provider's brand.
+ProviderMark now renders local, recognizable monochrome brand SVGs in a fixed 16px square. Claude uses the starburst, OpenAI uses the knot, and OpenRouter, xAI and the other supported catalog authors use their own marks. The marks inherit the label color in light and dark themes. Their paths and provenance are recorded alongside the assets. The public OpenRouter catalog audit confirmed makers beyond the old icon allowlist, so 31 brand assets are bundled. A catalog maker without a bundled mark uses the known OpenRouter route mark in the composer and picker. Unknown custom API endpoints do not claim another provider's brand.
 
 The composer always reserves the slot, including during first render and catalog refresh. A saved or remembered model supplies its known brand before the catalog resolves. Phone layouts retain the logo and hide the chevron and redundant API badge. After rebasing onto XX, a real API model with Medium effort exposed a zero-width model name because the badge consumed the remaining compact-label space. Hiding that badge keeps the model name visible within the same allocation; billing stays in the accessible name and picker. XX's composer growth behavior and control positions are unchanged.
 
@@ -14,7 +14,7 @@ Last model/CLI/tool run diagnostics and approval cards do not currently display 
 
 ## Validation
 
-`tests/provider-logos-ui.mjs` runs the local production app with synthetic accounts at 390 and 1280 in light and dark. Its 20 cases cover Claude Max, Codex with an empty catalog, Grok through OpenRouter, direct Grok with a generic author, and OpenAI API, asserts fixed 16px loaded artwork and decorative accessibility, delays artwork to detect movement, and checks the sidebar, picker, Models & access, Bot settings and Usage. Screenshots are saved under `.context/provider-logos/`.
+`tests/provider-logos-ui.mjs` runs the local production app with synthetic accounts at 390 and 1280 in light and dark. Its 24 cases cover Claude Max, Codex with an empty catalog, Grok through OpenRouter, direct Grok with a generic author, OpenAI API, and a catalog spanning 28 additional makers or route fallbacks, asserts fixed 16px loaded artwork and decorative accessibility, delays artwork to detect movement, and checks the sidebar, picker, Models & access, Bot settings and Usage. Screenshots are saved under `.context/provider-logos/`.
 
 The first-render tests also assert the OpenAI mark for a saved GPT model and the Claude mark for a remembered Opus model. `tests/provider-brand.test.mts` checks plan/model aliases and keeps unknown connections neutral.
 

@@ -77,7 +77,7 @@ export const ComposerModelMenu = memo(function ComposerModelMenu({ bot }: { bot:
         title={`${label}${known ? `. ${billingDescription}` : ''}`}
         aria-label={`Model: ${label}${known ? `, ${billingDescription}` : ''}${efforts.length ? `, ${effort ? effortLabel(effort, current) : 'Default'} effort` : ''}${bot.fast && models.canFast ? ', fast' : ''}. Change`}>
         <span className="model-pill__provider" aria-hidden>
-          <ProviderMark provider={providerBrand(current?.author) ?? current?.id ?? (known && planMode ? models.provider : loading ? providerBrand(label) ?? bot.model : bot.model)} reserve />
+          <ProviderMark provider={providerBrand(current?.author) ?? current?.id ?? (known && planMode ? models.provider : loading ? providerBrand(label) ?? bot.model : bot.model)} fallbackProvider={known ? models.provider : undefined} reserve />
         </span>
         <span className="model-pill__name">{composerModelLabel(mobile ? compactLabel : label, models.provider, planMode)}</span>
         {known && !codexPlan && !(mobile && planMode) && <span className="model-billing" title={billingDescription}>{planMode ? currentPlan : 'API'}</span>}
@@ -208,7 +208,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
         {i !== null ? <GripVertical size={14} strokeWidth={1.75} className="mm-row__grip" aria-hidden /> : <span className="mm-row__grip" aria-hidden />}
         <button type="button" className="mm-row__main" onClick={() => choose(m)} onKeyDown={i !== null ? rowKeys(i) : undefined} aria-current={selected || undefined}
           title={i !== null ? 'Alt+↑/↓ to reorder' : undefined}>
-          <ProviderMark provider={providerBrand(m.author) ?? m.id} />
+          <ProviderMark provider={providerBrand(m.author) ?? m.id} fallbackProvider={provider} />
           <span className="mm-row__name">{fallbackShort(m.id, m.short)}{m.resolvedModel && <small className="mm-row__resolved">{fallbackShort(m.resolvedModel)}</small>}</span>
           <span className="model-billing" title={billing === 'plan' ? `Uses your ${planLabel(provider, plan)}` : 'Uses API billing'}>{billing === 'plan' ? 'Subscription' : 'API'}</span>
           {!m.vision && <span className="mm-row__meta">No images</span>}
@@ -258,7 +258,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
           </div>}
         </> : inlineEffort && view === 'effort' ? (
           <>
-            <div className="mm-sheet-head"><button type="button" className="mm-back" aria-label="Back to models" onClick={back}><ChevronLeft size={18} strokeWidth={1.75} /><ProviderMark provider={providerBrand(target?.author) ?? target?.id} /><span>{target?.short} · Effort</span></button></div>
+            <div className="mm-sheet-head"><button type="button" className="mm-back" aria-label="Back to models" onClick={back}><ChevronLeft size={18} strokeWidth={1.75} /><ProviderMark provider={providerBrand(target?.author) ?? target?.id} fallbackProvider={provider} /><span>{target?.short} · Effort</span></button></div>
             {effortList}
           </>
         ) : (
@@ -279,7 +279,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
                   <li key={m.id} className={`mm-row${m.id === current?.id ? ' is-selected' : ''}`}>
                     <span className="mm-row__grip" aria-hidden />
                     <button type="button" className="mm-row__main" onClick={() => choose(m)}>
-                      <ProviderMark provider={providerBrand(m.author) ?? m.id} />
+                      <ProviderMark provider={providerBrand(m.author) ?? m.id} fallbackProvider={provider} />
                       <span className="mm-row__name">{fallbackShort(m.id, m.short)}{m.resolvedModel && <small className="mm-row__resolved">{fallbackShort(m.resolvedModel)}</small>}</span>
           <span className="model-billing" title={billing === 'plan' ? `Uses your ${planLabel(provider, plan)}` : 'Uses API billing'}>{billing === 'plan' ? 'Subscription' : 'API'}</span>
           {!m.vision && <span className="mm-row__meta">No images</span>}
@@ -335,7 +335,7 @@ function ModelMenu({ bot, current, onClose, sheet }: { bot: Bot; current: Picker
           </>
         )}
       </div>
-      {!inlineEffort && view === 'effort' && <div className="mm-flyout"><div className="mm-effort-model"><ProviderMark provider={providerBrand(target?.author) ?? target?.id} /> {target?.short}</div>{effortList}</div>}
+      {!inlineEffort && view === 'effort' && <div className="mm-flyout"><div className="mm-effort-model"><ProviderMark provider={providerBrand(target?.author) ?? target?.id} fallbackProvider={provider} /> {target?.short}</div>{effortList}</div>}
       </div>
     </>
   );

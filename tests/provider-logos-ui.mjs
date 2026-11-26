@@ -11,7 +11,17 @@ const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome'
 const evidence = '.context/provider-logos';
 await mkdir(evidence, { recursive: true });
 const model = (id, short, author) => ({ id, short, name: short, author, efforts: ['low', 'medium', 'high'], defaultEffort: 'medium', vision: true, reasoning: true, context: 200000 });
+const catalogMakers = [
+  ['z-ai', 'zai'], ['minimax', 'minimax'], ['amazon', 'nova'], ['nvidia', 'nvidia'], ['perplexity', 'perplexity'],
+  ['aion-labs', 'aionlabs'], ['baidu', 'baidu'], ['bytedance-seed', 'bytedance'], ['fireworks', 'fireworks'],
+  ['ibm-granite', 'ibm'], ['liquid', 'liquid'], ['microsoft', 'microsoft'], ['nousresearch', 'nousresearch'],
+  ['rekaai', 'reka'], ['relace', 'relace'], ['sakana', 'sakana'], ['stepfun', 'stepfun'], ['tencent', 'tencent'],
+  ['upstage', 'upstage'], ['xiaomi', 'xiaomimimo'], ['google', 'gemini'], ['meta-llama', 'meta'],
+  ['mistralai', 'mistral'], ['deepseek', 'deepseek'], ['qwen', 'qwen'], ['moonshotai', 'moonshot'], ['cohere', 'cohere'],
+  ['unlisted-maker', 'openrouter'],
+].map(([author, mark]) => ({ ...model(`${author}/catalog-model`, `Catalog ${author}`, author), mark }));
 const cases = [
+  { name: 'catalog-makers', provider: 'openrouter', selected: null, billing: 'api', mark: 'zai', models: catalogMakers },
   { name: 'claude', provider: 'claude-cli', selected: 'claude', billing: 'plan', plan: 'max', mark: 'claude', models: [model('claude/opus-4-6', 'Opus 4.6', 'anthropic')] },
   { name: 'codex', provider: 'codex-cli', selected: 'codex', billing: 'plan', mark: 'openai', models: [] },
   { name: 'grok-api', provider: 'openrouter', selected: null, billing: 'api', mark: 'xai', models: [model('x-ai/grok-4', 'Grok 4', 'x-ai')] },
@@ -79,6 +89,11 @@ try {
       await pill.click();
       const picker = page.getByRole('dialog', { name: 'Choose a model', exact: true });
       await markVisible(picker, sample.mark);
+      if (sample.name === 'catalog-makers') {
+        await picker.getByRole('searchbox', { name: 'Search models', exact: true }).fill('/');
+        for (const item of catalogMakers) await markVisible(picker.locator('.mm-row__main').filter({ hasText: item.short }), item.mark);
+        await picker.getByRole('searchbox', { name: 'Search models', exact: true }).fill('');
+      }
       if (sample.models.length) {
         await markVisible(picker.locator('.mm-row__main'), sample.mark);
         await picker.getByRole('button', { name: 'Effort', exact: true }).click();

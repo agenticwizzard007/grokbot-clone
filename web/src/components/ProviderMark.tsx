@@ -3,8 +3,8 @@ import { providerBrand } from '../lib/providerBrand';
 import '../styles/provider-marks.css';
 
 /** Local monochrome brand artwork inherits the label's light or dark text color. */
-export function ProviderMark({ provider, label, reserve = false }: { provider?: string | null; label?: string; reserve?: boolean }) {
-  const brand = providerBrand(provider);
+export function ProviderMark({ provider, fallbackProvider, label, reserve = false }: { provider?: string | null; fallbackProvider?: string | null; label?: string; reserve?: boolean }) {
+  const brand = providerBrand(provider) ?? providerBrand(fallbackProvider);
   if (!brand) return reserve ? <span className="provider-icon" aria-hidden="true" /> : null;
   return <svg className="provider-icon" data-provider={brand} width={16} height={16} viewBox="0 0 24 24"
     role={label ? 'img' : undefined} aria-label={label} aria-hidden={label ? undefined : true} focusable="false">

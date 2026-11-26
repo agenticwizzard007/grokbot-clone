@@ -6,7 +6,7 @@ import { configApi, type ModelInfo } from '../../lib/configApi';
 import { modelDisplayName } from '../../lib/modelDisplay';
 
 type Provider = 'direct' | 'openrouter';
-type ModelCatalog = { models: ModelInfo[]; error?: string; billing?: 'api' | 'plan' };
+type ModelCatalog = { models: ModelInfo[]; error?: string; provider?: string; billing?: 'api' | 'plan' };
 /** Share the latest request for labels, but always refresh when opening a picker. */
 const cache = new Map<string, Promise<ModelCatalog>>();
 export const refreshModels = () => { cache.clear(); void useModels.getState().load(true); };
@@ -80,7 +80,7 @@ export function ModelPicker({ value, onChange, defaultLabel, disabled, label = '
   return (
     <div className="model-picker" ref={box}>
       <button ref={trigger} type="button" className="model-picker__button text-input" disabled={disabled} onClick={() => { setQuery(''); setOpen((o) => !o); }} aria-controls={open ? panelId : undefined} aria-expanded={open} aria-label={label}>
-        <ProviderMark provider={value ?? defaultLabel} /><span className="model-picker__current">
+        <ProviderMark provider={value ?? defaultLabel} fallbackProvider={provider ?? data?.provider} /><span className="model-picker__current">
           {value ? modelDisplayName(value, selected?.name) : defaultLabel ? `Default · ${defaultLabel}` : 'Choose a model'}
         </span>
         {data?.billing && <span className="model-billing">{data.billing === 'plan' ? 'Plan' : 'API'}</span>}
@@ -103,13 +103,13 @@ export function ModelPicker({ value, onChange, defaultLabel, disabled, label = '
           <div className="model-picker__list" role="listbox" aria-label={`${label} options`}>
             {defaultLabel && !query && (
               <button type="button" role="option" aria-selected={value === null} className={`model-picker__row${value === null ? ' is-selected' : ''}`} onClick={() => pick(null)}>
-                <span className="model-picker__name"><ProviderMark provider={defaultLabel} />Default</span>
+                <span className="model-picker__name"><ProviderMark provider={defaultLabel} fallbackProvider={provider ?? data?.provider} />Default</span>
                 <span className="model-picker__meta">{defaultLabel}</span>
               </button>
             )}
             {shown.map((m) => (
               <button type="button" role="option" aria-selected={m.id === value} key={m.id} className={`model-picker__row${m.id === value ? ' is-selected' : ''}`} onClick={() => pick(m.id)}>
-                <span className="model-picker__name"><ProviderMark provider={m.id} />{modelDisplayName(m.id, m.name)}{(m.billing ?? data?.billing) && <span className="model-billing">{(m.billing ?? data?.billing) === 'plan' ? 'Plan' : 'API'}</span>}{!m.vision && <span className="cfg-chip cfg-chip--warn">No images</span>}</span>
+                <span className="model-picker__name"><ProviderMark provider={m.id} fallbackProvider={provider ?? data?.provider} />{modelDisplayName(m.id, m.name)}{(m.billing ?? data?.billing) && <span className="model-billing">{(m.billing ?? data?.billing) === 'plan' ? 'Plan' : 'API'}</span>}{!m.vision && <span className="cfg-chip cfg-chip--warn">No images</span>}</span>
                 {price(m) && <span className="model-picker__meta">{price(m)}</span>}
               </button>
             ))}
