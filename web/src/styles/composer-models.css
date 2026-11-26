@@ -19,8 +19,6 @@
 .model-pill__effort { color: var(--color-text-secondary); white-space: nowrap; }
 .model-pill__fast { font-size: 11px; color: var(--color-warn-text); }
 .model-pill__chev { color: var(--color-text-secondary); flex-shrink: 0; }
-.provider-icon { width: 16px; height: 16px; flex-shrink: 0; border-radius: 4px; object-fit: contain; }
-.provider-icon.is-mono { display: inline-flex; align-items: center; justify-content: center; font-weight: 600; line-height: 1; }
 
 /* The model's real top level gets the same moving rainbow in every effort label. */
 .uc-text, .model-pill.is-ultracode .model-pill__effort, .mm-effort.is-ultracode .mm-effort__label, .mm-item__value.is-ultracode {
@@ -169,7 +167,6 @@ button.mm-item:hover, .mm-item.is-open { background: var(--color-bg-hover); }
 }
 
 /* ---------- Claude's mascot (Claude models' icon): blinks; hops and patters on hover ---------- */
-.provider-icon.is-claude { display: inline-flex; align-items: center; justify-content: center; border-radius: 0; }
 .claude-mascot { display: block; overflow: visible; }
 .claude-mascot__eye { animation: claude-blink 5.2s infinite; }
 @keyframes claude-blink { 0%, 93%, 100% { transform: scaleY(1); } 95%, 97% { transform: scaleY(0.15); } }

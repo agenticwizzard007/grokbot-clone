@@ -1,3 +1,4 @@
+import { ProviderLabel } from '../ProviderMark';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -264,13 +265,13 @@ export function CliLoginTerminal({ provider, onConnected, onClose, onStateChange
     <section className="cli-login-terminal" data-state={state} aria-label={`${name} login terminal`}>
       <div className="cli-login-terminal__header">
         <SwarmMark size={24} />
-        <span className="cli-login-terminal__title">{name} login</span>
+        <span className="cli-login-terminal__title"><ProviderLabel provider={provider}>{name} login</ProviderLabel></span>
         <span className="cli-login-terminal__state" role="status">{state === 'connected' ? <CheckCircle2 size={13} aria-hidden /> : running && <span className="cfg-spinner" aria-hidden />}{state === 'starting' ? 'Starting' : LABELS[state]}</span>
         <button type="button" className="cfg-icon-btn" aria-label={running ? 'Cancel login and close terminal' : 'Close login terminal'} title={running ? 'Cancel login' : 'Close terminal'} onClick={onClose}><X size={16} aria-hidden /></button>
       </div>
       {state === 'connected' && <div className="cli-login-terminal__success" role="status">
         <CheckCircle2 className="cli-login-terminal__success-icon" size={32} aria-hidden />
-        <h3>{name} connected</h3>
+        <h3><ProviderLabel provider={provider}>{name} connected</ProviderLabel></h3>
         <p>Your {provider === 'claude' ? 'Claude' : 'ChatGPT'} subscription is verified and selected for all your Bots. You can close this panel and start chatting.</p>
         <div className="subscription-settings__actions">
           <button type="button" className="cfg-btn cfg-btn--primary" onClick={onClose}>Done</button>

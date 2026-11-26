@@ -1,3 +1,4 @@
+import { ProviderLabel, ProviderMark } from '../ProviderMark';
 import { ApprovalLevelSettings } from './ApprovalLevelSettings';
 import { InputLatencyDiagnostics } from '../InputLatencyDiagnostics';
 import { prefetchApps } from '../../lib/appsCatalogCache';
@@ -151,7 +152,7 @@ function KeyCard({ name, title, what, link, status, canEdit, required, onChange 
     <div className="cfg-card cfg-key">
       <div className="cfg-row"><SettingIcon icon={KeyRound} />
         <div className="cfg-row__text">
-          <div className="cfg-row__title">{title} · {status.set ? 'Connected' : required ? 'Needed' : 'Not set'}</div>
+          <div className="cfg-row__title"><ProviderLabel provider={name === "voice" ? "xai" : name}>{title}</ProviderLabel> · {status.set ? 'Connected' : required ? 'Needed' : 'Not set'}</div>
           <div className="cfg-row__sub">{what}{status.set && canEdit ? ` ${status.hint ? `Key ${status.hint}, ` : 'Key '}${sourceText(status)}.` : ''}</div>
         </div>
         {status.source === 'app' && canEdit && (
@@ -254,7 +255,7 @@ function ServerKeysSection({ accountId, onReauth }: { accountId: string; onReaut
             <div className="cfg-seg" role="radiogroup" aria-label="Model provider">
               {(['openrouter', 'direct'] as const).map((p) => (
                 <button key={p} type="button" role="radio" aria-checked={chosen === p} className={chosen === p ? 'is-active' : ''} disabled={!keys.canEdit} onClick={() => void choose(p)}>
-                  {p === 'openrouter' ? 'OpenRouter' : 'Custom provider'}
+                  <ProviderMark provider={p} />{p === 'openrouter' ? 'OpenRouter' : 'Custom provider'}
                 </button>
               ))}
             </div>

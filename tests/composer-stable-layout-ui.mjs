@@ -36,7 +36,7 @@ try {
     }
     fixture.respond = ({ path }) => {
       if (path === '/api/models') return { json: { provider: 'openrouter', billing: 'api', defaultModel: fixture.bots[0].model,
-        models: [{ id: fixture.bots[0].model, name: 'Claude Max', short: 'Claude Max', author: 'anthropic', efforts: [], billing: 'api' }], favourites: [] } };
+        models: [{ id: fixture.bots[0].model, name: 'Claude Max', short: 'Claude Max', author: 'anthropic', efforts: ['low', 'medium', 'high'], defaultEffort: 'medium', billing: 'api' }], favourites: [] } };
       if (path === '/api/voice/end') return { json: { ok: true } };
       return null;
     };
@@ -50,20 +50,14 @@ try {
       await input.focus();
       const empty = await composerGeometry(page);
       assert.ok(empty.input.width >= 80, `${label}: usable field width ${empty.input.width}`);
-      // The later provider-logo work can replace this synthetic mark. Filling
-      // the reserved slot must not resize the chip or move any composer control.
-      await page.locator('.model-pill__provider').evaluate(slot => {
-        const mark = document.createElement('span');
-        mark.className = 'fixture-provider-mark';
-        Object.assign(mark.style, { width: '16px', height: '16px', flex: '0 0 16px', background: 'currentColor' });
-        slot.fixtureOriginal = [...slot.childNodes];
-        slot.replaceChildren(mark);
-      });
-      assertComposerSlots(await composerGeometry(page), empty, `${label}: filled provider slot`);
-      await page.locator('.model-pill__provider').evaluate(slot => {
-        slot.replaceChildren(...slot.fixtureOriginal);
-        delete slot.fixtureOriginal;
-      });
+      const logo = page.locator('.model-pill__provider svg[data-provider="claude"]');
+      assert.equal(await logo.isVisible(), true, `${label}: real Claude logo is visible`);
+      await page.waitForFunction(() => document.querySelector('.model-pill__provider svg')?.getBBox().width > 0);
+      assert.equal(await logo.getAttribute('aria-hidden'), 'true', 'adjacent model text names the mark');
+      assert.equal(empty.logo.width, 16); assert.equal(empty.logo.height, 16);
+      const name = await page.locator('.model-pill__name').boundingBox();
+      assert.ok(empty.logo.x + empty.logo.width <= name.x, 'logo sits beside the model label');
+      assert.equal(await page.locator('.model-pill__effort').isVisible(), true, 'effort stays visible beside the model');
       let previous = empty, draft = '', longestLine = '', wrapped = false, capped;
       const states = {};
       const screenshot = state => page.screenshot({ path: `${evidence}/${label}-${state}.png` });
@@ -83,6 +77,7 @@ try {
         if (geometry.textHeight <= geometry.line + 1) {
           longestLine = draft;
           assert.equal(geometry.composer.height, empty.composer.height, `${label}: one-line height is constant`);
+          assert.equal(geometry.logo.y, empty.logo.y, `${label}: longer one-line typing does not move the logo`);
           geometry.controls.forEach((control, i) => assert.equal(control.y, empty.controls[i].y, `${label}: one-line control y`));
         } else if (!wrapped) {
           wrapped = true;

@@ -53,6 +53,8 @@ test('model chip renders the Bot saved model before its list loads', () => {
   const html = components.render({ id: 'bot-a', model: 'openai/gpt-5.5', effort: 'high' });
   assert.match(html, /model-pill__name[^>]*>GPT 5.5</);
   assert.doesNotMatch(html, /Loading models/);
+  assert.match(html, /data-provider="openai"[^>]*width="16" height="16"/);
+  assert.match(html, /aria-hidden="true"/);
 });
 
 test('model chip restores the last resolved default per account and Bot', t => {
@@ -67,6 +69,8 @@ test('model chip restores the last resolved default per account and Bot', t => {
   assert.equal(lastModelLabel('alice', { ...bot, id: 'bot-b' }), 'Loading model');
   assert.equal(lastModelLabel('alice', { ...bot, model: 'gpt-5.5' }), 'GPT 5.5');
   assert.match(components.render(bot), /model-pill__name[^>]*>Opus 5.5</);
+  assert.match(components.render(bot), /data-provider="claude"/);
+  assert.doesNotMatch(components.render(bot), /claude-code|mascot/);
 });
 
 test('composer plus menu contains an accessible Talk live action using the live call handler', () => {

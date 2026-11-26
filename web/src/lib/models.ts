@@ -191,6 +191,3 @@ export function modelSelection(bot: Pick<Bot, 'model' | 'effort'>, catalog: Pick
 
 /** Readable labels for models missing from the catalog. */
 export const fallbackShort = modelDisplayName;
-
-/** Authors whose icon the server can fetch from OpenRouter; others get a monogram. */
-export const ICON_AUTHORS = new Set(['openai', 'google', 'meta', 'meta-llama', 'mistralai', 'deepseek', 'qwen', 'moonshotai', 'cohere']);

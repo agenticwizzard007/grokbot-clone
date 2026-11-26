@@ -1,3 +1,4 @@
+import { ProviderLabel } from './ProviderMark';
 import { api } from '../lib/api';
 import { LoadFeedback } from './LoadFeedback';
 import { MessageSkeleton } from './ChatSkeleton';
@@ -213,7 +214,7 @@ const SystemRow = memo(function SystemRow({ row }: { row: Row }) {
   if (b.type === 'notice') return <div className={`notice is-${b.tone ?? 'info'}`} data-row-seq={row.seq} data-recovery-job={b.recovery?.jobId}>
     <div>{b.text === 'Stopped.' ? 'This request was interrupted before it finished. Send your request again to retry.' : clean(b.text)}</div>
     {b.credits && <div className="credit-notice">
-      <p>{b.credits.provider} could not fund this request. Check your API balance or wait for other requests to finish, then retry.</p>
+      <p><ProviderLabel provider={b.credits.provider}>{b.credits.provider}</ProviderLabel> could not fund this request. Check your API balance or wait for other requests to finish, then retry.</p>
       {b.credits.billingUrl && <a href={b.credits.billingUrl} target="_blank" rel="noopener noreferrer">Manage {b.credits.provider} credits</a>}
       <details className="recovery-activity"><summary>Provider error details</summary><p>{b.credits.details}</p></details>
     </div>}

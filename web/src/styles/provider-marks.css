@@ -1,0 +1,14 @@
+.provider-icon {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  min-height: 16px;
+  flex: 0 0 16px;
+  border-radius: 0;
+  vertical-align: -3px;
+  color: inherit;
+}
+.provider-label { overflow-wrap: anywhere; }
+.provider-label > .provider-icon { margin-inline-end: 6px; }
+.provider-effort { display: flex; align-items: center; gap: 6px; min-width: 0; }

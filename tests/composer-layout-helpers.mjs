@@ -27,6 +27,7 @@ export async function composerGeometry(page) {
     document.body.append(probe);
     const textHeight = probe.getBoundingClientRect().height;
     probe.remove();
+    const logo = composer.querySelector('.model-pill__provider svg.provider-icon');
     return { composer: rect(composer), input: rect(input), line: parseFloat(style.lineHeight), textHeight,
       padding: parseFloat(style.paddingTop) + parseFloat(style.paddingBottom),
       base: parseFloat(outer.paddingTop) + parseFloat(outer.paddingBottom) + parseFloat(outer.borderTopWidth) + parseFloat(outer.borderBottomWidth),
@@ -35,6 +36,7 @@ export async function composerGeometry(page) {
       controls: ['.composer__plus-anchor', '.model-pill-anchor', '.composer__right'].map(selector => rect(composer.querySelector(selector))),
       action: rect(composer.querySelector('.composer__right button')),
       provider: rect(composer.querySelector('.model-pill__provider')),
+      logo: logo ? { ...rect(logo), visible: getComputedStyle(logo).display !== 'none' && getComputedStyle(logo).visibility === 'visible' } : null,
     };
   });
 }
@@ -57,6 +59,13 @@ export function assertComposerSlots(actual, before, label = '') {
   near(actual.provider.x, before.provider.x, 'provider slot x');
   assert.equal(actual.provider.width, 16, `${label} reserved provider width`);
   assert.equal(actual.provider.height, 16, `${label} reserved provider height`);
+  if (before.logo) {
+    assert.ok(actual.logo?.visible, `${label} provider logo remains visible`);
+    assert.equal(actual.logo.width, 16, `${label} fixed logo width`);
+    assert.equal(actual.logo.height, 16, `${label} fixed logo height`);
+    near(actual.logo.x, before.logo.x, 'provider logo x');
+    near(actual.composer.bottom - actual.logo.bottom, before.composer.bottom - before.logo.bottom, 'provider logo bottom inset');
+  }
   assert.ok(actual.composer.height <= actual.max + 1, `${label} composer height bound`);
   assert.ok(actual.clientHeight <= 200, `${label} field height bound`);
 }

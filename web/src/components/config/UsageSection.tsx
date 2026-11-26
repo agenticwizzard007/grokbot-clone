@@ -1,3 +1,4 @@
+import { ProviderLabel, ProviderMark } from '../ProviderMark';
 import { SettingIcon } from './SettingRow';
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { Clock3, CircleUserRound, Download, Gauge } from 'lucide-react';
@@ -89,7 +90,7 @@ function Hero({ data, hasComputer }: { data: UsageReport; hasComputer: boolean }
           const provider = billingProviderName(source.provider);
           const unpriced = source.unpricedRequests === source.requests;
           return <div className="usage-billing__source" key={`${source.source}:${source.provider}`}>
-            <div className="usage-hero__label">{plan ? 'CLI plan usage' : 'API provider usage'} · {provider}</div>
+            <div className="usage-hero__label">{plan ? 'CLI plan usage' : 'API provider usage'} · <ProviderLabel provider={source.provider}>{provider}</ProviderLabel></div>
             <div className="usage-billing__value">{plan ? requestHeadline(source.requests) : unpriced ? 'Price not reported' : fmtUsd(source.costUsd)}</div>
             <div className="usage-hero__sub">{plan
               ? `Included in ${data.scope === 'all' ? "the request owner's" : 'your'} ${provider} subscription; no Swarm API charge.`
@@ -336,7 +337,7 @@ function rowSub(r: UsageRow): string {
 const rowCost = (r: UsageRow) => r.costUsd + (r.computerUsd ?? 0);
 const rowFigure = (r: UsageRow, byCost: boolean) => (!byCost ? tokenFigure(r.tokens, r) : rowCost(r) === 0 && r.unpriced === r.requests && r.requests > 0 ? 'No price' : fmtUsd(rowCost(r)));
 
-function RankedList({ title, rows, byCost }: { title: string; rows: UsageRow[]; byCost: boolean }) {
+function RankedList({ title, rows, byCost, models = false }: { title: string; rows: UsageRow[]; byCost: boolean; models?: boolean }) {
   const [all, setAll] = useState(false);
   if (!rows.length) return null;
   const v = (r: UsageRow) => (byCost ? rowCost(r) : r.tokens);
@@ -352,7 +353,7 @@ function RankedList({ title, rows, byCost }: { title: string; rows: UsageRow[]; 
       <ul className="usage-ranked">
         {shown.map((r) => (
           <li key={r.key || r.label} className="usage-ranked__row" tabIndex={0} aria-label={`${r.label}: ${rowFigure(r, true)}, ${rowSub(r)}`}>
-            <span className="usage-ranked__label">{r.label}</span>
+            <span className="usage-ranked__label">{models ? <ProviderLabel provider={r.key}>{r.label}</ProviderLabel> : r.label}</span>
             <span className="usage-ranked__figure">{rowFigure(r, byCost)}</span>
             <div className="usage-ranked__bar" aria-hidden>{v(r) > 0 && <div style={{ width: `${(v(r) / max) * 100}%` }} />}</div>
             <span className="usage-ranked__sub">{rowSub(r)}</span>
@@ -371,7 +372,7 @@ function ProviderCard({ data }: { data: ProviderUsage }) {
     <section className="cfg-section">
       <AccessRow icon={CircleUserRound} title="Provider account" description={data.note} />
       {o && <div className="usage-card">
-        <div className="usage-card__title">OpenRouter{o.label ? ` · ${o.label}` : ''}</div>
+        <div className="usage-card__title"><ProviderMark provider="openrouter" /> OpenRouter{o.label ? ` · ${o.label}` : ''}</div>
         <div className="usage-tiles usage-tiles--compact">
           <Tile label="Today" value={fmtUsd(o.usage.today)} />
           <Tile label="This week" value={fmtUsd(o.usage.week)} />
@@ -481,7 +482,7 @@ function AccountUsageReport() {
                 {hasComputer && scope === 'me' && <ComputerCard data={data} />}
                 {data.byUser && <RankedList title="By account" rows={data.byUser} byCost={byCost} />}
                 <RankedList title="By Bot" rows={data.byBot} byCost={byCost} />
-                <RankedList title="By model" rows={data.byModel} byCost={byCost} />
+                <RankedList title="By model" rows={data.byModel} byCost={byCost} models />
                 <RankedList title="By activity" rows={data.byKind} byCost={byCost} />
               </>}
             </>
