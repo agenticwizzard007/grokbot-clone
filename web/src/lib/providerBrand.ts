@@ -17,5 +17,11 @@ export function providerBrand(value?: string | null): string | null {
   if (/^(chatgpt|codex|gpt|o[134])(?:[\s.-]|$)/.test(name)) return 'openai';
   if (/^(grok|xai|x-ai)(?:[\s.-]|$)/.test(name)) return 'xai';
   if (/^gemini(?:[\s.-]|$)/.test(name)) return 'gemini';
+  if (/^(llama|meta)(?:[\s.-]|$)/.test(name)) return 'meta';
+  if (/^(mistral|mixtral|codestral|magistral)(?:[\s.-]|$)/.test(name)) return 'mistral';
+  if (/^deepseek(?:[\s.-]|$)/.test(name)) return 'deepseek';
+  if (/^qwen(?:[\s.-]|\d|$)/.test(name)) return 'qwen';
+  if (/^(kimi|moonshot)(?:[\s.-]|$)/.test(name)) return 'moonshot';
+  if (/^(cohere|command)(?:[\s.-]|$)/.test(name)) return 'cohere';
   return null;
 }

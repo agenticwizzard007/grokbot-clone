@@ -6,6 +6,7 @@ import { configApi } from '../lib/configApi';
 import { defaultEffortFor, effortDescription, effortLabel, isTopEffort, effectiveEffort, effortsFor, fallbackShort, modelSelection, useModels, type PickerModel } from '../lib/models';
 import { useStore } from '../store';
 import { ProviderMark } from './ProviderMark';
+import { providerBrand } from '../lib/providerBrand';
 import { ModelUsageDetails } from './ModelUsageDetails';
 import { PlanConnections } from './PlanConnections';
 import { useConfigUI } from '../configStore';
@@ -76,7 +77,7 @@ export const ComposerModelMenu = memo(function ComposerModelMenu({ bot }: { bot:
         title={`${label}${known ? `. ${billingDescription}` : ''}`}
         aria-label={`Model: ${label}${known ? `, ${billingDescription}` : ''}${efforts.length ? `, ${effort ? effortLabel(effort, current) : 'Default'} effort` : ''}${bot.fast && models.canFast ? ', fast' : ''}. Change`}>
         <span className="model-pill__provider" aria-hidden>
-          <ProviderMark provider={current?.author ?? (known && planMode ? models.provider : loading ? label : bot.model)} reserve />
+          <ProviderMark provider={current?.author ?? (known && planMode ? models.provider : loading ? providerBrand(label) ?? bot.model : bot.model)} reserve />
         </span>
         <span className="model-pill__name">{composerModelLabel(mobile ? compactLabel : label, models.provider, planMode)}</span>
         {known && !codexPlan && !(mobile && planMode) && <span className="model-billing" title={billingDescription}>{planMode ? currentPlan : 'API'}</span>}
