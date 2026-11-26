@@ -267,7 +267,7 @@ export const TOOLS: ToolDef[] = [
       await scheduleRoutine(r);
       appendRow(ctx.botId, 'event', { type: 'event', event: 'routine-created', text: `Routine created: ${a.name} · ${describeCron(a.schedule)}`, ref: id });
       hub.emit(ctx.userId, { type: 'routines', botId: ctx.botId });
-      return { output: `Created the routine "${r.name}". Routine ID: ${r.id}. Schedule: ${r.schedule} (${r.timezone}).`, summary: `Created routine ${a.name}` };
+      return { output: `Created the routine "${r.name}". Routine ID: ${r.id}. Schedule: ${r.description} (${r.timezone}).`, summary: `Created routine ${a.name}` };
     },
   },
   {
@@ -347,7 +347,7 @@ export const TOOLS: ToolDef[] = [
       else await unscheduleRoutine(r.id);
       appendRow(ctx.botId, 'event', { type: 'event', event: 'routine-updated', text: `Routine updated: ${r.name} · ${r.enabled ? r.description : 'Paused'}`, ref: r.id });
       hub.emit(ctx.userId, { type: 'routines', botId: ctx.botId });
-      return { output: `Updated the routine "${r.name}". Routine ID: ${r.id}. ${r.enabled ? `Schedule: ${r.schedule} (${r.timezone}).` : 'The routine is paused.'}` };
+      return { output: `Updated the routine "${r.name}". Routine ID: ${r.id}. ${r.enabled ? `Schedule: ${r.description} (${r.timezone}).` : 'The routine is paused.'}` };
     },
   },
   {

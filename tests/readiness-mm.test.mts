@@ -54,7 +54,7 @@ test('R12 task mutations return plain titles and full IDs and cannot claim a mis
 test('R12 routine and check-in mutations return plain confirmations with schedule or paused state', async () => {
   const made = await run('create_routine', { name: 'Routine fixture', prompt: 'Summarize fixture notes', schedule: '0 9 * * *', timezone: 'UTC' });
   const routine = db.prepare('SELECT * FROM routines WHERE bot_id=?').get(bot.id) as any;
-  assert.equal(made.output, `Created the routine "Routine fixture". Routine ID: ${routine.id}. Schedule: 0 9 * * * (UTC).`);
+  assert.equal(made.output, `Created the routine "Routine fixture". Routine ID: ${routine.id}. Schedule: Every day at 9:00 AM (UTC).`);
   const changed = await run('update_routine', { routine_id: routine.id, name: 'Paused fixture', enabled: false });
   assert.equal(changed.output, `Updated the routine "Paused fixture". Routine ID: ${routine.id}. The routine is paused.`);
   assert.equal((await run('set_checkins', { enabled: false })).output, 'Check-ins are off.');
