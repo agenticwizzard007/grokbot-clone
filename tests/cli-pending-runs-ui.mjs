@@ -11,7 +11,7 @@ const root = process.cwd(), tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cli-p
 const evidence = path.join(root, '.context/cli-pending-runs'); await fs.mkdir(evidence, { recursive: true });
 async function port() { const s = http.createServer().listen(0, '127.0.0.1'); await once(s, 'listening'); const n = s.address().port; await new Promise(r => s.close(r)); return n; }
 const apiPort = await port(), uiPort = await port(), origin = `http://127.0.0.1:${uiPort}`;
-const env = { PATH: process.env.PATH, SWARM_TEST_REAL_CLI: '1', NODE_ENV: 'test', SWARM_ROLE: 'standalone', DEV_LOGIN: '1', DB_PATH: path.join(tmp, 'db'), FILES_DIR: path.join(tmp, 'files'), CLI_PROFILES_DIR: path.join(tmp, 'profiles'), SESSION_SECRET: 'local-only', COMPUTER_PROVIDER: 'local', PORT: String(apiPort), APP_URL: origin, SERVER_URL: origin, XAI_API_KEY: 'fixture', XAI_BASE_URL: 'https://model.fixture/v1', DIRECT_API_KEY: '', LLM_PROVIDER: 'direct', COMPOSIO_API_KEY: 'fixture', INKBOX_TUNNEL: '0' };
+const env = { PATH: process.env.PATH, SWARM_TEST_REAL_CLI: '1', SWARM_TEST_DECISION_TOOLS: '1', NODE_ENV: 'test', SWARM_ROLE: 'standalone', DEV_LOGIN: '1', DB_PATH: path.join(tmp, 'db'), FILES_DIR: path.join(tmp, 'files'), CLI_PROFILES_DIR: path.join(tmp, 'profiles'), SESSION_SECRET: 'local-only', COMPUTER_PROVIDER: 'local', PORT: String(apiPort), APP_URL: origin, SERVER_URL: origin, XAI_API_KEY: 'fixture', XAI_BASE_URL: 'https://model.fixture/v1', DIRECT_API_KEY: '', LLM_PROVIDER: 'direct', COMPOSIO_API_KEY: 'fixture', INKBOX_TUNNEL: '0' };
 const children = [], logs = []; let browser, page;
 function start(args, cwd = root, extra = {}) { const child = spawn(process.execPath, args, { cwd, env: { ...env, ...extra }, stdio: ['ignore', 'pipe', 'pipe'] }); children.push(child); for (const s of [child.stdout, child.stderr]) s.on('data', b => logs.push(String(b))); }
 async function until(fn) { for (let n = 0; n < 600; n++) { if (await fn()) return; await new Promise(r => setTimeout(r, 100)); } throw Error('Fixture did not become ready'); }
@@ -66,6 +66,12 @@ try {
     details = await open();
     await details.getByText('Reply after your decision', { exact: true }).waitFor();
     assert.doesNotMatch(await details.innerText(), /Running/);
+    const decided = (await request('/cli')).runsByProvider[provider];
+    assert.equal(decided.latest.lastTool, 'read_team_job');
+    assert.equal(decided.latest.result, 'completed');
+    assert.deepEqual(decided.lastToolRun, { ...before.lastToolRun, result: theme === 'light' ? 'denied' : 'allowed' });
+    assert.match(await details.innerText(), /Last tool run[\s\S]*SWARM_APPS_EXECUTE[\s\S]*(Not allowed|Allowed)/);
+    assert.doesNotMatch((await details.innerText()).split('Last tool run')[1], /read_team_job|Completed|Approval requested/);
     await details.scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(evidence, `${provider}-${width}-${theme}-decided.png`), fullPage: true });
     await close();
@@ -78,7 +84,7 @@ try {
     assert.doesNotMatch(await details.innerText(), /Approval requested|Running/);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     assert.deepEqual(errors, []);
-    console.log(`PASS R13 ${provider} ${width} ${theme}: pending after internal completion, ${decision}, decision reply, later runs released`);
+    console.log(`PASS R14 ${provider} ${width} ${theme}: pending after internal completion, ${decision}, decision reply, later runs released`);
     await context.close();
   }
 } catch (error) {

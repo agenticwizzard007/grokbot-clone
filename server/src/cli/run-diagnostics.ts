@@ -12,12 +12,20 @@ const pendingApprovals = `SELECT r.approval_id FROM cli_approval_runs r JOIN app
 
 function pruneApprovalRuns(userId: string) {
   db.prepare(`DELETE FROM cli_approval_runs WHERE user_id=? AND NOT EXISTS (
-    SELECT 1 FROM approvals a WHERE a.id=cli_approval_runs.approval_id AND a.status='pending'
+    SELECT 1 FROM approvals a WHERE a.id=cli_approval_runs.approval_id AND a.status IN ('pending','allowed','always','denied')
   )`).run(userId);
+  // Keep every unresolved card, but only the most recent decision per provider.
+  for (const provider of ['codex', 'claude']) {
+    db.prepare(`DELETE FROM cli_approval_runs WHERE approval_id IN (
+      SELECT r.approval_id FROM cli_approval_runs r JOIN approvals a ON a.id=r.approval_id
+      WHERE r.user_id=? AND r.provider=? AND a.status IN ('allowed','always','denied')
+      ORDER BY COALESCE(a.resolved_at,r.started_at) DESC,r.started_at DESC,r.approval_id DESC LIMIT -1 OFFSET 1
+    )`).run(userId, provider);
+  }
 }
 
 function pendingRuns(userId: string) {
-  // Decisions, expiry and deletion release the pin even before a reply starts.
+  // Decisions release Last CLI run; Last tool run keeps the decided action.
   pruneApprovalRuns(userId);
   return db.prepare(`SELECT ${runColumns} FROM cli_approval_runs WHERE approval_id IN (${pendingApprovals}) ORDER BY started_at DESC`).all(userId) as Array<{ provider: string }>;
 }
@@ -28,6 +36,7 @@ export function recordCliRun(userId: string) {
   const scope = attribution();
   let result: Result = 'running', lastTool: string | null = null, errorCode: string | null = null;
   let startedAt = 0, trigger: string | null = null;
+  let userTurnCreatedAt: number | null = null;
   let finished = false;
   return (event: CliDiagnosticEvent) => {
     // A transport callback may arrive after its generation has settled. It must
@@ -42,8 +51,11 @@ export function recordCliRun(userId: string) {
           // Order starts even when concurrent generations start in the same millisecond.
           const previous = db.prepare('SELECT started_at FROM cli_last_runs WHERE user_id=?').get(userId) as { started_at: number } | undefined;
           startedAt = Math.max(Date.now(), (previous?.started_at ?? 0) + 1);
-          const job = scope.jobId && db.prepare("SELECT 1 FROM agent_jobs WHERE id=? AND user_id=? AND bot_id=? AND json_extract(trigger,'$.type')='resume'").get(scope.jobId, userId, scope.botId);
-          trigger = job ? 'approval_decision' : null;
+          const job = scope.jobId ? db.prepare('SELECT trigger,created_at FROM agent_jobs WHERE id=? AND user_id=? AND bot_id=?')
+            .get(scope.jobId, userId, scope.botId) as { trigger: string; created_at: number } | undefined : undefined;
+          const source = job && JSON.parse(job.trigger);
+          trigger = source?.type === 'resume' ? 'approval_decision' : null;
+          userTurnCreatedAt = source?.type === 'user' && source.audience !== 'internal' ? job!.created_at : null;
           db.prepare(`INSERT INTO cli_last_runs(user_id,generation_id,started_at,provider,runtime,tools_offered,result,trigger)
             SELECT id,?,?,?,?,?,?,? FROM users WHERE id=?
             ON CONFLICT(user_id) DO UPDATE SET generation_id=excluded.generation_id,started_at=excluded.started_at,
@@ -88,7 +100,12 @@ export function recordCliRun(userId: string) {
         db.prepare("UPDATE cli_provider_runs SET last_tool=?,result=?,error_code=? WHERE user_id=? AND slot='latest' AND generation_id=?")
           .run(lastTool, visibleResult, errorCode, userId, event.generationId);
         // Preserve the previous tool record while a new run is still running, even if it offers tools.
-        if ((finished || result === 'pending_approval') && (lastTool || result === 'pending_approval')) {
+        if (trigger !== 'approval_decision' && (finished || result === 'pending_approval') && (lastTool || result === 'pending_approval')) {
+          // A reply to a decision, a background check, or a user turn that was
+          // already running at decision time cannot replace the decided action.
+          if (userTurnCreatedAt !== null) db.prepare(`DELETE FROM cli_approval_runs WHERE user_id=? AND provider=?
+            AND approval_id IN (SELECT id FROM approvals WHERE status IN ('allowed','always','denied') AND resolved_at<=?)`)
+            .run(userId, provider, userTurnCreatedAt);
           db.prepare(`INSERT INTO cli_provider_runs(user_id,provider,slot,generation_id,started_at,runtime,tools_offered,last_tool,result,error_code,trigger)
             SELECT id,?,'tools',?,?,?,?,?,?,?,? FROM users WHERE id=?
             ON CONFLICT(user_id,provider,slot) DO UPDATE SET generation_id=excluded.generation_id,started_at=excluded.started_at,
@@ -115,7 +132,17 @@ export function cliRunsByProvider(userId: string) {
     const approval = pending.find(run => run.provider === provider);
     return [provider, {
       latest: approval ?? read.get(userId, provider, 'latest') ?? null,
-      lastToolRun: approval ?? read.get(userId, provider, 'tools') ?? null,
+      lastToolRun: approval ?? decidedToolRun(userId, provider) ?? read.get(userId, provider, 'tools') ?? null,
     }];
   }));
+}
+
+function decidedToolRun(userId: string, provider: string) {
+  const run = db.prepare(`SELECT ${runColumns},(SELECT status FROM approvals WHERE id=approval_id) AS decision
+    FROM cli_approval_runs WHERE user_id=? AND provider=?
+    AND approval_id IN (SELECT id FROM approvals WHERE status IN ('allowed','always','denied'))`).get(userId, provider) as
+    { decision: string; result: string } | undefined;
+  if (!run) return null;
+  const { decision, ...record } = run;
+  return { ...record, result: decision === 'denied' ? 'denied' : 'allowed', errorCode: null };
 }

@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { stripInternalIds } from '../web/src/lib/stripInternalIds.ts';
 import { redactInternalIds } from '../server/src/lib/redact.ts';
+import { botSlug, linkedWork } from '../web/src/lib/userRoutes.ts';
 import { planLabel } from '../web/src/lib/planLabel.ts';
 
 test('R12 plan labels name Claude Max, Pro and Team and fall back safely for unknown codes and Codex', () => {
@@ -67,7 +68,7 @@ test('R12 routine and check-in mutations return plain confirmations with schedul
 
 test('R13 saved files return a Library link and filename while list_deliverables retains delivery handles', async () => {
   const saved = await run('save_file', { filename: 'fixture report.md', content: '# Fixture report' });
-  assert.match(String(saved.output), /^Saved fixture_report.md to your Library\. \[View saved files\]\(http:\/\/localhost:5173\/#reports\)$/);
+  assert.equal(saved.output, `Saved fixture_report.md to your Library. [View saved files](#bot/${botSlug(bot)}/reports)`);
   assert.doesNotMatch(String(saved.output), /\/api\/deliverables|\bID\b|revision/);
   assert.equal(stripInternalIds(String(saved.output)), saved.output);
   assert.equal(redactInternalIds(String(saved.output)), saved.output);
@@ -75,6 +76,16 @@ test('R13 saved files return a Library link and filename while list_deliverables
   assert.equal(readArtifact(ctx.userId, artifact.id).content.toString(), '# Fixture report');
   const listed = JSON.parse(String((await run('list_deliverables', {})).output));
   assert.ok(listed.artifacts.some((a: any) => a.id === artifact.id));
+});
+
+test('R14 saved file links resolve to the non-primary saving Bot and survive transcript redaction', async () => {
+  const saved = await toolMap.get('save_file')!.impl({ filename: 'perm-r14.txt', content: 'Saved by QA fixture' }, { ...ctx, botId: other.id });
+  const link = /\[View saved files\]\(([^)]+)\)/.exec(String(saved.output))![1];
+  assert.deepEqual(linkedWork(link), { tab: 'Reports', botSlug: botSlug(other) });
+  assert.equal(stripInternalIds(String(saved.output)), saved.output);
+  assert.equal(redactInternalIds(String(saved.output)), saved.output);
+  assert.equal(listArtifacts(ctx.userId, bot.id).some(a => a.filename === 'perm-r14.txt'), false);
+  assert.equal(listArtifacts(ctx.userId, other.id).some(a => a.filename === 'perm-r14.txt'), true);
 });
 
 test('R13 memory confirmations distinguish saved, duplicate, forgotten and suppressed facts without handles', async () => {

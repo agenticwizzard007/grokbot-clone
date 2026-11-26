@@ -18,7 +18,7 @@ export interface CliRun {
   toolsOffered: number;
   trigger?: 'approval_decision' | null;
   lastTool: string | null;
-  result: 'running' | 'completed' | 'pending_approval' | 'rejected_by_cli' | 'denied' | 'error' | 'cancelled' | 'no_tool_call';
+  result: 'running' | 'completed' | 'pending_approval' | 'allowed' | 'rejected_by_cli' | 'denied' | 'error' | 'cancelled' | 'no_tool_call';
   errorCode: string | null;
 }
 

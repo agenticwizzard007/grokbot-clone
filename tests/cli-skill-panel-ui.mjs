@@ -76,15 +76,16 @@ try {
     assert.ok(!output.includes('/api/deliverables/'));
     await page.goto(`${origin}/#bot/${bot.id}`);
     const link = page.getByRole('link', { name: 'View saved files', exact: true });
-    await link.waitFor(); assert.ok((await link.getAttribute('href')).startsWith(origin));
+    await link.waitFor(); assert.match(await link.getAttribute('href'), /^#bot\/[^/]+\/reports$/);
     await shot('file-reply');
-    const opened = context.waitForEvent('page'); await link.click();
-    const library = await opened; library.setDefaultTimeout(15000); page = library;
+    await link.click();
+    const library = page;
+    assert.equal(context.pages().length, 1, 'Saved files open in the chat tab');
     await library.getByRole('heading', { name: 'library-fixture.md', exact: true }).waitFor();
     const download = library.getByRole('link', { name: 'Download report', exact: true });
     const bytes = await context.request.get(new URL(await download.getAttribute('href'), origin).href);
     assert.equal(bytes.status(), 200); assert.equal(await bytes.text(), '# Saved fixture report');
-    await library.close();
+
     assert.deepEqual(errors, []);
     console.log(`PASS ${provider} ${width} ${theme}: active skill, accurate new/update review copy, newer proposals and normal activation supersede stale proposals`);
     await context.close();
