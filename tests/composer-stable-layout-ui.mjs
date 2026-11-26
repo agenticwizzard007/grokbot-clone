@@ -23,8 +23,13 @@ const { fixturePage, origin } = await import('./qa-r3-work-fixture.mjs');
 const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
 const results = [];
 let lastPage;
+const samples = [
+  { name: 'claude-max', provider: 'claude-cli', billing: 'plan', plan: 'max', mark: 'claude', id: 'claude-opus-5-5', label: 'Claude Opus 5.5' },
+  { name: 'codex-plan', provider: 'codex-cli', billing: 'plan', mark: 'openai', id: 'codex/default', label: 'Codex' },
+  { name: 'grok-api', provider: 'openrouter', billing: 'api', mark: 'xai', id: 'x-ai/grok-4.7', label: 'Grok 4.7' },
+];
 try {
-  for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
+  for (const width of [320, 390, 500, 768, 1280]) for (const theme of ['light', 'dark']) for (const sample of samples) {
     const { page, fixture, errors, writes } = await fixturePage(browser, { width, height: 900 });
     lastPage = page;
     await page.emulateMedia({ colorScheme: theme });
@@ -32,32 +37,37 @@ try {
     fixture.bots.push({ ...fixture.bots[1], id: 'fixture-room', name: 'Project room', kind: 'room', members: ['coordinator', 'research-bot'] });
     for (const bot of fixture.bots) {
       bot.onboarding = { status: 'active', revision: 1 };
-      bot.model = 'anthropic/claude-opus-4.6';
+      bot.model = sample.id;
     }
     fixture.respond = ({ path }) => {
-      if (path === '/api/models') return { json: { provider: 'openrouter', billing: 'api', defaultModel: fixture.bots[0].model,
-        models: [{ id: fixture.bots[0].model, name: 'Claude Max', short: 'Claude Max', author: 'anthropic', efforts: ['low', 'medium', 'high'], defaultEffort: 'medium', billing: 'api' }], favourites: [] } };
+      if (path === '/api/models') return { json: { ...sample, defaultModel: sample.id,
+        models: sample.provider === 'codex-cli' ? [] : [{ id: sample.id, name: sample.label, short: sample.label, author: sample.mark, efforts: ['low', 'medium', 'high'], defaultEffort: 'medium', billing: sample.billing }], favourites: [] } };
       if (path === '/api/voice/end') return { json: { ok: true } };
       return null;
     };
-    for (const bot of fixture.bots) {
-      const label = `${width}-${theme}-${bot.id}`;
+    const bots = sample.name === 'claude-max' && [390, 1280].includes(width) ? fixture.bots : [fixture.bots[0]];
+    for (const bot of bots) {
+      const label = `${width}-${theme}-${sample.name}-${bot.id}`;
       await page.goto(`${origin}/#bot/${bot.id}`);
       const input = page.locator('.composer__input');
       await input.waitFor();
-      await page.locator('.model-pill__name').filter({ hasText: 'Claude Max' }).waitFor();
+      await page.locator('.model-pill[aria-busy="false"]').waitFor();
       await page.evaluate(() => document.fonts.ready);
       await input.focus();
       const empty = await composerGeometry(page);
-      assert.ok(empty.input.width >= 80, `${label}: usable field width ${empty.input.width}`);
-      const logo = page.locator('.model-pill__provider svg[data-provider="claude"]');
-      assert.equal(await logo.isVisible(), true, `${label}: real Claude logo is visible`);
+      assert.ok(empty.input.width >= (width === 320 ? 180 : 200), `${label}: readable field width ${empty.input.width}`);
+      assert.equal(empty.controls[1].row, empty.composer.width <= 540 ? '2' : '1', 'chip placement follows container width');
+      const logo = page.locator(`.model-pill__provider svg[data-provider="${sample.mark}"]`);
+      assert.equal(await logo.isVisible(), true, `${label}: provider logo is visible`);
       await page.waitForFunction(() => document.querySelector('.model-pill__provider svg')?.getBBox().width > 0);
       assert.equal(await logo.getAttribute('aria-hidden'), 'true', 'adjacent model text names the mark');
       assert.equal(empty.logo.width, 16); assert.equal(empty.logo.height, 16);
-      const name = await page.locator('.model-pill__name').boundingBox();
-      assert.ok(empty.logo.x + empty.logo.width <= name.x, 'logo sits beside the model label');
-      assert.equal(await page.locator('.model-pill__effort').isVisible(), true, 'effort stays visible beside the model');
+      const pill = await page.locator('.model-pill').boundingBox();
+      assert.ok(empty.logo.x >= pill.x && empty.logo.x + 16 <= pill.x + pill.width && empty.logo.y >= pill.y && empty.logo.bottom <= pill.y + pill.height, 'whole logo fits inside the chip');
+      for (const label of await page.locator('.model-pill__name, .model-pill__effort').all()) {
+        assert.equal(await label.evaluate(el => el.scrollWidth <= el.clientWidth && getComputedStyle(el).textOverflow !== 'ellipsis'), true, 'complete chip label');
+      }
+      for (const control of [empty.controls[0], empty.controls[1], empty.action]) assert.ok(control.width >= 44 && control.height >= 44, '44px touch targets');
       let previous = empty, draft = '', longestLine = '', wrapped = false, capped;
       const states = {};
       const screenshot = state => page.screenshot({ path: `${evidence}/${label}-${state}.png` });
@@ -144,7 +154,7 @@ try {
       await page.keyboard.press('Escape');
       assert.equal(await input.inputValue(), phrase);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-      results.push({ width, theme, bot: bot.id, states });
+      results.push({ width, theme, sample: sample.name, bot: bot.id, empty, states });
       console.log(`PASS stable composer ${label}: progressive typing, wrap, max, newline, delete, connecting, live, End, menus`);
     }
     // New-bot and search use fixed single-line inputs. Their chrome should stay
@@ -178,7 +188,7 @@ try {
     await page.context().close();
   }
   await writeFile(`${evidence}/results.json`, JSON.stringify(results, null, 2));
-  console.log('PASS 12 composer layout cases, 24 voice states, 8 sibling inputs, 36 viewport checks');
+  console.log(`PASS ${results.length} composer layout cases with typing, voice, sibling inputs and viewport checks`);
 } catch (error) {
   if (lastPage && !lastPage.isClosed()) await lastPage.screenshot({ path: `${evidence}/failure.png` });
   throw error;

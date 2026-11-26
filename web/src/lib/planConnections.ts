@@ -22,4 +22,10 @@ export function planConnectionStatus(status: CliStatus | null, provider: CliProv
 }
 
 /** Connected plans use management wording; unknown status stays neutral. */
-export const planMenuLabel = (billing: string | null) => billing === 'plan' ? 'Manage plans' : billing === 'api' ? 'Connect plan' : 'Plans';
+export function planMenuLabel(status: CliStatus | null) {
+  if (!status || status.statusUnavailable) return 'Plans';
+  const providers = PLAN_PROVIDERS.map(provider => status.providers[provider.id]);
+  if (status.connected && providers.some(subscriptionReady)) return 'Manage plans';
+  if (status.statusChecking || providers.some(health => !health || health.error && (!health.authenticated || health.subscription))) return 'Plans';
+  return 'Connect plan';
+}

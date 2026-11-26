@@ -27,6 +27,7 @@ try {
     } };
     let loginProvider = null, loginComplete = false, failStatus = false, failSelection = false;
     const mutations = [];
+    let statusReads = 0;
     const pairingSecret = randomBytes(24).toString('hex');
     const bot = { id: 'plan-test-bot', name: 'Test Bot', model: 'api/model', effort: 'high', fast: false };
     const catalog = () => {
@@ -64,7 +65,7 @@ try {
           }
           return respond({ id: 'fixture-login', provider: loginProvider, state: loginComplete ? 'connected' : 'running', output: '', cursor: 1, reset: false });
         }
-        if (path === '/api/cli' || path === '/api/cli/refresh') return failStatus ? respond({ error: 'Status unavailable' }, 503) : respond(status);
+        if (path === '/api/cli' || path === '/api/cli/refresh') { statusReads++; return failStatus ? respond({ error: 'Status unavailable' }, 503) : respond(status); }
         return respond({ ok: true });
       }
       if (path === '/api/models' || path === '/api/settings/models') return respond(catalog());
@@ -85,19 +86,41 @@ import {AppSettings} from '/src/components/config/AppSettings.tsx';
 import {useStore} from '/src/store.ts';
 import {useConfigUI} from '/src/configStore.ts';
 import {useModels} from '/src/lib/models.ts';
+import {cliApi} from '/src/lib/cliApi.ts';
 import '/src/styles/tokens.css';import '/src/styles/base.css';import '/src/styles/composer-models.css';import '/src/styles/mobile.css';
 document.documentElement.dataset.theme=${JSON.stringify(theme)};
 useStore.setState({user:${JSON.stringify(user)},mobile:innerWidth<760,bots:[${JSON.stringify(bot)}],selectedBotId:${JSON.stringify(bot.id)}});
 window.closeSettings=()=>useConfigUI.getState().closeAppSettings();
 window.refreshModels=()=>useModels.getState().load(true);
+window.readStatus=()=>cliApi.status();
 window.settingsSection=()=>useConfigUI.getState().appSettings;
 function Harness(){const section=useConfigUI(s=>s.appSettings);return section?React.createElement(AppSettings):React.createElement('div',{style:{position:'absolute',left:'8px',bottom:'24px'}},React.createElement(ComposerModelMenu,{bot:${JSON.stringify(bot)}}));}
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(Harness));
 ` }));
     await page.goto(origin);
+    await page.locator('.model-pill').click();
+    await page.getByRole('button', { name: 'Plans', exact: true }).waitFor();
+    assert.equal(statusReads, 0, 'unknown status renders neutrally without requesting a probe');
+    const initial = structuredClone(status);
+    const ready = { installed: true, authenticated: true, subscription: true };
+    for (const [providers, checking, label] of [
+      [initial.providers, false, 'Connect plan'],
+      [{ ...initial.providers, codex: ready }, false, 'Manage plans'],
+      [{ ...initial.providers, claude: ready }, false, 'Manage plans'],
+      [initial.providers, true, 'Plans'],
+    ]) {
+      status = { ...initial, providers, statusChecking: checking };
+      const before = statusReads;
+      await page.evaluate(() => window.readStatus());
+      await page.getByRole('button', { name: label, exact: true }).waitFor();
+      assert.equal(statusReads, before + 1, 'the picker observes the existing status read without adding another');
+    }
+    status = initial;
+    await page.evaluate(() => window.readStatus());
+    await page.keyboard.press('Escape');
     const openPlans = async () => {
       await page.locator('.model-pill').click();
-      await page.getByRole('button', { name: 'Connect plan', exact: true }).click();
+      await page.getByRole('button', { name: /^(Connect plan|Manage plans|Plans)$/ }).click();
       await page.getByRole('region', { name: 'Connect a plan', exact: true }).waitFor();
     };
     const closeSettings = () => page.evaluate(() => window.closeSettings());

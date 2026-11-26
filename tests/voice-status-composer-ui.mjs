@@ -92,7 +92,8 @@ window.group=()=>useStore.setState({bots:[{...useStore.getState().bots[0],kind:'
 window.settings=()=>useConfigUI.getState().openAppSettings('subscriptions','claude');
 window.closeSettings=()=>useConfigUI.getState().closeAppSettings();
 window.refreshModels=()=>useModels.getState().load(true);
-function Harness(){const [showCall,setShowCall]=React.useState(true);const [showVoice,setShowVoice]=React.useState(false);window.showVoiceSettings=()=>setShowVoice(true);window.unmountCall=()=>setShowCall(false);const bot=useStore(s=>s.bots[0]);const settings=useConfigUI(s=>s.appSettings);return React.createElement('div',{className:'app'},settings&&React.createElement(AppSettings),showVoice&&React.createElement('div',{style:{padding:16,maxWidth:500,margin:'auto'}},React.createElement(VoiceSettings,{bot})),React.createElement('div',{style:{position:'fixed',bottom:24,left:16,right:16,maxWidth:752,margin:'auto'}},showCall&&React.createElement(VoiceCallBar),React.createElement(Composer,{bot,running:false})));}
+// Match DetailsPanel's compact voice form so the fixture's fixed composer cannot cover it.
+function Harness(){const [showCall,setShowCall]=React.useState(true);const [showVoice,setShowVoice]=React.useState(false);window.showVoiceSettings=()=>setShowVoice(true);window.unmountCall=()=>setShowCall(false);const bot=useStore(s=>s.bots[0]);const settings=useConfigUI(s=>s.appSettings);return React.createElement('div',{className:'app'},settings&&React.createElement(AppSettings),showVoice&&React.createElement('div',{style:{padding:16,maxWidth:500,margin:'auto'}},React.createElement(VoiceSettings,{bot,compact:true})),React.createElement('div',{style:{position:'fixed',bottom:24,left:16,right:16,maxWidth:752,margin:'auto'}},showCall&&React.createElement(VoiceCallBar),React.createElement(Composer,{bot,running:false})));}
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(Harness));
 ` }));
     await page.goto(origin);

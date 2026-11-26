@@ -1,11 +1,37 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { cliApi } from '../web/src/lib/cliApi.js';
+import { cliApi, getCachedCliStatus, subscribeCliStatus, type CliStatus } from '../web/src/lib/cliApi.js';
 import { useStore } from '../web/src/store.js';
 
 const originalFetch = globalThis.fetch;
 const account = (id: string | null) => useStore.setState({ user: id ? { id, email: `${id}@example.test`, name: id, avatarUrl: null } : null });
 afterEach(() => { globalThis.fetch = originalFetch; account(null); });
+
+test('CLI status subscriptions reuse the account snapshot without probing and clear on account changes or failure', async () => {
+  account('fixture-account');
+  const health = { installed: true, authenticated: true, subscription: true };
+  const status: CliStatus = { runtime: 'server', serverLoginAvailable: true, selected: null, connected: true, device: null, providers: { claude: health, codex: health } };
+  let reads = 0, changes = 0;
+  globalThis.fetch = async () => { reads++; return Response.json(status); };
+  const unsubscribe = subscribeCliStatus(() => changes++);
+  try {
+    assert.equal(getCachedCliStatus(), null);
+    assert.equal(reads, 0);
+    await cliApi.status();
+    assert.deepEqual(getCachedCliStatus(), status);
+    assert.equal(changes, 1); assert.equal(reads, 1);
+    account('next-account');
+    assert.equal(getCachedCliStatus(), null);
+    assert.equal(changes, 2); assert.equal(reads, 1);
+    await cliApi.status();
+    globalThis.fetch = async () => Response.json({ error: 'Unavailable' }, { status: 503 });
+    await assert.rejects(cliApi.status());
+    assert.equal(getCachedCliStatus(), null);
+    assert.equal(changes, 4);
+  } finally { unsubscribe(); }
+  account(null);
+  assert.equal(changes, 4, 'unmounted pickers stop observing');
+});
 
 test('CLI browser calls require a rendered account without contacting a server', async () => {
   account(null);

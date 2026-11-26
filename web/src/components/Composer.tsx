@@ -140,7 +140,7 @@ export const Composer = memo(function Composer({ bot, running }: { bot: Bot; run
       // on each key, which would also lay out the conversation above it.
       Object.assign(measure.field.style, { font: fieldStyle.font, letterSpacing: fieldStyle.letterSpacing,
         padding: fieldStyle.padding, width: `${el.getBoundingClientRect().width}px` });
-      const base = px(style.paddingTop) + px(style.paddingBottom) + px(style.borderTopWidth) + px(style.borderBottomWidth);
+      const base = px(style.paddingTop) + px(style.paddingBottom) + px(style.borderTopWidth) + px(style.borderBottomWidth) + px(style.getPropertyValue('--composer-chip-row'));
       measure.max = Math.max(px(fieldStyle.minHeight), Math.min(MAX_H, px(style.maxHeight) - base));
     }
     const max = measure.max;

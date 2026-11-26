@@ -30,7 +30,9 @@ export async function composerGeometry(page) {
     const logo = composer.querySelector('.model-pill__provider svg.provider-icon');
     return { composer: rect(composer), input: rect(input), line: parseFloat(style.lineHeight), textHeight,
       padding: parseFloat(style.paddingTop) + parseFloat(style.paddingBottom),
-      base: parseFloat(outer.paddingTop) + parseFloat(outer.paddingBottom) + parseFloat(outer.borderTopWidth) + parseFloat(outer.borderBottomWidth),
+      base: parseFloat(outer.paddingTop) + parseFloat(outer.paddingBottom) + parseFloat(outer.borderTopWidth) + parseFloat(outer.borderBottomWidth)
+        + (getComputedStyle(composer.querySelector('.model-pill-anchor')).gridRowStart === '2'
+          ? composer.querySelector('.model-pill-anchor').getBoundingClientRect().height + parseFloat(outer.rowGap) : 0),
       max: parseFloat(outer.maxHeight), min: parseFloat(outer.minHeight), overflow: style.overflowY,
       scrollHeight: input.scrollHeight, clientHeight: input.clientHeight,
       controls: ['.composer__plus-anchor', '.model-pill-anchor', '.composer__right'].map(selector => rect(composer.querySelector(selector))),
@@ -54,6 +56,8 @@ export function assertComposerSlots(actual, before, label = '') {
     near(actual.composer.bottom - a.bottom, before.composer.bottom - b.bottom, `control ${i} bottom inset`);
   }
   near(actual.action.x, before.action.x, 'send/voice x');
+  near(actual.action.width, before.action.width, 'send/voice width');
+  near(actual.action.height, before.action.height, 'send/voice height');
   near(actual.action.bottom, actual.controls[0].bottom, 'send/voice shares the controls row');
   near(actual.input.bottom, actual.controls[0].bottom, 'controls align with the field bottom');
   near(actual.provider.x, before.provider.x, 'provider slot x');

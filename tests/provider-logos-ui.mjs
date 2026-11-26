@@ -25,12 +25,16 @@ const catalogMakers = [
   ['unlisted-maker', 'openrouter'],
 ].map(([author, mark]) => ({ ...model(`${author}/catalog-model`, `Catalog complete extended model for ${author}`, author), mark }));
 const cases = [
-  { name: 'catalog-makers', provider: 'openrouter', selected: null, billing: 'api', mark: 'zai', models: catalogMakers },
-  { name: 'claude', provider: 'claude-cli', selected: 'claude', billing: 'plan', plan: 'max', mark: 'claude', models: [model('claude/opus-4-6', 'Opus 4.6', 'anthropic')] },
-  { name: 'codex', provider: 'codex-cli', selected: 'codex', billing: 'plan', mark: 'openai', models: [] },
-  { name: 'grok-api', provider: 'openrouter', selected: null, billing: 'api', mark: 'xai', models: [model('x-ai/grok-4', 'Grok 4', 'x-ai')] },
-  { name: 'direct-grok', provider: 'direct', selected: null, billing: 'api', mark: 'xai', models: [model('grok-4', 'Grok 4', 'custom')] },
-  { name: 'openai-api', provider: 'openrouter', selected: null, billing: 'api', mark: 'openai', models: [model('openai/gpt-5.5', 'GPT 5.5', 'openai')] },
+  { name: 'catalog-makers', provider: 'openrouter', selected: null, billing: 'api', plans: [], statusChecking: true, plansLabel: 'Plans', mark: 'zai', models: catalogMakers },
+  { name: 'claude', provider: 'claude-cli', selected: 'claude', billing: 'plan', plan: 'max', plans: ['claude'], plansLabel: 'Manage plans', mark: 'claude', models: [
+    { ...model('claude/default', 'Opus', 'anthropic'), resolvedModel: 'claude-opus-5-5' },
+    { ...model('claude/sonnet', 'Sonnet', 'anthropic'), resolvedModel: 'claude-sonnet-5-5' },
+    { ...model('claude/haiku', 'Haiku', 'anthropic'), resolvedModel: 'claude-haiku-4-5-20251001' },
+  ] },
+  { name: 'codex', provider: 'codex-cli', selected: 'codex', billing: 'plan', plans: ['codex'], plansLabel: 'Manage plans', mark: 'openai', models: [] },
+  { name: 'grok-api', provider: 'openrouter', selected: null, billing: 'api', plans: ['codex'], plansLabel: 'Manage plans', mark: 'xai', models: [model('x-ai/grok-4.7', 'Grok 4.7', 'x-ai')] },
+  { name: 'direct-grok', provider: 'direct', selected: null, billing: 'api', plans: [], plansLabel: 'Connect plan', mark: 'xai', models: [model('grok-4.7', 'Grok 4.7', 'custom')] },
+  { name: 'openai-api', provider: 'openrouter', selected: null, billing: 'api', plans: ['claude'], plansLabel: 'Manage plans', mark: 'openai', models: [model('openai/gpt-5.5', 'GPT 5.5', 'openai')] },
 ];
 async function markVisible(locator, brand) {
   const mark = locator.locator(`svg.provider-icon[data-provider="${brand}"]`).first();
@@ -80,6 +84,8 @@ try {
     const bot = fixture.bots[0];
     bot.onboarding = { status: 'active', revision: 1 }; bot.model = sample.models[0]?.id ?? null;
     const health = { installed: true, authenticated: true, subscription: true };
+    const disconnected = { installed: true, authenticated: false, subscription: false };
+    let statusReads = 0;
     const catalog = { ...sample, defaultModel: bot.model, favourites: sample.models.map(m => m.id), canFast: false };
     const catalogReady = gate();
     fixture.respond = async ({ path }) => {
@@ -89,7 +95,11 @@ try {
         return { json: { settings, account: settings, overrides: null, revision: 1, accountRevision: 1, botId: null } };
       }
       if (path === '/api/learning/reviews') return { json: { reviews: [{ id: 'local-review', botId: bot.id, status: 'completed', reason: 'Local review', model: bot.model ?? 'codex/default', provider: sample.provider, originModel: bot.model ?? 'codex/default', originProvider: sample.provider, createdAt: Date.now(), iterations: 1, inputTokens: 20, outputTokens: 10, usageStatus: 'complete', generation: 1, summary: 'Local fixture run.' }], nextBefore: null } };
-      if (path === '/api/cli') return { json: { selected: sample.selected, connected: true, runtime: 'server', serverLoginAvailable: true, providers: { claude: health, codex: health } } };
+      if (path === '/api/cli') {
+        statusReads++;
+        return { json: { selected: sample.selected, connected: true, runtime: 'server', serverLoginAvailable: true, statusChecking: sample.statusChecking,
+          providers: Object.fromEntries(['claude', 'codex'].map(provider => [provider, sample.plans.includes(provider) ? health : disconnected])) } };
+      }
       if (path === '/api/providers/openrouter') return { json: { provider: sample.provider, connected: true, linked: true, active: !sample.selected, selected: !sample.selected, model: bot.model, settingsUrl: 'https://openrouter.ai/settings/credits' } };
       if (path === '/api/usage/provider') return { json: { note: 'Local provider account fixture.', openrouter: { label: 'Local complete provider account label', usage: { today: 0, week: 0, month: 0, allTime: 0 }, budgets: [] } } };
       if (path === '/api/usage') {
@@ -132,8 +142,9 @@ try {
       assert.ok(Math.abs(iconBox.y + 8 - (textBox.y + textBox.height / 2)) < 1, 'mark aligns with the label');
       if (sample.models.length) assert.equal(await pill.locator('.model-pill__effort').isVisible(), true);
       await readable(pill);
-      if (width === 390 || width === 500) {
+      {
         const input = page.locator('.composer__input');
+        assert.ok((await input.boundingBox()).width >= (width === 320 ? 180 : 200), 'field has priority over the model chip');
         const before = await page.locator('.composer').boundingBox(), markBefore = await icon.boundingBox();
         await input.pressSequentially('Hi all.');
         assert.equal((await page.locator('.composer').boundingBox()).height, before.height, 'one-line sentence keeps composer height');
@@ -141,11 +152,17 @@ try {
         await input.fill('');
       }
       await page.screenshot({ path: `${evidence}/${sample.name}-${width}-${theme}-composer.png` });
+      const readsBeforePicker = statusReads;
       await pill.click();
       const picker = page.getByRole('dialog', { name: 'Choose a model', exact: true });
       await markVisible(picker, sample.mark);
       await readable(picker);
-      assert.equal(await picker.getByRole('button', { name: sample.billing === 'plan' ? 'Manage plans' : 'Connect plan', exact: true }).count(), 1);
+      assert.equal(await picker.getByRole('button', { name: sample.plansLabel, exact: true }).count(), 1);
+      assert.equal(statusReads, readsBeforePicker, 'rendering the plan row does not request provider status');
+      for (const row of await picker.locator('.mm-row__name').all()) assert.doesNotMatch(await row.innerText(), /\b\d \d\b/, 'version digits retain their dot');
+      if (sample.name === 'claude') {
+        assert.deepEqual(await picker.locator('.mm-row__resolved').allTextContents(), ['Claude Opus 5.5', 'Claude Sonnet 5.5', 'Claude Haiku 4.5']);
+      }
       if (sample.name === 'catalog-makers') {
         await picker.getByRole('searchbox', { name: 'Search models', exact: true }).fill('/');
         for (const item of catalogMakers) await markVisible(picker.locator('.mm-row__main').filter({ hasText: item.short }), item.mark);
@@ -154,7 +171,7 @@ try {
       }
       if (sample.models.length) {
         await markVisible(picker.locator('.mm-row__main'), sample.mark);
-        await picker.getByRole('button', { name: 'Effort', exact: true }).click();
+        await picker.getByRole('button', { name: 'Effort', exact: true }).first().click();
         const effortHeading = page.locator('.mm-effort-model, .mm-sheet-head .mm-back').filter({ has: page.locator('.provider-icon') });
         await markVisible(effortHeading, sample.mark);
         await page.keyboard.press('Escape');
