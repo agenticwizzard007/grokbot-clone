@@ -9,5 +9,5 @@ test('provider marks resolve plan routes, model authors and remembered model lab
 });
 
 test('unknown and custom connections do not claim another provider brand', () => {
-  for (const value of [null, undefined, '', 'direct', 'custom/model', 'Provider default', 'Loading model', 'Models unavailable']) assert.equal(providerBrand(value), null);
+  for (const value of [null, undefined, '', 'direct', 'custom/model', 'Provider default', 'Loading model', 'Models unavailable', '__proto__', 'constructor/model', 'toString']) assert.equal(providerBrand(value), null);
 });

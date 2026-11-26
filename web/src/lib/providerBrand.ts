@@ -12,7 +12,7 @@ export function providerBrand(value?: string | null): string | null {
   const name = value?.trim().toLowerCase();
   if (!name) return null;
   const author = name.split('/')[0];
-  if (aliases[author]) return aliases[author];
+  if (Object.hasOwn(aliases, author)) return aliases[author];
   if (/^(claude|opus|sonnet|haiku)(?:[\s.-]|$)/.test(name)) return 'claude';
   if (/^(chatgpt|codex|gpt|o[134])(?:[\s.-]|$)/.test(name)) return 'openai';
   if (/^(grok|xai|x-ai)(?:[\s.-]|$)/.test(name)) return 'xai';
