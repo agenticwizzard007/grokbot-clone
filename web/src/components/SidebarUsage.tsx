@@ -32,7 +32,7 @@ export function SidebarUsage({ collapsed }: { collapsed: boolean }) {
     title={collapsed ? `${label} · ${detail}` : undefined}
     onClick={() => { if (failed) void catalog.load(true); else useConfigUI.getState().openAppSettings(known && !plan ? 'usage' : 'subscriptions'); }}>
     {collapsed ? providerBrand(summary?.provider) ? <ProviderMark provider={summary?.provider} /> : <Gauge size={20} aria-hidden /> : <>
-      <span className="sidebar-usage__row"><span><small>Usage</small><strong><ProviderLabel provider={summary?.provider}>{label}</ProviderLabel></strong></span><ChevronRight size={16} aria-hidden /></span>
+      <span className="sidebar-usage__row"><span><small>Usage</small><strong><ProviderLabel provider={summary?.provider} reserve>{label}</ProviderLabel></strong></span><ChevronRight size={16} aria-hidden /></span>
       {window && <progress max={100} value={window.usedPercent} aria-label={`${window.label} usage`} />}
       <span className="sidebar-usage__detail">{detail}</span>
       {stale && (failed || (refreshing && slowRefresh)) && <span className="sidebar-usage__detail">Previously loaded{failed ? ' · Retry' : ' · Refreshing…'}</span>}

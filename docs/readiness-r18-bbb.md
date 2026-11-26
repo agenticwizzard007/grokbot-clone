@@ -1,0 +1,29 @@
+# Round 18 BBB: provider labels and keyboard access
+
+The branch starts at untouched main `1957a7fc80f5fb6ebe777f4768d7f62c809b0e13` (#236). Only local synthetic accounts and HTTP fixtures are used. The supplied Round 17 recheck path is absent on this VM; findings were checked against the code and local browser fixtures. At 500px, untouched main gives Claude 28px for 41px of text and Codex 79px for 129px of text, both with ellipsis and a 125px chip. Both connected plans expose a Connect plan row.
+
+## Findings and changes
+
+- R18-1: Codex's label helper replaced the compact name with `Codex · ChatGPT plan`. The composer then capped the chip at 25vw at 500px, left its chevron visible, and applied ellipsis to the name. The chip now selects complete alternatives using the actual composer width and rendered font metrics. Claude steps through the plan name, tier, provider, and finally mark plus effort. Codex and API models have complete compact alternatives. The 16px mark never shrinks, the chip takes its natural width, and the input yields space. Full model, billing and effort information remains accessible. #234's grid, input sizing and action slots are preserved.
+- R18-2: The picker always said `Connect plan`. It now says `Manage plans` for plan billing, `Connect plan` for API billing, and `Plans` while status is unknown. Connection, disconnection, API fallback and account isolation behavior is unchanged.
+- Remaining marks: #236 already supplied official marks on the requested provider/model surfaces. Sidebar Usage now reserves its slot before catalog data arrives. Shared labels, picker names and resolved models, Bot model fields, and Usage model rows wrap instead of clipping. Picker rows retain their full content height instead of compressing wrapped names into overlapping rows. Unknown custom endpoints remain neutral. Search contains Bot names and message previews, not model metadata, so no provider mark was invented there. CLI/API run diagnostics contain no model name; their surrounding provider/plan labels and Learning review run-route labels are covered.
+- Keyboard: Real Tab and Shift+Tab walks found missing field focus indicators and phone Settings rules that reset navigation and segmented-control rings. These have explicit focus styles. The suite covers composer plus/field/chip/send/voice, header and Details, sidebar Search/Tasks/Usage/account menu, picker containment and Escape restoration, Search, Settings list and General, Create a Bot including native radio groups, and an undecided local file approval card. It leaves controls using Escape or existing close controls and never approves or submits data.
+
+## Validation
+
+`npm run test:readiness-bbb` runs the focused unit checks and local browser gates. The provider suite covers 320, 390, 500, 768 and 1280px in light and dark across Claude Max, Codex, API providers, a custom endpoint, and the provider artwork catalog. It checks every visible mark's 16px box and clipping ancestors, label scroll width and row containment for long names, reserved loading slots, one-line typing at 390/500, Models & access, Bot settings, Usage, Search and run routes. The browser tests snapshot production assets so separate builds cannot invalidate a running page.
+
+The unchanged #234 suite covers 12 composer cases, 24 voice states, 8 sibling inputs and 36 viewport checks. Loading/cache/timeout/retry, connection flows, and both typing performance suites are also exercised. Existing performance selectors now use the full accessible title where a phone intentionally shows a complete shorter label.
+
+The complete unit command is `node --import tsx --test --test-reporter=tap --test-concurrency=1 tests/*.test.mts tests/*.test.mjs`. Baseline runs in a detached untouched main worktree on this VM. Evidence and screenshots are in `.context/`.
+
+| Full unit suite | Pass | Fail | Existing skips | Cancelled |
+| --- | ---: | ---: | ---: | ---: |
+| Untouched main 1957a7fc | 2747 | 70 | 24 | 0 |
+| BBB before the final rebase | 2751 | 70 | 24 | 0 |
+
+All 70 failure names match exactly, with four additional passing unit tests and no new failure names. This full comparison was completed before rebasing onto main `bfff367e966a8b5491c4a5518386a8d501430543` (#237). The rebase had no conflicts and retained all AAA changes. The post-rebase validation also runs the inherited API approval unit file, which passes 34/34, and repeats the complete focused BBB command, typecheck and build. The full suite is not claimed to be green. No tests or CI were disabled or newly skipped. The focused command has 14 passing unit tests and 86 browser cases (60 provider, 4 keyboard, 6 connection, 4 loading and 12 composer layout cases); both performance suites add four passing viewport/theme cases each. Typecheck and the web/server build pass.
+
+An early expanded browser run treated the existing read-only suggested-apps POST as a mutation. The fixture now permits that specific request and still rejects other unexpected writes; no product behavior was changed for that test artifact.
+
+The rebase invalidated an in-flight Vite loading test through Hot Module Replacement. The complete command was restarted after the rebase, without changing that test's assertions.

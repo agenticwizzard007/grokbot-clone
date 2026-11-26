@@ -20,3 +20,6 @@ export function planConnectionStatus(status: CliStatus | null, provider: CliProv
   if (status.selected !== provider || !subscriptionReady(health)) return 'Not connected';
   return plan ? `Connected with ${planLabel(provider, plan)}` : 'Connected';
 }
+
+/** Connected plans use management wording; unknown status stays neutral. */
+export const planMenuLabel = (billing: string | null) => billing === 'plan' ? 'Manage plans' : billing === 'api' ? 'Connect plan' : 'Plans';

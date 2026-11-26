@@ -125,3 +125,5 @@
 .group-pick__opt:hover { background: var(--color-bg-hover); }
 .group-pick__opt.is-active { background: var(--color-bg-active, var(--color-bg-hover)); }
 .group-pick__name { flex: 1; font-size: 13px; line-height: 18px; color: var(--color-ink); }
+
+.search-modal__field input:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }

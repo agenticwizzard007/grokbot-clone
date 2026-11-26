@@ -33,7 +33,7 @@ try {
     const loading = page.getByRole('status').filter({ hasText: 'Loading models...' });
     const shot = label => page.screenshot({ path: `.context/composer-model-loading/${width}-${theme}-${label}.png` });
     await page.goto(`${origin}/#bot/${bot.id}`);
-    await page.getByText('Codex · ChatGPT plan', { exact: true }).waitFor();
+    await page.locator('.model-pill[title^="Codex · ChatGPT plan"]').waitFor();
     await page.evaluate(() => { localStorage.removeItem('swarm.model-label:fixture-owner:coordinator'); });
     pending = gate(); requests = 0;
     await page.reload();
@@ -52,13 +52,14 @@ try {
     await shot('cold-loading');
     pending.release();
     await page.waitForFunction(() => document.querySelector('.model-pill')?.getAttribute('aria-busy') === 'false');
-    assert.equal(await name.innerText(), 'Codex · ChatGPT plan');
+    assert.equal(await name.innerText(), width === 390 ? 'Codex' : 'Codex · ChatGPT plan');
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => JSON.parse(localStorage.getItem('swarm.model-label:fixture-owner:coordinator') ?? 'null')?.label === 'Codex · ChatGPT plan');
     pending = gate();
     await page.reload();
     await chip.waitFor();
-    assert.equal(await name.innerText(), 'Codex · ChatGPT plan', 'reload retains the complete account/Bot label');
+    assert.equal(await name.innerText(), width === 390 ? 'Codex' : 'Codex · ChatGPT plan', 'reload retains the complete or compact account/Bot label');
+    assert.match(await chip.getAttribute('aria-label'), /Codex · ChatGPT plan/, 'cached full label stays accessible');
     assert.equal(await chip.getAttribute('aria-busy'), 'true');
     assert.equal(await chip.locator('.model-billing, .model-pill__effort').count(), 0, 'cached copy never enables unverified billing or effort controls');
     await shot('cached-chip');
@@ -71,7 +72,7 @@ try {
     failed = true; pending = gate();
     await chip.click(); await loading.waitFor(); pending.release();
     await page.waitForTimeout(250);
-    assert.equal(await name.innerText(), 'Codex · ChatGPT plan', 'failed reads preserve the label while automatic retry is pending');
+    assert.equal(await name.innerText(), width === 390 ? 'Codex' : 'Codex · ChatGPT plan', 'failed reads preserve the label while automatic retry is pending');
     assert.doesNotMatch(await page.locator('body').innerText(), /Models unavailable/);
     await shot('retry-pending');
     failed = false;
@@ -82,11 +83,11 @@ try {
     pending = gate();
     await chip.click(); await loading.waitFor();
     await page.waitForTimeout(5500);
-    assert.equal(await name.innerText(), 'Codex · ChatGPT plan');
+    assert.equal(await name.innerText(), width === 390 ? 'Codex' : 'Codex · ChatGPT plan');
     assert.doesNotMatch(await page.locator('body').innerText(), /Models unavailable/);
     pending.release();
     await page.waitForFunction(() => document.querySelector('.model-pill')?.getAttribute('aria-busy') === 'false');
-    assert.equal(await name.innerText(), 'Codex · ChatGPT plan');
+    assert.equal(await name.innerText(), width === 390 ? 'Codex' : 'Codex · ChatGPT plan');
     assert.deepEqual(errors, []); assert.deepEqual(writes, []);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.context().close();

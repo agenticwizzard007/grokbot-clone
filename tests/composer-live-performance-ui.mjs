@@ -77,7 +77,7 @@ try {
     const input = page.locator('.composer__input');
     await input.waitFor();
     await page.waitForFunction(() => document.querySelectorAll('[data-row-seq]').length >= 304);
-    await page.getByText('Codex · ChatGPT plan', { exact: true }).waitFor();
+    await page.locator('.model-pill[title^="Codex · ChatGPT plan"]').waitFor();
     await page.waitForLoadState('networkidle');
     await page.evaluate(() => document.fonts.ready);
     // Visit history so lazy markdown has parsed, as it would after reading a long chat.

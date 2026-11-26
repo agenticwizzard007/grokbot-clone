@@ -250,3 +250,5 @@
 @media (max-width: 760px) {
   .usage-page .usage-foot .cfg-btn { align-self: stretch; justify-content: center; }
 }
+
+.usage-ranked__label:has(.provider-label) { white-space: normal; overflow: visible; text-overflow: initial; overflow-wrap: anywhere; }

@@ -13,8 +13,8 @@ export function ProviderMark({ provider, fallbackProvider, label, reserve = fals
 }
 
 /** Text remains the accessible name. Long labels can wrap beside the fixed mark. */
-export function ProviderLabel({ provider, children }: { provider?: string | null; children: ReactNode }) {
-  return <span className="provider-label"><ProviderMark provider={provider} /><span>{children}</span></span>;
+export function ProviderLabel({ provider, children, reserve = false }: { provider?: string | null; children: ReactNode; reserve?: boolean }) {
+  return <span className="provider-label"><ProviderMark provider={provider} reserve={reserve} /><span className="provider-label__text">{children}</span></span>;
 }
 
 /** Keep existing status copy intact while placing each mark beside the name it describes. */
