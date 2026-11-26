@@ -32,4 +32,5 @@
 .sidebar__scroll > .sidebar-island:hover { background: linear-gradient(var(--color-bg-hover), var(--color-bg-hover)), var(--color-bg-sidebar); }
 .sidebar__scroll > .sidebar-island.is-active { background: var(--color-bg-active); }
 
-.sidebar .sidebar-island__count { background: var(--color-primary); color: var(--color-on-primary); }
+.sidebar .sidebar-island__count { flex: 0 0 32px; width: 32px; padding: 0; font-variant-numeric: tabular-nums; background: var(--color-primary); color: var(--color-on-primary); }
+.sidebar .sidebar-island__count.is-neutral { background: var(--color-bg-hover); color: var(--color-text-secondary); }
