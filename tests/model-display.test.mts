@@ -56,6 +56,8 @@ for (const [catalog, expected] of [
   ['Claude Fable 5 2', 'Claude Fable 5.2'], ['Claude Fable 5-2', 'Claude Fable 5.2'],
   ['Claude Fable 5_2 Preview', 'Claude Fable 5.2 Preview'],
   ['claude-fable-5-2', 'Claude Fable 5.2'],
+  ['Claude-Fable-5-2', 'Claude Fable 5.2'], ['CLAUDE_FABLE_5_2', 'CLAUDE FABLE 5.2'],
+  ['GPT-5-2', 'GPT 5.2'], ['GLM_4_5', 'GLM 4.5'],
   ['Anthropic: Claude Fable 5 2', 'Anthropic: Claude Fable 5.2'],
   ['Gemini 2 5 Pro', 'Gemini 2.5 Pro'], ['GPT 5 2', 'GPT 5.2'],
   ['GPT-5.5', 'GPT-5.5'], ['Llama 3 1 70b', 'Llama 3.1 70b'],

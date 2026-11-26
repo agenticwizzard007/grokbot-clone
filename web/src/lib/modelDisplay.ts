@@ -5,7 +5,8 @@ export function modelDisplayName(id: string, catalogName?: string | null): strin
   let raw = (catalog ? name : id.split('/').pop() || '').trim();
   // Preserve the compact Claude release labels used by the picker.
   raw = raw.replace(/^((?:claude[-_][a-z]+|opus|sonnet|haiku)[-_]\d{1,2}(?:[-_.]\d{1,2})?)[-_]\d{8}$/i, '$1');
-  const slug = !catalog || /^[a-z\d]+(?:[-_][a-z\d.]+)+$/.test(raw);
+  const slug = !catalog || /^[a-z\d]+(?:[-_][a-z\d.]+)+$/.test(raw)
+    || (!/\s/.test(raw) && /[a-z][-_]\d{1,2}[-_]\d{1,2}(?=$|[-_])/i.test(raw));
   // Dates are separate tokens, never major/minor pairs. A size or context suffix
   // (70b, 8x7b, 128k) cannot satisfy the boundary after the minor version.
   const model = raw.split(/((?<![a-z\d])\d{4}[-_ ]\d{2}[-_ ]\d{2}(?![a-z\d])|(?<![a-z\d])\d{8}(?![a-z\d]))/i).map((part, index) => {
