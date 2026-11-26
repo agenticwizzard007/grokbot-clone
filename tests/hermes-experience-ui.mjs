@@ -103,8 +103,8 @@ try {
   const resourceRevision = (await api(`/learning/skills/${fixture.skill.id}`)).skill.revision;
   await botSettings.getByRole('button', { name: 'Pin package', exact: true }).click();
   await botSettings.getByRole('button', { name: 'Unpin package', exact: true }).waitFor();
-  await botSettings.getByRole('button', { name: 'Lock agent edits', exact: true }).click();
-  await botSettings.getByRole('button', { name: 'Unlock agent edits', exact: true }).waitFor();
+  await botSettings.getByRole('button', { name: 'Lock Bot edits', exact: true }).click();
+  await botSettings.getByRole('button', { name: 'Unlock Bot edits', exact: true }).waitFor();
   await botSettings.getByRole('button', { name: 'Sharing: Private to this Bot', exact: true }).click();
   await botSettings.getByLabel('Knowledge visibility', { exact: true }).selectOption('project');
   await botSettings.getByLabel('Project identifier', { exact: true }).fill('reporting');
@@ -188,12 +188,12 @@ try {
     const details = page.getByRole('complementary', { name: 'Conversation details', exact: true });
     if (!await details.isVisible()) await page.getByRole('button', { name: 'Show details', exact: true }).click();
     await details.getByRole('navigation', { name: 'Conversation details sections' }).getByRole('button', { name: 'Files', exact: true }).click();
-    await details.getByRole('button', { name: 'View saved reports', exact: true }).click();
+    await details.getByRole('button', { name: 'View Files', exact: true }).click();
   };
   await openReports();
-  const saved = page.getByRole('region', { name: 'Saved reports', exact: true });
+  const saved = page.getByRole('region', { name: 'Files', exact: true });
   await saved.getByRole('button', { name: 'Review delivery destination', exact: true }).click();
-  await saved.getByText('Confirm delivery to Library', { exact: true }).waitFor();
+  await saved.getByText('Confirm delivery to Files', { exact: true }).waitFor();
   await saved.getByRole('button', { name: 'Confirm delivery', exact: true }).click();
   await saved.getByRole('button', { name: 'Resume saved request', exact: true }).waitFor();
   await page.reload();

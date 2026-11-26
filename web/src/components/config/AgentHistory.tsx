@@ -51,7 +51,7 @@ function AgentHistoryPage({ botId, userId }: { botId: string; userId?: string })
     }).catch(()=>{});
     return()=>controller.abort();
   },[botId,refresh,userId]);
-  return <section className="agent-history" aria-label="Agent change history">
+  return <section className="agent-history" aria-label="Bot change history">
     <header><h3>History</h3></header>
     <p>See updates to this Bot’s role, memories and skills, along with suggestions awaiting review.</p>
     <button type="button" className="cfg-btn cfg-btn--primary" disabled={busy} onClick={()=>{requestRefresh();void load();}}>Refresh history</button>

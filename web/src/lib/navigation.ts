@@ -1,4 +1,4 @@
-import { botSlug, routeBot, linkedWork, workHash, type WorkRoute } from './userRoutes';
+import { botSlug, routeBot, linkedWork, workHash, workTabLabel, type WorkRoute } from './userRoutes';
 
 export const APP_SECTIONS = ['general', 'keys', 'usage', 'computer', 'messaging', 'permissions', 'apps', 'mcp', 'account', 'subscriptions', 'learning'] as const;
 export const SETTINGS_LABELS: Record<AppSection, string> = {
@@ -107,7 +107,7 @@ export function outsideSurface(screen: Screen, other: Screen) {
 type NavigationBot = { id: string; name: string; kind?: string };
 
 export function backLabel(screen: Screen, bots: NavigationBot[] = []): string {
-  if (screen.kind === 'work') return `Back to ${screen.route.tab}`;
+  if (screen.kind === 'work') return `Back to ${workTabLabel(screen.route.tab)}`;
   if (screen.kind === 'chat') return `Back to ${routeBot(screen.bot, bots)?.name ?? 'Bot'} chat`;
   if (screen.kind === 'details') return screen.tab === 'library' ? 'Back to files' : screen.tab === 'configuration' ? 'Back to setup' : 'Back to details';
   const names: Record<Screen['kind'], string> = {
@@ -134,7 +134,7 @@ export function screenTitle(screen: Screen, bots: NavigationBot[] = [], loaded =
     case 'work': {
       const scoped = screen.route.botSlug && routeBot(screen.route.botSlug, bots);
       const scope = scoped ? `${scoped.name} · ` : screen.route.botSlug && loaded ? 'Bot unavailable · ' : '';
-      title = `${scope}${screen.route.tab}`;
+      title = `${scope}${workTabLabel(screen.route.tab)}`;
       break;
     }
     case 'create': title = 'Create a Bot'; break;
@@ -144,7 +144,7 @@ export function screenTitle(screen: Screen, bots: NavigationBot[] = [], loaded =
     case 'bot-settings': title = `${name} · ${screen.tab[0].toUpperCase()}${screen.tab.slice(1)}`; break;
     case 'details': {
       const tab = screen.tab === 'configuration' ? screen.setup ?? 'responsibilities' : screen.reports ? 'reports' : screen.tab;
-      const label = { activity: 'Activity', tasks: 'Tasks', library: 'Files', reports: 'Saved reports', responsibilities: 'Setup', harness: 'Harness', files: 'Configuration files', history: 'History' }[tab];
+      const label = { activity: 'Activity', tasks: 'Tasks', library: 'Files', reports: 'Files', responsibilities: 'Setup', harness: 'Harness', files: 'Configuration files', history: 'History' }[tab];
       title = `${name} · ${label}`;
       break;
     }

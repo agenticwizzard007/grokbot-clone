@@ -113,7 +113,7 @@ try {
     await btn(upload, 'Import setup').click();
     const details = page.getByRole('complementary', { name: 'Conversation details' });
     const detailsNav = details.getByRole('navigation', { name: 'Conversation details sections' });
-    const tabs = details.getByRole('tablist', { name: 'Agent configuration sections' });
+    const tabs = details.getByRole('tablist', { name: 'Bot configuration sections' });
     const settingsPane = page.getByRole('main', { name: 'Atlas settings' });
     const account = page.getByRole(width > 760 ? 'region' : 'dialog', { name: 'Settings', exact: true });
     if (width <= 760) {
@@ -179,8 +179,8 @@ try {
     await btn(detailsNav, 'Files').click();
     const computer = details.getByRole('region', { name: 'Computer files' });
     await computer.getByText(/No computer files/).waitFor();
-    await btn(details, 'View saved reports').click();
-    await details.getByRole('region', { name: 'Saved reports' }).waitFor();
+    await btn(details, 'View Files').click();
+    await details.getByRole('region', { name: 'Files' }).waitFor();
     assert.equal(await computer.isVisible(), false);
     await btn(details, 'Back to files').click(); await computer.waitFor();
 

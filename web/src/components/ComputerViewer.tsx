@@ -16,7 +16,7 @@ function WakeProgress({ detail, local = false, title }: { detail: string; local?
   return (
     <div className="viewer__wake" role="status" aria-live="polite">
       <span className="viewer__wake-orbit" aria-hidden="true"><span className="viewer__wake-face"><i /><i /></span></span>
-      <span className="viewer__wake-title">{title ?? (local ? 'Connecting to your computer' : 'Agent waking up')}</span>
+      <span className="viewer__wake-title">{title ?? (local ? 'Connecting to your computer' : 'Starting the computer')}</span>
       <span className="viewer__wake-detail">{detail}</span>
     </div>
   );
@@ -117,7 +117,7 @@ export function ComputerViewer() {
         <div className="viewer__title">
           <BotAvatarFor bot={bot} size={24} />
           <span>{bot.name}'s computer</span>
-          {!lost && <span className="viewer__status">{wakingFromSleep ? wakingTitle : preparing && computer?.provider !== 'local' ? 'Agent waking up' : computerStatusText(computer)}</span>}
+          {!lost && <span className="viewer__status">{wakingFromSleep ? wakingTitle : preparing && computer?.provider !== 'local' ? 'Starting the computer' : computerStatusText(computer)}</span>}
         </div>
         <div className="viewer__actions">
           {/* R2F-011: settings are one click away for every provider and state. */}

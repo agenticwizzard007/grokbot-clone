@@ -10,7 +10,7 @@ export function computerStatusText(computer: ComputerState | null): string {
   if (computer?.provider === 'local') return computer.status === 'running' ? 'Connected' : 'Not connected';
   switch (computer?.status) {
     case 'running': return 'Awake';
-    case 'starting': case 'resuming': case 'creating': return 'Agent waking up';
+    case 'starting': case 'resuming': case 'creating': return 'Starting the computer';
     case 'suspending': return 'Going to sleep…';
     case 'error': return 'Unreachable';
     default: return 'Asleep';

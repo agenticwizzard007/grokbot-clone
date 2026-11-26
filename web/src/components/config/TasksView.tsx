@@ -1,7 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, Menu, RefreshCw } from 'lucide-react';
 import { backFromWork, useReturnLabel, useConfigUI } from '../../configStore';
-import { botSlug, routeBot, type WorkTab } from '../../lib/userRoutes';
+import { botSlug, routeBot, workTabLabel, type WorkTab } from '../../lib/userRoutes';
 import { backToList, useStore } from '../../store';
 import { RosterFeedback } from '../LoadFeedback';
 import { TeamBoard } from './TeamBoard';
@@ -49,8 +49,8 @@ function WorkWorkspace() {
   const heading = unavailable ? undefined : childHeading;
   // Titles are fixed. A Bot is named only when the user filtered to it.
   const scope = selectedBot ? `${selectedBot.name} · ` : unavailable && botsLoaded ? 'Bot unavailable · ' : '';
-  const title = heading?.title ?? tab;
-  const subtitle = heading ? (tab === 'Reports' ? heading.subtitle : `${scope}${heading.subtitle}`) : tab === 'Team' ? `Team board · ${scope}Owners, dependencies and evidence from current team records.` : tab === 'Goals' ? `${scope}Keep work running across turns and verify results against acceptance checks.` : `${scope}Download saved reports, save in Library or review where they will be sent.`;
+  const title = heading?.title ?? workTabLabel(tab);
+  const subtitle = heading ? (tab === 'Reports' ? heading.subtitle : `${scope}${heading.subtitle}`) : tab === 'Team' ? `Team board · ${scope}Owners, dependencies and evidence from current team records.` : tab === 'Goals' ? `${scope}Keep work running across turns and verify results against acceptance checks.` : `${scope}View and download saved files, or review where to send them.`;
 
   const { tasks, error, retry } = useTasks(botFilter, !rosterUnavailable && !unavailable && tab === 'Tasks');
   const attention = useNeedsYou(botFilter, !rosterUnavailable && !unavailable && tab === 'Tasks');
@@ -73,15 +73,15 @@ function WorkWorkspace() {
         {/* Only scoped sub-pages have a parent. Top-level tabs use browser history. */}
         {!!route.botSlug && <button type="button" className={mobile ? 'icon-btn' : 'tasks-view__back'} onClick={backFromWork} aria-label={backTitle}><ChevronLeft size={20} aria-hidden />{!mobile && <span>{backTitle}</span>}</button>}
         {mobile && <span className="tasks-view__flock" aria-hidden />}
-        {mobile && <span>{heading?.detail ? 'Saved reports' : title}</span>}
+        {mobile && <span>{heading?.detail ? 'Files' : title}</span>}
         {mobile && <button type="button" className="icon-btn" aria-label="Bot list" onClick={backToList}><Menu size={18} aria-hidden /></button>}
       </header>
       <div className="tasks-view__scroll" ref={scroll}>
         <div className="tasks-view__inner work-ui">
-          <div className="work-heading"><h1 id="tasks-heading" ref={pageHeading} tabIndex={-1}>{title === tab ? `${scope}${title}` : title}</h1>
+          <div className="work-heading"><h1 id="tasks-heading" ref={pageHeading} tabIndex={-1}>{title === workTabLabel(tab) ? `${scope}${title}` : title}</h1>
             {tab === 'Tasks' ? <span className={`tasks-sync${connected ? ' is-connected' : ''}`}><span aria-hidden="true" />{connected ? 'Updates automatically' : 'Reconnecting…'}</span> : <p>{subtitle}</p>}
           </div>
-          {!heading?.detail && <nav className="work-tabs" aria-label="Work sections">{TABS.map(item => <button key={item} type="button" aria-current={item === tab ? 'page' : undefined} onClick={() => updateContext({ tab: item })}>{item}</button>)}</nav>}
+          {!heading?.detail && <nav className="work-tabs" aria-label="Work sections">{TABS.map(item => <button key={item} type="button" aria-current={item === tab ? 'page' : undefined} onClick={() => updateContext({ tab: item })}>{workTabLabel(item)}</button>)}</nav>}
           <RosterFeedback />
           {!rosterUnavailable && <>
           {tab !== 'Tasks' && unavailable && <p role="status">This Bot is no longer available. Return to Tasks to choose another scope.</p>}

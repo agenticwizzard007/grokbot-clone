@@ -34,8 +34,8 @@ try {
           await page.goto(origin);
           await page.locator('.sidebar').getByRole('button', { name: 'Tasks', exact: true }).click();
           const work = page.locator('.tasks-view');
-          await work.getByRole('navigation', { name: 'Work sections' }).getByRole('button', { name: 'Reports', exact: true }).click();
-          await work.getByRole('combobox', { name: 'Report Bot' }).selectOption('research-bot');
+          await work.getByRole('navigation', { name: 'Work sections' }).getByRole('button', { name: 'Files', exact: true }).click();
+          await work.getByRole('combobox', { name: 'Bot' }).selectOption('research-bot');
           await work.getByRole('button', { name: 'Routines', exact: true }).click();
         } else {
           await page.goto(`${origin}/#bot/research-bot/settings/routines`);

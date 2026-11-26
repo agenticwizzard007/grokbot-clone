@@ -195,7 +195,7 @@ try {
   fixture.taskError = false; await submit('Retry'); await work.getByRole('alert').waitFor({ state: 'hidden' });
   await tab('Goals').click(); await page.getByText(/No goals yet/).waitFor();
   assert.ok(traffic.includes('GET /api/workflows?botId=nia'));
-  await tab('Reports').click(); await page.getByText('No saved reports yet', { exact: true }).waitFor();
+  await tab('Files').click(); await page.getByText('No files yet', { exact: true }).waitFor();
   assert.ok(traffic.includes('GET /api/deliverables/bots/nia'));
   assert.equal(await page.getByText('Launch brief.md', { exact: true }).count(), 0);
 
@@ -234,7 +234,7 @@ try {
   await submit('Resume'); await page.getByRole('heading', { name: 'Launch brief workflow · In progress' }).waitFor();
   assert.equal(fixture.workflow.tasks[0].status, 'completed');
 
-  await tab('Reports').click(); await submit('Daily synopses');
+  await tab('Files').click(); await submit('Daily synopses');
   await page.getByText(/UTC fallback/).waitFor(); await submit('Edit schedule');
   await page.getByLabel('Schedule time 1', { exact: true }).fill('08:30'); await submit('Add schedule time'); await page.getByLabel('Schedule time 2', { exact: true }).fill('17:00');
   const zone = page.getByRole('textbox', { name: /Timezone/ });
@@ -247,7 +247,7 @@ try {
   await toggle.click(); await page.getByText(/Scheduled · 08:30/).waitFor(); await toggle.click(); await page.getByText(/Paused · 08:30/).waitFor();
   assert.deepEqual(requests.slice(-2).map(request => request.body), [{ enabled: true }, { enabled: false }]);
   fixture.artifact.deliveries.push(structuredClone(unknownDelivery), { ...unknownDelivery, id: 'delivery-sms-failed', status: 'failed', attempts: [] }, { ...unknownDelivery, id: 'delivery-whatsapp-sending', channel: 'whatsapp', status: 'sending', attempts: [] });
-  await submit('Back to saved reports');
+  await submit('Back to Files');
   await page.getByText('SMS: Unverified outcome', { exact: true }).waitFor();
   const destination = page.getByRole('combobox', { name: 'Delivery destination for Launch brief.md', exact: true });
   const reviewDestination = desktop.button('Review delivery destination');
@@ -263,17 +263,17 @@ try {
   assert.equal(await desktop.button('Review retry destination').isDisabled(), true, 'an SMS retry is blocked by SMS uncertainty even with Library selected');
   assert.equal(await reviewDestination.isEnabled(), true, 'an independent Library delivery remains available');
   assert.equal(requests.length, deliveryTraffic, 'blocked channels do not preview, retry, or send');
-  await submit('Review delivery destination'); await page.getByRole('heading', { name: 'Save in Library', exact: true }).waitFor();
+  await submit('Review delivery destination'); await page.getByRole('heading', { name: 'Save in Files', exact: true }).waitFor();
   await submit('Confirm delivery'); await page.getByText('Unresolved delivery requests', { exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: 'Review delivery destination' }).isDisabled(), true);
   const firstSend = requests.find(request => request.path.endsWith('/deliveries'));
   assert.equal(firstSend.body.channel, 'library'); assert.equal(firstSend.body.destination.proof, 'fixture-proof'); assert.ok(firstSend.key);
-  await page.reload(); await sidebar.click(); await tab('Reports').click();
-  await submit('Resume saved request'); await page.getByText('Library: Saved in Library', { exact: true }).waitFor();
+  await page.reload(); await sidebar.click(); await tab('Files').click();
+  await submit('Resume saved request'); await page.getByText('Files: Saved in Files', { exact: true }).waitFor();
   assert.deepEqual(requests.filter(request => request.path.endsWith('/deliveries')), [firstSend, firstSend]);
   await submit('Daily synopses'); await page.getByText(/08:30, 17:00.*America\/Los_Angeles.*22:00–07:00/).waitFor();
   assert.equal(await toggle.isChecked(), false);
-  await submit('Back to saved reports'); await shot('work-reports-desktop-light');
+  await submit('Back to Files'); await shot('work-reports-desktop-light');
   await submit('Verify uncertain outcome');
   await page.getByRole('heading', { name: 'Verify an uncertain outcome', exact: true }).waitFor();
   await page.getByLabel('Verified outcome', { exact: true }).selectOption('not_sent');
@@ -362,16 +362,16 @@ try {
 
     await phone.tab('Goals').click(); await phone.submit('New goal'); await phone.page.getByRole('heading', { name: 'New persistent goal', exact: true }).waitFor(); await phone.checkFits();
     if (width === 390) await phone.shot('work-goal-phone-night');
-    await phone.tab('Reports').click(); await phone.submit('Daily synopses'); await phone.submit('Edit schedule'); await phone.checkFits();
+    await phone.tab('Files').click(); await phone.submit('Daily synopses'); await phone.submit('Edit schedule'); await phone.checkFits();
     if (width === 390) await phone.shot('work-schedule-phone-night');
-    await phone.submit('Back to saved reports');
+    await phone.submit('Back to Files');
     await phone.page.getByLabel('Delivery destination for Launch brief.md', { exact: true }).selectOption('sms');
     await phone.submit('Review delivery destination');
     await phone.page.getByRole('heading', { name: 'Confirm delivery', exact: true }).waitFor(); await phone.checkFits();
     assert.deepEqual(phone.requests.at(-1).body, { channel: 'sms' });
     if (width === 390) await phone.shot('work-confirm-phone-night');
     await phone.page.getByText('Delivery details', { exact: true }).click(); await phone.page.getByText(sha, { exact: true }).waitFor();
-    await phone.submit('Cancel'); await phone.page.getByRole('heading', { name: 'Reports', exact: true }).waitFor();
+    await phone.submit('Cancel'); await phone.page.getByRole('heading', { name: 'Files', exact: true }).waitFor();
     assert.equal(phone.requests.filter(request => request.path.endsWith('/deliveries')).length, 0);
     if (width === 390) {
       phone.fixture.taskError = true; await phone.page.reload(); await phone.tab('Tasks').click();

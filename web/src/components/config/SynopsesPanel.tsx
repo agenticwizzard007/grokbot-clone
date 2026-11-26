@@ -96,7 +96,7 @@ function SynopsesSurface({ onUpdated, onReports, workspace, account, primaryKey 
     {!settings && loading && <p role="status">Loading synopsis schedule…</p>}
     {settings && <div className="work-row synopsis-schedule">
       <div className="work-row__body"><div><label className="workflow-checkbox"><input type="checkbox" checked={settings.enabled} disabled={disabled || edit} onChange={event => { const enabled = event.currentTarget.checked; void update(() => synopsisApi.save({ enabled }), setSettings, false); }} /> Scheduled daily synopsis</label>
-        <p className="work-meta">{settings.enabled ? 'Scheduled' : 'Paused'} · {settings.times.length ? settings.times.join(', ') : 'No times selected'} · {settings.timezone}{settings.timezoneSource === 'utc_fallback' ? ' (UTC fallback: account timezone unavailable)' : ''}{settings.quietHours.length ? ` · quiet hours ${settings.quietHours.map(range => `${range.start}–${range.end}`).join(', ')}` : ''} · <span className="synopsis-source">{synopsisSourceText(sources ?? [])}</span>. Saved in Library.</p>
+        <p className="work-meta">{settings.enabled ? 'Scheduled' : 'Paused'} · {settings.times.length ? settings.times.join(', ') : 'No times selected'} · {settings.timezone}{settings.timezoneSource === 'utc_fallback' ? ' (UTC fallback: account timezone unavailable)' : ''}{settings.quietHours.length ? ` · quiet hours ${settings.quietHours.map(range => `${range.start} to ${range.end}`).join(', ')}` : ''} · <span className="synopsis-source">{synopsisSourceText(sources ?? [])}</span>. Saved in Files.</p>
       </div><button className="work-button" type="button" disabled={disabled} aria-expanded={edit} onClick={() => setEdit(!edit)}>Edit schedule</button></div>
       {edit && <ScheduleForm settings={settings} disabled={disabled} cancel={() => setEdit(false)} save={input => void update(() => synopsisApi.save(input), saved => { setSettings(saved); setEdit(false); setReceipt('Synopsis schedule saved.'); }, false)} />}
     </div>}
@@ -107,7 +107,7 @@ function SynopsesSurface({ onUpdated, onReports, workspace, account, primaryKey 
     <div className="work-actions is-stack">
       <button type="button" className="work-button is-primary" disabled={disabled || !settings} onClick={() => void update(synopsisApi.request, () => setReceipt('Synopsis requested. Refresh to check when it’s saved.'))}>Prepare today’s synopsis</button>
       <button type="button" className="work-button" disabled={disabled} onClick={() => { setActionError(''); setRevision(count => count + 1); }}>Refresh synopses</button>
-      {onReports && <button type="button" className="work-button" onClick={onReports}>Back to saved reports</button>}
+      {onReports && <button type="button" className="work-button" onClick={onReports}>Back to Files</button>}
     </div>
   </section>;
 }
@@ -147,12 +147,12 @@ function SynopsisRow({ report, disabled, onReports, onRetry }: { report: Synopsi
   return <article className="work-row"><div className="work-row__body"><div>
     <h3>{report.slotKey.startsWith('manual:') ? 'Requested synopsis' : `${report.slotKey} · ${report.timezone}`}</h3>
     <p className="work-meta">{report.slotCount > 1 ? `Catch-up for ${report.slotCount} slots · ` : ''}Coverage through {new Date(report.windowEnd).toLocaleString()} · {report.sourceCount} observations{!report.coverage.summaryComplete ? ` · Partial summary; ${report.coverage.pages} source pages` : ''}.</p>
-    <p className="work-meta">{delivered ? 'Saved in Library' : status === 'delivered' ? 'Delivery acknowledged' : status === 'unknown' ? 'Send outcome unknown: verify in Saved reports' : status === 'failed' ? 'Not sent' : report.status === 'preparing' ? 'Preparing factual report' : status ?? 'Waiting to save'}</p>
+    <p className="work-meta">{delivered ? 'Saved in Files' : status === 'delivered' ? 'Delivery acknowledged' : status === 'unknown' ? 'Send outcome unknown: verify in Files' : status === 'failed' ? 'Not sent' : report.status === 'preparing' ? 'Preparing factual report' : status ?? 'Waiting to save'}</p>
     </div>{report.artifactId && <button className="work-button" type="button" aria-expanded={open} onClick={() => setOpen(!open)}>Read synopsis and source pages</button>}</div>
     {open && <SynopsisSources id={report.id} />}
     <div className="work-actions">
       {status === 'failed' && <button type="button" className="work-button" disabled={disabled} onClick={onRetry}>Retry original saved report</button>}
-      {status === 'unknown' && onReports && <button type="button" className="work-button" onClick={onReports}>Saved reports</button>}
+      {status === 'unknown' && onReports && <button type="button" className="work-button" onClick={onReports}>Files</button>}
       {(report.gaps.length > 0 || report.lastError) && <button type="button" className="work-button" aria-expanded={gaps} onClick={() => setGaps(!gaps)}>Coverage observations</button>}
     </div>
     {gaps && <div>{report.gaps.map((message, index) => <p key={index} className="work-meta">{message}</p>)}{report.lastError && <p className="work-error">{report.lastError}</p>}</div>}

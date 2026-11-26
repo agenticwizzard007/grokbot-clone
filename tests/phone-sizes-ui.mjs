@@ -122,7 +122,7 @@ try {
         await home();
         await page.locator('.sidebar').getByRole('button', { name: /^Tasks/ }).first().click();
         await page.locator('.tasks-view, .work-ui').first().waitFor();
-        if (tab !== 'Tasks') await page.locator('.work-tabs').getByRole('button', { name: tab, exact: true }).click();
+        if (tab !== 'Tasks') await page.locator('.work-tabs').getByRole('button', { name: tab === 'Reports' ? 'Files' : tab, exact: true }).click();
       });
     }
     for (const section of SETTINGS) {

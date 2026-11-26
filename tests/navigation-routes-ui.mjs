@@ -129,7 +129,7 @@ try {
       console.log(`PASS ${width} ${theme}: direct search, sidebar search, shortcut, reload and close`);
 
       // Fresh URLs never inherit the saved selected chat as their Back target.
-      for (const [route, label] of [['#tasks','Tasks'], ['#team','Team'], ['#goals','Goals'], ['#reports','Reports'], ['#new-bot','Create a Bot']]) {
+      for (const [route, label] of [['#tasks','Tasks'], ['#team','Team'], ['#goals','Goals'], ['#reports','Files'], ['#new-bot','Create a Bot']]) {
         await fresh(route); await title(label); await reload(route); await title(label);
         if (route === '#new-bot') await expectBack('.setup-paper__bar', 'Back to Bots', '#bots');
         else assert.equal(await page.locator('.tasks-view__header').getByRole('button', { name: /^Back/ }).count(), 0);
@@ -166,14 +166,14 @@ try {
       else assert.equal(await page.getByRole('button', { name: /^Back/ }).count(), 0);
       await closeSettings(); await hash('#tasks');
       for (const tab of ['Team', 'Goals', 'Reports']) {
-        await page.getByRole('navigation', {name:'Work sections'}).getByRole('button', {name:tab,exact:true}).click();
-        await title(tab); assert.equal(await page.locator('.tasks-view__header').getByRole('button', { name: /^Back/ }).count(), 0);
+        await page.getByRole('navigation', {name:'Work sections'}).getByRole('button', {name:tab === 'Reports' ? 'Files' : tab,exact:true}).click();
+        await title(tab === 'Reports' ? 'Files' : tab); assert.equal(await page.locator('.tasks-view__header').getByRole('button', { name: /^Back/ }).count(), 0);
       }
       await back('#goals'); await title('Goals');
       console.log(`PASS ${width} ${theme}: current origins, phone Settings parent history and work tab Back labels`);
 
       // The hidden Reports screen must not be exposed by role or the accessibility tree.
-      await fresh('#reports'); await title('Reports');
+      await fresh('#reports'); await title('Files');
       await page.keyboard.press('Control+,');
       const sections = page.getByRole('navigation', {name:'Settings sections'});
       await sections.waitFor();
@@ -184,17 +184,17 @@ try {
         assert.equal(immediate, `Settings · ${label} · Swarm`);
         await hash(`#settings/${section}`); await title(`Settings · ${label}`);
         await page.locator('.app-settings__page').waitFor();
-        assert.equal(await page.getByRole('heading', {name:'Reports',exact:true}).count(), 0);
+        assert.equal(await page.getByRole('heading', {name:'Files',exact:true}).count(), 0);
         assert.equal(await page.getByRole('main').count(), 0, 'underlying work main is hidden');
         const hidden = page.locator('.main-pane');
         assert.equal(await hidden.getAttribute('hidden'), '');
       }
       await snap('settings-active-section');
-      await closeSettings(); await hash('#reports'); await title('Reports');
+      await closeSettings(); await hash('#reports'); await title('Files');
       if (width === 1280) {
         await page.locator('.sidebar__brand').click(); await hash('#bots');
         await page.getByRole('button', {name:'All tasks',exact:true}).click(); await hash('#tasks'); await title('Tasks');
-        await page.getByRole('navigation', {name:'Work sections'}).getByRole('button', {name:'Reports',exact:true}).click();
+        await page.getByRole('navigation', {name:'Work sections'}).getByRole('button', {name:'Files',exact:true}).click();
       }
       // Sidebar Tasks always means Tasks, even after visiting Reports.
       if (width === 390) await page.getByRole('button', {name:'Bot list',exact:true}).click();

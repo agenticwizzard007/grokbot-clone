@@ -116,7 +116,7 @@ try {
     await page.getByRole('button', { name: 'Skip setup', exact: true }).waitFor({ state: 'detached' });
     if (width <= 1100) { await openSetup(); await openPreview(); }
     await details.getByText(/Active configuration · Revision/).waitFor();
-    await details.getByText(/Active agent instructions/).waitFor();
+    await details.getByText(/Active Bot instructions/).waitFor();
     assert.equal(await details.getByText(/Setup consultant instructions/).count(), 0);
     await page.screenshot({ path: path.join(evidence, `${label}-harness.png`), fullPage: true });
     await details.getByRole('tab', { name: 'Responsibilities', exact: true }).click();

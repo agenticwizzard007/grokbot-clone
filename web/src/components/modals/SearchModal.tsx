@@ -150,7 +150,7 @@ export function SearchModal() {
             </button>
           );
         })}
-        {opening && <div className="search-modal__empty" role="status">Loading message...</div>}
+        {opening && <div className="search-modal__empty" role="status">Loading the message...</div>}
         {openError && <div className="search-modal__empty" role="status">{openError}</div>}
         {needle.length >= 2 && searching && messageItems.length === 0 && <div className="search-modal__empty" role="status">Searching messages...</div>}
         {searchError && <div className="search-modal__empty" role="status">{searchError}</div>}

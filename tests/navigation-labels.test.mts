@@ -88,7 +88,7 @@ test('every route title is named and section titles update synchronously', () =>
     go(`#settings/${section}`);
     assert.equal(document.title, `Settings · ${SETTINGS_LABELS[section]} · Swarm`);
   }
-  for (const [hash, title] of [['#bots', 'Bots'], ['#bot/fixture', 'Fixture Bot'], ['#new-bot', 'Create a Bot'], ['#new-bot/group', 'New group chat'], ['#search', 'Search'], ['#apps/connect', 'Connect apps'], ['#tasks', 'Tasks'], ['#team', 'Team'], ['#goals', 'Goals'], ['#reports', 'Reports']]) {
+  for (const [hash, title] of [['#bots', 'Bots'], ['#bot/fixture', 'Fixture Bot'], ['#new-bot', 'Create a Bot'], ['#new-bot/group', 'New group chat'], ['#search', 'Search'], ['#apps/connect', 'Connect apps'], ['#tasks', 'Tasks'], ['#team', 'Team'], ['#goals', 'Goals'], ['#reports', 'Files']]) {
     go(hash); assert.equal(document.title, `${title} · Swarm`);
   }
   assert.equal(backLabel({kind:'group'}), 'Back to new group chat');

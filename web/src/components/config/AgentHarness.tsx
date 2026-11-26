@@ -90,11 +90,11 @@ function InstructionPreview({ botId, revision, version }: { botId: string; revis
   return <details className="agent-config__preview" onToggle={(e) => setOpen(e.currentTarget.open)}>
     <summary><span className="agent-config__summary-icon"><Icon name="file" size={18} /></span><span>Preview assembled instructions</span><Icon name="chev_right" className="agent-config__chevron" /></summary>
     <div className="agent-config__disclosure-body">
-      <p className="agent-config__muted">Built from the current configuration without running the agent. Conversation history and tool definitions are supplied separately. This is a preview, not a record of a previous run.</p>
+      <p className="agent-config__muted">Built from the current configuration without running the Bot. Conversation history and tool definitions are supplied separately. This is a preview, not a record of a previous run.</p>
       {loading && <p role="status">Preparing preview…</p>}
       {error && <p className="cfg-error" role="alert">{error}</p>}
       {preview && <>
-        <p className="agent-config__muted">{preview.stage === 'active' ? 'Active agent instructions' : 'Setup consultant instructions · operational tools restricted'} · {new Date(preview.capturedAt).toLocaleTimeString()}</p>
+        <p className="agent-config__muted">{preview.stage === 'active' ? 'Active Bot instructions' : 'Setup consultant instructions · operational tools restricted'} · {new Date(preview.capturedAt).toLocaleTimeString()}</p>
         <pre className="agent-config__prompt" tabIndex={0} aria-label="Assembled system instructions">{customerSetupText(preview.instructions)}</pre>
       </>}
       <button type="button" className="cfg-btn cfg-btn--secondary" disabled={loading} onClick={() => setRefresh((v) => v + 1)}><Icon name="refresh" size={14} />{error ? 'Retry preview' : 'Refresh preview'}</button>
@@ -124,7 +124,7 @@ export function AgentHarness({ bot, data, running, version, onSave }: { bot: Bot
     <details className="agent-config__preview">
       <summary><span className="agent-config__summary-icon"><Glyph name="gear" size={18} /></span><span>How the harness works</span><Icon name="chev_right" className="agent-config__chevron" /></summary>
       <div className="agent-config__disclosure-body">
-        <p>The harness combines the agent’s instructions with the tools and controls that carry out its work.</p>
+        <p>The harness combines the Bot’s instructions with the tools and controls that carry out its work.</p>
         <ol className="agent-config__layers">
           <li><strong>Instructions</strong><span>Saved role, workflows and your standing instructions, combined with Swarm’s shared operating rules.</span></li>
           <li><strong>Context</strong><span>Conversation, relevant saved memory and saved skills. Skills are included after activation.</span></li>

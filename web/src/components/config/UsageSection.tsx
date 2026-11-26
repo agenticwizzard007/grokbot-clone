@@ -23,7 +23,7 @@ const RANGES: { value: UsageRange; label: string }[] = [
 // ---------- formatting ----------
 
 export function fmtUsd(v: number | null | undefined): string {
-  if (v == null || !Number.isFinite(v)) return '—';
+  if (v == null || !Number.isFinite(v)) return '-';
   if (v === 0) return '$0';
   const a = Math.abs(v);
   if (a < 0.01) return `$${v.toFixed(4)}`;

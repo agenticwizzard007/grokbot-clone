@@ -169,25 +169,25 @@ try {
   await page.keyboard.press('Escape'); await title('Coordinator Bot');
   await page.getByRole('button', { name: 'Tasks', exact: true }).click();
   for (const tab of ['Goals', 'Reports']) {
-    await page.getByRole('navigation', { name: 'Work sections' }).getByRole('button', { name: tab, exact: true }).click();
-    await title(tab);
+    await page.getByRole('navigation', { name: 'Work sections' }).getByRole('button', { name: tab === 'Reports' ? 'Files' : tab, exact: true }).click();
+    await title(tab === 'Reports' ? 'Files' : tab);
     assert.equal(new URL(page.url()).hash, `#${tab.toLowerCase()}`);
-    await page.reload(); await title(tab);
-    assert.equal(await page.getByRole('navigation', { name: 'Work sections' }).getByRole('button', { name: tab, exact: true }).getAttribute('aria-current'), 'page');
+    await page.reload(); await title(tab === 'Reports' ? 'Files' : tab);
+    assert.equal(await page.getByRole('navigation', { name: 'Work sections' }).getByRole('button', { name: tab === 'Reports' ? 'Files' : tab, exact: true }).getAttribute('aria-current'), 'page');
     await openApp('learning'); await title('Settings · Learning');
-    await page.keyboard.press('Escape'); await title(tab);
+    await page.keyboard.press('Escape'); await title(tab === 'Reports' ? 'Files' : tab);
     assert.equal(new URL(page.url()).hash, `#${tab.toLowerCase()}`);
   }
   await page.locator('.pinned__tile').click(); await title('Coordinator Bot');
   assert.equal(new URL(page.url()).hash, '');
   await reload('#goals'); await title('Goals');
-  await page.evaluate(() => { location.hash = '#reports'; }); await title('Reports');
+  await page.evaluate(() => { location.hash = '#reports'; }); await title('Files');
   await page.goBack(); await title('Goals');
-  await page.goForward(); await title('Reports');
+  await page.goForward(); await title('Files');
   for (const tab of ['Goals', 'Reports']) {
     const hash = new URL(duplicateUrl).hash.replace('/settings/general', `/${tab.toLowerCase()}`);
-    await reload(hash); await title(`Coordinator Bot · ${tab}`);
-    await page.reload(); await title(`Coordinator Bot · ${tab}`);
+    await reload(hash); await title(`Coordinator Bot · ${tab === 'Reports' ? 'Files' : tab}`);
+    await page.reload(); await title(`Coordinator Bot · ${tab === 'Reports' ? 'Files' : tab}`);
     assert.equal(new URL(page.url()).hash, hash);
     assert.ok(!page.url().includes('bot_'));
   }
@@ -319,10 +319,10 @@ try {
   await page.getByRole('button', { name: 'Tasks', exact: true }).click();
   await page.getByRole('navigation', { name: 'Work sections' }).getByRole('button', { name: 'Goals', exact: true }).click();
   await title('Goals');
-  await page.evaluate(() => { location.hash = '#reports'; }); await title('Reports');
+  await page.evaluate(() => { location.hash = '#reports'; }); await title('Files');
   const workHistoryLength = await page.evaluate(() => history.length);
   await page.goBack(); await title('Goals');
-  await page.goForward(); await title('Reports');
+  await page.goForward(); await title('Files');
   assert.equal(await page.evaluate(() => history.length), workHistoryLength, 'work route traversal retains Forward history');
   await page.goBack(); await title('Goals');
   await page.goBack(); await assertPhoneList();

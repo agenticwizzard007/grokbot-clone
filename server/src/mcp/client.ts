@@ -150,7 +150,7 @@ export async function runMcpTool(userId: string, botId: string, name: string, ar
   return withLegacyWork(userId, () => runAdmittedTool(userId, botId, name, args));
 }
 async function runAdmittedTool(userId: string, botId: string, name: string, args: Record<string, unknown>) {
-  if (isConfiguring(botId)) throw new Error('Complete agent setup first.');
+  if (isConfiguring(botId)) throw new Error('Complete Bot setup first.');
   const match = findMcpTool(userId, name, botId);
   if (!match) throw new Error('This MCP tool is no longer enabled for this agent. Check Settings → MCP servers.');
   const { server, tool } = match;

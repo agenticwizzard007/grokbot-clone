@@ -3,7 +3,7 @@ import type { Row } from '@shared/types';
 
 async function read<T>(path: string, signal: AbortSignal): Promise<T> {
   const response = await fetch(`/api/team/exchanges${path}`, { credentials: 'include', signal });
-  if (!response.ok) throw new Error('Couldn’t load agent conversations.');
+  if (!response.ok) throw new Error('Couldn’t load Bot conversations.');
   return response.json();
 }
 export const exchangeApi = {

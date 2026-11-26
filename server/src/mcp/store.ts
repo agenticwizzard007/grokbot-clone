@@ -91,7 +91,7 @@ export function saveMcpServer(userId: string, input: unknown, previous?: McpServ
     }
   }
   for (const botId of config.botIds ?? []) {
-    if (!db.prepare('SELECT 1 FROM bots WHERE id=? AND user_id=?').get(botId, userId)) throw new Error('Choose agents from your own team.');
+    if (!db.prepare('SELECT 1 FROM bots WHERE id=? AND user_id=?').get(botId, userId)) throw new Error('Choose Bots from your own team.');
   }
   if (!previous && listMcpServers(userId).length >= 20) throw new Error('You can add up to 20 MCP servers.');
   const id = previous?.id ?? newId('mcp');

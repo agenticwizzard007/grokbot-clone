@@ -29,8 +29,8 @@ try {
     await page.getByRole('button', { name: 'Open Research Bot details', exact: true }).click();
     const details = page.getByRole('complementary', { name: 'Conversation details' });
     await details.getByRole('navigation', { name: 'Conversation details sections' }).getByRole('button', { name: 'Files', exact: true }).click();
-    await details.getByRole('button', { name: 'View saved reports', exact: true }).click();
-    const row = details.getByRole('region', { name: 'Saved reports', exact: true }).getByRole('article');
+    await details.getByRole('button', { name: 'View Files', exact: true }).click();
+    const row = details.getByRole('region', { name: 'Files', exact: true }).getByRole('article');
     const heading = row.getByRole('heading', { name: filename, exact: true });
     await heading.waitFor();
     await page.evaluate(() => document.fonts.ready);
@@ -67,7 +67,7 @@ try {
     assert.ok(metrics.fits, `${width}: row, text and action have no horizontal overflow`);
     assert.ok(metrics.text.right < metrics.action.left && metrics.action.right <= metrics.body.right + 1, `${width}: filename and action stay in separate columns inside the row`);
     assert.ok(metrics.action.height >= 44, `${width}: download keeps its touch target`);
-    const download = row.getByRole('link', { name: 'Download report', exact: true });
+    const download = row.getByRole('link', { name: 'Download file', exact: true });
     assert.equal(await download.getAttribute('href'), report.downloadUrl);
     assert.equal(await download.getAttribute('download'), filename);
     assert.deepEqual(errors, [], `${width}: no browser errors or external requests`);

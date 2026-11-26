@@ -49,7 +49,7 @@ export function AgentExchangeGroup({ group, botId, generation }: { group: Exchan
       </span>
       <span>{participants.length} {participants.length === 1 ? 'Bot' : 'Bots'}</span>
     </button>
-    {open && <div id={panelId} className={`agent-exchange__panel${full ? ' is-full' : ''}`} role="region" aria-label="Agent conversation">
+    {open && <div id={panelId} className={`agent-exchange__panel${full ? ' is-full' : ''}`} role="region" aria-label="Bot conversation">
       <ol className="agent-exchange__messages">
         {state.messages.map(message => {
           const botName = (id: string) => participants.find(p => p.id === id)?.name;

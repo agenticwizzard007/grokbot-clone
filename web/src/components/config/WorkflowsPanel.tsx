@@ -33,7 +33,7 @@ function EvidenceForm({ criteria, onSubmit, busy, sourceBotId }: { criteria: Wor
   return <form className="work-form" onSubmit={submit}>
     {criteria.map(criterion => <label className="work-field" key={criterion.id}>{criterion.description}
       <input required type={criterion.kind === 'row' ? 'number' : 'text'} min={criterion.kind === 'row' ? 1 : undefined} maxLength={1000} value={sources[criterion.id] ?? ''} onChange={event => { const value = event.currentTarget.value; setSources(previous => ({ ...previous, [criterion.id]: value })); }} />
-      <small>{criterion.kind === 'row' ? 'Message or tool result number' : criterion.kind === 'file' ? 'File path in this agent’s storage' : 'Validated task result ID'}{criterion.contains ? ` · Must contain “${criterion.contains}”` : ''}</small></label>)}
+      <small>{criterion.kind === 'row' ? 'Message or tool result number' : criterion.kind === 'file' ? 'File path in this Bot’s storage' : 'Validated task result ID'}{criterion.contains ? ` · Must contain “${criterion.contains}”` : ''}</small></label>)}
     <div className="work-actions"><button className="work-button is-primary" disabled={busy || !criteria.length} type="submit">Verify evidence and complete</button></div>
   </form>;
 }
@@ -61,7 +61,7 @@ function WorkflowSurface({ botId, workspace, onHeading, onTeam, userId }: PanelP
   const agents = bots.filter(bot => bot.kind !== 'room');
   const primary = agents.find(bot => bot.isPrimary);
   const selection = selected && (selected.kind === 'goal' ? state?.goals : state?.workflows)?.find(item => item.id === selected.id);
-  const name = (id: string) => bots.find(bot => bot.id === id)?.name ?? 'Unavailable agent';
+  const name = (id: string) => bots.find(bot => bot.id === id)?.name ?? 'Unavailable Bot';
   useEffect(() => {
     if (!userId || pending.current) return;
     const controller = new AbortController();
@@ -81,7 +81,7 @@ function WorkflowSurface({ botId, workspace, onHeading, onTeam, userId }: PanelP
     teamApi.state(controller.signal).then(({ state: snapshot }) => {
       if (controller.signal.aborted || snapshot.userId !== userId) return;
       setWorkers(snapshot.agents.filter(agent => agent.setupStatus === 'active' && !agent.parentBotId)); setWorkerError('');
-    }).catch(() => { if (!controller.signal.aborted) { setWorkers([]); setWorkerError('Activated agents could not be loaded. Refresh to try again.'); } });
+    }).catch(() => { if (!controller.signal.aborted) { setWorkers([]); setWorkerError('Activated Bots could not be loaded. Refresh to try again.'); } });
     return () => controller.abort();
   }, [userId, revision, connected]);
   const availableWorkers = workers.filter(worker => agents.some(agent => agent.id === worker.botId));
@@ -93,7 +93,7 @@ function WorkflowSurface({ botId, workspace, onHeading, onTeam, userId }: PanelP
     if (pending.current || !userId || useStore.getState().user?.id !== userId) return;
     const generation = bots.find(bot => bot.id === ownerBotId)?.generation;
     const current = () => lifetime.current && useStore.getState().user?.id === userId && generation !== undefined && useStore.getState().bots.find(bot => bot.id === ownerBotId)?.generation === generation;
-    if (!current()) { setActionError('This agent is no longer available. Refresh before making changes.'); return; }
+    if (!current()) { setActionError('This Bot is no longer available. Refresh before making changes.'); return; }
     pending.current = true; setBusy(true); setActionError(''); setReceipt('');
     try { const result = await run(); if (current()) return result; }
     catch (err) { if (current()) setActionError((err as Error).message); }
@@ -146,7 +146,7 @@ function CreateWork({ kind, botId, workers, workerError, busy, cancel, onRefresh
   const updateTask = (index: number, patch: Partial<DraftTask>) => setSteps(previous => previous.map((step, stepIndex) => stepIndex === index ? { ...step, ...patch } : step));
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setError('');
-    if (!bots.some(bot => bot.id === owner) || !title.trim()) { setError('Choose an available agent and enter a name.'); return; }
+    if (!bots.some(bot => bot.id === owner) || !title.trim()) { setError('Choose an available Bot and enter a name.'); return; }
     if (goal) {
       const checks = criteria.split('\n').map(line => line.trim()).filter(Boolean);
       if (!checks.length) { setChecksError(true); return; }
@@ -160,7 +160,7 @@ function CreateWork({ kind, botId, workers, workerError, busy, cancel, onRefresh
     }
   };
   return <form className="work-form workflow-create" onSubmit={submit}>
-    {botId ? <p className="work-meta">{goal ? 'Goal owner' : 'Workflow coordinator'}: {bots.find(bot => bot.id === botId)?.name ?? 'Unavailable agent'}</p> : <label className="work-field">Agent<select value={owner} onChange={event => setOwner(event.currentTarget.value)} disabled={busy} required><option value="" disabled>Choose an agent</option>{bots.map(bot => <option key={bot.id} value={bot.id}>{bot.name}</option>)}</select><small>{goal ? 'Choose the agent that will own this goal.' : 'Choose the workflow coordinator.'}</small></label>}
+    {botId ? <p className="work-meta">{goal ? 'Goal owner' : 'Workflow coordinator'}: {bots.find(bot => bot.id === botId)?.name ?? 'Unavailable Bot'}</p> : <label className="work-field">Bot<select value={owner} onChange={event => setOwner(event.currentTarget.value)} disabled={busy} required><option value="" disabled>Choose a Bot</option>{bots.map(bot => <option key={bot.id} value={bot.id}>{bot.name}</option>)}</select><small>{goal ? 'Choose the Bot that will own this goal.' : 'Choose the workflow coordinator.'}</small></label>}
     <label className="work-field">{goal ? 'Goal' : 'Workflow name'}<input required aria-label={goal ? 'Goal' : 'Workflow name'} maxLength={500} value={title} onChange={event => setTitle(event.currentTarget.value)} /><small>{goal ? 'Required; use a clear outcome.' : 'Required.'}</small></label>
     {goal ? <>
       <label className="work-field">Acceptance checks (required)<textarea required aria-label="Acceptance checks (required)" aria-invalid={checksError || undefined} aria-describedby={checksError ? 'goal-checks-error' : undefined} value={criteria} onChange={event => { setCriteria(event.currentTarget.value); setChecksError(false); }} onInvalid={event => { event.preventDefault(); setChecksError(true); }} /><small>One check per line. Completion requires saved evidence that matches each check.</small>
@@ -182,7 +182,7 @@ function CreateWork({ kind, botId, workers, workerError, busy, cancel, onRefresh
           const key = `step-${earlierIndex + 1}`;
           return <label className="workflow-checkbox" key={key}><input type="checkbox" checked={step.dependsOn.includes(key)} onChange={event => updateTask(index, { dependsOn: event.currentTarget.checked ? [...step.dependsOn, key] : step.dependsOn.filter(id => id !== key) })} /> {earlier.title || `Task ${earlierIndex + 1}`}</label>;
         })}</fieldset>}
-        <label className="work-field">Task {index + 1} worker<select value={step.worker} onChange={event => updateTask(index, { worker: event.currentTarget.value })}><option value="">Workflow coordinator</option><option value="temporary">Temporary helper</option>{workers.filter(worker => worker.botId !== owner).map(worker => <option key={worker.botId} value={worker.botId}>{worker.name}</option>)}</select><small>Choose the coordinator, a temporary helper or an activated permanent agent.</small></label>
+        <label className="work-field">Task {index + 1} worker<select value={step.worker} onChange={event => updateTask(index, { worker: event.currentTarget.value })}><option value="">Workflow coordinator</option><option value="temporary">Temporary helper</option>{workers.filter(worker => worker.botId !== owner).map(worker => <option key={worker.botId} value={worker.botId}>{worker.name}</option>)}</select><small>Choose the coordinator, a temporary helper or an activated permanent Bot.</small></label>
       </fieldset>)}
     </>}
     {error && <p className="work-error" role="alert">{error}</p>}

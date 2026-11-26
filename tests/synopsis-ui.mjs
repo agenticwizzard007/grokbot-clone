@@ -26,7 +26,7 @@ try{
  const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(String(e)));page.setDefaultTimeout(15000);
  const openSynopses=async()=>{
   await page.locator('.sidebar').getByRole('button',{name:'Tasks',exact:true}).click();
-  await page.getByRole('navigation',{name:'Work sections'}).getByRole('button',{name:'Reports',exact:true}).click();
+  await page.getByRole('navigation',{name:'Work sections'}).getByRole('button',{name:'Files',exact:true}).click();
   await page.getByRole('button',{name:'Daily synopses',exact:true}).click();
  };
  // Keep the account unset while checking the UTC fallback; the explicit picker save follows below.
@@ -36,7 +36,7 @@ try{
  await toggle.waitFor();assert.equal(await toggle.isChecked(),false);await panel.getByText(/UTC fallback: account timezone unavailable/).waitFor();
  await toggle.click();await until(async()=>(await api('/checkins')).enabled&&await toggle.isChecked(),'schedule enabled');await toggle.click();await until(async()=>!(await api('/checkins')).enabled&&!await toggle.isChecked(),'schedule disabled');
  await panel.getByRole('button',{name:'Prepare today’s synopsis',exact:true}).click();await until(async()=>(await api('/checkins/reports')).reports[0]?.delivery?.status==='delivered','offline factual report');
- await panel.getByRole('button',{name:'Refresh synopses',exact:true}).click();await panel.getByText('Saved in Library',{exact:true}).waitFor();
+ await panel.getByRole('button',{name:'Refresh synopses',exact:true}).click();await panel.getByText('Saved in Files',{exact:true}).waitFor();
  const before=(await api('/checkins/reports')).reports[0];assert.equal(before.delivery.channel,'library');assert.ok(before.artifactId);
  await panel.getByRole('button',{name:'Prepare today’s synopsis',exact:true}).click();await sleep(200);assert.equal((await api('/checkins/reports')).reports.length,1);
  const report=await api('/checkins/reports/'+before.id);assert.match(report.report.content,/Quinn daily synopsis/);assert.ok(report.report.sha256);assert.equal(report.report.delivery.attempts.length,1);
@@ -53,7 +53,7 @@ try{
  await page.getByRole('combobox',{name:'Search time zones',exact:true}).fill('London');
  await page.getByRole('option',{name:/London/}).click();
  await until(async()=>(await api('/checkins')).timezone==='Europe/London','account zone saved');
- await page.getByRole('region',{name:'Settings',exact:true}).getByRole('button',{name:'Back to Reports',exact:true}).click();
+ await page.getByRole('region',{name:'Settings',exact:true}).getByRole('button',{name:'Back to Files',exact:true}).click();
  await panel.getByText(/· Europe\/London ·/).waitFor();
  assert.equal(await panel.getByText(/UTC fallback/).count(),0,'no stale UTC fallback after the zone change');
  // A zone change made elsewhere arrives as a 'synopses' event; the open line follows it without Refresh.
@@ -64,7 +64,7 @@ try{
  // Reload restores Reports directly on phones, where the sidebar is not mounted.
  await page.getByRole('navigation',{name:'Work sections'}).waitFor();
  assert.equal(new URL(page.url()).hash,'#reports');
- await page.waitForFunction(()=>document.title==='Reports · Swarm');
+ await page.waitForFunction(()=>document.title==='Files · Swarm');
  await page.getByRole('button',{name:'Daily synopses',exact:true}).click();
  await panel.scrollIntoViewIfNeeded();assert.ok(await panel.evaluate(el=>el.scrollWidth<=el.clientWidth+1),'synopsis fits phone');
  await page.screenshot({path:path.join(evidence,'synopsis-mobile.png'),fullPage:true});assert.deepEqual(errors,[]);

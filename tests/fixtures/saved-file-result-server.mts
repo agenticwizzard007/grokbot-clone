@@ -27,11 +27,11 @@ const fixture = await mockCliProvider(directory, async (provider: string, body: 
   };
   const found = outputs.flatMap(unpack);
   const described = found.find((value: any) => value.name === 'save_file' && value.schema_hash);
-  const saved = found.find((value: any) => typeof value === 'string' && value.startsWith(`Saved ${filename} to your Library.`));
+  const saved = found.find((value: any) => typeof value === 'string' && value.startsWith(`Saved ${filename} to Files.`));
   if (saved) {
     // Let Playwright verify the app confirmation before the assistant has replied.
     if (!released.has(`${provider}:${filename}`)) await new Promise<void>(resolve => replies.set(`${provider}:${filename}`, resolve));
-    return { text: repeated ? saved : `Saved ${filename} to your Library.` };
+    return { text: repeated ? saved : `Saved ${filename} to Files.` };
   }
   const action = described ? { name: 'tool_call', args: { tool_name: 'save_file', schema_hash: described.schema_hash, arguments: { filename, content: 'Local saved file fixture.' } } }
     : { name: 'tool_describe', args: { tool_name: 'save_file' } };

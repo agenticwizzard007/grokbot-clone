@@ -43,7 +43,7 @@ try {
   if (!await page.getByRole('complementary', { name: 'Conversation details' }).isVisible()) await page.getByRole('button', { name: 'Show details', exact: true }).click();
   await page.getByRole('navigation',{name:'Conversation details sections'}).getByRole('button',{name:'Setup',exact:true}).click();
   await page.getByRole('tab',{name:'History',exact:true}).click();
-  const history=page.getByRole('region',{name:'Agent change history',exact:true});
+  const history=page.getByRole('region',{name:'Bot change history',exact:true});
   // The header matches the tab label, and the page title reads "<Bot> · History".
   await history.getByRole('heading',{name:'History',exact:true}).waitFor();
   assert.equal(await history.getByRole('heading',{name:'Agent history',exact:true}).count(),0);
