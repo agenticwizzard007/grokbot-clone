@@ -51,7 +51,7 @@ function SubscriptionRecovery({ resume, onCancel }: ReauthProps) {
   </section>;
 }
 
-function CredentialReauthPrompt({ accountEmail, reason, resume, retryLabel, terminalActive, onCancel }: ReauthProps) {
+export function CredentialReauthPrompt({ accountEmail, reason, resume, retryLabel, terminalActive, onCancel }: ReauthProps) {
   const devLogin = useStore((s) => s.devLogin);
   const googleLogin = useStore((s) => s.googleLogin);
   const appleLogin = useStore((s) => s.appleLogin);

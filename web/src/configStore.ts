@@ -14,7 +14,7 @@ export type { AppSection, BotSettingsTab } from './lib/navigation';
 import type { AppSection, BotSettingsTab } from './lib/navigation';
 
 /** Where to continue after a sign-in that leaves the page (provider redirects, phone verification). */
-export type ResumeAction = 'login' | 'reset' | 'pair' | 'revoke';
+export type ResumeAction = 'login' | 'reset' | 'pair' | 'revoke' | 'credentials';
 export interface ResumeTarget { section: AppSection; provider?: 'codex' | 'claude'; accountId: string; action: ResumeAction; expiresAt: number }
 
 interface ConfigUI {
@@ -101,7 +101,7 @@ const takeResume = (): ResumeTarget | null => {
     const parsed = JSON.parse(raw) as Partial<ResumeTarget> | null;
     if (!parsed || !SECTIONS_LINKABLE.includes(parsed.section as AppSection)) return null;
     if (typeof parsed.accountId !== 'string' || !parsed.accountId || parsed.accountId.length > 128) return null;
-    if (!['login', 'reset', 'pair', 'revoke'].includes(parsed.action ?? '')) return null;
+    if (!['login', 'reset', 'pair', 'revoke', 'credentials'].includes(parsed.action ?? '')) return null;
     if (typeof parsed.expiresAt !== 'number' || parsed.expiresAt <= Date.now() || parsed.expiresAt > Date.now() + 10 * 60_000) return null;
     const provider = SESSION_PROVIDERS.find((p) => p === parsed.provider);
     return { section: parsed.section as AppSection, accountId: parsed.accountId, action: parsed.action as ResumeAction, expiresAt: parsed.expiresAt, ...(provider ? { provider } : {}) };

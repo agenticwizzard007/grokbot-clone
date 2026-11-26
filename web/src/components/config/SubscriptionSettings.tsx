@@ -1,3 +1,5 @@
+import { OpenRouterSettings } from './OpenRouterSettings';
+import { CredentialReauthPrompt } from './ReauthPrompt';
 import { planLabel } from '../../lib/planLabel';
 import { ApprovalLevelSettings } from './ApprovalLevelSettings';
 import { SettingIcon } from './SettingRow';
@@ -60,6 +62,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
   const [recovery, setRecovery] = useState<{ reason: string; action: ResumeAction } | null>(null);
   const [verifyingResume, setVerifyingResume] = useState(!!resumed);
   const [resumeLogin, setResumeLogin] = useState(false);
+  const [credentialReauth, setCredentialReauth] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   useEffect(() => { setConfirmReset(false); }, [providerTab]);
@@ -92,7 +95,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
     return ++statusEpoch.current;
   };
   const current = (epoch: number) => mounted.current && epoch === statusEpoch.current;
-  const retryLabel = (action: ResumeAction) => ({ login: 'Login', reset: 'Reset connection', pair: 'Generate connect command', revoke: 'Revoke bridge' })[action];
+  const retryLabel = (action: ResumeAction) => ({ login: 'Login', reset: 'Reset connection', pair: 'Generate connect command', revoke: 'Revoke bridge', credentials: 'Save and verify or remove your key' })[action];
   const requestSession = (action: ResumeAction, reason: string) => {
     invalidateStatus(); authLockedRef.current = true;
     setNotice(null); setStale(true); setRecovery({ action, reason });
@@ -124,7 +127,8 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
     invalidateStatus();
     const callback = new URLSearchParams(window.location.search);
     if (callback.has('login') || (callback.has('openrouter') && callback.get('openrouter') !== 'connected')) {
-      requestSession(resumed.action, 'Sign-in did not complete. Try again to continue.');
+      if (resumed.action === 'credentials') setCredentialReauth('Sign-in did not complete. Sign in again before changing your key.');
+      else requestSession(resumed.action, 'Sign-in did not complete. Try again to continue.');
       setVerifyingResume(false);
       return;
     }
@@ -134,7 +138,8 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
       else setNotice(`Your session is ready. Review the connection status before choosing ${retryLabel(resumed.action)}.`);
     }).catch((err: unknown) => {
       if (controller.signal.aborted) return;
-      if (needsSession(err)) requestSession(resumed.action, err.message);
+      if (resumed.action === 'credentials') setCredentialReauth('Sign in again before changing your key.');
+      else if (needsSession(err)) requestSession(resumed.action, err.message);
       else setError(err instanceof Error ? err.message : 'Could not verify your sign-in. Reload and try again.');
     }).finally(() => {
       if (!controller.signal.aborted) {
@@ -372,10 +377,12 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
           {authMethod === 'api' && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={disabled} onClick={() => setAuthMethod('cli')}>Set up CLI authentication</button>}
           {(planReady || runtime === 'bridge' || status?.serverLoginAvailable === false || providerTab === 'codex' && health?.installed === false) && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={disabled} onClick={startLogin}>{loginRunning ? 'Login in progress…' : loginLabel}</button>}
         </AccessRow>
-        <AccessRow icon={KeyRound} title="API providers" description="Pay per use through a connected API provider." status={status && !stale && !status.statusUnavailable && !selected ? 'Currently in use' : undefined}>
-          <button type="button" className="cfg-btn cfg-btn--secondary" aria-pressed={authMethod === 'api'} disabled={disabled} onClick={() => void select(null)}>Use API providers</button>
+        <AccessRow icon={KeyRound} title="API providers" description="API turns use your saved OpenRouter key, or server defaults if you have never added one. Add or manage your key below. Connected plans stay signed in." status={status && !stale && !status.statusUnavailable && !selected ? 'Currently in use' : undefined}>
+          <button type="button" className="cfg-btn cfg-btn--secondary" aria-pressed={!!status && !selected} disabled={disabled} onClick={() => void select(null)}>Use API providers</button>
           <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().openAppSettings('keys')}>Manage API keys</button>
         </AccessRow>
+        {credentialReauth && <CredentialReauthPrompt accountEmail={accountEmail} reason={credentialReauth} resume={{ section: 'subscriptions', accountId, action: 'credentials' }} retryLabel="Save and verify or remove your key" terminalActive={loginRunning} onCancel={() => setCredentialReauth(null)} />}
+        <OpenRouterSettings refreshToken={status?.selected} disabled={!!busy || loginRunning || authLocked || !!credentialReauth} onReauth={error => setCredentialReauth(error.message)} onChanged={() => { void readStatus().catch(() => {}); }} />
         <ApprovalLevelSettings selectedCli={status?.selected} />
         <AccessRow icon={RefreshCw} title="Authorization status" description="Refresh after signing in or reconnecting.">
           <button type="button" className="cfg-btn cfg-btn--secondary" disabled={authLocked || !!busy || loginRunning} onClick={() => void refresh()}>{busy === 'refresh' ? 'Refreshing…' : status?.statusUnavailable || stale || probeFailed ? 'Retry' : 'Refresh status'}</button>
