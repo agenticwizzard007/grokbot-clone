@@ -7,6 +7,7 @@
     "web"
   ],
   "scripts": {
+    "test:saved-file-result": "node --import tsx --test tests/saved-file-result.test.mts tests/readiness-mm.test.mts tests/chat-line-breaks.test.mts && node tests/saved-file-result-ui.mjs && node tests/saved-file-link-ui.mjs",
     "test:readiness-pp": "node --import tsx --test --test-concurrency=1 tests/cli-decided-runs.test.mts tests/cli-pending-runs.test.mts tests/readiness-mm.test.mts tests/cli-real-app-approvals.test.mts && node tests/saved-file-link-ui.mjs && node tests/cli-pending-runs-ui.mjs",
     "test:skill-proposal-review": "node --import tsx --test tests/native-knowledge.test.mts && node tests/skill-proposal-review-ui.mjs",
     "test:cli-pending-runs": "node --import tsx --test --test-concurrency=1 tests/cli-pending-runs.test.mts tests/cli-account-diagnostics.test.mts tests/cli-diagnostics.test.mts tests/cli-real-app-approvals.test.mts && node tests/cli-pending-runs-ui.mjs",

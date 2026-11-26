@@ -2,30 +2,34 @@ import React from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
+import { inAppHash } from '../lib/savedFiles';
+
+function MarkdownLink({ node: _n, ...props }: React.ComponentProps<'a'> & { node?: unknown }) {
+  // Hash navigation keeps the transcript and its Back history in this tab.
+  return <a {...props} target={inAppHash(props.href) ? undefined : '_blank'} rel="noreferrer noopener" />;
+}
 
 const components: Components = {
-  a: ({ node: _n, ...props }) => {
-    // Hash navigation keeps the transcript and its Back history in this tab.
-    let inApp = props.href?.startsWith('#') ?? false;
-    if (!inApp && props.href && typeof window !== 'undefined') {
-      try {
-        const url = new URL(props.href, window.location.href);
-        inApp = url.origin === window.location.origin && url.pathname === window.location.pathname
-          && url.search === window.location.search && !!url.hash;
-      } catch { /* Invalid links retain the external-link behavior. */ }
-    }
-    return <a {...props} target={inApp ? undefined : '_blank'} rel="noreferrer noopener" />;
-  },
+  a: MarkdownLink,
   table: ({ node: _n, ...props }) => (
     <div className="md-table"><table {...props} /></div>
   ),
 };
 
 /** Assistant message markdown: paragraphs, lists, blockquotes, inline code, code blocks (screen 02), tables. */
-export const Markdown = React.memo(function Markdown({ text }: { text: string }) {
+export const Markdown = React.memo(function Markdown({ text, savedFileLinks }: { text: string; savedFileLinks?: string[] }) {
+  const renderedComponents = React.useMemo<Components>(() => savedFileLinks?.length ? {
+    ...components,
+    a: props => {
+      const hash = inAppHash(props.href);
+      // The completed tool result owns this navigation, even if the model repeats it.
+      if (hash && savedFileLinks.includes(hash)) return null;
+      return <MarkdownLink {...props} />;
+    },
+  } : components, [savedFileLinks]);
   return (
     <div className="md">
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={components}>{text}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={renderedComponents}>{text}</ReactMarkdown>
     </div>
   );
 });

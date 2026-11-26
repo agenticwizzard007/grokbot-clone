@@ -173,6 +173,8 @@
 .steps__toggle:hover { background: var(--color-bg-hover); color: var(--color-text-secondary); }
 .steps__chev { transition: transform 160ms var(--ease-out); }
 .steps.is-open .steps__chev { transform: rotate(180deg); }
+.saved-file-result { display: flex; flex-wrap: wrap; gap: 4px 12px; max-width: 100%; padding: 8px 0; font-size: 13px; line-height: 20px; color: var(--color-text-primary); overflow-wrap: anywhere; }
+.saved-file-result a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
 .steps__list { list-style: none; margin: 6px 0 4px 12px; padding: 0 0 0 12px; border-left: 1px solid var(--color-border-tertiary); display: flex; flex-direction: column; gap: 6px; }
 .step { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font-size: 13px; line-height: 18px; letter-spacing: 0.195px; color: var(--color-text-primary); }
 .step__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-success); margin-left: -15.5px; position: relative; top: -1px; box-shadow: 0 0 0 2px var(--color-bg-chrome); }

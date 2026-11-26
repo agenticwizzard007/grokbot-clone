@@ -21,7 +21,7 @@ import { updateProfile } from '../accounts.js';
 import { createSubagent, deleteSubagent, listSubagents, subagentTree } from './subagents.js';
 import { selectedCli } from '../cli/store.js';
 import { createRoom, postToRoom } from './rooms.js';
-import type { ActivityKind } from '../types.js';
+import type { ActivityKind, ToolCallBody } from '../types.js';
 import { Cron } from 'croner';
 import { bindComputerStateSource, creationSchema, isConfiguring, saveSetupDraft, setupDraftSchema } from '../bot-setup.js';
 import { createTeammate, replicateTeammate, retryTeammate, CENTRAL_SETUP_TOOLS } from './teammates.js';
@@ -66,6 +66,7 @@ export interface ToolResult {
   /** Responses API function_call_output.output: string or content array (text + images). */
   output: string | any[];
   summary?: string;
+  savedFile?: ToolCallBody['savedFile'];
   /** Preserve tool-reported failures in the dispatch journal, UI and native MCP result. */
   isError?: boolean;
   /** End the turn after this tool (e.g. a question was asked). */
@@ -234,7 +235,7 @@ export const TOOLS: ToolDef[] = [
       if (!name || /^\.+$/.test(name)) name = 'file.txt';
       recordArtifact({ userId: ctx.userId, botId: ctx.botId, jobId: ctx.jobId, filename: name, content: String(a.content) });
       const library = workHash({ tab: 'Reports', botSlug: botSlug(getBotRow(ctx.botId)!) });
-      return { output: `Saved ${name} to your Library. [View saved files](${library})`, summary: `Saved ${name}` };
+      return { output: `Saved ${name} to your Library. [View saved files](${library})`, summary: `Saved ${name}`, savedFile: { filename: name, href: library } };
     },
   },
   {

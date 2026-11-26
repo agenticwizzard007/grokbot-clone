@@ -23,6 +23,7 @@ import { CompletedReplyAnnouncer } from './CompletedReplyAnnouncer';
 import { Copy } from 'lucide-react';
 import { toast } from '../lib/toast';
 import { stepApprovalOutcome } from '../lib/stepApproval';
+import { savedFileResult, savedFileLinksByMessage } from '../lib/savedFiles';
 
 type Item =
   | { kind: 'exchange'; key: string; group: ExchangeGroup }
@@ -76,7 +77,7 @@ function cornerClass(i: number, n: number) {
   return ' is-mid';
 }
 
-const Bubble = memo(function Bubble({ row, side, pos, botName }: { row: Row; side: 'left' | 'right'; pos: string; botName: string }) {
+const Bubble = memo(function Bubble({ row, side, pos, botName, savedFileLinks }: { row: Row; side: 'left' | 'right'; pos: string; botName: string; savedFileLinks?: string[] }) {
   const b = row.body as MessageBody;
   const clean = useDisplayText();
   const ref = useRef<HTMLDivElement>(null);
@@ -97,7 +98,7 @@ const Bubble = memo(function Bubble({ row, side, pos, botName }: { row: Row; sid
     <div ref={ref} className={`bubble-wrap is-${side}`} data-row-seq={row.seq}>
       <div className={`bubble is-${side === 'right' ? 'user' : 'agent'}${pos}${b.streaming ? ' is-streaming' : ''}`}>
         <div className="bubble__sender">{side === 'right' ? 'You' : clean(b.from?.name || botName)}</div>
-        {side === 'right' ? <div className="bubble__plain">{b.text}</div> : <Markdown text={clean(b.text) || ' '} />}
+        {side === 'right' ? <div className="bubble__plain">{b.text}</div> : <Markdown text={clean(b.text) || ' '} savedFileLinks={savedFileLinks} />}
         {b.interrupted && <div className="bubble__interrupted">Interrupted reply</div>}
         {b.citations && b.citations.length > 0 && (
           <div className="bubble__cites">
@@ -154,6 +155,13 @@ function Steps({ rows }: { rows: Row[] }) {
         {n} {n === 1 ? 'step' : 'steps'}
         <Icon name="chev_down" size={10} opacity={0.66} className="steps__chev" />
       </button>
+      {rows.map(row => {
+        const saved = savedFileResult(row.body);
+        return saved && <div key={row.seq} className="saved-file-result" data-row-seq={row.seq}>
+          <span>Saved {saved.filename} to your Library.</span>
+          <a href={saved.href}>View saved files</a>
+        </div>;
+      })}
       {visible.length > 0 && (
         <ul className="steps__list">
           {visible.map((r) => {
@@ -248,6 +256,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
   const connected = useStore(s => s.sseConnected);
   const exchanges = useAgentExchanges(bot.id, generation, loaded && bot.kind !== 'room', connected);
   const visibleRows = useMemo(() => rows.filter(r => !isInternalRow(r)), [rows]);
+  const savedFileLinks = useMemo(() => savedFileLinksByMessage(visibleRows), [visibleRows]);
   const groups = useMemo(() => groupExchanges(exchanges.exchanges, visibleRows), [exchanges.exchanges, visibleRows]);
   live = userFacingLive(live);
 
@@ -410,7 +419,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
                 <div key={it.key} className={`group is-${it.side}`} style={height ? { minHeight: height } : undefined}>
                   {it.from && <SenderLabel from={it.from} />}
                   {it.rows.map((r, i) => (
-                    <Fragment key={r.seq}><Bubble row={r} side={it.side} botName={bot.name} pos={cornerClass(i, it.rows.length)} /></Fragment>
+                    <Fragment key={r.seq}><Bubble row={r} side={it.side} botName={bot.name} pos={cornerClass(i, it.rows.length)} savedFileLinks={savedFileLinks.get(r.seq)} /></Fragment>
                   ))}
                 </div>
               );
