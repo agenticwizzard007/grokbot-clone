@@ -57,7 +57,9 @@ test('the Bot\'s create_routine tool enforces the interval and creates nothing',
   assert.match(String(r.output), /event routine/);
   assert.equal((db.prepare('SELECT COUNT(*) n FROM routines').get() as any).n, before);
   const ok = await toolMap.get('create_routine')!.impl({ name: 'Morning', prompt: 'brief me', schedule: '0 8 * * *' }, { userId: 'u1', botId: b1.id } as any);
-  assert.match(String(ok.output), /"ok":true/);
+  const created = db.prepare('SELECT id FROM routines WHERE bot_id=? AND name=?').get(b1.id, 'Morning') as { id: string };
+  assert.ok(created);
+  assert.equal(ok.output, `Created the routine "Morning". Routine ID: ${created.id}. Schedule: Every day at 8:00 AM (UTC).`);
   for (const r of db.prepare('SELECT id FROM routines').all() as any[]) unscheduleRoutine(r.id);
   db.prepare('DELETE FROM routines').run();
 });
