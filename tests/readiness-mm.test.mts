@@ -69,6 +69,7 @@ test('R12 routine and check-in mutations return plain confirmations with schedul
 test('R13 saved files return a Library link and filename while list_deliverables retains delivery handles', async () => {
   const saved = await run('save_file', { filename: 'fixture report.md', content: '# Fixture report' });
   assert.equal(saved.output, `Saved fixture_report.md to your Library. [View saved files](#bot/${botSlug(bot)}/reports)`);
+  assert.deepEqual(saved.savedFile, { filename: 'fixture_report.md', href: `#bot/${botSlug(bot)}/reports` });
   assert.doesNotMatch(String(saved.output), /\/api\/deliverables|\bID\b|revision/);
   assert.equal(stripInternalIds(String(saved.output)), saved.output);
   assert.equal(redactInternalIds(String(saved.output)), saved.output);
@@ -81,6 +82,7 @@ test('R13 saved files return a Library link and filename while list_deliverables
 test('R14 saved file links resolve to the non-primary saving Bot and survive transcript redaction', async () => {
   const saved = await toolMap.get('save_file')!.impl({ filename: 'perm-r14.txt', content: 'Saved by QA fixture' }, { ...ctx, botId: other.id });
   const link = /\[View saved files\]\(([^)]+)\)/.exec(String(saved.output))![1];
+  assert.deepEqual(saved.savedFile, { filename: 'perm-r14.txt', href: link });
   assert.deepEqual(linkedWork(link), { tab: 'Reports', botSlug: botSlug(other) });
   assert.equal(stripInternalIds(String(saved.output)), saved.output);
   assert.equal(redactInternalIds(String(saved.output)), saved.output);

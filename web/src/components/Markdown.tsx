@@ -3,7 +3,7 @@ import { lazy, memo, Suspense, useEffect, useRef, useState } from 'react';
 const Renderer = lazy(() => import('./MarkdownRenderer').then(m => ({ default: m.Markdown })));
 
 /** Assistant message markdown: paragraphs, lists, blockquotes, inline code, code blocks (screen 02), tables. */
-export const Markdown = memo(function Markdown({ text }: { text: string }) {
+export const Markdown = memo(function Markdown({ text, savedFileLinks }: { text: string; savedFileLinks?: string[] }) {
   const ref = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
   useEffect(() => {
@@ -18,5 +18,5 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
   const plain = <div className="md" style={{ whiteSpace: 'pre-wrap' }}>{text}</div>;
   // Plain text paints first. Parse only messages near the viewport, including
   // when a previously paged conversation is reopened from the local cache.
-  return <div ref={ref}>{visible ? <Suspense fallback={plain}><Renderer text={text} /></Suspense> : plain}</div>;
+  return <div ref={ref}>{visible ? <Suspense fallback={plain}><Renderer text={text} savedFileLinks={savedFileLinks} /></Suspense> : plain}</div>;
 });

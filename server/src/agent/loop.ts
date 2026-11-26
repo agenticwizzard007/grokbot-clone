@@ -874,7 +874,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
         assertTurnCanContinue();
         const successful = res.isError !== true && res.summary !== 'failed';
         finishTool(botId, c.call_id, successful);
-        updateRow(botId, c.rowSeq, { ...body, status: successful ? 'done' : 'error', summary: res.summary, completedAt: now() });
+        updateRow(botId, c.rowSeq, { ...body, status: successful ? 'done' : 'error', summary: res.summary, savedFile: successful ? res.savedFile : undefined, completedAt: now() });
       } catch (e: any) {
         turnSignal(botId)?.throwIfAborted();
         finishTool(botId, c.call_id, false);

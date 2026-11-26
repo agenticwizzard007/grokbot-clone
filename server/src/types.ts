@@ -137,6 +137,8 @@ export interface ToolCallBody {
   completedAt?: number;
   args?: unknown;
   summary?: string;
+  /** Successful file save, persisted for provider-independent transcript navigation. */
+  savedFile?: { filename: string; href: string };
   /** Data URL thumbnail for computer actions. */
   screenshot?: string;
 }
