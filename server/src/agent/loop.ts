@@ -831,7 +831,8 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
           const inner: PendingState = { ...st, calls: [{ call_id: innerId, name: resolved.name, arguments: JSON.stringify(resolved.args), rowSeq: innerRow.seq }], outputs: [] };
           const paused = await processCalls(ctx, inner, { nested: true, signal: options.signal, onPause: pending => {
             st.approvalId = pending.approvalId;
-            db.prepare('INSERT OR REPLACE INTO pending_turns(bot_id,state) VALUES (?,?)').run(botId, JSON.stringify(st));
+            if (options.onPause) options.onPause(st);
+            else db.prepare('INSERT OR REPLACE INTO pending_turns(bot_id,state) VALUES (?,?)').run(botId, JSON.stringify(st));
           } });
           if (paused) return true;
           st.approvalId = '';
@@ -843,17 +844,19 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
             catalog: ctx.availableTools!, signal: turnSignal(botId), dispatch: async action => {
               const existing = db.prepare("SELECT seq FROM rows WHERE bot_id=? AND generation=? AND kind='tool-call' AND json_extract(body,'$.callId')=? ORDER BY seq DESC LIMIT 1").get(botId, getBotRow(botId).generation, action.callId) as { seq: number } | undefined;
               const innerRow = existing ?? appendRow(botId, 'tool-call', { type: 'tool-call', callId: action.callId, name: action.name, args: action.args, label: activityFor(action.name, action.args).label, status: 'queued', ...turnAudience(ctx) });
-              const inner: PendingState = { jobId: ctx.jobId, computerRevision: st.computerRevision, calls: [{ call_id: action.callId, name: action.name, arguments: JSON.stringify(action.args), rowSeq: innerRow.seq }], outputs: [], approvalId: action.approvalId ?? '', depth: st.depth };
+              const inner: PendingState = { jobId: ctx.jobId, computerRevision: st.computerRevision, approvedWrappers: st.approvedWrappers, calls: [{ call_id: action.callId, name: action.name, arguments: JSON.stringify(action.args), rowSeq: innerRow.seq }], outputs: [], approvalId: action.approvalId ?? '', depth: st.depth };
               const paused = await processCalls(ctx, inner, { nested: true, signal: action.signal, onPause: pending => {
                 st.approvalId = pending.approvalId;
-                db.prepare('INSERT OR REPLACE INTO pending_turns(bot_id,state) VALUES (?,?)').run(botId, JSON.stringify(st));
+                if (options.onPause) options.onPause(st);
+                else db.prepare('INSERT OR REPLACE INTO pending_turns(bot_id,state) VALUES (?,?)').run(botId, JSON.stringify(st));
               } });
               const status = (getRow(botId, innerRow.seq)?.body as ToolCallBody)?.status;
               return { paused, approvalId: inner.approvalId, output: inner.outputs[0]?.output, isError: status === 'error' || status === 'denied' };
             } });
           if (program.status === 'waiting') {
             st.approvalId = program.approval_id ?? '';
-            db.prepare('INSERT OR REPLACE INTO pending_turns(bot_id,state) VALUES (?,?)').run(botId, JSON.stringify(st));
+            if (options.onPause) options.onPause(st);
+            else db.prepare('INSERT OR REPLACE INTO pending_turns(bot_id,state) VALUES (?,?)').run(botId, JSON.stringify(st));
             updateRow(botId, c.rowSeq, { ...body, status: 'awaiting-approval', summary: 'Program paused for an action approval' });
             return true;
           }

@@ -38,8 +38,11 @@ test('R11 matrix: every native tool, app discovery, attested reads, writes and M
   const server = saveMcpServer('owner', { name: 'Fixture MCP', transport: 'http', url: 'https://fixture.example/mcp', botIds: [bot.id], requireApproval: true });
   db.prepare('UPDATE mcp_servers SET tools=? WHERE id=?').run(JSON.stringify([{ name: 'inspect', inputSchema: { type: 'object' } }]), server.id);
   const mcp = mcpToolName(server, 'inspect');
+  const trusted = saveMcpServer('owner', { name: 'Trusted fixture MCP', transport: 'http', url: 'https://fixture.example/trusted', botIds: [bot.id], requireApproval: false });
+  db.prepare('UPDATE mcp_servers SET tools=? WHERE id=?').run(JSON.stringify([{ name: 'inspect', inputSchema: { type: 'object' } }]), trusted.id);
+  const trustedMcp = mcpToolName(trusted, 'inspect');
   const cases = [...toolMap.keys()].map(name => ({ name, args: name === 'deliver_artifact' ? { channel: 'library' } : {} }));
-  cases.push({ name: 'SWARM_APPS_SEARCH', args: {} }, { name: 'SWARM_APPS_EXECUTE', args: appArgs }, { name: 'SWARM_APPS_EXECUTE', args: { ...appArgs, tool_slug: 'GITHUB_CREATE_ISSUE' } }, { name: mcp, args: {} });
+  cases.push({ name: 'SWARM_APPS_SEARCH', args: {} }, { name: 'SWARM_APPS_EXECUTE', args: appArgs }, { name: 'SWARM_APPS_EXECUTE', args: { ...appArgs, tool_slug: 'GITHUB_CREATE_ISSUE' } }, { name: mcp, args: {} }, { name: trustedMcp, args: {} });
   for (const { name, args } of cases) {
     db.exec('DELETE FROM policies'); selectCli('owner', null); setLevel('standard');
     const standard = await pol(name, args);
@@ -61,6 +64,8 @@ test('R11 provider search: direct web_search and x_search are offered only in AP
   withUsage({ userId: 'owner', botId: bot.id }, () => {
     setLevel('standard'); assert.deepEqual(serverTools().map(t => t.type), ['web_search', 'x_search']);
     setLevel('every_action'); assert.deepEqual(serverTools(), []);
+    for (const type of ['web_search', 'x_search', 'openrouter:web_search']) { save(type); save(`api_max:${type}`); }
+    assert.deepEqual(serverTools(), [], 'neither Standard nor max grants enable unguarded provider tools');
     // Local configuration only: never connect to or execute an OpenRouter request.
     setEnvOverride('OPENROUTER_API_KEY', 'local-fixture-never-sent');
     setEnvOverride('LLM_PROVIDER', 'openrouter');
@@ -73,7 +78,7 @@ test('R11 provider search: direct web_search and x_search are offered only in AP
 });
 
 test('R11 time zone remains one-time approval at maximum', async () => {
-  setLevel('every_action'); save('update_profile:timezone');
+  setLevel('every_action'); save('update_profile:timezone'); save('api_max:update_profile');
   assert.equal((await pol('update_profile', { timezone: 'Asia/Dubai' })).decision, 'ask');
 });
 
@@ -212,4 +217,20 @@ test('R11 hidden helper approvals are actionable in the parent chat and resolve 
   resolveApproval('owner', approval.id, 'deny'); await settleAgentJobs();
   assert.equal((listRows(bot.id).find(r => r.seq === mirror.seq)!.body as any).status, 'denied');
   assert.equal(pending(helper.id), undefined);
+});
+
+
+test('R11 catalog-wrapped code retains each approval and programs still refuse unsupported wrappers', async () => {
+  setLevel('every_action'); db.exec('DELETE FROM policies');
+  const file = { tool_name: 'save_file', schema_hash: toolSchemaHash(functionSchemas(bot.id).find(t => t.name === 'save_file')!), arguments: { filename: 'nested-wrappers.txt', content: 'nested' } };
+  await run('execute_code', { tools: ['tool_call'], code: `return tools.call("tool_call", ${JSON.stringify(file)});` });
+  assert.equal(pending().tool, 'api_max:execute_code');
+  await decide('allow'); assert.equal(pending(), undefined);
+  assert.ok(listRows(bot.id).some(r => r.body.type === 'tool-call' && r.body.summary?.includes('Programs may use only explicitly listed')), 'unsupported nested program wrappers remain refused');
+  const program = { tools: ['save_file'], code: 'return tools.call("save_file", {filename:"wrapped-code.txt",content:"nested"});' };
+  await run('tool_call', { tool_name: 'execute_code', schema_hash: toolSchemaHash(functionSchemas(bot.id).find(t => t.name === 'execute_code')!), arguments: program });
+  assert.equal(pending().tool, 'api_max:tool_call');
+  await decide('allow'); assert.equal(pending()?.tool, 'api_max:execute_code');
+  await decide('allow'); assert.equal(pending()?.tool, 'api_max:save_file');
+  await decide('deny'); assert.equal(pending(), undefined);
 });
