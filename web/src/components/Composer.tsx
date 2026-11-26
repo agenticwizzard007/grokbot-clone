@@ -68,10 +68,9 @@ export const Composer = memo(function Composer({ bot, running }: { bot: Bot; run
   const [sending, setSending] = useState(() => pendingSends.has(draftKey));
   const [error, setError] = useState<string | null>(() => sendErrors.get(draftKey) ?? null);
   const [menu, setMenu] = useState(false);
-  const [multiline, setMultiline] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => ref.current ? observeComposerInput(ref.current) : undefined, [accountId]);
-  const measureRef = useRef<{ compact: HTMLTextAreaElement; expanded: HTMLTextAreaElement; geometry?: { line: number; base: number; toolbar: number; max: number } } | null>(null);
+  const measureRef = useRef<{ field: HTMLTextAreaElement; max?: number } | null>(null);
   const prefillPointerFocus = useRef(false);
   const moreRef = useRef<HTMLButtonElement>(null);
   const dictationCancelRef = useRef<HTMLButtonElement>(null);
@@ -112,13 +111,12 @@ export const Composer = memo(function Composer({ bot, running }: { bot: Bot; run
     const host = document.createElement('div');
     host.setAttribute('aria-hidden', 'true');
     Object.assign(host.style, { position: 'fixed', top: '0', left: '0', width: '0', height: '0', overflow: 'hidden', visibility: 'hidden', contain: 'strict', pointerEvents: 'none' });
-    const compact = document.createElement('textarea');
-    compact.tabIndex = -1;
-    Object.assign(compact.style, { height: '0px', minHeight: '0px', maxHeight: 'none', padding: '0px', border: '0px' });
-    const expanded = compact.cloneNode() as HTMLTextAreaElement;
-    host.append(compact, expanded);
+    const field = document.createElement('textarea');
+    field.tabIndex = -1;
+    Object.assign(field.style, { height: '0px', minHeight: '0px', maxHeight: 'none', border: '0px', boxSizing: 'border-box', overflow: 'hidden' });
+    host.append(field);
     document.body.append(host);
-    measureRef.current = { compact, expanded };
+    measureRef.current = { field };
     return () => { measureRef.current = null; host.remove(); };
   }, []);
 
@@ -133,31 +131,21 @@ export const Composer = memo(function Composer({ bot, running }: { bot: Bot; run
     if (!composer) return;
     // Geometry and fonts change on resize, pane/catalog changes or font load,
     // not on each keystroke. Keep their style writes out of the typing path.
-    if (refreshGeometry || !measure.geometry) {
+    if (refreshGeometry || !measure.max) {
       const px = (value: string) => parseFloat(value) || 0;
       const style = getComputedStyle(composer);
       const fieldStyle = getComputedStyle(el);
-      const innerWidth = composer.clientWidth - px(style.paddingLeft) - px(style.paddingRight);
-      const chip = composer.querySelector<HTMLElement>('.model-pill-anchor');
-      const chipWidth = Math.min(chip?.scrollWidth ?? 0, px(style.getPropertyValue('--composer-chip-max')));
-      const controls = composer.querySelector<HTMLElement>('.composer__right')?.getBoundingClientRect().height ?? 44;
-      for (const [field, width] of [[measure.compact, innerWidth - 88 - chipWidth - px(style.columnGap) * 3], [measure.expanded, innerWidth - 16]] as const) {
-        Object.assign(field.style, { font: fieldStyle.font, letterSpacing: fieldStyle.letterSpacing, width: `${Math.max(32, width)}px` });
-      }
-      measure.geometry = { line: px(fieldStyle.lineHeight), max: px(style.maxHeight),
-        base: px(style.paddingTop) + px(style.paddingBottom) + px(style.borderTopWidth) + px(style.borderBottomWidth),
-        toolbar: controls + px(style.rowGap) };
+      // Mirror the rendered field, including fractional widths and padding.
+      // A single isolated measure avoids resetting the visible field's height
+      // on each key, which would also lay out the conversation above it.
+      Object.assign(measure.field.style, { font: fieldStyle.font, letterSpacing: fieldStyle.letterSpacing,
+        padding: fieldStyle.padding, width: `${el.getBoundingClientRect().width}px` });
+      const base = px(style.paddingTop) + px(style.paddingBottom) + px(style.borderTopWidth) + px(style.borderBottomWidth);
+      measure.max = Math.max(px(fieldStyle.minHeight), Math.min(MAX_H, px(style.maxHeight) - base));
     }
-    const { line, base, toolbar, max: maxHeight } = measure.geometry;
-    // Both writes precede reads, so there is one isolated text layout per frame.
-    measure.compact.value = measure.expanded.value = el.value;
-    const expanded = el.value.length > 0 && (el.value.includes('\n') || measure.compact.scrollHeight > line + 1);
-    const desired = expanded ? measure.expanded.scrollHeight + 16 : line;
-    if (composer.classList.contains('is-multiline') !== expanded) {
-      composer.classList.toggle('is-multiline', expanded);
-      setMultiline(expanded);
-    }
-    const max = Math.max(line, Math.min(MAX_H, maxHeight - base - (expanded ? toolbar : 0)));
+    const max = measure.max;
+    measure.field.value = el.value;
+    const desired = measure.field.scrollHeight;
     el.style.height = `${Math.min(desired, max)}px`;
     el.style.overflowY = desired > max ? 'auto' : 'hidden';
   }, []);
@@ -346,7 +334,7 @@ export const Composer = memo(function Composer({ bot, running }: { bot: Bot; run
       )}
       <div className={`composer-shell effort-motion${ultra ? ' is-top-effort' : ''}${flare ? ' is-flaring' : ''}`} data-effort={effort ?? undefined}>
       {animated && <span className="composer__glow" aria-hidden />}
-      <div className={`composer${multiline ? ' is-multiline' : ''}${animated ? ' has-effort' : ''}${ultra ? ' is-ultracode' : ''}`}>
+      <div className={`composer${animated ? ' has-effort' : ''}${ultra ? ' is-ultracode' : ''}`}>
 
         <div className="composer__bar">
         <div className="composer__left">

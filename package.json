@@ -18,6 +18,7 @@
     "test:readiness-ww": "node --import tsx --test --test-concurrency=1 tests/api-approval-level.test.mts tests/api-run-diagnostics.test.mts tests/cli-account-diagnostics.test.mts tests/cli-diagnostics.test.mts tests/cli-pending-runs.test.mts tests/cli-decided-runs.test.mts tests/cli-real-app-approvals.test.mts tests/cli-subscription.test.mts && node tests/api-approval-ui.mjs && node tests/cli-pending-runs-ui.mjs",
     "test:api-approvals": "node --import tsx --test tests/api-approval-level.test.mts tests/api-run-diagnostics.test.mts && node tests/api-approval-ui.mjs",
     "test:readiness-hh": "node --import tsx --test tests/suggestion-display.test.mts tests/suggestion-cache.test.mts && node tests/readiness-hh-ui.mjs",
+    "test:composer-layout": "node tests/composer-stable-layout-ui.mjs",
     "test:composer-live": "node tests/composer-live-performance-ui.mjs",
     "test:composer-polish": "node --import tsx --test tests/composer-first-render.test.mts tests/composer-model-label.test.mts tests/model-access-status.test.mts && node tests/composer-model-loading-ui.mjs && node tests/composer-performance-ui.mjs && node tests/model-access-status-ui.mjs",
     "test:voice-status": "node --import tsx --test tests/voice-connect.test.mts tests/cli-status-fast.test.mts tests/composer-first-render.test.mts && node tests/voice-status-composer-ui.mjs",

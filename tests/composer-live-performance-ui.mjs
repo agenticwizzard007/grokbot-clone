@@ -16,7 +16,7 @@ const markers = [
   ['Transcript.tsx', 'SystemRow', '  const [retrying, setRetrying] = useState(false);'],
   ['Composer.tsx', 'Composer', '  const draftKey = `${accountId}:${bot.id}`;'],
   ['ActivityLine.tsx', 'ActivityLine', 'export function ActivityLine({ bot, live, rows }: { bot: Bot; live: LiveState; rows: Row[] }) {'],
-  ['MarkdownRenderer.tsx', 'Markdown', 'export const Markdown = React.memo(function Markdown({ text }: { text: string }) {'],
+  ['MarkdownRenderer.tsx', 'Markdown', 'export const Markdown = React.memo(function Markdown({ text, savedFileLinks }: { text: string; savedFileLinks?: string[] }) {'],
 ];
 await build({ root, build: { outDir, emptyOutDir: true }, plugins: [{
   name: 'local-live-profile', enforce: 'pre',
