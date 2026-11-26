@@ -12,7 +12,7 @@ const flags: { key: keyof Settings; label: string; hint: string }[] = [
   { key: 'automaticReview', label: 'Automatic reviews', hint: 'On: review eligible finished turns in the background while Learning is on. Off: start reviews yourself with Refine now.' },
   { key: 'memoryReview', label: 'Review memories', hint: 'On: include durable preferences and environment facts in reviews. Off: skip memory review.' },
   { key: 'skillReview', label: 'Review skills', hint: 'On: review reusable procedures and their resources. Off: skip skill review.' },
-  { key: 'skillApproval', label: 'Require approval for skill changes', hint: 'On: every skill change waits for your review. Off allows automatic improvements only under a standing scope policy after independent frozen evaluations. Other unattended changes wait for review.' },
+  { key: 'skillApproval', label: 'Require approval for skill changes', hint: 'On: skill changes made by your Bot wait for your review. Off: on a connected Claude or OpenAI plan, skill changes you request in chat take effect immediately. Background changes still need review unless they pass the automatic improvement checks you enabled.' },
 ];
 export function LearningSettingsPanel({ botId }: { botId?: string }) {
   const userId = useStore(state => state.user?.id);
