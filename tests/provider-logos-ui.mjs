@@ -15,6 +15,7 @@ const cases = [
   { name: 'claude', provider: 'claude-cli', selected: 'claude', billing: 'plan', plan: 'max', mark: 'claude', models: [model('claude/opus-4-6', 'Opus 4.6', 'anthropic')] },
   { name: 'codex', provider: 'codex-cli', selected: 'codex', billing: 'plan', mark: 'openai', models: [] },
   { name: 'grok-api', provider: 'openrouter', selected: null, billing: 'api', mark: 'xai', models: [model('x-ai/grok-4', 'Grok 4', 'x-ai')] },
+  { name: 'direct-grok', provider: 'direct', selected: null, billing: 'api', mark: 'xai', models: [model('grok-4', 'Grok 4', 'custom')] },
   { name: 'openai-api', provider: 'openrouter', selected: null, billing: 'api', mark: 'openai', models: [model('openai/gpt-5.5', 'GPT 5.5', 'openai')] },
 ];
 async function markVisible(locator, brand) {
@@ -86,12 +87,13 @@ try {
       }
       await page.keyboard.press('Escape');
       if (width === 390) await page.getByRole('button', { name: 'All Bots', exact: true }).click();
-      await markVisible(page.locator('.sidebar-usage strong'), sample.billing === 'plan' ? sample.mark : 'openrouter');
+      if (sample.provider === 'direct') assert.equal(await page.locator('.sidebar-usage .provider-icon').count(), 0, 'an unnamed custom billing endpoint does not claim a provider brand');
+      else await markVisible(page.locator('.sidebar-usage strong'), sample.billing === 'plan' ? sample.mark : 'openrouter');
       await page.screenshot({ path: `${evidence}/${sample.name}-${width}-${theme}-sidebar.png` });
       if (width === 1280) {
         await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click();
         const collapsedUsage = page.locator('.sidebar-usage');
-        await markVisible(collapsedUsage, sample.billing === 'plan' ? sample.mark : 'openrouter');
+        if (sample.provider !== 'direct') await markVisible(collapsedUsage, sample.billing === 'plan' ? sample.mark : 'openrouter');
         assert.match(await collapsedUsage.getAttribute('aria-label'), /Usage: (Claude|Codex|API credits)/, 'icon-only usage retains its accessible name');
       }
       // Full Settings UI: tabs, connection label, current route and key connection.
@@ -118,7 +120,7 @@ try {
       await botModel.scrollIntoViewIfNeeded();
       await page.screenshot({ path: `${evidence}/${sample.name}-${width}-${theme}-bot-settings.png` });
       await page.goto(`${origin}/#settings/usage`);
-      await markVisible(page.locator('.usage-billing'), sample.selected ? sample.mark : 'openrouter');
+      if (sample.provider !== 'direct') await markVisible(page.locator('.usage-billing'), sample.selected ? sample.mark : 'openrouter');
       await page.getByRole('button', { name: 'Show more', exact: true }).click();
       await markVisible(page.locator('.usage-ranked__label'), sample.mark);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'settings and usage fit');
