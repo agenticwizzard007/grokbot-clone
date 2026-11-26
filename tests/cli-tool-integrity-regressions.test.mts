@@ -98,7 +98,7 @@ test('delete_routine removes its own scheduled routine and provider trigger once
   scheduleRoutine({ id, botId: actor.id, name: 'Owned routine', prompt: 'Local fixture', schedule: '0 0 1 1 *', timezone: 'UTC' });
   const stop = t.mock.method(Cron.prototype, 'stop');
   const remove = t.mock.method(composio().triggers, 'delete', async () => ({}));
-  assert.equal((await tool('delete_routine').impl({ routine_id: id }, context)).output, 'Deleted.');
+  assert.match(String((await tool('delete_routine').impl({ routine_id: id }, context)).output), /^Deleted the routine ".+"\.$/);
   assert.equal(stop.mock.callCount(), 1);
   assert.deepEqual(remove.mock.calls.map(call => call.arguments), [['owned-trigger']]);
   assert.equal(db.prepare('SELECT 1 FROM routines WHERE id=?').get(id), undefined);

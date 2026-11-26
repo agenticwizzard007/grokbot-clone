@@ -162,7 +162,7 @@ for (const native of [false, true]) test(`background ${native ? 'native callback
             assert.equal(skills.listSkillProposals('owner', 'alpha').length, 0);
             return call('propose_skill', valid);
         }
-        assert.equal(JSON.parse(body.input.at(-1).output).ok, true);
+        assert.match(body.input.at(-1).output, /for review.*not active yet/);
         return final();
     });
     assert.equal((await learning.runLearningReview(review.id))?.status, 'completed');

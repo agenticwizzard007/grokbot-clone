@@ -524,7 +524,7 @@ for (const scenario of ['subjects', 'provider error', 'auth error', 'timeout', '
   }
 });
 
-for (const provider of ['codex', 'claude'] as const) test(`R12 real ${provider}: completed internal task output reaches the reply with its title and full ID`, { timeout: 30000 }, async t => {
+for (const provider of ['codex', 'claude'] as const) test(`R12 real ${provider}: completed internal task output reaches the reply with its title and no ID`, { timeout: 30000 }, async t => {
   let step = 0;
   const a = await account(t, provider, 'hosted', (_: string, body: any) => {
     const call = (name: string, args: unknown) => ({ name: provider === 'claude' ? `mcp__swarm__${name}` : name, args });
@@ -543,7 +543,7 @@ for (const provider of ['codex', 'claude'] as const) test(`R12 real ${provider}:
   assert.ok(task);
   const reply = a.rows().filter(r => r.body.role === 'assistant').map(r => r.body.text).join('\n');
   assert.match(reply, /Created the task "Task fixture 1"/);
-  assert.ok(reply.includes(task.id));
+  assert.ok(!reply.includes(task.id));
   assert.doesNotMatch(reply, /\(ID task\)|\{"task_id"/);
   const run = (await a.request('/cli')).runsByProvider[provider].lastToolRun;
   assert.equal(run.lastTool, 'create_task');

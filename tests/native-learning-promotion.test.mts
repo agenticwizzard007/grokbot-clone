@@ -107,8 +107,20 @@ for(const change of ['source-edit','source-delete','base-edit','policy-edit','se
  if(change==='policy-edit')evaluation.setPromotionPolicy('owner',skill.id,{expectedRevision:1,policy:evaluation.promotionPolicy('owner',skill.id)!.policy});
  if(change==='settings-edit')settings.patchLearningSettings('owner',{expectedRevision:0,settings:{memoryTurnInterval:9}});
  if(change==='generation')db.prepare("UPDATE bots SET generation=2 WHERE id='alpha'").run();
- assert.throws(()=>skills.promoteSkillProposal('owner',p.id,e.id));assert.equal(skills.listSkillProposals('owner','alpha')[0].status,'pending');
+ assert.throws(()=>skills.promoteSkillProposal('owner',p.id,e.id));assert.equal(skills.listSkillProposals('owner','alpha')[0].status,change==='base-edit'?'superseded':'pending');
  assert.equal(evaluation.listSkillEvaluations('owner',p.id)[0].status,'passed','historical result remains immutable, never rewritten to fit current state');
+});
+
+test('R13 a newer proposal supersedes an evaluated candidate without weakening automatic promotion checks',()=>{
+ const skill=setup();const old=stage(skill);const passed=evaluation.evaluateSkillProposal('owner',old.id);assert.equal(passed.status,'passed');
+ const current=stage(skill);
+ assert.equal(evaluation.candidateRow('owner',old.id).status,'superseded');
+ assert.throws(()=>skills.promoteSkillProposal('owner',old.id,passed.id));
+ assert.deepEqual(skills.listSkillProposals('owner','alpha').filter(p=>p.status==='pending').map(p=>p.id),[current.id]);
+ const checked=evaluation.evaluateSkillProposal('owner',current.id);assert.equal(checked.status,'passed');
+ skills.promoteSkillProposal('owner',current.id,checked.id);
+ assert.equal(skills.listSkillProposals('owner','alpha').filter(p=>p.status==='pending').length,0);
+ assert.equal(evaluation.listSkillEvaluations('owner',old.id)[0].status,'passed','the old evaluation remains immutable');
 });
 
 test('critical fixture regression rolls back only to a baseline valid under current policy',()=>{

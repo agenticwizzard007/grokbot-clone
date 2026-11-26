@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Hono } from 'hono';
+import { stripInternalIds } from '../web/src/lib/stripInternalIds.ts';
 import { mockCliProvider, modelOutputs, modelTools, usesCodeMode, codeModeAction } from './fixtures/real-cli-provider.mjs';
 
 // Official binaries, production hosted profiles and MCP transport. Only account
@@ -52,7 +53,16 @@ async function account(t: any, provider: 'codex' | 'claude') {
   const fixture = await mockCliProvider(directory, (p: string, body: any) => {
     if (!modelTools(p, body).length && !usesCodeMode(body)) return { text: 'Auxiliary fixture.' };
     const action = actions[0];
-    if (!action) return { text: 'Fixture actions completed.' };
+    if (!action) {
+      const unwrap = (value: any): string => {
+        if (Array.isArray(value)) return value.map(unwrap).join('\n');
+        if (value?.content) return unwrap(value.content);
+        if (value?.text) return unwrap(value.text);
+        if (typeof value === 'string') { try { return unwrap(JSON.parse(value)); } catch { return value; } }
+        return '';
+      };
+      return { text: unwrap(modelOutputs(p, body).at(-1)) };
+    }
     if (action.wrapped && p === 'codex' && usesCodeMode(body)) {
       actions.shift();
       // Code mode returns an MCP result envelope to the JS cell. Consume the
@@ -97,6 +107,26 @@ async function account(t: any, provider: 'codex' | 'claude') {
 }
 
 for (const provider of ['codex', 'claude'] as const) {
+  test(`R13 real ${provider} replies name created tasks, active skills and saved files without IDs or API paths`, { timeout: 180000 }, async t => {
+    const a = await account(t, provider);
+    const cases = [
+      { name: 'create_task', args: { title: 'Wording fixture task' }, title: 'Wording fixture task', expected: /Created the task/, wrapped: true },
+      { name: 'manage_skill', args: { ...a.skill('wording-managed-skill'), action: 'create' }, title: 'wording-managed-skill', expected: /active now/, wrapped: true },
+      { name: 'propose_skill', args: a.skill('wording-proposed-skill'), title: 'wording-proposed-skill', expected: /active now/ },
+      { name: 'save_file', args: { filename: 'wording-report.md', content: '# Fixture report' }, title: 'wording-report.md', expected: /Saved .* to your Library/, wrapped: true },
+    ];
+    for (const action of cases) {
+      await a.chat([action]);
+      const reply = listRows(a.bot.id).filter((r: any) => r.body.role === 'assistant').at(-1)?.body as any;
+      assert.ok(reply?.text.includes(action.title), JSON.stringify(reply));
+      assert.match(reply.text, action.expected);
+      assert.equal(stripInternalIds(reply.text), reply.text, 'visible chat redaction preserves the confirmation and link');
+      assert.doesNotMatch(reply.text, /\bID\b|\brevision\b|\b(?:task|skl|skill|mem|file)_[a-z0-9]+|\/api\/deliverables\//i);
+      if (action.name === 'save_file') assert.match(reply.text, /\[View saved files\]\(https?:\/\/[^\s]+\/#reports\)/);
+    }
+    assert.ok(a.fixture.args(provider).length >= cases.length, 'each reply ran through the installed official binary');
+  });
+
   test(`R12 ${provider} hosted official CLI internal-action matrix persists memory, task, skill, file and routine without approval`, { timeout: 180000 }, async t => {
     const a = await account(t, provider), before = appExecutions.length;
     const actions = [
@@ -169,16 +199,18 @@ for (const provider of ['codex', 'claude'] as const) {
     for (const name of ['propose_skill', 'manage_skill']) {
       const args = { ...a.skill(`background-${name}`), ...(name === 'manage_skill' ? { action: 'create' } : {}) };
       const result = await withManagement({ ...base, unattended: true, actor: 'background_review', reads: new Map() }, () => toolMap.get(name)!.impl(args, base));
-      assert.equal(result.isError, undefined, String(result.output)); assert.equal(JSON.parse(String(result.output)).activated, false);
+      assert.equal(result.isError, undefined, String(result.output)); assert.match(String(result.output), /for review.*not active yet/);
     }
     const result = await toolMap.get('propose_skill')!.impl(a.skill('nested-no-job'), { ...base, jobId: undefined, depth: 1 });
-    assert.equal(JSON.parse(String(result.output)).activated, false);
+    assert.match(String(result.output), /for review.*not active yet/);
     assert.equal(listSkills(a.userId, a.bot.id).length, 0);
     assert.equal(listSkillProposals(a.userId, a.bot.id).filter(p => p.status === 'pending').length, 3);
     const tool = toolMap.get('propose_skill')!;
     const invalid = await tool.impl({ ...a.skill('invalid-evidence'), evidence: [] }, base);
     assert.equal(invalid.isError, true);
-    const created = JSON.parse(String((await tool.impl(a.skill('guarded'), base)).output)).skill;
+    const confirmation = await tool.impl(a.skill('guarded'), base);
+    assert.match(String(confirmation.output), /Saved the skill \"guarded\".*active now/);
+    const created = listSkills(a.userId, a.bot.id).find(s => s.name === 'guarded')!;
     assert.ok(created);
     const unread = await tool.impl({ ...a.skill('guarded'), skill_id: created.id, expected_revision: 1, body: 'Unread update' }, base);
     assert.equal(unread.isError, true); assert.match(String(unread.output), /Read the current target/);
@@ -206,6 +238,6 @@ for (const provider of ['codex', 'claude'] as const) {
     assert.equal((db.prepare('SELECT count(*) n FROM approvals WHERE bot_id=?').get(a.bot.id) as any).n, 0);
     selectCli(a.userId, null);
     const apiProposal = await tool.impl(a.skill('api-unchanged'), base);
-    assert.equal(JSON.parse(String(apiProposal.output)).activated, false);
+    assert.match(String(apiProposal.output), /for review.*not active yet/);
   });
 }

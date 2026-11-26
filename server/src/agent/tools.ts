@@ -224,15 +224,16 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'save_file',
-    description: 'Save a report, notes, CSV, code or markdown as an immutable Library artifact. Returns its ID and authenticated download URL for the user or deliver_artifact.',
+    description: 'Save a report, notes, CSV, code or markdown as an immutable Library artifact. Confirms the filename and links to Library. Use list_deliverables to find its ID before deliver_artifact.',
     parameters: obj({ filename: { type: 'string', description: 'e.g. briefing-2026-11-09.md' }, content: { type: 'string' } }, ['filename', 'content']),
     activity: 'drafting_file',
     label: 'Saving notes',
     impl: async (a, ctx) => {
       let name = String(a.filename).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
       if (!name || /^\.+$/.test(name)) name = 'file.txt';
-      const artifact = recordArtifact({ userId: ctx.userId, botId: ctx.botId, jobId: ctx.jobId, filename: name, content: String(a.content) });
-      return { output: JSON.stringify({ ok: true, artifact }), summary: `Saved ${name}` };
+      recordArtifact({ userId: ctx.userId, botId: ctx.botId, jobId: ctx.jobId, filename: name, content: String(a.content) });
+      const library = new URL('/#reports', env.appUrl).href;
+      return { output: `Saved ${name} to your Library. [View saved files](${library})`, summary: `Saved ${name}` };
     },
   },
   {
@@ -267,7 +268,7 @@ export const TOOLS: ToolDef[] = [
       await scheduleRoutine(r);
       appendRow(ctx.botId, 'event', { type: 'event', event: 'routine-created', text: `Routine created: ${a.name} · ${describeCron(a.schedule)}`, ref: id });
       hub.emit(ctx.userId, { type: 'routines', botId: ctx.botId });
-      return { output: `Created the routine "${r.name}". Routine ID: ${r.id}. Schedule: ${r.description} (${r.timezone}).`, summary: `Created routine ${a.name}` };
+      return { output: `Created the routine "${r.name}". Schedule: ${r.description} (${r.timezone}).`, summary: `Created routine ${a.name}` };
     },
   },
   {
@@ -293,7 +294,7 @@ export const TOOLS: ToolDef[] = [
         const r = await createEventRoutine(ctx.userId, ctx.botId, { name: a.name, prompt: a.prompt, trigger_slug: a.trigger_slug, config });
         appendRow(ctx.botId, 'event', { type: 'event', event: 'routine-created', text: `Routine created: ${a.name} · ${describeEvent(`event:${String(a.trigger_slug).toUpperCase()}`)}`, ref: r.id });
         hub.emit(ctx.userId, { type: 'routines', botId: ctx.botId });
-        return { output: `Created the event routine "${a.name}". Routine ID: ${r.id}.`, summary: `Created event routine ${a.name}` };
+        return { output: `Created the event routine "${a.name}".`, summary: `Created event routine ${a.name}` };
       } catch (e: any) {
         return { output: `Could not create the trigger: ${e?.message ?? e}. If the app isn't connected, call request_app_connection first.` };
       }
@@ -347,7 +348,7 @@ export const TOOLS: ToolDef[] = [
       else await unscheduleRoutine(r.id);
       appendRow(ctx.botId, 'event', { type: 'event', event: 'routine-updated', text: `Routine updated: ${r.name} · ${r.enabled ? r.description : 'Paused'}`, ref: r.id });
       hub.emit(ctx.userId, { type: 'routines', botId: ctx.botId });
-      return { output: `Updated the routine "${r.name}". Routine ID: ${r.id}. ${r.enabled ? `Schedule: ${r.description} (${r.timezone}).` : 'The routine is paused.'}` };
+      return { output: `Updated the routine "${r.name}". ${r.enabled ? `Schedule: ${r.description} (${r.timezone}).` : 'The routine is paused.'}` };
     },
   },
   {
@@ -358,13 +359,13 @@ export const TOOLS: ToolDef[] = [
     label: 'Removing a routine',
     impl: async (a, ctx) => {
       const id = String(a.routine_id);
-      const routine = db.prepare('SELECT r.id FROM routines r JOIN bots b ON b.id=r.bot_id WHERE r.id=? AND r.bot_id=? AND b.user_id=?').get(id, ctx.botId, ctx.userId);
+      const routine = db.prepare('SELECT r.id,r.name FROM routines r JOIN bots b ON b.id=r.bot_id WHERE r.id=? AND r.bot_id=? AND b.user_id=?').get(id, ctx.botId, ctx.userId) as { id: string; name: string } | undefined;
       if (!routine) return { output: 'No such routine.' };
       await unscheduleRoutine(id);
       await deleteEventTrigger(id);
       db.prepare('DELETE FROM routines WHERE id=? AND bot_id=?').run(id, ctx.botId);
       hub.emit(ctx.userId, { type: 'routines', botId: ctx.botId });
-      return { output: 'Deleted.' };
+      return { output: `Deleted the routine "${routine.name}".` };
     },
   },
   {
@@ -377,7 +378,7 @@ export const TOOLS: ToolDef[] = [
       const id = newId('task');
       db.prepare("INSERT INTO tasks(id,bot_id,title,state,created_at,updated_at) VALUES (?,?,?,'working',?,?)").run(id, ctx.botId, a.title, now(), now());
       hub.emit(ctx.userId, { type: 'tasks', botId: ctx.botId });
-      return { output: `Created the task "${a.title}". Task ID: ${id}.` };
+      return { output: `Created the task "${a.title}".` };
     },
   },
   {
@@ -395,7 +396,7 @@ export const TOOLS: ToolDef[] = [
       db.prepare('UPDATE tasks SET state=?, note=COALESCE(?, note), updated_at=? WHERE id=? AND bot_id=?').run(a.state, a.note ?? null, now(), a.task_id, ctx.botId);
       hub.emit(ctx.userId, { type: 'tasks', botId: ctx.botId });
       const state = a.state === 'done' ? 'Done' : a.state === 'needs_input' ? 'Needs input' : 'Working';
-      return { output: `Updated the task "${task.title}". Status: ${state}. Task ID: ${a.task_id}.` };
+      return { output: `Updated the task "${task.title}". Status: ${state}.` };
     },
   },
   {
@@ -512,7 +513,7 @@ export const TOOLS: ToolDef[] = [
       if (missing.length || new Set(ids).size < 2) return { output: `A group needs at least 2 distinct Bots and every target must resolve. Not found: ${missing.join(', ') || 'none'}.`, isError: true };
       const id = createRoom(ctx.userId, String(a.name), [...new Set(ids)]);
       appendRow(id, 'event', { type: 'event', event: 'bot-message', text: `Group created with ${names.join(', ')}` });
-      return { output: `Created the group "${a.name}" with ${names.join(', ')}. Group ID: ${id}.`, summary: `Created group ${a.name}` };
+      return { output: `Created the group "${a.name}" with ${names.join(', ')}.`, summary: `Created group ${a.name}` };
     },
   },
   {

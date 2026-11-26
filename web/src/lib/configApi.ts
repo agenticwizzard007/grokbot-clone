@@ -38,7 +38,7 @@ export interface KnowledgeMemory extends Memory { scope?: 'private' | 'project' 
 export interface SkillEvaluation {id:string;status:string;reason:string;policyRevision:number;settingsRevision:string;candidateHash:string;sourceHash:string;baseHash:string;evaluator:string;results:{id:string;category:string;expected:string;baselineExpected:string;actual:string;baseline:string;passed:boolean}[]}
 export interface SkillPromotion {actor:string;policyRevision:number;evaluationId:string;revision?:number;rollback:{revision:number;hash:string};evaluations?:SkillEvaluation[]}
 export interface SkillRevision { resources?: Record<string,string>; locked?: boolean; pinned?: boolean; scope?: string; projectId?: string | null; revision: number; name: string; description: string; body: string; deleted: boolean; action: string; actor: string; evidence: MessageSource[]; runId: string | null; createdAt: number;promotion?:SkillPromotion|null }
-export interface SkillProposal { id: string; skillId: string; baseRevision: number; content: Pick<Skill, 'name' | 'description' | 'body'>; reason: string; evidence: MessageSource[]; runId: string | null; status: 'pending' | 'approved' | 'rejected'; createdAt: number; diff: string;evaluations?:SkillEvaluation[];promotion?:SkillPromotion|null }
+export interface SkillProposal { id: string; skillId: string; baseRevision: number; content: Pick<Skill, 'name' | 'description' | 'body'>; reason: string; evidence: MessageSource[]; runId: string | null; status: 'pending' | 'approved' | 'rejected' | 'superseded'; createdAt: number; diff: string;evaluations?:SkillEvaluation[];promotion?:SkillPromotion|null }
 
 export interface BotSettingsBundle {
   memories: KnowledgeMemory[];

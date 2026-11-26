@@ -7,6 +7,7 @@ import { db, now } from '../db.js';
 import { newId } from '../lib/ids.js';
 import { boundedText, checkedRun, expectedRevision, KnowledgeError, ownedBot } from './common.js';
 import { refsOnly, validateEvidence, type MessageRef } from './sessions.js';
+import { skillProposalStatus } from './proposal-status.js';
 
 export interface SkillContent { name: string; description: string; body: string; resources?:Record<string,string>; locked?:boolean; pinned?:boolean; managed?:boolean; scope?:Scope; projectId?:string|null;deleted?:boolean }
 export interface SkillView extends SkillContent { id: string; botId: string; revision: number; createdAt: number; updatedAt: number; deleted: boolean; resources:Record<string,string>;locked:boolean;pinned:boolean;managed:boolean;scope:Scope;projectId:string|null;lastUsedAt:number|null;lifecycle:'active'|'stale'|'archived'|'suspended' }
@@ -122,7 +123,8 @@ export function stageSkillProposal(userId: string, botId: string, input: { skill
     db.prepare('INSERT INTO knowledge_skill_proposals(id,bot_id,skill_id,base_revision,generation,snapshot,reason,evidence,run_id,created_at,actor,source_versions,settings_revision,policy_revision,base_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(id, botId, skillId, input.expectedRevision, bot.generation, JSON.stringify(value), reason, JSON.stringify(evidence), runId, now(),actor,JSON.stringify(sourceVersions),settingsVersion(userId,botId),cur?promotionPolicy(userId,skillId)?.revision??0:0,cur?baseSnapshotHash(skillId,cur.revision):'');
     publishNativeEvent({userId,botId,kind:'knowledge.skill.proposed',sourceType:'skill-proposal',sourceId:id,jobId:runId,data:{skillId}});
-    return { id, skillId, baseRevision: input.expectedRevision, status: 'pending', diff: skillDiff(cur ? view(cur) : null, value) };
+    const status = skillProposalStatus({ id, bot_id: botId, skill_id: skillId, base_revision: input.expectedRevision, snapshot: JSON.stringify(value), status: 'pending' });
+    return { id, skillId, name: value.name, baseRevision: input.expectedRevision, status, diff: skillDiff(cur ? view(cur) : null, value) };
   })();
 }
 export function listSkillProposals(userId: string, botId: string) {
@@ -130,7 +132,7 @@ export function listSkillProposals(userId: string, botId: string) {
   return (db.prepare("SELECT * FROM knowledge_skill_proposals WHERE bot_id=? ORDER BY created_at DESC,id DESC LIMIT 100").all(botId) as any[]).map(p => {
     const base = p.base_revision ? db.prepare('SELECT snapshot FROM knowledge_skill_revisions WHERE skill_id=? AND revision=?').get(p.skill_id, p.base_revision) as any : null;
     const promotion=db.prepare('SELECT * FROM knowledge_skill_promotions WHERE proposal_id=?').get(p.id) as any;
-    return { id: p.id, skillId: p.skill_id, baseRevision: p.base_revision, content: JSON.parse(p.snapshot),actor:p.actor,sourceVersions:JSON.parse(p.source_versions??'[]'),settingsRevision:p.settings_revision,policyRevision:p.policy_revision,evaluations:listSkillEvaluations(userId,p.id),promotion:promotion?{evaluationId:promotion.evaluation_id,revision:promotion.revision,policyRevision:promotion.policy_revision,actor:promotion.actor,rollback:JSON.parse(promotion.rollback)}:null, reason: p.reason, evidence: JSON.parse(p.evidence), runId: p.run_id, status: p.status, createdAt: p.created_at, diff: skillDiff(base ? JSON.parse(base.snapshot) : null, JSON.parse(p.snapshot)) };
+    return { id: p.id, skillId: p.skill_id, baseRevision: p.base_revision, content: JSON.parse(p.snapshot),actor:p.actor,sourceVersions:JSON.parse(p.source_versions??'[]'),settingsRevision:p.settings_revision,policyRevision:p.policy_revision,evaluations:listSkillEvaluations(userId,p.id),promotion:promotion?{evaluationId:promotion.evaluation_id,revision:promotion.revision,policyRevision:promotion.policy_revision,actor:promotion.actor,rollback:JSON.parse(promotion.rollback)}:null, reason: p.reason, evidence: JSON.parse(p.evidence), runId: p.run_id, status: skillProposalStatus(p), createdAt: p.created_at, diff: skillDiff(base ? JSON.parse(base.snapshot) : null, JSON.parse(p.snapshot)) };
   });
 }
 export function resolveSkillProposal(userId: string, id: string, decision: 'approve' | 'reject', expectedBaseRevision: number) {
@@ -139,6 +141,7 @@ export function resolveSkillProposal(userId: string, id: string, decision: 'appr
     const p = db.prepare('SELECT p.* FROM knowledge_skill_proposals p JOIN bots b ON b.id=p.bot_id WHERE p.id=? AND b.user_id=?').get(id, userId) as any;
     if (!p) throw new KnowledgeError('Not found', 404);
     assertWritable(userId,p.bot_id);expectedRevision(p.base_revision, expectedBaseRevision);
+    if (decision === 'approve' && skillProposalStatus(p) === 'superseded') throw new KnowledgeError('This proposal was superseded. Review the current skill or a newer proposal.', 409);
     if (p.status !== 'pending') throw new KnowledgeError('Proposal has already been reviewed', 409);
     if (!['approve', 'reject'].includes(decision)) throw new KnowledgeError('Invalid review decision');
     let skill: SkillView | undefined;

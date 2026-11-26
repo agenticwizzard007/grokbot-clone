@@ -6,6 +6,7 @@ import { learningSettings, settingsVersion } from './settings.js';
 import { checkedRun } from './common.js';
 import { refsOnly, validateEvidence } from './sessions.js';
 import type { SkillContent } from './skills.js';
+import { skillProposalStatus } from './proposal-status.js';
 
 // This interpreter has no tool dispatcher, network, clock, executable code or
 // model dependency. Unsupported procedures have no passing evaluator.
@@ -89,7 +90,7 @@ export function assertSourcesNotSuppressed(botId:string,evidence:{botId:string;g
 }
 export function candidateRow(userId:string,id:string) {
  const p=db.prepare('SELECT p.* FROM knowledge_skill_proposals p JOIN bots b ON b.id=p.bot_id WHERE p.id=? AND b.user_id=?').get(id,userId) as any;
- if(!p)throw new KnowledgeError('Not found',404);return p;
+ if(!p)throw new KnowledgeError('Not found',404);return {...p,status:skillProposalStatus(p)};
 }
 function unchangedEnvelope(base:SkillContent,next:SkillContent) {
  const omit=(s:SkillContent)=>({...s,resources:undefined});
