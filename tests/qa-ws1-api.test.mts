@@ -380,9 +380,12 @@ test('R2F-017 two consecutive account zone changes both move the schedule, emit 
     // A new routine without an explicit zone uses the account zone; an explicit zone is kept.
     assert.equal(accountTimezone('owner'), 'Europe/London');
     const ctx = { userId: 'owner', botId: worker.id, depth: 0, enqueueBotMessage: () => undefined };
-    const made = JSON.parse((await toolMap.get('create_routine')!.impl({ name: 'Morning', prompt: 'Say hi', schedule: '0 9 * * *' }, ctx)).output as string);
+    const madeResult = await toolMap.get('create_routine')!.impl({ name: 'Morning', prompt: 'Say hi', schedule: '0 9 * * *' }, ctx);
+    assert.match(String(madeResult.output), /Created the routine "Morning"/);
+    const made = { routine: db.prepare('SELECT * FROM routines WHERE bot_id=? AND name=?').get(ctx.botId, 'Morning') as any };
     assert.equal(made.routine.timezone, 'Europe/London');
-    const explicit = JSON.parse((await toolMap.get('create_routine')!.impl({ name: 'Evening', prompt: 'Say bye', schedule: '0 18 * * *', timezone: 'Asia/Tokyo' }, ctx)).output as string);
+    await toolMap.get('create_routine')!.impl({ name: 'Evening', prompt: 'Say bye', schedule: '0 18 * * *', timezone: 'Asia/Tokyo' }, ctx);
+    const explicit = { routine: db.prepare('SELECT * FROM routines WHERE bot_id=? AND name=?').get(ctx.botId, 'Evening') as any };
     assert.equal(explicit.routine.timezone, 'Asia/Tokyo');
     const { unscheduleRoutine } = await import('../server/src/routines.js');
     for (const r of [made.routine, explicit.routine]) unscheduleRoutine(r.id);

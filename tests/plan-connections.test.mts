@@ -13,7 +13,7 @@ test('plan status distinguishes unprobed, offline, missing, authenticated and se
   status.providers.claude = { installed: true, authenticated: true, subscription: true };
   assert.equal(planConnectionStatus(status, 'claude', 'max'), 'Not connected');
   status.selected = 'claude';
-  assert.equal(planConnectionStatus(status, 'claude', 'max'), 'Connected as max');
+  assert.equal(planConnectionStatus(status, 'claude', 'max'), 'Connected with Claude Max plan');
   assert.equal(planConnectionStatus(status, 'claude'), 'Connected');
   status.providers.claude.error = 'CLI unavailable';
   assert.equal(planConnectionStatus(status, 'claude', 'max'), 'Status unavailable');

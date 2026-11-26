@@ -120,7 +120,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       assert.equal(loginProvider, provider);
       loginComplete = true;
       await connection.getByText('Connected · Currently in use', { exact: true }).waitFor();
-      if (provider === 'claude') await connection.getByText(/Claude Code installed · Signed in · Plan: max/).waitFor();
+      if (provider === 'claude') await connection.getByText(/Claude Code installed · Signed in · Claude Max plan/).waitFor();
       await page.getByRole('button', { name: 'Done', exact: true }).click();
       await closeSettings();
       await page.locator('.model-pill').click();

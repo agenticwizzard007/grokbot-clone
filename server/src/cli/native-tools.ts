@@ -5,7 +5,11 @@ export interface NativeToolCall {
   /** Local admission guard, never sent over the runner protocol. */
   signal?: AbortSignal;
 }
-export interface NativeToolResult { output: unknown; isError?: boolean; stop?: boolean }
+export interface NativeToolResult {
+  output: unknown; isError?: boolean; stop?: boolean;
+  /** Server-resolved action, used for diagnostics only, never model-supplied. */
+  diagnostic?: { tool: string; pendingApproval: boolean };
+}
 export type NativeToolHandler = (call: NativeToolCall) => Promise<NativeToolResult>;
 interface Context { userId: string; call: NativeToolHandler; drain: () => Promise<void>; close: () => void }
 const nativeTools = new AsyncLocalStorage<Context>();

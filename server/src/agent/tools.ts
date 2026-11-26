@@ -267,7 +267,7 @@ export const TOOLS: ToolDef[] = [
       await scheduleRoutine(r);
       appendRow(ctx.botId, 'event', { type: 'event', event: 'routine-created', text: `Routine created: ${a.name} · ${describeCron(a.schedule)}`, ref: id });
       hub.emit(ctx.userId, { type: 'routines', botId: ctx.botId });
-      return { output: JSON.stringify({ ok: true, routine: r }), summary: `Created routine ${a.name}` };
+      return { output: `Created the routine "${r.name}". Routine ID: ${r.id}. Schedule: ${r.schedule} (${r.timezone}).`, summary: `Created routine ${a.name}` };
     },
   },
   {
@@ -293,7 +293,7 @@ export const TOOLS: ToolDef[] = [
         const r = await createEventRoutine(ctx.userId, ctx.botId, { name: a.name, prompt: a.prompt, trigger_slug: a.trigger_slug, config });
         appendRow(ctx.botId, 'event', { type: 'event', event: 'routine-created', text: `Routine created: ${a.name} · ${describeEvent(`event:${String(a.trigger_slug).toUpperCase()}`)}`, ref: r.id });
         hub.emit(ctx.userId, { type: 'routines', botId: ctx.botId });
-        return { output: JSON.stringify({ ok: true, routine_id: r.id }), summary: `Created event routine ${a.name}` };
+        return { output: `Created the event routine "${a.name}". Routine ID: ${r.id}.`, summary: `Created event routine ${a.name}` };
       } catch (e: any) {
         return { output: `Could not create the trigger: ${e?.message ?? e}. If the app isn't connected, call request_app_connection first.` };
       }
@@ -316,7 +316,7 @@ export const TOOLS: ToolDef[] = [
     impl: async (a, ctx) => {
       try {
         const r = setCheckins(ctx.userId, { enabled: !!a.enabled, times: a.times, timezone: a.timezone });
-        return { output: JSON.stringify({ ok: true, ...r }), summary: r.enabled ? `Check-ins at ${r.times.join(', ')} ${r.timezone}` : 'Check-ins off' };
+        return { output: r.enabled ? `Check-ins are on at ${r.times.join(', ')} (${r.timezone}).` : 'Check-ins are off.', summary: r.enabled ? `Check-ins at ${r.times.join(', ')} ${r.timezone}` : 'Check-ins off' };
       } catch (e: any) {
         return { output: `Could not update check-ins: ${e?.message ?? e}` };
       }
@@ -347,7 +347,7 @@ export const TOOLS: ToolDef[] = [
       else await unscheduleRoutine(r.id);
       appendRow(ctx.botId, 'event', { type: 'event', event: 'routine-updated', text: `Routine updated: ${r.name} · ${r.enabled ? r.description : 'Paused'}`, ref: r.id });
       hub.emit(ctx.userId, { type: 'routines', botId: ctx.botId });
-      return { output: JSON.stringify({ ok: true, routine: r }) };
+      return { output: `Updated the routine "${r.name}". Routine ID: ${r.id}. ${r.enabled ? `Schedule: ${r.schedule} (${r.timezone}).` : 'The routine is paused.'}` };
     },
   },
   {
@@ -377,7 +377,7 @@ export const TOOLS: ToolDef[] = [
       const id = newId('task');
       db.prepare("INSERT INTO tasks(id,bot_id,title,state,created_at,updated_at) VALUES (?,?,?,'working',?,?)").run(id, ctx.botId, a.title, now(), now());
       hub.emit(ctx.userId, { type: 'tasks', botId: ctx.botId });
-      return { output: JSON.stringify({ task_id: id }) };
+      return { output: `Created the task "${a.title}". Task ID: ${id}.` };
     },
   },
   {
@@ -390,9 +390,12 @@ export const TOOLS: ToolDef[] = [
       if (db.prepare('SELECT 1 FROM native_workflow_tasks w JOIN tasks t ON t.id=w.task_id WHERE w.task_id=? AND t.bot_id=?').get(a.task_id, ctx.botId)) {
         return { output: 'This task belongs to a verified workflow. Use complete_workflow_task with evidence, or control_workflow to change its execution state.', isError: true };
       }
+      const task = db.prepare('SELECT title FROM tasks WHERE id=? AND bot_id=?').get(a.task_id, ctx.botId) as { title: string } | undefined;
+      if (!task) return { output: 'No such task.', isError: true };
       db.prepare('UPDATE tasks SET state=?, note=COALESCE(?, note), updated_at=? WHERE id=? AND bot_id=?').run(a.state, a.note ?? null, now(), a.task_id, ctx.botId);
       hub.emit(ctx.userId, { type: 'tasks', botId: ctx.botId });
-      return { output: 'Updated.' };
+      const state = a.state === 'done' ? 'Done' : a.state === 'needs_input' ? 'Needs input' : 'Working';
+      return { output: `Updated the task "${task.title}". Status: ${state}. Task ID: ${a.task_id}.` };
     },
   },
   {
@@ -509,7 +512,7 @@ export const TOOLS: ToolDef[] = [
       if (missing.length || new Set(ids).size < 2) return { output: `A group needs at least 2 distinct Bots and every target must resolve. Not found: ${missing.join(', ') || 'none'}.`, isError: true };
       const id = createRoom(ctx.userId, String(a.name), [...new Set(ids)]);
       appendRow(id, 'event', { type: 'event', event: 'bot-message', text: `Group created with ${names.join(', ')}` });
-      return { output: JSON.stringify({ ok: true, group_id: id, missing }), summary: `Created group ${a.name}` };
+      return { output: `Created the group "${a.name}" with ${names.join(', ')}. Group ID: ${id}.`, summary: `Created group ${a.name}` };
     },
   },
   {

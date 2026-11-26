@@ -146,8 +146,11 @@ test('P-06: group membership resolves all IDs and fails atomically on ambiguous 
   const roomCount = () => (db.prepare("SELECT count(*) n FROM bots WHERE user_id=? AND kind='room'").get(f.userId) as any).n;
   await assert.rejects(run('create_group', { name: 'Review', bot_names: ['Reports', 'Notes'] }, f.ctx), /Multiple Bots match/);
   assert.equal(roomCount(), 0);
-  const result = decode(await run('create_group', { name: 'Review', bot_ids: [f.first.id, f.second.id], bot_names: ['Notes'] }, f.ctx));
-  assert.deepEqual(roomMembers(result.group_id).map(b => b.id), [f.first.id, f.second.id]);
+  const result = await run('create_group', { name: 'Review', bot_ids: [f.first.id, f.second.id], bot_names: ['Notes'] }, f.ctx);
+  const groupId = /Group ID: (\S+)\./.exec(String(result.output))?.[1];
+  assert.ok(groupId);
+  assert.match(String(result.output), /Created the group "Review"/);
+  assert.deepEqual(roomMembers(groupId).map(b => b.id), [f.first.id, f.second.id]);
   for (const bot_ids of [[f.first.id, f.first.id], [f.first.id, f.second.id, 'bot_missing']]) {
     assert.equal((await run('create_group', { name: 'Invalid review', bot_ids }, f.ctx)).isError, true);
   }

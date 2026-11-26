@@ -36,16 +36,20 @@ export function recordCliRun(userId: string) {
           return;
         }
         // CLI-side rejections name attempted tools, but those calls never reached Swarm.
-        if (event.tool && (event.admission === 'admitted' || event.event === 'tool_result')) lastTool = safeToolName(event.tool);
-        if (event.errorClass) errorCode = errorCodes.has(event.errorClass) ? event.errorClass : 'tool_or_runner_error';
-        if (event.admission === 'pending_approval') result = 'pending_approval';
-        else if (event.admission === 'cli_rejected') result = 'rejected_by_cli';
-        else if (event.admission === 'returned') { result = 'completed'; errorCode = null; }
-        else if (event.admission === 'connection_required') { result = 'error'; errorCode = 'app_reconnect'; }
-        else if (event.event === 'failure' || ['refused', 'rejected'].includes(event.admission ?? '')) {
-          result = errorCode === 'policy_denied' ? 'denied' : errorCode === 'cancelled' ? 'cancelled'
-            : errorCode?.startsWith('cli_tool_host_') || errorCode === 'cli_approval_rejected' ? 'rejected_by_cli' : 'error';
-        } else if (event.event === 'finish' && result === 'running') result = event.stopped ? 'cancelled' : lastTool ? 'completed' : 'no_tool_call';
+        if (result !== 'pending_approval' && event.tool && (event.admission === 'admitted' || event.event === 'tool_result')) lastTool = safeToolName(event.resolvedTool ?? event.tool);
+        // Once a Swarm action awaits a decision, a wrapper return or CLI finish
+        // cannot complete it. The decision reply is a separate generation.
+        if (result !== 'pending_approval') {
+          if (event.errorClass) errorCode = errorCodes.has(event.errorClass) ? event.errorClass : 'tool_or_runner_error';
+          if (event.admission === 'pending_approval') { result = 'pending_approval'; errorCode = null; }
+          else if (event.admission === 'cli_rejected') result = 'rejected_by_cli';
+          else if (event.admission === 'returned') { result = 'completed'; errorCode = null; }
+          else if (event.admission === 'connection_required') { result = 'error'; errorCode = 'app_reconnect'; }
+          else if (event.event === 'failure' || ['refused', 'rejected'].includes(event.admission ?? '')) {
+            result = errorCode === 'policy_denied' ? 'denied' : errorCode === 'cancelled' ? 'cancelled'
+              : errorCode?.startsWith('cli_tool_host_') || errorCode === 'cli_approval_rejected' ? 'rejected_by_cli' : 'error';
+          } else if (event.event === 'finish' && result === 'running') result = event.stopped ? 'cancelled' : lastTool ? 'completed' : 'no_tool_call';
+        }
         const finished = event.event === 'finish' || event.event === 'failure';
         const visibleResult = finished || result === 'pending_approval' ? result : 'running';
         // An older concurrent run must not overwrite a newer run or resurrect a deleted account.

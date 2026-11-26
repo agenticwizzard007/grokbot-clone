@@ -557,9 +557,15 @@ async function runScopedTurn(botId: string, trigger: Trigger, jobId: string, ctr
         else if (state.replan) nativeBoundary = 'replan';
         else if (nativeCount >= CLI_TOOL_CHECKPOINT_INTERVAL) nativeBoundary = 'checkpoint';
         if (!nativeBoundary) setLive(botId, { activity: { kind: 'thinking', detail: selectedCli(userId) === 'claude' ? 'Waiting for Claude' : 'Waiting for Codex', since: now() } });
+        // Wrappers can finish while their resolved action waits for a decision.
+        // Use the persisted admission and tool name, not the wrapper's return label.
+        const pending = state.approvalId ? db.prepare("SELECT call_id FROM approvals WHERE id=? AND bot_id=? AND status='pending'").get(state.approvalId, botId) as { call_id: string } | undefined : undefined;
+        const admitted = pending ? db.prepare("SELECT body FROM rows WHERE bot_id=? AND generation=? AND kind='tool-call' AND json_extract(body,'$.callId')=? ORDER BY seq DESC LIMIT 1").get(botId, getBotRow(botId).generation, pending.call_id) as { body: string } | undefined : undefined;
+        const resolved = admitted ? JSON.parse(admitted.body) as ToolCallBody : getRow(botId, row.seq)?.body as ToolCallBody | undefined;
         return { output: paused ? JSON.stringify({ status: 'pending_approval', approvalId: state.approvalId, executed: false,
           message: 'An approval card is waiting in the main chat. This action has not executed. Stop and wait for the user to decide.' }) : output ?? 'No action result was returned.',
           isError: getRow(botId, row.seq)?.body.type === 'tool-call' && ['error', 'denied'].includes((getRow(botId, row.seq)!.body as ToolCallBody).status),
+          diagnostic: { tool: resolved?.name ?? call.name, pendingApproval: !!pending },
           ...(nativeBoundary ? { stop: true } : {}) };
       };
       iterations++;

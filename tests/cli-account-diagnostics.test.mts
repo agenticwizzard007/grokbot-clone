@@ -111,6 +111,26 @@ test('tool records survive CLI-side rejection and newer running tool calls, and 
   assert.equal((cliRunsByProvider('other') as any).codex.lastToolRun.lastTool, 'NEWER_TOOL');
 });
 
+for (const provider of ['codex', 'claude']) test(`R12 ${provider} keeps the resolved pending action when its wrapper returns or the CLI finishes`, async () => {
+  const { ToolCallbacks } = await import('../server/src/cli/tool-callback.js');
+  const nativeTools = [{ name: 'tool_call' }];
+  await withCliDiagnostics({ provider, nativeTools }, 'server', async () => {
+    const callbacks = new ToolCallbacks({ nativeTools }, async () => ({
+      output: 'Wrapper completed.', stop: true,
+      diagnostic: { tool: 'SWARM_APPS_EXECUTE', pendingApproval: true },
+    }));
+    const returned = await callbacks.run({ id: 'wrapped', name: 'tool_call', arguments: { tool_name: 'untrusted_name' } });
+    assert.equal(returned.diagnostic, undefined, 'Server diagnostics do not enter the CLI protocol');
+    cliDiagnostic()?.({ event: 'tool_result', tool: 'tool_call', admission: 'returned' });
+    callbacks.close();
+    return { stopped: true };
+  }, undefined, recordCliRun('other'));
+  const run = (cliRunsByProvider('other') as any)[provider].lastToolRun;
+  assert.equal(run.lastTool, 'SWARM_APPS_EXECUTE');
+  assert.equal(run.result, 'pending_approval');
+  assert.equal(run.errorCode, null);
+});
+
 test('an older concurrent run cannot replace the latest diagnostic or recreate a deleted account', async () => {
   let release!: () => void;
   const waiting = new Promise<void>(resolve => { release = resolve; });
