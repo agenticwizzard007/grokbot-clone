@@ -13,7 +13,9 @@ const { selectCli } = await import('../server/src/cli/store.js');
 const { withUsage } = await import('../server/src/usage.js');
 const { setEnvOverride } = await import('../server/src/env.js');
 const { serverTools } = await import('../server/src/lib/llm.js');
-const { appendRow, listRows } = await import('../server/src/store.js');
+const { appendRow, listRows, updateRow } = await import('../server/src/store.js');
+const { approvalBinding } = await import('../server/src/security/approval.js');
+const { beginTool } = await import('../server/src/agent/jobs.js');
 const { enqueue, settleAgentJobs, resolveApproval } = await import('../server/src/agent/loop.js');
 const { toolSchemaHash } = await import('../server/src/agent/tool-catalog.js');
 const { createRoom } = await import('../server/src/agent/rooms.js');
@@ -105,13 +107,89 @@ test('R11 execution: memory, files and app reads stay undone until approved; den
   assert.ok(offeredTools.every(tools => !tools.some(t => ['web_search', 'x_search', 'openrouter:web_search'].includes(t.type))));
 });
 
-test('R11 execute_code and catalog wrapper each pause before their inner action and resume without repeating the outer approval', async () => {
+test('R11 execute_code pauses for its program and inner action without repeating the program approval', async () => {
   setLevel('every_action'); db.exec('DELETE FROM policies');
-  for (const name of ['execute_code', 'tool_call']) {
-    const args = name === 'execute_code' ? { tools: ['save_file'], code: 'return tools.call("save_file", {filename:"inner.txt",content:"nested"});' } : { tool_name: 'save_file', schema_hash: toolSchemaHash(functionSchemas(bot.id).find(t => t.name === 'save_file')!), arguments: { filename: 'wrapped.txt', content: 'nested' } };
-    await run(name, args); assert.equal(pending().tool, `api_max:${name}`);
-    await decide('allow'); assert.equal(pending()?.tool, 'api_max:save_file');
-    await decide('deny'); assert.equal(pending(), undefined);
+  const before = fileCount();
+  await run('execute_code', { tools: ['save_file'], code: 'return tools.call("save_file", {filename:"inner.txt",content:"nested"});' });
+  assert.equal(pending().tool, 'api_max:execute_code');
+  await decide('allow'); assert.equal(pending()?.tool, 'api_max:save_file');
+  assert.equal(fileCount(), before);
+  await decide('deny'); assert.equal(pending(), undefined);
+  assert.equal(fileCount(), before);
+});
+
+const fileCount = () => (db.prepare('SELECT count(*) n FROM output_artifacts').get() as any).n;
+const wrapped = (name: string, args: any) => ({ tool_name: name, schema_hash: toolSchemaHash(functionSchemas(bot.id).find(t => t.name === name)!), arguments: args });
+test('R16 wrapped saves and reads show one actual-action card and only dispatch after Allow', async () => {
+  setLevel('every_action'); db.exec('DELETE FROM policies');
+  for (const legacyGrant of [false, true]) for (const name of ['save_file', 'recall']) {
+    // Exercise fresh accounts and old wrapper grants, neither authorizes the action.
+    if (legacyGrant) save('api_max:tool_call');
+    const impl = mock.method(toolMap.get(name)!, 'impl');
+    try {
+      for (const decision of ['deny', 'allow'] as const) {
+        const before = fileCount(), calls = impl.mock.callCount();
+        const cards = listRows(bot.id).filter(r => r.body.type === 'card' && r.body.card === 'approval').length;
+        const args = name === 'save_file' ? { filename: 'wrapped.txt', content: 'nested' } : { query: 'fixture' };
+        const approval = await run('tool_call', wrapped(name, args));
+        assert.equal(approval.tool, `api_max:${name}`);
+        const card = listRows(bot.id).find(r => r.seq === approval.row_seq)!.body as any;
+        assert.equal(card.tool, name); assert.match(card.title, new RegExp(name.replaceAll('_', ' ')));
+        assert.deepEqual(card.args, args);
+        assert.equal(impl.mock.callCount(), calls); assert.equal(fileCount(), before);
+        await decide(decision);
+        assert.equal(pending(), undefined);
+        assert.equal(impl.mock.callCount(), calls + Number(decision === 'allow'));
+        assert.equal(fileCount(), before + Number(name === 'save_file' && decision === 'allow'));
+        assert.equal(listRows(bot.id).filter(r => r.body.type === 'card' && r.body.card === 'approval').length, cards + 1);
+      }
+    } finally { impl.mock.restore(); }
+  }
+});
+
+test('R16 wrapped approvals retain schema checks and Always allow grants only the actual maximum action', async () => {
+  setLevel('every_action'); db.exec('DELETE FROM policies');
+  const args = { filename: 'schema-bound.txt', content: 'Fixture' };
+  const before = fileCount();
+  await run('tool_call', wrapped('save_file', args));
+  const tool = toolMap.get('save_file')!, original = tool.parameters;
+  try {
+    tool.parameters = { ...original, description: 'Changed fixture schema' };
+    await decide('allow');
+    assert.equal(pending(), undefined); assert.equal(fileCount(), before);
+    assert.ok(listRows(bot.id).some(r => r.body.type === 'tool-call' && r.body.summary?.includes('schema changed')));
+  } finally { tool.parameters = original; }
+  await run('tool_call', wrapped('save_file', args)); await decide('always');
+  assert.equal(fileCount(), before + 1);
+  assert.deepEqual(db.prepare('SELECT tool FROM policies').all(), [{ tool: 'api_max:save_file' }]);
+  assert.equal((await pol('recall')).decision, 'ask');
+  planAction('tool_call', wrapped('save_file', args)); enqueue(bot.id, { type: 'user', text: 'Repeat allowed fixture save' }); await settleAgentJobs();
+  assert.equal(pending(), undefined); assert.equal(fileCount(), before + 2);
+  db.exec('DELETE FROM policies');
+});
+
+test('R16 in-flight wrappers from an older server retain their inner approval and dispatch identity', async () => {
+  setLevel('every_action'); db.exec('DELETE FROM policies');
+  for (const decision of ['deny', 'allow'] as const) {
+    const before = fileCount(), args = { filename: 'legacy-wrapped.txt', content: 'Fixture' };
+    const approval = await run('save_file', args);
+    const state = JSON.parse((db.prepare('SELECT state FROM pending_turns WHERE bot_id=?').get(bot.id) as any).state);
+    const original = state.calls[0], outerId = `${original.call_id}:wrapper`, innerId = `${outerId}:resolved`;
+    const wrapperArgs = wrapped('save_file', args);
+    const outerRow = appendRow(bot.id, 'tool-call', { type: 'tool-call', callId: outerId, name: 'tool_call', args: wrapperArgs, label: 'Using selected tool', status: 'running' });
+    const innerRow = listRows(bot.id).find(r => r.seq === original.rowSeq)!;
+    updateRow(bot.id, innerRow.seq, { ...innerRow.body as any, callId: innerId });
+    beginTool(bot.id, outerId, 'tool_call', approvalBinding('owner', bot.id, outerId, 'tool_call', wrapperArgs));
+    db.prepare('UPDATE approvals SET call_id=?,binding_hash=? WHERE id=?').run(innerId, approvalBinding('owner', bot.id, innerId, 'save_file', args), approval.id);
+    state.calls = [{ call_id: outerId, name: 'tool_call', arguments: JSON.stringify(wrapperArgs), rowSeq: outerRow.seq }];
+    state.approvedWrappers = [outerId];
+    db.prepare('UPDATE pending_turns SET state=? WHERE bot_id=?').run(JSON.stringify(state), bot.id);
+    const cards = listRows(bot.id).filter(r => r.body.type === 'card' && r.body.card === 'approval').length;
+    enqueue(bot.id, { type: 'resume' }); await settleAgentJobs();
+    assert.equal(pending()?.id, approval.id); assert.equal(fileCount(), before);
+    await decide(decision);
+    assert.equal(pending(), undefined); assert.equal(fileCount(), before + Number(decision === 'allow'));
+    assert.equal(listRows(bot.id).filter(r => r.body.type === 'card' && r.body.card === 'approval').length, cards);
   }
 });
 
@@ -229,8 +307,7 @@ test('R11 catalog-wrapped code retains each approval and programs still refuse u
   assert.ok(listRows(bot.id).some(r => r.body.type === 'tool-call' && r.body.summary?.includes('Programs may use only explicitly listed')), 'unsupported nested program wrappers remain refused');
   const program = { tools: ['save_file'], code: 'return tools.call("save_file", {filename:"wrapped-code.txt",content:"nested"});' };
   await run('tool_call', { tool_name: 'execute_code', schema_hash: toolSchemaHash(functionSchemas(bot.id).find(t => t.name === 'execute_code')!), arguments: program });
-  assert.equal(pending().tool, 'api_max:tool_call');
-  await decide('allow'); assert.equal(pending()?.tool, 'api_max:execute_code');
+  assert.equal(pending().tool, 'api_max:execute_code');
   await decide('allow'); assert.equal(pending()?.tool, 'api_max:save_file');
   await decide('deny'); assert.equal(pending(), undefined);
 });
@@ -262,4 +339,109 @@ test('R11 voice approvals stay independent when separate calls reuse a provider 
   }
   assert.notEqual(actionIds[0], actionIds[1]);
   assert.deepEqual(actionIds.map(id => (listRows(bot.id).find(r => r.body.type === 'tool-call' && r.body.callId === id)?.body as any)?.status), ['denied', 'done']);
+});
+
+const count = (table: string) => (db.prepare(`SELECT count(*) n FROM ${table}`).get() as any).n;
+const effects = () => ({ memories: count('memories'), tasks: count('tasks'), skills: count('knowledge_skill_proposals'), files: fileCount(), apps: appExecutions.length });
+const dispatch = (callId: string) => db.prepare('SELECT state FROM tool_dispatches WHERE call_id=?').get(callId) as any;
+test('R16 memory, task, skill, file, app discovery, app read and app write wait and deny without effects', async () => {
+  setLevel('every_action'); db.exec('DELETE FROM policies');
+  const source = appendRow(bot.id, 'message', { type: 'message', role: 'user', text: 'My fixture summary preference is short. Create a skill to write short summaries.' });
+  const evidence = [{ botId: bot.id, generation: source.generation, seq: source.seq }];
+  const cases = [
+    { name: 'remember', args: { text: 'My fixture summary preference is short.', evidence }, effect: 'memories' },
+    { name: 'create_task', args: { title: 'Fixture task' }, effect: 'tasks' },
+    { name: 'propose_skill', args: { expected_revision: 0, name: 'Fixture summaries', description: 'Write short summaries', body: 'Keep summaries short.', reason: 'Requested in chat', evidence }, effect: 'skills' },
+    { name: 'save_file', args: { filename: 'matrix.txt', content: 'Fixture' }, effect: 'files' },
+    { name: 'SWARM_APPS_SEARCH', args: { toolkit: 'github', query: 'peek', connectionId: 'fixture-github' } },
+    { name: 'SWARM_APPS_EXECUTE', args: appArgs, effect: 'apps' },
+    { name: 'SWARM_APPS_EXECUTE', args: { ...appArgs, tool_slug: 'GITHUB_CREATE_ISSUE' }, effect: 'apps' },
+  ] as const;
+  for (const action of cases) for (const decision of ['deny', 'allow'] as const) {
+    const before = effects();
+    const approval = await run(action.name, action.args);
+    assert.equal(dispatch(approval.call_id), undefined, `${action.name} has not dispatched`);
+    assert.deepEqual(effects(), before);
+    await decide(decision);
+    assert.equal(pending(), undefined);
+    if (decision === 'deny') {
+      assert.deepEqual(effects(), before, `${action.name} denial changes no action state`);
+      assert.equal(dispatch(approval.call_id), undefined);
+    } else {
+      assert.equal(dispatch(approval.call_id)?.state, 'completed', `${action.name} completes after Allow`);
+      if ('effect' in action) assert.deepEqual(effects(), { ...before, [action.effect]: before[action.effect] + 1 });
+    }
+  }
+});
+
+test('R16 ordinary and search turns never append the provider-search Settings explanation to chat', async () => {
+  setLevel('every_action');
+  for (const text of ['Hello', 'Search the web', 'Tell me about tasks']) {
+    enqueue(bot.id, { type: 'user', text }); await settleAgentJobs();
+  }
+  assert.equal(listRows(bot.id).filter(r => r.body.type === 'notice' && /Provider search is unavailable/.test(r.body.text)).length, 0);
+  assert.ok(offeredTools.every(tools => !tools.some(t => ['web_search', 'x_search', 'openrouter:web_search'].includes(t.type))));
+});
+
+test('R16 scheduled and unattended actions keep visible cards and wait for allow or deny', async () => {
+  setLevel('every_action'); db.exec('DELETE FROM policies');
+  const backgroundBot = createBot('owner', { name: 'Background fixture', isPrimary: true });
+  db.prepare('INSERT INTO routines(id,bot_id,name,prompt,schedule,timezone,enabled,created_at) VALUES (?,?,?,?,?,?,?,?)')
+    .run('fixture-routine', backgroundBot.id, 'Fixture schedule', 'Save a file', '0 9 * * *', 'UTC', 1, Date.now());
+  const triggers = [
+    { type: 'routine', routineId: 'fixture-routine', name: 'Fixture schedule', prompt: 'Save a file' },
+    { type: 'system', text: 'Save a file', audience: 'internal' },
+  ] as const;
+  for (const trigger of triggers) for (const decision of ['deny', 'allow'] as const) {
+    const before = fileCount();
+    planAction('save_file', { filename: 'background.txt', content: 'Fixture background file' });
+    enqueue(backgroundBot.id, trigger); await settleAgentJobs();
+    const approval = pending(backgroundBot.id); assert.equal(approval?.tool, 'api_max:save_file');
+    const card = listRows(backgroundBot.id).find(r => r.seq === approval.row_seq)!.body as any;
+    assert.equal(card.audience, 'user');
+    assert.equal(fileCount(), before); assert.equal(dispatch(approval.call_id), undefined);
+    resolveApproval('owner', approval.id, decision); await settleAgentJobs();
+    assert.equal(pending(backgroundBot.id), undefined);
+    assert.equal(fileCount(), before + Number(decision === 'allow'));
+  }
+});
+
+test('R16 program approvals resume successive actions once and denial leaves later saves undone', async () => {
+  setLevel('every_action'); db.exec('DELETE FROM policies');
+  const before = fileCount();
+  await run('tool_call', wrapped('execute_code', { tools: ['save_file'], code: 'tools.call("save_file", {filename:"first.txt",content:"first"}); return tools.call("save_file", {filename:"second.txt",content:"second"});' }));
+  assert.equal(pending().tool, 'api_max:execute_code'); assert.equal(fileCount(), before);
+  await decide('allow'); assert.equal(pending()?.tool, 'api_max:save_file'); assert.equal(fileCount(), before);
+  const first = pending().call_id;
+  await decide('allow'); assert.equal(pending()?.tool, 'api_max:save_file'); assert.equal(fileCount(), before + 1);
+  assert.notEqual(pending().call_id, first);
+  await decide('deny'); assert.equal(pending(), undefined); assert.equal(fileCount(), before + 1);
+});
+
+test('R16 learning review memory and skill mutations wait for Allow and do nothing on denial', async () => {
+  const learning = await import('../server/src/agent/learning.js');
+  setLevel('every_action'); db.exec('DELETE FROM policies');
+  for (const name of ['remember', 'propose_skill']) for (const decision of ['deny', 'allow'] as const) {
+    const reviewBot = createBot('owner', { name: 'Learning fixture', isPrimary: true });
+    const source = appendRow(reviewBot.id, 'message', { type: 'message', role: 'user', text: 'My fixture report preference is short. Save a skill for short reports.' });
+    const evidence = [{ botId: reviewBot.id, generation: source.generation, seq: source.seq }];
+    const args = name === 'remember' ? { text: 'My fixture report preference is short.', evidence }
+      : { expected_revision: 0, name: 'Fixture reports', description: 'Write short reports', body: 'Keep reports short.', reason: 'Requested in chat', evidence };
+    let responses = 0;
+    learning.configureLearningModelExecutor(async () => ++responses === 1
+      ? { output: [{ type: 'function_call', name, call_id: 'review-mutation', arguments: JSON.stringify(args) }], usage: { input_tokens: 1, output_tokens: 1 } }
+      : { output: [], output_text: 'Review finished.', usage: { input_tokens: 1, output_tokens: 1 } });
+    const before = effects();
+    const review = withUsage({ userId: 'owner', botId: reviewBot.id }, () => learning.refineLearning('owner', reviewBot.id));
+    const running = learning.runLearningReview(review.id);
+    try {
+      for (let n = 0; n < 200 && !pending(reviewBot.id); n++) await new Promise(r => setTimeout(r, 20));
+      assert.equal(pending(reviewBot.id)?.tool, `api_max:${name}`);
+      assert.equal(responses, 1); assert.deepEqual(effects(), before);
+      resolveApproval('owner', pending(reviewBot.id).id, decision);
+      assert.equal((await running)?.status, 'completed');
+      const effect = name === 'remember' ? 'memories' : 'skills';
+      assert.deepEqual(effects(), { ...before, [effect]: before[effect] + Number(decision === 'allow') });
+    } finally { learning.configureLearningModelExecutor(); }
+  }
 });
