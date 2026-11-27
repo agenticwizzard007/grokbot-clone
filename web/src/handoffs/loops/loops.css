@@ -1,0 +1,61 @@
+.ho-loops { color: var(--color-text-primary); font: 400 var(--text-base)/var(--line-body) var(--font-stack); }
+.ho-loops *, .ho-loop-sheet * { box-sizing: border-box; }
+.ho-loops :is(h1, h2, h3, p) { margin: 0; }
+.ho-loops :is(h1, h2, h3, p, span, a, label, button, .layout-row__title) { overflow-wrap: anywhere; white-space: normal; text-overflow: clip; }
+.ho-loop-heading { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.ho-loop-heading h1 { flex: 1 1 180px; font: 600 var(--text-page-title)/var(--line-title) var(--font-heading); }
+.ho-loop-button, .ho-loop-title-link, .ho-loop-stepper button { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: 44px; max-width: 100%; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-elevated); color: var(--color-text-primary); font: inherit; text-decoration: none; cursor: pointer; text-align: center; }
+.ho-loop-title-link { justify-content: flex-start; padding-inline: 0; border: 0; background: transparent; color: var(--color-primary); font-weight: 600; text-align: left; }
+.ho-loop-button:hover, .ho-loop-stepper button:hover { background: var(--color-bg-hover); }
+.ho-loop-primary, .ho-loop-button[aria-pressed='true'], .ho-loop-button[aria-selected='true'] { background: var(--color-primary); color: var(--color-on-primary); border-color: var(--color-primary); }
+.ho-loop-primary:hover { background: var(--color-bg-primary-hover); }
+.ho-loops :is(button, input, textarea, select, a, summary):focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 3px; }
+.ho-loops button:disabled { opacity: .55; cursor: default; }
+.ho-loop-back { flex: 0 0 auto; }
+.ho-loop-chip { display: inline-flex; align-items: center; padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); background: var(--color-bg-subtle); color: var(--color-text-secondary); font-size: var(--text-xs); }
+.ho-loop-good, .ho-loop-status-succeeded { background: var(--color-success-bg); color: var(--color-success-text); }
+.ho-loop-warn, .ho-loop-status-awaiting_approval, .ho-loop-status-capped, .ho-loop-status-stalled { background: var(--color-warn-bg); color: var(--color-warn-text); }
+.ho-loop-status-failed { background: var(--color-danger-bg); color: var(--color-danger-text); }
+.ho-loop-muted { color: var(--color-text-secondary); font-size: var(--text-sm); }
+.ho-loop-error { color: var(--color-danger-text); font-size: var(--text-sm); }
+.ho-loop-inline, .ho-loop-links, .ho-loop-footer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.ho-loop-fields, .ho-loop-step-fields, .ho-loop-field, .ho-loop-progress { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.ho-loop-fields { gap: var(--space-3); }
+.ho-loop-field :is(input, textarea, select), .ho-loop-stepper input { width: 100%; min-width: 0; min-height: 44px; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); color: var(--color-text-primary); background: var(--color-bg-pane); font: inherit; }
+.ho-loop-field textarea { min-height: 88px; resize: vertical; }
+.ho-loop-field label, .ho-loop-step-fields legend { font-weight: 500; }
+.ho-loop-step-fields { padding: 0; margin: 0; border: 0; }
+.ho-loop-step-fields legend { padding-block: var(--space-2); }
+.ho-loop-check { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; }
+.ho-loop-check input { width: 20px; height: 20px; min-height: 20px; flex: 0 0 20px; accent-color: var(--color-primary); }
+.ho-loop-stepper { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; gap: var(--space-2); }
+.ho-loop-stepper input { text-align: center; }
+.ho-loops summary { display: list-item; min-height: 44px; padding-block: 12px; cursor: pointer; color: var(--color-primary); }
+.ho-loop-progress progress { width: 100%; height: 8px; border: 0; border-radius: var(--radius-full); overflow: hidden; accent-color: var(--color-primary); }
+.ho-loop-progress progress::-webkit-progress-bar { background: var(--color-bg-active); }
+.ho-loop-progress progress::-webkit-progress-value { background: var(--color-primary); }
+.ho-loop-timeline, .ho-loop-graph-list, .ho-loop-graph-list ol { padding: 0; margin: 0; list-style: none; }
+.ho-loop-timeline { display: flex; flex-direction: column; gap: var(--space-4); }
+.ho-loop-feedback, .ho-loop-result { padding-block: var(--space-2); }
+.ho-loop-result { font-weight: 600; }
+.ho-loop-checklist { padding-left: var(--space-4); }
+.ho-loop-skeleton { display: block; height: 16px; width: 70%; border-radius: var(--radius-sm); background: var(--color-bg-subtle); }
+.ho-loop-sheet.modal { width: min(100%, 480px); max-height: calc(100dvh - 48px); overflow-y: auto; background: var(--color-bg-pane); color: var(--color-text-primary); }
+.ho-loop-sheet form { display: flex; flex-direction: column; gap: var(--space-3); }
+.ho-loop-sheet .modal-page-back { display: block; padding-inline: var(--space-3); }
+.ho-loop-sheet .modal-page-back button { min-height: 44px; display: flex; align-items: center; gap: var(--space-2); color: var(--color-text-primary); }
+.ho-loop-sheet .layout-page { --layout-padding: var(--space-3); }
+.ho-loop-graph { min-width: 0; position: relative; }
+.ho-loop-graph-list { position: relative; }
+.ho-loop-graph-node { min-height: 56px; display: flex; flex-direction: column; gap: var(--space-1); justify-content: center; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-elevated); color: var(--color-text-primary); text-decoration: none; }
+.ho-loop-graph-node:hover { border-color: var(--color-primary); }
+.ho-loop-graph-connectors { position: absolute; inset: 0; width: 100%; pointer-events: none; color: var(--color-border-focus); }
+.ho-loop-graph-connectors path { fill: none; stroke: currentColor; stroke-width: 1.5; }
+.ho-loop-graph-then { font-size: var(--text-xs); color: var(--color-text-secondary); padding-block: var(--space-2); }
+.ho-loop-graph-then span { position: relative; background: var(--color-bg-pane); }
+.ho-loop-graph-pass > h3 { font-size: var(--text-sm); padding-block: var(--space-2); }
+@media (max-width: 760px) {
+  .ho-loop-sheet.modal { align-self: flex-end; margin: 0; width: 100%; max-height: 94dvh; border-radius: var(--radius-card) var(--radius-card) 0 0; }
+  .ho-loop-heading .ho-loop-back { flex-basis: 100%; justify-content: flex-start; width: max-content; border: 0; padding-inline: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .ho-loops * { animation: none !important; transition: none !important; } }

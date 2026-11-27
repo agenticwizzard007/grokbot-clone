@@ -72,7 +72,7 @@ export function subscribeLoopEvents(listener: (id?: string) => void) {
 
 export const loopsApi: LoopApi = {
   list: (signal, after) => request(`/loops?limit=50${after ? `&after=${encodeURIComponent(after)}` : ''}`, signal),
-  bots: async signal => (await request<{ bots: LoopBot[] }>('/bots', signal)).bots.filter(eligibleBot),
+  bots: async signal => (await request<{ bots: LoopBot[] }>('/bots', signal)).bots,
   get: (id, signal) => request(`/loops/${encodeURIComponent(id)}`, signal),
   events: (id, after, signal) => request(`/loops/${encodeURIComponent(id)}/events?after=${after}&limit=200`, signal),
   create: (spec, idempotencyKey) => request('/loops', undefined, { spec, idempotencyKey, start: true }),
@@ -81,7 +81,7 @@ export const loopsApi: LoopApi = {
 };
 
 export const eligibleBot = (bot: LoopBot) => bot.kind !== 'room' && !bot.hidden && !bot.isConfiguring;
-export const outputHref = (output: OutputLink) => `#output/${encodeURIComponent(output.id)}${output.partId ? `?part=${encodeURIComponent(output.partId)}` : ''}`;
+export const outputHref = (output: Pick<OutputLink, 'id' | 'partId'>) => `#output/${encodeURIComponent(output.id)}${output.partId ? `?part=${encodeURIComponent(output.partId)}` : ''}`;
 export const statusLabel: Record<LoopStatus, string> = {
   draft: 'Draft', awaiting_approval: 'Needs approval', running: 'Running', paused: 'Paused',
   succeeded: 'Done', capped: 'Limit reached', stalled: 'No progress', failed: 'Failed', cancelled: 'Stopped',
