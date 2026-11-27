@@ -43,7 +43,10 @@ try {
           } else await server.open(page, hash);
           if (/^#bot\/[^/]+$/.test(hash)) await page.locator('.composer__input:not([disabled])').waitFor();
           if (route.state) {
-            await page.waitForFunction(async () => (await import('/src/store.ts')).useStore.getState().sseConnected);
+            await page.waitForFunction(async botId => {
+              const state = (await import('/src/store.ts')).useStore.getState();
+              return state.sseConnected && state.bots.some(bot => bot.id === botId);
+            }, server.fixture.bot.id);
             await preparePbeState(page, route.state, server.fixture.bot.id);
           }
           await page.locator(route.hash.includes('/details/') ? '.pb-details [data-layout="page"]:visible' : '[data-layout="page"]:visible').first().waitFor();
