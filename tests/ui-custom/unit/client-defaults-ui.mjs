@@ -1,4 +1,3 @@
-import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -7,6 +6,7 @@ import { chromium } from 'playwright';
 import { layoutServer } from '../../layout-fixture.mjs';
 import { ROUTES } from '../../layout-alignment-ui.mjs';
 import { preparePbeState } from '../../paper-pbe-states.mjs';
+import { compareDefaultView } from './client-defaults-compare.mjs';
 
 const output = path.resolve('.context/ui-custom/defaults'); fs.mkdirSync(output, { recursive: true });
 const baseline = process.env.CLIENT_BASELINE === '1';
@@ -25,7 +25,7 @@ if (!baseline && !validBaseline) {
 }
 const server = await layoutServer({ root: path.resolve(baseline ? process.env.CLIENT_MAIN_ROOT || '.context/main-baseline' : '.') });
 const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
-const report = [];
+const report = [], reviewed = [];
 try {
   for (const width of [390, 1280]) for (const theme of ['light', 'dark']) {
     const context = await browser.newContext({ viewport: { width, height: width <= 760 ? 844 : 900 }, reducedMotion: 'reduce', colorScheme: theme,
@@ -92,11 +92,18 @@ try {
         return { tokens, nodes: nodes.map(el => { const r = el.getBoundingClientRect(), s = getComputedStyle(el); return { tag: el.tagName, class: el.className, rect: [r.x, r.y, r.width, r.height].map(n => Math.round(n * 100) / 100), font: s.font, background: s.backgroundColor, padding: s.padding, gap: s.gap, radius: s.borderRadius }; }) };
       });
       if (baseline) fs.writeFileSync(path.join(output, `${key}.json`), JSON.stringify(result, null, 2));
-      else { const expected = JSON.parse(fs.readFileSync(path.join(output, `${key}.json`), 'utf8')); assert.deepEqual(result, expected, key); }
-      report.push(key); console.log(`PASS default geometry ${key}`);
+      else {
+        const expected = JSON.parse(fs.readFileSync(path.join(output, `${key}.json`), 'utf8'));
+        if (compareDefaultView(key, result, expected, baselineSpec.reviewedDifferences) === 'reviewed') {
+          const reason = baselineSpec.reviewedDifferences[key].reason;
+          reviewed.push({ view: key, reason, before: expected.nodes, after: result.nodes, tokensMatch: true });
+          console.log(`REVIEWED default geometry ${key}: ${reason}`);
+        } else console.log(`PASS default geometry ${key}`);
+      }
+      report.push(key); if (baseline) console.log(`PASS default geometry ${key}`);
     }
     await context.close();
   }
 } finally { await browser.close(); await server.close(); }
-fs.writeFileSync(path.join(output, baseline ? 'baseline.json' : 'comparison.json'), JSON.stringify({ fingerprint, passed: report.length, views: report }, null, 2));
-console.log(`Default snapshots: ${report.length}/${report.length} passed (${baseline ? 'main recorded' : 'main matched'})`);
+fs.writeFileSync(path.join(output, baseline ? 'baseline.json' : 'comparison.json'), JSON.stringify({ fingerprint, passed: report.length, matched: report.length - reviewed.length, reviewed, views: report }, null, 2));
+console.log(`Default snapshots: ${report.length}/${report.length} passed (${baseline ? 'main recorded' : `${report.length - reviewed.length} matched, ${reviewed.length} reviewed`})`);
