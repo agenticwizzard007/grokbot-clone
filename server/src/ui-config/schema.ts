@@ -49,7 +49,7 @@ export const widgetSchema = z.object({
     if (widget.type === 'stat' && ['needsYou.list', 'bots.status'].includes(widget.source.id) && value !== 'count' && key === 'field') ctx.addIssue({ code: 'custom', path: ['options', key], message: 'Use count for this list source.' });
   }
 });
-export const dashboardSchema = z.object({ id: dashboardIdSchema, name: plainText(40, 1), icon: z.enum(DASHBOARD_ICONS), description: plainText(200).optional(), widgets: z.array(widgetSchema).max(LIMITS.widgets) }).strict().refine(d => d.widgets.filter(w => w.type === 'agent').length <= LIMITS.agentWidgets, { path: ['widgets'], message: 'Use at most 12 agent widgets per dashboard.' });
+export const dashboardSchema = z.object({ id: dashboardIdSchema, name: plainText(40, 1), icon: z.enum(DASHBOARD_ICONS), description: plainText(200).optional(), widgets: z.array(widgetSchema).max(LIMITS.widgets) }).strict().refine(d => d.widgets.filter(w => w.type === 'agent').length <= LIMITS.agentWidgets, { path: ['widgets'], message: 'Use at most 12 agent widgets per dashboard.', params: { code: 'limit_exceeded' } });
 export const uiConfigShape = z.object({
   $schema: z.literal('/api/ui/schema').optional(), version: z.literal(1), preset: z.string().regex(/^(?:swarm|midnight|paper|forest|contrast|focus|calm|colorblind|p_[a-z0-9]{8})$/),
   theme: themeSchema, layout: layoutSchema, components: z.partialRecord(z.enum(COMPONENT_IDS), z.enum(['show', 'hide', 'collapsed'])),

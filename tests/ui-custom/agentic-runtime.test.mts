@@ -27,7 +27,6 @@ test('empty, running, ready results persist and isolate users, with five histori
   assert.equal(f.widgets.result('b',...f.ids).state,'empty');
   assert.equal((f.db.prepare("SELECT COUNT(*) n FROM ui_widget_history WHERE user_id='a'").get() as any).n,5);
   assert.equal(f.events.filter(e=>e.user==='b').length,0);
-  const reloaded=fixture();reloaded.db.close();
   assert.deepEqual(JSON.parse((f.db.prepare("SELECT doc FROM ui_widget_results WHERE user_id='a'").get() as any).doc),{kind:'text',text:'Answer for a'});
   assert.throws(()=>f.widgets.result('b','d_missing1',f.ids[1]),/not found/);
 });
@@ -85,4 +84,30 @@ test('read-only loop answer comes from source rows and foreign bot params fail c
   let calls=0;
   const run=(foreign=false)=>runAgentWidget({userId:'a',botId:'bot-a',options:{prompt:'Read tasks',display:'list',schedule:'manual'},signal:new AbortController().signal,checkBudget(){},record:async()=>{},read:async(_source,params:any)=>params.botId==='bot-b'?{ok:false,code:'not_found',message:'Bot not found.',fetchedAt:1}:{ok:true,rows:[{title:'Seeded fixture task',state:'working'}],count:1,fetchedAt:1},model:async input=>++calls%2?{output:[{type:'function_call',call_id:'call',name:'read_tasks_list',arguments:JSON.stringify(foreign?{botId:'bot-b'}:{})}]}:{output:[{type:'message',content:[{type:'output_text',text:input.at(-1).output}]}]}});
   assert.deepEqual(await run(),{kind:'list',rows:[{title:'Seeded fixture task',status:'working'}]});await assert.rejects(run(true),/unavailable/);
+});
+
+test('usage records tokens and estimated cost; stored malformed results fail closed',async t=>{
+  const f=fixture({run:async ctx=>{ctx.usage(120,0.004);return {kind:'stat',label:'Tasks',value:'2'};}});t.after(()=>f.db.close());
+  f.widgets.run('a',...f.ids);await f.widgets.idle('a');const result=f.widgets.result('a',...f.ids);
+  assert.equal(result.tokens,120);assert.equal(result.estimatedCostUsd,0.004);
+  f.db.prepare("UPDATE ui_widget_results SET doc='broken' WHERE user_id='a'").run();
+  assert.equal(f.widgets.result('a',...f.ids).state,'error');assert.equal(f.widgets.result('a',...f.ids).doc,null);
+});
+test('changed or deleted widgets cannot publish a late answer',async t=>{
+  let release:(r:AgentWidgetResult)=>void=()=>{};
+  const f=fixture({run:()=>new Promise(r=>{release=r;})});t.after(()=>f.db.close());
+  f.widgets.run('a',...f.ids);await Promise.resolve();
+  assert.ok(f.config.patch('a',[{op:'replace',path:'/dashboards/0/widgets/0/options/prompt',value:'A different question'}],1,'user').ok);
+  release({kind:'text',text:'Old answer'});await f.widgets.idle('a');assert.equal(f.widgets.result('a',...f.ids).state,'empty');
+});
+test('daily schedule waits twenty-four hours and inactive accounts stay idle',async t=>{
+  const f=fixture();t.after(()=>f.db.close());
+  assert.ok(f.config.patch('a',[{op:'replace',path:'/dashboards/0/widgets/0/options/schedule',value:'daily'}],1,'user').ok);
+  const scheduler=new WidgetScheduler(f.widgets);f.widgets.touch('a');assert.equal(scheduler.tick(),1);await f.widgets.idle('a');
+  f.advance(23*3600000);assert.equal(scheduler.tick(),0);f.advance(3600000);assert.equal(scheduler.tick(),1);await f.widgets.idle('a');
+});
+
+test('invalid model actions fail closed before result persistence',async t=>{
+  const f=fixture({run:async()=>({kind:'list',rows:[{title:'Open',action:{type:'open',route:'https://example.test'}}]}),validateResult(){throw Error('Unowned action');}});t.after(()=>f.db.close());
+  f.widgets.run('a',...f.ids);await f.widgets.idle('a');assert.equal(f.widgets.result('a',...f.ids).state,'error');assert.equal(f.widgets.result('a',...f.ids).doc,null);
 });

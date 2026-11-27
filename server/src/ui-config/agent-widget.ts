@@ -35,3 +35,5 @@ export const UI_WIDGET_ROUTES = {
   action: '/api/ui/widgets/:dashboardId/:widgetId/action', // POST { action: WidgetAction, confirm?: boolean }
 } as const;
 export const DASHBOARD_TEMPLATES = ['blank', 'overview', 'tasks', 'usage', 'bot', 'needs_you', 'handoffs', 'pipeline'] as const;
+
+export const WIDGET_OPEN_ROUTES = ['#bots', '#tasks', '#files', '#search', '#dashboards', '#usage', '#settings', '#settings/appearance', '#settings/apps', '#apps/connect', '#loops'] as const;

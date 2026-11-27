@@ -1,8 +1,8 @@
 import type Database from 'better-sqlite3';
-import { widgetActionSchema, type AgentWidgetResult, type WidgetAction, type UiConfigService } from '../ui-config/index.js';
+import { widgetActionSchema, WIDGET_OPEN_ROUTES, type AgentWidgetResult, type WidgetAction, type UiConfigService } from '../ui-config/index.js';
 import { WidgetError, type WidgetService } from './widget-service.js';
 
-export const WIDGET_OPEN_ROUTES = ['#bots', '#tasks', '#files', '#search', '#dashboards', '#usage', '#settings', '#settings/appearance', '#settings/apps', '#apps/connect', '#loops'] as const;
+export { WIDGET_OPEN_ROUTES } from '../ui-config/agent-widget.js';
 export interface ActionDependencies {
   needsYou(userId: string): { id: string; type: string }[];
   approve(userId: string, approvalId: string): unknown;

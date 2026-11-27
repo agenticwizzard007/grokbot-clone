@@ -7,6 +7,7 @@ export class WidgetScheduler {
   constructor(private widgets: WidgetService) {}
   tick(): number {
     const { db, clock, config } = this.widgets, now = clock(); let started = 0;
+    if (!db.open) return 0;
     const users = db.prepare('SELECT user_id FROM ui_widget_activity WHERE active_at>=?').all(now - 7 * 86400_000) as { user_id: string }[];
     for (const { user_id: userId } of users) {
       if (!this.widgets.enabled(userId)) continue;
@@ -28,6 +29,6 @@ export class WidgetScheduler {
     }
     return started;
   }
-  start() { if (!this.timer) { this.timer = setInterval(() => this.tick(), 60_000); this.timer.unref(); } }
+  start() { if (!this.timer) { this.timer = setInterval(() => { try { this.tick(); } catch { /* Retry transient storage failures at the next tick. */ } }, 60_000); this.timer.unref(); } }
   stop() { clearInterval(this.timer); this.timer = undefined; }
 }

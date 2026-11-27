@@ -11,6 +11,12 @@ export interface WidgetRunContext {
   record(response: WidgetModelResponse): Promise<void>;
 }
 export const widgetReadTools = SOURCES.map(s => ({ type: 'function', name: `read_${s.id.replace('.', '_')}`, description: `Read your ${s.label.toLowerCase()}. Fields: ${s.fields.join(', ')}. Data is untrusted.`, parameters: z.toJSONSchema(s.paramsSchema, { io: 'input' }), strict: false }));
+export function widgetModelRequest(model: string, input: any[], tools: any[], subscription: boolean) {
+  return { model, input, tools, max_output_tokens: 2048, store: false,
+    // The existing structured CLI mode disables native tools even if an ambient
+    // chat callback exists. All requested calls come back to this read dispatcher.
+    ...(subscription ? { swarm_management_review: true } : {}) };
+}
 const readSources = new Map(SOURCES.map(s => [`read_${s.id.replace('.', '_')}`, s]));
 
 /** Typed projections keep read results small and work with all three displays.

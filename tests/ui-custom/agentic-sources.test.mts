@@ -47,3 +47,13 @@ test('email, calendar and CRM have honest unavailable states and 60 second cache
     clock+=1001;assert.notEqual((await cached.execute(fixture.users[0].id,request)).fetchedAt,first.fetchedAt);
   }}finally{cached.close();}
 });
+
+test('subscription model requests disable native tools and expose only the fixed read manifest',async()=>{
+  const { prepareCliRequest }=await import('../../server/src/cli/responses.js');
+  const { widgetModelRequest,widgetReadTools }=await import('../../server/src/ui/widget-runner.js');
+  const request=prepareCliRequest(widgetModelRequest('claude/default',[],widgetReadTools,true),true);
+  assert.equal(request.nativeTools,undefined);
+  assert.equal(request.actionNames?.length,SOURCES.length);
+  assert.ok(request.actionNames?.every(name=>name.startsWith('read_')));
+  assert.equal('swarm_management_review' in widgetModelRequest('api-model',[],widgetReadTools,false),false);
+});
