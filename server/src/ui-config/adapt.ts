@@ -116,11 +116,11 @@ export function adaptFromRequirements(profile: RequirementsProfile | null, confi
     const order = [...new Set([...promoted, ...DEFAULT_CONFIG.layout.sidebar.order])];
     propose('/layout/sidebar/order', order, 'Sidebar order');
     // Only promote registered phone targets. Settings remains required in every recipe.
-    const tabIds = new Set(['bots', 'tasks', 'search', 'settings']);
+    const tabIds = new Set(['bots', 'tasks', 'search', 'settings', 'routines', 'usage', 'files']);
     const tabs: string[] = [...new Set(promoted.map(id => id === 'allBots' ? 'bots' : id).filter(id => tabIds.has(id)))];
     if (index >= 0 || managedPaths.some(p => p.startsWith('/dashboards/'))) tabs.splice(1, 0, `dashboard:${dashboardId}`);
     for (const tab of ['bots', 'tasks', 'search']) if (tabs.length < 3 && !tabs.includes(tab)) tabs.push(tab);
-    propose('/layout/phoneTabs', [...tabs.slice(0, 3), 'settings'], 'Phone tabs');
+    propose('/layout/phoneTabs', [...tabs.slice(0, 3), 'more', 'settings'], 'Phone tabs');
   }
   const validated = previewPatch(config, patch, { ctx: {} });
   if (!validated.ok) return validated;

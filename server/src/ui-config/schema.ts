@@ -23,7 +23,7 @@ export const themeSchema = z.object({
   density: densitySchema, radius: z.enum(['sharp', 'default', 'round']), motion: z.enum(['system', 'reduced']), contrast: z.enum(['normal', 'high']),
 }).strict();
 const homeSchema = z.union([z.object({ kind: z.enum(['default', 'bots', 'tasks']) }).strict(), z.object({ kind: z.literal('dashboard'), dashboardId: dashboardIdSchema }).strict()]);
-const phoneTab = z.union([z.enum(['bots', 'tasks', 'search', 'settings']), z.string().regex(/^dashboard:d_[a-z0-9]{8}$/)]);
+const phoneTab = z.union([z.enum(['bots', 'tasks', 'search', 'settings', 'routines', 'usage', 'files', 'more']), z.string().regex(/^dashboard:d_[a-z0-9]{8}$/)]);
 export const layoutSchema = z.object({
   sidebar: z.object({ collapsed: z.boolean().nullable(), width: z.enum(['narrow', 'default', 'wide']), order: z.array(z.enum(NAV_IDS)).max(NAV_IDS.length), hidden: z.array(z.enum([...NAV_IDS, 'all'])).max(NAV_IDS.length) }).strict(),
   home: homeSchema, phoneTabs: z.array(phoneTab).min(3).max(5), chat: z.object({ width: z.enum(['default', 'wide']) }).strict(),

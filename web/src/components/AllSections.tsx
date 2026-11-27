@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { APP_SECTIONS, BOT_TABS, SETTINGS_LABELS, dashboardSlug } from '../lib/navigation';
 import { botSlug } from '../lib/userRoutes';
 import { useStore } from '../store';
-import { useUiConfig } from '../customization';
+import { useUiConfig, useEffectiveConfig } from '../customization';
 import { Page, Section, Card, Row } from './layout';
 
 /** Fixed recovery links are independent of every configurable visibility/order value. */
@@ -21,7 +21,6 @@ export function allSectionLinks(bots: { id: string; name: string }[], dashboards
     { group: 'Sections', label: 'Set up Swarm', href: '#first-run' },
     { group: 'Settings', label: 'Settings', href: '#settings' },
     ...APP_SECTIONS.map(id => ({ group: 'Settings', label: SETTINGS_LABELS[id], href: `#settings/${id}` })),
-    { group: 'Settings', label: 'About your use', href: '#settings/appearance/use' },
     ...dashboards.map(d => ({ group: 'Dashboards', label: d.name, href: `#dash/${dashboardSlug(d)}` })),
     ...bots.flatMap(bot => {
       const root = `#bot/${botSlug(bot)}`, group = bot.name;
@@ -39,17 +38,18 @@ export function allSectionLinks(bots: { id: string; name: string }[], dashboards
 export function useAdaptedNavigation() {
   const account = useStore(s => s.user?.id);
   const { revision } = useUiConfig();
+  const previewNavigation = useEffectiveConfig().layout.phoneTabs.includes('more');
   const [active, setActive] = useState(false);
   useEffect(() => {
     let alive = true;
     setActive(false);
     if (account) void fetch('/api/ui/requirements', { credentials: 'include' }).then(async response => {
       const data = response.ok ? await response.json() : null;
-      if (alive) setActive(!!data?.profile);
+      if (alive) setActive(!!data?.adapted);
     }).catch(() => {});
     return () => { alive = false; };
   }, [account, revision]);
-  return active;
+  return active || previewNavigation;
 }
 
 export function AllSections({ routines = false }: { routines?: boolean }) {

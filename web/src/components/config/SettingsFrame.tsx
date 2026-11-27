@@ -1,3 +1,4 @@
+import { SETTINGS_LABELS } from '../../lib/navigation';
 import { useUiConfig } from '../../customization';
 import { Page, Section, Card } from '../layout';
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
@@ -13,6 +14,7 @@ import '../../styles/settings-v3.css';
 
 // Only page contents wait for code or data. Navigation stays mounted and usable.
 const AppearanceSettings = lazy(() => import('./AppearanceSettings').then(m => ({ default: m.AppearanceSettings })));
+const Requirements = lazy(() => import('./appearance/Requirements').then(m => ({ default: m.Requirements })));
 const ConfigLayer = lazy(() => import('./ConfigLayer').then(m => ({ default: m.ConfigLayer })));
 
 let settingsCaller: HTMLElement | null = null;
@@ -75,7 +77,7 @@ export function AppSettings() {
     };
   }, []);
 
-  const sectionLabel = NAV.flatMap(group => group.items).find(item => item.id === section)?.label;
+  const sectionLabel = NAV.flatMap(group => group.items).find(item => item.id === section)?.label ?? (section ? SETTINGS_LABELS[section] : 'Settings');
   if (!section) return null;
   const pick = (id: AppSection) => { open(id); setQuery(''); };
   const q = query.trim();
@@ -123,7 +125,7 @@ export function AppSettings() {
       <span ref={heading} tabIndex={-1} className="sr-only">{showList ? 'Settings' : sectionLabel}</span>
       {showList ? <Page type="form">{nav}</Page> : <Page type="form" title={compact ? undefined : section === 'subscriptions' ? 'Models & access' : sectionLabel} className="app-settings__page" key={section}>
         <Suspense fallback={<div className="settings-page-loading" role="status">Loading settings</div>}>
-          {section === 'appearance' ? <AppearanceSettings /> : <ConfigLayer />}
+          {section === 'appearance/use' ? <Requirements /> : section === 'appearance' ? <AppearanceSettings /> : <ConfigLayer />}
         </Suspense>
       </Page>}
     </div>

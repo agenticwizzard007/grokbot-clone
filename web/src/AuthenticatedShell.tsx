@@ -36,6 +36,7 @@ import './styles/mobile.css';
 import './styles/paper-core.css'; // accepted shared shell and core responsive geometry
 import './components/sidebar-labels.css';
 
+const AllSections = lazy(() => import('./components/AllSections').then(m => ({ default: m.AllSections })));
 const DashboardView = lazy(() => import('./dashboards/DashboardView'));
 const FirstRun = lazy(() => import('./components/FirstRun').then(m => ({ default: m.FirstRun })));
 const ChatView = lazy(() => import('./components/ChatView').then(m => ({ default: m.ChatView })));
@@ -141,6 +142,7 @@ function Shell() {
       <Suspense fallback={view === 'chat' && !botSettings && !modal ? <ChatSkeleton /> : <main className="chat chat--empty" role="status">Loading...</main>}>
         {rosterUnavailable && view !== 'tasks' ? <main className="boot boot--data"><RosterFeedback /></main>
           : ['loops', 'loop', 'handoff', 'output'].includes(screen.kind) ? <HandoffRoutes screen={screen as HandoffScreen} />
+          : screen.kind === 'all' ? <AllSections routines={screen.routines} />
           : screen.kind === 'dash' ? <DashboardView dashboardId={dashboard?.id ?? screen.dashboard} />
           : screen.kind === 'first-run' ? <FirstRun />
           : modal === 'create' ? <CreateBotModal inline />

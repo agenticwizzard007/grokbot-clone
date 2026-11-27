@@ -58,6 +58,7 @@ export function Requirements() {
     const latest = await appearanceRequest<Snapshot>('/ui/requirements');
     if (reset) hydrate(latest); else setSaved(latest);
   };
+  if (!saved) return <Section role="region" title="About your use" aria-label="About your use"><p role={error ? 'alert' : 'status'}>{error || 'Loading your requirements...'}</p></Section>;
   return <Section role="region" title="About your use" aria-label="About your use">
     <p>Tell your agent what you need, or edit it here.</p>
     {error && <p role="alert">{error}</p>}
@@ -65,11 +66,11 @@ export function Requirements() {
     <fieldset disabled={busy || !saved} className="appearance-fields" aria-label="Your requirements" aria-busy={busy}>
       <Card style={{ display: 'grid', gap: 16, padding: 16 }}>
         <label style={fieldStyle}>Role<input className="text-input" maxLength={60} value={fields.role} onChange={e => setFields({ ...fields, role: e.target.value })} /></label>
-        <label style={fieldStyle}>Goals<textarea className="text-input" rows={3} value={goals} placeholder="One goal per line, up to six" onChange={e => setGoals(e.target.value)} /></label>
+        <label style={fieldStyle}>Goals<textarea aria-label="Goals" className="text-input" rows={3} value={goals} placeholder="One goal per line, up to six" onChange={e => setGoals(e.target.value)} /></label>
         <Section title="Workflows">
           {fields.workflows.map((workflow, i) => <Card key={i} style={{ display: 'grid', gap: 8, padding: 16 }}>
             <label style={fieldStyle}>Workflow {i + 1}<input className="text-input" maxLength={80} value={workflow.name} onChange={e => setFields({ ...fields, workflows: fields.workflows.map((w, n) => n === i ? { ...w, name: e.target.value } : w) })} /></label>
-            <label style={fieldStyle}>Cadence<select className="text-input" value={workflow.cadence} onChange={e => setFields({ ...fields, workflows: fields.workflows.map((w, n) => n === i ? { ...w, cadence: e.target.value as typeof w.cadence } : w) })}>
+            <label style={fieldStyle}>Cadence<select aria-label={`Cadence ${i + 1}`} className="text-input" value={workflow.cadence} onChange={e => setFields({ ...fields, workflows: fields.workflows.map((w, n) => n === i ? { ...w, cadence: e.target.value as typeof w.cadence } : w) })}>
               <option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="ad_hoc">As needed</option>
             </select></label>
             <button type="button" className="cfg-btn" onClick={() => setFields({ ...fields, workflows: fields.workflows.filter((_, n) => n !== i) })}>Remove workflow {i + 1}</button>
@@ -79,7 +80,7 @@ export function Requirements() {
         <Section title="Focus"><div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
           {FOCUS_IDS.map(id => <button type="button" key={id} className="cfg-btn" aria-pressed={fields.focus.includes(id)} onClick={() => setFields({ ...fields, focus: fields.focus.includes(id) ? fields.focus.filter(f => f !== id) : [...fields.focus, id] })}>{labels[id]}</button>)}
         </div></Section>
-        <label style={fieldStyle}>Lens<select className="text-input" value={fields.lens ?? ''} onChange={e => { const next = { ...fields }; if (e.target.value) next.lens = e.target.value as RequirementsFields['lens']; else delete next.lens; setFields(next); }}>
+        <label style={fieldStyle}>Lens<select aria-label="Lens" className="text-input" value={fields.lens ?? ''} onChange={e => { const next = { ...fields }; if (e.target.value) next.lens = e.target.value as RequirementsFields['lens']; else delete next.lens; setFields(next); }}>
           <option value="">Choose from my requirements</option>{LENS_IDS.map(id => <option key={id} value={id}>{ADAPT_LENSES[id].label}</option>)}
         </select></label>
         <ButtonGroup stack>

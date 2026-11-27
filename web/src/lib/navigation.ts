@@ -1,8 +1,8 @@
 import { botSlug, routeBot, linkedWork, workHash, workTabLabel, type WorkRoute } from './userRoutes';
 
-export const APP_SECTIONS = ['general', 'appearance', 'keys', 'usage', 'computer', 'messaging', 'permissions', 'apps', 'mcp', 'account', 'subscriptions', 'learning'] as const;
+export const APP_SECTIONS = ['general', 'appearance', 'appearance/use', 'keys', 'usage', 'computer', 'messaging', 'permissions', 'apps', 'mcp', 'account', 'subscriptions', 'learning'] as const;
 export const SETTINGS_LABELS: Record<AppSection, string> = {
-  general: 'General', appearance: 'Appearance', keys: 'API keys', usage: 'Usage', computer: 'Computer', messaging: 'Messaging',
+  general: 'General', appearance: 'Appearance', 'appearance/use': 'About your use', keys: 'API keys', usage: 'Usage', computer: 'Computer', messaging: 'Messaging',
   permissions: 'Permissions', apps: 'Connected apps', mcp: 'MCP servers', account: 'Account',
   subscriptions: 'Models & access', learning: 'Learning',
 };
@@ -13,6 +13,7 @@ export type DetailTab = 'activity' | 'tasks' | 'library' | 'configuration';
 export type SetupTab = 'responsibilities' | 'harness' | 'files' | 'history';
 export type Screen =
   | { kind: 'bots' }
+  | { kind: 'all'; routines?: boolean }
   | { kind: 'dash'; dashboard: string }
   | { kind: 'loops' }
   | { kind: 'loop' | 'handoff'; id: string }
@@ -27,6 +28,7 @@ export type Screen =
 export function parseScreen(hash: string): Screen | null {
   if (!hash.startsWith('#')) return null;
   if (hash === '#first-run') return { kind: 'first-run' };
+  if (hash === '#all' || hash === '#all/routines') return { kind: 'all', ...(hash.endsWith('/routines') ? { routines: true } : {}) };
   if (hash === '#bots') return { kind: 'bots' };
   if (hash === '#loops') return { kind: 'loops' };
   const item = hash.match(/^#(loop|handoff|output)\/([A-Za-z0-9_-]{1,256})(?:\?([^#]*))?$/);
@@ -82,6 +84,7 @@ export function screenHash(screen: Screen): string {
   switch (screen.kind) {
     case 'first-run': return '#first-run';
     case 'bots': return '#bots';
+    case 'all': return screen.routines ? '#all/routines' : '#all';
     case 'dash': return `#dash/${encodeURIComponent(screen.dashboard)}`;
     case 'loops': return '#loops';
     case 'loop': case 'handoff': return `#${screen.kind}/${encodeURIComponent(screen.id)}`;
@@ -117,7 +120,8 @@ export function parentScreen(screen: Screen): Screen | null {
       if (screen.setup) return { kind: 'details', bot: screen.bot, tab: 'configuration' };
       return { kind: 'chat', bot: screen.bot };
     case 'bot-settings': return { kind: 'chat', bot: screen.bot };
-    case 'settings': return screen.section ? { kind: 'settings' } : null;
+    case 'all': return screen.routines ? { kind: 'all' } : { kind: 'bots' };
+    case 'settings': return screen.section === 'appearance/use' ? { kind: 'settings', section: 'appearance' } : screen.section ? { kind: 'settings' } : null;
     case 'work': return screen.route.botSlug ? { kind: 'work', route: { tab: screen.route.tab } } : null;
     default: return null;
   }
@@ -150,7 +154,7 @@ export function backLabel(screen: Screen, bots: NavigationBot[] = []): string {
   if (screen.kind === 'chat') return `Back to ${routeBot(screen.bot, bots)?.name ?? 'Bot'} chat`;
   if (screen.kind === 'details') return screen.flow ? 'Back to Flow' : screen.tab === 'library' ? 'Back to files' : screen.tab === 'configuration' ? 'Back to setup' : 'Back to details';
   const names: Record<Screen['kind'], string> = {
-    'first-run': 'model setup',
+    'first-run': 'model setup', all: 'All sections',
     loops: 'Loops', loop: 'loop', handoff: 'handoff', output: 'output',
     dash: 'dashboard', work: 'Tasks', details: 'details', bots: 'Bots', create: 'create a Bot', group: 'new group chat',
     'bot-settings': 'Bot settings', settings: 'Settings', chat: 'chat', search: 'search', apps: 'apps',
@@ -170,6 +174,7 @@ export function screenTitle(screen: Screen, bots: NavigationBot[] = [], loaded =
   let title: string;
   switch (screen.kind) {
     case 'bots': title = 'Bots'; break;
+    case 'all': title = screen.routines ? 'Routines' : 'All sections'; break;
     case 'dash': title = 'Dashboard'; break;
     case 'loops': title = 'Loops'; break;
     case 'loop': title = 'Loop'; break;
