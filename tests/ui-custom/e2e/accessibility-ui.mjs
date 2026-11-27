@@ -107,6 +107,18 @@ try {
           assert.ok(focus.style !== 'none' && focus.width >= 2, 'Scrollable region has a visible focus ring');
           item.keyboardScroll++;
         }
+        if (route.name === '#tasks') {
+          const regions = scrollRegions.filter({ visible: true });
+          for (const region of await regions.all()) await region.evaluate(node => { node.scrollTop = 0; });
+          if (await regions.count()) await regions.first().focus();
+        }
+        if (route.name === 'dashboard') {
+          const table = page.getByRole('region', { name: 'Task table rows', exact: true });
+          if (await table.count()) {
+            await table.focus(); await table.evaluate(node => { node.scrollTop = 0; });
+            await page.locator('.dashboard-heading').scrollIntoViewIfNeeded();
+          }
+        }
         if (['#tasks', 'dashboard', 'about-you'].includes(route.name)) await page.screenshot({ path: path.join(out, `${file}.png`) });
         const dialog = page.locator('dialog[open], [role=dialog][aria-modal=true]').last();
         if (await dialog.count()) {
