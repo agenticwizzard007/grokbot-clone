@@ -34,6 +34,9 @@ try {
     });
     // Keep customization at defaults without the disabled feature endpoint's network 404.
     await page.route('**/api/ui/config', route => route.fulfill({ status: 200, json: { doc: DEFAULT_CONFIG, revision: 0 } }));
+    await page.route('**/api/ui/requirements', route => route.fulfill({ status: 200,
+      headers: { ETag: '"0"', 'Cache-Control': 'private, no-store' },
+      json: { profile: null, revision: 0, enabled: true, adapted: false, lens: null, rationale: [], suggestions: null } }));
     for (const state of ['rich', 'empty', 'missing-lanes', 'null']) {
       const input = structuredClone(fixtures[state === 'rich' ? 'rich' : 'empty']);
       input.bot.id = app.fixture.bot.id;
