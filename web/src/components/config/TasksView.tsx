@@ -74,7 +74,7 @@ function WorkWorkspace() {
 
   return (
     <main className="chat tasks-view" aria-labelledby="tasks-heading">
-      <div className="tasks-view__scroll" ref={scroll}>
+      <div className="tasks-view__scroll" ref={scroll} tabIndex={0} role="region" aria-labelledby="tasks-heading">
         <Page type="list" className="tasks-view__inner work-ui">
           <div className="work-heading"><h1 id="tasks-heading" ref={pageHeading} tabIndex={-1}>{title === workTabLabel(tab) ? `${scope}${title}` : title}</h1>
             {tab === 'Tasks' && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2)', justifyContent: 'flex-end' }}><TaskLoopsLink /><button type="button" className="btn btn--primary" onClick={() => { const bot = selectedBot ?? bots.find(b => b.isPrimary) ?? bots[0]; if (bot) { prefillComposer(bot.id, 'Create a task: '); openConversation(bot.id); } }} disabled={!bots.length}>Add task</button></div>}
@@ -91,7 +91,7 @@ function WorkWorkspace() {
           {!unavailable && tab === 'Goals' && <WorkflowsPanel key={`${userId}:${workBotKey(selectedBot)}`} botId={botFilter} workspace onHeading={setHeading} onTeam={() => updateContext({ tab: 'Team' })} />}
           {!unavailable && tab === 'Reports' && <WorkReports key={`${userId}:${workBotKey(selectedBot)}`} botId={botFilter} location={context.report} onLocation={report => updateContext({ report })} onHeading={setHeading} />}
           {tab === 'Tasks' && <div className={`tasks-board-area${board ? ' is-board' : ''}`}>
-          {selectedBot && <div className="tasks-scope" role="status"><span>Showing tasks for {selectedBot.name}</span><button type="button" className="work-button" aria-label={`Clear the ${selectedBot.name} filter and show tasks for all Bots`} onClick={() => updateContext({ botId: undefined })}>Show all Bots</button></div>}
+          {selectedBot && <div className="tasks-scope" role="status"><span>Showing tasks for {selectedBot.name}</span><button type="button" className="work-button" aria-label={`Show all Bots: clear the ${selectedBot.name} filter`} onClick={() => updateContext({ botId: undefined })}>Show all Bots</button></div>}
           <div className="tasks-toolbar">
             <div className="task-filters" role="group" aria-label="Filter tasks by status">
               {(['open', 'done', 'all'] as const).map(state => <button key={state} type="button" aria-pressed={filter === state} className={`task-filter is-${state}${filter === state ? ' is-selected' : ''}`} onClick={() => setFilter(state)}>{state === 'open' ? 'Open' : state === 'done' ? 'Done' : 'All'}{state === 'all' && countLabel('all')}</button>)}

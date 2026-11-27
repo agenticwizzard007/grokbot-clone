@@ -10,6 +10,7 @@
     "test:handoffs": "node --import tsx --test --test-concurrency=1 \"tests/handoffs/**/*.test.mts\"",
     "demo:handoffs": "node tests/handoffs/demo-a.mjs",
     "test:ui-custom": "node tests/ui-custom/run-all.mjs",
+    "test:a11y": "node tests/ui-custom/e2e/accessibility-ui.mjs",
     "test:readiness-yy": "node --import tsx --test --test-concurrency=1 tests/api-approval-level.test.mts tests/api-run-diagnostics.test.mts tests/navigation-history.test.mts tests/navigation-labels.test.mts tests/structural-navigation.test.mts tests/qa-r3-settings.test.mts tests/native-knowledge.test.mts tests/plan-connections.test.mts && node tests/api-approval-ui.mjs && node tests/readiness-yy-ui.mjs",
     "test:readiness-zz": "node --import tsx --test tests/provider-brand.test.mts tests/composer-first-render.test.mts tests/composer-model-label.test.mts && npm run build -w web && node tests/provider-logos-ui.mjs && node tests/composer-stable-layout-ui.mjs",
     "test:readiness-vv": "node --import tsx --test tests/openrouter.test.mts tests/plan-connections.test.mts tests/settings-connections-regressions.test.mts && node tests/readiness-vv-ui.mjs",
