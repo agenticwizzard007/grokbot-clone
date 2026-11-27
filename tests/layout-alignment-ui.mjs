@@ -222,5 +222,6 @@ async function main() {
     const result = spawnSync(process.execPath, ['tests/ui-custom/e2e/suggest-dashboard-ui.mjs'], { stdio: 'inherit', env: { ...process.env, SUGGEST_EVIDENCE: path.join(evidence, 'suggestions') } });
     assert.equal(result.status, 0, 'Dashboard suggestion routes follow Paper layout and visible-copy rules');
   }
+  await (await import('./handoffs/ho-routes.mjs')).auditHandoffRoutes(inspectAlignment);
 }
 if (import.meta.url === pathToFileURL(process.argv[1]).href) await main();

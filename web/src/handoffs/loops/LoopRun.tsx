@@ -47,9 +47,9 @@ export function LoopRun({ id, api = loopsApi, showBack = true, onBack = () => { 
       {bestOutput && <Row title="Best output" subtitle={bestOutput.title} />}
       <ButtonGroup stack>
         {bestOutput && <button className="ho-loop-button ho-loop-primary" onClick={() => onUseOutput(bestOutput)}>Use this</button>}
-        {detail.canExtend === true && loop.spec.limits.maxIterations <= 8 && loop.stopReason === 'max_iterations' && <button className="ho-loop-button" disabled={!!pending} onClick={() => void act('extend')}>Continue 2 more passes</button>}
         {bestOutput && (onSendOutput ? <button className="ho-loop-button" onClick={() => onSendOutput(bestOutput)}>Send to agent</button> : <a className="ho-loop-button" href={`${outputHref(bestOutput)}${bestOutput.partId ? '&' : '?'}send=1`}>Send to agent</a>)}
       </ButtonGroup>
+      {detail.canExtend === true && loop.spec.limits.maxIterations <= 8 && loop.stopReason === 'max_iterations' && <details><summary>More options</summary><button className="ho-loop-button" disabled={!!pending} onClick={() => void act('extend')}>Continue 2 more passes</button></details>}
     </Card></Section>}
     <footer className="ho-loop-footer"><span className="ho-loop-muted">{detail.usage?.tracked ? [detail.usage.costUsd !== undefined ? `$${detail.usage.costUsd.toFixed(2)}` : '', detail.usage.tokens !== undefined ? `${detail.usage.tokens.toLocaleString()} tokens` : ''].filter(Boolean).join(' · ') : 'Cost not tracked on this plan'}</span><button className="ho-loop-button" onClick={() => void copy()}>Copy details</button><span role="status">{copied}</span></footer>
   </Page>;
