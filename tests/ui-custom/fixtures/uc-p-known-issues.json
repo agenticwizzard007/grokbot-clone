@@ -1,7 +1,7 @@
 {
   "owner": "UC-P",
-  "base": "5294c85",
-  "note": "Exact observed dashboard and Appearance violations. Remove resolved entries; forbidden visible text is never exempt. Findings are deduplicated, but each view lists exact occurrences.",
+  "base": "3842013",
+  "note": "Exact findings observed on integrated main, assigned to UC-P by the Nov 27 quality review. Includes dashboard, Appearance, preview and requirements surfaces. Remove resolved entries; forbidden visible text is never exempt. Findings are deduplicated, but each view lists exact occurrences.",
   "findings": {
     "Q001": {
       "rule": "spacing-rowGap",
@@ -1185,6 +1185,142 @@
       "target": "div#root>div>div>div>div:nth-of-type(2)>div>div>div>div>fieldset>section:nth-of-type(4)>div>div>div:nth-of-type(4)>div:nth-of-type(2)>div>button:nth-of-type(3)",
       "actual": "13px",
       "expected": "14px minimum"
+    },
+    "Q199": {
+      "rule": "alignment",
+      "target": ".shell-content > :not(.shell-header):not(.phone-tabs)",
+      "actual": "Unequal column card edges: card.layout-card Open Tasks first Pending Home: Tasks Reordered phone ta / card.layout-card Open Tasks first Output Open Tasks first Send to agent "
+    },
+    "Q200": {
+      "rule": "alignment",
+      "target": ".shell-content > :not(.shell-header):not(.phone-tabs)",
+      "actual": "visible labels fit and wrap only between words\n+ actual - expected\n\n+ [\n+   'truncated label: Open Tasks first'\n+ ]\n- []\n"
+    },
+    "Q201": {
+      "rule": "secondary-text-size",
+      "target": "div#root>div>div>div>div:nth-of-type(2)>div>div>div>div>section:nth-of-type(2)>div>div>div>div:nth-of-type(2)",
+      "actual": "12px",
+      "expected": "13px minimum"
+    },
+    "Q202": {
+      "rule": "button-group-flex",
+      "target": "div#root:nth-of-type(1)>div>div>div>div:nth-of-type(2)>div>div>div>div>section:nth-of-type(2)>div>div:nth-of-type(4)>a",
+      "actual": "1 0 0px",
+      "expected": "1 1 0"
+    },
+    "Q203": {
+      "rule": "button-group-flex",
+      "target": "div#root:nth-of-type(1)>div>div>div>div:nth-of-type(2)>div>div>div>div>section:nth-of-type(3)>div>div:nth-of-type(3)>a",
+      "actual": "1 0 0px",
+      "expected": "1 1 0"
+    },
+    "Q204": {
+      "rule": "button-group-flex",
+      "target": "div#root:nth-of-type(1)>div>div>div>div:nth-of-type(2)>div>div>div>div>div>div>button:nth-of-type(1)",
+      "actual": "1 0 0px",
+      "expected": "1 1 0"
+    },
+    "Q205": {
+      "rule": "button-group-flex",
+      "target": "div#root:nth-of-type(1)>div>div>div>div:nth-of-type(2)>div>div>div>div>div>div>button:nth-of-type(2)",
+      "actual": "1 0 0px",
+      "expected": "1 1 0"
+    },
+    "Q206": {
+      "rule": "body-text-size",
+      "target": "div#root:nth-of-type(1)>div>div>div>div:nth-of-type(2)>aside>nav>label>input#app-settings-search",
+      "actual": "13px",
+      "expected": "14px minimum"
+    },
+    "Q207": {
+      "rule": "control-height",
+      "target": "div#root:nth-of-type(1)>div>div>div>div:nth-of-type(2)>aside>nav>label>input#app-settings-search",
+      "actual": 34,
+      "expected": "44px minimum"
+    },
+    "Q208": {
+      "rule": "card-paddingTop",
+      "target": "div#root:nth-of-type(1)>div>div>div>div:nth-of-type(2)>aside>nav>section:nth-of-type(1)>div>div",
+      "actual": "0px",
+      "expected": "16px"
+    },
+    "Q209": {
+      "rule": "card-paddingRight",
+      "target": "div#root:nth-of-type(1)>div>div>div>div:nth-of-type(2)>aside>nav>section:nth-of-type(1)>div>div",
+      "actual": "0px",
+      "expected": "16px"
+    },
+    "Q210": {
+      "rule": "card-paddingBottom",
+      "target": "div#root:nth-of-type(1)>div>div>div>div:nth-of-type(2)>aside>nav>section:nth-of-type(1)>div>div",
+      "actual": "0px",
+      "expected": "16px"
+    },
+    "Q211": {
+      "rule": "card-paddingLeft",
+      "target": "div#root:nth-of-type(1)>div>div>div>div:nth-of-type(2)>aside>nav>section:nth-of-type(1)>div>div",
+      "actual": "0px",
+      "expected": "16px"
+    },
+    "Q212": {
+      "rule": "spacing-rowGap",
+      "target": "div#root:nth-of-type(1)>div>div>div>div:nth-of-type(2)>aside>nav>section:nth-of-type(1)>div>div",
+      "actual": "2px",
+      "expected": "8px steps"
+    },
+    "Q213": {
+      "rule": "spacing-columnGap",
+      "target": "div#root:nth-of-type(1)>div>div>div>div:nth-of-type(2)>aside>nav>section:nth-of-type(1)>div>div",
+      "actual": "2px",
+      "expected": "8px steps"
+    },
+    "Q214": {
+      "rule": "card-paddingTop",
+      "target": "div#root:nth-of-type(1)>div>div>div>div:nth-of-type(2)>aside>nav>section:nth-of-type(2)>div>div",
+      "actual": "0px",
+      "expected": "16px"
+    },
+    "Q215": {
+      "rule": "card-paddingRight",
+      "target": "div#root:nth-of-type(1)>div>div>div>div:nth-of-type(2)>aside>nav>section:nth-of-type(2)>div>div",
+      "actual": "0px",
+      "expected": "16px"
+    },
+    "Q216": {
+      "rule": "card-paddingBottom",
+      "target": "div#root:nth-of-type(1)>div>div>div>div:nth-of-type(2)>aside>nav>section:nth-of-type(2)>div>div",
+      "actual": "0px",
+      "expected": "16px"
+    },
+    "Q217": {
+      "rule": "card-paddingLeft",
+      "target": "div#root:nth-of-type(1)>div>div>div>div:nth-of-type(2)>aside>nav>section:nth-of-type(2)>div>div",
+      "actual": "0px",
+      "expected": "16px"
+    },
+    "Q218": {
+      "rule": "spacing-rowGap",
+      "target": "div#root:nth-of-type(1)>div>div>div>div:nth-of-type(2)>aside>nav>section:nth-of-type(2)>div>div",
+      "actual": "2px",
+      "expected": "8px steps"
+    },
+    "Q219": {
+      "rule": "spacing-columnGap",
+      "target": "div#root:nth-of-type(1)>div>div>div>div:nth-of-type(2)>aside>nav>section:nth-of-type(2)>div>div",
+      "actual": "2px",
+      "expected": "8px steps"
+    },
+    "Q220": {
+      "rule": "button-group-flex",
+      "target": "div#root:nth-of-type(1)>div>div>div>div:nth-of-type(2)>div>div>div>div>fieldset>div>div:nth-of-type(2)>button:nth-of-type(1)",
+      "actual": "1 0 0px",
+      "expected": "1 1 0"
+    },
+    "Q221": {
+      "rule": "button-group-flex",
+      "target": "div#root:nth-of-type(1)>div>div>div>div:nth-of-type(2)>div>div>div>div>fieldset>div>div:nth-of-type(2)>button:nth-of-type(2)",
+      "actual": "1 0 0px",
+      "expected": "1 1 0"
     }
   },
   "views": {
@@ -1377,7 +1513,8 @@
       "Q167",
       "Q168",
       "Q169",
-      "Q170"
+      "Q170",
+      "Q201"
     ],
     "dashboard-seeded-390-light": [
       "Q001",
@@ -1568,7 +1705,8 @@
       "Q167",
       "Q168",
       "Q169",
-      "Q170"
+      "Q170",
+      "Q201"
     ],
     "dashboard-seeded-390-dark": [
       "Q001",
@@ -1759,7 +1897,8 @@
       "Q167",
       "Q168",
       "Q169",
-      "Q170"
+      "Q170",
+      "Q201"
     ],
     "dashboard-seeded-500-light": [
       "Q171",
@@ -1962,7 +2101,8 @@
       "Q167",
       "Q168",
       "Q169",
-      "Q170"
+      "Q170",
+      "Q201"
     ],
     "dashboard-seeded-1280-light": [
       "Q001",
@@ -2173,7 +2313,8 @@
       "Q167",
       "Q168",
       "Q169",
-      "Q170"
+      "Q170",
+      "Q201"
     ],
     "dashboard-seeded-1280-dark": [
       "Q001",
@@ -2384,7 +2525,163 @@
       "Q167",
       "Q168",
       "Q169",
-      "Q170"
+      "Q170",
+      "Q201"
+    ],
+    "preview-banner-320-light": [
+      "Q199",
+      "Q200"
+    ],
+    "requirements-320-light": [
+      "Q202",
+      "Q203"
+    ],
+    "adaptation-preview-320-light": [
+      "Q204",
+      "Q205",
+      "Q202",
+      "Q203"
+    ],
+    "preview-banner-390-light": [
+      "Q199",
+      "Q200"
+    ],
+    "requirements-390-light": [
+      "Q202",
+      "Q203"
+    ],
+    "adaptation-preview-390-light": [
+      "Q204",
+      "Q205",
+      "Q202",
+      "Q203"
+    ],
+    "preview-banner-390-dark": [
+      "Q199",
+      "Q200"
+    ],
+    "requirements-390-dark": [
+      "Q202",
+      "Q203"
+    ],
+    "adaptation-preview-390-dark": [
+      "Q204",
+      "Q205",
+      "Q202",
+      "Q203"
+    ],
+    "preview-banner-500-light": [
+      "Q199",
+      "Q200"
+    ],
+    "requirements-500-light": [
+      "Q202",
+      "Q203"
+    ],
+    "adaptation-preview-500-light": [
+      "Q204",
+      "Q205",
+      "Q202",
+      "Q203"
+    ],
+    "preview-banner-1280-light": [
+      "Q199",
+      "Q200"
+    ],
+    "requirements-1280-light": [
+      "Q206",
+      "Q207",
+      "Q208",
+      "Q209",
+      "Q210",
+      "Q211",
+      "Q212",
+      "Q213",
+      "Q214",
+      "Q215",
+      "Q216",
+      "Q217",
+      "Q218",
+      "Q219",
+      "Q220",
+      "Q221",
+      "Q202",
+      "Q203"
+    ],
+    "adaptation-preview-1280-light": [
+      "Q206",
+      "Q207",
+      "Q208",
+      "Q209",
+      "Q210",
+      "Q211",
+      "Q212",
+      "Q213",
+      "Q214",
+      "Q215",
+      "Q216",
+      "Q217",
+      "Q218",
+      "Q219",
+      "Q220",
+      "Q221",
+      "Q204",
+      "Q205",
+      "Q202",
+      "Q203"
+    ],
+    "preview-banner-1280-dark": [
+      "Q199",
+      "Q200"
+    ],
+    "requirements-1280-dark": [
+      "Q206",
+      "Q207",
+      "Q208",
+      "Q209",
+      "Q210",
+      "Q211",
+      "Q212",
+      "Q213",
+      "Q214",
+      "Q215",
+      "Q216",
+      "Q217",
+      "Q218",
+      "Q219",
+      "Q220",
+      "Q221",
+      "Q202",
+      "Q203"
+    ],
+    "adaptation-preview-1280-dark": [
+      "Q206",
+      "Q207",
+      "Q208",
+      "Q209",
+      "Q210",
+      "Q211",
+      "Q212",
+      "Q213",
+      "Q214",
+      "Q215",
+      "Q216",
+      "Q217",
+      "Q218",
+      "Q219",
+      "Q220",
+      "Q221",
+      "Q204",
+      "Q205",
+      "Q202",
+      "Q203"
     ]
+  },
+  "integrationReview": {
+    "base": "3842013",
+    "observedViews": 78,
+    "newOccurrences": 118,
+    "evidence": ".context/ui-custom/alignment-matrix/observations-before.json",
+    "note": "Root tabs correctly require zero Back controls. No exceptions are needed on adaptive home or All sections."
   }
 }

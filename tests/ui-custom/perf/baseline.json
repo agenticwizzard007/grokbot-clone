@@ -1,10 +1,25 @@
 {
   "version": 1,
-  "status": "pending integrated stack",
-  "recordedAt": null,
-  "commit": null,
-  "environment": null,
-  "measurements": {},
+  "status": "measured",
+  "recordedAt": "2026-11-27T18:06:18.354Z",
+  "commit": "89e3176f2bc5cabcd83c17bc9b5973d9c2a72cd4",
+  "environment": {
+    "node": "v24.22.1",
+    "platform": "linux",
+    "arch": "x64",
+    "cpus": 8
+  },
+  "measurements": {
+    "configGzipBytes": 429,
+    "configReadP95Ms": 8.578931000000011,
+    "configMedianBytes": 621,
+    "configMaxBytes": 621,
+    "patchP95Ms": 2.8024249999998574,
+    "dashboardGzipBytes": 47732,
+    "dataBatchP95Ms": 7.4868120000001,
+    "dashboardFirstContentMs": 28.700466000000233,
+    "dashboardCLS": 0
+  },
   "budgets": {
     "configMedianBytes": 4096,
     "configMaxBytes": 262144,
@@ -24,5 +39,40 @@
   },
   "regressionLimit": 1.25,
   "dashboardBudgetRationale": "The harness measures the entire incremental lazy dependency graph, including shared configuration validation, not only the DashboardView file. Integrated main 3842013 measured 47732 gzip bytes; 61440 bytes allows 28.7 percent absolute headroom. A recorded baseline also limits growth to 25 percent, which is stricter. The user authorized a measured budget on Nov 27. No product code was changed to meet it.",
-  "note": "Run UC_RECORD_BASELINE=1 serially on the integrated stack; review and commit the resulting measurements. Recording refuses failed or incomplete runs. UC_REQUIRE_FULL=1 rejects a missing baseline."
+  "note": "Integrated measurements recorded from two passing serial runs. The 25 percent regression cap and all absolute budgets remain enforced; UC_REQUIRE_FULL=1 now has a complete baseline.",
+  "calibration": {
+    "method": "Maximum observed value from two passing serial runs on integrated main 3842013; no synthetic measurement floors.",
+    "runs": [
+      {
+        "recordedAt": "2026-11-27T17:56:39.490Z",
+        "commit": "89e3176f2bc5cabcd83c17bc9b5973d9c2a72cd4",
+        "measurements": {
+          "configGzipBytes": 429,
+          "configReadP95Ms": 8.578931000000011,
+          "configMedianBytes": 621,
+          "configMaxBytes": 621,
+          "patchP95Ms": 2.8024249999998574,
+          "dashboardGzipBytes": 47732,
+          "dataBatchP95Ms": 6.894916999999623,
+          "dashboardFirstContentMs": 24.01024299999972,
+          "dashboardCLS": 0
+        }
+      },
+      {
+        "recordedAt": "2026-11-27T18:06:18.354Z",
+        "commit": "89e3176f2bc5cabcd83c17bc9b5973d9c2a72cd4",
+        "measurements": {
+          "configGzipBytes": 429,
+          "configReadP95Ms": 6.740999000000102,
+          "configMedianBytes": 621,
+          "configMaxBytes": 621,
+          "patchP95Ms": 2.3506609999999455,
+          "dashboardGzipBytes": 47732,
+          "dataBatchP95Ms": 7.4868120000001,
+          "dashboardFirstContentMs": 28.700466000000233,
+          "dashboardCLS": 0
+        }
+      }
+    ]
+  }
 }

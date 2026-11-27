@@ -17,7 +17,7 @@ node tests/ui-custom/demo-i.mjs
 node --import tsx tests/navigation-every-route-ui.mjs
 ```
 
-Run the unit phase before concurrent browser work so load measurements are not distorted by competing test servers. Archive command output, exact pass/fail/skip counts, reports, performance measurements and screenshots. The full runner includes UC-I adaptation and client defaults; defaults must match all 208 pinned views without new reviewed entries unless the workstream changed those views. A skip is incomplete evidence. The scope correction replaces the original cosmetic matrix and story with these gates:
+Run all suites serially so load measurements and browser checks are not distorted by competing test servers. Archive command output, exact pass/fail/skip counts, reports, performance measurements and screenshots. The full runner includes UC-I adaptation and client defaults; defaults must match all 208 pinned views without new reviewed entries unless the workstream changed those views. A skip is incomplete evidence. The scope correction replaces the original cosmetic matrix and story with these gates:
 
 - Ten journeys at 390 and 1280: chat dashboard creation and add/remove/reorder/resize, layout by chat, keyboard editing, recovery, two-tab sync, isolation, offline navigation, injection rejection, different requirements use cases, and requirement change/reset.
 - Main's unchanged default alignment coverage plus dashboard and navigation routes at 320, 390, 500 and 1280 light and 390/1280 dark: all ten widget types empty and seeded, edit mode, both sheets, Appearance, Preview, safe mode, Requirements, adaptive home, All sections and the adaptation preview card.
@@ -56,7 +56,7 @@ UC-B's metrics sink emits `{metric,value,label?}` with allowlisted labels. Revie
 | `ui_data_request_ms` | Batch latency |
 | `ui_agent_apply_mode` | Ask/auto counts |
 
-Enforce the reviewed budgets in `tests/ui-custom/perf/baseline.json`: config read p95 below 30 ms, patch p95 below 20 ms, 24-request data batch p95 below 150 ms, dashboard first content below 500 ms and CLS at most 0.05. Reject regressions above 25 percent. Report missing measurements explicitly.
+Enforce the reviewed budgets in `tests/ui-custom/perf/baseline.json`: config read p95 below 30 ms, patch p95 below 20 ms, 24-request data batch p95 below 150 ms, dashboard first content below 500 ms and CLS at most 0.05. The incremental dashboard lazy dependency graph has a reviewed 60 KiB gzip ceiling, based on 47,732 bytes measured on main 3842013; the 25 percent baseline regression cap remains stricter than that absolute ceiling. Reject regressions above 25 percent. Report missing measurements explicitly.
 
 After an authorized deployment, verify `/api/version` equals the release SHA. On dedicated test accounts, build and edit a dashboard, reload, Undo, change requirements and Apply, visit All sections, reset, and recover through safe mode. Confirm another account inherits no changes. Review errors and metrics before advancing.
 
