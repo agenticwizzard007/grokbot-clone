@@ -54,3 +54,7 @@
 .ho-message-actions { display: flex; margin-left: auto; }
 .ho-more summary { min-height: var(--control-h); padding-block: var(--space-2); color: var(--color-primary); cursor: pointer; }
 .ho-receipt-wrap { width: 100%; }
+/* Preserve Paper output styling when mounted through the shared Cards entry. */
+.settings-output-card .ho-output-card { --text-xs: calc(12px * var(--font-scale)); }
+.settings-output-card .ho-output-card .layout-row__subtitle { display: block; padding: 0; border-radius: 0; background: none; font-weight: 400; }
+.settings-output-card .ho-output-card .ho-chip { padding: 2px var(--space-2); font: 500 var(--text-xs)/var(--line-caption) var(--font-stack); }

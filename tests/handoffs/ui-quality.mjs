@@ -15,7 +15,7 @@ export function inspectQuality({ selector, finished = false }) {
   const check = (rule, okay, el, detail = '') => { counts[rule] = (counts[rule] || 0) + 1; if (!okay) issues.push(`${rule}: ${el.tagName}.${el.className} ${(el.innerText || '').trim().slice(0,70)} ${detail}`); };
   const close = (a,b) => Math.abs(a-b) <= 1;
   const minimum = innerWidth <= 760 ? 44 : 36;
-  const chip = '.ho-chip, .ho-status, .ho-loop-chip, .flow-badge, .chip';
+  const chip = '.ho-chip, .ho-status, .ho-loop-chip, .flow-badge, .chip, .agents-settings .cfg-chip';
   const forbidden = /mock:|\[object|\bundefined\b|\bnull\b|\{"|[\u2013\u2014]/i;
   for (const el of all) {
     const r = el.getBoundingClientRect(), css = getComputedStyle(el);

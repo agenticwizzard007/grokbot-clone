@@ -113,13 +113,16 @@ export function AgentsSection() {
   return <div className="agents-settings" aria-busy={busy || policy.loading || links.loading}>
     <style>{`
       .agents-settings { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; font-size: 14px; line-height: 20px; }
-      .agents-settings .cfg-chip { align-self: flex-start; height: auto; padding: 4px 8px; border-radius: var(--radius-full); font: 500 13px/18px var(--font-stack); white-space: normal; }
+      .agents-settings .cfg-chip { display: inline-flex; align-items: center; align-self: flex-start; height: 20px; padding: 2px var(--space-2); border-radius: var(--radius-full); font: 500 var(--text-xs)/var(--line-caption) var(--font-stack); white-space: normal; }
       .agents-settings .cfg-btn { font-size: 14px; padding-inline: 16px; gap: 8px; }
       .agents-settings .agents-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; font-size: 14px; }
       .agents-settings select { width: 100%; min-width: 0; min-height: var(--control-h); padding: 8px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg-pane); color: var(--color-text-primary); font: inherit; }
       .agents-settings .agents-check { display: flex; align-items: center; gap: 8px; min-height: var(--control-h); cursor: pointer; }
       .agents-settings .agents-check input { flex: 0 0 20px; width: 20px; height: 20px; margin: 0; accent-color: var(--color-primary); }
       .agents-settings .layout-row__subtitle { font-size: 13px; line-height: 18px; }
+      .agents-settings .layout-row__trailing { align-self: center; }
+      .agents-settings .settings-disclosure .layout-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2); align-items: center; }
+      .agents-settings .settings-disclosure .layout-row__text { min-width: 0; }
       .agents-settings .agents-saved { color: var(--color-success); background: var(--color-success-bg); }
     `}</style>
     <Section title="Handoffs" action={<InfoTip label="About handoffs">Send finished work to another agent. Team allows any available teammate; Links only follows standing links; Off stops agent sends. You can still send work yourself. Limits: 20 per agent per hour, 100 per account per day.</InfoTip>}>

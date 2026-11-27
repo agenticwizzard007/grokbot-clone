@@ -5,6 +5,7 @@ import { tsImport } from 'tsx/esm/api';
 import { integrationServer } from './integration-routes-ui.mjs';
 import { recordedRun, scenarios, bots } from './ui-e-fixture.mjs';
 import { fixture as handoffFixture } from './ui-d-fixture.mjs';
+import { agentsSettingsScreens, agentsSettingsState } from './agents-settings-fixture.mjs';
 
 export const screens = [
   'receipt', 'output-card', 'send-sheet', 'handoff-detail', 'output-viewer', 'handoff-list',
@@ -12,7 +13,8 @@ export const screens = [
   ...Object.keys(scenarios).filter(x => !['converged', 'gated'].includes(x)).map(x => `loop-${x}`),
   ...['loading', 'empty', 'error'].flatMap(x => [`output-${x}`, `handoffs-${x}`, `loops-${x}`, `flow-${x}`]),
   ...['loading','empty','error'].flatMap(x => [`handoff-${x}`, `viewer-${x}`, `send-${x}`]), 'handoff-approval', 'gate-cap', 'gate-manual',
-  'flow-suggestions', 'flow-long', 'link-edit', 'send-loop',
+  'flow-suggestions', 'flow-long', 'link-edit', 'send-loop', 'output-linked',
+  ...agentsSettingsScreens,
 ];
 export async function polishFixture() {
   const root = path.resolve('.context/ho-p'); fs.mkdirSync(root, { recursive: true });
@@ -39,8 +41,15 @@ export async function polishFixture() {
       await context.addCookies([{ name: 'swarm_session', value: 'layout-test-token', url: server.base }]);
       await page.addInitScript(theme => { localStorage.setItem('swarm.theme', theme); localStorage.setItem('swarm.sidebarCollapsed', '1'); }, theme);
       await page.route('**/*', route => ['127.0.0.1', 'localhost'].includes(new URL(route.request().url()).hostname) ? route.fallback() : route.abort());
+      if (name === 'output-linked') await page.route('**/api/outputs/by-job/*', async route => {
+        const response = await route.fetch(), data = await response.json();
+        data.output.parts.push({ id: 'p_release', kind: 'link', url: 'https://example.test/releases/2', title: 'Release details', relation: 'reference' });
+        await route.fulfill({ response, json: data });
+      });
       let hash = name === 'sidebar-loops' ? '#bots' : `#bot/${botId}`, selector = name === 'output-card' ? '.ho-output-card' : '.ho-receipt, .ho-output-card, .ho-message-actions';
-      if (name.startsWith('loop') || name.startsWith('gate-')) {
+      const settings = name.startsWith('settings-agents') ? await agentsSettingsState(page, server.fixture, name) : null;
+      if (settings) { hash = settings.hash; selector = settings.selector; }
+      else if (name.startsWith('loop') || name.startsWith('gate-')) {
         const runName = name.startsWith('gate-') ? 'gated' : name.startsWith('loop-') && scenarios[name.slice(5)] ? name.slice(5) : 'converged';
         const run = recordedRun(runName);
         if (name === 'gate-cap' || name === 'gate-manual') { run.detail.gate.kind = name.slice(5); run.detail.canExtend = true; }
@@ -65,6 +74,7 @@ export async function polishFixture() {
         hash = `#bot/${botId}/details/${name === 'flow-compact' ? 'setup' : 'flow'}`; selector = name === 'flow-compact' ? '.flow-compact' : '.flow-tab';
       }
       await page.goto(server.base + '/' + hash);
+      if (settings) await settings.ready();
       if (name === 'loop-sheet') { await page.getByRole('button', { name: 'New loop', exact: true }).click(); selector = '.ho-loop-sheet'; }
       if (name === 'loop-graph') await page.getByRole('tab', { name: 'Graph', exact: true }).click();
       if (name === 'send-sheet') { await page.locator('.ho-output-card').getByRole('button', { name: 'Send to agent', exact: true }).first().click(); selector = 'dialog[open]'; }
