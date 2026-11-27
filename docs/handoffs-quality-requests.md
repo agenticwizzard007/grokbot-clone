@@ -29,3 +29,14 @@ The component exists in `web/src/handoffs/HandoffList.tsx`; the baseline Bot Act
 HO-P owns handoff and Flow visual fixes and `tests/handoffs/ui-quality.mjs`. HO-H calls that test if present and reports a clear skip otherwise. Skipping it is not visual acceptance. The demo asserts clean visible copy and captures four widths in both themes, with typography evidence beside the images. Production fixes belong in the HO-P branch.
 
 HO-I stage 2 owns Settings Agents. The route check skips only while the navigation registry lacks that section. After it merges, the real Settings controls become mandatory in the route and standing-link journeys.
+
+## Evidence and release status
+
+The current quality gate is blocked. Do not treat passing component fixtures or regression suites as acceptance of the real feature.
+
+- `.context/handoffs/demo-h/report.json` contains the actual loop records and events, eighty screenshot quality records and explicit failures. The scripted drafts use realistic release notes, and each handoff selects the output from its newly completed job.
+- `.context/handoffs/demo-h/inspection.json` records the rejected receipt, running and finished timeline, Graph, Flow and cap-scenario views at 320, 390, 500 and 1280 in both themes. The cap scenario fails before the limit; these images are failure evidence, not a capped success substitute.
+- `.context/handoffs/e2e-h/report.json` contains every journey result at both required widths. Settings skips and the absent HO-P gate are explicit.
+- `.context/handoffs/baseline/` preserves main's regression results. Existing tests are compared separately from the new acceptance failures.
+
+The deployed `BASE_URL` mode is implemented and documented, but has not been exercised without an isolated deployed test account configured for the scripted provider. The bundle comparison measures HO-H additions against the integrated main baseline; a historical pre-feature bundle comparison remains separate.

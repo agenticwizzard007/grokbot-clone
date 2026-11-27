@@ -29,8 +29,19 @@ export async function visualEvidence(page) {
   const selector = await page.locator('dialog[open]').count() ? 'dialog[open]' : await page.locator('main.paper-shell').count() ? 'main.paper-shell' : '.shell-content > :not(.shell-header):not(.phone-tabs)';
   const alignment = await page.evaluate(inspectAlignment, { selector });
   const result = await page.evaluate(() => {
-    const main = document.querySelector('.ho-route, .flow-tab, .chat') ?? document.querySelector('main');
-    const words = main?.innerText.trim().split(/\s+/).filter(Boolean).length ?? 0;
+    const main = ['dialog[open]', '.flow-tab', '.ho-route', '.chat', 'main']
+      .flatMap(selector => [...document.querySelectorAll(selector)])
+      .find(el => el.checkVisibility() && el.getBoundingClientRect().width > 1);
+    const text = [];
+    if (main) {
+      const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        const node = walker.currentNode, el = node.parentElement;
+        if (!node.textContent.trim() || !el?.checkVisibility() || el.closest('.flow-sr, .sr-only, [aria-hidden="true"]')) continue;
+        text.push(node.textContent.trim());
+      }
+    }
+    const words = text.join(' ').split(/\s+/).filter(Boolean).length;
     const issues = [];
     for (const root of document.querySelectorAll('.ho-receipt, .ho-output-card, .ho-loops, .flow-chart')) {
       for (const el of root.querySelectorAll('*')) {
@@ -38,7 +49,7 @@ export async function visualEvidence(page) {
         if ([...el.childNodes].some(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim()) && parseFloat(getComputedStyle(el).fontSize) < 13) issues.push(`Text under 13px: ${el.textContent.trim().slice(0, 60)}`);
       }
     }
-    return { words, issues: [...new Set(issues)], standard: 'BUILD-SPEC 0b/0c/0d plus HO-P visual quality gate' };
+    return { words, countedRegion: main?.className || main?.tagName || null, issues: [...new Set(issues)], standard: 'BUILD-SPEC 0b/0c/0d plus HO-P visual quality gate' };
   });
   if (page.viewportSize().width <= 760 && !await page.getByRole('dialog').count()) {
     const count = await page.getByRole('button', { name: 'Back', exact: true }).count();
