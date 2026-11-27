@@ -66,7 +66,7 @@ export async function seedDashboard({ performance = false } = {}) {
           .run(`${user.id}-run-${n}`, user.id, botId, `${user.id}-routine-0`, `${user.marker} Routine 0`, `fixture-${n}`, 'manual', n ? null : `${user.id}-job-0`, n ? 'failed' : 'completed', at - 1000, at - 900, at - 100, 'FORBIDDEN_RUN_ERROR');
       }
       for (let day = 0; day < (performance ? 90 : 30); day++) {
-        db.prepare('INSERT INTO usage_events(user_id,bot_id,kind,provider,model,input_tokens,output_tokens,cost_usd,cost_source,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)')
+        db.prepare("INSERT INTO usage_events(user_id,bot_id,kind,provider,model,input_tokens,output_tokens,cost_usd,cost_source,created_at,key_kind) VALUES(?,?,?,?,?,?,?,?,?,?,'native')")
           .run(user.id, botId, 'chat', 'direct', 'fixture-model', index ? 9000 : 100, index ? 1000 : 20, index ? 99 : 0.25, 'provider', start - day * 86400_000);
       }
     }
