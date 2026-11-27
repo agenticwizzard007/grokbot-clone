@@ -88,6 +88,19 @@ try {
           await page.setViewportSize({ width, height: width < 760 ? 844 : 900 });
           await page.screenshot({ path: path.join(out, `${file}.png`) });
         }
+        const scrollRegions = page.locator('[role=region][tabindex="0"]');
+        item.keyboardScroll = 0;
+        for (const region of await scrollRegions.all()) {
+          if (!await region.isVisible() || !await region.evaluate(node => node.scrollHeight > node.clientHeight + 1)) continue;
+          await region.scrollIntoViewIfNeeded(); await region.focus();
+          await region.evaluate(node => { node.scrollTop = 0; });
+          await page.keyboard.press('ArrowDown');
+          await page.waitForTimeout(100);
+          assert.ok(await region.evaluate(node => node.scrollTop > 0), 'Focused region scrolls with the keyboard');
+          const focus = await region.evaluate(node => { const style = getComputedStyle(node); return { style: style.outlineStyle, width: parseFloat(style.outlineWidth) }; });
+          assert.ok(focus.style !== 'none' && focus.width >= 2, 'Scrollable region has a visible focus ring');
+          item.keyboardScroll++;
+        }
         const dialog = page.locator('dialog[open], [role=dialog][aria-modal=true]').last();
         if (await dialog.count()) {
           const focusable = dialog.locator('button:enabled, input:enabled, select:enabled, textarea:enabled, a[href], [tabindex="0"]').filter({ visible: true });

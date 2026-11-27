@@ -84,8 +84,8 @@ export function ModelPicker({ value, onChange, defaultLabel, disabled, label = '
       <button ref={trigger} type="button" className="model-picker__button text-input" disabled={disabled} onClick={() => { setQuery(''); setOpen((o) => !o); }} aria-controls={open ? panelId : undefined} aria-expanded={open} aria-haspopup="listbox" aria-label={`${label}: ${currentLabel}${billingLabel ? ` ${billingLabel}` : ''}${selected && !selected.vision ? ' No images' : ''}`}>
         <ProviderMark provider={value ?? defaultLabel} fallbackProvider={provider ?? data?.provider} /><span className="model-picker__current">
           <LabelWords>{currentLabel}</LabelWords>
-        </span>
-        {data?.billing && <span className="model-billing">{data.billing === 'plan' ? 'Plan' : 'API'}</span>}
+        </span>{' '}
+        {data?.billing && <span className="model-billing">{data.billing === 'plan' ? 'Plan' : 'API'}</span>}{' '}
         {selected && !selected.vision && <span className="cfg-chip cfg-chip--warn">No images</span>}
       </button>
       {open && (

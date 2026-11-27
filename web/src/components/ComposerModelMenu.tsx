@@ -114,13 +114,13 @@ export const ComposerModelMenu = memo(function ComposerModelMenu({ bot }: { bot:
     <span className="model-pill-anchor">
       <button ref={trigger} type="button" className={`model-pill${ultra ? ' is-ultracode' : ''}${shown.compact ? ' is-compact' : ''}`} onClick={() => { if (open) close(); else { if (!loading) void models.load(true); setOpen(true); } }} aria-haspopup="dialog" aria-expanded={open} aria-busy={loading}
         title={`${rememberedLabel}${known ? `. ${billingDescription}` : ''}${fullEffort ? `. ${fullEffort} effort` : ''}`}
-        aria-label={`Model: ${label}${known ? `, ${billingDescription}` : ''}${efforts.length ? `, ${effort ? effortLabel(effort, current) : 'Default'} effort` : ''}${bot.fast && models.canFast ? ', fast' : ''}. Change`}>
+        aria-label={`${shown.name}${known && shown.billing ? ` ${shown.billing}` : ''}${fullEffort ? ` ${shown.effort}` : ''}${bot.fast && models.canFast ? ' ⚡︎' : ''}. Model: ${label}${known ? `, ${billingDescription}` : ''}${efforts.length ? `, ${effort ? effortLabel(effort, current) : 'Default'} effort` : ''}${bot.fast && models.canFast ? ', fast' : ''}. Change`}>
         <span className="model-pill__provider" aria-hidden>
           <ProviderMark provider={markProvider} fallbackProvider={known ? models.provider : undefined} reserve />
         </span>
-        <span className="model-pill__name">{shown.name}</span>
-        {known && shown.billing && <span className="model-billing" title={billingDescription}>{shown.billing}</span>}
-        {fullEffort && <span className="model-pill__effort">{shown.effort}</span>}
+        <span className="model-pill__name">{shown.name}</span>{' '}
+        {known && shown.billing && <span className="model-billing" title={billingDescription}>{shown.billing}</span>}{' '}
+        {fullEffort && <span className="model-pill__effort">{shown.effort}</span>}{' '}
         {bot.fast && models.canFast && <span className="model-pill__fast" title="Fast: fastest providers">⚡︎</span>}
         <ChevronDown size={14} strokeWidth={1.75} aria-hidden className="model-pill__chev" />
       </button>

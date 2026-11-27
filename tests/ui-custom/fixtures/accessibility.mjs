@@ -16,7 +16,9 @@ export const navigationRoutes = vm.runInNewContext(list[1], { APP_SECTIONS, BOT_
 
 export async function accessibilityFixture() {
   const server = await clientFixture();
+  try {
   seedDashboardData(server.db, server.fixture);
+  server.db.prepare('INSERT INTO account_preferences(user_id,ui_adapt,updated_at) VALUES(?,1,?) ON CONFLICT(user_id) DO UPDATE SET ui_adapt=1').run(server.fixture.userId, Date.now());
   const { DEFAULT_CONFIG } = await tsImport('../../../server/src/ui-config/index.ts', import.meta.url);
   const doc = structuredClone(DEFAULT_CONFIG);
   doc.dashboards = [{ id: 'd_a11y0001', name: 'My week', icon: 'layout-dashboard', widgets: [
@@ -111,4 +113,5 @@ export async function accessibilityFixture() {
       await page.locator('.dashboard-heading').scrollIntoViewIfNeeded();
     }
   } };
+  } catch (error) { await server.close(); throw error; }
 }

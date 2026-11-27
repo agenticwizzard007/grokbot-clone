@@ -69,7 +69,7 @@ a { color: inherit; }
 
 .text-input {
   width: 100%; height: 35px; padding: 8px 10px; border-radius: var(--radius-sm);
-  border: 0.5px solid var(--color-border-secondary); background: var(--color-bg-pane);
+  border: 0.5px solid var(--color-text-tertiary); background: var(--color-bg-pane);
   font-size: 13px; line-height: 18px; letter-spacing: 0.195px; outline: none;
 }
 .text-input::placeholder { color: var(--color-text-quaternary); }
