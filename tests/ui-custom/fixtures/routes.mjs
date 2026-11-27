@@ -44,7 +44,11 @@ export async function prepareRoute(page, context, server, route) {
   if (route.hash === '#bot/{bot}') await page.getByRole('textbox', { name: `Message ${server.fixture.bot.name}`, exact: true }).waitFor();
   if (route.hash === '#tasks') await page.getByText('Draft the launch email', { exact: true }).first().waitFor();
   if (route.hash === '#all') await page.getByRole('heading', { name: /All sections/ }).waitFor();
-  if (route.preview) await agentPreview(page, server, LAYOUT_PATCH, 'Open Tasks first');
+  if (route.preview) {
+    await agentPreview(page, server, LAYOUT_PATCH, 'Open Tasks first');
+    // Finishing a chat also emits a handoff output card. Audit the completed surface.
+    await page.locator('.ho-output-card').filter({ hasText: 'Open Tasks first' }).last().waitFor();
+  }
   if (route.safe) await page.getByRole('status').filter({ hasText: /Safe mode/ }).waitFor();
   if (route.name === 'appearance') await until(() => page.locator('fieldset.appearance-fields').isEnabled(), 'Appearance controls did not load');
   if (route.requirements) await page.getByLabel('Role', { exact: true }).waitFor();
