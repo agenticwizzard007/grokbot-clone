@@ -85,10 +85,9 @@ try {
           if (scale === 4) await cdp.send('Emulation.clearDeviceMetricsOverride');
           await cdp.detach();
         }
-        if (['#tasks', 'dashboard', 'about-you'].includes(route.name)) {
-          await page.setViewportSize({ width, height: width < 760 ? 844 : 900 });
-          await page.screenshot({ path: path.join(out, `${file}.png`) });
-        }
+        await page.setViewportSize({ width, height: width < 760 ? 844 : 900 });
+        await page.waitForFunction(() => document.querySelector('.app')?.classList.contains('is-mobile') === matchMedia('(max-width: 760px)').matches);
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
         const scrollRegions = page.locator('[role=region][tabindex="0"]');
         item.keyboardScroll = 0;
         for (const region of await scrollRegions.all()) {
@@ -102,6 +101,7 @@ try {
           assert.ok(focus.style !== 'none' && focus.width >= 2, 'Scrollable region has a visible focus ring');
           item.keyboardScroll++;
         }
+        if (['#tasks', 'dashboard', 'about-you'].includes(route.name)) await page.screenshot({ path: path.join(out, `${file}.png`) });
         const dialog = page.locator('dialog[open], [role=dialog][aria-modal=true]').last();
         if (await dialog.count()) {
           const focusable = dialog.locator('button:enabled, input:enabled, select:enabled, textarea:enabled, a[href], [tabindex="0"]').filter({ visible: true });
@@ -133,6 +133,7 @@ try {
     await context.close();
   }
 } finally { await browser.close(); await server.close(); }
+assert.ok(results.length, 'Accessibility filters must select at least one screen');
 const byRule = {}, byScreen = {}, byImpact = { critical: 0, serious: 0, moderate: 0, minor: 0 }, reflowByRule = {};
 for (const item of results) {
   byScreen[item.route] ??= {};
