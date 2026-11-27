@@ -25,7 +25,7 @@ export async function assertVisibleCopy(page) {
   assert.doesNotMatch(text, /mock(?:-iter|-delay)?:|HO-H|gullible|undefined|ATTACK_TOOL/i, 'No harness strings in visible UI');
   assert.doesNotMatch(text, /[\u2013\u2014]/, 'No em or en dashes in visible UI');
 }
-export async function visualEvidence(page) {
+export async function visualEvidence(page, { finished = false } = {}) {
   await assertVisibleCopy(page);
   const selector = await page.locator('dialog[open]').count() ? 'dialog[open]' : await page.locator('main.paper-shell').count() ? 'main.paper-shell' : '.shell-content > :not(.shell-header):not(.phone-tabs)';
   const alignment = await page.evaluate(inspectAlignment, { selector });
@@ -56,5 +56,11 @@ export async function visualEvidence(page) {
     const count = await page.getByRole('button', { name: 'Back', exact: true }).count();
     if (count !== 1) alignment.push(`Expected one phone Back, found ${count}`);
   }
-  return { ...result, issues: [...result.issues, ...alignment] };
+  let quality = { status: 'skip', reason: 'HO-P UI quality checker has not merged.', issues: [] };
+  if (fs.existsSync('tests/handoffs/ui-quality.mjs')) {
+    const { inspectQuality } = await import('../ui-quality.mjs');
+    const surface = await page.locator('dialog[open]').count() ? 'dialog[open]' : '.ho-route, .flow-tab, .agents-settings, .ho-receipt, .ho-output-card';
+    quality = { status: 'checked', ...await page.evaluate(inspectQuality, { selector: surface, finished }) };
+  }
+  return { ...result, quality, issues: [...result.issues, ...alignment, ...quality.issues] };
 }

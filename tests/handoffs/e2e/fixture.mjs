@@ -75,7 +75,7 @@ export async function screenshot(page, evidence, name, width) {
   // The application scrolls inside its shell. Expand only the screenshot height.
   const surface = page.locator('.ho-route, .flow-page').first();
   if (await surface.count()) await page.setViewportSize({ width, height: Math.min(5000, Math.max(1000, await surface.evaluate(el => el.scrollHeight) + 180)) });
-  if (!name.includes('failure')) { const quality = await visualEvidence(page); fs.writeFileSync(file.replace(/\.png$/, '.quality.json'), JSON.stringify(quality, null, 2)); }
+  if (!name.includes('failure')) { const quality = await visualEvidence(page, { finished: name === 'handoff-receipt' }); fs.writeFileSync(file.replace(/\.png$/, '.quality.json'), JSON.stringify(quality, null, 2)); }
   await page.screenshot({ path: file, fullPage: true });
   await page.setViewportSize({ width, height: 1000 }); return file;
 }
