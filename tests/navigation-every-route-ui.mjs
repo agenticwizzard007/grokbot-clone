@@ -22,7 +22,7 @@ const started = Date.now();
 await mkdir('.context/pb-b', { recursive: true });
 const outDir = `${process.cwd()}/.context/navigation-route-dist`;
 await cp('web/dist', outDir, { recursive: true });
-const vite = await preview({ root: `${process.cwd()}/web`, build: { outDir }, preview: { host: '127.0.0.1', port: 0 } });
+const vite = await preview({ root: `${process.cwd()}/web`, build: { outDir }, preview: { host: '127.0.0.1', port: 0, headers: { 'Cache-Control': 'public, max-age=3600' } } });
 process.env.UI_ORIGIN = `http://127.0.0.1:${vite.httpServer.address().port}`;
 const { shellFixture } = await import('./paper-shell-fixture.mjs');
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
@@ -31,6 +31,10 @@ let last;
 try {
  async function checkWidth(width) { for (const theme of ['light','dark']) {
   const { page, fixture, errors, writes } = await shellFixture(browser, width, theme); last = page; page.on('pageerror', e => console.error(page.url(), e.message));
+  // Cold documents may reuse this immutable local build, as bookmarks do.
+  // Playwright routing otherwise disables caching for every static asset too.
+  const network = await page.context().newCDPSession(page);
+  await network.send('Network.setCacheDisabled', { cacheDisabled: false });
   const canonical = hash => screenHash(resolveScreen(parseScreen(hash), fixture.bots, true));
   const hashIs = async hash => { try { await page.waitForFunction(hash => location.hash === hash, hash); } catch (e) { console.error('Expected', hash, 'at', page.url(), await page.evaluate(() => history.state)); throw e; } };
   const cold = async hash => {
