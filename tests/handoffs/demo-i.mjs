@@ -80,7 +80,11 @@ async function paperMatrix({ page, width, server, check, screenshots, evidence }
     paperResults.push({ name, width: testedWidth, theme, ...result });
     check(`Paper ${name} at ${testedWidth} ${theme}`, result);
     if (name === 'settings-agents') {
-      if (testedWidth <= 760) await page.getByRole('button', { name: 'Back', exact: true }).click();
+      // A cold Settings entry makes the list the previous page for Back.
+      if (testedWidth <= 760) {
+        await page.goto('about:blank');
+        await page.goto(server.base + '/#settings');
+      }
       const nav = page.getByRole('navigation', { name: 'Settings sections', exact: true });
       await nav.waitFor();
       assert.deepEqual(await nav.locator('.layout-section__header h2').allTextContents(), ['Workspace', 'Connections']);
@@ -91,7 +95,12 @@ async function paperMatrix({ page, width, server, check, screenshots, evidence }
       await readableWords(nav);
       assert.deepEqual(await page.evaluate(inspectAlignment, { selector: '.app-settings' }), []);
       await agents.click(); await page.getByLabel('Agent handoffs', { exact: true }).waitFor();
-      if (testedWidth <= 760) assert.equal(await page.getByRole('button', { name: 'Back', exact: true }).count(), 1);
+      if (testedWidth <= 760) {
+        const back = page.getByRole('button', { name: 'Back', exact: true });
+        assert.equal(await back.count(), 1);
+        await back.click(); await nav.waitFor();
+        await agents.click(); await page.getByLabel('Agent handoffs', { exact: true }).waitFor();
+      }
       check(`Settings navigation has thirteen sections in two groups at ${testedWidth} ${theme}`);
     }
   }

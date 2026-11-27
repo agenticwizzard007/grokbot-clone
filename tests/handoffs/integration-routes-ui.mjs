@@ -113,7 +113,7 @@ export async function runIntegrationDemo({ settingsFlow, outputFlow } = {}) {
       const page = await context.newPage(); lastPage = page; page.setDefaultTimeout(15000);
       const errors = []; page.on('pageerror', error => { errors.push(error.message); console.error('Page error:', error.message); });
       await page.route('**/*', route => ['127.0.0.1','localhost'].includes(new URL(route.request().url()).hostname) ? route.continue() : route.abort());
-      await page.addInitScript(() => { localStorage.setItem('swarm.theme', 'light'); window.handoffEvents = []; window.addEventListener('swarm:event', event => window.handoffEvents.push(event.detail.type)); });
+      await page.addInitScript(() => { if (location.origin === 'null') return; localStorage.setItem('swarm.theme', 'light'); window.handoffEvents = []; window.addEventListener('swarm:event', event => window.handoffEvents.push(event.detail.type)); });
       const check = (name, detail = {}) => { checks.push({ width, name, ...detail, pass: true }); console.log(`PASS ${width}: ${name}`); };
       const capture = async name => { const file = path.join(evidence, `${name}-${width}.png`); if (name !== 'receipt') await page.setViewportSize({ width, height: Math.min(4000, await page.locator(name === 'flow' ? '.flow-page' : '.ho-route').evaluate(el => el.scrollHeight) + 160) }); await page.screenshot({ path: file, fullPage: true }); screenshots.push(file); await page.setViewportSize({ width, height: 1000 }); };
       const openSidebar = async () => { if (width === 390) await page.getByRole('button', { name: 'Open navigation', exact: true }).click(); };
