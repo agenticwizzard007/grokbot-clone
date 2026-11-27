@@ -59,3 +59,17 @@ test('handoff and loop SSE events observe committed rows and no rolled back reco
 test('POST handoffs p95 stays below 80 ms on the real SQLite fixture',async()=>{
  const f=fixture(),o=output(f),times:number[]=[];for(let i=0;i<40;i++){const start=performance.now();assert.equal((await call(f,'/handoffs','POST',{source:{outputId:o.id},toBotId:f.checker.id,instruction:'Performance fixture.',idempotencyKey:`perf-${i}`,createTask:false})).status,201);times.push(performance.now()-start);}times.sort((a,b)=>a-b);const p95=times[Math.ceil(times.length*.95)-1];console.log(`POST /api/handoffs p95 ${p95.toFixed(2)} ms (${times.length} requests)`);assert.ok(p95<80);
 });
+test('standing auto links fire once after a matching run and suggest links stay idle',async()=>{
+ const f=fixture();links.replaceLinks(f.userId,f.maker.id,[{toBotId:f.checker.id,mode:'auto',template:'Review {title}.'}]);const o=output(f,'Standing fixture.');await flush(f);const list=handoffs.listHandoffs(f.userId,{botId:f.maker.id,direction:'sent'}).handoffs;assert.equal(list.length,1);assert.equal(list[0].sourceOutputId,o.id);reconcile.recoverHandoffs();await flush(f);assert.equal(handoffs.listHandoffs(f.userId,{botId:f.maker.id,direction:'sent'}).handoffs.length,1);
+ const g=fixture();links.replaceLinks(g.userId,g.maker.id,[{toBotId:g.checker.id,mode:'suggest'}]);output(g);await flush(g);assert.equal(handoffs.listHandoffs(g.userId).handoffs.length,0);
+});
+test('fire and forget handoffs settle without a result wake, and legacy requests still return',async()=>{
+ const f=fixture(),o=output(f);const h=handoffs.createHandoff(f.userId,{source:{outputId:o.id},toBotId:f.checker.id,instruction:'Fixture.',idempotencyKey:'no-return',returnResult:false}).handoff;await flush(f);finish(f,handoffs.getHandoff(f.userId,h.id).jobId!,'No reply expected.');assert.equal((db.prepare("SELECT count(*) n FROM coordination_requests WHERE user_id=? AND kind='result'").get(f.userId) as any).n,0);
+ const id=requests.enqueueInternalMessage(f.maker.id,f.checker.id,'Legacy fixture.',0);finish(f,requests.getInternalRequest(f.userId,id).jobId!,'Legacy reply.');assert.equal((db.prepare("SELECT count(*) n FROM coordination_requests WHERE user_id=? AND kind='result'").get(f.userId) as any).n,1);
+});
+test('false checklist pass is corrected, unknown verdicts and altered submissions are refused',async()=>{
+ const f=fixture(),l=makeLoop(f);await flush(f);finish(f,loops.loopSteps(f.userId,l.id)[0].jobId!,'Checklist draft.');await flush(f);const step=loops.loopSteps(f.userId,l.id).at(-1)!,ctx={userId:f.userId,botId:f.checker.id,jobId:step.jobId!,toolCallId:'verdict'};
+ const input={pass:true,checklist:['version','short','action'].map(id=>({id,pass:false,note:'Missing.'})),feedback:'Fix all checks.'};const result=loops.submitVerdict(ctx,input);assert.equal(result.pass,false);assert.equal(result.claimedPass,true);assert.equal(result.corrected,true);assert.equal(loops.submitVerdict(ctx,input).pass,false);assert.throws(()=>loops.submitVerdict(ctx,{...input,feedback:'Changed.'}),/cannot change/);
+ assert.equal(hdb.events(f.userId,{loopId:l.id}).filter(e=>e.type==='verdict.corrected').length,1);
+ const j=jobs.acceptJob(f.maker.id,{type:'user'});assert.throws(()=>loops.submitVerdict({...ctx,botId:f.maker.id,jobId:j.id},input),/No review/);
+});

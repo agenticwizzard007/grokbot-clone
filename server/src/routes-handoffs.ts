@@ -2,6 +2,7 @@ import { Hono,type Context } from 'hono';
 import { z } from 'zod';
 import { requireUser,type AuthVars } from './lib/auth.js';
 import { apiBodyLimit } from './security/body-limits.js';
+import { HandoffError } from './handoffs/errors.js';
 import { requireEnabled,ServiceError,settings,events } from './handoffs/db.js';
 import { getOutput,outputByJob,listOutputs,readPart,fromMessage } from './handoffs/outputs.js';
 import { createHandoff,handoffInputSchema,handoffDetail,listHandoffs,controlHandoff,messageRefSchema } from './handoffs/handoff-service.js';
@@ -19,7 +20,7 @@ for(const path of ['/outputs','/outputs/*','/handoffs','/handoffs/*','/handoff-l
  handoffsApi.use(path,requireUser,apiBodyLimit,async(c,next)=>{requireEnabled(user(c));watchHandoffs(user(c));c.header('Cache-Control','private, no-store');await next();});
 }
 handoffsApi.onError((error,c)=>{
- if(error instanceof ServiceError)return c.json({error:error.message,code:error.code},error.status);
+ if(error instanceof HandoffError)return c.json({error:error.message,code:error.code},error.status as 400|404|409|410|422|429|503);
  console.error('[handoff] request failed');return c.json({error:'Could not complete the request.',code:'internal_error'},500);
 });
 handoffsApi.get('/outputs',c=>c.json(listOutputs(user(c),parse(querySchema,c.req.query()))));

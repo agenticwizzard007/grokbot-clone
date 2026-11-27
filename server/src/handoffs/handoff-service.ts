@@ -52,9 +52,9 @@ export function syncHandoffRows(h:Handoff) {
   if(row)updateRow(botId,row.seq,body);else appendRow(botId,'handoff',body);
  }
 }
-export function createHandoff(userId:string,input:CreateHandoffInput,initiatedBy:Handoff['initiatedBy']='user') {
+export function createHandoff(userId:string,input:CreateHandoffInput,initiatedBy:Handoff['initiatedBy']='user',includeFiles?:string[]) {
  requireEnabled(userId);const parsed=handoffInputSchema.safeParse(input);if(!parsed.success)throw new ServiceError('invalid_input','Check the handoff fields.');const i=parsed.data;
- const fingerprint=sha256(JSON.stringify({...i,initiatedBy}));
+ const fingerprint=sha256(JSON.stringify({...i,initiatedBy,...(includeFiles?{includeFiles:[...includeFiles].sort()}: {})}));
  return atomic(()=>{
   const prior=db.prepare('SELECT * FROM handoffs WHERE user_id=? AND idempotency_key=?').get(userId,i.idempotencyKey) as any;
   if(prior){if(prior.fingerprint!==fingerprint)throw new ServiceError('idempotency_conflict','This key was used for another handoff.',409);return {handoff:handoffView(prior),replayed:true};}
@@ -72,7 +72,10 @@ export function createHandoff(userId:string,input:CreateHandoffInput,initiatedBy
   const id=newId('ho');
   db.prepare(`INSERT INTO handoffs(id,user_id,from_bot_id,to_bot_id,source_output_id,initiated_by,instruction,priority,return_result,create_task,status,room_id,chain_depth,parent_handoff_id,idempotency_key,fingerprint,created_at,updated_at)
   VALUES(?,?,?,?,?,?,?,?,?,?,'queued',?,?,?,?,?,?,?)`).run(id,userId,from.id,to.id,output.id,initiatedBy,i.instruction,i.priority,Number(i.returnResult),Number(i.createTask),i.roomId??null,depth,output.provenance.handoffId,i.idempotencyKey,fingerprint,now(),now());
-  const text=packet(userId,output,i.instruction,`[handoff ${id} from ${JSON.stringify(from.name)} to ${JSON.stringify(to.name)} | chain ${depth} of 5 | priority ${i.priority}]`,i.includeSensitive);
+  const selected=includeFiles?.map(file=>{const part=output.parts.find(p=>p.kind==='file'&&(p.id===file||p.artifactId===file||p.filename===file));if(!part)missing();return part.id;});
+  if(selected)db.prepare('INSERT INTO handoff_file_selections VALUES(?,?)').run(id,JSON.stringify(selected));
+  const packetOutput=selected?{...output,parts:output.parts.filter(p=>p.kind!=='file'||selected.includes(p.id))}:output;
+  const text=packet(userId,packetOutput,i.instruction,`[handoff ${id} from ${JSON.stringify(from.name)} to ${JSON.stringify(to.name)} | chain ${depth} of 5 | priority ${i.priority}]`,i.includeSensitive);
   db.prepare('INSERT INTO handoff_payloads VALUES(?,?,?)').run(id,text,Number(i.includeSensitive));
   // Suppress the transport's prose return; reconciliation creates one result packet.
   const requestId=enqueueInternalMessage(from.id,to.id,text,0,{idempotencyKey:`ho:${id}`});
@@ -103,7 +106,13 @@ export function canReadOutput(ctx:HandoffContext,id:string) {
  const addressed=db.prepare('SELECT 1 FROM handoffs WHERE user_id=? AND (source_output_id=? OR result_output_id=?) AND (to_bot_id=? OR from_bot_id=?)').get(ctx.userId,id,id,ctx.botId,ctx.botId);
  const inLoop=output.provenance.loopId&&db.prepare('SELECT 1 FROM loop_steps WHERE user_id=? AND loop_id=? AND bot_id=?').get(ctx.userId,output.provenance.loopId,ctx.botId);
  const seeded=db.prepare("SELECT 1 FROM loops WHERE user_id=? AND json_extract(spec,'$.seed.outputRef')=? AND EXISTS (SELECT 1 FROM json_each(json_extract(spec,'$.steps')) WHERE json_extract(value,'$.botId')=?)").get(ctx.userId,`swarm://output/${id}`,ctx.botId);
- if(!addressed&&!inLoop&&!seeded)missing();return output;
+ if(!addressed&&!inLoop&&!seeded)missing();
+ if(inLoop||seeded)return output;
+ const grants=db.prepare(`SELECT s.part_ids FROM handoffs h LEFT JOIN handoff_file_selections s ON s.handoff_id=h.id
+  WHERE h.user_id=? AND (h.source_output_id=? OR h.result_output_id=?) AND (h.from_bot_id=? OR h.to_bot_id=?)`).all(ctx.userId,id,id,ctx.botId,ctx.botId) as {part_ids:string|null}[];
+ if(grants.some(g=>g.part_ids===null))return output;
+ const allowed=new Set(grants.flatMap(g=>JSON.parse(g.part_ids!)));
+ return {...output,parts:output.parts.filter(p=>p.kind!=='file'||allowed.has(p.id))};
 }
 export function readHandoff(ctx:HandoffContext,input:ReadHandoffInput) {
  requireEnabled(ctx.userId);let handoffId=input.handoffId,ref=input.ref;
@@ -111,7 +120,10 @@ export function readHandoff(ctx:HandoffContext,input:ReadHandoffInput) {
  let outputId:string,partId=input.partId,offset=input.offset,limit=input.limit;
  if(handoffId){const h=getHandoff(ctx.userId,handoffId);if(h.toBotId!==ctx.botId&&h.fromBotId!==ctx.botId)missing();outputId=h.sourceOutputId;}
  else{if(!ref)throw new ServiceError('invalid_ref','Choose a handoff or output.');const r=parseRef(ref);outputId=r.outputId;partId??=r.partId;offset??=r.offset;limit??=r.limit;}
- const output=canReadOutput(ctx,outputId);const result=partId?readPart(ctx.userId,outputId,partId,offset,limit):{output,next:null};
+ const output=canReadOutput(ctx,outputId);
+ const sensitive=!!db.prepare('SELECT 1 FROM handoff_payloads p JOIN handoffs h ON h.id=p.handoff_id WHERE h.user_id=? AND h.source_output_id=? AND h.to_bot_id=? AND p.include_sensitive=1').get(ctx.userId,outputId,ctx.botId);
+ if(partId&&!output.parts.some(p=>p.id===partId))missing();
+ const result=partId?{...readPart(ctx.userId,outputId,partId,offset,limit,sensitive),output}:{output,next:null};
  if(input.materialize&&'part' in result&&result.part)Object.assign(result,{sandboxPath:materialize(ctx.userId,ctx.botId,result.part)});
  atomic(()=>emitEvent(ctx.userId,'handoff.read',{outputId,partId:partId??null,bytes:'text' in result?Buffer.byteLength(result.text??''):0},{handoffId,loopId:output.provenance.loopId}));return result;
 }
@@ -123,7 +135,7 @@ export const handoffService:HandoffService={
  enabled,async submitOutput(ctx,input){return submitOutput(ctx,input);},
  async handoffToAgent(ctx,input:AgentHandoffInput){requireEnabled(ctx.userId);assertNotLoopStep(ctx);const output=input.outputRef?canReadOutput(ctx,parseRef(input.outputRef).outputId):saveOutput({...ctx,declared:{summary:input.summary??input.instruction}});
   if(output.botId!==ctx.botId)throw new ServiceError('policy_denied','Hand off an output from this agent.',422);
-  return createHandoff(ctx.userId,{source:{outputId:output.id},toBotId:input.toBotId,instruction:input.instruction,returnResult:input.returnResult,priority:input.priority,idempotencyKey:sha256(`${ctx.jobId}:${ctx.toolCallId}`)},'agent').handoff;},
+  return createHandoff(ctx.userId,{source:{outputId:output.id},toBotId:input.toBotId,instruction:input.instruction,returnResult:input.returnResult,priority:input.priority,idempotencyKey:sha256(`${ctx.jobId}:${ctx.toolCallId}`)},'agent',input.includeFiles).handoff;},
  async readHandoff(ctx,input){return readHandoff(ctx,input);},
  async listHandoffs(ctx,input:ListHandoffsInput){ownJob(ctx.userId,ctx.botId,ctx.jobId);return listHandoffs(ctx.userId,{...input,botId:ctx.botId,limit:Math.min(20,input.limit??20)}).handoffs;},
  async submitVerdict(ctx,input){return (await import('./loop-service.js')).submitVerdict(ctx,input);},

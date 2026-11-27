@@ -14,6 +14,13 @@ export function displayText(text:string) {
  .replace(/-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g,'[redacted]');
 }
 const clean=(text:string)=>displayText(text).replace(/[\u2013\u2014]/g,'-');
+function displayJson(value:unknown):unknown {
+ if(typeof value==='string')return clean(value);
+ if(Array.isArray(value))return value.map(displayJson);
+ if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([key,item])=>[key,/^(password|secret|api[_ -]?key|access[_ -]?token)$/i.test(key)?'[redacted]':displayJson(item)]));
+ return value;
+}
+
 const summaryOf=(body:string)=>clean(summarizeOutput(body));
 export const submitOutputSchema=z.object({title:z.string().min(1).max(120).optional(),summary:z.string().max(1200),
  dataParts:z.array(z.object({name:z.string().min(1).max(100),schema:z.string().max(100).optional(),json:z.unknown()}).strict()).max(5).optional(),
@@ -67,7 +74,7 @@ export function saveOutput(input:{userId:string;botId:string;jobId?:string|null;
   if(input.declared?.dataParts)for(const [i,part] of input.declared.dataParts.entries()){
    const json=JSON.stringify(part.json);if(json===undefined)throw new ServiceError('invalid_input','Use JSON data.');
    dataBytes+=Buffer.byteLength(json);if(dataBytes>OUTPUT_LIMITS.dataBytesMax)throw new ServiceError('part_too_large','Data parts exceed 256 KB.');
-   const text=JSON.stringify(JSON.parse(json),null,2),safe=clean(text),pid=`p_data${i}`;
+   const text=JSON.stringify(JSON.parse(json),null,2),safe=JSON.stringify(displayJson(part.json),null,2),pid=`p_data${i}`;
    parts.push({id:pid,kind:'data',name:part.name,...(part.schema?{schema:part.schema}:{}),bytes:Buffer.byteLength(safe),sha256:sha256(safe)});
    originalParts.push({id:pid,body:text,display:safe,kind:'data',name:part.name});
   }else if(prior)parts.push(...JSON.parse(prior.manifest).filter((p:OutputPart)=>p.kind==='data'));
@@ -78,11 +85,13 @@ export function saveOutput(input:{userId:string;botId:string;jobId?:string|null;
   for(const link of input.declared?.links??oldParts.filter(p=>p.kind==='link'))links.set(link.url,{id:`p_link${links.size}`,kind:'link',url:clean(link.url),title:clean(link.title),relation:link.relation});
   for(const link of extractLinks(display))if(links.size<30&&!links.has(link.url))links.set(link.url,{...link,id:`p_link${links.size}`});
   parts.push(...links.values());
+  for(const part of parts){const stored=originalParts.find(p=>p.id===part.id);if(stored&&stored.body!==stored.display)Object.assign(part,{redacted:true});}
   const hash=contentHash(parts,Object.fromEntries(parts.filter(p=>p.kind==='text'||p.kind==='data').map(p=>[p.id,originalParts.find(o=>o.id===p.id)?.display??(prior?rawBody(input.userId,id,p.id):'')])));
   const title=clean(input.declared?.title??prior?.title??raw.split('\n')[0]??'Output').slice(0,120)||'Output';
   const summary=clean(input.declared?.summary??(p.declaredBy==='agent'?prior?.summary:undefined)??summaryOf(raw)).slice(0,1200);
   const stamp=now(),status=input.final?'final':'draft',source=p.loopId?'loop_step':input.source??prior?.source??'run';
   if(input.body&&input.body.length>OUTPUT_LIMITS.bodyChars)Object.assign(p,{truncated:true});
+  if(originalParts.some(part=>part.body!==part.display))Object.assign(p,{redacted:true});
   db.prepare(`INSERT INTO run_outputs(id,user_id,bot_id,job_id,task_id,source,status,revision,title,summary,manifest,provenance,content_hash,incomplete,created_at,finalized_at)
    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,revision=excluded.revision,title=excluded.title,summary=excluded.summary,
    manifest=excluded.manifest,provenance=excluded.provenance,content_hash=excluded.content_hash,incomplete=excluded.incomplete,finalized_at=excluded.finalized_at`)
@@ -125,7 +134,7 @@ export function readPart(userId:string,id:string,partId:string,offset=0,limit=80
  let text:string|undefined;
  if(part.kind==='text'||part.kind==='data')text=rawBody(userId,id,partId,sensitive);
  if(part.kind==='link')text=JSON.stringify({url:part.url,title:part.title});
- if(part.kind==='file'&&/^(text\/|application\/(json|csv))/.test(part.mime))text=displayText(readArtifact(userId,part.artifactId).content.toString('utf8'));
+ if(part.kind==='file'&&/^(text\/|application\/(json|csv))/.test(part.mime))text=(sensitive?(s:string)=>s:displayText)(readArtifact(userId,part.artifactId).content.toString('utf8'));
  return {output,part,...(text!==undefined?{text:text.slice(offset,offset+limit)}:{}),next:text&&offset+limit<text.length?offset+limit:null};
 }
 /** Copy only a referenced artifact into the receiver's storage using directory descriptors. */

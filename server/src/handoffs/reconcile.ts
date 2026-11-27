@@ -1,5 +1,5 @@
 import { db,now,newId,atomic,enabled,emitEvent } from './db.js';
-import { handoffView,packet,syncHandoffRows } from './handoff-service.js';
+import { handoffView,packet,syncHandoffRows,createHandoff } from './handoff-service.js';
 import { getOutput,saveOutput } from './outputs.js';
 import { driveLoop } from './loop-runner.js';
 import { drainInternalRequests,pendingDecision } from '../coordination/requests.js';
@@ -38,6 +38,23 @@ function resultReturn(h:Handoff) {
  db.prepare(`INSERT INTO coordination_requests(id,user_id,from_bot_id,to_bot_id,text,kind,status,correlation_id,parent_request_id,depth,idempotency_key,reply,created_at,updated_at)
  VALUES(?,?,?,?,?,'result','queued',?,?,?,?,0,?,?)`).run(id,h.userId,h.toBotId,h.fromBotId,text,parent.correlation_id,h.requestId,Math.min(4,parent.depth+1),`ho-result:${h.id}`,now(),now());
 }
+function applyStandingLinks(userId?:string) {
+ const rows=db.prepare(`SELECT l.*,o.id output_id,o.title,o.summary,o.task_id,j.trigger job_trigger FROM handoff_links l
+  JOIN run_outputs o ON o.user_id=l.user_id AND o.bot_id=l.from_bot_id LEFT JOIN agent_jobs j ON j.id=o.job_id
+  LEFT JOIN handoff_auto_receipts a ON a.link_id=l.id AND a.output_id=o.id
+  WHERE l.mode='auto' AND o.status='final' AND o.job_id IS NOT NULL AND o.created_at>=l.created_at AND a.link_id IS NULL
+  AND json_extract(o.provenance,'$.loopId') IS NULL ${userId?'AND l.user_id=?':''} ORDER BY o.created_at,o.id LIMIT 100`).all(...(userId?[userId]:[])) as any[];
+ for(const row of rows){if(!enabled(row.user_id))continue;
+  const trigger=row.job_trigger?JSON.parse(row.job_trigger):{};
+  const matches=row.trigger==='any_run'||row.trigger==='task_done'&&!!row.task_id||row.trigger?.startsWith('routine:')&&trigger.routineId===row.trigger.slice(8);
+  // Link trigger and job trigger are selected separately below to avoid mixing identities.
+  if(!matches)continue;
+  try{atomic(()=>{
+   createHandoff(row.user_id,{source:{outputId:row.output_id},toBotId:row.to_bot_id,instruction:(row.template||'Review this and improve it.').replaceAll('{title}',row.title).replaceAll('{summary}',row.summary).slice(0,1000),idempotencyKey:`auto:${row.id}:${row.output_id}`},'link');
+   db.prepare("INSERT OR IGNORE INTO handoff_auto_receipts VALUES(?,?,'sent',?)").run(row.id,row.output_id,now());
+  });}catch(error){atomic(()=>{db.prepare("INSERT OR IGNORE INTO handoff_auto_receipts VALUES(?,?,'refused',?)").run(row.id,row.output_id,now());emitEvent(row.user_id,'handoff.link_refused',{linkId:row.id,outputId:row.output_id});});}
+ }
+}
 export function reconcileHandoffs(userId?:string) {
  if(reconciling||!db.open)return;reconciling=true;
  try{
@@ -62,6 +79,7 @@ export function reconcileHandoffs(userId?:string) {
     }
    });
   }
+  applyStandingLinks(userId);
   const loops=db.prepare(`SELECT id,user_id FROM loops WHERE status IN ('running','paused','awaiting_approval') ${userId?'AND user_id=?':''}`).all(...(userId?[userId]:[])) as any[];
   for(const l of loops)if(enabled(l.user_id))driveLoop(l.user_id,l.id);
   drainInternalRequests();

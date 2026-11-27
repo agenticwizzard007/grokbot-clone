@@ -44,3 +44,19 @@ test('file reads and materialization stay inside the receiving Bot storage',()=>
  assert.equal(outputs.readPart(f.userId,o.id,part.id).text,undefined);assert.throws(()=>outputs.materialize(f.userId,f.checker.id,{...part,filename:'../escape'} as any),/path/);
 });
 test('deleted outputs leave tombstones and foreign ids retain a uniform 404',()=>{const f=fixture(),other=fixture(),o=output(f);outputs.deleteOutput(f.userId,o.id);assert.throws(()=>outputs.getOutput(f.userId,o.id),(e:any)=>e.status===410);assert.throws(()=>outputs.getOutput(other.userId,o.id),(e:any)=>e.status===404);});
+test('finished update_task tool links the output to its owned task',()=>{
+ const f=fixture(),j=jobs.acceptJob(f.maker.id,{type:'user'}),generation=(db.prepare('SELECT generation FROM bots WHERE id=?').get(f.maker.id) as any).generation;
+ db.prepare("INSERT INTO tasks VALUES(?,?,'Linked task fixture','done','Fixture.',?,?)").run('linked-task-fixture',f.maker.id,Date.now(),Date.now());
+ db.prepare("INSERT INTO rows(bot_id,generation,seq,kind,body,created_at,updated_seq) VALUES(?,?,901,'tool-call',?,?,901)").run(f.maker.id,generation,JSON.stringify({type:'tool-call',name:'update_task',status:'done',jobId:j.id,args:{task_id:'linked-task-fixture',state:'done'}}),Date.now());
+ finish(f,j.id,'Linked task output.');assert.equal(outputs.outputByJob(f.userId,j.id).taskId,'linked-task-fixture');
+});
+test('structured secrets remain valid redacted JSON and selected files stay bounded on reads',async()=>{
+ const f=fixture(),j=jobs.acceptJob(f.maker.id,{type:'user'}),ctx={userId:f.userId,botId:f.maker.id,jobId:j.id,toolCallId:'output'};
+ recordArtifact({userId:f.userId,botId:f.maker.id,jobId:j.id,filename:'included.txt',content:'Included fixture.'});recordArtifact({userId:f.userId,botId:f.maker.id,jobId:j.id,filename:'excluded.txt',content:'Excluded fixture.'});
+ const o=outputs.submitOutput(ctx,{summary:'Secrets fixture.',dataParts:[{name:'credentials',json:{password:'placeholder-value',nested:{api_key:'placeholder-key'},score:1}}]});
+ const data=o.parts.find(p=>p.kind==='data')!;const json=JSON.parse(outputs.readPart(f.userId,o.id,data.id).text!);assert.equal(json.password,'[redacted]');assert.equal(json.nested.api_key,'[redacted]');assert.equal(json.score,1);
+ const h=await handoffs.handoffService.handoffToAgent({...ctx,toolCallId:'send'},{outputRef:`swarm://output/${o.id}`,toBotId:f.checker.id,instruction:'Read selected file.',includeFiles:['included.txt']});
+ const receiver=jobs.acceptJob(f.checker.id,{type:'user'}),readCtx={userId:f.userId,botId:f.checker.id,jobId:receiver.id,toolCallId:'read'};
+ const denied=o.parts.find(p=>p.kind==='file'&&p.filename==='excluded.txt')!;
+ assert.throws(()=>handoffs.readHandoff(readCtx,{handoffId:h.id,partId:denied.id}),/Not found/);assert.equal(handoffs.readHandoff(readCtx,{handoffId:h.id}).output.parts.filter(p=>p.kind==='file').length,1);
+});

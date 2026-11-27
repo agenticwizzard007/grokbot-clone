@@ -7,7 +7,11 @@ test('two Bot loop converges at pass three with durable outputs, suppressed repl
  assert.equal(loops.resultText(done),'Done in 3 passes: all checks passed.');const steps=loops.loopSteps(f.userId,l.id);assert.equal(steps.length,6);assert.equal(done.bestOutputId,steps[4].outputId);
  assert.equal((db.prepare("SELECT count(*) n FROM coordination_requests WHERE user_id=? AND kind='result'").get(f.userId) as any).n,0);
  assert.ok((db.prepare('SELECT depth,reply,from_bot_id,to_bot_id FROM coordination_requests WHERE user_id=?').all(f.userId) as any[]).every(r=>r.depth===0&&r.reply===0&&r.from_bot_id===r.to_bot_id));
- const sequence=hdb.events(f.userId,{loopId:l.id}).map(e=>e.type);assert.equal(sequence.filter(t=>t==='loop.step_dispatched').length,6);assert.equal(sequence.filter(t=>t==='loop.step_completed').length,6);assert.equal(sequence.filter(t=>t==='loop.verdict').length,3);assert.equal(sequence.at(-1),'loop.finished');
+ const sequence=hdb.events(f.userId,{loopId:l.id}).map(e=>e.type);
+ const makerEvents=['handoff.created','loop.step_dispatched','handoff.delivered','output.created','output.finalized','handoff.running','handoff.completed','loop.step_completed'];
+ const checkerEvents=['handoff.created','loop.step_dispatched','handoff.delivered','loop.verdict','output.created','output.finalized','handoff.running','handoff.completed','loop.step_completed','loop.iteration_completed'];
+ assert.deepEqual(sequence,['loop.created','loop.started',...makerEvents,...checkerEvents,...makerEvents,...checkerEvents,...makerEvents,...checkerEvents,'loop.finished']);
+ assert.equal(sequence.filter(t=>t==='loop.step_dispatched').length,6);assert.equal(sequence.filter(t=>t==='loop.step_completed').length,6);assert.equal(sequence.filter(t=>t==='loop.verdict').length,3);assert.equal(sequence.at(-1),'loop.finished');
  const before=(db.prepare('SELECT count(*) n FROM run_outputs WHERE user_id=?').get(f.userId) as any).n;for(let i=0;i<4;i++)reconcile.recoverHandoffs();assert.equal((db.prepare('SELECT count(*) n FROM run_outputs WHERE user_id=?').get(f.userId) as any).n,before);
 });
 test('capped loop selects the latest equally good output and extends only once',async()=>{

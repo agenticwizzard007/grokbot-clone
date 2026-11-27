@@ -8,6 +8,7 @@ import { assertLegacyWorkOpen } from '../security/legacy-work.js';
 import { afterCommit, transactionWithEffects } from '../lib/commit-effects.js';
 import { hub } from '../lib/hub.js';
 import type { ServerEvent } from '../types.js';
+import { HandoffError,type HandoffErrorCode } from './errors.js';
 import type { HandoffSettings } from './contracts.js';
 export { db, now, afterCommit };
 export { newId, sha256 } from '../lib/ids.js';
@@ -24,6 +25,8 @@ CREATE TABLE IF NOT EXISTS handoff_original_parts (
 CREATE TABLE IF NOT EXISTS handoff_payloads (
  handoff_id TEXT PRIMARY KEY REFERENCES handoffs(id) ON DELETE CASCADE, packet TEXT NOT NULL,
  include_sensitive INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS handoff_file_selections (
+ handoff_id TEXT PRIMARY KEY REFERENCES handoffs(id) ON DELETE CASCADE, part_ids TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS handoff_loop_dispatches (
  loop_id TEXT NOT NULL REFERENCES loops(id) ON DELETE CASCADE, iteration INTEGER NOT NULL,
  step_id TEXT NOT NULL, attempt INTEGER NOT NULL, request_id TEXT REFERENCES coordination_requests(id) ON DELETE SET NULL,
@@ -32,13 +35,17 @@ CREATE TABLE IF NOT EXISTS handoff_loop_dispatches (
 CREATE TABLE IF NOT EXISTS handoff_loop_controls (
  loop_id TEXT PRIMARY KEY REFERENCES loops(id) ON DELETE CASCADE, fingerprint TEXT NOT NULL,
  gate_kind TEXT, gate_at INTEGER, extended INTEGER NOT NULL DEFAULT 0, allow_self_check INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS handoff_auto_receipts (
+ link_id TEXT NOT NULL REFERENCES handoff_links(id) ON DELETE CASCADE,
+ output_id TEXT NOT NULL REFERENCES run_outputs(id) ON DELETE CASCADE,
+ status TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(link_id,output_id));
 CREATE TABLE IF NOT EXISTS handoff_tool_receipts (
  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, job_id TEXT NOT NULL REFERENCES agent_jobs(id) ON DELETE CASCADE,
  call_id TEXT NOT NULL, fingerprint TEXT NOT NULL, output_id TEXT NOT NULL REFERENCES run_outputs(id) ON DELETE CASCADE,
  PRIMARY KEY(user_id,job_id,call_id));
 `);
-export class ServiceError extends Error {
- constructor(readonly code:string, message:string, readonly status:400|404|409|410|422|429|503=400) { super(message); }
+export class ServiceError extends HandoffError {
+ constructor(code:string, message:string, readonly status:400|404|409|410|422|429|503=400) { super(code as HandoffErrorCode,message); }
 }
 export function missing():never { throw new ServiceError('not_found','Not found.',404); }
 export function settings(userId:string):HandoffSettings {

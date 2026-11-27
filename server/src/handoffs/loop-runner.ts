@@ -101,6 +101,10 @@ function run(loop:Loop) {
   const j=jobId?db.prepare('SELECT * FROM agent_jobs WHERE id=? AND user_id=?').get(jobId,loop.userId) as any:null;
   const o=jobId?db.prepare('SELECT * FROM coordination_job_outcomes WHERE job_id=? AND user_id=?').get(jobId,loop.userId) as any:null;
   if(o?.status==='waiting')return;
+  if(d.request_status==='deferred'&&/queue is full|credit|capacity|plan limit/i.test(d.request_reason??'')){
+   emitEvent(loop.userId,'loop.step_failed',{iteration:loop.iteration,stepId:step.id,reason:'admission_refused'},{loopId:loop.id});
+   db.prepare("UPDATE loop_steps SET status='failed',finished_at=? WHERE id=?").run(now(),active.id);bestOutput(loop);finishLoop(loop,'step_failed');return;
+  }
   if(d.request_status==='failed'||j&&['uncertain','cancelled'].includes(j.state)){
    emitEvent(loop.userId,'loop.step_failed',{iteration:loop.iteration,stepId:step.id,attempt:d.attempt,reason:'execution_failed'},{loopId:loop.id});
    if(d.attempt===0){db.prepare("UPDATE loop_steps SET status='dispatching' WHERE id=?").run(active.id);dispatch(loop,step,index,1);return;}
@@ -155,7 +159,11 @@ export function driveLoop(userId:string,id:string) {
  driving.add(id);const token=newId('lease');
  try{
   const acquired=atomic(()=>db.prepare('UPDATE loops SET claim_token=?,claim_until=? WHERE id=? AND user_id=? AND (claim_until IS NULL OR claim_until<=?)').run(token,now()+30000,id,userId,now()).changes);
-  if(!acquired)return;
+  if(!acquired){
+   const claim=db.prepare('SELECT claim_until FROM loops WHERE id=? AND user_id=?').get(id,userId) as any;
+   if(claim?.claim_until&&!deadlines.has(id)){const timer=setTimeout(()=>{deadlines.delete(id);if(db.open)driveLoop(userId,id);},Math.max(1,claim.claim_until-now()));timer.unref();deadlines.set(id,timer);}
+   return;
+  }
   try{atomic(()=>run(getLoop(userId,id)));}finally{db.prepare('UPDATE loops SET claim_token=NULL,claim_until=NULL WHERE id=? AND user_id=? AND claim_token=?').run(id,userId,token);}
   drainInternalRequests();armDeadline(getLoop(userId,id));
  }finally{driving.delete(id);}

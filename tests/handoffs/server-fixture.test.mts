@@ -52,7 +52,7 @@ export async function runLoop(f:Fixture,id:string,mode:'converge'|'cap'|'stall'|
   const step=loops.loopSteps(f.userId,id).find(s=>s.jobId===job.id)??loops.loopSteps(f.userId,id).at(-1)!;
   jobs.beginJob(job.id);
   if(step.role==='checker'&&mode!=='no-verdict'&&mode!=='fail')loops.submitVerdict({userId:f.userId,botId:job.bot_id,jobId:job.id,toolCallId:`verdict-${count}`},{pass:mode==='converge'&&loop.iteration>=3,score:loop.iteration/10,checklist:['version','short','action'].map((key,index)=>({id:key,pass:mode==='converge'?index<loop.iteration:index===0,note:'Fixture evidence.'})),feedback:`Fixture feedback pass ${loop.iteration}: fix item ${loop.iteration+1}.`});
-  const text=step.role==='checker'?`Feedback for pass ${loop.iteration}.`:mode==='stall'?'Same fixture output.':`- Version ${loop.iteration}.0\n- Placeholder change for pass ${loop.iteration}.\n- ${loop.iteration>=3?'Try the release.':'More details soon.'}`;
+  const text=step.role==='checker'?`Feedback for pass ${loop.iteration}.`:mode==='stall'?'Same fixture output.':`- Version ${loop.iteration}.0\n- ${loop.iteration===1?'Placeholder detail. '.repeat(65):'Placeholder release improvement.'}\n- ${loop.iteration>=3?'Try the release.':'More details soon.'}`;
   finish(f,job.id,text,mode==='fail'?'failed':'completed');
  }
  throw new Error('Fixture loop exceeded driver bound.');
