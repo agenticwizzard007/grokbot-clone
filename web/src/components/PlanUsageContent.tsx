@@ -18,7 +18,7 @@ export function PlanUsageContent({ summary, error = false, sidebar = false }: { 
     {(summary && (summary.ownKeys.usedCents > 0 || summary.ownKeys.requests > 0)) && <span className="plan-usage__own">{usageDollars(summary.ownKeys.usedCents)} {summary.ownKeys.label}</span>}
     {!sidebar && summary && (summary.plan.estimatedCents > 0 || summary.plan.unpricedRequests > 0) && <span className="plan-usage__note">{[
       summary.plan.estimatedCents > 0 ? `${usageDollars(summary.plan.estimatedCents)} estimated` : '',
-      summary.plan.unpricedRequests > 0 ? `${summary.plan.unpricedRequests} unpriced requests` : '',
+      summary.plan.unpricedRequests > 0 ? `${summary.plan.unpricedRequests} unpriced ${summary.plan.unpricedRequests === 1 ? 'request' : 'requests'}` : '',
     ].filter(Boolean).join(' · ')}</span>}
   </span>;
 }
