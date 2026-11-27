@@ -74,7 +74,7 @@ try {
     const footer = page.locator('.sidebar-usage');
     await page.waitForFunction(() => document.querySelector('.sidebar-usage')?.textContent.includes('Limits unavailable'));
     assert.match(await footer.innerText(), /Codex plan/);
-    assert.match(await footer.textContent(), /Limits unavailable/);
+    assert.equal(await footer.and(page.getByRole('button', { name: /Limits unavailable/ })).count(), 1);
     const rangeLabel = page.locator('.usage-head__span');
     assert.equal(await rangeLabel.innerText(), 'Nov 19 to Nov 25 · Asia/Dubai');
     assert.ok(await rangeLabel.isVisible());

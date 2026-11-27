@@ -41,7 +41,7 @@ try {
       assert.equal(await name.innerText(), 'Codex · ChatGPT plan', 'cached resolved label survives reload');
       await page.waitForFunction(() => document.querySelector('.model-pill')?.getAttribute('aria-busy') === 'false', null, { timeout: 30_000 });
       assert.equal(await name.innerText(), 'Codex · ChatGPT plan');
-      assert.match(await page.locator('.sidebar-usage').textContent(), /Codex plan.*Limits unavailable/);
+      assert.equal(await page.locator('.sidebar-usage').and(page.getByRole('button', { name: /Codex plan.*Limits unavailable/ })).count(), 1);
       assert.ok(calls >= 2, `${scenario} retried automatically`);
       assert.equal(await page.locator('.model-menu').count(), 0, 'picker was never opened');
       assert.deepEqual(await page.evaluate(() => window.badLoadingLabels), []);

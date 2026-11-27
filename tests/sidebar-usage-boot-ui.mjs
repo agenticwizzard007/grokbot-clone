@@ -119,7 +119,7 @@ try {
     });
     for (let attempt = 0; !held && attempt < 100; attempt++) await delay(20);
     assert.ok(held, 'catalog request is held during normal boot');
-    assert.match(await footer.textContent(), /Loading/);
+    assert.equal(await footer.and(page.getByRole('button', { name: /Loading/ })).count(), 1);
     await held.fulfill({ json: { provider: 'direct', billing: 'api', models: [], favourites: [], canFast: false } });
     await page.waitForFunction(() => document.querySelector('.sidebar-usage')?.textContent?.includes('API credits'));
     const labels = await page.evaluate(() => window.footerLabels);
@@ -142,7 +142,7 @@ try {
       const { useModels } = await import('/src/lib/models.ts');
       useModels.setState({ status: 'ready', provider: 'direct', billing: null });
     });
-    assert.match(await footer.textContent(), /Unavailable/);
+    assert.equal(await footer.and(page.getByRole('button', { name: /Unavailable/ })).count(), 1);
     assert.deepEqual(unexpected, [], 'no page errors, live requests, or unexpected API calls');
     await page.close();
   }
