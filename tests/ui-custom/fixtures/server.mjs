@@ -16,7 +16,7 @@ async function port() {
   const socket = net.createServer(); socket.listen(0, '127.0.0.1'); await once(socket, 'listening');
   const value = socket.address().port; await new Promise(resolve => socket.close(resolve)); return value;
 }
-export async function qualityServer() {
+export async function qualityServer({ extraSeed = true } = {}) {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-uc-h-'));
   const [apiPort, uiPort, mockPort] = await Promise.all([port(), port(), port()]);
   const base = `http://127.0.0.1:${uiPort}`, backend = `http://127.0.0.1:${apiPort}`, mock = `http://127.0.0.1:${mockPort}`;
@@ -72,7 +72,7 @@ export async function qualityServer() {
     withDb(db => {
       db.prepare('UPDATE users SET name=?,email=? WHERE id=?').run('QA-Temp-A', 'qa-temp-a@example.test', fixture.userId);
       db.prepare("UPDATE bot_setups SET onboarding_status='active', confirmed_at=? WHERE bot_id IN (SELECT id FROM bots WHERE user_id=?)").run(Date.now(), fixture.userId);
-      for (const [i, state] of ['working', 'needs_input', 'done'].entries()) db.prepare('INSERT INTO tasks(id,bot_id,title,state,note,created_at,updated_at) VALUES(?,?,?,?,?,?,?)')
+      if (extraSeed) for (const [i, state] of ['working', 'needs_input', 'done'].entries()) db.prepare('INSERT INTO tasks(id,bot_id,title,state,note,created_at,updated_at) VALUES(?,?,?,?,?,?,?)')
         .run(`task_uc_h_${i}`, fixture.bot.id, `Fixture task ${i + 1}`, state, 'PRIVATE_FIXTURE_NOTE_A', Date.now(), Date.now());
     });
     await ready(`${mock}/_requests`, start(['tests/mock-provider.mjs', String(mockPort)]));
