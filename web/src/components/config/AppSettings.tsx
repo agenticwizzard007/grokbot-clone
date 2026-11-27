@@ -1,4 +1,5 @@
-import { InfoTip, SettingsMenu } from './SettingsControls';
+import { SettingsMenu } from './SettingsControls';
+import { AgentsInfoTip } from '../../handoffs/AgentsInfoTip';
 import { Section, Card, Row, ButtonGroup } from '../layout';
 import { ProviderMark } from '../ProviderMark';
 import { ApprovalLevelSettings } from './ApprovalLevelSettings';
@@ -108,21 +109,25 @@ export function AgentsSection() {
   });
   const disabled = busy || policy.loading;
   const state = (resource: { loading: boolean; error?: string; retry: () => void }) => resource.error
-    ? <Card role="alert"><span className="cfg-chip">Unavailable</span><InfoTip label="Load error">{resource.error}</InfoTip><ButtonGroup><button className="cfg-btn cfg-btn--secondary" onClick={resource.retry}>Retry</button></ButtonGroup></Card>
+    ? <Card role="alert"><span className="cfg-chip">Unavailable</span><AgentsInfoTip label="Load error">{resource.error}</AgentsInfoTip><ButtonGroup><button className="cfg-btn cfg-btn--secondary" onClick={resource.retry}>Retry</button></ButtonGroup></Card>
     : resource.loading ? <span className="cfg-chip" role="status">Loading</span> : null;
   return <div className="agents-settings" aria-busy={busy || policy.loading || links.loading}>
     <style>{`
       .agents-settings { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; font-size: 14px; line-height: 20px; }
-      .agents-settings .cfg-chip { align-self: flex-start; height: auto; padding: 4px 8px; border-radius: var(--radius-full); font: 500 13px/18px var(--font-stack); white-space: normal; }
+      .agents-settings .cfg-chip { display: inline-flex; align-items: center; align-self: flex-start; height: 20px; padding: 2px var(--space-2); border-radius: var(--radius-full); font: 500 var(--text-xs)/var(--line-caption) var(--font-stack); white-space: normal; }
       .agents-settings .cfg-btn { font-size: 14px; padding-inline: 16px; gap: 8px; }
       .agents-settings .agents-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; font-size: 14px; }
       .agents-settings select { width: 100%; min-width: 0; min-height: var(--control-h); padding: 8px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg-pane); color: var(--color-text-primary); font: inherit; }
       .agents-settings .agents-check { display: flex; align-items: center; gap: 8px; min-height: var(--control-h); cursor: pointer; }
       .agents-settings .agents-check input { flex: 0 0 20px; width: 20px; height: 20px; margin: 0; accent-color: var(--color-primary); }
       .agents-settings .layout-row__subtitle { font-size: 13px; line-height: 18px; }
+      .agents-settings .layout-row__trailing { align-self: center; }
+      .agents-settings .settings-disclosure .layout-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2); align-items: center; }
+      .agents-settings .settings-disclosure .layout-row__text { min-width: 0; }
+      .agents-settings .settings-info__content { font: 400 var(--text-base)/var(--line-body) var(--font-stack); }
       .agents-settings .agents-saved { color: var(--color-success); background: var(--color-success-bg); }
     `}</style>
-    <Section title="Handoffs" action={<InfoTip label="About handoffs">Send finished work to another agent. Team allows any available teammate; Links only follows standing links; Off stops agent sends. You can still send work yourself. Limits: 20 per agent per hour, 100 per account per day.</InfoTip>}>
+    <Section title="Handoffs" action={<AgentsInfoTip label="About handoffs">Send finished work to another agent. Team allows any available teammate; Links only follows standing links; Off stops agent sends. You can still send work yourself. Limits: 20 per agent per hour, 100 per account per day.</AgentsInfoTip>}>
       {!settings && state(policy)}
       {settings && <Card>
         <Row title={<label className="agents-check"><input type="checkbox" role="switch" aria-label="Enable handoffs and loops" aria-checked={settings.enabled} checked={settings.enabled} disabled={disabled} onChange={event => void changePolicy({ enabled: event.target.checked })} />Enabled</label>} />
@@ -131,7 +136,7 @@ export function AgentsSection() {
         </select></label>} />
       </Card>}
     </Section>
-    {settings?.enabled && <Section title="Standing links" action={<InfoTip label="About standing links">Automatic sends matching finished work without another tap. Suggest offers a send button. Loop approval applies only to this pair.</InfoTip>}>
+    {settings?.enabled && <Section title="Standing links" action={<AgentsInfoTip label="About standing links">Automatic sends matching finished work without another tap. Suggest offers a send button. Loop approval applies only to this pair.</AgentsInfoTip>}>
       <Card>
         {sender && <Row title={<label className="agents-field">From<select aria-label="Links from" value={sender.id} disabled={busy || links.loading} onChange={event => { setSelected(event.target.value); setSaved(false); setError(''); }}>
           {senders.map(bot => <option key={bot.id} value={bot.id}>{handoffText(bot.name)}</option>)}
@@ -149,7 +154,7 @@ export function AgentsSection() {
       </Card>
       {sender && <ButtonGroup><button className="cfg-btn cfg-btn--secondary" aria-label="Add a standing link" onClick={() => navigation.navigate({ kind: 'details', bot: sender.id, tab: 'activity', flow: true, link: 'new' })}>Add link</button></ButtonGroup>}
     </Section>}
-    <Section title="Loops" action={<InfoTip label="About loops">Work and review repeat until checks pass or a limit is reached. Choose limits when starting a loop. Agents need approval first unless their exact pair is approved above.</InfoTip>}>
+    <Section title="Loops" action={<AgentsInfoTip label="About loops">Work and review repeat until checks pass or a limit is reached. Choose limits when starting a loop. Agents need approval first unless their exact pair is approved above.</AgentsInfoTip>}>
       <Card><details className="settings-disclosure">
         <summary>Defaults and limits</summary>
         <Row title="Passes" trailing={<span>4 (1 to 10)</span>} />
@@ -157,11 +162,11 @@ export function AgentsSection() {
         <Row title="Step minutes" trailing={<span>10 (1 to 30)</span>} />
         <Row title="Running loops" trailing={<span>3</span>} />
         <Row title="Starts per day" trailing={<span>20</span>} />
-        <Row title={<span className="settings-label-info">Cost and tokens<InfoTip label="About usage limits">Optional caps when usage is reported. Some plans do not report cost.</InfoTip></span>} trailing={<span>Optional</span>} />
+        <Row title={<span className="settings-label-info">Cost and tokens<AgentsInfoTip label="About usage limits">Optional caps when usage is reported. Some plans do not report cost.</AgentsInfoTip></span>} trailing={<span>Optional</span>} />
       </details></Card>
       {settings?.enabled && <ButtonGroup><button className="cfg-btn cfg-btn--primary" onClick={() => navigation.navigate({ kind: 'loops' })}>Open Loops</button></ButtonGroup>}
     </Section>
-    {error && <Card role="alert"><span className="cfg-chip">Not saved</span><InfoTip label="Save error">{error}</InfoTip></Card>}
+    {error && <Card role="alert"><span className="cfg-chip">Not saved</span><AgentsInfoTip label="Save error">{error}</AgentsInfoTip></Card>}
     {saved && <span className="cfg-chip agents-saved" role="status">Saved</span>}
   </div>;
 }

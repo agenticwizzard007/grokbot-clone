@@ -1,0 +1,74 @@
+/* Paper v3 geometry shared by the handoff, loop and flow surfaces. */
+:is(.ho, .ho-loops, .ho-loop-sheet, .flow-tab, .flow-compact, .flow-sheet) {
+  font: 400 var(--text-base)/var(--line-body) var(--font-stack);
+}
+:is(.ho, .ho-loops, .ho-loop-sheet, .flow-tab, .flow-compact, .flow-sheet) .layout-card,
+.flow-compact.layout-card { padding: var(--card-pad); }
+:is(.ho, .ho-loops, .ho-loop-sheet, .flow-tab, .flow-compact, .flow-sheet) .layout-row, .ho.layout-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  min-height: var(--control-h);
+  align-items: center;
+}
+:is(.ho, .ho-loops, .ho-loop-sheet, .flow-tab, .flow-compact, .flow-sheet) .layout-row:has(> .layout-row__leading), .ho.layout-row:has(> .layout-row__leading) {
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+}
+:is(.ho, .ho-loops, .ho-loop-sheet, .flow-tab, .flow-compact, .flow-sheet) .layout-row__leading {
+  align-self: start;
+  height: 20px;
+}
+:is(.ho, .ho-loops, .ho-loop-sheet, .flow-tab, .flow-compact, .flow-sheet) .layout-row__title {
+  font-size: var(--text-base);
+  line-height: var(--line-body);
+  font-weight: 600;
+}
+:is(.ho, .ho-loops, .ho-loop-sheet, .flow-tab, .flow-compact, .flow-sheet) .layout-row__subtitle {
+  font-size: var(--text-sm);
+  line-height: calc(18px * var(--font-scale));
+  margin-top: var(--space-2);
+}
+:is(.ho, .ho-loops, .ho-loop-sheet, .flow-tab, .flow-compact, .flow-sheet) .layout-row__trailing {
+  margin: 0;
+  align-self: center;
+  justify-content: flex-end;
+  max-width: 120px;
+}
+:is(.ho, .ho-loops, .ho-loop-sheet, .flow-tab, .flow-compact, .flow-sheet) :is(button, a, label, h1, h2, h3, .layout-row__title, .layout-row__subtitle) {
+  overflow-wrap: anywhere;
+}
+:is(.ho, .ho-loops, .ho-loop-sheet, .flow-tab, .flow-compact, .flow-sheet) button,
+:is(.ho-button, .ho-loop-button) {
+  font-size: var(--text-base);
+  line-height: var(--line-body);
+  min-height: var(--control-h);
+}
+:is(.ho-button, .ho-loop-button, .flow-toolbar button, .flow-compact button, .flow-sheet .cfg-btn) { border-radius: 10px; }
+:is(.ho, .ho-loops, .ho-loop-sheet, .flow-tab, .flow-compact, .flow-sheet) .layout-button-group {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  align-items: stretch;
+}
+:is(.ho, .ho-loops, .ho-loop-sheet, .flow-tab, .flow-compact, .flow-sheet) .layout-button-group > * { width: 100%; }
+:is(.ho-chip, .ho-status, .ho-loop-chip, .flow-badge) {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-2);
+  font: 500 var(--text-xs)/var(--line-caption) var(--font-stack);
+  text-decoration: none;
+}
+@media (max-width: 760px) {
+  :is(.ho, .ho-loops, .ho-loop-sheet, .flow-tab, .flow-sheet) .layout-button-group--stack {
+    grid-auto-flow: row;
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+:is(.ho, .ho-loops, .ho-loop-sheet, .flow-tab, .flow-compact, .flow-sheet) .layout-row__text { align-self: start; }
+:is(.ho, .ho-loops, .ho-loop-sheet) :is(.ho-button, .ho-loop-button) { border-radius: 10px; }
+/* The Loops entry is mounted by HO-I in the shared account menu. */
+.sidebar .menu__item:has(.lucide-git-branch) { min-height: var(--control-h); }

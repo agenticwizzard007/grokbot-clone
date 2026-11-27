@@ -9,6 +9,8 @@ import { preparePbeState } from './paper-pbe-states.mjs';
 import { layoutServer } from './layout-fixture.mjs';
 import { readableWords } from './paper-label-geometry.mjs';
 
+export { DASHBOARD_ROUTES } from './ui-custom/e2e/layout-x2.mjs';
+
 export const ROUTES = [
   { name: 'bots', hash: '#bots', owner: 'PB-D', enforce: true },
   { name: 'chat', hash: '#bot/{bot}', owner: 'PB-E', enforce: true },
@@ -209,6 +211,10 @@ async function main() {
       await context.close();
     }
   } finally { await browser.close(); await server.close(); }
+  if (!process.env.LAYOUT_ROOT && (!process.env.LAYOUT_OWNER || process.env.LAYOUT_OWNER === 'UC-X2') && !process.env.LAYOUT_ROUTES) {
+    const { auditDashboardRoutes } = await import('./ui-custom/e2e/layout-x2.mjs');
+    report.push(...await auditDashboardRoutes(path.join(evidence, 'dashboards'), inspectAlignment));
+  }
   fs.writeFileSync(path.join(evidence, 'report.json'), JSON.stringify(report, null, 2));
   assert.equal(report.filter(r => r.enforce && r.issues.length).length, 0, 'Enforced routes follow the shared layout system');
   console.log(`${report.length} route views audited. Report: ${evidence}/report.json`);
@@ -216,5 +222,6 @@ async function main() {
     const result = spawnSync(process.execPath, ['tests/ui-custom/e2e/suggest-dashboard-ui.mjs'], { stdio: 'inherit', env: { ...process.env, SUGGEST_EVIDENCE: path.join(evidence, 'suggestions') } });
     assert.equal(result.status, 0, 'Dashboard suggestion routes follow Paper layout and visible-copy rules');
   }
+  await (await import('./handoffs/ho-routes.mjs')).auditHandoffRoutes(inspectAlignment);
 }
 if (import.meta.url === pathToFileURL(process.argv[1]).href) await main();

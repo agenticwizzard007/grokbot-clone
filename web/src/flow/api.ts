@@ -1,3 +1,4 @@
+import '../handoffs/polish.css';
 import type { FlowModel, FlowNode } from '@shared/flow/model-types';
 import type { HandoffLink } from '@shared/handoffs/contracts';
 import { ApiError } from '../lib/api';

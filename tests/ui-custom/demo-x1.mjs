@@ -38,8 +38,8 @@ try{
   ]}}]});
   assert.equal((await server.request('GET','/ui/config')).body.revision,initial.revision);
   assert.equal((await server.request('GET',`/ui/previews/${card.previewId}`)).body.result.dashboards.at(-1).widgets[0].type,'agent');
-  await page.reload();await page.getByText('Add my work dashboard',{exact:true}).first().waitFor();
-  for(const width of [390,1280]){await page.setViewportSize({width,height:900});await page.waitForTimeout(200);const file=path.join(output,`chat-preview-${width}.png`);await page.getByRole('region',{name:'Add my work dashboard',exact:true}).screenshot({path:file});screenshots.push(file);}
+  await page.reload();await page.getByText('Create dashboard: My work',{exact:true}).first().waitFor();
+  for(const width of [390,1280]){await page.setViewportSize({width,height:900});await page.waitForTimeout(200);const file=path.join(output,`chat-preview-${width}.png`);await page.getByRole('region',{name:'Create dashboard: My work',exact:true}).screenshot({path:file});screenshots.push(file);}
   check('chat creates an agent widget preview and waits for Apply',{previewId:card.previewId});
   let config=await apply(card);const dashboard=config.doc.dashboards.at(-1),widget=dashboard.widgets[0];
   assert.deepEqual(config.doc.layout,initial.doc.layout);check('apply persists the dashboard without changing layout',{dashboardId:dashboard.id});

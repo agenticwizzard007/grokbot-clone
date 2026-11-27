@@ -32,6 +32,7 @@ try {
   for (const type of catalogTypes) {
     await page.getByRole('button', { name: 'Add widget', exact: true }).click();
     const index = catalogTypes.indexOf(type); await page.locator('.dashboard-library-item').nth(index).click();
+    if (type === 'agent') { await page.getByLabel('Prompt', { exact: true }).fill('Summarize my open tasks.'); await page.getByRole('dialog').getByRole('button', { name: 'Add widget', exact: true }).click(); }
     await page.locator('dialog').waitFor({ state: 'detached' }); assert.equal((await saved(page)).widgets.at(-1).type, type); passed++;
   }
   assert.ok(requests.length >= 18);
@@ -71,7 +72,7 @@ try {
   for (const width of [320, 390, 500, 1280]) {
     await phone.setViewportSize({ width, height: 844 });
     assert.ok(await phone.getByText('Launch planning and daily progress.', { exact: true }).isVisible(), 'Hiding the duplicate title preserves the user description');
-    assert.equal(await phone.locator('.shell-header__title:visible, .dashboard-heading h1:visible').count(), 1);
+    assert.equal(await phone.locator('.shell-header__title:visible, .dashboard-switcher h1:visible').count(), 1);
     passed++;
   }
   await phone.setViewportSize({ width: 390, height: 844 });

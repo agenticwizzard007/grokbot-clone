@@ -41,7 +41,7 @@ async function capture(page, name, width, theme, selector) {
     }));
     assert.ok(toolbarsFit, `${name}: toolbars remain inside their card padding`);
     if (name === 'dashboard' || name === 'empty-dashboard') {
-      assert.equal(await page.locator('.shell-header__title:visible, .dashboard-heading h1:visible').count(), 1, 'One visible dashboard title');
+      assert.equal(await page.locator('.shell-header__title:visible, .dashboard-switcher h1:visible').count(), 1, 'One visible dashboard title');
       if (width <= 760) assert.equal(await page.getByRole('button', { name: 'Back', exact: true }).count(), 1, 'One Back control');
     }
     await readableWords(root);

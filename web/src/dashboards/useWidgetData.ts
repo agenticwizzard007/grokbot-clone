@@ -42,12 +42,13 @@ export function useWidgetData(widgets: Widget[]) {
         try {
           const value = JSON.parse(event.data);
           const type = value.type;
+          if (type === 'ui_widget') { window.dispatchEvent(new CustomEvent('swarm:widget', { detail: value })); return; }
           if (type === 'live') {
             const key = JSON.stringify([!!value.state.isRunning, value.state.awaiting]);
             if (live.get(value.state.botId) === key) return;
             live.set(value.state.botId, key);
           }
-          const groups: Record<string, string[]> = { tasks: ['tasks.', 'bots.status'], roster: ['bots.', 'tasks.', 'needsYou.'], bot: ['bots.'], routines: ['routines.'], live: ['bots.status', 'runs.', 'needsYou.', 'usage.'], rows: ['needsYou.'], setup: ['needsYou.'] };
+          const groups: Record<string, string[]> = { tasks: ['tasks.', 'bots.status'], roster: ['bots.', 'tasks.', 'needsYou.'], bot: ['bots.'], routines: ['routines.'], live: ['bots.status', 'runs.', 'needsYou.', 'usage.'], rows: ['needsYou.'], setup: ['needsYou.'], handoff: ['handoffs.'], loop: ['loops.'], output: ['outputs.'], connections: ['connectors.', 'email.', 'calendar.', 'crm.'] };
           if (groups[type]) mark(widget => groups[type].some(prefix => widget.source!.id.startsWith(prefix)), true);
         } catch { /* Ignore malformed or unrelated events. */ }
       };
@@ -104,7 +105,7 @@ export function useWidgetData(widgets: Widget[]) {
     const observer = new IntersectionObserver(entries => {
       for (const entry of entries) {
         const id = (entry.target as HTMLElement).dataset.widgetId!;
-        if (entry.isIntersecting && widgets.some(widget => widget.id === id && widget.source)) { visible.add(id); dirty.add(id); } else visible.delete(id);
+        if (entry.isIntersecting && widgets.some(widget => widget.id === id && (widget.source || widget.type === 'agent'))) { visible.add(id); dirty.add(id); } else visible.delete(id);
       }
       schedule();
     });
