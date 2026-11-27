@@ -20,7 +20,7 @@ const maxFileSize = 2 * 1024 * 1024;
 const NO_BOTS: Bot[] = [];
 type ImportedSetup = { botId: string; name: string };
 // A route change must not lose a completed import or offer a duplicate POST.
-const emptyImport = { userId: undefined as string | undefined, pending: false, result: null as ImportedSetup | null, error: '' };
+const emptyImport = { userId: undefined as string | undefined, pending: false, result: null as ImportedSetup | null, error: '', token: null as object | null };
 const useImportProgress = create(() => emptyImport);
 useStore.subscribe((state, previous) => {
   if (state.user?.id !== previous.user?.id) useImportProgress.setState(emptyImport);
@@ -131,12 +131,13 @@ function CreateBotForm({ inline, userId }: { inline: boolean; userId: string | u
     const typedName = readName();
     if (!isCurrent() || (flow === 'create' && !typedName)) { submission.current = 'idle'; return; }
     setBusy(true); setError('');
-    if (flow === 'import') useImportProgress.setState({ userId, pending: true, result: null, error: '' });
+    const importToken = flow === 'import' ? {} : null;
+    if (importToken) useImportProgress.setState({ userId, pending: true, result: null, error: '', token: importToken });
     try {
       const { bot } = flow === 'import' && selection
         ? await setupApi.importManifest(selection.manifest, importName.trim(), userId)
         : await api.createBot(Object.assign({ name: typedName, avatarShape: shape, avatarColor: color, mode }, { label: role === 'Custom' ? '' : role, model }));
-      if (useStore.getState().user?.id !== userId) return;
+      if (useStore.getState().user?.id !== userId || importToken && useImportProgress.getState().token !== importToken) return;
       if (!bot) throw new Error('No imported Bot was returned. Check your Bot list before retrying.');
       if (flow !== 'import' && !isCurrent()) return;
       const state = useStore.getState();
@@ -154,7 +155,7 @@ function CreateBotForm({ inline, userId }: { inline: boolean; userId: string | u
     } catch (failure) {
       const { status, message } = failure as Error & { status?: number };
       const shown = status === 413 && !/too (large|long)/i.test(message) ? (flow === 'import' ? TOO_LARGE_SETUP : TOO_LONG_MESSAGE) : message;
-      if (flow === 'import' && useStore.getState().user?.id === userId) useImportProgress.setState({ userId, pending: false, result: null, error: shown });
+      if (importToken && useStore.getState().user?.id === userId && useImportProgress.getState().token === importToken) useImportProgress.setState({ userId, pending: false, result: null, error: shown });
       if (isCurrent()) setError(shown);
     } finally {
       if (submission.current === 'pending') submission.current = 'idle';
