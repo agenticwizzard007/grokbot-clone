@@ -106,8 +106,11 @@ export function reconcileHandoffs(userId?: string) {
                 }
                 if (!r.job_id) {
                     if (!expiries.has(h.id) && now() - h.createdAt < 86400000) {
-                        const timer = setTimeout(() => { expiries.delete(h.id); if (db.open)
-                            scheduleReconciliation(h.userId); }, Math.max(1, h.createdAt + 86400000 - now()));
+                        const timer = setTimeout(() => {
+                            expiries.delete(h.id);
+                            if (db.open)
+                                scheduleReconciliation(h.userId);
+                        }, Math.max(1, h.createdAt + 86400000 - now()));
                         timer.unref();
                         expiries.set(h.id, timer);
                     }
