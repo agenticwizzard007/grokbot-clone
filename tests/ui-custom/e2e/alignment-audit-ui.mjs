@@ -21,9 +21,14 @@ for (const width of [320, 390, 500, 768, 1280]) cases.push({ name: `grid spans a
   const columns = width >= 1024 ? 12 : width >= 481 ? 6 : 2;
   const small = width >= 1024 ? 4 : width >= 481 ? 2 : 1, large = columns - small;
   try {
-    await page.setContent(`<style>body{margin:0}.grid{display:grid;grid-template-columns:repeat(${columns},minmax(0,1fr));gap:16px}.card{border:1px solid;box-sizing:border-box;height:88px;grid-row:span 1}</style><main data-layout="page"><div class="grid"><section class="card" data-layout="card" style="grid-column:span ${small}">First fixture</section><section class="card" data-layout="card" style="grid-column:span ${large}">Second fixture</section></div></main>`);
+    await page.setContent(`<style>body{margin:0}.grid{display:grid;grid-template-columns:repeat(${columns},minmax(0,1fr));gap:16px}.card{border:1px solid;box-sizing:border-box;height:88px;grid-row:span 1}</style><main data-layout="page" data-page-type="wide"><div class="grid"><section class="card" data-layout="card" style="grid-column:span ${small}">First fixture</section><section class="card" data-layout="card" style="grid-column:span ${large}">Second fixture</section></div></main>`);
     assert.deepEqual(await page.evaluate(inspectDashboardGrid), []);
     assert.deepEqual(await page.evaluate(inspectAlignment, { selector: 'main' }), [], 'Declared unequal spans are valid');
+    if (width >= 1024) {
+      await page.locator('main').evaluate(el => { el.dataset.pageType = 'form'; });
+      assert.ok((await page.evaluate(inspectAlignment, { selector: 'main' })).some(issue => issue.startsWith('Unequal row card widths')), 'Only wide dashboard Pages permit unequal declared spans');
+      await page.locator('main').evaluate(el => { el.dataset.pageType = 'wide'; });
+    }
     await page.locator('.card').last().evaluate(el => { el.style.height = '100px'; });
     assert.ok((await page.evaluate(inspectDashboardGrid)).includes('Same-row widget heights differ'));
     await page.locator('.card').last().evaluate(el => { el.style.width = '20px'; });

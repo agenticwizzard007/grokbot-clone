@@ -105,6 +105,15 @@ export function inspectAlignment({ selector = '.shell-content > :not(.shell-head
     const cs = getComputedStyle(el), r = rect(el);
     return parseFloat(cs.borderTopLeftRadius) >= 8 && parseFloat(cs.borderTopWidth) >= 1 && cs.borderTopStyle !== 'none' && r.width >= 120 && r.height >= 44;
   });
+  const dashboardSlot = card => {
+    if (!card.closest('[data-layout="page"][data-page-type="wide"]')) return null;
+    let item = card;
+    while (item.parentElement && item.dataset.layout !== 'page') {
+      if (getComputedStyle(item.parentElement).display === 'grid' && /span/.test(getComputedStyle(item).gridColumn)) return item.parentElement;
+      item = item.parentElement;
+    }
+    return null;
+  };
   const groups = new Map();
   for (const card of cards) {
     const parent = card.dataset.layout === 'card' ? card.closest('[data-layout="section"]') ?? card.closest('[data-layout="page"]') ?? card.parentElement : card.parentElement;
@@ -117,7 +126,7 @@ export function inspectAlignment({ selector = '.shell-content > :not(.shell-head
     const ar = rect(a), br = rect(b);
     const sameRow = Math.min(ar.bottom, br.bottom) > Math.max(ar.top, br.top) + 1;
     const sameColumn = Math.min(ar.right, br.right) > Math.max(ar.left, br.left) + 1;
-    const inDashboardGrid = a.parentElement === b.parentElement && getComputedStyle(a.parentElement).display === 'grid' && /span/.test(getComputedStyle(a).gridColumn + getComputedStyle(b).gridColumn);
+    const grid = dashboardSlot(a), inDashboardGrid = grid !== null && grid === dashboardSlot(b);
     if (!inDashboardGrid && sameRow && !close(ar.width, br.width)) issues.push(`Unequal row card widths: ${label(a)} / ${label(b)}`);
     if (!inDashboardGrid && !sameRow && sameColumn && (!close(ar.left, br.left) || !close(ar.right, br.right))) issues.push(`Unequal column card edges: ${label(a)} / ${label(b)}`);
   }
@@ -127,7 +136,7 @@ export function inspectAlignment({ selector = '.shell-content > :not(.shell-head
 /** Grid geometry uses computed tracks, so breakpoint spans are audited as rendered. */
 export function inspectDashboardGrid() {
   const issues = [];
-  const grids = [...document.querySelectorAll('[data-layout="page"] *')].filter(el => getComputedStyle(el).display === 'grid' && [...el.children].some(child => /span/.test(getComputedStyle(child).gridColumn)));
+  const grids = [...document.querySelectorAll('[data-layout="page"][data-page-type="wide"] *')].filter(el => getComputedStyle(el).display === 'grid' && [...el.children].some(child => /span/.test(getComputedStyle(child).gridColumn)));
   if (!grids.length) return ['No dashboard grid found'];
   for (const grid of grids) {
     const cs = getComputedStyle(grid), gap = parseFloat(cs.columnGap), tracks = cs.gridTemplateColumns.split(' ').map(parseFloat);

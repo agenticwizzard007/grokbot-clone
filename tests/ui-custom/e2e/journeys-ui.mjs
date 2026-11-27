@@ -42,6 +42,7 @@ export async function dashboardJourney({ page, context, server, capture = async 
   await open(page, server.base, `#dash/${dashboard.id}`);
   await page.getByText('Fixture task 1', { exact: true }).first().waitFor();
   assert.ok(dashboard.widgets.length >= 10);
+  assert.equal(await page.locator('[data-layout="page"]').first().getAttribute('data-page-type'), 'wide');
   for (const width of [1280, 390]) for (const mode of ['light', 'dark']) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
     await patch(context, server.base, [{ op: 'replace', path: '/theme/mode', value: mode }]);
