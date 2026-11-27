@@ -86,11 +86,15 @@ export async function sendHandoff(page, data, evidence, width) {
   const created = await (await response).json(), handoff = created.handoff ?? created;
   const receipt = page.locator('.ho-receipt').filter({ has: page.locator(`a[href="#handoff/${handoff.id}"]`) });
   await receipt.getByText('Sent to Checker', { exact: true }).waitFor();
+  // Inspect the finished receipt after both the receiver and return job settle.
+  // The quality assertion still detects a stale typing indicator after that point.
+  const detail = await poll(() => api(page, `/handoffs/${handoff.id}`), value => (value.handoff ?? value).status === 'completed', 'Handoff completion');
+  await poll(() => api(page, '/jobs'), value => !value.jobs.some(job => [data.maker, data.checker].includes(job.bot_id) && ['queued', 'running'].includes(job.state)), 'Handoff and return jobs finish');
+  await receipt.getByText('Completed', { exact: true }).waitFor();
   await receipt.scrollIntoViewIfNeeded();
   shots.push(await screenshot(page, evidence, 'handoff-receipt', width));
   await receipt.getByRole('link', { name: /^View handoff/ }).click();
   await page.locator('.ho-output-card').waitFor({ timeout: 60000 });
-  const detail = await poll(() => api(page, `/handoffs/${handoff.id}`), value => (value.handoff ?? value).status === 'completed', 'Handoff completion');
   shots.push(await screenshot(page, evidence, 'handoff-detail', width));
   return { id: handoff.id, detail, screenshots: shots };
 }

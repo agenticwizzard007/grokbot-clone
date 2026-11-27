@@ -18,6 +18,7 @@ const commands = process.argv.includes('--existing-ui') ? ui.map(file => [proces
   ...demos.map(file => [process.execPath, [file]]),
   [process.execPath, ['tests/handoffs/e2e/journeys.mjs']], [process.execPath, ['tests/handoffs/layout-ui.mjs']],
   [process.execPath, ['scripts/handoffs-demo.mjs']], [process.execPath, ['tests/handoffs/perf/server.mjs']], [process.execPath, ['tests/handoffs/perf/browser.mjs']],
+  [process.execPath, ['tests/handoffs/polish-shots.mjs']],
   [process.execPath, ['tests/layout-alignment-ui.mjs']], [process.execPath, ['--import', 'tsx', 'tests/navigation-every-route-ui.mjs']],
 ];
 const results = [];
@@ -25,7 +26,7 @@ for (const [command, args] of commands) {
   const name = args.find(arg => /\.(mjs|mts)$/.test(arg))?.replaceAll('/', '_') || args.join('-');
   const log = path.join(out, `${name}.log`), fd = fs.openSync(log, 'w');
   console.log(`RUN ${command} ${args.join(' ')}`);
-  const exit = await new Promise(resolve => { const child = spawn(command, args, { stdio: ['ignore', fd, fd], env: process.env }); child.on('error', error => resolve(String(error))); child.on('exit', code => resolve(code)); }); fs.closeSync(fd);
+  const exit = await new Promise(resolve => { const child = spawn(command, args, { stdio: ['ignore', fd, fd], env: { ...process.env, HO_POLISH_OUTPUT: process.env.HO_POLISH_OUTPUT || path.join(out, 'polish-shots') } }); child.on('error', error => resolve(String(error))); child.on('exit', code => resolve(code)); }); fs.closeSync(fd);
   const text = fs.readFileSync(log, 'utf8');
   const summaries = [...text.matchAll(/^(?:HO-H (?:journeys|layout): |(?:PASS|FAIL) demo of record: |PASS |FLOW DEMO |UI QUALITY |HO-I integration UI: |HO-C demo: |PASS HO-E layout: )(\d+)(?:\/\d+| pass| checks| views)/gm)];
   const pass = Number(text.match(/(?:ℹ |# )pass (\d+)/)?.[1] ?? summaries.at(-1)?.[1] ?? [...text.matchAll(/^PASS\b/gm)].length);
