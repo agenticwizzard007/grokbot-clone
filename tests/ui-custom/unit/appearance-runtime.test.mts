@@ -4,7 +4,7 @@ import { DEFAULT_CONFIG, type StoredPreview } from '../../../server/src/ui-confi
 import { useCustomization, handleUiEvent, clearPreview } from '../../../web/src/customization/store.ts';
 
 test('a delayed pending event does not clear a manually opened Settings preview', async () => {
-  const preview: StoredPreview = { id: 'QA-Temp-Preview', userId: 'QA-Temp-User', baseRevision: 0, patch: [], result: structuredClone(DEFAULT_CONFIG), summary: [], warnings: [], idMap: {}, intent: 'QA-Temp appearance', actor: 'user', status: 'pending', createdAt: Date.now(), expiresAt: Date.now() + 900000 };
+  const preview: StoredPreview = { id: 'QA-Temp-Preview', userId: 'QA-Temp-User', baseRevision: 0, patch: [], result: structuredClone(DEFAULT_CONFIG), summary: [], warnings: [], idMap: {}, intent: 'QA-Temp layout', actor: 'user', status: 'pending', createdAt: Date.now(), expiresAt: Date.now() + 900000 };
   useCustomization.setState({ userId: preview.userId, saved: DEFAULT_CONFIG, effective: preview.result, revision: 0, status: 'ready', preview, showBefore: false, safe: false });
   try {
     await handleUiEvent({ type: 'ui_preview', previewId: preview.id, botId: '', state: 'pending' }, null);

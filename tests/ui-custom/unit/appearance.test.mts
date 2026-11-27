@@ -11,8 +11,6 @@ const ctx = { generateId: (kind: string) => `${kind === 'dashboard' ? 'd' : 'w'}
 for (const fixture of fixtures.cases) test(`manual and agent parity: ${fixture.id}`, () => {
   const base = structuredClone(fixture.base ?? DEFAULT_CONFIG);
   const actual = fixture.builder === 'setValue' ? builders.setValue(fixture.path, fixture.value)
-    : fixture.builder === 'setAccent' ? builders.setAccent(fixture.mode, fixture.value)
-    : fixture.builder === 'choosePreset' ? builders.choosePreset(fixture.value)
     : fixture.builder === 'sidebarVisibility' ? builders.sidebarVisibility(base, fixture.idValue, fixture.value)
     : fixture.builder === 'moveSidebar' ? builders.moveSidebar(base, fixture.from, fixture.direction)
     : fixture.builder === 'deleteDashboard' ? builders.deleteDashboard(base, fixture.idValue)
@@ -59,11 +57,6 @@ test('keyboard recorder handles OS modifiers and physical letter keys', () => {
   assert.equal(builders.recordedShortcut({ key: 'K', code: 'KeyK', metaKey: true, ctrlKey: false, altKey: false, shiftKey: true }), 'Mod+Shift+K');
   assert.equal(builders.recordedShortcut({ key: 'Alt', code: 'AltLeft', metaKey: false, ctrlKey: false, altKey: true, shiftKey: false }), null);
 });
-test('low contrast and unsafe values are rejected without changing the document', () => {
-  const base = JSON.stringify(DEFAULT_CONFIG);
-  for (const color of ['#FFFFFF', 'red', 'url(https://example.test)', '#00000000']) assert.equal(previewPatch(DEFAULT_CONFIG, builders.setAccent('light', color), { ctx }).ok, false);
-  assert.equal(JSON.stringify(DEFAULT_CONFIG), base);
-});
 test('owned UI source uses plain copy and no unsafe HTML or truncation', () => {
   const files = ['web/src/components/config/AppearanceSettings.tsx', 'web/src/components/cards/UiPreviewCard.tsx', ...fs.readdirSync('web/src/components/config/appearance').map(f => `web/src/components/config/appearance/${f}`), 'web/src/styles/appearance.css'];
   for (const file of files) assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /[\u2013\u2014]|dangerouslySetInnerHTML|text-overflow:\s*ellipsis|line-clamp/, file);
@@ -73,4 +66,25 @@ test('phone selects swap existing tabs without duplicates or removing Settings',
   assert.deepEqual(patch, [{ op: 'add', path: '/layout/phoneTabs', value: ['tasks', 'bots', 'search', 'settings'] }]);
   assert.equal(previewPatch(DEFAULT_CONFIG, patch, { ctx }).ok, true);
   assert.deepEqual(builders.phoneTabPatch(DEFAULT_CONFIG, 3, 'bots'), []);
+});
+test('manual parity patches stay within workspace settings', () => {
+  for (const fixture of fixtures.cases) for (const op of fixture.patch) assert.match(op.path, /^\/(layout|components|keybindings|dashboards)(\/|$)/, fixture.id);
+});
+for (const removeDashboards of [false, true]) test(`reset layout ${removeDashboards ? 'removes' : 'keeps'} dashboards and repairs navigation atomically`, () => {
+  const doc = structuredClone(DEFAULT_CONFIG), id = 'd_12345678';
+  doc.dashboards = [{ id, name: 'QA-Temp-Board', icon: 'layout-dashboard', widgets: [] }];
+  doc.layout.home = { kind: 'dashboard', dashboardId: id };
+  doc.layout.phoneTabs = ['bots', `dashboard:${id}`, 'settings'];
+  doc.layout.pinned = [{ type: 'dashboard', id }];
+  doc.components = { 'chat.safetyNote': 'hide' };
+  doc.keybindings = { focusComposer: 'Alt+J' };
+  const patch = builders.resetLayout(removeDashboards);
+  for (const op of patch) assert.match(op.path, /^\/(layout|components|keybindings|dashboards)$/);
+  const result = previewPatch(doc, patch, { ctx });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  if (!result.ok) return;
+  assert.deepEqual(result.result.layout, DEFAULT_CONFIG.layout);
+  assert.equal(result.result.components['chat.safetyNote'], 'show');
+  assert.deepEqual(result.result.keybindings, {});
+  assert.deepEqual(result.result.dashboards, removeDashboards ? [] : doc.dashboards);
 });

@@ -1,4 +1,3 @@
-import { useUiConfig } from '../../customization';
 import { SettingsMenu } from './SettingsControls';
 import { Section, Card, Row, ButtonGroup } from '../layout';
 import { ProviderMark } from '../ProviderMark';
@@ -17,7 +16,7 @@ import { ModelPicker, refreshModels } from './ModelPicker';
 import { LearningSettingsPanel } from './LearningSettings';
 import { UsageSection } from './UsageSection';
 import { relativeShort } from '../../lib/time';
-import { openConversation, useConfigUI, useVersion } from '../../configStore';
+import { openConversation, useConfigUI, useVersion, type Theme } from '../../configStore';
 import { useStore } from '../../store';
 import { computerStatusText } from './computerStatus';
 import { ConfirmButton, Segmented, Switch } from './ui';
@@ -46,6 +45,7 @@ import { useAccessPanel } from './useAccessPanel';
 import '../../styles/settings.css';
 import '../../styles/access-settings.css';
 
+const THEME_LABEL: Record<Theme, string> = { system: 'System', light: 'Light', dark: 'Dark' };
 
 // Keep the public entry for existing embedded Settings surfaces.
 export { AppSettings } from './SettingsFrame';
@@ -85,7 +85,6 @@ function Keys({ keys }: { keys: string[] }) {
 // ---------------------------------------------------------------------------
 
 function GeneralSection() {
-  const { status: appearanceStatus } = useUiConfig();
   const theme = useConfigUI(s => s.theme);
   const setTheme = useConfigUI(s => s.setTheme);
   const user = useStore(s => s.user);
@@ -96,8 +95,8 @@ function GeneralSection() {
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const shortcuts = SHORTCUTS.filter(s => !(s.web && isNativeApp));
   return <div className="settings-general">
-    <Section className="settings-appearance" aria-label="Appearance" footer={<button type="button" className="link-btn settings-diagnostics" aria-expanded={diagnosticsOpen} onClick={() => setDiagnosticsOpen(!diagnosticsOpen)}>Diagnostics</button>}><Card variant="list" ><SettingRow icon={Settings2} title={appearanceStatus === 'disabled' ? 'Theme' : 'Appearance'}>
-          {appearanceStatus === 'disabled' ? <Segmented label="Theme" value={theme} onChange={setTheme} options={[{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }, { value: 'system', label: 'Auto' }]} /> : <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().openAppSettings('appearance')}>Customize</button>}
+    <Section className="settings-appearance" aria-label="Appearance" footer={<button type="button" className="link-btn settings-diagnostics" aria-expanded={diagnosticsOpen} onClick={() => setDiagnosticsOpen(!diagnosticsOpen)}>Diagnostics</button>}><Card variant="list" ><SettingRow icon={Settings2} title="Theme">
+          <Segmented label="Theme" value={theme} onChange={setTheme} options={(['light', 'dark', 'system'] as const).map(t => ({ value: t, label: t === 'system' ? 'Auto' : THEME_LABEL[t] }))} />
         </SettingRow><SettingRow icon={PanelLeftOpen} title="Show details panel">
           <Switch label="Show details panel" on={detailsDefault} onChange={v => { writeDetailsDefault(accountId, v); setDetailsDefault(v); }} />
         </SettingRow><SettingRow icon={Clock3} title="Time zone" sub={(user as (User & { timezone?: string }) | null)?.timezone || browserTimeZone()}>

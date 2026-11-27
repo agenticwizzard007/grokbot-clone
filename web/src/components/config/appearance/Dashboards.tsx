@@ -3,7 +3,7 @@ import type { UiConfig } from '@shared/ui-config/index';
 import { ButtonGroup, Row, Section, Card } from '../../layout';
 import { Modal } from '../../modals/Modal';
 import { SettingsMenu } from '../SettingsControls';
-import { createDashboard, deleteDashboard, renameDashboard } from './patches';
+import { createDashboard, deleteDashboard, renameDashboard, setValue } from './patches';
 import type { Patch } from './LayoutControls';
 export function Dashboards({ doc, patch, readSaved, error }: { error: string; doc: UiConfig; patch: Patch; readSaved: () => Promise<UiConfig> }) {
   const [dialog, setDialog] = useState<{ kind: 'new' | 'rename' | 'delete'; id?: string } | null>(null);
@@ -16,6 +16,7 @@ export function Dashboards({ doc, patch, readSaved, error }: { error: string; do
       {doc.dashboards.map(d => <Row key={d.id} title={d.name} subtitle={`${d.widgets.length} widgets`} trailing={<ButtonGroup>
         <button type="button" className="cfg-btn cfg-btn--secondary" aria-label={`Open ${d.name}`} onClick={() => open(d.id)}>Open</button>
         <SettingsMenu ariaLabel={`Manage ${d.name}`} items={[
+          { label: 'Set as home', onSelect: () => void patch(setValue('/layout/home', { kind: 'dashboard', dashboardId: d.id })) },
           { label: 'Rename', onSelect: () => { setName(d.name); setDialog({ kind: 'rename', id: d.id }); } },
           { label: 'Delete', danger: true, onSelect: () => setDialog({ kind: 'delete', id: d.id }) },
         ]} />

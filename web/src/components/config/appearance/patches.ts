@@ -1,8 +1,14 @@
-import { presetPatch, type PatchOp, type UiConfig } from '@shared/ui-config/index';
+import { DEFAULT_CONFIG, REGISTRY, type PatchOp, type UiConfig } from '@shared/ui-config/index';
 
 export const setValue = (path: string, value: unknown): PatchOp[] => [{ op: 'add', path, value }];
-export const choosePreset = presetPatch;
-export const setAccent = (mode: 'light' | 'dark', color: string) => setValue(`/theme/colors/${mode}/primary`, color);
+export function resetLayout(includeDashboards: boolean): PatchOp[] {
+  return [
+    ...setValue('/layout', structuredClone(DEFAULT_CONFIG.layout)),
+    ...setValue('/components', Object.fromEntries(REGISTRY.components.map(item => [item.id, item.default]))),
+    ...setValue('/keybindings', {}),
+    ...(includeDashboards ? setValue('/dashboards', []) : []),
+  ];
+}
 export function sidebarVisibility(doc: UiConfig, id: string, visible: boolean): PatchOp[] {
   const hidden = doc.layout.sidebar.hidden.filter(item => item !== id);
   return setValue('/layout/sidebar/hidden', visible ? hidden : [...hidden, id]);

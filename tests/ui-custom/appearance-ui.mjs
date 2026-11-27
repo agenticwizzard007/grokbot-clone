@@ -5,7 +5,7 @@ import { appearanceFixture, appearanceContext, saved, waitForSaved, reset } from
 import { inspectAlignment } from '../layout-alignment-ui.mjs';
 import { readableWords } from '../paper-label-geometry.mjs';
 
-const out = '.context/ui-custom/appearance'; fs.mkdirSync(out, { recursive: true });
+const out = '.context/ui-custom/layout'; fs.mkdirSync(out, { recursive: true });
 const fixture = await appearanceFixture();
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
 let passed = 0;
@@ -27,16 +27,18 @@ try {
     }
     pass(`every enabled control is focusable ${width} ${theme}`);
     if ([390, 1280].includes(width) && theme === 'light') {
-      const group = screen.getByRole('radiogroup', { name: 'Size', exact: true });
+      const group = screen.getByRole('radiogroup', { name: 'Width', exact: true });
       await group.getByRole('radio', { name: 'Default', exact: true }).focus(); await page.keyboard.press('ArrowRight');
-      await waitForSaved(page, c => c.doc.theme.font.scale === 'large', 'keyboard font size');
-      assert.equal(await group.getByRole('radio', { name: 'Large', exact: true }).evaluate(el => document.activeElement === el), true, 'focus survives saving');
-      await page.keyboard.press('ArrowRight'); await waitForSaved(page, c => c.doc.theme.font.scale === 'xlarge', 'second keyboard font size');
+      await waitForSaved(page, c => c.doc.layout.sidebar.width === 'wide', 'keyboard sidebar width');
+      assert.equal(await group.getByRole('radio', { name: 'Wide', exact: true }).evaluate(el => document.activeElement === el), true, 'focus survives saving');
+      await page.keyboard.press('ArrowLeft'); await waitForSaved(page, c => c.doc.layout.sidebar.width === 'default', 'restore sidebar width');
       await screen.getByRole('button', { name: 'Change Focus composer shortcut', exact: true }).click(); await page.keyboard.press('Alt+j');
       await waitForSaved(page, c => c.doc.keybindings.focusComposer === 'Alt+J', 'shortcut capture');
       await screen.getByRole('button', { name: 'Clear Focus composer shortcut', exact: true }).click(); await waitForSaved(page, c => c.doc.keybindings.focusComposer === null, 'clear shortcut');
       const visibility = screen.getByRole('switch', { name: 'Safety note', exact: true }); await visibility.focus(); await page.keyboard.press('Space');
       await waitForSaved(page, c => c.doc.components['chat.safetyNote'] === 'hide', 'visibility');
+      await visibility.focus(); await page.keyboard.press('Space');
+      await waitForSaved(page, c => c.doc.components['chat.safetyNote'] === 'show', 'restore visibility from the same control');
       await screen.getByLabel('Start on', { exact: true }).selectOption('tasks'); await waitForSaved(page, c => c.doc.layout.home.kind === 'tasks', 'home');
       await screen.getByLabel('Tab 4', { exact: true }).isDisabled().then(value => assert.equal(value, true));
       const agent = screen.getByRole('switch', { name: "Apply my agent's changes right away", exact: true });
@@ -45,8 +47,8 @@ try {
       assert.equal((await (await page.request.get('/api/account/preferences')).json()).uiAgentApply, 'auto');
       await agent.click();
       pass(`keyboard writes and account preference ${width}`);
-      await page.goto('/#settings/general'); await page.getByRole('button', { name: 'Customize', exact: true }).click(); await screen.waitFor();
-      await page.goBack(); await page.locator('.settings-general').waitFor();
+      await page.goto('/#settings'); await page.getByRole('button', { name: 'Layout', exact: true }).click(); await screen.waitFor();
+      await page.goBack(); assert.equal(new URL(page.url()).hash, '#settings');
       await page.goForward(); await screen.waitFor();
       await page.locator('.shell-back:visible').click(); assert.notEqual(new URL(page.url()).hash, '#settings/appearance');
       pass(`one Back and browser history ${width}`);
@@ -56,9 +58,9 @@ try {
   // Seed only the private local transcript, using real preview lifecycle endpoints.
   const context = await appearanceContext(browser, fixture, 390, 'light');
   const page = await context.newPage(); page.setDefaultTimeout(15000); await page.goto('/#bots'); await reset(page);
-  const title = 'QA-Temp appearance '.repeat(9).trim();
+  const title = 'QA-Temp layout '.repeat(9).trim();
   const current = await saved(page);
-  const response = await page.request.post('/api/ui/patches/preview', { headers: { 'If-Match': `"${current.revision}"` }, data: { intent: title, patch: [{ op: 'add', path: '/theme/radius', value: 'round' }] } });
+  const response = await page.request.post('/api/ui/patches/preview', { headers: { 'If-Match': `"${current.revision}"` }, data: { intent: title, patch: [{ op: 'add', path: '/layout/home', value: { kind: 'tasks' } }] } });
   assert.equal(response.status(), 200, await response.text()); const preview = await response.json();
   const bot = fixture.db.prepare('SELECT generation, next_seq, rev FROM bots WHERE id=?').get(fixture.fixture.bot.id);
   const body = { type: 'card', card: 'ui_preview', previewId: preview.previewId, title, lines: Array.from({ length: 6 }, (_, i) => `QA-Temp change ${i + 1}`), moreCount: 3, warnings: [], status: 'pending' };
