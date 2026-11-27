@@ -18,7 +18,7 @@ async function integrationServer(evidence) {
   const fixtureFile = path.join(temp, 'fixture.json');
   const env = { PATH: process.env.PATH, NODE_ENV: 'test', SWARM_ROLE: 'standalone', SWARM_NO_SCHEDULER: '1',
     DB_PATH: path.join(temp, 'app.db'), FILES_DIR: path.join(temp, 'files'), CLI_PROFILES_DIR: path.join(temp, 'profiles'),
-    SESSION_SECRET: 'layout-test', COMPUTER_PROVIDER: 'local', INKBOX_TUNNEL: '0', DEV_LOGIN: '1', WHATSAPP_DISABLED: '1',
+    SESSION_SECRET: 'layout-test', COMPUTER_PROVIDER: 'local', INKBOX_TUNNEL: '0', DEV_LOGIN: '1', WHATSAPP_DISABLED: '1', UI_CUSTOMIZATION: 'on',
     PHONE_QA_FIXTURE_FILE: fixtureFile, PORT: String(apiPort), APP_URL: base, SERVER_URL: base,
     DIRECT_API_KEY: 'placeholder', DIRECT_BASE_URL: `http://127.0.0.1:${mockPort}/v1`, LLM_PROVIDER: 'direct' };
   const preload = path.join(temp, 'offline.mjs');
@@ -90,7 +90,7 @@ runner.stopLoopDeadlines(); reconcile.stopHandoffRecovery(); db.close();
   } catch (error) { await close(); throw error; }
 }
 
-export async function runIntegrationDemo() {
+export async function runIntegrationDemo({ settingsFlow } = {}) {
   const evidence = path.resolve('.context/handoffs/demo-i'); fs.mkdirSync(evidence, { recursive: true });
   const server = await integrationServer(evidence);
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
@@ -206,10 +206,11 @@ export async function runIntegrationDemo() {
       await page.locator('.task-filters .is-done').click();
       await page.locator('.task-card-frame').filter({ hasText: 'Placeholder release draft' }).getByRole('button', { name: 'Send to agent', exact: true }).click();
       await sheet.waitFor(); await page.keyboard.press('Escape'); check('Done task card opens Send to agent');
+      if (settingsFlow) await settingsFlow({ page, width, server, check, alignment, openSidebar, screenshots, evidence });
       assert.deepEqual(errors, []); await context.close();
     }
     const report = { checks, passed: checks.length, screenshots, realProviderCalls: 0,
-      deviations: ['Settings Agents and output chat card kinds remain gated on UC-G.'], fixture: server.fixture };
+      deviations: [], fixture: server.fixture };
     fs.writeFileSync(path.join(evidence, 'report.json'), JSON.stringify(report, null, 2));
     console.log(`HO-I integration UI: ${checks.length} checks passed; 0 real provider calls`);
     console.log(`Demo output: ${path.join(evidence, 'report.json')}`);

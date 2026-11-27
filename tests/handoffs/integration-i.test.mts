@@ -172,3 +172,35 @@ test('loop usage omits an unknown cost while retaining measured tokens', async (
   const detail = await (await call(f, `/loops/${created.id}`)).json();
   assert.deepEqual(detail.usage, { tracked: true, tokens: 15 });
 });
+
+test('Agents settings remain account scoped and can be re-enabled while handoffs are disabled', async () => {
+  const f = fixture(), other = fixture();
+  for (const agentHandoffs of ['links_only', 'off', 'team']) {
+    const settings = { enabled: true, agentHandoffs };
+    assert.equal((await call(f, '/handoff-settings', 'PUT', settings)).status, 200);
+    assert.deepEqual((await (await call(f, '/handoff-settings')).json()).settings, settings);
+    assert.deepEqual((await (await call(other, '/handoff-settings')).json()).settings, { enabled: true, agentHandoffs: 'team' });
+  }
+  assert.equal((await call(f, '/handoff-settings', 'PUT', { enabled: false, agentHandoffs: 'team' })).status, 200);
+  assert.equal((await call(f, '/handoff-settings')).status, 200);
+  assert.equal((await call(f, `/handoff-links?botId=${f.maker.id}`)).status, 503);
+  assert.equal((await call(f, '/handoff-settings', 'PUT', { enabled: true, agentHandoffs: 'team' })).status, 200);
+  assert.equal((await call(f, `/handoff-links?botId=${f.maker.id}`)).status, 200);
+  assert.equal((await call(f, '/handoff-settings', 'PUT', { enabled: true, agentHandoffs: 'unknown' })).status, 400);
+});
+
+test('Settings link commands preserve server identity and reject foreign senders and unknown fields', async () => {
+  const f = fixture(), other = fixture();
+  const path = `/handoff-links?botId=${f.maker.id}`;
+  const link = { toBotId: f.checker.id, mode: 'suggest', trigger: 'any_run', template: 'Review {title}.', autoApproveLoops: false };
+  const first = await (await call(f, path, 'PUT', { links: [link] })).json();
+  assert.equal(first.links.length, 1);
+  const updated = await call(f, path, 'PUT', { links: [{ ...link, mode: 'auto', autoApproveLoops: true }] });
+  assert.equal(updated.status, 200);
+  const value = (await updated.json()).links[0];
+  assert.equal(value.id, first.links[0].id); assert.equal(value.template, link.template);
+  assert.equal(value.mode, 'auto'); assert.equal(value.autoApproveLoops, true);
+  assert.equal((await call(other, path, 'PUT', { links: [link] })).status, 404);
+  assert.equal((await call(f, path, 'PUT', { links: [{ ...link, id: value.id }] })).status, 400);
+  assert.equal((await call(f, path, 'PUT', { links: [{ ...link, mode: 'off' }] })).status, 200);
+});
