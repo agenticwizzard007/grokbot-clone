@@ -42,8 +42,10 @@ import { currentSessionHash } from './security/request-context.js';
 import { onSessionRevoked } from './security/session-lifecycle.js';
 import { isTenant } from './deployment.js';
 import { appSuggestionsApi } from './routes-app-suggestions.js';
+import { uiApi } from './ui/index.js';
 
 export const api = new Hono<AuthVars>();
+api.route('/ui', uiApi);
 
 const findOrCreateUser = (email: string, name?: string, preferId?: string) => createAccount({ email, name, preferId, source: 'web', developmentEmailLookup: true });
 
