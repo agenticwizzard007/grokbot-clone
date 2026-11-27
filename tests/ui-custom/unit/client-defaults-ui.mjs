@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { chromium } from 'playwright';
 import { layoutServer } from '../../layout-fixture.mjs';
 import { ROUTES } from '../../layout-alignment-ui.mjs';
@@ -10,8 +11,11 @@ import { preparePbeState } from '../../paper-pbe-states.mjs';
 const output = path.resolve('.context/ui-custom/defaults'); fs.mkdirSync(output, { recursive: true });
 const baseline = process.env.CLIENT_BASELINE === '1';
 const baselineSpec = JSON.parse(fs.readFileSync(new URL('./client-defaults-baseline.json', import.meta.url), 'utf8'));
+const fingerprint = createHash('sha256').update(fs.readFileSync(new URL(import.meta.url))).update(JSON.stringify(baselineSpec)).digest('hex');
+const recorded = fs.existsSync(path.join(output, 'baseline.json')) ? JSON.parse(fs.readFileSync(path.join(output, 'baseline.json'), 'utf8')) : null;
+const validBaseline = recorded?.fingerprint === fingerprint && recorded?.passed === baselineSpec.routeViews;
 
-if (!baseline && !fs.existsSync(path.join(output, 'baseline.json'))) {
+if (!baseline && !validBaseline) {
   const root = path.resolve('.'), checkout = path.join(output, 'main');
   if (!fs.existsSync(checkout)) {
     execFileSync('git', ['worktree', 'add', '--detach', checkout, baselineSpec.commit], { stdio: 'inherit' });
@@ -24,14 +28,25 @@ const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome'
 const report = [];
 try {
   for (const width of [390, 1280]) for (const theme of ['light', 'dark']) {
-    const context = await browser.newContext({ viewport: { width, height: width <= 760 ? 844 : 900 }, reducedMotion: 'reduce', colorScheme: theme });
+    const context = await browser.newContext({ viewport: { width, height: width <= 760 ? 844 : 900 }, reducedMotion: 'reduce', colorScheme: theme,
+      locale: 'en-US', timezoneId: 'UTC' });
+    // History timestamps come from Date.now() in the local seed. Their digit widths
+    // can wrap a row onto another line, so both checkouts must render identical data.
+    await context.route('**/api/learning/bots/*/history*', async request => {
+      const response = await request.fetch();
+      if (!response.ok()) { await request.fulfill({ response }); return; }
+      const data = await response.json();
+      if (Array.isArray(data.entries)) data.entries = data.entries.map(entry => ({ ...entry,
+        occurredAt: Date.parse(baselineSpec.historyTimestamp), recordedAt: Date.parse(baselineSpec.historyTimestamp) }));
+      await request.fulfill({ response, json: data });
+    });
     await context.addCookies([{ name: 'swarm_session', value: 'layout-test-token', url: server.base }]);
     await context.addInitScript(theme => { localStorage.setItem('swarm.theme', theme); localStorage.setItem('swarm.sidebarCollapsed', '0'); }, theme);
     const page = await context.newPage(); page.setDefaultTimeout(15000);
     for (const route of ROUTES) {
       if (process.env.CLIENT_ROUTES && !process.env.CLIENT_ROUTES.split(',').includes(route.name)) continue;
       const key = `${width}-${theme}-${route.name.replaceAll('/', '-')}`;
-      if (baseline && process.env.CLIENT_RESUME === '1' && fs.existsSync(path.join(output, `${key}.json`))) { report.push(key); continue; }
+      if (baseline && validBaseline && process.env.CLIENT_RESUME === '1' && fs.existsSync(path.join(output, `${key}.json`))) { report.push(key); continue; }
       if (route.signedOut) await context.clearCookies();
       if (route.code) await page.route('**/api/auth/phone/start', request => request.fulfill({ json: { id: 'layout-code', delivery: 'sent', textNumber: null, line: null } }));
       const hash = route.hash.replace('{bot}', server.fixture.bot.id).replace('{room}', server.fixture.room);
@@ -65,5 +80,5 @@ try {
     await context.close();
   }
 } finally { await browser.close(); await server.close(); }
-fs.writeFileSync(path.join(output, baseline ? 'baseline.json' : 'comparison.json'), JSON.stringify({ passed: report.length, views: report }, null, 2));
+fs.writeFileSync(path.join(output, baseline ? 'baseline.json' : 'comparison.json'), JSON.stringify({ fingerprint, passed: report.length, views: report }, null, 2));
 console.log(`Default snapshots: ${report.length}/${report.length} passed (${baseline ? 'main recorded' : 'main matched'})`);

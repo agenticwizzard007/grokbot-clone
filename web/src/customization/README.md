@@ -33,6 +33,6 @@ node tests/layout-alignment-ui.mjs
 node tests/ui-custom/run-all.mjs
 ```
 
-Default snapshot comparisons record main in a detached checkout and compare resolved CSS token values and route geometry at 390 and 1280 in both modes. Transient transcript scroll position is normalized before sampling. Evidence is written under `.context/ui-custom/`.
+Default snapshot comparisons record main in a detached checkout and compare resolved CSS token values and route geometry at 390 and 1280 in both modes. Transient transcript scroll position is normalized before sampling. History responses use the same fixed timestamp, locale and timezone on both checkouts, so clock-dependent text wrapping cannot change the geometry. A fingerprint of the sampler and baseline specification invalidates stale snapshots automatically. Evidence is written under `.context/ui-custom/`.
 
 The scale matrix runs the unchanged Paper alignment audit at default and xlarge in all three densities at 390 and 1280. The live composer check preserves drafts while changing scale and font family, verifies the six-line cap and internal scrolling, and checks shrinking after deletion. Both are discovered automatically by `run-all.mjs`.
