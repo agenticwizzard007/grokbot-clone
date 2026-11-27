@@ -39,7 +39,7 @@ export async function polishFixture() {
       await context.addCookies([{ name: 'swarm_session', value: 'layout-test-token', url: server.base }]);
       await page.addInitScript(theme => { localStorage.setItem('swarm.theme', theme); localStorage.setItem('swarm.sidebarCollapsed', '1'); }, theme);
       await page.route('**/*', route => ['127.0.0.1', 'localhost'].includes(new URL(route.request().url()).hostname) ? route.fallback() : route.abort());
-      let hash = `#bot/${botId}`, selector = name === 'output-card' ? '.ho-output-card' : '.ho-receipt, .ho-output-card, .ho-message-actions';
+      let hash = name === 'sidebar-loops' ? '#bots' : `#bot/${botId}`, selector = name === 'output-card' ? '.ho-output-card' : '.ho-receipt, .ho-output-card, .ho-message-actions';
       if (name.startsWith('loop') || name.startsWith('gate-')) {
         const runName = name.startsWith('gate-') ? 'gated' : name.startsWith('loop-') && scenarios[name.slice(5)] ? name.slice(5) : 'converged';
         const run = recordedRun(runName);
