@@ -34,7 +34,7 @@ Each pair is desktop 1280 / phone 390. Measurements exclude the app sidebar, pho
 - Approval buttons retain deny, always allow and allow behavior. Phone buttons stack.
 - Tasks keep Team, Goals and Files navigation and the existing count loading and error states. The API has working, needs input and done states; To do is empty until a real queued state exists. The desktop board has four equal columns, tablets from 761 through 1100 use two equal columns, and phones use grouped rows.
 - Add task opens a chat draft without sending it. Long task identifiers use a complete compact label with the full title retained in the accessible name and title.
-- Search reads Bots, messages, tasks and saved files. Selecting work results opens the corresponding scoped workspace.
+- Search reads Bots, messages, tasks and saved files. Selecting work results opens the corresponding scoped workspace. Long unbroken labels use complete short labels while retaining the full accessible text.
 - New phone accounts enter Connect a model. Its choices open the existing plan or API key connection flow. Existing OAuth account creation redirects remain unchanged because this stream does not change server authentication.
 - Phone code entry has one top-bar Back control. Nested work panels use Close actions so they do not add competing Back controls.
 
@@ -42,4 +42,8 @@ Each pair is desktop 1280 / phone 390. Measurements exclude the app sidebar, pho
 
 `tests/paper-pbe-ui.mjs` checks all five widths and both themes, shared alignment, provider slots, complete labels, word budgets, approval decisions, retry, empty suggestions and first-run routing. `tests/layout-alignment-ui.mjs` enforces all PB-E routes and transient states at 390 and 1280. The Tasks, navigation, phone sizes and signed-out entry checks use current route controls.
 
-Complete local totals and the untouched-main baseline comparison accompany the PR.
+The full local unit suite has 2,856 passing tests, 70 existing failures and 24 existing skips, identical to untouched main at f605ab4. No new failure names were introduced. The two unit files changed by later main commits also pass on untouched main and PB-E (8 tests each); the final navigation/search unit subset passes all 122 tests.
+
+The final Paper matrix passes 150 screen checks, plus 10 Search regressions for long filenames. All 104 enforced alignment views, a 38-view room integration replay, 304 navigation cases and 64 phone views pass. Tasks, attention state and setup-name suites pass 10 cases each. One Settings tap-target warning remains outside PB-E. All 44 composer cases pass, including typing, voice, sibling inputs and viewport changes. Build and typecheck pass.
+
+`verification.json` records the test totals and baseline failure names. The signed-out entry asset-budget gate already fails on main (14 JavaScript requests against 12) and remains failing on PB-E (17); entry screens are separately covered by the Paper matrix.
