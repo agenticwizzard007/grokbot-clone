@@ -140,7 +140,7 @@ export async function handleUiEvent(event: ServerEvent, conversationBotId: strin
   if (event.type === 'ui_config') { if (event.revision > useCustomization.getState().revision) await refreshUiConfig(); }
   if (event.type === 'ui_preview') {
     if (event.state === 'pending' && event.botId === conversationBotId) await loadPreview(event.previewId);
-    else if (event.previewId === useCustomization.getState().preview?.id) clearPreview();
+    else if (event.state !== 'pending' && event.previewId === useCustomization.getState().preview?.id) clearPreview();
     if (event.state === 'applied') await refreshUiConfig();
   }
 }
