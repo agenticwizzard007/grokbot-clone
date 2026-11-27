@@ -20,7 +20,7 @@ export async function auditRoute(page, width) {
   catch (error) {
     // The composer's autosize textarea is clipped inside an aria-hidden probe and is
     // not focusable. Older shared fallback checks mistake it for a control.
-    if (!Array.isArray(error.actual) || !error.actual.length || error.actual.some(html => !html.startsWith('<textarea tabindex="-1"'))) throw error;
+    if (!Array.isArray(error.actual) || !error.actual.length || error.actual.some(html => typeof html !== 'string' || !html.startsWith('<textarea tabindex="-1"'))) throw error;
     const hidden = await page.locator('textarea[tabindex="-1"]').evaluateAll(nodes => nodes.every(el => !!el.closest('[aria-hidden="true"]') && getComputedStyle(el).visibility === 'hidden' && el.tabIndex < 0));
     if (!hidden) throw error;
   }

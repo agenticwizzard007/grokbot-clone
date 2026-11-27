@@ -56,7 +56,18 @@ try {
       const sent = page.waitForResponse(r => r.url().endsWith('/api/handoffs') && r.request().method() === 'POST');
       await sheet.getByRole('button', { name: 'Send', exact: true }).click(); assert.ok((await sent).ok());
       await go(page, `#bot/${f.maker}`);
-      await page.getByRole('button', { name: 'Message actions', exact: true }).first().click();
+      // This older reply has no job output. Newer replies can briefly expose
+      // Actions while their output lookup loads, then replace it with a card.
+      // Load the historical page instead of racing one of those controls.
+      const historical = page.locator('.bubble-wrap').filter({ hasText: 'The release outline is ready for a closer review.' });
+      await poll(async () => {
+        if (await historical.count()) return true;
+        const earlier = page.getByRole('button', { name: 'Earlier messages', exact: true });
+        if (await earlier.count()) await earlier.click();
+        return false;
+      }, Boolean, 'The historical reply is loaded');
+      const seq = await historical.getAttribute('data-row-seq');
+      await page.locator(`[data-row-seq="${seq}"] + .ho`).getByRole('button', { name: 'Message actions', exact: true }).click();
       await page.getByRole('menuitem', { name: 'Send to agent', exact: true }).click();
       await sheet.getByRole('button', { name: /^Checker/ }).click();
       await sheet.getByLabel('Ask', { exact: true }).fill('Review this message.');
