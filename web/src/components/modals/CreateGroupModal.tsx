@@ -3,12 +3,13 @@ import { BotAvatarFor } from '../../avatar/BotAvatar';
 import { api } from '../../lib/api';
 import { openConversation, useConfigUI } from '../../configStore';
 import { useStore } from '../../store';
-import { Icon } from '../Icon';
+import { Page, Card, ButtonGroup } from '../layout';
+import '../../styles/bot-details.css';
 import { hasOpenModal, Modal } from './Modal';
 import { ACTIVATE_FIRST, activateBeforeGroup, isInSetup } from '../../lib/botSetupState';
 import '../../styles/setup-paper.css';
 
-/** New group chat, backed by the existing account-scoped room API. */
+/** New room, backed by the existing account-scoped room API. */
 export function CreateGroupModal({ inline = false }: { inline?: boolean } = {}) {
   const setModal = useStore(s => s.setModal);
   const allBots = useStore(s => s.bots);
@@ -60,14 +61,9 @@ export function CreateGroupModal({ inline = false }: { inline?: boolean } = {}) 
   };
   const cancel = close;
   const content = <>
-    <header className="setup-paper__bar">
-      <button type="button" className="setup-paper__back" onClick={() => { if (!submitting.current) setModal('create'); }} disabled={busy}><Icon name="chev_left" size={16} />Back to create a Bot</button>
-      <span>Bots</span><button type="button" className="setup-paper__close" onClick={close} aria-label="Close" disabled={busy}><Icon name="close" /></button>
-    </header>
-    <form className="setup-paper__column group-create" onSubmit={event => { event.preventDefault(); void create(); }}>
-      <h1>New group chat</h1><p className="setup-paper__subtitle">Choose at least two Bots to work together.</p>
-      <label className="group-create__field">Group name<input className="text-input" placeholder="Give this conversation a name" maxLength={100} value={name} onChange={event => setName(event.target.value)} autoFocus disabled={busy || !!createdId} /></label>
-      <fieldset className="group-create__members"><legend>Bots in this group</legend>
+    <Page type="form" title="New room"><form className="group-create pb-group" onSubmit={event => { event.preventDefault(); void create(); }}>
+      <label className="group-create__field">Room name<input className="text-input" placeholder="Give this conversation a name" maxLength={100} value={name} onChange={event => setName(event.target.value)} autoFocus disabled={busy || !!createdId} /></label>
+      <Card><fieldset className="group-create__members"><legend>Members</legend>
         {bots.map(bot => {
           const locked = isInSetup(bot);
           return <label className={`group-create__member${locked ? ' is-locked' : ''}`} key={bot.id} title={locked ? activateBeforeGroup(bot.name) : undefined}>
@@ -75,15 +71,15 @@ export function CreateGroupModal({ inline = false }: { inline?: boolean } = {}) 
             <input type="checkbox" checked={!locked && picked.includes(bot.id)} onChange={() => { if (!locked) toggle(bot.id); }} disabled={locked || busy || !!createdId} aria-label={locked ? `${bot.name}, ${ACTIVATE_FIRST.toLowerCase()}` : bot.name} />
           </label>;
         })}
-      </fieldset>
-      {bots.length < 2 && <p role="status">Create another Bot before starting a group chat.</p>}
+      </fieldset></Card>
+      {bots.length < 2 && <p role="status">Create another Bot before starting a room.</p>}
       {error && <p className="cfg-error" role="alert">{error}</p>}
-      <div className="setup-paper__actions">
-        <button type="submit" className="cfg-btn cfg-btn--primary" disabled={!canCreate}>{createdId ? (busy ? 'Opening…' : 'Open created group') : busy ? 'Creating…' : 'Create group'}</button>
+      <ButtonGroup stack>
+        <button type="submit" className="cfg-btn cfg-btn--primary" disabled={!canCreate}>{createdId ? (busy ? 'Opening...' : 'Open created group') : busy ? 'Creating...' : 'Create room'}</button>
         <button type="button" className="cfg-btn cfg-btn--secondary" onClick={cancel} disabled={busy}>Cancel</button>
-      </div>
-    </form>
+      </ButtonGroup>
+    </form></Page>
   </>;
-  return inline ? <main className="setup-paper" aria-label="New group chat">{content}</main>
-    : <Modal onClose={close} className="setup-paper setup-paper--dialog" label="New group chat">{content}</Modal>;
+  return inline ? <main className="setup-paper pb-group-page" aria-label="New room">{content}</main>
+    : <Modal onClose={close} className="setup-paper setup-paper--dialog" label="New room">{content}</Modal>;
 }

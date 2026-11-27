@@ -92,9 +92,9 @@ try {
     });
     await page.addInitScript(() => localStorage.setItem('swarm.theme', 'light'));
     await page.goto(base);
-    await page.getByRole('button', { name: 'New Bot', exact: true }).click();
-    await page.getByRole('button', { name: 'New group chat instead', exact: true }).click();
-    const form = page.getByRole('main', { name: 'New group chat', exact: true });
+    await page.evaluate(() => { location.hash = '#new-bot'; });
+    await page.getByRole('button', { name: 'Start a room instead', exact: true }).click();
+    const form = page.getByRole('main', { name: 'New room', exact: true });
     const row = form.locator('.group-create__member').filter({ has: page.locator('strong', { hasText: longName }) });
     await row.waitFor();
     await page.evaluate(() => document.fonts.ready);
@@ -124,7 +124,7 @@ try {
     }
     check(geometry.row.left >= 0 && geometry.row.right <= width, 'The member row fits the viewport');
     check(geometry.scrollWidth <= geometry.clientWidth, 'The member row has no horizontal overflow');
-    check(geometry.checkbox.width === 20 && geometry.checkbox.height === 20, 'The checkbox retains its dimensions');
+    check(geometry.checkbox.width === 28 && geometry.checkbox.height === 28, 'The checkbox retains its dimensions');
     const checkbox = row.getByRole('checkbox', { name: longName, exact: true });
     await checkbox.check();
     assert.ok(await checkbox.isChecked(), 'The checkbox can be clicked');

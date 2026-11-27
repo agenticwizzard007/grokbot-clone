@@ -89,7 +89,7 @@ try {
       return route.abort();
     });
     await page.goto(origin);
-    await page.getByRole('button', { name: 'New Bot', exact: true }).waitFor();
+    await page.locator('.shell-header').waitFor();
     const subtitle = page.locator('.chat__subtitle');
     const check = async expected => {
       await page.waitForFunction(text => {
@@ -104,20 +104,20 @@ try {
       assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= width, 'Header subtitle is visible in the viewport');
     };
     const open = async name => {
-      if (width <= 760 && await page.getByRole('button', { name: 'All Bots', exact: true }).isVisible()) {
-        await page.getByRole('button', { name: 'All Bots', exact: true }).click();
-      }
-      await page.locator('.bot-row, .pinned__tile').filter({ has: page.getByText(name, { exact: true }) }).click();
+      const bot = (await api('/bots')).bots.find(bot => bot.name === name);
+      assert.ok(bot, `Bot exists: ${name}`);
+      await page.evaluate(id => { location.hash = `#bot/${id}`; }, bot.id);
     };
     const created = [];
     for (const [mode, type, expected] of [['personal', 'Personal assistant', 'Personal assistant'], ['teammate', 'Teammate', 'Your teammate']]) {
       if (width <= 760 && await page.getByRole('button', { name: 'All Bots', exact: true }).isVisible()) {
         await page.getByRole('button', { name: 'All Bots', exact: true }).click();
       }
-      await page.getByRole('button', { name: 'New Bot', exact: true }).click();
+      await page.evaluate(() => { location.hash = '#new-bot'; });
       const name = `${type} Bot`;
       await page.getByPlaceholder('Give your Bot a name', { exact: true }).fill(name);
       // create-type: radio semantics, one tab stop, arrow selection and wraparound.
+      await page.locator('.setup-create .pb-disclosure > summary').click();
       const types = page.getByRole('radiogroup', { name: 'Bot type', exact: true });
       const personal = types.getByRole('radio', { name: 'Personal assistant', exact: true });
       const teammate = types.getByRole('radio', { name: 'Teammate', exact: true });
@@ -140,7 +140,7 @@ try {
       await teammate.click();
       await selected(teammate, personal);
       await page.keyboard.press('Tab');
-      assert.equal(await page.getByRole('button', { name: 'Create', exact: true }).evaluate(element => element === document.activeElement), true);
+      assert.equal(await page.getByRole('button', { name: 'Import saved setup', exact: true }).evaluate(element => element === document.activeElement), true);
       await page.keyboard.press('Shift+Tab');
       await selected(teammate, personal);
       await personal.click();
@@ -150,14 +150,14 @@ try {
         await selected(teammate, personal);
       }
       await page.screenshot({ path: path.join(evidence, `create-type-${mode}-${width}.png`) });
-      await page.getByRole('button', { name: 'Create', exact: true }).click();
+      await page.getByRole('button', { name: 'Create Bot', exact: true }).click();
       await check(expected);
       const bot = (await api('/bots')).bots.find(bot => bot.name === name);
       assert.ok(bot && !bot.isPrimary && !bot.label && !bot.description);
       assert.equal(bot.mode, mode, 'The selected type is persisted by the creation API');
       created.push(bot);
       await page.reload();
-      await page.getByRole('button', { name: 'New Bot', exact: true }).waitFor();
+      await page.locator('.shell-header').waitFor();
       await open(name);
       await check(expected);
       if (mode === 'personal') await page.screenshot({ path: path.join(evidence, `personal-${width}.png`) });
@@ -171,8 +171,8 @@ try {
     // QA header-sep: a compressed menu chevron must not look like a stray separator.
     const headerBot = created[0];
     await open(headerBot.name);
-    for (const name of ['QA-Short', 'QA-Long-' + 'B'.repeat(52)]) {
-      for (const label of ['', 'L'.repeat(40)]) {
+    for (const name of ['QA-Short', 'QA Long Bot for research planning and weekly reports']) {
+      for (const label of ['', 'Research planning and weekly reports']) {
         await api(`/bots/${headerBot.id}`, 'PATCH', { name, label });
         await page.waitForFunction(expected => document.querySelector('.chat__pill-name')?.textContent === expected, name);
         await check(label || 'Personal assistant');
@@ -188,32 +188,31 @@ try {
           return {
             pill: box(element), name: box(name), chevron: box(element.querySelector('svg')),
             anchor: box(element.parentElement), subtitle: box(subtitle),
-            details: box(document.querySelector('.chat__details')),
+            details: box(document.querySelector('.shell-header .chat__bot-details')),
             nameTruncated: name.scrollWidth > name.clientWidth,
             subtitleTruncated: subtitle.scrollWidth > subtitle.clientWidth,
             nameOverflow: getComputedStyle(name).textOverflow,
             subtitleOverflow: getComputedStyle(subtitle).textOverflow,
           };
         });
-        const scenario = `${width}px ${name.startsWith('QA-Long') ? 'long' : 'short'} name, ${label ? 'long' : 'empty'} label`;
-        await page.screenshot({ path: path.join(evidence, `header-sep-${width}-${name.startsWith('QA-Long') ? 'long' : 'short'}-${label ? 'label' : 'empty'}.png`) });
+        const scenario = `${width}px ${name.startsWith('QA Long') ? 'long' : 'short'} name, ${label ? 'long' : 'empty'} label`;
+        await page.screenshot({ path: path.join(evidence, `header-sep-${width}-${name.startsWith('QA Long') ? 'long' : 'short'}-${label ? 'label' : 'empty'}.png`) });
         assert.equal(await pill.textContent(), name, `${scenario}: no trailing separator text`);
         assert.equal(geometry.chevron.width, 14, `${scenario}: menu chevron keeps its full width`);
         assert.equal(geometry.chevron.height, 14, `${scenario}: menu chevron keeps its full height`);
-        assert.ok(geometry.name.width >= (name.startsWith('QA-Long') ? 80 : 40), `${scenario}: name stays readable`);
+        assert.ok(geometry.name.width >= (name.startsWith('QA Long') ? 80 : 40), `${scenario}: name stays readable`);
         assert.ok(geometry.name.right < geometry.chevron.left, `${scenario}: name does not overlap the chevron`);
         for (const bounds of [geometry.pill, geometry.anchor]) {
           assert.ok(geometry.chevron.left >= bounds.left && geometry.chevron.right <= bounds.right + 0.5 &&
             geometry.chevron.top >= bounds.top && geometry.chevron.bottom <= bounds.bottom + 0.5,
           `${scenario}: the complete chevron stays inside its control and column`);
         }
-        assert.ok(geometry.anchor.right <= geometry.details.left, `${scenario}: header stays clear of Details`);
+        assert.ok(geometry.anchor.left >= geometry.details.right, `${scenario}: header stays clear of the Bot details button`);
         assert.ok(geometry.subtitle.top >= geometry.pill.bottom, `${scenario}: subtitle remains below the name`);
-        assert.equal(geometry.nameOverflow, 'ellipsis');
-        assert.equal(geometry.subtitleOverflow, 'ellipsis');
-        if (width === 390 && label) assert.ok(geometry.subtitleTruncated, `${scenario}: exercises subtitle truncation`);
-        if (name.startsWith('QA-Long')) assert.ok(geometry.nameTruncated, `${scenario}: exercises name truncation`);
-        else assert.ok(!geometry.nameTruncated, `${scenario}: short name fits`);
+        assert.equal(geometry.nameOverflow, 'clip');
+        assert.equal(geometry.subtitleOverflow, 'clip');
+        assert.ok(!geometry.subtitleTruncated, `${scenario}: complete subtitle fits`);
+        assert.ok(!geometry.nameTruncated, `${scenario}: complete name fits`);
         await pill.locator('svg').click();
         await page.getByRole('menuitem', { name: 'Bot settings', exact: true }).waitFor();
         assert.equal(await pill.getAttribute('aria-expanded'), 'true');

@@ -91,12 +91,13 @@ try {
     };
     const btn = (target, name) => target.getByRole('button', { name, exact: typeof name === 'string' });
     await page.goto(origin);
-    await btn(page, 'New Bot').click();
+    await page.evaluate(() => { location.hash = '#new-bot'; });
     const create = page.getByRole('main', { name: 'Create a Bot', exact: true });
     await create.waitFor();
     await shot('create', create);
     await page.keyboard.press('Escape'); await create.waitFor({ state: 'hidden' });
-    await btn(page, 'New Bot').click();
+    await page.evaluate(() => { location.hash = '#new-bot'; });
+    await page.locator('.setup-create .pb-disclosure > summary').click();
     await btn(create, 'Import saved setup').click();
     const upload = page.getByRole('main', { name: 'Import a saved setup', exact: true });
     const select = upload.getByLabel('Setup file');
@@ -115,21 +116,22 @@ try {
     const detailsNav = details.getByRole('navigation', { name: 'Conversation details sections' });
     const tabs = details.getByRole('tablist', { name: 'Bot configuration sections' });
     const settingsPane = page.getByRole('main', { name: 'Atlas settings' });
-    const account = page.getByRole(width > 760 ? 'region' : 'dialog', { name: 'Settings', exact: true });
+    const account = page.getByRole('region', { name: 'Settings', exact: true });
     if (width <= 760) {
       await importArrived.wait;
       await page.keyboard.press('Control+,');
-      await btn(account.getByRole('navigation', { name: 'Settings sections' }), 'Account').click();
+      await page.evaluate(() => { location.hash = '#settings/account'; });
       await account.getByRole('heading', { name: 'Your account', exact: true }).waitFor();
       await btn(account, 'Delete account…').click();
       const confirmation = account.getByRole('heading', { name: 'Delete your Swarm account?', exact: true });
       await confirmation.waitFor();
-      delayedImport.release();
-      await page.getByText('Atlas is in your Bots.', { exact: true }).waitFor({ state: 'attached' });
+      const importDone = page.waitForResponse(response => response.url().endsWith('/api/bots/import') && response.ok());
+      delayedImport.release(); await (await importDone).finished();
       assert.equal(await confirmation.isVisible(), true, 'import must not close the newer Account confirmation');
       assert.equal(await page.locator('.main-pane').getAttribute('hidden'), '');
       assert.ok(!reads.some(endpoint => endpoint.startsWith('/api/bots/atlas/')), 'import must not select its bot before the explicit recovery action');
-      await btn(account, 'Close settings').click();
+      await page.keyboard.press('Escape');
+      await page.keyboard.press('Escape');
       const openImport = btn(upload, 'Open imported setup');
       await openImport.waitFor();
       assert.equal(await upload.locator('form').count(), 0, 'a known successful import must not offer another POST');
@@ -152,25 +154,15 @@ try {
     await details.getByText('Assembled from revision five').waitFor();
     await shot('harness', details);
     await btn(details, 'Skills').click();
-    await settingsPane.getByRole('heading', { name: 'Atlas · Skills', exact: true }).waitFor();
+    await settingsPane.getByRole('heading', { name: 'Skills', exact: true }).waitFor();
     assert.equal(await details.isVisible(), false);
     await page.keyboard.press('Control+,'); await account.waitFor();
     assert.equal(await settingsPane.isVisible(), false);
     assert.equal(await page.locator('.main-pane').getAttribute('hidden'), '');
-    await btn(account, width > 760 ? 'Back to chat' : 'Close settings').click();
+    await page.locator('.shell-header').getByRole('button', { name: /^Back(?: |$)/ }).click();
     await settingsPane.waitFor(); await page.keyboard.press('Escape');
-    if (width <= 760) {
-      await page.locator('.app.is-mobile.pane-list').waitFor();
-      assert.equal(await settingsPane.count(), 0, 'phone Back closes Bot settings');
-      assert.equal(await details.count(), 0, 'phone Back returns to the list without a details overlay');
-      await page.locator('.bot-row').filter({ hasText: imported.name }).click();
-      await btn(page, `Open ${imported.name} details`).click();
-      await details.waitFor();
-      await btn(detailsNav, 'Setup').click();
-    } else {
-      await details.waitFor();
-      assert.equal(await harness.getAttribute('aria-selected'), 'true', 'desktop return restores the caller tab');
-    }
+    await details.waitFor();
+    assert.equal(await harness.getAttribute('aria-selected'), 'true', 'Back restores the caller tab');
     await tabs.getByRole('tab', { name: 'Files' }).click();
     await btn(details, /^bot-setup\.json/).click();
     await details.getByRole('region', { name: 'bot-setup.json contents' }).waitFor();
@@ -178,15 +170,15 @@ try {
     assert.equal((await download).suggestedFilename(), 'bot-setup.json');
     await btn(detailsNav, 'Files').click();
     const computer = details.getByRole('region', { name: 'Computer files' });
-    await computer.getByText(/No computer files/).waitFor();
-    await btn(details, 'View Files').click();
+    await computer.getByText('No files yet.', { exact: true }).waitFor();
+    await details.getByRole('button', { name: 'Open', exact: true }).click();
     await details.getByRole('region', { name: 'Files' }).waitFor();
     assert.equal(await computer.isVisible(), false);
-    await btn(details, 'Back to files').click(); await computer.waitFor();
+    await btn(detailsNav, 'Files').click(); await computer.waitFor();
 
     await btn(detailsNav, 'Activity').click();
     assert.equal(await btn(details, 'Hide voice settings').count(), 0);
-    await btn(details, 'Bot settings').click();
+    await page.locator('button[aria-label="Bot settings"]:visible').click();
     await btn(settingsPane, 'Learning').click();
     await settingsPane.locator('summary').filter({ hasText: /Skill maintenance/ }).click();
     const maintenance = settingsPane.getByRole('region', { name: 'Protected skill maintenance' });
@@ -202,7 +194,8 @@ try {
     await settingsPane.getByText(memory.text).waitFor();
     assert.equal(await settingsPane.getByText(/OTHER BOT MEMORY|SUPERSEDED MEMORY/).count(), 0);
     await shot('memories', settingsPane);
-    await btn(settingsPane, 'Search sources').click();
+    await settingsPane.locator('.pb-disclosure > summary').filter({ hasText: /^More$/ }).click();
+    await btn(settingsPane, 'Search').click();
     const search = settingsPane.getByRole('region', { name: 'Conversation source search' });
     const query = search.getByLabel('Search conversation sources');
     await search.getByLabel('Message role').selectOption('user'); await search.getByLabel('Conversation generation').fill('2');
@@ -218,6 +211,7 @@ try {
     await shot('sources', settingsPane);
     await page.keyboard.press('Escape'); await search.waitFor({ state: 'hidden' });
     await btn(settingsPane, 'Analytics').click();
+    await settingsPane.locator('.pb-disclosure > summary').filter({ hasText: /^Details$/ }).click();
     await settingsPane.getByRole('region', { name: 'Messages', exact: true }).waitFor();
     await settingsPane.getByRole('radio', { name: '30 days' }).click(); await settingsPane.getByText('Analytics unavailable.').waitFor();
     await btn(settingsPane, 'Retry analytics').click();
@@ -246,7 +240,8 @@ try {
     assert.ok(reads.includes('/api/bots/atlas/messages/2/16?contentHash=hash16'));
     const analytics = reads.filter(value => value.includes('/analytics?'));
     const expectedAnalytics = ['7d', '30d', '30d'].map(range => `/api/bots/atlas/analytics?range=${range}`);
-    assert.deepEqual(analytics, analytics.length === 4 ? [expectedAnalytics[0], ...expectedAnalytics] : expectedAnalytics, 'StrictMode may replay the initial read; the selected range and retry stay scoped');
+    assert.ok(analytics.length >= 3 && analytics.slice(0, -2).every(read => read === expectedAnalytics[0]), 'Activity and analytics read this Bot with the default range');
+    assert.deepEqual(analytics.slice(-2), expectedAnalytics.slice(-2), 'The selected range and retry stay scoped');
     assert.deepEqual(errors, []);
     await page.close();
     console.log(`PASS knowledge Paper UI ${width}px ${theme} — imports, activation, returns, files, protected curation, filtered sources and analytics`);

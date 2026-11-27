@@ -40,6 +40,7 @@ try {
       bot.model = sample.id;
     }
     fixture.respond = ({ path }) => {
+      if (path === '/api/rooms/fixture-room/members') return { json: { members: fixture.bots.filter(bot => bot.kind !== 'room') } };
       if (path === '/api/models') return { json: { ...sample, defaultModel: sample.id,
         models: sample.provider === 'codex-cli' ? [] : [{ id: sample.id, name: sample.label, short: sample.label, author: sample.mark, efforts: ['low', 'medium', 'high'], defaultEffort: 'medium', billing: sample.billing }], favourites: [] } };
       if (path === '/api/voice/end') return { json: { ok: true } };
@@ -68,7 +69,8 @@ try {
       for (const label of await page.locator('.model-pill__name, .model-pill__effort').all()) {
         assert.equal(await label.evaluate(el => el.scrollWidth <= el.clientWidth && getComputedStyle(el).textOverflow !== 'ellipsis'), true, 'complete chip label');
       }
-      for (const control of [empty.controls[0], empty.controls[1], empty.action]) assert.ok(control.width >= 36 && control.height === 36, 'Paper 36px composer controls');
+      for (const control of [empty.controls[0], empty.controls[1]]) assert.ok(control.width >= 36 && control.height === 36, 'Paper 36px composer slots');
+      assert.equal(empty.action.height, bot.kind === 'room' ? 44 : 36, 'Room actions have 44px hit targets');
       let previous = empty, draft = '', longestLine = '', wrapped = false, capped;
       const states = {};
       const screenshot = state => page.screenshot({ path: `${evidence}/${label}-${state}.png` });

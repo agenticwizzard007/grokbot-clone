@@ -34,7 +34,8 @@ try {
       } };
     };
     await page.goto(origin);
-    await page.getByRole('button', { name: 'New Bot', exact: true }).click();
+    await page.evaluate(() => { location.hash = '#new-bot'; });
+    await page.locator('.setup-create .pb-disclosure > summary').click();
     await page.getByRole('button', { name: 'Import saved setup', exact: true }).click();
     await page.setViewportSize({ width, height: 900 });
     const form = page.getByRole('main', { name: 'Import a saved setup', exact: true });
@@ -76,7 +77,7 @@ try {
       };
     });
     await input.setInputFiles(file);
-    await form.getByText('Reading setup file…', { exact: true }).waitFor();
+    await form.getByText('Reading setup file...', { exact: true }).waitFor();
     await assertCustomPicker();
     assert.equal(await choose.isEnabled(), true);
     assert.equal(await submit.isDisabled(), true);
@@ -120,7 +121,7 @@ try {
     const started = page.waitForRequest(request => request.url().endsWith('/api/bots/import') && request.method() === 'POST');
     await submit.click();
     await started;
-    await form.getByRole('button', { name: 'Importing…', exact: true }).waitFor();
+    await form.getByRole('button', { name: 'Importing...', exact: true }).waitFor();
     assert.equal(await form.getByRole('alert').count(), 0);
     assert.equal(await name.isDisabled(), true);
     // SSE advertises the successfully created Bot before the held POST response is released.
@@ -128,12 +129,12 @@ try {
     await page.evaluate(bot => window.__emitFixture({ type: 'bot', bot }), imported);
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     assert.equal(await form.getByRole('alert').count(), 0, 'the pending import never calls its own roster entry a duplicate');
-    assert.equal(await form.getByRole('button', { name: 'Importing…', exact: true }).isDisabled(), true);
+    assert.equal(await form.getByRole('button', { name: 'Importing...', exact: true }).isDisabled(), true);
     await assertCustomPicker();
     await page.screenshot({ path: new URL(`pending-import-${width}.png`, evidence).pathname });
     responseGate.release();
     await form.waitFor({ state: 'detached' });
-    await page.getByRole('complementary', { name: 'Conversation details' }).getByRole('heading', { name: `${imported.name} · Setup`, exact: true }).waitFor();
+    await page.locator('.shell-header').getByText(imported.name, { exact: true }).waitFor();
     assert.deepEqual(await page.evaluate(() => window.__duplicateDuringImport), [], 'no duplicate error flashes through successful completion');
     await page.evaluate(() => window.__importObserver.disconnect());
     assert.equal(writes.length, 2, 'a successful import makes exactly one request after the failed attempt');

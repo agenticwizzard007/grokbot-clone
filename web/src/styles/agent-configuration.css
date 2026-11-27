@@ -125,7 +125,7 @@
 .details--page .agent-config { gap: 16px; padding: 0; }
 .details--page .agent-config__content { gap: 20px; }
 .details--page .agent-config__tabs { display: flex; flex-wrap: wrap; gap: 2px; border: 0; background: none; padding: 0; }
-.details--page .agent-config__tabs button { width: auto; min-height: 38px; padding: 7px 10px; border-radius: 8px; }
+.details--page .agent-config__tabs button { flex: 1 0 auto; width: auto; min-height: var(--control-h); padding: 7px 10px; border-radius: 8px; }
 .details--page .agent-config__tabs button[aria-selected='true'] { background: var(--color-bg-active); box-shadow: none; }
 .details--page .agent-config__section { gap: 5px; }
 .details--page .agent-config__section h3 { font-weight: 600; }

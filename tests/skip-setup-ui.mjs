@@ -87,11 +87,12 @@ try {
     page.setDefaultTimeout(15000);
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(base);
-    await page.getByRole('button', { name: 'New Bot', exact: true }).click();
+    await page.locator('.shell-header').waitFor();
+    await page.evaluate(() => { location.hash = '#new-bot'; });
     const create = page.getByRole('main', { name: 'Create a Bot', exact: true });
     await create.getByRole('textbox', { name: 'Bot name' }).fill(`Skip Bot ${label}`);
     const creation = page.waitForResponse(response => response.url().endsWith('/api/bots') && response.request().method() === 'POST');
-    await create.getByRole('button', { name: 'Create', exact: true }).click();
+    await create.getByRole('button', { name: 'Create Bot', exact: true }).click();
     const { bot } = await (await creation).json();
     const details = page.getByRole('complementary', { name: 'Conversation details' });
     const openSetup = async () => {
@@ -106,7 +107,7 @@ try {
     await openSetup();
     await openPreview();
     await details.getByText(/Setup consultant instructions/).waitFor();
-    if (width <= 1100) await details.getByRole('button', { name: 'Close details', exact: true }).click();
+    await details.getByRole('button', { name: 'Chat', exact: true }).click();
 
     const skipped = page.waitForResponse(response => response.url().endsWith(`/bots/${bot.id}/setup/skip`) && response.request().method() === 'POST');
     await page.getByRole('button', { name: 'Skip setup', exact: true }).click();
@@ -114,15 +115,15 @@ try {
     assert.equal(response.status(), 200);
     assert.equal((await response.json()).bot.onboarding.status, 'active');
     await page.getByRole('button', { name: 'Skip setup', exact: true }).waitFor({ state: 'detached' });
-    if (width <= 1100) { await openSetup(); await openPreview(); }
-    await details.getByText(/Active configuration · Revision/).waitFor();
+    await openSetup(); await openPreview();
+    await details.locator('.pb-setup-status').getByText('Active', { exact: true }).waitFor();
     await details.getByText(/Active Bot instructions/).waitFor();
     assert.equal(await details.getByText(/Setup consultant instructions/).count(), 0);
     await page.screenshot({ path: path.join(evidence, `${label}-harness.png`), fullPage: true });
     await details.getByRole('tab', { name: 'Responsibilities', exact: true }).click();
     assert.equal(await details.getByRole('region', { name: 'Setup status', exact: true }).count(), 0);
     assert.equal(await details.getByText('Preparation pending. Work waits for readiness.', { exact: true }).count(), 0);
-    await details.getByText('You can work in chat. Computer actions need a ready computer.', { exact: true }).waitFor();
+    await details.getByText('Computer setup pending.', { exact: true }).waitFor();
     await details.getByRole('region', { name: 'Computer preparation', exact: true }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(evidence, `${label}-setup.png`), fullPage: true });
 
@@ -133,7 +134,7 @@ try {
     assert.match(setup.manifest.brief.action_boundaries, /Ask before sending messages/);
     assert.equal(setup.computer.status, 'pending', 'activation must not pretend an offline computer is ready');
 
-    await details.getByRole('button', { name: 'Close details', exact: true }).click();
+    await details.getByRole('button', { name: 'Chat', exact: true }).click();
     // list_routines is an operational tool forbidden during setup. Its real result proves execution.
     await page.getByRole('textbox', { name: `Message ${bot.name}`, exact: true }).fill('Check my scheduled routines. mock: list_routines {} | say Routines checked: {last}');
     await page.getByRole('button', { name: 'Send', exact: true }).click();
@@ -148,9 +149,10 @@ try {
     assert.doesNotMatch(request.input[0].content, /You are the setup consultant/);
 
     await page.reload();
-    if (width <= 760) await page.locator('.bot-row').filter({ has: page.getByText(bot.name, { exact: true }) }).click();
+    await page.locator('.shell-header').waitFor();
+    await page.evaluate(id => { location.hash = `#bot/${id}`; }, bot.id);
     await openSetup();
-    await details.getByText(/Active configuration · Revision/).waitFor();
+    await details.locator('.pb-setup-status').getByText('Active', { exact: true }).waitFor();
     assert.equal(await page.getByRole('button', { name: 'Skip setup', exact: true }).count(), 0);
     assert.equal(await details.getByText('Preparation pending. Work waits for readiness.', { exact: true }).count(), 0);
     assert.deepEqual(errors, []);

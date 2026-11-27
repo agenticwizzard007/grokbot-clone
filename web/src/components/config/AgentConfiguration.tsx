@@ -12,9 +12,9 @@ import { Markdown } from '../Markdown';
 import { AgentHarness } from './AgentHarness';
 import { AgentHistory } from './AgentHistory';
 import { Icon } from '../Icon';
-import { ComputerStatusLine } from './computerStatus';
 import { setupFileText, setupResourceText } from './setupResources';
 import { customerSetupText, customerSetupValue } from '../../../../server/src/customer-setup-text';
+import { ComputerStatusLine } from './computerStatus';
 import { SetupConnectionHelp } from './SetupConnectionHelp';
 
 const normalized = (s: string) => s.trim().toLowerCase().replace(/[.!]+$/, '').replace(/\s+/g, ' ');
@@ -152,16 +152,16 @@ function SetupConfiguration({ bot, navigation, userId }: { bot: Bot; navigation?
     finally { if (current()) { downloadRequest.current = null; setDownloading(false); } }
   };
 
-  const detailsTitle = tab === 'harness' ? `${bot.name} · Harness` : tab === 'history' ? `${bot.name} · History` : tab === 'files' ? 'Configuration files' : `${bot.name} · Setup`;
-  const header = <><h1 className="agent-config__title">{detailsTitle}</h1>
-    <p className="setup-paper__subtitle">{data ? (data.onboarding.status === 'active' ? 'Active configuration' : data.onboarding.status === 'review' ? 'Ready for review' : 'Setup interview') : absent ? 'No saved configuration.' : 'Role, standing instructions, files, and recorded changes.'}</p>{navigation}
-    <p className="agent-config__computer" role="status"><ComputerStatusLine /></p></>;
+  const header = <>{navigation}<div className="pb-setup-status">
+    {data && <span className="pb-pill">{data.onboarding.status === 'active' ? 'Active' : data.onboarding.status === 'review' ? 'Ready for review' : 'Setup interview'}</span>}
+    <span className="pb-pill agent-config__computer" role="status"><ComputerStatusLine /></span>
+  </div></>;
 
-  if (loading) return <>{header}<p role="status">Loading configuration…</p></>;
+  if (loading) return <>{header}<p role="status">Loading configuration...</p></>;
   if (absent) return <>{header}<div className="details__sections agent-config">
-    <section className="agent-config__section"><h3>Current instructions</h3><p>{customerSetupText(bot.instructions || bot.description) || 'This Bot does not have a saved setup yet.'}</p></section>
-    <p className="agent-config__muted">Define its job, expected results and the decisions it should bring to you.</p>
-    <button type="button" className="cfg-btn cfg-btn--secondary" onClick={interview} disabled={busy || running}>{busy ? 'Starting…' : 'Start setup interview'}</button>
+    <section className="agent-config__section"><h3>Current instructions</h3><p>{customerSetupText(bot.instructions || bot.description) || 'No saved setup yet.'}</p></section>
+    <p className="agent-config__muted">Describe its job in chat.</p>
+    <button type="button" className="cfg-btn cfg-btn--secondary" onClick={interview} disabled={busy || running}>{busy ? 'Starting...' : 'Start setup interview'}</button>
     {writeError && <p className="cfg-error" role="alert">{writeError}</p>}
     <AgentHistory botId={bot.id}/>
   </div></>;
@@ -187,7 +187,7 @@ function SetupConfiguration({ bot, navigation, userId }: { bot: Bot; navigation?
     </div>
     <div className="agent-config__content" role="tabpanel" id={`config-${bot.id}-responsibilities-panel`} aria-labelledby={`config-${bot.id}-responsibilities`} tabIndex={0} hidden={tab !== 'responsibilities'}>
       {status !== 'active' && <section className="agent-config__review" aria-label="Setup status">
-        <p>{status === 'review' ? 'Review the responsibilities and instructions, then activate.' : 'Define the job in chat. Your answers are saved here as a draft.'}</p>
+        <p>{status === 'review' ? 'Review the setup, then activate.' : 'Define the job in chat.'}</p>
         {data.onboarding.missing.length > 0 && <Items label="Decisions still needed" items={data.onboarding.missing} />}
         <p className="agent-config__muted">Operational tools are restricted until activation.</p>
         {status === 'interviewing' && <button type="button" className="cfg-btn cfg-btn--primary" onClick={() => openConversation(bot.id)}>Continue setup in chat</button>}
@@ -201,36 +201,36 @@ function SetupConfiguration({ bot, navigation, userId }: { bot: Bot; navigation?
           <p>{customerSetupText(review.manifest.brief.action_boundaries)}</p>
           {review.manifest.bot.instructions && <section className="agent-config__section"><h3>Standing instructions</h3><p>{customerSetupText(review.manifest.bot.instructions)}</p></section>}
           <div className="setup-paper__actions">
-            <button type="button" className="cfg-btn cfg-btn--primary" onClick={activate} disabled={busy || running || !!error || !!stale || !!review.onboarding.missing.length}>{busy ? 'Activating…' : 'Activate Bot'}</button>
+            <button type="button" className="cfg-btn cfg-btn--primary" onClick={activate} disabled={busy || running || !!error || !!stale || !!review.onboarding.missing.length}>{busy ? 'Activating...' : 'Activate Bot'}</button>
             <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setReview(null)} disabled={busy}>Close review</button>
           </div>
         </div>}
       </section>}
       {activatedRevision !== null && status === 'active' && <p role="status">Setup activated.</p>}
       {writeError && <p className="cfg-error" role="alert">{writeError}</p>}
-      {purpose || responsibilities.length ? <section className="agent-config__section"><h3>Mission & responsibilities</h3>{purpose && <p className="agent-config__mission">{purpose}</p>}{!!responsibilities.length && <ul>{responsibilities.map((item, i) => <li key={i}>{item}</li>)}</ul>}</section> : <p className="agent-config__muted">No specific job defined yet. Describe what you want this Bot to handle in chat.</p>}
+      {purpose || responsibilities.length ? <section className="agent-config__section"><h3>Responsibilities</h3>{purpose && <p className="agent-config__mission">{purpose}</p>}{!!responsibilities.length && <ul>{responsibilities.map((item, i) => <li key={i}>{item}</li>)}</ul>}</section> : <p className="agent-config__muted">Describe its job in chat.</p>}
       <Items label="Expected results" items={outcomes.length ? outcomes : brief.workflows.map((w) => w.output)} />
-      {(boundaries || exclusions.length > 0) && <section className="agent-config__section"><h3>Agreed limits</h3>{boundaries && <p>{boundaries}</p>}{!!exclusions.length && <ul>{exclusions.map((item, i) => <li key={i}>{item}</li>)}</ul>}<p className="agent-config__muted">These guide the Bot. App access and approval settings are managed separately in Harness.</p></section>}
+      {(boundaries || exclusions.length > 0) && <section className="agent-config__section"><h3>Agreed limits</h3>{boundaries && <p>{boundaries}</p>}{!!exclusions.length && <ul>{exclusions.map((item, i) => <li key={i}>{item}</li>)}</ul>}<p className="agent-config__muted"></p></section>}
       {status !== 'active' && !!questions.length && <Items label="Needs your input" items={questions} />}
-      {!!brief.workflows.length && <section className="agent-config__section"><h3>Planned workflows</h3><p className="agent-config__muted">Saved steps for the Bot to follow. Recurring work needs a registered routine.</p>{brief.workflows.map((w, i) => <details key={i} className="agent-config__workflow"><summary><span>{w.name}</span><Icon name="chev_right" className="agent-config__chevron" /></summary><div className="agent-config__disclosure-body"><p><b>Starts when:</b> {w.trigger}</p><ol>{w.steps.map((step, j) => <li key={j}>{step}</li>)}</ol><p><b>Produces:</b> {w.output}</p></div></details>)}</section>}
+      {!!brief.workflows.length && <section className="agent-config__section"><h3>Planned workflows</h3><p className="agent-config__muted"></p>{brief.workflows.map((w, i) => <details key={i} className="agent-config__workflow"><summary><span>{w.name}</span><Icon name="chev_right" className="agent-config__chevron" /></summary><div className="agent-config__disclosure-body"><p><b>Starts when:</b> {w.trigger}</p><ol>{w.steps.map((step, j) => <li key={j}>{step}</li>)}</ol><p><b>Produces:</b> {w.output}</p></div></details>)}</section>}
       <Items label="Resources" items={brief.shared_resources.map(setupResourceText)} />
       <SetupConnectionHelp text={brief.shared_resources.map(setupResourceText).join('\n')} />
       <Items label="Handoffs" items={brief.handoff_notes} />
       {data.computer.status === 'pending' && <section className="agent-config__section agent-config__review" aria-label="Computer preparation">
-          <p>{status === 'active' ? 'You can work in chat. Computer actions need a ready computer.' : 'Preparation pending. Work waits for readiness.'}</p>
+          <p>Computer setup pending.</p>
           {data.computer.error && <p className="agent-config__muted">{data.computer.error}</p>}
-          <button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={retryComputer}>Retry computer preparation</button>
+          <button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={retryComputer}>Retry computer</button>
       </section>}
       {status === 'active' && <section className="agent-config__section agent-config__refine">
-        <p className="agent-config__muted">Change the role or workflows in chat, then review and activate again. Operational tools are restricted during refinement.</p>
-        <button type="button" className="cfg-btn cfg-btn--primary" onClick={interview} disabled={busy || running}>{busy ? 'Updating setup…' : 'Refine setup'}</button>
+        <p className="agent-config__muted"></p>
+        <button type="button" className="cfg-btn cfg-btn--primary" onClick={interview} disabled={busy || running}>{busy ? 'Updating setup...' : 'Refine setup'}</button>
       </section>}
     </div>
     <div className="agent-config__content" role="tabpanel" id={`config-${bot.id}-harness-panel`} aria-labelledby={`config-${bot.id}-harness`} tabIndex={0} hidden={tab !== 'harness'}>
       <AgentHarness bot={bot} data={data} running={running} version={version + refresh} onSave={() => setRefresh((v) => v + 1)} />
     </div>
     <div className="agent-config__content" role="tabpanel" id={`config-${bot.id}-files-panel`} aria-labelledby={`config-${bot.id}-files`} tabIndex={0} hidden={tab !== 'files'}>
-      <section className="agent-config__section"><h3>Configuration files</h3><p className="agent-config__muted">Generated from the saved setup. Edit standing instructions in Harness or refine the setup in chat. Editing a downloaded copy does not update this Bot.</p></section>
+      <section className="agent-config__section"><h3>Configuration files</h3><p className="agent-config__muted">Refine setup in chat to change these files.</p></section>
       <div className="agent-config__file-list" ref={fileList} aria-label="Configuration files">
         {Object.keys(data.files).map((name) => <button type="button" key={name} aria-pressed={file === name} onClick={() => readFile(name)}><span className="agent-config__file-icon"><Icon name="file" size={18} /></span><span className="agent-config__file-label"><strong>{name}</strong><span>{fileDescriptions[name] || 'Saved configuration'}</span></span><span className="agent-config__file-check">{file === name && <Icon name="check" size={16} />}</span></button>)}
       </div>
@@ -240,8 +240,8 @@ function SetupConfiguration({ bot, navigation, userId }: { bot: Bot; navigation?
         <SetupConnectionHelp text={setupFileText(data.files[file])} />
         <details key={file}><summary>Technical details</summary><pre tabIndex={0}>{customerSetupText(data.files[file])}</pre></details>
         {downloadError && <p role="alert" className="cfg-error">{downloadError}</p>}
-        <div className="setup-paper__actions"><button type="button" className="cfg-btn cfg-btn--primary" disabled={downloading} onClick={() => void downloadFile(file)}>{downloading ? 'Preparing download…' : 'Download'}</button>
-          <button type="button" className="cfg-btn cfg-btn--secondary" onClick={backToFiles}>Back to files</button></div>
+        <div className="setup-paper__actions"><button type="button" className="cfg-btn cfg-btn--primary" disabled={downloading} onClick={() => void downloadFile(file)}>{downloading ? 'Preparing download...' : 'Download'}</button>
+          <button type="button" className="cfg-btn cfg-btn--secondary" onClick={backToFiles}>File list</button></div>
       </section>}
     </div>
     <div className="agent-config__content" role="tabpanel" id={`config-${bot.id}-history-panel`} aria-labelledby={`config-${bot.id}-history`} tabIndex={0} hidden={tab !== 'history'}>

@@ -173,7 +173,7 @@ try {
     await search.waitFor({ state: 'hidden' });
 
     await page.getByRole('button', { name: 'Your Bots', exact: true }).click();
-    const directory = page.locator('.bots-view__list');
+    const directory = page.locator('.pb-bots__grid');
     const directoryPrimary = avatar(directory, 'Primary Bot');
     const directoryResearch = avatar(directory, 'Research Bot');
     await idleShape(directoryPrimary).waitFor();
@@ -215,9 +215,10 @@ try {
     // A shape preview edits an appearance, not a live identity.
     await header.getByRole('button', { name: 'Primary Bot', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Bot settings', exact: true }).click();
+    await page.locator('.pb-general > .pb-disclosure > summary').click();
     await page.getByRole('button', { name: 'Change look', exact: true }).click();
     const shapes = page.getByRole('radiogroup', { name: 'Character shape' });
-    const draftAvatar = page.locator('.cfg-look .bot-avatar');
+    const draftAvatar = page.locator('.pb-general .layout-row__leading .bot-avatar');
     await idleShape(draftAvatar).waitFor();
     assert.ok(await shapes.locator('.bot-avatar > svg:visible').count() > 1);
     await emit('primary', { isRunning: false, startedAt: null });

@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { InfoTip } from './SettingsControls';
 import { Card, Row, ButtonGroup } from '../layout';
 import { modelDisplayName } from '../../lib/modelDisplay';
@@ -18,12 +19,12 @@ const flags: { key: keyof Settings; label: string; hint: string }[] = [
   { key: 'skillReview', label: 'Review skills', hint: 'On: review reusable procedures and their resources. Off: skip skill review.' },
   { key: 'skillApproval', label: 'Approve skill changes', hint: 'On: skill changes made by your Bot wait for your review. Off: on a connected Claude or OpenAI plan, skill changes you request in chat take effect immediately. Background changes still need review unless they pass the automatic improvement checks you enabled.' },
 ];
-export function LearningSettingsPanel({ botId }: { botId?: string }) {
+export function LearningSettingsPanel({ botId, compactBot = false, footer }: { botId?: string; compactBot?: boolean; footer?: HTMLElement | null }) {
   const userId = useStore(state => state.user?.id);
-  return <LearningSettingsForm key={JSON.stringify([userId, botId])} botId={botId} />;
+  return <LearningSettingsForm key={JSON.stringify([userId, botId])} botId={botId} compactBot={compactBot} footer={footer} />;
 }
 
-function LearningSettingsForm({ botId }: { botId?: string }) {
+function LearningSettingsForm({ botId, compactBot, footer }: { botId?: string; compactBot: boolean; footer?: HTMLElement | null }) {
   const [view, setView] = useState<LearningSettingsView | null>(null), [draft, setDraft] = useState<Settings | null>(null);
   const [error, setError] = useState(''), [busy, setBusy] = useState(false), [notice, setNotice] = useState(''), [attempt, setAttempt] = useState(0);
   const [showReviews, setShowReviews] = useState(false);
@@ -47,12 +48,12 @@ function LearningSettingsForm({ botId }: { botId?: string }) {
   const numberField = (key: keyof Settings, label: string, min: number, max?: number) => <label key={key}><SettingIcon icon={Clock3} /><span>{label}</span><input type="number" min={min} max={max} required value={draft?.[key] as number ?? ''} onChange={e => set(key, e.currentTarget.valueAsNumber)} /></label>;
   const overridden = Object.keys(view?.overrides ?? {});
   return <div className="cfg-page learning-settings native-panel">
-    {botId && <h2>Learning</h2>}
+    {botId && !compactBot && <h2>Learning</h2>}
     {!showReviews && <>
     {error && <div className="cfg-error" role="alert">{error} <button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setAttempt(n => n + 1)}>Reload settings</button></div>}
     {!draft && !error && <p role="status">Loading learning settings</p>}
-    {draft && view && <form className="learning-fields" onSubmit={e => { e.preventDefault(); void save(); }}>
-      {botId && <div className="learning-inheritance"><strong>{overridden.length ? 'This bot has overrides' : 'Using account defaults'}</strong><p>{overridden.length ? 'Values without an override inherit the account defaults.' : 'All values are inherited from account settings.'}</p></div>}
+    {draft && view && <form id={compactBot ? "pb-learning-form" : undefined} className="learning-fields" onSubmit={e => { e.preventDefault(); void save(); }}>
+      {botId && <div className="learning-inheritance"><strong>{overridden.length ? 'This bot has overrides' : 'Using account defaults'}</strong>{!compactBot && <p>{overridden.length ? 'Values without an override inherit the account defaults.' : 'All values are inherited from account settings.'}</p>}</div>}
       <Card variant="list" className="learning-flags">{flags.map(field => <SettingRow key={field.key}
         icon={field.key === 'skillApproval' ? ShieldCheck : Blocks} title={<span className="settings-label-info"><label htmlFor={`learning-${field.key}`}>{field.label}</label><InfoTip label={`About ${field.label.toLowerCase()}`}>{botId ? overridden.includes(field.key) ? 'Bot override. ' : 'Inherited from the account. ' : ''}{field.hint}</InfoTip></span>}>
         <input id={`learning-${field.key}`} type="checkbox" checked={draft[field.key] as boolean} onChange={event => set(field.key, event.currentTarget.checked)} />
@@ -76,8 +77,14 @@ function LearningSettingsForm({ botId }: { botId?: string }) {
         <p className="native-meta">Pinned, locked and routine-referenced packages are protected. Archived packages retain recoverable history.</p>
         {botId && <SkillMaintenance botId={botId} settings={view.settings} />}
       </div></details>
+      {compactBot ? <>
+        <button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setShowReviews(true)}>Review history</button>
+        <details className="pb-disclosure"><summary>More</summary><button className="cfg-btn cfg-btn--secondary" disabled={busy || !overridden.length} type="button" onClick={() => void save(true)}>Use account defaults</button></details>
+        {footer && createPortal(<ButtonGroup><button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => useConfigUI.getState().closeBotSettings()}>Cancel</button><button className="cfg-btn cfg-btn--primary" disabled={busy || JSON.stringify(draft) === JSON.stringify(view.settings)} type="submit" form="pb-learning-form">{busy ? 'Saving...' : <><span className="pb-desktop-save">Save changes</span><span className="pb-phone-save">Save</span></>}</button></ButtonGroup>, footer)}
+      </> : <>
       <Row className="learning-disclosure learning-disclosure--row" leading={<SettingIcon icon={Clock3} />} title="History" trailing={<><button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setShowReviews(true)}>View</button></>} />
       <ButtonGroup stack ><button className="cfg-btn cfg-btn--primary" disabled={busy || JSON.stringify(draft) === JSON.stringify(view.settings)} type="submit">{busy ? 'Saving' : botId ? 'Save Bot overrides' : 'Save'}</button>{botId && <button className="cfg-btn cfg-btn--secondary" disabled={busy || !Object.keys(view.overrides ?? {}).length} type="button" onClick={() => void save(true)}>Use account defaults</button>}</ButtonGroup>
+      </>}
       {notice && <p role="status">{notice}</p>}
     </form>}
     {!draft && error && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setShowReviews(true)}>View</button>}

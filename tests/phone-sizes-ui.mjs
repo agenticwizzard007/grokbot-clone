@@ -111,6 +111,12 @@ try {
       await page.getByRole('button', { name: /^(Open Quinn details|Show details|Details)$/ }).first().click();
       await page.getByRole('complementary', { name: 'Conversation details' }).waitFor();
     });
+    for (const tab of ['tasks', 'files', 'setup', 'setup/harness', 'setup/files', 'setup/history']) {
+      await check(`bot details ${tab}`, async () => {
+        await route(`#bot/${encodeURIComponent(fixture.quinn.id)}/details/${tab}`);
+        await page.getByRole('complementary', { name: 'Conversation details' }).waitFor();
+      });
+    }
     await check('create a bot', async () => {
       await route('#new-bot');
       await page.getByRole('textbox', { name: /Bot name/ }).first().waitFor();

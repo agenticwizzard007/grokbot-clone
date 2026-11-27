@@ -1,88 +1,27 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { ChevronRight, Clock3, Monitor, Settings } from 'lucide-react';
-import type { Bot, Routine } from '@shared/types';
-import { api } from '../lib/api';
+import { createPortal } from 'react-dom';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Settings, MessageSquare, ChartNoAxesColumn, ListTodo, Folder, SlidersHorizontal } from 'lucide-react';
+import type { Bot } from '@shared/types';
 import { clearImportedSetup, hasImportedSetup } from '../lib/setupApi';
-import { displayName, useSelectedBot, useStore } from '../store';
-import { SetupPaperHeader } from './SetupPaperHeader';
-import { VoiceSettings } from './VoiceSettings';
-import { MembersCard } from './MembersCard';
-import { backToParent, detailsCaller, useReturnLabel, useConfigUI } from '../configStore';
+import { useSelectedBot, useStore } from '../store';
+import { openConversation, detailsCaller, useConfigUI } from '../configStore';
 import { LibraryTab } from './config/LibraryTab';
 import { FilesSummary } from './config/FilesSummary';
 import { DeliverablesPanel } from './config/DeliverablesPanel';
-import { BotTasks } from './config/TaskCards';
+import { BotTasksPage } from './config/BotTasksPage';
 import { AgentConfiguration } from './config/AgentConfiguration';
-import { BotAvatarFor } from '../avatar/BotAvatar';
-import { userFacingLive } from '../lib/audience';
 import { hasOpenModal } from './modals/Modal';
-import { detailsReplaceChat } from '../lib/useDetailsLayout';
-import { SuggestedIntegrations } from './SuggestedIntegrations';
-import { computerReadiness, computerStatusText } from './config/computerStatus';
+import { computerStatusText } from './config/computerStatus';
+import { Page } from './layout';
+import { BotActivity } from './config/BotActivity';
 import '../styles/setup-paper.css';
 import '../styles/bot-details.css';
 
 // Shared with the viewer and Settings; the copy lives in config/computerStatus (R2F-021).
 export { computerStatusText };
 
-function DetailRow({ title, description, children }: { title: string; description?: string; children?: ReactNode }) {
-  return <div className="details-page__row"><div><strong>{title}</strong>{description && <p>{description}</p>}</div>{children}</div>;
-}
-
-function RoutineRow({ routine }: { routine: Routine }) {
-  const userId = useStore(state => state.user?.id);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const toggle = async () => {
-    if (busy) return;
-    setBusy(true); setError('');
-    try {
-      const { routine: next } = await api.setRoutine(routine.id, !routine.enabled);
-      const state = useStore.getState();
-      if (state.user?.id === userId && state.routines[routine.botId]) state.set({
-        routines: { ...state.routines, [routine.botId]: state.routines[routine.botId].map(item => item.id === next.id ? next : item) },
-      });
-    }
-    catch (failure) { setError((failure as Error).message); }
-    finally { setBusy(false); }
-  };
-  return <>
-    <DetailRow title={routine.name} description={routine.enabled ? routine.description || routine.schedule : 'Paused'}>
-      <button type="button" role="switch" aria-checked={routine.enabled} aria-label={`${routine.name} schedule on`} className={`toggle${routine.enabled ? ' is-on' : ''}`} onClick={() => void toggle()} disabled={busy}><span className="toggle__knob" /></button>
-    </DetailRow>
-    {error && <p className="cfg-error" role="alert">{error}</p>}
-  </>;
-}
-
-function ComputerRow() {
-  const computer = useStore(state => state.computer);
-  const [waking, setWaking] = useState(false);
-  const [error, setError] = useState('');
-  const wake = async () => {
-    setWaking(true); setError('');
-    try { await api.ensureComputer(); }
-    catch (failure) { setError((failure as Error).message); }
-    finally { setWaking(false); }
-  };
-  const offline = !computer || ['absent', 'stopped', 'suspended', 'error'].includes(computer.status);
-  return <section className="bot-detail-section" aria-label="Computer">
-    <h2>Computer</h2>
-    <div className="bot-detail-card">
-      <button type="button" className="bot-detail-link" aria-label="Open computer" onClick={() => useStore.getState().set({ viewerOpen: true })}>
-        <Monitor size={20} aria-hidden /><span><strong>Bot's computer</strong><small>{computerReadiness(computer)}</small></span><ChevronRight size={18} aria-hidden />
-      </button>
-        {offline && (computer?.provider === 'local'
-          ? <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().openAppSettings('computer')}>Connect your PC</button>
-          : <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => void wake()} disabled={waking}>{waking ? 'Waking…' : 'Wake computer'}</button>)}
-    </div>
-    {(error || computer?.error) && <p className="cfg-error" role="alert">{error || computer?.error}</p>}
-    {/* R2F-011: one click from Details to Settings > Computer, for every provider. */}
-    <button type="button" className="cfg-btn cfg-btn--secondary bot-detail-section__link" onClick={() => useConfigUI.getState().openAppSettings('computer')}>Computer settings</button>
-  </section>;
-}
-
 const sections = [
-  { id: 'activity', label: 'Activity' }, { id: 'tasks', label: 'Tasks' }, { id: 'library', label: 'Files' }, { id: 'configuration', label: 'Setup' },
+  { id: 'activity', label: 'Activity', icon: ChartNoAxesColumn }, { id: 'tasks', label: 'Tasks', icon: ListTodo }, { id: 'library', label: 'Files', icon: Folder }, { id: 'configuration', label: 'Setup', icon: SlidersHorizontal },
 ] as const;
 type DetailTab = typeof sections[number]['id'];
 
@@ -93,11 +32,10 @@ export function DetailsPanel() {
 }
 
 function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
-  const backTitle = useReturnLabel();
   const panel = useRef<HTMLElement>(null);
+  const [headerHost, setHeaderHost] = useState<Element | null>(null);
+  useLayoutEffect(() => { setHeaderHost(document.querySelector('.shell-header')); }, []);
   const returnFocus = useRef<HTMLElement | null>(null);
-  const routines = useStore(state => state.routines[bot.id]);
-  const live = userFacingLive(useStore(state => state.live[bot.id]));
   const tab = useConfigUI(state => state.detailsTab);
   const reports = useConfigUI(state => state.detailsReports);
   const setTab = (tab: DetailTab) => useConfigUI.getState().setDetailsTab(tab);
@@ -120,7 +58,7 @@ function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
     const element = panel.current;
     const previous = detailsCaller && detailsCaller !== document.body ? detailsCaller : document.querySelector<HTMLElement>('.chat__bot-details');
     returnFocus.current = previous;
-    element?.querySelector<HTMLButtonElement>('.setup-paper__close')?.focus({ preventScroll: true });
+    element?.querySelector<HTMLButtonElement>('[aria-current]')?.focus({ preventScroll: true });
     return () => {
       // History traversal is asynchronous. Wait until the chat is visible and
       // its inert state has been removed before returning keyboard focus.
@@ -139,47 +77,23 @@ function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
     return () => window.removeEventListener('keydown', escape);
   }, []);
   const openSettings = () => useConfigUI.getState().openBotSettings(bot.id);
-  const openRoutines = () => useConfigUI.getState().openBotSettings(bot.id, 'routines');
-  const title = displayName(bot);
-  const label = reports ? 'Files' : sections.find(section => section.id === tab)?.label;
-  const navigation = <nav className="setup-paper__tabs details-page__tabs" aria-label="Conversation details sections">
+  const navigation = <nav className="pb-bot-tabs" aria-label="Conversation details sections">
+    <button type="button" onClick={() => openConversation(bot.id)}><MessageSquare size={18} aria-hidden /><span>Chat</span></button>
     {sections.filter(section => bot.kind !== 'room' || section.id !== 'configuration').map(section =>
-      <button key={section.id} type="button" aria-current={tab === section.id || undefined} onClick={() => { setTab(section.id); }}>{section.label}</button>)}
+      <button key={section.id} type="button" aria-current={tab === section.id || undefined} onClick={() => setTab(section.id)}><section.icon size={18} aria-hidden /><span>{section.label}</span></button>)}
+    <button type="button" className="pb-bot-tabs__settings" aria-label="Bot settings" onClick={openSettings}><Settings size={18} aria-hidden /><span>Settings</span></button>
   </nav>;
-  return <aside id="bot-details" ref={panel} className={`details details--page details--sidebar setup-paper${tab === 'configuration' ? ' details--configuration' : ''}`} aria-label="Conversation details">
-    <SetupPaperHeader backLabel={backTitle} title={label} onBack={backToParent} onClose={close} closeLabel="Close details" />
-    <div className="setup-paper__column details-page__column">
-      <div className="bot-detail-identity">
-        <BotAvatarFor bot={bot} size={48} />
-        <h1>{bot.name}</h1>
-        {bot.label && <p>{bot.label}</p>}
-        {live?.awaiting ? <span className="bot-detail-status is-waiting">Needs your reply</span> : live?.isRunning ? <span className="bot-detail-status">Working…</span> : null}
-      </div>
-      {navigation}
-      {tab === 'activity' && <>
-        <div className="details-page__activity">
-          <section aria-label="Upcoming activity" className="bot-detail-section">
-            <div className="bot-detail-section__heading"><h2>Upcoming</h2><button type="button" className="link-btn" onClick={openRoutines}>Manage routines</button></div>
-            <div className="bot-detail-card">
-              {routines?.length ? routines.map(routine => <RoutineRow key={routine.id} routine={routine} />) : <div className="bot-detail-empty"><Clock3 size={20} aria-hidden /><p>Nothing scheduled.<br /><span>Ask in chat or add a routine.</span></p></div>}
-            </div>
-          </section>
-          <BotTasks bot={bot} />
-          {bot.kind === 'room' ? <section className="bot-detail-section"><h2>Members</h2><div className="bot-detail-card"><MembersCard room={bot} /></div></section> : <>
-            <SuggestedIntegrations placement="details" botId={bot.id} description={bot.description} instructions={bot.instructions} />
-            <ComputerRow />
-            <VoiceSettings bot={bot} compact onStartCall={() => { if (detailsReplaceChat()) close(); }} />
-          </>}
-          <div className="bot-detail-card"><button type="button" className="bot-detail-link" aria-label="Bot settings" onClick={openSettings}><Settings size={20} aria-hidden /><span><strong>Bot settings</strong><small>General, analytics, and configuration</small></span><ChevronRight size={18} aria-hidden /></button></div>
-        </div>
-      </>}
-      {tab === 'tasks' && <BotTasks bot={bot} />}
+  return <aside id="bot-details" ref={panel} className={`details details--page pb-details${tab === 'configuration' ? ' details--configuration' : ''}`} aria-label="Conversation details">
+    {headerHost && createPortal(<button type="button" className="pb-bot-settings-gear" aria-label="Bot settings" onClick={openSettings}><Settings size={20} aria-hidden /></button>, headerHost)}
+    {navigation}
+    <Page type="form">
+      {tab === 'activity' && <BotActivity bot={bot} />}
+      {tab === 'tasks' && <BotTasksPage bot={bot} />}
       {tab === 'configuration' && <AgentConfiguration bot={bot} />}
       {tab === 'library' && (reports ? <DeliverablesPanel botId={bot.id} /> : <>
-        <p className="setup-paper__subtitle">Files saved by {title}</p>
         <FilesSummary bot={bot} onReports={() => setReports(true)} />
         <LibraryTab bot={bot} />
       </>)}
-    </div>
+    </Page>
   </aside>;
 }

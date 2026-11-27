@@ -164,7 +164,8 @@ try {
   await page.keyboard.press('Escape');
   await openChat('Nia').click();
   await wait(async () => (await chatName()) === 'Nia', 'Nia opened on the first click after Escape');
-  await page.getByRole('button', { name: 'Connect apps', exact: true }).last().click();
+  await page.getByRole('button', { name: 'Account & settings', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Connect apps', exact: true }).click();
   await page.getByRole('dialog', { name: 'Connect Apps' }).waitFor();
   await page.getByRole('dialog', { name: 'Connect Apps' }).getByRole('button', { name: 'Close', exact: true }).click();
   await openChat('Wren').click();
@@ -180,7 +181,7 @@ try {
   console.log('PASS R2F-033 first click after closing the palette or a modal');
 
   // R2F-025: the Bots page says "Create a Bot".
-  await page.getByRole('button', { name: 'Back to Bots', exact: true }).click();
+  await sidebar.getByRole('button', { name: 'All Bots', exact: true }).click();
   await page.getByRole('heading', { name: 'Your Bots', exact: true }).waitFor();
   await page.locator('.bots-view').getByRole('button', { name: 'Create a Bot', exact: true }).waitFor();
   assert.doesNotMatch(await page.locator('.bots-view').innerText(), /Create bot\b/);
@@ -188,15 +189,15 @@ try {
 
   // R2F-008: Bots still in setup cannot be picked for a group; a server refusal shows inline.
   await page.locator('.bots-view').getByRole('button', { name: 'Create a Bot', exact: true }).click();
-  await page.getByRole('main', { name: 'Create a Bot' }).getByRole('button', { name: 'New group chat instead' }).click();
-  const group = page.getByRole('main', { name: 'New group chat' });
+  await page.getByRole('main', { name: 'Create a Bot' }).getByRole('button', { name: 'Start a room instead' }).click();
+  const group = page.getByRole('main', { name: 'New room' });
   const locked = group.locator('.group-create__member').filter({ hasText: 'Ledger' });
   await locked.getByText('Activate first', { exact: true }).waitFor();
   assert.equal(await locked.locator('input[type="checkbox"]').isDisabled(), true, 'setup Bot is disabled');
-  await group.getByLabel('Group name').fill('Launch crew');
+  await group.getByLabel('Room name').fill('Launch crew');
   await group.getByRole('checkbox', { name: 'Nia', exact: true }).check();
   await group.getByRole('checkbox', { name: 'Wren', exact: true }).check();
-  await group.getByRole('button', { name: 'Create group' }).click();
+  await group.getByRole('button', { name: 'Create room' }).click();
   await group.getByRole('alert').getByText('Activate Ledger before adding it to a group.').waitFor();
   const roomWrite = writes.find(w => w.path === '/api/rooms');
   assert.deepEqual(roomWrite.body.botIds.sort(), ['nia', 'wren'], 'only active Bots are sent');
@@ -206,6 +207,7 @@ try {
   // R2F-032: after choosing a setup file the native input is replaced by the file name and "Choose another file".
   await page.getByRole('button', { name: 'New Bot', exact: true }).click();
   const create = page.getByRole('main', { name: 'Create a Bot' });
+  await page.locator('.setup-create .pb-disclosure > summary').click();
   await create.getByRole('button', { name: 'Import saved setup' }).click();
   const upload = page.getByRole('main', { name: 'Import a saved setup' });
   const manifest = { format: 'swarm.bot-setup', version: 1, bot: { name: 'Imported Helper', label: '', instructions: 'Be brief.' }, brief: { purpose: 'Help' }, source: { messages: [] } };
@@ -237,8 +239,8 @@ try {
   const island = sidebar.getByRole('button', { name: 'Tasks', exact: true });
   const [islandBox, scrollBox] = [await island.boundingBox(), await scroller.boundingBox()];
   assert.ok(await scroller.evaluate(el => el.scrollTop > 0), 'the Bot list scrolled');
-  assert.ok(islandBox && islandBox.y >= scrollBox.y - 1 && islandBox.y + islandBox.height <= scrollBox.y + scrollBox.height + 1, `Tasks island stays in view ${JSON.stringify({ islandBox, scrollBox })}`);
-  const topRow = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest('.sidebar-island') !== null, { x: islandBox.x + 20, y: islandBox.y + islandBox.height / 2 });
+  assert.ok(islandBox && islandBox.y >= 0 && islandBox.y + islandBox.height <= scrollBox.y + 1, `Tasks island stays in view ${JSON.stringify({ islandBox, scrollBox })}`);
+  const topRow = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest('button')?.textContent?.trim() === 'Tasks', { x: islandBox.x + 20, y: islandBox.y + islandBox.height / 2 });
   assert.equal(topRow, true, 'the island is on top of scrolled rows');
   await page.screenshot({ path: new URL('tasks-island-1024x600.png', evidence).pathname });
   await island.click();

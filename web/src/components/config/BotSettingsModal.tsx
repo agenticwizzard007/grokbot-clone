@@ -1,6 +1,6 @@
 import { ProviderMark } from '../ProviderMark';
 import { providerBrand } from '../../lib/providerBrand';
-import { useModels, effortsFor, effectiveEffort, effortLabel, effortDescription, defaultEffortFor, modelSelection } from '../../lib/models';
+import { useModels, effortsFor, effectiveEffort, effortLabel, defaultEffortFor, modelSelection } from '../../lib/models';
 import { BotModelField } from './BotModelField';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { AvatarColor, AvatarShape, Bot, Routine } from '@shared/types';
@@ -14,13 +14,12 @@ import { LearningSettingsPanel } from './LearningSettings';
 import { configApi, type BotPatch, type BotSettingsBundle, type KnowledgeSkill, type KnowledgeMemory } from '../../lib/configApi';
 import { SkillHistory, SkillReview, MemoryEvidence, ConversationSearch, MemoryArchive } from './KnowledgePanels';
 import { RoutineHistory } from './RoutineHistory';
-import { backToParent, openConversation, useReturnLabel, useBotSettingsDraft, useConfigUI, useVersion, type BotSettingsTab } from '../../configStore';
+import { openConversation, useBotSettingsDraft, useConfigUI, useVersion, type BotSettingsTab } from '../../configStore';
 import { useStore } from '../../store';
 import { Icon } from '../Icon';
-import { SetupPaperHeader } from '../SetupPaperHeader';
+import { Page, Section, Card, Row, ButtonGroup } from '../layout';
 import { Modal } from '../modals/Modal';
 import { BotAnalyticsTab } from './BotAnalyticsTab';
-import { Glyph } from './glyphs';
 import { ConfirmButton, Field, Segmented, Switch, nextRunLabel, shortDate } from './ui';
 import { confirmDialog } from '../../lib/confirmDialog';
 import { toast } from '../../lib/toast';
@@ -28,7 +27,7 @@ import { prefillComposer } from '../Composer';
 import '../../styles/setup-paper.css';
 import { startFreshConversation } from '../../lib/useFreshConversation';
 import { conversationUsagePercent } from '../../lib/conversationUsage';
-import { SuggestedIntegrations } from '../SuggestedIntegrations';
+import '../../styles/bot-details.css';
 
 export function BotSettingsModal({ inline = false }: { inline?: boolean } = {}) {
   const target = useConfigUI((s) => s.botSettings);
@@ -45,12 +44,12 @@ const draftTabs = (labels: string[]) => {
 };
 
 function BotSettingsPage({ bot, tab, inline, userId }: { bot: Bot; tab: BotSettingsTab; inline: boolean; userId?: string }) {
-  const backTitle = useReturnLabel();
   const routines = useStore(state => state.routines[bot.id]);
   const memVersion = useVersion(`memories:${bot.id}`);
   const [data, setData] = useState<BotSettingsBundle | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showSources, setShowSources] = useState(false);
+  const [footer, setFooter] = useState<HTMLElement | null>(null);
   // The General draft lives here so it survives tab switches (null = nothing edited yet).
   const [generalDraft, setGeneralDraft] = useState<GeneralDraft | null>(null);
   const request = useRef(0);
@@ -115,29 +114,22 @@ function BotSettingsPage({ bot, tab, inline, userId }: { bot: Bot; tab: BotSetti
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [inline, onClose, sourcesOpen]);
-  const headings: Partial<Record<BotSettingsTab, string>> = {
-    general: 'Identity, chat model, and settings for this Bot.', skills: 'Saved procedures and changes that need your review.',
-    memories: 'Review preferences and facts, including where they came from.', routines: 'Schedules and run history for this Bot.', learning: 'Review learning activity, settings, and protected maintenance.',
-  };
   const content = <>
-      <SetupPaperHeader backLabel={sourcesOpen ? 'Back to memories' : backTitle} title={label} onBack={sourcesOpen ? () => setShowSources(false) : backToParent} onClose={onClose} />
-      <div className="setup-paper__column bot-settings-page__column" style={botVars(bot.avatarColor)}>
-        <h1>{sourcesOpen ? 'Conversation sources' : bot.name}</h1>
+      <div className="pb-bot-settings__body" style={botVars(bot.avatarColor)}>
+        <nav className="pb-settings-tabs" aria-label="Bot settings sections">
+          {tabs.map(t => <button key={t.id} type="button" onClick={() => { setShowSources(false); setTab(t.id); }} aria-current={tab === t.id || undefined}>{t.label}</button>)}
+        </nav>
+        <div className="pb-bot-settings__form"><Page type="form">
         {leaving && <div className="cfg-guard" role="alertdialog" aria-label="Discard unsaved changes?">
           <div className="cfg-row__text"><div className="cfg-row__title">Discard unsaved changes?</div><div className="cfg-row__sub">Your edits on {draftTabs(Object.values(drafts))} have not been saved.</div></div>
-          <div className="settings-row__actions">
+          <ButtonGroup>
             <button type="button" className="cfg-btn cfg-btn--secondary" autoFocus onClick={keepEditing}>Keep editing</button>
             <button type="button" className="cfg-btn cfg-btn--danger" onClick={() => { setGeneralDraft(null); useConfigUI.getState().resolveLeaveBotSettings(true); }}>Discard</button>
-          </div>
+          </ButtonGroup>
         </div>}
-        <nav className="setup-paper__tabs" aria-label="Bot settings sections">
-          {tabs.map((t) => (
-            <button key={t.id} type="button" onClick={() => { setShowSources(false); setTab(t.id); }} aria-current={tab === t.id || undefined}>{t.label}</button>
-          ))}
-        </nav>
+        <Section title={sourcesOpen ? 'Conversation sources' : label}>
         <div className="bot-settings-page__content" key={tab}>
-          {headings[tab] && <p className="setup-paper__subtitle bot-settings-page__intro">{sourcesOpen ? 'Find evidence in current or archived chats.' : headings[tab]}</p>}
-          {loadError && ['skills', 'memories', 'routines'].includes(tab) && <div className="cfg-error" role="alert">Couldn’t load settings: {loadError} <button className="cfg-btn cfg-btn--secondary" type="button" onClick={reload}>Retry</button></div>}
+          {loadError && ['skills', 'memories', 'routines'].includes(tab) && <div className="cfg-error" role="alert">Could not load settings: {loadError} <button className="cfg-btn cfg-btn--secondary" type="button" onClick={reload}>Retry</button></div>}
           {tab === 'general' && <GeneralTab bot={bot} onClose={discardAndClose} draft={generalDraft} setDraft={setGeneralDraft} />}
           {tab === 'skills' && <SkillsTab bot={bot} skills={data?.skills} onChange={reload} />}
           {tab === 'memories' && <>
@@ -146,11 +138,17 @@ function BotSettingsPage({ bot, tab, inline, userId }: { bot: Bot; tab: BotSetti
           </>}
           {tab === 'routines' && <RoutinesTab bot={bot} routines={routines ?? data?.routines} />}
           {tab === 'analytics' && <BotAnalyticsTab bot={bot} />}
-          {tab === 'learning' && <LearningSettingsPanel botId={bot.id} />}
+          {tab === 'learning' && <LearningSettingsPanel botId={bot.id} compactBot footer={footer} />}
         </div>
+        </Section>
+        </Page></div>
       </div>
+      <footer className="pb-settings-footer" ref={setFooter}>{tab !== 'learning' && <ButtonGroup>
+        <button type="button" className="cfg-btn cfg-btn--secondary" onClick={onClose}>Cancel</button>
+        <button type="submit" form="pb-general-form" className="cfg-btn cfg-btn--primary" disabled={tab !== 'general' || !generalDirty}><span className="pb-desktop-save">Save changes</span><span className="pb-phone-save">Save</span></button>
+      </ButtonGroup>}</footer>
     </>;
-  return inline ? <main className="setup-paper bot-settings-page" aria-label={`${bot.name} settings`}>{content}</main>
+  return inline ? <main className="setup-paper bot-settings-page pb-bot-settings" aria-label={`${bot.name} settings`}>{content}</main>
     : <Modal onClose={onClose} className="setup-paper setup-paper--dialog bot-settings-page bot-settings" label={`${bot.name} settings`}>{content}</Modal>;
 }
 
@@ -207,106 +205,29 @@ function GeneralTab({ bot, onClose, draft: generalDraft, setDraft }: { bot: Bot;
     }
   };
 
-  return (
-    <div className="cfg-page">
-      <section className="cfg-section">
-        <div className="cfg-look">
-          <BotAvatar shape={draft.avatarShape} color={draft.avatarColor} size={72} />
-          <div className="cfg-look__text">
-            <div className="cfg-look__name">{draft.name || 'New Bot'}</div>
-            <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setPicker(!picker)} aria-expanded={picker}>
-              {picker ? 'Done' : 'Change look'}
-            </button>
-          </div>
-        </div>
-        {picker && <LookPicker shape={draft.avatarShape} color={draft.avatarColor} onShape={(s) => put('avatarShape', s)} onColor={(c) => put('avatarColor', c)} />}
-      </section>
-
-      <section className="cfg-section cfg-grid">
-        <Field label="Name" htmlFor="cfg-name">
-          <input id="cfg-name" className="text-input" value={draft.name} maxLength={60} onChange={(e) => put('name', e.target.value)} aria-invalid={!nameOk} />
-        </Field>
-        <Field label="Label" htmlFor="cfg-label" hint="Shown next to the name, like “Research” or “Inbox”.">
-          <input id="cfg-label" className="text-input" value={draft.label} maxLength={40} placeholder="Add a label" onChange={(e) => put('label', e.target.value)} />
-        </Field>
-      </section>
-
-      <section className="cfg-section">
-        <Field label="About" htmlFor="cfg-about">
-          <textarea id="cfg-about" className="text-input cfg-textarea" rows={2} value={draft.description} maxLength={300} placeholder="What is this Bot for?" onChange={(e) => put('description', e.target.value)} />
-        </Field>
-        <SuggestedIntegrations placement="settings" botId={bot.id} description={draft.description} instructions={draft.instructions} />
-        <Field label="Instructions" htmlFor="cfg-instructions" hint={`Standing guidance ${draft.name || 'this Bot'} always follows, like tone, priorities or things to avoid. It also learns from chat, skills and memories.`}>
-          <textarea id="cfg-instructions" className="text-input cfg-textarea cfg-textarea--tall" rows={7} value={draft.instructions} maxLength={8000} placeholder="e.g. Keep updates to three bullets. Never email anyone outside the team without asking." onChange={(e) => put('instructions', e.target.value)} />
-        </Field>
-        <Field label="Thinking effort" hint={supportedEfforts.length ? selectedEffort ? effortDescription(selectedEffort, modelInfo) : 'Uses the provider default.' : 'Select a model to see its supported effort levels. The default uses the provider’s settings.'}>
-          {supportedEfforts.length > 0 && <div className="provider-effort"><ProviderMark provider={providerBrand(modelInfo?.author) ?? modelInfo?.id} fallbackProvider={modelCatalog.provider} /><Segmented label="Thinking effort" value={shownEffort} options={supportedEfforts} onChange={chooseEffort} /></div>}
-        </Field>
-        <Field label="Model" hint="Which AI model this Bot thinks with. Default follows your active API or plan connection.">
-          <BotModelField value={draft.model} onChange={chooseModel} />
-        </Field>
-        <Field label="Used as">
-          <Segmented label="Bot type" value={draft.mode} options={[{ value: 'personal', label: 'Personal assistant' }, { value: 'teammate', label: 'Teammate' }]} onChange={(v) => put('mode', v)} />
-        </Field>
-      </section>
-
-      <div className={`cfg-savebar${dirty ? ' is-dirty' : ''}`}>
-        <span className={`cfg-savebar__note${note?.tone === 'error' ? ' is-error' : ''}`} role="status">{note?.text ?? (dirty ? 'Unsaved changes' : '')}</span>
-        <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!dirty || saving} onClick={() => setDraft(() => null)}>Discard</button>
-        <button type="button" className="cfg-btn cfg-btn--primary" disabled={!dirty || saving || !nameOk} onClick={save}>{saving ? 'Saving…' : 'Save changes'}</button>
-      </div>
-
-      <section className="cfg-section">
-        <div className="cfg-section__label">Conversation</div>
-        <div className="cfg-card">
-          <div className="cfg-row">
-            <div className="cfg-row__text">
-              <div className="cfg-row__title">New conversation</div>
-              <div className="cfg-row__sub">Clears the chat. Memories, skills and routines stay.</div>
-            </div>
-            {/* MF-007: same confirm, toast and row reload as the chat entry points. */}
-            <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => { void startFreshConversation(bot.id); }}>Start new</button>
-          </div>
-          {!bot.isPrimary && (
-            <div className="cfg-row">
-              <div className="cfg-row__text">
-                <div className="cfg-row__title">Make primary</div>
-                <div className="cfg-row__sub">Your go-to Bot. It reaches out first and keeps the others on track.</div>
-              </div>
-              <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => configApi.makePrimary(bot.id).then(() => flash(`${bot.name} is now your primary Bot`)).catch((e) => flash(e.message, 'error'))}>Make primary</button>
-            </div>
-          )}
-        </div>
-      </section>
-
-      <section className="cfg-section">
-        <div className="cfg-section__label">Danger zone</div>
-        <div className="cfg-card">
-          <div className="cfg-row">
-            <div className="cfg-row__text">
-              <div className="cfg-row__title">Delete {bot.name}</div>
-              <div className="cfg-row__sub">{bot.isPrimary ? 'Make another Bot primary first.' : 'Removes its chat, memories, skills and routines for good.'}</div>
-            </div>
-            <ConfirmButton
-              disabled={bot.isPrimary}
-              confirmLabel={`Delete ${bot.name}`}
-              onConfirm={async () => {
-                try {
-                  await configApi.deleteBot(bot.id);
-                  onClose();
-                  const st = useStore.getState();
-                  st.set({ bots: st.bots.filter((b) => b.id !== bot.id) });
-                  st.loadBots().catch(() => {});
-                } catch (e) { flash((e as Error).message, 'error'); }
-              }}
-            >
-              Delete…
-            </ConfirmButton>
-          </div>
-        </div>
-      </section>
-    </div>
-  );
+  return <form id="pb-general-form" className="cfg-page pb-general" onSubmit={event => { event.preventDefault(); if (!saving) void save(); }}>
+    <Field label="Name" htmlFor="cfg-name"><input id="cfg-name" className="text-input" value={draft.name} maxLength={60} onChange={e => put('name', e.target.value)} aria-invalid={!nameOk} /></Field>
+    <Field label="Role" htmlFor="cfg-label"><input id="cfg-label" className="text-input" value={draft.label} maxLength={40} onChange={e => put('label', e.target.value)} /></Field>
+    <Field label="Model"><BotModelField value={draft.model} onChange={chooseModel} /></Field>
+    <Field label="Instructions" htmlFor="cfg-instructions"><textarea id="cfg-instructions" className="text-input cfg-textarea" rows={4} value={draft.instructions} maxLength={8000} onChange={e => put('instructions', e.target.value)} /></Field>
+    <Row title="Approvals" trailing={<button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().openAppSettings('permissions')}>Permissions</button>} />
+    <details className="pb-disclosure"><summary>More</summary>
+      <Section title="Appearance"><Row leading={<BotAvatar shape={draft.avatarShape} color={draft.avatarColor} size={32} />} title="Character" trailing={<button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setPicker(!picker)} aria-expanded={picker}>{picker ? 'Done' : 'Change look'}</button>} />
+        {picker && <LookPicker shape={draft.avatarShape} color={draft.avatarColor} onShape={v => put('avatarShape', v)} onColor={v => put('avatarColor', v)} />}
+      </Section>
+      <Field label="About" htmlFor="cfg-about"><textarea id="cfg-about" className="text-input cfg-textarea" rows={2} value={draft.description} maxLength={300} onChange={e => put('description', e.target.value)} /></Field>
+      {!!supportedEfforts.length && <Field label="Thinking effort"><div className="provider-effort"><ProviderMark provider={providerBrand(modelInfo?.author) ?? modelInfo?.id} fallbackProvider={modelCatalog.provider} /><Segmented label="Thinking effort" value={shownEffort} options={supportedEfforts} onChange={chooseEffort} /></div></Field>}
+      <Field label="Used as"><Segmented label="Bot type" value={draft.mode} options={[{ value: 'personal', label: 'Personal assistant' }, { value: 'teammate', label: 'Teammate' }]} onChange={v => put('mode', v)} /></Field>
+      <Card><Row title="New conversation" subtitle="Memories, skills and routines stay." trailing={<button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => void startFreshConversation(bot.id)}>Start new</button>} />
+        {!bot.isPrimary && <Row title="Primary Bot" trailing={<button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => configApi.makePrimary(bot.id).then(() => flash('Primary Bot updated')).catch(e => flash(e.message, 'error'))}>Make primary</button>} />}
+        <Row title="Delete Bot" subtitle={bot.isPrimary ? 'Make another Bot primary first.' : 'Permanently removes this Bot and its history.'} trailing={<ConfirmButton disabled={bot.isPrimary} confirmLabel={`Delete ${bot.name}`} onConfirm={async () => {
+          try { await configApi.deleteBot(bot.id); onClose(); const st = useStore.getState(); st.set({ bots: st.bots.filter(b => b.id !== bot.id) }); void st.loadBots().catch(() => {}); }
+          catch (e) { flash((e as Error).message, 'error'); }
+        }}>Delete</ConfirmButton>} />
+      </Card>
+    </details>
+    {note && <p className={note.tone === 'error' ? 'cfg-error' : ''} role="status">{note.text}</p>}
+  </form>;
 }
 
 function LookPicker({ shape, color, onShape, onColor }: { shape: AvatarShape; color: AvatarColor; onShape: (s: AvatarShape) => void; onColor: (c: AvatarColor) => void }) {
@@ -333,23 +254,23 @@ function SkillsTab({ bot, skills, onChange }: { bot: Bot; skills: KnowledgeSkill
   return (
     <div className="cfg-page">
       {editing === 'new' && <SkillEditor botId={bot.id} onDone={() => { setEditing(null); onChange(); }} />}
-      {!skills ? <div className="cfg-empty">Loading…</div> : skills.length === 0 && editing !== 'new' ? (
+      {!skills ? <div className="cfg-empty">Loading...</div> : skills.length === 0 && editing !== 'new' ? (
         <div className="cfg-empty">
-          No skills yet. Add a repeatable procedure, then ask for it by name in chat.
+          No skills yet.
         </div>
       ) : (
         <div className="cfg-list">
           {skills.map((s) => editing === s.id ? (
             <SkillEditor key={s.id} botId={bot.id} skill={s} onDone={() => { setEditing(null); onChange(); }} />
           ) : (
-            <article key={s.id} className="knowledge-item">
-              <div className="knowledge-item__row"><div><strong>{s.name}</strong><p>{s.description || s.body.split('\n')[0]}</p></div><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setEditing(s.id)} aria-label={`Edit ${s.name}`}>Edit skill</button></div>
-              <details className="knowledge-item__details"><summary>Package, protections, and history</summary><SkillHistory skill={s} onChange={onChange} /><SkillPackageControls skillId={s.id} revision={s.revision} onChange={onChange} /></details>
-            </article>
+            <Card key={s.id}>
+              <div className="knowledge-item__row"><div><strong>{s.name}</strong><p>{s.description}</p></div><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setEditing(s.id)} aria-label={`Edit ${s.name}`}>Edit skill</button></div>
+              <details className="knowledge-item__details"><summary>Skill details</summary><SkillHistory skill={s} onChange={onChange} /><SkillPackageControls skillId={s.id} revision={s.revision} onChange={onChange} /></details>
+            </Card>
           ))}
         </div>
       )}
-      <SkillReview botId={bot.id} version={(skills ?? []).map(s => `${s.id}:${s.revision}`).join(',')} onChange={onChange} />
+      <details className="pb-disclosure"><summary>Review skills</summary><SkillReview botId={bot.id} version={(skills ?? []).map(s => `${s.id}:${s.revision}`).join(',')} onChange={onChange} /></details>
       {editing !== 'new' && <div className="setup-paper__actions"><button type="button" className="cfg-btn cfg-btn--primary" onClick={() => setEditing('new')}>Add skill</button></div>}
     </div>
   );
@@ -382,13 +303,13 @@ function SkillEditor({ botId, skill, onDone }: { botId: string; skill?: Knowledg
     <form className="cfg-editor" onSubmit={(e) => { e.preventDefault(); save(); }}>
       <input ref={nameInput} className="text-input" placeholder="Skill name, e.g. Weekly report" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} autoFocus aria-label="Skill name" />
       <input className="text-input" placeholder="When to use it (optional)" value={description} maxLength={300} onChange={(e) => setDescription(e.target.value)} aria-label="Skill description" />
-      <textarea className="text-input cfg-textarea cfg-textarea--tall" rows={8} placeholder={'Write the steps to follow:\n1. …\n2. …'} value={body} onChange={(e) => setBody(e.target.value)} aria-label="Skill steps" />
+      <textarea className="text-input cfg-textarea cfg-textarea--tall" rows={8} placeholder={'Write the steps to follow:\n1. ...\n2. ...'} value={body} onChange={(e) => setBody(e.target.value)} aria-label="Skill steps" />
       {error && <div className="cfg-error" role="alert">{error}</div>}
       {stale && <div className="cfg-error" role="alert">This skill changed. Close and reopen it to edit the current revision.</div>}
-      <div className="cfg-editor__actions">
+      <ButtonGroup>
         <button type="button" className="cfg-btn cfg-btn--secondary" onClick={onDone}>Cancel</button>
-        <button type="submit" className="cfg-btn cfg-btn--primary" disabled={!can}>{busy ? 'Saving…' : skill ? 'Save skill' : 'Add skill'}</button>
-      </div>
+        <button type="submit" className="cfg-btn cfg-btn--primary" disabled={!can}>{busy ? 'Saving...' : skill ? 'Save skill' : 'Add skill'}</button>
+      </ButtonGroup>
     </form>
   );
 }
@@ -408,15 +329,15 @@ function MemoriesTab({ bot, data, onChange, onSearch }: { bot: Bot; data: BotSet
   return (
     <div className="cfg-page">
       {memoryError && <div className="cfg-error" role="alert">{memoryError}</div>}
-      {(data?.memories.length ?? 0) > 6 && (
+      {(
         <input className="text-input" placeholder="Search memories" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search memories" />
       )}
-      {!data ? <div className="cfg-empty">Loading…</div> : memories.length === 0 ? (
-        <div className="cfg-empty">{q ? 'No memories match.' : `Nothing yet. Tell ${bot.name} about yourself, or just chat. It’ll pick things up.`}</div>
+      {!data ? <div className="cfg-empty">Loading...</div> : memories.length === 0 ? (
+        <div className="cfg-empty">{q ? 'No memories match.' : 'No memories yet.'}</div>
       ) : (
         <div className="cfg-list">
           {memories.map((m) => (
-            <details key={m.id} className="knowledge-item">
+            <Card key={m.id}><details>
               <summary className="knowledge-item__row"><span><strong>{m.text}</strong><small>{m.target === 'environment' ? 'Environment fact' : 'User preference'}{m.evidenceKind ? ` · ${m.evidenceKind} evidence` : ''}</small></span><span className="knowledge-item__action">Open memory</span></summary>
               <div className="knowledge-item__details">
                 <p className="native-meta">{m.source === 'learned' ? 'Learned' : 'Saved in chat'} · {shortDate(m.createdAt)} · revision {m.revision}</p>
@@ -424,23 +345,26 @@ function MemoriesTab({ bot, data, onChange, onSearch }: { bot: Bot; data: BotSet
                 <KnowledgeScopeControl kind="memories" item={m} onChange={onChange} />
                 <details className="knowledge-item__confirm"><summary>Forget this memory?</summary><p>It will no longer be used or relearned from these sources. The earlier record remains in history.</p><button type="button" className="cfg-btn cfg-btn--danger" onClick={() => void remove(m)}>Forget memory</button></details>
               </div>
-            </details>
+            </details></Card>
           ))}
         </div>
       )}
-      <details className="knowledge-item"><summary className="knowledge-item__row"><span><strong>Pending changes</strong><small>The current fact remains active until you approve a change.</small></span><span className="knowledge-item__action">Review memory changes</span></summary><PendingMemoryChanges botId={bot.id} onChange={onChange} /></details>
-      <div className="knowledge-item knowledge-item__row"><div><strong>Conversation sources</strong><p>Search current and archived conversations.</p></div><button type="button" className="cfg-btn cfg-btn--secondary" onClick={onSearch}>Search sources</button></div>
-      <MemoryArchive botId={bot.id} version={(data?.memories ?? []).map(m => `${m.id}:${m.revision}`).join(',')} />
+      <details className="pb-disclosure"><summary>More</summary>
+      <details className="knowledge-item"><summary className="knowledge-item__row"><span><strong>Pending changes</strong></span><span className="knowledge-item__action">Review</span></summary><PendingMemoryChanges botId={bot.id} onChange={onChange} /></details>
+      <div className="knowledge-item knowledge-item__row"><div><strong>Conversation sources</strong></div><button type="button" className="cfg-btn cfg-btn--secondary" onClick={onSearch}>Search</button></div>
+      <details className="pb-disclosure"><summary>Archive</summary><MemoryArchive botId={bot.id} version={(data?.memories ?? []).map(m => `${m.id}:${m.revision}`).join(',')} /></details>
       {data && (
-        <div className="cfg-meter" title="Estimated size of saved conversation history before automatic summarizing.">
-          <div className="cfg-meter__label"><span>Conversation history</span><span>{fill === null ? 'Usage unavailable' : `${fill}% used`}</span></div>
+        <details className="cfg-meter" title="Estimated size of saved conversation history before automatic summarizing.">
+          <summary>Conversation history</summary><div className="cfg-meter__label"><span>Usage</span><span>{fill === null ? 'Usage unavailable' : `${fill}% used`}</span></div>
           <div className="cfg-meter__track"><span style={{ width: `${fill ?? 0}%` }} /></div>
           <div className="cfg-field__hint">
             Estimated conversation size, including tool results. At 100%, older messages are summarized automatically. Saved memories are separate.
             {data.memory.lastCompaction ? ` Last summarized ${shortDate(data.memory.lastCompaction.created_at)}.` : ''}
           </div>
-        </div>
+        </details>
       )}
+      </details>
+      <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => { prefillComposer(bot.id, 'Please remember: '); openConversation(bot.id); }}>Add memory</button>
     </div>
   );
 }
@@ -457,22 +381,16 @@ function RoutinesTab({ bot, routines }: { bot: Bot; routines: Routine[] | undefi
   };
   return (
     <div className="cfg-page">
-      <div className="cfg-page__head">
-        <div>
-          <div className="cfg-page__title">Routines</div>
-          <div className="cfg-page__sub">Recurring jobs {bot.name} runs on a schedule. To add or change one, ask in chat.</div>
-        </div>
-        {flash && <span className="cfg-savebar__note" role="status">{flash}</span>}
-      </div>
-      {!routines ? <div className="cfg-empty">Loading…</div> : routines.length === 0 ? (
-        <div className="cfg-empty">No routines yet. Try asking {bot.name}: “every Friday at 4pm, recap my week”.</div>
+      {flash && <span role="status">{flash}</span>}
+      {!routines ? <div className="cfg-empty">Loading...</div> : routines.length === 0 ? (
+        <div className="cfg-empty">No routines yet.</div>
       ) : (
         <div className="cfg-list">
           {routines.map((r) => <RoutineItem key={r.id} r={r} onFlash={say} />)}
         </div>
       )}
-      <div className="setup-paper__actions"><button type="button" className="cfg-btn cfg-btn--secondary" onClick={askInChat}>Ask {bot.name} to add a routine</button></div>
-      <RoutineHistory botId={bot.id} />
+      <div className="setup-paper__actions"><button type="button" className="cfg-btn cfg-btn--secondary" onClick={askInChat}>New routine</button></div>
+      <details className="pb-disclosure"><summary>History</summary><RoutineHistory botId={bot.id} /></details>
     </div>
   );
 }
@@ -491,7 +409,7 @@ function RoutineItem({ r, onFlash }: { r: Routine; onFlash: (t: string) => void 
       setEnabled(result.routine.enabled); onFlash(v ? 'Resumed' : 'Paused');
     }
     catch (e) {
-      toast((e as Error).message || `Couldn’t update ${r.name}.`, { tone: 'error' });
+      toast((e as Error).message || `Could not update ${r.name}.`, { tone: 'error' });
     } finally { setBusy(false); refresh(); }
   };
   const refresh = () => {
@@ -503,35 +421,29 @@ function RoutineItem({ r, onFlash }: { r: Routine; onFlash: (t: string) => void 
     if (busy || !await confirmDialog({ title: `Run ${r.name} now?`, body: 'It runs once now. Its schedule does not change.', confirmLabel: 'Run now' })) return;
     setBusy(true);
     try { await configApi.runRoutine(r.id); onFlash('Running now'); refresh(); }
-    catch (e) { toast((e as Error).message || `Couldn’t run ${r.name}.`, { tone: 'error' }); }
+    catch (e) { toast((e as Error).message || `Could not run ${r.name}.`, { tone: 'error' }); }
     finally { setBusy(false); }
   };
   const remove = async () => {
     if (busy || !await confirmDialog({ title: `Delete ${r.name}?`, body: 'Future runs stop. Past runs and reports stay.', confirmLabel: 'Delete', danger: true })) return;
     setBusy(true);
     try { await configApi.deleteRoutine(r.id); onFlash('Deleted'); refresh(); }
-    catch (e) { toast((e as Error).message || `Couldn’t delete ${r.name}.`, { tone: 'error' }); }
+    catch (e) { toast((e as Error).message || `Could not delete ${r.name}.`, { tone: 'error' }); }
     finally { setBusy(false); }
   };
   return (
-    <div className="cfg-item cfg-item--routine">
+    <Card className="cfg-item cfg-item--routine">
       <span className="cfg-item__icon"><Icon name="clock" size={14} /></span>
       <div className="cfg-item__text">
         <div className="cfg-item__title">{r.name}</div>
-        <div className="cfg-item__sub">{enabled ? [r.description || r.schedule, nextRunLabel(r.nextRunAt, r.timezone)].filter(Boolean).join(' · ') : 'Paused'}</div>
+        <div className="cfg-item__sub">{enabled ? r.description || r.schedule : 'Paused'}</div>
         {r.activationPending && <div className="cfg-item__sub" role="status">Updating event subscription...</div>}
         {r.activationError && <div className="cfg-error" role="alert">{r.activationError} <button type="button" disabled={busy} onClick={() => void toggle(r.activationTarget ?? !enabled)}>Retry</button></div>}
-        <div className="cfg-item__prompt">{r.prompt}</div>
+<details><summary>Manage</summary><p>{r.prompt}</p><p>{nextRunLabel(r.nextRunAt, r.timezone)}</p><ButtonGroup><button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => void runNow()}>Run now</button><button type="button" className="cfg-btn cfg-btn--danger" disabled={busy} onClick={() => void remove()}>Delete</button></ButtonGroup></details>
       </div>
       <div className="cfg-item__actions">
-        <button type="button" className="cfg-icon-btn" title="Run now" aria-label={`Run ${r.name} now`} disabled={busy} onClick={() => void runNow()}>
-          <Glyph name="play" size={13} />
-        </button>
-        <button type="button" className="cfg-icon-btn" title="Delete" aria-label={`Delete ${r.name}`} disabled={busy} onClick={() => void remove()}>
-          <Glyph name="trash" size={14} />
-        </button>
         <Switch on={enabled} onChange={toggle} disabled={busy || r.activationPending} label={`${r.name} schedule on`} />
       </div>
-    </div>
+    </Card>
   );
 }

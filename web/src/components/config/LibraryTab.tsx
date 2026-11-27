@@ -53,7 +53,7 @@ function ComputerLibrary({ bot, userId }: { bot: Bot; userId?: string }) {
       anchor.href = url; anchor.download = file.name; anchor.rel = 'noopener';
       document.body.appendChild(anchor); anchor.click(); anchor.remove();
       setDownloadStatus(`Download requested: ${file.name}`);
-    } catch (failure) { if (current()) setError(`Couldn’t download ${file.name}: ${(failure as Error).message}`); }
+    } catch (failure) { if (current()) setError(`Could not download ${file.name}: ${(failure as Error).message}`); }
     finally { if (current()) setBusyFile(''); }
   };
   const crumbs = path ? path.split('/') : [];
@@ -64,21 +64,21 @@ function ComputerLibrary({ bot, userId }: { bot: Bot; userId?: string }) {
       <button type="button" onClick={() => navigate('')}>Files</button>
       {crumbs.map((part, index) => <button type="button" key={index} aria-current={index === crumbs.length - 1 ? 'location' : undefined} onClick={() => navigate(crumbs.slice(0, index + 1).join('/'))}>{part}</button>)}
     </nav>}
-    {loading && <p role="status">{loading === 'wake' ? 'Waking computer…' : 'Looking for files…'}</p>}
+    {loading && <p role="status">{loading === 'wake' ? 'Waking computer...' : 'Looking for files...'}</p>}
     {error && <p className="cfg-error" role="alert">{problem}</p>}
     {downloadStatus && <p role="status">{downloadStatus}</p>}
-    {!loading && list?.status === 'asleep' && <div className="details-page__row"><p>{bot.name}’s computer is asleep.</p><button type="button" className="cfg-btn cfg-btn--primary" onClick={() => void load(true)}>Wake and show files</button></div>}
-    {!loading && !error && (list?.error || list?.status === 'error') && <p className="cfg-error" role="alert">{problem || 'Could not reach the computer. Refresh files to try again.'}</p>}
+    {!loading && list?.status === 'asleep' && <div className="details-page__row"><p>Computer is asleep.</p><button type="button" className="cfg-btn cfg-btn--primary" onClick={() => void load(true)}>Wake computer</button></div>}
+    {!loading && !error && (list?.error || list?.status === 'error') && <p className="cfg-error" role="alert">{problem || 'Could not reach the computer. Refresh to try again.'}</p>}
     {!loading && <SetupConnectionHelp text={problem} />}
-    {!loading && !error && list?.status === 'ok' && !visibleFiles.length && <p>{path ? 'This folder is empty.' : 'No files yet. Files this Bot saves will appear here.'}</p>}
+    {!loading && !error && list?.status === 'ok' && !visibleFiles.length && <p>{path ? 'This folder is empty.' : 'No files yet.'}</p>}
     {list?.status === 'ok' && visibleFiles.map(file => <div key={file.name} className="details-page__row">
       <div><strong>{file.name}</strong><p>{file.isDir ? 'Folder' : formatBytes(file.size)} · {relativeShort(file.modifiedAt)}</p></div>
       <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!file.isDir && !!busyFile} onClick={() => file.isDir ? navigate(path ? `${path}/${file.name}` : file.name) : void download(file)}>
-        {file.isDir ? `Open ${file.name}` : busyFile === file.name ? 'Preparing download…' : `Download ${file.name}`}
+        {file.isDir ? `Open ${file.name}` : busyFile === file.name ? 'Preparing download...' : `Download ${file.name}`}
       </button>
     </div>)}
     <div className="setup-paper__actions knowledge-files__actions">
-      <button type="button" className="cfg-btn cfg-btn--primary" onClick={() => void load()} disabled={!!loading}>Refresh files</button>
+      <button type="button" className="cfg-btn cfg-btn--primary" onClick={() => void load()} disabled={!!loading}>Refresh</button>
     </div>
   </section>;
 }

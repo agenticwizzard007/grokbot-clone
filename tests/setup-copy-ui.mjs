@@ -80,11 +80,12 @@ try {
     page.setDefaultTimeout(15000);
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(base);
-    await page.getByRole('button', { name: 'New Bot', exact: true }).click();
+    await page.locator('.shell-header').waitFor();
+    await page.evaluate(() => { location.hash = '#new-bot'; });
     const create = page.getByRole('main', { name: 'Create a Bot', exact: true });
     await create.getByRole('textbox', { name: 'Bot name' }).fill(`Copy Bot ${width}`);
     const creation = page.waitForResponse(response => response.url().endsWith('/api/bots') && response.request().method() === 'POST');
-    await create.getByRole('button', { name: 'Create', exact: true }).click();
+    await create.getByRole('button', { name: 'Create Bot', exact: true }).click();
     const { bot } = await (await creation).json();
     const opening = page.getByText('I’ll ask about any important gaps and save the role in Details > Setup.', { exact: true });
     await opening.waitFor();
@@ -124,7 +125,7 @@ try {
     const refining = page.waitForResponse(response => response.url().endsWith(`/bots/${bot.id}/setup/interview`) && response.request().method() === 'POST');
     await details.getByRole('button', { name: 'Refine setup', exact: true }).click();
     assert.equal((await refining).status(), 200);
-    await details.getByRole('button', { name: 'Close details', exact: true }).click();
+    await details.getByRole('button', { name: 'Chat', exact: true }).click();
     const refinement = page.getByText('Your saved role is visible in Details > Setup.', { exact: true });
     await refinement.waitFor();
     await refinement.scrollIntoViewIfNeeded();
@@ -134,13 +135,13 @@ try {
     await page.screenshot({ path: path.join(evidence, `refine-${width}.png`), fullPage: true });
 
     // Phone navigation returns to the Bot list before offering New Bot.
-    if (width <= 760) await page.getByRole('button', { name: 'All Bots', exact: true }).click();
-    await page.getByRole('button', { name: 'New Bot', exact: true }).click();
+    await page.evaluate(() => { location.hash = '#new-bot'; });
+    await page.locator('.setup-create .pb-disclosure > summary').click();
     await create.getByRole('button', { name: 'Import saved setup', exact: true }).click();
     const upload = page.getByRole('main', { name: 'Import a saved setup', exact: true });
-    const instruction = upload.locator('.setup-paper__subtitle').first();
-    assert.equal(await instruction.innerText(), 'Choose a bot-setup.json exported from Details > Setup > Files.');
-    assertSetupCopy(await instruction.innerText());
+    const instruction = upload.locator('.setup-create__description p').first();
+    assert.equal(await instruction.innerText(), 'Review the imported setup before activation.');
+    assert.doesNotMatch(await instruction.innerText(), /[\u2019\u2018]/);
     await upload.getByRole('button', { name: 'Choose setup file', exact: true }).waitFor();
     await page.screenshot({ path: path.join(evidence, `import-${width}.png`), fullPage: true });
     assert.deepEqual(errors, []);
