@@ -173,11 +173,11 @@ await runIntegrationDemo({ outputFlow: async args => {
 
   // A failed save keeps the prior policy and offers an honest inline error.
   await page.route('**/api/handoff-settings', async route => route.request().method() === 'PUT'
-    ? route.fulfill({ status: 503, json: { error: 'Fixture settings unavailable. Try again.' } }) : route.continue());
+    ? route.fulfill({ status: 503, json: { error: 'Handoff settings unavailable. Try again.' } }) : route.continue());
   await policy.selectOption('links_only');
   await page.getByRole('alert').filter({ hasText: 'Not saved' }).waitFor();
   await page.getByRole('button', { name: 'Save error', exact: true }).focus();
-  await page.getByRole('tooltip').filter({ hasText: 'Fixture settings unavailable' }).waitFor();
+  await page.getByRole('tooltip').filter({ hasText: 'Handoff settings unavailable' }).waitFor();
   await page.keyboard.press('Escape');
   assert.equal(await policy.inputValue(), 'team');
   await page.unroute('**/api/handoff-settings');

@@ -34,12 +34,15 @@ export async function polishFixture() {
         if (name === 'handoff-approval') { await page.evaluate(() => { window.fixture.status = 'pending_approval'; window.refreshFixture(); }); await page.getByRole('button', {name:'Approve',exact:true}).waitFor(); }
         if (name === 'send-error') { await page.getByRole('button', { name: /^Checker/ }).click(); await page.evaluate(() => { window.fixture.failSend = true; }); await page.getByRole('button', { name: 'Send', exact: true }).click(); await page.getByRole('alert').waitFor(); }
         if (name === 'send-loop') { await page.getByRole('button', { name: /^Checker/ }).click(); await page.getByLabel('Keep improving', { exact: true }).check(); await page.getByLabel('Stop when', {exact:true}).waitFor(); }
+        await page.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
         return { page, selector: dView === 'sheet' ? 'dialog[open]' : '#root', close: () => page.close() };
       }
-      const context = await browser.newContext({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
+      const context = await browser.newContext({ viewport: { width, height: 1000 }, reducedMotion: 'reduce', colorScheme: theme });
       const page = await context.newPage(); page.setDefaultTimeout(15000); page.on('pageerror', error => console.error(name, error.message));
       await context.addCookies([{ name: 'swarm_session', value: 'layout-test-token', url: server.base }]);
-      await page.addInitScript(theme => { localStorage.setItem('swarm.theme', theme); localStorage.setItem('swarm.sidebarCollapsed', '1'); }, theme);
+      // Follow each context's system theme. A legacy light/dark preference would
+      // migrate into the shared fixture account and override later contexts.
+      await page.addInitScript(() => { localStorage.setItem('swarm.theme', 'system'); localStorage.setItem('swarm.sidebarCollapsed', '1'); });
       await page.route('**/*', route => ['127.0.0.1', 'localhost'].includes(new URL(route.request().url()).hostname) ? route.fallback() : route.abort());
       if (name === 'output-linked') await page.route('**/api/outputs/by-job/*', async route => {
         const response = await route.fetch(), data = await response.json();
@@ -93,6 +96,7 @@ export async function polishFixture() {
       if (name === 'send-sheet') await page.locator('.ho-target').first().waitFor();
       if (name.startsWith('link-')) await page.getByRole('combobox', {name:'Agent',exact:true}).waitFor();
       await page.evaluate(() => document.fonts.ready); await page.waitForTimeout(200);
+      await page.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
       return { page, selector, close: () => context.close() };
     },
     async close() { await d.close(); await browser.close(); await server.close(); },

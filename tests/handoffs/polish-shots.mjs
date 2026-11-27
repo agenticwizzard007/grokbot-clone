@@ -11,8 +11,8 @@ export async function captureShots({ phase = process.env.HO_POLISH_PHASE || 'aft
     for (const name of [...screens.slice(0,15), 'settings-agents', 'settings-agents-limits', 'settings-agents-error']) for (const width of ['receipt','loop-timeline','flow-tab'].includes(name) || name.startsWith('settings-agents') ? [320,390,500,1280] : [390,1280]) for (const theme of name.startsWith('settings-agents') ? ['light','dark'] : ['light']) {
       const state = await fixture.open(name, width, theme);
       const { page } = state;
-      if (['receipt','loop-timeline','loop-graph','flow-tab'].includes(name)) {
-        const height = await page.locator('.transcript, .ho-route, .flow-page').evaluateAll(els => Math.max(...els.map(el => el.scrollHeight)));
+      if (['receipt','loop-timeline','loop-graph','flow-tab'].includes(name) || name.startsWith('settings-agents')) {
+        const height = await page.locator('.transcript, .ho-route, .flow-page, .app-settings__page').evaluateAll(els => Math.max(...els.map(el => el.scrollHeight)));
         if (height > 1000) await page.setViewportSize({width,height:Math.min(5000,height+160)});
       }
       await page.locator(state.selector).first().scrollIntoViewIfNeeded();
