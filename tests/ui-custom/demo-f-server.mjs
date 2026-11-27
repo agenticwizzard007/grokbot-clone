@@ -6,7 +6,7 @@ import { chromium } from 'playwright';
 
 const { dashboardServer, dashboardParams } = await tsImport('../fixtures/dashboard.seed.mts', import.meta.url);
 const out = path.resolve('.context/ui-custom/demo-f-server'); fs.mkdirSync(out, { recursive: true });
-const server = await dashboardServer({ performance: true });
+const server = await dashboardServer({ performance: true, compiled: process.env.DASHBOARD_COMPILED === '1' });
 const sources = ['tasks.counts', 'tasks.list', 'tasks.series', 'bots.list', 'bots.status', 'needsYou.list', 'usage.summary', 'usage.series', 'usage.windows', 'routines.list', 'routines.upcoming', 'runs.recent', 'runs.counts', 'runs.series'];
 const post = (user, requests, cookie = true) => fetch(`${server.base}/api/ui/data`, {
   method: 'POST', headers: { 'content-type': 'application/json', ...(cookie ? { cookie: `swarm_session=${user.token}` } : {}) }, body: JSON.stringify({ requests }),

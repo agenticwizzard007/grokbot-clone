@@ -74,7 +74,7 @@ export async function seedDashboard({ performance = false } = {}) {
   return { users: dashboardUsers, at, botCount, taskCount };
 }
 
-export async function dashboardServer({ performance = false } = {}) {
+export async function dashboardServer({ performance = false, compiled = false } = {}) {
   const root = path.resolve(import.meta.dirname, '../..'), temp = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-dashboard-'));
   const socket = net.createServer().listen(0, '127.0.0.1'); await once(socket, 'listening');
   const port = (socket.address() as net.AddressInfo).port; await new Promise<void>(resolve => socket.close(() => resolve()));
@@ -94,7 +94,7 @@ export async function dashboardServer({ performance = false } = {}) {
   };
   const seed = start(['tests/fixtures/dashboard.seed.mts']);
   assert.equal((await once(seed, 'exit'))[0], 0, logs);
-  const server = start(['server/src/index.ts']);
+  const server = start([compiled ? 'server/dist/index.js' : 'server/src/index.ts']);
   const close = async () => { if (server.exitCode === null) { server.kill(); await once(server, 'exit'); } fs.rmSync(temp, { recursive: true, force: true }); };
   try {
     for (let n = 0; n < 300; n++) {

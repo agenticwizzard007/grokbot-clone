@@ -56,6 +56,10 @@ for (const source of SOURCES) test(`${source.id}: allowlisted fields, caps and d
   }
   if (source.id === 'usage.series') assert.ok(own.rows!.every(row => row.value === 0.25));
   if (source.id === 'tasks.series') assert.equal(own.rows!.reduce((n, row) => n + Number(row.done), 0), 11);
+  if (source.id === 'runs.series') {
+    assert.equal(own.rows!.reduce((n, row) => n + Number(row.value), 0), 33);
+    assert.equal(foreign.rows!.reduce((n, row) => n + Number(row.value), 0), 6);
+  }
   if (source.id === 'runs.counts') assert.deepEqual(own.value, { completed: 8, failed: 9, running: 8, queued: 8 });
   if (source.id === 'usage.windows') assert.deepEqual({ rows: own.rows, available: own.available }, { rows: [], available: false });
 });
@@ -188,6 +192,24 @@ test('API uses session authentication, feature gates, JSON and origin boundaries
   assert.equal((await request(target, { requests: [], padding: 'x'.repeat(256 * 1024) })).status, 413);
   assert.equal((await request(target, { requests: [], padding: 'x'.repeat(256 * 1024) }, a, { 'content-length': '1' })).status, 413);
   assert.equal((await target.request('/api/ui/data', { method: 'POST', headers: { cookie: `swarm_session=${a.token}`, 'content-type': 'application/json' }, body: '{' })).status, 400);
+});
+test('real feature flags honor account overrides and never expose disabled data', async () => {
+  const { initUiDatabase } = await import('../../server/src/ui/db.js'); initUiDatabase(db);
+  const original = process.env.UI_CUSTOMIZATION;
+  const target = new Hono().route('/api/ui', createDataApi({ executor: executor() }));
+  try {
+    process.env.UI_CUSTOMIZATION = 'off'; assert.equal((await request(target, batch())).status, 404);
+    db.prepare('INSERT INTO account_preferences(user_id,ui_custom_enabled) VALUES(?,1) ON CONFLICT(user_id) DO UPDATE SET ui_custom_enabled=1').run(a.id);
+    assert.equal((await request(target, batch())).status, 200);
+    assert.equal((await request(target, batch(), b)).status, 404);
+    process.env.UI_CUSTOMIZATION = 'on';
+    db.prepare('UPDATE account_preferences SET ui_custom_enabled=0 WHERE user_id=?').run(a.id);
+    assert.equal((await request(target, batch())).status, 404);
+    assert.equal((await request(target, batch(), b)).status, 200);
+  } finally {
+    if (original === undefined) delete process.env.UI_CUSTOMIZATION; else process.env.UI_CUSTOMIZATION = original;
+    db.prepare('UPDATE account_preferences SET ui_custom_enabled=NULL WHERE user_id=?').run(a.id);
+  }
 });
 test('task day boundaries honor account timezone across daylight saving changes', () => {
   const userId = 'qa-temp-dashboard-timezone', botId = `${userId}-bot`;
