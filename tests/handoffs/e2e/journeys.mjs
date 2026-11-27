@@ -25,7 +25,19 @@ try {
       try { await go(page, '#bots'); await run(); results.push({ width, number, name, status: 'pass' }); console.log(`PASS ${width} journey ${number}: ${name}`); }
       catch (error) {
         const file = await screenshot(page, evidence, `journey-${number}-failure`, width);
-        results.push({ width, number, name, status: 'fail', error: error.stack, url: page.url(), screenshot: file });
+        const diagnostic = {};
+        try {
+          if (number === 7 && handoffId) {
+            diagnostic.handoffStatus = (await api(page, `/handoffs/${handoffId}`)).status;
+            diagnostic.listedHandoffIds = (await api(page, `/handoffs?botId=${f.maker}`)).handoffs.map(handoff => handoff.id);
+          }
+          if (number === 9 && loopId) {
+            diagnostic.loop = await api(page, `/loops/${loopId}`);
+            diagnostic.loopEvents = (await api(page, `/loops/${loopId}/events`)).events;
+            diagnostic.roomProgressRows = (await api(page, `/bots/${f.room}/rows`)).rows.filter(row => row.body.type === 'event' && row.body.ref?.startsWith(`#loop/${loopId}`));
+          }
+        } catch (reason) { diagnostic.error = reason.message; }
+        results.push({ width, number, name, status: 'fail', error: error.stack, url: page.url(), screenshot: file, diagnostic });
         console.error(`FAIL ${width} journey ${number}: ${error.message}`);
       } finally {
         // Stop only test loops created in this isolated fixture, so a failed journey
