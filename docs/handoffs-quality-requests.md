@@ -14,7 +14,7 @@ Historical evidence in `.context/handoffs/runtime-refusals-polish.json` records 
 
 ## Room and task event projection
 
-Request to HO-B: invoke `projectHandoffEvent` for committed handoff and loop transitions, with idempotent recovery and no side effects after rollback.
+FIX-5 (`fix-5-handoff-gaps`) owns invoking `projectHandoffEvent` for committed handoff and loop transitions, with idempotent recovery and no side effects after rollback. Journey 9 remains a mandatory check.
 
 `server/src/handoffs/rooms.ts` exports `projectHandoffEvent`, which synchronizes room rows and task state. No production caller exists on this baseline. `server/src/handoffs/db.ts` records the event and emits SSE but does not project it. Real loop creation with a room ID produces no visible room progress.
 
@@ -24,7 +24,7 @@ Journey 9 at both widths records `loop.created`, `loop.started` and `loop.finish
 
 ## Activity handoff list
 
-Request to the Bot-details integration owner: mount the existing `HandoffList` on the Bot Activity page, with All, Sent and Received filters and one Back control.
+FIX-5 owns mounting the existing `HandoffList` on the Bot Activity page, with All, Sent and Received filters and one Back control. Journey 7 remains a mandatory check.
 
 The component exists in `web/src/handoffs/HandoffList.tsx`; the baseline Bot Activity surface does not mount it. Reproduce: `HANDOFFS_JOURNEYS=7 node tests/handoffs/e2e/journeys.mjs`.
 
@@ -32,7 +32,7 @@ Journey 7 at both widths verifies a completed handoff and a nonempty list API be
 
 ## Existing HO-I demo label
 
-Request to HO-I: update `tests/handoffs/demo-i.mjs:225` to wait for the dashboard manager's current `Create` button. It still asserts a button named `New dashboard`. The manager changed that label in UC-X2.
+FIX-5 owns updating `tests/handoffs/demo-i.mjs:225` to use the dashboard manager's current `Create` button. It still asserts a button named `New dashboard`. The manager changed that label in UC-X2.
 
 `node tests/handoffs/demo-i.mjs` fails at this assertion at 1280 on both HO-H and main `bfe30f8`, after 67 passing checks. This is a shared baseline failure in a file owned by HO-I. Logs: `.context/handoffs/fix4-demos/i.log` and `.context/handoffs/main-polish-baseline/.context/handoffs/fix4-demos/i.log`.
 
