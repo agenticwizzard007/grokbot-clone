@@ -46,11 +46,30 @@ const tool = (slug: string, tags = ['readOnlyHint']) => ({ slug, toolkit: { slug
 const args = (slug = 'GMAIL_FETCH_EMAILS', arguments_ = {}) => ({ connectionId: `fixture-${slug.split('_')[0].toLowerCase()}`, revision: 1, tool_slug: slug, arguments: arguments_ });
 
 const internal = `get_team_state get_team_records read_team_source read_team_job inspect_teammate_setup prepare_teammate_setup list_app_connections search_apps request_app_connection tool_search tool_describe tool_call execute_code list_skills read_skill apply_procedure propose_skill session_search remember recall correct_memory forget_memory manage_skill manage_memory create_goal control_goal verify_goal get_workflows create_workflow start_workflow control_workflow add_workflow_dependency delegate_workflow_task complete_workflow_task list_deliverables routine_history get_platform_state save_agent_setup computer_screenshot computer_click computer_type computer_key computer_scroll computer_drag open_browser save_file shell create_routine list_event_triggers create_event_routine stay_silent set_checkins list_routines update_routine delete_routine create_task update_task send_to_bot create_bot replicate_bot retry_bot_setup spawn_subagent list_subagents message_subagent stop_subagent create_group post_to_group update_profile wait_for_browser_access present_draft ask_user browser_navigate browser_navigate_back browser_snapshot browser_click browser_type browser_fill_form browser_select_option browser_press_key browser_hover browser_drag browser_file_upload browser_handle_dialog browser_tabs browser_wait_for browser_take_screenshot browser_find browser_evaluate browser_console_messages`.split(' ');
-// Appearance and requirements tools are internal; their handlers enforce direct-chat and preview Apply rules.
-internal.push(...'get_ui_config list_ui_options preview_ui_patch apply_ui_patch discard_ui_preview undo_ui_change reset_ui apply_preset save_preset set_accent create_dashboard add_widget update_widget remove_widget move_widget delete_dashboard rename_dashboard get_requirements update_requirements reset_requirements preview_adaptation'.split(' '));
+// Appearance tools are internal; their handlers enforce direct-chat and preview Apply rules.
+internal.push(...'get_ui_config list_ui_options preview_ui_patch apply_ui_patch discard_ui_preview undo_ui_change reset_ui apply_preset save_preset set_accent create_dashboard add_widget update_widget remove_widget move_widget delete_dashboard rename_dashboard'.split(' '));
+// Requirements reads and previews are internal; profile writes retain handler confirmation rules.
+internal.push(...'get_requirements preview_adaptation update_requirements reset_requirements'.split(' '));
 // Handoffs use the same internal approval policy as send_to_bot and message_subagent.
 internal.push(...'submit_output handoff_to_agent read_handoff list_handoffs submit_verdict start_loop write_flow_summary'.split(' '));
 test('R11-2 audit covers every registered native tool', () => assert.deepEqual([...toolMap.keys()].sort(), [...internal, 'deliver_artifact', 'retry_delivery'].sort()));
+test('R11-2 requirements tools follow UI-config approval rules at both API approval levels and on CLI plans', async () => {
+  try {
+    for (const apiApprovalLevel of ['standard', 'every_action'] as const) {
+      for (const mode of ['codex', 'standard']) {
+        saveAccountPreferences(mode, { apiApprovalLevel });
+        for (const name of ['get_requirements', 'get_ui_config', 'preview_adaptation', 'preview_ui_patch', 'update_requirements', 'reset_requirements', 'save_preset', 'apply_ui_patch', 'undo_ui_change']) {
+          const policy = await executionPolicyFor(mode, name, {}, bots[mode].id);
+          const asks = mode === 'standard' && apiApprovalLevel === 'every_action';
+          assert.equal(policy.decision, asks ? 'ask' : 'allow', `${mode} ${apiApprovalLevel} ${name}`);
+          assert.equal(policy.key, asks ? `api_max:${name}` : name);
+        }
+      }
+    }
+  } finally {
+    for (const mode of ['codex', 'standard']) saveAccountPreferences(mode, { apiApprovalLevel: 'standard' });
+  }
+});
 test('R11-2 handoff sending follows teammate messaging at both API approval levels and on CLI plans', async () => {
   try {
     for (const apiApprovalLevel of ['standard', 'every_action'] as const) {
