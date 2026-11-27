@@ -111,3 +111,11 @@ test('structured secrets remain valid redacted JSON and selected files stay boun
     assert.throws(() => handoffs.readHandoff(readCtx, { handoffId: h.id, partId: denied.id }), /Not found/);
     assert.equal(handoffs.readHandoff(readCtx, { handoffId: h.id }).output.parts.filter(p => p.kind === 'file').length, 1);
 });
+test('agent handoff retries neither redeclare a draft nor change a bound call', async () => {
+    const f = fixture(), job = jobs.acceptJob(f.maker.id, { type: 'user' }), ctx = { userId: f.userId, botId: f.maker.id, jobId: job.id, toolCallId: 'send' }, input = { toBotId: f.checker.id, instruction: 'Review the fixture.', summary: 'Draft fixture.' };
+    const first = await handoffs.handoffService.handoffToAgent(ctx, input);
+    assert.equal((await handoffs.handoffService.handoffToAgent(ctx, input)).id, first.id);
+    assert.equal(outputs.outputByJob(f.userId, job.id).revision, 1);
+    await assert.rejects(handoffs.handoffService.handoffToAgent(ctx, { ...input, summary: 'Changed summary.' }), (e: any) => e.code === 'idempotency_conflict');
+    assert.equal(outputs.outputByJob(f.userId, job.id).summary, 'Draft fixture.');
+});

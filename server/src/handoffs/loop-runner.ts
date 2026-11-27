@@ -76,7 +76,7 @@ function dispatch(loop: Loop, step: LoopStep, index: number, attempt: number) {
     const requestId = old?.request_id ?? enqueueSystemRequest(step.botId, text, { idempotencyKey: id, reply: false, correlationId: id });
     db.prepare('UPDATE handoff_loop_dispatches SET request_id=? WHERE loop_id=? AND iteration=? AND step_id=? AND attempt=?').run(requestId, loop.id, loop.iteration, step.id, attempt);
     const row = db.prepare('SELECT * FROM loop_steps WHERE loop_id=? AND iteration=? AND step_id=?').get(loop.id, loop.iteration, step.id) as any;
-    let handoffId = row.handoff_id;
+    let handoffId = (db.prepare('SELECT id FROM handoffs WHERE user_id=? AND idempotency_key=?').get(loop.userId, id) as any)?.id;
     if (!handoffId) {
         handoffId = newId('ho');
         db.prepare(`INSERT INTO handoffs(id,user_id,from_bot_id,to_bot_id,source_output_id,initiated_by,instruction,return_result,create_task,status,request_id,loop_id,iteration,step_id,idempotency_key,fingerprint,created_at,updated_at)

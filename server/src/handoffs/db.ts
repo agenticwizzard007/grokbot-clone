@@ -39,6 +39,10 @@ CREATE TABLE IF NOT EXISTS handoff_auto_receipts (
  link_id TEXT NOT NULL REFERENCES handoff_links(id) ON DELETE CASCADE,
  output_id TEXT NOT NULL REFERENCES run_outputs(id) ON DELETE CASCADE,
  status TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(link_id,output_id));
+CREATE TABLE IF NOT EXISTS handoff_agent_commands (
+ user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, job_id TEXT NOT NULL REFERENCES agent_jobs(id) ON DELETE CASCADE,
+ call_id TEXT NOT NULL, fingerprint TEXT NOT NULL, handoff_id TEXT NOT NULL REFERENCES handoffs(id) ON DELETE CASCADE,
+ PRIMARY KEY(user_id,job_id,call_id));
 CREATE TABLE IF NOT EXISTS handoff_tool_receipts (
  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, job_id TEXT NOT NULL REFERENCES agent_jobs(id) ON DELETE CASCADE,
  call_id TEXT NOT NULL, fingerprint TEXT NOT NULL, output_id TEXT NOT NULL REFERENCES run_outputs(id) ON DELETE CASCADE,
@@ -85,6 +89,14 @@ export function requestForRun(userId: string, botId: string, jobId: string): str
  WHERE p.user_id=? AND p.bot_id=? AND l.n<32)
  SELECT json_extract(trigger,'$.coordinationRequestId') request_id FROM lineage WHERE json_extract(trigger,'$.coordinationRequestId') IS NOT NULL ORDER BY n LIMIT 1`).get(jobId, userId, botId, userId, botId) as any;
     return row?.request_id;
+}
+/** Cancellation targets only this request's current owned continuation. */
+export function activeRequestJob(userId: string, requestId: string): string | undefined {
+    const row = db.prepare(`WITH RECURSIVE lineage(id,bot_id) AS (
+ SELECT job_id,to_bot_id FROM coordination_requests WHERE id=? AND user_id=?
+ UNION SELECT j.id,j.bot_id FROM agent_jobs j JOIN lineage l ON json_extract(j.trigger,'$.parentJobId')=l.id WHERE j.user_id=? AND j.bot_id=l.bot_id)
+ SELECT j.id FROM agent_jobs j JOIN lineage l ON l.id=j.id WHERE j.user_id=? AND j.state IN ('queued','running') ORDER BY j.rowid DESC LIMIT 1`).get(requestId, userId, userId, userId) as any;
+    return row?.id;
 }
 /** Finish hooks may be inside the runtime's existing SQLite transaction. */
 export function atomic<T>(fn: () => T): T { return db.inTransaction ? db.transaction(fn)() : transactionWithEffects(fn); }

@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { buildPacket } from './packet.js';
 import { z } from 'zod';
-import { db, now, newId, sha256, atomic, afterCommit, ownBot, targetBot, ownJob, requestForRun, requireEnabled, enabled, settings, missing, emitEvent, events, ServiceError, cursor, pageSize, nextCursor } from './db.js';
+import { db, now, newId, sha256, atomic, afterCommit, ownBot, targetBot, ownJob, activeRequestJob, requestForRun, requireEnabled, enabled, settings, missing, emitEvent, events, ServiceError, cursor, pageSize, nextCursor } from './db.js';
 import { getOutput, saveOutput, submitOutput, fromTask, fromMessage, rawBody, readPart, materialize, displayText } from './outputs.js';
 import { enqueueInternalMessage, drainInternalRequests, coordinationRuntime } from '../coordination/requests.js';
 import { appendRow, updateRow } from '../store.js';
@@ -153,7 +153,9 @@ export function controlHandoff(userId: string, id: string, action: 'approve' | '
         db.prepare('UPDATE handoffs SET status=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?').run(status, now(), id, userId);
         if (status !== 'queued' && h.requestId) {
             db.prepare("UPDATE coordination_requests SET status='failed',reply=0,reason=?,updated_at=? WHERE id=? AND user_id=? AND status NOT IN ('completed','failed')").run(status, now(), h.requestId, userId);
-            afterCommit(() => coordinationRuntime()?.interrupt(h.toBotId, h.jobId ?? undefined));
+            const activeJob = activeRequestJob(userId, h.requestId);
+            if (activeJob)
+                afterCommit(() => coordinationRuntime()?.interrupt(h.toBotId, activeJob));
         }
         emitEvent(userId, `handoff.${action === 'approve' ? 'approved' : status}`, { actor: userId }, { handoffId: id }, { type: 'handoff', id, status });
         const result = getHandoff(userId, id);
@@ -231,10 +233,21 @@ export const handoffService: HandoffService = {
     async handoffToAgent(ctx, input: AgentHandoffInput) {
         requireEnabled(ctx.userId);
         assertNotLoopStep(ctx);
-        const output = input.outputRef ? canReadOutput(ctx, parseRef(input.outputRef).outputId) : saveOutput({ ...ctx, declared: { summary: input.summary ?? input.instruction } });
-        if (output.botId !== ctx.botId)
-            throw new ServiceError('policy_denied', 'Hand off an output from this agent.', 422);
-        return createHandoff(ctx.userId, { source: { outputId: output.id }, toBotId: input.toBotId, instruction: input.instruction, returnResult: input.returnResult, priority: input.priority, idempotencyKey: sha256(`${ctx.jobId}:${ctx.toolCallId}`) }, 'agent', input.includeFiles).handoff;
+        return atomic(() => {
+            const fingerprint = sha256(JSON.stringify(input));
+            const receipt = db.prepare('SELECT * FROM handoff_agent_commands WHERE user_id=? AND job_id=? AND call_id=?').get(ctx.userId, ctx.jobId, ctx.toolCallId) as any;
+            if (receipt) {
+                if (receipt.fingerprint !== fingerprint)
+                    throw new ServiceError('idempotency_conflict', 'This call was used for another handoff.', 409);
+                return getHandoff(ctx.userId, receipt.handoff_id);
+            }
+            const output = input.outputRef ? canReadOutput(ctx, parseRef(input.outputRef).outputId) : saveOutput({ ...ctx, declared: { summary: input.summary ?? input.instruction } });
+            if (output.botId !== ctx.botId)
+                throw new ServiceError('policy_denied', 'Hand off an output from this agent.', 422);
+            const handoff = createHandoff(ctx.userId, { source: { outputId: output.id }, toBotId: input.toBotId, instruction: input.instruction, returnResult: input.returnResult, priority: input.priority, idempotencyKey: sha256(`${ctx.jobId}:${ctx.toolCallId}`) }, 'agent', input.includeFiles).handoff;
+            db.prepare('INSERT INTO handoff_agent_commands VALUES(?,?,?,?,?)').run(ctx.userId, ctx.jobId, ctx.toolCallId, fingerprint, handoff.id);
+            return handoff;
+        });
     },
     async readHandoff(ctx, input) { return readHandoff(ctx, input); },
     async listHandoffs(ctx, input: ListHandoffsInput) { ownJob(ctx.userId, ctx.botId, ctx.jobId); return listHandoffs(ctx.userId, { ...input, botId: ctx.botId, limit: Math.min(20, input.limit ?? 20) }).handoffs; },

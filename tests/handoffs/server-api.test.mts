@@ -203,3 +203,13 @@ test('per-user setting disables execution and can be restored without an environ
     assert.equal((await call(f, '/handoff-settings', 'PUT', { enabled: true, agentHandoffs: 'team' })).status, 200);
     assert.equal((await call(f, '/outputs')).status, 200);
 });
+test('cancelling a deferred handoff never interrupts unrelated work on the receiver', async () => {
+    const { interrupted } = await import('./server-fixture.test.mts');
+    const f = fixture(), o = output(f), busy = jobs.acceptJob(f.checker.id, { type: 'user' });
+    jobs.beginJob(busy.id);
+    const h = handoffs.createHandoff(f.userId, { source: { outputId: o.id }, toBotId: f.checker.id, instruction: 'Wait for receiver.', idempotencyKey: 'busy-cancel' }).handoff;
+    assert.equal(requests.getInternalRequest(f.userId, h.requestId!).status, 'deferred');
+    handoffs.controlHandoff(f.userId, h.id, 'cancel');
+    assert.ok(!interrupted.includes(busy.id));
+    assert.equal((db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(busy.id) as any).state, 'running');
+});

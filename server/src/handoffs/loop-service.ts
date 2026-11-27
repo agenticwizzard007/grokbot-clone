@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { recomputeVerdict } from './verdict.js';
-import { db, now, newId, sha256, atomic, afterCommit, requireEnabled, targetBot, ownBot, ownJob, requestForRun, missing, emitEvent, events, ServiceError, cursor, pageSize, nextCursor } from './db.js';
+import { db, now, newId, sha256, atomic, afterCommit, requireEnabled, targetBot, ownBot, ownJob, activeRequestJob, requestForRun, missing, emitEvent, events, ServiceError, cursor, pageSize, nextCursor } from './db.js';
 import type { Loop, LoopSpec, LoopStatus, StopReason, HandoffContext, Verdict, CheckedVerdict } from './contracts.js';
 import { getOutput, displayText } from './outputs.js';
 import { parseRef, validateRoom } from './handoff-service.js';
@@ -156,8 +156,9 @@ export function cancelLoopWork(loop: Loop) {
     const pending = db.prepare("SELECT r.* FROM coordination_requests r JOIN handoff_loop_dispatches d ON d.request_id=r.id WHERE d.loop_id=? AND r.user_id=? AND r.status NOT IN ('completed','failed')").all(loop.id, loop.userId) as any[];
     for (const r of pending) {
         db.prepare("UPDATE coordination_requests SET status='failed',reply=0,reason='loop_stopped',updated_at=? WHERE id=? AND user_id=?").run(now(), r.id, loop.userId);
-        if (r.job_id)
-            afterCommit(() => coordinationRuntime()?.interrupt(r.to_bot_id, r.job_id));
+        const activeJob = activeRequestJob(loop.userId, r.id);
+        if (activeJob)
+            afterCommit(() => coordinationRuntime()?.interrupt(r.to_bot_id, activeJob));
     }
 }
 export function controlLoop(userId: string, id: string, action: 'start' | 'pause' | 'resume' | 'stop' | 'approve' | 'decline' | 'extend' | 'done') {
