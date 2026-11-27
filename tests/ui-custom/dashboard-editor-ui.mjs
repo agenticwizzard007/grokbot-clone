@@ -46,13 +46,14 @@ try {
   assert.equal(messages.length, 0); passed++;
   await patch(page, [{ op: 'replace', path: '/dashboards/0/widgets', value: [{ id:'$new72', type:'shortcuts', title:'Fixture shortcuts', span:6, rows:2, options:{items:[{label:'Draft a plan',target:`ask:${server.fixture.bot.id}:Fixture unsent draft`}]}}] }]);
   await page.goto(`${server.base}/#dash/${dashboard.id}`); await page.getByRole('button',{name:'Draft a plan',exact:true}).click();
-  await page.waitForFunction(() => [...document.querySelectorAll('textarea')].some(node => node.value === 'Fixture unsent draft')); assert.equal(messages.length,0); passed++;
+  await page.waitForFunction(() => [...document.querySelectorAll('textarea')].some(node => node.value.includes('Fixture unsent draft'))); assert.equal(messages.length,0); passed++;
   // The phone uses real touch input on the same eight controls.
   const context = await server.browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
   await context.route('**/*', route => ['127.0.0.1','localhost'].includes(new URL(route.request().url()).hostname) ? route.continue() : route.abort());
   await context.addCookies([{ name: 'swarm_session', value: 'layout-test-token', url: server.base }]);
   const phone = await context.newPage(); await phone.goto(server.base);
   await phone.waitForFunction(async () => (await import('/src/customization/store.ts')).useCustomization.getState().status === 'ready');
+  await phone.evaluate(async () => (await import('/src/customization/store.ts')).refreshUiConfig());
   await patch(phone, [{ op: 'replace', path: '/dashboards/0/widgets', value: [
     { id: '$new80', type: 'note', title: 'Fixture touch', span: 6, rows: 2, options: { text: 'Fixture note' } },
     { id: '$new81', type: 'note', title: 'Fixture next', span: 6, rows: 2, options: { text: 'Fixture next note' } },

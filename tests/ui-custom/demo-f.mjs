@@ -13,6 +13,7 @@ try {
     await server.open(page, dashboard.id); await assertGrid(page, width);
     const issues = await page.evaluate(inspectAlignment); assert.deepEqual(issues, []);
     checks.push(`My week data and alignment ${width} ${mode}`); await shot(page, `my-week-${width}-${mode}`);
+    if (width === 390) { await page.locator('[data-widget-type="chart"]').scrollIntoViewIfNeeded(); await page.locator('.dashboard-chart svg').waitFor(); await shot(page, `my-week-${width}-${mode}-chart`); }
   }
   await patch(desktop, [{ op: 'replace', path: '/theme/mode', value: 'light' }]);
   await server.open(desktop, dashboard.id); await desktop.getByRole('button', { name: 'Edit', exact: true }).click();
