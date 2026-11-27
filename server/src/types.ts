@@ -1,3 +1,4 @@
+export type { UiPreviewCardBody } from './ui-config/service.js';
 import type { ConnectionDetails } from './connection-details.js';
 // Shared API contract between server and web (web imports these as types only).
 import type { BirdAvatarShape } from './avatar-shapes.js';
@@ -146,6 +147,7 @@ export interface ToolCallBody {
 export type ApprovalStatus = 'pending' | 'allowed' | 'always' | 'denied' | 'expired';
 
 export type CardBody =
+  | ({ type: 'card' } & import('./ui-config/service.js').UiPreviewCardBody)
   | {
       type: 'card';
       card: 'approval';
@@ -296,6 +298,8 @@ export interface Toolkit {
 
 /** Server-sent events on GET /api/events */
 export type ServerEvent = (
+  | { type: 'ui_config'; revision: number }
+  | { type: 'ui_preview'; previewId: string; botId: string; state: 'pending' | 'applied' | 'discarded' | 'expired' }
   | { type: 'native'; cursor: number }
   | { type: 'hello'; serverTime: number }
   | { type: 'rows'; botId: string; generation: number; rows: Row[] }
