@@ -21,7 +21,7 @@ export function FirstRun() {
   };
   return <main className="first-run">
     <Page type="form" title="Connect a model">
-      <div className="first-run__progress" aria-label="Step 2 of 3"><span /><span /><span /></div>
+      <div className="first-run__progress" role="img" aria-label="Step 2 of 3"><span /><span /><span /></div>
       <Section title="Step 2 of 3">
         {options.map((option, index) => <Card key={option.provider} className={choice === index ? 'first-run__selected' : undefined}>
           <button type="button" className="first-run__option" aria-pressed={choice === index} onClick={() => setChoice(index)}>

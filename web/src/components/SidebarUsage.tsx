@@ -28,7 +28,7 @@ export function SidebarUsage({ collapsed }: { collapsed: boolean }) {
     : plan ? planLabel(summary?.provider, summary?.plan) : 'API credits';
   const detail = pending ? 'Provider details' : !known ? 'Retry' : !plan ? 'Recorded spending'
     : window ? `${window.label} · ${Number(window.usedPercent.toFixed(1))}% used` : reported.state === 'stale' ? 'Refresh usage' : 'Limits unavailable';
-  return <button type="button" className="sidebar-usage" aria-label={`Usage: ${label}. ${detail}`}
+  return <button type="button" className="sidebar-usage" aria-label={collapsed ? `Usage: ${label}. ${detail}` : undefined}
     title={collapsed ? `${label} · ${detail}` : undefined}
     onClick={() => { if (failed) void catalog.load(true); else useConfigUI.getState().openAppSettings(known && !plan ? 'usage' : 'subscriptions'); }}>
     {collapsed ? providerBrand(summary?.provider) ? <ProviderMark provider={summary?.provider} /> : <Gauge size={20} aria-hidden /> : <>

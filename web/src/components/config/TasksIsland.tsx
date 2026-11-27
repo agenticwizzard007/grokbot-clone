@@ -11,6 +11,7 @@ export function TasksIsland() {
   const settingsOpen = useConfigUI((s) => s.appSettings !== null);
   const tab = useConfigUI(s => s.workRoute.tab);
   const modal = useStore(s => s.modal);
+  const collapsed = useStore(s => !s.mobile && s.sidebarCollapsed);
   const active = view === 'tasks' && tab !== 'Reports' && !settingsOpen && !modal;
   const { tasks, error } = useTasks();
   const attention = useNeedsYou();
@@ -19,7 +20,7 @@ export function TasksIsland() {
   return (
     <button type="button" className={`sidebar-island${active ? ' is-active' : ''}`} onClick={() => useConfigUI.getState().requestLeaveBotSettings(() => {
       navigation.navigate({ kind: 'work', route: { tab: 'Tasks' } });
-    })} title={countState !== 'ready' ? `Pending input count ${countState}` : waiting ? `${waiting} ${waiting === 1 ? 'item needs' : 'items need'} your input` : 'Tasks'} aria-label="Tasks" aria-pressed={active}>
+    })} title={countState !== 'ready' ? `Pending input count ${countState}` : waiting ? `${waiting} ${waiting === 1 ? 'item needs' : 'items need'} your input` : 'Tasks'} aria-label={collapsed ? 'Tasks' : undefined} aria-pressed={active}>
       <span className="sidebar-island__icon"><Glyph name="tasks" size={18} /></span><span className="sidebar-island__label">Tasks</span>
       <TaskCount className="sidebar-island__count" state={countState} count={waiting} label={`${waiting} waiting on you`} quietZero />
     </button>
