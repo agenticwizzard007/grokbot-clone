@@ -68,6 +68,7 @@ const manifest = [...TOOLS, ...await composioTools(owner), ...customTools].map((
 // Generate required arguments from the actual schemas so newly added tools enter
 // the matrix automatically. AJV checks these examples independently below.
 function sample(schema: any): any {
+  if (schema.examples?.length) return structuredClone(schema.examples[0]);
   if (schema.const !== undefined) return schema.const;
   if (schema.enum) return schema.enum[0];
   switch (schema.type) {

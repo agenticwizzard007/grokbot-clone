@@ -43,6 +43,8 @@ import { isExternalAppWrite, isExternalOnBehalfAction } from './external-actions
 import { appFailure } from './app-errors.js';
 import { safeToolName } from '../cli/diagnostics.js';
 import { visibleConnections } from '../connection-details.js';
+import { UI_TOOLS, UI_TOOL_NAMES } from './ui-tools.js';
+import { appearanceSkillResult, uiToolsOffered } from './ui-runtime.js';
 
 export interface ToolCtx {
   userId: string;
@@ -118,10 +120,13 @@ export const TOOLS: ToolDef[] = [
   ...APP_CONNECTION_TOOLS,
   ...DISCOVERY_TOOLS,
   ...PROGRAM_TOOLS,
-  ...KNOWLEDGE_TOOLS,
+  ...KNOWLEDGE_TOOLS.map(tool => ['list_skills', 'read_skill'].includes(tool.name)
+    ? { ...tool, impl: (args: any, ctx: ToolCtx) => appearanceSkillResult(tool.name, args, ctx, () => tool.impl(args, ctx)) }
+    : tool),
   ...LEARNING_TOOLS,
   ...WORKFLOW_TOOLS,
   ...DELIVERABLE_TOOLS,
+  ...UI_TOOLS,
   {
     name: 'get_platform_state',
     description: 'Read authoritative Swarm configuration: this agent’s text model and provider, separate voice model, subscription CLI connection, recorded usage and optionally the model catalog or fresh connected-service status (include_connections). Use this for questions about this app; never browse Swarm or ask for a browser login to inspect its own configuration. Unknown subscription tiers or remaining provider allowance must not be guessed.',
@@ -704,10 +709,11 @@ export const GROUP_TURN_TOOLS: ReadonlySet<string> = new Set([
 ]);
 export const allowedInGroupTurn = (toolName: string) => GROUP_TURN_TOOLS.has(toolName);
 
-export function functionSchemas(botId?: string) {
+export function functionSchemas(botId?: string, ctx?: Pick<ToolCtx, 'userId' | 'jobId' | 'depth' | 'roomId'>) {
   const bot = botId ? getBotRow(botId) : null;
   const canCreate = !!bot?.is_primary && !bot.hidden && bot.kind !== 'room';
-  return TOOLS.filter((t) => (!botId || allowedDuringSetup(botId, t.name)) && (t.name !== 'save_agent_setup' || !!botId && isConfiguring(botId)))
+  const uiAvailable = !!botId && uiToolsOffered({ botId, ...ctx });
+  return TOOLS.filter((t) => (!UI_TOOL_NAMES.has(t.name) || uiAvailable) && (!botId || allowedDuringSetup(botId, t.name)) && (t.name !== 'save_agent_setup' || !!botId && isConfiguring(botId)))
     .filter((t) => (!['create_bot', 'replicate_bot', 'retry_bot_setup', 'update_profile', 'inspect_teammate_setup', 'prepare_teammate_setup', 'get_team_state', 'get_team_records', 'read_team_source', 'read_team_job'].includes(t.name) || canCreate)).filter((t) => t.name !== 'shell' || computers.capabilities.shell).filter((t) => !t.name.startsWith('browser_') || computers.capabilities.browser).map((t) => ({
     type: 'function',
     name: t.name,
