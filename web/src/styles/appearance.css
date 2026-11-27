@@ -51,3 +51,5 @@
 
 .appearance-settings :is(input:not([type='file']), select), .appearance-dialog input, .appearance-dialog .modal-page-back button { font-size: 14px; }
 .appearance-settings kbd { font-size: inherit; }
+.appearance-dialog .layout-button-group > * { flex: 1 1 0; min-width: 0; }
+.appearance-dialog .cfg-btn--danger, .appearance-dialog .cfg-btn--danger:hover:not(:disabled) { background: var(--color-danger-bg); color: var(--color-danger-text); }

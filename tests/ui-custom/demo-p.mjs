@@ -16,6 +16,9 @@ async function capture(page, name, width, theme, selector) {
   await page.screenshot({ path: file, fullPage: true, animations: 'disabled' }); screenshots.push(file);
   if (!before) {
     assert.doesNotMatch(await page.locator('body').innerText(), forbidden, `${name}: visible test text`);
+    const fields = await page.locator('input,textarea').evaluateAll(elements => elements.filter(el => el.checkVisibility()).map(el => `${el.value} ${el.placeholder}`).join(' '));
+    assert.doesNotMatch(fields, forbidden, `${name}: visible input text`);
+    if (width <= 760 && selector.endsWith('dialog')) assert.equal(await rootBackCount(page, selector), 1, `${name}: one Back in the active sheet`);
     assert.deepEqual(await page.evaluate(inspectAlignment, { selector, requirePage: selector !== '.appearance-dialog' }), [], `${name}: alignment`);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     const root = page.locator(selector);
@@ -36,7 +39,7 @@ async function capture(page, name, width, theme, selector) {
     await readableWords(root);
     const typeIssues = await root.evaluate(root => {
       const requirements = [
-        ['.dashboard-list-title, .dashboard-library-item strong, .dashboard-field, .dashboard-empty-data p, .appearance-settings .layout-row__title, .appearance-settings .menu__label', 14],
+        ['.dashboard-list-title, .dashboard-library-item strong, .dashboard-field, .dashboard-empty-data p, .appearance-settings .layout-row__title, .appearance-settings .menu__label, .appearance-dialog .cfg-btn', 14],
         ['.dashboard-list-meta, .dashboard-library-item > span, .appearance-settings .layout-row__subtitle, .appearance-helper', 13],
         ['.dashboard-chart-values, .dashboard-chart-labels, .dashboard-chart-legend', 12],
       ];
@@ -115,6 +118,7 @@ try {
   await server?.close();
   fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify({ passed: checks.length, failed: failure ? 1 : 0, failure, counts, checks, screenshots }, null, 2));
 }
+async function rootBackCount(page, selector) { return page.locator(selector).getByRole('button', { name: 'Back', exact: true }).count(); }
 async function wordCount(page) {
   return page.locator('.shell-content').evaluate(root => {
     let text = root.innerText;
