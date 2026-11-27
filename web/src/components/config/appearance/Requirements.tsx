@@ -66,7 +66,6 @@ export function Requirements() {
   if (!saved) return <Section role="region" aria-label="About you"><p role={error ? 'alert' : 'status'}>{error || 'Loading your requirements...'}</p></Section>;
   return <div role="region" aria-label="About you" className="requirements-settings">
     <style>{requirementsStyles}</style>
-    <p>Use your profile for a dashboard suggestion.</p>
     {error && <p role="alert">{error}</p>}
     {message && <p role="status"><span className="cfg-chip">{message}</span></p>}
     {!preview && <fieldset disabled={busy || !saved} className="appearance-fields" aria-label="Your requirements" aria-busy={busy}>
