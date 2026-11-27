@@ -1,0 +1,100 @@
+{
+  "v": 1,
+  "botId": "flow-suggestions",
+  "version": 1,
+  "inputsHash": "56f8be5a3a1959e38479c404fb5b85cce4bf20db39e9b98f9a9f91c81e3c40fd",
+  "generatedAt": 0,
+  "source": "auto",
+  "lanes": [
+    {
+      "id": "triggers",
+      "label": "Triggers",
+      "nodes": [
+        {
+          "id": "triggers:message:chat",
+          "kind": "message",
+          "label": "You message me",
+          "target": {
+            "hash": "#bot/flow-suggestions"
+          },
+          "state": "ok"
+        }
+      ],
+      "more": 0
+    },
+    {
+      "id": "inputs",
+      "label": "Inputs",
+      "nodes": [
+        {
+          "id": "inputs:suggested_app:github",
+          "kind": "suggested_app",
+          "label": "GitHub",
+          "target": {
+            "hash": "#apps/connect",
+            "focus": "app:github"
+          },
+          "state": "suggested",
+          "badge": "Suggested",
+          "detail": "Connect",
+          "logo": {
+            "kind": "toolkit",
+            "id": "github"
+          }
+        },
+        {
+          "id": "inputs:suggested_app:googlecalendar",
+          "kind": "suggested_app",
+          "label": "Google Calendar",
+          "target": {
+            "hash": "#apps/connect",
+            "focus": "app:googlecalendar"
+          },
+          "state": "suggested",
+          "badge": "Suggested",
+          "detail": "Connect",
+          "logo": {
+            "kind": "toolkit",
+            "id": "googlecalendar"
+          }
+        }
+      ],
+      "more": 0
+    },
+    {
+      "id": "steps",
+      "label": "Steps",
+      "nodes": [],
+      "more": 0
+    },
+    {
+      "id": "outputs",
+      "label": "Outputs",
+      "nodes": [
+        {
+          "id": "outputs:message_out:chat",
+          "kind": "message_out",
+          "label": "Chat messages",
+          "target": {
+            "hash": "#settings/messaging"
+          },
+          "state": "ok"
+        }
+      ],
+      "more": 0
+    },
+    {
+      "id": "handoffs",
+      "label": "Handoffs",
+      "nodes": [],
+      "more": 0
+    }
+  ],
+  "loopBack": {
+    "kind": "waits",
+    "label": "Waits for the next trigger"
+  },
+  "warnings": [
+    "No instructions yet"
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "v": 1,
+  "botId": "flow-odd",
+  "version": 1,
+  "inputsHash": "e47896ff16a1ab4a08bcdcd58da75ee7713c6be48538b8ed299abf4526b9b72b",
+  "generatedAt": 0,
+  "source": "auto",
+  "lanes": [
+    {
+      "id": "triggers",
+      "label": "Triggers",
+      "nodes": [
+        {
+          "id": "triggers:message:chat",
+          "kind": "message",
+          "label": "You message me",
+          "target": {
+            "hash": "#bot/flow-odd"
+          },
+          "state": "ok"
+        }
+      ],
+      "more": 0
+    },
+    {
+      "id": "inputs",
+      "label": "Inputs",
+      "nodes": [],
+      "more": 0
+    },
+    {
+      "id": "steps",
+      "label": "Steps",
+      "nodes": [],
+      "more": 0
+    },
+    {
+      "id": "outputs",
+      "label": "Outputs",
+      "nodes": [
+        {
+          "id": "outputs:message_out:chat",
+          "kind": "message_out",
+          "label": "Chat messages",
+          "target": {
+            "hash": "#settings/messaging"
+          },
+          "state": "ok"
+        }
+      ],
+      "more": 0
+    },
+    {
+      "id": "handoffs",
+      "label": "Handoffs",
+      "nodes": [],
+      "more": 0
+    }
+  ],
+  "loopBack": {
+    "kind": "waits",
+    "label": "Waits for the next trigger"
+  },
+  "warnings": []
+}

@@ -1,4 +1,5 @@
 import { db } from '../../server/src/db.js';
+import { initSubagents } from '../../server/src/agent/subagents.js';
 import { initRooms } from '../../server/src/agent/rooms.js';
 import '../../server/src/deliverables/schema.js';
 import '../../server/src/coordination/schema.js';
@@ -6,7 +7,7 @@ import { DDL } from '../../server/src/handoffs/schema.js';
 import { saveMcpServer } from '../../server/src/mcp/store.js';
 import { recordFlowConnections } from '../../server/src/flow/cache.js';
 import { fixtures } from './fixtures.mjs';
-initRooms(); db.exec(DDL);
+initRooms(); initSubagents(); db.exec(DDL);
 export function seedFlow(userId = 'flow-test') {
   db.prepare('INSERT OR IGNORE INTO users(id,email,name,created_at) VALUES(?,?,?,?)').run(userId, `${userId}@example.test`, 'Test account', Date.now());
   db.prepare('INSERT OR REPLACE INTO auth_sessions(token,user_id,created_at,expires_at) VALUES(session_hash(?),?,?,?)').run('flow-test-token', userId, Date.now(), Date.now() + 3600000);

@@ -17,6 +17,7 @@ import { customerSetupText, customerSetupValue } from '../../../../server/src/cu
 import { ComputerStatusLine } from './computerStatus';
 import { SetupConnectionHelp } from './SetupConnectionHelp';
 
+const SuggestedIntegrations = lazy(() => import('../SuggestedIntegrations').then(m => ({ default: m.SuggestedIntegrations })));
 const FlowCompact = lazy(() => import('../../flow/FlowCompact'));
 
 const normalized = (s: string) => s.trim().toLowerCase().replace(/[.!]+$/, '').replace(/\s+/g, ' ');
@@ -208,7 +209,7 @@ function SetupConfiguration({ bot, navigation, userId }: { bot: Bot; navigation?
           </div>
         </div>}
       </section>}
-      {activatedRevision !== null && status === 'active' && <p role="status">Setup activated.</p>}
+      {activatedRevision !== null && status === 'active' && <><p role="status">Setup activated.</p><Suspense fallback={null}><SuggestedIntegrations botId={bot.id} description={bot.description} instructions={bot.instructions} placement="details" /></Suspense></>}
       {writeError && <p className="cfg-error" role="alert">{writeError}</p>}
       {purpose || responsibilities.length ? <section className="agent-config__section"><h3>Responsibilities</h3>{purpose && <p className="agent-config__mission">{purpose}</p>}{!!responsibilities.length && <ul>{responsibilities.map((item, i) => <li key={i}>{item}</li>)}</ul>}</section> : <p className="agent-config__muted">Describe its job in chat.</p>}
       <Items label="Expected results" items={outcomes.length ? outcomes : brief.workflows.map((w) => w.output)} />

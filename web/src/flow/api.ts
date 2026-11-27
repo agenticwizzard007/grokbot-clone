@@ -18,8 +18,12 @@ async function request<T>(path: string, method = 'GET', body?: unknown, signal?:
   }
   return result.json();
 }
-export type LinkInput = Pick<HandoffLink, 'toBotId' | 'mode' | 'trigger' | 'template' | 'autoApproveLoops'> & { id?: string };
+export type LinkInput = Pick<HandoffLink, 'toBotId' | 'mode' | 'trigger' | 'template' | 'autoApproveLoops'>;
 export const flowApi = {
+  hasRuns: async (id: string, signal?: AbortSignal) => {
+    const response = await fetch(`/api/bots/${encodeURIComponent(id)}/flow`, { credentials: 'include', signal });
+    return !response.ok || response.headers.get('X-Flow-Has-Runs') !== '0';
+  },
   get: (id: string, signal?: AbortSignal) => request<FlowModel>(`/bots/${encodeURIComponent(id)}/flow`, 'GET', undefined, signal),
   refresh: (id: string) => request<{ accepted: boolean; retryAfter: number }>(`/bots/${encodeURIComponent(id)}/flow/refresh`, 'POST', {}),
   links: (id: string) => request<{ links: HandoffLink[] }>(`/handoff-links?botId=${encodeURIComponent(id)}`),
@@ -61,7 +65,7 @@ export function openFlowNode(botId: string, node: FlowNode) {
 export function restoreFlowFocus(botId: string, root: HTMLElement | null) {
   if (returnNode?.botId !== botId || returnNode.account !== useStore.getState().user?.id) return;
   const target = [...(root?.querySelectorAll<HTMLElement>('[data-flow-node]') ?? [])].find(el => el.dataset.flowNode === returnNode?.nodeId);
-  if (target) { target.focus({ preventScroll: true }); returnNode = undefined; }
+  if (target?.getClientRects().length && !target.closest('[hidden], [inert]')) { target.focus({ preventScroll: true }); if (document.activeElement === target) returnNode = undefined; }
 }
 const initial = flowLocation();
 function restore(event?: Event) {

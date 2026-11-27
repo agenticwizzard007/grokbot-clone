@@ -17,7 +17,7 @@ export function FlowTab({ botId }: { botId: string }) {
     {loading && <Card><Row title="Loading flow..." /></Card>}
     {error && <Card><Row title={error} trailing={<button type="button" onClick={reload}>Retry</button>} /></Card>}
     {model && <><FlowChart model={model} />{model.warnings.map(w => <p className="flow-hint" key={w}>{w}</p>)}</>}
-    {link && <LinkSheet botId={botId} linkId={link} onClose={() => openFlow(botId, undefined, true)} onSaved={reload} />}
+    {link && <LinkSheet botId={botId} linkId={link} sourceBotId={model?.lanes.flatMap(l => l.nodes).find(n => n.target.hash.endsWith(`?link=${encodeURIComponent(link)}`))?.target.focus?.replace(/^link-source:/, '')} onClose={() => openFlow(botId, undefined, true)} onSaved={reload} />}
   </div>;
 }
 export default FlowTab;

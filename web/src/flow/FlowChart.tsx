@@ -2,6 +2,8 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { ArrowDown, ArrowRight, CornerDownLeft, GitBranch, Server, Circle } from 'lucide-react';
 import type { FlowModel, FlowNode, FlowLaneId } from '@shared/flow/model-types';
 import { Section, Card, Row } from '../components/layout';
+import { BotAvatar } from '../avatar/BotAvatar';
+import { useStore } from '../store';
 import { ToolkitLogo } from '../components/ToolkitLogo';
 import { openFlowNode, restoreFlowFocus } from './api';
 import './flow.css';
@@ -10,10 +12,15 @@ const EMPTY: Record<FlowLaneId, [string, string]> = { triggers: ['Add a routine'
 const MORE: Record<FlowLaneId, string> = { triggers: 'settings/routines', inputs: 'settings/general', steps: 'details/setup/responsibilities', outputs: 'details/files', handoffs: 'details/flow?link=all' };
 const KIND: Record<FlowNode['kind'], string> = { schedule: 'schedule trigger', routine: 'routine trigger', event: 'event trigger', message: 'message trigger', inbound_handoff: 'incoming handoff', app: 'connected app', mcp: 'MCP server', knowledge: 'knowledge', suggested_app: 'suggested app', suggested_mcp: 'suggested MCP server', step: 'process step', skill: 'skill', report: 'report output', files: 'file output', message_out: 'message output', task: 'task output', handoff_to: 'outgoing handoff', handoff_from: 'incoming handoff', loop: 'loop' };
 export function FlowChart({ model, onNode = node => openFlowNode(model.botId, node) }: { model: FlowModel; onNode?: (node: FlowNode) => void }) {
+  const bots = useStore(s => s.bots);
   const title = useId(), root = useRef<HTMLElement>(null);
   const [wide, setWide] = useState(false);
   useEffect(() => { const observer = new ResizeObserver(([entry]) => setWide(entry.contentRect.width >= 800)); if (root.current) observer.observe(root.current); return () => observer.disconnect(); }, []);
-  useEffect(() => { requestAnimationFrame(() => restoreFlowFocus(model.botId, root.current)); }, [model]);
+  useEffect(() => {
+    const restore = () => requestAnimationFrame(() => requestAnimationFrame(() => restoreFlowFocus(model.botId, root.current)));
+    restore(); window.addEventListener('swarm:flow-location', restore);
+    return () => window.removeEventListener('swarm:flow-location', restore);
+  }, [model]);
   const summary = `Flow: ${model.lanes.map(l => `${l.nodes.length + l.more} ${l.label.toLowerCase()}`).join(', ')}, ${model.loopBack.label.toLowerCase()}.`;
   return <section className={`flow-chart ${wide ? 'flow-chart--wide' : ''}`} ref={root} aria-labelledby={title}>
     <h2 id={title} className="flow-sr">Agent flow</h2><p className="flow-sr">{summary}</p>
@@ -21,7 +28,7 @@ export function FlowChart({ model, onNode = node => openFlowNode(model.botId, no
       <Section title={<><span className="flow-lane__number" aria-hidden>{index + 1}</span>{lane.label}</>}>
         <ol className="flow-nodes">{lane.nodes.map(node => <li key={node.id}><Card className={`flow-node flow-node--${node.state}`}>
           <button type="button" data-flow-node={node.id} data-kind={node.kind} onClick={() => onNode(node)} aria-label={`${node.label}, ${KIND[node.kind]}${node.badge ? `, ${node.badge}` : ''}`}>
-            <span className="flow-node__logo" aria-hidden>{node.logo?.kind === 'toolkit' ? <ToolkitLogo slug={node.logo.id} name={node.label} size={28} /> : node.logo?.kind === 'bot' ? <GitBranch size={22} /> : node.kind.includes('mcp') ? <Server size={22} /> : <Circle size={16} />}</span>
+            <span className="flow-node__logo" aria-hidden>{node.logo?.kind === 'toolkit' ? <ToolkitLogo slug={node.logo.id} name={node.label} size={28} /> : node.logo?.kind === 'bot' ? (() => { const bot = bots.find(b => b.id === node.logo?.id); return bot ? <BotAvatar shape={bot.avatarShape} color={bot.avatarColor} size={28} /> : <GitBranch size={22} />; })() : node.kind.includes('mcp') ? <Server size={22} /> : <Circle size={16} />}</span>
             <span className="flow-node__text"><strong>{node.label}</strong>{node.detail && <span>{node.detail}</span>}{node.badge && <small className="flow-badge">{node.badge}</small>}</span>
           </button>
         </Card></li>)}

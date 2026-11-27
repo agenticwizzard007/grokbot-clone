@@ -38,3 +38,10 @@
 .flow-sheet .flow-check { flex-direction: row; align-items: center; }
 .flow-check input { width: 24px; flex: 0 0 24px; }
 @media (prefers-reduced-motion: reduce) { .flow-tab *, .flow-compact *, .flow-sheet * { animation: none !important; transition: none !important; } }
+/* Local header bridge while the shared router is owned by HO-I. */
+.shell-header:has(> .flow-header) > :not(.flow-header):not(.shell-menu):not(.pb-bot-settings-gear) { display: none; }
+.flow-header { display: flex; flex: 1; align-items: center; min-width: 0; gap: var(--space-3); }
+.flow-header > div { display: flex; flex-direction: column; min-width: 0; }
+.flow-header strong { font-size: 14px; line-height: 20px; overflow-wrap: anywhere; }
+.flow-header > div > span { font-size: 12px; color: var(--color-text-2); }
+.flow-header .shell-back { min-height: 44px; }

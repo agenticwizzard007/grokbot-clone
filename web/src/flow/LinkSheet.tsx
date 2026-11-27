@@ -5,8 +5,8 @@ import { Modal } from '../components/modals/Modal';
 import { Page, Section, Card, Row, ButtonGroup } from '../components/layout';
 import { flowApi, type LinkInput } from './api';
 
-const toInput = (link: HandoffLink): LinkInput => ({ id: link.id, toBotId: link.toBotId, mode: link.mode, trigger: link.trigger, template: link.template, autoApproveLoops: link.autoApproveLoops });
-export function LinkSheet({ botId, linkId, onClose, onSaved }: { botId: string; linkId: string; onClose: () => void; onSaved: () => void }) {
+const toInput = (link: HandoffLink): LinkInput => ({ toBotId: link.toBotId, mode: link.mode, trigger: link.trigger, template: link.template, autoApproveLoops: link.autoApproveLoops });
+export function LinkSheet({ botId, linkId, sourceBotId, onClose, onSaved }: { botId: string; linkId: string; sourceBotId?: string; onClose: () => void; onSaved: () => void }) {
   const bots = useStore(s => s.bots), account = useStore(s => s.user?.id);
   const [links, setLinks] = useState<HandoffLink[]>([]), [owner, setOwner] = useState(botId), [selected, setSelected] = useState(linkId);
   const [target, setTarget] = useState(''), [mode, setMode] = useState<LinkInput['mode']>('suggest'), [trigger, setTrigger] = useState<LinkInput['trigger']>('any_run'), [template, setTemplate] = useState(''), [approve, setApprove] = useState(false);
@@ -16,14 +16,14 @@ export function LinkSheet({ botId, linkId, onClose, onSaved }: { botId: string; 
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
     let active = true; setLoading(true); setError('');
-    flowApi.links(botId).then(async result => {
+    flowApi.links(sourceBotId ?? botId).then(async result => {
       const incoming = result.links.find(l => l.id === linkId && l.fromBotId !== botId);
-      const source = incoming?.fromBotId ?? botId;
+      const source = incoming?.fromBotId ?? sourceBotId ?? botId;
       const ownLinks = incoming ? (await flowApi.links(source)).links : result.links;
       if (active && current()) { setOwner(source); setLinks(ownLinks.filter(l => l.fromBotId === source)); }
     }).catch(e => { if (active && current()) setError(e.message); }).finally(() => { if (active && current()) setLoading(false); });
     return () => { active = false; };
-  }, [botId, linkId, account]);
+  }, [botId, linkId, sourceBotId, account]);
   useEffect(() => { const link = links.find(l => l.id === selected); setTarget(link?.toBotId ?? ''); setMode(link?.mode ?? 'suggest'); setTrigger(link?.trigger ?? 'any_run'); setTemplate(link?.template ?? ''); setApprove(link?.autoApproveLoops ?? false); }, [selected, links]);
   const existing = links.find(l => l.id === selected), full = !existing && links.length >= 5;
   const choices = bots.filter(b => b.id !== owner && b.kind !== 'room' && (!b.onboarding || b.onboarding.status === 'active') && (!links.some(l => l.toBotId === b.id && l.id !== selected)));
@@ -31,7 +31,7 @@ export function LinkSheet({ botId, linkId, onClose, onSaved }: { botId: string; 
     if (writing.current || !current() || (!remove && (!target || full))) return;
     writing.current = true; setBusy(true); setError('');
     const next = links.filter(l => l.id !== selected).map(toInput);
-    if (!remove) next.push({ ...(existing ? { id: existing.id } : {}), toBotId: target, mode, trigger, template, autoApproveLoops: approve });
+    if (!remove) next.push({ toBotId: target, mode, trigger, template, autoApproveLoops: approve });
     try { await flowApi.saveLinks(owner, next); if (current()) { onSaved(); onClose(); } }
     catch (e) { if (current()) setError(e instanceof Error ? e.message : 'Could not save the handoff.'); }
     finally { writing.current = false; if (current()) setBusy(false); }
@@ -42,8 +42,8 @@ export function LinkSheet({ botId, linkId, onClose, onSaved }: { botId: string; 
         {!!links.length && <Card>{links.map(link => <Row key={link.id} title={bots.find(b => b.id === link.toBotId)?.name ?? 'Agent'} subtitle={link.mode === 'auto' ? 'Auto' : link.mode === 'off' ? 'Off' : 'Suggest'} trailing={<button type="button" aria-label={`Edit handoff to ${bots.find(b => b.id === link.toBotId)?.name ?? 'agent'}`} onClick={() => setSelected(link.id)}>Edit</button>} />)}</Card>}
         <form onSubmit={e => { e.preventDefault(); void save(); }}>
           <label>Agent<select aria-label="Agent" value={target} onChange={e => setTarget(e.target.value)} required disabled={busy || full}><option value="">Choose an agent</option>{choices.map(bot => <option key={bot.id} value={bot.id}>{bot.name}</option>)}</select></label>
-          <label>Mode<select value={mode} onChange={e => setMode(e.target.value as LinkInput['mode'])} disabled={busy}><option value="suggest">Suggest</option><option value="auto">Auto</option><option value="off">Off</option></select></label>
-          <label>When<select value={trigger} onChange={e => setTrigger(e.target.value as LinkInput['trigger'])} disabled={busy}><option value="any_run">Any finished run</option><option value="task_done">Task completed</option>{trigger.startsWith('routine:') && <option value={trigger}>Selected routine</option>}</select></label>
+          <label>Mode<select aria-label="Mode" value={mode} onChange={e => setMode(e.target.value as LinkInput['mode'])} disabled={busy}><option value="suggest">Suggest</option><option value="auto">Auto</option><option value="off">Off</option></select></label>
+          <label>When<select aria-label="When" value={trigger} onChange={e => setTrigger(e.target.value as LinkInput['trigger'])} disabled={busy}><option value="any_run">Any finished run</option><option value="task_done">Task completed</option>{trigger.startsWith('routine:') && <option value={trigger}>Selected routine</option>}</select></label>
           <label>Instruction<textarea maxLength={500} value={template} onChange={e => setTemplate(e.target.value)} placeholder="Review {title} and suggest improvements" rows={3} disabled={busy} /></label>
           <label className="flow-check"><input type="checkbox" checked={approve} onChange={e => setApprove(e.target.checked)} disabled={busy} />Auto approve loops for this pair</label>
           {full && <p role="status">Five links maximum. Edit or remove a link to add another.</p>}

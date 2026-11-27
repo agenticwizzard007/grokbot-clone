@@ -1,0 +1,233 @@
+{
+  "v": 1,
+  "botId": "flow-many",
+  "version": 1,
+  "inputsHash": "8d75172b32651b078f22c6c706e0ea9ac1a08a0643b2e75b049e0af6031480f8",
+  "generatedAt": 0,
+  "source": "auto",
+  "lanes": [
+    {
+      "id": "triggers",
+      "label": "Triggers",
+      "nodes": [
+        {
+          "id": "triggers:routine:r0",
+          "kind": "routine",
+          "label": "Routine 0",
+          "target": {
+            "hash": "#bot/flow-many/settings/routines",
+            "focus": "routine:r0"
+          },
+          "state": "ok",
+          "detail": "Weekdays 08:00"
+        },
+        {
+          "id": "triggers:routine:r1",
+          "kind": "routine",
+          "label": "Routine 1",
+          "target": {
+            "hash": "#bot/flow-many/settings/routines",
+            "focus": "routine:r1"
+          },
+          "state": "ok",
+          "detail": "Weekdays 08:00"
+        },
+        {
+          "id": "triggers:routine:r2",
+          "kind": "routine",
+          "label": "Routine 2",
+          "target": {
+            "hash": "#bot/flow-many/settings/routines",
+            "focus": "routine:r2"
+          },
+          "state": "ok",
+          "detail": "Weekdays 08:00"
+        },
+        {
+          "id": "triggers:routine:r3",
+          "kind": "routine",
+          "label": "Routine 3",
+          "target": {
+            "hash": "#bot/flow-many/settings/routines",
+            "focus": "routine:r3"
+          },
+          "state": "ok",
+          "detail": "Weekdays 08:00"
+        },
+        {
+          "id": "triggers:routine:r4",
+          "kind": "routine",
+          "label": "Routine 4",
+          "target": {
+            "hash": "#bot/flow-many/settings/routines",
+            "focus": "routine:r4"
+          },
+          "state": "ok",
+          "detail": "Weekdays 08:00"
+        }
+      ],
+      "more": 26
+    },
+    {
+      "id": "inputs",
+      "label": "Inputs",
+      "nodes": [
+        {
+          "id": "inputs:app:app0",
+          "kind": "app",
+          "label": "Connected app 0",
+          "target": {
+            "hash": "#settings/apps",
+            "focus": "app:app0"
+          },
+          "state": "ok",
+          "logo": {
+            "kind": "toolkit",
+            "id": "app0"
+          }
+        },
+        {
+          "id": "inputs:app:app1",
+          "kind": "app",
+          "label": "Connected app 1",
+          "target": {
+            "hash": "#settings/apps",
+            "focus": "app:app1"
+          },
+          "state": "ok",
+          "logo": {
+            "kind": "toolkit",
+            "id": "app1"
+          }
+        },
+        {
+          "id": "inputs:app:app10",
+          "kind": "app",
+          "label": "Connected app 10",
+          "target": {
+            "hash": "#settings/apps",
+            "focus": "app:app10"
+          },
+          "state": "ok",
+          "logo": {
+            "kind": "toolkit",
+            "id": "app10"
+          }
+        },
+        {
+          "id": "inputs:app:app11",
+          "kind": "app",
+          "label": "Connected app 11",
+          "target": {
+            "hash": "#settings/apps",
+            "focus": "app:app11"
+          },
+          "state": "ok",
+          "logo": {
+            "kind": "toolkit",
+            "id": "app11"
+          }
+        },
+        {
+          "id": "inputs:app:app12",
+          "kind": "app",
+          "label": "Connected app 12",
+          "target": {
+            "hash": "#settings/apps",
+            "focus": "app:app12"
+          },
+          "state": "ok",
+          "logo": {
+            "kind": "toolkit",
+            "id": "app12"
+          }
+        }
+      ],
+      "more": 35
+    },
+    {
+      "id": "steps",
+      "label": "Steps",
+      "nodes": [
+        {
+          "id": "steps:step:1",
+          "kind": "step",
+          "label": "Review section 1",
+          "target": {
+            "hash": "#bot/flow-many/details/setup/responsibilities"
+          },
+          "state": "ok",
+          "badge": "Auto"
+        },
+        {
+          "id": "steps:step:2",
+          "kind": "step",
+          "label": "Review section 2",
+          "target": {
+            "hash": "#bot/flow-many/details/setup/responsibilities"
+          },
+          "state": "ok",
+          "badge": "Auto"
+        },
+        {
+          "id": "steps:step:3",
+          "kind": "step",
+          "label": "Review section 3",
+          "target": {
+            "hash": "#bot/flow-many/details/setup/responsibilities"
+          },
+          "state": "ok",
+          "badge": "Auto"
+        },
+        {
+          "id": "steps:step:4",
+          "kind": "step",
+          "label": "Review section 4",
+          "target": {
+            "hash": "#bot/flow-many/details/setup/responsibilities"
+          },
+          "state": "ok",
+          "badge": "Auto"
+        },
+        {
+          "id": "steps:step:5",
+          "kind": "step",
+          "label": "Review section 5",
+          "target": {
+            "hash": "#bot/flow-many/details/setup/responsibilities"
+          },
+          "state": "ok",
+          "badge": "Auto"
+        }
+      ],
+      "more": 1
+    },
+    {
+      "id": "outputs",
+      "label": "Outputs",
+      "nodes": [
+        {
+          "id": "outputs:message_out:chat",
+          "kind": "message_out",
+          "label": "Chat messages",
+          "target": {
+            "hash": "#settings/messaging"
+          },
+          "state": "ok"
+        }
+      ],
+      "more": 0
+    },
+    {
+      "id": "handoffs",
+      "label": "Handoffs",
+      "nodes": [],
+      "more": 0
+    }
+  ],
+  "loopBack": {
+    "kind": "repeats",
+    "label": "Repeats"
+  },
+  "warnings": []
+}

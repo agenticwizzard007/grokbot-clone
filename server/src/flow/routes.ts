@@ -2,7 +2,8 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireUser, type AuthVars } from '../lib/auth.js';
 import { apiBodyLimit } from '../security/body-limits.js';
-import { getFlow, FlowError } from './cache.js';
+import { db } from '../db.js';
+import { getFlow, FlowError, hasTable } from './cache.js';
 import { requestFlowRefresh } from './summary.js';
 
 export const flowApi = new Hono<AuthVars>();
@@ -15,6 +16,7 @@ flowApi.get('/bots/:id/flow', c => {
   const model = getFlow(c.get('user').id, c.req.param('id'));
   const etag = `"${model.botId}:${model.version}"`;
   c.header('ETag', etag);
+  c.header('X-Flow-Has-Runs', hasTable('agent_jobs') && db.prepare('SELECT 1 FROM agent_jobs WHERE bot_id=? LIMIT 1').get(model.botId) ? '1' : '0');
   if (c.req.header('If-None-Match') === etag) return c.body(null, 304);
   return c.json(model);
 });
