@@ -31,6 +31,8 @@ import { stepApprovalOutcome } from '../lib/stepApproval';
 import { savedFileResult, savedFileLinksByMessage } from '../lib/savedFiles';
 import { handoffTurnFinished } from '../handoffs/presentation';
 import { HandoffRow, type HandoffRowBody } from '../handoffs/HandoffRow';
+import { groupReceipts } from '../handoffs/groupReceipts';
+import { LoopReceiptGroup } from '../handoffs/LoopReceiptGroup';
 import type { ReactNode } from 'react';
 
 type Item =
@@ -302,7 +304,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
   const items = useMemo(() => {
     const separateReplies = new Set(responseHeights.current.keys());
     if (firstReply && responseHeight.current) separateReplies.add(firstReply.seq);
-    return buildItems(visibleRows, groups, separateReplies);
+    return groupReceipts(buildItems(visibleRows, groups, separateReplies), item => item.kind === 'row' && item.row.kind === 'handoff' ? item.row.body as unknown as HandoffRowBody : undefined);
   }, [visibleRows, groups, firstReply?.seq]);
   const interruptedTurn = !running && visibleRows.some(row => row.seq > promptSeq && row.body.type === 'notice' && (row.body.recovery || row.body.terminal || row.body.tone === 'error' || row.body.text === 'Stopped.'));
   const pendingResponse = loaded && !firstReply && !interruptedTurn && !handoffTurnFinished(visibleRows, promptSeq, running);
@@ -443,7 +445,12 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
         {empty && !processing && <EmptyChat bot={bot} />}
         {exchanges.more && <button type="button" className="agent-exchange__more" disabled={exchanges.loading} onClick={exchanges.loadMore}>Earlier Bot conversations</button>}
         {exchanges.error && <p className="agent-exchange__error" role="status">Could not refresh conversations. <button type="button" onClick={exchanges.retry}>Retry</button></p>}
-        {items.map((it) => {
+        {items.map((entry) => {
+          if (entry.kind === 'loop') {
+            const rows = entry.members.flatMap(item => item.kind === 'row' ? [item.row] : []);
+            return <LoopReceiptGroup key={`${bot.id}:${generation}:loop:${rows[0].seq}`} loopId={entry.loopId} rows={rows} />;
+          }
+          const it = entry.item;
           switch (it.kind) {
             case 'exchange':
               return <AgentExchangeGroup key={`${bot.id}:${generation}:${it.key}`} group={it.group} botId={bot.id} generation={generation} />;

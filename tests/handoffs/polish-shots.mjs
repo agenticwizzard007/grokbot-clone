@@ -1,17 +1,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { polishFixture, screens } from './polish-fixture.mjs';
+import { polishFixture } from './polish-fixture.mjs';
 import { runQuality } from './ui-quality.mjs';
 
 export async function captureShots({ phase = process.env.HO_POLISH_PHASE || 'after', output = process.env.HO_POLISH_OUTPUT || '/workspace/swarm-qa/handoffs/shots/polish' } = {}) {
   fs.mkdirSync(output, { recursive: true });
   const fixture = await polishFixture(), report = [];
   try {
-    for (const name of [...screens.slice(0,15), 'settings-agents', 'settings-agents-limits', 'settings-agents-error']) for (const width of ['receipt','loop-timeline','flow-tab'].includes(name) || name.startsWith('settings-agents') ? [320,390,500,1280] : [390,1280]) for (const theme of name.startsWith('settings-agents') ? ['light','dark'] : ['light']) {
+    for (const name of ['receipt-grouped','receipt-expanded','flow-tab','message-actions']) for (const width of name.startsWith('receipt') ? [320,390,500,1280] : [390,1280]) for (const theme of ['light']) {
       const state = await fixture.open(name, width, theme);
       const { page } = state;
-      if (['receipt','loop-timeline','loop-graph','flow-tab'].includes(name) || name.startsWith('settings-agents')) {
+      if ((name.startsWith('receipt') || name === 'flow-tab') || name.startsWith('settings-agents')) {
         const height = await page.locator('.transcript, .ho-route, .flow-page, .app-settings__page').evaluateAll(els => Math.max(...els.map(el => el.scrollHeight)));
         if (height > 1000) await page.setViewportSize({width,height:Math.min(5000,height+160)});
       }
@@ -22,11 +22,12 @@ export async function captureShots({ phase = process.env.HO_POLISH_PHASE || 'aft
       const words = await wordsIn(name === 'sidebar-loops' ? '.sidebar [role="menu"]' : state.selector);
       const dialog = page.locator('dialog[open], [role="dialog"]:visible');
       const mainWords = await wordsIn(name === 'sidebar-loops' ? '.sidebar [role="menu"]' : await dialog.count() ? 'dialog[open], [role="dialog"]:visible' : await page.locator('.shell-content').count() ? '.shell-content' : '#root');
-      report.push({ name, width, theme, file, words, mainWords }); console.log(`PASS ${name} ${width} ${theme} ${phase}`);
+      const receiptGeometry = await page.locator('.ho-receipt:visible').evaluateAll(rows => rows.map(row => ({ height: row.getBoundingClientRect().height, metaHeight: row.querySelector('.ho-receipt-meta')?.getBoundingClientRect().height })));
+      report.push({ name, width, theme, file, words, mainWords, receiptGeometry }); console.log(`PASS ${name} ${width} ${theme} ${phase}`);
       await state.close();
     }
-  } finally { await fixture.close(); fs.writeFileSync(path.join(output, `${phase}.json`), JSON.stringify(report, null, 2)); }
-  console.log(`POLISH SHOTS ${report.length} passed, 0 failed. Output: ${output}/${phase}.json`);
+  } finally { await fixture.close(); fs.writeFileSync(path.join(output, `ho-q-${phase}.json`), JSON.stringify(report, null, 2)); }
+  console.log(`POLISH SHOTS ${report.length} passed, 0 failed. Output: ${output}/ho-q-${phase}.json`);
   return report;
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

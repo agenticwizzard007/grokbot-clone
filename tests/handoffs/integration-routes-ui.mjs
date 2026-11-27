@@ -12,7 +12,8 @@ import { chromium } from 'playwright';
 // a second seed process for handoff records and a local mock provider.
 export async function integrationServer(evidence) {
   const root = process.cwd(), temp = fs.mkdtempSync(path.join(os.tmpdir(), 'ho-i-'));
-  async function port() { const server = net.createServer().listen(0, '127.0.0.1'); await once(server, 'listening'); const value = server.address().port; await new Promise(resolve => server.close(resolve)); return value; }
+  const reservedPorts = new Set();
+  async function port() { const server = net.createServer().listen(0, '127.0.0.1'); await once(server, 'listening'); const value = server.address().port; await new Promise(resolve => server.close(resolve)); if (reservedPorts.has(value)) return port(); reservedPorts.add(value); return value; }
   const apiPort = await port(), uiPort = await port(), mockPort = await port(), base = `http://127.0.0.1:${uiPort}`;
   const fixtureFile = path.join(temp, 'fixture.json');
   const env = { PATH: process.env.PATH, NODE_ENV: 'test', SWARM_ROLE: 'standalone', SWARM_NO_SCHEDULER: '1',

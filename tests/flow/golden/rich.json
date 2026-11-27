@@ -2,7 +2,7 @@
   "v": 1,
   "botId": "flow-rich",
   "version": 1,
-  "inputsHash": "a8b641c1f2d0584ecd9f02fc76eadfa26419f5299769e35275f10759eb139f9b",
+  "inputsHash": "0e1b3b6355cb9630d3711b9df5db48c4ed70d64a7deeb194f5091bd5e21fc05b",
   "generatedAt": 0,
   "source": "auto",
   "lanes": [
@@ -203,7 +203,7 @@
             "hash": "#bot/flow-rich/details/files/reports"
           },
           "state": "ok",
-          "detail": "1 reports"
+          "detail": "1 report"
         },
         {
           "id": "outputs:files:files",
@@ -213,7 +213,7 @@
             "hash": "#bot/flow-rich/details/files"
           },
           "state": "ok",
-          "detail": "2 to 5 files"
+          "detail": "3 files"
         },
         {
           "id": "outputs:message_out:chat",
@@ -241,7 +241,7 @@
             "hash": "#bot/flow-rich/details/tasks"
           },
           "state": "ok",
-          "detail": "2 to 5 tasks"
+          "detail": "2 tasks"
         }
       ],
       "more": 0
