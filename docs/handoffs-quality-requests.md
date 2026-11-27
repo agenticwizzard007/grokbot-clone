@@ -4,7 +4,7 @@ These requests are reproduced against integrated main. HO-H owns tests and docum
 
 ## Runtime tool call context: resolved by FIX-4
 
-FIX-4 merged in main `bfe30f8` and is integrated into HO-H. `node --import tsx tests/handoffs/e2e-loop-real.mjs` passes both scenarios: convergence and cap at three passes, each with three verdicts and six output receipts. The required Node suites pass 715 tests on HO-H and 667 on main. The full UI journeys and demo are being rerun without a test-only runtime workaround.
+FIX-4 merged in main `bfe30f8` and is integrated into HO-H. `node --import tsx tests/handoffs/e2e-loop-real.mjs` passes both scenarios: convergence and cap at three passes, each with three verdicts and six output receipts. The required Node suites pass 715 tests on HO-H and 667 on main. The full UI matrix passes 20 of 24 journeys; only Activity and room progress fail at both widths. Convergence, capped continuation and agent approval all pass without a test-only runtime workaround.
 
 Before FIX-4, `server/src/agent/loop.ts` omitted `toolCallId` when invoking registered handoff tools. A real Checker called `submit_verdict`, received `This tool needs an active run and a stable tool call id. Ask the user to retry from an active run.`, and stopped with `no_verdict` on pass 1.
 
@@ -18,9 +18,9 @@ Request to HO-B: invoke `projectHandoffEvent` for committed handoff and loop tra
 
 `server/src/handoffs/rooms.ts` exports `projectHandoffEvent`, which synchronizes room rows and task state. No production caller exists on this baseline. `server/src/handoffs/db.ts` records the event and emits SSE but does not project it. Real loop creation with a room ID produces no visible room progress.
 
-Reproduce: `HANDOFFS_JOURNEYS=9 node tests/handoffs/e2e/journeys.mjs`. After FIX-4, journey 5 passes the gate task, needs-input count, Approve and Decline checks at 390. The separate gate-task path in `loop-service.ts` does not resolve the missing room projection.
+Reproduce: `HANDOFFS_JOURNEYS=9 node tests/handoffs/e2e/journeys.mjs`. After FIX-4, journey 5 passes the gate task, needs-input count, Approve and Decline checks at both widths. The separate gate-task path in `loop-service.ts` does not resolve the missing room projection.
 
-An isolated journey 9 at both widths records `loop.created`, `loop.started` and `loop.finished` with `stopReason: "user_stopped"`, but zero corresponding room progress rows. It does not reach the Checker, so FIX-4 cannot resolve this failure. See `.context/handoffs/independent-integration/report.json`.
+Journey 9 at both widths records `loop.created`, `loop.started` and `loop.finished` with `stopReason: "user_stopped"`, but zero corresponding room progress rows. It does not reach the Checker. The full post-FIX-4 run reproduces the same failure in `.context/handoffs/fix4-journeys/report.json`.
 
 ## Activity handoff list
 
@@ -28,7 +28,7 @@ Request to the Bot-details integration owner: mount the existing `HandoffList` o
 
 The component exists in `web/src/handoffs/HandoffList.tsx`; the baseline Bot Activity surface does not mount it. Reproduce: `HANDOFFS_JOURNEYS=7 node tests/handoffs/e2e/journeys.mjs`.
 
-An isolated journey 7 at both widths verifies a completed handoff and a nonempty list API before the Activity filter lookup fails. This is independent of loop verdict submission. The same report above records the completed status and listed IDs.
+Journey 7 at both widths verifies a completed handoff and a nonempty list API before the Activity filter lookup fails. This is independent of loop verdict submission. The full post-FIX-4 report above records the completed status and listed IDs.
 
 ## Existing HO-I demo label
 
