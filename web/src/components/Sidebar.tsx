@@ -240,7 +240,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
 
       {layout.standardOrder ? <>
         <nav className="sidebar__nav" aria-label="Main navigation" onClick={onClose}>{section('allBots')}{section('tasks')}{section('files')}</nav>
-        <div className="sidebar__scroll">{mobile && <RosterFeedback />}{section('yourBots')}{section('createBot')}</div>
+        <div className="sidebar__scroll">{mobile && <RosterFeedback />}{section('dashboards')}{section('yourBots')}{section('createBot')}</div>
         {section('usage')}{section('settings')}
       </> : <div className="sidebar__custom-scroll">
         {mobile && <RosterFeedback />}

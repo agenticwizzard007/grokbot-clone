@@ -16,7 +16,7 @@ const renderers = { stat: Stat, list: List, table: Table, chart: Chart, meter: M
 export function WidgetFrame({ dashboardId, widget, state, observe, retry, toolbar }: { dashboardId?: string; widget: Widget; state?: WidgetState; observe?: (id: string, node: HTMLElement | null) => void; retry?: () => void; toolbar?: ReactNode }) {
   const attach = useCallback((node: HTMLDivElement | null) => observe?.(widget.id, node), [widget.id, observe]);
   const current = state ?? (widget.source ? { status: 'loading' as const } : { status: 'ready' as const });
-  if (widget.type === 'agent') return <div className="dashboard-widget-cell" data-widget-id={widget.id} data-widget-type="agent">{toolbar}<AgentWidget dashboardId={dashboardId ?? ''} widget={widget} /></div>;
+  if (widget.type === 'agent') return <div ref={attach} className="dashboard-widget-cell" data-widget-id={widget.id} data-widget-type="agent">{toolbar}<AgentWidget dashboardId={dashboardId ?? ''} widget={widget} /></div>;
   const title = widgetLabel(widget), Renderer = renderers[widget.type];
   return <div ref={attach} className="dashboard-widget-cell" data-widget-id={widget.id} data-widget-type={widget.type} data-widget-state={current.status}>
     {toolbar}

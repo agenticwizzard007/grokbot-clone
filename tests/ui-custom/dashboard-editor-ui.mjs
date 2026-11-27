@@ -12,11 +12,11 @@ try {
     await button.focus(); await page.keyboard.press('Enter');
     if (action !== 'Settings') await page.getByRole('button', { name: 'Done', exact: true }).waitFor();
   };
-  for (const [action, key, value] of [['Wider','span',7], ['Narrower','span',6], ['Taller','rows',4], ['Shorter','rows',3]]) {
+  for (const [action, key, value] of [['Bigger','span',7], ['Smaller','span',6], ['Taller','rows',4], ['Shorter','rows',3]]) {
     await activate(action); await page.waitForFunction(({key,value}) => document.querySelector('[data-widget-type="chart"]').closest('[data-widget-span]').dataset[key === 'span' ? 'widgetSpan' : 'widgetRows'] === String(value), {key,value}); passed++;
   }
-  await activate('Move earlier'); await page.waitForFunction(() => [...document.querySelectorAll('[data-widget-type]')].findIndex(node => node.dataset.widgetType === 'chart') === 3); passed++;
-  await activate('Move later'); await page.waitForFunction(() => [...document.querySelectorAll('[data-widget-type]')].findIndex(node => node.dataset.widgetType === 'chart') === 4); passed++;
+  await activate('Move up'); await page.waitForFunction(() => [...document.querySelectorAll('[data-widget-type]')].findIndex(node => node.dataset.widgetType === 'chart') === 3); passed++;
+  await activate('Move down'); await page.waitForFunction(() => [...document.querySelectorAll('[data-widget-type]')].findIndex(node => node.dataset.widgetType === 'chart') === 4); passed++;
   await activate('Settings'); await page.getByLabel('Title', { exact: true }).fill('<invalid>'); await page.getByRole('button', { name: 'Save', exact: true }).click();
   await page.locator('dialog [role="alert"]').waitFor(); assert.equal((await saved(page)).widgets[4].title, 'Cost by day'); passed++;
   await page.getByLabel('Title', { exact: true }).fill('Fixture chart'); await page.getByRole('button', { name: 'Save', exact: true }).focus(); await page.keyboard.press('Enter');
@@ -35,7 +35,7 @@ try {
   await page.route('**/api/ui/config', async route => {
     if (route.request().method() === 'PATCH') await route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ details: [{ path: '/dashboards', code: 'invalid', message: 'Fixture validator rejection' }] }) }); else await route.continue();
   });
-  await activate('Wider', 'Needs you'); await page.getByRole('alert').filter({ hasText: 'Fixture validator rejection' }).waitFor(); passed++;
+  await activate('Bigger', 'Needs you'); await page.getByRole('alert').filter({ hasText: 'Fixture validator rejection' }).waitFor(); passed++;
   await page.unroute('**/api/ui/config');
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await patch(page, [{ op: 'replace', path: '/dashboards/0/widgets', value: [] }]);
@@ -59,7 +59,7 @@ try {
     { id: '$new81', type: 'note', title: 'Fixture next', span: 4, rows: 2, options: { text: 'Fixture next note' } },
   ] }]);
   await phone.goto(`${server.base}/#dash/${dashboard.id}`); await phone.getByRole('button', { name: 'Edit', exact: true }).tap();
-  for (const action of ['Wider', 'Narrower', 'Taller', 'Shorter', 'Move later', 'Move earlier', 'Settings', 'Remove']) {
+  for (const action of ['Bigger', 'Smaller', 'Taller', 'Shorter', 'Move down', 'Move up', 'Settings', 'Remove']) {
     const button = phone.getByRole('button', { name: `${action}: Fixture touch`, exact: true }); await button.scrollIntoViewIfNeeded();
     const box = await button.boundingBox(); assert.ok(box.width >= 44 && box.height >= 44);
     const response = action === 'Settings' ? undefined : phone.waitForResponse(response => response.request().method() === 'PATCH');

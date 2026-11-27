@@ -26,6 +26,7 @@ export async function auditDashboardRoutes(evidence, inspectAlignment) {
       for (const route of DASHBOARD_ROUTES) {
         const issues = [];
         try {
+          await page.goto('about:blank');
           await page.goto(`${server.base}/${route.hash.replace('{dashboard}', id)}`);
           await page.locator('.dashboard-page').waitFor();
           if (['edit', 'settings', 'add', 'add-agent'].includes(route.state)) await page.getByRole('button', { name: 'Edit', exact: true }).click();
@@ -40,7 +41,7 @@ export async function auditDashboardRoutes(evidence, inspectAlignment) {
           const phoneBacks = await page.getByRole('button', { name: 'Back', exact: true }).count();
           if (width <= 760 && phoneBacks !== 1) issues.push(`Expected one Back, found ${phoneBacks}`);
           await page.screenshot({ path: path.join(evidence, `${route.name}-${width}-${theme}.png`) });
-        } catch (error) { issues.push(error.message.split('\n')[0]); }
+        } catch (error) { await page.screenshot({ path: path.join(evidence, `failure-${route.name}-${width}-${theme}.png`) }); console.log(error.message); issues.push(error.message.split('\n')[0]); }
         report.push({ ...route, width, theme, issues });
         console.log(`${issues.length ? 'FAIL' : 'PASS'} UC-X2 ${route.name} ${width} ${theme}: ${issues.length} issues`);
         for (const issue of issues) console.log(`FAIL ${route.name}: ${issue}`);

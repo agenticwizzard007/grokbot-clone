@@ -46,3 +46,11 @@
 .dashboard-agent-header h2 { margin: 0; font: 600 calc(14px * var(--font-scale))/calc(20px * var(--font-scale)) var(--font-stack); color: var(--color-text-primary); }
 .dashboard-page .btn--secondary, .dashboard-dialog .btn--secondary { box-shadow: var(--color-border-secondary) 0 0 0 0.5px inset; }
 .dashboard-page .btn--danger, .dashboard-dialog .btn--danger { background: var(--color-danger-bg); color: var(--color-danger-text); }
+.dashboard-switcher .menu__label { white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
+.dashboard-switcher .menu__item { height: auto; }
+.dashboard-agent-header { flex-wrap: wrap; }
+.dashboard-agent-header h2 { min-width: 0; flex: 1 1 80px; }
+.dashboard-switcher .menu__label { overflow: visible; }
+.dashboard-switcher .menu__main { gap: 8px; }
+.dashboard-switcher .menu__item { padding: 8px; }
+.dashboard-manager-row { padding-block: 0; }

@@ -7,6 +7,7 @@ export function useAgentWidget(dashboardId: string, widgetId: string) {
   const account = useStore(state => state.user?.id), key = JSON.stringify([account, dashboardId, widgetId]);
   const [snapshot, setSnapshot] = useState<AgentWidgetSnapshot | undefined>(() => cache.get(key));
   const [error, setError] = useState(''), [loading, setLoading] = useState(!snapshot), [running, setRunning] = useState(false);
+  const visible = useRef(true);
   const alive = useRef(false), sequence = useRef(0), runLock = useRef(false), controllers = useRef(new Set<AbortController>());
   const request = useCallback(async (kind: 'result' | 'run' | 'action', body?: unknown) => {
     const controller = new AbortController(); controllers.current.add(controller);
@@ -20,7 +21,7 @@ export function useAgentWidget(dashboardId: string, widgetId: string) {
   }, [dashboardId, widgetId]);
   const accept = useCallback((next: AgentWidgetSnapshot) => {
     if (next.dashboardId !== dashboardId || next.widgetId !== widgetId || !['empty', 'running', 'ready', 'error'].includes(next.state)) throw new Error('Could not read the answer. Try again.');
-    if (next.doc) next = { ...next, doc: agentWidgetResultSchema.parse(next.doc) };
+    if (next.doc) { const parsed = agentWidgetResultSchema.safeParse(next.doc); if (!parsed.success) throw new Error('Could not read the answer. Try again.'); next = { ...next, doc: parsed.data }; }
     if (alive.current && useStore.getState().user?.id === account) { cache.set(key, next); setSnapshot(next); }
   }, [account, key, dashboardId, widgetId]);
   const refresh = useCallback(async () => {
@@ -32,14 +33,16 @@ export function useAgentWidget(dashboardId: string, widgetId: string) {
   useEffect(() => {
     alive.current = true; setSnapshot(cache.get(key)); setError(''); setLoading(!cache.has(key));
     void refresh();
-    const event = (event: Event) => { const detail = (event as CustomEvent<UiWidgetEvent | { type: 'reconnect' }>).detail; if (detail?.type === 'reconnect' || (detail?.type === 'ui_widget' && detail.dashboardId === dashboardId && detail.widgetId === widgetId)) void refresh(); };
-    const visible = () => { if (!document.hidden) void refresh(); };
-    window.addEventListener('swarm:event', event); document.addEventListener('visibilitychange', visible);
-    return () => { alive.current = false; sequence.current++; controllers.current.forEach(controller => controller.abort()); window.removeEventListener('swarm:event', event); document.removeEventListener('visibilitychange', visible); };
+    const event = (event: Event) => { if (document.hidden || !visible.current) return; const detail = (event as CustomEvent<UiWidgetEvent | { type: 'reconnect' }>).detail; if (detail?.type === 'reconnect' || (detail?.type === 'ui_widget' && detail.dashboardId === dashboardId && detail.widgetId === widgetId)) void refresh(); };
+    const onVisibility = () => { if (!document.hidden && visible.current) void refresh(); };
+    const observer = new IntersectionObserver(entries => { const wasVisible = visible.current; visible.current = entries.some(entry => entry.isIntersecting); if (!wasVisible && visible.current && !document.hidden) void refresh(); });
+    const node = document.querySelector(`[data-widget-id="${CSS.escape(widgetId)}"]`); if (node) observer.observe(node);
+    window.addEventListener('swarm:event', event); window.addEventListener('swarm:widget', event); document.addEventListener('visibilitychange', onVisibility);
+    return () => { alive.current = false; sequence.current++; controllers.current.forEach(controller => controller.abort()); observer.disconnect(); window.removeEventListener('swarm:event', event); window.removeEventListener('swarm:widget', event); document.removeEventListener('visibilitychange', onVisibility); };
   }, [key, refresh, dashboardId, widgetId]);
   useEffect(() => {
     // Poll while running, and recover if a scheduled completion's SSE was missed.
-    const timer = setInterval(() => { if (!document.hidden && !runLock.current) void refresh(); }, snapshot?.state === 'running' ? 1000 : 60_000);
+    const timer = setInterval(() => { if (!document.hidden && visible.current && !runLock.current) void refresh(); }, snapshot?.state === 'running' ? 1000 : 60_000);
     return () => clearInterval(timer);
   }, [snapshot?.state, refresh]);
   const run = async () => {

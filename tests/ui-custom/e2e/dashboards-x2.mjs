@@ -15,11 +15,11 @@ export const operationsDashboard = { id: '$new1', name: 'Operations', icon: 'act
   { id: '$new4', type: 'list', title: 'Recent outputs', span: 6, rows: 3, source: { id: 'outputs.recent', params: {} }, options: { limit: 5 } },
   { id: '$new5', type: 'list', title: 'Active loops', span: 6, rows: 3, source: { id: 'loops.list', params: {} }, options: { limit: 5 } },
 ] };
+export async function assertCopy(page, name) { const visible = await page.locator('body').innerText(); assert.doesNotMatch(visible, /mock|Fixture|PRIVATE|QA-|undefined|null|\[object|[\u2013\u2014]/i, name); }
 export async function quality(page, name) {
   const selector = await page.locator('dialog[open]').count() ? 'dialog[open]' : '.dashboard-page';
   assert.deepEqual(await page.evaluate(inspectAlignment, { selector }), [], name);
-  const visible = await page.locator('body').innerText();
-  assert.doesNotMatch(visible, /mock|Fixture|PRIVATE|QA-|undefined|null|\[object|[\u2013\u2014]/i, name);
+  await assertCopy(page, name);
   const sizes = await page.locator(selector).evaluate(root => [...root.querySelectorAll('p, label, button, span, strong')].filter(el => el.checkVisibility() && el.textContent.trim() && !el.closest('svg')).filter(el => parseFloat(getComputedStyle(el).fontSize) < 13).map(el => el.textContent));
   assert.deepEqual(sizes, [], `Readable type: ${name}`);
 }
@@ -47,8 +47,8 @@ export async function runDashboards({ demo = false } = {}) {
       const dashboard = structuredClone(width === 390 ? salesDashboard : operationsDashboard);
       await page.goto(`${server.base}/#bot/${account.bot.id}`); await page.locator('.composer__input:not([disabled])').waitFor();
       await server.propose(account, 'preview_ui_patch', { intent: `Create dashboard ${dashboard.name}`, patch: [{ op: 'add', path: '/dashboards/-', value: dashboard }] }, page, width === 390 ? 'Make a Sales pipeline dashboard with next steps, open handoffs and deals to review.' : 'Create an Operations dashboard with a daily summary, tasks, outputs and loops.');
-      const card = page.getByRole('region', { name: `Create dashboard: ${dashboard.name}`, exact: true }); await card.waitFor();
-      if (demo) { await page.evaluate(() => document.fonts.ready); const file = path.join(output, `chat-before-apply-${width}-light.png`); await page.screenshot({ path: file }); screenshots.push(file); }
+      const card = page.getByRole('region', { name: `Create dashboard: ${dashboard.name}`, exact: true }); await card.waitFor(); await assertCopy(page, 'chat preview');
+      if (demo) { await page.evaluate(() => document.fonts.ready); const file = path.join(output, `chat-before-apply-${width}-light.png`); await assertCopy(page, 'chat screenshot'); await page.screenshot({ path: file }); screenshots.push(file); }
       await card.getByRole('button', { name: 'Apply', exact: true }).click(); await page.getByRole('button', { name: `Switch dashboard: ${dashboard.name}` }).waitFor();
       if (demo) screenshots.push(await screenshot(page, `chat-after-apply-${width}-light`));
       pass(`chat preview and apply opens dashboard ${width}`);
@@ -56,7 +56,7 @@ export async function runDashboards({ demo = false } = {}) {
     const doc = (await server.request(account, 'GET', '/ui/config')).body.doc;
     const sales = doc.dashboards.find(d => d.name === 'Sales pipeline'), operations = doc.dashboards.find(d => d.name === 'Operations');
     await page.goto(`${server.base}/#dash/${sales.id}`);
-    await page.getByRole('button', { name: 'Switch dashboard: Sales pipeline' }).click(); await page.getByRole('menuitem', { name: 'Operations', exact: true }).click(); await page.getByRole('button', { name: 'Switch dashboard: Operations' }).waitFor(); pass('desktop switcher changes dashboard');
+    await page.getByRole('button', { name: 'Switch dashboard: Sales pipeline' }).click(); await page.getByRole('menuitemradio', { name: 'Operations', exact: true }).click(); await page.getByRole('button', { name: 'Switch dashboard: Operations' }).waitFor(); pass('desktop switcher changes dashboard');
     const approvalId = server.seedApproval(account);
     server.answers.set(sales.widgets[0].options.prompt, { source: 'tasks_list', actions: true, botId: account.bot.id, approvalId });
     server.answers.set(operations.widgets[1].options.prompt, { source: 'tasks_list' });
@@ -77,7 +77,7 @@ export async function runDashboards({ demo = false } = {}) {
     const countSend = request => { if (request.method() === 'POST' && /\/messages$/.test(new URL(request.url()).pathname)) actionSends++; };
     page.on('request', countSend); await agentCard.getByRole('button', { name: /^Send to agent:/ }).click(); await page.locator('.composer__input').waitFor();
     await page.waitForFunction(() => document.querySelector('.composer__input')?.value.startsWith('Draft next steps for ')); assert.match(await page.locator('.composer__input').inputValue(), /^Draft next steps for /); assert.equal(actionSends, 0); page.off('request', countSend); pass('inline Send prefills chat without sending');
-    if (demo) for (const width of [390, 1280]) { await page.setViewportSize({ width, height: width === 390 ? 844 : 900 }); const file = path.join(output, `send-prefill-${width}-light.png`); await page.screenshot({ path: file }); screenshots.push(file); }
+    if (demo) for (const width of [390, 1280]) { await page.setViewportSize({ width, height: width === 390 ? 844 : 900 }); const file = path.join(output, `send-prefill-${width}-light.png`); await assertCopy(page, 'chat screenshot'); await page.screenshot({ path: file }); screenshots.push(file); }
     await page.goto(`${server.base}/#dash/${sales.id}`); await agentCard.getByRole('button', { name: /^Approve:/ }).click();
     const approval = page.getByRole('dialog', { name: 'Approve item', exact: true });
     assert.equal(server.db.prepare('SELECT status FROM approvals WHERE id=?').get(approvalId.slice(9)).status, 'pending');
@@ -86,6 +86,17 @@ export async function runDashboards({ demo = false } = {}) {
     assert.equal(server.db.prepare('SELECT status FROM approvals WHERE id=?').get(approvalId.slice(9)).status, 'pending');
     await agentCard.getByRole('button', { name: /^Approve:/ }).click(); await approval.getByRole('button', { name: 'Approve', exact: true }).click(); await approval.waitFor({ state: 'hidden' });
     assert.equal(server.db.prepare('SELECT status FROM approvals WHERE id=?').get(approvalId.slice(9)).status, 'allowed'); pass('inline Approve cancels safely and confirms server approval');
+    server.answers.set(sales.widgets[0].options.prompt, { source: 'tasks_list' });
+    server.db.prepare('UPDATE tasks SET title=?,updated_at=? WHERE id=(SELECT id FROM tasks WHERE bot_id=? ORDER BY updated_at DESC,id LIMIT 1)').run('Plan the customer call', Date.now(), account.bot.id);
+    const externalRun = await server.request(account, 'POST', `/ui/widgets/${sales.id}/${sales.widgets[0].id}/run`, {}); assert.equal(externalRun.status, 202);
+    await agentCard.getByText('Plan the customer call', { exact: true }).waitFor({ timeout: 4000 }); pass('SSE refreshes a result started outside this page');
+    await page.goto(`${server.base}/#dash/${operations.id}`);
+    const summaryCard = page.getByRole('region', { name: 'Daily summary', exact: true });
+    await summaryCard.getByRole('button', { name: 'Run', exact: true }).click(); await summaryCard.locator('.dashboard-agent-answer').waitFor(); assert.match(await summaryCard.innerText(), /Plan the customer call/); pass('text display renders a live answer');
+    server.answers.set(operations.widgets[1].options.prompt, { source: 'not_a_tool' });
+    await summaryCard.getByRole('button', { name: 'Refresh Daily summary', exact: true }).click(); await summaryCard.getByRole('button', { name: 'Try again', exact: true }).waitFor();
+    server.answers.set(operations.widgets[1].options.prompt, { source: 'tasks_list' });
+    await summaryCard.getByRole('button', { name: 'Try again', exact: true }).click(); await summaryCard.locator('.dashboard-agent-answer').waitFor(); pass('failed runs have a working Try again action');
     // A different user's document and widget results remain independent.
     const other = await server.account({ bot: true }); server.seed(other);
     const otherPage = await server.page(other, 390);
@@ -94,19 +105,40 @@ export async function runDashboards({ demo = false } = {}) {
     await otherPage.getByRole('region', { name: 'Create dashboard: Operations', exact: true }).getByRole('button', { name: 'Apply', exact: true }).click(); await otherPage.getByRole('button', { name: 'Switch dashboard: Operations' }).waitFor();
     const otherDoc = (await server.request(other, 'GET', '/ui/config')).body.doc; assert.equal(otherDoc.dashboards.length, 1); assert.notEqual(otherDoc.dashboards[0].id, sales.id);
     assert.equal((await server.request(other, 'GET', `/ui/widgets/${sales.id}/${sales.widgets[0].id}/result`)).status, 404);
-    pass('two users build distinct dashboards with isolated results'); await otherPage.close();
+    pass('two users build distinct dashboards with isolated results');
+    const applyChatChange = async (tool, args, text) => { await otherPage.goto(`${server.base}/#bot/${other.bot.id}`); await server.propose(other, tool, args, otherPage, text); await otherPage.locator('.ui-preview-card').last().getByRole('button', { name: 'Apply', exact: true }).click(); };
+    await applyChatChange('duplicate_dashboard', { dashboardId: otherDoc.dashboards[0].id, name: 'Weekly operations' }, 'Duplicate Operations as Weekly operations.');
+    await otherPage.getByRole('button', { name: 'Switch dashboard: Weekly operations' }).waitFor();
+    const copy = (await server.request(other, 'GET', '/ui/config')).body.doc.dashboards.find(d => d.name === 'Weekly operations');
+    await applyChatChange('rename_dashboard', { dashboardId: copy.id, name: 'Team operations' }, 'Rename Weekly operations to Team operations.');
+    await server.wait(async () => (await server.request(other, 'GET', '/ui/config')).body.doc.dashboards.some(d => d.name === 'Team operations'));
+    await applyChatChange('delete_dashboard', { dashboardId: copy.id }, 'Delete Team operations.');
+    await server.wait(async () => (await server.request(other, 'GET', '/ui/config')).body.doc.dashboards.length === 1);
+    pass('chat duplicate, rename and delete apply through preview cards');
+    const limited = (await server.request(other, 'GET', '/ui/config')).body;
+    const names = ['Planning', 'Launch', 'Support', 'Product', 'Research', 'Weekly review', 'Customer success', 'Recruiting', 'Finance', 'Team projects', 'Daily focus'];
+    const filled = await server.request(other, 'PATCH', '/ui/config', { patch: names.map((name, index) => ({ op: 'add', path: '/dashboards/-', value: { id: `$new${index + 100}`, name, icon: 'layout-dashboard', widgets: [] } })) }, limited.revision); assert.equal(filled.status, 200);
+    await otherPage.goto(`${server.base}/#dashboards`); await otherPage.getByText('You have reached the limit of 12 dashboards.', { exact: true }).waitFor(); assert.ok(await otherPage.getByRole('button', { name: 'Create', exact: true }).isDisabled()); await assertCopy(otherPage, 'dashboard limit'); pass('dashboard limit shows one line and disables Create'); await otherPage.close();
     // Ask opens a draft, never a send request.
     await page.goto(`${server.base}/#dashboards`); let sends = 0;
     page.on('request', request => { if (request.method() === 'POST' && /\/messages$/.test(new URL(request.url()).pathname)) sends++; });
     await page.getByRole('button', { name: 'Ask your agent', exact: true }).click(); await page.locator('.composer__input').waitFor(); assert.match(await page.locator('.composer__input').inputValue(), /create a dashboard/); assert.equal(sends, 0); pass('ask your agent prefills without sending');
+    await page.goto(`${server.base}/#settings`); await page.locator('nav[aria-label="Settings sections"]').getByRole('button', { name: 'Dashboards', exact: true }).click(); await page.locator('.dashboards-manager').waitFor(); pass('Settings entry opens manager');
+    await page.goto(`${server.base}/#search`); await page.getByRole('textbox', { name: 'Search', exact: true }).fill('Dashboards'); await page.keyboard.press('Enter'); await page.locator('.dashboards-manager').waitFor(); pass('command palette keyboard path opens manager');
     await page.goto(`${server.base}/#dash/${sales.id}`); await page.getByRole('button', { name: 'Edit', exact: true }).click();
     await page.getByRole('button', { name: 'Bigger: Next steps', exact: true }).focus(); await page.keyboard.press('Enter');
     await server.wait(async () => (await server.request(account, 'GET', '/ui/config')).body.doc.dashboards.find(d => d.id === sales.id).widgets[0].span === 7); pass('keyboard resize persists');
     await page.getByRole('button', { name: 'Move down: Next steps', exact: true }).click(); await server.wait(async () => (await server.request(account, 'GET', '/ui/config')).body.doc.dashboards.find(d => d.id === sales.id).widgets[1].id === sales.widgets[0].id); pass('keyboard and touch reorder persists');
     await page.getByRole('button', { name: 'Move up: Next steps', exact: true }).click();
+    await page.getByRole('button', { name: 'Drag to reorder: Next steps', exact: true }).dragTo(page.locator(`[data-widget-id="${sales.widgets[1].id}"]`));
+    await server.wait(async () => (await server.request(account, 'GET', '/ui/config')).body.doc.dashboards.find(d => d.id === sales.id).widgets[1].id === sales.widgets[0].id); pass('desktop drag reorder persists');
+    await page.getByRole('button', { name: 'Move up: Next steps', exact: true }).click();
     await page.getByRole('button', { name: 'Settings: Next steps', exact: true }).click(); assert.equal(await page.getByLabel('Prompt', { exact: true }).inputValue(), sales.widgets[0].options.prompt); await quality(page, 'agent settings'); await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
     await page.getByRole('button', { name: 'Add widget', exact: true }).click(); await page.getByRole('button', { name: /Ask your agent Answers/ }).click(); await page.getByLabel('Prompt', { exact: true }).fill('Summarize my tasks.'); await page.getByRole('button', { name: 'Number', exact: true }).click(); await page.getByRole('button', { name: 'Hourly', exact: true }).click(); await quality(page, 'add agent'); await page.getByRole('dialog').getByRole('button', { name: 'Add widget', exact: true }).click(); await page.getByRole('dialog').waitFor({ state: 'hidden' }); pass('agent option form saves display and schedule');
     await page.getByRole('button', { name: 'Done', exact: true }).click();
+    server.answers.set('Summarize my tasks.', { source: 'tasks_counts' });
+    const numberCard = page.getByRole('region', { name: 'Daily summary', exact: true });
+    await numberCard.getByRole('button', { name: 'Run', exact: true }).click(); await numberCard.locator('output').waitFor(); assert.equal(await numberCard.locator('output').innerText(), '12'); assert.doesNotMatch(await numberCard.innerText(), /Hourly/); pass('Number display renders live counts with schedule confined to settings');
     if (demo) for (const [width, theme] of [[320, 'light'], [390, 'light'], [500, 'light'], [1280, 'light'], [390, 'dark'], [1280, 'dark']]) {
       await page.setViewportSize({ width, height: width <= 760 ? 844 : 900 }); await page.emulateMedia({ colorScheme: theme });
       await page.evaluate(theme => { localStorage.setItem('swarm.theme', theme); }, theme);
