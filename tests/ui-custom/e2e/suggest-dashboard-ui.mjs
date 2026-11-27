@@ -274,12 +274,14 @@ export async function runSuggestionUi(directory = '.context/ui-custom/suggest-da
         await screen.getByRole('button', { name: before ? 'Re-adapt' : 'Suggest a dashboard', exact: true }).click();
         const card = screen.locator('.ui-preview-card'); await card.waitFor(); await card.scrollIntoViewIfNeeded();
         if (!before) {
-          assert.equal(await card.locator('.ui-preview-card__title').innerText(), 'Add dashboard: Sales');
+          await card.getByText('Create dashboard: Sales', { exact: true }).waitFor();
           assert.ok((await card.locator('li').count()) >= 4 && (await card.locator('li').count()) <= 6);
         }
         await capture(page, SUGGESTION_ROUTES[1].name, variant);
         assert.deepEqual(check(await sales.request('GET', '/ui/config')), initial);
-        await card.getByRole('button', { name: 'Apply', exact: true }).click(); await card.getByText('Applied', { exact: true }).waitFor();
+        await card.getByRole('button', { name: 'Apply', exact: true }).click();
+        if (before) await card.getByText('Applied', { exact: true }).waitFor();
+        else { await page.waitForFunction(() => location.hash.startsWith('#dash/')); await page.locator('.dashboard-page').waitFor(); }
         const applied = check(await sales.request('GET', '/ui/config'));
         assert.equal(applied.doc.dashboards.length, 1);
         if (!before) assert.deepEqual({ ...applied.doc, dashboards: initial.doc.dashboards }, initial.doc);
