@@ -6,7 +6,7 @@ const plain = (max: number, min = 1) => z.string().min(min).max(max).regex(/^[^<
 const id = z.string().min(1).max(100);
 const dashboardId = z.string().regex(/^d_[a-z0-9]{8}$/);
 const widgetId = z.string().regex(/^w_[a-z0-9]{8}$/);
-const widgetType = z.enum(['stat', 'list', 'table', 'chart', 'meter', 'botStatus', 'taskBoard', 'routineSchedule', 'note', 'shortcuts']);
+const widgetType = z.enum(['stat', 'list', 'table', 'chart', 'meter', 'botStatus', 'taskBoard', 'routineSchedule', 'note', 'shortcuts', 'agent']);
 const source = z.object({ id, params: z.record(z.string(), z.unknown()).default({}) }).strict();
 const widgetFields = {
   type: widgetType.optional(), title: plain(60, 0).optional(), source: source.optional(),
@@ -29,7 +29,7 @@ export const UI_SCHEMAS = {
   apply_preset: z.object({ presetId: id }).strict(),
   save_preset: z.object({ name: plain(40) }).strict(),
   set_accent: z.object({ color: z.string().regex(/^#[0-9a-fA-F]{6}$/) }).strict(),
-  create_dashboard: z.object({ name: plain(40), icon: plain(40).optional(), template: z.enum(['blank', 'overview', 'tasks', 'usage', 'bot']).optional(), botId: id.optional(), pin: z.boolean().optional(), setAsHome: z.boolean().optional() }).strict(),
+  create_dashboard: z.object({ name: plain(40), icon: plain(40).optional(), template: z.enum(['blank', 'overview', 'tasks', 'usage', 'bot', 'needs_you', 'handoffs', 'pipeline']).optional(), botId: id.optional(), pin: z.boolean().optional(), setAsHome: z.boolean().optional() }).strict(),
   add_widget: z.object({ dashboardId, ...widgetFields, type: widgetType, after: z.union([widgetId, z.literal('start')]).optional() }).strict(),
   update_widget: z.object({ dashboardId, widgetId, set: z.object(widgetFields).strict() }).strict(),
   remove_widget: z.object({ dashboardId, widgetId }).strict(),
@@ -105,6 +105,7 @@ function widgetDefaults(type: Widget['type']): Omit<Widget, 'id'> {
     case 'botStatus': return { ...base, source: { id: 'bots.status', params: {} }, options: { limit: 6 } };
     case 'taskBoard': return { ...base, source: { id: 'tasks.list', params: {} } };
     case 'routineSchedule': return { ...base, source: { id: 'routines.upcoming', params: {} }, options: { days: 7 } };
+    case 'agent': return { ...base, options: { prompt: 'Summarize my open tasks', display: 'text', schedule: 'manual' } };
     case 'note': return { ...base, options: { text: '' } };
     case 'shortcuts': return { ...base, rows: 1, options: { items: [{ label: 'Tasks', target: 'tasks' }] } };
   }
@@ -118,6 +119,9 @@ export function dashboardTemplate(template: string, botId?: string): Widget[] {
       w('stat', 'Spent this week', { source: { id: 'usage.summary', params: { range: '7d' } }, options: { field: 'costUsd', format: 'usd' } }),
       w('stat', 'Working now'), w('list', 'Open tasks', { span: 6, source: { id: 'tasks.list', params: { state: 'needs_input', limit: 10 } } }), w('chart', 'Cost by day', { span: 6 }),
     ]; break;
+    case 'needs_you': widgets = [w('list', 'Needs you', { source: { id: 'needsYou.list', params: {} } }), w('agent', 'Next steps', { options: { prompt: 'Summarize what needs my input and suggest next steps', display: 'list', schedule: 'manual' } })]; break;
+    case 'handoffs': widgets = [w('list', 'Handoffs', { source: { id: 'handoffs.list', params: {} } }), w('list', 'Loops', { source: { id: 'loops.list', params: {} } }), w('list', 'Recent outputs', { source: { id: 'outputs.recent', params: {} } })]; break;
+    case 'pipeline': widgets = [w('list', 'Deals', { source: { id: 'crm.deals', params: {} } }), w('agent', 'Stuck deals', { options: { prompt: 'Show deals stuck for more than 7 days', display: 'list', schedule: 'manual' } }), w('list', 'Open handoffs', { source: { id: 'handoffs.list', params: {} } })]; break;
     case 'tasks': widgets = [w('taskBoard', 'Tasks'), w('list', 'Needs you', { source: { id: 'needsYou.list', params: {} } })]; break;
     case 'usage': widgets = [w('stat', 'Spent this week', { span: 12, source: { id: 'usage.summary', params: { range: '7d' } }, options: { field: 'costUsd', format: 'usd' } }), w('chart', 'Cost by day')]; break;
     case 'bot':

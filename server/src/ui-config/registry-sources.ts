@@ -1,10 +1,18 @@
 import { z } from 'zod';
-export const SOURCE_IDS = ['tasks.counts', 'tasks.list', 'tasks.series', 'bots.list', 'bots.status', 'needsYou.list', 'usage.summary', 'usage.series', 'usage.windows', 'routines.list', 'routines.upcoming', 'runs.recent', 'runs.counts', 'runs.series'] as const;
+export const SOURCE_IDS = ['tasks.counts', 'tasks.list', 'tasks.series', 'bots.list', 'bots.status', 'needsYou.list', 'usage.summary', 'usage.series', 'usage.windows', 'routines.list', 'routines.upcoming', 'runs.recent', 'runs.counts', 'runs.series', 'handoffs.list', 'loops.list', 'outputs.recent', 'connectors.status', 'email.recent', 'calendar.upcoming', 'crm.deals'] as const;
 export type SourceId = typeof SOURCE_IDS[number];
 export const botIdSchema = z.string().min(1).max(100).regex(/^[a-zA-Z0-9_-]+$/);
 const botId = botIdSchema.optional(), limit = z.number().int().min(1).max(25).optional();
 const range = z.enum(['today', '7d', '30d', 'month']);
+const smallLimit = z.number().int().min(1).max(10).optional();
 export const SOURCE_PARAMS = {
+  'handoffs.list': z.object({ botId, limit: smallLimit }).strict(),
+  'loops.list': z.object({ limit: smallLimit }).strict(),
+  'outputs.recent': z.object({ botId, limit: smallLimit }).strict(),
+  'connectors.status': z.object({ limit: smallLimit }).strict(),
+  'email.recent': z.object({ limit: smallLimit }).strict(),
+  'calendar.upcoming': z.object({ limit: smallLimit }).strict(),
+  'crm.deals': z.object({ limit: smallLimit }).strict(),
   'tasks.counts': z.object({ botId }).strict(),
   'tasks.list': z.object({ botId, state: z.enum(['working', 'needs_input', 'done']).optional(), limit }).strict(),
   'tasks.series': z.object({ range, botId }).strict(),
@@ -16,11 +24,18 @@ export const SOURCE_PARAMS = {
   'runs.series': z.object({ range, group: z.enum(['day', 'state']) }).strict(),
 };
 const fields: Record<SourceId, string[]> = {
+  'handoffs.list': ['id', 'title', 'fromBot', 'toBot', 'state', 'updatedAt'],
+  'loops.list': ['id', 'name', 'state', 'round', 'updatedAt'],
+  'outputs.recent': ['id', 'title', 'botName', 'kind', 'createdAt'],
+  'connectors.status': ['id', 'label', 'connected'],
+  'email.recent': ['id', 'subject', 'from', 'receivedAt'],
+  'calendar.upcoming': ['id', 'title', 'startsAt', 'endsAt'],
+  'crm.deals': ['id', 'title', 'stage', 'value', 'updatedAt'],
   'tasks.counts': ['working', 'needs_input', 'done', 'total'], 'tasks.list': ['id', 'title', 'state', 'botName', 'botId', 'updatedAt'], 'tasks.series': ['day', 'created', 'done'],
   'bots.list': ['id', 'name', 'avatarShape', 'avatarColor', 'lastActiveAt'], 'bots.status': ['id', 'name', 'status', 'openTasks'], 'needsYou.list': ['id', 'type', 'botName', 'title', 'createdAt'],
   'usage.summary': ['costUsd', 'requests', 'tokens', 'computerHours'], 'usage.series': ['day', 'value'], 'usage.windows': ['label', 'usedPercent', 'resetsAt', 'available'],
   'routines.list': ['id', 'name', 'schedule', 'enabled', 'lastRunAt', 'botName'], 'routines.upcoming': ['routineId', 'name', 'at', 'botName'],
   'runs.recent': ['id', 'botName', 'kind', 'state', 'startedAt', 'durationMs'], 'runs.counts': ['completed', 'failed', 'running', 'queued'], 'runs.series': ['day', 'state', 'value'],
 };
-const labels = ['Task counts', 'Tasks', 'Task history', 'Bots', 'Bot status', 'Needs you', 'Usage summary', 'Usage history', 'Usage windows', 'Routines', 'Upcoming routines', 'Recent runs', 'Run counts', 'Run history'];
-export const SOURCES = SOURCE_IDS.map((id, i) => ({ id, label: labels[i], paramsSchema: SOURCE_PARAMS[id], fields: [...fields[id], 'count'], maxRows: 25, maxPoints: 31 }));
+const labels = ['Task counts', 'Tasks', 'Task history', 'Bots', 'Bot status', 'Needs you', 'Usage summary', 'Usage history', 'Usage windows', 'Routines', 'Upcoming routines', 'Recent runs', 'Run counts', 'Run history', 'Handoffs', 'Loops', 'Outputs', 'Connections', 'Recent email', 'Upcoming events', 'Deals'];
+export const SOURCES = SOURCE_IDS.map((id, i) => ({ id, label: labels[i], paramsSchema: SOURCE_PARAMS[id], fields: [...fields[id], 'count'], maxRows: ['handoffs.list', 'loops.list', 'outputs.recent', 'connectors.status', 'email.recent', 'calendar.upcoming', 'crm.deals'].includes(id) ? 10 : 25, maxPoints: 31 }));
