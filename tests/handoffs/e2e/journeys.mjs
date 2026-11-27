@@ -10,7 +10,7 @@ import { goals } from '../mock-iter.mjs';
 import { runUiQuality } from './visual-quality.mjs';
 import { injections, xss } from '../security/corpus.mjs';
 
-const evidence = path.resolve('.context/handoffs/e2e-h');
+const evidence = path.resolve(process.env.HANDOFFS_EVIDENCE || '.context/handoffs/e2e-h');
 const startedAt = Date.now();
 const server = await fixture(evidence), results = [], details = [];
 const uiQuality = await runUiQuality(evidence);
@@ -133,8 +133,8 @@ try {
       await auditRoute(page, width);
     });
     await check(8, 'Standing suggest link, Flow link editor and Settings automation controls', async () => {
-      await go(page, `#bot/${f.maker}`);
-      await page.locator('.ho-output-card').getByRole('button', { name: 'Send to Checker', exact: true }).first().click();
+      const card = await finishedChat(page, f, width);
+      await card.getByRole('button', { name: 'Send to Checker', exact: true }).click();
       await page.getByRole('dialog', { name: 'Send to agent' }).waitFor(); await page.keyboard.press('Escape');
       await go(page, `#bot/${f.maker}/details/flow`); await page.locator('.flow-chart').waitFor();
       await page.locator('[data-kind="handoff_to"]').first().click();
@@ -152,10 +152,12 @@ try {
       await mode.selectOption('auto');
       await poll(() => api(page, `/handoff-links?botId=${f.maker}`), r => r.links[0].mode === 'auto', 'Settings saves automatic mode');
       const approve = page.getByLabel('Auto approve loops started by agents with Checker', { exact: true });
-      await approve.check();
+      await approve.click();
       await poll(() => api(page, `/handoff-links?botId=${f.maker}`), r => r.links[0].autoApproveLoops, 'Settings saves pair approval');
-      await approve.uncheck();
+      await poll(() => approve.isChecked(), Boolean, 'Settings renders saved pair approval');
+      await approve.click();
       await poll(() => api(page, `/handoff-links?botId=${f.maker}`), r => !r.links[0].autoApproveLoops, 'Settings restores pair approval');
+      await poll(() => approve.isChecked(), checked => !checked, 'Settings renders restored pair approval');
       await mode.selectOption('suggest');
       await poll(() => api(page, `/handoff-links?botId=${f.maker}`), r => r.links[0].mode === 'suggest', 'Settings restores suggestion mode');
       await auditRoute(page, width);
