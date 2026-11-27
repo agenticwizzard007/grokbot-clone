@@ -1,0 +1,147 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { after, test } from 'node:test';
+import { seedDashboard } from '../fixtures/dashboard.seed.mts';
+
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-sources-'));
+Object.assign(process.env, { NODE_ENV: 'test', DB_PATH: path.join(temp, 'test.db'), FILES_DIR: path.join(temp, 'files'), CLI_PROFILES_DIR: path.join(temp, 'profiles'),
+  SWARM_ROLE: 'standalone', SWARM_NO_SCHEDULER: '1', SESSION_SECRET: 'fixture-session', COMPUTER_PROVIDER: 'local', INKBOX_TUNNEL: '0',
+  DIRECT_API_KEY: '', OPENROUTER_API_KEY: '', COMPOSIO_API_KEY: '', APP_URL: 'http://localhost:1', SERVER_URL: 'http://localhost:1' });
+const fetchOriginal = globalThis.fetch;
+globalThis.fetch = async () => { throw new Error('Sources must not use provider network calls'); };
+const fixture = await seedDashboard();
+const { db } = await import('../../server/src/db.js');
+const { SOURCES } = await import('../../server/src/ui/sources/catalog.js');
+const { DataExecutor } = await import('../../server/src/ui/sources/executor.js');
+const { createDataApi } = await import('../../server/src/ui/data-routes.js');
+const { Hono } = await import('hono');
+const [a, b] = fixture.users;
+const executors: InstanceType<typeof DataExecutor>[] = [];
+const executor = () => { const instance = new DataExecutor(); executors.push(instance); return instance; };
+const data = executor();
+const read = (userId: string, source: string, params: unknown = {}) => data.execute(userId, { key: source, source, params });
+const app = (options: Parameters<typeof createDataApi>[0] = {}) => new Hono().route('/api/ui', createDataApi({ executor: executor(), enabled: () => true, ...options }));
+const request = (target: ReturnType<typeof app>, body: unknown, user = a, headers: Record<string, string> = {}) => target.request('/api/ui/data', {
+  method: 'POST', headers: { 'Content-Type': 'application/json', cookie: `swarm_session=${user.token}`, ...headers }, body: JSON.stringify(body),
+});
+const batch = (count = 1) => ({ requests: Array.from({ length: count }, (_, n) => ({ key: `k${n}`, source: 'tasks.counts', params: {} })) });
+after(() => { for (const data of executors) data.close(); globalThis.fetch = fetchOriginal; db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
+
+const expectedCounts: Record<string, number> = { 'tasks.counts': 33, 'tasks.list': 33, 'tasks.series': 33, 'bots.list': 30, 'bots.status': 30,
+  'needsYou.list': 28, 'usage.summary': 7, 'usage.series': 7, 'usage.windows': 0, 'routines.list': 28, 'routines.upcoming': 196,
+  'runs.recent': 33, 'runs.counts': 33, 'runs.series': 33 };
+for (const source of SOURCES) test(`${source.id}: allowlisted fields, caps and disjoint accounts`, async () => {
+  const own = await read(a.id, source.id), foreign = await read(b.id, source.id);
+  assert.equal(own.ok, true, JSON.stringify(own)); assert.equal(foreign.ok, true, JSON.stringify(foreign));
+  if (!own.ok || !foreign.ok) return;
+  assert.equal(own.count, expectedCounts[source.id]);
+  assert.ok(own.fetchedAt > 0);
+  for (const result of [own, foreign]) {
+    assert.ok((result.rows?.length ?? 0) <= (source.series ? 31 : 25));
+    for (const row of [...result.rows ?? [], ...result.value ? [result.value] : []]) for (const key of Object.keys(row)) assert.ok(source.fields.includes(key), `${source.id}.${key}`);
+    assert.doesNotMatch(JSON.stringify(result), /FORBIDDEN_|"(?:prompt|instructions|note|text|key|memory|trigger|error|seq|user_id)":/);
+  }
+  assert.doesNotMatch(JSON.stringify(own), /Fixture B|qa-temp-dashboard-b/);
+  assert.doesNotMatch(JSON.stringify(foreign), /Fixture A|qa-temp-dashboard-a/);
+  if (source.id !== 'usage.windows' && !source.id.startsWith('usage.')) assert.notEqual(own.count, foreign.count);
+  if (source.id === 'usage.summary') {
+    assert.equal(own.value!.costUsd, 1.75); assert.equal(foreign.value!.costUsd, 693);
+    assert.equal(own.value!.tokens, 840); assert.equal(foreign.value!.tokens, 70000);
+  }
+  if (source.id === 'usage.series') assert.ok(own.rows!.every(row => row.value === 0.25));
+  if (source.id === 'tasks.series') assert.equal(own.rows!.reduce((n, row) => n + Number(row.done), 0), 11);
+  if (source.id === 'runs.counts') assert.deepEqual(own.value, { completed: 8, failed: 9, running: 8, queued: 8 });
+  if (source.id === 'usage.windows') assert.deepEqual({ rows: own.rows, available: own.available }, { rows: [], available: false });
+});
+
+test('all 14 sources reject unknown params and never accept a user id', async () => {
+  assert.equal(SOURCES.length, 14);
+  for (const source of SOURCES) for (const params of [{ userId: b.id }, { sql: 'SELECT * FROM users' }, { url: 'https://example.test' }, [], null]) {
+    const result = await read(a.id, source.id, params); assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.code, 'invalid_value');
+  }
+});
+test('foreign and missing bot ids return identical not_found results for every scoped source', async () => {
+  for (const source of ['tasks.counts', 'tasks.list', 'tasks.series', 'routines.list', 'runs.recent', 'runs.counts']) {
+    for (const botId of [`${b.id}-bot-0`, 'missing-bot']) {
+      const result = await read(a.id, source, { botId });
+      assert.equal(result.ok, false); if (!result.ok) assert.equal(result.code, 'not_found');
+    }
+    assert.equal((await read(a.id, source, { botId: `${a.id}-bot-0` })).ok, true);
+  }
+});
+test('source parameter bounds reject oversized, fractional, negative and unknown values', async () => {
+  for (const limit of [0, -1, 26, 1.5, '10']) assert.equal((await read(a.id, 'tasks.list', { limit })).ok, false);
+  for (const days of [0, 15, 1.5]) assert.equal((await read(a.id, 'routines.upcoming', { days })).ok, false);
+  for (const range of ['forever', '', 31]) assert.equal((await read(a.id, 'usage.summary', { range })).ok, false);
+  assert.equal((await read(a.id, 'tasks.list', { state: 'cancelled' })).ok, false);
+  assert.equal((await read(a.id, 'usage.series', { metric: 'secrets' })).ok, false);
+  assert.equal((await read(a.id, 'runs.series', { group: 'user' })).ok, false);
+  const capped = await read(a.id, 'tasks.list', { limit: 25 }); assert.ok(capped.ok && capped.rows!.length === 25 && capped.count === 33);
+  const state = await read(a.id, 'runs.series', { group: 'state' }); assert.ok(state.ok); if (state.ok) assert.deepEqual(state.rows!.map(row => row.count), [8, 9, 8, 8]);
+});
+test('cache canonicalizes defaults and parameter order, expires at 10 seconds, isolates users and clones replies', async () => {
+  let clock = Date.now(); const cached = new DataExecutor(() => clock); executors.push(cached);
+  const params = { botId: `${a.id}-bot-0`, limit: 10 };
+  const first = await cached.execute(a.id, { key: 'first', source: 'tasks.list', params }); assert.ok(first.ok);
+  db.prepare('UPDATE tasks SET title=? WHERE id=?').run('Fixture A changed', `${a.id}-task-0`);
+  const same = await cached.execute(a.id, { key: 'other-key', source: 'tasks.list', params: { limit: 10, botId: params.botId } });
+  assert.deepEqual(same, first);
+  if (same.ok) same.rows![0].title = 'Caller mutation';
+  clock += 9999;
+  assert.deepEqual(await cached.execute(a.id, { key: 'same-default', source: 'tasks.list', params: { botId: params.botId } }), first);
+  clock++;
+  const expired = await cached.execute(a.id, { key: 'expired', source: 'tasks.list', params });
+  assert.ok(expired.ok && expired.rows!.some(row => row.title === 'Fixture A changed'));
+  const foreign = await cached.execute(b.id, { key: 'foreign', source: 'tasks.list', params: {} });
+  assert.ok(foreign.ok); assert.doesNotMatch(JSON.stringify(foreign), /Fixture A/);
+  // An old cache key is not authorization after a Bot is reassigned.
+  db.prepare('UPDATE bots SET user_id=? WHERE id=?').run(b.id, params.botId);
+  const revoked = await cached.execute(a.id, { key: 'revoked', source: 'tasks.list', params });
+  assert.ok(!revoked.ok && revoked.code === 'not_found');
+  db.prepare('UPDATE bots SET user_id=? WHERE id=?').run(a.id, params.botId);
+});
+test('signed-in API accepts 24 keys and returns per-key errors without failing healthy data', async () => {
+  const target = app(), body = batch(24);
+  body.requests[1].source = 'unknown'; body.requests[2].params = { userId: b.id } as any;
+  const response = await request(target, body); assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  const { results } = await response.json(); assert.equal(Object.keys(results).length, 24);
+  assert.equal(results.k0.ok, true); assert.equal(results.k1.code, 'not_found'); assert.equal(results.k2.code, 'invalid_value'); assert.equal(results.k23.ok, true);
+  for (const bad of [batch(0), batch(25), { ...batch(), userId: b.id }, { requests: [batch().requests[0], batch().requests[0]] }]) assert.equal((await request(target, bad)).status, 422);
+});
+test('API uses session authentication, feature gates, JSON and origin boundaries', async () => {
+  const target = app();
+  assert.equal((await request(target, batch(), a, { cookie: '' })).status, 401);
+  assert.equal((await request(target, batch(), a, { origin: 'https://foreign.example.test' })).status, 403);
+  assert.equal((await request(target, batch(), a, { 'content-type': 'text/plain' })).status, 415);
+  assert.equal((await request(app({ enabled: () => false }), batch())).status, 404);
+  assert.equal((await request(target, { requests: [], padding: 'x'.repeat(256 * 1024) })).status, 413);
+  assert.equal((await target.request('/api/ui/data', { method: 'POST', headers: { cookie: `swarm_session=${a.token}`, 'content-type': 'application/json' }, body: '{' })).status, 400);
+});
+test('API rate limits 30 batches, not widgets, with an independent rolling window per user', async () => {
+  let at = Date.now(); const target = app({ clock: () => at });
+  for (let n = 0; n < 30; n++) assert.equal((await request(target, batch(24))).status, 200);
+  let limited = await request(target, batch()); assert.equal(limited.status, 429); assert.equal(limited.headers.get('retry-after'), '60');
+  assert.equal((await request(target, batch(), b)).status, 200);
+  at += 59_999; assert.equal((await request(target, batch())).status, 429);
+  at++; assert.equal((await request(target, batch())).status, 200);
+});
+test('200 ms deadline interrupts a real CPU-bound SQLite query and subsequent requests recover', async () => {
+  const bounded = executor();
+  assert.equal((await bounded.execute(a.id, { key: 'warm', source: 'bots.list', params: {} })).ok, true);
+  db.exec(`ALTER TABLE tasks RENAME TO dashboard_original_tasks;
+    CREATE VIEW tasks AS WITH RECURSIVE work(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM work WHERE n<1000000000)
+    SELECT t.* FROM dashboard_original_tasks t CROSS JOIN work;`);
+  try {
+    const start = performance.now();
+    const slow = await bounded.execute(a.id, { key: 'slow', source: 'tasks.counts', params: {} });
+    const elapsed = performance.now() - start;
+    assert.ok(!slow.ok && slow.code === 'timeout', JSON.stringify(slow));
+    assert.ok(elapsed >= 180 && elapsed < 600, `deadline took ${elapsed} ms`);
+  } finally { db.exec('DROP VIEW tasks; ALTER TABLE dashboard_original_tasks RENAME TO tasks;'); }
+  const recovered = await bounded.execute(a.id, { key: 'recovered', source: 'tasks.counts', params: {} });
+  assert.ok(recovered.ok && recovered.count === 33, JSON.stringify(recovered));
+});

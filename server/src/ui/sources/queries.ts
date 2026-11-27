@@ -74,7 +74,7 @@ export function resolveSource(id: string, userId: string, params: Params): Sourc
       FROM bots b WHERE b.user_id=? ORDER BY b.updated_at DESC,b.id LIMIT ?`, [userId, limit])
       .map(({ working, ...bot }) => ({ ...bot, status: attention.has(bot.id) ? 'needs_you' : working ? 'working' : 'ready' })) };
   }
-  if (id === 'needsYou.list') { const rows = needsYou(userId); return { count: rows.length, rows: rows.slice(0, limit) }; }
+  if (id === 'needsYou.list') { const rows = needsYou(userId); return { count: rows.length, rows: rows.slice(0, limit).map(({ id, type, botName, title, createdAt }) => ({ id, type, botName, title, createdAt })) }; }
   if (id === 'usage.summary' || id === 'usage.series') {
     const report = usageReport(userId, range);
     return id === 'usage.summary' ? { count: report.totals.requests, value: {
