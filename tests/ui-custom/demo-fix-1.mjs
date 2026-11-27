@@ -54,6 +54,7 @@ try {
       assert.ok(await page.locator('.shell-header > .bot-avatar').isVisible());
       assert.equal(await page.locator('.shell-header__subtitle').innerText(), 'Flow');
       assert.equal(await page.locator('.shell-back:visible').count(), 1);
+      assert.equal(await page.locator('.phone-tabs:visible').count(), width <= 760 ? 1 : 0);
       assert.deepEqual(errors, []);
       if (model?.lanes && [390, 1280].includes(width)) {
         const screenshot = path.join(output, `${state}-${width}-${theme}.png`);
@@ -64,6 +65,7 @@ try {
       await page.locator('.flow-tab').waitFor();
       await page.locator('.shell-back').click();
       await page.waitForFunction(() => /^#bot\/[^/]+$/.test(location.hash));
+      await page.locator('.phone-tabs').waitFor({ state: 'hidden' });
       await page.evaluate(() => { location.hash = '#reports'; });
       await page.locator('.work-tabs').waitFor();
       await page.evaluate(hash => { location.hash = hash; }, hash);
