@@ -32,7 +32,7 @@ after(() => { globalThis.fetch = realFetch; db.close(); fs.rmSync(temp, { recurs
 test('direct chat discovers four requirements tools and the chat dashboard instructions', async () => {
   const context = ctx();
   assert.equal(functionSchemas(bot.id, context).filter(tool => REQUIREMENTS_TOOL_NAMES.has(tool.name)).length, 4);
-  assert.match(await systemPrompt('qa', bot.id, context.jobId), /## Requirements and tailored dashboards/);
+  assert.match(await systemPrompt('qa', bot.id, context.jobId), /## Profile and optional dashboard suggestion/);
 });
 
 test('reading requirements is trusted and saving what the user said never changes config', async () => {
@@ -45,7 +45,7 @@ test('reading requirements is trusted and saving what the user said never change
   assert.deepEqual(uiConfigService.get('qa'), before);
 });
 
-test('adaptation makes a normal card, ask waits, clean auto applies', async () => {
+test('dashboard suggestion makes a normal card, ask waits, clean auto applies', async () => {
   if (!store.get('qa').profile) assert.ok(store.update('qa', patch, store.get('qa').revision).ok);
   const context = ctx();
   const preview = await call('preview_adaptation', {}, context); assert.equal(preview.ok, true, JSON.stringify(preview));
@@ -82,6 +82,6 @@ test('routines, groups and background workers never get requirements tools', asy
 test('disabled rollout hides the tools and prompt without changing defaults', async () => {
   process.env.UI_ADAPT = 'off'; const context = ctx();
   assert.equal(functionSchemas(bot.id, context).some(tool => REQUIREMENTS_TOOL_NAMES.has(tool.name)), false);
-  assert.doesNotMatch(await systemPrompt('qa', bot.id, context.jobId), /## Requirements and tailored dashboards/);
+  assert.doesNotMatch(await systemPrompt('qa', bot.id, context.jobId), /## Profile and optional dashboard suggestion/);
   for (const name of REQUIREMENTS_TOOL_NAMES) assert.equal((await call(name, {}, context)).errors[0].code, 'disabled');
 });

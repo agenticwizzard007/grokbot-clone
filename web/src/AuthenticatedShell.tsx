@@ -36,8 +36,23 @@ import './styles/mobile.css';
 import './styles/paper-core.css'; // accepted shared shell and core responsive geometry
 import './components/sidebar-labels.css';
 
-const AllSections = lazy(() => import('./components/AllSections').then(m => ({ default: m.AllSections })));
-const AdaptiveHome = lazy(() => import('./components/AllSections').then(m => ({ default: m.AdaptiveHome })));
+// Paper geometry is the same for every dashboard, independent of the profile.
+const dashboardSurfaceStyles = `
+.dashboard-surface { width: 100%; height: 100%; min-width: 0; min-height: 0; overflow-y: auto; }
+.dashboard-surface :is(.btn, .cfg-btn) { gap: 8px; font-size: 14px; line-height: 20px; }
+.dashboard-surface :is(.dashboard-muted, .dashboard-list-meta, .dashboard-chart-labels, .dashboard-chart-legend, .dashboard-schedule time, .dashboard-schedule li > span, .dashboard-bot-grid small) { font-size: 13px; line-height: 20px; color: var(--color-text-secondary); }
+.dashboard-surface :is(.dashboard-widget--stat, .dashboard-status, .dashboard-bot-grid li > div, .dashboard-schedule li) { gap: 8px; }
+.dashboard-surface .dashboard-actions .btn:first-child, .dashboard-surface .dashboard-empty-data .btn { background: var(--color-bg-tertiary); color: var(--color-text-primary); box-shadow: inset 0 0 0 1px var(--color-border); }
+.dashboard-surface .dashboard-actions .btn:last-child { background: var(--color-primary); color: var(--color-on-primary); }
+@media (max-width: 760px) {
+  .dashboard-surface .dashboard-heading > div:first-child { display: none; }
+  .dashboard-surface .dashboard-actions { max-width: none; flex: 1 1 0; width: 100%; }
+}
+@media (min-width: 761px) {
+  .app:has(.dashboard-surface) .shell-header > .shell-header__title { display: none; }
+}
+`;
+
 const DashboardView = lazy(() => import('./dashboards/DashboardView'));
 const FirstRun = lazy(() => import('./components/FirstRun').then(m => ({ default: m.FirstRun })));
 const ChatView = lazy(() => import('./components/ChatView').then(m => ({ default: m.ChatView })));
@@ -92,7 +107,7 @@ function Shell() {
   const dashboard = screen.kind === 'dash' ? routeDashboard(screen.dashboard, dashboards) : undefined;
   const headerTitle = dashboard?.name ?? (!mobile && screen.kind === 'settings' ? 'Settings' : screenTitle(screen, bots).replace(/ · Swarm$/, '').replace(/^Settings · /, ''));
   const headerBot = 'bot' in screen ? routeBot(screen.bot, bots) : undefined;
-  const titledInHeader = mobile && (screen.kind === 'all' || (screen.kind === 'dash' && phoneTabs.some(tab => tab.id === 'more')) || (screen.kind === 'settings' && screen.use));
+  const titledInHeader = mobile && (screen.kind === 'dash' || (screen.kind === 'settings' && screen.use));
   const botSubtitle = headerBot ? headerTitle.replace(`${headerBot.name} · `, '') : '';
   useEffect(() => { setDrawerOpen(false); }, [headerTitle, mobile]);
   // Settings pages load lazily; navigation stays mounted.
@@ -144,8 +159,7 @@ function Shell() {
       <Suspense fallback={view === 'chat' && !botSettings && !modal ? <ChatSkeleton /> : <main className="chat chat--empty" role="status">Loading...</main>}>
         {rosterUnavailable && view !== 'tasks' ? <main className="boot boot--data"><RosterFeedback /></main>
           : ['loops', 'loop', 'handoff', 'output'].includes(screen.kind) ? <HandoffRoutes screen={screen as HandoffScreen} />
-          : screen.kind === 'all' ? <AllSections routines={screen.routines} />
-          : screen.kind === 'dash' ? <AdaptiveHome><DashboardView dashboardId={dashboard?.id ?? screen.dashboard} /></AdaptiveHome>
+          : screen.kind === 'dash' ? <div className="dashboard-surface"><style>{dashboardSurfaceStyles}</style><DashboardView dashboardId={dashboard?.id ?? screen.dashboard} /></div>
           : screen.kind === 'first-run' ? <FirstRun />
           : modal === 'create' ? <CreateBotModal inline />
           : modal === 'group' ? <CreateGroupModal inline />
