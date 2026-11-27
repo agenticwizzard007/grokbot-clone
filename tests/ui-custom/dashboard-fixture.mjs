@@ -23,7 +23,7 @@ export async function dashboardFixture() {
     .run(`qa-dashboard-task-${n}`, bot.id, `Fixture task ${n + 1}`, ['working', 'needs_input', 'done'][n % 3], 'PRIVATE_FIXTURE_NOTE', at - 1000, at);
   db.prepare("DELETE FROM rows WHERE bot_id=? AND kind='card'").run(bot.id);
   db.prepare('INSERT INTO rows(bot_id,generation,seq,updated_seq,kind,body,created_at) VALUES(?,?,?,?,?,?,?)')
-    .run(bot.id, bot.generation, 100, 100, 'card', JSON.stringify({ type: 'card', card: 'question', status: 'pending', question: 'Choose the next task', private: 'PRIVATE_FIXTURE_QUESTION' }), at);
+    .run(bot.id, bot.generation, 100, 100, 'card', JSON.stringify({ type: 'card', card: 'question', status: 'pending', question: 'Choose the next task', options: ['Fixture choice'], private: 'PRIVATE_FIXTURE_QUESTION' }), at);
   db.prepare('UPDATE bots SET next_seq=101,rev=100 WHERE id=?').run(bot.id);
   for (let day = 0; day < 30; day++) db.prepare('INSERT INTO usage_events(user_id,bot_id,kind,provider,model,input_tokens,output_tokens,cost_usd,cost_source,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)')
     .run(userId, bot.id, 'chat', 'direct', 'fixture-model', 100, 20, .25, 'provider', at - day * 86400_000);

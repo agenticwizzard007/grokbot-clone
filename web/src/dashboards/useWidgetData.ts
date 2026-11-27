@@ -16,7 +16,8 @@ export function useWidgetData(widgets: Widget[]) {
     let controller: AbortController | undefined, stream: EventSource | undefined, reconnect = false;
     let retryAt = 0, active = false;
     const visible = new Set<string>(), dirty = new Set<string>(), fresh = new Set<string>();
-    const live = new Map<string, string>();
+    const live = new Map<string, string>(), attemptedAt = new Map<string, number>();
+    const lastAttempt = (widget: Widget) => Math.max(cache.get(cacheKey(widget))?.receivedAt ?? 0, attemptedAt.get(sourceKey(widget)) ?? 0);
     const current = () => !stopped && account === userId && useStore.getState().user?.id === userId;
     const cacheKey = (widget: Widget) => `${userId}:${sourceKey(widget)}`;
     setStates(Object.fromEntries(widgets.map(widget => {
@@ -57,10 +58,10 @@ export function useWidgetData(widgets: Widget[]) {
       let due = Infinity;
       for (const widget of widgets) if (widget.source && visible.has(widget.id) && widget.refreshSec !== 0) {
         const interval = Math.max(30, widget.refreshSec ?? 60) * 1000;
-        due = Math.min(due, (cache.get(cacheKey(widget))?.receivedAt ?? Date.now()) + interval);
+        due = Math.min(due, (lastAttempt(widget) || Date.now()) + interval);
       }
       if (Number.isFinite(due)) poll = setTimeout(() => {
-        for (const widget of widgets) if (widget.source && visible.has(widget.id) && widget.refreshSec !== 0 && Date.now() - (cache.get(cacheKey(widget))?.receivedAt ?? 0) >= Math.max(30, widget.refreshSec ?? 60) * 1000) dirty.add(widget.id);
+        for (const widget of widgets) if (widget.source && visible.has(widget.id) && widget.refreshSec !== 0 && Date.now() - lastAttempt(widget) >= Math.max(30, widget.refreshSec ?? 60) * 1000) dirty.add(widget.id);
         schedule();
       }, Math.max(100, due - Date.now()));
     }
@@ -71,7 +72,7 @@ export function useWidgetData(widgets: Widget[]) {
       if (!requested.length) { planPoll(); return; }
       active = true; controller = new AbortController();
       const groups = new Map<string, Widget[]>();
-      for (const widget of requested) { dirty.delete(widget.id); const key = sourceKey(widget); groups.set(key, [...groups.get(key) ?? [], widget]); }
+      for (const widget of requested) { dirty.delete(widget.id); const key = sourceKey(widget); attemptedAt.set(key, Date.now()); groups.set(key, [...groups.get(key) ?? [], widget]); }
       const entries = [...groups.values()];
       const force = requested.reduce((needed, widget) => fresh.delete(widget.id) || needed, false);
       setStates(previous => ({ ...previous, ...Object.fromEntries(requested.map(widget => [widget.id, previous[widget.id]?.data ? { ...previous[widget.id], refreshing: true } : { status: 'loading' }])) }));
