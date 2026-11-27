@@ -80,7 +80,9 @@ export class RequirementsStore {
     if (this.enabled(userId)) this.reconcile(userId);
     const row = this.row(userId), profile = this.parse(row);
     const selection = profile ? selectLens(profile) : null;
+    const undo = this.ledger(row).undo;
     return { profile, revision: row?.revision ?? 0, enabled: this.enabled(userId),
+      ...(undo && undo.revision === row?.revision ? { undoToken: undo.token } : {}),
       ...(row && row.doc !== 'null' && !profile ? { status: 'invalid_stored' as const } : {}),
       lens: selection?.lens ?? null, rationale: selection?.rationale ?? [], ...(selection?.question ? { question: selection.question } : {}),
       suggestions: selection ? { bots: ADAPT_LENSES[selection.lens].bots, templates: ADAPT_LENSES[selection.lens].templates, shortcuts: ADAPT_LENSES[selection.lens].shortcuts } : null };
