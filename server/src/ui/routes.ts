@@ -51,7 +51,11 @@ export function createUiApi(service: SqliteUiConfigService) {
   const user = (c: Context<AuthVars>) => c.get('user').id;
   api.use('*', async (c, next) => {
     const response = await requireUser(c, next);
-    if (response instanceof Response && response.status === 401) return c.json({ code: 'not_found', message: 'Sign in to continue.' }, 401);
+    if (response instanceof Response) {
+      if (response.status === 401) return c.json({ code: 'not_found', message: 'Sign in to continue.' }, 401);
+      if (response.status === 403) return c.json({ code: 'invalid_value', message: 'Invalid request origin.' }, 403);
+      if (response.status === 415) return c.json({ code: 'invalid_value', message: 'Send a JSON request.' }, 415);
+    }
     return response;
   });
   api.use('*', async (c, next) => {
@@ -123,12 +127,12 @@ export function createUiApi(service: SqliteUiConfigService) {
     expected(c); service.discardPreview(user(c), c.req.param('id')); return c.json({ ok: true });
   });
   api.post('/undo', async c => {
-    const input = await body(c, z.object({ steps: z.number().int().min(1).max(10).default(1) }).strict()); expected(c);
-    return respond(c, service.undo(user(c), input.steps, 'user'));
+    const input = await body(c, z.object({ steps: z.number().int().min(1).max(10).default(1) }).strict()); const revision = expected(c);
+    return respond(c, service.undo(user(c), input.steps, 'user', revision));
   });
   api.post('/reset', async c => {
-    const input = await body(c, resetBody); expected(c);
-    const preview = service.reset(user(c), input.scope, input.dashboardId);
+    const input = await body(c, resetBody); const revision = expected(c);
+    const preview = service.reset(user(c), input.scope, input.dashboardId, revision);
     return respond(c, preview.ok ? service.applyPreview(user(c), preview.previewId, 'reset') : preview);
   });
   api.get('/history', c => c.json({ history: service.history(user(c)) }));
@@ -160,6 +164,6 @@ export function createUiApi(service: SqliteUiConfigService) {
   });
   // UC-F owns the implementation. Shared authentication and flags cover it too.
   api.route('/', dataApi);
-  api.notFound(c => c.json({ code: 'not_found', message: 'Route not found.' }, 404));
+  api.all('*', c => c.json({ code: 'not_found', message: 'Route not found.' }, 404));
   return api;
 }

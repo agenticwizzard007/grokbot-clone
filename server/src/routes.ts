@@ -45,6 +45,7 @@ import { appSuggestionsApi } from './routes-app-suggestions.js';
 import { uiApi } from './ui/index.js';
 
 export const api = new Hono<AuthVars>();
+api.route('/ui', uiApi);
 
 const findOrCreateUser = (email: string, name?: string, preferId?: string) => createAccount({ email, name, preferId, source: 'web', developmentEmailLookup: true });
 
@@ -114,7 +115,6 @@ api.use('/bots', apiBodyLimit);
 api.use('/bots/*', apiBodyLimit);
 api.use('/approvals/*', apiBodyLimit);
 api.route('/', appSuggestionsApi);
-api.route('/ui', uiApi);
 
 // ---------- events (SSE) ----------
 

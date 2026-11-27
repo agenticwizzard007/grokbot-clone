@@ -1,8 +1,8 @@
 import type Database from 'better-sqlite3';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { DEFAULT_CONFIG, checkAccessibility, migrate, previewPatch, uiConfigSchema,
-  type ApplyResult, type ErrorCode, type PatchOp, type PreviewResult, type ResetScope,
+import { DEFAULT_CONFIG, checkAccessibility, migrate, previewPatch, uiConfigSchema, summarize,
+  type ApplyResult, type ErrorCode, type PatchOp, type PatchResult, type PreviewResult, type ResetScope,
   type StoredPreview, type UiConfig, type UiConfigService, type Violation } from '../ui-config/index.js';
 import { initUiDatabase, initUiPreferences } from './db.js';
 import { uiAgentApplyMode, uiEnabled } from './flags.js';
@@ -24,6 +24,7 @@ export class SqliteUiConfigService implements UiConfigService {
   private clock: () => number;
   private metric: ReturnType<typeof createUiMetrics>;
   private effects: (() => void)[] | undefined;
+  private expiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   constructor(db: Database.Database, private options: ServiceOptions = {}) {
     initUiDatabase(db); initUiPreferences(db);
     this.store = new UiStore(db); this.clock = options.clock ?? Date.now;
@@ -76,6 +77,7 @@ export class SqliteUiConfigService implements UiConfigService {
     const bots = new Set(this.store.bots(userId).map(bot => bot.id));
     const valid = (id: unknown) => typeof id === 'string' && bots.has(id);
     const missing = (): Violation[] => [{ path: '', code: 'not_found', message: 'Item not found.' }];
+    if (doc.preset.startsWith('p_') && !this.store.presets(userId).some(preset => preset.id === doc.preset)) return missing();
     for (const pin of doc.layout.pinned) if (pin.type === 'bot' && !valid(pin.id)) return missing();
     for (const dashboard of doc.dashboards) for (const widget of dashboard.widgets) {
       for (const params of [widget.source?.params, widget.options]) if (params?.botId !== undefined && !valid(params.botId)) return missing();
@@ -87,10 +89,17 @@ export class SqliteUiConfigService implements UiConfigService {
     return [];
   }
   private validated(userId: string, doc: UiConfig, ops: PatchOp[], autofix?: boolean) {
-    const result = previewPatch(doc, ops, { autofix, ctx: this.ctx(userId) });
+    const { botIds: _botIds, ...ctx } = this.ctx(userId);
+    const result = previewPatch(doc, ops, { autofix, ctx });
     if (!result.ok) return this.reject(result);
     const errors = this.references(userId, result.result);
     return errors.length ? this.reject({ ok: false, errors }) : result;
+  }
+  private documentResult(userId: string, before: UiConfig, after: UiConfig): PatchResult {
+    // Imported documents have a 256 KB cap; the 64 KB cap is for incoming patches.
+    // An empty patch invokes the same schema, reference and accessibility validator.
+    const result = this.validated(userId, after, []);
+    return result.ok ? { ...result, summary: summarize(before, result.result) } : result;
   }
   private expire(userId: string) {
     for (const row of this.store.pending(userId)) if (row.expires_at <= this.clock()) {
@@ -98,10 +107,10 @@ export class SqliteUiConfigService implements UiConfigService {
       this.emit(userId, previewEvent(row.id, row.actor, 'expired'));
     }
   }
-  private createPreview(userId: string, ops: PatchOp[], opts: { intent: string; actor: string; autofix?: boolean }, extraWarnings: Violation[] = []): PreviewResult {
+  private createPreview(userId: string, ops: PatchOp[], opts: { intent: string; actor: string; autofix?: boolean }, extraWarnings: Violation[] = [], replacement?: UiConfig): PreviewResult {
     const actorError = this.actorError(userId, opts.actor); if (actorError) return actorError;
     if (!intentSchema.safeParse(opts.intent).success) return fail('invalid_value', 'Use a plain description up to 200 characters.', '/intent');
-    const current = this.get(userId), result = this.validated(userId, current.doc, ops, opts.autofix);
+    const current = this.get(userId), result = replacement ? this.documentResult(userId, current.doc, replacement) : this.validated(userId, current.doc, ops, opts.autofix);
     if (!result.ok) return result;
     this.expire(userId);
     for (const older of this.store.pending(userId)) {
@@ -110,12 +119,20 @@ export class SqliteUiConfigService implements UiConfigService {
       this.emit(userId, previewEvent(older.id, older.actor, 'discarded'));
     }
     const now = this.clock();
-    const resolved = JSON.parse(JSON.stringify(ops, (_key, value) => typeof value === 'string' && Object.hasOwn(result.idMap, value) ? result.idMap[value] : value)) as PatchOp[];
+    const resolved = JSON.parse(JSON.stringify(ops, (_key, value) => typeof value === 'string' && value.includes('$new') ? value.replace(/\$new\d+\b/g, token => result.idMap[token] ?? token) : value)) as PatchOp[];
     const preview: StoredPreview = { id: randomUUID(), userId, baseRevision: current.revision, patch: resolved,
       result: result.result, summary: result.summary, warnings: [...result.warnings, ...extraWarnings], idMap: result.idMap,
       intent: opts.intent, actor: opts.actor, status: 'pending', createdAt: now, expiresAt: now + 15 * 60_000 };
     this.store.addPreview(userId, preview);
     this.emit(userId, previewEvent(preview.id, preview.actor, 'pending'));
+    if (!this.options.clock) this.effects?.push(() => {
+      clearTimeout(this.expiryTimers.get(userId));
+      const timer = setTimeout(() => {
+        this.expiryTimers.delete(userId);
+        if (this.store.db.open) this.atomic(() => this.expire(userId));
+      }, Math.max(0, preview.expiresAt - this.clock()));
+      timer.unref(); this.expiryTimers.set(userId, timer);
+    });
     this.metric('ui_preview_created');
     return { ok: true, previewId: preview.id, baseRevision: preview.baseRevision, summary: preview.summary,
       warnings: preview.warnings, idMap: preview.idMap, applied: false };
@@ -178,13 +195,18 @@ export class SqliteUiConfigService implements UiConfigService {
     });
   }
   private replacement(before: UiConfig, after: UiConfig): PatchOp[] {
-    const ops: PatchOp[] = Object.entries(after).map(([key, value]) => ({ op: Object.hasOwn(before, key) ? 'replace' : 'add', path: `/${key}`, value }));
-    for (const key of Object.keys(before)) if (!Object.hasOwn(after, key)) ops.push({ op: 'remove', path: `/${key}` });
-    return ops;
+    return [{ op: 'replace', path: '', value: after }];
   }
   replace(userId: string, raw: unknown, expectedRevision: number, actor = 'import'): ApplyResult {
-    const parsed = this.importDocument(userId, raw); if (!parsed.ok) return parsed;
-    return this.patch(userId, this.replacement(this.get(userId).doc, parsed.doc), expectedRevision, actor);
+    if (!this.enabled(userId)) return this.unavailable();
+    const parsed = this.importDocument(userId, raw, false); if (!parsed.ok) return parsed;
+    return this.atomic(() => {
+      const current = this.get(userId);
+      if (current.revision !== expectedRevision) return fail('stale_revision', 'Your appearance changed. Reload and try again.');
+      const actorError = this.actorError(userId, actor); if (actorError) return actorError;
+      const result = this.documentResult(userId, current.doc, parsed.doc);
+      return result.ok ? this.commit(userId, result.result, result.summary, actor) : result;
+    });
   }
   history(userId: string) {
     this.store.prune(userId, this.clock());
@@ -195,32 +217,38 @@ export class SqliteUiConfigService implements UiConfigService {
     const row = this.store.revision(userId, revision);
     if (!row) return fail('not_found', 'Revision not found.');
     const doc = this.parse(row.doc); if (!doc) return fail('invalid_value', 'This revision cannot be restored.');
-    const result = this.validated(userId, this.get(userId).doc, this.replacement(this.get(userId).doc, doc));
+    const result = this.documentResult(userId, this.get(userId).doc, doc);
     return result.ok ? this.commit(userId, result.result, [`Restored revision ${revision}`], actor) : result;
   }
   restore(userId: string, revision: number, expectedRevision: number, actor = 'user'): ApplyResult {
     if (!this.enabled(userId)) return this.unavailable();
+    const actorError = this.actorError(userId, actor); if (actorError) return actorError;
     return this.atomic(() => this.get(userId).revision !== expectedRevision
       ? fail('stale_revision', 'Your appearance changed. Reload and try again.') : this.restoreInTransaction(userId, revision, actor));
   }
-  undo(userId: string, steps: number, actor: string): ApplyResult {
+  undo(userId: string, steps: number, actor: string, expectedRevision?: number): ApplyResult {
     if (!this.enabled(userId)) return this.unavailable();
     if (!Number.isInteger(steps) || steps < 1 || steps > 10) return fail('invalid_value', 'Choose between 1 and 10 steps.', '/steps');
     return this.atomic(() => {
       const actorError = this.actorError(userId, actor); if (actorError) return actorError;
-      const result = this.restoreInTransaction(userId, this.get(userId).revision - steps, actor);
+      const revision = this.get(userId).revision;
+      if (expectedRevision !== undefined && revision !== expectedRevision) return fail('stale_revision', 'Your appearance changed. Reload and try again.');
+      const result = this.restoreInTransaction(userId, revision - steps, actor);
       if (result.ok) this.metric('ui_undo'); return result;
     });
   }
-  reset(userId: string, scope: ResetScope, dashboardId?: string): PreviewResult {
+  reset(userId: string, scope: ResetScope, dashboardId?: string, expectedRevision?: number): PreviewResult {
     if (!this.enabled(userId)) return this.unavailable();
     if (!resetScopes.has(scope)) return fail('invalid_value', 'Choose a reset scope.', '/scope');
     return this.atomic(() => {
-      const before = this.get(userId).doc, after = structuredClone(before), defaults = structuredClone(DEFAULT_CONFIG);
+      const current = this.get(userId);
+      if (expectedRevision !== undefined && current.revision !== expectedRevision) return fail('stale_revision', 'Your appearance changed. Reload and try again.');
+      const before = current.doc, after = structuredClone(before), defaults = structuredClone(DEFAULT_CONFIG);
       if (scope === 'dashboard' && !before.dashboards.some(d => d.id === dashboardId)) return fail('not_found', 'Dashboard not found.');
       if (scope === 'all') Object.assign(after, defaults);
       if (scope === 'appearance') Object.assign(after, defaults, { dashboards: before.dashboards });
       if (scope === 'theme' || scope === 'layout' || scope === 'components') after[scope] = defaults[scope] as never;
+      if (scope === 'theme') { after.preset = 'swarm'; after.device = defaults.device; }
       if (scope === 'dashboards' || scope === 'dashboard') {
         const removed = new Set(before.dashboards.filter(d => scope === 'dashboards' || d.id === dashboardId).map(d => d.id));
         after.dashboards = before.dashboards.filter(d => !removed.has(d.id));
@@ -230,13 +258,22 @@ export class SqliteUiConfigService implements UiConfigService {
         for (const tab of defaults.layout.phoneTabs) if (after.layout.phoneTabs.length < 3 && !after.layout.phoneTabs.includes(tab)) after.layout.phoneTabs.push(tab);
         for (const dashboard of after.dashboards) for (const widget of dashboard.widgets) if (widget.type === 'shortcuts' && Array.isArray(widget.options.items))
           widget.options.items = widget.options.items.filter(item => !removed.has(String((item as { target: string }).target).replace(/^dashboard:/, '')));
+        for (const dashboard of after.dashboards) for (const widget of dashboard.widgets) if (widget.type === 'shortcuts' && Array.isArray(widget.options.items) && !widget.options.items.length) widget.options.items = [{ label: 'Bots', target: 'bots' }];
       }
       const removedCount = before.dashboards.length - after.dashboards.length;
-      const result = this.createPreview(userId, this.replacement(before, after), { intent: `Reset ${scope}. Removes ${removedCount} dashboards`, actor: 'reset' });
-      if (result.ok) this.metric('ui_reset', 1, scope); return result;
+      const result = this.createPreview(userId, this.replacement(before, after), { intent: `Reset ${scope}. Removes ${removedCount} dashboards`, actor: 'reset' }, [], after);
+      if (result.ok) {
+        const line = `Removes ${removedCount} dashboards`;
+        if (!result.summary.includes(line)) {
+          result.summary.push(line);
+          this.store.previewSummary(userId, result.previewId, result.summary);
+        }
+        this.metric('ui_reset', 1, scope);
+      }
+      return result;
     });
   }
-  private importDocument(userId: string, raw: unknown): { ok: true; doc: UiConfig; warnings: Violation[] } | { ok: false; errors: Violation[] } {
+  private importDocument(userId: string, raw: unknown, portable = true): { ok: true; doc: UiConfig; warnings: Violation[] } | { ok: false; errors: Violation[] } {
     if (Buffer.byteLength(JSON.stringify(raw) ?? '') > 256 * 1024) return fail('limit_exceeded', 'Appearance files must be 256 KB or smaller.');
     const copy = structuredClone(raw);
     if (!copy || typeof copy !== 'object' || Array.isArray(copy)) return fail('invalid_value', 'Use an appearance document.');
@@ -246,37 +283,45 @@ export class SqliteUiConfigService implements UiConfigService {
       delete (copy as Record<string, unknown>).exportedAt;
     }
     const warnings: Violation[] = [];
-    this.translateBots(userId, copy, 'import', warnings);
+    if (portable) {
+      this.translateBots(userId, copy, 'import', [], false);
+      const preset = (copy as Record<string, unknown>).preset;
+      if (typeof preset === 'string' && /^p_[a-z0-9]{8}$/.test(preset) && !this.store.presets(userId).some(item => item.id === preset)) {
+        (copy as Record<string, unknown>).preset = 'swarm';
+        warnings.push({ path: '/preset', code: 'not_found', message: 'Imported appearance without its unavailable saved preset.' });
+      }
+    }
     const parsed = migrate(copy);
     if ('error' in parsed) {
       const shape = uiConfigSchema.safeParse(copy);
       return { ok: false, errors: shape.success ? [{ path: '', code: 'invalid_value', message: parsed.error }] : shape.error.issues.map(issue => ({ path: `/${issue.path.join('/')}`, code: 'invalid_value', message: issue.message })) };
     }
+    if (portable) this.translateBots(userId, parsed.doc, 'import', warnings);
     return { ok: true, doc: parsed.doc, warnings };
   }
   importPreview(userId: string, raw: unknown): PreviewResult {
     if (!this.enabled(userId)) return this.unavailable();
     const parsed = this.importDocument(userId, raw); if (!parsed.ok) return parsed;
-    return this.atomic(() => this.createPreview(userId, this.replacement(this.get(userId).doc, parsed.doc), { intent: 'Import appearance', actor: 'import' }, parsed.warnings));
+    return this.atomic(() => this.createPreview(userId, this.replacement(this.get(userId).doc, parsed.doc), { intent: 'Import appearance', actor: 'import' }, parsed.warnings, parsed.doc));
   }
   /** Translate only registered bot reference fields, never arbitrary note text. */
-  private translateBots(userId: string, raw: object, direction: 'import' | 'export', warnings: Violation[]) {
+  private translateBots(userId: string, raw: object, direction: 'import' | 'export', warnings: Violation[], dropMissing = true) {
     const bots = this.store.bots(userId), doc = raw as Record<string, any>;
     const resolve = (value: unknown): string | null => {
       if (typeof value !== 'string') return null;
       if (direction === 'export') return bots.find(bot => bot.id === value)?.name ?? null;
       const direct = bots.find(bot => bot.id === value); if (direct) return direct.id;
-      const named = bots.filter(bot => bot.name === value); return named.length === 1 ? named[0].id : null;
+      const named = bots.filter(bot => bot.name === value); return named.length === 1 ? named[0].id : dropMissing ? null : 'ui_missing_bot';
     };
     const missing = () => warnings.push({ path: '', code: 'not_found', message: 'Removed a reference to an unavailable Bot.' });
     if (Array.isArray(doc.layout?.pinned)) doc.layout.pinned = doc.layout.pinned.filter((pin: any) => {
-      if (pin?.type !== 'bot') return true;
+      if (pin?.type !== 'bot' || typeof pin.id !== 'string') return true;
       const id = resolve(pin.id); if (!id) { missing(); return false; } pin.id = id; return true;
     });
     if (!Array.isArray(doc.dashboards)) return;
     for (const dashboard of doc.dashboards) if (Array.isArray(dashboard?.widgets)) dashboard.widgets = dashboard.widgets.filter((widget: any) => {
       if (!widget || typeof widget !== 'object') return true;
-      for (const params of [widget.source?.params, widget.options]) if (params && typeof params === 'object' && Object.hasOwn(params, 'botId')) {
+      for (const params of [widget.source?.params, widget.options]) if (params && typeof params === 'object' && typeof params.botId === 'string') {
         const id = resolve(params.botId); if (!id) { missing(); return false; } params.botId = id;
       }
       if (widget.type === 'shortcuts' && Array.isArray(widget.options?.items)) widget.options.items = widget.options.items.filter((item: any) => {
@@ -310,5 +355,16 @@ export class SqliteUiConfigService implements UiConfigService {
       return { ok: true, presetId: this.store.addPreset(userId, name, doc, this.clock()) };
     });
   }
-  deletePreset(userId: string, id: string) { return this.enabled(userId) && this.store.deletePreset(userId, id); }
+  deletePreset(userId: string, id: string) {
+    if (!this.enabled(userId)) return false;
+    return this.atomic(() => {
+      if (!this.store.deletePreset(userId, id)) return false;
+      const current = this.get(userId);
+      if (current.doc.preset === id) {
+        current.doc.preset = 'swarm';
+        this.commit(userId, current.doc, ['Removed saved preset'], 'user');
+      }
+      return true;
+    });
+  }
 }

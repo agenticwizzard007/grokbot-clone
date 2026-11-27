@@ -75,3 +75,18 @@ test('backup restore and tenant export preserve only owned customization rows', 
   db.prepare('DELETE FROM users WHERE id=?').run('usr_aaaaaaaa');
   for (const table of tables) assert.deepEqual(db.prepare(`SELECT user_id FROM ${table}`).all(), [{ user_id: 'usr_bbbbbbbb' }]);
 });
+
+test('operator reset repairs only the requested test account and preserves raw corrupt history', async t => {
+  const { spawnSync } = await import('node:child_process');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ui-repair-')); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, 'fixture.db'), db = new Database(file); t.after(() => db.close());
+  db.exec("CREATE TABLE users(id TEXT PRIMARY KEY,email TEXT); INSERT INTO users VALUES('a','qa-temp-alpha@example.test'),('b','qa-temp-beta@example.test'); CREATE TABLE bots(id TEXT,user_id TEXT,name TEXT);");
+  initUiDatabase(db); initUiPreferences(db); const store = new UiStore(db);
+  store.write('a', DEFAULT_CONFIG, 7, 'user', Date.now()); store.write('b', DEFAULT_CONFIG, 3, 'user', Date.now());
+  db.prepare('UPDATE ui_config SET doc=? WHERE user_id=?').run('{', 'a');
+  db.prepare('INSERT INTO account_preferences(user_id,ui_custom_enabled,updated_at) VALUES(?,0,?)').run('a', Date.now());
+  const child = spawnSync(process.execPath, ['scripts/ui-config-reset.mjs', 'qa-temp-alpha@example.test'], { env: { PATH: process.env.PATH, DB_PATH: file }, encoding: 'utf8' });
+  assert.equal(child.status, 0, child.stderr); assert.equal(JSON.parse(child.stdout).revision, 8);
+  assert.deepEqual(JSON.parse(store.config('a')!.doc), DEFAULT_CONFIG); assert.equal(store.revision('a', 7)!.doc, '{');
+  assert.equal(store.config('b')!.revision, 3); assert.equal(uiEnabled(db, 'a', 'on'), false);
+});

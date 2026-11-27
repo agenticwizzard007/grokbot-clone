@@ -62,6 +62,9 @@ export class UiStore {
   previewStatus(userId: string, id: string, status: StoredPreview['status'], revision?: number): void {
     this.db.prepare('UPDATE ui_previews SET status=?,applied_revision=? WHERE user_id=? AND id=?').run(status, revision ?? null, userId, id);
   }
+  previewSummary(userId: string, id: string, summary: string[]): void {
+    this.db.prepare('UPDATE ui_previews SET summary=? WHERE user_id=? AND id=?').run(canonical(summary), userId, id);
+  }
   bots(userId: string): { id: string; name: string }[] {
     return this.db.prepare('SELECT id,name FROM bots WHERE user_id=?').all(userId) as { id: string; name: string }[];
   }
@@ -70,7 +73,7 @@ export class UiStore {
       .flatMap(row => { try { return [{ id: row.id, name: row.name, doc: JSON.parse(row.doc), createdAt: row.created_at }]; } catch { return []; } });
   }
   addPreset(userId: string, name: string, doc: UiConfig, time: number): string {
-    const id = `p_${randomUUID().replaceAll('-', '')}`;
+    const id = `p_${randomUUID().replaceAll('-', '').slice(0, 8)}`;
     this.db.prepare('INSERT INTO ui_user_presets(id,user_id,name,doc,created_at) VALUES(?,?,?,?,?)').run(id, userId, name, canonical(doc), time);
     return id;
   }

@@ -114,7 +114,7 @@ test('export contains only document fields and time, import never writes until A
   const invalid = await request('POST', '/import/preview', { ...file.body, unknown: true }, rev);
   assert.equal(invalid.status, 422); assert.ok(invalid.body.details.length > 0);
   const older = structuredClone(file.body); older.version = 0;
-  const migrated = await request('POST', '/import/preview', older, rev); assert.equal(migrated.status, 200, JSON.stringify(migrated.body));
+  const migrated = await request('POST', '/import/preview', older, rev); assert.equal(migrated.status, 422); assert.equal(migrated.body.code, 'invalid_value'); // v1 is the first published format.
 });
 
 test('bot and dashboard references cannot cross users in patches, reset or replacement', async () => {

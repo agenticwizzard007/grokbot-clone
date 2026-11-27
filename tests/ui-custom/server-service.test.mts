@@ -56,9 +56,10 @@ test('a saved patch invalidates preview base and cross-user operations are not_f
 
 test('undo creates revisions, supports ten steps, and undo of undo restores the latest state', t => {
   const { service } = fixture(t);
-  for (let i = 0; i < 12; i++) success(service.patch('a', mode(i % 2 ? 'light' : 'dark'), i, 'user'));
-  const undone = success(service.undo('a', 10, 'user')); assert.equal(undone.revision, 13); assert.equal(undone.doc.theme.mode, 'light');
+  for (let i = 0; i < 12; i++) success(service.patch('a', mode(i < 2 ? 'dark' : i % 2 ? 'light' : 'system'), i, 'user'));
+  const undone = success(service.undo('a', 10, 'user')); assert.equal(undone.revision, 13); assert.equal(undone.doc.theme.mode, 'dark');
   const redo = success(service.undo('a', 1, 'user')); assert.equal(redo.revision, 14); assert.equal(redo.doc.theme.mode, 'light');
+  for (let i = 0; i < 10; i++) success(service.undo('a', 1, 'user'));
   error(service.undo('a', 11, 'user'), 'invalid_value');
   error(service.undo('b', 1, 'user'), 'not_found');
 });
@@ -122,4 +123,39 @@ test('presets enforce user boundaries, cap 20, and disabled service refuses chan
   assert.equal(service.presets('b').length, 0); assert.equal(service.deletePreset('a', id), true);
   flag('off'); assert.equal(service.enabled('a'), false); error(service.patch('a', mode('dark'), 0, 'user'), 'disabled');
   error(service.preview('a', mode('dark'), { intent: 'Dark theme', actor: 'user' }), 'disabled');
+});
+
+test('registered older versions migrate through the shared hook before preview, without saving', async t => {
+  const { service } = fixture(t);
+  const { migrations } = await import('../../server/src/ui-config/migrate.js');
+  // v1 is the first published format. Inject a test-only predecessor transform.
+  migrations[0] = raw => ({ ...(raw as object), version: 1 });
+  try {
+    const result = success(service.importPreview('a', { ...structuredClone(DEFAULT_CONFIG), version: 0 }));
+    assert.equal(service.getPreview('a', result.previewId)?.result.version, 1);
+    assert.equal(service.get('a').revision, 0);
+  } finally { delete migrations[0]; }
+});
+
+test('import and replacement accept large valid documents while incoming patches remain capped', t => {
+  const { service } = fixture(t), doc = structuredClone(DEFAULT_CONFIG);
+  for (let d = 0; d < 3; d++) doc.dashboards.push({ id: `d_0000000${d}`, name: `Fixture ${d}`, icon: 'layout-dashboard', widgets: Array.from({ length: 20 }, (_, w) => ({
+    id: `w_${String(d * 20 + w).padStart(8, '0')}`, type: 'note' as const, title: 'Fixture note', span: 12, rows: 2, options: { text: 'x'.repeat(1900) },
+  })) });
+  assert.ok(Buffer.byteLength(JSON.stringify(doc)) > 64 * 1024);
+  const preview = success(service.importPreview('a', doc)); success(service.applyPreview('a', preview.previewId, 'import'));
+  assert.deepEqual(service.get('a').doc, doc);
+  const reset = success(service.reset('a', 'appearance')); success(service.applyPreview('a', reset.previewId, 'reset'));
+  assert.equal(service.get('a').doc.dashboards.length, 3);
+  success(service.undo('a', 1, 'user'));
+  error(service.patch('a', [{ op: 'replace', path: '', value: doc }], 3, 'user'), 'limit_exceeded');
+});
+
+test('an unavailable imported bot cannot conceal malformed widget content', t => {
+  const { service } = fixture(t), doc = structuredClone(DEFAULT_CONFIG);
+  doc.dashboards.push({ id: 'd_aaaaaaaa', name: 'Fixture', icon: 'layout-dashboard', widgets: [{
+    id: 'w_aaaaaaaa', type: 'stat', title: '<script>', span: 4, rows: 1,
+    source: { id: 'tasks.counts', params: { botId: 'Foreign fixture' } }, options: { field: 'total' },
+  }] });
+  error(service.importPreview('a', doc), 'invalid_value');
 });

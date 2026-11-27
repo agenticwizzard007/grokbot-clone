@@ -48,6 +48,9 @@ export function initUiDatabase(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS ui_user_presets_user ON ui_user_presets(user_id);
   `);
+  const previewColumns = new Set((db.pragma('table_info(ui_previews)') as { name: string }[]).map(c => c.name));
+  if (!previewColumns.has('id_map')) db.exec("ALTER TABLE ui_previews ADD COLUMN id_map TEXT NOT NULL DEFAULT '{}'");
+  if (!previewColumns.has('applied_revision')) db.exec('ALTER TABLE ui_previews ADD COLUMN applied_revision INTEGER');
 }
 
 /** Shared by settings and isolated service fixtures. Flags are admin-only. */
