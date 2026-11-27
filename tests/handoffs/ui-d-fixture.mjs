@@ -4,7 +4,6 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { chromium } from 'playwright';
 import { layoutServer } from '../layout-fixture.mjs';
-import { inspectAlignment } from '../layout-alignment-ui.mjs';
 import { readableWords } from '../paper-label-geometry.mjs';
 
 const stamp = Date.UTC(2026, 0, 15, 12);
@@ -18,7 +17,7 @@ export const output = {
     { id: 'p_data', kind: 'data', name: 'Review checklist', bytes: 120, sha256: 'fixture' },
     { id: 'p_link', kind: 'link', url: 'https://example.com/brief', title: 'Release brief', relation: 'source' },
   ],
-  provenance: { producer: { botId: 'bot_maker', botName: 'Maker' }, jobId: 'job_fixture', trigger: 'user', model: 'openai/gpt-fixture', effort: 'Standard', startedAt: stamp, finishedAt: stamp + 60000, consumed: [], handoffId: null, loopId: null, iteration: null, stepId: null, tools: [], declaredBy: 'auto' },
+  provenance: { producer: { botId: 'bot_maker', botName: 'Maker' }, jobId: 'job_fixture', trigger: 'user', model: 'openai/gpt-4.1', effort: 'Standard', startedAt: stamp, finishedAt: stamp + 60000, consumed: [], handoffId: null, loopId: null, iteration: null, stepId: null, tools: [], declaredBy: 'auto' },
   contentHash: 'fixture', createdAt: stamp, finalizedAt: stamp + 60000,
 };
 const agent = (id, name, label, extra = {}) => ({ id, name, label, kind: 'agent', onboarding: { status: 'active' }, avatarShape: 'bird-sparrow', avatarColor: 'blue', lastActivityAt: stamp, ...extra });
@@ -28,7 +27,7 @@ export const link = { id: 'link_fixture', userId: 'usr_fixture', fromBotId: 'bot
 export const handoff = { id: 'ho_fixture', userId: 'usr_fixture', fromBotId: 'bot_maker', toBotId: 'bot_checker', sourceOutputId: output.id, resultOutputId: 'out_result', initiatedBy: 'user', instruction: 'Review this and improve it.', priority: 'normal', returnResult: true, createTask: true, status: 'completed', reason: '', requestId: 'req_fixture', jobId: 'job_receiver', loopId: null, iteration: null, stepId: null, roomId: null, chainDepth: 1, parentHandoffId: null, idempotencyKey: 'fixture', fingerprint: 'fixture', revision: 1, createdAt: stamp, updatedAt: stamp + 60000 };
 export const events = ['created', 'delivered', 'read', 'completed'].map((type, index) => ({ seq: index + 1, type: `handoff.${type}`, createdAt: stamp + index * 15000, data: type === 'read' ? { partId: 'p_body', bytes: 500 } : {} }));
 
-export async function fixture() {
+export async function fixture({ server: suppliedServer } = {}) {
   const root = path.resolve('.context/ho-d'); fs.mkdirSync(root, { recursive: true });
   const out = fs.mkdtempSync(path.join(root, 'fixture-'));
   const from = name => JSON.stringify(path.resolve(`web/src/handoffs/${name}`));
@@ -68,7 +67,7 @@ function App() {
 }
 createRoot(document.getElementById('root')).render(<App/>);
 `);
-  const server = await layoutServer();
+  const server = suppliedServer ?? await layoutServer();
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
   return {
     server, browser,
@@ -127,11 +126,12 @@ createRoot(document.getElementById('root')).render(<App/>);
       page.fixtureErrors = errors;
       return page;
     },
-    async close() { await browser.close(); await server.close(); },
+    async close() { await browser.close(); if (!suppliedServer) await server.close(); },
   };
 }
 
 export async function checkLayout(page) {
+  const { inspectAlignment } = await import('../layout-alignment-ui.mjs');
   const selector = await page.locator('dialog[open]').count() ? 'dialog[open]' : '#root';
   assert.deepEqual(await page.evaluate(inspectAlignment, { selector }), []);
   // Summary is intentionally expandable; labels and controls must remain complete.

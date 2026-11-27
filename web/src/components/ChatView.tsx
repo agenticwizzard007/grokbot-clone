@@ -8,7 +8,7 @@ import { ShellHeaderSlot } from './ShellHeaderSlot';
 import { userFacingLive } from '../lib/audience';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import type { Bot, Row } from '@shared/types';
-import { ChevronDown, MoreHorizontal, Send } from 'lucide-react';
+import { ChevronDown, Send } from 'lucide-react';
 import { BotAvatarFor } from '../avatar/BotAvatar';
 import { backToList, sortedRows, useSelectedBot, useStore } from '../store';
 import { navigation, useConfigUI } from '../configStore';
@@ -32,8 +32,6 @@ function MessageHandoff({ row, final, onSend }: { row: Row; final: boolean; onSe
   const trigger = useRef<HTMLButtonElement>(null);
   const jobId = row.body.jobId;
   const output = useHandoffResource(`message-output:${jobId}`, signal => handoffApi.outputByJob(jobId!, signal), !!jobId && final);
-  const links = useHandoffResource(`message-links:${row.botId}`, signal => handoffApi.links(row.botId, signal), !!output.data?.output);
-  const bots = useStore(state => state.bots);
   const send = async () => {
     if (busy) return;
     if (output.data?.output) { onSend(output.data.output); return; }
@@ -46,9 +44,9 @@ function MessageHandoff({ row, final, onSend }: { row: Row; final: boolean; onSe
     finally { setBusy(false); }
   };
   return <div className="ho" style={{ position: 'relative' }}>
-    <button ref={trigger} type="button" className="ho-button ho-button--quiet" aria-label="Message actions" aria-haspopup="menu" aria-expanded={open} disabled={busy} onClick={() => setOpen(!open)}><MoreHorizontal size={18} aria-hidden /></button>
+    {output.data?.output?.status !== 'final' && <button ref={trigger} type="button" className="ho-button ho-button--quiet ho-message-actions" aria-label="Message actions" aria-haspopup="menu" aria-expanded={open} disabled={busy} onClick={() => setOpen(!open)}>Actions</button>}
     {open && <Menu triggerRef={trigger} onClose={() => setOpen(false)} items={[{ label: 'Send to agent', icon: Send, onSelect: () => void send() }]} />}
-    {output.data?.output?.status === 'final' && <CardRow row={row} output={output.data.output} onSend={onSend} suggestions={links.data?.links.map(link => ({ link, name: bots.find(bot => bot.id === link.toBotId)?.name ?? 'Agent' }))} />}
+    {output.data?.output?.status === 'final' && <CardRow row={row} output={output.data.output} onSend={onSend} />}
   </div>;
 }
 

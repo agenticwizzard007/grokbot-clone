@@ -24,12 +24,13 @@ function inspectPaper(selector) {
   for (const el of all) {
     const css = getComputedStyle(el), rect = el.getBoundingClientRect();
     const ownText = [...el.childNodes].some(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
-    if (ownText && parseFloat(css.fontSize) < 13) issues.push('Text below 13px: ' + el.textContent.trim());
+    if (ownText && parseFloat(css.fontSize) < (el.closest('.cfg-chip,.ho-chip') ? 12 : 13)) issues.push('Text below the Paper minimum: ' + el.textContent.trim());
     if (ownText && !el.matches('h1,h2,h3') && parseFloat(css.fontSize) > 15) issues.push('Body above 15px: ' + el.textContent.trim());
     if (el.matches('label,button,summary,.layout-row__title,.layout-row__subtitle,.cfg-chip,.ho-chip') && (el.scrollWidth > el.clientWidth + 1 || css.textOverflow === 'ellipsis' || !['none', ''].includes(css.webkitLineClamp))) issues.push(`Clipped label: ${el.textContent.trim()} (${el.scrollWidth}/${el.clientWidth}, ${css.textOverflow}, ${css.webkitLineClamp})`);
     if (el.matches('[data-layout="row"],button,summary,select,.agents-check') && rect.height < 43) issues.push('Control below 44px: ' + el.textContent.trim());
     if (el.matches('[data-layout="card"]') && (css.borderRadius !== '12px' || ['paddingTop','paddingRight','paddingBottom','paddingLeft'].some(key => css[key] !== '16px'))) issues.push('Card differs from 12px radius and 16px padding');
-    if (el.matches('[role="status"],.layout-row__subtitle,.cfg-chip,.ho-chip') && parseFloat(css.borderRadius) < 12) issues.push('Status is not a chip: ' + el.textContent.trim());
+    if (el.matches('[role="status"],.cfg-chip,.ho-chip') && parseFloat(css.borderRadius) < 12) issues.push('Status is not a chip: ' + el.textContent.trim());
+    if (el.matches('.cfg-chip,.ho-chip') && (Math.abs(rect.height - 20) > 1 || css.fontSize !== '12px' || css.lineHeight !== '16px' || css.fontWeight !== '500')) issues.push('Chip differs from Paper metrics: ' + el.textContent.trim());
     if (el.matches('a') && css.textDecorationLine.includes('underline')) issues.push('Raw underlined link');
     if (el.matches('[data-layout="row"],[data-layout="button-group"]') && el.querySelectorAll('.cfg-btn--primary,.ho-button--primary').length > 1) issues.push('Multiple primary actions in a row');
     if (el.dataset.layout === 'button-group') {
@@ -61,7 +62,10 @@ async function paperMatrix({ page, width, server, check, screenshots, evidence }
     if (name === 'settings-agents' && testedWidth <= 760) assert.equal(await page.getByRole('button', { name: 'Back', exact: true }).count(), 1);
     if (name === 'settings-agents') {
       const info = page.getByRole('button', { name: 'About handoffs', exact: true });
-      await info.focus(); await page.getByRole('tooltip').waitFor(); await page.keyboard.press('Escape');
+      await info.focus(); await page.getByRole('tooltip').waitFor();
+      assert.deepEqual(await page.evaluate(inspectAlignment, { selector, requirePage: false }), []);
+      assert.deepEqual((await page.evaluate(inspectPaper, selector)).issues, []);
+      await page.keyboard.press('Escape');
       assert.equal(await page.getByRole('tooltip').count(), 0);
       await page.locator('.agents-settings summary').click();
       assert.deepEqual((await page.evaluate(inspectPaper, selector)).issues, []);
@@ -172,11 +176,11 @@ await runIntegrationDemo({ outputFlow: async args => {
 
   // A failed save keeps the prior policy and offers an honest inline error.
   await page.route('**/api/handoff-settings', async route => route.request().method() === 'PUT'
-    ? route.fulfill({ status: 503, json: { error: 'Fixture settings unavailable. Try again.' } }) : route.continue());
+    ? route.fulfill({ status: 503, json: { error: 'Handoff settings unavailable. Try again.' } }) : route.continue());
   await policy.selectOption('links_only');
   await page.getByRole('alert').filter({ hasText: 'Not saved' }).waitFor();
   await page.getByRole('button', { name: 'Save error', exact: true }).focus();
-  await page.getByRole('tooltip').filter({ hasText: 'Fixture settings unavailable' }).waitFor();
+  await page.getByRole('tooltip').filter({ hasText: 'Handoff settings unavailable' }).waitFor();
   await page.keyboard.press('Escape');
   assert.equal(await policy.inputValue(), 'team');
   await page.unroute('**/api/handoff-settings');

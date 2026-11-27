@@ -1,3 +1,4 @@
+@import './polish.css';
 .ho { min-width: 0; color: var(--color-text-primary); }
 .ho :is(h1, h2, p) { margin: 0; }
 .ho :is(button, a, label, h1, h2, p, span, pre, .layout-row__title, .layout-row__subtitle) { overflow-wrap: anywhere; text-overflow: clip; }
@@ -15,9 +16,9 @@
 .ho-summary.is-expanded { display: block; overflow: visible; }
 .ho-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .ho-chips:empty { display: none; }
-.ho-chip { display: inline-flex; border-radius: var(--radius-sm); background: var(--color-bg-tertiary); color: var(--color-text-2); padding: var(--space-1) var(--space-2); font-size: var(--text-xs); line-height: var(--line-caption); }
+.ho-chip { display: inline-flex; border-radius: var(--radius-full); background: var(--color-bg-tertiary); color: var(--color-text-2); padding: 2px var(--space-2); font: 500 var(--text-xs)/var(--line-caption) var(--font-stack); }
 .ho-suggestion { align-self: flex-start; }
-.ho-status { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--color-text-2); font-size: var(--text-xs); line-height: var(--line-caption); }
+.ho-status { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--color-text-2); font-size: var(--text-sm); line-height: var(--line-caption); }
 .ho-dot { width: 6px; height: 6px; flex: 0 0 6px; border-radius: var(--radius-full); background: currentColor; }
 .ho-inline-link { display: inline-flex; align-items: center; min-height: var(--control-h); margin-left: var(--space-2); color: var(--color-primary); }
 .ho-state, .ho-fields, .ho-settings { display: flex; flex-direction: column; gap: var(--space-3); }
@@ -30,7 +31,7 @@
 .ho-field textarea { resize: vertical; }
 .ho-check { display: flex; align-items: center; gap: var(--space-2); min-height: var(--control-h); cursor: pointer; }
 .ho-check input { flex: 0 0 20px; width: 20px; height: 20px; margin: 0; accent-color: var(--color-primary); }
-.ho-counter { color: var(--color-text-2); font-size: var(--text-xs); text-align: right; }
+.ho-counter { color: var(--color-text-2); font-size: var(--text-sm); text-align: right; }
 .ho-targets { display: flex; flex-direction: column; gap: var(--space-2); }
 .ho-target { width: 100%; min-width: 0; text-align: left; background: var(--color-elevated); border: 1px solid var(--color-border); border-radius: var(--radius-card); padding-inline: var(--space-3); }
 .ho-target .layout-row { border: 0; }
@@ -45,3 +46,15 @@
   .ho-dialog { margin: auto 0 0; width: 100%; max-width: 100%; max-height: calc(100dvh - var(--space-3)); border-radius: var(--radius-card) var(--radius-card) 0 0; padding-bottom: env(safe-area-inset-bottom); }
 }
 @media (prefers-reduced-motion: reduce) { .ho *, .ho *::before, .ho *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+
+.ho-receipt-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
+.ho-chip-link { display: inline-flex; align-items: center; min-height: var(--control-h); text-decoration: none; }
+.ho .ho-status { font: 500 var(--text-xs)/var(--line-caption) var(--font-stack); }
+.ho-part-text { font-size: var(--text-base); }
+.ho-message-actions { display: flex; margin-left: auto; }
+.ho-more summary { min-height: var(--control-h); padding-block: var(--space-2); color: var(--color-primary); cursor: pointer; }
+.ho-receipt-wrap { width: 100%; }
+/* Preserve Paper output styling when mounted through the shared Cards entry. */
+.settings-output-card .ho-output-card { --text-xs: calc(12px * var(--font-scale)); }
+.settings-output-card .ho-output-card .layout-row__subtitle { display: block; padding: 0; border-radius: 0; background: none; font-weight: 400; }
+.settings-output-card .ho-output-card .ho-chip { padding: 2px var(--space-2); font: 500 var(--text-xs)/var(--line-caption) var(--font-stack); }

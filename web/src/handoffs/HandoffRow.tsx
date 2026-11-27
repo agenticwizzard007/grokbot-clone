@@ -14,11 +14,11 @@ export interface HandoffRowBody {
 }
 export function HandoffRow({ body, otherBotName = 'Agent' }: { body: HandoffRowBody; otherBotName?: string }) {
   const Direction = body.direction === 'sent' ? ArrowUpRight : ArrowDownLeft;
-  return <Row className="ho ho-receipt" leading={<Direction size={18} aria-hidden="true" />}
+  return <Row className="ho ho-receipt" leading={<Direction size={20} aria-hidden="true" />}
     title={`${body.direction === 'sent' ? 'Sent to' : 'Handed off from'} ${handoffText(otherBotName)}`}
     subtitle={handoffText(body.title)} trailing={<a className="ho-button ho-button--quiet" href={handoffHref(body.handoffId)} aria-label={`View handoff ${handoffText(body.title)}`}>View</a>}>
-    <span className="ho-status" role="status"><span className="ho-dot" aria-hidden="true" />{handoffStatus[body.status]}</span>
-    {body.loopId && <a className="ho-inline-link" href={`#loop/${encodeURIComponent(body.loopId)}`}>Loop{body.iteration ? `, pass ${body.iteration}` : ''}</a>}
+    <div className="ho-receipt-meta"><span className="ho-status" role="status"><span className="ho-dot" aria-hidden="true" />{handoffStatus[body.status]}</span>
+    {body.loopId && <a className="ho-chip-link" href={`#loop/${encodeURIComponent(body.loopId)}`}><span className="ho-chip">Loop{body.iteration ? `, pass ${body.iteration}` : ''}</span></a>}</div>
   </Row>;
 }
 
