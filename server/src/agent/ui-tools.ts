@@ -1,12 +1,12 @@
 import { z } from 'zod';
-import { DEFAULT_CONFIG, REGISTRY, type Dashboard, type PatchOp, type PreviewResult, type UiConfig, type UiConfigService, type UiPreviewCardBody, type Widget } from '../ui-config/index.js';
+import { DEFAULT_CONFIG, REGISTRY, WIDGET_TYPES, agentWidgetOptionsSchema, type Dashboard, type PatchOp, type PreviewResult, type UiConfig, type UiConfigService, type UiPreviewCardBody, type Widget } from '../ui-config/index.js';
 import type { ToolCtx, ToolDef } from './tools.js';
 
 const plain = (max: number, min = 1) => z.string().min(min).max(max).regex(/^[^<>\u0000-\u001f\u007f\u2013\u2014]*$/u);
 const id = z.string().min(1).max(100);
 const dashboardId = z.string().regex(/^d_[a-z0-9]{8}$/);
 const widgetId = z.string().regex(/^w_[a-z0-9]{8}$/);
-const widgetType = z.enum(['stat', 'list', 'table', 'chart', 'meter', 'botStatus', 'taskBoard', 'routineSchedule', 'note', 'shortcuts', 'agent']);
+const widgetType = z.enum(WIDGET_TYPES);
 const source = z.object({ id, params: z.record(z.string(), z.unknown()).default({}) }).strict();
 const widgetFields = {
   type: widgetType.optional(), title: plain(60, 0).optional(), source: source.optional(),
@@ -19,6 +19,10 @@ const patchOp = z.union([
   z.object({ op: z.literal('move'), path: z.string(), from: z.string() }).strict(),
 ]);
 export const UI_SCHEMAS = {
+  list_dashboards: z.object({}).strict(),
+  duplicate_dashboard: z.object({ dashboardId, name: plain(40).optional() }).strict(),
+  reorder_dashboards: z.object({ dashboardIds: z.array(dashboardId).max(12) }).strict(),
+  add_agent_widget: agentWidgetOptionsSchema.extend({ dashboardId, title: plain(60, 0).optional(), span: z.number().int().min(1).max(12).optional(), rows: z.number().int().min(1).max(6).optional() }).strict(),
   get_ui_config: z.object({ scope: z.enum(['all', 'theme', 'layout', 'components', 'dashboards', 'dashboard']).optional(), dashboardId: dashboardId.optional() }).strict(),
   list_ui_options: z.object({ kind: z.enum(['tokens', 'fonts', 'components', 'nav', 'widgets', 'sources', 'shortcuts', 'presets', 'limits']) }).strict(),
   preview_ui_patch: z.object({ intent: plain(200), patch: z.array(patchOp).max(100), autofix: z.boolean().optional() }).strict(),
@@ -41,6 +45,8 @@ export type UiToolName = keyof typeof UI_SCHEMAS;
 export const UI_TOOL_NAMES = new Set<string>(Object.keys(UI_SCHEMAS));
 /** Valid shape examples for discovery clients, schema samplers and transport checks. */
 export const UI_EXAMPLES: Record<UiToolName, unknown> = {
+  list_dashboards: {}, duplicate_dashboard: { dashboardId: 'd_12345678' }, reorder_dashboards: { dashboardIds: ['d_12345678'] },
+  add_agent_widget: { dashboardId: 'd_12345678', prompt: 'Summarize my open tasks' },
   get_ui_config: { scope: 'theme' }, list_ui_options: { kind: 'tokens' },
   preview_ui_patch: { intent: 'Dark mode', patch: [{ op: 'replace', path: '/theme/mode', value: 'dark' }] },
   apply_ui_patch: { previewId: 'preview-fixture' }, discard_ui_preview: { previewId: 'preview-fixture' },
@@ -158,6 +164,25 @@ export function deleteDashboardPatch(doc: UiConfig, dashboardId: string, reset =
 /** Builders contain no persistence. Both builders and raw patches use service.preview. */
 export function buildUiPatch(name: UiToolName, args: any, doc: UiConfig, deps: Pick<UiToolDependencies, 'accentPair'>, presets: { id: string; doc: Partial<UiConfig> }[] = []): { patch: PatchOp[]; intent: string; autofix?: boolean } {
   switch (name) {
+    case 'duplicate_dashboard': {
+      const original = at(doc, args.dashboardId).dashboard;
+      const dashboard = structuredClone(original);
+      dashboard.id = '$new1'; dashboard.name = args.name ?? `${original.name.slice(0, 35)} copy`;
+      dashboard.widgets = dashboard.widgets.map((w, i) => ({ ...w, id: `$new${i + 2}` }));
+      for (const w of dashboard.widgets) if (w.type === 'shortcuts' && Array.isArray(w.options.items)) {
+        for (const item of w.options.items) if (item.target === `dashboard:${original.id}`) item.target = 'dashboard:$new1';
+      }
+      return { patch: [put('/dashboards/-', dashboard)], intent: 'Duplicate a dashboard' };
+    }
+    case 'reorder_dashboards': {
+      const ids: string[] = args.dashboardIds;
+      if (ids.length !== doc.dashboards.length || new Set(ids).size !== ids.length || ids.some(id => !doc.dashboards.some(d => d.id === id))) throw new BuilderError('/dashboardIds', 'List every dashboard once.');
+      return { patch: [replace('/dashboards', ids.map(id => doc.dashboards.find(d => d.id === id)!))], intent: 'Reorder dashboards' };
+    }
+    case 'add_agent_widget': {
+      const { dashboardId: target, title, span, rows, ...options } = args;
+      return { patch: [put(`${at(doc,target).path}/widgets/-`, { id: '$new1', type: 'agent', title: title ?? 'Agent answer', span: span ?? 12, rows: rows ?? 3, options })], intent: 'Add an agent widget' };
+    }
     case 'preview_ui_patch': return { patch: args.patch, intent: args.intent, autofix: args.autofix };
     case 'set_accent': {
       const colors = deps.accentPair(args.color);
@@ -230,6 +255,10 @@ export function buildUiPatch(name: UiToolName, args: any, doc: UiConfig, deps: P
 }
 
 const DESCRIPTIONS: Record<UiToolName, string> = {
+  list_dashboards: 'List your dashboards in saved order with ids, names and widget counts.',
+  duplicate_dashboard: 'Preview a copy of a saved dashboard with new ids and an optional name. Results and schedules are independent.',
+  reorder_dashboards: 'Preview dashboard order. Supply every saved dashboard id exactly once.',
+  add_agent_widget: 'Preview a read-only agent widget for a question no registered source answers directly. Prompt is plain text, up to 400 characters. Choose text, list or stat display and manual, hourly or daily refresh.',
   get_ui_config: 'Read your saved appearance, revision and last five history summaries. Unchanged defaults are omitted. Scope the read when possible; use dashboardId with scope dashboard.',
   list_ui_options: 'List registered appearance options by kind. Use these ids instead of guessing. Sources describe configuration only; no widget data is returned.',
   preview_ui_patch: 'Validate a minimal JSON Patch and show an appearance preview with Apply and Discard. New dashboard and widget ids may use $new1 placeholders. One new preview supersedes older previews. Repair errors at most three times.',
@@ -240,7 +269,7 @@ const DESCRIPTIONS: Record<UiToolName, string> = {
   apply_preset: 'Preview a registered or saved appearance preset. Read available ids with list_ui_options first.',
   save_preset: 'Save the current appearance as a named personal preset, without dashboards. Does not change the current appearance.',
   set_accent: 'Preview an accent color using a six-digit hex value. Chooses a shade for each mode so light and dark both remain readable.',
-  create_dashboard: 'Preview a new dashboard from blank, overview, tasks, usage or bot. The bot template requires botId. Optionally pin it or use it as home. For compound custom dashboards use one preview_ui_patch.',
+  create_dashboard: 'Preview a new dashboard from blank, overview, tasks, usage, bot, needs_you, handoffs or pipeline. The bot template requires botId. Optionally pin it or use it as home. For compound custom dashboards use one preview_ui_patch.',
   add_widget: 'Preview adding a registered widget to a saved dashboard. Defaults are valid for each type. after is a widget id or start; omit it to append.',
   update_widget: 'Preview changing only the supplied widget fields. Read the dashboard first to obtain ids and current fields.',
   remove_widget: 'Preview removing one widget from a saved dashboard.',
@@ -273,6 +302,7 @@ export function createUiTools(deps: UiToolDependencies): ToolDef[] {
             deps.syncCards?.(ctx);
             const saved = deps.service.get(user);
             switch (name) {
+              case 'list_dashboards': result = { dashboards: saved.doc.dashboards.map(d => ({ id: d.id, name: d.name, widgetCount: d.widgets.length })) }; break;
               case 'get_ui_config': {
                 const scope = args.scope ?? 'all';
                 const doc = scope === 'dashboard' ? at(saved.doc, args.dashboardId).dashboard : scope === 'all' ? withoutDefaults(saved.doc, DEFAULT_CONFIG) ?? {} : withoutDefaults(saved.doc[scope as keyof UiConfig], DEFAULT_CONFIG[scope as keyof UiConfig]) ?? (scope === 'dashboards' ? [] : {});

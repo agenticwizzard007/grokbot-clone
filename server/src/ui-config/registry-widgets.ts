@@ -6,7 +6,8 @@ export const plainText = (max: number, min = 0) => z.string().min(min).max(max).
 export const noteText = z.string().max(2000).regex(/^[^<>\x00-\x08\x0B-\x1F\x7F-\x9F\u2013\u2014]*$/, 'Use plain Markdown without HTML.').refine(s => !/!\[|\]\(\s*(?!(?:https:\/\/|(?:bots|tasks|settings|dashboard:|bot:)))/i.test(s), 'Links must use HTTPS or an in-app route.');
 export const shortcutTarget = plainText(320, 1).refine(s => /^(?:bots|tasks|settings|dashboard:d_[a-z0-9]{8}|bot:[a-zA-Z0-9_-]{1,100}|ask:[a-zA-Z0-9_-]{1,100}:[^<>]{1,200})$/.test(s), 'Choose an in-app destination.');
 const field = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]*$/).max(40), limit = z.number().int().min(1).max(10).optional();
-export const agentWidgetOptionsSchema = z.object({ prompt: plainText(400, 1), botId: botIdSchema.optional(), display: z.enum(['text', 'list', 'stat']).default('text'), schedule: z.enum(['manual', 'hourly', 'daily']).default('manual') }).strict();
+export const containsWidgetSecret = (text: string) => /\b(?:sk|pk|ghp|gho|xoxb|xoxp)[-_][a-z0-9_-]{8,}|\bAKIA[A-Z0-9]{16}\b|\b(?:password|secret|api[_ -]?key|access[_ -]?token)\s*[:=]\s*\S+|-----BEGIN|\beyJ[a-z0-9_-]+\.[a-z0-9_-]+\.[a-z0-9_-]+\b/i.test(text);
+export const agentWidgetOptionsSchema = z.object({ prompt: plainText(400, 1).refine(s => !!s.trim() && !containsWidgetSecret(s), 'Leave out secrets.'), botId: botIdSchema.optional(), display: z.enum(['text', 'list', 'stat']).default('text'), schedule: z.enum(['manual', 'hourly', 'daily']).default('manual') }).strict();
 export type AgentWidgetOptions = z.infer<typeof agentWidgetOptionsSchema>;
 export const WIDGET_OPTIONS = {
   agent: agentWidgetOptionsSchema,

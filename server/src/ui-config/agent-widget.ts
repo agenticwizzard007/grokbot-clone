@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { plainText } from './registry-widgets.js';
+import { plainText, containsWidgetSecret } from './registry-widgets.js';
 import { botIdSchema } from './registry-sources.js';
 import { jsonSize } from './errors.js';
 
@@ -13,7 +13,7 @@ export const agentWidgetResultSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('text'), text: plainText(1200, 1) }).strict(),
   z.object({ kind: z.literal('stat'), value: plainText(80, 1), label: plainText(120, 1), delta: plainText(80).optional() }).strict(),
   z.object({ kind: z.literal('list'), rows: z.array(z.object({ title: plainText(120, 1), subtitle: plainText(240).optional(), status: plainText(60).optional(), action: widgetActionSchema.optional() }).strict()).max(10) }).strict(),
-]).refine(doc => (jsonSize(doc) ?? Infinity) <= 8192, 'The answer exceeds 8 KB.');
+]).refine(doc => (jsonSize(doc) ?? Infinity) <= 8192, 'The answer exceeds 8 KB.').refine(doc => !containsWidgetSecret(JSON.stringify(doc)), 'Leave out secrets.');
 export type AgentWidgetResult = z.infer<typeof agentWidgetResultSchema>;
 export type AgentWidgetState = 'empty' | 'running' | 'ready' | 'error';
 export interface AgentWidgetSnapshot {
