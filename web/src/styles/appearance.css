@@ -30,3 +30,6 @@
   .appearance-control > .layout-row__text, .appearance-control > .layout-row__trailing { flex: 1 1 100%; width: 100%; }
   .appearance-swatches { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
+.appearance-settings .layout-button-group > * { flex: 0 1 calc((100% - 8px) / 2); box-sizing: border-box; }
+.appearance-settings .settings-menu > button { width: 100%; }
+.appearance-errors { position: sticky; top: 0; z-index: 2; }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { REGISTRY, type PatchOp, type UiPreviewCardBody, type Violation } from '@shared/ui-config/index';
 import { useEffectiveConfig, useUiConfig, useUiPatch } from '../../customization';
 import { openConversation } from '../../configStore';
@@ -25,6 +25,7 @@ export function AppearanceSettings() {
   const bots = useStore(s => s.bots);
   const [errors, setErrors] = useState<Violation[]>([]);
   const [busy, setBusy] = useState(false);
+  const pending = useRef(false);
   const [agentAuto, setAgentAuto] = useState(false);
   const [agentReady, setAgentReady] = useState(false);
   const [previewCard, setPreviewCard] = useState<UiPreviewCardBody | null>(null);
@@ -37,9 +38,10 @@ export function AppearanceSettings() {
     return () => { alive = false; };
   }, []);
   const run = async (fn: () => Promise<unknown>) => {
-    setBusy(true); setErrors([]);
+    if (pending.current) return;
+    pending.current = true; setBusy(true); setErrors([]);
     try { await fn(); } catch (error) { setErrors(error instanceof AppearanceError ? error.errors : [{ path: '', code: 'invalid_value', message: (error as Error).message }]); }
-    finally { setBusy(false); }
+    finally { pending.current = false; setBusy(false); }
   };
   const patch = async (ops: PatchOp[]) => {
     if (!ops.length) return true;
@@ -59,7 +61,7 @@ export function AppearanceSettings() {
     <Section aria-label="Customize"><Row title="Or change it here." trailing={<button type="button" className="cfg-btn cfg-btn--primary" disabled={!bots.length} onClick={ask}>Ask your agent</button>} /></Section>
     {previewCard && <UiPreviewCard key={previewCard.previewId} body={previewCard} />}
     {errors.length > 0 && <Card role="alert" className="appearance-errors">{errors.map((error, i) => <p key={i}>{error.message}{error.hint ? ` ${error.hint}` : ''}{error.suggested ? ` Try ${error.suggested}.` : ''}</p>)}</Card>}
-    <fieldset disabled={busy || status === 'loading'} className="appearance-fields" aria-label="Appearance controls" aria-busy={busy}>
+    <fieldset disabled={status === 'loading'} className="appearance-fields" aria-label="Appearance controls" aria-busy={busy}>
       <Section title="Look" aria-label="Look" className="appearance-section">
         <div className="appearance-presets">{REGISTRY.presets.map(preset => <Card key={preset.id}><button type="button" className="appearance-preset cfg-btn cfg-btn--secondary" aria-pressed={doc.preset === preset.id} onClick={() => void run(async () => { const result = await appearanceRequest<{ previewId: string }>('/ui/patches/preview', 'POST', { patch: choosePreset(preset.id), intent: `${preset.label} appearance` }, revision); await onPreview(result.previewId); })}>{preset.label}</button></Card>)}</div>
         <Choice label="Mode" value={doc.theme.mode} values={['light', 'dark', 'system']} onChange={v => void patch(setValue('/theme/mode', v))} />

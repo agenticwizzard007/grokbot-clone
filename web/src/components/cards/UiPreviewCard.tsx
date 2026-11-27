@@ -19,6 +19,7 @@ export function UiPreviewCard({ body }: { body: UiPreviewCardBody }) {
   const current = active.preview?.id === body.previewId ? active.preview : stored;
   const status = stored?.status === 'expired' ? 'expired' : current?.status ?? body.status;
   useEffect(() => () => { if (comparing.current) compareAppliedAppearance(null); }, []);
+  useEffect(() => { if (current?.status === 'pending' && revision === current.baseRevision) before.current = { doc: saved, revision }; }, [current, saved, revision]);
   useEffect(() => {
     let alive = true;
     void readPreview(body.previewId).then(value => { if (alive) setStored(value); }).catch(() => {});
@@ -60,7 +61,7 @@ export function UiPreviewCard({ body }: { body: UiPreviewCardBody }) {
     </ButtonGroup>}
     {status === 'applied' && !undone && <ButtonGroup>
       <button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy || (current?.revision !== undefined && current.revision !== revision)} onClick={() => void run(async () => { await appearanceRequest('/ui/undo', 'POST', { steps: 1 }, revision); await refreshAppearance(); setUndone(true); })}>Undo</button>
-      <button type="button" className="cfg-btn cfg-btn--secondary" aria-pressed={active.showBefore} disabled={busy || !before.current || before.current.revision !== current?.baseRevision} onClick={() => compare(!active.showBefore)} onBlur={() => compare(false)}>Show before</button>
+      <button type="button" className="cfg-btn cfg-btn--secondary" aria-pressed={active.showBefore} disabled={busy || !before.current || before.current.revision !== current?.baseRevision} onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); compare(true); }} onPointerUp={() => compare(false)} onPointerCancel={() => compare(false)} onKeyDown={event => { if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); compare(true); } }} onKeyUp={event => { if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); compare(false); } }} onBlur={() => compare(false)}>Show before</button>
     </ButtonGroup>}
     {error && <p role="alert" className="cfg-error">{error}</p>}
   </Card>;

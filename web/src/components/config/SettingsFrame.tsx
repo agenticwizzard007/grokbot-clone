@@ -1,3 +1,4 @@
+import { useUiConfig } from '../../customization';
 import { Page, Section, Card } from '../layout';
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { ChevronRight, Search } from 'lucide-react';
@@ -36,6 +37,8 @@ function restoreSettingsFocus(caller: HTMLElement | null) {
 
 /** Settings keeps the app navigation alongside its section list. */
 export function AppSettings() {
+  const { status: appearanceStatus } = useUiConfig();
+  const availableNav = appearanceStatus === 'disabled' ? NAV.map(group => ({ ...group, items: group.items.filter(item => item.id !== 'appearance') })) : NAV;
   const section = useConfigUI((s) => s.appSettings);
   const home = useConfigUI((s) => s.appSettingsHome);
   const close = useConfigUI((s) => s.closeAppSettings);
@@ -76,7 +79,7 @@ export function AppSettings() {
   if (!section) return null;
   const pick = (id: AppSection) => { open(id); setQuery(''); };
   const q = query.trim();
-  const groups = q ? NAV.map((g) => ({ ...g, items: g.items.filter((it) => matches(it, q)) })).filter((g) => g.items.length) : NAV;
+  const groups = q ? availableNav.map((g) => ({ ...g, items: g.items.filter((it) => matches(it, q)) })).filter((g) => g.items.length) : availableNav;
   // Up/Down move between sections, like a native sidebar.
   const arrows = (e: ReactKeyboardEvent) => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
