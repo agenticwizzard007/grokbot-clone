@@ -11,7 +11,8 @@ import TaskBoard from './widgets/TaskBoard';
 import RoutineSchedule from './widgets/RoutineSchedule';
 import Note from './widgets/Note';
 import Shortcuts from './widgets/Shortcuts';
-const renderers = { stat: Stat, list: List, table: Table, chart: Chart, meter: Meter, botStatus: BotStatus, taskBoard: TaskBoard, routineSchedule: RoutineSchedule, note: Note, shortcuts: Shortcuts };
+import { Empty } from './widgets/Empty';
+const renderers = { stat: Stat, list: List, table: Table, chart: Chart, meter: Meter, botStatus: BotStatus, taskBoard: TaskBoard, routineSchedule: RoutineSchedule, note: Note, shortcuts: Shortcuts, agent: Empty };
 export function WidgetFrame({ widget, state, observe, retry, toolbar }: { widget: Widget; state?: WidgetState; observe?: (id: string, node: HTMLElement | null) => void; retry?: () => void; toolbar?: ReactNode }) {
   const attach = useCallback((node: HTMLDivElement | null) => observe?.(widget.id, node), [widget.id, observe]);
   const current = state ?? (widget.source ? { status: 'loading' as const } : { status: 'ready' as const });
@@ -23,7 +24,9 @@ export function WidgetFrame({ widget, state, observe, retry, toolbar }: { widget
       <div className={`dashboard-widget-body${['list', 'table'].includes(widget.type) ? ' dashboard-widget-body--scroll' : ''}`}>
         {current.status === 'loading' ? <div className="dashboard-skeleton" role="status" aria-label={`Loading ${title}`}><i /><i /><i /></div>
           : <>{current.status === 'error' && <div className="dashboard-widget-error"><p role="status">{current.error ?? 'Data is unavailable.'}</p><button type="button" className="btn" onClick={retry} aria-label={`Retry ${title}`}>Retry</button></div>}
-            {(current.status !== 'error' || current.data) && <Renderer widget={widget} data={current.data} />}</>}
+            {(current.status !== 'error' || current.data) && (current.data?.available === false && ['connectors.status', 'email.recent', 'calendar.upcoming', 'crm.deals'].includes(widget.source?.id ?? '')
+              ? <div className="dashboard-empty-data"><p>No connected data yet.</p><a className="btn" href="#settings/apps">Connect</a></div>
+              : <Renderer widget={widget} data={current.data} />)}</>}
       </div>
     </Card>
   </div>;
