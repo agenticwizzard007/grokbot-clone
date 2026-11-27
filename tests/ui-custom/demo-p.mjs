@@ -6,7 +6,7 @@ import { readableWords } from '../paper-label-geometry.mjs';
 import { dashboardFixture, widgetTypes, readyWidgets, patch, inspectAlignment, assertGrid } from './dashboard-fixture.mjs';
 
 const before = process.argv.includes('--before');
-const output = path.resolve(process.env.POLISH_OUTPUT || `shots/polish/${before ? 'before' : 'after'}`);
+const output = path.resolve(process.env.POLISH_OUTPUT || `.context/ui-custom/polish-${before ? 'before' : 'after'}`);
 fs.mkdirSync(output, { recursive: true });
 let server, failure;
 const checks = [], screenshots = [], counts = [];

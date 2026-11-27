@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { dashboardFixture, inspectAlignment } from './dashboard-fixture.mjs';
 import { readableWords } from '../paper-label-geometry.mjs';
 
-export async function runAboutYouUi(output = 'shots/polish/after') {
+export async function runAboutYouUi(output = '.context/ui-custom/polish-after') {
   const directory = path.resolve(output); fs.mkdirSync(directory, { recursive: true });
   const server = await dashboardFixture();
   server.db.prepare(`INSERT INTO account_preferences(user_id,updated_at,ui_custom_enabled,ui_adapt) VALUES(?,?,1,1)
