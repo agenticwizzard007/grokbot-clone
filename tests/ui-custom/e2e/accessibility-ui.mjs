@@ -17,7 +17,13 @@ const { accessibilityFixture, navigationRoutes } = await import('../fixtures/acc
 const out = path.resolve(process.env.A11Y_OUTPUT || '.context/ui-custom/accessibility');
 fs.mkdirSync(out, { recursive: true });
 const results = [];
+async function openRoutines(page) {
+  await page.getByRole('button', { name: 'Routines', exact: true }).click();
+  await page.getByRole('heading', { name: 'Fixture routine 1', exact: true }).waitFor();
+}
 const routes = [...navigationRoutes.map(hash => ({ name: hash || 'home', hash })),
+  { name: 'routines', hash: '#bot/coordinator/reports', action: openRoutines },
+  { name: 'routine-confirm', hash: '#bot/coordinator/reports', action: async page => { await openRoutines(page); await page.getByRole('button').filter({ hasText: /^Run now$/ }).first().click(); } },
   { name: 'about-you', hash: '#settings/appearance/use' },
   { name: 'shortcut-recording', hash: '#settings/appearance', action: async page => page.getByRole('button', { name: 'Change Focus composer shortcut', exact: true }).click() },
   { name: 'layout-reset', hash: '#settings/appearance', action: async page => { await page.getByRole('button', { name: 'Manage layout', exact: true }).click(); await page.getByRole('menuitem', { name: 'Reset', exact: true }).click(); } },
@@ -134,9 +140,14 @@ try {
   }
 } finally { await browser.close(); await server.close(); }
 assert.ok(results.length, 'Accessibility filters must select at least one screen');
-const byRule = {}, byScreen = {}, byImpact = { critical: 0, serious: 0, moderate: 0, minor: 0 }, reflowByRule = {};
+const byRule = {}, byScreen = {}, byImpact = { critical: 0, serious: 0, moderate: 0, minor: 0 }, reflowByRule = {}, failedChecks = {};
 for (const item of results) {
   byScreen[item.route] ??= {};
+  if (item.error) {
+    const check = item.error.split('\n')[0];
+    failedChecks[check] = (failedChecks[check] || 0) + 1;
+    byScreen[item.route][check] = (byScreen[item.route][check] || 0) + 1;
+  }
   for (const v of item.violations) {
     byRule[v.id] = (byRule[v.id] || 0) + v.nodes.length;
     byScreen[item.route][v.id] = (byScreen[item.route][v.id] || 0) + v.nodes.length;
@@ -147,7 +158,7 @@ for (const item of results) {
     byScreen[item.route][`reflow-${issue.issue}`] = (byScreen[item.route][`reflow-${issue.issue}`] || 0) + 1;
   }
 }
-const report = { commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), counts: { pass: results.filter(r => r.pass).length, fail: results.filter(r => !r.pass).length, total: results.length }, byRule, byImpact, reflowByRule, byScreen, results };
+const report = { commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), counts: { pass: results.filter(r => r.pass).length, fail: results.filter(r => !r.pass).length, total: results.length }, byRule, byImpact, reflowByRule, failedChecks, byScreen, results };
 fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify(report, null, 2));
 console.log(`Accessibility: ${report.counts.pass}/${results.length} passed, ${report.counts.fail} failed. Report: ${out}/report.json`);
 process.exitCode = report.counts.fail ? 1 : 0;

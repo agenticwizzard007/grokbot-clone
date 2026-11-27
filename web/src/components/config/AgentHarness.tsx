@@ -116,8 +116,8 @@ export function AgentHarness({ bot, data, running, version, onSave }: { bot: Bot
       <h3>Runtime controls</h3>
       <p className="agent-config__muted">Instructions guide behavior. They do not grant app access, change approval settings or register scheduled routines.</p>
       <div className="agent-config__settings">
-        <button type="button" aria-label="Permissions" onClick={() => useConfigUI.getState().openAppSettings('permissions')}><span className="agent-config__setting-icon"><ShieldCheck size={18} aria-hidden /></span><span className="agent-config__setting-text"><strong>Permissions</strong><span>App access and approvals</span></span><Icon name="chev_right" /></button>
-        <button type="button" aria-label="Skills" onClick={() => useConfigUI.getState().openBotSettings(bot.id, 'skills')}><span className="agent-config__setting-icon"><Glyph name="spark" size={18} /></span><span className="agent-config__setting-text"><strong>Skills</strong><span>Saved methods and checklists</span></span><Icon name="chev_right" /></button>
+        <button type="button" onClick={() => useConfigUI.getState().openAppSettings('permissions')}><span className="agent-config__setting-icon"><ShieldCheck size={18} aria-hidden /></span><span className="agent-config__setting-text"><strong>Permissions</strong><span>App access and approvals</span></span><Icon name="chev_right" /></button>
+        <button type="button" onClick={() => useConfigUI.getState().openBotSettings(bot.id, 'skills')}><span className="agent-config__setting-icon"><Glyph name="spark" size={18} /></span><span className="agent-config__setting-text"><strong>Skills</strong><span>Saved methods and checklists</span></span><Icon name="chev_right" /></button>
         <button type="button" aria-label="Routines" onClick={() => useConfigUI.getState().openBotSettings(bot.id, 'routines')}><span className="agent-config__setting-icon"><Icon name="clock" size={18} /></span><span className="agent-config__setting-text"><strong>Routines</strong><span>Scheduled work</span></span><Icon name="chev_right" /></button>
       </div>
     </section>

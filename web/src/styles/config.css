@@ -18,14 +18,14 @@
 .cfg-btn--whatsapp:hover:not(:disabled) { background: #1fb85a; }
 .cfg-btn--ghost-danger { color: var(--color-danger-text); box-shadow: var(--color-border-secondary) 0 0 0 0.5px inset; }
 .cfg-btn--ghost-danger:hover:not(:disabled) { background: var(--color-danger-bg); }
-.cfg-btn--danger { background: var(--color-danger-hover); color: #FFFFFF; font-weight: 500; }
-.cfg-btn--danger:hover:not(:disabled) { background: var(--color-danger-hover); }
+.cfg-btn--danger { background: var(--color-danger-text); color: var(--color-danger-bg); font-weight: 500; }
+.cfg-btn--danger:hover:not(:disabled) { background: var(--color-danger-text); }
 .cfg-icon-btn {
   display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex-shrink: 0;
   border-radius: var(--radius-full); color: var(--color-icon-secondary); transition: background-color 120ms, color 120ms;
 }
 .cfg-icon-btn:hover:not(:disabled) { background: var(--color-bg-hover); color: var(--color-text-primary); }
-.cfg-icon-btn.cfg-btn--danger { width: auto; height: 28px; padding: 0 10px; font-size: 12px; color: #FFFFFF; }
+.cfg-icon-btn.cfg-btn--danger { width: auto; height: 28px; padding: 0 10px; font-size: 12px; color: var(--color-danger-bg); }
 
 /* fields */
 .cfg-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
