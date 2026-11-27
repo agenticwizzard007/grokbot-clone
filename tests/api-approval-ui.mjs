@@ -31,8 +31,8 @@ try {
     await page.addInitScript(({ id, theme }) => { localStorage.setItem('swarm.selectedBot', id); localStorage.setItem('swarm.detailsOpen', '0'); localStorage.setItem('swarm.theme', theme); }, { id: bot.id, theme });
     await page.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
     await page.goto(origin);
-    if (width === 390) await page.locator('.pinned__tile').click();
-    const settings = async section => { await page.evaluate(async section => (await import('/src/configStore.ts')).useConfigUI.getState().openAppSettings(section), section); await page.getByLabel('API approval level', { exact: true }).waitFor(); };
+    await page.goto(`${origin}/#bot/${bot.id}`);
+    const settings = async section => { await page.evaluate(async section => (await import('/src/configStore.ts')).useConfigUI.getState().openAppSettings(section), section); if (section === 'subscriptions') await page.locator('.subscription-settings__context > summary').click(); await page.getByRole('radiogroup', { name: 'API approval level', exact: true }).waitFor(); };
     const closeSettings = async () => {
       // Navigate directly to this Bot. Closing via history and immediately
       // opening a chat lets the delayed popstate overwrite the fixture route.
@@ -42,19 +42,18 @@ try {
     };
     const state = async () => (await context.request.get(`${origin}/api/fixture/state`)).json();
     const send = async text => assert.equal((await context.request.post(`${origin}/api/bots/${bot.id}/messages`, { data: { text } })).status(), 200);
-    const select = () => page.getByLabel('API approval level', { exact: true });
+    const select = () => page.getByRole('radio', { name: 'Ask before every action', exact: true });
     await settings('permissions'); await until(() => select().isEnabled());
-    assert.equal(await select().inputValue(), 'standard');
-    await select().selectOption('every_action'); await until(async () => (await (await context.request.get(`${origin}/api/account/preferences`)).json()).apiApprovalLevel === 'every_action');
-    await page.getByText('Every action asks first, including reading past chats', { exact: false }).waitFor();
-    await page.getByText('Provider search is unavailable at this level.', { exact: false }).waitFor();
+    assert.equal(await select().isChecked(), false);
+    await select().click(); await until(async () => (await (await context.request.get(`${origin}/api/account/preferences`)).json()).apiApprovalLevel === 'every_action');
+    await page.getByRole('button', {name:'About approvals',exact:true}).focus();
+    await page.getByRole('tooltip').filter({hasText:'Every action asks first'}).waitFor();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.screenshot({ path: path.join(evidence, `permissions-${width}-${theme}.png`), fullPage: true });
-    await settings('subscriptions'); await until(async () => await select().inputValue() === 'every_action');
-    await page.getByText('Every action asks first, including reading past chats', { exact: false }).waitFor();
-    await page.getByText('Provider search is unavailable at this level.', { exact: false }).waitFor();
-    await page.getByText('Only Always allow choices made at this level can skip later prompts.', { exact: false }).waitFor();
-    assert.doesNotMatch(await page.locator('.api-approval-settings').innerText(), /[\u2013\u2014\u2019]/);
+    await settings('subscriptions'); await until(async () => await select().isChecked());
+    await page.getByRole('button', {name:'About approvals',exact:true}).focus();
+    await page.getByRole('tooltip').filter({hasText:'Every action asks first'}).waitFor();
+    assert.doesNotMatch(await page.getByRole('region',{name:'API approval settings'}).innerText(), /[\u2013\u2014\u2019]/);
     await select().scrollIntoViewIfNeeded();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.screenshot({ path: path.join(evidence, `models-${width}-${theme}.png`), fullPage: true });
@@ -163,14 +162,14 @@ try {
     await until(async () => (await state()).files === before.files + 1);
     assert.equal(await page.locator('.approval-card').count(), cards + 1);
     assert.equal((await state()).pending, 0);
-    await settings('permissions'); await select().selectOption('standard'); await until(async () => (await (await context.request.get(`${origin}/api/account/preferences`)).json()).apiApprovalLevel === 'standard'); await closeSettings();
+    await settings('permissions'); await page.getByRole('radio',{name:'External actions',exact:true}).click(); await until(async () => (await (await context.request.get(`${origin}/api/account/preferences`)).json()).apiApprovalLevel === 'standard'); await closeSettings();
     await send('JJ memory: My fixture breakfast preference is oats.'); await until(async () => (await state()).memories > before.memories);
     await send('JJ file'); await until(async () => (await state()).files > before.files + 1);
     await send('JJ app'); await until(async () => (await state()).executions > before.executions);
     assert.equal((await state()).pending, 0);
     await context.request.post(`${origin}/api/fixture/cli`, { data: { botId: bot.id, provider: theme === 'light' ? 'codex' : 'claude' } });
     for (const section of ['permissions', 'subscriptions']) {
-      await settings(section); await page.getByText('This applies when you use API providers.', { exact: false }).waitFor(); assert.equal(await select().isDisabled(), true); await closeSettings();
+      await settings(section); await page.getByRole('button',{name:'About approvals',exact:true}).focus(); await page.getByRole('tooltip').filter({hasText:'Plan permissions apply'}).waitFor(); assert.equal(await select().isDisabled(), true); await closeSettings();
     }
     assert.deepEqual(errors, []);
     console.log(`PASS ${width} ${theme}: both settings, named cards, API pending/denied/allowed panels and reload, CLI history retained, deny unchanged, allow saves, Standard automatic, CLI disabled`);

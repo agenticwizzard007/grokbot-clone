@@ -77,6 +77,8 @@ try {
       else if (path === '/api/models') body = { models: [], defaultModel: null };
       else if (path === '/api/computer') body = { computer: { status: 'absent', screens: [] } };
       else if (path === '/api/settings') body = { settings: {}, computer: { provider: 'cloudvm' } };
+      else if (path === '/api/cli') body = { runtime: 'server', connected: true, selected: null, providers: { claude: { installed: false, authenticated: false, subscription: false }, codex: { installed: false, authenticated: false, subscription: false } } };
+      else if (path === '/api/apps') body = { toolkits: [], nextCursor: null };
       else if (path === '/api/apps/suggestions') body = { suggestions: [] };
       else {
         unexpected.push(path);
@@ -90,7 +92,7 @@ try {
       const result = await locator.evaluate(element => {
         const box = element.getBoundingClientRect();
         const pane = element.closest('.app-settings__main').getBoundingClientRect();
-        const row = element.closest('.mcp-actions, .cfg-row').getBoundingClientRect();
+        const row = element.closest('.mcp-actions, [data-layout="row"], [data-layout="button-group"]').getBoundingClientRect();
         const range = document.createRange();
         range.selectNodeContents(element);
         return {
@@ -115,7 +117,7 @@ try {
     await page.getByRole('button', { name: 'Add MCP server', exact: true }).click();
     const editor = page.getByRole('form', { name: 'Add MCP server', exact: true });
     await editor.getByLabel('Connection', { exact: true }).selectOption('stdio');
-    const picker = editor.locator('.cfg-row').filter({ has: page.getByText('Shared folders', { exact: true }) });
+    const picker = editor.locator('[data-layout="row"]').filter({ has: page.getByText('Shared folders', { exact: true }) });
     const choice = picker.getByRole('button', { name: folder, exact: true });
     await choice.waitFor();
     await page.evaluate(() => document.fonts.ready);

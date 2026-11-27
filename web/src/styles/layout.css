@@ -21,15 +21,18 @@
 .layout-section__content { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
 .layout-card { box-sizing: border-box; width: 100%; min-width: 0; align-self: stretch; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-card); background: var(--color-elevated); }
 .layout-card--list { padding: 0 var(--space-3); }
-.layout-row { display: flex; align-items: center; gap: var(--space-2); min-width: 0; min-height: var(--control-h); padding-block: var(--space-2); border-bottom: 1px solid var(--color-border); }
+.layout-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; min-height: var(--control-h); padding-block: var(--space-2); border-bottom: 1px solid var(--color-border); }
 .layout-row:last-child { border-bottom: 0; }
 .layout-row__leading { display: flex; align-items: center; justify-content: center; width: 20px; flex: 0 0 20px; }
-.layout-row__text { flex: 1 1 0; min-width: 0; }
+.layout-row__text { flex: 1 1 160px; min-width: 0; }
 .layout-row__title { font-size: 14px; line-height: 20px; font-weight: 500; }
 .layout-row__subtitle { color: var(--color-text-2); font-size: 12px; line-height: 16px; margin-top: var(--space-1); }
 .layout-row__trailing { display: flex; align-items: center; gap: var(--space-2); flex-shrink: 0; max-width: 100%; }
 .layout-button-group { display: flex; gap: var(--space-2); width: 100%; min-width: 0; }
 .layout-button-group > * { flex: 1 1 0; min-width: 0; }
+.layout-page .layout-button-group.cfg-seg { padding: var(--space-1); gap: var(--space-2); border-radius: var(--radius-card); background: var(--color-bg-tertiary); box-shadow: none; }
+.layout-page .layout-button-group.cfg-seg > button { border-radius: var(--space-2); background: transparent; }
+.layout-page .layout-button-group.cfg-seg > button.is-active { background: var(--color-elevated); color: var(--color-text-primary); box-shadow: inset 0 0 0 1px var(--color-border); }
 [data-layout] :is(button, [role='button'], .cfg-btn) { box-sizing: border-box; min-height: var(--control-h); height: auto; white-space: normal; }
 [data-layout] :is(button, label, h1, h2, h3, p, span, a, [data-layout='row']) { overflow-wrap: normal; word-break: normal; text-overflow: clip; }
 @media (max-width: 760px) {
@@ -39,3 +42,21 @@
   .layout-row { flex-wrap: wrap; }
   .layout-row__trailing { margin-left: auto; flex-wrap: wrap; }
 }
+
+/* Shared controls keep their hit area when older surface styles are loaded. */
+.layout-page.layout-page :is(button, [role='button'], .cfg-btn) { min-height: var(--control-h); height: auto; white-space: normal; }
+.layout-page.layout-page .toggle { position: relative; width: 44px; height: 44px; background: transparent; border: 0; padding: 0; }
+.layout-page.layout-page .toggle::before { content: ''; position: absolute; width: 40px; height: 24px; left: 2px; top: 10px; border-radius: 999px; background: var(--color-bg-active); }
+.layout-page.layout-page .toggle.is-on::before { background: var(--color-primary); }
+.layout-page.layout-page .toggle .toggle__knob { position: absolute; width: 20px; height: 20px; top: 12px; left: 4px; transform: none; background: var(--color-text-tertiary); }
+.layout-page.layout-page .toggle.is-on .toggle__knob { left: 20px; background: var(--color-on-primary); }
+@media (max-width: 760px) {
+  .layout-page__header h1 { font-size: 22px; }
+}
+
+.layout-section.layout-section > .layout-section__header > h2 { font: 600 13px/18px var(--font-stack); color: var(--color-text-2); margin: 0; }
+.layout-page .cfg-btn--primary { color: var(--color-on-primary); }
+
+.layout-page.layout-page a.cfg-btn--primary { color: var(--color-on-primary); }
+.modal:has(.layout-page) > button { min-height: var(--control-h); min-width: var(--control-h); }
+.layout-card--list > :not(:last-child) > .layout-row:only-child { border-bottom: 1px solid var(--color-border); }

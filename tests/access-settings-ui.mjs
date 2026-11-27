@@ -193,15 +193,19 @@ const errors = [];
 page.on('pageerror', error => errors.push(error.message));
 page.setDefaultTimeout(10_000);
 const button = name => page.getByRole('button', { name, exact: true });
-const heading = name => page.getByRole('heading', { name, exact: true });
-const open = section => page.goto(`${base}/#settings/${section}`);
-const reloadSection = section => page.goto(`${base}/?fixture=${Date.now()}#settings/${section}`);
+const heading = name => ['Your account', 'Text your Bots'].includes(name) ? page.locator('.shell-header, .app-settings__page').getByText(name === 'Your account' ? 'Account' : 'Messaging', { exact: true }).first() : page.getByRole('heading', { name, exact: true });
+const disclose = async name => { const summary = page.locator('summary').filter({ hasText: name }).first(); if (!(await summary.evaluate(el => el.parentElement.open))) await summary.click(); };
+const menu = async name => { await button('Manage').click(); await page.getByRole('menuitem', {name, exact:true}).click(); };
+const replaceKey = async () => { await page.locator('.openrouter-settings').getByRole('button', {name:'Replace',exact:true}).click(); };
+const openrouterSave = () => page.locator('.openrouter-settings').getByRole('button', {name:'Save',exact:true});
+const open = async section => { await page.goto(`${base}/#settings/${section}`); if(section === 'account') await disclose('Sessions'); };
+const reloadSection = async section => { await page.goto(`${base}/?fixture=${Date.now()}#settings/${section}`); if(section === 'account') await disclose('Sessions'); };
 const shot = async name => {
   if (!screenshots) return;
   await page.locator('.app-settings__main').evaluateAll(elements => elements.forEach(element => { element.scrollTop = 0; }));
   await page.screenshot({ path: join(screenshots, name), animations: 'disabled' });
 };
-const headerFocused = () => page.waitForFunction(() => document.activeElement?.matches('.access-settings__bar'));
+const headerFocused = () => page.waitForFunction(() => document.activeElement?.matches('.app-settings__main > .sr-only'));
 
 async function releaseAfterDeparture(gate, leave, path = '/api/auth/me', method = 'GET') {
   try {
@@ -216,14 +220,14 @@ async function releaseAfterDeparture(gate, leave, path = '/api/auth/me', method 
 
 async function assertMcpActionsFit(width) {
   const actions = page.locator('.mcp-server').filter({ hasText: 'Example tools' }).locator('.mcp-server__actions :is(button, [role="switch"])');
-  assert.equal(await actions.count(), 4);
+  assert.equal(await actions.count(), 1, 'One Manage action keeps rare server controls together.');
   const bounds = await actions.evaluateAll(elements => elements.map(element => {
     const { left, right, top, width } = element.getBoundingClientRect();
     const onTop = element.contains(document.elementFromPoint(left + width / 2, top + element.clientHeight / 2));
     return { left, right, top, onTop };
   }));
   assert.ok(bounds.every(action => action.left >= 0 && action.right <= width - 16 && action.onTop), JSON.stringify(bounds));
-  assert.ok(new Set(bounds.map(action => action.top)).size > 1, 'MCP actions wrap instead of clipping.');
+  assert.ok(bounds.every(action => action.right - action.left >= 44), 'Manage has a full touch target.');
 }
 
 async function emailSignIn(email) {
@@ -276,38 +280,39 @@ try {
   await reloadSection('general');
   await heading('General').waitFor();
   const nav = page.getByRole('navigation', { name: 'Settings sections' });
-  assert.equal(await nav.locator('xpath=ancestor::*[@id="app-settings-sidebar-slot"]').count(), 1);
+  assert.equal(await nav.locator('xpath=ancestor::*[contains(@class,"app-settings__nav")]').count(), 1);
   await shot('access-general-desktop-light.png');
-  await page.getByRole('switch', { name: 'Compact sidebar' }).click();
-  await button('Expand sidebar to browse settings').click();
+  await button('Collapse sidebar').click();
+  await button('Expand sidebar').click();
   await nav.getByLabel('Search settings').fill('sessions');
   await nav.getByRole('button', { name: 'Account', exact: true }).click();
   await heading('Your account').waitFor();
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole('dialog', { name: 'Settings', exact: true }).waitFor();
+  await page.getByRole('region', { name: 'Settings', exact: true }).waitFor();
   await headerFocused();
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByRole('region', { name: 'Settings', exact: true }).waitFor();
   await headerFocused();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ colorScheme: 'dark' });
-  await button('Back to Settings').click();
-  await heading('Settings').waitFor();
+  await button('Back').click();
+  await page.goto(`${base}/#settings`);
+  await page.locator('.shell-header').getByText('Settings',{exact:true}).waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 390);
   await shot('access-settings-phone-night.png');
   await nav.getByLabel('Search settings').fill('not-a-setting');
   await page.getByText(/No settings match/).waitFor();
   await nav.getByLabel('Search settings').fill('delete');
   await nav.getByRole('button', { name: 'Account', exact: true }).click();
-  await button('Delete account…').click();
+  await menu('Delete account');
   await heading('Delete your Swarm account?').waitFor();
   await shot('access-account-delete-phone-night.png');
   assert.equal(state.deletes, 0);
   await button('Delete my account').click();
   await heading('Confirm it’s you').waitFor();
   await emailSignIn(alice.email);
-  await page.getByText('You’re signed in again. Nothing has been deleted.').waitFor();
+  await page.getByText("You're signed in again. Nothing has been deleted.").waitFor();
   assert.equal(state.deletes, 1, 'Account deletion requires another explicit confirmation.');
   await button('Cancel').click();
   await heading('Your account').waitFor();
@@ -341,12 +346,14 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
 
   state.fresh = false;
-  await button('Connect account').click();
+  await page.locator('.mcp-server').filter({hasText:'Example tools'}).getByRole('button',{name:'Manage Example tools',exact:true}).click();
+  await page.getByRole('menuitem',{name:'Connect account',exact:true}).click();
   await heading('Confirm it’s you').waitFor();
   await emailSignIn(alice.email);
   await page.getByText(/Select Connect account on the server/).waitFor();
   assert.equal(state.oauth, 1, 'MCP OAuth does not auto-start after Swarm sign-in.');
-  await button('Connect account').click();
+  await page.locator('.mcp-server').filter({hasText:'Example tools'}).getByRole('button',{name:'Manage Example tools',exact:true}).click();
+  await page.getByRole('menuitem',{name:'Connect account',exact:true}).click();
   await page.getByText('Fixture provider refused authorization.').waitFor();
 
   state.fresh = false;
@@ -367,16 +374,16 @@ try {
   state.local = { computer: connectedComputer, paired: true, active: true };
   await page.setViewportSize({ width: 1440, height: 900 });
   await reloadSection('computer');
-  await page.getByText(/Fixture desktop/).waitFor();
-  await button('Stop').click();
-  await page.getByText('Stop the companion process on this computer. Its pairing is kept.').waitFor();
+  await page.getByText('Your PC',{exact:true}).waitFor();
+  await menu('Stop');
+  await page.getByText('Stop this computer? Its pairing is kept.').waitFor();
   assert.equal(state.deviceActions.length, 0);
-  await button('Stop this computer').click();
-  await page.getByText(/Paired, but the companion isn’t running/).waitFor();
+  await button('Stop').click();
+  await page.locator('.app-settings__page').getByText('Not connected',{exact:true}).waitFor();
+  await menu('Disconnect');
+  await page.getByText('Disconnect this PC? Pair again to reconnect.').waitFor();
   await button('Disconnect').click();
-  await page.getByText('Revoke this account’s PC pairing. To use the computer again, start a new pairing.').waitFor();
-  await button('Disconnect PC').click();
-  await page.getByText('No companion PC is connected.').waitFor();
+  await page.getByText('Disconnect this PC? Pair again to reconnect.').waitFor({state:'detached'});
   assert.deepEqual(state.deviceActions, [
     { path: '/api/computer/this-computer', method: 'DELETE', account: alice.id },
     { path: '/api/computer/pair', method: 'DELETE', account: alice.id },
@@ -385,75 +392,78 @@ try {
 
   state.local = { computer: connectedComputer, paired: true, active: true };
   await reloadSection('computer');
-  await button('Stop').click();
+  await menu('Stop');
   const stopPreflight = holdRequest('/api/auth/me');
-  await button('Stop this computer').click();
+  await button('Stop').click();
   await releaseAfterDeparture(stopPreflight, () => nav.getByRole('button', { name: 'General', exact: true }).click());
   assert.equal(state.deviceActions.length, 2, 'Closing Computer during preflight must not stop the companion.');
 
   await nav.getByRole('button', { name: 'Computer', exact: true }).click();
-  await button('Stop').click();
+  await menu('Stop');
   const stopDispatched = holdRequest('/api/computer/this-computer', 'DELETE');
-  await button('Stop this computer').click();
+  await button('Stop').click();
   await releaseAfterDeparture(stopDispatched, () => nav.getByRole('button', { name: 'General', exact: true }).click(), '/api/computer/this-computer', 'DELETE');
   assert.equal(state.deviceActions.length, 3, 'An already dispatched Stop still completes.');
   await nav.getByRole('button', { name: 'Computer', exact: true }).click();
-  await page.getByText(/Paired, but the companion isn’t running/).waitFor();
+  await page.locator('.app-settings__page').getByText('Not connected',{exact:true}).waitFor();
 
   state.fresh = false;
   await reloadSection('keys');
-  await heading('Your OpenRouter connection').waitFor();
-  const keyField = page.getByLabel('Replace your API key', { exact: true });
+  await page.locator('.openrouter-settings').waitFor(); await replaceKey();
+  const keyField = page.getByLabel('OpenRouter API key', { exact: true });
   await keyField.fill(token);
-  await page.getByRole('button', { name: 'Save & verify key' }).first().click();
+  await openrouterSave().click();
   await heading('Confirm it’s you').waitFor();
   assert.equal(await keyField.inputValue(), '');
   assert.ok(!(await page.evaluate(() => JSON.stringify({ ...sessionStorage }))).includes(token));
   await emailSignIn(alice.email);
   await page.getByText(/Review your credentials and retry/).waitFor();
   assert.equal(state.providerWrites.length, 1, 'A stale credential change is not replayed.');
-  await keyField.fill(token);
-  await page.getByRole('button', { name: 'Save & verify key' }).first().click();
-  await page.getByText('Key verified and saved.').waitFor();
-  assert.equal(await keyField.inputValue(), '');
+  await replaceKey(); await keyField.fill(token);
+  await openrouterSave().click();
+  await page.getByText('Key saved.',{exact:true}).waitFor();
+  assert.equal(await keyField.count(), 0);
   assert.deepEqual(state.providerWrites.map(entry => entry.account), [alice.id, alice.id]);
-  await button('Your OpenRouter default model').click();
+  await button('Default API model').click();
   await page.getByRole('option').filter({ hasText: 'Other model' }).waitFor();
   await page.getByRole('textbox', { name: 'Search models' }).fill('Other');
   await page.getByRole('textbox', { name: 'Search models' }).press('ArrowDown');
   await page.getByRole('option').filter({ hasText: 'Other model' }).press('Enter');
-  await page.getByText('Default model saved for your Bots.').waitFor();
+  await page.waitForFunction(() => document.querySelector('[aria-label="Default API model"]')?.textContent.includes('Other model'));
   assert.deepEqual(state.providerWrites.at(-1), { account: alice.id, body: { model: 'fixture/other' } });
   await shot('access-openrouter-desktop-night.png');
 
   const leaveKeys = () => nav.getByRole('button', { name: 'General', exact: true }).click();
   const providerWrites = state.providerWrites.length;
-  await keyField.fill(token);
+  await replaceKey(); await keyField.fill(token);
   const providerSave = holdRequest('/api/auth/me');
-  await page.getByRole('button', { name: 'Save & verify key' }).first().click();
+  await openrouterSave().click();
   await releaseAfterDeparture(providerSave, leaveKeys);
   assert.equal(state.providerWrites.length, providerWrites);
   await nav.getByRole('button', { name: 'API keys', exact: true }).click();
-  const privateKey = page.getByLabel('Model API', { exact: true });
+  await page.locator('.private-keys-settings .settings-key-row').filter({hasText:'Model API'}).getByRole('button',{name:'Add key',exact:true}).click();
+  const privateKey = page.getByLabel('Model API API key', { exact: true });
   await privateKey.fill(token);
   const privateSave = holdRequest('/api/auth/me');
-  await privateKey.locator('xpath=ancestor::form').getByRole('button', { name: 'Save & verify key' }).click();
+  await privateKey.locator('xpath=ancestor::form').getByRole('button', { name: 'Save', exact:true }).click();
   await releaseAfterDeparture(privateSave, leaveKeys);
   assert.deepEqual(state.privateWrites, []);
   await nav.getByRole('button', { name: 'API keys', exact: true }).click();
-  await keyField.waitFor();
+  await replaceKey();
+  await button('Key options').click();
   const oauthPreflight = holdRequest('/api/auth/me');
-  await page.getByRole('link', { name: 'Enable OpenRouter sign-in', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Enable sign-in', exact: true }).click();
   await releaseAfterDeparture(oauthPreflight, leaveKeys);
   assert.equal(state.providerStarts, 0);
 
   await reloadSection('subscriptions');
-  await heading('Choose how models are billed').waitFor();
-  await page.getByRole('tab', { name: 'Codex', exact: true }).click();
-  assert.equal(await page.getByRole('tab', { name: 'Codex', exact: true }).getAttribute('aria-selected'), 'true');
+  await heading('Models & access').waitFor();
+  await page.locator('[data-provider="codex"]').getByRole('button',{name:'Connect',exact:true}).click();
+  await page.getByRole('dialog',{name:'Connect ChatGPT',exact:true}).waitFor();
+  await page.getByRole('dialog',{name:'Connect ChatGPT',exact:true}).getByRole('button',{name:'Close',exact:true}).click();
   await shot('access-models-desktop-night.png');
   await reloadSection('apps');
-  await button('Manage apps').click();
+  await button('Connect').click();
   await heading('Connect an app').waitFor();
   await page.getByLabel('Search apps', { exact: true }).fill('calendar');
   await button('Connect Google Calendar').waitFor();
@@ -466,12 +476,12 @@ try {
   await button('Connect Google Calendar').click();
   const catalogPopup = await catalogPopupPromise;
   const catalogClosed = catalogPopup.waitForEvent('close');
-  await releaseAfterDeparture(catalogPreflight, () => button('Back to connected accounts').click());
+  await releaseAfterDeparture(catalogPreflight, () => button('Close catalog').click());
   await catalogClosed;
   assert.deepEqual(state.appConnects, []);
   await heading('Connected apps').waitFor();
   await button('Back to chat').click();
-  assert.equal(await page.getByRole('region', { name: 'Settings', exact: true }).count(), 0);
+  await page.getByRole('region', { name: 'Settings', exact: true }).waitFor({state:'detached'});
 
   const caller = button('Account & settings');
   await caller.click();
@@ -479,19 +489,19 @@ try {
   await headerFocused();
   await page.keyboard.press('Escape');
   await page.waitForFunction(() => document.activeElement?.matches('.account__btn'));
-  const callerElement = await caller.elementHandle();
   await caller.focus();
   await page.keyboard.press('Control+,');
   await headerFocused();
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole('dialog', { name: 'Settings', exact: true }).waitFor();
+  await page.getByRole('region', { name: 'Settings', exact: true }).waitFor();
   await headerFocused();
   await page.keyboard.press('Escape');
-  await page.waitForFunction(element => document.activeElement === element, callerElement);
+  if (await page.getByRole('region', {name:'Settings',exact:true}).count()) await page.keyboard.press('Escape');
+  await page.waitForFunction(() => document.activeElement?.matches('.main-pane, .phone-tabs button') && document.activeElement.checkVisibility());
 
   await page.setViewportSize({ width: 390, height: 844 });
   await reloadSection('messaging');
-  await heading('Text your Bots').waitFor();
+  await heading('Text your Bots').waitFor(); await disclose('Learn more');
   await button('Manage preferences').click();
   await page.getByLabel('Messages go to').waitFor();
   await button('Hide preferences').click();
@@ -500,15 +510,15 @@ try {
   await button('Connect Gmail').click();
   const gmailPopup = await gmailPopupPromise;
   const gmailClosed = gmailPopup.waitForEvent('close');
-  await releaseAfterDeparture(gmailPreflight, () => button('Back to Settings').click());
+  await releaseAfterDeparture(gmailPreflight, () => button('Back').click());
   await gmailClosed;
   assert.deepEqual(state.appConnects, []);
-  await nav.getByRole('button', { name: 'Messaging', exact: true }).click();
+  await nav.getByRole('button', { name: 'Messaging', exact: true }).click(); await disclose('Learn more');
   const googlePreflight = holdRequest('/api/auth/me');
   await page.getByRole('link', { name: 'Connect Google', exact: true }).click();
-  await releaseAfterDeparture(googlePreflight, () => button('Back to Settings').click());
+  await releaseAfterDeparture(googlePreflight, () => button('Back').click());
   assert.deepEqual(state.emailWrites, []);
-  await nav.getByRole('button', { name: 'Messaging', exact: true }).click();
+  await nav.getByRole('button', { name: 'Messaging', exact: true }).click(); await disclose('Learn more');
   assert.equal(await page.getByLabel('Desktop sign-in email').count(), 0);
   assert.equal(await page.getByRole('link', { name: 'Connect Google', exact: true }).getAttribute('href'), '/api/auth/google/start?intent=link');
   assert.equal(await page.getByText('Google connected', { exact: true }).count(), 0);
@@ -529,10 +539,10 @@ try {
   offline.on('pageerror', error => errors.push(error.message));
   await offline.route('**/api/policies', route => route.abort('internetdisconnected'));
   await offline.goto(`${base}/#settings/permissions`);
-  const offlineAlert = offline.getByRole('alert').filter({ hasText: 'Couldn’t load permissions.' });
+  const offlineAlert = offline.getByRole('alert').filter({ hasText: "Couldn't load permissions." });
   await offlineAlert.waitFor({ timeout: 10_000 });
   const offlineText = await offlineAlert.innerText();
-  assert.match(offlineText, /Couldn’t load permissions\. Check your connection\./);
+  assert.match(offlineText, /Couldn't load permissions\. Check your connection\./);
   assert.doesNotMatch(offlineText, /Failed to fetch|NetworkError|Load failed/i);
   await offline.close();
   assert.deepEqual(errors, []);

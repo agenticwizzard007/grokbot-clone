@@ -1,0 +1,310 @@
+[
+  {
+    "width": 390,
+    "theme": "light",
+    "section": "general",
+    "page": 15,
+    "main": 17
+  },
+  {
+    "width": 390,
+    "theme": "light",
+    "section": "subscriptions",
+    "page": 462,
+    "main": 466
+  },
+  {
+    "width": 390,
+    "theme": "light",
+    "section": "keys",
+    "page": 422,
+    "main": 425
+  },
+  {
+    "width": 390,
+    "theme": "light",
+    "section": "usage",
+    "page": 81,
+    "main": 83
+  },
+  {
+    "width": 390,
+    "theme": "light",
+    "section": "permissions",
+    "page": 108,
+    "main": 110
+  },
+  {
+    "width": 390,
+    "theme": "light",
+    "section": "apps",
+    "page": 65,
+    "main": 68
+  },
+  {
+    "width": 390,
+    "theme": "light",
+    "section": "account",
+    "page": 99,
+    "main": 101
+  },
+  {
+    "width": 390,
+    "theme": "light",
+    "section": "computer",
+    "page": 82,
+    "main": 84
+  },
+  {
+    "width": 390,
+    "theme": "light",
+    "section": "messaging",
+    "page": 76,
+    "main": 78
+  },
+  {
+    "width": 390,
+    "theme": "light",
+    "section": "mcp",
+    "page": 26,
+    "main": 29
+  },
+  {
+    "width": 390,
+    "theme": "light",
+    "section": "learning",
+    "page": 173,
+    "main": 175
+  },
+  {
+    "width": 390,
+    "theme": "dark",
+    "section": "general",
+    "page": 15,
+    "main": 17
+  },
+  {
+    "width": 390,
+    "theme": "dark",
+    "section": "subscriptions",
+    "page": 462,
+    "main": 466
+  },
+  {
+    "width": 390,
+    "theme": "dark",
+    "section": "keys",
+    "page": 422,
+    "main": 425
+  },
+  {
+    "width": 390,
+    "theme": "dark",
+    "section": "usage",
+    "page": 81,
+    "main": 83
+  },
+  {
+    "width": 390,
+    "theme": "dark",
+    "section": "permissions",
+    "page": 108,
+    "main": 110
+  },
+  {
+    "width": 390,
+    "theme": "dark",
+    "section": "apps",
+    "page": 65,
+    "main": 68
+  },
+  {
+    "width": 390,
+    "theme": "dark",
+    "section": "account",
+    "page": 99,
+    "main": 101
+  },
+  {
+    "width": 390,
+    "theme": "dark",
+    "section": "computer",
+    "page": 82,
+    "main": 84
+  },
+  {
+    "width": 390,
+    "theme": "dark",
+    "section": "messaging",
+    "page": 76,
+    "main": 78
+  },
+  {
+    "width": 390,
+    "theme": "dark",
+    "section": "mcp",
+    "page": 26,
+    "main": 29
+  },
+  {
+    "width": 390,
+    "theme": "dark",
+    "section": "learning",
+    "page": 173,
+    "main": 175
+  },
+  {
+    "width": 1280,
+    "theme": "light",
+    "section": "general",
+    "page": 16,
+    "main": 38
+  },
+  {
+    "width": 1280,
+    "theme": "light",
+    "section": "subscriptions",
+    "page": 462,
+    "main": 484
+  },
+  {
+    "width": 1280,
+    "theme": "light",
+    "section": "keys",
+    "page": 422,
+    "main": 444
+  },
+  {
+    "width": 1280,
+    "theme": "light",
+    "section": "usage",
+    "page": 81,
+    "main": 103
+  },
+  {
+    "width": 1280,
+    "theme": "light",
+    "section": "permissions",
+    "page": 108,
+    "main": 130
+  },
+  {
+    "width": 1280,
+    "theme": "light",
+    "section": "apps",
+    "page": 65,
+    "main": 87
+  },
+  {
+    "width": 1280,
+    "theme": "light",
+    "section": "account",
+    "page": 99,
+    "main": 121
+  },
+  {
+    "width": 1280,
+    "theme": "light",
+    "section": "computer",
+    "page": 82,
+    "main": 104
+  },
+  {
+    "width": 1280,
+    "theme": "light",
+    "section": "messaging",
+    "page": 76,
+    "main": 98
+  },
+  {
+    "width": 1280,
+    "theme": "light",
+    "section": "mcp",
+    "page": 26,
+    "main": 48
+  },
+  {
+    "width": 1280,
+    "theme": "light",
+    "section": "learning",
+    "page": 173,
+    "main": 195
+  },
+  {
+    "width": 1280,
+    "theme": "dark",
+    "section": "general",
+    "page": 16,
+    "main": 38
+  },
+  {
+    "width": 1280,
+    "theme": "dark",
+    "section": "subscriptions",
+    "page": 462,
+    "main": 484
+  },
+  {
+    "width": 1280,
+    "theme": "dark",
+    "section": "keys",
+    "page": 422,
+    "main": 444
+  },
+  {
+    "width": 1280,
+    "theme": "dark",
+    "section": "usage",
+    "page": 81,
+    "main": 103
+  },
+  {
+    "width": 1280,
+    "theme": "dark",
+    "section": "permissions",
+    "page": 108,
+    "main": 130
+  },
+  {
+    "width": 1280,
+    "theme": "dark",
+    "section": "apps",
+    "page": 65,
+    "main": 87
+  },
+  {
+    "width": 1280,
+    "theme": "dark",
+    "section": "account",
+    "page": 99,
+    "main": 121
+  },
+  {
+    "width": 1280,
+    "theme": "dark",
+    "section": "computer",
+    "page": 82,
+    "main": 104
+  },
+  {
+    "width": 1280,
+    "theme": "dark",
+    "section": "messaging",
+    "page": 76,
+    "main": 98
+  },
+  {
+    "width": 1280,
+    "theme": "dark",
+    "section": "mcp",
+    "page": 26,
+    "main": 48
+  },
+  {
+    "width": 1280,
+    "theme": "dark",
+    "section": "learning",
+    "page": 173,
+    "main": 195
+  }
+]

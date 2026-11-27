@@ -1,3 +1,6 @@
+import { ButtonGroup } from '../layout';
+import { SettingsMenu } from './SettingsControls';
+import { Section, Card, Row } from '../layout';
 import { createSettingsCache, settingsRead } from '../../lib/settingsReads';
 import { SettingIcon } from './SettingRow';
 import { CircleUserRound, MessageCircle, ExternalLink } from 'lucide-react';
@@ -38,14 +41,6 @@ const ago = (ts: number) => {
 };
 const statusText: Record<MessagingLink['status'], string> = { connected: 'Connected', pairing: 'Connecting', disconnected: 'Disconnected', logged_out: 'Signed out', error: 'Error' };
 
-function PageHead({ title, sub }: { title: string; sub?: string }) {
-  return (
-    <div className="app-settings__head">
-      <h1>{title}</h1>
-      {sub && <p>{sub}</p>}
-    </div>
-  );
-}
 
 function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
   const [done, setDone] = useState(false);
@@ -94,16 +89,17 @@ function AccountMessagingSettings({ accountId }: { accountId: string }) {
   const connectedLinks = status?.links.filter(link => link.status === 'connected').map(link => `${link.channel}:${link.phone}`).join(',') ?? '';
   useEffect(() => { if (connectedLinks) setCode(null); }, [connectedLinks]);
 
-  const head = <PageHead title="Text your Bots" sub="Manage the number and sign-in options for this account." />;
+  const head = null;
   const retry = error && <div className="cfg-error" role="alert">{error} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={load}>Retry messaging status</button></div>;
   if (error && !status) return <>{head}{retry}</>;
-  if (!status) return <>{head}<div className="cfg-empty cfg-empty--flat">Loading…</div></>;
+  if (!status) return <>{head}<div className="cfg-empty cfg-empty--flat">Loading</div></>;
 
   return (
     <div className="access-messaging">
       {head}
       {retry}
       <PhoneSection status={status} setStatus={setStatus} code={code} setCode={setCode} />
+      <details className="settings-disclosure"><summary>Learn more</summary><div className="settings-stack">
       <AccountSection />
       {status.links.length > 0 && <>
         <AccessRow icon={MessageCircle} title="Message preferences" description="Choose which Bots reply and what reaches your phone.">
@@ -115,6 +111,7 @@ function AccountMessagingSettings({ accountId }: { accountId: string }) {
       {status.line && <CommandsSection />}
       {status.owner && <OwnerSections owner={status.owner} status={status} setStatus={setStatus} version={version} />}
       {!status.owner && <PlatformSignupSettings version={version} />}
+      </div></details>
     </div>
   );
 }
@@ -139,7 +136,7 @@ function LinkCodePanel({ code }: { code: MessagingCode }) {
             <a className="cfg-btn cfg-btn--secondary" href={code.smsLink}>Open Messages</a>
             <CopyButton text={code.number} label="Copy number" />
           </div>
-          <div className="cfg-field__hint">On a computer? Scan the code with your phone’s camera, then send the link code below.</div>
+          <div className="cfg-field__hint">On a computer? Scan the code with your phone's camera, then send the link code below.</div>
         </li>
         <li>
           <div>Then send <code className="msg-inline-code">LINK {code.code}</code></div>
@@ -154,6 +151,8 @@ function LinkCodePanel({ code }: { code: MessagingCode }) {
 // Your phone
 
 function PhoneSection({ status, setStatus, code, setCode }: SectionProps & { code: MessagingCode | null; setCode: (c: MessagingCode | null) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [disconnect, setDisconnect] = useState<MessagingLink | null>(null);
   const accountId = useStore(s => s.user?.id);
   const current = useAccessPanel(accountId);
   const [busy, setBusy] = useState<'code' | 'test' | null>(null);
@@ -194,75 +193,18 @@ function PhoneSection({ status, setStatus, code, setCode }: SectionProps & { cod
     } catch (e) { if (current()) setNote({ tone: 'error', text: (e as Error).message }); }
   };
 
-  return (
-    <section className="cfg-section">
-      <h2 className="cfg-section__label">Your phone</h2>
-      {status.links.length > 0 ? (
-        <div className="cfg-card">
-          {status.links.map((l) => (
-            <div key={l.channel} className="cfg-row"><SettingIcon icon={MessageCircle} />
-              <div className="cfg-row__text">
-                <div className="cfg-row__title">{l.channelName} · {statusText[l.status]}</div>
-                {l.phone && <Fact k="Your number">{fmtPhone(l.phone)}</Fact>}
-                <div className="cfg-row__sub">{l.lastInboundAt ? `Last message from you ${ago(l.lastInboundAt)}` : 'No messages from you yet'}</div>
-              </div>
-              <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => void test()}>{busy === 'test' ? 'Sending…' : 'Send a test'}</button>
-              <ConfirmButton className="cfg-btn cfg-btn--secondary" confirmLabel="Disconnect" onConfirm={() => unlink(l)}>Disconnect</ConfirmButton>
-            </div>
-          ))}
-          {canConnectWhatsApp && !hasWhatsApp && (
-            <div className="cfg-row msg-whatsapp-row"><SettingIcon icon={MessageCircle} />
-              <div className="cfg-row__text">
-                <div className="cfg-row__title">Connect WhatsApp</div>
-                <div className="cfg-row__sub">Add WhatsApp to this account so your Bots can reply there too.</div>
-              </div>
-              <button type="button" className="cfg-btn cfg-btn--whatsapp" disabled={!!busy} onClick={() => void connect()}>
-                <WhatsAppIcon /> {busy === 'code' ? 'Getting code...' : code ? 'Show code' : 'Connect WhatsApp'}
-              </button>
-            </div>
-          )}
-          {status.links.some((l) => l.error) && <div className="cfg-error cfg-error--inset">{status.links.find((l) => l.error)!.error}</div>}
-          {code && <LinkCodePanel code={code} />}
-          {note && <div className="cfg-key__foot"><Note note={note} /></div>}
-        </div>
-      ) : status.line ? (
-        <div className="cfg-card">
-          <div className="cfg-row"><SettingIcon icon={MessageCircle} />
-            <div className="cfg-row__text">
-              <div className="cfg-row__title">Not connected</div>
-              <div className="cfg-row__sub">Enter your number to connect with your Bots. We'll text you a code.</div>
-              <Fact k="Bot number">{fmtPhone(status.line.number)}</Fact>
-            </div>
-          </div>
-          {canConnectWhatsApp && (
-            <div className="msg-whatsapp-cta">
-              <span className="msg-wa-tile msg-wa-tile--large"><WhatsAppIcon size={22} /></span>
-              <div className="msg-whatsapp-cta__text">
-                <div className="cfg-row__title">Connect WhatsApp</div>
-                <div className="cfg-row__sub">Fastest path: open WhatsApp, send “Say Hi Swarm”, then send the link code shown here.</div>
-              </div>
-              <button type="button" className="cfg-btn cfg-btn--whatsapp" disabled={!!busy} onClick={() => void connect()}>
-                <WhatsAppIcon /> {busy === 'code' ? 'Getting code...' : code ? 'Refresh code' : 'Connect WhatsApp'}
-              </button>
-            </div>
-          )}
-          <div className="msg-phone-auth">
-            <PhoneAuth mode="attach" onAttached={(s) => { setStatus(s); setCode(null); }} />
-            <button type="button" className="phone-auth__link" disabled={!!busy} onClick={() => void connect()}>
-              {busy === 'code' ? 'Getting a code…' : code ? 'New link code' : 'Or use a link code instead'}
-            </button>
-          </div>
-          {code && <LinkCodePanel code={code} />}
-          {note && <div className="cfg-key__foot"><Note note={note} /></div>}
-        </div>
-      ) : (
-        <div className="cfg-empty">
-          Texting isn’t set up on this server yet.
-          {status.owner ? ' Set up the iMessage & SMS line below.' : ' Ask the person who runs this server to set it up.'}
-        </div>
-      )}
-    </section>
-  );
+  return <Section><Card variant="list">
+    {status.links.length ? status.links.map(link => <Row key={link.channel} leading={<SettingIcon icon={MessageCircle} />} title={link.channelName} subtitle={<span className="settings-provider">{link.phone && fmtPhone(link.phone)}<span className="cfg-chip">{link.status === 'connected' ? 'Connected' : statusText[link.status]}</span></span>} trailing={<SettingsMenu disabled={!!busy} items={[
+      { label: 'Send a test', onSelect: () => void test() },
+      { label: 'Disconnect', danger: true, onSelect: () => setDisconnect(link) },
+    ]} />} />) : <Row leading={<SettingIcon icon={MessageCircle} />} title="Phone" subtitle={<span className="cfg-chip">Not connected</span>} trailing={status.line && <button type="button" className="cfg-btn cfg-btn--primary" onClick={() => setEditing(v => !v)}>Connect</button>} />}
+    {disconnect && <div className="settings-stack"><p>Disconnect {disconnect.channelName}?</p><ButtonGroup><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setDisconnect(null)}>Cancel</button><button type="button" className="cfg-btn cfg-btn--danger" onClick={() => { void unlink(disconnect); setDisconnect(null); }}>Disconnect</button></ButtonGroup></div>}
+    {status.links.length > 0 && canConnectWhatsApp && !hasWhatsApp && <Row title="WhatsApp" trailing={<button type="button" className="cfg-btn cfg-btn--primary" disabled={!!busy} onClick={() => void connect()}>Connect</button>} />}
+    {editing && <div className="settings-stack"><PhoneAuth mode="attach" onAttached={s => { setStatus(s); setCode(null); setEditing(false); }} /><ButtonGroup stack>{canConnectWhatsApp && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => void connect()}>Use WhatsApp</button>}<button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => void connect()}>Use a link code</button><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setEditing(false)}>Cancel</button></ButtonGroup></div>}
+    {code && <LinkCodePanel code={code} />}
+    {status.links.some(link => link.error) && <p role="alert" className="cfg-error">{status.links.find(link => link.error)?.error}</p>}
+    <Note note={note} />
+  </Card></Section>;
 }
 
 // ---------------------------------------------------------------------------
@@ -325,31 +267,25 @@ function AccountSection() {
       setNote({ tone: 'ok', text: 'Finish the Google window. Gmail will show as connected here when it completes.' });
     } catch (err) {
       popup?.close();
-      if (current()) setNote({ tone: 'error', text: (err as Error).message || 'Couldn’t start Gmail connection.' });
+      if (current()) setNote({ tone: 'error', text: (err as Error).message || 'Couldn\'t start Gmail connection.' });
     } finally {
       if (current()) setBusy(null);
     }
   };
   return (
-    <section className="cfg-section access-messaging__account">
-      <AccessRow icon={CircleUserRound} title="Google sign-in on desktop" description={googleLinked
+    <Section className="access-messaging__account" ><AccessRow icon={CircleUserRound} title="Google sign-in on desktop" description={googleLinked
         ? 'Google sign-in is connected. Use the linked Google account to access these same Bots on web or desktop.'
         : googleLogin
           ? 'Connect Google while signed in to this account to keep the same account and Bots on desktop.'
           : 'Google sign-in is unavailable on this server. You can still sign in with your phone.'}>
         {googleLinked ? <span className="cfg-chip" role="status">Google connected</span> : googleLogin && <a className="cfg-btn cfg-btn--primary" href="/api/auth/google/start?intent=link" aria-disabled={!!busy} onClick={connectGoogle}>
-          {busy === 'google' ? 'Opening…' : 'Connect Google'}
+          {busy === 'google' ? 'Opening' : 'Connect Google'}
         </a>}
-      </AccessRow>
-      <AccessRow icon={MessageCircle} title="Gmail for your Bots" description={<><ConnectedAccounts accounts={gmailAccounts} />{gmailConnected ? 'Connected for Bots to read and send mail with your approval.' : 'Connect Gmail separately from your phone identity.'}</>}>
+      </AccessRow><AccessRow icon={MessageCircle} title="Gmail for your Bots" description={<><ConnectedAccounts accounts={gmailAccounts} />{gmailConnected ? 'Connected for Bots to read and send mail with your approval.' : 'Connect Gmail separately from your phone identity.'}</>}>
           {gmailError ? <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setAttempt(value => value + 1)}>Retry Gmail status</button> : <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy || !googleLogin || gmailConnected === null} onClick={() => void connectGmail()}>
-            {busy === 'gmail' ? 'Opening…' : gmailConnected === null ? 'Checking…' : gmailConnected ? 'Manage Gmail' : 'Connect Gmail'}
+            {busy === 'gmail' ? 'Opening' : gmailConnected === null ? 'Checking' : gmailConnected ? 'Manage Gmail' : 'Connect Gmail'}
           </button>}
-      </AccessRow>
-      {gmailError && <div className="cfg-error" role="alert">Unavailable. Gmail connection status could not be loaded.</div>}
-      {!googleLogin && !gmailError && <p className="cfg-field__hint">Connected apps need a Composio project key from the server owner.</p>}
-      <Note note={note} />
-    </section>
+      </AccessRow>{gmailError && <div className="cfg-error" role="alert">Unavailable. Gmail connection status could not be loaded.</div>}{!googleLogin && !gmailError && <p className="cfg-field__hint">Connected apps need a Composio project key from the server owner.</p>}<Note note={note} /></Section>
   );
 }
 
@@ -377,26 +313,12 @@ function PrefsSection({ status, setStatus }: SectionProps) {
   };
   const active = status.prefs.activeBot?.id ?? '';
   return (
-    <section className="cfg-section">
-      <div className="cfg-section__label">How it works</div>
-      <div className="cfg-card cfg-key">
-        <div className="cfg-row cfg-key__form"><SettingIcon icon={MessageCircle} />
-          <div className="cfg-row__text"><div className="cfg-row__title">Messages go to</div><div className="cfg-row__sub">Where plain texts go. Start a text with @Name to reach another Bot.</div></div>
-          <select className="text-input msg-select" value={active} onChange={(e) => void patch({ activeBotId: e.target.value || null })} aria-label="Messages go to">
+    <Section  title={<>How it works</>}><Card variant="list" className="cfg-key"><Row className="cfg-key__form" leading={<SettingIcon icon={MessageCircle} />} title={<>Messages go to</>} subtitle={<><div className="cfg-row__sub">Where plain texts go. Start a text with @Name to reach another Bot.</div></>} trailing={<><select className="text-input msg-select" value={active} onChange={(e) => void patch({ activeBotId: e.target.value || null })} aria-label="Messages go to">
             <option value="">{primary ? `${primary.name} (primary)` : 'Primary Bot'}</option>
             {bots.filter((b) => !b.isPrimary).map((b) => <option key={b.id} value={b.id}>{b.name}{b.label ? ` · ${b.label}` : ''}</option>)}
             {status.prefs.activeBot && !bots.some((b) => b.id === status.prefs.activeBot!.id) && <option value={status.prefs.activeBot.id}>{status.prefs.activeBot.name}</option>}
-          </select>
-        </div>
-        <div className="cfg-row cfg-key__form"><SettingIcon icon={MessageCircle} />
-          <div className="cfg-row__text"><div className="cfg-row__title">Send me</div><div className="cfg-row__sub">Bot replies, approvals and questions that reach your phone.</div></div>
-          <Segmented label="Send me" value={status.prefs.forward} onChange={(v) => void patch({ forward: v })}
-            options={[{ value: 'all', label: 'Every Bot’s updates' }, { value: 'engaged', label: 'Only Bots I message by text' }]} />
-        </div>
-        <VoiceRepliesRow status={status} patch={patch} />
-        {note && <div className="cfg-key__foot"><Note note={note} /></div>}
-      </div>
-    </section>
+          </select></>} /><Row className="cfg-key__form" leading={<SettingIcon icon={MessageCircle} />} title={<>Send me</>} subtitle={<><div className="cfg-row__sub">Bot replies, approvals and questions that reach your phone.</div></>} trailing={<><Segmented label="Send me" value={status.prefs.forward} onChange={(v) => void patch({ forward: v })}
+            options={[{ value: 'all', label: 'Every Bot\'s updates' }, { value: 'engaged', label: 'Only Bots I message by text' }]} /></>} /><VoiceRepliesRow status={status} patch={patch} />{note && <div className="cfg-key__foot"><Note note={note} /></div>}</Card></Section>
   );
 }
 
@@ -418,15 +340,10 @@ function VoiceRepliesRow({ status, patch }: { status: MessagingStatus; patch: (p
     } catch (e) { setErr((e as Error).message); setPlaying(false); }
   };
   return (
-    <div className="cfg-row cfg-key__form msg-voice"><SettingIcon icon={MessageCircle} />
-      <div className="cfg-row__text">
-        <div className="cfg-row__title">Reply by voice</div>
-        <div className="cfg-row__sub">
+    <Row className="cfg-key__form msg-voice" leading={<SettingIcon icon={MessageCircle} />} title={<>Reply by voice</>} subtitle={<><div className="cfg-row__sub">
           {available ? `Bots also answer with a voice note on iMessage (speech by ${status.speech.speech === 'xai' ? 'platform voice' : status.speech.speech === 'openrouter' ? 'OpenRouter' : 'custom provider'}). Text it /voice to change this from your phone.` : 'Ask your platform admin to enable voice on this server.'}
           {err && <span className="msg-voice__err"> {err}</span>}
-        </div>
-      </div>
-      <div className="msg-voice__controls">
+        </div></>} trailing={<><div className="msg-voice__controls">
         <Segmented label="Reply by voice" value={status.prefs.voiceReplies} onChange={(v) => void patch({ voiceReplies: v })}
           options={[{ value: 'off', label: 'Off' }, { value: 'voice-in', label: 'When I send a voice note' }, { value: 'always', label: 'Always' }]} />
         {voices.length > 0 && (
@@ -435,11 +352,10 @@ function VoiceRepliesRow({ status, patch }: { status: MessagingStatus; patch: (p
               <option value="">Each Bot's own voice</option>
               {voices.map((v) => <option key={v} value={v}>{v.charAt(0).toUpperCase() + v.slice(1)}</option>)}
             </select>
-            <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => void play()} disabled={!available || playing}>{playing ? 'Playing…' : '▶ Preview'}</button>
+            <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => void play()} disabled={!available || playing}>{playing ? 'Playing' : '▶ Preview'}</button>
           </div>
         )}
-      </div>
-    </div>
+      </div></>} />
   );
 }
 
@@ -456,25 +372,12 @@ function InviteFriendsSection({ allowance }: { allowance: number }) {
     finally { setBusy(false); }
   };
   return (
-    <section className="cfg-section">
-      <div className="cfg-section__label">Invite friends</div>
-      <div className="cfg-card cfg-key">
-        <div className="cfg-row"><SettingIcon icon={ExternalLink} />
-          <div className="cfg-row__text">
-            <div className="cfg-row__title">Share Swarm</div>
-            <div className="cfg-row__sub">{allowance > 0 ? `Friends get their own Bots by text. You can invite ${allowance} ${allowance === 1 ? 'person' : 'people'}.` : 'Invites are turned off on this server.'}</div>
-          </div>
-          {allowance > 0 && !invite && <button type="button" className="cfg-btn cfg-btn--primary" disabled={busy} onClick={() => void get()}>{busy ? 'Getting…' : 'Get my invite link'}</button>}
-        </div>
-        {invite && (
+    <Section  title={<>Invite friends</>}><Card variant="list" className="cfg-key"><Row  leading={<SettingIcon icon={ExternalLink} />} title={<>Share Swarm</>} subtitle={<><div className="cfg-row__sub">{allowance > 0 ? `Friends get their own Bots by text. You can invite ${allowance} ${allowance === 1 ? 'person' : 'people'}.` : 'Invites are turned off on this server.'}</div></>} trailing={<>{allowance > 0 && !invite && <button type="button" className="cfg-btn cfg-btn--primary" disabled={busy} onClick={() => void get()}>{busy ? 'Getting' : 'Get my invite link'}</button>}</>} />{invite && (
           <div className="cfg-pair">
             <div className="cfg-pair__cmd"><code className="cfg-pair__code">{invite.url}</code><CopyButton text={invite.url} /></div>
             <div className="cfg-field__hint">{invite.remaining} {invite.remaining === 1 ? 'invite' : 'invites'} left.</div>
           </div>
-        )}
-        {err && <div className="cfg-error cfg-error--inset">{err}</div>}
-      </div>
-    </section>
+        )}{err && <div className="cfg-error cfg-error--inset">{err}</div>}</Card></Section>
   );
 }
 
@@ -483,12 +386,12 @@ function InviteFriendsSection({ allowance }: { allowance: number }) {
 
 const COMMANDS: [ReactNode, string][] = [
   ['Just type', 'Goes to your active Bot'],
-  [<><code>@Name</code> …</>, 'Talk to a specific Bot'],
+  [<><code>@Name</code> </>, 'Talk to a specific Bot'],
   ['Reply to a message', 'Goes to the Bot that sent it'],
   [<><code>yes K7P2</code> / <code>no K7P2</code>, or 👍 / 👎 on it</>, 'Answer an approval'],
-  [<><code>1</code> / <code>2</code> / <code>3</code></>, 'Answer a Bot’s question'],
+  [<><code>1</code> / <code>2</code> / <code>3</code></>, 'Answer a Bot\'s question'],
   ['Voice note or photo', 'Bots hear and see them'],
-  [<><code>/bots</code> <code>/status</code> <code>/tasks</code></>, 'Your Bots, what they’re doing, their tasks'],
+  [<><code>/bots</code> <code>/status</code> <code>/tasks</code></>, 'Your Bots, what they\'re doing, their tasks'],
   [<><code>/use Name</code></>, 'Make a Bot your active Bot'],
   [<><code>/stop</code> <code>/new</code></>, 'Stop the Bot, or start a fresh conversation'],
   [<><code>/apps</code> <code>/connect gmail</code></>, 'See and connect apps'],
@@ -502,16 +405,11 @@ const COMMANDS: [ReactNode, string][] = [
 
 function CommandsSection() {
   return (
-    <section className="cfg-section">
-      <div className="cfg-section__label">In your texts</div>
-      <div className="cfg-card">
-        <dl className="msg-commands">
+    <Section  title={<>In your texts</>}><Card variant="list" ><dl className="msg-commands">
           {COMMANDS.map(([what, does], i) => (
             <div key={i} className="msg-commands__row"><dt>{what}</dt><dd>{does}</dd></div>
           ))}
-        </dl>
-      </div>
-    </section>
+        </dl></Card></Section>
   );
 }
 
@@ -568,18 +466,7 @@ function InkboxSection({ owner, status, setStatus }: SectionProps & { owner: Mes
   const inbox = ink.inbox.filter((r) => r.n > 0);
 
   return (
-    <section className="cfg-section">
-      <div className="cfg-section__label">Inkbox line</div>
-      <div className="cfg-card cfg-key">
-        <div className="cfg-row"><SettingIcon icon={MessageCircle} />
-          <div className="cfg-row__text">
-            <div className="cfg-row__title">Texting line · {ink.configured ? 'Set up' : ink.adminKeySet ? 'Key saved, line not set up' : 'Not set up'}</div>
-            <div className="cfg-row__sub">One line for everyone on this server. People text it to reach their own Bots.</div>
-          </div>
-          {(ink.configured || ink.adminKeySet) && <ConfirmButton className="cfg-btn cfg-btn--secondary" confirmLabel="Forget line" onConfirm={forget}>Forget line</ConfirmButton>}
-        </div>
-
-        {ink.configured && (
+    <Section  title={<>Inkbox line</>}><Card variant="list" className="cfg-key"><Row  leading={<SettingIcon icon={MessageCircle} />} title={<>Texting line · {ink.configured ? 'Set up' : ink.adminKeySet ? 'Key saved, line not set up' : 'Not set up'}</>} subtitle={<><div className="cfg-row__sub">One line for everyone on this server. People text it to reach their own Bots.</div></>} trailing={<>{(ink.configured || ink.adminKeySet) && <ConfirmButton className="cfg-btn cfg-btn--secondary" confirmLabel="Forget line" onConfirm={forget}>Forget line</ConfirmButton>}</>} />{ink.configured && (
           <div className="msg-facts">
             <Fact k="Handle">{ink.handle}</Fact>
             {status.line && <Fact k="Number">{status.line.number}</Fact>}
@@ -588,25 +475,18 @@ function InkboxSection({ owner, status, setStatus }: SectionProps & { owner: Mes
             <Fact k="WhatsApp">{ink.whatsapp ? `${ink.whatsapp.enabled ? 'On' : 'Off'}${ink.whatsapp.status ? ` · ${ink.whatsapp.status}` : ''}` : 'Unavailable'}</Fact>
             <Fact k="Inbox">{inbox.length ? inbox.map((r) => `${r.n} ${r.status}`).join(' · ') : 'Empty'}</Fact>
           </div>
-        )}
-
-        <form className="cfg-key__form" onSubmit={saveKey}>
+        )}<form className="cfg-key__form" onSubmit={saveKey}>
           <input className="text-input cfg-key__input" type="password" autoComplete="off" spellCheck={false} placeholder={ink.adminKeySet ? 'Paste a new admin key to replace it' : 'Inkbox admin key'} value={key} onChange={(e) => setKey(e.target.value)} aria-label="Inkbox admin key" />
-          <button type="submit" className="cfg-btn cfg-btn--primary" disabled={!!busy}>{busy === 'key' ? 'Verifying…' : 'Verify and save'}</button>
-        </form>
-
-        {ink.adminKeySet && !ink.configured && (
+          <button type="submit" className="cfg-btn cfg-btn--primary" disabled={!!busy}>{busy === 'key' ? 'Verifying' : 'Verify and save'}</button>
+        </form>{ink.adminKeySet && !ink.configured && (
           <div className="msg-setup">
             <div className="cfg-field"><SettingIcon icon={MessageCircle} />
               <label className="cfg-field__label" htmlFor="inkbox-handle">Handle</label>
               <input id="inkbox-handle" className="text-input msg-input" value={handle} onChange={(e) => setHandle(e.target.value)} spellCheck={false} />
-              <div className="cfg-field__hint">The name of this server’s Inkbox identity.</div>
+              <div className="cfg-field__hint">The name of this server's Inkbox identity.</div>
             </div>
-            <div className="cfg-row msg-switch-row"><SettingIcon icon={MessageCircle} />
-              <div className="cfg-row__text"><div className="cfg-row__title">Also get a phone number for SMS</div><div className="cfg-row__sub">Without one, the line works over iMessage only.</div></div>
-              <Switch on={withPhone} onChange={setWithPhone} label="Also get a phone number for SMS" />
-            </div>
-            <div><button type="button" className="cfg-btn cfg-btn--primary" disabled={!!busy} onClick={() => void setup()}>{busy === 'setup' ? 'Setting up…' : 'Set up line'}</button></div>
+            <Row className="msg-switch-row" leading={<SettingIcon icon={MessageCircle} />} title={<>Also get a phone number for SMS</>} subtitle={<><div className="cfg-row__sub">Without one, the line works over iMessage only.</div></>} trailing={<><Switch on={withPhone} onChange={setWithPhone} label="Also get a phone number for SMS" /></>} />
+            <div><button type="button" className="cfg-btn cfg-btn--primary" disabled={!!busy} onClick={() => void setup()}>{busy === 'setup' ? 'Setting up' : 'Set up line'}</button></div>
             {setupError && (
               <div className="cfg-error">
                 {setupError}
@@ -616,19 +496,13 @@ function InkboxSection({ owner, status, setStatus }: SectionProps & { owner: Mes
               </div>
             )}
           </div>
-        )}
-
-        {(ink.adminKeySet || localWebhook) && (
+        )}{(ink.adminKeySet || localWebhook) && (
           <div className="cfg-pair">
             <div className="cfg-pair__step">Webhook URL{ink.configured ? '' : ' (registered with Inkbox when you set up the line)'}</div>
             <div className="cfg-pair__cmd"><code className="cfg-pair__code">{ink.webhookUrl}</code><CopyButton text={ink.webhookUrl} /></div>
-            {localWebhook && <div className="msg-warn">This address is only reachable from this machine, so Inkbox can’t deliver texts to it. Set SERVER_URL to this server’s public HTTPS address (for example a tunnel) and set the line up again.</div>}
+            {localWebhook && <div className="msg-warn">This address is only reachable from this machine, so Inkbox can't deliver texts to it. Set SERVER_URL to this server's public HTTPS address (for example a tunnel) and set the line up again.</div>}
           </div>
-        )}
-
-        <div className="cfg-key__foot">{note ? <Note note={note} /> : <a href="https://inkbox.ai" target="_blank" rel="noreferrer">Get a key at inkbox.ai</a>}</div>
-      </div>
-    </section>
+        )}<div className="cfg-key__foot">{note ? <Note note={note} /> : <a href="https://inkbox.ai" target="_blank" rel="noreferrer">Get a key at inkbox.ai</a>}</div></Card></Section>
   );
 }
 
@@ -648,24 +522,11 @@ function WhatsAppSection({ owner }: { owner: MessagingOwner }) {
   const ready = onb?.ready && !!onb.messageLink;
 
   return (
-    <section className="cfg-section">
-      <div className="cfg-section__label">WhatsApp</div>
-      <div className="cfg-card">
-        <div className="cfg-row"><SettingIcon icon={MessageCircle} />
-          <div className="cfg-row__text">
-            <div className="cfg-row__title">WhatsApp · {wa?.enabled ? 'Ready to test' : wa ? 'Not ready yet' : 'Not enabled'}</div>
-            <div className="cfg-row__sub">Dedicated WhatsApp runs through the same Inkbox identity and webhook as iMessage.</div>
-          </div>
-          <button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => void load()}>{busy ? 'Checking...' : 'Refresh'}</button>
-        </div>
-
-        <div className="msg-facts">
+    <Section  title={<>WhatsApp</>}><Card variant="list" ><Row  leading={<SettingIcon icon={MessageCircle} />} title={<>WhatsApp · {wa?.enabled ? 'Ready to test' : wa ? 'Not ready yet' : 'Not enabled'}</>} subtitle={<><div className="cfg-row__sub">Dedicated WhatsApp runs through the same Inkbox identity and webhook as iMessage.</div></>} trailing={<><button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => void load()}>{busy ? 'Checking...' : 'Refresh'}</button></>} /><div className="msg-facts">
           <Fact k="Status">{wa?.status || (wa ? 'unknown' : 'Unavailable')}</Fact>
           <Fact k="Number">{wa?.number ? fmtPhone(wa.number) : 'Not assigned'}</Fact>
           <Fact k="Webhook">Subscribed after Set up line</Fact>
-        </div>
-
-        {ready ? (
+        </div>{ready ? (
           <div className="cfg-pair">
             <div className="cfg-pair__step">Scan this QR code or open the link, then send the prefilled WhatsApp message.</div>
             <div className="msg-whatsapp-test">
@@ -679,11 +540,7 @@ function WhatsAppSection({ owner }: { owner: MessagingOwner }) {
           </div>
         ) : (
           <div className="msg-warn">Enable Dedicated WhatsApp for this Inkbox identity, then rerun Set up line so the webhook has the WhatsApp event subscriptions.</div>
-        )}
-
-        {note && <div className="cfg-key__foot"><Note note={note} /></div>}
-      </div>
-    </section>
+        )}{note && <div className="cfg-key__foot"><Note note={note} /></div>}</Card></Section>
   );
 }
 
@@ -715,14 +572,11 @@ function ContactCardSection() {
     try { apply(await configApi.inkboxDeleteAvatar()); } catch (err) { setNote({ tone: 'error', text: (err as Error).message }); }
   };
   return (
-    <section className="cfg-section">
-      <div className="cfg-section__label">Contact card</div>
-      <div className="cfg-card">
-        <div className="msg-card">
+    <Section  title={<>Contact card</>}><Card variant="list" ><div className="msg-card">
           <div className="msg-card__photo">
             {profile?.hasAvatar ? <img src={`/api/messaging/inkbox/avatar?v=${v}`} alt="Line photo" width={88} height={88} /> : <div className="msg-card__ph" aria-hidden>{(name || 'G').charAt(0).toUpperCase()}</div>}
             <label className="cfg-btn cfg-btn--secondary msg-card__upload">
-              {busy === 'photo' ? 'Uploading…' : profile?.hasAvatar ? 'Change photo' : 'Add photo'}
+              {busy === 'photo' ? 'Uploading' : profile?.hasAvatar ? 'Change photo' : 'Add photo'}
               <input type="file" accept="image/*" hidden disabled={!!busy} onChange={(e) => { void upload(e.target.files?.[0]); e.target.value = ''; }} />
             </label>
             {profile?.hasAvatar && <button type="button" className="phone-auth__link" onClick={() => void removePhoto()}>Remove</button>}
@@ -732,13 +586,10 @@ function ContactCardSection() {
             <input id="line-name" className="text-input" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} placeholder="Swarm" />
             <label className="cfg-row__title" htmlFor="line-about">Notes on the card</label>
             <input id="line-about" className="text-input" maxLength={300} value={about} onChange={(e) => setAbout(e.target.value)} placeholder="Your team of AI Bots. Text to get things done." />
-            <div><button type="submit" className="cfg-btn cfg-btn--primary" disabled={!!busy || !profile}>{busy === 'save' ? 'Saving…' : 'Save'}</button></div>
+            <div><button type="submit" className="cfg-btn cfg-btn--primary" disabled={!!busy || !profile}>{busy === 'save' ? 'Saving' : 'Save'}</button></div>
             <div className="cfg-field__hint">People get this card when they connect, and can save it as a contact. Inkbox crops photos to a square. Changes apply to new connections; people who saved the old card keep it.</div>
           </form>
-        </div>
-        {note && <div className="cfg-key__foot"><Note note={note} /></div>}
-      </div>
-    </section>
+        </div>{note && <div className="cfg-key__foot"><Note note={note} /></div>}</Card></Section>
   );
 }
 
@@ -773,23 +624,13 @@ function SignupSection({ owner, setStatus }: { owner: MessagingOwner; setStatus:
     </label>
   );
   return (
-    <section className="cfg-section">
-      <div className="cfg-section__label">Sign-up by text</div>
-      <div className="cfg-card cfg-key">
-        <div className="cfg-row cfg-key__form msg-pad-top"><SettingIcon icon={MessageCircle} />
-          <div className="cfg-row__text"><div className="cfg-row__title">Who can sign up</div><div className="cfg-row__sub">{su.mode === 'invite' ? 'New numbers need an invite link, or join the waitlist for you to approve.' : su.mode === 'open' ? 'Anyone who texts the line gets an account, up to the daily limit.' : 'Nobody new can sign up by text.'}</div></div>
-          <Segmented<SignupMode> label="Who can sign up" value={su.mode} onChange={(mode) => void put({ mode })}
-            options={[{ value: 'invite', label: 'Invites + waitlist' }, { value: 'open', label: 'Open' }, { value: 'closed', label: 'Closed' }]} />
-        </div>
-        <form className="msg-nums" onSubmit={save}>
+    <Section  title={<>Sign-up by text</>}><Card variant="list" className="cfg-key"><Row className="cfg-key__form msg-pad-top" leading={<SettingIcon icon={MessageCircle} />} title={<>Who can sign up</>} subtitle={<><div className="cfg-row__sub">{su.mode === 'invite' ? 'New numbers need an invite link, or join the waitlist for you to approve.' : su.mode === 'open' ? 'Anyone who texts the line gets an account, up to the daily limit.' : 'Nobody new can sign up by text.'}</div></>} trailing={<><Segmented<SignupMode> label="Who can sign up" value={su.mode} onChange={(mode) => void put({ mode })}
+            options={[{ value: 'invite', label: 'Invites + waitlist' }, { value: 'open', label: 'Open' }, { value: 'closed', label: 'Closed' }]} /></>} /><form className="msg-nums" onSubmit={save}>
           {num('signupsPerDay', 'Sign-ups per day', 'New text accounts a day, all together.')}
           {num('dailyTurns', 'Messages per day', 'Per text account. 0 = no limit.')}
           {num('memberInvites', 'Invites per member', 'Links each person can share.')}
-          <div className="msg-nums__save"><button type="submit" className="cfg-btn cfg-btn--primary" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button></div>
-        </form>
-        {note && <div className="cfg-key__foot"><Note note={note} /></div>}
-      </div>
-    </section>
+          <div className="msg-nums__save"><button type="submit" className="cfg-btn cfg-btn--primary" disabled={busy}>{busy ? 'Saving' : 'Save'}</button></div>
+        </form>{note && <div className="cfg-key__foot"><Note note={note} /></div>}</Card></Section>
   );
 }
 
@@ -825,44 +666,29 @@ function InvitesSection({ version }: { version: number }) {
   const list = (invites ?? []).filter((i) => !i.revoked);
 
   return (
-    <section className="cfg-section">
-      <div className="cfg-section__label">Invite links</div>
-      <div className="cfg-card cfg-key">
-        <form className="msg-invite-form" onSubmit={create}>
+    <Section  title={<>Invite links</>}><Card variant="list" className="cfg-key"><form className="msg-invite-form" onSubmit={create}>
           <label className="cfg-field"><SettingIcon icon={MessageCircle} /><span className="cfg-field__label">Uses</span><input className="text-input" type="number" min={1} value={form.maxUses} onChange={(e) => setForm({ ...form, maxUses: e.target.value })} /></label>
           <label className="cfg-field"><SettingIcon icon={MessageCircle} /><span className="cfg-field__label">Expires in days</span><input className="text-input" type="number" min={1} placeholder="Never" value={form.days} onChange={(e) => setForm({ ...form, days: e.target.value })} /></label>
-          <label className="cfg-field msg-invite-form__note"><SettingIcon icon={MessageCircle} /><span className="cfg-field__label">Note</span><input className="text-input" placeholder="Who it’s for (optional)" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} /></label>
-          <button type="submit" className="cfg-btn cfg-btn--primary" disabled={busy}>{busy ? 'Creating…' : 'Create link'}</button>
-        </form>
-        {err && <div className="cfg-error cfg-error--inset">{err}</div>}
-        {!invites ? <div className="cfg-empty cfg-empty--flat">Loading…</div> : list.length === 0 ? (
+          <label className="cfg-field msg-invite-form__note"><SettingIcon icon={MessageCircle} /><span className="cfg-field__label">Note</span><input className="text-input" placeholder="Who it's for (optional)" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} /></label>
+          <button type="submit" className="cfg-btn cfg-btn--primary" disabled={busy}>{busy ? 'Creating' : 'Create link'}</button>
+        </form>{err && <div className="cfg-error cfg-error--inset">{err}</div>}{!invites ? <div className="cfg-empty cfg-empty--flat">Loading</div> : list.length === 0 ? (
           <div className="cfg-empty cfg-empty--flat">No invite links yet.</div>
         ) : list.map((i) => {
           const expired = i.expiresAt !== null && i.expiresAt < Date.now();
           const used = i.uses >= i.maxUses;
           return (
             <div key={i.code} className="msg-invite">
-              <div className="cfg-row"><SettingIcon icon={MessageCircle} />
-                <div className="cfg-row__text">
-                  <div className="cfg-row__title msg-mono">{i.url}</div>
-                  <div className="cfg-row__sub">
+              <Row  leading={<SettingIcon icon={MessageCircle} />} title={<>{i.url}</>} subtitle={<><div className="cfg-row__sub">
                     {i.uses}/{i.maxUses} used
                     {i.expiresAt ? (expired ? ' · expired' : ` · expires ${shortDate(i.expiresAt)}`) : ' · never expires'}
                     {i.createdByName ? ` · by ${i.createdByName}` : ''}
                     {i.note ? ` · ${i.note}` : ''}
                     {used && !expired ? ' · used up' : ''}
-                  </div>
-                </div>
-                <CopyButton text={i.url} />
-                {qrs[i.code] && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setShowQr(showQr === i.code ? null : i.code)}>{showQr === i.code ? 'Hide QR' : 'QR'}</button>}
-                <ConfirmButton className="cfg-btn cfg-btn--ghost-danger" confirmLabel="Revoke link" onConfirm={() => revoke(i.code)}>Revoke</ConfirmButton>
-              </div>
+                  </div></>} trailing={<><CopyButton text={i.url} />{qrs[i.code] && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setShowQr(showQr === i.code ? null : i.code)}>{showQr === i.code ? 'Hide QR' : 'QR'}</button>}<ConfirmButton className="cfg-btn cfg-btn--ghost-danger" confirmLabel="Revoke link" onConfirm={() => revoke(i.code)}>Revoke</ConfirmButton></>} />
               {showQr === i.code && qrs[i.code] && <div className="msg-invite__qr"><img className="msg-qr" src={qrs[i.code]} alt={`QR code for ${i.url}`} width={148} height={148} /></div>}
             </div>
           );
-        })}
-      </div>
-    </section>
+        })}</Card></Section>
   );
 }
 
@@ -880,11 +706,7 @@ function WaitlistSection({ version }: { version: number }) {
   };
   const visible = (rows ?? []).filter((r) => r.status !== 'deleted');
   return (
-    <section className="cfg-section">
-      <div className="cfg-section__label">Waitlist</div>
-      <div className="cfg-card">
-        {err && <div className="cfg-error cfg-error--inset">{err}</div>}
-        {!rows ? <div className="cfg-empty cfg-empty--flat">Loading…</div> : visible.length === 0 ? (
+    <Section  title={<>Waitlist</>}><Card variant="list" >{err && <div className="cfg-error cfg-error--inset">{err}</div>}{!rows ? <div className="cfg-empty cfg-empty--flat">Loading</div> : visible.length === 0 ? (
           <div className="cfg-empty cfg-empty--flat">Nobody is waiting. People who text the line without an invite show up here.</div>
         ) : (
           <div className="msg-table-wrap">
@@ -894,7 +716,7 @@ function WaitlistSection({ version }: { version: number }) {
                 {visible.map((r) => (
                   <tr key={r.phone}>
                     <td><div className="msg-table__name">{r.name || 'Unknown'}</div><div className="msg-table__sub">{fmtPhone(r.phone)} · {r.channel === 'imessage' ? 'iMessage' : r.channel === 'sms' ? 'SMS' : r.channel}</div></td>
-                    <td className="msg-table__msg" title={r.firstMessage ?? ''}>{r.firstMessage || '—'}</td>
+                    <td className="msg-table__msg" title={r.firstMessage ?? ''}>{r.firstMessage || '-'}</td>
                     <td className="msg-table__when">{ago(r.createdAt)}</td>
                     <td><span className={`cfg-chip${r.status === 'pending' ? ' cfg-chip--warn' : ' cfg-chip--muted'}`}>{r.status[0].toUpperCase() + r.status.slice(1)}</span></td>
                     <td className="msg-table__actions">
@@ -910,8 +732,6 @@ function WaitlistSection({ version }: { version: number }) {
               </tbody>
             </table>
           </div>
-        )}
-      </div>
-    </section>
+        )}</Card></Section>
   );
 }

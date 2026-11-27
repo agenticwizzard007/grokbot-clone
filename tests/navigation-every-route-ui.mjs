@@ -182,7 +182,7 @@ try {
      }), `${hash}: whole Back label and 44px target`);
     }
     if (hash === '#tasks' && [320,390,500].includes(width)) { await page.locator('.work-tabs').waitFor(); await snapshot('tasks'); }
-    await back.click(); await hashIs(canonical(screenHash(target)));
+    await back.click(); await hashIs(width > 760 && current.kind === 'settings' ? canonical('#bot/coordinator') : canonical(screenHash(target)));
    }
    const taps = await home() + Number(current.kind !== 'bots');
    assert.ok(taps <= 3, 'Home remains within three taps including Back');
@@ -191,7 +191,7 @@ try {
     const from = hash === '#reports' ? '#bot/research-bot' : '#reports';
     await page.evaluate(hash => { location.hash = hash; }, from); await hashIs(canonical(from));
     await page.evaluate(hash => { location.hash = hash; }, hash); await hashIs(canonical(hash));
-    await back.waitFor(); await back.click(); await hashIs(canonical(from));
+    await back.waitFor(); await back.click(); await hashIs(width > 760 && current.kind === 'settings' ? canonical('#bot/coordinator') : canonical(from));
    }
    assert.deepEqual(errors, [], `${hash}: no page errors`);
    results.push({ route: hash || '/', width, theme, back: 'pass', homeTaps: taps });
@@ -199,6 +199,21 @@ try {
   }
   await historyFlows();
   await dismissals();
+  await cold('#settings/subscriptions');
+  await page.locator('.subscription-settings [data-layout="row"][data-provider="claude"]').getByRole('button',{name:'Connect',exact:true}).click();
+  const sheet = page.getByRole('dialog',{name:'Connect Claude',exact:true}); await sheet.waitFor();
+  if(width<=760) { assert.equal(await page.locator('button[aria-label="Back"]:not([inert] *)').count(),1); await sheet.getByRole('button',{name:'Back',exact:true}).click(); }
+  else await sheet.getByRole('button',{name:'Close',exact:true}).click();
+  await sheet.waitFor({state:'detached'});
+  await page.getByRole('button',{name:'Paste key',exact:true}).click();
+  assert.equal(await page.getByLabel('OpenRouter API key',{exact:true}).getAttribute('type'),'password');
+  if(width<=760) assert.equal(await page.locator('button[aria-label="Back"]:not([inert] *)').count(),1);
+  await cold('#settings/apps');await page.getByRole('button',{name:'Connect',exact:true}).click();
+  await page.getByRole('button',{name:'Close catalog',exact:true}).waitFor();
+  if(width<=760) assert.equal(await page.locator('button[aria-label="Back"]:not([inert] *)').count(),1);
+  await page.getByRole('button',{name:'Close catalog',exact:true}).click();
+  results.push({route:'Settings connection sheet, masked key and app catalog',width,theme,back:'pass'});
+
   assert.deepEqual(errors, [], `${width} ${theme}: no browser errors`);
   // Suggestions use POST to query draft context, without saving Bot changes.
   assert.deepEqual(writes.filter(({ method, path }) => method !== 'POST' || !/^\/api\/bots\/[^/]+\/suggested-apps$/.test(path)), [], 'Navigation does not mutate account data');

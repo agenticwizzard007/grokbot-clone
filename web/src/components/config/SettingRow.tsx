@@ -1,3 +1,4 @@
+import { Row } from '../layout';
 import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -16,13 +17,5 @@ export function SettingRow({ icon, title, sub, status, children, wrap, className
   wrap?: boolean;
   className?: string;
 }) {
-  return <div className={`cfg-row${wrap ? ' settings-row--wrap' : ''}${className ? ` ${className}` : ''}`}>
-    <SettingIcon icon={icon} />
-    <div className="cfg-row__text">
-      <div className="cfg-row__title">{title}</div>
-      {sub && <div className="cfg-row__sub">{sub}</div>}
-      {status && <div className="cfg-row__sub">{status}</div>}
-    </div>
-    {children}
-  </div>;
+  return <Row className={`${wrap ? 'settings-row--wrap ' : ''}${className}`} leading={<SettingIcon icon={icon} />} title={title} subtitle={<>{sub}{status}</>} trailing={children} />;
 }

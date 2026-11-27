@@ -1,3 +1,4 @@
+import { ButtonGroup } from '../layout';
 import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { SettingRow } from './SettingRow';
@@ -10,6 +11,6 @@ export function AccessRow({ icon, title, description, status, children }: {
   children?: ReactNode;
 }) {
   return <SettingRow icon={icon} title={title} sub={description} status={status} className="access-row">
-    {children && <div className="access-row__actions">{children}</div>}
+    {children && <ButtonGroup stack>{children}</ButtonGroup>}
   </SettingRow>;
 }

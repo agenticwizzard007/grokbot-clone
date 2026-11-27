@@ -75,71 +75,69 @@ useConfigUI.getState().openAppSettings(${JSON.stringify(section)});
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(AppSettings));
 ` }));
     await page.goto(origin);
-    const panel = page.getByRole('region', { name: 'Your OpenRouter connection', exact: true });
-    const planRoute = panel.getByText('In use now: ChatGPT plan. Bot turns are billed to that plan. Your personal OpenRouter key is not used for plan turns.', { exact: true });
-    await planRoute.waitFor();
-    await panel.getByText('Add your own OpenRouter key here. Your ChatGPT or Claude plan stays signed in when you add, replace or remove a key.', { exact: true }).waitFor();
-    await panel.getByText(/Your saved key is never shown again/).waitFor();
+    const panel = page.locator('.openrouter-settings');
+    await panel.getByRole('status').first().waitFor();
     const input = panel.locator('input[type=password]');
-    const save = async value => { await input.fill(value); await panel.getByRole('button', { name: 'Save & verify key', exact: true }).click(); };
-    await save(first);
-    await panel.getByText('Key verified and saved.', { exact: true }).waitFor();
-    assert.equal(await input.inputValue(), '');
-    await panel.getByText('Manual key · …1111', { exact: true }).waitFor();
-    assert.equal(status.selected, 'codex'); assert.equal(status.providers.codex.authenticated, true);
+    const edit = async () => {
+      if (await input.isVisible()) return;
+      await panel.locator('.cfg-chip').filter({hasText: saved ? 'Key saved' : 'Not connected'}).waitFor();
+      if (section === 'subscriptions') {
+        if (await panel.getByRole('button',{name:'Manage OpenRouter',exact:true}).count()) {
+          await panel.getByRole('button',{name:'Manage OpenRouter',exact:true}).click();
+          await page.getByRole('menuitem',{name:'Replace',exact:true}).click();
+        } else await panel.getByRole('button',{name:'Paste key',exact:true}).click();
+      } else await panel.getByRole('button',{name:/^(Add key|Replace)$/}).click();
+    };
+    const save = async value => { await edit(); await input.fill(value); await panel.getByRole('button',{name:'Save',exact:true}).click(); };
+    const option = async name => {
+      if (section === 'subscriptions') await panel.getByRole('button',{name:'Manage OpenRouter',exact:true}).click();
+      else { await edit(); await panel.getByRole('button',{name:'Key options',exact:true}).click(); }
+      await page.getByRole('menuitem',{name,exact:true}).click();
+    };
+    await save(first); await panel.getByText('Key saved.',{exact:true}).waitFor();
+    assert.equal(await input.count(),0); assert.equal(saved,first);
+    if(section==='keys') await page.waitForFunction(() => document.querySelector('button[aria-label="Default API model"]')?.disabled === false);
+    assert.equal(status.selected,'codex');assert.equal(status.providers.codex.authenticated,true);
     assert.ok(!(await page.content()).includes(first));
-    await save('invalid-placeholder');
-    await panel.getByRole('alert').waitFor();
-    assert.equal(saved, first); assert.equal(await input.inputValue(), '');
-    await save(second);
-    await panel.getByText('Manual key · …2222', { exact: true }).waitFor();
-    await planRoute.waitFor();
-    assert.equal(status.selected, 'codex');
+    await save('invalid-placeholder');await panel.getByRole('alert').waitFor();
+    assert.equal(saved,first);assert.equal(await input.inputValue(),'');
+    await save(second);await panel.getByText('Key saved.',{exact:true}).waitFor();
+    assert.equal(status.selected,'codex');assert.equal(saved,second);
     assert.ok(!(await page.content()).includes(second));
-    assert.ok(!(await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }))).includes(second));
-    await input.scrollIntoViewIfNeeded();
-    await page.screenshot({ path: `${screenshots}/${section}-${width}-${theme}-plan.png` });
-    await panel.getByRole('button', { name: 'Use server API defaults', exact: true }).click();
-    await panel.getByText('Personal OpenRouter billing is off. Any selected plan stays in use.', { exact: true }).waitFor();
-    assert.equal(status.selected, 'codex'); assert.equal(enabled, false);
-    if (section === 'subscriptions') await page.getByRole('button', { name: 'Use API providers', exact: true }).click();
-    else await panel.getByRole('button', { name: 'Use my OpenRouter credits', exact: true }).click();
-    await panel.getByText('In use now: your OpenRouter key. You pay OpenRouter for Bot turns.', { exact: true }).waitFor();
-    assert.equal(enabled, true); assert.equal(status.selected, null); assert.equal(status.providers.codex.authenticated, true);
-    if (section === 'subscriptions') await page.getByRole('region', { name: 'Plan connection', exact: true }).getByText('Connected', { exact: true }).waitFor();
-    await panel.getByRole('button', { name: 'Use server API defaults', exact: true }).click();
-    await panel.getByText('In use now: server API defaults. Usage is billed to the account that supplies those credentials.', { exact: true }).waitFor();
-    assert.equal(enabled, false); assert.equal(saved, second);
-    await panel.getByRole('button', { name: 'Use my OpenRouter credits', exact: true }).click();
-    await panel.getByText('In use now: your OpenRouter key. You pay OpenRouter for Bot turns.', { exact: true }).waitFor();
-    await panel.locator('.openrouter-settings__route').scrollIntoViewIfNeeded();
-    await page.screenshot({ path: `${screenshots}/${section}-${width}-${theme}-api.png` });
-    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-    assert.equal(await page.locator('.app-settings__main').evaluate(el => el.scrollWidth <= el.clientWidth + 1), true);
-    if (section === 'subscriptions') {
-      await page.getByRole('button', { name: 'Use ChatGPT plan', exact: true }).click();
-      await planRoute.waitFor();
+    assert.ok(!(await page.evaluate(()=>JSON.stringify({local:{...localStorage},session:{...sessionStorage}}))).includes(second));
+    await option('Use server defaults');await panel.getByText('Server defaults selected.',{exact:true}).waitFor();
+    assert.equal(status.selected,'codex');assert.equal(enabled,false);
+    if(section==='subscriptions') await page.getByRole('button',{name:'API key',exact:true}).click();
+    else await option('Use my credits');
+    await page.waitForTimeout(200);
+    assert.equal(enabled,true);assert.equal(status.selected,null);assert.equal(status.providers.codex.authenticated,true);
+    await option('Use server defaults');await panel.getByText('Server defaults selected.',{exact:true}).waitFor();
+    assert.equal(enabled,false);assert.equal(saved,second);
+    await option('Use my credits');await panel.getByText('API key selected.',{exact:true}).waitFor();
+    assert.equal(enabled,true);
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+    await page.screenshot({path:`${screenshots}/${section}-${width}-${theme}-api.png`});
+    if(section==='subscriptions') {
+      await page.getByRole('button',{name:'Manage ChatGPT',exact:true}).click();
+      await page.getByRole('menuitem',{name:'Use ChatGPT',exact:true}).click();
+      await page.waitForTimeout(200);assert.equal(status.selected,'codex');
     }
-    recent = false;
-    await save(first);
-    await page.getByRole('heading', { name: 'Confirm it’s you', exact: true }).waitFor();
-    assert.equal(saved, second); assert.equal(await input.inputValue(), '');
-    recent = true;
-    if (section === 'subscriptions') {
-      // Simulate the return from ordinary sign-in, preserving the credential intent.
-      // This must not start a CLI login or retry a discarded secret automatically.
-      await page.reload();
-      await page.getByText('Your session is ready. Review the connection status before choosing Save and verify or remove your key.', { exact: true }).waitFor();
-      await planRoute.waitFor();
-      assert.equal(cliLogins, 0); assert.equal(saved, second);
-      assert.equal(await input.inputValue(), '');
-    } else await page.getByRole('button', { name: 'Not now', exact: true }).click();
-    await panel.getByRole('button', { name: 'Disconnect key', exact: true }).click();
-    await panel.getByRole('button', { name: 'Remove my key', exact: true }).click();
-    await panel.getByText('Key removed from Swarm.', { exact: true }).waitFor();
-    assert.equal(saved, null); assert.equal(status.providers.codex.authenticated, true);
-    if (section === 'subscriptions') { assert.equal(status.selected, 'codex'); await planRoute.waitFor(); }
-    else await panel.getByText(/Personal OpenRouter billing is selected, but your key is missing/).waitFor();
+    recent=false;await save(first);
+    await page.getByRole('heading',{name:/Confirm it.s you/}).waitFor();
+    assert.equal(saved,second);assert.equal(await input.inputValue(),'');
+    recent=true;
+    if(section==='subscriptions') {
+      await page.reload();await page.getByText(/Your session is ready/).waitFor();
+      assert.equal(cliLogins,0);assert.equal(saved,second);assert.equal(status.selected,'codex');
+      await edit();assert.equal(await input.inputValue(),'');
+    } else await page.getByRole('button',{name:'Not now',exact:true}).click();
+    if(section==='subscriptions') await option('Remove');
+    else {await edit();await panel.getByRole('button',{name:'Remove key',exact:true}).click();}
+    await panel.getByRole('button',{name:'Remove key',exact:true}).last().click();
+    await panel.getByText('Key removed.',{exact:true}).waitFor();
+    assert.equal(saved,null);assert.equal(status.providers.codex.authenticated,true);
+    if(section==='keys') await page.waitForFunction(() => document.querySelector('button[aria-label="Default API model"]')?.disabled === true);
+    if(section==='subscriptions')assert.equal(status.selected,'codex');
     assert.deepEqual(errors, []);
     console.log(`PASS ${section} ${width}px ${theme}: add, verify, mask, reject, replace, preserve plan, personal billing, explicit server billing, reauth and remove`);
     await context.close();

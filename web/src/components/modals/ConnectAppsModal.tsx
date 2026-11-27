@@ -1,3 +1,4 @@
+import { Page } from '../layout';
 import { cachedApps, refreshApps } from '../../lib/appsCatalogCache';
 import { connectionStatus } from '@shared/connection-details';
 import { ConnectedAccounts } from '../ConnectedAccountDetails';
@@ -247,9 +248,9 @@ function AccountAppsCatalog({ accountId, close, inline }: { accountId: string; c
   }
 
   return (
-    <div ref={inline ? undefined : scrollRef} className={`access-apps-catalog${inline ? ' access-apps-catalog--inline' : ''}`}>
+    <div ref={inline ? undefined : scrollRef} className={`access-apps-catalog${inline ? ' access-apps-catalog--inline' : ''}`}><Page type="form">
       <div className="apps-modal__head">
-        {inline && <button type="button" className="link-btn access-apps__back" onClick={close}>Back to connected accounts</button>}
+        {inline && <button type="button" className="link-btn access-apps__back" onClick={close}>Close catalog</button>}
         <div className="access-apps__heading">
           <div className="app-settings__head access-apps__title">
             <h1>Connect an app</h1>
@@ -287,6 +288,6 @@ function AccountAppsCatalog({ accountId, close, inline }: { accountId: string; c
         )}
         <div className="apps-pagination access-apps__mcp"><span><strong>Using your own MCP server?</strong><small>Manage custom tools separately.</small></span><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => { close(); useConfigUI.getState().openAppSettings('mcp'); }}>MCP servers</button></div>
       </div>
-    </div>
+    </Page>    </div>
   );
 }
