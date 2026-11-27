@@ -10,10 +10,13 @@ const evidence = path.resolve('.context/ui-custom/demo-g'); fs.mkdirSync(evidenc
 const fixture = await appearanceFixture();
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
 const report = [];
+let activePage;
+for (const name of ['failure.png', 'failure.json']) fs.rmSync(path.join(evidence, name), { force: true });
 try {
   for (const width of [390, 1280]) for (const theme of ['light', 'dark']) {
     const context = await appearanceContext(browser, fixture, width, theme);
     const page = await context.newPage(); page.setDefaultTimeout(20000);
+    activePage = page;
     const errors = []; page.on('pageerror', error => errors.push(error.message));
     const screen = page.locator('.appearance-settings');
     const shot = async name => {
@@ -117,5 +120,15 @@ try {
     assert.ok(created.doc.dashboards[0].id.startsWith('d_'));
     await context.close();
   }
+} catch (error) {
+  if (activePage && !activePage.isClosed()) {
+    await activePage.screenshot({ path: path.join(evidence, 'failure.png') });
+    fs.writeFileSync(path.join(evidence, 'failure.json'), JSON.stringify({
+      passed: report.length, error: error.message, url: activePage.url(),
+      alerts: await activePage.getByRole('alert').allTextContents(),
+      saved: await saved(activePage),
+    }, null, 2));
+  }
+  throw error;
 } finally { await browser.close(); await fixture.close(); fs.writeFileSync(path.join(evidence, 'report.json'), JSON.stringify(report, null, 2)); }
 console.log(`${report.length} passed, 0 failed. Demo: ${evidence}`);
