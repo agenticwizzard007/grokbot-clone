@@ -91,11 +91,11 @@ const cases = [
     });
     await patch(context, server.base, dashboardPatch()); const doc = (await configAvailable(context.request, server.base)).doc;
     // Warm the route before measuring actual visible fixture content.
-    await open(page, server.base, `#dash/${doc.dashboards[0].id}`); await page.getByText('Fixture task 1', { exact: true }).first().waitFor();
+    await open(page, server.base, `#dash/${doc.dashboards[0].id}`); await page.getByText('Draft the launch email', { exact: true }).first().waitFor();
     await open(page, server.base, '#bots');
     await page.evaluate(() => { window.__ucPerf.cls = 0; }); const start = performance.now();
     await page.evaluate(id => { location.hash = `#dash/${id}`; }, doc.dashboards[0].id);
-    await page.getByText('Fixture task 1', { exact: true }).first().waitFor();
+    await page.getByText('Draft the launch email', { exact: true }).first().waitFor();
     measure('dashboardFirstContentMs', performance.now() - start);
     await page.waitForTimeout(1000); measure('dashboardCLS', await page.evaluate(() => window.__ucPerf.cls));
   }) },

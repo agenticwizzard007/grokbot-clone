@@ -71,6 +71,8 @@ Keep recipes deterministic and validate generated patches. Profile updates alone
 npm run typecheck
 npm run build -w web
 node --import tsx --test tests/ui-custom/security/*.test.mts tests/ui-custom/perf/*.test.mts
+node tests/ui-custom/e2e/alignment-audit-ui.mjs
+node tests/ui-custom/e2e/provider-adapter-ui.mjs
 node tests/ui-custom/e2e/service-ui.mjs
 node tests/ui-custom/e2e/journeys-ui.mjs
 node tests/ui-custom/e2e/accessibility-ui.mjs
@@ -82,6 +84,12 @@ node tests/layout-alignment-ui.mjs
 
 The fixture launches a disposable SQLite database and loopback mock services. UC-B checks are mandatory: missing config routes, authentication failures and server errors fail. Unmerged client or UC-I features emit a named SKIP; `UC_REQUIRE_FULL=1` makes missing features fail. Skips never establish acceptance.
 
-The alignment command preserves main's existing default 208-view audit. It then applies default, dashboard and navigation fixtures through PUT `/api/ui/config`, checking dashboard seeded/empty routes, Preview and safe mode banners, and All sections at 390 and 1280. New UC-H fixtures do not change cosmetic values. `UC_LAYOUT_FIXTURE`, `LAYOUT_OWNER`, `LAYOUT_ROUTES` and `LAYOUT_WIDTHS` narrow development runs only. `LAYOUT_ROOT` selects an external default baseline and is rejected by the full gate.
+The alignment command preserves main's existing default 208-view audit. The custom matrix uses 320, 390, 500 and 1280 light plus 390 and 1280 dark with default cosmetic values. `fixtures/routes.mjs` registers seeded and empty dashboards with all ten widget types, edit mode, widget settings, add widget, Appearance, Preview and safe mode. Requirements, All sections and adaptive home are route-list entries gated on UC-I availability. Configurations go through PUT `/api/ui/config`; adaptation uses its real chat tools. Independent screens use a fresh local server every three cases to respect production rate limits.
+
+The quality auditor checks visible text, body 14px minimum, explicit secondary text 13px minimum, contrast, control heights, card tokens, spacing, ButtonGroup flex, one phone Back, duplicate titles and helper copy. Existing geometry and complete-label checks remain active. Active sheets are audited independently of their inert background. All custom screens and demo captures reject `mock`, `Fixture`, `PRIVATE`, `QA-`, `undefined`, `null` and `[object`. Natural prompts stay in conversation history; scripted replies are injected only into the loopback provider request.
+
+`tests/ui-custom/fixtures/uc-p-known-issues.json` is the temporary UC-P inventory explicitly authorized for dashboard and Appearance polish. Each entry matches an exact rule, element, observed value and route/width/theme. New violations fail. Fixed entries fail as stale until removed. Forbidden text and missing screens cannot be waived. `UC_REQUIRE_FULL=1` rejects every known issue as well as unavailable features. The inventory is never updated by a test run.
+
+Use `UC_CAPTURE_PHASE=before` before a polish change and the default `after` afterward. Both runs save PNGs even when assertions fail, plus `observations-<phase>.json` and a complete `screenshots-<phase>.md` path list under `.context/ui-custom/alignment-matrix/`. H's initial before/after pair records the same production UI with the expanded harness; it does not establish that UC-P has fixed it. `UC_LAYOUT_FIXTURE`, `LAYOUT_OWNER`, `LAYOUT_ROUTES` and `LAYOUT_WIDTHS` narrow development runs only. `LAYOUT_ROOT` selects an external default baseline and is rejected by the full gate.
 
 Evidence goes under `.context/ui-custom/`. The story manifest lists only screenshots actually captured. Performance records configuration reads and size, patch validation, data batches, dashboard content/CLS and lazy bundle size. `UC_RECORD_BASELINE=1` refuses incomplete runs; review measurements before committing. An absent baseline fails the full gate.

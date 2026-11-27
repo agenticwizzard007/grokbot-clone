@@ -2,6 +2,8 @@
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 import { inspectAlignment, inspectDashboardGrid, inspectDashboardLabels } from '../../layout-alignment-ui.mjs';
+import { inspectScreenQuality } from './screen-quality.mjs';
+import { compareKnownIssues } from '../fixtures/uc-p-known-issues.mjs';
 import { runSuite } from '../fixtures/harness.mjs';
 
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
@@ -60,5 +62,51 @@ cases.push({ name: 'clipped accessible tables are exempt but visible dashboard l
     await page.locator('h2').evaluate(el => { el.textContent = 'Fixtureword'; el.style.cssText = 'width:20px;overflow-wrap:anywhere'; });
     assert.ok((await audit()).some(issue => issue.startsWith('split word:')));
   } finally { await page.close(); }
+} });
+const qualityCases = [
+  ['readable body and secondary text', '<p>Review the launch email</p><small>Updated today</small>', issues => assert.deepEqual(issues, [])],
+  ['decorative glyph is not body text', '<span aria-hidden="true" style="font-size:10px">●</span>', issues => assert.deepEqual(issues, [])],
+  ['aria-hidden visible words still count', '<span aria-hidden="true" style="font-size:10px">Working</span>', issues => assert.ok(issues.some(i => i.rule === 'body-text-size'))],
+  ['secondary descendants inherit secondary floor', '<div class="dashboard-list-meta"><span style="font-size:13px">Updated today</span></div>', issues => assert.deepEqual(issues, [])],
+  ['tiny body text', '<p style="font-size:13px">Review the launch email</p>', issues => assert.ok(issues.some(i => i.rule === 'body-text-size'))],
+  ['tiny secondary text', '<small style="font-size:12px">Updated today</small>', issues => assert.ok(issues.some(i => i.rule === 'secondary-text-size'))],
+  ['low contrast secondary text', '<small style="color:#aaa">Updated today</small>', issues => assert.ok(issues.some(i => i.rule === 'text-contrast'))],
+  ['hidden text is excluded', '<p hidden>mock Fixture PRIVATE QA- undefined null [object</p><p style="clip-path:inset(50%);position:absolute">mock</p><p>Daily summary</p>', issues => assert.deepEqual(issues, [])],
+  ['nested visible text is included', '<p>Daily <span>mock</span></p>', issues => assert.ok(issues.some(i => i.rule === 'forbidden-visible-text'))],
+  ['visible input and placeholder are included', '<input value="PRIVATE"><input placeholder="undefined">', issues => assert.equal(issues.filter(i => i.rule === 'forbidden-visible-text').length, 2)],
+  ['button floor and card tokens', '<section data-layout="card" style="padding:12px;border-radius:8px"><button style="height:24px">Save</button></section>', issues => assert.ok(issues.some(i => i.rule === 'control-height') && issues.some(i => i.rule === 'card-paddingTop'))],
+  ['group flex contract', '<div data-layout="button-group" style="display:flex"><button>Cancel</button><button>Save</button></div>', issues => assert.equal(issues.filter(i => i.rule === 'button-group-flex').length, 2)],
+  ['correct group flex', '<div data-layout="button-group" style="display:flex"><button style="flex:1 1 0">Cancel</button><button style="flex:1 1 0">Save</button></div>', issues => assert.deepEqual(issues, [])],
+  ['section style and spacing', '<div data-layout="section" style="gap:5px"><header class="layout-section__header"><h2>Tasks</h2></header></div>', issues => assert.ok(issues.some(i => i.rule === 'spacing-rowGap') && issues.some(i => i.rule === 'section-heading-style'))],
+  ['duplicate title', '<div class="shell-header__title">Tasks</div><h1>Tasks</h1>', issues => assert.ok(issues.some(i => i.rule === 'duplicate-screen-title'))],
+  ['helper copy limit', '<p class="layout-page__subtitle">This helper sentence has more than eight words on purpose.</p>', issues => assert.ok(issues.some(i => i.rule === 'helper-copy-length'))],
+];
+for (const term of ['mock', 'Fixture', 'PRIVATE', 'QA-', 'undefined', 'null', '[object']) qualityCases.push([`forbidden text ${term}`, `<p>${term}</p>`, issues => assert.equal(issues.filter(i => i.rule === 'forbidden-visible-text').length, 1)]);
+for (const [name, body, verify] of qualityCases) cases.push({ name, run: async () => {
+  const page = await browser.newPage();
+  try {
+    await page.setContent(`<style>body{background:#fff;color:#18202a;font:14px/20px Arial}small{font-size:13px}button,input{height:44px}button{font:inherit}</style><main>${body}</main>`);
+    verify(await page.evaluate(inspectScreenQuality, { selector: 'main' }));
+  } finally { await page.close(); }
+} });
+cases.push({ name: 'modal excludes inert background and requires one phone Back', run: async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  try {
+    await page.setContent('<style>body{font:14px Arial}dialog{color:#18202a;background:white}button{height:44px;font:inherit}</style><main><p>mock</p></main><dialog><h1>Widget settings</h1><button>Back</button></dialog>');
+    await page.locator('dialog').evaluate(el => el.showModal());
+    assert.deepEqual(await page.evaluate(inspectScreenQuality, { selector: 'dialog[open]', phoneBack: true }), []);
+    await page.locator('button').evaluate(el => el.remove());
+    assert.ok((await page.evaluate(inspectScreenQuality, { selector: 'dialog[open]', phoneBack: true })).some(i => i.rule === 'phone-back-count'));
+  } finally { await page.close(); }
+} });
+cases.push({ name: 'known issue matching rejects new, changed, stale and forbidden violations', run: () => {
+  const issue = { rule: 'body-text-size', target: 'p', actual: '12px', expected: '14px minimum' };
+  const inventory = { views: { screen: [issue] } };
+  assert.deepEqual(compareKnownIssues('screen', [issue], inventory, false), { unexpected: [], stale: [], known: 1 });
+  assert.equal(compareKnownIssues('screen', [{ ...issue, actual: '11px' }], inventory, false).unexpected.length, 1);
+  assert.equal(compareKnownIssues('screen', [], inventory, false).stale.length, 1);
+  assert.equal(compareKnownIssues('screen', [issue], inventory, true).unexpected.length, 1);
+  const forbidden = { ...issue, rule: 'forbidden-visible-text' };
+  assert.equal(compareKnownIssues('screen', [forbidden], { views: { screen: [forbidden] } }, false).unexpected.length, 1);
 } });
 try { await runSuite('alignment-auditor', cases, { server: false }); } finally { await browser.close(); }

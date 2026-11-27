@@ -7,6 +7,8 @@ import { runSuite, fixtureContext, open, snapshot, api } from '../tests/ui-custo
 import { reset, dashboardJourney, recoveryJourney } from '../tests/ui-custom/e2e/journeys-ui.mjs';
 import { requirementsUseCases, requirementsChangeReset } from '../tests/ui-custom/e2e/requirements-journeys.mjs';
 
+import { inspectScreenQuality } from '../tests/ui-custom/e2e/screen-quality.mjs';
+
 export async function runStory() {
   const screenshots = [];
   const stories = [
@@ -25,7 +27,11 @@ export async function runStory() {
     try {
       const page = await context.newPage(); page.setDefaultTimeout(15000);
       await reset(context, server); await open(page, server.base);
-      const capture = async step => screenshots.push({ step, width, file: await snapshot(page, out, `${width}-${step}`) });
+      const capture = async step => {
+        const file = await snapshot(page, out, `${width}-${step}`);
+        screenshots.push({ step, width, file });
+        assert.deepEqual(await page.evaluate(inspectScreenQuality, { selector: 'body', typography: false }), [], `Visible test text in ${step}`);
+      };
       await run({ page, context, server, capture });
       assert.deepEqual(external, [], 'Story must use only local assets');
     } finally { await context.close(); }

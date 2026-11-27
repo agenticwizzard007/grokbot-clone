@@ -8,7 +8,10 @@ import { preparePbeState } from './paper-pbe-states.mjs';
 import { layoutServer } from './layout-fixture.mjs';
 import { readableWords } from './paper-label-geometry.mjs';
 import { fixtureContext, runSuite } from './ui-custom/fixtures/harness.mjs';
-import { CUSTOM_ROUTES, prepareRoute } from './ui-custom/fixtures/routes.mjs';
+import { CUSTOM_ROUTES, prepareRoute, QUALITY_VIEWPORTS } from './ui-custom/fixtures/routes.mjs';
+
+import { inspectScreenQuality } from './ui-custom/e2e/screen-quality.mjs';
+import { compareKnownIssues } from './ui-custom/fixtures/uc-p-known-issues.mjs';
 
 export const ROUTES = [
   { name: 'bots', hash: '#bots', owner: 'PB-D', enforce: true },
@@ -274,26 +277,49 @@ export async function customMatrix() {
     if (process.env.UC_REQUIRE_FULL === '1') throw new Error('Full gate cannot select an external baseline only');
     console.log('SKIP custom routes: external baseline selected'); return;
   }
-  const cases = [390, 1280].flatMap(width => CUSTOM_ROUTES.filter(route =>
+  const observations = [], phase = process.env.UC_CAPTURE_PHASE || 'after';
+  assert.ok(['before', 'after'].includes(phase), 'Capture phase is before or after');
+  const cases = QUALITY_VIEWPORTS.flatMap(({ width, theme }) => CUSTOM_ROUTES.filter(route =>
     (!process.env.UC_LAYOUT_FIXTURE || route.fixture === process.env.UC_LAYOUT_FIXTURE) &&
     (!process.env.LAYOUT_OWNER || route.owner === process.env.LAYOUT_OWNER) &&
     (!process.env.LAYOUT_ROUTES || process.env.LAYOUT_ROUTES.split(',').includes(route.name)) &&
     (!process.env.LAYOUT_WIDTHS || process.env.LAYOUT_WIDTHS.split(',').map(Number).includes(width))
-  ).map(route => ({ name: `${route.name} ${width}`, run: async ({ server, browser, out }) => {
-    const { context, external } = await fixtureContext(browser, server, width);
+  ).map(route => ({ name: `${route.name} ${width} ${theme}`, run: async ({ server, browser, out }) => {
+    const { context, external } = await fixtureContext(browser, server, width, 'layout-test-token', theme);
     try {
       const page = await context.newPage(); page.setDefaultTimeout(15000);
       await prepareRoute(page, context, server, route);
-      const issues = await page.evaluate(inspectAlignment, {});
-      if (route.dashboard) issues.push(...await page.evaluate(inspectDashboardGrid));
-      if (route.preview || route.safe) issues.push(...await page.evaluate(inspectAlignment, { selector: '[role="status"]', requirePage: false }));
-      if (route.dashboard) issues.push(...await page.locator('[data-layout="page"]').first().evaluate(inspectDashboardLabels));
-      else await readableWords(page.locator('[data-layout="page"]').first());
-      await page.screenshot({ path: path.join(out, `${route.name}-${width}.png`), fullPage: true });
-      assert.deepEqual(external, []); assert.deepEqual(issues, []);
+      const modal = await page.locator('dialog[open]').count();
+      const selector = modal ? 'dialog[open]' : '.shell-content > :not(.shell-header):not(.phone-tabs)';
+      const legacy = await page.evaluate(inspectAlignment, { selector });
+      if (route.dashboard && !modal) legacy.push(...await page.evaluate(inspectDashboardGrid));
+      if (route.preview || route.safe) legacy.push(...await page.evaluate(inspectAlignment, { selector: '[role="status"]', requirePage: false }));
+      if (route.dashboard || route.quality) {
+        for (const root of await page.locator(modal ? 'dialog[open]' : '[data-layout="page"]').all()) legacy.push(...await root.evaluate(inspectDashboardLabels));
+      } else {
+        try { await readableWords(page.locator('[data-layout="page"]').first()); }
+        catch (error) { legacy.push(error.message); }
+      }
+      const issues = legacy.map(actual => ({ rule: 'alignment', target: selector, actual }));
+      // Forbidden text includes the visible shell, input values and placeholders on every custom route.
+      issues.push(...await page.evaluate(inspectScreenQuality, { selector: modal ? 'dialog[open]' : 'body', typography: false }));
+      if (route.quality) issues.push(...(await page.evaluate(inspectScreenQuality, { selector, phoneBack: route.phoneBack })).filter(issue => issue.rule !== 'forbidden-visible-text'));
+      const key = `${route.name}-${width}-${theme}`;
+      const captureDir = path.join(out, phase); fs.mkdirSync(captureDir, { recursive: true });
+      const screenshot = path.join(captureDir, `${key}.png`);
+      await page.screenshot({ path: screenshot, fullPage: true });
+      const classification = compareKnownIssues(key, issues);
+      observations.push({ key, route: route.name, width, theme, phase, screenshot, issues, ...classification,
+        words: (await page.locator(modal ? 'dialog[open]' : '.shell-content').innerText()).trim().split(/\s+/).length });
+      fs.writeFileSync(path.join(out, `observations-${phase}.json`), JSON.stringify(observations, null, 2) + '\n');
+      fs.writeFileSync(path.join(out, `screenshots-${phase}.md`), observations.map(view => `- [${view.key}](${view.screenshot})`).join('\n') + '\n');
+      if (classification.known) console.log(`KNOWN UC-P ${key}: ${classification.known} exact issues`);
+      assert.deepEqual(external, []);
+      assert.deepEqual(classification.unexpected, [], `Unregistered quality violations: ${key}`);
+      assert.deepEqual(classification.stale, [], `UC-P: remove resolved known issues for ${key}`);
     } finally { await context.close(); }
   } })));
-  return runSuite('alignment-matrix', cases);
+  return runSuite('alignment-matrix', cases, { casesPerServer: 3 });
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   await main(); await customMatrix();

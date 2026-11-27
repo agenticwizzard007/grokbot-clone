@@ -1,6 +1,6 @@
 # Dashboard and adaptation rollout
 
-This runbook records the release gates. Local verification uses disposable QA-Temp-* accounts and the mock provider. CI is stopped; hooks remain enabled. UC-H merges last, after the other workstreams including UC-I. Deployment and each rollout stage remain separate release decisions.
+This runbook records the release gates. Local verification uses disposable accounts with realistic placeholder names and the mock provider. CI is stopped; hooks remain enabled. UC-H merges last, after the other workstreams including UC-I. Deployment and each rollout stage remain separate release decisions.
 
 ## Evidence before release
 
@@ -18,12 +18,18 @@ UC_REQUIRE_FULL=1 node tests/ui-custom/demo-h.mjs
 Archive command output, exact pass/fail/skip counts, reports, performance measurements and screenshots. A skip is incomplete evidence. The scope correction replaces the original cosmetic matrix and story with these gates:
 
 - Ten journeys at 390 and 1280: chat dashboard creation and add/remove/reorder/resize, layout by chat, keyboard editing, recovery, two-tab sync, isolation, offline navigation, injection rejection, different requirements use cases, and requirement change/reset.
-- Main's unchanged default alignment coverage plus default, dashboard and navigation routes: every widget type, empty and seeded, Preview, safe mode, and All sections.
+- Main's unchanged default alignment coverage plus dashboard and navigation routes at 320, 390, 500 and 1280 light and 390/1280 dark: all ten widget types empty and seeded, edit mode, both sheets, Appearance, Preview, safe mode, Requirements, adaptive home and All sections.
 - Zero serious or critical axe findings on default Bots/chat and those dashboard/navigation surfaces at both widths.
 - XSS through API/import/agent, hostile CSS strings in navigation/dashboard enums, taint and injection, lockout recovery, account isolation and network boundaries.
 - Recorded performance budgets for config reads and size, validation, data batches, dashboard content/CLS and lazy bundle size.
 
 Required story evidence is the role/goal dashboard proposal, preview, confirmed add/remove/reorder/resize, reload persistence, Undo, safe mode recovery, two different requirements use cases with home/navigation/suggestions, a requirement change, All sections and reset. Screenshots are at 390 and 1280 under `.context/ui-custom/story/`; `manifest.json` lists completed steps. Do not add cosmetic fixtures or screenshots. Existing merged tests stay intact.
+
+## UC-P polish handoff
+
+Before editing a new screen, run `UC_CAPTURE_PHASE=before LAYOUT_OWNER=UC-H node tests/layout-alignment-ui.mjs`. After editing, run `LAYOUT_OWNER=UC-H node tests/layout-alignment-ui.mjs` and inspect both PNG sets alongside Settings and Tasks. The complete path lists and word counts live in `.context/ui-custom/alignment-matrix/`. Before/after phases capture actual product rendering; the harness never hides test text or changes production CSS.
+
+Remove resolved entries from `tests/ui-custom/fixtures/uc-p-known-issues.json`. Exact dashboard/Appearance violations are temporarily reported as KNOWN UC-P, while any new or stale entry fails. Do not waive forbidden text, missing routes or whole screens. The full release gate rejects all known issues. UC-I routes are registered now and must run without skips once their modules land. Existing failures outside UC-P's authorized inventory remain explicit failures and release blockers.
 
 ## Stages and flags
 

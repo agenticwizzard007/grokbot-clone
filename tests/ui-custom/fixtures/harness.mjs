@@ -48,8 +48,8 @@ export async function until(check, message, timeout = 10000) {
   while (performance.now() < end) { if (await check()) return; await new Promise(resolve => setTimeout(resolve, 50)); }
   assert.fail(message);
 }
-export async function fixtureContext(browser, server, width = 1280, token = 'layout-test-token') {
-  const context = await browser.newContext({ viewport: { width, height: width < 500 ? 844 : 900 }, reducedMotion: 'reduce', serviceWorkers: 'block' });
+export async function fixtureContext(browser, server, width = 1280, token = 'layout-test-token', theme = 'light') {
+  const context = await browser.newContext({ viewport: { width, height: width <= 760 ? 844 : 900 }, reducedMotion: 'reduce', colorScheme: theme, serviceWorkers: 'block' });
   const external = [];
   await context.route('**/*', route => {
     const url = new URL(route.request().url());
@@ -57,18 +57,19 @@ export async function fixtureContext(browser, server, width = 1280, token = 'lay
     external.push(url.origin); return route.abort();
   });
   await context.addCookies([{ name: 'swarm_session', value: token, url: server.base }]);
-  await context.addInitScript(() => { if (location.origin !== 'null') localStorage.setItem('swarm.sidebarCollapsed', '0'); });
+  await context.addInitScript(theme => { if (location.origin !== 'null') { localStorage.setItem('swarm.sidebarCollapsed', '0'); localStorage.setItem('swarm.theme', theme); } }, theme);
   return { context, external };
 }
 export async function open(page, base, hash = '#bots') {
   await page.goto(`${base}/${hash}`); await page.locator('.shell-header').first().waitFor(); await page.evaluate(() => document.fonts.ready);
 }
-export async function agentPreview(page, server, ops, intent = 'Preview fixture navigation') {
+export async function agentPreview(page, server, ops, intent = 'Open Tasks first') {
   await open(page, server.base, `#bot/${server.fixture.bot.id}`);
   const composer = page.getByRole('textbox', { name: `Message ${server.fixture.bot.name}`, exact: true });
   const previousIds = server.withDb(db => db.prepare("SELECT generation || ':' || seq AS id FROM rows WHERE bot_id=? AND json_extract(body,'$.card')='ui_preview'").all(server.fixture.bot.id).map(row => row.id));
   const payload = { intent, patch: ops, autofix: true };
-  await composer.fill(`mock: preview_ui_patch ${JSON.stringify(payload, null, 2)} | say ${intent}`);
+  server.script(intent, `preview_ui_patch ${JSON.stringify(payload, null, 2)} | say ${intent}`);
+  await composer.fill(intent);
   await composer.press('Enter');
   await page.getByRole('status').filter({ hasText: /Previewing/i }).waitFor();
   const row = await untilPreviewRow(server, previousIds);
@@ -88,12 +89,18 @@ export async function snapshot(page, out, name) {
   fs.mkdirSync(out, { recursive: true }); const file = path.join(out, `${name}.png`);
   await page.screenshot({ path: file, fullPage: true }); return file;
 }
-export async function runSuite(name, cases, { server: needsServer = true } = {}) {
+export async function runSuite(name, cases, { server: needsServer = true, casesPerServer = Infinity } = {}) {
   const out = path.join(ROOT, '.context/ui-custom', name); fs.mkdirSync(out, { recursive: true });
   let server, browser; const results = [];
   try {
     if (needsServer) { server = await qualityServer(); browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] }); }
-    for (const item of cases) {
+    for (const [index, item] of cases.entries()) {
+      // Independent screen cases get fresh rate-limit windows and disposable data.
+      // Production limits and responses stay intact.
+      if (needsServer && index > 0 && index % casesPerServer === 0) {
+        fs.appendFileSync(path.join(out, 'server-shards.log'), server.logs.join(''));
+        await server.close(); server = await qualityServer();
+      }
       const start = performance.now();
       try { await item.run({ server, browser, out }); results.push({ name: item.name, status: 'pass', ms: performance.now() - start }); }
       catch (error) { results.push({ name: item.name, status: error instanceof MissingFeature ? 'skip' : 'fail', reason: error.message, stack: error instanceof MissingFeature ? undefined : error.stack }); }

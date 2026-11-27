@@ -9,6 +9,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import Database from 'better-sqlite3';
+import { providerAdapter } from './provider-adapter.mjs';
 
 export const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -20,6 +21,7 @@ export async function qualityServer({ extraSeed = true } = {}) {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-uc-h-'));
   const [apiPort, uiPort, mockPort] = await Promise.all([port(), port(), port()]);
   const base = `http://127.0.0.1:${uiPort}`, backend = `http://127.0.0.1:${apiPort}`, mock = `http://127.0.0.1:${mockPort}`;
+  const provider = await providerAdapter(mock);
   const fixtureFile = path.join(temp, 'fixture.json'), database = path.join(temp, 'app.db');
   const children = [], logs = [], blocked = path.join(temp, 'blocked.jsonl');
   const preload = path.join(temp, 'offline.mjs');
@@ -35,7 +37,7 @@ export async function qualityServer({ extraSeed = true } = {}) {
     SWARM_ROLE: 'standalone', SWARM_NO_SCHEDULER: '1', SESSION_SECRET: 'uc-h-test-only', COMPUTER_PROVIDER: 'local',
     INKBOX_TUNNEL: '0', DEV_LOGIN: '1', PORT: String(apiPort), APP_URL: base, SERVER_URL: base, WHATSAPP_DISABLED: '1',
     MEMORY_CONSOLIDATE_IDLE_MINUTES: '0', UI_CUSTOMIZATION: 'on', UI_ADAPT: 'on',
-    DIRECT_API_KEY: 'mock-key', DIRECT_BASE_URL: `${mock}/v1`, OPENROUTER_BASE_URL: `${mock}/api/v1`, LLM_PROVIDER: 'direct',
+    DIRECT_API_KEY: 'mock-key', DIRECT_BASE_URL: `${provider.base}/v1`, OPENROUTER_BASE_URL: `${provider.base}/api/v1`, LLM_PROVIDER: 'direct',
   };
   function start(args, cwd = ROOT, extra = {}) {
     const child = spawn(process.execPath, args, { cwd, env: { ...env, ...extra }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -56,6 +58,7 @@ export async function qualityServer({ extraSeed = true } = {}) {
     const db = new Database(database); try { return fn(db); } finally { db.close(); }
   }
   async function close() {
+    await provider.close();
     for (const child of children.reverse()) {
       if (child.exitCode !== null || child.signalCode !== null) continue;
       const stopped = once(child, 'exit'); child.kill();
@@ -70,10 +73,10 @@ export async function qualityServer({ extraSeed = true } = {}) {
     assert.equal((await once(seed, 'exit'))[0], 0, logs.join(''));
     const fixture = JSON.parse(fs.readFileSync(fixtureFile, 'utf8'));
     withDb(db => {
-      db.prepare('UPDATE users SET name=?,email=? WHERE id=?').run('QA-Temp-A', 'qa-temp-a@example.test', fixture.userId);
+      db.prepare('UPDATE users SET name=?,email=? WHERE id=?').run('Test User', 'member@example.test', fixture.userId);
       db.prepare("UPDATE bot_setups SET onboarding_status='active', confirmed_at=? WHERE bot_id IN (SELECT id FROM bots WHERE user_id=?)").run(Date.now(), fixture.userId);
       if (extraSeed) for (const [i, state] of ['working', 'needs_input', 'done'].entries()) db.prepare('INSERT INTO tasks(id,bot_id,title,state,note,created_at,updated_at) VALUES(?,?,?,?,?,?,?)')
-        .run(`task_uc_h_${i}`, fixture.bot.id, `Fixture task ${i + 1}`, state, 'PRIVATE_FIXTURE_NOTE_A', Date.now(), Date.now());
+        .run(`task_uc_h_${i}`, fixture.bot.id, ['Draft the launch email', 'Review the release checklist', 'Publish the daily summary'][i], state, 'PRIVATE_FIXTURE_NOTE_A', Date.now(), Date.now());
     });
     await ready(`${mock}/_requests`, start(['tests/mock-provider.mjs', String(mockPort)]));
     await ready(`${backend}/api/health`, start(['--import', preload, '--import', 'tsx', 'server/src/index.ts']));
@@ -82,7 +85,7 @@ export async function qualityServer({ extraSeed = true } = {}) {
     fs.writeFileSync(viteBoot, `import { createServer } from ${JSON.stringify(pathToFileURL(path.join(ROOT, 'web/node_modules/vite/dist/node/index.js')).href)};
       const server = await createServer(${JSON.stringify({ root: path.join(ROOT, 'web'), configFile: path.join(ROOT, 'web/vite.config.ts'), cacheDir: path.join(temp, 'vite-cache'), server: { host: '127.0.0.1', port: uiPort, strictPort: true } })}); await server.listen();`);
     await ready(base, start([viteBoot], path.join(ROOT, 'web'), { SWARM_API: backend }));
-    return { base, backend, mock, fixture, close, withDb, logs,
+    return { base, backend, mock, fixture, close, withDb, logs, script: provider.script,
       blockedRequests: () => fs.existsSync(blocked) ? fs.readFileSync(blocked, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : [],
     };
   } catch (error) { await close(); throw error; }

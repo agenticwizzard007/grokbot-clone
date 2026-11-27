@@ -25,7 +25,7 @@ export async function dashboardJourney({ page, context, server, capture = async 
   await until(async () => (await saved(context, server)).doc.dashboards.length === 1, 'Dashboard was not applied');
   const dashboard = (await saved(context, server)).doc.dashboards[0];
   await open(page, server.base, `#dash/${dashboard.id}`);
-  await page.getByText('Fixture task 1', { exact: true }).first().waitFor();
+  await page.getByText('Draft the launch email', { exact: true }).first().waitFor();
   assert.ok(dashboard.widgets.length >= 10);
   assert.equal(await page.locator('[data-layout="page"]').first().getAttribute('data-page-type'), 'wide');
   const first = dashboard.widgets[0].id;
@@ -47,7 +47,7 @@ export async function dashboardJourney({ page, context, server, capture = async 
   const expected = (await saved(context, server)).doc;
   await page.reload(); await page.getByRole('heading', { name: 'My week', exact: true }).waitFor();
   assert.deepEqual((await saved(context, server)).doc, expected, 'Chat edits persist after reload');
-  await page.getByText('Fixture task 1', { exact: true }).first().waitFor();
+  await page.getByText('Draft the launch email', { exact: true }).first().waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
   await capture('dashboard-reload-persisted');
   return dashboard;

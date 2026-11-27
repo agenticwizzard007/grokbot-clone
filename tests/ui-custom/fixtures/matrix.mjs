@@ -17,7 +17,7 @@ export function widgets(temporary = false) {
     ['botStatus', 'Bot status', 6, 3, 'bots.status', { limit: 6 }, { limit: 6 }],
     ['taskBoard', 'Task board', 6, 3, 'tasks.list', { limit: 10 }, {}],
     ['routineSchedule', 'Upcoming routines', 12, 3, 'routines.upcoming', { days: 7 }, { days: 7 }],
-    ['note', 'Fixture notes', 6, 2, null, {}, { text: '## Test notes\nOnly placeholder content.' }],
+    ['note', 'Weekly notes', 6, 2, null, {}, { text: 'Review priorities before the weekly meeting.' }],
     ['shortcuts', 'Quick links', 6, 2, null, {}, { items: [{ label: 'Open tasks', target: 'tasks' }] }],
   ];
   return items.map(([type, title, span, rows, source, params, options], index) => ({
@@ -39,7 +39,7 @@ export function matrixDocument(defaults, fixture) {
     doc.layout.phoneTabs = ['tasks', 'bots', 'search', 'settings'];
   }
   if (fixture.startsWith('dashboard-')) {
-    doc.dashboards = [{ id: 'd_00000001', name: 'Fixture dashboard', icon: 'layout-dashboard', description: '', widgets: widgets() }];
+    doc.dashboards = [{ id: 'd_00000001', name: 'My week', icon: 'layout-dashboard', description: '', widgets: widgets() }];
     doc.layout.pinned = [{ type: 'dashboard', id: 'd_00000001' }];
   }
   return doc;
@@ -52,7 +52,7 @@ export function corruptDocument(defaults) {
 }
 // Chat actions use stable JSON pointers after the proposal is confirmed.
 export const DASHBOARD_EDITS = [
-  { name: 'add', intent: 'Add a note with my weekly goal', patch: [{ op: 'add', path: '/dashboards/0/widgets/-', value: { id: '$new1', type: 'note', title: 'Weekly goal', span: 6, rows: 2, options: { text: 'Review the fixture tasks weekly.' } } }] },
+  { name: 'add', intent: 'Add a note with my weekly goal', patch: [{ op: 'add', path: '/dashboards/0/widgets/-', value: { id: '$new1', type: 'note', title: 'Weekly goal', span: 6, rows: 2, options: { text: 'Review the open tasks weekly.' } } }] },
   { name: 'remove', intent: 'Remove the added weekly goal note', patch: [{ op: 'remove', path: '/dashboards/0/widgets/12' }] },
   { name: 'reorder', intent: 'Move working tasks after needs you', patch: [{ op: 'move', from: '/dashboards/0/widgets/0', path: '/dashboards/0/widgets/1' }] },
   { name: 'resize', intent: 'Make working tasks wider and taller', patch: [{ op: 'replace', path: '/dashboards/0/widgets/1/span', value: 6 }, { op: 'replace', path: '/dashboards/0/widgets/1/rows', value: 2 }] },

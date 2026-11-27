@@ -6,7 +6,8 @@ import { contracts } from '../fixtures/contracts.mjs';
 async function chat(page, server, name, input, confirmation) {
   await open(page, server.base, `#bot/${server.fixture.bot.id}`);
   const composer = page.getByRole('textbox', { name: `Message ${server.fixture.bot.name}`, exact: true });
-  await composer.fill(`mock: ${name} ${JSON.stringify(input, null, 2)} | say ${confirmation}`);
+  server.script(confirmation, `${name} ${JSON.stringify(input, null, 2)} | say ${confirmation}`);
+  await composer.fill(confirmation);
   await composer.press('Enter');
   await page.getByText(confirmation, { exact: true }).last().waitFor();
 }
@@ -14,7 +15,7 @@ async function previewCommand(args, name, input, step) {
   const { page, context, server, capture = async () => {} } = args;
   const before = await configAvailable(context.request, server.base);
   const previous = server.withDb(db => db.prepare("SELECT generation || ':' || seq AS id FROM rows WHERE bot_id=? AND json_extract(body,'$.card')='ui_preview'").all(server.fixture.bot.id).map(row => row.id));
-  await chat(page, server, name, input, `Fixture ${step} ready`);
+  await chat(page, server, name, input, `Prepare my ${step.replaceAll("-", " ")}`);
   const card = await untilPreviewRow(server, previous);
   await page.getByRole('status').filter({ hasText: /Previewing/ }).waitFor();
   assert.deepEqual((await configAvailable(context.request, server.base)).doc, before.doc);
@@ -30,10 +31,10 @@ async function available(args) {
     await api(args.context.request, args.server.base, `/previews/${reset.previewId}/apply`, 'POST', {});
   }
 }
-async function adapt(args, useCase) {
+export async function adapt(args, useCase) {
   const { page, context, server, capture = async () => {} } = args;
   const before = await configAvailable(context.request, server.base);
-  await chat(page, server, 'update_requirements', { patch: requirementsPatch(REQUIREMENTS[useCase]) }, `I will remember the fixture ${useCase} requirements`);
+  await chat(page, server, 'update_requirements', { patch: requirementsPatch(REQUIREMENTS[useCase]) }, `I will remember my ${useCase} requirements`);
   const requirements = await api(context.request, server.base, '/requirements');
   assert.equal(requirements.profile.role, REQUIREMENTS[useCase].role);
   assert.deepEqual(requirements.profile.focus, REQUIREMENTS[useCase].focus);
