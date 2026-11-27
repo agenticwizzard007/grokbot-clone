@@ -25,6 +25,7 @@ export async function polishFixture() {
   const { fixtures } = await tsImport('../flow/fixtures.mts', import.meta.url);
   const { buildFlowModel } = await tsImport('../../server/src/flow/build.ts', import.meta.url);
   const botId = server.fixture.bot.id;
+  const contexts = new Map();
   return {
     async open(name, width, theme) {
       const dView = /^handoff-(loading|empty|error|approval)$/.test(name) ? 'detail' : /^viewer-(loading|empty|error)$/.test(name) ? 'viewer' : /^send-(loading|empty|error)$/.test(name) ? 'sheet' : name === 'handoff-list' ? 'list' : name.startsWith('output-') && ['loading','empty','error'].includes(name.slice(7)) ? 'card' : name.startsWith('handoffs-') ? 'list' : name.startsWith('send-') && ['error','loop'].includes(name.slice(5)) ? 'sheet' : null;
@@ -37,7 +38,12 @@ export async function polishFixture() {
         await page.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
         return { page, selector: dView === 'sheet' ? 'dialog[open]' : '#root', close: () => page.close() };
       }
-      const context = await browser.newContext({ viewport: { width, height: 1000 }, reducedMotion: 'reduce', colorScheme: theme });
+      // Retain asset caches per viewport/theme. Each state has a fresh page and
+      // page-local API handlers, so its policy/link mutations cannot leak into
+      // the next state. Theme and sidebar preferences are reset below.
+      const key = `${width}:${theme}`;
+      if (!contexts.has(key)) contexts.set(key, await browser.newContext({ viewport: { width, height: 1000 }, reducedMotion: 'reduce', colorScheme: theme }));
+      const context = contexts.get(key);
       const page = await context.newPage(); page.setDefaultTimeout(15000); page.on('pageerror', error => console.error(name, error.message));
       await context.addCookies([{ name: 'swarm_session', value: 'layout-test-token', url: server.base }]);
       // Follow each context's system theme. A legacy light/dark preference would
@@ -76,6 +82,8 @@ export async function polishFixture() {
         await page.route(/\/api\/bots\/[^/]+\/flow$/, route => name === 'flow-loading' ? new Promise(() => {}) : route.fulfill(name === 'flow-error' ? { status: 503, json: { error: 'Could not load flow. Try again.' } } : { json: model }));
         hash = `#bot/${botId}/details/${name === 'flow-compact' ? 'setup' : 'flow'}`; selector = name === 'flow-compact' ? '.flow-compact' : '.flow-tab';
       }
+      const network = await context.newCDPSession(page);
+      await network.send('Network.setCacheDisabled', { cacheDisabled: false });
       await page.goto(server.base + '/' + hash);
       if (settings) await settings.ready();
       if (name === 'loop-sheet') { await page.getByRole('button', { name: 'New loop', exact: true }).click(); selector = '.ho-loop-sheet'; }
@@ -97,7 +105,7 @@ export async function polishFixture() {
       if (name.startsWith('link-')) await page.getByRole('combobox', {name:'Agent',exact:true}).waitFor();
       await page.evaluate(() => document.fonts.ready); await page.waitForTimeout(200);
       await page.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
-      return { page, selector, close: () => context.close() };
+      return { page, selector, close: () => page.close() };
     },
     async close() { await d.close(); await browser.close(); await server.close(); },
   };
