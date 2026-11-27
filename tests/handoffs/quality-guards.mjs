@@ -30,6 +30,22 @@ export async function checkQualityGuards(fixture, inspect) {
       await page.locator(selector).first().evaluate((el, html)=>{el.outerHTML=html;},original);
       console.log(`PASS quality guard ${rule}`);
     }
-  } finally { await state.close(); }
-  return cases.length;
+    // Only a final output replaces the message menu. A draft or earlier output
+    // must not make the completed message's existing action disappear.
+    let status = 'draft';
+    await page.route('**/api/outputs/by-job/*', async route => {
+      const response = await route.fetch(); const data = await response.json();
+      await route.fulfill({ response, json: { ...data, output: { ...data.output, status } } });
+    });
+    for (status of ['draft', 'superseded']) {
+      const read = page.waitForResponse(response => response.url().includes('/api/outputs/by-job/'));
+      await page.reload();
+      await (await read).finished(); await page.waitForTimeout(200);
+      await page.waitForFunction(() => document.querySelectorAll('[aria-label="Message actions"]').length === 2 && !document.querySelector('.ho-output-card'));
+      const result = await page.evaluate(inspect, { selector: '.ho-message-actions', finished: true });
+      assert.deepEqual(result.issues, [], `${status} retains readable message actions`);
+      console.log(`PASS quality guard message-actions-${status}`);
+    }
+  } finally { await page.unrouteAll({ behavior: 'wait' }); await state.close(); }
+  return cases.length + 2;
 }

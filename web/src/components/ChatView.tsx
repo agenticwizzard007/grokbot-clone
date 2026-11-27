@@ -44,7 +44,7 @@ function MessageHandoff({ row, final, onSend }: { row: Row; final: boolean; onSe
     finally { setBusy(false); }
   };
   return <div className="ho" style={{ position: 'relative' }}>
-    {!output.data?.output && <button ref={trigger} type="button" className="ho-button ho-button--quiet ho-message-actions" aria-label="Message actions" aria-haspopup="menu" aria-expanded={open} disabled={busy} onClick={() => setOpen(!open)}>Actions</button>}
+    {output.data?.output?.status !== 'final' && <button ref={trigger} type="button" className="ho-button ho-button--quiet ho-message-actions" aria-label="Message actions" aria-haspopup="menu" aria-expanded={open} disabled={busy} onClick={() => setOpen(!open)}>Actions</button>}
     {open && <Menu triggerRef={trigger} onClose={() => setOpen(false)} items={[{ label: 'Send to agent', icon: Send, onSelect: () => void send() }]} />}
     {output.data?.output?.status === 'final' && <Suspense fallback={null}><OutputCard output={output.data.output} onSend={onSend} /></Suspense>}
   </div>;
