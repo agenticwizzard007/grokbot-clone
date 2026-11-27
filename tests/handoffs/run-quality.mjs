@@ -16,7 +16,7 @@ const commands = process.argv.includes('--existing-ui') ? ui.map(file => [proces
   ['npm', ['run', 'typecheck']], [process.execPath, ['--import', 'tsx', '--test', '--test-concurrency=1', ...tests]],
   ['npm', ['run', 'build', '-w', 'web']], ...ui.map(file => [process.execPath, [file]]),
   ...demos.map(file => [process.execPath, [file]]),
-  [process.execPath, ['tests/handoffs/e2e-loop-real.mjs']],
+  [process.execPath, ['--import', 'tsx', 'tests/handoffs/e2e-loop-real.mjs']],
   [process.execPath, ['tests/handoffs/e2e/journeys.mjs']], [process.execPath, ['tests/handoffs/layout-ui.mjs']],
   [process.execPath, ['scripts/handoffs-demo.mjs']], [process.execPath, ['tests/handoffs/perf/server.mjs']], [process.execPath, ['tests/handoffs/perf/browser.mjs']],
   [process.execPath, ['tests/handoffs/polish-shots.mjs']],
