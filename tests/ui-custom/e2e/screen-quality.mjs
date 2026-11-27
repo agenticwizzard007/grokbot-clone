@@ -30,7 +30,8 @@ export function inspectScreenQuality({ selector = '[data-layout="page"]', phoneB
   };
   const luminance = color => color.slice(0, 3).map(v => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }).reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
   for (const el of elements) {
-    if (el.closest('svg, script, style, option')) continue;
+    if (el.closest('script, style, option')) continue;
+    if (el.closest('svg') && !el.matches('text, tspan')) continue;
     const content = text(el);
     const field = el.matches('input:not([type="hidden"]), textarea') ? `${el.value} ${el.placeholder || ''}` : el.matches('select') ? [...el.selectedOptions].map(option => option.textContent).join(' ') : '';
     const match = `${content} ${field}`.match(forbidden);

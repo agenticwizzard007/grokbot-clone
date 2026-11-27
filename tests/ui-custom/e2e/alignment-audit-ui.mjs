@@ -72,6 +72,7 @@ const qualityCases = [
   ['tiny secondary text', '<small style="font-size:12px">Updated today</small>', issues => assert.ok(issues.some(i => i.rule === 'secondary-text-size'))],
   ['low contrast secondary text', '<small style="color:#aaa">Updated today</small>', issues => assert.ok(issues.some(i => i.rule === 'text-contrast'))],
   ['hidden text is excluded', '<p hidden>mock Fixture PRIVATE QA- undefined null [object</p><p style="clip-path:inset(50%);position:absolute">mock</p><p>Daily summary</p>', issues => assert.deepEqual(issues, [])],
+  ['visible SVG labels are included', '<svg><text y="20">mock</text></svg>', issues => assert.ok(issues.some(i => i.rule === 'forbidden-visible-text'))],
   ['nested visible text is included', '<p>Daily <span>mock</span></p>', issues => assert.ok(issues.some(i => i.rule === 'forbidden-visible-text'))],
   ['visible input and placeholder are included', '<input value="PRIVATE"><input placeholder="undefined">', issues => assert.equal(issues.filter(i => i.rule === 'forbidden-visible-text').length, 2)],
   ['button floor and card tokens', '<section data-layout="card" style="padding:12px;border-radius:8px"><button style="height:24px">Save</button></section>', issues => assert.ok(issues.some(i => i.rule === 'control-height') && issues.some(i => i.rule === 'card-paddingTop'))],
