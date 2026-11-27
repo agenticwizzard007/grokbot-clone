@@ -139,6 +139,14 @@ const cases = [
         const denied = await api(other.request, server.base, `/previews/${preview.previewId}${suffix}`, method, undefined, 404);
         assert.equal(denied.code, 'not_found');
       }
+      const applied = await api(context.request, server.base, `/previews/${preview.previewId}/apply`, 'POST', {});
+      assert.equal(applied.doc.theme.mode, 'dark');
+      assert.notDeepEqual(applied.doc.theme, beforeB.doc.theme, 'The fixture accounts must have different saved themes');
+      assert.deepEqual((await configAvailable(other.request, server.base)).doc, beforeB.doc);
+      assert.deepEqual((await api(other.request, server.base, `/config?userId=${server.fixture.userId}`)).doc, beforeB.doc, 'Query input cannot select another account');
+      assert.ok((await api(context.request, server.base, '/history')).history.some(row => row.revision === applied.revision));
+      assert.deepEqual((await api(other.request, server.base, '/history')).history, []);
+      assert.equal((await api(other.request, server.base, `/history/${applied.revision}/restore`, 'POST', {}, 404)).code, 'not_found');
       const preset = await api(context.request, server.base, '/presets', 'POST', { name: 'PRIVATE_PRESET_SENTINEL' });
       const presets = await api(other.request, server.base, '/presets');
       assert.doesNotMatch(JSON.stringify(presets), /PRIVATE_PRESET_SENTINEL/);

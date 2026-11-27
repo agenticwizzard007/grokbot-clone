@@ -28,6 +28,8 @@ async function withConfig(args, fn) {
 }
 const cases = [
   { name: 'config sizes and 50-read p95', run: args => withConfig(args, async ({ context, server, current }) => {
+    await api(context.request, server.base, '/config', 'PUT', current.doc, 200, current.revision);
+    assert.equal(server.withDb(db => db.prepare('SELECT count(*) n FROM ui_config WHERE user_id=?').get(server.fixture.userId).n), 1, 'Measure a persisted configuration row');
     const durations = [], sizes = [];
     for (let i = 0; i < 55; i++) {
       const start = performance.now(); const response = await context.request.get(`${server.base}/api/ui/config`); const text = await response.text();
@@ -38,7 +40,7 @@ const cases = [
     }
     measure('configReadP95Ms', percentile(durations, .95));
     measure('configMedianBytes', percentile(sizes, .5)); measure('configMaxBytes', Math.max(...sizes));
-    details.configRead = { samples: durations, method: 'loopback HTTP round trip, conservative upper bound on server time', documents: 'default fixture' };
+    details.configRead = { samples: durations, method: 'loopback HTTP round trip, conservative upper bound on server time', documents: 'persisted default fixture' };
     function measureOnceGzip(text) { const size = gzipSync(text).length; measurements.configGzipBytes = Math.max(measurements.configGzipBytes || 0, size); }
     measure('configGzipBytes', measurements.configGzipBytes);
   }) },
