@@ -75,6 +75,13 @@ try {
       if (route.state) { await page.waitForFunction(async id => (await import('/src/store.ts')).useStore.getState().bots.some(bot => bot.id === id), server.fixture.bot.id); await page.locator('.composer__input:not([disabled])').waitFor(); await page.waitForFunction(async id => (await import('/src/store.ts')).useStore.getState().transcripts[id]?.loaded, server.fixture.bot.id); await preparePbeState(page, route.state, server.fixture.bot.id); await page.waitForTimeout(400); }
       // ActionPreview is lazy: compare the complete card, never its loading fallback.
       if (route.state === 'approval' || route.state === 'declined') await page.locator('.approval-card .tool-preview').waitFor();
+      // Configuration Markdown also loads lazily when its file reader enters view.
+      if (route.name === 'bot-setup/files') {
+        const markdown = page.locator('.agent-config__content:not([hidden]) .agent-config__file .md');
+        await markdown.scrollIntoViewIfNeeded();
+        await markdown.locator('h1, h2, p').first().waitFor();
+      }
+      await page.evaluate(() => document.fonts.ready);
       const result = await page.evaluate(() => {
         // Ignore transient chat scroll restoration when comparing structure.
         for (const element of document.querySelectorAll('*')) if (element.scrollTop) element.scrollTop = 0;
