@@ -6,7 +6,6 @@ import { chromium } from 'playwright';
 import { layoutServer } from '../../layout-fixture.mjs';
 import { ROUTES } from '../../layout-alignment-ui.mjs';
 import { preparePbeState } from '../../paper-pbe-states.mjs';
-import { installSnapshotReadiness, waitForSnapshotReadiness } from '../../handoffs/defaults-readiness.mjs';
 import { compareDefaultView } from './client-defaults-compare.mjs';
 
 const output = path.resolve('.context/ui-custom/defaults'); fs.mkdirSync(output, { recursive: true });
@@ -48,7 +47,7 @@ try {
     });
     await context.addCookies([{ name: 'swarm_session', value: 'layout-test-token', url: server.base }]);
     await context.addInitScript(theme => { if (location.origin === 'null') return; localStorage.setItem('swarm.theme', theme); localStorage.setItem('swarm.sidebarCollapsed', '0'); }, theme);
-    const page = await context.newPage(); page.setDefaultTimeout(15000); await installSnapshotReadiness(page);
+    const page = await context.newPage(); page.setDefaultTimeout(15000);
     const pending = new Set(); let lastRequest = 0;
     page.on('request', request => {
       const url = new URL(request.url());
@@ -105,7 +104,6 @@ try {
         await page.waitForTimeout(50);
       }
       await page.evaluate(() => document.fonts.ready);
-      await waitForSnapshotReadiness(page);
       const result = await page.evaluate(() => {
         // Ignore transient chat scroll restoration when comparing structure.
         for (const element of document.querySelectorAll('*')) if (element.scrollTop) element.scrollTop = 0;
