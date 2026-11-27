@@ -27,6 +27,13 @@ async function capture(page, name, width, theme, selector) {
       return box.height < 43.5 ? [`${el.textContent || el.getAttribute('aria-label')}: ${box.height}`] : [];
     }));
     assert.deepEqual(issues, [], `${name}: targets`);
+    const cardIssues = await root.locator('.dashboard-widget, .dashboard-settings .layout-card, .appearance-settings .layout-card').evaluateAll(elements => elements.flatMap(el => {
+      const style = getComputedStyle(el);
+      return ['paddingTop','paddingRight','paddingBottom','paddingLeft'].every(key => style[key] === '16px') && style.borderTopLeftRadius === '12px' ? [] : [el.className];
+    }));
+    assert.deepEqual(cardIssues, [], `${name}: shared card padding and radius`);
+    const listIssues = await root.locator('.dashboard-list li, .dashboard-list a').evaluateAll(elements => elements.filter(el => el.getBoundingClientRect().height < 44 || el.matches('a') && getComputedStyle(el).textDecorationLine !== 'none').map(el => el.textContent));
+    assert.deepEqual(listIssues, [], `${name}: list row targets and link styling`);
     const toolbarsFit = await root.locator('.dashboard-toolbar').evaluateAll(elements => elements.every(el => {
       const toolbar = el.getBoundingClientRect(), card = el.closest('.dashboard-widget').getBoundingClientRect();
       return toolbar.left >= card.left + 15 && toolbar.right <= card.right - 15 && toolbar.top >= card.top && toolbar.bottom <= card.bottom;
@@ -39,7 +46,7 @@ async function capture(page, name, width, theme, selector) {
     await readableWords(root);
     const typeIssues = await root.evaluate(root => {
       const requirements = [
-        ['.dashboard-list-title, .dashboard-library-item strong, .dashboard-field, .dashboard-empty-data p, .appearance-settings .layout-row__title, .appearance-settings .menu__label, .appearance-dialog .cfg-btn', 14],
+        ['.dashboard-widget-header h2, .dashboard-list-title, .dashboard-library-item strong, .dashboard-field, .dashboard-empty-data p, .appearance-settings .layout-row__title, .appearance-settings .menu__label, .appearance-dialog .cfg-btn', 14],
         ['.dashboard-list-meta, .dashboard-library-item > span, .appearance-settings .layout-row__subtitle, .appearance-helper', 13],
         ['.dashboard-chart-values, .dashboard-chart-labels, .dashboard-chart-legend', 12],
       ];
@@ -82,7 +89,14 @@ try {
     const boards = await page.evaluate(async () => (await import('/src/customization/store.ts')).useCustomization.getState().saved.dashboards);
     await server.open(page, boards[0].id); await page.reload(); await page.locator('.dashboard-grid').waitFor(); await readyWidgets(page);
     await page.locator('.dashboard-heading').scrollIntoViewIfNeeded();
-    if (!before) await assertGrid(page, width);
+    if (!before) {
+      await assertGrid(page, width);
+      const bars = await page.locator('[data-widget-type="chart"] .dashboard-chart-series-0 rect').evaluateAll(elements => elements.map(el => Number(el.getAttribute('height'))));
+      const values = await page.locator('[data-widget-type="chart"] tbody td').evaluateAll(elements => elements.map(el => Number(el.textContent)));
+      assert.ok(new Set(bars).size > 1, 'Seeded chart has distinct bar heights');
+      assert.equal(bars.length, values.length);
+      bars.forEach((height, i) => assert.ok(Math.abs(height / Math.max(...bars) - values[i] / Math.max(...values)) < .001, 'Bar heights scale to source values'));
+    }
     await capture(page, 'dashboard', width, theme, '.dashboard-page');
     if ([390,1280].includes(width) && theme === 'light') counts.push({ page: 'dashboard', width, words: await wordCount(page) });
     for (const type of widgetTypes) {
