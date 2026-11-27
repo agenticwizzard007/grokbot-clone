@@ -78,6 +78,10 @@ await server.listen();`);
     await ready(base, start([viteEntry], path.join(root, 'web'), { SWARM_API: api }));
     const fixture = JSON.parse(fs.readFileSync(fixtureFile, 'utf8'));
     const db = new Database(env.DB_PATH);
+    const seedOutputTitles = account => {
+      const outputs = db.prepare("SELECT id FROM run_outputs WHERE user_id=? AND title IN ('Output','Review this dashboard change.') ORDER BY created_at,id").all(account.userId);
+      outputs.forEach((row, index) => db.prepare('UPDATE run_outputs SET title=? WHERE id=?').run(index % 2 ? 'Draft the launch email' : 'Daily summary', row.id));
+    };
     const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
     let controlId = 0, accountId = 0; const contexts = [], sockets = [], transcript = [];
     const control = input => new Promise((resolve, reject) => {
@@ -90,7 +94,7 @@ await server.listen();`);
       return { status: response.status, body: await response.json() };
     };
     const wait = async condition => { for (let n=0;n<300;n++) { const value=await condition(); if(value)return value; await new Promise(resolve=>setTimeout(resolve,100)); } throw new Error(`Fixture timed out: ${logs.slice(-10).join('')}`); };
-    return { base, api, model, scripts, answers, db, logs, browser, transcript, request, wait,
+    return { base, api, model, scripts, answers, db, logs, browser, transcript, request, wait, seedOutputTitles,
       async account({ bot = false } = {}) {
         const userId = `qa-temp-dashboard-${++accountId}`, token = `fixture-session-${accountId}`, at=Date.now();
         db.prepare('INSERT INTO users(id,email,name,created_at) VALUES(?,?,?,?)').run(userId,`${userId}@example.test`,'Alex Example',at);
@@ -142,6 +146,7 @@ await server.listen();`);
         const calls=db.prepare("SELECT body FROM rows WHERE bot_id=? AND seq>? AND kind='tool-call'").all(account.bot.id,before).map(row=>JSON.parse(row.body));
         assert.ok(calls.some(call=>call.name===tool),`registered ${tool} executed`);
         const preview=(await request(account,'GET',`/ui/previews/${card.previewId}`)).body;
+        seedOutputTitles(account);
         transcript.push({tool,args,card,calls}); return {card,preview};
       },
       async apply(account, card) {

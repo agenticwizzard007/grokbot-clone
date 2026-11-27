@@ -12,7 +12,7 @@ export const salesDashboard = { id: '$new1', name: 'Sales pipeline', icon: 'brie
 ] };
 export const operationsDashboard = { id: '$new1', name: 'Operations', icon: 'activity', widgets: [
   { id: '$new2', type: 'stat', title: 'Working now', span: 4, rows: 1, source: { id: 'tasks.counts', params: {} }, options: { field: 'working' } },
-  { id: '$new3', type: 'agent', title: 'Daily summary', span: 8, rows: 3, options: { prompt: 'Summarize my open tasks.', display: 'text', schedule: 'manual' } },
+  { id: '$new3', type: 'agent', title: 'Daily summary', span: 8, rows: 3, options: { prompt: 'List my open tasks for today.', display: 'list', schedule: 'manual' } },
   { id: '$new4', type: 'list', title: 'Recent outputs', span: 6, rows: 3, source: { id: 'outputs.recent', params: {} }, options: { limit: 5 } },
   { id: '$new5', type: 'list', title: 'Active loops', span: 6, rows: 3, source: { id: 'loops.list', params: {} }, options: { limit: 5 } },
 ] };
@@ -42,18 +42,37 @@ export async function runDashboards({ demo = false } = {}) {
     await page.goto(`${server.base}/#dashboards`); await page.getByRole('button', { name: 'Manage Launch' }).click(); await page.getByRole('menuitem', { name: 'Duplicate', exact: true }).click();
     await page.getByLabel('Name', { exact: true }).fill('Launch copy'); await page.getByRole('dialog').getByRole('button', { name: 'Duplicate', exact: true }).click(); await page.getByRole('button', { name: 'Switch dashboard: Launch copy' }).waitFor(); pass('duplicate UI creates independent dashboard');
     await page.goto(`${server.base}/#dashboards`); await page.getByRole('button', { name: 'Manage Launch copy' }).click(); await page.getByRole('menuitem', { name: 'Rename', exact: true }).click(); await page.getByLabel('Name', { exact: true }).fill('Project launch'); await page.getByRole('button', { name: 'Save', exact: true }).click(); await page.getByRole('button', { name: 'Manage Project launch' }).waitFor(); pass('rename UI persists');
+    const updateBanner = page.getByRole('status', { name: 'Dashboard updated', exact: true });
+    await updateBanner.waitFor(); assert.equal(await page.getByRole('status', { name: 'Appearance updated', exact: true }).count(), 0);
+    await page.locator('.dashboard-open').filter({ hasText: 'Project launch' }).click(); await page.getByRole('button', { name: 'Switch dashboard: Project launch' }).waitFor();
+    await updateBanner.waitFor({ state: 'hidden' }); pass('dashboard update notice uses dashboard copy and dismisses on navigation');
+    await page.goto(`${server.base}/#dashboards`);
     await page.getByRole('button', { name: 'Manage Project launch' }).click(); await page.getByRole('menuitem', { name: 'Delete', exact: true }).click(); await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click(); assert.equal(await page.getByRole('button', { name: 'Manage Project launch' }).count(), 1);
     await page.getByRole('button', { name: 'Manage Project launch' }).click(); await page.getByRole('menuitem', { name: 'Delete', exact: true }).click(); await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click(); await page.getByRole('button', { name: 'Manage Project launch' }).waitFor({ state: 'hidden' }); pass('delete UI requires confirmation');
+    await updateBanner.waitFor(); await updateBanner.waitFor({ state: 'hidden', timeout: 9000 }); pass('update notice expires after eight seconds without navigation');
     for (const width of [390, 1280]) {
       await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
       const dashboard = structuredClone(width === 390 ? salesDashboard : operationsDashboard);
       await page.goto(`${server.base}/#bot/${account.bot.id}`); await page.locator('.composer__input:not([disabled])').waitFor();
       await server.propose(account, 'preview_ui_patch', { intent: `Create dashboard ${dashboard.name}`, patch: [{ op: 'add', path: '/dashboards/-', value: dashboard }] }, page, width === 390 ? 'Make a Sales pipeline dashboard with next steps, open handoffs and deals to review.' : 'Create an Operations dashboard with a daily summary, tasks, outputs and loops.');
       const card = page.getByRole('region', { name: `Create dashboard: ${dashboard.name}`, exact: true }); await card.waitFor(); await assertCopy(page, 'chat preview');
+      await card.scrollIntoViewIfNeeded();
+      const previewBanner = page.getByRole('status', { name: 'Appearance preview', exact: true });
+      await previewBanner.waitFor({ state: 'hidden' });
+      assert.equal(await page.getByRole('button', { name: 'Apply', exact: true }).count(), 1);
+      if (width === 390) {
+        await page.goto(`${server.base}/#dashboards`); await previewBanner.waitFor();
+        await page.goto(`${server.base}/#bot/${account.bot.id}`); await card.scrollIntoViewIfNeeded(); await previewBanner.waitFor({ state: 'hidden' });
+        pass('visible chat preview owns the controls and banner returns away from chat');
+      }
       if (demo) { await page.evaluate(() => document.fonts.ready); const file = path.join(output, `chat-before-apply-${width}-light.png`); await assertCopy(page, 'chat screenshot'); await page.screenshot({ path: file }); screenshots.push(file); }
       await card.getByRole('button', { name: 'Apply', exact: true }).click(); await page.getByRole('button', { name: `Switch dashboard: ${dashboard.name}` }).waitFor();
+      await updateBanner.waitFor({ state: 'hidden' });
       if (demo) screenshots.push(await screenshot(page, `chat-after-apply-${width}-light`));
       pass(`chat preview and apply opens dashboard ${width}`);
+      await page.goto(`${server.base}/#bot/${account.bot.id}`); await card.scrollIntoViewIfNeeded();
+      assert.ok(await card.getByRole('button', { name: 'Undo', exact: true }).isEnabled());
+      pass(`chat card retains Undo after navigation ${width}`);
     }
     const doc = (await server.request(account, 'GET', '/ui/config')).body.doc;
     const sales = doc.dashboards.find(d => d.name === 'Sales pipeline'), operations = doc.dashboards.find(d => d.name === 'Operations');
@@ -88,17 +107,26 @@ export async function runDashboards({ demo = false } = {}) {
     assert.equal(server.db.prepare('SELECT status FROM approvals WHERE id=?').get(approvalId.slice(9)).status, 'pending');
     await agentCard.getByRole('button', { name: /^Approve:/ }).click(); await approval.getByRole('button', { name: 'Approve', exact: true }).click(); await approval.waitFor({ state: 'hidden' });
     assert.equal(server.db.prepare('SELECT status FROM approvals WHERE id=?').get(approvalId.slice(9)).status, 'allowed'); pass('inline Approve cancels safely and confirms server approval');
+    server.seedOutputTitles(account);
     server.answers.set(sales.widgets[0].options.prompt, { source: 'tasks_list' });
     server.db.prepare('UPDATE tasks SET title=?,updated_at=? WHERE id=(SELECT id FROM tasks WHERE bot_id=? ORDER BY updated_at DESC,id LIMIT 1)').run('Plan the customer call', Date.now(), account.bot.id);
     const externalRun = await server.request(account, 'POST', `/ui/widgets/${sales.id}/${sales.widgets[0].id}/run`, {}); assert.equal(externalRun.status, 202);
     await agentCard.getByText('Plan the customer call', { exact: true }).waitFor({ timeout: 4000 }); pass('SSE refreshes a result started outside this page');
     await page.goto(`${server.base}/#dash/${operations.id}`);
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    const outputRows = page.getByRole('region', { name: 'Recent outputs', exact: true }).locator('.dashboard-output-row');
+    await outputRows.first().waitFor();
+    assert.doesNotMatch(await outputRows.allTextContents().then(rows => rows.join('\n')), /Review this dashboard change|^Output$/m);
+    assert.deepEqual(await outputRows.evaluateAll(rows => rows.map(row => ({ decoration: getComputedStyle(row).textDecorationLine, size: getComputedStyle(row.querySelector('strong')).fontSize, weight: getComputedStyle(row.querySelector('strong')).fontWeight }))), Array.from({ length: await outputRows.count() }, () => ({ decoration: 'none', size: '14px', weight: '600' })));
+    const outputRoute = await outputRows.first().getAttribute('href'); await outputRows.first().click();
+    await page.waitForURL(url => url.hash === outputRoute); pass('output rows use plain readable titles and open on tap');
+    await page.goto(`${server.base}/#dash/${operations.id}`);
     const summaryCard = page.getByRole('region', { name: 'Daily summary', exact: true });
-    await summaryCard.getByRole('button', { name: 'Run', exact: true }).click(); await summaryCard.locator('.dashboard-agent-answer').waitFor(); assert.match(await summaryCard.innerText(), /Plan the customer call/); pass('text display renders a live answer');
+    await summaryCard.getByRole('button', { name: 'Run', exact: true }).click(); await summaryCard.locator('.dashboard-agent-list').waitFor(); assert.match(await summaryCard.innerText(), /Plan the customer call/); pass('list display renders a readable live summary');
     server.answers.set(operations.widgets[1].options.prompt, { source: 'not_a_tool' });
     await summaryCard.getByRole('button', { name: 'Refresh Daily summary', exact: true }).click(); await summaryCard.getByRole('button', { name: 'Try again', exact: true }).waitFor();
     server.answers.set(operations.widgets[1].options.prompt, { source: 'tasks_list' });
-    await summaryCard.getByRole('button', { name: 'Try again', exact: true }).click(); await summaryCard.locator('.dashboard-agent-answer').waitFor(); pass('failed runs have a working Try again action');
+    await summaryCard.getByRole('button', { name: 'Try again', exact: true }).click(); await summaryCard.locator('.dashboard-agent-list').waitFor(); pass('failed runs have a working Try again action');
     // A different user's document and widget results remain independent.
     const other = await server.account({ bot: true }); server.seed(other);
     const otherPage = await server.page(other, 390);

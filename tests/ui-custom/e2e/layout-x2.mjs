@@ -38,6 +38,15 @@ export async function auditDashboardRoutes(evidence, inspectAlignment) {
           await page.evaluate(() => document.fonts.ready);
           issues.push(...await page.evaluate(inspectAlignment, { selector: await page.locator('dialog[open]').count() ? 'dialog[open]' : '.dashboard-page, .dashboard-switcher' }));
           for (const group of await page.locator('.dashboard-agent-fieldset:visible').all()) await readableWords(group);
+          if (route.name === 'dashboards') issues.push(...await page.locator('.dashboard-manager-row').evaluateAll(rows => rows.flatMap(row => {
+            const box = row.getBoundingClientRect(), button = row.querySelector('.layout-row__trailing button').getBoundingClientRect(), card = row.closest('.layout-card').getBoundingClientRect();
+            const count = getComputedStyle(row.querySelector('.dashboard-caption'));
+            return [
+              ...(box.height < 60 || button.top - box.top < 8 || box.bottom - button.bottom < 8 ? ['Manager rows need 8px above and below controls'] : []),
+              ...(Math.abs(card.right - button.right - 17) > 1 ? ['Manage button needs a consistent 16px right inset'] : []),
+              ...(parseFloat(count.fontSize) < 14 ? ['Widget count must be at least 14px'] : []),
+            ];
+          })));
           const visible = await page.locator('body').innerText();
           if (/mock|Fixture|PRIVATE|QA-|undefined|null|\[object|[\u2013\u2014]/i.test(visible)) issues.push('Forbidden visible text');
           const phoneBacks = await page.getByRole('button', { name: 'Back', exact: true }).count();
