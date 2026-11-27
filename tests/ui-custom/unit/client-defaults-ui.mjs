@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { chromium } from 'playwright';
 import { layoutServer } from '../../layout-fixture.mjs';
 import { ROUTES } from '../../layout-alignment-ui.mjs';
@@ -8,6 +9,14 @@ import { preparePbeState } from '../../paper-pbe-states.mjs';
 
 const output = path.resolve('.context/ui-custom/defaults'); fs.mkdirSync(output, { recursive: true });
 const baseline = process.env.CLIENT_BASELINE === '1';
+if (!baseline && !fs.existsSync(path.join(output, 'baseline.json'))) {
+  const root = path.resolve('.'), checkout = path.join(output, 'main');
+  if (!fs.existsSync(checkout)) {
+    execFileSync('git', ['worktree', 'add', '--detach', checkout, 'origin/main'], { stdio: 'inherit' });
+    for (const relative of ['node_modules', 'web/node_modules']) fs.symlinkSync(path.join(root, relative), path.join(checkout, relative), 'dir');
+  }
+  execFileSync(process.execPath, [new URL(import.meta.url).pathname], { stdio: 'inherit', env: { ...process.env, CLIENT_BASELINE: '1', CLIENT_MAIN_ROOT: checkout } });
+}
 const server = await layoutServer({ root: path.resolve(baseline ? process.env.CLIENT_MAIN_ROOT || '.context/main-baseline' : '.') });
 const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
 const report = [];

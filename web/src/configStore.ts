@@ -356,7 +356,7 @@ useStore.subscribe((state, previous) => {
   }
 });
 applyTheme(readTheme());
-useCustomization.subscribe(state => { if (state.userId && state.status !== 'disabled') useConfigUI.setState({ theme: state.effective.theme.mode }); });
+useCustomization.subscribe(state => { if (state.userId && state.status !== 'disabled' && useConfigUI.getState().theme !== state.effective.theme.mode) useConfigUI.setState({ theme: state.effective.theme.mode }); });
 
 // store.ts forwards events it doesn't handle itself as a DOM event.
 window.addEventListener('swarm:event', (e) => {
