@@ -61,14 +61,22 @@ export async function recordExistingLoop(page, id, mode, evidence, width) {
 export async function finishedChat(page, data, width) {
   await page.goto(new URL(`/#bot/${data.maker}`, page.url()).href);
   await page.locator('.composer textarea').fill('Draft release notes for version 1.0.');
+  const accepted = page.waitForResponse(response => response.url().endsWith(`/api/bots/${data.maker}/messages`) && response.request().method() === 'POST');
   await page.locator('.composer').getByRole('button', { name: 'Send', exact: true }).click();
-  await page.locator('.ho-output-card').filter({ hasText: 'Version 1.0 improves search' }).first().waitFor();
-  await poll(() => api(page, `/outputs?botId=${data.maker}`), r => (r.outputs ?? r.items ?? r).length > 0, 'Finished run output');
+  const response = await accepted; assert.ok(response.ok());
+  const { jobIds } = await response.json(); assert.equal(jobIds.length, 1);
+  const output = await poll(async () => {
+    const result = await page.request.get(new URL(`/api/outputs/by-job/${jobIds[0]}`, page.url()).href);
+    return result.ok() ? result.json() : null;
+  }, value => value?.status === 'final', 'This reply has a finished run output');
+  const card = page.locator('.ho-output-card').filter({ has: page.locator(`a[href="#output/${output.id}"]`) });
+  await card.waitFor(); await card.scrollIntoViewIfNeeded();
+  return card;
 }
 
 export async function sendHandoff(page, data, evidence, width) {
-  await finishedChat(page, data, width);
-  await page.locator('.ho-output-card').getByRole('button', { name: 'Send to agent', exact: true }).first().click();
+  const card = await finishedChat(page, data, width);
+  await card.getByRole('button', { name: 'Send to agent', exact: true }).click();
   const sheet = page.getByRole('dialog', { name: 'Send to agent' });
   await sheet.getByRole('button', { name: /^Checker/ }).click();
   await sheet.getByLabel('Ask', { exact: true }).fill('Review the release draft for clarity.');
@@ -78,6 +86,7 @@ export async function sendHandoff(page, data, evidence, width) {
   const created = await (await response).json(), handoff = created.handoff ?? created;
   const receipt = page.locator('.ho-receipt').filter({ has: page.locator(`a[href="#handoff/${handoff.id}"]`) });
   await receipt.getByText('Sent to Checker', { exact: true }).waitFor();
+  await receipt.scrollIntoViewIfNeeded();
   shots.push(await screenshot(page, evidence, 'handoff-receipt', width));
   await receipt.getByRole('link', { name: /^View handoff/ }).click();
   await page.locator('.ho-output-card').waitFor({ timeout: 60000 });

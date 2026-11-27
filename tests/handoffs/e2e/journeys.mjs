@@ -60,12 +60,14 @@ try {
       await sheet.getByRole('button', { name: /^Checker/ }).click();
       await sheet.getByLabel('Ask', { exact: true }).fill('Review this message.');
       const sentMessage = page.waitForResponse(r => r.url().endsWith('/api/handoffs') && r.request().method() === 'POST');
-      await sheet.getByRole('button', { name: 'Send', exact: true }).click(); assert.ok((await sentMessage).ok());
-      await page.locator('.ho-receipt').filter({ hasText: 'Review this message.' }).waitFor();
+      await sheet.getByRole('button', { name: 'Send', exact: true }).click();
+      const response = await sentMessage; assert.ok(response.ok());
+      const created = await response.json(), id = (created.handoff ?? created).id;
+      await page.locator('.ho-receipt').filter({ has: page.locator(`a[href="#handoff/${id}"]`) }).waitFor();
     });
     await check(3, 'Keep improving converges at pass 3 and Use this opens the output', async () => {
-      await finishedChat(page, { ...f, maker: f.checker }, width);
-      await page.locator('.ho-output-card').getByRole('button', { name: 'Send to agent', exact: true }).first().click();
+      const card = await finishedChat(page, { ...f, maker: f.checker }, width);
+      await card.getByRole('button', { name: 'Send to agent', exact: true }).click();
       const sheet = page.getByRole('dialog', { name: 'Send to agent' });
       await sheet.getByRole('button', { name: /^Maker/ }).click();
       await sheet.getByLabel('Ask', { exact: true }).fill(goals.converge);
@@ -159,7 +161,7 @@ try {
     });
     await check(10, 'Three Flow fixtures, every displayed kind, keyboard, focus and live routine change', async () => {
       const kinds = new Set(), roster = (await api(page, '/bots')).bots;
-      const flowLoop = await startLoop(page, f, 'slow');
+      await startLoop(page, f, 'slow');
       await page.getByRole('button', { name: 'Pause', exact: true }).click();
       await page.getByRole('button', { name: 'Resume', exact: true }).waitFor();
       for (const id of [f.maker, f.empty, f.suggested]) {
@@ -174,6 +176,17 @@ try {
         }
         const model = await api(page, `/bots/${id}/flow`);
         for (const node of model.lanes.flatMap(lane => lane.nodes)) {
+          const base = `#bot/${id}`;
+          const destination = {
+            schedule: `${base}/settings/routines`, routine: `${base}/settings/routines`, event: `${base}/settings/routines`,
+            message: base, inbound_handoff: `${base}/details/flow`, handoff_to: `${base}/details/flow`, handoff_from: `${base}/details/flow`,
+            app: '#settings/apps', mcp: '#settings/mcp', knowledge: `${base}/settings/memories`,
+            suggested_app: '#apps/connect', suggested_mcp: '#settings/mcp', step: `${base}/details/setup/responsibilities`,
+            skill: `${base}/settings/skills`, report: `${base}/details/files/reports`, files: `${base}/details/files`,
+            message_out: '#settings/messaging', task: `${base}/details/tasks`, loop: `#loop/${node.id.split(':').slice(2).join(':')}`,
+          }[node.kind];
+          assert.ok(destination, `Known Flow kind: ${node.kind}`);
+          assert.equal(node.target.hash.split('?')[0], destination, `Spec 16.5 destination for ${node.kind}`);
           const button = page.locator(`[data-flow-node="${node.id}"]`);
           await button.focus(); await page.keyboard.press('Enter');
           await page.waitForURL(url => parseScreen(url.hash) && JSON.stringify(resolveScreen(parseScreen(url.hash), roster, true)) === JSON.stringify(resolveScreen(parseScreen(node.target.hash), roster, true)));

@@ -8,6 +8,8 @@ if (!process.env.HO_H_PERF_CHILD) {
 }
 const { fixture, output, hooks, jobs, app, db, cleanup } = await import('../server-fixture.test.mts');
 const { flowApi } = await import('../../../server/src/flow/routes.ts');
+const { recordFlowConnections } = await import('../../../server/src/flow/cache.ts');
+const { seedFlow } = await import('../../flow/seed.mts');
 const { Hono } = await import('hono');
 const flowApp = new Hono().route('/api', flowApi);
 const report = { measuredAt: new Date().toISOString(), environment: `${process.platform} ${process.arch} ${process.version}`, metrics: {} };
@@ -23,8 +25,12 @@ try {
   await measure('outputCreation', 20, i => hooks.onJobFinished({ userId: f.userId, botId: f.maker.id, jobId: work[i].id, status: 'completed', finalText: `Placeholder result ${i}.` }));
   const o = output(f);
   await measure('handoffPost', 80, async i => { const r = await app.request('/api/handoffs', { method: 'POST', headers: f.headers, body: JSON.stringify({ source: { outputId: o.id }, toBotId: f.checker.id, instruction: 'Review placeholder.', idempotencyKey: `perf-${i}` }) }); assert.equal(r.status, 201); });
-  await measure('flowCold', 150, async () => { db.prepare('DELETE FROM bot_flow_cache WHERE bot_id=?').run(f.maker.id); const r = await flowApp.request(`/api/bots/${f.maker.id}/flow`, { headers: f.headers }); assert.equal(r.status, 200); });
-  await measure('flowWarm', 15, async () => { const r = await flowApp.request(`/api/bots/${f.maker.id}/flow`, { headers: f.headers }); assert.equal(r.status, 200); });
+  const flowSeed = seedFlow(), many = flowSeed.inputs.find(input => input.bot.id === 'flow-many');
+  recordFlowConnections(flowSeed.userId, many.apps);
+  const flowHeaders = { cookie: 'swarm_session=flow-test-token' };
+  report.flowFixture = { bot: 'flow-many', routines: many.routines.length, apps: many.apps.length };
+  await measure('flowCold', 150, async () => { db.prepare('DELETE FROM bot_flow_cache WHERE bot_id=?').run('flow-many'); const r = await flowApp.request('/api/bots/flow-many/flow', { headers: flowHeaders }); assert.equal(r.status, 200); });
+  await measure('flowWarm', 15, async () => { const r = await flowApp.request('/api/bots/flow-many/flow', { headers: flowHeaders }); assert.equal(r.status, 200); });
   const manifest = JSON.parse(fs.readFileSync('web/dist/.vite/manifest.json', 'utf8'));
   const entry = manifest['index.html'];
   const staticFiles = new Set();
