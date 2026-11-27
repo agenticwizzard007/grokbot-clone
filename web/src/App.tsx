@@ -61,6 +61,7 @@ function AuthenticatedApp() {
   // Every applied route publishes ConfigUI state, including browser history restores.
   useConfigUI();
   const userId = useStore(state => state.user?.id);
+  const routeHash = location.hash;
   // Keep HO-G's local Flow adapter on the shared history trail until its
   // standalone header and hash adapter can be removed by that workstream.
   useEffect(() => {
@@ -108,7 +109,8 @@ function AuthenticatedApp() {
       if (typeof key !== 'string') return;
       const [kind, id] = key.split(':');
       const screen = navigation.screen, botId = useStore.getState().selectedBotId;
-      if (!id || (kind === 'routine' || kind === 'skill' ? screen?.kind !== 'bot-settings' : screen?.kind !== 'settings' && screen?.kind !== 'apps')) return;
+      if (!id || (kind === 'routine' || kind === 'skill' ? screen?.kind !== 'bot-settings' || screen.tab !== (kind === 'routine' ? 'routines' : 'skills')
+        : kind === 'mcp' ? screen?.kind !== 'settings' || screen.section !== 'mcp' : screen?.kind !== 'apps' && (screen?.kind !== 'settings' || screen.section !== 'apps'))) return;
       let disposed = false, observer: MutationObserver | undefined, timer: ReturnType<typeof setTimeout> | undefined;
       let target: HTMLElement | undefined;
       cancel = () => { disposed = true; observer?.disconnect(); clearTimeout(timer); if (target) { target.style.removeProperty('outline'); target.style.removeProperty('outline-offset'); delete target.dataset.flowFocus; target.removeAttribute('tabindex'); } };
@@ -127,7 +129,7 @@ function AuthenticatedApp() {
         if (disposed || !label) return;
         const find = () => {
           if (disposed) return;
-          const selector = { routine: '.cfg-item--routine', skill: '.knowledge-item', mcp: '.mcp-server', app: '[data-layout="row"]' }[kind];
+          const selector = { routine: '.cfg-item--routine', skill: '.knowledge-item__row', mcp: '.mcp-server', app: '[data-layout="row"]' }[kind];
           if (!selector) return;
           target = [...document.querySelectorAll<HTMLElement>(selector)].find(row => row.getClientRects().length && [...row.querySelectorAll('strong, .cfg-item__title, .settings-provider, .layout-row__title')].some(title => title.textContent?.trim() === label || title.firstChild?.textContent?.trim() === label));
           if (!target) return;
@@ -145,7 +147,7 @@ function AuthenticatedApp() {
     window.addEventListener('popstate', focus);
     window.addEventListener('hashchange', focus);
     return () => { cancel(); window.removeEventListener('swarm:flow-focus', focus); window.removeEventListener('popstate', focus); window.removeEventListener('hashchange', focus); };
-  }, [userId]);
+  }, [userId, routeHash]);
   return <AuthenticatedShell />;
 }
 

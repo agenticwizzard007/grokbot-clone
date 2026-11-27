@@ -153,6 +153,7 @@ for (const path of ['/outputs/*', '/handoffs', '/handoffs/*', '/handoff-settings
       const { steps, verdicts, iterations, bestOutput, events, resultText, usage, gate, ...loop } = value;
       extra = { loop };
       if (steps) {
+        extra.usage = { tracked: !!usage?.tracked, ...(typeof usage?.costUsd === 'number' ? { costUsd: usage.costUsd } : {}), ...(typeof usage?.tokens === 'number' ? { tokens: usage.tokens } : {}) };
         extra.gate = gate?.kind ? { ...gate, kind: gate.kind === 'each' ? 'iteration' : gate.kind, iteration: value.iteration, expiresAt: gate.requestedAt + 86400_000 } : undefined;
         extra.canExtend = !gate?.extended && value.spec.limits.maxIterations <= 8 && (value.stopReason === 'max_iterations' || gate?.kind === 'cap');
       }

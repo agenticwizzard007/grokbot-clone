@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { Hono } from 'hono';
-import { fixture, output, db, jobs, links, requests, spec, cleanup, createBot } from './server-fixture.test.mts';
+import { fixture, output, db, jobs, links, requests, spec, cleanup, createBot, flush } from './server-fixture.test.mts';
 
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async () => { throw new Error('Provider access is forbidden in integration tests.'); };
@@ -99,4 +99,15 @@ test('room message snapshots use the speaking member and enforce tenancy, visibi
   assert.equal((await call(f, '/outputs/from-message', 'POST', ref)).status, 404);
   links.updateSettings(f.userId, { enabled: false, agentHandoffs: 'team' });
   assert.equal((await call(f, '/outputs/from-message', 'POST', ref)).status, 503);
+});
+
+test('loop usage omits an unknown cost while retaining measured tokens', async () => {
+  const f = fixture();
+  const created = await (await call(f, '/loops', 'POST', { spec: spec(f), start: true, idempotencyKey: 'integration-usage' })).json();
+  await flush(f);
+  const step = db.prepare('SELECT job_id FROM loop_steps WHERE loop_id=?').get(created.id) as { job_id: string };
+  assert.ok(step.job_id);
+  db.prepare("INSERT INTO usage_events(user_id,bot_id,kind,provider,model,input_tokens,output_tokens,created_at,job_id) VALUES(?,?,'chat','fixture','placeholder',10,5,?,?)").run(f.userId, f.maker.id, Date.now(), step.job_id);
+  const detail = await (await call(f, `/loops/${created.id}`)).json();
+  assert.deepEqual(detail.usage, { tracked: true, tokens: 15 });
 });
