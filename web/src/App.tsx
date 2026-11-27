@@ -1,14 +1,127 @@
 import { PreviewBanner, AppearanceUndo } from './customization/PreviewBanner';
 import { SafeModeBanner } from './customization/SafeModeBanner';
-import { lazy, Suspense, useEffect } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { installOverlayScrollbars } from './lib/overlayScrollbars';
 import { useStore } from './store';
 import { SignIn } from './components/SignIn';
 import { installVoiceEntry } from './voice/entry';
 import { consumeSignedInRedirect } from './lib/signedIn';
+import { navigation, useConfigUI } from './configStore';
+import { parentScreen, type Screen } from './lib/navigation';
+import { startEvents } from './lib/events';
+import type { RunOutput } from './handoffs/api';
+import type { LoopDraft } from './handoffs/loops/LoopSheet';
 
 const AuthenticatedShell = lazy(() => import('./AuthenticatedShell').then(m => ({ default: m.AuthenticatedShell })));
 const JoinPage = lazy(() => import('./components/JoinPage').then(m => ({ default: m.JoinPage })));
+const LoopsPage = lazy(() => import('./handoffs/loops/LoopsPage'));
+const LoopRun = lazy(() => import('./handoffs/loops/LoopRun'));
+const HandoffDetail = lazy(() => import('./handoffs/HandoffDetail').then(m => ({ default: m.HandoffDetail })));
+const OutputViewer = lazy(() => import('./handoffs/OutputViewer').then(m => ({ default: m.OutputViewer })));
+const SendSheet = lazy(() => import('./handoffs/SendSheet').then(m => ({ default: m.SendSheet })));
+const LoopSheet = lazy(() => import('./handoffs/loops/LoopSheet'));
+type HandoffScreen = Extract<Screen, { kind: 'loops' | 'loop' | 'handoff' | 'output' }>;
+
+/** Route boundary stays here until the customization shell mount is available. */
+function HandoffRoutes({ screen }: { screen: HandoffScreen }) {
+  const bots = useStore(state => state.bots);
+  const [send, setSend] = useState<RunOutput | null>(null);
+  const [loop, setLoop] = useState<LoopDraft | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    void useStore.getState().loadBots().catch(() => {});
+    return startEvents();
+  }, []);
+  useEffect(() => {
+    setSend(null); setLoop(null); setError('');
+    if (screen.kind !== 'output' || !screen.send) return;
+    const controller = new AbortController();
+    void import('./handoffs/api').then(({ handoffApi }) => handoffApi.output(screen.id, controller.signal)).then(value => {
+      if (!controller.signal.aborted) setSend(value.output);
+    }).catch(() => { if (!controller.signal.aborted) setError('Could not open Send to agent. Try again.'); });
+    return () => controller.abort();
+  }, [screen.kind, 'id' in screen ? screen.id : '', screen.kind === 'output' && screen.send]);
+  const back = () => navigation.back(parentScreen(screen) ?? { kind: 'bots' });
+  const startLoop = async (output: RunOutput) => {
+    const { newLoopSpec } = await import('./handoffs/loops/LoopSheet');
+    setLoop(newLoopSpec(output.botId, '', `swarm://output/${output.id}`));
+  };
+  return <main className="paper-shell" style={{ height: '100dvh', overflowY: 'auto' }}>
+    {error && <p role="alert">{error}</p>}
+    <Suspense fallback={<div className="boot" role="status">Loading...</div>}>
+      {screen.kind === 'loops' && <LoopsPage onBack={back} onOpen={id => navigation.navigate({ kind: 'loop', id })} usageTracked={false} />}
+      {screen.kind === 'loop' && <LoopRun id={screen.id} onBack={back} />}
+      {screen.kind === 'handoff' && <HandoffDetail handoffId={screen.id} onBack={back} onSend={setSend} />}
+      {screen.kind === 'output' && <OutputViewer outputId={screen.id} partId={screen.part} onBack={back} onSend={setSend} onStartLoop={output => void startLoop(output)} />}
+      {send && <SendSheet open senderId={send.botId} output={send} onClose={() => setSend(null)} onSent={handoff => navigation.navigate({ kind: 'handoff', id: handoff.id })} onLoopStarted={id => navigation.navigate({ kind: 'loop', id })} />}
+      {loop && <LoopSheet bots={bots} initial={loop} usageTracked={false} onClose={() => setLoop(null)} onCreated={id => navigation.navigate({ kind: 'loop', id })} />}
+    </Suspense>
+  </main>;
+}
+
+function AuthenticatedApp() {
+  // Every applied route publishes ConfigUI state, including browser history restores.
+  useConfigUI();
+  const userId = useStore(state => state.user?.id);
+  useEffect(() => {
+    const refresh = (message: Event) => {
+      const event = (message as CustomEvent).detail;
+      if (event?.type === 'flow') useConfigUI.getState().bump(`flow:${event.botId}`);
+      if (event?.type === 'reconnect') for (const bot of useStore.getState().bots) useConfigUI.getState().bump(`flow:${bot.id}`);
+    };
+    window.addEventListener('swarm:event', refresh);
+    return () => window.removeEventListener('swarm:event', refresh);
+  }, [userId]);
+  useEffect(() => {
+    let cancel = () => {};
+    const focus = async () => {
+      cancel();
+      const key = history.state?.flowFocus;
+      if (typeof key !== 'string') return;
+      const [kind, id] = key.split(':');
+      const screen = navigation.screen, botId = useStore.getState().selectedBotId;
+      if (!id || (kind === 'routine' || kind === 'skill' ? screen?.kind !== 'bot-settings' : screen?.kind !== 'settings' && screen?.kind !== 'apps')) return;
+      let disposed = false, observer: MutationObserver | undefined, timer: ReturnType<typeof setTimeout> | undefined;
+      let target: HTMLElement | undefined;
+      cancel = () => { disposed = true; observer?.disconnect(); clearTimeout(timer); if (target) { target.style.removeProperty('outline'); target.style.removeProperty('outline-offset'); delete target.dataset.flowFocus; target.removeAttribute('tabindex'); } };
+      try {
+        const { configApi } = await import('./lib/configApi');
+        let label: string | undefined;
+        if ((kind === 'routine' || kind === 'skill') && botId) {
+          const data = await configApi.settings(botId);
+          label = (kind === 'routine' ? data.routines : data.skills).find(item => item.id === id)?.name;
+        } else if (kind === 'mcp') label = (await configApi.mcpServers()).servers.find(item => item.id === id)?.name;
+        else if (kind === 'app') {
+          const { api } = await import('./lib/api');
+          const data = await api.apps();
+          label = [...data.apps, ...data.connectedApps ?? []].find(item => item.slug === id)?.name ?? id;
+        }
+        if (disposed || !label) return;
+        const find = () => {
+          if (disposed) return;
+          const selector = { routine: '.cfg-item--routine', skill: '.knowledge-item', mcp: '.mcp-server', app: '[data-layout="row"]' }[kind];
+          if (!selector) return;
+          target = [...document.querySelectorAll<HTMLElement>(selector)].find(row => row.getClientRects().length && [...row.querySelectorAll('strong, .cfg-item__title, .settings-provider, .layout-row__title')].some(title => title.textContent?.trim() === label || title.firstChild?.textContent?.trim() === label));
+          if (!target) return;
+          observer?.disconnect(); clearTimeout(timer);
+          target.tabIndex = -1; target.dataset.flowFocus = key;
+          target.style.outline = '2px solid var(--accent)'; target.style.outlineOffset = '2px';
+          target.scrollIntoView({ block: 'center', behavior: 'instant' }); target.focus({ preventScroll: true });
+        };
+        observer = new MutationObserver(find); observer.observe(document.body, { childList: true, subtree: true });
+        timer = setTimeout(() => observer?.disconnect(), 5000); find();
+      } catch { /* A missing or deleted focus target leaves the destination usable. */ }
+    };
+    void focus();
+    window.addEventListener('swarm:flow-focus', focus);
+    window.addEventListener('popstate', focus);
+    window.addEventListener('hashchange', focus);
+    return () => { cancel(); window.removeEventListener('swarm:flow-focus', focus); window.removeEventListener('popstate', focus); window.removeEventListener('hashchange', focus); };
+  }, [userId]);
+  const screen = navigation.screen;
+  return screen && ['loops', 'loop', 'handoff', 'output'].includes(screen.kind)
+    ? <HandoffRoutes screen={screen as HandoffScreen} /> : <AuthenticatedShell />;
+}
 
 export function App() {
   const authChecked = useStore((s) => s.authChecked);
@@ -63,5 +176,5 @@ export function App() {
     </main>
   );
   if (!authChecked) return <div className="boot" />;
-  return user ? <><SafeModeBanner /><PreviewBanner /><AppearanceUndo /><Suspense fallback={<div className="boot" role="status">Loading...</div>}><AuthenticatedShell key={user.id} /></Suspense></> : <SignIn />;
+  return user ? <><SafeModeBanner /><PreviewBanner /><AppearanceUndo /><Suspense fallback={<div className="boot" role="status">Loading...</div>}><AuthenticatedApp key={user.id} /></Suspense></> : <SignIn />;
 }
