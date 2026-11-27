@@ -1,3 +1,6 @@
+import { ChevronLeft } from 'lucide-react';
+import { Page, Row } from './layout';
+import { ProviderLabel } from './ProviderMark';
 import { useEffect, useState } from 'react';
 import '@fontsource-variable/instrument-sans';
 import '../styles/signin-brand.css';
@@ -19,6 +22,8 @@ export function SignIn() {
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
+  const [codeStep, setCodeStep] = useState(false);
+  const [phoneAttempt, setPhoneAttempt] = useState(0);
   const { code: loginCode, error: callbackError } = useAuthCallback();
   const [error, setError] = useState<string | null>(callbackError);
   const expired = loginCode === 'expired';
@@ -39,45 +44,43 @@ export function SignIn() {
 
   return (
     <main className="signin access-signin">
-      <div className="signin__card">
+      <aside className="signin__story" aria-label="About Swarm">
+        <div className="signin__brand"><img className="signin__brand-light" src="/assets/swarms/wordmark.svg" alt="swarms.so" /><img className="signin__brand-dark" src="/assets/swarms/wordmark-night.svg" alt="swarms.so" /></div>
+        <div><h2>Ready on day one.</h2><Row title="Roles" /><Row title="Control" /><Row title="Your plan" /></div>
+        <div className="signin__works"><ProviderLabel provider="claude">Claude</ProviderLabel><ProviderLabel provider="openai">ChatGPT</ProviderLabel><ProviderLabel provider="openrouter">OpenRouter</ProviderLabel></div>
+      </aside>
+      <div className="signin__form-column">{codeStep && <header className="signin__topbar"><button type="button" aria-label="Back" onClick={() => setPhoneAttempt(n => n + 1)}><ChevronLeft size={20} aria-hidden /><span>Back</span></button></header>}<Page type="form" className="signin-page"><div className="signin__card">
         <header className="signin__header">
-          <div className="signin__brand">
+          <div className="signin__brand signin__phone-brand">
             <img className="signin__brand-light" src="/assets/swarms/wordmark.svg" width="200" height="32.62" alt="swarms.so" />
             <img className="signin__brand-dark" src="/assets/swarms/wordmark-night.svg" width="200" height="32.62" alt="swarms.so" />
           </div>
           <div className="signin__intro">
-            <h1 className="signin__title">Welcome to Swarm</h1>
-            <p className="signin__sub">Choose how you'd like to sign in.</p>
+            <h1 className="signin__title">Welcome</h1>
+
           </div>
         </header>
         {expired && <div className="signin__notice" role="status">That sign-in link has expired or was already used.</div>}
         {error && <div className="card__error signin__error" role="alert">{error}</div>}
-        <PhoneAuth mode="signin" />
+        <PhoneAuth key={phoneAttempt} mode="signin" onCodeStep={setCodeStep} />
         <section className="access-signin__alternatives" aria-labelledby="signin-other-methods">
-          <h2 className="signin__divider" id="signin-other-methods">Other ways to sign in</h2>
+          <h2 className="signin__divider" id="signin-other-methods">or</h2>
           <div className="signin__providers">
-            <div className="access-signin__provider">
-              <OpenRouterSignIn label="Continue with OpenRouter" />
-            </div>
-            {appleLogin && <div className="access-signin__provider"><AppleSignIn /></div>}
-            {googleLogin && <div className="access-signin__provider">
-              <AuthLink className="signin__google" href="/api/auth/google/start" icon={<GoogleG />} aria-describedby="signin-google-disclosure">Sign in with Google</AuthLink>
-            </div>}
+            {googleLogin && <AuthLink className="signin__google" href="/api/auth/google/start" icon={<GoogleG />}>Continue with Google</AuthLink>}
+            {appleLogin && <AppleSignIn />}
+            <OpenRouterSignIn label="Continue with OpenRouter" />
           </div>
-          <div className="access-signin__disclosures">
-            <p>Uses your OpenRouter model credits.</p>
-            {googleLogin && <p id="signin-google-disclosure">Google may request Gmail access through Composio to verify your email address.</p>}
-          </div>
+          <details className="signin__info"><summary>Learn more</summary><p>OpenRouter uses your model credits. Google may request Gmail access through Composio to verify your email.</p></details>
         </section>
         {devLogin && (
           <form className="signin__dev" onSubmit={dev}>
             <div className="signin__divider"><span>Dev sign-in</span></div>
             <input className="text-input" type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} aria-label="Email" />
             <input className="text-input" placeholder="Name (optional)" value={name} onChange={(e) => setName(e.target.value)} aria-label="Name" />
-            <button type="submit" className="btn btn--secondary" disabled={busy}>{busy ? 'Signing in…' : 'Continue with email'}</button>
+            <button type="submit" className="btn btn--secondary" disabled={busy}>{busy ? 'Signing in...' : 'Continue with email'}</button>
           </form>
         )}
-      </div>
+      </div></Page></div>
     </main>
   );
 }

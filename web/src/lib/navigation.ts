@@ -18,10 +18,11 @@ export type Screen =
   | { kind: 'bot-settings'; bot: string; tab: BotSettingsTab }
   | { kind: 'settings'; section?: AppSection }
   | { kind: 'work'; route: WorkRoute }
-  | { kind: 'create' | 'group' | 'search' | 'apps' };
+  | { kind: 'create' | 'group' | 'search' | 'apps' | 'first-run' };
 
 export function parseScreen(hash: string): Screen | null {
   if (!hash.startsWith('#')) return null;
+  if (hash === '#first-run') return { kind: 'first-run' };
   if (hash === '#bots') return { kind: 'bots' };
   if (hash === '#new-bot') return { kind: 'create' };
   if (hash === '#new-bot/group') return { kind: 'group' };
@@ -56,6 +57,7 @@ export function parseScreen(hash: string): Screen | null {
 
 export function screenHash(screen: Screen): string {
   switch (screen.kind) {
+    case 'first-run': return '#first-run';
     case 'bots': return '#bots';
     case 'chat': return `#bot/${encodeURIComponent(screen.bot)}`;
     case 'details': return `#bot/${encodeURIComponent(screen.bot)}/details/${({ activity: 'activity', tasks: 'tasks', library: 'files', configuration: 'setup' })[screen.tab]}${screen.setup ? `/${screen.setup}` : screen.reports ? '/reports' : ''}`;
@@ -72,7 +74,7 @@ export function screenHash(screen: Screen): string {
 /** Structural parents never depend on how a screen was opened. */
 export function parentScreen(screen: Screen): Screen | null {
   switch (screen.kind) {
-    case 'chat': case 'create': return { kind: 'bots' };
+    case 'first-run': case 'chat': case 'create': return { kind: 'bots' };
     case 'group': return { kind: 'create' };
     case 'details':
       if (screen.reports) return { kind: 'details', bot: screen.bot, tab: 'library' };
@@ -112,6 +114,7 @@ export function backLabel(screen: Screen, bots: NavigationBot[] = []): string {
   if (screen.kind === 'chat') return `Back to ${routeBot(screen.bot, bots)?.name ?? 'Bot'} chat`;
   if (screen.kind === 'details') return screen.tab === 'library' ? 'Back to files' : screen.tab === 'configuration' ? 'Back to setup' : 'Back to details';
   const names: Record<Screen['kind'], string> = {
+    'first-run': 'model setup',
     work: 'Tasks', details: 'details', bots: 'Bots', create: 'create a Bot', group: 'new group chat',
     'bot-settings': 'Bot settings', settings: 'Settings', chat: 'chat', search: 'search', apps: 'apps',
   };
@@ -140,6 +143,7 @@ export function screenTitle(screen: Screen, bots: NavigationBot[] = [], loaded =
     }
     case 'create': title = 'Create a Bot'; break;
     case 'group': title = 'New group chat'; break;
+    case 'first-run': title = 'Set up Swarm'; break;
     case 'search': title = 'Search'; break;
     case 'apps': title = 'Connect apps'; break;
     case 'bot-settings': title = `${name} · ${screen.tab[0].toUpperCase()}${screen.tab.slice(1)}`; break;
@@ -269,7 +273,7 @@ export class ScreenHistory {
 // The data store calls this bridge without importing the UI store (no module cycle).
 export const navigationActions: {
   chat?: (id: string, replace?: boolean) => void;
-  modal?: (kind: 'create' | 'group' | 'search' | 'apps' | null) => void;
+  modal?: (kind: 'create' | 'group' | 'search' | 'apps' | 'first-run' | null) => void;
   details?: (open: boolean) => void;
   list?: () => void;
 } = {};

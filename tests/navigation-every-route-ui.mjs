@@ -12,7 +12,7 @@ const routes = [
  '#settings', '#settings/', ...APP_SECTIONS.map(section => `#settings/${section}`), ...APP_SECTIONS.map(section => `#${section}`),
  '#api-keys', '#whatsapp', '#settings/api-keys', '#settings/whatsapp', '#settings/unknown',
  ...['tasks','team','goals','reports'].flatMap(tab => [`#${tab}`,`#bot/coordinator/${tab}`]),
- '#search', '#new-bot', '#new-bot/group', '#apps/connect', '#unknown', '#bot/missing',
+ '#first-run', '#search', '#new-bot', '#new-bot/group', '#apps/connect', '#unknown', '#bot/missing',
  ...['activity','tasks','files','setup'].map(tab => `#bot/project-room/details/${tab}`),
  ...BOT_TABS.map(tab => `#bot/project-room/settings/${tab}`),
 ];

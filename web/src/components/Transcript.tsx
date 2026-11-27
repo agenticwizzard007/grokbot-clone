@@ -1,6 +1,8 @@
+import { Page, Card, ButtonGroup } from './layout';
+import { prefillComposer } from './Composer';
 import { ProviderLabel } from './ProviderMark';
 import { api } from '../lib/api';
-import { LoadFeedback } from './LoadFeedback';
+import { LoadFeedback, ConnectionFeedback, PlanFeedback } from './LoadFeedback';
 import { MessageSkeleton } from './ChatSkeleton';
 import { useDisplayText } from '../lib/useDisplayText';
 import { isInternalRow, userFacingLive } from '../lib/audience';
@@ -29,7 +31,7 @@ import { savedFileResult, savedFileLinksByMessage } from '../lib/savedFiles';
 type Item =
   | { kind: 'exchange'; key: string; group: ExchangeGroup }
   | { kind: 'divider'; key: string; ts: number }
-  | { kind: 'group'; key: string; side: 'left' | 'right'; from?: MessageBody['from']; rows: Row[] }
+  | { kind: 'group'; key: string; side: 'left' | 'right'; from?: MessageBody['from']; rows: Row[]; runRows?: Row[] }
   | { kind: 'steps'; key: string; rows: Row[] }
   | { kind: 'row'; key: string; row: Row };
 
@@ -63,7 +65,11 @@ function buildItems(rows: Row[], exchanges: ExchangeGroup[], separateReplies: Se
       const lastBody = lastRow?.body as MessageBody | undefined;
       const lastSender = lastBody ? (lastBody.from ? `${lastBody.from.kind}:${lastBody.from.id}` : lastBody.role) : null;
       if (last?.kind === 'group' && lastSender === sender && lastRow?.body.jobId === row.body.jobId && !separateReplies.has(row.seq) && row.createdAt - lastRow!.createdAt < GROUP_GAP) last.rows.push(row);
-      else items.push({ kind: 'group', key: `g${row.seq}`, side, from: b.from, rows: [row] });
+      else {
+        const runRows = side === 'left' && last?.kind === 'steps' && last.rows.at(-1)?.body.jobId === b.jobId ? last.rows : undefined;
+        if (runRows) items.pop();
+        items.push({ kind: 'group', key: `g${row.seq}`, side, from: b.from, rows: [row], runRows });
+      }
       continue;
     }
     items.push({ kind: 'row', key: `r${row.seq}`, row });
@@ -131,6 +137,12 @@ function TextMark() {
 
 const isText = (kind: NonNullable<MessageBody['from']>['kind']) => kind === 'imessage' || kind === 'sms' || kind === 'whatsapp';
 
+function AgentMessageHeading({ bot, from }: { bot: Bot; from?: MessageBody['from'] }) {
+  const sender = useStore(s => from?.kind === 'bot' ? s.bots.find(b => b.id === from.id) : undefined);
+  const clean = useDisplayText();
+  return <div className="agent-message__heading"><BotAvatarFor bot={sender ?? bot} size={28} /><span>{clean(from?.name || bot.name)}</span></div>;
+}
+
 function SenderLabel({ from }: { from: NonNullable<MessageBody['from']> }) {
   const clean = useDisplayText();
   const bot = useStore((s) => (from.kind === 'bot' ? s.bots.find((b) => b.id === from.id) : undefined));
@@ -153,7 +165,7 @@ function Steps({ rows }: { rows: Row[] }) {
   return (
     <div className={`steps${open ? ' is-open' : ''}`}>
       <button type="button" className="steps__toggle" onClick={() => setOpen(!open)} aria-expanded={open}>
-        {n} {n === 1 ? 'step' : 'steps'}
+        Run log · {n} {n === 1 ? 'step' : 'steps'}
         <Icon name="chev_down" size={10} opacity={0.66} className="steps__chev" />
       </button>
       {rows.map(row => {
@@ -211,8 +223,8 @@ const SystemRow = memo(function SystemRow({ row }: { row: Row }) {
     finally { setRetrying(false); }
   };
   if (b.type === 'event') return <div className="system-event" data-row-seq={row.seq}>{clean(b.text)}</div>;
-  if (b.type === 'notice') return <div className={`notice is-${b.tone ?? 'info'}`} data-row-seq={row.seq} data-recovery-job={b.recovery?.jobId}>
-    <div>{b.text === 'Stopped.' ? 'This request was interrupted before it finished. Send your request again to retry.' : clean(b.text)}</div>
+  if (b.type === 'notice') return <Card className={`notice is-${b.tone ?? 'info'}`} data-row-seq={row.seq} data-recovery-job={b.recovery?.jobId}>
+    <div>{b.text === 'Stopped.' ? 'Request interrupted. Send again to retry.' : clean(b.text)}</div>
     {b.credits && <div className="credit-notice">
       <p><ProviderLabel provider={b.credits.provider}>{b.credits.provider}</ProviderLabel> could not fund this request. Check your API balance or wait for other requests to finish, then retry.</p>
       {b.credits.billingUrl && <a href={b.credits.billingUrl} target="_blank" rel="noopener noreferrer">Manage {b.credits.provider} credits</a>}
@@ -227,7 +239,7 @@ const SystemRow = memo(function SystemRow({ row }: { row: Row }) {
         {step.summary && <div>{clean(step.summary)}</div>}
       </li>)}</ul> : <p>No tool actions were recorded for this request.</p>}
     </details>}
-  </div>;
+  </Card>;
   // display: contents keeps the card layout unchanged while giving deep links (search, Tasks) an anchor.
   if (b.type === 'card') return <div data-row-seq={row.seq} style={{ display: 'contents' }}><CardRow row={row} /></div>;
   return null;
@@ -409,15 +421,17 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
   return (
     <div className="transcript-wrap">
     <CompletedReplyAnnouncer key={`${bot.id}:${generation}`} rows={visibleRows} loaded={loaded} botName={bot.name} />
-    {(!loaded || paging?.error || paging?.loading) && <LoadFeedback label="messages" error={paging?.error} loading={!!paging?.loading || (!loaded && !paging?.error)} stale={loaded || rows.length > 0} onRetry={() => { void useStore.getState().loadRows(bot.id).catch(() => {}); }} />}
+
     <div className="transcript" ref={scrollRef} onScroll={onScroll} data-bot-id={bot.id} data-generation={generation}>
-      <div className="transcript__col">
+      <Page type="chat" className="transcript-page"><div className="transcript__col">
+    {(paging?.error || (loaded && paging?.loading)) && <LoadFeedback label="messages" error={paging?.error} loading={!!paging?.loading || (!loaded && !paging?.error)} stale={loaded || rows.length > 0} onRetry={() => { void useStore.getState().loadRows(bot.id).catch(() => {}); }} />}
+        <ConnectionFeedback />
         {!loaded && !paging?.error && <MessageSkeleton />}
         {paging?.olderCursor != null && <button type="button" className="transcript__older" disabled={paging.loadingOlder} onClick={() => useStore.getState().loadOlderRows(bot.id).catch(() => {})}>{paging.loadingOlder ? 'Loading earlier messages...' : 'Earlier messages'}</button>}
         {paging?.olderError && <p className="transcript__error" role="status">{paging.olderError}</p>}
         {empty && !processing && <EmptyChat bot={bot} />}
         {exchanges.more && <button type="button" className="agent-exchange__more" disabled={exchanges.loading} onClick={exchanges.loadMore}>Earlier Bot conversations</button>}
-        {exchanges.error && <p className="agent-exchange__error" role="status">Couldn’t refresh Bot conversations. <button type="button" onClick={exchanges.retry}>Retry</button></p>}
+        {exchanges.error && <p className="agent-exchange__error" role="status">Could not refresh conversations. <button type="button" onClick={exchanges.retry}>Retry</button></p>}
         {items.map((it) => {
           switch (it.kind) {
             case 'exchange':
@@ -432,7 +446,9 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
               const height = Math.max(0, ...it.rows.map(row => Math.max(responseHeights.current.get(row.seq) ?? 0, row.seq === firstReply?.seq ? responseHeight.current : 0)));
               return (
                 <div key={it.key} className={`group is-${it.side}`} style={height ? { minHeight: height } : undefined}>
-                  {it.from && <SenderLabel from={it.from} />}
+                  {it.side === 'left' && <AgentMessageHeading bot={bot} from={it.from} />}
+                  {it.runRows && <Steps rows={it.runRows} />}
+                  {it.from && it.from.kind !== 'bot' && <SenderLabel from={it.from} />}
                   {it.rows.map((r, i) => (
                     <Fragment key={r.seq}><Bubble row={r} side={it.side} botName={bot.name} pos={cornerClass(i, it.rows.length)} savedFileLinks={savedFileLinks.get(r.seq)} /></Fragment>
                   ))}
@@ -449,9 +465,10 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
             {showActivity && live && <ActivityLine bot={bot} live={live} rows={visibleRows} />}
           </div>
         )}
+        <PlanFeedback />
         {bot.isPrimary && <CoworkerSetupCards key={bot.id} coordinator={bot} />}
         {!pendingResponse && showActivity && live && <ActivityLine bot={bot} live={live} rows={visibleRows} />}
-      </div>
+      </div></Page>
     </div>
       {showJump && (
         <div className="transcript__jump">
@@ -465,11 +482,12 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
 });
 
 function EmptyChat({ bot }: { bot: Bot }) {
-  return (
-    <div className="empty-chat">
-      <BotAvatarFor bot={bot} size={72} />
-      <div className="empty-chat__title">{bot.name}</div>
-      <div className="empty-chat__sub">{bot.description || (bot.mode === 'teammate' ? 'A Bot for the whole team. Hand it a task and it will see it through.' : 'Your personal assistant. Hand it a task and it will see it through.')}</div>
-    </div>
-  );
+  return <Card className="empty-chat">
+    <FlockMark size={56} />
+    <h1 className="empty-chat__title">What can I help with?</h1>
+    <p className="empty-chat__sub">Give your Bot a task.</p>
+    <ButtonGroup stack className="empty-chat__suggestions">
+      {['Plan my day', 'Research a topic', 'Draft a message'].map(prompt => <button key={prompt} type="button" className="btn btn--secondary" onClick={() => prefillComposer(bot.id, prompt)}>{prompt}</button>)}
+    </ButtonGroup>
+  </Card>;
 }

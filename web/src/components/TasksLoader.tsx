@@ -1,3 +1,4 @@
+import { Page, Card } from './layout';
 import { useEffect, useState, type ComponentType } from 'react';
 import { retryImport } from '../lib/retryImport';
 
@@ -20,7 +21,7 @@ export function TasksLoader() {
   }, [attempt]);
   if (View) return <View />;
   return <main className="chat chat--empty" aria-label="Tasks">
-    <p role={error ? 'alert' : 'status'}>{error ? 'Tasks unavailable. Check your connection and retry.' : 'Loading Tasks…'}</p>
+    <Page type="list"><Card><p role={error ? 'alert' : 'status'}>{error ? 'Tasks unavailable.' : 'Loading Tasks...'}</p>
     {error && <button type="button" className="btn btn--secondary" onClick={() => setAttempt(n => n + 1)}>Retry Tasks</button>}
-  </main>;
+  </Card></Page></main>;
 }

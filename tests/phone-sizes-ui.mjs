@@ -123,13 +123,12 @@ try {
     });
     await check('search', async () => {
       await route('#search');
-      await page.getByRole('dialog').first().waitFor();
+      await page.getByRole('textbox', { name: 'Search', exact: true }).waitFor();
     });
     for (const tab of WORK_TABS) {
       await check(`work ${tab}`, async () => {
-        await route('#tasks');
+        await route(tab === 'Reports' ? '#reports' : `#${tab.toLowerCase()}`);
         await page.locator('.tasks-view, .work-ui').first().waitFor();
-        if (tab !== 'Tasks') await page.locator('.work-tabs').getByRole('button', { name: tab === 'Reports' ? 'Files' : tab, exact: true }).click();
       });
     }
     for (const section of SETTINGS) {

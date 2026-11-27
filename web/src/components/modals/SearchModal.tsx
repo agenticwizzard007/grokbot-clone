@@ -1,3 +1,10 @@
+import { Page } from '../layout';
+import { configApi } from '../../lib/configApi';
+import { deliverablesApi } from '../../lib/deliverablesApi';
+import { navigation as appNavigation } from '../../configStore';
+import { botSlug } from '../../lib/userRoutes';
+import { FileText, ListTodo } from 'lucide-react';
+import '../../styles/search.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BotAvatarFor } from '../../avatar/BotAvatar';
 import { displayName, useStore } from '../../store';
@@ -7,7 +14,8 @@ import { api, type ConversationSearchHit } from '../../lib/api';
 import { scrollToRow } from '../../lib/scrollToRow';
 import { Modal } from './Modal';
 
-type Item = { kind: 'bot'; id: string } | { kind: 'message'; hit: ConversationSearchHit };
+type WorkHit = { id: string; botId: string; title: string; kind: 'file' | 'task' };
+type Item = { kind: 'bot'; id: string } | { kind: 'message'; hit: ConversationSearchHit } | WorkHit;
 
 /** Search Bots by name and every Bot's visible conversation by message text (MF-028, PD-08 option B). */
 export function SearchModal({ inline = false }: { inline?: boolean }) {
@@ -16,6 +24,9 @@ export function SearchModal({ inline = false }: { inline?: boolean }) {
   const setModal = useStore((s) => s.setModal);
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
+  const [work, setWork] = useState<WorkHit[]>([]);
+  const [workError, setWorkError] = useState(false);
+  const [workLoading, setWorkLoading] = useState(false);
   const [messages, setMessages] = useState<ConversationSearchHit[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -35,7 +46,7 @@ export function SearchModal({ inline = false }: { inline?: boolean }) {
   // Message search runs on the server across all Bots, debounced while typing.
   useEffect(() => {
     const needle = q.trim();
-    setSearchError(null);
+    setSearchError(null); setWork([]); setWorkError(false);
     if (needle.length < 2) { setMessages([]); setSearching(false); return; }
     let live = true;
     setSearching(true);
@@ -48,10 +59,32 @@ export function SearchModal({ inline = false }: { inline?: boolean }) {
     return () => { live = false; clearTimeout(timer); };
   }, [q, accountId]);
 
+  useEffect(() => {
+    const needle = q.trim().toLowerCase();
+    if (needle.length < 2) { setWorkLoading(false); return; }
+    setWorkLoading(true);
+    let alive = true;
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      const records = await Promise.allSettled([configApi.tasks(), ...bots.filter(bot => bot.kind !== 'room').map(bot => deliverablesApi.list(bot.id, controller.signal))]);
+      if (!alive || useStore.getState().user?.id !== accountId) return;
+      const hits: WorkHit[] = [];
+      for (const record of records) if (record.status === 'fulfilled') {
+        if ('tasks' in record.value) hits.push(...record.value.tasks.map(task => ({ kind: 'task' as const, id: task.id, botId: task.botId, title: task.title })));
+        else hits.push(...record.value.artifacts.map(file => ({ kind: 'file' as const, id: file.id, botId: file.botId, title: file.filename })));
+      }
+      setWork(hits.filter(hit => bots.some(bot => bot.id === hit.botId) && hit.title.toLowerCase().includes(needle)));
+      setWorkError(records.some(record => record.status === 'rejected'));
+      setWorkLoading(false);
+    }, 250);
+    return () => { alive = false; controller.abort(); clearTimeout(timer); };
+  }, [q, accountId, bots]);
+
   const items: Item[] = useMemo(() => [
     ...results.map(b => ({ kind: 'bot' as const, id: b.id })),
     ...messages.filter(m => bots.some(b => b.id === m.botId)).map(hit => ({ kind: 'message' as const, hit })),
-  ], [results, messages, bots]);
+    ...work,
+  ], [results, messages, bots, work]);
 
   useEffect(() => setActive(0), [q]);
   useEffect(() => {
@@ -67,6 +100,12 @@ export function SearchModal({ inline = false }: { inline?: boolean }) {
   const choose = async (item: Item | undefined) => {
     if (!item || opening) return;
     if (item.kind === 'bot') { openConversation(item.id); return; }
+    if (item.kind === 'file' || item.kind === 'task') {
+      const bot = bots.find(bot => bot.id === item.botId);
+      if (bot) appNavigation.navigate({ kind: 'work', route: { tab: item.kind === 'file' ? 'Reports' : 'Tasks', botSlug: botSlug(bot) } });
+      return;
+    }
+    if (item.kind !== 'message') return;
     const request = ++navigation.current;
     setOpening(true);
     setOpenError(null);
@@ -84,17 +123,17 @@ export function SearchModal({ inline = false }: { inline?: boolean }) {
     }
   };
   const botResults = results.length;
-  const messageItems = items.slice(botResults);
+  const messageItems = items.filter(item => item.kind === 'message');
   const needle = q.trim();
 
   return (
     <Modal embedded={inline} onClose={close} className="search-modal" label="Search" passThrough=".sidebar">
-      <div className="search-modal__field">
+      <Page type="list" className="search-page"><div className="search-modal__field">
         <span className="search-modal__icon"><Icon name="search" size={18} opacity={0.56} /></span>
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search Bots and messages"
+          placeholder="Search"
           aria-label="Search"
           onKeyDown={(e) => {
             if (e.key === 'ArrowDown') { e.preventDefault(); setActive((a) => Math.max(0, Math.min(a + 1, items.length - 1))); }
@@ -121,7 +160,7 @@ export function SearchModal({ inline = false }: { inline?: boolean }) {
             <BotAvatarFor bot={b} size={28} />
             <span className="search-row__text">
               <span className="search-row__name">{displayName(b)}</span>
-              <span className="search-row__sub">{b.lastPreview ?? (b.description || 'No messages yet')}</span>
+
             </span>
           </button>
         ))}
@@ -150,12 +189,21 @@ export function SearchModal({ inline = false }: { inline?: boolean }) {
             </button>
           );
         })}
+        {work.length > 0 && <div className="search-modal__section">Files and tasks</div>}
+        {work.map((item, j) => {
+          const index = botResults + messageItems.length + j;
+          return <button key={`${item.kind}:${item.id}`} type="button" className={`search-row${index === active ? ' is-active' : ''}`} role="option" aria-selected={index === active} data-idx={index} onMouseMove={() => setActive(index)} onClick={() => void choose(item)}>
+            {item.kind === 'file' ? <FileText size={20} aria-hidden /> : <ListTodo size={20} aria-hidden />}<span className="search-row__text"><span className="search-row__name">{item.title}</span><span className="search-row__sub">{bots.find(bot => bot.id === item.botId)?.name}</span></span>
+          </button>;
+        })}
+        {workError && <p role="status">Some files or tasks could not load.</p>}
         {opening && <div className="search-modal__empty" role="status">Loading the message...</div>}
         {openError && <div className="search-modal__empty" role="status">{openError}</div>}
         {needle.length >= 2 && searching && messageItems.length === 0 && <div className="search-modal__empty" role="status">Searching messages...</div>}
         {searchError && <div className="search-modal__empty" role="status">{searchError}</div>}
-        {items.length === 0 && !searching && !searchError && <div className="search-modal__empty" role="status">No Bots or messages match “{q}”<p>Try a different name or a word from the conversation.</p><button type="button" className="btn btn--secondary" onClick={() => setQ('')}>Clear search</button></div>}
+        {items.length === 0 && !searching && !workLoading && !searchError && !workError && <div className="search-modal__empty" role="status">No matches<p>Try another word.</p><button type="button" className="btn btn--secondary" onClick={() => setQ('')}>Clear search</button></div>}
       </div>
+      </Page>
     </Modal>
   );
 }

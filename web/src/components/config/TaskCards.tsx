@@ -1,4 +1,7 @@
-import { useMemo } from 'react';
+import { Card as LayoutCard } from '../layout';
+import { BotAvatarFor } from '../../avatar/BotAvatar';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { LabelWords } from '../ProviderMark';
 import type { Bot, Task } from '@shared/types';
 import type { NeedsYouItem } from '../../lib/api';
 import { queueImportedSetup } from '../../lib/setupApi';
@@ -16,7 +19,7 @@ import './workArea.css';
 import '@fontsource-variable/instrument-sans/wght.css';
 import '../../styles/tasks.css';
 
-export type Filter = 'all' | Task['state'];
+export type Filter = 'all' | 'open' | Task['state'];
 export type WorkContext = { filter: Filter; caller?: string; report?: ReportLocation };
 const defaultContext: WorkContext = { filter: 'all' };
 export let workContext = defaultContext;
@@ -35,24 +38,39 @@ function when(t: Task): string {
   return r === 'now' ? 'Just now' : r === 'Yesterday' ? 'Yesterday' : `${r} ago`;
 }
 
+function TaskTitle({ title }: { title: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [compact, setCompact] = useState(false);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const context = document.createElement('canvas').getContext('2d');
+    if (!context) return;
+    const measure = () => {
+      context.font = getComputedStyle(element).font;
+      setCompact(title.split(/\s+/).some(word => context.measureText(word).width > element.clientWidth));
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    measure();
+    return () => observer.disconnect();
+  }, [title]);
+  return <span ref={ref} className="task-card__title"><LabelWords>{compact ? 'Task details' : title}</LabelWords></span>;
+}
+
 export function TaskCard({ task, bot, compact = false }: { task: Task; bot?: Bot; compact?: boolean }) {
   const status = STATUS[task.state];
-  const note = task.note || (task.state === 'needs_input' ? 'Open chat to see what your Bot needs.' : task.state === 'done' ? 'Open chat to see the result.' : 'Your Bot is working on this task.');
   return (
-    <button type="button" className={`task-card is-${task.state}${compact ? ' is-compact' : ''}`} onClick={() => bot && openWorkChat(bot.id)} disabled={!bot} title={`${task.state === 'done' ? 'Completed' : 'Updated'} ${when(task)} (${new Date(task.updatedAt).toLocaleString()})`}
+    <LayoutCard className="task-card-frame"><button type="button" className={`task-card is-${task.state}${compact ? ' is-compact' : ''}`} onClick={() => bot && openWorkChat(bot.id)} disabled={!bot} title={`${task.title}. ${task.state === 'done' ? 'Completed' : 'Updated'} ${when(task)} (${new Date(task.updatedAt).toLocaleString()})`}
       aria-label={`${task.title}: ${status.label}. ${bot ? `${status.action} with ${bot.name}` : 'Bot unavailable'}`}>
-      <span className="task-card__top">
-        <span className={`task-status is-${task.state}`}>{status.chip}</span>
-      </span>
+
       <span className="task-card__body">
-        <span className="task-card__title">{task.title}</span>
-        <span className="task-card__note">{bot?.name ?? 'Bot unavailable'} · {note}</span>
-        <span className="task-card__row-status">{status.chip}</span>
+        <TaskTitle title={task.title} />
+        <span className="task-card__note">{bot && <BotAvatarFor bot={bot} size={20} />}{bot?.name ?? 'Bot unavailable'}</span>
+
       </span>
-      <span className="task-card__footer">
-        {bot && <span className="task-card__action">{status.action}</span>}
-      </span>
-    </button>
+
+    </button></LayoutCard>
   );
 }
 
@@ -71,16 +89,16 @@ export function NeedsYouCard({ item, bot, compact = false }: { item: NeedsYouIte
   const action = item.type === 'setup_review' ? 'Review setup' : item.type === 'approval' ? 'Review approval' : item.type === 'connect' ? 'Connect in chat' : 'Reply in chat';
   const name = bot?.name ?? item.botName ?? 'Bot unavailable';
   return (
-    <button type="button" className={`task-card is-needs_input is-attention${compact ? ' is-compact' : ''}`} onClick={() => openNeedsYou(item)} disabled={!bot}
+    <LayoutCard className="task-card-frame"><button type="button" className={`task-card is-needs_input is-attention${compact ? ' is-compact' : ''}`} onClick={() => openNeedsYou(item)} disabled={!bot}
       title={`Waiting since ${new Date(item.createdAt).toLocaleString()}`} aria-label={`${item.title}. ${kind}. ${bot ? `${action} with ${name}` : 'Bot unavailable'}`}>
-      <span className="task-card__top"><span className="task-status is-needs_input">Needs you</span></span>
+
       <span className="task-card__body">
-        <span className="task-card__title">{item.title}</span>
-        <span className="task-card__note">{name} · {kind}</span>
-        <span className="task-card__row-status">Needs you</span>
+        <TaskTitle title={item.title} />
+        <span className="task-card__note">{bot && <BotAvatarFor bot={bot} size={20} />}{name}</span>
+
       </span>
-      <span className="task-card__footer">{bot && <span className="task-card__action">{action}</span>}</span>
-    </button>
+
+    </button></LayoutCard>
   );
 }
 

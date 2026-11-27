@@ -94,12 +94,11 @@ try {
       localStorage.setItem('swarm.theme', 'light');
     }, bot.id);
     try {
-      await page.goto(base);
-      if (viewport.width <= 760) await page.locator('.sidebar .bot-row').filter({ hasText: name }).click();
+      await page.goto(`${base}/#bot/${encodeURIComponent(bot.id)}`);
       const banner = page.getByRole('region', { name: `${name} setup`, exact: true });
       await banner.waitFor();
       await page.evaluate(() => document.fonts.ready);
-      assert.equal(await banner.locator('.setup-banner__text').textContent(), `${name} is being set up. Answer a few questions, or start using it now.`);
+      assert.equal(await banner.locator('.setup-banner__text').textContent(), 'Finish setup');
       const geometry = await banner.evaluate(element => {
         const rect = node => {
           const { left, right, top, bottom } = node.getBoundingClientRect();
@@ -138,7 +137,7 @@ try {
         assert.ok(button.hit, `${button.label} receives pointer input`);
       }
       assert.equal(overlaps(...geometry.buttons), false, 'Action buttons do not overlap');
-      await banner.getByRole('button', { name: 'Review and activate', exact: true }).click();
+      await banner.getByRole('button', { name: 'Review setup', exact: true }).click();
       const details = page.getByRole('complementary', { name: 'Conversation details' });
       await details.getByRole('navigation', { name: 'Conversation details sections' })
         .getByRole('button', { name: 'Setup', exact: true }).waitFor();

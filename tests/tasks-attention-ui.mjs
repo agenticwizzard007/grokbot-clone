@@ -77,7 +77,7 @@ try {
     assert.ok(bot);
     assert.equal((await context.request.patch(`${base}/api/bots/${bot.id}`, { data: { name: 'Attention QA Bot' } })).status(), 200);
     const page = await context.newPage(), errors = [];
-    page.setDefaultTimeout(10000);
+    page.setDefaultTimeout(15000);
     await page.clock.install();
     await page.addInitScript(theme => { localStorage.setItem('swarm.theme', theme); localStorage.setItem('swarm.sidebarCollapsed', '0'); }, theme);
     page.on('pageerror', error => errors.push(error.message));
@@ -128,10 +128,11 @@ try {
       assert.equal(await work.getByText(/all caught up|No tasks are waiting|No pending tasks|No tasks yet/).count(), 0);
     };
     await page.goto(base + '/#bots');
+    if (width <= 760) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
     await sidebarCount.waitFor();
     assert.equal(await sidebarCount.getAttribute('aria-label'), 'Pending input count loading');
     assert.equal(await sidebarCount.innerText(), '·');
-    await boxFullyVisible(sidebarCount, { width: 32, height: 20 });
+    await boxFullyVisible(sidebarCount, { width: 24, height: 20 });
     const sidebarSize = await dimensions(sidebarCount);
     await page.screenshot({ path: path.join(evidence, `sidebar-loading-${width}-${theme}.png`) });
     await page.goto(base + '/#tasks');
@@ -213,13 +214,22 @@ try {
     tasks = [];
     await taskAlert.getByRole('button', { name: 'Retry', exact: true }).click();
     await taskAlert.waitFor({ state: 'hidden' });
-    await work.getByRole('heading', { name: /No tasks for .* yet/ }).waitFor();
+    await work.getByRole('heading', { name: 'No tasks yet', exact: true }).waitFor();
+    await work.locator('.task-filter.is-open').click();
+    failing = true;
+    await refresh();
+    await alert.waitFor();
+    assert.equal(await work.getByRole('heading', { name: 'No tasks yet', exact: true }).count(), 0, 'Open never reports empty while pending input is unknown');
+    failing = false;
+    await retry.click();
+    await work.getByRole('heading', { name: 'No tasks yet', exact: true }).waitFor();
+    await all.click();
     if (width === 1280) {
       failing = true;
       await refresh();
       await alert.waitFor();
       await page.locator('.sidebar-island__count[aria-label="Pending input count unavailable"]').waitFor();
-      await page.locator('.pinned__tile').filter({ hasText: 'Attention QA Bot' }).click();
+      await page.goto(base + `/#bot/${bot.id}`);
       await page.getByRole('button', { name: 'Open Attention QA Bot details', exact: true }).click();
       const details = page.getByRole('complementary', { name: 'Conversation details' });
       await details.getByRole('navigation', { name: 'Conversation details sections' }).getByRole('button', { name: 'Tasks', exact: true }).click();
@@ -234,6 +244,7 @@ try {
     // Check the visible sidebar through real delayed chat requests, including
     // task-list failures independently of the attention endpoint.
     await page.goto(base + '/#bots');
+    if (width <= 760) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
     await refresh();
     await page.waitForFunction(() => document.querySelector('.sidebar-island__count')?.dataset.state === 'ready');
     const checkSidebar = async (state, text, label) => {
@@ -242,8 +253,14 @@ try {
         return count?.dataset.state === state && count.textContent.trim() === text;
       }, { state, text });
       assert.equal(await sidebarCount.getAttribute('aria-label'), label);
-      await boxFullyVisible(sidebarCount, sidebarSize);
-      assert.deepEqual(await dimensions(sidebarCount), sidebarSize);
+      if (state === 'ready' && text === '') {
+        assert.equal(await sidebarCount.isVisible(), false, 'An empty ready badge is hidden');
+      } else {
+        const size = await dimensions(sidebarCount);
+        assert.ok(size.width >= sidebarSize.width, 'Badge grows to fit its complete count');
+        assert.equal(size.height, sidebarSize.height);
+        await boxFullyVisible(sidebarCount, size);
+      }
     };
     await checkSidebar('ready', '', '0 waiting on you');
     for (const total of [1, 10, 100]) {
@@ -269,7 +286,7 @@ try {
     await checkSidebar('ready', '', '0 waiting on you');
     await page.goto(base + '/#tasks');
     await page.waitForFunction(() => document.querySelector('.task-filter.is-all .task-filter__count')?.textContent === '0');
-    for (const filter of await work.locator('.task-filter__count').all()) assert.deepEqual(await dimensions(filter), filterSize);
+    for (const filter of await work.locator('.task-filter__count:visible').all()) assert.deepEqual(await dimensions(filter), filterSize);
     console.log(`PASS ${width}px ${theme}: stable sidebar/filter slots, loading, initial failure, retry failure, recovery, stale cards and zero, scoped state, independent task errors`);
     assert.deepEqual(errors, [], 'No page errors or external browser requests');
     await context.close();

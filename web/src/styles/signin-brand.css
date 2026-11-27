@@ -78,3 +78,50 @@
   .access-signin .signin__header { gap: 24px; }
   .access-signin .signin__title { font-size: 28px; line-height: 32px; }
 }
+
+/* Paper v3 entry: story and form columns have symmetric shared gutters. */
+.access-signin.signin { display: grid; grid-template-columns: minmax(0, 560px) minmax(0, 1fr); padding: 0; align-items: stretch; }
+.signin__story { display: flex; flex-direction: column; justify-content: space-between; gap: var(--space-5); padding: var(--space-5); background: var(--color-bg-sidebar); border-right: 1px solid var(--color-border); }
+.signin__story h2 { font: 700 40px/48px var(--font-heading); margin: 0 0 var(--space-4); }
+.signin__story .layout-row { border: 0; }
+.signin__works { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.signin__form-column { display: flex; align-items: center; min-width: 0; }
+.access-signin .signin-page { --layout-width: 400px; }
+.access-signin .signin__card { width: 100%; gap: var(--space-3); margin: 0; }
+.access-signin .signin__header { gap: var(--space-4); }
+.access-signin .signin__phone-brand { display: none; }
+.access-signin .signin__title { font-size: 28px; line-height: 36px; }
+.access-signin .signin__providers { gap: var(--space-2); }
+.access-signin .signin__info { color: var(--color-text-2); font-size: 12px; }
+.access-signin .signin__info summary { cursor: pointer; min-height: var(--control-h); display: flex; align-items: center; justify-content: center; }
+.access-signin:has(.phone-auth__code) .access-signin__alternatives { display: none; }
+.access-signin .auth-button, .access-signin .signin__dev :is(input, button) { min-height: var(--control-h); padding-block: 8px; }
+.access-signin .phone-auth { gap: var(--space-2); }
+.access-signin .phone-auth__code { text-align: center; font-size: 24px; letter-spacing: .55em; padding-inline: 8px; max-width: 100%; }
+.access-invite .join__bar a { display: inline-flex; align-items: center; gap: 4px; min-height: var(--control-h); color: var(--color-primary); }
+.access-invite .join__card.layout-card { width: 100%; max-width: none; margin: 0; padding: var(--space-3); border-radius: var(--radius-card); }
+.first-run { flex: 1; min-height: 0; overflow: auto; }
+.first-run__progress { display: flex; gap: var(--space-2); }
+.first-run__progress span { height: 4px; flex: 1; background: var(--color-border); }
+.first-run__progress span:nth-child(-n+2) { background: var(--color-primary); }
+.first-run__option { display: flex; align-items: center; width: 100%; gap: var(--space-3); text-align: left; }
+.first-run__option > span { flex: 1; }
+.first-run__option small { display: block; margin-top: 4px; color: var(--color-text-2); }
+.first-run__selected { border-color: var(--color-primary); background: var(--color-bg-active); }
+@media (max-width: 760px) {
+  .access-signin.signin { display: flex; padding: 0; }
+  .signin__story { display: none; }
+  .signin__form-column { flex: 1; width: 100%; }
+  .access-signin .signin__phone-brand { display: block; }
+  .access-signin .signin__title { font-size: 24px; line-height: 32px; }
+}
+@media (min-width: 761px) and (max-width: 1023px) {
+  .access-signin.signin { display: flex; padding: 0; }
+  .signin__story { display: none; }
+  .signin__form-column { flex: 1; width: 100%; }
+  .access-signin .signin__phone-brand { display: block; }
+}
+.signin__form-column { position: relative; }
+.signin__topbar { position: absolute; top: 8px; left: var(--space-5); }
+.signin__topbar button { display: inline-flex; align-items: center; gap: 4px; min-height: var(--control-h); color: var(--color-primary); }
+@media (max-width: 760px) { .signin__topbar { left: var(--space-3); } }

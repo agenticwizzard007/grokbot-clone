@@ -1,3 +1,4 @@
+import { Card } from '../layout';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useStore } from '../../store';
 import { useVersion } from '../../configStore';
@@ -46,7 +47,7 @@ export function WorkflowsPanel(props: PanelProps) {
   return <WorkflowSurface key={`${userId}:${props.botId}:${workBotKey(scopedBot)}`} {...props} userId={userId} />;
 }
 
-function WorkflowSurface({ botId, workspace, onHeading, onTeam, userId }: PanelProps & { userId?: string }) {
+function WorkflowSurface({ botId, workspace, onHeading, userId }: PanelProps & { userId?: string }) {
   const bots = useStore(state => state.bots);
   const connected = useStore(state => state.sseConnected);
   const version = useVersion(botId ? `tasks:${botId}` : 'tasks');
@@ -118,17 +119,16 @@ function WorkflowSurface({ botId, workspace, onHeading, onTeam, userId }: PanelP
         setReceipt('Goal saved. It has not started yet. Use Resume when you want it to run.');
       }
     }} />}
-    {!create && selected && !selection && <p role="status">{loading ? 'Loading saved record…' : 'This record is not available in this scope.'} {!loading && <button className="work-button" type="button" onClick={back}>Back to goals and workflows</button>}</p>}
+    {!create && selected && !selection && <p role="status">{loading ? 'Loading saved record...' : 'This record is not available in this scope.'} {!loading && <button className="work-button" type="button" onClick={back}>Close</button>}</p>}
     {!create && selection && selected?.kind === 'goal' && 'turnsUsed' in selection && <GoalDetail goal={selection} busy={busy || loading || !!readError} mutate={mutate} back={back} deferred={activate.includes(selection.id)} onResumed={() => setActivate(current => current.filter(id => id !== selection.id))} onDeleted={title => { setSelected(null); setReceipt(`Deleted ${title}.`); }} />}
     {!create && selection && selected?.kind === 'workflow' && 'tasks' in selection && <WorkflowDetail workflow={selection} workers={availableWorkers} workerError={workerError} busy={busy || loading || !!readError} mutate={mutate} back={back} name={name} />}
     {!create && !selected && state && <>
-      <div className="work-row"><div className="work-row__body"><div><h3>Persistent goals</h3><p className="work-meta">{state.goals.length ? `${state.goals.length} saved ${state.goals.length === 1 ? 'goal' : 'goals'}` : 'No goals yet. Start with an outcome and one acceptance check per line.'}</p></div><button className="work-button" type="button" onClick={() => newItem('goal')}>New goal</button></div></div>
-      {state.goals.map(goal => <div className="work-row work-goal-row" key={goal.id}><div className="work-row__body"><div><h3>{goal.title}</h3><p className="work-meta">{name(goal.botId)} · {goalStatusLabel(goal)} · {goalTurnUsage(goal)}</p></div><button className="work-button" type="button" onClick={() => setSelected({ kind: 'goal', id: goal.id })}>Open goal</button></div></div>)}
-      <div className="work-row"><div className="work-row__body"><div><h3>Workflows</h3><p className="work-meta">{state.workflows.length ? `${state.workflows.length} saved ${state.workflows.length === 1 ? 'workflow' : 'workflows'}` : 'No workflows yet. Draft a workflow and add tasks before you start it.'}</p></div><button className="work-button" type="button" onClick={() => newItem('workflow')}>New workflow</button></div></div>
-      {state.workflows.map(workflow => <div className="work-row" key={workflow.id}><div className="work-row__body"><div><h3>{workflow.title}</h3><p className="work-meta">{name(workflow.botId)} · {labelStatus(workflow.status)} · {workflow.tasks.length} {workflow.tasks.length === 1 ? 'task' : 'tasks'}</p></div><button className="work-button" type="button" onClick={() => setSelected({ kind: 'workflow', id: workflow.id })}>Open workflow</button></div></div>)}
-      {onTeam && <div className="work-row"><div className="work-row__body"><div><h3>Team board</h3><p className="work-meta">See who’s working and which tasks need attention.</p></div><button className="work-button" type="button" onClick={onTeam}>Team board</button></div></div>}
+      <Card className="work-row"><div className="work-row__body"><div><h3>Goals</h3></div><button className="work-button" type="button" onClick={() => newItem('goal')}>New goal</button></div></Card>
+      {state.goals.map(goal => <Card className="work-row work-goal-row" key={goal.id}><div className="work-row__body"><div><h3>{goal.title}</h3><p className="work-meta">{name(goal.botId)} · {goalStatusLabel(goal)} · {goalTurnUsage(goal)}</p></div><button className="work-button" type="button" onClick={() => setSelected({ kind: 'goal', id: goal.id })}>Open goal</button></div></Card>)}
+      <Card className="work-row"><div className="work-row__body"><div><h3>Workflows</h3></div><button className="work-button" type="button" onClick={() => newItem('workflow')}>New</button></div></Card>
+      {state.workflows.map(workflow => <Card className="work-row" key={workflow.id}><div className="work-row__body"><div><h3>{workflow.title}</h3><p className="work-meta">{name(workflow.botId)} · {labelStatus(workflow.status)} · {workflow.tasks.length} {workflow.tasks.length === 1 ? 'task' : 'tasks'}</p></div><button className="work-button" type="button" onClick={() => setSelected({ kind: 'workflow', id: workflow.id })}>Open workflow</button></div></Card>)}
       <div className="work-actions is-stack"><button className="work-button" type="button" onClick={refresh} disabled={loading}>Refresh</button>
-        {(botId || primary) && <button className="work-button" type="button" onClick={() => openWorkChat(botId ?? primary!.id)}>Manage work in chat</button>}
+        {(botId || primary) && <button className="work-button" type="button" onClick={() => openWorkChat(botId ?? primary!.id)}>Chat</button>}
       </div>
     </>}
   </section>;
@@ -202,19 +202,19 @@ function GoalDetail({ goal, busy, mutate, back, deferred, onResumed, onDeleted }
   const remove = async () => { const result = await mutate(() => workApi.deleteGoal(goal.id), goal.botId); if (result) onDeleted(goal.title); };
   const action = async (control: WorkControl) => { const result = await mutate(() => workApi.controlGoal(goal.id, control), goal.botId); if (result && control === 'resume') onResumed(); };
   return <>
-    <div className="work-row"><h3>Goal status · {goalStatusLabel(goal)}</h3><p className="work-meta">{goalTurnUsage(goal)}</p>
+    <Card className="work-row"><h3>Goal status · {goalStatusLabel(goal)}</h3><p className="work-meta">{goalTurnUsage(goal)}</p>
       {goal.maxTokens != null && <p className="work-meta">{goal.tokensUsed.toLocaleString()} of {goal.maxTokens.toLocaleString()} tokens</p>}
       {goal.maxSpendUsd != null && <p className="work-meta">${goal.spendUsd} of ${goal.maxSpendUsd} USD recorded</p>}
       {deferred && goal.status === 'active' && goal.turnsUsed === 0 && <p className="work-meta">Use Resume when you want this goal to start.</p>}
       {goal.reason && <p className="work-meta">{goal.reason}</p>}
       {!!(goal.unknownTokenTurns || goal.unknownSpendTurns) && <p className="work-meta">Some usage measurements are unavailable. Recorded amounts do not include unknown usage.</p>}
-    </div>
-    <div className="work-row"><h3>Acceptance checks</h3><ul>{goal.criteria.map(criterion => <li key={criterion.id}>{criterion.description}</li>)}</ul>
+    </Card>
+    <Card className="work-row"><h3>Acceptance checks</h3><ul>{goal.criteria.map(criterion => <li key={criterion.id}>{criterion.description}</li>)}</ul>
       {terminal(goal.status) ? (!!goal.evidence?.length && <details><summary>Completion evidence</summary><pre>{JSON.stringify(goal.evidence, null, 2)}</pre></details>) : <>
         <button className="work-button" type="button" aria-expanded={evidence} onClick={() => setEvidence(!evidence)}>Add completion evidence</button>
         {evidence && <EvidenceForm criteria={goal.criteria} sourceBotId={goal.botId} busy={busy} onSubmit={async refs => { if (await mutate(() => workApi.verifyGoal(goal.id, refs), goal.botId)) setEvidence(false); }} />}
       </>}
-    </div>
+    </Card>
     <div className="work-actions is-stack">{!terminal(goal.status) && <>
       {(goal.status !== 'active' || deferred) ? <button className="work-button is-primary" type="button" disabled={busy} onClick={() => void action('resume')}>Resume</button> : <>
         <button className="work-button is-primary" type="button" disabled={busy} onClick={() => void action('pause')}>Pause</button>
@@ -223,9 +223,9 @@ function GoalDetail({ goal, busy, mutate, back, deferred, onResumed, onDeleted }
       <button className="work-button" type="button" disabled={busy} onClick={() => void action('stop')}>Stop</button>
     </>}
       {goalDeletable(goal) && !confirmDelete && <button className="work-button" type="button" disabled={busy} onClick={() => setConfirmDelete(true)}>Delete goal…</button>}
-      <button className="work-button" type="button" disabled={busy} onClick={back}>Back to goals</button></div>
-    {goalDeletable(goal) && confirmDelete && <div className="work-row" role="group" aria-label="Delete this goal?"><h4>Delete {goal.title}?</h4><p className="work-meta">The goal leaves your Goals list. Its past runs stay in history.</p>
-      <div className="work-actions"><button className="work-button is-primary" type="button" disabled={busy} onClick={() => void remove()}>Delete goal</button><button className="work-button" type="button" disabled={busy} onClick={() => setConfirmDelete(false)}>Cancel</button></div></div>}
+      <button className="work-button" type="button" disabled={busy} onClick={back}>Close</button></div>
+    {goalDeletable(goal) && confirmDelete && <Card className="work-row" role="group" aria-label="Delete this goal?"><h4>Delete {goal.title}?</h4><p className="work-meta">The goal leaves your Goals list. Its past runs stay in history.</p>
+      <div className="work-actions"><button className="work-button is-primary" type="button" disabled={busy} onClick={() => void remove()}>Delete goal</button><button className="work-button" type="button" disabled={busy} onClick={() => setConfirmDelete(false)}>Cancel</button></div></Card>}
   </>;
 }
 
@@ -244,7 +244,7 @@ function WorkflowDetail({ workflow, workers, workerError, busy, mutate, back, na
       {workflow.status === 'draft' ? <button className="work-button is-primary" type="button" disabled={busy} onClick={() => void mutate(() => workApi.startWorkflow(workflow.id), workflow.botId)}>Start</button> : <button className="work-button is-primary" type="button" disabled={busy} onClick={() => void control(workflow.status === 'active' ? 'pause' : 'resume')}>{workflow.status === 'active' ? 'Pause' : 'Resume'}</button>}
       {!block && workflow.status !== 'blocked' && <button className="work-button" type="button" disabled={busy} onClick={() => setBlock(true)}>Block workflow</button>}
       <button className="work-button" type="button" disabled={busy} onClick={() => void control('stop')}>Stop</button>
-    </>}<button className="work-button" type="button" disabled={busy} onClick={back}>Back to workflows</button></div>
+    </>}<button className="work-button" type="button" disabled={busy} onClick={back}>Close</button></div>
   </>;
 }
 

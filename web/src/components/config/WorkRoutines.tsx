@@ -1,3 +1,4 @@
+import { Card } from '../layout';
 import { useEffect, useRef, useState } from 'react';
 import type { Bot, Routine } from '@shared/types';
 import { api } from '../../lib/api';
@@ -64,11 +65,11 @@ export function WorkRoutines({ bot, onReports }: { bot: Bot; onReports: () => vo
         {routine.activationPending && <p role="status">Updating event subscription...</p>}
         {routine.activationError && <p role="alert">{routine.activationError} <button type="button" disabled={disabled} onClick={() => void mutate(routine, (routine.activationTarget ?? !routine.enabled) ? 'resume' : 'pause')}>Retry</button></p>}
         <div className="work-actions is-stack"><button className="work-button" type="button" disabled={disabled} onClick={() => void runNow(routine)} aria-label={`Run ${routine.name} now`}>Run now</button><button className="work-button" type="button" disabled={disabled} onClick={() => setRemove(routine.id)}>Delete {routine.name}…</button><button className="work-button" type="button" onClick={() => setHistory(routine.id)}>Run history for {routine.name}</button></div>
-        {remove === routine.id && <div className="work-row"><h4>Delete {routine.name}?</h4><p className="work-meta">Future scheduled runs will stop. Existing runs and saved reports stay available.</p><div className="work-actions"><button className="work-button is-primary" type="button" disabled={disabled} onClick={() => void mutate(routine, 'delete')}>Delete routine</button><button className="work-button" type="button" disabled={!!busy} onClick={() => setRemove(undefined)}>Cancel</button></div></div>}
+        {remove === routine.id && <Card className="work-row"><h4>Delete {routine.name}?</h4><p className="work-meta">Future scheduled runs will stop. Existing runs and saved reports stay available.</p><div className="work-actions"><button className="work-button is-primary" type="button" disabled={disabled} onClick={() => void mutate(routine, 'delete')}>Delete routine</button><button className="work-button" type="button" disabled={!!busy} onClick={() => setRemove(undefined)}>Cancel</button></div></Card>}
       </article>)}
-      <div className="work-row"><div className="work-row__body"><div><h3>Run history</h3><p className="work-meta">Recent runs, errors and saved reports.</p></div><button className="work-button" type="button" onClick={() => setHistory('')}>Run history</button></div></div>
-      <div className="work-actions is-stack"><button className="work-button" type="button" disabled={disabled} onClick={() => setRevision(count => count + 1)}>Refresh routines</button><button className="work-button" type="button" onClick={() => openWorkChat(bot.id)}>Manage routine instructions in chat</button><button className="work-button" type="button" onClick={onReports}>Back to Files</button></div>
+      <Card className="work-row"><div className="work-row__body"><div><h3>Run history</h3><p className="work-meta">Recent runs, errors and saved reports.</p></div><button className="work-button" type="button" onClick={() => setHistory('')}>Run history</button></div></Card>
+      <div className="work-actions is-stack"><button className="work-button" type="button" disabled={disabled} onClick={() => setRevision(count => count + 1)}>Refresh routines</button><button className="work-button" type="button" onClick={() => openWorkChat(bot.id)}>Manage routine instructions in chat</button><button className="work-button" type="button" onClick={onReports}>Close</button></div>
     </>}
-    {history !== undefined && <><RoutineHistory botId={bot.id} routineId={history || undefined} /><div className="work-actions"><button className="work-button" type="button" onClick={() => setHistory(undefined)}>Back to routines</button></div></>}
+    {history !== undefined && <><RoutineHistory botId={bot.id} routineId={history || undefined} /><div className="work-actions"><button className="work-button" type="button" onClick={() => setHistory(undefined)}>Close</button></div></>}
   </section>;
 }

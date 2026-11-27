@@ -1,8 +1,5 @@
 .app .chat.tasks-view { min-width: 0; padding: 0; background: var(--color-bg-pane); container-type: inline-size; }
 .tasks-view__scroll { flex: 1 1 0; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
-.tasks-view__inner { width: min(100% - 48px, 720px); margin: 0 auto; padding: 36px 0 64px; }
-/* R2F-022: the board content alone breaks out to 1000px, so the heading and tabs never move between tabs. */
-@container (min-width: 769px) { .tasks-board-area.is-board { margin-inline: calc((100% - min(100cqw - 48px, 1000px)) / 2); } }
 .tasks-scope { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-bottom: 20px; padding: 8px 8px 8px 16px; border-radius: 12px; background: var(--work-tint); color: var(--color-text-primary); }
 .tasks-view__back { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 12px 0 6px; margin-left: -6px; border-radius: 10px; color: var(--color-text-primary); font-size: 14px; }
 .tasks-view__back:hover { background: var(--color-bg-hover); }
@@ -64,10 +61,62 @@
   .task-column__cards { grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); }
 }
 @container (max-width: 500px) {
-  .tasks-view .tasks-view__inner { width: calc(100% - 32px); padding: 24px 0 calc(32px + var(--safe-bottom)); }
   .task-column__cards, .task-board.is-filtered .task-column__cards { grid-template-columns: 1fr; }
   .task-board.is-filtered .task-card { grid-template-columns: minmax(0, 1fr) minmax(90px, 116px); gap: 14px; }
   .tasks-toolbar:has(+ .tasks-error) { margin-bottom: 18px; }
   .task-filter { padding-inline: 12px; }
 }
 @media (max-width: 760px) { .tasks-view__header { padding-inline: 4px; } }
+
+/* Paper v3 work pages share one list column. */
+.app.paper-shell .tasks-view { padding: 0; min-width: 0; background: var(--color-bg-pane); }
+.app.paper-shell .tasks-view__scroll { width: 100%; overflow: auto; }
+.app.paper-shell .tasks-view .work-heading { margin: 0; padding: 0; max-width: none; }
+.app.paper-shell .tasks-view .work-tabs { margin: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.app.paper-shell .tasks-view .work-tabs > button { flex: 1 1 0; min-height: var(--control-h); }
+.app.paper-shell .tasks-board-area { width: 100%; max-width: none; margin: 0; }
+.app.paper-shell .tasks-toolbar { margin: 0 0 var(--space-3); display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; justify-content: space-between; }
+.app.paper-shell .task-filters { display: flex; padding: 4px; border-radius: var(--radius-card); background: var(--color-bg-subtle); gap: 4px; }
+.app.paper-shell .task-filter { flex: 1; min-height: var(--control-h); padding: 0 16px; margin: 0; }
+.app.paper-shell .task-board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); width: 100%; }
+.app.paper-shell .task-board.is-filtered { grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); }
+.app.paper-shell .task-column { min-width: 0; padding: 0; border: 0; background: transparent; }
+.app.paper-shell .task-card-frame { padding: var(--space-3); border-radius: var(--radius-card); margin: 0; }
+.app.paper-shell .task-card { display: flex; flex-direction: column; gap: var(--space-2); width: 100%; min-width: 0; padding: 0; border: 0; border-radius: 0; box-shadow: none; background: transparent; text-align: left; }
+.app.paper-shell .task-card__body { display: flex; flex-direction: column; gap: var(--space-2); width: 100%; }
+.app.paper-shell .task-card__title { min-width: 0; font-size: 14px; line-height: 20px; font-weight: 500; overflow: visible; white-space: normal; -webkit-line-clamp: unset; overflow-wrap: normal; word-break: normal; }
+.app.paper-shell .task-card__note { display: flex; align-items: center; gap: var(--space-2); font-size: 12px; line-height: 16px; overflow-wrap: normal; word-break: normal; }
+.app.paper-shell .tasks-view .work-row { width: 100%; min-width: 0; border-radius: var(--radius-card); padding: var(--space-3); }
+@media (max-width: 760px) {
+  .app.paper-shell .task-board, .app.paper-shell .task-board.is-filtered { display: flex; flex-direction: column; gap: var(--space-4); }
+  .app.paper-shell .task-column:has(.layout-section__content:empty) { display: none; }
+  .app.paper-shell .task-filters { width: 100%; }
+  .app.paper-shell .tasks-toolbar > label { width: 100%; }
+  .app.paper-shell .task-card__body { flex-direction: row; align-items: center; justify-content: space-between; }
+  .app.paper-shell .task-card__title { flex: 1; }
+  .app.paper-shell .task-card__note { flex: 0 1 40%; }
+}
+.app.paper-shell .tasks-view__scroll { scrollbar-gutter: stable both-edges; }
+.work-more > summary { display: flex; align-items: center; min-height: var(--control-h); cursor: pointer; color: var(--color-text-2); }
+.app.paper-shell .tasks-view .work-heading { min-height: 0; }
+.app.paper-shell .tasks-view .work-heading h1 { margin: 0; line-height: 32px; }
+.app.paper-shell .tasks-view__scroll { scrollbar-gutter: auto; scrollbar-width: none; }
+.app.paper-shell .tasks-view__scroll::-webkit-scrollbar { display: none; }
+.app.paper-shell .task-column__filter { display: flex; justify-content: space-between; width: 100%; margin: 0; padding: 0; gap: 4px; text-align: left; }
+.app.paper-shell .task-column .layout-section__header h2 { width: 100%; }
+.app.paper-shell .task-column .layout-section__header { min-height: var(--control-h); }
+.app.paper-shell .task-filters .task-filter { padding-inline: 8px; gap: 4px; }
+.tasks-empty-title { font: 500 14px/20px var(--font-stack); color: var(--color-text-2); }
+@media (max-width: 760px) {
+  .app.paper-shell .task-board.is-filtered .task-column:has(.layout-section__content:empty) { display: flex; }
+}
+.app.paper-shell .tasks-view .work-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.app.paper-shell .task-card__note { flex-wrap: wrap; }
+@media (max-width: 760px) {
+  .app.paper-shell .task-column:has(.task-filter__count[data-state='loading']),
+  .app.paper-shell .task-column:has(.task-filter__count[data-state='unavailable']) { display: flex; }
+}
+.app.paper-shell .tasks-view .work-heading { min-height: var(--control-h); }
+@media (min-width: 761px) and (max-width: 1100px) {
+  .app.paper-shell .task-board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

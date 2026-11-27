@@ -1,3 +1,4 @@
+import { Card } from '../layout';
 import { useEffect, useState } from 'react';
 import { useStore } from '../../store';
 import { useConfigUI } from '../../configStore';
@@ -34,12 +35,12 @@ export function WorkReports({ botId, location, onLocation, onHeading }: { botId?
       useConfigUI.getState().rememberWorkBot(event.currentTarget.value);
       onLocation({ botId: event.currentTarget.value, page: 'reports', picked: true });
     }}><option value="" disabled>Choose a Bot</option>{ownerId && !bot && <option value={ownerId} disabled>Bot unavailable</option>}{bots.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
-    {!bot && <p role="status">Choose an available Bot to see its saved work.</p>}
+    {!bot && <p role="status">Choose a Bot.</p>}
     {bot && activePage === 'reports' && <>
       <DeliverablesPanel key={workBotKey(bot)} botId={bot.id} workspace onReview={setReview} onSynopses={bot.isPrimary ? () => setPage('synopses') : undefined} />
       {!review && <>
-        {bot.isPrimary && <div className="work-row"><div className="work-row__body"><div><h3>Daily synopses</h3><p className="work-meta">Summaries and coverage history.</p></div><button className="work-button" type="button" onClick={() => setPage('synopses')}>Daily synopses</button></div></div>}
-        <div className="work-row"><div className="work-row__body"><div><h3>Routines</h3><p className="work-meta">Scheduled work and recent runs.</p></div><button className="work-button" type="button" onClick={() => setPage('routines')}>Routines</button></div></div>
+        {bot.isPrimary && <Card className="work-row"><div className="work-row__body"><div><h3>Daily synopses</h3></div><button className="work-button" type="button" onClick={() => setPage('synopses')}>Daily synopses</button></div></Card>}
+        <Card className="work-row"><div className="work-row__body"><div><h3>Routines</h3></div><button className="work-button" type="button" onClick={() => setPage('routines')}>Routines</button></div></Card>
       </>}
     </>}
     {bot && activePage === 'synopses' && <SynopsesPanel key={workBotKey(bot)} workspace onReports={() => setPage('reports')} />}
