@@ -60,7 +60,11 @@ db.prepare('UPDATE users SET timezone=? WHERE id=?').run(fixture.timezone, user)
 db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES(session_hash(?),?,?,?)')
   .run('fixture-summary-session', user, at - 1000, Date.parse('2099-01-01'));
 const app = new Hono().route('/api/usage', usageApi);
-const request = () => app.request('/api/usage/summary?scope=all&userId=foreign', { headers: { cookie: 'swarm_session=fixture-summary-session' } });
+const request = () => {
+  db.prepare('UPDATE auth_sessions SET created_at=?,last_seen_at=?,expires_at=? WHERE user_id=?')
+    .run(Date.now(), Date.now(), Date.now() + 3600000, user);
+  return app.request('/api/usage/summary?scope=all&userId=foreign', { headers: { cookie: 'swarm_session=fixture-summary-session' } });
+};
 const seed = (event: any, time = at, account = user) => db.prepare(`INSERT INTO usage_events
   (user_id,kind,provider,model,cost_usd,cost_source,key_kind,request_id,created_at) VALUES (?,'chat','openrouter','fixture',?,?,?,?,?)`)
   .run(account, event.cost, event.source ?? null, event.keyKind, event.id ?? 'fixture', time);
@@ -124,6 +128,7 @@ test('API, helper, dashboard and ledger reconcile mixed usage per event to the c
   assert.equal(widget.value!.costUsd, summary.week.planUsedCents / 100);
   const series = resolveSource('usage.series', user, { range: '7d', metric: 'cost' });
   assert.deepEqual(series.rows!.map(day => day.value), summary.week.days.map((day: any) => day.planUsedCents / 100));
+  fs.mkdirSync(path.join(import.meta.dirname, '../.context'), { recursive: true });
   fs.writeFileSync(path.join(import.meta.dirname, '../.context/usage-summary.fixture.json'), JSON.stringify(summary, null, 2) + '\n');
 });
 
