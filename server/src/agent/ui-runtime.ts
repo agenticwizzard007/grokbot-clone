@@ -33,7 +33,6 @@ export function uiChatJobs(ctx: Context): string[] {
   return [];
 }
 
-const outsideTurns = new Map<string, boolean>();
 const safeNames = new Set(['tool_search', 'tool_describe', 'get_platform_state', 'ask_user']);
 function outsideName(name: string, args?: any) {
   if (UI_TOOL_NAMES.has(name) || safeNames.has(name)) return false;
@@ -44,8 +43,9 @@ function outsideName(name: string, args?: any) {
 export function uiTurnTainted(ctx: Context): boolean {
   const jobs = uiChatJobs(ctx);
   if (!jobs.length) return true;
-  const key = `${ctx.botId}:${jobs.at(-1)}`;
-  if (outsideTurns.get(key)) return true;
+  const rootJob = jobs.at(-1)!;
+  const remembered = db.prepare("SELECT json_extract(trigger,'$.uiOutsideRead') tainted FROM agent_jobs WHERE id=? AND bot_id=? AND user_id=?").get(rootJob, ctx.botId, getBotRow(ctx.botId).user_id) as { tainted?: number } | undefined;
+  if (remembered?.tainted) return true;
   // Native CLI file reads are not all observable by this server. Require a click.
   let tainted = !!selectedCli(getBotRow(ctx.botId).user_id);
   const rows = db.prepare("SELECT body FROM rows WHERE bot_id=? AND generation=? AND kind='tool-call' AND json_extract(body,'$.jobId') IN (SELECT value FROM json_each(?))").all(ctx.botId, getBotRow(ctx.botId).generation, JSON.stringify(jobs)) as { body: string }[];
@@ -58,8 +58,7 @@ export function uiTurnTainted(ctx: Context): boolean {
   const lastUser = history.findLastIndex(item => item.role === 'user');
   tainted ||= history.slice(lastUser + 1).some(item => typeof item.type === 'string' && /search|browse|computer|file/.test(item.type) && item.type !== 'function_call' && item.type !== 'function_call_output');
   if (tainted) {
-    if (outsideTurns.size >= 2048) outsideTurns.delete(outsideTurns.keys().next().value!);
-    outsideTurns.set(key, true);
+    db.prepare("UPDATE agent_jobs SET trigger=json_set(trigger,'$.uiOutsideRead',1) WHERE id=? AND bot_id=? AND user_id=?").run(rootJob, ctx.botId, getBotRow(ctx.botId).user_id);
   }
   return tainted;
 }
@@ -72,8 +71,9 @@ export function uiToolsOffered(ctx: Context): boolean {
 export function syncUiCards(userId?: string): void {
   // Joining the current generation prevents updates to archived conversations.
   const cards = db.prepare(`SELECT r.bot_id, r.seq, r.body, b.user_id FROM rows r JOIN bots b ON b.id=r.bot_id AND b.generation=r.generation
+    JOIN ui_previews p ON p.id=json_extract(r.body,'$.previewId') AND p.user_id=b.user_id
     WHERE r.kind='card' AND json_extract(r.body,'$.card')='ui_preview' AND json_extract(r.body,'$.status')='pending'
-    AND (? IS NULL OR b.user_id=?) LIMIT 200`).all(userId ?? null, userId ?? null) as { bot_id: string; seq: number; body: string; user_id: string }[];
+    AND (p.status<>'pending' OR p.expires_at<=?) AND (? IS NULL OR b.user_id=?) LIMIT 200`).all(Date.now(), userId ?? null, userId ?? null) as { bot_id: string; seq: number; body: string; user_id: string }[];
   for (const card of cards) {
     if (!uiConfigService.enabled(card.user_id)) continue;
     const body = JSON.parse(card.body), preview = uiConfigService.getPreview(card.user_id, body.previewId);
@@ -93,7 +93,7 @@ const runtimeTools = createUiTools({
   card: (ctx, body: UiPreviewCardBody) => appendRow(ctx.botId, 'card', { type: 'card', ...body, jobId: ctx.jobId }),
   syncCards: ctx => syncUiCards(ctx.userId),
   history: userId => uiConfigService.history(userId),
-  presets: userId => [...REGISTRY.presets.map(preset => ({ id: preset.id, doc: presetConfig(preset.id) })), ...uiConfigService.presets(userId)],
+  presets: userId => [...REGISTRY.presets.map(preset => ({ id: preset.id, label: preset.label, doc: presetConfig(preset.id) })), ...uiConfigService.presets(userId).map(preset => ({ ...preset, label: preset.name }))],
   savePreset: (userId, name) => uiConfigService.savePreset(userId, name),
   accentPair,
   failures: ctx => {

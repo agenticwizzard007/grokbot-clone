@@ -158,3 +158,45 @@ test('NL eval fixture contains all 60 predicates and negative controls', () => {
   const data = JSON.parse(fs.readFileSync(new URL('./fixtures/nl-evals.json', import.meta.url), 'utf8'));
   assert.equal(validateFixtures(data).length, 60);
 });
+
+test('each options registry is compact JSON metadata', async () => {
+  const f = fixture();
+  for (const kind of ['tokens', 'fonts', 'components', 'nav', 'widgets', 'sources', 'shortcuts', 'presets', 'limits']) {
+    const result = await f.call('list_ui_options', { kind });
+    assert.equal(result.kind, kind, JSON.stringify(result));
+    const output = JSON.stringify(result);
+    assert.ok(output.length < 24000, `${kind}: ${output.length} bytes`);
+    assert.doesNotMatch(output, /"(?:_def|def|check|typeName)":/);
+  }
+});
+test('set_accent and all built-in presets exactly match the shared manual patch helpers', async () => {
+  const { accentPair, REGISTRY, presetPatch, presetConfig } = await import('../../server/src/ui-config/index.js');
+  const colors = accentPair('#14B8A6');
+  assert.deepEqual(buildUiPatch('set_accent', { color: '#14B8A6' }, DEFAULT_CONFIG, { accentPair }).patch, [
+    { op: 'add', path: '/theme/colors/light/primary', value: colors.light }, { op: 'add', path: '/theme/colors/dark/primary', value: colors.dark },
+  ]);
+  for (const preset of REGISTRY.presets) {
+    const built = buildUiPatch('apply_preset', { presetId: preset.id }, DEFAULT_CONFIG, { accentPair }, [{ id: preset.id, doc: presetConfig(preset.id) }]);
+    assert.deepEqual(built.patch, presetPatch(preset.id));
+    assert.equal(previewPatch(DEFAULT_CONFIG, built.patch, { ctx: {} }).ok, true, preset.id);
+  }
+});
+test('reset dashboards clears references to more than one dashboard', () => {
+  const doc = dashboardDoc();
+  doc.dashboards.push({ id: 'd_87654321', name: 'Second', icon: 'layout-dashboard', widgets: [] });
+  doc.layout.pinned = doc.dashboards.map(d => ({ type: 'dashboard', id: d.id }));
+  doc.layout.home = { kind: 'dashboard', dashboardId: 'd_87654321' };
+  doc.layout.phoneTabs = ['bots', 'dashboard:d_12345678', 'settings'];
+  const built = buildUiPatch('reset_ui', { scope: 'dashboards' }, doc, fixture().deps);
+  const checked = previewPatch(doc, built.patch, { ctx: {} });
+  assert.equal(checked.ok, true, JSON.stringify(checked));
+  if (checked.ok) { assert.deepEqual(checked.result.dashboards, []); assert.deepEqual(checked.result.layout.pinned, []); }
+  assert.match(built.intent, /Removes 2 dashboards/);
+});
+test('delete removes a shortcut widget when its only destination disappears', () => {
+  const doc = dashboardDoc();
+  doc.dashboards.push({ id: 'd_87654321', name: 'Links', icon: 'layout-dashboard', widgets: [{ id: 'w_87654321', type: 'shortcuts', span: 12, rows: 1, options: { items: [{ label: 'Dashboard', target: 'dashboard:d_12345678' }] } }] });
+  const checked = previewPatch(doc, deleteDashboardPatch(doc, 'd_12345678'), { ctx: {} });
+  assert.equal(checked.ok, true, JSON.stringify(checked));
+  if (checked.ok) assert.deepEqual(checked.result.dashboards[0].widgets, []);
+});
