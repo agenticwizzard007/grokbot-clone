@@ -4,6 +4,7 @@ import { db } from '../../db.js';
 import { needsYou } from '../../routes-attention.js';
 import { describeCron } from '../../store.js';
 import { rangeBounds, usageReport, usageTimezone, type UsageRange } from '../../usage.js';
+import { planUsageRange } from '../../plan-usage.js';
 import { reportDay, reportDayStart, shiftDay } from '../../report-days.js';
 import { SourceError, type Params, type SourceData } from './catalog.js';
 
@@ -91,12 +92,13 @@ export function resolveSource(id: string, userId: string, params: Params): Sourc
   }
   if (id === 'needsYou.list') { const rows = needsYou(userId); return { count: rows.length, rows: rows.slice(0, limit).map(({ id, type, botName, title, createdAt }) => ({ id, type, botName, title, createdAt })) }; }
   if (id === 'usage.summary' || id === 'usage.series') {
-    const report = usageReport(userId, range);
+    const report = usageReport(userId, range, undefined, now);
+    const counted = planUsageRange(userId, range, now);
     return id === 'usage.summary' ? { count: report.totals.requests, value: {
-      costUsd: report.totals.costUsd, requests: report.totals.requests,
+      costUsd: counted.planUsedCents / 100, requests: report.totals.requests,
       tokens: report.totals.inputTokens + report.totals.outputTokens, computerHours: report.computer.runningHours,
     } } : { count: report.totals.requests, rows: report.days.map(day => ({ day: day.day,
-      value: params.metric === 'requests' ? day.requests : params.metric === 'tokens' ? day.tokens : day.costUsd })) };
+      value: params.metric === 'requests' ? day.requests : params.metric === 'tokens' ? day.tokens : (counted.days.find(item => item.day === day.day)?.planUsedCents ?? 0) / 100 })) };
   }
   if (id === 'routines.list') {
     const count = one(`SELECT COUNT(*) AS n FROM routines r JOIN bots b ON b.id=r.bot_id WHERE ${scope.where}`, scope.args).n;
