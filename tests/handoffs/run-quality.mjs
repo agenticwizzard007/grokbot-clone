@@ -5,7 +5,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 const out = path.resolve(process.env.HANDOFFS_CHECK_DIR || '.context/handoffs/quality-h'); fs.mkdirSync(out, { recursive: true });
 const walk = dir => fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => entry.isDirectory() ? walk(path.join(dir, entry.name)) : [path.join(dir, entry.name)]);
-const tests = [...walk('tests/handoffs'), ...walk('tests/flow'), ...fs.readdirSync('tests').filter(name => /^(coordination.*|agent-.*|composio|readiness-kk)\.test\.mts$/.test(name)).map(name => `tests/${name}`)].filter(file => file.endsWith('.test.mts'));
+const tests = [...walk('tests/handoffs'), ...walk('tests/flow'), ...fs.readdirSync('tests').filter(name => /^((?:native-)?coordination.*|agent-.*|composio|readiness-kk)\.test\.mts$/.test(name)).map(name => `tests/${name}`)].filter(file => file.endsWith('.test.mts'));
 const ui = [
   'tests/handoffs/ui-d-behavior.mjs', 'tests/handoffs/ui-d-loop-compat.mjs', 'tests/handoffs/ui-d-layout.mjs',
   'tests/handoffs/ui-e-behavior.mjs', 'tests/handoffs/ui-e-layout.mjs', 'tests/handoffs/ui-f-server.mjs', 'tests/handoffs/ui-f-layout.mjs',
