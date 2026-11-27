@@ -25,7 +25,7 @@ export async function quality(page, name) {
   const sizes = await page.locator(selector).evaluate(root => [...root.querySelectorAll('p, label, button, span, strong')].filter(el => el.checkVisibility() && el.textContent.trim() && !el.closest('svg')).filter(el => parseFloat(getComputedStyle(el).fontSize) < 13).map(el => el.textContent));
   assert.deepEqual(sizes, [], `Readable type: ${name}`);
 }
-export async function screenshot(page, name) { await page.waitForFunction(() => [...document.querySelectorAll('.dashboard-skeleton')].every(el => { const box = el.getBoundingClientRect(); return !el.checkVisibility() || box.top >= innerHeight || box.bottom <= 0; })); await page.evaluate(() => document.fonts.ready); await quality(page, name); const file = path.join(output, `${name}.png`); await page.screenshot({ path: file }); return file; }
+export async function screenshot(page, name) { await page.waitForFunction(() => [...document.querySelectorAll('.dashboard-skeleton')].every(el => { const box = el.getBoundingClientRect(); return !el.checkVisibility() || box.top >= innerHeight || box.bottom <= 0; })); await page.evaluate(() => document.fonts.ready); await quality(page, name); const file = path.join(output, `${name}.png`); await page.screenshot({ path: file, animations: 'disabled' }); return file; }
 export async function runDashboards({ demo = false } = {}) {
   fs.mkdirSync(output, { recursive: true });
   const server = await agenticFixture(), results = [], screenshots = [];
@@ -149,7 +149,7 @@ export async function runDashboards({ demo = false } = {}) {
       await page.evaluate(theme => { localStorage.setItem('swarm.theme', theme); }, theme);
       await page.goto(`${server.base}/#dashboards`); await page.locator('.dashboards-manager').waitFor(); screenshots.push(await screenshot(page, `manager-${width}-${theme}`));
       for (const dashboard of [sales, operations]) { await page.goto(`${server.base}/#dash/${dashboard.id}`); await page.getByRole('button', { name: `Switch dashboard: ${dashboard.name}` }).waitFor(); screenshots.push(await screenshot(page, `${dashboard.name === 'Sales pipeline' ? 'sales' : 'operations'}-${width}-${theme}`)); }
-      await page.getByRole('button', { name: 'Switch dashboard: Operations' }).click(); screenshots.push(await screenshot(page, `switcher-${width}-${theme}`)); await page.keyboard.press('Escape');
+      await page.getByRole('button', { name: 'Switch dashboard: Operations' }).click(); await page.getByRole(width > 760 ? 'menu' : 'dialog', { name: width > 760 ? 'Dashboards' : 'Switch dashboard', exact: true }).waitFor(); screenshots.push(await screenshot(page, `switcher-${width}-${theme}`)); await page.keyboard.press('Escape');
       await page.getByRole('button', { name: 'Edit', exact: true }).click(); screenshots.push(await screenshot(page, `edit-${width}-${theme}`));
       await page.getByRole('button', { name: 'Settings: Daily summary', exact: true }).click(); screenshots.push(await screenshot(page, `settings-${width}-${theme}`)); await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
       await page.getByRole('button', { name: 'Add widget', exact: true }).click(); screenshots.push(await screenshot(page, `add-${width}-${theme}`)); await page.getByRole('button', { name: /Ask your agent Answers/ }).click(); screenshots.push(await screenshot(page, `add-agent-${width}-${theme}`)); await page.keyboard.press('Escape'); await page.keyboard.press('Escape');

@@ -42,7 +42,7 @@ export async function auditDashboardRoutes(evidence, inspectAlignment) {
           if (/mock|Fixture|PRIVATE|QA-|undefined|null|\[object|[\u2013\u2014]/i.test(visible)) issues.push('Forbidden visible text');
           const phoneBacks = await page.getByRole('button', { name: 'Back', exact: true }).count();
           if (width <= 760 && phoneBacks !== 1) issues.push(`Expected one Back, found ${phoneBacks}`);
-          await page.screenshot({ path: path.join(evidence, `${route.name}-${width}-${theme}.png`) });
+          await page.screenshot({ path: path.join(evidence, `${route.name}-${width}-${theme}.png`), animations: 'disabled' });
         } catch (error) { await page.screenshot({ path: path.join(evidence, `failure-${route.name}-${width}-${theme}.png`) }); console.log(error.message); issues.push(error.message.split('\n')[0]); }
         report.push({ ...route, width, theme, issues });
         console.log(`${issues.length ? 'FAIL' : 'PASS'} UC-X2 ${route.name} ${width} ${theme}: ${issues.length} issues`);

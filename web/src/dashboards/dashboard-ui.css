@@ -55,3 +55,4 @@
 .dashboard-switcher .menu__item { padding: 8px; }
 .dashboard-manager-row { padding-block: 0; }
 .dashboard-agent-fieldset .btn { padding-inline: 8px; letter-spacing: 0; }
+.ui-preview-card--dashboard .cfg-chip { height: auto; min-height: 20px; font-size: 13px; line-height: 20px; }

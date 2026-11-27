@@ -8,6 +8,7 @@ import { ButtonGroup, Card } from '../layout';
 import { appearanceRequest, readPreview } from '../config/appearance/api';
 import { compareAppliedAppearance, refreshAppearance } from '../config/appearance/runtime';
 import '../../styles/appearance.css';
+import '../../dashboards/dashboard-ui.css';
 
 export function UiPreviewCard({ body }: { body: UiPreviewCardBody }) {
   const active = usePreview();
@@ -57,7 +58,7 @@ export function UiPreviewCard({ body }: { body: UiPreviewCardBody }) {
   };
   const lines = dashboard ? dashboard.widgets.map(widget => widgetLabel(widget)) : current?.summary ?? body.lines;
   const warnings = current?.warnings.map(w => w.message) ?? body.warnings;
-  return <Card className="ui-preview-card" role="region" aria-label={title}>
+  return <Card className={`ui-preview-card${dashboard ? ' ui-preview-card--dashboard' : ''}`} role="region" aria-label={title}>
     <strong className="ui-preview-card__title">{title}</strong>
     <p ref={statusRef} tabIndex={-1} role="status" aria-live="polite"><span className="cfg-chip">{undone ? 'Undone' : status[0].toUpperCase() + status.slice(1)}</span></p>
     <ul>{lines.slice(0, 6).map((line, i) => <li key={i}>{line}</li>)}</ul>
