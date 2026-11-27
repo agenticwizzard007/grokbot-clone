@@ -4,9 +4,13 @@ export interface WidgetProps { widget: Widget; data?: WidgetData }
 export const numberOption = (widget: Widget, key: string, fallback: number, maximum: number) => typeof widget.options[key] === 'number' ? Math.min(maximum, Math.max(1, widget.options[key] as number)) : fallback;
 export { Empty } from './Empty';
 export function Status({ value }: { value: unknown }) { return <span className="dashboard-status" data-status={String(value)}><span aria-hidden="true">●</span> {fieldLabel(String(value ?? 'Unavailable'))}</span>; }
-export const rowTitle = (row: Record<string, unknown>) => String(row.title ?? row.name ?? row.botName ?? 'Item');
+export const rowTitle = (row: Record<string, unknown>) => String(row.title ?? row.name ?? row.label ?? row.botName ?? 'Item');
 export function rowHref(widget: Widget, row: Record<string, unknown>): string | undefined {
   if (widget.options.onClick === 'none') return;
+  if (widget.source?.id === 'handoffs.list' && typeof row.id === 'string') return `#handoff/${encodeURIComponent(row.id)}`;
+  if (widget.source?.id === 'loops.list' && typeof row.id === 'string') return `#loop/${encodeURIComponent(row.id)}`;
+  if (widget.source?.id === 'outputs.recent' && typeof row.id === 'string') return `#output/${encodeURIComponent(row.id)}`;
+  if (widget.source?.id === 'connectors.status') return '#settings/apps';
   if (typeof row.botId === 'string') return `#bot/${encodeURIComponent(row.botId)}/details/tasks`;
   if (widget.source?.id === 'bots.list' && typeof row.id === 'string') return `#bot/${encodeURIComponent(row.id)}`;
   if (widget.source?.id.startsWith('tasks.') || widget.source?.id === 'needsYou.list') return '#tasks';

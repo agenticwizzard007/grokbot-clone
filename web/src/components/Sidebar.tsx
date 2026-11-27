@@ -206,10 +206,10 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
           </div>
 
       </div></>,
-    dashboards: layout.dashboards.length ? <section className="sidebar__dashboards" aria-label="Dashboards">
-      {!collapsed && <div className="sidebar__section-label">Dashboards</div>}
+    dashboards: <section className="sidebar__dashboards" aria-label="Dashboards">
+      <button type="button" className="sidebar-island" aria-label="Dashboards" onClick={() => { navigation.navigate({ kind: 'dashboards' }); onClose?.(); }}><LayoutDashboard size={18} aria-hidden />{!collapsed && <span>Dashboards</span>}</button>
       {layout.dashboards.map(dashboard => <button type="button" key={dashboard.id} className="sidebar-island" aria-label={dashboard.name} title={dashboard.name} onClick={() => { navigation.navigate(dashboardScreen(dashboard.id)); onClose?.(); }}><LayoutDashboard size={18} aria-hidden />{!collapsed && <span>{dashboard.name}</span>}</button>)}
-    </section> : null,
+    </section>,
     search: null,
   };
   const section = (id: keyof typeof sections) => layout.items.includes(id) ? sections[id] : null;

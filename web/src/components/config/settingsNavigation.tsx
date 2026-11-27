@@ -1,12 +1,14 @@
 import { Brain, Blocks, ChevronRight, CircleUserRound, Gauge, KeyRound, MessageCircle, Monitor, LayoutDashboard, Server, Settings as SettingsIcon, ShieldCheck, Terminal, Users, type LucideIcon } from 'lucide-react';
+import { navigation } from '../../configStore';
 import { SETTINGS_LABELS } from '../../lib/navigation';
 import type { AppSection } from '../../configStore';
 
 // Learning and connected apps keep distinct icons.
-export type NavItem = { id: AppSection; label: string; icon: LucideIcon; keywords: string };
+export type NavItem = { id: AppSection | 'dashboards'; label: string; icon: LucideIcon; keywords: string };
 export const NAV: { group: string; items: NavItem[] }[] = [
   { group: 'Workspace', items: [
     { id: 'general', label: SETTINGS_LABELS.general, icon: SettingsIcon, keywords: 'details panel time zone keyboard diagnostics' },
+    { id: 'dashboards', label: 'Dashboards', icon: LayoutDashboard, keywords: 'create manage widgets' },
     { id: 'appearance', label: 'Layout', icon: LayoutDashboard, keywords: 'layout sidebar navigation home dashboard shortcuts export import history reset' },
     { id: 'agents', label: SETTINGS_LABELS.agents, icon: Users, keywords: 'handoffs send team standing links automatic loops defaults limits approval' },
     { id: 'account', label: SETTINGS_LABELS.account, icon: CircleUserRound, keywords: 'profile name email sign out log out apple delete sessions sign in' },
@@ -29,9 +31,9 @@ export const matches = (it: NavItem, q: string) => {
 };
 
 export function SettingsNavButton({ item, compact = false, strip = false, active, onSelect }: {
-  item: NavItem; compact?: boolean; strip?: boolean; active: boolean; onSelect: (id: AppSection) => void;
+  item: NavItem; compact?: boolean; strip?: boolean; active: boolean; onSelect: (id: AppSection | 'dashboards') => void;
 }) {
-  return <button type="button" className={`${strip ? 'settings-strip__item' : 'cfg-nav__item settings-nav__item'}${active ? ' is-active' : ''}`} onClick={() => onSelect(item.id)} aria-current={active ? 'page' : undefined}>
+  return <button type="button" className={`${strip ? 'settings-strip__item' : 'cfg-nav__item settings-nav__item'}${active ? ' is-active' : ''}`} onClick={() => item.id === 'dashboards' ? navigation.navigate({ kind: 'dashboards' }) : onSelect(item.id)} aria-current={active ? 'page' : undefined}>
     <item.icon className="settings-nav__icon" size={compact ? 20 : 18} strokeWidth={1.75} aria-hidden />
     <span className="settings-nav__text">{item.label}</span>
     {compact && <ChevronRight className="settings-nav__chev" size={16} strokeWidth={1.75} aria-hidden />}

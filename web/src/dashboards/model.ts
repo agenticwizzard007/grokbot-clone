@@ -20,6 +20,7 @@ export const sourceKey = (widget: Widget) => { const source = widgetSource(widge
 export function defaultWidget(type: WidgetType): Widget {
   const base = { id: '$new1', type, title: WIDGETS.find(entry => entry.id === type)!.label, span: 6, rows: 3, refreshSec: 60 as const };
   switch (type) {
+    case 'agent': return { ...base, title: 'Daily summary', rows: 3, options: { prompt: 'Summarize my open tasks and what needs my input.', display: 'text', schedule: 'manual' }, refreshSec: 0 };
     case 'stat': return { ...base, span: 4, rows: 1, source: { id: 'tasks.counts', params: {} }, options: { field: 'total', format: 'number' } };
     case 'list': return { ...base, source: { id: 'tasks.list', params: { limit: 10 } }, options: { limit: 5, onClick: 'open' } };
     case 'table': return { ...base, source: { id: 'tasks.list', params: { limit: 10 } }, options: { columns: ['title', 'state', 'botName'], limit: 5 } };

@@ -4,7 +4,7 @@ import { configApi } from '../../lib/configApi';
 import { deliverablesApi } from '../../lib/deliverablesApi';
 import { navigation as appNavigation } from '../../configStore';
 import { botSlug } from '../../lib/userRoutes';
-import { FileText, ListTodo } from 'lucide-react';
+import { FileText, ListTodo, LayoutDashboard } from 'lucide-react';
 import '../../styles/search.css';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { BotAvatarFor } from '../../avatar/BotAvatar';
@@ -16,7 +16,7 @@ import { scrollToRow } from '../../lib/scrollToRow';
 import { Modal } from './Modal';
 
 type WorkHit = { id: string; botId: string; title: string; kind: 'file' | 'task' };
-type Item = { kind: 'bot'; id: string } | { kind: 'message'; hit: ConversationSearchHit } | WorkHit;
+type Item = { kind: 'dashboards' } | { kind: 'bot'; id: string } | { kind: 'message'; hit: ConversationSearchHit } | WorkHit;
 
 function SearchText({ text, fallback, className }: { text: string; fallback: string; className: string }) {
   const ref = useRef<HTMLSpanElement>(null);
@@ -108,7 +108,8 @@ export function SearchModal({ inline = false }: { inline?: boolean }) {
     ...results.map(b => ({ kind: 'bot' as const, id: b.id })),
     ...messages.filter(m => bots.some(b => b.id === m.botId)).map(hit => ({ kind: 'message' as const, hit })),
     ...work,
-  ], [results, messages, bots, work]);
+    ...(!q.trim() || 'dashboards'.includes(q.trim().toLowerCase()) ? [{ kind: 'dashboards' as const }] : []),
+  ], [results, messages, bots, work, q]);
 
   useEffect(() => setActive(0), [q]);
   useEffect(() => {
@@ -123,6 +124,7 @@ export function SearchModal({ inline = false }: { inline?: boolean }) {
 
   const choose = async (item: Item | undefined) => {
     if (!item || opening) return;
+    if (item.kind === 'dashboards') { appNavigation.navigate({ kind: 'dashboards' }); return; }
     if (item.kind === 'bot') { openConversation(item.id); return; }
     if (item.kind === 'file' || item.kind === 'task') {
       const bot = bots.find(bot => bot.id === item.botId);
@@ -221,6 +223,7 @@ export function SearchModal({ inline = false }: { inline?: boolean }) {
             {item.kind === 'file' ? <FileText size={20} aria-hidden /> : <ListTodo size={20} aria-hidden />}<span className="search-row__text"><SearchText className="search-row__name" text={item.title} fallback={item.kind === 'file' ? 'Saved file' : 'Task details'} /><SearchText className="search-row__sub" text={bots.find(bot => bot.id === item.botId)?.name ?? 'Bot'} fallback="Bot" /></span>
           </button>;
         })}
+        {items.at(-1)?.kind === 'dashboards' && <button type="button" role="option" aria-selected={active === items.length - 1} data-idx={items.length - 1} className={`search-row${active === items.length - 1 ? ' is-active' : ''}`} onMouseMove={() => setActive(items.length - 1)} onClick={() => void choose({ kind: 'dashboards' })}><LayoutDashboard size={20} aria-hidden /><span className="search-row__name">Dashboards</span></button>}
         {workError && <p role="status">Some files or tasks could not load.</p>}
         {opening && <div className="search-modal__empty" role="status">Loading the message...</div>}
         {openError && <div className="search-modal__empty" role="status">{openError}</div>}

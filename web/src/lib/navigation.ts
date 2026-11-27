@@ -13,6 +13,7 @@ export type DetailTab = 'activity' | 'tasks' | 'library' | 'configuration';
 export type SetupTab = 'responsibilities' | 'harness' | 'files' | 'history';
 export type Screen =
   | { kind: 'bots' }
+  | { kind: 'dashboards' }
   | { kind: 'all'; routines?: boolean }
   | { kind: 'dash'; dashboard: string }
   | { kind: 'loops' }
@@ -29,6 +30,7 @@ export function parseScreen(hash: string): Screen | null {
   if (!hash.startsWith('#')) return null;
   if (hash === '#first-run') return { kind: 'first-run' };
   if (hash === '#all' || hash === '#all/routines') return { kind: 'all', ...(hash.endsWith('/routines') ? { routines: true } : {}) };
+  if (hash === '#dashboards') return { kind: 'dashboards' };
   if (hash === '#bots') return { kind: 'bots' };
   if (hash === '#loops') return { kind: 'loops' };
   const item = hash.match(/^#(loop|handoff|output)\/([A-Za-z0-9_-]{1,256})(?:\?([^#]*))?$/);
@@ -85,6 +87,7 @@ export function screenHash(screen: Screen): string {
   switch (screen.kind) {
     case 'first-run': return '#first-run';
     case 'bots': return '#bots';
+    case 'dashboards': return '#dashboards';
     case 'all': return screen.routines ? '#all/routines' : '#all';
     case 'dash': return `#dash/${encodeURIComponent(screen.dashboard)}`;
     case 'loops': return '#loops';
@@ -113,7 +116,8 @@ export function parentScreen(screen: Screen): Screen | null {
     case 'loops': return { kind: 'work', route: { tab: 'Tasks' } };
     case 'loop': return { kind: 'loops' };
     case 'handoff': case 'output': return { kind: 'bots' };
-    case 'first-run': case 'chat': case 'create': case 'dash': return { kind: 'bots' };
+    case 'dash': return { kind: 'dashboards' };
+    case 'first-run': case 'chat': case 'create': case 'dashboards': return { kind: 'bots' };
     case 'group': return { kind: 'create' };
     case 'details':
       if (screen.flow && screen.link) return { ...screen, link: undefined };
@@ -157,7 +161,7 @@ export function backLabel(screen: Screen, bots: NavigationBot[] = []): string {
   const names: Record<Screen['kind'], string> = {
     'first-run': 'model setup', all: 'All sections',
     loops: 'Loops', loop: 'loop', handoff: 'handoff', output: 'output',
-    dash: 'dashboard', work: 'Tasks', details: 'details', bots: 'Bots', create: 'create a Bot', group: 'new group chat',
+    dashboards: 'Dashboards', dash: 'dashboard', work: 'Tasks', details: 'details', bots: 'Bots', create: 'create a Bot', group: 'new group chat',
     'bot-settings': 'Bot settings', settings: 'Settings', chat: 'chat', search: 'search', apps: 'apps',
   };
   return `Back to ${names[screen.kind]}`;
@@ -177,6 +181,7 @@ export function screenTitle(screen: Screen, bots: NavigationBot[] = [], loaded =
     case 'bots': title = 'Bots'; break;
     case 'all': title = screen.routines ? 'Routines' : 'All sections'; break;
     case 'dash': title = 'Dashboard'; break;
+    case 'dashboards': title = 'Dashboards'; break;
     case 'loops': title = 'Loops'; break;
     case 'loop': title = 'Loop'; break;
     case 'handoff': title = 'Handoff'; break;
