@@ -177,6 +177,7 @@
 .dashboard-page .layout-button-group > *, .dashboard-dialog .layout-button-group > * { flex: 1 1 0; }
 .dashboard-dialog-back { display: none; }
 @media (max-width: 760px) {
+  .shell-content:has(.dashboard-dialog[open]) > .shell-header > .shell-back { visibility: hidden; }
   .dashboard-dialog-back { display: block; border-bottom: 1px solid var(--color-border); padding: 8px 16px; }
   .dashboard-dialog-back button { display: flex; align-items: center; gap: 8px; min-height: 44px; color: var(--color-primary); font-size: 14px; }
   .dashboard-settings-fields, .dashboard-library { max-height: calc(100dvh - 304px); }
