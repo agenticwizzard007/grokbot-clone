@@ -90,7 +90,7 @@ export function createUiApi(service: SqliteUiConfigService) {
   api.get('/config', c => {
     const current = service.get(user(c)); c.header('ETag', `"${current.revision}"`);
     if ((c.req.header('If-None-Match') ?? '').split(',').map(tag => tag.trim().replace(/^W\//, '')).includes(`"${current.revision}"`)) return c.body(null, 304);
-    return c.json({ ...current, effective: { preset: current.doc.preset, dashboardCount: current.doc.dashboards.length },
+    return c.json({ ...current, status: current.status ?? 'ready', effective: { preset: current.doc.preset, dashboardCount: current.doc.dashboards.length },
       flags: { enabled: true, agentApplyMode: service.agentApplyMode(user(c)) } });
   });
   api.patch('/config', async c => {

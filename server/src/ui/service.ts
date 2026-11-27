@@ -15,7 +15,7 @@ const intentSchema = z.string().min(1).max(200).regex(/^[^<>\u0000-\u001f\u007f\
 const nameSchema = z.string().min(1).max(40).regex(/^[^<>\u0000-\u001f\u007f\u2013\u2014]+$/u);
 const resetScopes = new Set(['all', 'appearance', 'theme', 'layout', 'components', 'dashboards', 'dashboard']);
 export const resultHash = (doc: UiConfig) => createHash('sha256').update(canonical(doc)).digest('hex');
-export interface UiSnapshot { doc: UiConfig; revision: number; status: 'ready' | 'invalid_stored'; updatedAt?: number; updatedBy?: string }
+export interface UiSnapshot { doc: UiConfig; revision: number; status?: 'ready' | 'invalid_stored'; updatedAt?: number; updatedBy?: string }
 export interface ServiceOptions { clock?: () => number; flag?: () => string | undefined; emit?: UiEventSink; metrics?: UiMetricSink }
 
 /** The engine owns validation. This service owns isolation, transactions and lifetime. */
@@ -60,7 +60,7 @@ export class SqliteUiConfigService implements UiConfigService {
   }
   get(userId: string): UiSnapshot {
     const row = this.store.config(userId);
-    if (!row) return { doc: structuredClone(DEFAULT_CONFIG), revision: 0, status: 'ready' };
+    if (!row) return { doc: structuredClone(DEFAULT_CONFIG), revision: 0 };
     const doc = this.parse(row.doc);
     return { doc: doc ?? structuredClone(DEFAULT_CONFIG), revision: row.revision,
       status: doc ? 'ready' : 'invalid_stored', updatedAt: row.updated_at, updatedBy: row.updated_by };
@@ -261,9 +261,9 @@ export class SqliteUiConfigService implements UiConfigService {
         for (const dashboard of after.dashboards) for (const widget of dashboard.widgets) if (widget.type === 'shortcuts' && Array.isArray(widget.options.items) && !widget.options.items.length) widget.options.items = [{ label: 'Bots', target: 'bots' }];
       }
       const removedCount = before.dashboards.length - after.dashboards.length;
-      const result = this.createPreview(userId, this.replacement(before, after), { intent: `Reset ${scope}. Removes ${removedCount} dashboards`, actor: 'reset' }, [], after);
+      const result = this.createPreview(userId, this.replacement(before, after), { intent: `Reset ${scope}. Removes ${removedCount} ${removedCount === 1 ? 'dashboard' : 'dashboards'}`, actor: 'reset' }, [], after);
       if (result.ok) {
-        const line = `Removes ${removedCount} dashboards`;
+        const line = `Removes ${removedCount} ${removedCount === 1 ? 'dashboard' : 'dashboards'}`;
         if (!result.summary.includes(line)) {
           result.summary.push(line);
           this.store.previewSummary(userId, result.previewId, result.summary);

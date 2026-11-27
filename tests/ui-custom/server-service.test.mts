@@ -80,7 +80,7 @@ test('corrupt and future documents fall back without writes and remain repairabl
     db.prepare('UPDATE ui_config SET doc=? WHERE user_id=?').run(corrupt, 'a');
     assert.equal(service.get('a').status, 'invalid_stored'); assert.deepEqual(service.get('a').doc, DEFAULT_CONFIG);
     assert.equal((db.prepare('SELECT doc FROM ui_config WHERE user_id=?').get('a') as any).doc, corrupt);
-    assert.equal(service.get('b').status, 'ready');
+    assert.equal(service.get('b').status ?? 'ready', 'ready');
   }
   const reset = success(service.reset('a', 'all')); success(service.applyPreview('a', reset.previewId, 'reset'));
   assert.equal(service.get('a').status, 'ready');
