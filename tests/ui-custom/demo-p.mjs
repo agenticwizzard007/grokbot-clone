@@ -89,7 +89,7 @@ try {
     await patch(page, [{ op: 'replace', path: '/dashboards', value: [{ id: '$new1', name: 'My week', icon: 'layout-dashboard', widgets }, { id: '$new20', name: 'Daily summary', icon: 'layout-dashboard', widgets: [] }] }]);
     const boards = await page.evaluate(async () => (await import('/src/customization/store.ts')).useCustomization.getState().saved.dashboards);
     await server.open(page, boards[0].id); await page.reload(); await page.locator('.dashboard-grid').waitFor(); await readyWidgets(page);
-    await page.locator('.dashboard-heading').scrollIntoViewIfNeeded();
+    await page.locator('.shell-header').scrollIntoViewIfNeeded();
     if (!before) {
       await assertGrid(page, width);
       const bars = await page.locator('[data-widget-type="chart"] .dashboard-chart-series-0 rect').evaluateAll(elements => elements.map(el => Number(el.getAttribute('height'))));
@@ -104,8 +104,8 @@ try {
       const widget = page.locator(`[data-widget-type="${type}"]`); await widget.scrollIntoViewIfNeeded();
       await capture(page, `widget-${type}`, width, theme, '.dashboard-page');
     }
-    await page.getByRole('button', { name: 'Edit', exact: true }).click();
-    await page.locator('.dashboard-heading').scrollIntoViewIfNeeded();
+    await page.getByRole('button', { name: 'Edit dashboard', exact: true }).click();
+    await page.locator('.shell-header').scrollIntoViewIfNeeded();
     await capture(page, 'edit', width, theme, '.dashboard-page');
     await page.getByRole('button', { name: 'Settings: Total tasks', exact: true }).click();
     await capture(page, 'widget-settings', width, theme, '.dashboard-dialog');

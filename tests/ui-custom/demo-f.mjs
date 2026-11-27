@@ -9,7 +9,7 @@ const checks = [], screenshots = [];
 const capture = async (watchers, name, widgetId) => {
   for (const { page } of watchers) {
     const width=page.viewportSize().width;
-    await (widgetId ? page.locator(`[data-widget-id="${widgetId}"]`) : page.locator('.dashboard-heading')).scrollIntoViewIfNeeded();
+    await (widgetId ? page.locator(`[data-widget-id="${widgetId}"]`) : page.locator('.shell-header')).scrollIntoViewIfNeeded();
     await assertGrid(page,width); assert.deepEqual(await page.evaluate(inspectAlignment),[]);
     const file=path.join(output,`${name}-${width}.png`); await page.screenshot({path:file,fullPage:true}); screenshots.push(file); checks.push(`${name} ${width}: saved dashboard and alignment`);
   }

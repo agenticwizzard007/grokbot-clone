@@ -29,20 +29,20 @@ try {
         continue;
       }
       const placeholder = widget.locator('.dashboard-empty-data'); assert.equal(await placeholder.count(), 1, `${type}: new account empty state`);
-      assert.equal(await placeholder.locator('p').count(), 1); assert.equal(await placeholder.locator('button,a').count(), 1);
-      assert.equal(await placeholder.getByRole('link').getAttribute('href'), type === 'shortcuts' ? '#tasks' : '#new-bot');
+      assert.equal(await placeholder.locator('p').count(), 1); assert.equal(await placeholder.locator('button,a').count(), type === 'meter' ? 0 : 1);
+      if (type !== 'meter') assert.equal(await placeholder.getByRole('link').getAttribute('href'), type === 'shortcuts' ? '#tasks' : '#new-bot');
       assert.ok((await placeholder.locator('p').textContent()).length > 0);
       assert.equal(await widget.getAttribute('data-widget-state'), 'ready'); checks.push(`${type}: empty account, one line and one action at ${width}`);
     }
     await assertGrid(empty, width); assert.deepEqual(await empty.evaluate(inspectAlignment), []);
     const out='.context/ui-custom/dashboard-live-widgets'; fs.mkdirSync(out,{recursive:true});
-    await empty.locator('.dashboard-heading').scrollIntoViewIfNeeded(); await empty.screenshot({path:`${out}/empty-${width}.png`});
+    await empty.locator('.shell-header').scrollIntoViewIfNeeded(); await empty.screenshot({path:`${out}/empty-${width}.png`});
     await empty.context().close();
     const account = await server.account({ bot: true }); server.seed(account);
     const page = await open(account, width, true);
     for (const type of widgetTypes) {
       const widget = page.locator(`[data-widget-type="${type}"]`); await widget.scrollIntoViewIfNeeded();
-      if (type === 'meter') { await server.seedMeter(account); await page.getByRole('button',{name:'Refresh',exact:true}).click(); await widget.scrollIntoViewIfNeeded(); await widget.locator('progress').waitFor(); }
+      if (type === 'meter') { await server.seedMeter(account); await page.getByRole('button',{name:'Refresh dashboard',exact:true}).click(); await widget.scrollIntoViewIfNeeded(); await widget.locator('progress').waitFor(); }
       assert.equal(await widget.getAttribute('data-widget-state'), 'ready'); assert.equal(await widget.locator('.dashboard-empty-data').count(), 0, `${type}: seeded data`);
       if (type === 'stat') assert.equal(await widget.locator('output').textContent(), '12');
       if (['list','table','taskBoard'].includes(type)) assert.match(await widget.textContent(), /Draft the launch email|Review the launch plan/);
@@ -55,7 +55,7 @@ try {
       checks.push(`${type}: persisted data through real source API or saved static content at ${width}`);
     }
     await assertGrid(page, width); assert.deepEqual(await page.evaluate(inspectAlignment), []);
-    await page.locator('.dashboard-heading').scrollIntoViewIfNeeded(); await page.screenshot({path:`${out}/seeded-${width}.png`});
+    await page.locator('.shell-header').scrollIntoViewIfNeeded(); await page.screenshot({path:`${out}/seeded-${width}.png`});
     // A period can contain completed older tasks but no newly created tasks.
     // Likewise, zero working tasks is meaningful when the account has tasks.
     server.db.prepare('UPDATE tasks SET created_at=?,updated_at=?,state=? WHERE bot_id=?').run(Date.now()-60*86400_000,Date.now(),'done',account.bot.id);
@@ -65,7 +65,7 @@ try {
       {op:'replace',path:'/dashboards/0/widgets/0/options/field',value:'working'},
     ]},current.revision);
     assert.equal(updated.status,200,JSON.stringify(updated));
-    await page.getByRole('button',{name:'Refresh',exact:true}).click();
+    await page.getByRole('button',{name:'Refresh dashboard',exact:true}).click();
     const stat=page.locator('[data-widget-type="stat"]'); await stat.scrollIntoViewIfNeeded();
     await page.waitForFunction(()=>document.querySelector('[data-widget-type="stat"] output')?.textContent==='0');
     assert.equal(await stat.locator('.dashboard-empty-data').count(),0); checks.push(`stat: meaningful zero with existing tasks at ${width}`);

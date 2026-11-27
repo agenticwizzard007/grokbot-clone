@@ -113,7 +113,7 @@ export async function runDashboards({ demo = false } = {}) {
     const externalRun = await server.request(account, 'POST', `/ui/widgets/${sales.id}/${sales.widgets[0].id}/run`, {}); assert.equal(externalRun.status, 202);
     await agentCard.getByText('Plan the customer call', { exact: true }).waitFor({ timeout: 4000 }); pass('SSE refreshes a result started outside this page');
     await page.goto(`${server.base}/#dash/${operations.id}`);
-    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.getByRole('button', { name: 'Refresh dashboard', exact: true }).click();
     const outputRows = page.getByRole('region', { name: 'Recent outputs', exact: true }).locator('.dashboard-output-row');
     await outputRows.first().waitFor();
     assert.doesNotMatch(await outputRows.allTextContents().then(rows => rows.join('\n')), /Review this dashboard change|^Output$/m);
@@ -153,10 +153,10 @@ export async function runDashboards({ demo = false } = {}) {
     // Ask opens a draft, never a send request.
     await page.goto(`${server.base}/#dashboards`); let sends = 0;
     page.on('request', request => { if (request.method() === 'POST' && /\/messages$/.test(new URL(request.url()).pathname)) sends++; });
-    await page.getByRole('button', { name: 'Ask your agent', exact: true }).click(); await page.locator('.composer__input').waitFor(); assert.match(await page.locator('.composer__input').inputValue(), /create a dashboard/); assert.equal(sends, 0); pass('ask your agent prefills without sending');
+    await page.getByRole('button', { name: 'Create with your agent', exact: true }).click(); await page.locator('.composer__input').waitFor(); assert.match(await page.locator('.composer__input').inputValue(), /Make me a dashboard for/); assert.equal(sends, 0); pass('ask your agent prefills without sending');
     await page.goto(`${server.base}/#settings`); await page.locator('nav[aria-label="Settings sections"]').getByRole('button', { name: 'Dashboards', exact: true }).click(); await page.locator('.dashboards-manager').waitFor(); pass('Settings entry opens manager');
     await page.goto(`${server.base}/#search`); await page.getByRole('textbox', { name: 'Search', exact: true }).fill('Dashboards'); await page.keyboard.press('Enter'); await page.locator('.dashboards-manager').waitFor(); pass('command palette keyboard path opens manager');
-    await page.goto(`${server.base}/#dash/${sales.id}`); await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await page.goto(`${server.base}/#dash/${sales.id}`); await page.getByRole('button', { name: 'Edit dashboard', exact: true }).click();
     const resize = async size => {
       await page.getByRole('button', { name: 'Settings: Next steps', exact: true }).click();
       await page.getByRole('radio', { name: size, exact: true }).focus(); await page.keyboard.press('Space');
@@ -185,7 +185,7 @@ export async function runDashboards({ demo = false } = {}) {
       await page.goto(`${server.base}/#dashboards`); await page.locator('.dashboards-manager').waitFor(); screenshots.push(await screenshot(page, `manager-${width}-${theme}`));
       for (const dashboard of [sales, operations]) { await page.goto(`${server.base}/#dash/${dashboard.id}`); await page.getByRole('button', { name: `Switch dashboard: ${dashboard.name}` }).waitFor(); screenshots.push(await screenshot(page, `${dashboard.name === 'Sales pipeline' ? 'sales' : 'operations'}-${width}-${theme}`)); }
       await page.getByRole('button', { name: 'Switch dashboard: Operations' }).click(); await page.getByRole(width > 760 ? 'menu' : 'dialog', { name: width > 760 ? 'Dashboards' : 'Switch dashboard', exact: true }).waitFor(); screenshots.push(await screenshot(page, `switcher-${width}-${theme}`)); await page.keyboard.press('Escape');
-      await page.getByRole('button', { name: 'Edit', exact: true }).click(); screenshots.push(await screenshot(page, `edit-${width}-${theme}`));
+      await page.getByRole('button', { name: 'Edit dashboard', exact: true }).click(); screenshots.push(await screenshot(page, `edit-${width}-${theme}`));
       await page.getByRole('button', { name: 'Settings: Daily summary', exact: true }).click(); screenshots.push(await screenshot(page, `settings-${width}-${theme}`)); await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
       await page.getByRole('button', { name: 'Add widget', exact: true }).click(); screenshots.push(await screenshot(page, `add-${width}-${theme}`)); await page.getByRole('button', { name: /Ask your agent Answers/ }).click(); screenshots.push(await screenshot(page, `add-agent-${width}-${theme}`)); await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
     }

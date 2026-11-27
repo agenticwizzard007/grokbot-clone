@@ -27,6 +27,11 @@ export async function agenticFixture() {
         if (user && typeof user.content === 'string' && answers.has(user.content)) {
           const spec = answers.get(user.content), outputs = (body.input ?? []).filter(item => item.type === 'function_call_output');
           let answer = outputs.length ? JSON.parse(outputs.at(-1).output) : null;
+          // Filter the live read-tool answer before formatting; never invent task rows.
+          if (answer?.kind === 'list' && spec.olderThanDays) answer.rows = answer.rows.filter(row => {
+            const updatedAt = Number(row.subtitle?.match(/updatedAt: (\d+)/)?.[1]);
+            return row.status !== 'done' && updatedAt > 0 && updatedAt < Date.now() - spec.olderThanDays * 86400000;
+          });
           // Model formatting uses live source values and omits internal record metadata.
           if (answer?.kind === 'list') answer.rows = answer.rows.map(row => ({ title: row.title, ...(row.status ? { status: ({ working: 'Working', needs_input: 'Needs input', done: 'Done' })[row.status] ?? row.status } : {}) }));
           if (answer?.kind === 'text' && spec.source === 'tasks_counts') answer = { kind: 'stat', value: String(JSON.parse(answer.text).total), label: 'Tasks' };
@@ -115,11 +120,7 @@ await server.listen();`);
       },
       seed(account) {
         seedDashboardData(db, account);
-        const names = ['Draft the launch email', 'Acme renewal', 'Review the launch plan', 'Daily summary'];
-        const tasks = db.prepare('SELECT id FROM tasks WHERE bot_id=? ORDER BY id').all(account.bot.id);
-        tasks.forEach((task, i) => db.prepare('UPDATE tasks SET title=? WHERE id=?').run(names[i % names.length], task.id));
         db.prepare('DELETE FROM usage_events WHERE user_id=?').run(account.userId);
-        db.prepare('UPDATE routines SET name=? WHERE bot_id=?').run('Daily summary', account.bot.id);
         db.prepare("DELETE FROM rows WHERE bot_id=? AND kind='card'").run(account.bot.id);
       },
       seedApproval(account) {
@@ -133,7 +134,7 @@ await server.listen();`);
         const token=await control({op:'pair',userId:account.userId});
         const socket=new WebSocket(`${api.replace('http:','ws:')}/api/cli-bridge`); sockets.push(socket);
         socket.on('message',raw=>{const message=JSON.parse(String(raw)); if(!message.id)return;
-          socket.send(JSON.stringify({id:message.id,result:message.method==='status' ? {claude:{installed:true,authenticated:true,subscription:true},codex:{installed:false,authenticated:false,subscription:false}} : {models:[],defaultModel:null,plan:null,usage:{available:true,checkedAt:Date.now(),windows:[{label:'Fixture weekly limit',usedPercent:37,resetsAt:null}]}}}));
+          socket.send(JSON.stringify({id:message.id,result:message.method==='status' ? {claude:{installed:true,authenticated:true,subscription:true},codex:{installed:false,authenticated:false,subscription:false}} : {models:[],defaultModel:null,plan:null,usage:{available:true,checkedAt:Date.now(),windows:[{label:'Weekly limit',usedPercent:37,resetsAt:null}]}}}));
         });
         await once(socket,'open'); socket.send(JSON.stringify({type:'hello',version:1,codexExecOnly:true,token,device:'QA-Temp-Fixture'}));
         await new Promise(resolve=>setTimeout(resolve,100)); await control({op:'meter',userId:account.userId,botId:account.bot.id});

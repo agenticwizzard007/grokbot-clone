@@ -41,10 +41,11 @@ test('stale widget indexes are rejected instead of editing the next widget', () 
   const changed = { ...config, dashboards: [{ ...dashboard, widgets: [...widgets].reverse() }] };
   assert.equal(previewPatch(changed, ops, { ctx }).ok, false);
 });
-test('responsive columns follow 12, 6 and 2 column rules for every span', () => {
+test('responsive columns preserve half widths and use six tracks for phone KPI thirds', () => {
   for (let span = 1; span <= 12; span++) {
+    assert.equal(columnSpan(4, 390, 'stat'), 2); assert.equal(columnSpan(4, 320, 'stat'), 2);
     assert.equal(columnSpan(span, 1280), span); assert.equal(columnSpan(span, 768), Math.ceil(span / 2));
-    assert.equal(columnSpan(span, 500), Math.ceil(span / 2)); assert.equal(columnSpan(span, 390), span <= 4 ? 1 : 2); assert.equal(columnSpan(span, 320), span <= 4 ? 1 : 2);
+    assert.equal(columnSpan(span, 500), Math.ceil(span / 2)); assert.equal(columnSpan(span, 390), span <= 4 ? 3 : 6); assert.equal(columnSpan(span, 320), span <= 4 ? 1 : 2);
   }
 });
 test('source keys share equivalent queries and dashboard routes survive renaming', () => {

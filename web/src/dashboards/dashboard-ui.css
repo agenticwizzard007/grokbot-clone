@@ -106,7 +106,7 @@
 /* Bot names are data. The full name remains in the link's accessible name. */
 .dashboard-page.dashboard-page .dashboard-bot-name { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; line-height: 20px; }
 .dashboard-bot-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; line-height: 20px; }
-.dashboard-agent-list .btn { min-width: 112px; }
+.dashboard-agent-list .btn { flex: 0 0 112px; width: 112px; padding-inline: 8px; }
 @media (max-width: 760px) {
   .shell-header:has(.dashboard-switcher) { display: grid; grid-template-columns: minmax(0,1fr) auto; height: auto; gap: 8px 16px; padding: 8px 16px; }
   .shell-header:has(.dashboard-switcher) .shell-back { grid-area: 1 / 1; justify-self: start; }
@@ -129,3 +129,12 @@
 .dashboard-bot-list .layout-row__leading { width: 32px; flex: 0 0 32px; }
 
 .dashboard-grid-slot[data-widget-empty] .dashboard-empty-data { height: auto; flex-direction: row; flex-wrap: wrap; gap: 8px; justify-content: space-between; text-align: left; }
+
+.dashboard-grid-slot:has(.dashboard-widget--agent[data-empty]) { grid-row: span 1; min-height: 88px; align-self: start; }
+.dashboard-widget--agent[data-empty] .dashboard-empty-data { height: auto; flex-direction: row; justify-content: space-between; gap: 8px; }
+
+@media (min-width: 360px) and (max-width: 480px) {
+  .dashboard-grid-slot[data-widget-kind="stat"][data-widget-span="4"] .dashboard-widget-header { min-height: 40px; }
+}
+
+.dashboard-widget--stat .dashboard-widget-header { align-items: flex-start; }

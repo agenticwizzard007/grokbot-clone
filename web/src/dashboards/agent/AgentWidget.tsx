@@ -27,7 +27,7 @@ export function AgentWidget({ dashboardId, widget, toolbar }: { dashboardId: str
   };
   const rowAction = (action: WidgetAction, rowTitle: string) => action.type === 'approve' && approved.includes(action.itemId) ? <span className="dashboard-caption" role="status">Approved</span> : <button type="button" className="btn btn--secondary" disabled={busy} aria-label={`${actionLabel(action)}: ${rowTitle}`} onClick={() => { setActionError(''); if (action.type === 'approve') setConfirm({ action, title: rowTitle }); else void act(action); }}>{actionLabel(action)}</button>;
   const doc = state.snapshot?.doc ?? null;
-  return <Card className="dashboard-widget dashboard-widget--agent" role="region" aria-labelledby={`title-${widget.id}`} aria-busy={state.running || state.loading || undefined}>
+  return <Card className="dashboard-widget dashboard-widget--agent" data-empty={!state.loading && emptyAnswer(doc) || undefined} role="region" aria-labelledby={`title-${widget.id}`} aria-busy={state.running || state.loading || undefined}>
     <div className="dashboard-agent-header"><h2 id={`title-${widget.id}`} tabIndex={-1}>{title}</h2><button type="button" className="btn btn--secondary" aria-label={`Refresh ${title}`} title="Refresh" disabled={state.running || state.loading} onClick={() => void state.run()}><RefreshCw size={18} aria-hidden /></button>{toolbar}</div>
     {state.snapshot?.runAt != null && <p className="dashboard-caption">{updatedCaption(state.snapshot.runAt, now)}</p>}
     {state.running && <p className="dashboard-agent-state" role="status"><LoaderCircle size={16} className="spin" aria-hidden />Working</p>}
