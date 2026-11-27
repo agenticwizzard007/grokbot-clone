@@ -8,7 +8,7 @@ import { fixture as handoffFixture } from './ui-d-fixture.mjs';
 import { agentsSettingsScreens, agentsSettingsState } from './agents-settings-fixture.mjs';
 
 export const screens = [
-  'receipt', 'receipt-expanded', 'receipt-running', 'message-actions', 'output-card', 'send-sheet', 'handoff-detail', 'output-viewer', 'handoff-list',
+  'receipt', 'receipt-expanded', 'receipt-running', 'receipt-named', 'receipt-long', 'receipt-agent-long', 'message-actions', 'output-card', 'send-sheet', 'handoff-detail', 'output-viewer', 'handoff-list',
   'loops-list', 'loop-timeline', 'loop-graph', 'loop-sheet', 'gate-card', 'flow-tab', 'flow-compact', 'link-sheet', 'sidebar-loops',
   ...Object.keys(scenarios).filter(x => !['converged', 'gated'].includes(x)).map(x => `loop-${x}`),
   ...['loading', 'empty', 'error'].flatMap(x => [`output-${x}`, `handoffs-${x}`, `loops-${x}`, `flow-${x}`]),
@@ -56,8 +56,21 @@ export async function polishFixture() {
         await route.fulfill({ response, json: data });
       });
       const receiptView = name.startsWith('receipt');
-      let liveLoop;
+      let liveLoop, receiptTitle;
       if (receiptView) {
+        const response = await context.request.get(`${server.base}/api/loops/${server.fixture.loopId}`);
+        liveLoop = await response.json();
+        liveLoop.loop.spec.name = name === 'receipt-named' ? 'Release note review' : name === 'receipt-long' ? 'Review the release notes and verify the accessibility improvements before publication' : 'Agent loop';
+        const longMaker = 'Release research and accessibility coordinator';
+        receiptTitle = ['receipt-named', 'receipt-long'].includes(name) ? liveLoop.loop.spec.name : `${name === 'receipt-agent-long' ? longMaker : 'Coordinator'} and Research loop`;
+        if (name === 'receipt-agent-long') {
+          for (const bot of liveLoop.bots ?? []) if (bot.id === botId) bot.name = longMaker;
+          await page.route(/\/api\/bots$/, async route => {
+            const response = await route.fetch(), data = await response.json();
+            for (const bot of data.bots) if (bot.id === botId) bot.name = longMaker;
+            await route.fulfill({ response, json: data });
+          });
+        }
         await page.route(`**/api/bots/${botId}/rows*`, async route => {
           const response = await route.fetch(), data = await response.json();
           const last = data.rows.at(-1), template = data.rows.find(row => row.kind === 'handoff');
@@ -68,12 +81,10 @@ export async function polishFixture() {
           await route.fulfill({ response, json: data });
         });
         if (name === 'receipt-running') {
-          const response = await context.request.get(`${server.base}/api/loops/${server.fixture.loopId}`);
-          liveLoop = await response.json();
           Object.assign(liveLoop.loop, { status: 'running', iteration: 2, finishedAt: null, stopReason: null });
           liveLoop.loop.spec.limits.maxIterations = 4;
-          await page.route(`**/api/loops/${server.fixture.loopId}`, route => route.fulfill({ json: liveLoop }));
         }
+        await page.route(`**/api/loops/${server.fixture.loopId}`, route => route.fulfill({ json: liveLoop }));
       }
       let hash = name === 'sidebar-loops' ? '#bots' : `#bot/${botId}`, selector = name === 'output-card' ? '.ho-output-card' : '.ho-receipt, .ho-output-card, .ho-message-actions';
       const settings = name.startsWith('settings-agents') ? await agentsSettingsState(page, server.fixture, name) : null;
@@ -112,9 +123,9 @@ export async function polishFixture() {
       if (name === 'link-sheet' || name === 'link-edit') { await page.getByRole('button', { name: 'Add handoff', exact: true }).click(); selector = '.flow-sheet'; if (name === 'link-edit') await page.getByRole('button', { name: /^Edit handoff/ }).first().click(); }
       if (name === 'sidebar-loops') { if (width <= 760) await page.getByRole('button', { name: 'Open navigation', exact: true }).click(); await page.getByRole('button', { name: 'Account & settings', exact: true }).click(); selector = '.sidebar .menu__item:has(.lucide-git-branch)'; }
       await page.locator(selector).first().waitFor();
-      if (receiptView && process.env.HO_POLISH_PHASE !== 'before') {
+      if (receiptView) {
         await page.locator('.ho-receipt--loop').getByRole('status').filter({hasText: name === 'receipt-running' ? 'Running' : 'Completed'}).waitFor();
-        if (name === 'receipt-expanded') await page.getByRole('button', {name:'Show passes',exact:true}).click();
+        if (name === 'receipt-expanded') await page.locator('.ho-receipt-expand').click();
       }
       if (name === 'message-actions') await page.getByRole('button', {name:'Message actions',exact:true}).first().waitFor();
       // Audit the requested state, never its transient loading fallback.
@@ -130,7 +141,7 @@ export async function polishFixture() {
       if (name.startsWith('link-')) await page.getByRole('combobox', {name:'Agent',exact:true}).waitFor();
       await page.evaluate(() => document.fonts.ready); await page.waitForTimeout(200);
       await page.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
-      return { page, selector, async advanceLoop() {
+      return { page, selector, receiptTitle, async advanceLoop() {
         liveLoop.loop.iteration++; liveLoop.loop.revision++;
         await page.evaluate(id => window.dispatchEvent(new CustomEvent('swarm:event', {detail:{type:'loop',id}})), server.fixture.loopId);
       }, close: () => page.close() };
