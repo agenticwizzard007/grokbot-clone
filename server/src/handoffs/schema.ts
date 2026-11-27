@@ -102,3 +102,58 @@ CREATE TABLE IF NOT EXISTS handoff_user_settings (
   agent_handoffs TEXT NOT NULL DEFAULT 'team' CHECK(agent_handoffs IN ('team','links_only','off')), updated_at INTEGER NOT NULL);
 `;
 export { OUTPUT_LIMITS } from "./contracts.js";
+
+import { z } from 'zod';
+import { OUTPUT_LIMITS as limits } from './contracts.js';
+import { canonicalJson } from '../flow/hash.js';
+
+const id = z.string().min(1).max(160).regex(/^[A-Za-z0-9_-]+$/);
+const httpsUrl = z.string().max(2048).url().refine(value => {
+  const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password;
+}, 'Use an https URL without credentials');
+export const linkSchema = z.object({ url: httpsUrl, title: z.string().max(120), relation: z.enum(['source', 'result', 'reference']) }).strict();
+export const dataPartSchema = z.object({ name: z.string().min(1).max(80), schema: z.string().max(120).optional(), json: z.unknown() }).strict().superRefine((part, ctx) => {
+  try {
+    if (new TextEncoder().encode(canonicalJson(part.json)).length > limits.dataBytesMax) ctx.addIssue({ code: 'custom', message: 'Data part is too large' });
+  } catch { ctx.addIssue({ code: 'custom', message: 'Data must be JSON' }); }
+});
+export const submitOutputSchema = z.object({
+  title: z.string().min(1).max(120).optional(), summary: z.string().min(1).max(limits.summaryChars),
+  dataParts: z.array(dataPartSchema).max(limits.dataMax).optional(),
+  links: z.array(linkSchema).max(limits.linksMax).optional(), files: z.array(z.string().min(1).max(1024)).max(limits.filesMax).optional(),
+}).strict();
+export const verdictSchema = z.object({
+  pass: z.boolean(), score: z.number().min(0).max(1).optional(),
+  checklist: z.array(z.object({ id, pass: z.boolean(), note: z.string().max(400) }).strict()).max(30),
+  feedback: z.string().max(2000),
+}).strict();
+export const loopStepSchema = z.object({ id, botId: id, role: z.enum(['step', 'maker', 'checker']), instruction: z.string().max(1500) }).strict();
+export const exitRuleSchema = z.discriminatedUnion('mode', [
+  z.object({ mode: z.literal('verdict') }).strict(),
+  z.object({ mode: z.literal('checklist'), items: z.array(z.object({ id, text: z.string().min(1).max(400), required: z.boolean() }).strict()).min(1).max(30), minScore: z.number().min(0).max(1).optional() }).strict(),
+  z.object({ mode: z.literal('judge'), judgeBotId: id.optional(), rubric: z.string().min(1).max(2000) }).strict(),
+  z.object({ mode: z.literal('manual') }).strict(),
+]);
+export const loopLimitsSchema = z.object({
+  maxIterations: z.number().int().min(1).max(10).default(4), maxMinutes: z.number().min(5).max(240).default(30),
+  maxCostUsd: z.number().positive().optional(), maxTokens: z.number().int().positive().optional(),
+  stepTimeoutMinutes: z.number().min(1).max(30).default(10),
+}).strict();
+export const loopSpecSchema = z.object({
+  name: z.string().min(1).max(80), goal: z.string().min(1).max(2000), kind: z.enum(['pipeline', 'maker_checker']),
+  steps: z.array(loopStepSchema).min(2).max(6), seed: z.object({ outputRef: z.string().max(400).optional(), text: z.string().max(2000).optional() }).strict(),
+  exit: exitRuleSchema, limits: loopLimitsSchema,
+  gate: z.object({ before: z.enum(['none', 'first', 'each']), onCap: z.enum(['stop', 'ask']) }).strict(),
+  roomId: id.optional(), taskId: id.optional(),
+}).strict().superRefine((spec, ctx) => {
+  const issue = (message: string) => ctx.addIssue({ code: 'custom', message });
+  if (new Set(spec.steps.map(s => s.id)).size !== spec.steps.length) issue('Step ids must be unique');
+  if (spec.kind === 'maker_checker' && (spec.steps.length !== 2 || spec.steps[0].role !== 'maker' || spec.steps[1].role !== 'checker')) issue('Use exactly a maker followed by a checker');
+  if (['verdict', 'checklist'].includes(spec.exit.mode) && spec.steps.at(-1)?.role !== 'checker') issue('The final step must be a checker');
+  if (spec.exit.mode === 'checklist' && new Set(spec.exit.items.map(i => i.id)).size !== spec.exit.items.length) issue('Checklist ids must be unique');
+  if (spec.seed.outputRef && !/^swarm:\/\/output\/out_[A-Za-z0-9_-]+$/.test(spec.seed.outputRef)) issue('Invalid seed reference');
+});
+export const flowSummarySchema = z.object({
+  steps: z.array(z.object({ label: z.string().min(1).max(40), detail: z.string().max(60).optional() }).strict()).min(1).max(6),
+  loopNote: z.string().max(120).optional(),
+}).strict();
