@@ -34,7 +34,7 @@ export async function qualityServer({ extraSeed = true } = {}) {
     DB_PATH: database, FILES_DIR: path.join(temp, 'files'), CLI_PROFILES_DIR: path.join(temp, 'profiles'),
     SWARM_ROLE: 'standalone', SWARM_NO_SCHEDULER: '1', SESSION_SECRET: 'uc-h-test-only', COMPUTER_PROVIDER: 'local',
     INKBOX_TUNNEL: '0', DEV_LOGIN: '1', PORT: String(apiPort), APP_URL: base, SERVER_URL: base, WHATSAPP_DISABLED: '1',
-    MEMORY_CONSOLIDATE_IDLE_MINUTES: '0', UI_CUSTOMIZATION: 'on',
+    MEMORY_CONSOLIDATE_IDLE_MINUTES: '0', UI_CUSTOMIZATION: 'on', UI_ADAPT: 'on',
     DIRECT_API_KEY: 'mock-key', DIRECT_BASE_URL: `${mock}/v1`, OPENROUTER_BASE_URL: `${mock}/api/v1`, LLM_PROVIDER: 'direct',
   };
   function start(args, cwd = ROOT, extra = {}) {

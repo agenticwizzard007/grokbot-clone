@@ -1,41 +1,39 @@
-// Full product story, always on a disposable seeded server and scripted mock provider.
+// Product story uses disposable fixture accounts and the scripted mock provider only.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { runSuite, fixtureContext, configAvailable, open, snapshot, api, button, requireModules, until } from '../tests/ui-custom/fixtures/harness.mjs';
-import { reset, themeJourney, dashboardJourney, recoveryJourney } from '../tests/ui-custom/e2e/journeys-ui.mjs';
+import { runSuite, fixtureContext, open, snapshot, api } from '../tests/ui-custom/fixtures/harness.mjs';
+import { reset, dashboardJourney, recoveryJourney } from '../tests/ui-custom/e2e/journeys-ui.mjs';
+import { requirementsUseCases, requirementsChangeReset } from '../tests/ui-custom/e2e/requirements-journeys.mjs';
 
 export async function runStory() {
   const screenshots = [];
-  const result = await runSuite('story', [390, 1280].map(width => ({ name: `product story ${width}`, run: async ({ server, browser, out }) => {
+  const stories = [
+    ['dashboard chat and persistence', async args => {
+      await dashboardJourney(args);
+      await api(args.context.request, args.server.base, '/undo', 'POST', { steps: 1 });
+      await args.page.reload(); await args.page.locator('.shell-header').waitFor();
+      await args.capture('dashboard-resize-undo');
+    }],
+    ['requirements use cases', requirementsUseCases],
+    ['requirements change and reset', requirementsChangeReset],
+    ['safe mode recovery', recoveryJourney],
+  ];
+  const result = await runSuite('story', [390, 1280].flatMap(width => stories.map(([name, run]) => ({ name: `${name} ${width}`, run: async ({ server, browser, out }) => {
     const { context, external } = await fixtureContext(browser, server, width);
     try {
       const page = await context.newPage(); page.setDefaultTimeout(15000);
-      await open(page, server.base);
-      const baseline = await snapshot(page, out, `baseline-${width}`);
-      screenshots.push({ step: 'baseline only', width, file: baseline });
-      await configAvailable(context.request, server.base);
-      requireModules('web/src/components/config/AppearanceSettings.tsx');
-      await reset(context, server);
+      await reset(context, server); await open(page, server.base);
       const capture = async step => screenshots.push({ step, width, file: await snapshot(page, out, `${width}-${step}`) });
-      const args = { page, context, server, capture };
-      await themeJourney(args);
-      await dashboardJourney(args);
-      const current = await configAvailable(context.request, server.base);
-      await api(context.request, server.base, '/undo', 'POST', { steps: 1 }, 200, current.revision);
-      await capture('dashboard-undo');
-      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
-      await open(page, server.base, '#settings/appearance'); await capture('appearance');
-      await reset(context, server); await capture('reset');
-      await recoveryJourney(args);
+      await run({ page, context, server, capture });
       assert.deepEqual(external, [], 'Story must use only local assets');
     } finally { await context.close(); }
-  } })));
+  } }))));
   fs.writeFileSync(path.join(result.out, 'manifest.json'), JSON.stringify({
     status: result.counts.fail ? 'failed' : result.counts.skip ? 'pending dependencies' : 'complete',
     counts: result.counts, screenshots,
-    note: 'Baseline screenshots do not establish customization acceptance. See report.json for skipped dependencies.',
+    note: 'Only listed steps were captured. Skipped journeys do not satisfy acceptance.',
   }, null, 2) + '\n');
   console.log(`Story manifest: ${result.out}/manifest.json`);
   return result;

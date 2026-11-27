@@ -3,10 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { runSuite, fixtureContext, configAvailable, api, open, until, requireModules } from '../fixtures/harness.mjs';
 import { ROOT } from '../fixtures/server.mjs';
-import { contracts } from '../fixtures/presets.mjs';
+import { contracts } from '../fixtures/contracts.mjs';
 import { fuzzTargets } from './fuzz-targets.mjs';
 import { XSS, cssFuzz, HOSTILE_PATCHES } from './corpus.mjs';
-import { widgets, corruptDocument } from '../fixtures/matrix.mjs';
+import { widgets, corruptDocument, LAYOUT_PATCH, dashboardPatch } from '../fixtures/matrix.mjs';
 
 function xssDocument(defaults, value, index) {
   const doc = structuredClone(defaults);
@@ -26,18 +26,17 @@ async function withContext(args, fn) {
 }
 const cases = [
   { name: 'no executable rendering sinks', run: async () => {
-    requireModules('web/src/customization/applier.ts', 'web/src/dashboards/note-parser.ts', 'web/src/components/config/AppearanceSettings.tsx');
+    requireModules('web/src/dashboards/note-parser.ts');
     const files = [];
     const walk = entry => { for (const item of fs.readdirSync(entry, { withFileTypes: true })) { const file = path.join(entry, item.name); if (item.isDirectory()) walk(file); else if (/\.[jt]sx?$/.test(file)) files.push(file); } };
     for (const dir of ['web/src/customization', 'web/src/dashboards', 'web/src/components/config/appearance']) if (fs.existsSync(path.join(ROOT, dir))) walk(path.join(ROOT, dir));
-    files.push(path.join(ROOT, 'web/src/components/config/AppearanceSettings.tsx'));
     for (const file of files) assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /dangerouslySetInnerHTML|\.innerHTML\s*=|insertAdjacentHTML|new\s+Function\s*\(/, file);
   } },
-  { name: '5000 CSS strings in every registered color and enum field', run: async () => {
+  { name: '5000 injection strings in dashboard and navigation enums', run: async () => {
     const shared = await contracts(), { uiConfigSchema } = shared;
     const { doc: template, paths, parameterSchemas } = fuzzTargets(shared);
     assert.equal(uiConfigSchema.safeParse(template).success, true, 'Fuzz starts from a valid document');
-    assert.ok(paths.length > 40, 'Colors and enums must be discovered from registries');
+    assert.ok(paths.length > 20, 'Dashboard and navigation enums must come from registries');
     let assertions = 0;
     const values = cssFuzz();
     console.log(`Fuzzing ${values.length} inputs in ${paths.length} contract paths`);
@@ -117,7 +116,7 @@ const cases = [
     await api(context.request, server.base, '/config', 'PUT', current.doc, 200, current.revision);
     server.withDb(db => db.prepare('UPDATE ui_config SET doc=? WHERE user_id=?').run(JSON.stringify(corruptDocument(current.doc)), server.fixture.userId));
     const fallback = await configAvailable(context.request, server.base); assert.equal(fallback.status, 'invalid_stored');
-    const page = await context.newPage(); await open(page, server.base, '?ui=safe#settings/appearance');
+    const page = await context.newPage(); await open(page, server.base, '?ui=safe#bots');
     await page.getByText(/safe mode/i).first().waitFor();
     assert.ok(await page.getByRole('button', { name: 'Reset', exact: true }).count());
     await api(context.request, server.base, '/reset', 'POST', { scope: 'all' }, 200, fallback.revision);
@@ -129,29 +128,25 @@ const cases = [
     const widgetIds = (Array.isArray(REGISTRY.widgets) ? REGISTRY.widgets : Object.values(REGISTRY.widgets)).map(item => item.id);
     for (const id of ['html', 'iframe', 'image', 'script', 'approval', 'connect', 'question']) assert.equal(widgetIds.includes(id), false, id);
   } },
-  { name: 'two-user config, preview, preset, history and export isolation', run: args => withContext(args, async ({ context, server, current, browser }) => {
+  { name: 'two-user config, preview, history and export isolation', run: args => withContext(args, async ({ context, server, current, browser }) => {
     const other = await browser.newContext();
     try {
       assert.ok((await other.request.post(`${server.base}/api/auth/dev`, { data: { email: 'qa-temp-isolation-b@example.test', name: 'QA-Temp-Isolation-B' } })).ok());
       const beforeB = await configAvailable(other.request, server.base);
-      const preview = await api(context.request, server.base, '/patches/preview', 'POST', { intent: 'PRIVATE_PREVIEW_SENTINEL', patch: [{ op: 'replace', path: '/theme/mode', value: 'dark' }] });
+      const preview = await api(context.request, server.base, '/patches/preview', 'POST', { intent: 'PRIVATE_PREVIEW_SENTINEL', patch: LAYOUT_PATCH });
       for (const [method, suffix] of [['GET', ''], ['POST', '/apply'], ['POST', '/discard']]) {
         const denied = await api(other.request, server.base, `/previews/${preview.previewId}${suffix}`, method, undefined, 404);
         assert.equal(denied.code, 'not_found');
       }
       const applied = await api(context.request, server.base, `/previews/${preview.previewId}/apply`, 'POST', {});
-      assert.equal(applied.doc.theme.mode, 'dark');
-      assert.notDeepEqual(applied.doc.theme, beforeB.doc.theme, 'The fixture accounts must have different saved themes');
+      assert.equal(applied.doc.layout.home.kind, 'tasks');
+      assert.notDeepEqual(applied.doc.layout, beforeB.doc.layout, 'The fixture accounts must have different navigation');
       assert.deepEqual((await configAvailable(other.request, server.base)).doc, beforeB.doc);
       assert.deepEqual((await api(other.request, server.base, `/config?userId=${server.fixture.userId}`)).doc, beforeB.doc, 'Query input cannot select another account');
       assert.ok((await api(context.request, server.base, '/history')).history.some(row => row.revision === applied.revision));
       assert.deepEqual((await api(other.request, server.base, '/history')).history, []);
       assert.equal((await api(other.request, server.base, `/history/${applied.revision}/restore`, 'POST', {}, 404)).code, 'not_found');
-      const preset = await api(context.request, server.base, '/presets', 'POST', { name: 'PRIVATE_PRESET_SENTINEL' });
-      const presets = await api(other.request, server.base, '/presets');
-      assert.doesNotMatch(JSON.stringify(presets), /PRIVATE_PRESET_SENTINEL/);
-      assert.equal((await api(other.request, server.base, `/presets/${preset.presetId}`, 'DELETE', {}, 404)).code, 'not_found');
-      assert.doesNotMatch(JSON.stringify(await api(other.request, server.base, '/history')), /PRIVATE_PREVIEW_SENTINEL|PRIVATE_PRESET_SENTINEL/);
+      assert.doesNotMatch(JSON.stringify(await api(other.request, server.base, '/history')), /PRIVATE_PREVIEW_SENTINEL/);
       assert.deepEqual((await configAvailable(other.request, server.base)).doc, beforeB.doc);
       const exported = await api(context.request, server.base, '/export');
       const allowed = new Set([...Object.keys(current.doc), 'exportedAt']);
@@ -187,11 +182,11 @@ const cases = [
     } finally { await other.close(); }
   }) },
   { name: 'network and CSP retain same-origin asset boundaries', run: args => withContext(args, async ({ context, server, external }) => {
-    requireModules('web/public/ui-boot.js', 'web/src/dashboards/DashboardGrid.tsx');
+    requireModules('web/src/dashboards/DashboardGrid.tsx', 'web/src/customization/layout/useHome.ts');
     const page = await context.newPage();
     await page.addInitScript(() => { window.__ucCsp = []; document.addEventListener('securitypolicyviolation', event => window.__ucCsp.push({ directive: event.violatedDirective, blocked: event.blockedURI })); });
-    await open(page, server.base, '#settings/appearance');
-    const boot = await context.request.get(`${server.base}/ui-boot.js`); assert.equal(boot.status(), 200);
+    const written = await api(context.request, server.base, '/config', 'PATCH', { patch: dashboardPatch() });
+    await open(page, server.base, `#dash/${written.doc.dashboards.at(-1).id}`);
     assert.deepEqual(external, []); assert.deepEqual(await page.evaluate(() => window.__ucCsp), []);
     const assets = await page.evaluate(() => [...document.querySelectorAll('script[src],link[rel="stylesheet"],img[src]')].map(el => el.src || el.href));
     assert.ok(assets.every(value => new URL(value, server.base).origin === server.base || value.startsWith('data:')));

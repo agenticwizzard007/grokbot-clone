@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { XSS, cssFuzz, HOSTILE_PATCHES, INJECTION_DOCUMENTS } from './corpus.mjs';
-import { MATRIX, matrixDocument, widgets } from '../fixtures/matrix.mjs';
+import { MATRIX, matrixDocument, widgets, DASHBOARD_EDITS, dashboardPatch, REQUIREMENTS } from '../fixtures/matrix.mjs';
 import { requireFeature, MissingFeature } from '../fixtures/harness.mjs';
 
 test('50 distinct XSS cases cover active HTML and network asset sinks', () => {
@@ -9,23 +9,29 @@ test('50 distinct XSS cases cover active HTML and network asset sinks', () => {
   for (const sink of ['script', 'img', 'svg', 'iframe', 'style', 'form', 'template', '__proto__']) assert.ok(XSS.some(value => value.includes(sink)), sink);
   for (const value of XSS) assert.match(value, /[<>]/);
 });
-test('CSS fuzz is reproducible, distinct and cannot accidentally be a valid enum or hex', () => {
+test('CSS fuzz is reproducible, distinct and cannot accidentally be a valid enum', () => {
   const values = cssFuzz(); assert.equal(values.length, 5000); assert.equal(new Set(values).size, 5000);
   assert.deepEqual(values, cssFuzz()); assert.notDeepEqual(values, cssFuzz(5000, 42));
-  for (const value of values) { assert.ok(value.includes('!')); assert.doesNotMatch(value, /^#[0-9a-f]{6}$/i); }
+  for (const value of values) { assert.ok(value.includes('!')); }
 });
 test('hostile fixtures exercise recovery and resource limits', () => {
   assert.equal(INJECTION_DOCUMENTS.length, 10); assert.equal(HOSTILE_PATCHES.length, 10);
   assert.equal(HOSTILE_PATCHES.find(p => p.name === 'patch storm').patch.length, 101);
 });
-test('matrix covers all widget types and long labels without mutating defaults', () => {
+test('matrix covers all widget types without cosmetic overrides or mutation', async () => {
+  const { contracts } = await import('../fixtures/contracts.mjs');
+  const { DEFAULT_CONFIG, uiConfigSchema } = await contracts();
   assert.equal(new Set(widgets().map(w => w.type)).size, 10);
-  assert.equal(MATRIX.length, 7);
-  const defaults = { theme: { font: {} }, dashboards: [] };
-  const doc = matrixDocument(defaults, 'hostile', 'dark');
-  assert.equal(doc.dashboards.length, 12); assert.deepEqual(defaults, { theme: { font: {} }, dashboards: [] });
-  assert.equal(new Set(doc.dashboards.flatMap(d => d.widgets.map(w => w.id))).size, 144);
-  for (const d of doc.dashboards) { assert.ok(d.name.length <= 40); for (const w of d.widgets) assert.ok(w.title.length <= 60); }
+  assert.deepEqual(MATRIX, ['default', 'navigation', 'dashboard-seeded', 'dashboard-empty']);
+  const before = structuredClone(DEFAULT_CONFIG);
+  for (const fixture of MATRIX) {
+    const doc = matrixDocument(DEFAULT_CONFIG, fixture);
+    assert.equal(uiConfigSchema.safeParse(doc).success, true, fixture);
+    assert.deepEqual(doc.theme, DEFAULT_CONFIG.theme, 'No cosmetic overrides');
+    assert.equal(doc.preset, DEFAULT_CONFIG.preset);
+    assert.deepEqual(doc.device, DEFAULT_CONFIG.device);
+  }
+  assert.deepEqual(DEFAULT_CONFIG, before);
 });
 test('development absence skips but full gate fails; available feature always runs', () => {
   const previous = process.env.UC_REQUIRE_FULL;
@@ -36,16 +42,26 @@ test('development absence skips but full gate fails; available feature always ru
   } finally { if (previous === undefined) delete process.env.UC_REQUIRE_FULL; else process.env.UC_REQUIRE_FULL = previous; }
 });
 
-test('all fourteen matrix documents pass the shared schema and contrast checker', async t => {
-  const { contracts, presetDocument } = await import('../fixtures/presets.mjs');
-  let shared;
-  try { shared = await contracts(); } catch (error) { if (error instanceof MissingFeature) { t.skip(error.message); return; } throw error; }
-  for (const fixture of MATRIX) for (const mode of ['light', 'dark']) {
-    const doc = matrixDocument(shared.DEFAULT_CONFIG, fixture, mode, await presetDocument(fixture === 'hostile' ? 'swarm' : fixture));
-    const parsed = shared.uiConfigSchema.safeParse(doc);
-    assert.equal(parsed.success, true, `${fixture} ${mode}: ${parsed.success ? '' : JSON.stringify(parsed.error.issues)}`);
-    assert.deepEqual(shared.checkAccessibility(doc), [], `${fixture} ${mode}`);
+test('chat action sequence validates and leaves every widget type represented', async () => {
+  const { contracts } = await import('../fixtures/contracts.mjs');
+  const { DEFAULT_CONFIG, previewPatch } = await contracts();
+  let doc = structuredClone(DEFAULT_CONFIG);
+  for (const patch of [dashboardPatch(), ...DASHBOARD_EDITS.map(edit => edit.patch)]) {
+    const result = previewPatch(doc, patch, { ctx: { userId: 'qa-temp-corpus', botIds: [] } });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    doc = result.result;
   }
+  assert.equal(doc.dashboards[0].widgets.length, 12);
+  assert.equal(new Set(doc.dashboards[0].widgets.map(w => w.type)).size, 10);
+  assert.equal(doc.dashboards[0].widgets[1].span, 6);
+  assert.equal(doc.dashboards[0].widgets[1].rows, 2);
+  assert.deepEqual(doc.theme, DEFAULT_CONFIG.theme);
+});
+test('requirements fixtures distinguish use cases and include hostile profile instructions', () => {
+  assert.equal(new Set(Object.values(REQUIREMENTS).map(p => p.lens)).size, 3);
+  assert.notDeepEqual(REQUIREMENTS.sales.focus, REQUIREMENTS.operations.focus);
+  assert.ok(INJECTION_DOCUMENTS.some(value => value.includes('update_requirements')));
+  assert.ok(INJECTION_DOCUMENTS.some(value => value.includes('preview_adaptation')));
 });
 
 test('merged API probes never skip missing routes, authentication failures or server errors', async () => {

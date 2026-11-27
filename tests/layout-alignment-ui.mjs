@@ -7,10 +7,8 @@ import { chromium } from 'playwright';
 import { preparePbeState } from './paper-pbe-states.mjs';
 import { layoutServer } from './layout-fixture.mjs';
 import { readableWords } from './paper-label-geometry.mjs';
-import { qualityServer } from './ui-custom/fixtures/server.mjs';
-import { MATRIX, WIDTHS, MODES, matrixDocument, THEME_PATCH } from './ui-custom/fixtures/matrix.mjs';
-import { api, configAvailable, fixtureContext, put, requireFeature, requireModules, MissingFeature, agentPreview } from './ui-custom/fixtures/harness.mjs';
-import { presetDocument } from './ui-custom/fixtures/presets.mjs';
+import { fixtureContext, runSuite } from './ui-custom/fixtures/harness.mjs';
+import { CUSTOM_ROUTES, prepareRoute } from './ui-custom/fixtures/routes.mjs';
 
 export const ROUTES = [
   { name: 'bots', hash: '#bots', owner: 'PB-D', enforce: true },
@@ -56,10 +54,8 @@ export function inspectAlignment({ selector = '.shell-content > :not(.shell-head
       issues.push(`Outside viewport: ${label(el)}`);
     }
     // The approved stable composer has 36px controls inside its 52/84px frame.
-    const controlHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--control-h')) || 44;
-    const floor = innerWidth <= 480 ? Math.max(44, controlHeight) : Math.max(40, controlHeight);
-    const minControl = el.closest('.composer') ? 35 : floor - 1;
-    if (el.matches('button, [role="button"], [data-layout="row"]') && r.height < minControl) issues.push(`Below ${floor}px (${r.height}): ${label(el)}`);
+    const minControl = el.closest('.composer') ? 35 : 43;
+    if (el.matches('button, [role="button"], [data-layout="row"]') && r.height < minControl) issues.push(`Below 44px (${r.height}): ${label(el)}`);
     if (el.dataset.layout === 'page') {
       if (!close(parseFloat(cs.paddingLeft), parseFloat(cs.paddingRight))) issues.push(`Unequal Page padding: ${label(el)}`);
       const p = rect(el.parentElement);
@@ -82,8 +78,7 @@ export function inspectAlignment({ selector = '.shell-content > :not(.shell-head
         if (!close(tr.top + tr.height / 2, ar.top + ar.height / 2)) issues.push(`Section action text not centered: ${label(el)} (${Math.abs(tr.top + tr.height / 2 - ar.top - ar.height / 2).toFixed(2)}px)`);
         if (!close(rect(action).right, rect(el.closest('[data-layout="section"]')).right)) issues.push(`Section action right edge: ${label(el)}`);
         const ts = getComputedStyle(title);
-        const scale = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--font-scale')) || 1;
-        if (!close(parseFloat(ts.fontSize), 13 * scale) || !close(parseFloat(ts.lineHeight), 18 * scale) || ts.fontWeight !== '600') issues.push(`Section title style: ${label(el)}`);
+        if (!close(parseFloat(ts.fontSize), 13) || !close(parseFloat(ts.lineHeight), 18) || ts.fontWeight !== '600') issues.push(`Section title style: ${label(el)}`);
       }
     }
   }
@@ -158,50 +153,25 @@ export function inspectDashboardGrid() {
   return [...new Set(issues)];
 }
 
-export const CUSTOM_ROUTES = [
-  { name: 'settings-appearance', hash: '#settings/appearance', owner: 'UC-H', enforce: true },
-  { name: 'dashboard-fixture', hash: '#dash/d_00000001', owner: 'UC-H', enforce: true, dashboard: true },
-  { name: 'preview-banner', hash: '#bot/{bot}', owner: 'UC-H', enforce: true, preview: true },
-  { name: 'safe-mode-banner', hash: '?ui=safe#bots', owner: 'UC-H', enforce: true, safe: true },
-];
 async function main() {
   const evidence = path.resolve(process.env.LAYOUT_EVIDENCE || '.context/layout-alignment'); fs.mkdirSync(evidence, { recursive: true });
-  const server = process.env.LAYOUT_ROOT ? await layoutServer({ root: path.resolve(process.env.LAYOUT_ROOT) }) : await qualityServer({ extraSeed: false });
-  let browser; const report = [], skipped = [];
+  const server = await layoutServer({ root: path.resolve(process.env.LAYOUT_ROOT || '.') });
+  const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
+  const report = [];
   try {
-    browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
-    const probe = await fixtureContext(browser, server);
-    let defaults, customization = false;
-    try {
-      if (process.env.LAYOUT_ROOT) requireFeature(false, 'External baseline checkout requested; customization matrix not selected');
-      defaults = (await configAvailable(probe.context.request, server.base)).doc;
-      requireModules('web/src/customization/applier.ts', 'web/src/components/config/AppearanceSettings.tsx', 'web/src/dashboards/DashboardGrid.tsx', 'server/src/agent/ui-tools.ts');
-      customization = true;
-    } catch (error) {
-      if (!(error instanceof MissingFeature)) throw error;
-      skipped.push(error.message); console.log(`SKIP customization matrix: ${error.message}`);
-    } finally { await probe.context.close(); }
-    const fixtures = customization ? MATRIX.filter(name => !process.env.UC_LAYOUT_FIXTURE || name === process.env.UC_LAYOUT_FIXTURE) : ['baseline'];
-    assert.ok(fixtures.length, 'UC_LAYOUT_FIXTURE must name a registered matrix fixture');
-    for (const fixture of fixtures) for (const width of (process.env.LAYOUT_WIDTHS ? process.env.LAYOUT_WIDTHS.split(',').map(Number) : WIDTHS)) for (const mode of MODES) {
-      const { context } = await fixtureContext(browser, server, width);
-      await context.addInitScript(value => { if (location.origin !== 'null') localStorage.setItem('swarm.theme', value); }, mode);
-
-      let doc;
-      if (customization) {
-        doc = matrixDocument(defaults, fixture, mode, await presetDocument(fixture === 'hostile' ? 'swarm' : fixture));
-        await put(context, server.base, doc);
-      }
-      const page = await context.newPage(); page.setDefaultTimeout(15000); await page.emulateMedia({ colorScheme: mode });
-      const routes = [...ROUTES, ...(customization ? CUSTOM_ROUTES : [])].filter(route => (!process.env.LAYOUT_OWNER || route.owner === process.env.LAYOUT_OWNER) && (!process.env.LAYOUT_ROUTES || process.env.LAYOUT_ROUTES.split(',').includes(route.name)));
-      for (const route of routes) {
-        // Authentication must be restored after signed-out route cases.
-        await context.clearCookies();
-        if (!route.signedOut) await context.addCookies([{ name: 'swarm_session', value: 'layout-test-token', url: server.base }]);
+    for (const width of (process.env.LAYOUT_WIDTHS || '390,1280').split(',').map(Number)) for (const theme of ['light', 'dark']) {
+      const context = await browser.newContext({ viewport: { width, height: width <= 760 ? 844 : 900 }, reducedMotion: 'reduce', colorScheme: theme });
+      await context.addCookies([{ name: 'swarm_session', value: 'layout-test-token', url: server.base }]);
+      await context.addInitScript(theme => { if (location.origin === 'null') return; localStorage.setItem('swarm.theme', theme); localStorage.setItem('swarm.sidebarCollapsed', '0'); }, theme);
+      const page = await context.newPage(); page.setDefaultTimeout(15000);
+      for (const route of ROUTES.filter(route => (!process.env.LAYOUT_OWNER || route.owner === process.env.LAYOUT_OWNER) && (!process.env.LAYOUT_ROUTES || process.env.LAYOUT_ROUTES.split(',').includes(route.name)))) {
+        if (route.signedOut) await context.clearCookies();
         const hash = route.hash.replace('{bot}', server.fixture.bot.id).replace('{room}', server.fixture.room);
         let issues, words;
         try {
-          if (route.code) await page.route('**/api/auth/phone/start', r => r.fulfill({ json: { id: 'layout-code', delivery: 'sent', textNumber: null, line: null } }));
+          if (route.code) {
+            await page.route('**/api/auth/phone/start', r => r.fulfill({ json: { id: 'layout-code', delivery: 'sent', textNumber: null, line: null } }));
+          }
           await page.goto('about:blank'); await page.goto(server.base + '/' + hash.replace(/^\//, ''));
           await page.locator(route.signedOut ? '.signin, .access-signin, .join' : '.shell-header').first().waitFor();
           if (route.code) {
@@ -210,10 +180,9 @@ async function main() {
             await page.getByRole('textbox', { name: '6-digit code' }).waitFor();
           }
           if (route.enforce) await page.locator('[data-layout="page"]:visible').first().waitFor();
-          await page.evaluate(() => document.fonts.ready); await page.waitForTimeout(350);
+          await page.evaluate(() => document.fonts.ready);
+          await page.waitForTimeout(350);
           if (route.state) await preparePbeState(page, route.state, server.fixture.bot.id);
-          if (route.preview) await agentPreview(page, server, THEME_PATCH, 'Matrix preview');
-          if (route.safe) await page.getByText(/safe mode/i).first().waitFor();
           if (route.enforce) await page.locator(route.hash.includes('/details/') ? '.pb-details [data-layout="page"]:visible' : '[data-layout="page"]:visible').first().waitFor();
           issues = await page.evaluate(inspectAlignment, {});
           for (const control of await page.locator('.shell-content :is([role="tablist"], [role="radiogroup"], .seg, .segmented, .cfg-seg, .task-filters, nav[aria-label$="sections"]):visible').all()) {
@@ -227,7 +196,7 @@ async function main() {
             }));
             issues.push(...logos);
             words = await page.locator('.shell-content').evaluate(root => [...root.querySelectorAll('*')].filter(el => el.checkVisibility() && !el.closest('.phone-tabs, .sr-only, [hidden]')).flatMap(el => [...el.childNodes].filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent)).join(' ').trim().split(/\s+/).filter(Boolean).length);
-            if ([320, 390, 1280].includes(width)) await page.screenshot({ path: path.join(evidence, `${fixture}-${route.name}-${width}-${mode}.png`) });
+            if ([320, 390, 1280].includes(width)) await page.screenshot({ path: path.join(evidence, `${route.name}-${width}-${theme}.png`) });
           }
           if (['tasks', 'scoped-tasks'].includes(route.name)) {
             const banner = page.getByTestId('tasks-needs-input');
@@ -261,34 +230,44 @@ async function main() {
             await page.unroute('**/api/**/tasks'); await page.unroute('**/api/tasks'); await page.unroute('**/api/needs-you');
             issues.push(...bannerIssues);
           }
-
-          if (route.dashboard) issues.push(...await page.evaluate(inspectDashboardGrid));
-          if (route.name === 'settings-appearance' || route.dashboard) {
-            try { await readableWords(page.locator('[data-layout="page"]').first()); } catch (error) { issues.push(error.message); }
-          }
-          if (route.preview || route.safe) {
-            const bannerIssues = await page.evaluate(inspectAlignment, { selector: '[role="status"], [role="alert"]', requirePage: false });
-            issues.push(...bannerIssues);
-          }
-          if (customization && !route.signedOut && !route.safe && !route.preview) {
-            assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), mode, 'Matrix must render the requested theme');
-          }
-        } catch (error) { issues = [`Could not open: ${error.message.split('\n')[0]}`]; }
-        report.push({ ...route, fixture, mode, theme: mode, width, words, issues });
-        console.log(`${issues.length ? route.enforce ? 'FAIL' : 'WARN' : 'PASS'} ${fixture} ${mode} ${route.owner} ${route.name} ${width}: ${issues.length} issues`);
-        for (const issue of issues) console.log(`FAIL ${fixture} ${mode} ${route.name} ${width}: ${issue}`);
-        if (issues.length) await page.screenshot({ path: path.join(evidence, `${fixture}-${mode}-${width}-${route.name.replaceAll('/', '-')}.png`), fullPage: true }).catch(() => {});
-        if (route.code) await page.unroute('**/api/auth/phone/start');
+        } catch (e) { issues = [`Could not open: ${e.message.split('\n')[0]}`]; }
+        report.push({ ...route, width, theme, words, issues });
+        console.log(`${issues.length ? route.enforce ? 'FAIL' : 'WARN' : 'PASS'} ${route.owner} ${route.name} ${width} ${theme}: ${issues.length} issues`);
+        for (const issue of issues) console.log(`FAIL ${route.name} ${width} ${theme}: ${issue}`);
       }
       await context.close();
     }
-  } finally {
-    await browser?.close(); await server.close();
-    fs.writeFileSync(path.join(evidence, 'report.json'), JSON.stringify(report, null, 2));
-    fs.writeFileSync(path.join(evidence, 'matrix-status.json'), JSON.stringify({ skipped, complete: skipped.length === 0, views: report.length }, null, 2));
-  }
-  const failures = report.filter(r => r.enforce && r.issues.length).length;
-  console.log(`${report.length - failures} passed, ${failures} failed, ${skipped.length} matrix dependencies skipped. ${report.length} route views audited. Report: ${evidence}/report.json`);
-  assert.equal(failures, 0, 'Enforced routes follow the shared layout system');
+  } finally { await browser.close(); await server.close(); }
+  fs.writeFileSync(path.join(evidence, 'report.json'), JSON.stringify(report, null, 2));
+  assert.equal(report.filter(r => r.enforce && r.issues.length).length, 0, 'Enforced routes follow the shared layout system');
+  console.log(`${report.length} route views audited. Report: ${evidence}/report.json`);
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();
+
+export async function customMatrix() {
+  if (process.env.LAYOUT_ROOT) {
+    if (process.env.UC_REQUIRE_FULL === '1') throw new Error('Full gate cannot select an external baseline only');
+    console.log('SKIP custom routes: external baseline selected'); return;
+  }
+  const cases = [390, 1280].flatMap(width => CUSTOM_ROUTES.filter(route =>
+    (!process.env.UC_LAYOUT_FIXTURE || route.fixture === process.env.UC_LAYOUT_FIXTURE) &&
+    (!process.env.LAYOUT_OWNER || route.owner === process.env.LAYOUT_OWNER) &&
+    (!process.env.LAYOUT_ROUTES || process.env.LAYOUT_ROUTES.split(',').includes(route.name)) &&
+    (!process.env.LAYOUT_WIDTHS || process.env.LAYOUT_WIDTHS.split(',').map(Number).includes(width))
+  ).map(route => ({ name: `${route.name} ${width}`, run: async ({ server, browser, out }) => {
+    const { context, external } = await fixtureContext(browser, server, width);
+    try {
+      const page = await context.newPage(); page.setDefaultTimeout(15000);
+      await prepareRoute(page, context, server, route);
+      const issues = await page.evaluate(inspectAlignment, {});
+      if (route.dashboard) issues.push(...await page.evaluate(inspectDashboardGrid));
+      if (route.preview || route.safe) issues.push(...await page.evaluate(inspectAlignment, { selector: '[role="status"]', requirePage: false }));
+      await readableWords(page.locator('[data-layout="page"]').first());
+      await page.screenshot({ path: path.join(out, `${route.name}-${width}.png`), fullPage: true });
+      assert.deepEqual(external, []); assert.deepEqual(issues, []);
+    } finally { await context.close(); }
+  } })));
+  return runSuite('alignment-matrix', cases);
+}
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await main(); await customMatrix();
+}

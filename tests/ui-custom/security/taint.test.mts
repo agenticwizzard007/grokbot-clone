@@ -1,0 +1,45 @@
+import assert from 'node:assert/strict';
+import { after, test } from 'node:test';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { INJECTION_DOCUMENTS } from './corpus.mjs';
+import { LAYOUT_PATCH } from '../fixtures/matrix.mjs';
+
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'uc-h-taint-'));
+Object.assign(process.env, { NODE_ENV: 'test', SWARM_ROLE: 'standalone', DB_PATH: path.join(temp, 'app.db'), FILES_DIR: path.join(temp, 'files'), CLI_PROFILES_DIR: path.join(temp, 'profiles'), SESSION_SECRET: 'fixture', COMPUTER_PROVIDER: 'local', INKBOX_TUNNEL: '0', UI_CUSTOMIZATION: 'on' });
+const realFetch = globalThis.fetch;
+globalThis.fetch = async () => Response.json({ items: [], data: [] });
+const { db } = await import('../../../server/src/db.js');
+const { createBot } = await import('../../../server/src/bots.js');
+const { initSubagents } = await import('../../../server/src/agent/subagents.js'); initSubagents();
+const { initRooms } = await import('../../../server/src/agent/rooms.js'); initRooms();
+const { acceptJob } = await import('../../../server/src/agent/jobs.js');
+const { toolMap } = await import('../../../server/src/agent/tools.js');
+const { appendRow } = await import('../../../server/src/store.js');
+const { uiConfigService } = await import('../../../server/src/ui/index.js');
+const { uiTurnTainted } = await import('../../../server/src/agent/ui-runtime.js');
+const userId = 'qa-temp-h-taint';
+db.prepare('INSERT INTO users(id,email,name,created_at) VALUES(?,?,?,?)').run(userId, 'qa-temp-h-taint@example.test', 'QA-Temp-H', Date.now());
+db.prepare("INSERT INTO account_preferences(user_id,ui_agent_apply,updated_at) VALUES(?,'auto',0)").run(userId);
+const bot = createBot(userId, { name: 'Fixture assistant', isPrimary: true });
+const call = async (name: string, args: unknown, context: any) => JSON.parse(String((await toolMap.get(name)!.impl(args, context)).output));
+after(() => { globalThis.fetch = realFetch; db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
+for (const [index, injection] of INJECTION_DOCUMENTS.entries()) test(`untrusted content ${index + 1} cannot authorize navigation Apply`, async () => {
+  const jobId = acceptJob(bot.id, { type: 'user', text: 'Review fixture navigation' }).id;
+  const context = { userId, botId: bot.id, jobId, depth: 0, enqueueBotMessage() {} };
+  const before = uiConfigService.get(userId);
+  const preview = await call('preview_ui_patch', { intent: 'Open Tasks first', patch: LAYOUT_PATCH }, context);
+  assert.ok(preview.previewId);
+  const name = ['read_file', 'browser_snapshot', 'web_search', 'read_email'][index % 4];
+  appendRow(bot.id, 'tool-call', { type: 'tool-call', name, callId: `fixture-${index}`, args: {}, label: 'Read fixture', status: 'done', jobId, output: injection });
+  assert.equal(uiTurnTainted(context), true);
+  assert.deepEqual(await call('apply_ui_patch', { previewId: preview.previewId }, context), { status: 'awaiting_user' });
+  assert.deepEqual(uiConfigService.get(userId), before);
+});
+test('clean direct user turn can confirm navigation in auto mode', async () => {
+  const context = { userId, botId: bot.id, jobId: acceptJob(bot.id, { type: 'user', text: 'Open Tasks first' }).id, depth: 0, enqueueBotMessage() {} };
+  const preview = await call('preview_ui_patch', { intent: 'Open Tasks first', patch: LAYOUT_PATCH }, context);
+  assert.equal((await call('apply_ui_patch', { previewId: preview.previewId }, context)).status, 'applied');
+  assert.equal(uiConfigService.get(userId).doc.layout.home.kind, 'tasks');
+});

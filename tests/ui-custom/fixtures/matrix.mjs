@@ -1,13 +1,6 @@
 // Synthetic configuration data only. Actual defaults come from the running contract.
-export const PRESETS = ['swarm', 'midnight', 'paper', 'focus', 'contrast', 'calm'];
-export const MATRIX = [...PRESETS, 'hostile'];
+export const MATRIX = ['default', 'navigation', 'dashboard-seeded', 'dashboard-empty'];
 export const WIDTHS = [390, 1280];
-export const MODES = ['light', 'dark'];
-export const THEME_PATCH = [
-  { op: 'replace', path: '/theme/mode', value: 'dark' },
-  { op: 'add', path: '/theme/colors/dark/primary', value: '#2DD4BF' },
-  { op: 'add', path: '/theme/colors/light/primary', value: '#0F766E' },
-];
 export const LAYOUT_PATCH = [
   { op: 'replace', path: '/layout/home', value: { kind: 'tasks' } },
   { op: 'replace', path: '/layout/phoneTabs', value: ['tasks', 'bots', 'search', 'settings'] },
@@ -38,32 +31,35 @@ export function dashboardPatch() {
     { op: 'add', path: '/layout/pinned/-', value: { type: 'dashboard', id: '$new1' } },
   ];
 }
-export function mergeDocument(base, overlay) {
-  if (Array.isArray(overlay) || overlay === null || typeof overlay !== 'object') return structuredClone(overlay);
-  const result = structuredClone(base ?? {});
-  for (const [key, value] of Object.entries(overlay)) result[key] = mergeDocument(result[key], value);
-  return result;
-}
-export function matrixDocument(defaults, fixture, mode, presetDoc = {}) {
+export function matrixDocument(defaults, fixture) {
   if (!MATRIX.includes(fixture)) throw new Error(`Unknown matrix fixture: ${fixture}`);
-  let doc = mergeDocument(defaults, presetDoc);
-  doc.preset = fixture === 'hostile' ? 'swarm' : fixture;
-  doc.theme.mode = mode;
-  doc.dashboards = [{ id: 'd_00000001', name: 'Fixture dashboard', icon: 'layout-dashboard', description: '', widgets: widgets() }];
-  if (fixture === 'hostile') {
-    doc.theme.font.scale = 'xlarge'; doc.theme.density = 'comfortable'; doc.theme.radius = 'round';
-    doc.dashboards = Array.from({ length: 12 }, (_, i) => ({
-      ...structuredClone(doc.dashboards[0]), id: `d_${String(i + 1).padStart(8, '0')}`,
-      name: `Test dashboard ${i + 1} with a longer name`,
-      widgets: doc.dashboards[0].widgets.map((w, j) => ({ ...structuredClone(w), id: `w_${String(i * 24 + j + 1).padStart(8, '0')}`, title: `Long fixture label for ${w.type} that should wrap` })),
-    }));
+  const doc = structuredClone(defaults);
+  if (fixture === 'navigation') {
+    doc.layout.home = { kind: 'tasks' };
+    doc.layout.phoneTabs = ['tasks', 'bots', 'search', 'settings'];
+  }
+  if (fixture.startsWith('dashboard-')) {
+    doc.dashboards = [{ id: 'd_00000001', name: 'Fixture dashboard', icon: 'layout-dashboard', description: '', widgets: widgets() }];
+    doc.layout.pinned = [{ type: 'dashboard', id: 'd_00000001' }];
   }
   return doc;
 }
 export function corruptDocument(defaults) {
   const doc = structuredClone(defaults);
   doc.layout.sidebar.hidden = ['settings']; doc.layout.phoneTabs = ['tasks'];
-  doc.keybindings.settings = null; doc.theme.font.scale = 'tiny';
-  doc.theme.colors.light = { pane: '#FFFFFF', ink: '#FFFFFF' };
+  doc.keybindings.settings = null;
   return doc;
 }
+// Chat actions use stable JSON pointers after the proposal is confirmed.
+export const DASHBOARD_EDITS = [
+  { name: 'add', intent: 'Add a note with my weekly goal', patch: [{ op: 'add', path: '/dashboards/0/widgets/-', value: { id: '$new1', type: 'note', title: 'Weekly goal', span: 6, rows: 2, options: { text: 'Review the fixture tasks weekly.' } } }] },
+  { name: 'remove', intent: 'Remove the added weekly goal note', patch: [{ op: 'remove', path: '/dashboards/0/widgets/12' }] },
+  { name: 'reorder', intent: 'Move working tasks after needs you', patch: [{ op: 'move', from: '/dashboards/0/widgets/0', path: '/dashboards/0/widgets/1' }] },
+  { name: 'resize', intent: 'Make working tasks wider and taller', patch: [{ op: 'replace', path: '/dashboards/0/widgets/1/span', value: 6 }, { op: 'replace', path: '/dashboards/0/widgets/1/rows', value: 2 }] },
+];
+export const REQUIREMENTS = {
+  sales: { role: 'Sales coordinator', goals: ['Follow up on outreach and pipeline'], workflows: [{ name: 'Pipeline review', cadence: 'weekly' }], focus: ['tasks', 'routines', 'bots'], lens: 'sales' },
+  operations: { role: 'Operations coordinator', goals: ['Daily reports and usage review'], workflows: [{ name: 'Usage report', cadence: 'daily' }], focus: ['routines', 'usage'], lens: 'operations' },
+  support: { role: 'Support coordinator', goals: ['Manage response queues'], workflows: [{ name: 'Queue review', cadence: 'daily' }], focus: ['tasks', 'chat', 'team'], lens: 'support' },
+};
+export const requirementsPatch = profile => Object.entries(profile).map(([key, value]) => ({ op: 'add', path: `/${key}`, value }));

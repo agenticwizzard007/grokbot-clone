@@ -6,12 +6,12 @@ import { runSuite } from '../fixtures/harness.mjs';
 
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
 const cases = [];
-for (const width of [390, 1280]) for (const height of [40, 44, 48]) cases.push({ name: `control floor ${width} ${height}`, run: async () => {
+for (const width of [390, 1280]) for (const height of [44]) cases.push({ name: `control floor ${width} ${height}`, run: async () => {
   const page = await browser.newPage({ viewport: { width, height: 800 } });
   try {
     await page.setContent(`<style>:root{--control-h:${height}px}body{margin:0}button{height:${height}px;width:100%}</style><main data-layout="page"><button>Fixture action</button></main>`);
     const issues = await page.evaluate(inspectAlignment, { selector: 'main' });
-    assert.equal(issues.some(issue => issue.startsWith('Below')), width <= 480 && height < 44);
+    assert.equal(issues.some(issue => issue.startsWith('Below')), height < 44);
     await page.locator('button').evaluate(el => { el.style.height = '20px'; });
     assert.ok((await page.evaluate(inspectAlignment, { selector: 'main' })).some(issue => issue.startsWith('Below')));
   } finally { await page.close(); }

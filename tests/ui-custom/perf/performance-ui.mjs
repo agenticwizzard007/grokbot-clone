@@ -6,8 +6,8 @@ import { gzipSync } from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 import { runSuite, fixtureContext, configAvailable, api, patch, open, until, requireModules, requireFeature } from '../fixtures/harness.mjs';
 import { ROOT } from '../fixtures/server.mjs';
-import { contracts } from '../fixtures/presets.mjs';
-import { THEME_PATCH, dashboardPatch } from '../fixtures/matrix.mjs';
+import { contracts } from '../fixtures/contracts.mjs';
+import { dashboardPatch } from '../fixtures/matrix.mjs';
 import { seedLoad } from './load.mjs';
 
 const baselinePath = path.join(ROOT, 'tests/ui-custom/perf/baseline.json');
@@ -46,14 +46,13 @@ const cases = [
   }) },
   { name: '100-operation validation p95', run: async () => {
     const { DEFAULT_CONFIG, previewPatch } = await contracts();
-    const ops = Array.from({ length: 100 }, (_, i) => ({ op: 'replace', path: '/theme/mode', value: i % 2 ? 'light' : 'dark' }));
+    const ops = Array.from({ length: 100 }, (_, i) => ({ op: 'replace', path: '/layout/home', value: { kind: i % 2 ? 'tasks' : 'bots' } }));
     const samples = [];
     for (let i = 0; i < 110; i++) { const start = performance.now(); const result = previewPatch(DEFAULT_CONFIG, ops, { ctx: { userId: 'qa-temp-perf', botIds: [] } }); assert.equal(result.ok, true); if (i >= 10) samples.push(performance.now() - start); }
     measure('patchP95Ms', percentile(samples, .95)); details.patch = { samples, operations: 100 };
   } },
-  { name: 'boot, dashboard chunk and font budgets', run: async () => {
-    requireModules('web/public/ui-boot.js', 'web/src/dashboards/DashboardGrid.tsx');
-    measure('bootBytes', fs.statSync(path.join(ROOT, 'web/public/ui-boot.js')).size);
+  { name: 'dashboard lazy chunk budget', run: async () => {
+    requireModules('web/src/dashboards/DashboardGrid.tsx');
     const manifestPath = path.join(ROOT, 'web/dist/.vite/manifest.json');
     requireFeature(fs.existsSync(manifestPath), 'Production build required: npm run build -w web');
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
@@ -65,8 +64,6 @@ const cases = [
     collect(entry[0], visited);
     const bytes = [...visited].filter(key => !eager.has(key)).reduce((sum, key) => sum + gzipSync(fs.readFileSync(path.join(ROOT, 'web/dist', manifest[key].file))).length, 0);
     assert.ok(bytes > 0); measure('dashboardGzipBytes', bytes);
-    const fonts = fs.readdirSync(path.join(ROOT, 'web/public/fonts')).filter(file => file.startsWith('atkinson-') && file.endsWith('.woff2'));
-    assert.ok(fonts.length); measure('fontMaxBytes', Math.max(...fonts.map(file => fs.statSync(path.join(ROOT, 'web/public/fonts', file)).size)));
   } },
   { name: '24-request batch p95 with 10k tasks and 100 Bots', run: args => withConfig(args, async ({ context, server }) => {
     requireModules('server/src/ui/sources/tasks.ts');
@@ -85,25 +82,13 @@ const cases = [
     }
     measure('dataBatchP95Ms', percentile(samples, .95)); details.data = { samples, requests: 24, cache: 'first five warmup, twenty warm samples' };
   }) },
-  { name: 'cached first paint, token batch, dashboard content and CLS', run: args => withConfig(args, async ({ context, server }) => {
-    requireModules('web/src/customization/applier.ts', 'web/src/dashboards/DashboardGrid.tsx');
+  { name: 'dashboard visible content and CLS', run: args => withConfig(args, async ({ context, server }) => {
+    requireModules('web/src/dashboards/DashboardGrid.tsx', 'web/src/customization/layout/useHome.ts');
     const page = await context.newPage();
     await page.addInitScript(() => {
-      window.__ucPerf = { batches: [], cls: 0, first: null };
-      let batch;
-      const original = CSSStyleDeclaration.prototype.setProperty;
-      CSSStyleDeclaration.prototype.setProperty = function(name, value, priority) {
-        if (name.startsWith('--')) { if (!batch) { batch = { start: performance.now(), end: 0, count: 0 }; window.__ucPerf.batches.push(batch); queueMicrotask(() => { batch = null; }); } batch.count++; }
-        const result = original.call(this, name, value, priority); if (batch) batch.end = performance.now(); return result;
-      };
+      window.__ucPerf = { cls: 0 };
       new PerformanceObserver(list => { for (const entry of list.getEntries()) if (!entry.hadRecentInput) window.__ucPerf.cls += entry.value; }).observe({ type: 'layout-shift', buffered: true });
-      requestAnimationFrame(() => { const css = getComputedStyle(document.documentElement); window.__ucPerf.first = { pane: css.getPropertyValue('--color-bg-pane'), font: css.getPropertyValue('--font-stack'), mode: document.documentElement.dataset.theme }; });
     });
-    await open(page, server.base); await patch(context, server.base, THEME_PATCH);
-    await until(() => page.evaluate(() => JSON.parse(localStorage.getItem('swarm.ui.v1') || '{}').doc?.theme.mode === 'dark'), 'Theme cache not written');
-    const expected = await page.evaluate(() => { const css = getComputedStyle(document.documentElement); return { pane: css.getPropertyValue('--color-bg-pane'), font: css.getPropertyValue('--font-stack'), mode: document.documentElement.dataset.theme }; });
-    await page.reload(); await page.locator('.shell-header').waitFor();
-    assert.deepEqual(await page.evaluate(() => window.__ucPerf.first), expected, 'First animation frame flashed defaults');
     await patch(context, server.base, dashboardPatch()); const doc = (await configAvailable(context.request, server.base)).doc;
     // Warm the route before measuring actual visible fixture content.
     await open(page, server.base, `#dash/${doc.dashboards[0].id}`); await page.getByText('Fixture task 1', { exact: true }).first().waitFor();
@@ -113,19 +98,6 @@ const cases = [
     await page.getByText('Fixture task 1', { exact: true }).first().waitFor();
     measure('dashboardFirstContentMs', performance.now() - start);
     await page.waitForTimeout(1000); measure('dashboardCLS', await page.evaluate(() => window.__ucPerf.cls));
-    const batches = await page.evaluate(() => window.__ucPerf.batches);
-    assert.ok(batches.length, 'Instrumented the real applier');
-    const { REGISTRY } = await contracts();
-    const names = REGISTRY.tokens.flatMap(token => token.cssVars);
-    const sixtyWrites = await page.evaluate(names => {
-      const root = document.documentElement, css = getComputedStyle(root);
-      const values = names.map(name => [name, css.getPropertyValue(name)]);
-      const start = performance.now();
-      for (let i = 0; i < 60; i++) root.style.setProperty(...values[i % values.length]);
-      return performance.now() - start;
-    }, names);
-    details.tokens = { actualBatches: batches, registryWriteCount: 60, registryWriteMs: sixtyWrites };
-    measure('applyTokensMs', Math.max(sixtyWrites, ...batches.map(batch => batch.end - batch.start)));
   }) },
 ];
 const result = await runSuite('performance', cases);

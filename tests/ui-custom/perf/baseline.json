@@ -10,16 +10,18 @@
     "configMaxBytes": 262144,
     "configReadP95Ms": 30,
     "configGzipBytes": 16384,
-    "bootBytes": 2048,
-    "applyTokensMs": 4,
     "dashboardGzipBytes": 40960,
     "dataBatchP95Ms": 150,
     "dashboardFirstContentMs": 500,
     "dashboardCLS": 0.05,
-    "patchP95Ms": 20,
-    "fontMaxBytes": 40960
+    "patchP95Ms": 20
   },
-  "load": { "tasks": 10000, "bots": 100, "usageDays": 90, "requestsPerBatch": 24 },
+  "load": {
+    "tasks": 10000,
+    "bots": 100,
+    "usageDays": 90,
+    "requestsPerBatch": 24
+  },
   "regressionLimit": 1.25,
   "note": "No invented measurements. Run UC_RECORD_BASELINE=1 on the integrated stack; review and commit the resulting measurements. UC_REQUIRE_FULL=1 rejects this pending baseline."
 }
