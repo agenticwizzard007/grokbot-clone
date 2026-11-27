@@ -28,14 +28,15 @@ export async function runStory() {
       const page = await context.newPage(); page.setDefaultTimeout(15000);
       await reset(context, server); await open(page, server.base);
       const capture = async step => {
-        const file = await snapshot(page, out, `${width}-${step}`);
-        screenshots.push({ step, width, file });
+        const file = await snapshot(page, out, `${width}-${name.replaceAll(' ', '-')}-${step}`);
+        screenshots.push({ story: name, step, width, file });
         assert.deepEqual(await page.evaluate(inspectScreenQuality, { selector: 'body', typography: false }), [], `Visible test text in ${step}`);
       };
       await run({ page, context, server, capture });
       assert.deepEqual(external, [], 'Story must use only local assets');
     } finally { await context.close(); }
   } }))));
+  assert.equal(new Set(screenshots.map(item => item.file)).size, screenshots.length, 'Story captures must not overwrite another journey');
   fs.writeFileSync(path.join(result.out, 'manifest.json'), JSON.stringify({
     status: result.counts.fail ? 'failed' : result.counts.skip ? 'pending dependencies' : 'complete',
     counts: result.counts, screenshots,
