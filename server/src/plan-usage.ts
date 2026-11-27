@@ -104,4 +104,4 @@ export function planUsageSummary(userId: string, at = Date.now()): PlanUsageSumm
   };
 }
 
-export type PlanUsageSummary = ReturnType<typeof planUsageSummary>;
+export type { PlanUsageSummary } from './plan-usage-types.js';
