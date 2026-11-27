@@ -29,6 +29,7 @@ import { Copy } from 'lucide-react';
 import { toast } from '../lib/toast';
 import { stepApprovalOutcome } from '../lib/stepApproval';
 import { savedFileResult, savedFileLinksByMessage } from '../lib/savedFiles';
+import { handoffTurnFinished } from '../handoffs/presentation';
 import { HandoffRow, type HandoffRowBody } from '../handoffs/HandoffRow';
 import type { ReactNode } from 'react';
 
@@ -230,7 +231,7 @@ const SystemRow = memo(function SystemRow({ row }: { row: Row }) {
     } catch (error) { setRetryError((error as Error).message); }
     finally { setRetrying(false); }
   };
-  if (receipt) return <div data-row-seq={row.seq}><HandoffRow body={receipt} otherBotName={otherBotName} /></div>;
+  if (receipt) return <div className="ho-receipt-wrap" data-row-seq={row.seq}><HandoffRow body={receipt} otherBotName={otherBotName} /></div>;
   if (b.type === 'event') return <div className="system-event" data-row-seq={row.seq}>{clean(b.text)}{b.ref?.startsWith('#loop/') && <a href={b.ref.split('?')[0]}>View loop</a>}</div>;
   if (b.type === 'notice') return <Card className={`notice is-${b.tone ?? 'info'}`} data-row-seq={row.seq} data-recovery-job={b.recovery?.jobId}>
     <div>{b.text === 'Stopped.' ? 'Request interrupted. Send again to retry.' : clean(b.text)}</div>
@@ -304,7 +305,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
     return buildItems(visibleRows, groups, separateReplies);
   }, [visibleRows, groups, firstReply?.seq]);
   const interruptedTurn = !running && visibleRows.some(row => row.seq > promptSeq && row.body.type === 'notice' && (row.body.recovery || row.body.terminal || row.body.tone === 'error' || row.body.text === 'Stopped.'));
-  const pendingResponse = loaded && !firstReply && !interruptedTurn;
+  const pendingResponse = loaded && !firstReply && !interruptedTurn && !handoffTurnFinished(visibleRows, promptSeq, running);
   const processing = pendingResponse && running && !live?.awaiting && live?.activity?.kind !== 'waiting_for_you' && !streamingNow;
   const empty = loaded && !paging?.error && !paging?.loading && visibleRows.length === 0 && groups.length === 0;
   const activeTools = visibleRows.some(row => row.body.type === 'tool-call' && ['queued', 'running', 'awaiting-approval'].includes(row.body.status));
