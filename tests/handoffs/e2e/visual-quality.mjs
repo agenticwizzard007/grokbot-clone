@@ -44,7 +44,7 @@ export async function visualEvidence(page, { finished = false } = {}) {
       const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT);
       while (walker.nextNode()) {
         const node = walker.currentNode, el = node.parentElement;
-        if (!node.textContent.trim() || !el?.checkVisibility() || el.closest('.flow-sr, .sr-only, [aria-hidden="true"]')) continue;
+        if (!node.textContent.trim() || !el?.checkVisibility() || el.closest('.flow-sr, .sr-only, [aria-hidden="true"], [aria-label="Completed replies"]')) continue;
         text.push(node.textContent.trim());
       }
     }

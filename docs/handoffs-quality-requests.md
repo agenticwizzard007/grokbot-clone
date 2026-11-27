@@ -4,7 +4,7 @@ These requests are reproduced against integrated main. HO-H owns tests and docum
 
 ## Runtime tool call context
 
-Request to HO-I and the runtime owner: pass the stable call ID into registered handoff tools on every runtime dispatch path, including native and resumed tool execution.
+FIX-4 owns this production fix: pass the stable call ID into registered handoff tools on every runtime dispatch path, including native and resumed tool execution. HO-H will merge main and rerun all 24 journeys after that fix merges, without a test-only runtime workaround.
 
 `server/src/agent/loop.ts` calls `impl.impl(args, { ...ctx, depth: st.depth })` without `toolCallId`. `server/src/agent/handoff-tools.ts` requires `userId`, `botId`, `jobId` and `toolCallId`. A real Checker calls `submit_verdict`, receives `This tool needs an active run and a stable tool call id. Ask the user to retry from an active run.`, and the controller eventually stops with `no_verdict` on pass 1.
 
