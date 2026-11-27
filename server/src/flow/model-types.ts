@@ -20,3 +20,12 @@ export interface FlowNode {
 
 export type FlowLaneId = FlowModel["lanes"][number]["id"];
 export type { FlowStore, FlowSummaryInput } from "../handoffs/contracts.js";
+
+export interface LayoutBox { id: string; x: number; y: number; w: number; h: number }
+export interface FlowLayoutNode extends LayoutBox { laneId: FlowLaneId; kind: 'node' | 'more' | 'empty'; node?: FlowNode; label: string }
+export interface FlowLayoutLane extends LayoutBox { label: string; nodes: FlowLayoutNode[] }
+export interface LayoutPlan {
+  width: number; height: number; mode: 'columns' | 'stacked'; column: { x: number; width: number };
+  lanes: FlowLayoutLane[]; nodes: FlowLayoutNode[];
+  loopBack: LayoutBox & { label: string; path: string };
+}
