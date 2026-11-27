@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { DEFAULT_CONFIG, checkAccessibility, migrate, previewPatch, uiConfigSchema, summarize,
+import { DEFAULT_CONFIG, COMPONENTS, PRESETS, checkAccessibility, migrate, previewPatch, uiConfigSchema, summarize,
   type ApplyResult, type ErrorCode, type PatchOp, type PatchResult, type PreviewResult, type ResetScope,
   type StoredPreview, type UiConfig, type UiConfigService, type Violation } from '../ui-config/index.js';
 import { initUiDatabase, initUiPreferences } from './db.js';
@@ -119,6 +119,7 @@ export class SqliteUiConfigService implements UiConfigService {
       this.emit(userId, previewEvent(older.id, older.actor, 'discarded'));
     }
     const now = this.clock();
+    this.store.prune(userId, now);
     const resolved = JSON.parse(JSON.stringify(ops, (_key, value) => typeof value === 'string' && value.includes('$new') ? value.replace(/\$new\d+\b/g, token => result.idMap[token] ?? token) : value)) as PatchOp[];
     const preview: StoredPreview = { id: randomUUID(), userId, baseRevision: current.revision, patch: resolved,
       result: result.result, summary: result.summary, warnings: [...result.warnings, ...extraWarnings], idMap: result.idMap,
@@ -249,6 +250,10 @@ export class SqliteUiConfigService implements UiConfigService {
       if (scope === 'appearance') Object.assign(after, defaults, { dashboards: before.dashboards });
       if (scope === 'theme' || scope === 'layout' || scope === 'components') after[scope] = defaults[scope] as never;
       if (scope === 'theme') { after.preset = 'swarm'; after.device = defaults.device; }
+      if (scope === 'components') {
+        const preset = PRESETS.find(preset => preset.id === after.preset);
+        after.components = Object.fromEntries(COMPONENTS.filter(component => Object.hasOwn(preset?.config.components ?? {}, component.id)).map(component => [component.id, component.default]));
+      }
       if (scope === 'dashboards' || scope === 'dashboard') {
         const removed = new Set(before.dashboards.filter(d => scope === 'dashboards' || d.id === dashboardId).map(d => d.id));
         after.dashboards = before.dashboards.filter(d => !removed.has(d.id));

@@ -172,3 +172,10 @@ test('portable bot filters and shortcuts round trip; missing bots remove their w
   const foreign = success(service.importPreview('b', exported)); assert.ok(foreign.warnings.length >= 2);
   assert.deepEqual(service.getPreview('b', foreign.previewId)!.result.dashboards[0].widgets, []);
 });
+
+test('failed persistence rolls back config and history and emits no successful change', t => {
+  const { service, db, events } = fixture(t);
+  db.exec("CREATE TRIGGER fail_fixture_history BEFORE INSERT ON ui_config_history WHEN NEW.user_id='a' AND NEW.revision=1 BEGIN SELECT RAISE(ABORT,'Fixture storage failure'); END");
+  assert.throws(() => service.patch('a', mode('dark'), 0, 'user'), /Fixture storage failure/);
+  assert.equal(service.get('a').revision, 0); assert.deepEqual(service.history('a'), []); assert.deepEqual(events, []);
+});
