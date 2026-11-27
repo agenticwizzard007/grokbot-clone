@@ -86,13 +86,13 @@ const journeys = [
     await patch(context, server.base, dashboardPatch()); const dashboard = (await saved(context, server)).doc.dashboards[0];
     await open(page, server.base, `#dash/${dashboard.id}`);
     const press = async name => { const target = page.getByRole('button', { name, exact: true }).first(); await target.focus(); await page.keyboard.press('Enter'); };
-    await press('Edit'); await press('Add widget'); await press('Note');
+    await press('Edit'); await press('Add widget'); await press(/^Note\b/);
     await until(async () => (await saved(context, server)).doc.dashboards[0].widgets.length === dashboard.widgets.length + 1, 'Keyboard add failed');
     const initial = (await saved(context, server)).doc.dashboards[0].widgets[0];
-    await press('Wider'); await until(async () => (await saved(context, server)).doc.dashboards[0].widgets[0].span > initial.span, 'Keyboard widen failed');
-    await press('Move later'); await until(async () => (await saved(context, server)).doc.dashboards[0].widgets[0].id !== initial.id, 'Keyboard move failed');
-    await press('Remove'); await until(async () => (await saved(context, server)).doc.dashboards[0].widgets.length === dashboard.widgets.length, 'Keyboard remove failed');
-    await press('Done'); assert.equal(await page.getByRole('button', { name: 'Wider', exact: true }).count(), 0);
+    await press(`Wider: ${initial.title}`); await until(async () => (await saved(context, server)).doc.dashboards[0].widgets[0].span > initial.span, 'Keyboard widen failed');
+    await press(`Move later: ${initial.title}`); await until(async () => (await saved(context, server)).doc.dashboards[0].widgets[0].id !== initial.id, 'Keyboard move failed');
+    await press(`Remove: ${initial.title}`); await until(async () => (await saved(context, server)).doc.dashboards[0].widgets.length === dashboard.widgets.length, 'Keyboard remove failed');
+    await press('Done'); assert.equal(await page.getByRole('button', { name: /^Wider:/ }).count(), 0);
   }],
   ['corrupt database recovery', recoveryJourney],
   ['two tabs converge', async ({ page, context, server, browser }) => {
