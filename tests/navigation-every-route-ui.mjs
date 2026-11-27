@@ -46,6 +46,13 @@ try {
    assert.deepEqual(await page.evaluate(() => history.state?.swarmNavigation?.trail), [], `${hash}: cold entry has no app history`);
   };
   const snapshot = name => page.screenshot({ path: `.context/pb-b/navigation-${name}-${width}-${theme}.png` });
+  const phoneTabsWithoutBack = async label => {
+   const tabs = page.getByRole('navigation', { name: 'App navigation', exact: true });
+   assert.ok(await tabs.isVisible(), `${label}: phone tab bar is visible`);
+   assert.equal(await page.locator('.shell-back').isVisible(), false, `${label}: no shell Back on a phone tab root`);
+   assert.equal(await page.getByRole('button', { name: /^Back(?: |$)/ }).count(), 0, `${label}: no visible Back control`);
+   return tabs;
+  };
   const home = async () => {
    let taps = 0;
    if (width <= 760) {
@@ -138,9 +145,11 @@ try {
      await cold('#bots'); await openArea(target);
      const surface = page.getByRole('dialog', { name: label, exact: true });
      await surface.waitFor(); await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab');
+     const tabs = width <= 760 && target === 'Search' ? await phoneTabsWithoutBack(label) : null;
      if (method === 'Escape') await page.keyboard.press('Escape');
-     // Paper renders these as full page routes without a backdrop. The shared
-     // Back control outside their surface remains clickable and closes them.
+     // Phone Search exits through its visible Bots tab. Connect Apps and desktop
+     // surfaces retain the shared Back control outside their full page surface.
+     else if (tabs) await tabs.getByRole('button', { name: 'Bots', exact: true }).click();
      else await page.locator('.shell-back').click();
      await surface.waitFor({ state: 'detached' }); await hashIs('#bots');
     }
@@ -160,6 +169,8 @@ try {
    await cold(hash);
    const current = parseScreen(new URL(page.url()).hash);
    const target = parentScreen(current) ?? { kind: 'bots' };
+   const phoneRoot = width <= 760 && (['bots', 'search'].includes(current.kind)
+    || current.kind === 'settings' && !current.section || current.kind === 'work' && !current.route.botSlug);
    if (current.kind === 'details' || current.kind === 'bot-settings') {
     assert.equal(await page.locator('.shell-header > .bot-avatar').count(), 1, `${hash}: Bot avatar in top bar`);
     assert.equal(await page.locator('.shell-header > .bot-avatar').evaluate(el => el.getBoundingClientRect().width), 32);
@@ -178,10 +189,11 @@ try {
     await page.getByRole('button', { name: 'Expand sidebar', exact: true }).click();
    }
    if (width <= 760 && ['#bots','#tasks','#team','#goals','#reports','#search','#settings'].includes(hash)) assert.equal(await page.locator('.phone-tabs').isVisible(), true, `${hash}: top-level tabs`);
+   if (phoneRoot) await phoneTabsWithoutBack(hash);
    if (current.kind !== 'bots') {
-    await back.waitFor();
-    if (width <= 760) {
-     // The bottom tabs must not replace visible Back text, including Tasks.
+    if (!phoneRoot) await back.waitFor();
+    if (width <= 760 && !phoneRoot) {
+     // Non-root phone routes retain their visible Back text and target size.
      if (['details', 'bot-settings', 'create'].includes(current.kind)) {
       const controls = await page.getByRole('button', { name: /^Back(?: |$)/ }).all();
       assert.equal((await Promise.all(controls.map(control => control.isVisible()))).filter(Boolean).length, 1, `${hash}: one Back control`);
@@ -193,7 +205,9 @@ try {
      }), `${hash}: whole Back label and 44px target`);
     }
     if (hash === '#tasks' && [320,390,500].includes(width)) { await page.locator('.work-tabs').waitFor(); await snapshot('tasks'); }
-    await back.click(); await hashIs(width > 760 && current.kind === 'settings' ? canonical('#bot/coordinator') : canonical(screenHash(target)));
+    if (phoneRoot) await page.locator('.phone-tabs').getByRole('button', { name: 'Bots', exact: true }).click();
+    else await back.click();
+    await hashIs(width > 760 && current.kind === 'settings' ? canonical('#bot/coordinator') : canonical(screenHash(target)));
    }
    const taps = await home() + Number(current.kind !== 'bots');
    assert.ok(taps <= 3, 'Home remains within three taps including Back');
@@ -202,7 +216,9 @@ try {
     const from = hash === '#reports' ? '#bot/research-bot' : '#reports';
     await page.evaluate(hash => { location.hash = hash; }, from); await hashIs(canonical(from));
     await page.evaluate(hash => { location.hash = hash; }, hash); await hashIs(canonical(hash));
-    await back.waitFor(); await back.click(); await hashIs(width > 760 && current.kind === 'settings' ? canonical('#bot/coordinator') : canonical(from));
+    if (phoneRoot) { await phoneTabsWithoutBack(hash); await page.goBack(); }
+    else { await back.waitFor(); await back.click(); }
+    await hashIs(width > 760 && current.kind === 'settings' ? canonical('#bot/coordinator') : canonical(from));
    }
    assert.deepEqual(errors, [], `${hash}: no page errors`);
    results.push({ route: hash || '/', width, theme, back: 'pass', homeTaps: taps });

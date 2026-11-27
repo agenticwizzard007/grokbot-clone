@@ -1,3 +1,5 @@
+import { useComponentVisible } from '../customization';
+import { ComposerVisibility } from '../customization/layout/markers';
 import { RoomMembersHeader } from './MembersCard';
 import { Page, Card } from './layout';
 import { Mic } from 'lucide-react';
@@ -31,6 +33,8 @@ export function ChatView() {
 }
 
 function BotChat({ bot }: { accountId: string; bot: Bot }) {
+  const avatars = useComponentVisible('chat.avatars');
+  const voiceButton = useComponentVisible('header.voiceButton');
   const transcript = useStore(s => s.transcripts[bot.id]);
   const currentTranscript = transcript && transcript.generation >= (bot.generation ?? 0) ? transcript : undefined;
   const generation = currentTranscript?.generation ?? bot.generation;
@@ -47,7 +51,7 @@ function BotChat({ bot }: { accountId: string; bot: Bot }) {
   const rows = useMemo(() => sortedRows(currentTranscript), [currentTranscript]);
   const voice = useVoice();
   const fresh = useFreshConversation(bot.id);
-  return <main className="chat">
+  return <main className="chat" data-ui-id="chat.avatars" data-ui-visibility={avatars}>
     <ShellHeaderSlot><header className="chat__header">
       <button type="button" className="chat__bot-details" aria-label={mobile ? detailsOpen ? 'Hide details' : 'Show details' : `Open ${bot.name} details`} aria-expanded={detailsOpen} aria-controls={detailsOpen ? 'bot-details' : undefined} onClick={() => set({ detailsOpen: !detailsOpen })}>
         <BotAvatarFor bot={bot} size={32} working={!!live?.isRunning && !live.awaiting} />
@@ -69,7 +73,7 @@ function BotChat({ bot }: { accountId: string; bot: Bot }) {
         ]} />}
       </span>
       <div className="chat__header-right">
-        <button type="button" className="chat__voice icon-btn" aria-label={voice.botId === bot.id && voice.status === 'live' ? 'End call' : 'Start voice call'} disabled={voice.status === 'connecting'} onClick={() => voice.botId === bot.id && voice.status === 'live' ? endCall() : void startCall(bot.id)}><Mic size={18} aria-hidden /></button>
+        {voiceButton !== 'hide' && <button type="button" data-ui-id="header.voiceButton" className="chat__voice icon-btn" aria-label={voice.botId === bot.id && voice.status === 'live' ? 'End call' : 'Start voice call'} disabled={voice.status === 'connecting'} onClick={() => voice.botId === bot.id && voice.status === 'live' ? endCall() : void startCall(bot.id)}><Mic size={18} aria-hidden /></button>}
         {!mobile && <button type="button" className="chat__details" onClick={() => set({ detailsOpen: !detailsOpen })} aria-label={detailsOpen ? 'Hide details' : 'Show details'} aria-expanded={detailsOpen} aria-controls={detailsOpen ? 'bot-details' : undefined}>Details</button>}
         {FEATURE_SHARE && <button type="button" className="share-btn">Share</button>}
       </div>
@@ -80,7 +84,7 @@ function BotChat({ bot }: { accountId: string; bot: Bot }) {
     <Page type="chat" className="chat-dock">
       <VoiceCallBar />
       <SetupBanner bot={bot} />
-      <Composer bot={bot} running={!!live?.isRunning} />
+      <ComposerVisibility><Composer bot={bot} running={!!live?.isRunning} /></ComposerVisibility>
     </Page>
   </main>;
 }

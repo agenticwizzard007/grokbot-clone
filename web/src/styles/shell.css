@@ -127,3 +127,14 @@
 
 .shell-header__bot { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 .shell-header__subtitle { font-size: 12px; line-height: 16px; color: var(--color-text-secondary); overflow-wrap: normal; word-break: normal; }
+
+/* Optional chrome never owns a layout gap or a border. */
+.ui-layout-contents { display: contents; }
+.sidebar__custom-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.sidebar__custom-scroll .sidebar-island { width: 100%; }
+.sidebar__custom-scroll .sidebar-island span { white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
+.sidebar__custom-scroll :is(.sidebar__pins, .sidebar__dashboards) { margin-bottom: 8px; }
+.sidebar .account__initials[hidden] { display: none; }
+.paper-shell [data-ui-id='tasks.filters'][data-ui-visibility='hide'] .task-filters,
+[data-ui-id='bots.statusChips'][data-ui-visibility='hide'] .pb-bot-card__identity > .pb-pill { display: none; }
+.sidebar.is-custom-order .account .menu { position: fixed; top: var(--ui-menu-top); bottom: auto; left: var(--ui-menu-left); max-height: var(--account-menu-height); max-width: min(280px, calc(100vw - 32px)); }

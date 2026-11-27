@@ -1,3 +1,5 @@
+import { useComponentVisible } from '../customization';
+import type { ComponentVisibility } from '@shared/ui-config/registry-components';
 import { Page, Card, ButtonGroup } from './layout';
 import { prefillComposer } from './Composer';
 import { ProviderLabel } from './ProviderMark';
@@ -7,7 +9,7 @@ import { MessageSkeleton } from './ChatSkeleton';
 import { useDisplayText } from '../lib/useDisplayText';
 import { isInternalRow, userFacingLive } from '../lib/audience';
 import { CoworkerSetupCards } from './CoworkerSetupCards';
-import { Fragment, memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Bot, LiveState, MessageBody, Row, ToolCallBody } from '@shared/types';
 import { BotAvatar, BotAvatarFor } from '../avatar/BotAvatar';
 import { clock, dividerLabel } from '../lib/time';
@@ -154,14 +156,16 @@ function SenderLabel({ from }: { from: NonNullable<MessageBody['from']> }) {
   );
 }
 
-function Steps({ rows }: { rows: Row[] }) {
+function Steps({ rows, visibility }: { rows: Row[]; visibility: ComponentVisibility }) {
   const clean = useDisplayText();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(visibility === 'show');
+  useEffect(() => { setOpen(visibility === 'show'); }, [visibility]);
   const decisions = useStore(s => s.approvalDecisions);
   // Keep execution visible even when the user collapses completed history.
   const visible = open ? rows : rows.filter(r => stepApprovalOutcome(r.body as ToolCallBody, decisions)
     || ['queued', 'running', 'awaiting-approval', 'uncertain', 'interrupted'].includes((r.body as ToolCallBody).status));
   const n = rows.length;
+  if (visibility === 'hide') return null;
   return (
     <div className={`steps${open ? ' is-open' : ''}`}>
       <button type="button" className="steps__toggle" onClick={() => setOpen(!open)} aria-expanded={open}>
@@ -256,6 +260,7 @@ interface Props { bot: Bot; generation: number; rows: Row[]; live: LiveState | u
 const rowRect = (anchor: HTMLElement) => (anchor.style.display === 'contents' && anchor.firstElementChild ? anchor.firstElementChild : anchor).getBoundingClientRect();
 
 export const Transcript = memo(function Transcript({ bot, generation, rows, live, loaded }: Props) {
+  const runLog = useComponentVisible('chat.runLog');
   const scrollRef = useRef<HTMLDivElement>(null);
   const readingPosition = useRef<{ seq: string; top: number } | null>(null);
   const transcript = useStore(s => s.transcripts[bot.id]);
@@ -419,7 +424,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
   };
 
   return (
-    <div className="transcript-wrap">
+    <div className="transcript-wrap" data-ui-id="chat.runLog" data-ui-visibility={runLog}>
     <CompletedReplyAnnouncer key={`${bot.id}:${generation}`} rows={visibleRows} loaded={loaded} botName={bot.name} />
 
     <div className="transcript" ref={scrollRef} onScroll={onScroll} data-bot-id={bot.id} data-generation={generation}>
@@ -439,7 +444,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
             case 'divider':
               return <div key={it.key} className="divider">{dividerLabel(it.ts)}</div>;
             case 'steps':
-              return <Steps key={it.key} rows={it.rows} />;
+              return <Steps key={it.key} rows={it.rows} visibility={runLog} />;
             case 'row':
               return <SystemRow key={it.key} row={it.row} />;
             case 'group': {
@@ -447,7 +452,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
               return (
                 <div key={it.key} className={`group is-${it.side}`} style={height ? { minHeight: height } : undefined}>
                   {it.side === 'left' && <AgentMessageHeading bot={bot} from={it.from} />}
-                  {it.runRows && <Steps rows={it.runRows} />}
+                  {it.runRows && <Steps rows={it.runRows} visibility={runLog} />}
                   {it.from && it.from.kind !== 'bot' && <SenderLabel from={it.from} />}
                   {it.rows.map((r, i) => (
                     <Fragment key={r.seq}><Bubble row={r} side={it.side} botName={bot.name} pos={cornerClass(i, it.rows.length)} savedFileLinks={savedFileLinks.get(r.seq)} /></Fragment>
