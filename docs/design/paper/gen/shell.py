@@ -38,7 +38,7 @@ def dheader(t, title, sub=None, back=None, right='', av=None):
     b = f'<div style="display: flex; align-items: center; gap: 4px; height: 32px; padding: 0 8px 0 4px; border-radius: 8px">{icon("cl",t("text2"),16)}{txt(back,t("text2"),13,500)}</div>' if back else ''
     a = av or ''
     s = txt(sub,t("text3"),12) if sub else ''
-    return (f'<div layer-name="Header" style="display: flex; align-items: center; gap: 12px; height: 64px; padding: 0 24px; border-bottom: 1px solid {t("bsoft")}; flex-shrink: 0">{b}'
+    return (f'<div layer-name="Header" style="display: flex; align-items: center; gap: 12px; height: 64px; padding: 0 32px; border-bottom: 1px solid {t("bsoft")}; flex-shrink: 0">{b}'
             f'<div style="display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0">{a}<div style="display: flex; flex-direction: column">'
             f'<div style="{FONT} font-size: 15px; font-weight: 600; line-height: 22px; color: {t("ink")}">{title}</div>{s}</div></div>'
             f'<div style="display: flex; align-items: center; gap: 8px">{right}</div></div>')
@@ -62,4 +62,5 @@ def mtabs(t, active='bots'):
 def homebar(t):
     return f'<div layer-name="Home indicator" style="display: flex; justify-content: center; padding: 8px 0; flex-shrink: 0"><div style="width: 134px; height: 5px; border-radius: 3px; background: {t("ink")}"></div></div>'
 def mbody(t, inner, pad='16px', gap=16, extra=''):
+    pad = '0' if pad == '0' else '16px'; gap = 16 if gap >= 14 else (8 if gap <= 8 else 12)
     return f'<div layer-name="Body" style="display: flex; flex-direction: column; gap: {gap}px; flex: 1; min-height: 0; padding: {pad}; overflow: hidden; {extra}">{inner}</div>'

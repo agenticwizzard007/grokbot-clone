@@ -3,13 +3,17 @@
   /* Shared 8px layout grid; 4px half steps are for compact component detail. */
   --space-1: 4px;
   --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 24px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --space-5: 32px;
   --space-6: 32px;
   --space-7: 40px;
   --space-8: 48px;
   --space-9: 64px;
+  --control-h: 44px;
+  --color-text-2: var(--color-text-secondary);
+  --color-border: var(--color-border-secondary);
+  --color-elevated: var(--color-bg-elevated);
   --sidebar-width: 272px;
   --sidebar-collapsed-width: 76px;
   --content-width: 752px;
@@ -64,7 +68,7 @@
   --radius-md: 12px;
   --radius-bubble: 16px;
   --radius-composer: 24px;
-  --radius-card: 16px;
+  --radius-card: 12px;
   --radius-full: 9999px;
 
   /* --- font stacks and interaction states --- */

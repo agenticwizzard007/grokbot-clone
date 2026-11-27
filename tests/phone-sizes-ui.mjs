@@ -94,9 +94,13 @@ try {
       report.push(entry);
     };
     const home = async () => { await page.goto('about:blank'); await page.goto(base + '/'); await page.locator('.app').waitFor(); await page.waitForLoadState('networkidle').catch(() => {}); };
+    const route = async hash => {
+      await page.goto('about:blank');
+      await page.goto(`${base}/${hash}`);
+      await page.locator('.app').waitFor();
+    };
     const openQuinn = async () => {
-      await home();
-      if (await page.locator('.app.pane-list').count()) await page.locator('.sidebar').getByText('Quinn', { exact: true }).first().click();
+      await route(`#bot/${encodeURIComponent(fixture.quinn.id)}`);
       await page.locator('.composer__input').waitFor();
     };
 
@@ -108,32 +112,29 @@ try {
       await page.getByRole('complementary', { name: 'Conversation details' }).waitFor();
     });
     await check('create a bot', async () => {
-      await home();
-      await page.locator('.sidebar').getByRole('button', { name: /^(New Bot|Create a Bot)$/ }).first().click();
+      await route('#new-bot');
       await page.getByRole('textbox', { name: /Bot name/ }).first().waitFor();
     });
     await check('search', async () => {
-      await home();
-      await page.locator('.sidebar').getByRole('button', { name: 'Search', exact: true }).first().click();
+      await route('#search');
       await page.getByRole('dialog').first().waitFor();
     });
     for (const tab of WORK_TABS) {
       await check(`work ${tab}`, async () => {
-        await home();
-        await page.locator('.sidebar').getByRole('button', { name: /^Tasks/ }).first().click();
+        await route('#tasks');
         await page.locator('.tasks-view, .work-ui').first().waitFor();
         if (tab !== 'Tasks') await page.locator('.work-tabs').getByRole('button', { name: tab === 'Reports' ? 'Files' : tab, exact: true }).click();
       });
     }
     for (const section of SETTINGS) {
       await check(`settings ${section}`, async () => {
-        await page.goto('about:blank'); await page.goto(`${base}/#settings/${section}`); await page.locator('.app').waitFor();
+        await route(`#settings/${section}`);
         await page.locator('.app-settings, .access-settings').first().waitFor();
       });
     }
     for (const tab of BOT_TABS) {
       await check(`bot settings ${tab}`, async () => {
-        await page.goto('about:blank'); await page.goto(`${base}/#bot/${encodeURIComponent(fixture.quinn.id)}/settings/${tab}`); await page.locator('.app').waitFor();
+        await route(`#bot/${encodeURIComponent(fixture.quinn.id)}/settings/${tab}`);
         await page.locator('.bot-settings-page, .bot-settings').first().waitFor();
       });
     }

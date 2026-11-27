@@ -6,7 +6,7 @@ Designed: 2026-11-26, Europe/Vienna evening. Repo baseline: agenticwizzard007/gr
 Reference renders: python3 docs/design/paper/gen/render.py /tmp/paper-html writes <slug>-<d|m>-<l|d>.html for every artboard (d = desktop 1280x900, m = phone 390x844; l = light, d = dark; root element #artboard). These match the Paper PNG exports.
 Generator (HTML source of every artboard, the exact values): docs/design/paper/gen/*.py.
 
-Paper v2 (copy diet, Back label on phone) updated 2026-11-27. Section 0b and 0c are binding.
+Paper v3 (layout system 0d, copy diet 0b, Back label 0c) updated 2026-11-27. Sections 0b, 0c and 0d are binding.
 Pages in the file: Read me, 00 Tokens and components, 01 Entry, 02 Chat, 03 Bots, 04 Settings, 05 Work and search, 06 States and navigation.
 Each screen row on a page holds 4 artboards left to right: Desktop Light, Desktop Dark, Mobile Light, Mobile Dark.
 
@@ -98,6 +98,24 @@ Across the 17 screens that exist live: 2984 words at 1280 today, 895 in Paper v2
 | bot settings learning | 213 / 190 | 64 / 57 |
 | work Team | 116 / 98 | 35 / 29 |
 | work Goals | 66 / 48 | 20 / 14 |
+
+## 0d. Layout system v3 (owner requirement, Nov 27; binding)
+
+The owner found the app not symmetrical, boxes not aligned and containers of different sizes. Paper v3 regenerates every artboard on this system; every route in the app must follow it.
+
+1. Page types and one content max-width each: form pages (Settings pages, Bot settings, Bot details tabs, Create a Bot) 640 px; list pages (Bot list, Tasks, Files, Search results page, Usage) 880 px; chat column 760 px. The content column is centered in the main area (equal space left and right).
+2. Page padding is equal left and right: 16 px on phone (max-width 760 px), 32 px on desktop. The desktop page header uses the same 32 px side padding. Phone sheets use 16 px.
+3. Spacing scale: 8 px steps only (4 allowed inside a control). Gaps: 8 inside a card, 16 between cards, 24 between sections.
+4. One card style: radius 12, padding 16, 1 px border (--color-border), background --color-elevated, width 100 percent of its column (align-self: stretch). No other radius or padding values on cards.
+5. Cards in one list or section have the same width. Cards side by side share the row equally (flex: 1 1 0, min-width 0).
+6. Rows and buttons are 44 px tall (min-height 44 for rows that wrap). Icon buttons 44 px hit area on phone, 36 px visible size allowed on desktop toolbars.
+7. Buttons in a group have equal widths (ButtonGroup: each child flex 1 1 0) or are full width (stacked on phone).
+8. Labels align to one left edge per column. Section headers share one style: 13/18, weight 600, --color-text-2, 24 px min height, optional trailing action.
+9. One Back control per screen (phone: chevron plus "Back" at the left of the top bar). No second Back link inside the page body or the settings nav on phone.
+10. Shared primitives, used by every route: Page (type: form, list, chat; sets max-width, centered, symmetric padding), Section (header plus stack), Card, Row, ButtonGroup. No route defines its own outer padding, card radius or button height.
+11. Test: tests/layout-alignment-ui.mjs opens every route at 390 and 1280 and asserts: cards in the same column have equal width (within 1 px) and shared left and right edges; cards in the same row have equal width; ButtonGroup children equal width; page content padding left equals right (within 1 px); buttons and rows are at least 44 px tall; no element extends past the viewport (no horizontal scroll).
+
+Design check: the same assertions were run on all 128 v3 screen artboards (local renders of the generator): 0 issues.
 
 ## 1. Tokens
 
