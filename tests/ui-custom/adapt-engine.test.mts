@@ -18,6 +18,8 @@ test('seven frozen v1 recipes have four to eight valid widgets and suggestions o
     const adapted = ok(adaptFromRequirements(profile({ lens: lens.id }), DEFAULT_CONFIG));
     assert.ok(uiConfigSchema.safeParse(adapted.result).success); assert.deepEqual(checkAccessibility(adapted.result), []);
     assert.equal(adapted.result.dashboards[0].name, lens.label);
+    const routes: Record<string, string> = { allBots: 'bots', tasks: 'tasks', routines: 'all/routines', usage: 'settings/usage', files: 'reports' };
+    assert.deepEqual(lens.shortcuts.map(shortcut => shortcut.route), lens.promoted.slice(0, 2).map(id => routes[id]));
     assert.ok(!/[\u2013\u2014]/u.test(JSON.stringify(lens)));
   }
 });

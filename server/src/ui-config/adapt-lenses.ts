@@ -16,13 +16,18 @@ const attention = () => widget(2, 'stat', 'Needs you', 6, 1, { id: 'needsYou.lis
 const tasks = (title: string) => widget(3, 'list', title, 6, 3, { id: 'tasks.list', params: { limit: 10 } }, { limit: 5 });
 const schedule = () => widget(4, 'routineSchedule', 'Upcoming routines', 6, 3, { id: 'routines.upcoming', params: { days: 7 } }, { days: 7 });
 const bots = () => widget(4, 'botStatus', 'Bot activity', 6, 3, { id: 'bots.status', params: { limit: 6 } }, { limit: 6 });
+const shortcutTargets: Record<string, { route: string; binding: string }> = {
+  allBots: { route: 'bots', binding: 'Alt+B' }, tasks: { route: 'tasks', binding: 'Alt+T' },
+  routines: { route: 'all/routines', binding: 'Alt+R' }, usage: { route: 'settings/usage', binding: 'Alt+U' },
+  files: { route: 'reports', binding: 'Alt+F' },
+};
 const recipe = (id: LensId, label: string, promoted: string[], focus: FocusId[], widgets: Widget[], suggestions: [string, string][], template: 'overview' | 'tasks' | 'usage' | 'bot', rationale: string): Lens => ({
   version: 1, id, label, promoted, focus, landing: 'home', home: { name: label, icon: 'layout-dashboard', description: '', widgets: [
     ...widgets, widget(5, 'note', 'Suggested Bots', 12, 4, undefined, { text: suggestions.map(([name, purpose]) => `**${name}**\n\n${purpose}`).join('\n\n') }),
   ] },
   bots: suggestions.map(([name, purpose]) => ({ name, purpose })),
   templates: [{ name: `${label} overview`, template }, { name: 'Weekly review', template: 'overview' }],
-  shortcuts: [{ route: 'tasks', binding: 'Alt+T' }, { route: 'bots', binding: 'Alt+B' }], rationale,
+  shortcuts: promoted.slice(0, 2).map(id => ({ ...shortcutTargets[id] })), rationale,
 });
 export const ADAPT_LENSES: Readonly<Record<LensId, Lens>> = {
   sales: recipe('sales', 'Pipeline', ['tasks', 'routines', 'allBots'], ['tasks', 'routines', 'bots'],
