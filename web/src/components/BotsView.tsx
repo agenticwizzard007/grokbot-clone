@@ -3,6 +3,7 @@ import { Plus, Users } from 'lucide-react';
 import { BotAvatarFor } from '../avatar/BotAvatar';
 import { openConversation } from '../configStore';
 import { displayName, useStore } from '../store';
+import { isInSetup } from '../lib/botSetupState';
 import { userFacingLive } from '../lib/audience';
 import { ButtonGroup, Card, Page, Section } from './layout';
 import '../styles/bot-details.css';
@@ -23,11 +24,12 @@ export function BotsView() {
     <Section className="pb-bots__section" title={<span className="pb-bots__phone-title">Bots</span>}>
       <div className="pb-bots__grid">{roster.map(bot => {
         const state = userFacingLive(live[bot.id]);
-        const status = state?.awaiting ? 'Needs you' : state?.isRunning ? 'Working' : 'Ready';
+        const setup = isInSetup(bot);
+        const status = state?.awaiting ? 'Needs you' : state?.isRunning ? 'Working' : setup ? 'Setup' : 'Ready';
         return <Card key={bot.id} className="pb-bot-card">
           <button type="button" className="pb-bot-card__open" onClick={() => openConversation(bot.id)} aria-label={`Open ${displayName(bot)}`}>
             <span className="pb-bot-card__identity"><BotAvatarFor bot={bot} size={44} /><span className="pb-bot-card__name"><strong>{displayName(bot)}</strong>{bot.isPrimary && <span className="pb-pill">Primary</span>}<small>{bot.label || (bot.mode === 'personal' ? 'Personal assistant' : 'Teammate')}</small></span><span className={`pb-pill pb-pill--${state?.awaiting ? 'warn' : state?.isRunning ? 'success' : 'neutral'}`}>{status}</span></span>
-            <span className="pb-bot-card__status">{state?.awaiting ? 'Needs approval' : state?.isRunning ? 'Working' : 'Idle'}</span>
+            <span className="pb-bot-card__status">{state?.awaiting ? 'Needs approval' : state?.isRunning ? 'Working' : setup ? 'Continue setup' : 'Idle'}</span>
           </button>
         </Card>;
       })}</div>

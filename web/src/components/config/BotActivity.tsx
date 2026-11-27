@@ -35,7 +35,7 @@ export function BotActivity({ bot }: { bot: Bot }) {
     </div></Section>
     <Section title="Activity">
       {(tasks.error || attention.error) && <Row title="Could not refresh" trailing={<button className="cfg-btn cfg-btn--secondary" onClick={() => { tasks.retry(); attention.retry(); }}>Retry</button>} />}
-      {attention.items?.map(item => <Row key={item.id} title={item.title} trailing={<button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => openNeedsYou(item)}>Review</button>} />)}
+      {attention.items?.map(item => <Row key={`${item.type}:${item.id}`} title={item.title} trailing={<button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => openNeedsYou(item)}>Review</button>} />)}
       {tasks.tasks?.slice(0, 5).map(task => <Row key={task.id} title={task.title} trailing={<button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => openConversation(bot.id)}>{task.state === 'done' ? 'View result' : 'Open chat'}</button>} />)}
       {!tasks.error && !attention.error && (tasks.tasks === null || attention.items === null) && <p role="status">Loading activity...</p>}
       {!tasks.error && !attention.error && tasks.tasks !== null && attention.items !== null && !tasks.tasks.length && !attention.items.length && <p>No activity yet.</p>}

@@ -16,7 +16,7 @@ export function BotTasksPage({ bot }: { bot: Bot }) {
   return <Section title="Tasks" action={<button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => { prefillComposer(bot.id, 'Please add a task: '); openConversation(bot.id); }}>Add task</button>}>
     <Segmented label="Task filter" value={filter} options={[{ value: 'open', label: 'Open' }, { value: 'done', label: 'Done' }, { value: 'all', label: 'All' }]} onChange={setFilter} />
     {(tasks.error || attention.error) && <Row title="Could not refresh" trailing={<button className="cfg-btn cfg-btn--secondary" onClick={() => { tasks.retry(); attention.retry(); }}>Retry</button>} />}
-    {showAttention && attention.items?.map(item => <Row key={item.id} title={item.title} trailing={<button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => openNeedsYou(item)}>Review</button>} />)}
+    {showAttention && attention.items?.map(item => <Row key={`${item.type}:${item.id}`} title={item.title} trailing={<button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => openNeedsYou(item)}>Review</button>} />)}
     {visible?.map(task => <Row key={task.id} title={task.title} subtitle={<span className="pb-pill">{task.state === 'done' ? 'Done' : task.state === 'working' ? 'Doing' : 'Needs you'}</span>} trailing={<button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => openConversation(bot.id)}>Open chat</button>} />)}
     {!tasks.error && !attention.error && (tasks.tasks === null || showAttention && attention.items === null) && <p role="status">Loading tasks...</p>}
     {empty && !tasks.error && (!showAttention || !attention.error) && <p>No tasks yet.</p>}

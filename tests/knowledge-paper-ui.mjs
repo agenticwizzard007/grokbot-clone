@@ -121,8 +121,8 @@ try {
       await importArrived.wait;
       await page.keyboard.press('Control+,');
       await page.evaluate(() => { location.hash = '#settings/account'; });
-      await account.getByRole('heading', { name: 'Your account', exact: true }).waitFor();
-      await btn(account, 'Delete account…').click();
+      await btn(account, 'Manage').click();
+      await account.getByRole('menuitem', { name: 'Delete account', exact: true }).click();
       const confirmation = account.getByRole('heading', { name: 'Delete your Swarm account?', exact: true });
       await confirmation.waitFor();
       const importDone = page.waitForResponse(response => response.url().endsWith('/api/bots/import') && response.ok());
@@ -159,7 +159,7 @@ try {
     await page.keyboard.press('Control+,'); await account.waitFor();
     assert.equal(await settingsPane.isVisible(), false);
     assert.equal(await page.locator('.main-pane').getAttribute('hidden'), '');
-    await page.locator('.shell-header').getByRole('button', { name: /^Back(?: |$)/ }).click();
+    await page.keyboard.press('Escape');
     await settingsPane.waitFor(); await page.keyboard.press('Escape');
     await details.waitFor();
     assert.equal(await harness.getAttribute('aria-selected'), 'true', 'Back restores the caller tab');
@@ -183,8 +183,8 @@ try {
     await settingsPane.locator('summary').filter({ hasText: /Skill maintenance/ }).click();
     const maintenance = settingsPane.getByRole('region', { name: 'Protected skill maintenance' });
     await btn(maintenance, 'Run maintenance now').click();
-    await btn(maintenance, 'Checking eligibility…').waitFor();
-    assert.ok(await btn(maintenance, 'Checking eligibility…').isDisabled());
+    await btn(maintenance, 'Checking eligibility').waitFor();
+    assert.ok(await btn(maintenance, 'Checking eligibility').isDisabled());
     curation.release(); await maintenance.getByText('Maintenance temporarily unavailable.').waitFor();
     await btn(maintenance, 'Retry maintenance').click(); await maintenance.getByText(/^Maintenance deferred/).waitFor();
     await btn(maintenance, 'Run maintenance now').click(); await maintenance.getByText('Maintenance completed. Archived: 1. Reported stale: 2.').waitFor();

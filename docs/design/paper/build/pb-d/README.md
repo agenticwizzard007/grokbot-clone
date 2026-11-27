@@ -14,7 +14,7 @@ Visible main-region words include the shell header and exclude the sidebar and p
 |---|---|---|
 | bots | 33 / 33 | 22 / 21 |
 | create-bot | 76 / 71 | 55 / 32 |
-| bot-activity | 231 / 174 | 30 / 25 |
+| bot-activity | 231 / 174 | 28 / 25 |
 | bot-tasks | 111 / 41 | 20 / 17 |
 | bot-files | 124 / 54 | 23 / 20 |
 | bot-setup | 140 / 70 | 31 / 28 |
@@ -23,14 +23,14 @@ Visible main-region words include the shell header and exclude the sidebar and p
 | bs-memories | 99 / 92 | 22 / 18 |
 | bs-routines | 69 / 62 | 22 / 18 |
 | bs-analytics | 78 / 71 | 21 / 17 |
-| bs-learning | 219 / 212 | 39 / 36 |
+| bs-learning | 219 / 212 | 37 / 33 |
 | room | 22 / 16 | 26 / 20 |
 
 ## Behavior and scope
 
 - Bot lists use the 880px Page and equal card columns. Creation keeps the IME and delayed-keystroke safeguards while adding role and model choices.
 - Details use a 640px Page at every width. Activity shows actual available run counts, pending approvals and estimated saved time. Counts limited by the existing 200-job endpoint use a plus suffix. Tasks retain approval routing and chat actions. Files keep saved reports and setup access.
-- General, Skills, Memories, Routines, Analytics and Learning keep their existing writes, revision checks and draft guards. Secondary controls and detailed analytics are available in disclosures. Cancel and Save use the shared footer geometry.
+- General, Skills, Memories, Routines, Analytics and Learning keep their existing writes, revision checks and draft guards. Secondary controls and detailed analytics are available in disclosures. Completed imports survive a route change without interrupting the newer screen. Cancel and Save use the shared footer geometry.
 - Rooms gain colored member identities, Add Bot, recoverable member loading and a typing indicator. Room action hit areas are 44px without changing the approved composer height sequence.
 - Per-Bot "Ask before every action" is not implemented. The current API and enforcement are account-wide across tools, voice, native search, learning and nested calls. That backend work is outside the assigned UI file area. General links to the working account Permissions page; it does not present a nonfunctional switch.
 
@@ -42,4 +42,4 @@ The route matrix in `tests/paper-bots-ui.mjs` covers 19 Bot routes at 320, 390, 
 
 Earlier UI checks were updated for the approved full-page details layout, shell navigation, concise labels and controls moved into disclosures. The header check now expects complete wrapping labels. The composer check preserves its stable slot and height assertions while allowing the required 44px Room action hit areas.
 
-Unit and UI baseline totals are recorded in the PR body. Known failures are compared by name with untouched main on this VM; no test was disabled or newly skipped.
+Full unit baseline at f605ab4: 2,856 passed, 70 failed, 24 existing skips. The working branch produced exactly the same counts and failure names. After rebasing on 77bb487, the 196 targeted unit checks passed on both untouched main and this branch, including the two unit suites changed by PB-C. The phone audit at 390 and 1280 passed 52 views on main and 64 views here. Unit and UI details are recorded in the PR body. Known failures are compared by name with untouched main on this VM; no test was disabled or newly skipped.

@@ -105,6 +105,8 @@ async function main() {
             await page.getByRole('button', { name: 'Continue with phone', exact: true }).click();
             await page.getByRole('textbox', { name: '6-digit code' }).waitFor();
           }
+          if (route.enforce) await page.locator('[data-layout="page"]:visible').first().waitFor();
+          await page.evaluate(() => document.fonts.ready);
           await page.waitForTimeout(350);
           issues = await page.evaluate(inspectAlignment, {});
         } catch (e) { issues = [`Could not open: ${e.message.split('\n')[0]}`]; }

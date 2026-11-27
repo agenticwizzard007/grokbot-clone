@@ -45,7 +45,7 @@ try {
     const page = await context.newPage(); const errors = []; page.on('pageerror', e => errors.push(e.message));
     for (const route of ROUTES.filter(route => route.owner === 'PB-D')) {
       const hash = route.hash.replace('{bot}', server.fixture.bot.id).replace('{room}', server.fixture.room);
-      await page.goto('about:blank'); await page.goto(server.base + '/' + hash); await page.locator('.shell-header').waitFor(); await page.waitForTimeout(350);
+      await page.goto('about:blank'); await page.goto(server.base + '/' + hash); await page.locator('.shell-header').waitFor(); await page.locator('[data-layout="page"]:visible').first().waitFor(); await page.evaluate(() => document.fonts.ready); await page.waitForTimeout(350);
       const issues = await page.evaluate(labelsAndLogos);
       const words = await page.locator('.shell-content').evaluate(el => [...el.children].filter(child => !child.matches('.phone-tabs') && child.checkVisibility()).map(child => child.innerText).join(' ').trim().split(/\s+/).filter(Boolean).length);
       if ([390, 1280].includes(width) && wordBudgets[route.name] && words > wordBudgets[route.name][width === 390 ? 1 : 0]) issues.push(`Copy budget: ${words} words`);

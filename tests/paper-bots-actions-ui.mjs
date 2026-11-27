@@ -20,6 +20,8 @@ try {
   const { bot } = await response.json();
   assert.equal(bot.name, 'Writing Bot'); assert.equal(bot.label, 'Writer'); assert.equal(bot.model, 'openai/gpt-4.1');
   await page.locator('.composer__input').waitFor();
+  await page.goto(`${server.base}/#bots`);
+  await page.locator('.pb-bot-card').filter({ hasText: 'Writing Bot' }).getByText('Setup', { exact: true }).waitFor();
   await page.goto(`${server.base}/#bot/${bot.id}/settings/general`);
   await page.getByRole('textbox', { name: 'Role', exact: true }).fill('Editor');
   await page.getByRole('button', { name: 'Skills', exact: true }).click();
