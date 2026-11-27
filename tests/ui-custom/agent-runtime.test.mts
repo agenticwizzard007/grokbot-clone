@@ -76,8 +76,14 @@ test('provider-managed search taints before compaction and a fresh user turn res
   assert.equal(uiTurnTainted(context), true);
   assert.equal(uiTurnTainted(ctx()), false);
 });
-test('CLI turns require a click because native file reads are not fully observable', () => {
-  const context = ctx(); selectCli(context.userId, 'codex'); assert.equal(uiTurnTainted(context), true); selectCli(context.userId, null);
+test('clean CLI turns use the same auto-apply gate as API turns', async () => {
+  for (const provider of ['codex', 'claude'] as const) {
+    const context = ctx(); selectCli(context.userId, provider);
+    assert.equal(uiTurnTainted(context), false);
+    const p = await preview(context);
+    assert.equal((await call('apply_ui_patch', { previewId: p.previewId }, context)).status, 'applied');
+    selectCli(context.userId, null);
+  }
 });
 test('expired preview cannot apply and card status follows expiry', async () => {
   const context = ctx(), p = await preview(context);

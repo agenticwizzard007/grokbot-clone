@@ -5,7 +5,6 @@ import { REGISTRY, accentPair, presetConfig, type UiPreviewCardBody } from '../u
 import { isConfiguring } from '../bot-setup.js';
 import { currentRun, withRun } from './run-scope.js';
 import { currentJobId } from '../usage-context.js';
-import { selectedCli } from '../cli/store.js';
 import { createUiTools, UI_TOOL_NAMES } from './ui-tools.js';
 import type { ToolCtx } from './tools.js';
 import { APPEARANCE_SKILL } from './ui-skill.js';
@@ -46,8 +45,8 @@ export function uiTurnTainted(ctx: Context): boolean {
   const rootJob = jobs.at(-1)!;
   const remembered = db.prepare("SELECT json_extract(trigger,'$.uiOutsideRead') tainted FROM agent_jobs WHERE id=? AND bot_id=? AND user_id=?").get(rootJob, ctx.botId, getBotRow(ctx.botId).user_id) as { tainted?: number } | undefined;
   if (remembered?.tainted) return true;
-  // Native CLI file reads are not all observable by this server. Require a click.
-  let tainted = !!selectedCli(getBotRow(ctx.botId).user_id);
+  // CLI built-ins are disabled by the bridge; its registered actions use these same rows.
+  let tainted = false;
   const rows = db.prepare("SELECT body FROM rows WHERE bot_id=? AND generation=? AND kind='tool-call' AND json_extract(body,'$.jobId') IN (SELECT value FROM json_each(?))").all(ctx.botId, getBotRow(ctx.botId).generation, JSON.stringify(jobs)) as { body: string }[];
   tainted ||= rows.some(row => {
     const body = JSON.parse(row.body);
