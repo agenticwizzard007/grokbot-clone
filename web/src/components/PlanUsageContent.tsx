@@ -1,10 +1,12 @@
 import type { PlanUsageSummary } from '@shared/plan-usage-types';
 import { planUsageDisplay, usageDollars } from '../lib/planUsageDisplay';
+import { useStore } from '../store';
 import { ProviderLabel } from './ProviderMark';
 import '../styles/plan-usage.css';
 
 export function PlanUsageContent({ summary, error = false, sidebar = false }: { summary: Pick<PlanUsageSummary, 'plan' | 'ownKeys'> | null; error?: boolean; sidebar?: boolean }) {
-  const view = summary && planUsageDisplay(summary.plan);
+  const timezone = useStore(s => (s.user as { timezone?: string | null } | null)?.timezone);
+  const view = summary && planUsageDisplay(summary.plan, timezone);
   return <span className="plan-usage" data-level={view?.level ?? 'normal'}>
     <strong className="plan-usage__name">{summary?.plan.provider ? <ProviderLabel provider={summary.plan.provider}>{summary.plan.name}</ProviderLabel> : summary?.plan.name ?? (error ? 'Usage unavailable' : 'Loading usage...')}</strong>
     <span className="plan-usage__amount">{view?.amount ?? (error ? 'Try again' : 'Loading amount')}</span>

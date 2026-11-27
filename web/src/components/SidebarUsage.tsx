@@ -1,6 +1,7 @@
 import { Gauge } from 'lucide-react';
 import { ProviderMark } from './ProviderMark';
 import { providerBrand } from '../lib/providerBrand';
+import { useStore } from '../store';
 import { useConfigUI } from '../configStore';
 import { usePlanUsage } from '../lib/planUsage';
 import { planUsageDisplay } from '../lib/planUsageDisplay';
@@ -9,7 +10,8 @@ import { PlanUsageContent } from './PlanUsageContent';
 /** Account-scoped plan figures come only from GET /api/usage/summary. */
 export function SidebarUsage({ collapsed }: { collapsed: boolean }) {
   const { summary, error, refresh } = usePlanUsage();
-  const view = summary && planUsageDisplay(summary.plan);
+  const timezone = useStore(s => (s.user as { timezone?: string | null } | null)?.timezone);
+  const view = summary && planUsageDisplay(summary.plan, timezone);
   const label = summary ? `Usage: ${summary.plan.name}. ${view!.amount}. ${summary.plan.unit === 'usd' ? view!.status : ''} ${view!.warning}. ${view!.reset}` : error ? 'Usage unavailable. Try again' : 'Loading usage...';
   return <button type="button" className="sidebar-usage" aria-label={collapsed ? label : undefined}
     title={collapsed ? label : undefined}
