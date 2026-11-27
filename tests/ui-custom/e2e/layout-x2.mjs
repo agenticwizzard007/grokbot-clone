@@ -3,7 +3,6 @@ import path from 'node:path';
 import { chromium } from 'playwright';
 import { readableWords } from '../../paper-label-geometry.mjs';
 import { clientFixture, signedInPage, patch } from '../unit/client-fixture.mjs';
-import { inspectAlignment } from '../../layout-alignment-ui.mjs';
 export const DASHBOARD_ROUTES = [
   { name: 'dashboards', hash: '#dashboards' }, { name: 'dashboard', hash: '#dash/{dashboard}' },
   { name: 'dashboard-edit', hash: '#dash/{dashboard}', state: 'edit' },
@@ -56,7 +55,10 @@ export async function auditDashboardRoutes(evidence, inspectAlignment) {
   return report;
 }
 if (process.argv[1]?.endsWith('/layout-x2.mjs')) {
-  const report = await auditDashboardRoutes(path.resolve('.context/layout-alignment/dashboards'), inspectAlignment);
-  console.log(`${report.filter(view => !view.issues.length).length}/${report.length} dashboard layout views passed`);
-  if (report.some(view => view.issues.length)) process.exitCode = 1;
+  // Let this module finish exporting before the shared audit imports its routes.
+  void import('../../layout-alignment-ui.mjs').then(async ({ inspectAlignment }) => {
+    const report = await auditDashboardRoutes(path.resolve('.context/layout-alignment/dashboards'), inspectAlignment);
+    console.log(`${report.filter(view => !view.issues.length).length}/${report.length} dashboard layout views passed`);
+    if (report.some(view => view.issues.length)) process.exitCode = 1;
+  }).catch(error => { console.error(error); process.exitCode = 1; });
 }
