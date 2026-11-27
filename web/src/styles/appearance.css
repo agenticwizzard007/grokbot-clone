@@ -40,3 +40,4 @@
   .appearance-presets { grid-template-columns: minmax(0, 1fr); }
   .appearance-swatches { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
+.appearance-settings :is(input:not([type='file']), select), .appearance-dialog input { min-height: var(--control-h); }

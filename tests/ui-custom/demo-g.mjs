@@ -16,7 +16,10 @@ try {
     const page = await context.newPage(); page.setDefaultTimeout(20000);
     const errors = []; page.on('pageerror', error => errors.push(error.message));
     const screen = page.locator('.appearance-settings');
-    const shot = async name => { await page.screenshot({ path: path.join(evidence, `${width}-${theme}-${name}.png`) }); };
+    const shot = async name => {
+      if (['preset-preview', 'preset-applied', 'show-before', 'import-preview', 'undo'].includes(name)) await screen.locator('.ui-preview-card').scrollIntoViewIfNeeded();
+      if (name === 'appearance') await page.locator('.app-settings__main').evaluate(el => el.scrollTop = 0);
+      await page.screenshot({ path: path.join(evidence, `${width}-${theme}-${name}.png`) }); };
     const pass = (name, details = {}) => { report.push({ width, theme, name, ...details }); console.log(`PASS UC-G ${width} ${theme}: ${name}`); };
     const open = async () => { await page.goto('/#settings/appearance'); await screen.waitFor(); await page.waitForFunction(() => !document.querySelector('.appearance-fields')?.disabled); };
     await page.goto('/#bots'); await reset(page); await open();
@@ -77,8 +80,8 @@ try {
     let dialog = page.getByRole('dialog', { name: 'New dashboard', exact: true });
     await dialog.getByRole('textbox', { name: 'Name' }).fill('QA-Temp-Board'); await dialog.getByRole('button', { name: 'Save', exact: true }).click();
     const created = await waitForSaved(page, c => c.doc.dashboards.length === 1, 'dashboard create');
-    await page.waitForURL(/#dash\//); await shot('dashboard-created');
-    await open();
+    await page.waitForURL(/#dash\//); await open();
+    await screen.getByRole('button', { name: 'Manage QA-Temp-Board', exact: true }).scrollIntoViewIfNeeded(); await shot('dashboard-created');
     await screen.getByRole('button', { name: 'Manage QA-Temp-Board', exact: true }).click(); await page.getByRole('menuitem', { name: 'Rename', exact: true }).click();
     dialog = page.getByRole('dialog', { name: 'Rename dashboard', exact: true });
     await dialog.getByRole('textbox', { name: 'Name' }).fill('QA-Temp-Renamed'); await dialog.getByRole('button', { name: 'Save', exact: true }).click();
