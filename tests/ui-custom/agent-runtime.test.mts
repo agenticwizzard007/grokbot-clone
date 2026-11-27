@@ -33,8 +33,8 @@ after(() => { globalThis.fetch = realFetch; db.close(); fs.rmSync(temp, { recurs
 
 test('direct personal web chats offer all UI tools, ambient run and explicit context agree', async () => {
   const context = ctx();
-  assert.equal(functionSchemas(bot.id, context).filter(t => UI_TOOL_NAMES.has(t.name)).length, 17);
-  withRun({ id: context.jobId, botId: bot.id, closed: false, signal: new AbortController().signal }, () => assert.equal(functionSchemas(bot.id).filter(t => UI_TOOL_NAMES.has(t.name)).length, 17));
+  assert.equal(functionSchemas(bot.id, context).filter(t => UI_TOOL_NAMES.has(t.name)).length, 21);
+  withRun({ id: context.jobId, botId: bot.id, closed: false, signal: new AbortController().signal }, () => assert.equal(functionSchemas(bot.id).filter(t => UI_TOOL_NAMES.has(t.name)).length, 21));
   assert.equal(functionSchemas(bot.id).some(t => UI_TOOL_NAMES.has(t.name)), false);
   assert.equal((await call('get_ui_config', {}, context)).revision, 0);
 });

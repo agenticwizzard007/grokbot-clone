@@ -34,5 +34,5 @@ export function agenticSource(id: string, userId: string, params: Params): Sourc
     if (params.botId) { sql += ' AND o.bot_id=?'; args.push(params.botId); }
   }
   const count = (db.prepare(`SELECT COUNT(*) AS n FROM (${sql})`).get(...args) as { n: number }).n;
-  return { count, available: true, rows: db.prepare(`${sql} ORDER BY ${id === 'outputs.recent' ? 'createdAt' : 'updatedAt'} DESC,id LIMIT ?`).all(...args, limit) as Record<string, unknown>[] };
+  return { count, available: true, rows: db.prepare(`SELECT * FROM (${sql}) ORDER BY ${id === 'outputs.recent' ? 'createdAt' : 'updatedAt'} DESC,id LIMIT ?`).all(...args, limit) as Record<string, unknown>[] };
 }

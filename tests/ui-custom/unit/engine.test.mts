@@ -192,7 +192,7 @@ test('migration accepts v1 rejects future invalid missing and unsupported old ve
   const future = migrate({ ...doc, version: 2 }); assert.ok('error' in future && future.error.includes('newer version'));
 });
 test('registries are complete and new code uses neither identity colors nor forbidden copy', () => {
-  assert.equal(REGISTRY.widgets.length, 10); assert.equal(REGISTRY.sources.length, 14); assert.equal(REGISTRY.presets.length, 8);
+  assert.equal(REGISTRY.widgets.length, 11); assert.equal(REGISTRY.sources.length, 21); assert.equal(REGISTRY.presets.length, 8);
   for (const group of ['tokens', 'fonts', 'components', 'nav', 'widgets', 'sources', 'shortcuts', 'presets'] as const) {
     assert.equal(new Set(REGISTRY[group].map(x => x.id)).size, REGISTRY[group].length); assert.ok(REGISTRY[group].every(x => x.label));
   }
