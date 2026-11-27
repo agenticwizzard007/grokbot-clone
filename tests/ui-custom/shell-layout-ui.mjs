@@ -44,12 +44,13 @@ try {
   const expanded = await server.patch([{ op: 'replace', path: '/layout/sidebar/collapsed', value: false }]);
   await page.waitForFunction(async revision => (await import('/src/customization/store.ts')).useCustomization.getState().revision >= revision, expanded.revision);
   pass('collapsed preference applies once and manual expansion works');
+  await page.route('**/api/ui/config', route => route.fulfill({ status: 304 }));
   await page.evaluate(async () => {
     const { useCustomization } = await import('/src/customization/store.ts');
     const doc = structuredClone(useCustomization.getState().effective);
     doc.layout.sidebar.order = ['tasks']; doc.layout.sidebar.hidden = ['settings']; doc.layout.phoneTabs = ['tasks'];
     doc.layout.pinned = [{ type: 'bot', id: 'missing' }, { type: 'dashboard', id: 'd_missing1' }];
-    useCustomization.setState({ effective: doc });
+    useCustomization.setState({ saved: doc, effective: doc });
   });
   assert.ok(await page.getByRole('button', { name: 'Account & settings' }).isVisible());
   await page.getByRole('region', { name: 'Pinned', exact: true }).waitFor({ state: 'detached' });
@@ -58,6 +59,7 @@ try {
   assert.ok(await page.locator('.phone-tabs').getByRole('button', { name: 'Settings', exact: true }).isVisible());
   assert.ok(await page.locator('.phone-tabs button').count() >= 3); await scan(page);
   pass('render guards keep Settings and ignore dangling pins');
+  await page.unroute('**/api/ui/config');
   // Restore through the real API so later checks use the regular store path.
   await server.patch([{ op: 'replace', path: '/layout', value: defaults.layout }]);
   await page.setViewportSize({ width: 1280, height: 900 });
