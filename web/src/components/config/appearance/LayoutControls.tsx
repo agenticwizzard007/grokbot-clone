@@ -7,7 +7,7 @@ import { moveSidebar, phoneTabPatch, setValue, sidebarVisibility } from './patch
 export type Patch = (ops: PatchOp[]) => Promise<boolean>;
 export function LayoutControls({ doc, patch }: { doc: UiConfig; patch: Patch }) {
   const tabs = doc.layout.phoneTabs;
-  const tabOptions = [{ value: '', label: 'None' }, ...['bots', 'tasks', 'search'].map(value => ({ value, label: value[0].toUpperCase() + value.slice(1) })), ...doc.dashboards.map(d => ({ value: `dashboard:${d.id}`, label: d.name }))];
+  const tabOptions = [{ value: '', label: 'None' }, ...['bots', 'tasks', 'search', 'routines', 'usage', 'files', 'more'].map(value => ({ value, label: value[0].toUpperCase() + value.slice(1) })), ...doc.dashboards.map(d => ({ value: `dashboard:${d.id}`, label: d.name }))];
   // Settings keeps its saved position. Empty slots are always at the end.
   const slots = Array.from({ length: 5 }, (_, i) => tabs[i] ?? '');
   return <>
@@ -24,7 +24,7 @@ export function LayoutControls({ doc, patch }: { doc: UiConfig; patch: Patch }) 
     </AppearanceSection>
     <AppearanceSection title="Home">
       <SelectRow label="Start on" value={doc.layout.home.kind === 'dashboard' ? doc.layout.home.dashboardId : doc.layout.home.kind} options={[...['default', 'bots', 'tasks'].map(value => ({ value, label: value[0].toUpperCase() + value.slice(1) })), ...doc.dashboards.map(d => ({ value: d.id, label: d.name }))]} onChange={v => void patch(setValue('/layout/home', v.startsWith('d_') ? { kind: 'dashboard', dashboardId: v } : { kind: v }))} />
-      {slots.map((value, index) => <SelectRow key={index} label={`Tab ${index + 1}`} value={value} disabled={value === 'settings'} options={value === 'settings' ? [{ value, label: 'Settings' }] : tabOptions.map(option => ({ ...option, disabled: Boolean(option.value.startsWith('dashboard:') && tabs.some(tab => tab.startsWith('dashboard:') && tab !== value)) || (!option.value && tabs.length <= 3 && !!value) }))} onChange={v => void patch(phoneTabPatch(doc, index, v))} />)}
+      {slots.map((value, index) => <SelectRow key={index} label={`Tab ${index + 1}`} value={value} disabled={value === 'settings' || value === 'more'} options={value === 'settings' || value === 'more' ? [{ value, label: value === 'settings' ? 'Settings' : 'More' }] : tabOptions.map(option => ({ ...option, disabled: Boolean(option.value.startsWith('dashboard:') && tabs.some(tab => tab.startsWith('dashboard:') && tab !== value)) || (!option.value && tabs.length <= 3 && !!value) }))} onChange={v => void patch(phoneTabPatch(doc, index, v))} />)}
     </AppearanceSection>
     <AppearanceSection title="Show" helper="Hidden sections stay available here.">
       {REGISTRY.components.map(component => component.allowed.includes('collapsed')
