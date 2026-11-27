@@ -21,7 +21,9 @@ const modalSelector = 'dialog[open], [role=dialog][aria-modal=true]';
 async function assertSingleDialog(page, flow) {
   const names = await page.locator(modalSelector).evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label') || node.textContent?.trim().slice(0, 80)));
   assert.ok(names.length <= 1, `${flow}: at most one dialog may be open; found ${names.length}: ${names.join(', ')}`);
-  assert.ok(await page.evaluate(() => window.__a11yMaxDialogs <= 1), `${flow}: multiple dialogs were open during the sheet flow`);
+  const maximum = await page.evaluate(() => window.__a11yMaxDialogs);
+  assert.ok(Number.isInteger(maximum), `${flow}: dialog tracking must be initialized in the current document`);
+  assert.ok(maximum <= 1, `${flow}: multiple dialogs were open during the sheet flow (maximum ${maximum})`);
 }
 async function openAgentSheet(page) {
   await page.getByRole('button', { name: 'Add widget', exact: true }).click();
@@ -62,6 +64,17 @@ try {
     await server.preset(preset);
     const context = await server.context(browser, width, theme);
     const page = await context.newPage(); page.setDefaultTimeout(10000);
+    await page.addInitScript(() => {
+      window.__a11yOpener = null;
+      window.__a11yMaxDialogs = 0;
+      const recordDialogs = () => { window.__a11yMaxDialogs = Math.max(window.__a11yMaxDialogs, document.querySelectorAll('dialog[open], [role=dialog][aria-modal=true]').length); };
+      new MutationObserver(recordDialogs).observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ['open', 'role', 'aria-modal'] });
+      recordDialogs();
+      document.addEventListener('click', event => {
+        const button = event.target.closest?.('button');
+        if (button && !button.closest('dialog[open], [role=dialog][aria-modal=true], [role=menu]')) window.__a11yOpener = button;
+      }, true);
+    });
     const selectedRoutes = preset === 'swarm' ? routes : routes.filter(route => ['#settings/appearance', 'dashboard', '#bot/coordinator', '#bots'].includes(route.name));
     for (const route of selectedRoutes.filter(route => !process.env.A11Y_ROUTES || new RegExp(process.env.A11Y_ROUTES).test(route.name))) {
       const name = `${preset === 'swarm' ? '' : `${preset}-`}${width}-${theme}-${route.name}`, file = name.replace(/[^a-z0-9-]/gi, '_');
@@ -69,17 +82,6 @@ try {
       try {
         await page.setViewportSize({ width, height: width < 760 ? 844 : 900 });
         await server.open(page, route.hash);
-        await page.evaluate(() => {
-          window.__a11yOpener = null;
-          window.__a11yMaxDialogs = 0;
-          const recordDialogs = () => { window.__a11yMaxDialogs = Math.max(window.__a11yMaxDialogs, document.querySelectorAll('dialog[open], [role=dialog][aria-modal=true]').length); };
-          new MutationObserver(recordDialogs).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['open', 'role', 'aria-modal'] });
-          recordDialogs();
-          document.addEventListener('click', event => {
-            const button = event.target.closest?.('button');
-            if (button && !button.closest('dialog[open], [role=dialog][aria-modal=true], [role=menu]')) window.__a11yOpener = button;
-          }, true);
-        });
         await route.action?.(page);
         await assertSingleDialog(page, route.name);
         await page.evaluate(() => document.fonts.ready);
