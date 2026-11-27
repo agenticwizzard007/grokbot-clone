@@ -11,6 +11,7 @@ import { runUiQuality } from './visual-quality.mjs';
 import { injections, xss } from '../security/corpus.mjs';
 
 const evidence = path.resolve('.context/handoffs/e2e-h');
+const startedAt = Date.now();
 const server = await fixture(evidence), results = [], details = [];
 const uiQuality = await runUiQuality(evidence);
 const go = (page, hash) => page.goto(`${server.base}/${hash}`);
@@ -249,8 +250,12 @@ try {
   }
 } finally {
   await server.close();
-  const report = { uiQuality, passed: results.filter(r => r.status === 'pass').length, failed: results.filter(r => r.status === 'fail').length, results, details };
+  const captures = fs.readdirSync(evidence).filter(file => file.endsWith('.quality.json') && fs.statSync(path.join(evidence, file)).mtimeMs >= startedAt)
+    .map(file => ({ file: path.join(evidence, file), ...JSON.parse(fs.readFileSync(path.join(evidence, file), 'utf8')) }));
+  const visualQuality = { passed: captures.filter(capture => !capture.issues.length).length, failed: captures.filter(capture => capture.issues.length).length, captures };
+  const report = { uiQuality, visualQuality, passed: results.filter(r => r.status === 'pass').length, failed: results.filter(r => r.status === 'fail').length, results, details };
   fs.writeFileSync(path.join(evidence, 'report.json'), JSON.stringify(report, null, 2));
   console.log(`HO-H journeys: ${report.passed} pass, ${report.failed} fail; ${path.join(evidence, 'report.json')}`);
-  if (report.failed || uiQuality.status === 'fail') process.exitCode = 1;
+  console.log(`${visualQuality.failed ? 'FAIL' : 'PASS'} Real journey visual quality: ${visualQuality.passed} pass, ${visualQuality.failed} fail`);
+  if (report.failed || uiQuality.status === 'fail' || visualQuality.failed) process.exitCode = 1;
 }
