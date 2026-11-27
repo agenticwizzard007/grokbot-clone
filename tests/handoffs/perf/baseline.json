@@ -1,40 +1,46 @@
 {
-  "measuredAt": "2026-11-27T16:45:44.977Z",
+  "measuredAt": "2026-11-27T16:57:05.961Z",
   "environment": "linux x64 v24.22.1",
   "metrics": {
     "outputCreation": {
-      "p95": 2.885263000000009,
+      "p95": 10.101758000000018,
       "budget": 20,
       "unit": "ms",
       "samples": 50,
       "pass": true
     },
     "handoffPost": {
-      "p95": 22.505657999999812,
+      "p95": 34.19249300000001,
       "budget": 80,
       "unit": "ms",
       "samples": 50,
       "pass": true
     },
     "flowCold": {
-      "p95": 2.5633289999998397,
+      "p95": 3.374358999999913,
       "budget": 150,
       "unit": "ms",
       "samples": 50,
       "pass": true
     },
     "flowWarm": {
-      "p95": 1.3349499999999352,
+      "p95": 1.7658989999999903,
       "budget": 15,
       "unit": "ms",
       "samples": 50,
       "pass": true
     }
   },
+  "flowFixture": {
+    "bot": "flow-many",
+    "routines": 30,
+    "apps": 40
+  },
   "bundle": {
     "entry": "assets/index-DcDY3EdA.js",
     "entryGzipBytes": 119118,
-    "comparison": "HO-H changes no production source or dependencies; entry graph matches base main.",
+    "baseRevision": "5294c8567ff1c956a8731ad24e96437804cfcef7",
+    "comparison": "Verified unchanged web source and lockfile versus main after HO integration. This measures HO-H additions, not the total historical HO feature cost.",
     "addedEntryGzipBytes": 0,
     "budgetBytes": 40960,
     "pass": true,
@@ -102,45 +108,45 @@
     ]
   },
   "browser": {
-    "measuredAt": "2026-11-27T16:47:37.487Z",
+    "measuredAt": "2026-11-27T17:07:25.003Z",
     "metrics": {
       "loopRender12Steps-390": {
-        "p95": 35.800000000046566,
+        "p95": 33.89999999990687,
         "budget": 300,
         "samples": 11,
         "unit": "ms",
         "pass": true
       },
       "flowPaint-390": {
-        "p95": 26.799999999813735,
+        "p95": 26,
         "budget": 50,
         "samples": 11,
         "unit": "ms",
         "pass": true
       },
       "timelineSse-390": {
-        "p95": 40,
+        "p95": 41,
         "budget": 100,
         "samples": 6,
         "unit": "ms",
         "pass": true
       },
       "loopRender12Steps-1280": {
-        "p95": 36,
+        "p95": 35.6999999997206,
         "budget": 300,
         "samples": 11,
         "unit": "ms",
         "pass": true
       },
       "flowPaint-1280": {
-        "p95": 30.5999999998603,
+        "p95": 27.100000000093132,
         "budget": 50,
         "samples": 11,
         "unit": "ms",
         "pass": true
       },
       "timelineSse-1280": {
-        "p95": 40,
+        "p95": 41,
         "budget": 100,
         "samples": 6,
         "unit": "ms",
