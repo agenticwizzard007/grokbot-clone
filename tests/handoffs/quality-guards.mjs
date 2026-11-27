@@ -10,7 +10,7 @@ export async function checkQualityGuards(fixture, inspect) {
     ['c.equal-actions', el => { el.querySelector('.layout-button-group > *').style.width='40px'; }],
     ['c.two-actions', el => { const g=el.querySelector('.layout-button-group'); g.append(g.firstElementChild.cloneNode(true)); }],
     ['d.card', el => { el.style.padding='8px'; }],
-    ['e.chip', el => { const chip=document.createElement('span'); chip.className='ho-chip'; chip.textContent='Loop'; chip.style.textDecoration='underline'; el.append(chip); }],
+    ['e.chip', el => { const chip=document.createElement('span'); chip.className='ho-chip'; chip.textContent='Loop'; const link=document.createElement('a');link.href='#loops';link.style.textDecoration='underline';link.append(chip);el.append(link); }],
     ['e.overflow', el => { el.style.width='2000px'; }],
     ['f.spacing', el => { const list=document.createElement('div'); list.style.display='grid'; list.style.gap='5px'; for(let i=0;i<3;i++){const row=document.createElement('div');row.dataset.layout='row';row.textContent='Release note';list.append(row);} el.append(list); }],
     ['g.unique-title', el => { const p=document.createElement('p'); p.textContent=el.querySelector('.layout-row__title').textContent; el.prepend(p); }],

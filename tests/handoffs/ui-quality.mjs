@@ -27,7 +27,7 @@ export function inspectQuality({ selector, finished = false }) {
       check('a.type', font >= (el.closest(chip) ? 12 : el.closest('p,pre,textarea') ? 14 : 13), el, `${font}px`);
       check('h.copy', !forbidden.test(node.textContent), el);
     }
-    if (el.matches('input,textarea')) check('h.copy', !forbidden.test(el.value), el);
+    if (el.matches('input,textarea')) check('h.copy', !forbidden.test(el.value) && !forbidden.test(el.getAttribute('placeholder') || ''), el);
     if (el.matches('[data-layout="row"],button,[role="button"],summary,a[href]:not(.flow-sr)')) check('b.target', r.height >= minimum - 1, el, `${r.height}px`);
     if (el.matches('[data-layout="button-group"]')) {
       const children = [...el.children].filter(visible), rects = children.map(x => x.getBoundingClientRect());
@@ -41,7 +41,7 @@ export function inspectQuality({ selector, finished = false }) {
       const title = el.querySelector('.layout-row__title, h2, h3'); const body = el.querySelector('p');
       if (title && body) check('g.unique-title', !body.textContent.trim().toLowerCase().startsWith(title.textContent.trim().toLowerCase()), el);
     }
-    if (el.matches(chip)) check('e.chip', css.textDecorationLine === 'none' && !el.closest('a')?.matches('.ho-inline-link'), el);
+    if (el.matches(chip)) { check('e.chip', [el, el.closest('a')].filter(Boolean).every(node => getComputedStyle(node).textDecorationLine === 'none'), el); check('e.chip-size', close(r.height,20) && close(parseFloat(css.fontSize),12) && close(parseFloat(css.lineHeight),16) && css.fontWeight === '500', el); }
     if (el.matches('label,button,a,h1,h2,h3,.layout-row__title,.layout-row__subtitle,.flow-node__text')) check('e.label', el.scrollWidth <= el.clientWidth + 1 && css.textOverflow !== 'ellipsis' && !['hidden','clip'].includes(css.overflowY), el);
     check('e.overflow', r.left >= -1 && r.right <= innerWidth + 1, el);
     if (el.matches('.ho-receipt') && el.closest('.transcript__col')) { const column = el.closest('.transcript__col').getBoundingClientRect(); check('d.receipt-column', close(r.width,column.width) && close(r.right,column.right),el); }
@@ -61,6 +61,9 @@ export function inspectQuality({ selector, finished = false }) {
     const rows = children.filter(x => x.matches('[data-layout="row"], .ho-loop-timeline > li, .flow-nodes > li'));
     if (rows.length > 1) { const rects=rows.map(x=>x.getBoundingClientRect()), gaps=rects.slice(1).map((x,i)=>x.top-rects[i].bottom); check('f.spacing', gaps.every(x=>close(x,gaps[0]) && close(x,Math.round(x/8)*8)), el, gaps.join(',')); }
   }
+  const receipts = all.filter(el => el.matches('.ho-receipt') && el.closest('.ho-receipt-wrap'));
+  const gaps = receipts.slice(1).flatMap((el,index) => el.parentElement.previousElementSibling === receipts[index].parentElement ? [el.getBoundingClientRect().top - receipts[index].getBoundingClientRect().bottom] : []);
+  if (gaps.length) check('f.spacing', gaps.every(gap => close(gap,gaps[0]) && close(gap,Math.round(gap/8)*8)),receipts[0],gaps.join(','));
   check('coverage.surface', roots.length > 0 && all.length > 0, document.documentElement);
   if (finished) for (const el of document.querySelectorAll('[aria-label="Message actions"]')) check('i.action-label', el.textContent.trim() === 'Actions', el);
   check('e.document', document.documentElement.scrollWidth <= innerWidth + 1, document.documentElement);
