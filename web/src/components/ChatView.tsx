@@ -24,7 +24,7 @@ import { handoffApi, type RunOutput } from '../handoffs/api';
 import { useHandoffResource } from '../handoffs/useHandoffs';
 import { api } from '../lib/api';
 import { toast } from '../lib/toast';
-const OutputCard = lazy(() => import('../handoffs/OutputCard').then(m => ({ default: m.OutputCard })));
+import { CardRow } from './cards/Cards';
 const SendSheet = lazy(() => import('../handoffs/SendSheet').then(m => ({ default: m.SendSheet })));
 
 function MessageHandoff({ row, final, onSend }: { row: Row; final: boolean; onSend: (output: RunOutput, targetId?: string) => void }) {
@@ -48,7 +48,7 @@ function MessageHandoff({ row, final, onSend }: { row: Row; final: boolean; onSe
   return <div className="ho" style={{ position: 'relative' }}>
     <button ref={trigger} type="button" className="ho-button ho-button--quiet" aria-label="Message actions" aria-haspopup="menu" aria-expanded={open} disabled={busy} onClick={() => setOpen(!open)}><MoreHorizontal size={18} aria-hidden /></button>
     {open && <Menu triggerRef={trigger} onClose={() => setOpen(false)} items={[{ label: 'Send to agent', icon: Send, onSelect: () => void send() }]} />}
-    {output.data?.output?.status === 'final' && <Suspense fallback={null}><OutputCard output={output.data.output} onSend={onSend} suggestions={links.data?.links.map(link => ({ link, name: bots.find(bot => bot.id === link.toBotId)?.name ?? 'Agent' }))} /></Suspense>}
+    {output.data?.output?.status === 'final' && <CardRow row={row} output={output.data.output} onSend={onSend} suggestions={links.data?.links.map(link => ({ link, name: bots.find(bot => bot.id === link.toBotId)?.name ?? 'Agent' }))} />}
   </div>;
 }
 

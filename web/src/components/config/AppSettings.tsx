@@ -16,7 +16,10 @@ import { ModelPicker, refreshModels } from './ModelPicker';
 import { LearningSettingsPanel } from './LearningSettings';
 import { UsageSection } from './UsageSection';
 import { relativeShort } from '../../lib/time';
-import { openConversation, useConfigUI, useVersion, type Theme } from '../../configStore';
+import { navigation, openConversation, useConfigUI, useVersion, type Theme } from '../../configStore';
+import { handoffApi, type HandoffLink, type HandoffSettings } from '../../handoffs/api';
+import { HandoffState } from '../../handoffs/HandoffRow';
+import { errorText, handoffText, refreshHandoffs, useHandoffResource } from '../../handoffs/useHandoffs';
 import { useStore } from '../../store';
 import { computerStatusText } from './computerStatus';
 import { ConfirmButton, Segmented, Switch } from './ui';
@@ -56,6 +59,7 @@ export function AppSettingsContent() {
   useEffect(() => { prefetchApps(catalogAccountId); }, [catalogAccountId]);
   return <>
             {section === 'general' && <GeneralSection />}
+            {section === 'agents' && <AgentsSection key={catalogAccountId} />}
             {section === 'keys' && <KeysSection />}
             {section === 'usage' && <UsageSection />}
             {section === 'learning' && <LearningSettingsPanel />}
@@ -67,6 +71,85 @@ export function AppSettingsContent() {
             {section === 'subscriptions' && <SubscriptionSettings />}
             {section === 'account' && <AccountSection />}
   </>;
+}
+
+/** Account policy and per-pair automation use the existing handoff services. */
+export function AgentsSection() {
+  const accountId = useStore(s => s.user?.id);
+  const bots = useStore(s => s.bots);
+  const senders = bots.filter(bot => bot.kind !== 'room');
+  const [selected, setSelected] = useState('');
+  const sender = senders.find(bot => bot.id === selected) ?? senders[0];
+  const policy = useHandoffResource(`agents-policy:${accountId}`, signal => handoffApi.settings(signal));
+  const settings = policy.data?.settings;
+  const links = useHandoffResource(`agents-links:${accountId}:${sender?.id}`, signal => handoffApi.links(sender!.id, signal), !!sender && !!settings?.enabled);
+  const [busy, setBusy] = useState(false), [error, setError] = useState(''), [saved, setSaved] = useState(false);
+  const locked = useRef(false), mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const current = () => mounted.current && useStore.getState().user?.id === accountId;
+  const save = async (write: () => Promise<unknown>) => {
+    if (locked.current || !current()) return;
+    locked.current = true; setBusy(true); setError(''); setSaved(false);
+    try { await write(); if (current()) { setSaved(true); refreshHandoffs(); } }
+    catch (reason) { if (current()) setError(errorText(reason)); }
+    finally { locked.current = false; if (current()) setBusy(false); }
+  };
+  const changePolicy = (patch: Partial<HandoffSettings>) => settings && save(() => handoffApi.saveSettings({ ...settings, ...patch }));
+  const changeLink = (link: HandoffLink, patch: Partial<HandoffLink>) => save(async () => {
+    const senderId = sender!.id;
+    const latest = (await handoffApi.links(senderId)).links;
+    if (!current()) return;
+    if (!latest.some(item => item.id === link.id)) throw new Error('This link changed. Reload and try again.');
+    // Link ids are server-owned. Preserve every editable field, including links
+    // not shown in this row, while sending only the strict command schema.
+    return handoffApi.saveLinks(senderId, latest.map(item => {
+      const { toBotId, mode, trigger, template, autoApproveLoops } = item.id === link.id ? { ...item, ...patch } : item;
+      return { toBotId, mode, trigger, template, autoApproveLoops };
+    }));
+  });
+  const disabled = busy || policy.loading;
+  return <div className="ho-settings" aria-busy={busy || policy.loading || links.loading}>
+    <Section title="Handoffs" footer="A handoff sends finished work to another agent. A loop repeats work and review until a check passes or a limit is reached.">
+      <HandoffState loading={!settings && policy.loading} error={policy.error} retry={policy.retry} />
+      {settings && <Card variant="list">
+        <Row title={<label className="ho-check"><input type="checkbox" role="switch" aria-checked={settings.enabled} checked={settings.enabled} disabled={disabled} onChange={event => void changePolicy({ enabled: event.target.checked })} />Enable handoffs and loops</label>} />
+        <Row title={<label className="ho-field">Agent handoffs<select aria-label="Agent handoffs" value={settings.agentHandoffs} disabled={disabled || !settings.enabled} onChange={event => void changePolicy({ agentHandoffs: event.target.value as HandoffSettings['agentHandoffs'] })}>
+          <option value="team">Team</option><option value="links_only">Links only</option><option value="off">Off</option>
+        </select></label>} subtitle={settings.agentHandoffs === 'team' ? 'Agents can send work to any available agent on your team.' : settings.agentHandoffs === 'links_only' ? 'Agents can send work only along enabled standing links.' : 'Agents cannot start handoffs. You can still send work yourself.'} />
+        <Row title="Agent sending limits" subtitle="20 handoffs per agent per hour, 100 per account per day." />
+      </Card>}
+    </Section>
+    {settings?.enabled && <Section title="Standing links" footer="Automatic links send matching finished work without another tap. Loop auto-approval applies only to the selected pair.">
+      {sender && <label className="ho-field">Links from<select aria-label="Links from" value={sender.id} disabled={busy || links.loading} onChange={event => { setSelected(event.target.value); setSaved(false); setError(''); }}>
+        {senders.map(bot => <option key={bot.id} value={bot.id}>{handoffText(bot.name)}</option>)}
+      </select></label>}
+      <Card variant="list">
+        <HandoffState loading={links.loading && !links.data} error={links.error} retry={links.retry} empty={!sender || links.data?.links.length === 0 ? 'No standing links yet' : undefined} />
+        {links.data?.links.map(link => {
+          const name = handoffText(bots.find(bot => bot.id === link.toBotId)?.name ?? 'Agent');
+          return <Row key={link.id} title={name}>
+            <label className="ho-field">Handoff mode for {name}<select aria-label={`Handoff mode for ${name}`} value={link.mode} disabled={busy || links.loading} onChange={event => void changeLink(link, { mode: event.target.value as HandoffLink['mode'] })}>
+              <option value="off">Off</option><option value="suggest">Suggest</option><option value="auto">Automatic</option>
+            </select></label>
+            <label className="ho-check"><input type="checkbox" checked={link.autoApproveLoops} disabled={busy || links.loading} onChange={event => void changeLink(link, { autoApproveLoops: event.target.checked })} />Auto approve loops started by agents with {name}</label>
+          </Row>;
+        })}
+      </Card>
+      {sender && <button className="ho-button" onClick={() => navigation.navigate({ kind: 'details', bot: sender.id, tab: 'activity', flow: true, link: 'new' })}>Add a standing link</button>}
+    </Section>}
+    <Section title="Loop defaults and limits" footer="Choose different limits when you start a loop. Agents need approval before the first pass unless you approve their exact pair above.">
+      <Card variant="list">
+        <Row title="Passes" subtitle="Starts at 4. Choose 1 to 10 passes." />
+        <Row title="Total time" subtitle="Starts at 30 minutes. Choose 5 to 240 minutes." />
+        <Row title="Time per step" subtitle="Starts at 10 minutes. Choose 1 to 30 minutes." />
+        <Row title="Account limits" subtitle="Up to 3 running loops and 20 new loops per day." />
+        <Row title="Cost and token limits" subtitle="Optional when usage is reported. Some plans do not report cost." />
+      </Card>
+      <button className="ho-button" onClick={() => navigation.navigate({ kind: 'loops' })}>Open Loops</button>
+    </Section>
+    {error && <p className="ho-error" role="alert">{error}</p>}
+    {saved && <p role="status">Saved</p>}
+  </div>;
 }
 
 function PageHead({ title, sub }: { title: string; sub?: string }) {

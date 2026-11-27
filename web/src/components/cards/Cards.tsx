@@ -12,9 +12,11 @@ import { BuiltinToolIcon } from './BuiltinToolIcon';
 import { useRefocusOnResolve } from '../../lib/composerFocus';
 import { useDisplayText } from '../../lib/useDisplayText';
 import { APPROVAL_OUTCOME } from '../../lib/stepApproval';
+import type { OutputCardProps } from '../../handoffs/OutputCard';
 
 // HTML parsing is loaded only for action cards, never on the initial chat path.
 const ActionPreview = lazy(() => import('./ToolPreview').then(m => ({ default: m.ActionPreview })));
+const RunOutputCard = lazy(() => import('../../handoffs/OutputCard').then(m => ({ default: m.OutputCard })));
 
 type Card<K extends CardBody['card']> = Extract<CardBody, { card: K }>;
 
@@ -231,7 +233,10 @@ export function DraftCard({ row, body }: { row: Row; body: Card<'draft'> }) {
   );
 }
 
-export function CardRow({ row }: { row: Row }) {
+export function CardRow({ row, output, onSend, suggestions }: { row: Row } & Partial<Pick<OutputCardProps, 'output' | 'onSend' | 'suggestions'>>) {
+  // A finished run uses its persisted output, alongside the existing chat and
+  // customization preview cards. Sending still requires the shared Send sheet.
+  if (output && onSend) return <Suspense fallback={null}><RunOutputCard output={output} onSend={onSend} suggestions={suggestions} /></Suspense>;
   const b = row.body;
   if (b.type !== 'card') return null;
   switch (b.card) {
