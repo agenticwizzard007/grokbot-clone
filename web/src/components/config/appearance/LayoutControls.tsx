@@ -15,8 +15,8 @@ export function LayoutControls({ doc, patch }: { doc: UiConfig; patch: Patch }) 
       {doc.layout.sidebar.order.map((id, i) => {
         const nav = REGISTRY.nav.find(item => item.id === id)!;
         return <Row key={id} title={nav.label} trailing={<div className="appearance-row-actions"><Switch label={`Show ${nav.label}`} on={!doc.layout.sidebar.hidden.includes(id)} disabled={!nav.hideable} onChange={show => void patch(sidebarVisibility(doc, id, show))} /><ButtonGroup>
-          <button type="button" className="cfg-btn cfg-btn--secondary" aria-label={`Move ${nav.label} up`} disabled={i === 0} onClick={() => void patch(moveSidebar(doc, i, -1))}><ArrowUp size={16} aria-hidden /></button>
-          <button type="button" className="cfg-btn cfg-btn--secondary" aria-label={`Move ${nav.label} down`} disabled={i === doc.layout.sidebar.order.length - 1} onClick={() => void patch(moveSidebar(doc, i, 1))}><ArrowDown size={16} aria-hidden /></button>
+          <button type="button" className="cfg-btn cfg-btn--secondary" aria-label={`Move ${nav.label} up`} title={`Move ${nav.label} up`} disabled={i === 0} onClick={() => void patch(moveSidebar(doc, i, -1))}><ArrowUp size={16} aria-hidden /></button>
+          <button type="button" className="cfg-btn cfg-btn--secondary" aria-label={`Move ${nav.label} down`} title={`Move ${nav.label} down`} disabled={i === doc.layout.sidebar.order.length - 1} onClick={() => void patch(moveSidebar(doc, i, 1))}><ArrowDown size={16} aria-hidden /></button>
         </ButtonGroup></div>} />;
       })}
       <Choice label="Width" value={doc.layout.sidebar.width} values={['narrow', 'default', 'wide']} onChange={v => void patch(setValue('/layout/sidebar/width', v))} />

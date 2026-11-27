@@ -18,14 +18,13 @@ export function WidgetFrame({ widget, state, observe, retry, toolbar }: { widget
   const current = state ?? (widget.source ? { status: 'loading' as const } : { status: 'ready' as const });
   const title = widgetLabel(widget), Renderer = renderers[widget.type];
   return <div ref={attach} className="dashboard-widget-cell" data-widget-id={widget.id} data-widget-type={widget.type} data-widget-state={current.status}>
-    {toolbar}
     <Card className={`dashboard-widget dashboard-widget--${widget.type}`} role="region" aria-labelledby={`title-${widget.id}`} aria-busy={current.status === 'loading' || current.refreshing || undefined}>
-      <h2 id={`title-${widget.id}`} tabIndex={-1}>{title}</h2>
+      <header className="dashboard-widget-header"><h2 id={`title-${widget.id}`} tabIndex={-1}>{title}</h2>{toolbar}</header>
       <div className={`dashboard-widget-body${['list', 'table'].includes(widget.type) ? ' dashboard-widget-body--scroll' : ''}`}>
         {current.status === 'loading' ? <div className="dashboard-skeleton" role="status" aria-label={`Loading ${title}`}><i /><i /><i /></div>
-          : <>{current.status === 'error' && <div className="dashboard-widget-error"><p role="status">{current.error ?? 'Data is unavailable.'}</p><button type="button" className="btn" onClick={retry} aria-label={`Retry ${title}`}>Retry</button></div>}
+          : <>{current.status === 'error' && <div className="dashboard-widget-error"><p role="status">{current.error ?? 'Data is unavailable.'}</p><button type="button" className="cfg-btn cfg-btn--secondary" onClick={retry} aria-label={`Retry ${title}`}>Retry</button></div>}
             {(current.status !== 'error' || current.data) && (current.data?.available === false && ['connectors.status', 'email.recent', 'calendar.upcoming', 'crm.deals'].includes(widget.source?.id ?? '')
-              ? <div className="dashboard-empty-data"><p>No connected data yet.</p><a className="btn" href="#settings/apps">Connect</a></div>
+              ? <div className="dashboard-empty-data"><p>No connected data yet.</p><a className="cfg-btn cfg-btn--secondary" href="#settings/apps">Connect</a></div>
               : <Renderer widget={widget} data={current.data} />)}</>}
       </div>
     </Card>

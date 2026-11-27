@@ -18,7 +18,7 @@ export default function DashboardView({ dashboardId, id, slug }: { dashboardId?:
   const reference = dashboardId ?? id ?? slug ?? decodeURIComponent(window.location.hash.replace(/^#dash\//, ''));
   const dashboard = findDashboard(config.dashboards, reference);
   if (status === 'loading' && !dashboard) return <Page type="wide" title="Dashboard"><Section><Card><p role="status">Loading dashboard...</p></Card></Section></Page>;
-  if (!dashboard) return <Page type="wide" title="Dashboard"><Section><Card><p>This dashboard is unavailable.</p><a className="btn" href="#bots">Open Bots</a></Card></Section></Page>;
+  if (!dashboard) return <Page type="wide" title="Dashboard"><Section><Card><p>This dashboard is unavailable.</p><a className="cfg-btn cfg-btn--secondary" href="#bots">Open Bots</a></Card></Section></Page>;
   return <DashboardScreen key={dashboard.id} dashboard={dashboard} index={config.dashboards.findIndex(item => item.id === dashboard.id)} />;
 }
 function DashboardScreen({ dashboard, index }: { dashboard: Dashboard; index: number }) {
@@ -39,12 +39,12 @@ function DashboardScreen({ dashboard, index }: { dashboard: Dashboard; index: nu
   return <Page type="wide" className="dashboard-page" aria-label={dashboard.name}>
     <header className="dashboard-heading"><div><h1>{dashboard.name}</h1>{dashboard.description && <p>{dashboard.description}</p>}</div>
       <ButtonGroup className="dashboard-actions">{editing ? <>
-        <button type="button" className="btn" data-dashboard-add disabled={busy || dashboard.widgets.length >= 24} onClick={() => { setError(''); setAdd(true); }}>Add widget</button>
-        <button type="button" className="btn btn--primary" disabled={busy} onClick={() => setEditing(false)}>Done</button>
-      </> : <><button type="button" className="btn" onClick={() => data.refresh()} disabled={!dashboard.widgets.some(widget => widget.source)}>Refresh</button><button type="button" className="btn" onClick={() => { setError(''); setEditing(true); }}>Edit</button></>}</ButtonGroup>
+        <button type="button" className="cfg-btn cfg-btn--secondary" data-dashboard-add disabled={busy || dashboard.widgets.length >= 24} onClick={() => { setError(''); setAdd(true); }}>Add widget</button>
+        <button type="button" className="cfg-btn cfg-btn--primary" disabled={busy} onClick={() => setEditing(false)}>Done</button>
+      </> : <><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => data.refresh()} disabled={!dashboard.widgets.some(widget => widget.source)}>Refresh</button><button type="button" className="cfg-btn cfg-btn--primary" onClick={() => { setError(''); setEditing(true); }}>Edit</button></>}</ButtonGroup>
     </header>
     {error && !add && !settings && <p className="dashboard-error" role="alert">{error}</p>}
-    {!dashboard.widgets.length ? <Section><Card><p>Your dashboard is empty.</p><ButtonGroup><button className="btn btn--primary" type="button" data-dashboard-add onClick={() => { setEditing(true); setAdd(true); }}>Add widget</button><button className="btn" type="button" disabled={!bots.length} onClick={ask}>Ask your agent</button></ButtonGroup></Card></Section>
+    {!dashboard.widgets.length ? <Section><Card className="dashboard-empty"><p>Your dashboard is empty.</p><ButtonGroup><button className="cfg-btn cfg-btn--primary" type="button" data-dashboard-add onClick={() => { setEditing(true); setAdd(true); }}>Add widget</button><button className="cfg-btn cfg-btn--secondary" type="button" disabled={!bots.length} onClick={ask}>Ask your agent</button></ButtonGroup></Card></Section>
       : <DashboardGrid widgets={dashboard.widgets} states={data.states} observe={data.observe} refresh={data.refresh}
         toolbar={editing ? widget => <DashboardEditor dashboard={dashboard} dashboardIndex={index} widget={widget} busy={busy} patch={patch} settings={widget => { setError(''); setSettings(widget); }} /> : undefined} />}
     {add && <AddWidgetSheet close={() => setAdd(false)} error={error} add={widget => patch([{ op: 'add', path: `/dashboards/${index}/widgets/-`, value: widget }])} />}

@@ -4,7 +4,7 @@ import { useEffectiveConfig, useUiConfig, useUiPatch } from '../../customization
 import { openConversation } from '../../configStore';
 import { useStore } from '../../store';
 import { prefillComposer } from '../Composer';
-import { Card, Row, Section } from '../layout';
+import { ButtonGroup, Card, Row, Section } from '../layout';
 import { Switch } from './ui';
 import { UiPreviewCard } from '../cards/UiPreviewCard';
 import { AppearanceSection } from './appearance/Controls';
@@ -54,7 +54,7 @@ export function AppearanceSettings() {
   const ask = () => { const bot = bots.find(b => b.isPrimary) ?? bots[0]; if (bot) { prefillComposer(bot.id, 'Suggest a dashboard for my role and goals: '); openConversation(bot.id); } };
   if (status === 'disabled') return <p role="status">Layout settings are unavailable.</p>;
   return <div className="appearance-settings">
-    <Section aria-label="Customize"><Row title="Or change it here." trailing={<button type="button" className="cfg-btn cfg-btn--primary" disabled={!bots.length} onClick={ask}>Ask your agent</button>} /></Section>
+    <Section aria-label="Customize"><ButtonGroup><button type="button" className="cfg-btn cfg-btn--primary" disabled={!bots.length} onClick={ask}>Ask your agent</button></ButtonGroup></Section>
     {suggestionsEnabled && <Section><Row title={<a href="#settings/appearance/use">About you</a>} subtitle="Role, goals and workflows" /></Section>}
     {previewCard && <UiPreviewCard key={previewCard.previewId} body={previewCard} />}
     {errors.length > 0 && <Card role="alert" className="appearance-errors">{errors.map((error, i) => <p key={i}>{error.message}{error.hint ? ` ${error.hint}` : ''}{error.suggested ? ` Try ${error.suggested}.` : ''}</p>)}</Card>}
