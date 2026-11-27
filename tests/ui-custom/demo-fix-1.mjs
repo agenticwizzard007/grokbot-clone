@@ -22,6 +22,8 @@ try {
     await context.addCookies([{ name: 'swarm_session', value: 'layout-test-token', url: app.base }]);
     await context.addInitScript(theme => { if (location.origin === 'null') return; localStorage.setItem('swarm.theme', theme); localStorage.setItem('swarm.sidebarCollapsed', '0'); }, theme);
     const page = await context.newPage(), errors = [];
+    const network = await context.newCDPSession(page);
+    await network.send('Network.setCacheDisabled', { cacheDisabled: false });
     page.setDefaultTimeout(15000);
     page.on('pageerror', error => errors.push(error.message));
     page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
@@ -36,13 +38,14 @@ try {
       input.bot.id = app.fixture.bot.id;
       const model = state === 'null' ? null : state === 'missing-lanes' ? {} : buildFlowModel(input);
       await page.unroute('**/api/bots/*/flow');
-      await page.route('**/api/bots/*/flow', route => route.fulfill({ json: model, headers: { 'X-Flow-Has-Runs': state === 'rich' ? '1' : '0' } }));
+      await page.route('**/api/bots/*/flow', route => route.fulfill({ json: model, headers: { 'Cache-Control': 'no-store', 'X-Flow-Has-Runs': state === 'rich' ? '1' : '0' } }));
       const hash = `#bot/${app.fixture.bot.id}/details/flow`;
       await page.goto('about:blank');
       await page.goto(`${app.base}/${hash}`);
       if (model?.lanes) {
         await page.locator('.flow-chart').waitFor();
         assert.equal(await page.locator('.flow-lane').count(), 5);
+        assert.equal(await page.locator('[data-flow-node]').count(), model.lanes.reduce((count, lane) => count + lane.nodes.length, 0));
         assert.deepEqual(await page.evaluate(inspectAlignment), []);
         await readableWords(page.locator('.flow-lanes'));
       } else await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
