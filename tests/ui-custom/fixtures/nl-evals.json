@@ -292,18 +292,12 @@
         }
       ],
       "predicate": {
-        "kind": "ops",
-        "includes": [
-          {
-            "op": "add",
-            "path": "/theme/colors/light/primary",
-            "value": "#0F766E"
-          },
-          {
-            "op": "add",
-            "path": "/theme/colors/dark/primary",
-            "value": "#2DD4BF"
-          }
+        "kind": "accent_hue",
+        "degrees": 175,
+        "tolerance": 20,
+        "modes": [
+          "light",
+          "dark"
         ]
       }
     },
@@ -909,7 +903,7 @@
       "id": "ui-dashboards-001",
       "category": "dashboards",
       "prompt": "Create a dashboard named Task count with a stat widget.",
-      "expectedTool": "create_dashboard",
+      "expectedTool": "preview_ui_patch",
       "referencePatch": [
         {
           "op": "add",
@@ -974,7 +968,7 @@
       "id": "ui-dashboards-002",
       "category": "dashboards",
       "prompt": "Create a dashboard named Open tasks with a list widget.",
-      "expectedTool": "create_dashboard",
+      "expectedTool": "preview_ui_patch",
       "referencePatch": [
         {
           "op": "add",
@@ -1037,7 +1031,7 @@
       "id": "ui-dashboards-003",
       "category": "dashboards",
       "prompt": "Create a dashboard named Task table with a table widget.",
-      "expectedTool": "create_dashboard",
+      "expectedTool": "preview_ui_patch",
       "referencePatch": [
         {
           "op": "add",
@@ -1108,7 +1102,7 @@
       "id": "ui-dashboards-004",
       "category": "dashboards",
       "prompt": "Create a dashboard named Cost history with a chart widget.",
-      "expectedTool": "create_dashboard",
+      "expectedTool": "preview_ui_patch",
       "referencePatch": [
         {
           "op": "add",
@@ -1177,7 +1171,7 @@
       "id": "ui-dashboards-005",
       "category": "dashboards",
       "prompt": "Create a dashboard named Usage meter with a meter widget.",
-      "expectedTool": "create_dashboard",
+      "expectedTool": "preview_ui_patch",
       "referencePatch": [
         {
           "op": "add",
@@ -1240,7 +1234,7 @@
       "id": "ui-dashboards-006",
       "category": "dashboards",
       "prompt": "Create a dashboard named Bot status with a botStatus widget.",
-      "expectedTool": "create_dashboard",
+      "expectedTool": "preview_ui_patch",
       "referencePatch": [
         {
           "op": "add",
@@ -1303,7 +1297,7 @@
       "id": "ui-dashboards-007",
       "category": "dashboards",
       "prompt": "Create a dashboard named Task board with a taskBoard widget.",
-      "expectedTool": "create_dashboard",
+      "expectedTool": "preview_ui_patch",
       "referencePatch": [
         {
           "op": "add",
@@ -1362,7 +1356,7 @@
       "id": "ui-dashboards-008",
       "category": "dashboards",
       "prompt": "Create a dashboard named Routine schedule with a routineSchedule widget.",
-      "expectedTool": "create_dashboard",
+      "expectedTool": "preview_ui_patch",
       "referencePatch": [
         {
           "op": "add",
@@ -1425,7 +1419,7 @@
       "id": "ui-dashboards-009",
       "category": "dashboards",
       "prompt": "Create a dashboard named My notes with a note widget.",
-      "expectedTool": "create_dashboard",
+      "expectedTool": "preview_ui_patch",
       "referencePatch": [
         {
           "op": "add",
@@ -1480,7 +1474,7 @@
       "id": "ui-dashboards-010",
       "category": "dashboards",
       "prompt": "Create a dashboard named Quick links with a shortcuts widget.",
-      "expectedTool": "create_dashboard",
+      "expectedTool": "preview_ui_patch",
       "referencePatch": [
         {
           "op": "add",
@@ -1676,7 +1670,7 @@
       "id": "ui-dashboards-014",
       "category": "dashboards",
       "prompt": "Create a dashboard named Attention showing how many items need me.",
-      "expectedTool": "create_dashboard",
+      "expectedTool": "preview_ui_patch",
       "referencePatch": [
         {
           "op": "add",

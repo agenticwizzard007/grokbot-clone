@@ -8,6 +8,18 @@ export const COUNTS = { theme: 12, readability: 8, layout: 10, visibility: 6, da
 const equal = (a, b) => { try { assert.deepEqual(a, b); return true; } catch { return false; } };
 export function matchesPredicate(entry, answer) {
   if (entry.predicate.kind === 'no_tools') return answer.tool === null && answer.patch.length === 0;
+  if (entry.predicate.kind === 'accent_hue') {
+    return answer.tool === entry.expectedTool && entry.predicate.modes.every(mode => {
+      const color = answer.patch.findLast(op => op.path === `/theme/colors/${mode}/primary` && ['add', 'replace'].includes(op.op))?.value;
+      if (typeof color !== 'string' || !/^#[\da-f]{6}$/i.test(color)) return false;
+      const [r, g, b] = color.slice(1).match(/../g).map(hex => parseInt(hex, 16) / 255);
+      const max = Math.max(r, g, b), min = Math.min(r, g, b), delta = max - min;
+      if (delta < .05) return false;
+      const hue = (60 * (max === r ? (g - b) / delta : max === g ? (b - r) / delta + 2 : (r - g) / delta + 4) + 360) % 360;
+      const distance = Math.abs(hue - entry.predicate.degrees);
+      return Math.min(distance, 360 - distance) <= entry.predicate.tolerance;
+    });
+  }
   return answer.tool === entry.expectedTool && entry.predicate.includes.every(op => answer.patch.some(candidate => equal(candidate, op)));
 }
 export function validateFixtures(data) {
@@ -18,11 +30,11 @@ export function validateFixtures(data) {
   for (const entry of data.cases) {
     assert.ok(entry.id && entry.prompt && Object.hasOwn(COUNTS, entry.category));
     assert.ok(Array.isArray(entry.referencePatch));
-    assert.ok(['ops', 'no_tools'].includes(entry.predicate.kind));
+    assert.ok(['ops', 'no_tools', 'accent_hue'].includes(entry.predicate.kind));
     if (entry.predicate.kind === 'ops') assert.ok(entry.predicate.includes.length > 0);
     assert.ok(matchesPredicate(entry, { tool: entry.expectedTool, patch: entry.referencePatch }), `${entry.id}: reference predicate`);
     assert.equal(matchesPredicate(entry, { tool: 'invalid_tool', patch: entry.referencePatch }), false, `${entry.id}: tool negative control`);
-    if (entry.predicate.kind === 'ops') assert.equal(matchesPredicate(entry, { tool: entry.expectedTool, patch: [] }), false, `${entry.id}: patch negative control`);
+    if (entry.predicate.kind !== 'no_tools') assert.equal(matchesPredicate(entry, { tool: entry.expectedTool, patch: [] }), false, `${entry.id}: patch negative control`);
     else assert.equal(matchesPredicate(entry, { tool: null, patch: [{ op: 'replace', path: '/theme/mode', value: 'dark' }] }), false, `${entry.id}: injection negative control`);
   }
   return data.cases;
