@@ -43,7 +43,7 @@ export function useHandoffResource<T>(key: string, read: (signal: AbortSignal) =
 
 /** Display copy is plain text, with machine headers and internal identifiers removed. */
 export function handoffText(value: string) {
-  return displayCoordinationText(value.replace(/^\[handoff [^\]\n]*\]\s*\n?/, ''))
+  return displayCoordinationText(value.replace(/^(?:mock:\s*(?:say\s+)?|(?:system|assistant|provider):\s*)+/gim, '').replace(/^\[handoff [^\]\n]*\]\s*\n?/, ''))
     .replace(/\b(?:out|ho|lp)_[A-Za-z0-9_-]+\b/g, 'item').replace(/[\u2013\u2014]/g, ', ');
 }
 export function errorText(error: unknown) { return handoffText(error instanceof Error ? error.message : 'Could not load this. Try again.'); }

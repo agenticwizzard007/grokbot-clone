@@ -22,7 +22,7 @@ export async function integrationServer(evidence) {
     PHONE_QA_FIXTURE_FILE: fixtureFile, PORT: String(apiPort), APP_URL: base, SERVER_URL: base,
     DIRECT_API_KEY: 'placeholder', DIRECT_BASE_URL: `http://127.0.0.1:${mockPort}/v1`, LLM_PROVIDER: 'direct' };
   const preload = path.join(temp, 'offline.mjs');
-  fs.writeFileSync(preload, `const local = fetch; globalThis.fetch = (input, init) => { const url = new URL(input instanceof Request ? input.url : input); if (['127.0.0.1','localhost'].includes(url.hostname)) return local(input, init); return Promise.resolve(Response.json({data:[],items:[]})); };`);
+  fs.writeFileSync(preload, `const local = fetch; globalThis.fetch = (input, init) => { const url = new URL(input instanceof Request ? input.url : input); if (['127.0.0.1','localhost'].includes(url.hostname)) { if (url.port === '${mockPort}' && url.pathname.endsWith('/responses') && typeof init?.body === 'string') { const body = JSON.parse(init.body); const user = body.input?.findLast(item => item.role === 'user'); if (user) { const slow = JSON.stringify(user.content).includes('Review the next release draft'); user.content = (slow ? 'mock-delay:3000 ' : '') + 'mock: say The release note includes the version, benefits and next step. Ready to publish.'; init = {...init, body:JSON.stringify(body)}; } } return local(input, init); } return Promise.resolve(Response.json({data:[],items:[]})); };`);
   const children = [], logs = [];
   function start(args, cwd = root, extra = {}) { const child = spawn(process.execPath, args, { cwd, env: { ...env, ...extra }, stdio: ['ignore', 'pipe', 'pipe'] }); children.push(child); for (const stream of [child.stdout, child.stderr]) stream.on('data', data => logs.push(String(data))); return child; }
   async function ready(url, child) { for (let i = 0; i < 300; i++) { assert.equal(child.exitCode, null, logs.join('')); if (await fetch(url).then(r => r.ok).catch(() => false)) return; await new Promise(resolve => setTimeout(resolve, 100)); } throw new Error(logs.join('')); }
@@ -46,18 +46,18 @@ const { appendRow } = await import(root + '/server/src/store.ts');
 const { saveMcpServer } = await import(root + '/server/src/mcp/store.ts');
 const fixture = JSON.parse(fs.readFileSync(process.env.PHONE_QA_FIXTURE_FILE!, 'utf8'));
 const userId = fixture.userId, maker = fixture.bot.id;
-db.prepare("INSERT INTO skills(id,bot_id,name,body,created_at) VALUES('skill_integration',?,'Fixture verification','Verify placeholder sources.',?)").run(maker, Date.now());
-const mcp = saveMcpServer(userId, {name:'Fixture library',transport:'http',url:'https://example.test/mcp',botIds:[maker],enabled:false});
+db.prepare("INSERT INTO skills(id,bot_id,name,body,created_at) VALUES('skill_integration',?,'Source verification','Verify release sources.',?)").run(maker, Date.now());
+const mcp = saveMcpServer(userId, {name:'Reference library',transport:'http',url:'https://example.test/mcp',botIds:[maker],enabled:false});
 const checker = (db.prepare("SELECT id FROM bots WHERE user_id=? AND id<>? AND kind='agent'").get(userId, maker) as any).id;
 db.prepare("UPDATE bot_setups SET onboarding_status='active'").run();
 db.prepare("UPDATE bots SET instructions='1. Review the brief.\\n2. Draft the report.' WHERE kind='agent'").run();
-db.prepare("INSERT INTO routines(id,bot_id,name,prompt,schedule,timezone,enabled,created_at) VALUES('routine_integration',?,'Review fixture sources','Review placeholder sources','0 9 * * 1','UTC',1,?)").run(maker, Date.now());
-db.prepare("INSERT INTO tasks(id,bot_id,title,state,note,created_at,updated_at) VALUES('task_integration',?,'Placeholder release draft','done','Version 1.0 is ready for review.',?,?)").run(maker, Date.now(), Date.now());
-appendRow(maker, 'message', { type: 'message', role: 'assistant', text: 'The placeholder release draft is ready for review.' });
-appendRow(fixture.room, 'message', { type: 'message', role: 'assistant', text: 'Placeholder group draft ready for review.', from: {kind:'bot',id:maker,name:'Coordinator'} });
+db.prepare("INSERT INTO routines(id,bot_id,name,prompt,schedule,timezone,enabled,created_at) VALUES('routine_integration',?,'Review release sources','Review release sources','0 9 * * 1','UTC',1,?)").run(maker, Date.now());
+db.prepare("INSERT INTO tasks(id,bot_id,title,state,note,created_at,updated_at) VALUES('task_integration',?,'Release note draft','done','Version 1.0 is ready for review.',?,?)").run(maker, Date.now(), Date.now());
+appendRow(maker, 'message', { type: 'message', role: 'assistant', text: 'The release note draft is ready for review.' });
+appendRow(fixture.room, 'message', { type: 'message', role: 'assistant', text: 'Release draft ready for review.', from: {kind:'bot',id:maker,name:'Coordinator'} });
 links.replaceLinks(userId,maker,[{toBotId:checker,mode:'suggest',trigger:'any_run',template:'Review {title}.',autoApproveLoops:false}]);
 requests.configureCoordinationRuntime({ enqueue: (botId: string, trigger: any) => jobs.acceptJob(botId, trigger).id, interrupt() {} });
-const spec = { name: 'Placeholder release review', goal: 'Review the version, length and call to action.', kind: 'maker_checker', steps: [{id:'maker',botId:maker,role:'maker',instruction:'Draft placeholder release notes.'},{id:'checker',botId:checker,role:'checker',instruction:'Check the placeholder draft.'}],seed:{text:'Placeholder release brief.'},exit:{mode:'verdict'},limits:{maxIterations:3,maxMinutes:30,stepTimeoutMinutes:10},gate:{before:'none',onCap:'stop'} };
+const spec = { name: 'Release note review', goal: 'Review the version, length and call to action.', kind: 'maker_checker', steps: [{id:'maker',botId:maker,role:'maker',instruction:'Draft release notes.'},{id:'checker',botId:checker,role:'checker',instruction:'Check the release draft.'}],seed:{text:'Release brief.'},exit:{mode:'verdict'},limits:{maxIterations:3,maxMinutes:30,stepTimeoutMinutes:10},gate:{before:'none',onCap:'stop'} };
 const loop = loops.createLoop(userId, { spec, idempotencyKey: 'integration-demo', start: true } as any).loop;
 for (let i=0; i<40; i++) {
   await new Promise(resolve => setImmediate(resolve)); reconcile.reconcileHandoffs(userId); runner.driveLoop(userId, loop.id);
@@ -66,16 +66,16 @@ for (let i=0; i<40; i++) {
   if (!job) continue;
   jobs.beginJob(job.id);
   const step = loops.loopSteps(userId, loop.id).find(step => step.jobId === job.id)!;
-  if (step.role === 'checker') loops.submitVerdict({userId,botId:job.bot_id,jobId:job.id,toolCallId:'verdict-'+i}, {pass:current.iteration===3,checklist:[],feedback:'Placeholder review pass '+current.iteration});
-  const text = step.role === 'maker' ? 'Version '+current.iteration+'.0: Placeholder release notes. Try the release.' : 'Placeholder review pass '+current.iteration;
+  if (step.role === 'checker') loops.submitVerdict({userId,botId:job.bot_id,jobId:job.id,toolCallId:'verdict-'+i}, {pass:current.iteration===3,checklist:[],feedback:'Review pass '+current.iteration});
+  const text = step.role === 'maker' ? 'Version '+current.iteration+'.0: Release notes. Try the release.' : 'Review pass '+current.iteration;
   jobs.finishJob(job.id, true); const result = {userId,botId:job.bot_id,jobId:job.id,status:'completed',finalText:text};
   requests.recordCoordinationJobOutcome(result); hooks.onJobFinished(result); requests.onInternalJobFinished(result);
 }
 const finished = loops.getLoop(userId, loop.id); if (finished.status !== 'succeeded') throw new Error('Seed loop did not converge: '+finished.status);
-const chatJob = jobs.acceptJob(maker, {type:'user',text:'Draft a placeholder release.'}); jobs.beginJob(chatJob.id); jobs.finishJob(chatJob.id,true);
-hooks.onJobFinished({userId,botId:maker,jobId:chatJob.id,status:'completed',finalText:'Placeholder release draft ready for review.'});
-appendRow(maker,'message',{type:'message',role:'assistant',jobId:chatJob.id,text:'Placeholder release draft ready for review.'});
-const paused = loops.createLoop(userId, { spec: {...spec,name:'Placeholder follow-up review'}, idempotencyKey:'integration-paused', start:false } as any).loop;
+const chatJob = jobs.acceptJob(maker, {type:'user',text:'Draft a release note.'}); jobs.beginJob(chatJob.id); jobs.finishJob(chatJob.id,true);
+hooks.onJobFinished({userId,botId:maker,jobId:chatJob.id,status:'completed',finalText:'Release note draft ready for review.'});
+appendRow(maker,'message',{type:'message',role:'assistant',jobId:chatJob.id,text:'Release note draft ready for review.'});
+const paused = loops.createLoop(userId, { spec: {...spec,name:'Follow-up review'}, idempotencyKey:'integration-paused', start:false } as any).loop;
 db.prepare("UPDATE loops SET status='paused' WHERE id=?").run(paused.id);
 fs.writeFileSync(process.env.PHONE_QA_FIXTURE_FILE!, JSON.stringify({...fixture,checker,mcpId:mcp.id,loopId:loop.id,pausedLoopId:paused.id,outputId:finished.bestOutputId}));
 runner.stopLoopDeadlines(); reconcile.stopHandoffRecovery(); db.close();
@@ -120,7 +120,7 @@ export async function runIntegrationDemo() {
       await page.locator('.ho-output-card').getByRole('button', { name: 'Send to agent', exact: true }).first().click();
       const sheet = page.getByRole('dialog', { name: 'Send to agent' });
       await sheet.getByRole('button', { name: /Research/ }).click();
-      const instruction = `mock: say The placeholder review at ${width} is ready.`;
+      const instruction = 'Review the release note against the brief.';
       await sheet.getByLabel('Ask', { exact: true }).fill(instruction);
       await sheet.getByRole('button', { name: 'Send', exact: true }).click();
       const receipt = page.locator('.ho-receipt').filter({ hasText: instruction });
@@ -144,7 +144,7 @@ export async function runIntegrationDemo() {
       await page.locator('.sidebar').getByRole('button', { name: 'Account & settings', exact: true }).click();
       await page.getByRole('menuitem', { name: 'Loops', exact: true }).click();
       await page.getByRole('button', { name: 'Done', exact: true }).click();
-      await page.getByText('Placeholder release review', { exact: true }).click();
+      await page.getByText('Release note review', { exact: true }).click();
       await page.getByText('Done in 3 passes: all checks passed.', { exact: true }).waitFor();
       await alignment(); await capture('loop-timeline'); check('Sidebar overflow opens Loops and converged timeline');
       await page.getByRole('button', { name: 'Use this', exact: true }).click();
@@ -157,19 +157,19 @@ export async function runIntegrationDemo() {
       await page.locator('.pb-bot-tabs').getByRole('button', { name: 'Flow', exact: true }).click();
       await page.locator('.flow-chart').waitFor();
       await alignment(); await capture('flow'); check('Chat details to Flow through real app tabs');
-      await page.getByRole('button', { name: /Review fixture sources/ }).click();
+      await page.getByRole('button', { name: /Review release sources/ }).click();
       await page.locator('[data-flow-focus="routine:routine_integration"]').waitFor();
       assert.equal(await page.locator('[data-flow-focus]').evaluate(el => document.activeElement === el), true);
       check('Flow routine destination consumes focus hint');
       await page.goBack(); await page.locator('.flow-chart').waitFor();
-      for (const [label, focus] of [['Skill: Fixture verification', 'skill:skill_integration'], ['Fixture library', `mcp:${server.fixture.mcpId}`]]) {
+      for (const [label, focus] of [['Skill: Source verification', 'skill:skill_integration'], ['Reference library', `mcp:${server.fixture.mcpId}`]]) {
         await page.getByRole('button', { name: new RegExp(label) }).click();
         await page.locator(`[data-flow-focus="${focus}"]`).waitFor();
         assert.equal(await page.locator('[data-flow-focus]').evaluate(el => document.activeElement === el), true);
         check(`Flow ${focus.split(':')[0]} destination consumes focus hint`);
         await page.goBack(); await page.locator('.flow-chart').waitFor();
       }
-      await page.getByRole('button', { name: /Placeholder follow-up review/ }).click();
+      await page.getByRole('button', { name: /Follow-up review/ }).click();
       await page.getByRole('button', { name: 'Resume', exact: true }).waitFor(); check('Flow loop destination works warm');
       for (const [hash, marker] of [
         ['#loops', '.ho-loops'], [`#loop/${server.fixture.loopId}`, '[data-loop-revision]'], [handoffHash, '.ho-heading'],
@@ -189,9 +189,10 @@ export async function runIntegrationDemo() {
       assert.equal(await page.locator('.ho-target').count(), 1);
       await page.keyboard.press('Escape'); check('Room message Send lists the other member');
       await openBot('Coordinator');
-      await page.locator('.ho-output-card').getByRole('button', { name: 'Send to Research', exact: true }).first().click();
-      await page.waitForFunction(() => document.querySelector('.ho-dialog textarea')?.value.includes('Placeholder release draft ready'));
-      await sheet.getByLabel('Ask', { exact: true }).fill('mock-delay:3000 mock: say Placeholder loop draft.');
+      await page.locator('.ho-output-card').getByRole('button', { name: 'Send to agent', exact: true }).first().click();
+      await sheet.getByRole('button', { name: /Research/ }).click();
+      await page.waitForFunction(() => document.querySelector('.ho-dialog textarea')?.value.includes('Release note draft ready'));
+      await sheet.getByLabel('Ask', { exact: true }).fill('Review the next release draft.');
       await sheet.getByLabel('Keep improving', { exact: true }).check();
       await sheet.getByLabel('Stop when', { exact: true }).selectOption('manual');
       await sheet.getByRole('button', { name: 'Start loop', exact: true }).click();
@@ -204,7 +205,7 @@ export async function runIntegrationDemo() {
       await openSidebar();
       await page.locator('.sidebar').getByRole('button', { name: 'Tasks', exact: true }).click();
       await page.locator('.task-filters .is-done').click();
-      await page.locator('.task-card-frame').filter({ hasText: 'Placeholder release draft' }).getByRole('button', { name: 'Send to agent', exact: true }).click();
+      await page.locator('.task-card-frame').filter({ hasText: 'Release note draft' }).getByRole('button', { name: 'Send to agent', exact: true }).click();
       await sheet.waitFor(); await page.keyboard.press('Escape'); check('Done task card opens Send to agent');
       assert.deepEqual(errors, []); await context.close();
     }

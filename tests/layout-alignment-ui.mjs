@@ -204,5 +204,6 @@ async function main() {
   fs.writeFileSync(path.join(evidence, 'report.json'), JSON.stringify(report, null, 2));
   assert.equal(report.filter(r => r.enforce && r.issues.length).length, 0, 'Enforced routes follow the shared layout system');
   console.log(`${report.length} route views audited. Report: ${evidence}/report.json`);
+  await (await import('./handoffs/ho-routes.mjs')).auditHandoffRoutes(inspectAlignment);
 }
 if (import.meta.url === pathToFileURL(process.argv[1]).href) await main();

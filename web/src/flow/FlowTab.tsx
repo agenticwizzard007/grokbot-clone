@@ -12,7 +12,7 @@ export function FlowTab({ botId }: { botId: string }) {
   const refresh = async () => { if (busy) return; setBusy(true); try { const result = await flowApi.refresh(botId); setMessage(result.accepted ? 'Refresh requested.' : 'A refresh was requested recently.'); } catch { setMessage('Refresh is unavailable. Try again later.'); } finally { setBusy(false); } };
   if (disabled) return null;
   return <div className="flow-tab">
-    <Section title="Flow"><div className="flow-toolbar"><p>How this agent works</p><button type="button" onClick={() => void refresh()} disabled={busy}>{busy ? 'Requesting...' : 'Ask agent to refresh'}</button><button type="button" onClick={() => openFlow(botId, 'new')}>Add handoff</button></div></Section>
+    <Section title="Flow"><div className="flow-toolbar"><button type="button" onClick={() => void refresh()} disabled={busy}>{busy ? 'Requesting...' : 'Refresh flow'}</button><button type="button" onClick={() => openFlow(botId, 'new')}>Add handoff</button></div></Section>
     {message && <p role="status">{message}</p>}
     {loading && <Card><Row title="Loading flow..." /></Card>}
     {error && <Card><Row title={error} trailing={<button type="button" onClick={reload}>Retry</button>} /></Card>}

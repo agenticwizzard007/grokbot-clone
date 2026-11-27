@@ -64,7 +64,7 @@ try {
       await page.getByRole('button', { name: 'Pause', exact: true }).waitFor();
       fixture.state.runs.lp_gated = recordedRun('gated'); await view.open('#loop/lp_gated');
       await page.getByRole('button', { name: 'Decline', exact: true }).click(); await page.getByText('Stopped: approval declined.', { exact: true }).waitFor();
-      await view.open('#loop/lp_capped'); await page.getByRole('button', { name: 'Continue 2 more passes', exact: true }).click();
+      await view.open('#loop/lp_capped'); await page.getByText('More options', { exact: true }).click(); await page.getByRole('button', { name: 'Continue 2 more passes', exact: true }).click();
       await page.getByText('4 of 6 passes', { exact: true }).waitFor();
       assert.equal(await page.getByRole('button', { name: 'Continue 2 more passes', exact: true }).count(), 0);
     });

@@ -57,8 +57,10 @@ export function inspectQuality({ selector, finished = false }) {
     const cards = children.filter(x => x.matches('[data-layout="card"]'));
     if (cards.length > 1) { const rects = cards.map(x=>x.getBoundingClientRect()); check('d.shared-edges', rects.every(x=>close(x.width,rects[0].width) && close(x.left,rects[0].left) && close(x.right,rects[0].right)), el); }
     const rows = children.filter(x => x.matches('[data-layout="row"], .ho-loop-timeline > li, .flow-nodes > li'));
-    if (rows.length > 1) { const rects=rows.map(x=>x.getBoundingClientRect()), gaps=rects.slice(1).map((x,i)=>x.top-rects[i].bottom); check('f.spacing', gaps.every(x=>close(x,gaps[0]) && close(x/8,Math.round(x/8))), el, gaps.join(',')); }
+    if (rows.length > 1) { const rects=rows.map(x=>x.getBoundingClientRect()), gaps=rects.slice(1).map((x,i)=>x.top-rects[i].bottom); check('f.spacing', gaps.every(x=>close(x,gaps[0]) && close(x,Math.round(x/8)*8)), el, gaps.join(',')); }
   }
+  check('coverage.surface', roots.length > 0 && all.length > 0, document.documentElement);
+  if (finished) for (const el of document.querySelectorAll('[aria-label="Message actions"]')) check('i.action-label', el.textContent.trim() === 'Actions', el);
   check('e.document', document.documentElement.scrollWidth <= innerWidth + 1, document.documentElement);
   if (finished) check('i.finished', !document.querySelector('.first-response, .is-streaming, .pb-room-typing, .first-response__mark, .load-feedback[aria-busy="true"]'), roots[0]);
   return { issues, counts };
@@ -67,7 +69,7 @@ export async function runQuality() {
   const out = path.resolve('.context/ho-p/quality'); fs.mkdirSync(out,{recursive:true});
   const fixture = await polishFixture(), report = [];
   try {
-    for (const width of [320,390,500,1280]) for (const theme of ['light','dark']) for (const name of screens) {
+    for (const width of (process.env.HO_WIDTHS || '320,390,500,1280').split(',').map(Number)) for (const theme of (process.env.HO_THEMES || 'light,dark').split(',')) for (const name of (process.env.HO_SCREENS ? process.env.HO_SCREENS.split(',') : screens)) {
       let state;
       try {
         state = await fixture.open(name,width,theme);
@@ -76,7 +78,7 @@ export async function runQuality() {
         if (result.issues.length) await state.page.screenshot({path:path.join(out,`${name}-${width}-${theme}.png`),fullPage:true});
         console.log(`${result.issues.length ? 'FAIL' : 'PASS'} ${name} ${width} ${theme}: ${result.issues.length} issues`);
       } catch(error) { report.push({name,width,theme,issues:[String(error)],counts:{}}); console.log(`FAIL ${name} ${width} ${theme}: ${error.message.split('\n')[0]}`); }
-      finally { if(state) await state.close(); }
+      finally { if(state) await state.close(); fs.writeFileSync(path.join(out,'report.json'),JSON.stringify(report,null,2)); }
     }
   } finally { await fixture.close(); fs.writeFileSync(path.join(out,'report.json'),JSON.stringify(report,null,2)); }
   const failures = report.filter(x=>x.issues.length);
