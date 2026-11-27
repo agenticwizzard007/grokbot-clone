@@ -296,6 +296,8 @@ export interface Toolkit {
 
 /** Server-sent events on GET /api/events */
 export type ServerEvent = (
+  | { type: 'ui_config'; revision: number }
+  | { type: 'ui_preview'; previewId: string; botId: string; state: 'pending' | 'applied' | 'discarded' | 'expired' }
   | { type: 'native'; cursor: number }
   | { type: 'hello'; serverTime: number }
   | { type: 'rows'; botId: string; generation: number; rows: Row[] }
