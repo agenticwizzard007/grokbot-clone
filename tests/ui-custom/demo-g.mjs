@@ -37,7 +37,7 @@ try {
       for (const helper of await section.locator('.appearance-helper').all()) assert.ok((await helper.innerText()).split(/\s+/).length <= 8);
     }
     assert.doesNotMatch(await screen.innerText(), /[\u2013\u2014]/);
-    assert.equal(await page.getByRole('button', { name: 'Back', exact: true }).count(), 1);
+    assert.equal(await page.locator('.shell-back:visible').count(), 1);
     await shot('appearance'); pass('alignment, copy and one Back', { words });
     const current = await saved(page);
     await screen.getByRole('button', { name: 'Forest', exact: true }).click();
@@ -98,7 +98,7 @@ try {
     await shot('undo'); pass('export, import preview, Apply and Undo');
     await manage.click(); await page.getByRole('menuitem', { name: 'History', exact: true }).click();
     dialog = page.getByRole('dialog', { name: 'Appearance history', exact: true });
-    const restores = dialog.getByRole('button', { name: /^Restore revision/ }); assert.ok(await restores.count() > 0 && await restores.count() <= 50);
+    const restores = dialog.getByRole('button', { name: /^Restore revision/ }); await restores.first().waitFor(); assert.ok(await restores.count() > 0 && await restores.count() <= 50);
     await shot('history'); await restores.last().click(); await dialog.waitFor({ state: 'hidden' }); pass('history and Restore');
     await manage.click(); await page.getByRole('menuitem', { name: 'Reset', exact: true }).click();
     dialog = page.getByRole('dialog', { name: 'Reset appearance', exact: true }); assert.match(await dialog.innerText(), /Clears colors, fonts, spacing, navigation, visibility and shortcuts/);

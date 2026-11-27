@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { REGISTRY, type PatchOp, type UiPreviewCardBody, type Violation } from '@shared/ui-config/index';
+import { accentPair, REGISTRY, type PatchOp, type UiPreviewCardBody, type Violation } from '@shared/ui-config/index';
 import { useEffectiveConfig, useUiConfig, useUiPatch } from '../../customization';
 import { openConversation } from '../../configStore';
 import { useStore } from '../../store';
@@ -17,7 +17,7 @@ import { appearanceRequest, AppearanceError, readPreview, readSaved } from './ap
 import { refreshAppearance, showAppearancePreview } from './appearance/runtime';
 import '../../styles/appearance.css';
 
-const SWATCHES = ['#3043AB', '#0F766E', '#1D4ED8', '#7E22CE', '#BE185D', '#B45309', '#15803D', '#475569'];
+const SWATCHES = ['#3043AB', '#0F766E', '#1D4ED8', '#7E22CE', '#BE185D', '#B45309', '#15803D', '#475569'].map(accentPair);
 export function AppearanceSettings() {
   const doc = useEffectiveConfig();
   const { saved, revision, status } = useUiConfig();
@@ -68,7 +68,7 @@ export function AppearanceSettings() {
       </Section>
       <AppearanceSection title="Color">
         <Row title="Accent" trailing={<span className="cfg-chip" role="status">{colorErrors.length ? 'Low contrast' : 'OK'}</span>} />
-        <div className="appearance-swatches">{SWATCHES.map(color => <button key={color} type="button" className="cfg-btn cfg-btn--secondary" aria-label={`Accent ${color}`} aria-pressed={doc.theme.colors[mode].primary === color} onClick={() => void patch(setAccent(mode, color))}><span style={{ backgroundColor: color }} aria-hidden /></button>)}</div>
+        <div className="appearance-swatches">{SWATCHES.map(pair => pair[mode]).map(color => <button key={color} type="button" className="cfg-btn cfg-btn--secondary" aria-label={`Accent ${color}`} aria-pressed={doc.theme.colors[mode].primary === color} onClick={() => void patch(setAccent(mode, color))}><span style={{ backgroundColor: color }} aria-hidden /></button>)}</div>
         <form onSubmit={e => { e.preventDefault(); void patch(setAccent(mode, hex)); }}><Row className="appearance-control" title={<label htmlFor="appearance-hex">Custom</label>} trailing={<ButtonGroup><input id="appearance-hex" className="text-input" value={hex} spellCheck={false} maxLength={7} onChange={e => setHex(e.target.value)} aria-invalid={colorErrors.length > 0} /><button type="submit" className="cfg-btn cfg-btn--secondary">Save</button></ButtonGroup>} /></form>
       </AppearanceSection>
       <AppearanceSection title="Text">
